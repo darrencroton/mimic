@@ -1,0 +1,35 @@
+# micro-Uchuu Simulation Metadata — snapshot-ordered HDF5 format
+#
+# `snapshots/` is a symlink to your local copy of the converted dataset
+# directory: 50 `snapshot_NNN.h5` files plus the `forests.h5` sidecar, produced
+# by scripts/convert/ per docs/dev/SNAPSHOT-HDF5-FORMAT.md. See README.md for
+# the conversion commands and the symlink instruction.
+#
+# `tree_name` is the snapshot filename convention, not a general pattern: the
+# format fixes it at `snapshot_%03d.h5` and the reader accepts no other value.
+# It is declared because the configuration layer requires `input.tree_name`
+# unconditionally. first_file/last_file are metadata only; the snapshot reader
+# derives its file set from the snapshot list.
+
+input:
+  first_file: 0
+  last_file: 0
+  tree_name: snapshot_%03d.h5
+  tree_type: snapshot_hdf5
+  processing_order: snapshot_ordered
+  simulation_dir: simulations/micro-uchuu-snapshot/snapshots
+  snapshot_list_file: simulations/micro-uchuu-snapshot/micro-uchuu.a_list
+
+simulation:
+  cosmology:
+    omega_matter: 0.3089
+    omega_lambda: 0.6911
+    hubble_h: 0.6774
+  box_size:
+    value: 100.0
+    units: Mpc/h
+    h_convention: carried
+  particle_mass:
+    value: 0.0325
+    units: 1e10 Msun/h
+    h_convention: carried

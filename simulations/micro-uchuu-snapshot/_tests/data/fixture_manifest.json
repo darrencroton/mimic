@@ -1,0 +1,1049 @@
+{
+  "a_list": [
+    0.25,
+    0.4,
+    0.5,
+    0.65,
+    0.8,
+    1.0
+  ],
+  "a_list_file": "micro-uchuu-fixture.a_list",
+  "chunk_shape_1d": [
+    8
+  ],
+  "chunk_shape_vec3": [
+    8,
+    3
+  ],
+  "files": {
+    "forests.h5": {
+      "datasets": {
+        "ForestID": {
+          "dtype": "int64",
+          "md5": "c1cf7af25f23d71590950529ea232462",
+          "shape": [
+            3
+          ]
+        }
+      }
+    },
+    "snapshot_000.h5": {
+      "datasets": {
+        "Descendant": {
+          "dtype": "int32",
+          "md5": "d41d8cd98f00b204e9800998ecf8427e",
+          "shape": [
+            0
+          ]
+        },
+        "FirstHaloInFOFgroup": {
+          "dtype": "int32",
+          "md5": "d41d8cd98f00b204e9800998ecf8427e",
+          "shape": [
+            0
+          ]
+        },
+        "FirstProgenitor": {
+          "dtype": "int32",
+          "md5": "d41d8cd98f00b204e9800998ecf8427e",
+          "shape": [
+            0
+          ]
+        },
+        "ForestIndex": {
+          "dtype": "int64",
+          "md5": "d41d8cd98f00b204e9800998ecf8427e",
+          "shape": [
+            0
+          ]
+        },
+        "HaloRankInForest": {
+          "dtype": "int64",
+          "md5": "d41d8cd98f00b204e9800998ecf8427e",
+          "shape": [
+            0
+          ]
+        },
+        "Len": {
+          "dtype": "int32",
+          "md5": "d41d8cd98f00b204e9800998ecf8427e",
+          "shape": [
+            0
+          ]
+        },
+        "M_Crit200": {
+          "dtype": "float32",
+          "md5": "d41d8cd98f00b204e9800998ecf8427e",
+          "shape": [
+            0
+          ]
+        },
+        "MostBoundID": {
+          "dtype": "int64",
+          "md5": "d41d8cd98f00b204e9800998ecf8427e",
+          "shape": [
+            0
+          ]
+        },
+        "NextHaloInFOFgroup": {
+          "dtype": "int32",
+          "md5": "d41d8cd98f00b204e9800998ecf8427e",
+          "shape": [
+            0
+          ]
+        },
+        "NextProgenitor": {
+          "dtype": "int32",
+          "md5": "d41d8cd98f00b204e9800998ecf8427e",
+          "shape": [
+            0
+          ]
+        },
+        "Pos": {
+          "dtype": "float32",
+          "md5": "d41d8cd98f00b204e9800998ecf8427e",
+          "shape": [
+            0,
+            3
+          ]
+        },
+        "SnapNum": {
+          "dtype": "int32",
+          "md5": "d41d8cd98f00b204e9800998ecf8427e",
+          "shape": [
+            0
+          ]
+        },
+        "Spin": {
+          "dtype": "float32",
+          "md5": "d41d8cd98f00b204e9800998ecf8427e",
+          "shape": [
+            0,
+            3
+          ]
+        },
+        "Vel": {
+          "dtype": "float32",
+          "md5": "d41d8cd98f00b204e9800998ecf8427e",
+          "shape": [
+            0,
+            3
+          ]
+        },
+        "VelDisp": {
+          "dtype": "float32",
+          "md5": "d41d8cd98f00b204e9800998ecf8427e",
+          "shape": [
+            0
+          ]
+        },
+        "Vmax": {
+          "dtype": "float32",
+          "md5": "d41d8cd98f00b204e9800998ecf8427e",
+          "shape": [
+            0
+          ]
+        }
+      },
+      "header_attributes": {
+        "box_size_mpc_h": {
+          "dtype": "float64",
+          "value": 100.0
+        },
+        "format_version": {
+          "dtype": "int32",
+          "value": 1
+        },
+        "hubble_h": {
+          "dtype": "float64",
+          "value": 0.6774
+        },
+        "links_adjacent": {
+          "dtype": "int32",
+          "value": 1
+        },
+        "max_halo_rank_in_forest": {
+          "dtype": "int64",
+          "value": 6
+        },
+        "n_forests_total": {
+          "dtype": "int64",
+          "value": 3
+        },
+        "n_halos": {
+          "dtype": "int64",
+          "value": 0
+        },
+        "omega_lambda": {
+          "dtype": "float64",
+          "value": 0.6911
+        },
+        "omega_matter": {
+          "dtype": "float64",
+          "value": 0.3089
+        },
+        "particle_mass_msun_h": {
+          "dtype": "float64",
+          "value": 325000000.0
+        },
+        "scale_factor": {
+          "dtype": "float64",
+          "value": 0.25
+        },
+        "snapshot_number": {
+          "dtype": "int32",
+          "value": 0
+        }
+      }
+    },
+    "snapshot_001.h5": {
+      "datasets": {
+        "Descendant": {
+          "dtype": "int32",
+          "md5": "f1d3ff8443297732862df21dc4e57262",
+          "shape": [
+            1
+          ]
+        },
+        "FirstHaloInFOFgroup": {
+          "dtype": "int32",
+          "md5": "f1d3ff8443297732862df21dc4e57262",
+          "shape": [
+            1
+          ]
+        },
+        "FirstProgenitor": {
+          "dtype": "int32",
+          "md5": "a54f0041a9e15b050f25c463f1db7449",
+          "shape": [
+            1
+          ]
+        },
+        "ForestIndex": {
+          "dtype": "int64",
+          "md5": "69c1753bd5f81501d95132d08af04464",
+          "shape": [
+            1
+          ]
+        },
+        "HaloRankInForest": {
+          "dtype": "int64",
+          "md5": "33cdeccccebe80329f1fdbee7f5874cb",
+          "shape": [
+            1
+          ]
+        },
+        "Len": {
+          "dtype": "int32",
+          "md5": "de3a469078af9b081c0a375ca2fbdbd7",
+          "shape": [
+            1
+          ]
+        },
+        "M_Crit200": {
+          "dtype": "float32",
+          "md5": "45e6d4be772db44311130cbdb62e3ec0",
+          "shape": [
+            1
+          ]
+        },
+        "MostBoundID": {
+          "dtype": "int64",
+          "md5": "6b12b5f66ae410bda586f869f3344cf4",
+          "shape": [
+            1
+          ]
+        },
+        "NextHaloInFOFgroup": {
+          "dtype": "int32",
+          "md5": "a54f0041a9e15b050f25c463f1db7449",
+          "shape": [
+            1
+          ]
+        },
+        "NextProgenitor": {
+          "dtype": "int32",
+          "md5": "a54f0041a9e15b050f25c463f1db7449",
+          "shape": [
+            1
+          ]
+        },
+        "Pos": {
+          "dtype": "float32",
+          "md5": "58acca601672c5b05a71c389e7513379",
+          "shape": [
+            1,
+            3
+          ]
+        },
+        "SnapNum": {
+          "dtype": "int32",
+          "md5": "4352d88a78aa39750bf70cd6f27bcaa5",
+          "shape": [
+            1
+          ]
+        },
+        "Spin": {
+          "dtype": "float32",
+          "md5": "11103b3f988ab833592b1c5f853fe0a5",
+          "shape": [
+            1,
+            3
+          ]
+        },
+        "Vel": {
+          "dtype": "float32",
+          "md5": "5c1b1854a56ef11c99999918e1e39b16",
+          "shape": [
+            1,
+            3
+          ]
+        },
+        "VelDisp": {
+          "dtype": "float32",
+          "md5": "487ff13f68e73322ecf30a3b3c4abab4",
+          "shape": [
+            1
+          ]
+        },
+        "Vmax": {
+          "dtype": "float32",
+          "md5": "f9e0be673a0cff2dc8cd6c73f3d7cbe1",
+          "shape": [
+            1
+          ]
+        }
+      },
+      "header_attributes": {
+        "box_size_mpc_h": {
+          "dtype": "float64",
+          "value": 100.0
+        },
+        "format_version": {
+          "dtype": "int32",
+          "value": 1
+        },
+        "hubble_h": {
+          "dtype": "float64",
+          "value": 0.6774
+        },
+        "links_adjacent": {
+          "dtype": "int32",
+          "value": 1
+        },
+        "max_halo_rank_in_forest": {
+          "dtype": "int64",
+          "value": 6
+        },
+        "n_forests_total": {
+          "dtype": "int64",
+          "value": 3
+        },
+        "n_halos": {
+          "dtype": "int64",
+          "value": 1
+        },
+        "omega_lambda": {
+          "dtype": "float64",
+          "value": 0.6911
+        },
+        "omega_matter": {
+          "dtype": "float64",
+          "value": 0.3089
+        },
+        "particle_mass_msun_h": {
+          "dtype": "float64",
+          "value": 325000000.0
+        },
+        "scale_factor": {
+          "dtype": "float64",
+          "value": 0.4
+        },
+        "snapshot_number": {
+          "dtype": "int32",
+          "value": 1
+        }
+      }
+    },
+    "snapshot_002.h5": {
+      "datasets": {
+        "Descendant": {
+          "dtype": "int32",
+          "md5": "a54f0041a9e15b050f25c463f1db7449",
+          "shape": [
+            1
+          ]
+        },
+        "FirstHaloInFOFgroup": {
+          "dtype": "int32",
+          "md5": "f1d3ff8443297732862df21dc4e57262",
+          "shape": [
+            1
+          ]
+        },
+        "FirstProgenitor": {
+          "dtype": "int32",
+          "md5": "f1d3ff8443297732862df21dc4e57262",
+          "shape": [
+            1
+          ]
+        },
+        "ForestIndex": {
+          "dtype": "int64",
+          "md5": "69c1753bd5f81501d95132d08af04464",
+          "shape": [
+            1
+          ]
+        },
+        "HaloRankInForest": {
+          "dtype": "int64",
+          "md5": "7dea362b3fac8e00956a4952a3d4f474",
+          "shape": [
+            1
+          ]
+        },
+        "Len": {
+          "dtype": "int32",
+          "md5": "e0729a02364ba3654fdecc46ae7e2da0",
+          "shape": [
+            1
+          ]
+        },
+        "M_Crit200": {
+          "dtype": "float32",
+          "md5": "39bc92f240a0a5944420b5d48afbd416",
+          "shape": [
+            1
+          ]
+        },
+        "MostBoundID": {
+          "dtype": "int64",
+          "md5": "d9daa76283d7acdb1b6bb80402aec7da",
+          "shape": [
+            1
+          ]
+        },
+        "NextHaloInFOFgroup": {
+          "dtype": "int32",
+          "md5": "a54f0041a9e15b050f25c463f1db7449",
+          "shape": [
+            1
+          ]
+        },
+        "NextProgenitor": {
+          "dtype": "int32",
+          "md5": "a54f0041a9e15b050f25c463f1db7449",
+          "shape": [
+            1
+          ]
+        },
+        "Pos": {
+          "dtype": "float32",
+          "md5": "3bd6a11fde14658617f2922e868bb20e",
+          "shape": [
+            1,
+            3
+          ]
+        },
+        "SnapNum": {
+          "dtype": "int32",
+          "md5": "f2dd0dedb2c260419ece4a9e03b2e828",
+          "shape": [
+            1
+          ]
+        },
+        "Spin": {
+          "dtype": "float32",
+          "md5": "770244637673ad5797da3e0e17e64f0e",
+          "shape": [
+            1,
+            3
+          ]
+        },
+        "Vel": {
+          "dtype": "float32",
+          "md5": "d651471c846e38e28b6aaa589dcec886",
+          "shape": [
+            1,
+            3
+          ]
+        },
+        "VelDisp": {
+          "dtype": "float32",
+          "md5": "62a95e5e2c1cdc04e22936426548a4a8",
+          "shape": [
+            1
+          ]
+        },
+        "Vmax": {
+          "dtype": "float32",
+          "md5": "1d1d9fb5b821a7c2da71c076bc70c740",
+          "shape": [
+            1
+          ]
+        }
+      },
+      "header_attributes": {
+        "box_size_mpc_h": {
+          "dtype": "float64",
+          "value": 100.0
+        },
+        "format_version": {
+          "dtype": "int32",
+          "value": 1
+        },
+        "hubble_h": {
+          "dtype": "float64",
+          "value": 0.6774
+        },
+        "links_adjacent": {
+          "dtype": "int32",
+          "value": 1
+        },
+        "max_halo_rank_in_forest": {
+          "dtype": "int64",
+          "value": 6
+        },
+        "n_forests_total": {
+          "dtype": "int64",
+          "value": 3
+        },
+        "n_halos": {
+          "dtype": "int64",
+          "value": 1
+        },
+        "omega_lambda": {
+          "dtype": "float64",
+          "value": 0.6911
+        },
+        "omega_matter": {
+          "dtype": "float64",
+          "value": 0.3089
+        },
+        "particle_mass_msun_h": {
+          "dtype": "float64",
+          "value": 325000000.0
+        },
+        "scale_factor": {
+          "dtype": "float64",
+          "value": 0.5
+        },
+        "snapshot_number": {
+          "dtype": "int32",
+          "value": 2
+        }
+      }
+    },
+    "snapshot_003.h5": {
+      "datasets": {
+        "Descendant": {
+          "dtype": "int32",
+          "md5": "f1d3ff8443297732862df21dc4e57262",
+          "shape": [
+            1
+          ]
+        },
+        "FirstHaloInFOFgroup": {
+          "dtype": "int32",
+          "md5": "f1d3ff8443297732862df21dc4e57262",
+          "shape": [
+            1
+          ]
+        },
+        "FirstProgenitor": {
+          "dtype": "int32",
+          "md5": "a54f0041a9e15b050f25c463f1db7449",
+          "shape": [
+            1
+          ]
+        },
+        "ForestIndex": {
+          "dtype": "int64",
+          "md5": "7dea362b3fac8e00956a4952a3d4f474",
+          "shape": [
+            1
+          ]
+        },
+        "HaloRankInForest": {
+          "dtype": "int64",
+          "md5": "f14a5bc6d08bc46424827f54d2e3f8ed",
+          "shape": [
+            1
+          ]
+        },
+        "Len": {
+          "dtype": "int32",
+          "md5": "0b81e016c27bcff7dd8436216af4264e",
+          "shape": [
+            1
+          ]
+        },
+        "M_Crit200": {
+          "dtype": "float32",
+          "md5": "89bac67f868fed954feac8fd7409f67d",
+          "shape": [
+            1
+          ]
+        },
+        "MostBoundID": {
+          "dtype": "int64",
+          "md5": "39a830ac6f7415eb14532b0882ce32e5",
+          "shape": [
+            1
+          ]
+        },
+        "NextHaloInFOFgroup": {
+          "dtype": "int32",
+          "md5": "a54f0041a9e15b050f25c463f1db7449",
+          "shape": [
+            1
+          ]
+        },
+        "NextProgenitor": {
+          "dtype": "int32",
+          "md5": "a54f0041a9e15b050f25c463f1db7449",
+          "shape": [
+            1
+          ]
+        },
+        "Pos": {
+          "dtype": "float32",
+          "md5": "259e487057263a50ebd734ca42dd196b",
+          "shape": [
+            1,
+            3
+          ]
+        },
+        "SnapNum": {
+          "dtype": "int32",
+          "md5": "edcfae989540fd42e4b8556d5b723bb6",
+          "shape": [
+            1
+          ]
+        },
+        "Spin": {
+          "dtype": "float32",
+          "md5": "189b5c4df24103ecfe1bdb97df6da4a8",
+          "shape": [
+            1,
+            3
+          ]
+        },
+        "Vel": {
+          "dtype": "float32",
+          "md5": "3cab34d18ab0bb0c4a2e0cd236ab9bce",
+          "shape": [
+            1,
+            3
+          ]
+        },
+        "VelDisp": {
+          "dtype": "float32",
+          "md5": "1e6009a35e9ee76d82dc267c96013438",
+          "shape": [
+            1
+          ]
+        },
+        "Vmax": {
+          "dtype": "float32",
+          "md5": "09822c83b3c838c2131b8302a40ae694",
+          "shape": [
+            1
+          ]
+        }
+      },
+      "header_attributes": {
+        "box_size_mpc_h": {
+          "dtype": "float64",
+          "value": 100.0
+        },
+        "format_version": {
+          "dtype": "int32",
+          "value": 1
+        },
+        "hubble_h": {
+          "dtype": "float64",
+          "value": 0.6774
+        },
+        "links_adjacent": {
+          "dtype": "int32",
+          "value": 1
+        },
+        "max_halo_rank_in_forest": {
+          "dtype": "int64",
+          "value": 6
+        },
+        "n_forests_total": {
+          "dtype": "int64",
+          "value": 3
+        },
+        "n_halos": {
+          "dtype": "int64",
+          "value": 1
+        },
+        "omega_lambda": {
+          "dtype": "float64",
+          "value": 0.6911
+        },
+        "omega_matter": {
+          "dtype": "float64",
+          "value": 0.3089
+        },
+        "particle_mass_msun_h": {
+          "dtype": "float64",
+          "value": 325000000.0
+        },
+        "scale_factor": {
+          "dtype": "float64",
+          "value": 0.65
+        },
+        "snapshot_number": {
+          "dtype": "int32",
+          "value": 3
+        }
+      }
+    },
+    "snapshot_004.h5": {
+      "datasets": {
+        "Descendant": {
+          "dtype": "int32",
+          "md5": "a80368d3c3dabab63d63696572bdfa99",
+          "shape": [
+            6
+          ]
+        },
+        "FirstHaloInFOFgroup": {
+          "dtype": "int32",
+          "md5": "2c42d81ceebb99032a7289a206ea3548",
+          "shape": [
+            6
+          ]
+        },
+        "FirstProgenitor": {
+          "dtype": "int32",
+          "md5": "9c38783003941cbc138c087a1137e0e4",
+          "shape": [
+            6
+          ]
+        },
+        "ForestIndex": {
+          "dtype": "int64",
+          "md5": "045cca2bbca1f659a1431e2c15766f65",
+          "shape": [
+            6
+          ]
+        },
+        "HaloRankInForest": {
+          "dtype": "int64",
+          "md5": "467d2c9982e4a3a32134362b2f89417b",
+          "shape": [
+            6
+          ]
+        },
+        "Len": {
+          "dtype": "int32",
+          "md5": "f3886ba3b4ce8f861534586c46a01bad",
+          "shape": [
+            6
+          ]
+        },
+        "M_Crit200": {
+          "dtype": "float32",
+          "md5": "ce673e1a957f85532bac4e441465c029",
+          "shape": [
+            6
+          ]
+        },
+        "MostBoundID": {
+          "dtype": "int64",
+          "md5": "b0613d1c8b5872b07bb0ff31861df12e",
+          "shape": [
+            6
+          ]
+        },
+        "NextHaloInFOFgroup": {
+          "dtype": "int32",
+          "md5": "0322c3b42e006e5af5136323d0962c44",
+          "shape": [
+            6
+          ]
+        },
+        "NextProgenitor": {
+          "dtype": "int32",
+          "md5": "6857154fe89d08fc8d0b4b98785aa196",
+          "shape": [
+            6
+          ]
+        },
+        "Pos": {
+          "dtype": "float32",
+          "md5": "388d24192f85e56ab1aa888682a0dc37",
+          "shape": [
+            6,
+            3
+          ]
+        },
+        "SnapNum": {
+          "dtype": "int32",
+          "md5": "5748c9c9bd55a4e641f66618a430237a",
+          "shape": [
+            6
+          ]
+        },
+        "Spin": {
+          "dtype": "float32",
+          "md5": "9f53967e5d0805905ffcdc9a7a319e7e",
+          "shape": [
+            6,
+            3
+          ]
+        },
+        "Vel": {
+          "dtype": "float32",
+          "md5": "8f5b3cfae43371a24304b33d543417cb",
+          "shape": [
+            6,
+            3
+          ]
+        },
+        "VelDisp": {
+          "dtype": "float32",
+          "md5": "079a9811f367b4d0feff22eb8946d9cc",
+          "shape": [
+            6
+          ]
+        },
+        "Vmax": {
+          "dtype": "float32",
+          "md5": "daea6af545f692283f5fa991b486ffe6",
+          "shape": [
+            6
+          ]
+        }
+      },
+      "header_attributes": {
+        "box_size_mpc_h": {
+          "dtype": "float64",
+          "value": 100.0
+        },
+        "format_version": {
+          "dtype": "int32",
+          "value": 1
+        },
+        "hubble_h": {
+          "dtype": "float64",
+          "value": 0.6774
+        },
+        "links_adjacent": {
+          "dtype": "int32",
+          "value": 1
+        },
+        "max_halo_rank_in_forest": {
+          "dtype": "int64",
+          "value": 6
+        },
+        "n_forests_total": {
+          "dtype": "int64",
+          "value": 3
+        },
+        "n_halos": {
+          "dtype": "int64",
+          "value": 6
+        },
+        "omega_lambda": {
+          "dtype": "float64",
+          "value": 0.6911
+        },
+        "omega_matter": {
+          "dtype": "float64",
+          "value": 0.3089
+        },
+        "particle_mass_msun_h": {
+          "dtype": "float64",
+          "value": 325000000.0
+        },
+        "scale_factor": {
+          "dtype": "float64",
+          "value": 0.8
+        },
+        "snapshot_number": {
+          "dtype": "int32",
+          "value": 4
+        }
+      }
+    },
+    "snapshot_005.h5": {
+      "datasets": {
+        "Descendant": {
+          "dtype": "int32",
+          "md5": "8d79cbc9a4ecdde112fc91ba625b13c2",
+          "shape": [
+            4
+          ]
+        },
+        "FirstHaloInFOFgroup": {
+          "dtype": "int32",
+          "md5": "1f924368348508b398f6215ba4e9f3e6",
+          "shape": [
+            4
+          ]
+        },
+        "FirstProgenitor": {
+          "dtype": "int32",
+          "md5": "4db62b496e9e8bae561153b00961ed24",
+          "shape": [
+            4
+          ]
+        },
+        "ForestIndex": {
+          "dtype": "int64",
+          "md5": "2672955cdb8992eb93f7462767a352f0",
+          "shape": [
+            4
+          ]
+        },
+        "HaloRankInForest": {
+          "dtype": "int64",
+          "md5": "89aa6c6655705a6f1abf070dc05454a7",
+          "shape": [
+            4
+          ]
+        },
+        "Len": {
+          "dtype": "int32",
+          "md5": "c71976efc70f95313daca277d01002ae",
+          "shape": [
+            4
+          ]
+        },
+        "M_Crit200": {
+          "dtype": "float32",
+          "md5": "423c411a857912539c24a413bb43a4fc",
+          "shape": [
+            4
+          ]
+        },
+        "MostBoundID": {
+          "dtype": "int64",
+          "md5": "13262254abe2967ef93e57ca2ed81fdb",
+          "shape": [
+            4
+          ]
+        },
+        "NextHaloInFOFgroup": {
+          "dtype": "int32",
+          "md5": "d195193f809b6da431e1365ca934d49d",
+          "shape": [
+            4
+          ]
+        },
+        "NextProgenitor": {
+          "dtype": "int32",
+          "md5": "8d79cbc9a4ecdde112fc91ba625b13c2",
+          "shape": [
+            4
+          ]
+        },
+        "Pos": {
+          "dtype": "float32",
+          "md5": "0e7b62d4e0c7ff2d2a57a4a8c0d902b5",
+          "shape": [
+            4,
+            3
+          ]
+        },
+        "SnapNum": {
+          "dtype": "int32",
+          "md5": "b77a06035397a94bf700d5f7e0bc10bb",
+          "shape": [
+            4
+          ]
+        },
+        "Spin": {
+          "dtype": "float32",
+          "md5": "8b3e2618068d61566c29249586793c6c",
+          "shape": [
+            4,
+            3
+          ]
+        },
+        "Vel": {
+          "dtype": "float32",
+          "md5": "ee304386f6c4d4502d0d28bb740e97f1",
+          "shape": [
+            4,
+            3
+          ]
+        },
+        "VelDisp": {
+          "dtype": "float32",
+          "md5": "7962f28efdc4dfcfa99214d213460028",
+          "shape": [
+            4
+          ]
+        },
+        "Vmax": {
+          "dtype": "float32",
+          "md5": "664dca36c2d1dba324b0e56d1c0cca0e",
+          "shape": [
+            4
+          ]
+        }
+      },
+      "header_attributes": {
+        "box_size_mpc_h": {
+          "dtype": "float64",
+          "value": 100.0
+        },
+        "format_version": {
+          "dtype": "int32",
+          "value": 1
+        },
+        "hubble_h": {
+          "dtype": "float64",
+          "value": 0.6774
+        },
+        "links_adjacent": {
+          "dtype": "int32",
+          "value": 1
+        },
+        "max_halo_rank_in_forest": {
+          "dtype": "int64",
+          "value": 6
+        },
+        "n_forests_total": {
+          "dtype": "int64",
+          "value": 3
+        },
+        "n_halos": {
+          "dtype": "int64",
+          "value": 4
+        },
+        "omega_lambda": {
+          "dtype": "float64",
+          "value": 0.6911
+        },
+        "omega_matter": {
+          "dtype": "float64",
+          "value": 0.3089
+        },
+        "particle_mass_msun_h": {
+          "dtype": "float64",
+          "value": 325000000.0
+        },
+        "scale_factor": {
+          "dtype": "float64",
+          "value": 1.0
+        },
+        "snapshot_number": {
+          "dtype": "int32",
+          "value": 5
+        }
+      }
+    }
+  },
+  "format_specification": "docs/dev/SNAPSHOT-HDF5-FORMAT.md",
+  "format_version": 1,
+  "generator": "simulations/micro-uchuu-snapshot/_tests/input/create_snapshot_fixture.py",
+  "n_snapshots": 6
+}
