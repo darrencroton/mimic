@@ -7,12 +7,11 @@
  * `snapshot_NNN.h5` file per snapshot under MimicConfig.SimulationDir, each
  * holding exactly the `/header` and `/halos` groups.
  *
- * This file owns the run-level half of the reader. open_run validates the whole
- * dataset and publishes run-scoped metadata plus a per-snapshot halo-count
- * table, snapshot_halo_count serves that table, and close_run releases it. Slab
- * loading is a later phase; its hooks are registered NULL until then, and the
- * dispatchers in snapshot/interface.c report that by name rather than
- * dereferencing NULL.
+ * open_run validates the whole dataset and publishes run-scoped metadata plus a
+ * per-snapshot halo-count table, snapshot_halo_count serves that table, and
+ * close_run releases it. load_slab reads one snapshot into a reader-owned
+ * struct RawHalo array and validates its links; release_slab returns the handle
+ * to its empty state.
  *
  * Validation order per file is structure first, data second: object set, header
  * attribute set and dtypes, header values, dataset set with dtypes and shapes,
@@ -20,8 +19,15 @@
  * header is therefore rejected rather than read. Every failure aborts naming
  * the file and the offending object, attribute or value; nothing is repaired.
  *
- * The data scans (format invariant 5) are fixed-size hyperslab reads
- * accumulating running maxima: no buffer here is proportional to n_halos.
+ * The open-time data scans (format invariant 5) are fixed-size hyperslab reads
+ * accumulating running maxima: no buffer there is proportional to n_halos. The
+ * slab load necessarily allocates per halo, since a slab *is* the snapshot's
+ * halo population.
+ *
+ * Link validation at load checks index ranges only. Chain topology --
+ * cycle-freedom, FoF self-reference, progenitor round-trip closure -- is a
+ * producer obligation the converter's validation battery and the topology gate
+ * already discharge, and is deliberately not re-derived here.
  *
  * The small HDF5 helpers below are local by design rather than lifted out of
  * tree/read_ctrees_hdf5.c, whose byte-identical output is this phase's gate and
@@ -154,6 +160,7 @@ struct snapshot_hdf5_run {
   int is_open;
   int64_t snapshot_count;
   int64_t *halo_counts; /* [snapshot_count] */
+  int64_t loaded_slabs; /* slabs handed out and not yet released */
   struct SnapshotRunInfo info;
 };
 static struct snapshot_hdf5_run SNAP;
@@ -604,6 +611,253 @@ static int64_t snapshot_h5_scan_i64_max(hid_t file, const char *path, const char
 }
 
 /* ---------------------------------------------------------------------------
+ * Slab loading
+ * ------------------------------------------------------------------------- */
+
+/**
+ * @brief   Read one whole validated /halos dataset into buf.
+ *
+ * Extents are carried in hsize_t widened from int64_t; nothing on this path is
+ * narrowed to int. The file dataspace is used whole (H5S_ALL) because
+ * snapshot_h5_validate_halo_datasets() has already proven it is exactly
+ * [n_halos] or [n_halos, ncols].
+ *
+ * The memory type is the native type for the destination field, never the
+ * on-disk type: HDF5 performs the byte-order and width conversion, so a
+ * conforming file written on the other endianness reads correctly.
+ */
+static void snapshot_h5_read_column(hid_t file, const char *path, const char *dataset_name,
+                                    hid_t mem_type, int64_t n_halos, int64_t ncols, void *buf) {
+  char full_name[MAX_STRING_LEN];
+  const int written = snprintf(full_name, sizeof(full_name), "/halos/%s", dataset_name);
+  if (written < 0 || (size_t)written >= sizeof(full_name)) {
+    FATAL_ERROR("%s: dataset name '/halos/%s' is too long", path, dataset_name);
+  }
+
+  hid_t dset = H5Dopen2(file, full_name, H5P_DEFAULT);
+  if (dset < 0) {
+    FATAL_ERROR("%s: could not open dataset '%s'", path, full_name);
+  }
+
+  const hsize_t dims[2] = {(hsize_t)n_halos, (hsize_t)ncols};
+  const int rank = ncols > 1 ? 2 : 1;
+  hid_t memspace = H5Screate_simple(rank, dims, NULL);
+  if (memspace < 0) {
+    FATAL_ERROR("%s: could not create a read buffer dataspace for '%s' (%" PRId64 " halos)", path,
+                full_name, n_halos);
+  }
+  if (H5Dread(dset, mem_type, memspace, H5S_ALL, H5P_DEFAULT, buf) < 0) {
+    FATAL_ERROR("%s: could not read dataset '%s' (%" PRId64 " halos)", path, full_name, n_halos);
+  }
+  if (H5Sclose(memspace) < 0) {
+    FATAL_ERROR("%s: could not close the read buffer dataspace for '%s'", path, full_name);
+  }
+  if (H5Dclose(dset) < 0) {
+    FATAL_ERROR("%s: could not close dataset '%s'", path, full_name);
+  }
+}
+
+/* Native memory type for each READ_AS_* token the property generator emits
+   (scripts/generate_properties.py:_read_type_for_catalog). A token the
+   generator gains without a mapping here is a compile error, not a silent
+   misread. */
+#define SNAPSHOT_H5_MEMTYPE_READ_AS_INT H5T_NATIVE_INT
+#define SNAPSHOT_H5_MEMTYPE_READ_AS_FLOAT H5T_NATIVE_FLOAT
+#define SNAPSHOT_H5_MEMTYPE_READ_AS_LLONG H5T_NATIVE_LLONG
+#define SNAPSHOT_H5_MEMTYPE(read_as) SNAPSHOT_H5_MEMTYPE_##read_as
+
+/* Widest native element the property list can request, and so the per-element
+   stride of the staging buffers below. */
+#define SNAPSHOT_H5_MAX_ELEMENT_SIZE 8
+
+/* Snapshot-flavoured counterparts of the tree reader's macros
+   (src/io/tree/hdf5.c:116-143), used to include the same generated property
+   list. The differences are the dataset path ("/halos/<name>" rather than
+   "tree_NNN/<name>"), the destination array (the slab rather than
+   InputTreeHalos), int64_t counts, and that values are copied out of the
+   staging buffer with memcpy rather than through a cast of the buffer pointer
+   to the field's type -- the tree reader's cast puns a double * as an int * or
+   float *, which is an aliasing violation cppcheck flags. */
+#define READ_TREE_PROPERTY(field_name, hdf5_name, type_int, data_type)                             \
+  {                                                                                                \
+    snapshot_h5_read_column(file, path, hdf5_name, SNAPSHOT_H5_MEMTYPE(type_int), n_halos, 1,      \
+                            buffer);                                                               \
+    for (int64_t halo_idx = 0; halo_idx < n_halos; ++halo_idx) {                                   \
+      memcpy(&halos[halo_idx].field_name, buffer + halo_idx * sizeof(data_type),                   \
+             sizeof(data_type));                                                                   \
+    }                                                                                              \
+  }
+
+#define READ_TREE_PROPERTY_MULTIPLEDIM(field_name, hdf5_name, type_int, data_type)                 \
+  {                                                                                                \
+    snapshot_h5_read_column(file, path, hdf5_name, SNAPSHOT_H5_MEMTYPE(type_int), n_halos, NDIM,   \
+                            buffer_multipledim);                                                   \
+    for (int64_t halo_idx = 0; halo_idx < n_halos; ++halo_idx) {                                   \
+      for (int64_t dim = 0; dim < NDIM; ++dim) {                                                   \
+        memcpy(&halos[halo_idx].field_name[dim],                                                   \
+               buffer_multipledim + (halo_idx * NDIM + dim) * sizeof(data_type),                   \
+               sizeof(data_type));                                                                 \
+      }                                                                                            \
+    }                                                                                              \
+  }
+
+/**
+ * @brief   Fill a slab array from one snapshot file's /halos datasets.
+ *
+ * Every field of struct RawHalo is populated from the generated property list,
+ * so a package that gains or renames a catalog field is followed automatically
+ * with no edit here.
+ */
+static void snapshot_h5_fill_halos(hid_t file, const char *path, int64_t n_halos,
+                                   struct RawHalo *halos) {
+  /* One scalar and one vector staging buffer, each strided for the widest native
+     type the property list can request. HDF5 packs the elements it reads at the
+     front of the buffer, so the macros above address them at the field's own
+     stride and copy them out by value. */
+  char *buffer = mymalloc_cat(SNAPSHOT_H5_MAX_ELEMENT_SIZE * (size_t)n_halos, MEM_TREES);
+  char *buffer_multipledim =
+      mymalloc_cat(SNAPSHOT_H5_MAX_ELEMENT_SIZE * (size_t)n_halos * NDIM, MEM_TREES);
+
+#include "../../include/generated/read_tree_hdf5_properties.inc"
+
+  myfree(buffer_multipledim);
+  myfree(buffer);
+}
+
+#undef READ_TREE_PROPERTY
+#undef READ_TREE_PROPERTY_MULTIPLEDIM
+
+/* ---------------------------------------------------------------------------
+ * Link validation
+ *
+ * Index ranges only (design decision 9). Each link field points either within
+ * the loaded snapshot or into an immediately adjacent one, which is what
+ * `links_adjacent = 1` promises.
+ * ------------------------------------------------------------------------- */
+
+/** Which snapshot's halo count bounds a link field. */
+enum snapshot_h5_link_domain {
+  SNAPSHOT_H5_LINK_PREV = 0, /* snapshot N-1: progenitors */
+  SNAPSHOT_H5_LINK_THIS,     /* snapshot N: siblings and FoF membership */
+  SNAPSHOT_H5_LINK_NEXT,     /* snapshot N+1: descendants */
+};
+
+struct snapshot_h5_link_spec {
+  const char *name;
+  size_t offset; /* int field within struct RawHalo */
+  int allow_null_link;
+  enum snapshot_h5_link_domain domain;
+};
+
+#define SNAPSHOT_H5_LINK(field, allow_null, domain)                                                \
+  {#field, offsetof(struct RawHalo, field), allow_null, domain}
+
+static const struct snapshot_h5_link_spec SNAPSHOT_H5_LINKS[] = {
+    SNAPSHOT_H5_LINK(FirstProgenitor, 1, SNAPSHOT_H5_LINK_PREV),
+    SNAPSHOT_H5_LINK(NextProgenitor, 1, SNAPSHOT_H5_LINK_THIS),
+    /* Never -1: every halo belongs to a FoF group, at minimum its own. */
+    SNAPSHOT_H5_LINK(FirstHaloInFOFgroup, 0, SNAPSHOT_H5_LINK_THIS),
+    SNAPSHOT_H5_LINK(NextHaloInFOFgroup, 1, SNAPSHOT_H5_LINK_THIS),
+    SNAPSHOT_H5_LINK(Descendant, 1, SNAPSHOT_H5_LINK_NEXT),
+};
+#define SNAPSHOT_H5_LINK_COUNT (sizeof(SNAPSHOT_H5_LINKS) / sizeof(SNAPSHOT_H5_LINKS[0]))
+
+/**
+ * @brief   Halo count bounding one link field, and the snapshot it comes from.
+ *
+ * Snapshot 0 has no snapshot -1 and the final snapshot has no successor; both
+ * are treated as holding zero halos, which is what makes a non-null
+ * FirstProgenitor in snapshot 0, and a non-null Descendant in the final
+ * snapshot, out of range rather than a special case.
+ */
+static int64_t snapshot_h5_link_limit(enum snapshot_h5_link_domain domain, int64_t snapnum,
+                                      int64_t *bounding_snap) {
+  switch (domain) {
+  case SNAPSHOT_H5_LINK_PREV:
+    *bounding_snap = snapnum - 1;
+    return snapnum > 0 ? SNAP.halo_counts[snapnum - 1] : 0;
+  case SNAPSHOT_H5_LINK_THIS:
+    *bounding_snap = snapnum;
+    return SNAP.halo_counts[snapnum];
+  case SNAPSHOT_H5_LINK_NEXT:
+    *bounding_snap = snapnum + 1;
+    return snapnum + 1 < SNAP.snapshot_count ? SNAP.halo_counts[snapnum + 1] : 0;
+  }
+  *bounding_snap = snapnum;
+  return 0;
+}
+
+/**
+ * @brief   Validate every link field of a loaded slab, aborting on any offence.
+ *
+ * Diagnostics are bounded: each field contributes at most one counted summary
+ * line carrying the offence count and the first offending halo index and value,
+ * whatever the number of bad halos. A systematically broken snapshot therefore
+ * costs five lines, not n_halos lines.
+ */
+static void snapshot_h5_validate_links(const char *path, int64_t snapnum, int64_t n_halos,
+                                       const struct RawHalo *halos) {
+  int violated_fields = 0;
+  const char *first_field = NULL;
+  char first_range[64] = "";
+  int64_t first_bad_index = 0;
+  int64_t first_bad_value = 0;
+
+  for (size_t s = 0; s < SNAPSHOT_H5_LINK_COUNT; s++) {
+    const struct snapshot_h5_link_spec *spec = &SNAPSHOT_H5_LINKS[s];
+    int64_t bounding_snap = 0;
+    const int64_t limit = snapshot_h5_link_limit(spec->domain, snapnum, &bounding_snap);
+
+    char range[64];
+    if (spec->allow_null_link) {
+      snprintf(range, sizeof(range), "-1 or [0, %" PRId64 ")", limit);
+    } else {
+      snprintf(range, sizeof(range), "[0, %" PRId64 ")", limit);
+    }
+
+    int64_t count = 0;
+    int64_t bad_index = 0;
+    int64_t bad_value = 0;
+    for (int64_t i = 0; i < n_halos; i++) {
+      const int64_t value = *(const int *)((const char *)&halos[i] + spec->offset);
+      if (value == -1 && spec->allow_null_link) {
+        continue;
+      }
+      if (value >= 0 && value < limit) {
+        continue;
+      }
+      if (count == 0) {
+        bad_index = i;
+        bad_value = value;
+      }
+      count++;
+    }
+
+    if (count == 0) {
+      continue;
+    }
+    /* One counted summary per field, never one line per halo. */
+    ERROR_LOG("%s: snapshot %" PRId64 " has %" PRId64 " halo(s) whose '%s' is outside %s (bounded "
+              "by snapshot %" PRId64 "); first at halo %" PRId64 " with value %" PRId64,
+              path, snapnum, count, spec->name, range, bounding_snap, bad_index, bad_value);
+    if (violated_fields == 0) {
+      first_field = spec->name;
+      snprintf(first_range, sizeof(first_range), "%s", range);
+      first_bad_index = bad_index;
+      first_bad_value = bad_value;
+    }
+    violated_fields++;
+  }
+
+  if (violated_fields > 0) {
+    FATAL_ERROR("%s: snapshot %" PRId64 " has %d invalid link field(s); '%s' is %" PRId64
+                " at halo %" PRId64 ", outside %s",
+                path, snapnum, violated_fields, first_field, first_bad_value, first_bad_index,
+                first_range);
+  }
+}
+
+/* ---------------------------------------------------------------------------
  * Reader hooks
  * ------------------------------------------------------------------------- */
 
@@ -769,6 +1023,7 @@ static void open_run_snapshot_hdf5(struct SnapshotRunInfo *info) {
   SNAP.is_open = 1;
   SNAP.snapshot_count = snapshot_count;
   SNAP.halo_counts = halo_counts;
+  SNAP.loaded_slabs = 0;
   SNAP.info.snapshot_count = snapshot_count;
   SNAP.info.format_version = format_version;
   SNAP.info.n_forests_total = n_forests_total;
@@ -781,6 +1036,13 @@ static void open_run_snapshot_hdf5(struct SnapshotRunInfo *info) {
 static void close_run_snapshot_hdf5(void) {
   if (!SNAP.is_open) {
     FATAL_ERROR("snapshot_hdf5: close_run called with no open run");
+  }
+  /* Slabs are reader-owned but caller-scoped: closing the run underneath a
+     loaded slab would leave the caller holding a dangling array. */
+  if (SNAP.loaded_slabs > 0) {
+    FATAL_ERROR("snapshot_hdf5: close_run called with %" PRId64
+                " slab(s) still loaded; every slab must be released first",
+                SNAP.loaded_slabs);
   }
 
   myfree(SNAP.halo_counts);
@@ -803,17 +1065,82 @@ static int64_t snapshot_halo_count_snapshot_hdf5(int64_t snapnum) {
   return SNAP.halo_counts[snapnum];
 }
 
-/* Snapshot-ordered HDF5: one file per snapshot, validated in full at open.
-   load_slab/release_slab arrive with the slab-loading phase; until then the
-   dispatchers report them as unimplemented by name. */
+/**
+ * @brief   Load one snapshot into a reader-owned slab and validate its links.
+ *
+ * The destination handle must be empty: overwriting a loaded one would leak the
+ * array it holds, so that is an abort rather than a silent replacement. A
+ * snapshot holding no halos is a legal result -- the handle then carries its
+ * snapshot number with a NULL array, which snapshot_slab_is_empty() correctly
+ * reports as loaded.
+ */
+static void load_slab_snapshot_hdf5(int64_t snapnum, struct SnapshotSlab *slab) {
+  if (!SNAP.is_open) {
+    FATAL_ERROR("snapshot_hdf5: load_slab called with no open run");
+  }
+  if (snapnum < 0 || snapnum >= SNAP.snapshot_count) {
+    FATAL_ERROR("snapshot_hdf5: snapshot %" PRId64 " is outside the open run's range [0, %" PRId64
+                ")",
+                snapnum, SNAP.snapshot_count);
+  }
+  if (!snapshot_slab_is_empty(slab)) {
+    FATAL_ERROR("snapshot_hdf5: load_slab into a slab already holding snapshot %" PRId64
+                "; release it before loading snapshot %" PRId64,
+                slab->snapnum, snapnum);
+  }
+
+  const int64_t n_halos = SNAP.halo_counts[snapnum];
+  char path[SNAPSHOT_HDF5_PATH_LEN];
+  snapshot_h5_format_path(path, sizeof(path), snapnum);
+
+  struct RawHalo *halos = NULL;
+  if (n_halos > 0) {
+    hid_t file = H5Fopen(path, H5F_ACC_RDONLY, H5P_DEFAULT);
+    if (file < 0) {
+      FATAL_ERROR("%s: could not open the file as HDF5 while loading snapshot %" PRId64, path,
+                  snapnum);
+    }
+
+    halos = mymalloc_cat(sizeof(struct RawHalo) * (size_t)n_halos, MEM_TREES);
+    snapshot_h5_fill_halos(file, path, n_halos, halos);
+
+    if (H5Fclose(file) < 0) {
+      FATAL_ERROR("%s: could not close the file after loading snapshot %" PRId64, path, snapnum);
+    }
+
+    snapshot_h5_validate_links(path, snapnum, n_halos, halos);
+  }
+
+  slab->snapnum = snapnum;
+  slab->nhalos = n_halos;
+  slab->halos = halos;
+  SNAP.loaded_slabs++;
+}
+
+/** @brief Release a loaded slab. A slab already empty is left untouched. */
+static void release_slab_snapshot_hdf5(struct SnapshotSlab *slab) {
+  if (snapshot_slab_is_empty(slab)) {
+    return;
+  }
+  if (slab->halos != NULL) {
+    myfree(slab->halos);
+  }
+  *slab = snapshot_slab_empty();
+  if (SNAP.loaded_slabs > 0) {
+    SNAP.loaded_slabs--;
+  }
+}
+
+/* Snapshot-ordered HDF5: one file per snapshot, validated in full at open, read
+   one snapshot at a time into a reader-owned slab. */
 const struct SnapshotReader SnapshotHDF5Reader = {
     .name = "snapshot_hdf5",
     .processing_order = INPUT_PROCESSING_ORDER_SNAPSHOT,
     .open_run = open_run_snapshot_hdf5,
     .close_run = close_run_snapshot_hdf5,
     .snapshot_halo_count = snapshot_halo_count_snapshot_hdf5,
-    .load_slab = NULL,
-    .release_slab = NULL,
+    .load_slab = load_slab_snapshot_hdf5,
+    .release_slab = release_slab_snapshot_hdf5,
 };
 
 #endif /* HDF5 */

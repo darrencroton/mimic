@@ -1,11 +1,17 @@
 /**
  * @file    test_unit_snapshot_reader_open.c
- * @brief   Unit tests for the snapshot_hdf5 reader's run lifecycle.
+ * @brief   Unit tests for the snapshot_hdf5 reader's full lifecycle.
  *
  * Validates: registry lookup, the run metadata and per-snapshot counts
  * published by open_run against the committed fixture dataset, the
  * out-of-range count contract, every corrupt-input abort the format requires,
- * the missing-hook diagnostic, and freedom from leaks across open/close.
+ * the missing-hook diagnostic, slab contents against the fixture datasets
+ * field by field, every link-range abort, the bounded shape of the load-path
+ * diagnostics, the slab lifecycle contract, and freedom from leaks.
+ *
+ * The file keeps its `_open` name because tests/unit/run_tests.sh lists test
+ * names explicitly for the non-HDF5 skip path; splitting the slab tests into a
+ * second file would require an edit there.
  *
  * Corrupt-input cases work on a scratch copy of the committed fixture: the
  * parent stages the copy, mutates it with the HDF5 C API, then forks a child
@@ -56,6 +62,9 @@ extern struct MimicConfig MimicConfig;
 #define FIXTURE_MAX_RANK 6
 #define FIXTURE_FORMAT_VERSION 1
 #define FIXTURE_A_LIST "micro-uchuu-fixture.a_list"
+
+/* Largest halo count in the fixture; sizes the comparison buffers below. */
+#define FIXTURE_MAX_HALOS 6
 
 static const int64_t FIXTURE_HALO_COUNTS[FIXTURE_SNAPSHOTS] = {0, 1, 1, 1, 6, 4};
 
@@ -363,6 +372,77 @@ static int set_i32_element(const char *file_path, const char *dataset, hsize_t i
   return rc;
 }
 
+/** @brief Set every element of a rank-1 int32 /halos dataset. */
+static int set_i32_column(const char *file_path, const char *dataset, int64_t n, int32_t value) {
+  for (int64_t i = 0; i < n; i++) {
+    if (set_i32_element(file_path, dataset, (hsize_t)i, value) != 0) {
+      return -1;
+    }
+  }
+  return 0;
+}
+
+/**
+ * @brief   Give the staged fixture a populated snapshot 0.
+ *
+ * The committed fixture's snapshot 0 is empty, so it cannot by itself exercise
+ * "a non-null FirstProgenitor in snapshot 0". Copying snapshot 1 over it and
+ * re-stamping the two snapshot-identifying values produces a dataset that
+ * open_run accepts and whose snapshot 0 holds one halo. The run-scoped forest
+ * and rank maxima are unaffected: the duplicated halo introduces no new maximum
+ * and the true maxima are attained in later snapshots.
+ */
+static int promote_snapshot_zero(const char *dir) {
+  char src[MAX_STRING_LEN];
+  char dst[MAX_STRING_LEN];
+  snapshot_path(src, sizeof(src), dir, 1);
+  snapshot_path(dst, sizeof(dst), dir, 0);
+
+  if (copy_file(src, dst) != 0) {
+    return -1;
+  }
+  if (set_attr_i32(dst, "snapshot_number", 0) != 0) {
+    return -1;
+  }
+  /* First entry of the committed micro-uchuu-fixture.a_list. A drift here
+     surfaces as an open_run scale_factor abort, never as a silent pass. */
+  if (set_attr_f64(dst, "scale_factor", 0.25) != 0) {
+    return -1;
+  }
+  return set_i32_element(dst, "SnapNum", 0, 0);
+}
+
+/* ---------------------------------------------------------------------------
+ * Independent fixture reads
+ *
+ * Slab contents are compared against a direct read of the same file rather than
+ * against transcribed constants, so the comparison follows the fixture and
+ * covers every dataset. The read path here is deliberately a plain whole-
+ * dataset H5Dread, not the reader's own.
+ * ------------------------------------------------------------------------- */
+
+static int read_halo_column(const char *file_path, const char *dataset, hid_t mem_type, void *out) {
+  char link[MAX_STRING_LEN];
+  snprintf(link, sizeof(link), "/halos/%s", dataset);
+
+  hid_t file = H5Fopen(file_path, H5F_ACC_RDONLY, H5P_DEFAULT);
+  if (file < 0) {
+    return -1;
+  }
+  hid_t dset = H5Dopen2(file, link, H5P_DEFAULT);
+  int rc = 0;
+  if (dset < 0) {
+    rc = -1;
+  } else {
+    if (H5Dread(dset, mem_type, H5S_ALL, H5S_ALL, H5P_DEFAULT, out) < 0) {
+      rc = -1;
+    }
+    H5Dclose(dset);
+  }
+  H5Fclose(file);
+  return rc;
+}
+
 /* ---------------------------------------------------------------------------
  * Child-process abort harness
  * ------------------------------------------------------------------------- */
@@ -378,8 +458,8 @@ typedef void (*child_body_fn)(const char *dir);
  * On mismatch the captured output is printed, so a wrong abort message is
  * diagnosable rather than a bare failure.
  */
-static int expect_fatal(const char *dir, child_body_fn body, const char *needle_a,
-                        const char *needle_b) {
+static int expect_fatal_capture(const char *dir, child_body_fn body, const char *needle_a,
+                                const char *needle_b, char *captured, size_t captured_size) {
   int pipefd[2];
   char output[16384];
   size_t used = 0;
@@ -417,6 +497,9 @@ static int expect_fatal(const char *dir, child_body_fn body, const char *needle_
   }
   output[used] = '\0';
   close(pipefd[0]);
+  if (captured != NULL) {
+    snprintf(captured, captured_size, "%s", output);
+  }
 
   if (waitpid(pid, &status, 0) < 0) {
     return -1;
@@ -438,6 +521,12 @@ static int expect_fatal(const char *dir, child_body_fn body, const char *needle_
     return 0;
   }
   return 1;
+}
+
+/** @brief expect_fatal_capture() without access to the captured output. */
+static int expect_fatal(const char *dir, child_body_fn body, const char *needle_a,
+                        const char *needle_b) {
+  return expect_fatal_capture(dir, body, needle_a, needle_b, NULL, 0);
 }
 
 /** @brief Child body: configure for `dir` and open the dataset. */
@@ -879,11 +968,472 @@ int test_open_close_leaves_no_leak(void) {
   return TEST_PASS;
 }
 
+/* ---------------------------------------------------------------------------
+ * Slab loading
+ * ------------------------------------------------------------------------- */
+
+/**
+ * @brief   Compare one loaded slab against a direct read of its fixture file.
+ * @return  0 when every field of every halo matches, -1 otherwise.
+ *
+ * Every one of the sixteen contract datasets is checked, the three vec3 fields
+ * component by component and the two long long identity fields at full width.
+ * Floats are compared by their bytes, so the check is bit-for-bit rather than
+ * numeric.
+ */
+static int slab_matches_fixture(const char *file_path, const struct SnapshotSlab *slab) {
+  static int32_t i32[FIXTURE_MAX_HALOS];
+  static int64_t i64[FIXTURE_MAX_HALOS];
+  static float f32[FIXTURE_MAX_HALOS * NDIM];
+  const int64_t n = slab->nhalos;
+
+#define CHECK_I32(dataset, field)                                                                  \
+  do {                                                                                             \
+    if (read_halo_column(file_path, dataset, H5T_NATIVE_INT32, i32) != 0) {                        \
+      fprintf(stderr, "  could not read '/halos/%s'\n", dataset);                                  \
+      return -1;                                                                                   \
+    }                                                                                              \
+    for (int64_t h = 0; h < n; h++) {                                                              \
+      if (slab->halos[h].field != i32[h]) {                                                        \
+        fprintf(stderr, "  %s halo %" PRId64 ": slab %d, fixture %" PRId32 "\n", dataset, h,       \
+                slab->halos[h].field, i32[h]);                                                     \
+        return -1;                                                                                 \
+      }                                                                                            \
+    }                                                                                              \
+  } while (0)
+
+#define CHECK_I64(dataset, field)                                                                  \
+  do {                                                                                             \
+    if (read_halo_column(file_path, dataset, H5T_NATIVE_INT64, i64) != 0) {                        \
+      fprintf(stderr, "  could not read '/halos/%s'\n", dataset);                                  \
+      return -1;                                                                                   \
+    }                                                                                              \
+    for (int64_t h = 0; h < n; h++) {                                                              \
+      if ((int64_t)slab->halos[h].field != i64[h]) {                                               \
+        fprintf(stderr, "  %s halo %" PRId64 ": slab %lld, fixture %" PRId64 "\n", dataset, h,     \
+                slab->halos[h].field, i64[h]);                                                     \
+        return -1;                                                                                 \
+      }                                                                                            \
+    }                                                                                              \
+  } while (0)
+
+#define CHECK_F32(dataset, field)                                                                  \
+  do {                                                                                             \
+    if (read_halo_column(file_path, dataset, H5T_NATIVE_FLOAT, f32) != 0) {                        \
+      fprintf(stderr, "  could not read '/halos/%s'\n", dataset);                                  \
+      return -1;                                                                                   \
+    }                                                                                              \
+    for (int64_t h = 0; h < n; h++) {                                                              \
+      if (memcmp(&slab->halos[h].field, &f32[h], sizeof(float)) != 0) {                            \
+        fprintf(stderr, "  %s halo %" PRId64 ": slab %.9g, fixture %.9g\n", dataset, h,            \
+                (double)slab->halos[h].field, (double)f32[h]);                                     \
+        return -1;                                                                                 \
+      }                                                                                            \
+    }                                                                                              \
+  } while (0)
+
+#define CHECK_VEC3(dataset, field)                                                                 \
+  do {                                                                                             \
+    if (read_halo_column(file_path, dataset, H5T_NATIVE_FLOAT, f32) != 0) {                        \
+      fprintf(stderr, "  could not read '/halos/%s'\n", dataset);                                  \
+      return -1;                                                                                   \
+    }                                                                                              \
+    for (int64_t h = 0; h < n; h++) {                                                              \
+      for (int d = 0; d < NDIM; d++) {                                                             \
+        if (memcmp(&slab->halos[h].field[d], &f32[h * NDIM + d], sizeof(float)) != 0) {            \
+          fprintf(stderr, "  %s halo %" PRId64 "[%d]: slab %.9g, fixture %.9g\n", dataset, h, d,   \
+                  (double)slab->halos[h].field[d], (double)f32[h * NDIM + d]);                     \
+          return -1;                                                                               \
+        }                                                                                          \
+      }                                                                                            \
+    }                                                                                              \
+  } while (0)
+
+  CHECK_I32("Descendant", Descendant);
+  CHECK_I32("FirstProgenitor", FirstProgenitor);
+  CHECK_I32("NextProgenitor", NextProgenitor);
+  CHECK_I32("FirstHaloInFOFgroup", FirstHaloInFOFgroup);
+  CHECK_I32("NextHaloInFOFgroup", NextHaloInFOFgroup);
+  CHECK_I32("Len", Len);
+  CHECK_I32("SnapNum", SnapNum);
+  CHECK_F32("M_Crit200", M_Crit200);
+  CHECK_F32("VelDisp", VelDisp);
+  CHECK_F32("Vmax", Vmax);
+  CHECK_VEC3("Pos", Pos);
+  CHECK_VEC3("Vel", Vel);
+  CHECK_VEC3("Spin", Spin);
+  CHECK_I64("MostBoundID", MostBoundID);
+  CHECK_I64("ForestIndex", ForestIndex);
+  CHECK_I64("HaloRankInForest", HaloRankInForest);
+
+#undef CHECK_I32
+#undef CHECK_I64
+#undef CHECK_F32
+#undef CHECK_VEC3
+  return 0;
+}
+
+/**
+ * @test  test_load_slab_matches_fixture
+ * Every fixture snapshot loads with the header's halo count and field values
+ * identical to the file's, and the empty snapshot loads and releases cleanly.
+ */
+int test_load_slab_matches_fixture(void) {
+  char dir[MAX_STRING_LEN];
+  struct SnapshotRunInfo info;
+
+  TEST_ASSERT(stage_fixture(dir, sizeof(dir)) == 0, "should stage a scratch copy of the fixture");
+  configure_for_fixture(dir);
+
+  const struct SnapshotReader *reader = snapshot_reader_lookup("snapshot_hdf5");
+  snapshot_reader_open_run(reader, &info);
+
+  for (int snap = 0; snap < FIXTURE_SNAPSHOTS; snap++) {
+    char path[MAX_STRING_LEN];
+    struct SnapshotSlab slab = snapshot_slab_empty();
+    snapshot_path(path, sizeof(path), dir, snap);
+
+    snapshot_reader_load_slab(reader, snap, &slab);
+
+    TEST_ASSERT_EQUAL(slab.snapnum, snap, "a loaded slab should carry its snapshot number");
+    TEST_ASSERT_EQUAL(slab.nhalos, FIXTURE_HALO_COUNTS[snap],
+                      "slab nhalos should match the fixture header");
+    TEST_ASSERT(!snapshot_slab_is_empty(&slab), "a loaded slab should not report itself empty");
+    if (FIXTURE_HALO_COUNTS[snap] == 0) {
+      TEST_ASSERT(slab.halos == NULL, "a zero-halo snapshot should allocate no halo array");
+    } else {
+      TEST_ASSERT(slab.halos != NULL, "a populated snapshot should carry a halo array");
+      TEST_ASSERT(slab_matches_fixture(path, &slab) == 0,
+                  "every slab field should equal the fixture bit-for-bit");
+    }
+
+    snapshot_reader_release_slab(reader, &slab);
+    TEST_ASSERT(snapshot_slab_is_empty(&slab), "release_slab should empty the handle");
+    TEST_ASSERT(slab.halos == NULL, "release_slab should clear the halo pointer");
+    TEST_ASSERT_EQUAL(slab.nhalos, 0, "release_slab should clear the halo count");
+  }
+
+  snapshot_reader_close_run(reader);
+  remove_staged_fixture(dir);
+  return TEST_PASS;
+}
+
+/* ---------------------------------------------------------------------------
+ * Link-range abort cases
+ * ------------------------------------------------------------------------- */
+
+struct link_case {
+  const char *description;
+  int (*mutate)(const char *dir);
+  int snapshot; /* snapshot the child loads */
+  const char *needle_file;
+  const char *needle_detail;
+};
+
+static int corrupt_first_progenitor_range(const char *dir) {
+  char path[MAX_STRING_LEN];
+  snapshot_path(path, sizeof(path), dir, 4);
+  /* Snapshot 3 holds one halo, so the only valid non-null value is 0. */
+  return set_i32_element(path, "FirstProgenitor", 0, 5);
+}
+
+static int corrupt_next_progenitor_range(const char *dir) {
+  char path[MAX_STRING_LEN];
+  snapshot_path(path, sizeof(path), dir, 4);
+  return set_i32_element(path, "NextProgenitor", 0, 6);
+}
+
+static int corrupt_first_fof_range(const char *dir) {
+  char path[MAX_STRING_LEN];
+  snapshot_path(path, sizeof(path), dir, 4);
+  return set_i32_element(path, "FirstHaloInFOFgroup", 0, 6);
+}
+
+static int corrupt_first_fof_null(const char *dir) {
+  char path[MAX_STRING_LEN];
+  snapshot_path(path, sizeof(path), dir, 4);
+  return set_i32_element(path, "FirstHaloInFOFgroup", 0, -1);
+}
+
+static int corrupt_next_fof_range(const char *dir) {
+  char path[MAX_STRING_LEN];
+  snapshot_path(path, sizeof(path), dir, 4);
+  return set_i32_element(path, "NextHaloInFOFgroup", 1, 9);
+}
+
+static int corrupt_descendant_range(const char *dir) {
+  char path[MAX_STRING_LEN];
+  snapshot_path(path, sizeof(path), dir, 4);
+  /* Snapshot 5 holds four halos, so 4 is one past the end. */
+  return set_i32_element(path, "Descendant", 0, 4);
+}
+
+static int corrupt_descendant_in_final_snapshot(const char *dir) {
+  char path[MAX_STRING_LEN];
+  snapshot_path(path, sizeof(path), dir, FIXTURE_SNAPSHOTS - 1);
+  return set_i32_element(path, "Descendant", 0, 0);
+}
+
+static int corrupt_first_progenitor_in_snapshot_zero(const char *dir) {
+  char path[MAX_STRING_LEN];
+  snapshot_path(path, sizeof(path), dir, 0);
+  if (promote_snapshot_zero(dir) != 0) {
+    return -1;
+  }
+  return set_i32_element(path, "FirstProgenitor", 0, 0);
+}
+
+static const struct link_case LINK_CASES[] = {
+    {"FirstProgenitor outside [-1, n_halos(N-1))", corrupt_first_progenitor_range, 4,
+     "snapshot_004.h5", "'FirstProgenitor' is 5 at halo 0, outside -1 or [0, 1)"},
+    {"NextProgenitor outside [-1, n_halos(N))", corrupt_next_progenitor_range, 4, "snapshot_004.h5",
+     "'NextProgenitor' is 6 at halo 0, outside -1 or [0, 6)"},
+    {"FirstHaloInFOFgroup outside [0, n_halos(N))", corrupt_first_fof_range, 4, "snapshot_004.h5",
+     "'FirstHaloInFOFgroup' is 6 at halo 0, outside [0, 6)"},
+    {"FirstHaloInFOFgroup of -1", corrupt_first_fof_null, 4, "snapshot_004.h5",
+     "'FirstHaloInFOFgroup' is -1 at halo 0, outside [0, 6)"},
+    {"NextHaloInFOFgroup outside [-1, n_halos(N))", corrupt_next_fof_range, 4, "snapshot_004.h5",
+     "'NextHaloInFOFgroup' is 9 at halo 1, outside -1 or [0, 6)"},
+    {"Descendant outside [-1, n_halos(N+1))", corrupt_descendant_range, 4, "snapshot_004.h5",
+     "'Descendant' is 4 at halo 0, outside -1 or [0, 4)"},
+    {"non-null Descendant in the final snapshot", corrupt_descendant_in_final_snapshot,
+     FIXTURE_SNAPSHOTS - 1, "snapshot_005.h5", "'Descendant' is 0 at halo 0, outside -1 or [0, 0)"},
+    {"non-null FirstProgenitor in snapshot 0", corrupt_first_progenitor_in_snapshot_zero, 0,
+     "snapshot_000.h5", "'FirstProgenitor' is 0 at halo 0, outside -1 or [0, 0)"},
+};
+#define LINK_CASE_COUNT (sizeof(LINK_CASES) / sizeof(LINK_CASES[0]))
+
+/* Which snapshot the load-path child bodies load. Set by the parent before
+   fork(), so the child inherits it. */
+static int load_target_snapshot = 0;
+
+static void child_load_slab(const char *dir) {
+  const struct SnapshotReader *reader = snapshot_reader_lookup("snapshot_hdf5");
+  struct SnapshotRunInfo info;
+  struct SnapshotSlab slab = snapshot_slab_empty();
+  configure_for_fixture(dir);
+  snapshot_reader_open_run(reader, &info);
+  snapshot_reader_load_slab(reader, load_target_snapshot, &slab);
+}
+
+/**
+ * @test  test_corrupt_links_abort
+ * Every out-of-range link the format forbids aborts, naming the field, the
+ * halo index and the offending value.
+ */
+int test_corrupt_links_abort(void) {
+  for (size_t i = 0; i < LINK_CASE_COUNT; i++) {
+    const struct link_case *test_case = &LINK_CASES[i];
+    char dir[MAX_STRING_LEN];
+
+    TEST_ASSERT(stage_fixture(dir, sizeof(dir)) == 0, "should stage a scratch copy of the fixture");
+    if (test_case->mutate(dir) != 0) {
+      fprintf(stderr, "  could not apply corruption: %s\n", test_case->description);
+      remove_staged_fixture(dir);
+      TEST_ASSERT(0, "fixture corruption helper failed");
+    }
+
+    load_target_snapshot = test_case->snapshot;
+    const int aborted =
+        expect_fatal(dir, child_load_slab, test_case->needle_file, test_case->needle_detail);
+    remove_staged_fixture(dir);
+
+    if (aborted != 1) {
+      fprintf(stderr, "  case: %s\n", test_case->description);
+      TEST_ASSERT(0, "an out-of-range link should abort naming field, halo and value");
+    }
+  }
+  return TEST_PASS;
+}
+
+/**
+ * @test  test_link_diagnostics_are_bounded
+ * A systematically broken snapshot produces one counted summary per field, not
+ * one line per halo.
+ */
+int test_link_diagnostics_are_bounded(void) {
+  char dir[MAX_STRING_LEN];
+  char path[MAX_STRING_LEN];
+  char captured[16384];
+
+  TEST_ASSERT(stage_fixture(dir, sizeof(dir)) == 0, "should stage a scratch copy of the fixture");
+  snapshot_path(path, sizeof(path), dir, 4);
+
+  /* Every halo in snapshot 4 offends in two different fields at once. */
+  TEST_ASSERT(set_i32_column(path, "Descendant", FIXTURE_HALO_COUNTS[4], 99) == 0,
+              "should corrupt every Descendant in snapshot 4");
+  TEST_ASSERT(set_i32_column(path, "NextProgenitor", FIXTURE_HALO_COUNTS[4], 77) == 0,
+              "should corrupt every NextProgenitor in snapshot 4");
+
+  load_target_snapshot = 4;
+  const int aborted =
+      expect_fatal_capture(dir, child_load_slab, "snapshot_004.h5", "has 2 invalid link field(s)",
+                           captured, sizeof(captured));
+  remove_staged_fixture(dir);
+  if (aborted != 1) {
+    fprintf(stderr, "  captured:\n%s\n", captured);
+    TEST_ASSERT(0, "a systematically broken snapshot should abort");
+  }
+
+  TEST_ASSERT(strstr(captured, "has 6 halo(s) whose 'Descendant'") != NULL,
+              "the Descendant summary should carry the offence count, not one line per halo");
+  TEST_ASSERT(strstr(captured, "has 6 halo(s) whose 'NextProgenitor'") != NULL,
+              "the NextProgenitor summary should carry the offence count");
+
+  /* Twelve offending halos, but the diagnostics must stay per-field: one
+     summary line for each of the two fields plus the abort. */
+  int lines = 0;
+  for (const char *c = captured; *c != '\0'; c++) {
+    if (*c == '\n') {
+      lines++;
+    }
+  }
+  if (lines > 6) {
+    fprintf(stderr, "  %d diagnostic lines for 12 offending halos:\n%s\n", lines, captured);
+    TEST_ASSERT(0, "load-path diagnostics should be bounded per field, not per halo");
+  }
+  return TEST_PASS;
+}
+
+/* ---------------------------------------------------------------------------
+ * Slab lifecycle
+ * ------------------------------------------------------------------------- */
+
+static void child_load_into_loaded_slab(const char *dir) {
+  const struct SnapshotReader *reader = snapshot_reader_lookup("snapshot_hdf5");
+  struct SnapshotRunInfo info;
+  struct SnapshotSlab slab = snapshot_slab_empty();
+  configure_for_fixture(dir);
+  snapshot_reader_open_run(reader, &info);
+  snapshot_reader_load_slab(reader, 4, &slab);
+  snapshot_reader_load_slab(reader, 5, &slab);
+}
+
+static void child_close_run_with_loaded_slab(const char *dir) {
+  const struct SnapshotReader *reader = snapshot_reader_lookup("snapshot_hdf5");
+  struct SnapshotRunInfo info;
+  struct SnapshotSlab slab = snapshot_slab_empty();
+  configure_for_fixture(dir);
+  snapshot_reader_open_run(reader, &info);
+  snapshot_reader_load_slab(reader, 4, &slab);
+  snapshot_reader_close_run(reader);
+}
+
+static void child_load_below_range(const char *dir) {
+  const struct SnapshotReader *reader = snapshot_reader_lookup("snapshot_hdf5");
+  struct SnapshotRunInfo info;
+  struct SnapshotSlab slab = snapshot_slab_empty();
+  configure_for_fixture(dir);
+  snapshot_reader_open_run(reader, &info);
+  snapshot_reader_load_slab(reader, -1, &slab);
+}
+
+static void child_load_above_range(const char *dir) {
+  const struct SnapshotReader *reader = snapshot_reader_lookup("snapshot_hdf5");
+  struct SnapshotRunInfo info;
+  struct SnapshotSlab slab = snapshot_slab_empty();
+  configure_for_fixture(dir);
+  snapshot_reader_open_run(reader, &info);
+  snapshot_reader_load_slab(reader, info.snapshot_count, &slab);
+}
+
+/**
+ * @test  test_slab_lifecycle
+ * The slab handle contract: an out-of-range index aborts, loading into a
+ * non-empty handle aborts, releasing an empty handle is a no-op, a second
+ * release is safe, and close_run under a loaded slab aborts.
+ */
+int test_slab_lifecycle(void) {
+  char dir[MAX_STRING_LEN];
+  struct SnapshotRunInfo info;
+
+  TEST_ASSERT(stage_fixture(dir, sizeof(dir)) == 0, "should stage a scratch copy of the fixture");
+
+  TEST_ASSERT(expect_fatal(dir, child_load_below_range, "snapshot -1 is outside", "[0, 6)") == 1,
+              "load_slab(-1) should abort");
+  TEST_ASSERT(expect_fatal(dir, child_load_above_range, "snapshot 6 is outside", "[0, 6)") == 1,
+              "load_slab(snapshot_count) should abort");
+  TEST_ASSERT(expect_fatal(dir, child_load_into_loaded_slab, "already holding snapshot 4",
+                           "release it before loading snapshot 5") == 1,
+              "load_slab into a non-empty handle should abort");
+  TEST_ASSERT(expect_fatal(dir, child_close_run_with_loaded_slab, "close_run called with 1 slab(s)",
+                           "must be released first") == 1,
+              "close_run under a loaded slab should abort");
+
+  /* The in-process half: releasing an empty handle, and releasing twice, are
+     both defined as safe, so they must not abort. */
+  configure_for_fixture(dir);
+  const struct SnapshotReader *reader = snapshot_reader_lookup("snapshot_hdf5");
+  snapshot_reader_open_run(reader, &info);
+
+  struct SnapshotSlab empty = snapshot_slab_empty();
+  snapshot_reader_release_slab(reader, &empty);
+  TEST_ASSERT(snapshot_slab_is_empty(&empty), "releasing an empty slab should be a no-op");
+
+  struct SnapshotSlab slab = snapshot_slab_empty();
+  snapshot_reader_load_slab(reader, 4, &slab);
+  snapshot_reader_release_slab(reader, &slab);
+  snapshot_reader_release_slab(reader, &slab);
+  TEST_ASSERT(snapshot_slab_is_empty(&slab), "a second release should leave the handle empty");
+
+  /* A released slab leaves close_run unblocked. */
+  snapshot_reader_close_run(reader);
+  remove_staged_fixture(dir);
+  return TEST_PASS;
+}
+
+/**
+ * @test  test_load_release_leaves_no_leak
+ * Loading and releasing every fixture snapshot releases every allocation.
+ */
+int test_load_release_leaves_no_leak(void) {
+  char dir[MAX_STRING_LEN];
+  struct SnapshotRunInfo info;
+
+  TEST_ASSERT(stage_fixture(dir, sizeof(dir)) == 0, "should stage a scratch copy of the fixture");
+  configure_for_fixture(dir);
+
+  const struct SnapshotReader *reader = snapshot_reader_lookup("snapshot_hdf5");
+  snapshot_reader_open_run(reader, &info);
+  for (int snap = 0; snap < FIXTURE_SNAPSHOTS; snap++) {
+    struct SnapshotSlab slab = snapshot_slab_empty();
+    snapshot_reader_load_slab(reader, snap, &slab);
+    snapshot_reader_release_slab(reader, &slab);
+  }
+  snapshot_reader_close_run(reader);
+  remove_staged_fixture(dir);
+
+  char log_template[] = "/tmp/mimic_snapshot_slab_leak_XXXXXX";
+  const int fd = mkstemp(log_template);
+  TEST_ASSERT(fd >= 0, "should create a scratch log file");
+  FILE *log = fdopen(fd, "w+");
+  TEST_ASSERT(log != NULL, "should open the scratch log file");
+
+  FILE *previous = set_log_output(log);
+  check_memory_leaks();
+  set_log_output(previous);
+  fflush(log);
+
+  rewind(log);
+  char captured[4096];
+  const size_t read_bytes = fread(captured, 1, sizeof(captured) - 1, log);
+  captured[read_bytes] = '\0';
+  fclose(log);
+  unlink(log_template);
+
+  TEST_ASSERT(strstr(captured, "Memory leak detected") == NULL,
+              "load_slab followed by release_slab should leave no tracked allocation");
+
+  /* Re-emit for the captured unit-run output. */
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
 /** @brief Main test runner */
 int main(void) {
   printf("%s", BLUE);
   printf("============================================================\n");
-  printf("Test Suite: Snapshot Reader Open\n");
+  printf("Test Suite: Snapshot Reader\n");
   printf("============================================================\n");
   printf("%s\n", NC);
 
@@ -896,6 +1446,11 @@ int main(void) {
   TEST_RUN(test_corrupt_inputs_abort);
   TEST_RUN(test_missing_hook_aborts);
   TEST_RUN(test_open_close_leaves_no_leak);
+  TEST_RUN(test_load_slab_matches_fixture);
+  TEST_RUN(test_corrupt_links_abort);
+  TEST_RUN(test_link_diagnostics_are_bounded);
+  TEST_RUN(test_slab_lifecycle);
+  TEST_RUN(test_load_release_leaves_no_leak);
 
   TEST_SUMMARY();
   return TEST_RESULT();
