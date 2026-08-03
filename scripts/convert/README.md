@@ -2,7 +2,7 @@
 
 External converter that transforms Consistent-Trees ASCII output (forest-ordered) into Mimic's snapshot-ordered HDF5 input format. The on-disk output contract is frozen in `docs/dev/SNAPSHOT-HDF5-FORMAT.md` (`format_version = 1`); the algorithm is specified by `docs/dev/SHIN-UCHUU-CONVERSION-PLAN.md`. The sliced implementation plan that built this tool is complete and archived under `archive/dev-plans/` (search there for the converter implementation plan if the slice-level history is needed). The converter is a standalone tool: it never touches Mimic source, packages, or run files, and it never deletes source data — cleanup is restricted to manifest-owned intermediates it created under the workdir.
 
-**Status:** complete and validated on the real micro-Uchuu ASCII data. Phases 0–4 (scatter, sort/index, fixups, links, HDF5 emission + producer validation battery + conversion report) plus the cross-check instrument, including the optional `topology-chains` check against an independent reference-topology dump (see below). The full pipeline ran end to end on the real micro-Uchuu ASCII tree (22,580,924 halos across 50 snapshots, 440,651 forests); the producer validation battery passes all invariants, and the cross-check against a Mimic `halos-only` reference run passes all seven checks — identity, FoF central, flyby signs, values, occupancy, and direct chain-order (`topology-chains`) — with zero unexplained mismatches. The topology-order gate is therefore fully discharged: `topology-chains` compared links, `ForestIndex`/`HaloRankInForest`, and the signed `MostBoundID` per halo over an asserted-complete dump of all 22,580,924 halos.
+**Status:** complete and validated on the real micro-Uchuu ASCII data, and re-validated end to end on 2026-08-03 on a fully regenerated dataset (observed stack: pandas 3.0.5, numpy 2.4.6 — the stack used for the original 2026-07-24 run was not recorded, so this is a re-gate on a different-and-unknown-delta stack rather than a measured upgrade): the 327-test suite passes, the three totals the original gate recorded are reproduced exactly (22,580,924 halos, 50 snapshots, 440,651 forests), the producer battery passes all 15 checks, and the cross-check passes every check including `topology-chains`. `max_halo_rank_in_forest = 350074` is recorded here for the first time; no earlier value exists to compare against. Phases 0–4 (scatter, sort/index, fixups, links, HDF5 emission + producer validation battery + conversion report) plus the cross-check instrument, including the optional `topology-chains` check against an independent reference-topology dump (see below). The full pipeline ran end to end on the real micro-Uchuu ASCII tree (22,580,924 halos across 50 snapshots, 440,651 forests); the producer validation battery passes all invariants, and the cross-check against a Mimic `halos-only` reference run passes all seven checks — identity, FoF central, flyby signs, values, occupancy, and direct chain-order (`topology-chains`) — with zero unexplained mismatches. The topology-order gate is therefore fully discharged: `topology-chains` compared links, `ForestIndex`/`HaloRankInForest`, and the signed `MostBoundID` per halo over an asserted-complete dump of all 22,580,924 halos.
 
 ## Requirements
 
@@ -75,6 +75,8 @@ mimic_venv/bin/python scripts/convert/crosscheck.py compare \
 
 Canonical metadata comes from explicit `--simulation-info` and `--a-list` paths, keeping the converter simulation-agnostic. Observed `(SnapNum, scale)` pairs from the data are cross-validated against the a_list (absolute tolerance 1e-4; an unknown pair aborts the run).
 
+**Emitting to a final data location.** The commands above use `write`'s default output directory, `<workdir>/hdf5`. To place a dataset somewhere permanent instead, pass `write --output-dir <dir>` and emit there directly — do **not** move the files afterwards. The manifest records the emitted paths, and the battery's `manifest-binding` check compares the directory against them, so a post-hoc `mv` breaks validation. `report` reads the dataset location from `manifest["outputs_dir"]`, so it validates the real destination with no extra argument; `validate.py` and `crosscheck.py compare` take the dataset directory as their positional argument, so pass the destination in place of `<workdir>/hdf5` in those two commands. The 2026-08-03 micro-Uchuu regeneration used exactly this route, emitting straight to `/Volumes/Internal/data/uchuu/micro-uchuu/micro-uchuu-snapshot/`.
+
 ## Workdir layout
 
 ```
@@ -124,6 +126,21 @@ The six-check cross-check (above) establishes identity, rank, and central resolu
 make MODEL=halos-only SIMULATION=micro-uchuu-ascii dump-ctrees-topology-tool
 tests/unit/tools/build/dump_ctrees_topology <run_param_file> <output_dump_path>
 ```
+
+**The run file must declare `output_format: binary`.** `build_topology_dump.sh` compiles `-DHDF5` into only three sources — `io/tree/registry.c`, `io/tree/hdf5.c`, and `io/tree/read_ctrees_hdf5.c` — so `src/core/read_parameter_file.c` is built without it and its `#ifndef HDF5` guard (`src/core/read_parameter_file.c:658-661`) rejects `output_format: hdf5` with `OutputFormat 'hdf5' requires HDF5 support`. The harness exits 1 before creating the dump file. This is purely a compile-flag consequence of the harness's deliberately minimal source set: the harness links no output writer and would never have written galaxies anyway. `crosscheck.py prepare` inherits whatever the source run file declares, and every committed `halos-only` run file uses `hdf5`, so the prepared `reference_run.yaml` cannot be passed to the harness directly. Copy it and override only the output format and directory. This cannot change the dumped topology: the harness reads only the `input`/`simulation` configuration, and emits every halo of every forest tagged with that halo's own `SnapNum` — it never consults the output snapshot list at all.
+
+```bash
+mimic_venv/bin/python - <<'PY'
+import pathlib, yaml
+w = pathlib.Path("output/convert/micro-uchuu")
+d = yaml.safe_load((w / "reference_run.yaml").read_text())
+d["output"]["output_format"] = "binary"
+d["output"]["output_directory"] = str(w / "topology-scratch-output")
+(w / "topology_run.yaml").write_text(yaml.safe_dump(d))
+PY
+```
+
+Diff the parsed YAML of the two files afterwards and confirm `output_format` and `output_directory` are the only differences, so the harness is provably reading the same tree as the reference run.
 
 The dump format is three header lines (format marker, column names, NA-sentinel value) followed by one row per halo: `forestnr rank id snapnum desc_id first_prog_id next_prog_id first_fof_id next_fof_id`, all fields int64, with the NA sentinel (`INT64_MIN`) marking "no link". Nothing else may appear: a `#` line after the header means a malformed dump (two runs concatenated, a re-run appended with `>>`) and is rejected rather than skipped. The harness exits non-zero if it could not write the dump completely, so a full disk cannot produce a short dump that looks finished.
 

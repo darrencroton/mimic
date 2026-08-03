@@ -110,7 +110,7 @@ sed -n '16,31p' src/io/tree/registry.c                                  # regist
 grep -n "CTREES_READ_WINDOW_BYTES" src/io/tree/read_ctrees_hdf5.c        # 128 MiB window
 grep -n "forests_per_file > 0" src/io/tree/read_ctrees_ascii.c           # ASCII requirement
 grep -n "bridge_halo_data_to_rawhalo" src/io/tree/read_ctrees_*.c        # shared bridge
-for s in simulations/*/; do grep -H "tree_type" $s/simulation_info.yaml; done   # package table
+for s in simulations/*/simulation_info.yaml; do grep -H "tree_type" "$s"; done   # package table
 grep -n -i "fix_flybys" simulations/micro-uchuu-ascii/README.md          # accepted divergence doc
 sed -n '/^required_inputs/,/^halo_properties/p' src/core/core_properties.yaml   # core roles
 ```

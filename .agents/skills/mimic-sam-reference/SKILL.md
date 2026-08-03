@@ -149,7 +149,7 @@ All facts verified against the live repo on 2026-07-04. Re-verify before relying
 - Pipeline order and parameter values: `cat models/sage16/input/sage16_mini-millennium.yaml`
 - Reservoir property definitions: `grep -n -E 'name:|description:|units:' models/sage16/model_properties.yaml`
 - Core halo properties and reference units: `sed -n '1,220p' src/core/core_properties.yaml`
-- Cosmology/box/particle mass: `grep -A2 -E 'omega|hubble_h|box_size:|particle_mass:' simulations/*/simulation_info.yaml`
+- Cosmology/box/particle mass: `grep -sA2 -E 'omega|hubble_h|box_size:|particle_mass:' simulations/*/simulation_info.yaml`
 - Figure inventory: `grep -A25 'SNAPSHOT_PLOTS' models/sage16/plots/figures/__init__.py`
 - Citations: `models/sage16/README.md` and `models/sham/README.md`
 - SAGE parity quirks: `grep -rn 'SAGE parity' src/ models/sage16/ | wc -l`
