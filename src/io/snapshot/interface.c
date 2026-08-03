@@ -20,6 +20,15 @@
 #include "snapshot/reader.h"
 
 /**
+ * @def     SNAPSHOT_READER_NAME
+ * @brief   Reader name for diagnostics, tolerating an unnamed reader.
+ *
+ * Every message below goes through this, so none can pass NULL to a %s
+ * conversion.
+ */
+#define SNAPSHOT_READER_NAME(reader) ((reader)->name != NULL ? (reader)->name : "(unnamed)")
+
+/**
  * @def     REQUIRE_SNAPSHOT_READER_HOOK
  * @brief   Abort unless `reader` is present and implements `hook`.
  *
@@ -33,7 +42,7 @@
     }                                                                                              \
     if ((reader)->hook == NULL) {                                                                  \
       FATAL_ERROR("Snapshot reader '%s' does not implement the required hook '%s'",                \
-                  (reader)->name != NULL ? (reader)->name : "(unnamed)", #hook);                   \
+                  SNAPSHOT_READER_NAME(reader), #hook);                                            \
     }                                                                                              \
   } while (0)
 
@@ -42,7 +51,7 @@ void snapshot_reader_open_run(const struct SnapshotReader *reader, struct Snapsh
   REQUIRE_SNAPSHOT_READER_HOOK(reader, open_run);
   if (info == NULL) {
     FATAL_ERROR("Snapshot reader '%s': open_run requires a destination SnapshotRunInfo",
-                reader->name);
+                SNAPSHOT_READER_NAME(reader));
   }
   reader->open_run(info);
 }
@@ -64,7 +73,8 @@ void snapshot_reader_load_slab(const struct SnapshotReader *reader, int64_t snap
                                struct SnapshotSlab *slab) {
   REQUIRE_SNAPSHOT_READER_HOOK(reader, load_slab);
   if (slab == NULL) {
-    FATAL_ERROR("Snapshot reader '%s': load_slab requires a destination slab handle", reader->name);
+    FATAL_ERROR("Snapshot reader '%s': load_slab requires a destination slab handle",
+                SNAPSHOT_READER_NAME(reader));
   }
   reader->load_slab(snapnum, slab);
 }
@@ -73,7 +83,8 @@ void snapshot_reader_load_slab(const struct SnapshotReader *reader, int64_t snap
 void snapshot_reader_release_slab(const struct SnapshotReader *reader, struct SnapshotSlab *slab) {
   REQUIRE_SNAPSHOT_READER_HOOK(reader, release_slab);
   if (slab == NULL) {
-    FATAL_ERROR("Snapshot reader '%s': release_slab requires a slab handle", reader->name);
+    FATAL_ERROR("Snapshot reader '%s': release_slab requires a slab handle",
+                SNAPSHOT_READER_NAME(reader));
   }
   reader->release_slab(slab);
 }

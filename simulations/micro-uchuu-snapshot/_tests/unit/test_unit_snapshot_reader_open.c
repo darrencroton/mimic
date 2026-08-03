@@ -269,6 +269,47 @@ static int delete_halo_dataset(const char *file_path, const char *dataset) {
   return rc;
 }
 
+/**
+ * @brief   Create a chunked rank-2 /halos dataset with a huge second dimension.
+ *
+ * Chunked so the enormous logical extent costs no storage: nothing is written,
+ * so no chunk is allocated. This is the shape that a narrowing `(int)dims[1]`
+ * comparison would accept, because 2^32 + 3 truncates to 3.
+ */
+static int create_wide_halo_dataset(const char *file_path, const char *dataset, hid_t type,
+                                    hsize_t rows, hsize_t cols) {
+  char link[MAX_STRING_LEN];
+  snprintf(link, sizeof(link), "/halos/%s", dataset);
+
+  hid_t file = H5Fopen(file_path, H5F_ACC_RDWR, H5P_DEFAULT);
+  if (file < 0) {
+    return -1;
+  }
+  const hsize_t dims[2] = {rows, cols};
+  const hsize_t chunk[2] = {1, 1};
+  hid_t space = H5Screate_simple(2, dims, NULL);
+  hid_t plist = H5Pcreate(H5P_DATASET_CREATE);
+  int rc = 0;
+  if (space < 0 || plist < 0 || H5Pset_chunk(plist, 2, chunk) < 0) {
+    rc = -1;
+  } else {
+    hid_t dset = H5Dcreate2(file, link, type, space, H5P_DEFAULT, plist, H5P_DEFAULT);
+    if (dset < 0) {
+      rc = -1;
+    } else {
+      H5Dclose(dset);
+    }
+  }
+  if (plist >= 0) {
+    H5Pclose(plist);
+  }
+  if (space >= 0) {
+    H5Sclose(space);
+  }
+  H5Fclose(file);
+  return rc;
+}
+
 /** @brief Create a /halos dataset with the given type and shape. */
 static int create_halo_dataset(const char *file_path, const char *dataset, hid_t type, int rank,
                                hsize_t rows, hsize_t cols) {
@@ -495,6 +536,17 @@ static int corrupt_vector_dataset_shape(const char *dir) {
   return create_halo_dataset(path, "Pos", H5T_IEEE_F32LE, 2, 6, 4);
 }
 
+static int corrupt_vector_dataset_wide_shape(const char *dir) {
+  char path[MAX_STRING_LEN];
+  snapshot_path(path, sizeof(path), dir, 4);
+  if (delete_halo_dataset(path, "Pos") != 0) {
+    return -1;
+  }
+  /* 2^32 + 3: truncates to exactly 3 in an int, so only a wide comparison
+     rejects it. */
+  return create_wide_halo_dataset(path, "Pos", H5T_IEEE_F32LE, 6, 4294967299ULL);
+}
+
 static int corrupt_missing_header_attr(const char *dir) {
   char path[MAX_STRING_LEN];
   snapshot_path(path, sizeof(path), dir, 2);
@@ -570,6 +622,8 @@ static const struct corrupt_case CORRUPT_CASES[] = {
      "dataset '/halos/Len' must be int32"},
     {"vector dataset of shape [n_halos, 4]", corrupt_vector_dataset_shape, "snapshot_004.h5",
      "dataset '/halos/Pos' must have shape [6, 3]"},
+    {"vector dataset whose second dimension truncates to 3 in an int",
+     corrupt_vector_dataset_wide_shape, "snapshot_004.h5", "found second dimension 4294967299"},
     {"missing header attribute", corrupt_missing_header_attr, "snapshot_002.h5",
      "required header attribute 'hubble_h' is missing"},
     {"header attribute of the wrong dtype", corrupt_header_attr_dtype, "snapshot_001.h5",

@@ -205,6 +205,29 @@ static int snapshot_h5_type_matches(hid_t dtype, enum snapshot_h5_scalar_type ex
   return 0;
 }
 
+/**
+ * @brief   Native memory datatype to read a contract dtype into.
+ *
+ * Reads go through the native type, never the on-disk type, so HDF5 performs
+ * the byte-order conversion. Passing the file type as the memory type would
+ * copy file-order bytes straight into native fields and silently byte-swap
+ * every value of a conforming file written on the other endianness -- which
+ * snapshot_h5_type_matches() accepts by design.
+ */
+static hid_t snapshot_h5_native_type(enum snapshot_h5_scalar_type type) {
+  switch (type) {
+  case SNAPSHOT_H5_I32:
+    return H5T_NATIVE_INT32;
+  case SNAPSHOT_H5_I64:
+    return H5T_NATIVE_INT64;
+  case SNAPSHOT_H5_F32:
+    return H5T_NATIVE_FLOAT;
+  case SNAPSHOT_H5_F64:
+    return H5T_NATIVE_DOUBLE;
+  }
+  return H5I_INVALID_HID;
+}
+
 /** @brief Build "<SimulationDir>/snapshot_NNN.h5" with a fixed format string. */
 static void snapshot_h5_format_path(char *path, size_t path_size, int64_t snapnum) {
   /* The format string is a literal by construction: configured text
@@ -328,7 +351,7 @@ static void snapshot_h5_read_header_attr(hid_t file, const char *path,
                 H5Tget_size(dtype));
   }
 
-  if (H5Aread(attr, dtype, dst) < 0) {
+  if (H5Aread(attr, snapshot_h5_native_type(spec->type), dst) < 0) {
     FATAL_ERROR("%s: could not read header attribute '%s'", path, spec->name);
   }
   if (H5Tclose(dtype) < 0 || H5Aclose(attr) < 0) {
@@ -446,7 +469,9 @@ static void snapshot_h5_validate_halo_datasets(hid_t file, const char *path, int
       FATAL_ERROR("%s: dataset '/halos/%s' has length %" PRIu64 " but header n_halos is %" PRId64,
                   path, spec->name, (uint64_t)dims[0], n_halos);
     }
-    if (expected_rank == 2 && (int)dims[1] != spec->ncols) {
+    /* Compared in the wide type: narrowing dims[1] to int would let a logical
+       second dimension of 2^32 + 3 truncate to 3 and pass. */
+    if (expected_rank == 2 && dims[1] != (hsize_t)spec->ncols) {
       FATAL_ERROR("%s: dataset '/halos/%s' must have shape [%" PRId64
                   ", %d]; found second dimension %" PRIu64,
                   path, spec->name, n_halos, spec->ncols, (uint64_t)dims[1]);
