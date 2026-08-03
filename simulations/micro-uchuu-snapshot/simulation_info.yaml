@@ -21,6 +21,11 @@ input:
   snapshot_list_file: simulations/micro-uchuu-snapshot/micro-uchuu.a_list
 
 simulation:
+  # Forest multiplier for UniqueGalaxyID. The dataset's measured
+  # max_halo_rank_in_forest is 350074 and its forest count 440651, so 10^9 (the
+  # framework default, TREE_MUL_FAC) leaves ample headroom in both directions.
+  # See docs/dev/SNAPSHOT-HDF5-FORMAT.md for the bounds the reader checks.
+  unique_galaxy_id_multiplier: 1000000000
   cosmology:
     omega_matter: 0.3089
     omega_lambda: 0.6911

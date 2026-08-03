@@ -88,3 +88,38 @@ void snapshot_reader_release_slab(const struct SnapshotReader *reader, struct Sn
   }
   reader->release_slab(slab);
 }
+
+/**
+ * @brief   Are the run-scoped identity bounds encodable with this multiplier?
+ *
+ * Order matters: the non-positive multiplier is rejected first, so the division
+ * below always has a positive divisor, and the bound is expressed as a division
+ * rather than a product so it cannot overflow while being checked.
+ */
+int snapshot_identity_bounds_valid(const struct SnapshotRunInfo *info, int64_t multiplier) {
+  if (info == NULL) {
+    return 0;
+  }
+  if (multiplier <= 0) {
+    return 0;
+  }
+
+  /* A dataset with no halos anywhere carries no forest count and no rank. */
+  if (info->n_forests_total == SNAPSHOT_EMPTY_N_FORESTS &&
+      info->max_halo_rank_in_forest == SNAPSHOT_EMPTY_MAX_RANK) {
+    return 1;
+  }
+
+  if (info->n_forests_total < 0 || info->max_halo_rank_in_forest < 0) {
+    return 0;
+  }
+  /* Every rank must be representable below one multiplier step. */
+  if (multiplier <= info->max_halo_rank_in_forest) {
+    return 0;
+  }
+  /* (n_forests_total + 1) * multiplier must stay inside int64_t. */
+  if (info->n_forests_total > INT64_MAX / multiplier - 1) {
+    return 0;
+  }
+  return 1;
+}

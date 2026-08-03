@@ -27,6 +27,7 @@
 
 #include "../../../../tests/framework/test_framework.h"
 
+#include "../../../../src/include/constants.h"
 #include "../../../../src/include/proto.h"
 #include "../../../../src/include/types.h"
 #include "../../../../src/io/snapshot/reader.h"
@@ -162,6 +163,10 @@ static void configure_for_fixture(const char *dir) {
            FIXTURE_A_LIST);
   read_snap_list();
   MimicConfig.MAXSNAPS = MimicConfig.Snaplistlen;
+  /* open_run checks the run-scoped identity bounds against this. A real run gets
+     it from simulation.unique_galaxy_id_multiplier, which defaults to
+     TREE_MUL_FAC; a memset MimicConfig would leave it at zero. */
+  MimicConfig.UniqueGalaxyIDMultiplier = (int64_t)TREE_MUL_FAC;
 }
 
 /* ---------------------------------------------------------------------------
@@ -1429,6 +1434,158 @@ int test_load_release_leaves_no_leak(void) {
   return TEST_PASS;
 }
 
+/* ---------------------------------------------------------------------------
+ * Registry disjointness and the run-scoped identity bounds
+ * ------------------------------------------------------------------------- */
+
+/**
+ * @test  test_registries_are_disjoint
+ * No name resolves in both the tree and the snapshot registry.
+ *
+ * The two-registry tree_type lookup in read_parameter_file.c tries the tree
+ * registry first, so a name in both sets would silently resolve to the tree
+ * reader. Enumerating the snapshot registry and probing the tree registry for
+ * each name settles the intersection: it is empty iff no snapshot name is also a
+ * tree name. tree_reader_lookup() is case-insensitive, so case variants are
+ * covered too.
+ */
+int test_registries_are_disjoint(void) {
+  const size_t count = snapshot_reader_count();
+  TEST_ASSERT(count > 0, "an HDF5 build should register at least one snapshot reader");
+
+  for (size_t i = 0; i < count; i++) {
+    const struct SnapshotReader *reader = snapshot_reader_at(i);
+    TEST_ASSERT(reader != NULL, "every index below the count should resolve");
+    TEST_ASSERT(reader->name != NULL, "every registered snapshot reader should be named");
+    TEST_ASSERT(tree_reader_lookup(reader->name) == NULL,
+                "a snapshot reader name must not also resolve in the tree registry");
+    TEST_ASSERT(snapshot_reader_lookup(reader->name) == reader,
+                "a registered name should resolve to its own reader");
+  }
+
+  TEST_ASSERT(snapshot_reader_at(count) == NULL, "an out-of-range index should return NULL");
+  return TEST_PASS;
+}
+
+/** @brief Identity bounds as a run-info value, for the predicate tests. */
+static struct SnapshotRunInfo bounds(int64_t n_forests_total, int64_t max_halo_rank_in_forest) {
+  struct SnapshotRunInfo info;
+  info.snapshot_count = FIXTURE_SNAPSHOTS;
+  info.format_version = FIXTURE_FORMAT_VERSION;
+  info.n_forests_total = n_forests_total;
+  info.max_halo_rank_in_forest = max_halo_rank_in_forest;
+  return info;
+}
+
+/**
+ * @test  test_identity_bounds_predicate
+ * snapshot_identity_bounds_valid accepts encodable bounds and rejects the rest.
+ */
+int test_identity_bounds_predicate(void) {
+  const struct SnapshotRunInfo fixture = bounds(FIXTURE_N_FORESTS_TOTAL, FIXTURE_MAX_RANK);
+  const struct SnapshotRunInfo sentinel = bounds(SNAPSHOT_EMPTY_N_FORESTS, SNAPSHOT_EMPTY_MAX_RANK);
+
+  TEST_ASSERT(snapshot_identity_bounds_valid(&fixture, (int64_t)TREE_MUL_FAC) != 0,
+              "the fixture bounds should be encodable with the default multiplier");
+  TEST_ASSERT(snapshot_identity_bounds_valid(&sentinel, (int64_t)TREE_MUL_FAC) != 0,
+              "the empty-dataset sentinel should be accepted");
+  TEST_ASSERT(snapshot_identity_bounds_valid(&sentinel, 1) != 0,
+              "the empty-dataset sentinel should be accepted for any positive multiplier");
+
+  TEST_ASSERT(snapshot_identity_bounds_valid(NULL, (int64_t)TREE_MUL_FAC) == 0,
+              "a missing run info should be rejected");
+  TEST_ASSERT(snapshot_identity_bounds_valid(&fixture, 0) == 0,
+              "a zero multiplier should be rejected");
+  TEST_ASSERT(snapshot_identity_bounds_valid(&fixture, -1) == 0,
+              "a negative multiplier should be rejected");
+  TEST_ASSERT(snapshot_identity_bounds_valid(&sentinel, 0) == 0,
+              "a zero multiplier should be rejected even for the sentinel");
+
+  const struct SnapshotRunInfo negative_forests = bounds(-1, FIXTURE_MAX_RANK);
+  TEST_ASSERT(snapshot_identity_bounds_valid(&negative_forests, (int64_t)TREE_MUL_FAC) == 0,
+              "a negative n_forests_total should be rejected");
+
+  const struct SnapshotRunInfo negative_rank = bounds(FIXTURE_N_FORESTS_TOTAL, -1);
+  TEST_ASSERT(snapshot_identity_bounds_valid(&negative_rank, (int64_t)TREE_MUL_FAC) == 0,
+              "a negative max_halo_rank_in_forest outside the sentinel should be rejected");
+
+  TEST_ASSERT(snapshot_identity_bounds_valid(&fixture, FIXTURE_MAX_RANK) == 0,
+              "a multiplier equal to max_halo_rank_in_forest should be rejected");
+  TEST_ASSERT(snapshot_identity_bounds_valid(&fixture, FIXTURE_MAX_RANK - 1) == 0,
+              "a multiplier below max_halo_rank_in_forest should be rejected");
+  TEST_ASSERT(snapshot_identity_bounds_valid(&fixture, FIXTURE_MAX_RANK + 1) != 0,
+              "a multiplier one above max_halo_rank_in_forest should be accepted");
+
+  return TEST_PASS;
+}
+
+/**
+ * @test  test_identity_bounds_division_boundary
+ * The forest-count ceiling is exact at every tested multiplier.
+ *
+ * The bound is n_forests_total <= INT64_MAX / multiplier - 1, expressed as a
+ * division precisely so the check cannot overflow while performing it. These
+ * cases pin both sides of that boundary, including multiplier = INT64_MAX, where
+ * the ceiling collapses to zero.
+ */
+int test_identity_bounds_division_boundary(void) {
+  const int64_t multipliers[] = {1, (int64_t)TREE_MUL_FAC, INT64_MAX};
+
+  for (size_t i = 0; i < sizeof(multipliers) / sizeof(multipliers[0]); i++) {
+    const int64_t multiplier = multipliers[i];
+    const int64_t ceiling = INT64_MAX / multiplier - 1;
+    /* max_halo_rank_in_forest 0 keeps every multiplier above the rank bound, so
+       only the forest-count boundary is under test. */
+    const struct SnapshotRunInfo accepted = bounds(ceiling, 0);
+    const struct SnapshotRunInfo rejected = bounds(ceiling + 1, 0);
+
+    TEST_ASSERT(snapshot_identity_bounds_valid(&accepted, multiplier) != 0,
+                "n_forests_total = INT64_MAX / multiplier - 1 should be accepted");
+    TEST_ASSERT(snapshot_identity_bounds_valid(&rejected, multiplier) == 0,
+                "n_forests_total = INT64_MAX / multiplier should be rejected");
+  }
+
+  return TEST_PASS;
+}
+
+/** @brief Child body: open the fixture with a multiplier below the fixture rank. */
+static void child_open_run_unencodable_multiplier(const char *dir) {
+  struct SnapshotRunInfo info;
+  configure_for_fixture(dir);
+  MimicConfig.UniqueGalaxyIDMultiplier = FIXTURE_MAX_RANK;
+  snapshot_reader_open_run(snapshot_reader_lookup("snapshot_hdf5"), &info);
+}
+
+/** @brief Child body: open the fixture with an unset (zero) multiplier. */
+static void child_open_run_zero_multiplier(const char *dir) {
+  struct SnapshotRunInfo info;
+  configure_for_fixture(dir);
+  MimicConfig.UniqueGalaxyIDMultiplier = 0;
+  snapshot_reader_open_run(snapshot_reader_lookup("snapshot_hdf5"), &info);
+}
+
+/**
+ * @test  test_open_run_checks_identity_bounds
+ * open_run aborts when the dataset's identity bounds are not encodable.
+ *
+ * The abort is proof that the check runs before anything is published: nothing
+ * downstream of the check executes.
+ */
+int test_open_run_checks_identity_bounds(void) {
+  char dir[MAX_STRING_LEN];
+  TEST_ASSERT(stage_fixture(dir, sizeof(dir)) == 0, "should stage a scratch copy of the fixture");
+
+  TEST_ASSERT(expect_fatal(dir, child_open_run_unencodable_multiplier, "not encodable",
+                           "unique_galaxy_id_multiplier") == 1,
+              "open_run should abort for a multiplier below max_halo_rank_in_forest");
+  TEST_ASSERT(expect_fatal(dir, child_open_run_zero_multiplier, "not encodable",
+                           "unique_galaxy_id_multiplier") == 1,
+              "open_run should abort for a non-positive multiplier");
+
+  remove_staged_fixture(dir);
+  return TEST_PASS;
+}
+
 /** @brief Main test runner */
 int main(void) {
   printf("%s", BLUE);
@@ -1451,6 +1608,10 @@ int main(void) {
   TEST_RUN(test_link_diagnostics_are_bounded);
   TEST_RUN(test_slab_lifecycle);
   TEST_RUN(test_load_release_leaves_no_leak);
+  TEST_RUN(test_registries_are_disjoint);
+  TEST_RUN(test_identity_bounds_predicate);
+  TEST_RUN(test_identity_bounds_division_boundary);
+  TEST_RUN(test_open_run_checks_identity_bounds);
 
   TEST_SUMMARY();
   return TEST_RESULT();

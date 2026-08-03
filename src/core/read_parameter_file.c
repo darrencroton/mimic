@@ -27,6 +27,7 @@
 #include "memory.h"          /* For mymalloc_cat, myfree */
 #include "module_registry.h" /* For PhaseModuleConfig and LoopMode */
 #include "proto.h"
+#include "snapshot/reader.h"          /* snapshot_reader_lookup, struct SnapshotReader */
 #include "tree/forest_distribution.h" /* forest_distribution_scheme_from_string */
 #include "tree/reader.h"              /* tree_reader_lookup, struct TreeReader */
 #include "types.h"
@@ -140,6 +141,20 @@ void read_parameter_file(const char *fname) {
 
   yaml_node_t *section;
   yaml_node_t *node;
+
+  /* Seeded exactly once, before either parse_simulation_section() pass, so a
+     value declared by the simulation package survives a run file that omits the
+     key and an explicit run-file value still wins. */
+  MimicConfig.UniqueGalaxyIDMultiplier = (int64_t)TREE_MUL_FAC;
+
+  /* Seeded for the same reason: these three are assigned only when their key is
+     present, so without a seed each carries whatever a previous parse left
+     behind. A production run parses once into a zero-initialised MimicConfig, so
+     this changes nothing there; it makes a second parse in the same process
+     (every core unit test) independent of the first. */
+  MimicConfig.ProcessingOrder = (int)INPUT_PROCESSING_ORDER_TREE;
+  MimicConfig.reader = NULL;
+  MimicConfig.snapshot_reader = NULL;
 
   /*
    * Load order: simulation config file first (provides defaults), then all
@@ -786,15 +801,29 @@ static void parse_input_section(yaml_document_t *doc, yaml_node_t *section) {
 
   node = get_mapping_value(doc, section, "tree_type");
   if (node && (str = get_scalar_value(node))) {
+    /* One key, two registries: forest-ordered readers first, then
+       snapshot-ordered ones. The name sets are disjoint, so the order only fixes
+       which registry answers first, never which reader a name resolves to.
+       Exactly one of the two config fields is left non-NULL. */
     const struct TreeReader *reader = tree_reader_lookup(str);
-    if (reader == NULL) {
+    const struct SnapshotReader *snapshot_reader =
+        (reader == NULL) ? snapshot_reader_lookup(str) : NULL;
+
+    if (reader == NULL && snapshot_reader == NULL) {
       FATAL_ERROR("Unknown tree_type '%s'. Valid types are registered in "
-                  "src/io/tree/registry.c; HDF5-based types also require an "
-                  "HDF5-enabled build (do not pass USE-HDF5=no).",
+                  "src/io/tree/registry.c (forest-ordered) and "
+                  "src/io/snapshot/registry.c (snapshot-ordered); HDF5-based "
+                  "types also require an HDF5-enabled build (do not pass "
+                  "USE-HDF5=no).",
                   str);
     }
+
     MimicConfig.reader = reader;
-    strncpy(MimicConfig.TreeExtension, reader->file_extension, MAX_STRING_LEN - 1);
+    MimicConfig.snapshot_reader = snapshot_reader;
+    /* Snapshot readers derive their filenames from tree_name, so they carry no
+       reader-owned extension. */
+    strncpy(MimicConfig.TreeExtension, reader != NULL ? reader->file_extension : "",
+            MAX_STRING_LEN - 1);
     MimicConfig.TreeExtension[MAX_STRING_LEN - 1] = '\0';
     DEBUG_LOG("tree_type = %s", str);
   }
@@ -874,8 +903,8 @@ static void parse_model_section(yaml_document_t *doc, yaml_node_t *section) {
 static void parse_simulation_section(yaml_document_t *doc, yaml_node_t *section) {
   yaml_node_t *node, *cosmology;
   const char *str;
-  static const char *const valid_keys[] = {"name", "config", "cosmology", "box_size",
-                                           "particle_mass"};
+  static const char *const valid_keys[] = {
+      "name", "config", "cosmology", "box_size", "particle_mass", "unique_galaxy_id_multiplier"};
   static const char *const cosmology_keys[] = {"omega_matter", "omega_lambda", "hubble_h"};
 
   DEBUG_LOG("Parsing simulation section");
@@ -934,6 +963,24 @@ static void parse_simulation_section(yaml_document_t *doc, yaml_node_t *section)
     MimicConfig.PartMass =
         get_unit_scalar_value(doc, node, "simulation.particle_mass", "1e10 Msun/h");
     DEBUG_LOG("PartMass = %g", MimicConfig.PartMass);
+  }
+
+  /* Assigned only when the key is present. This function runs twice -- once for
+     the simulation package's simulation_info.yaml and again for the run file --
+     so an unconditional assignment would let the second pass clobber a package
+     value with the seeded default. The default is seeded once in
+     read_parameter_file(), before either pass. */
+  node = get_mapping_value(doc, section, "unique_galaxy_id_multiplier");
+  if (node) {
+    const int64_t multiplier =
+        get_strict_int64_value(node, "simulation.unique_galaxy_id_multiplier");
+    if (multiplier <= 0) {
+      FATAL_ERROR("simulation.unique_galaxy_id_multiplier is %" PRId64
+                  "; it must be positive (default %" PRId64 ")",
+                  multiplier, (int64_t)TREE_MUL_FAC);
+    }
+    MimicConfig.UniqueGalaxyIDMultiplier = multiplier;
+    DEBUG_LOG("UniqueGalaxyIDMultiplier = %" PRId64, MimicConfig.UniqueGalaxyIDMultiplier);
   }
 }
 
@@ -1351,20 +1398,51 @@ static void validate_and_postprocess(void) {
     ERROR_LOG("Required parameter 'input.tree_name' missing");
     errors++;
   }
-  if (MimicConfig.reader == NULL) {
+  if (MimicConfig.reader == NULL && MimicConfig.snapshot_reader == NULL) {
     ERROR_LOG("Required parameter 'input.tree_type' missing or unrecognised");
     errors++;
-  } else if (MimicConfig.ProcessingOrder == INPUT_PROCESSING_ORDER_SNAPSHOT) {
-    ERROR_LOG("The snapshot-ordered driver is not implemented yet");
-    errors++;
-  } else if (MimicConfig.reader->processing_order !=
-             (enum InputProcessingOrder)MimicConfig.ProcessingOrder) {
-    ERROR_LOG("Reader '%s' is compatible with processing_order '%s', but "
-              "input.processing_order is '%s'",
-              MimicConfig.reader->name,
-              input_processing_order_name(MimicConfig.reader->processing_order),
-              input_processing_order_name((enum InputProcessingOrder)MimicConfig.ProcessingOrder));
-    errors++;
+  } else {
+    /* Whichever registry answered, the resolved reader declares the processing
+       order it feeds. A snapshot-ordered configuration that gets past here stops
+       at run_processing_driver(), the single not-implemented point. */
+    const int is_tree_reader = (MimicConfig.reader != NULL);
+    const char *reader_name =
+        is_tree_reader ? MimicConfig.reader->name : MimicConfig.snapshot_reader->name;
+    const enum InputProcessingOrder reader_order =
+        is_tree_reader ? MimicConfig.reader->processing_order
+                       : MimicConfig.snapshot_reader->processing_order;
+
+    if (reader_order != (enum InputProcessingOrder)MimicConfig.ProcessingOrder) {
+      ERROR_LOG(
+          "Reader '%s' is compatible with processing_order '%s', but "
+          "input.processing_order is '%s'",
+          reader_name, input_processing_order_name(reader_order),
+          input_processing_order_name((enum InputProcessingOrder)MimicConfig.ProcessingOrder));
+      errors++;
+    }
+
+    /* Snapshot readers own a filename convention fixed by the on-disk format
+       rather than a user-chosen base name; configured text is never used as a
+       printf format, so the only safe contract is exact equality. */
+    if (!is_tree_reader && strcmp(MimicConfig.TreeName, SNAPSHOT_READER_TREE_NAME) != 0) {
+      ERROR_LOG("Reader '%s' accepts input.tree_name only as the exact literal '%s', but it is "
+                "'%s'",
+                reader_name, SNAPSHOT_READER_TREE_NAME, MimicConfig.TreeName);
+      errors++;
+    }
+
+    /* Every helper in src/include/galaxy_id.h is hard-coded to TREE_MUL_FAC and
+       takes no configured multiplier, so honouring a different value on the
+       tree-ordered path would silently emit ids computed from the compile-time
+       constant. Rejected until the encoder takes the configured value. */
+    if (is_tree_reader && MimicConfig.UniqueGalaxyIDMultiplier != (int64_t)TREE_MUL_FAC) {
+      ERROR_LOG("simulation.unique_galaxy_id_multiplier is %" PRId64
+                ", but the tree-ordered identity encoder does not yet honour a configurable "
+                "multiplier; it is hard-coded to TREE_MUL_FAC (%" PRId64
+                "). Tree-ordered runs must use the default.",
+                MimicConfig.UniqueGalaxyIDMultiplier, (int64_t)TREE_MUL_FAC);
+      errors++;
+    }
   }
   if (strlen(MimicConfig.FileWithSnapList) == 0) {
     ERROR_LOG("Required parameter 'input.snapshot_list_file' missing");

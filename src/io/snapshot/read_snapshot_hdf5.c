@@ -63,9 +63,11 @@
 #define SNAPSHOT_HDF5_PATH_LEN (MAX_STRING_LEN + 32)
 
 /* The empty-dataset sentinel the converter stamps when a dataset holds no halos
-   in any snapshot (scripts/convert/links.py). */
-#define SNAPSHOT_HDF5_EMPTY_N_FORESTS ((int64_t)0)
-#define SNAPSHOT_HDF5_EMPTY_MAX_RANK ((int64_t)-1)
+   in any snapshot (scripts/convert/links.py). Local names for the shared
+   contract values in snapshot/reader.h, which the identity-bounds check also
+   consults. */
+#define SNAPSHOT_HDF5_EMPTY_N_FORESTS SNAPSHOT_EMPTY_N_FORESTS
+#define SNAPSHOT_HDF5_EMPTY_MAX_RANK SNAPSHOT_EMPTY_MAX_RANK
 
 /* ---------------------------------------------------------------------------
  * Contract tables
@@ -1020,14 +1022,28 @@ static void open_run_snapshot_hdf5(struct SnapshotRunInfo *info) {
     }
   }
 
+  /* The identity bounds the format requires to be checked at startup
+     (docs/dev/SNAPSHOT-HDF5-FORMAT.md), verified before anything is published so
+     an unencodable dataset never reaches a caller. */
+  struct SnapshotRunInfo candidate;
+  candidate.snapshot_count = snapshot_count;
+  candidate.format_version = format_version;
+  candidate.n_forests_total = n_forests_total;
+  candidate.max_halo_rank_in_forest = max_halo_rank_in_forest;
+
+  if (!snapshot_identity_bounds_valid(&candidate, MimicConfig.UniqueGalaxyIDMultiplier)) {
+    FATAL_ERROR("The dataset under '%s' declares identity bounds (n_forests_total %" PRId64
+                ", max_halo_rank_in_forest %" PRId64
+                ") that are not encodable with simulation.unique_galaxy_id_multiplier %" PRId64,
+                MimicConfig.SimulationDir, n_forests_total, max_halo_rank_in_forest,
+                MimicConfig.UniqueGalaxyIDMultiplier);
+  }
+
   SNAP.is_open = 1;
   SNAP.snapshot_count = snapshot_count;
   SNAP.halo_counts = halo_counts;
   SNAP.loaded_slabs = 0;
-  SNAP.info.snapshot_count = snapshot_count;
-  SNAP.info.format_version = format_version;
-  SNAP.info.n_forests_total = n_forests_total;
-  SNAP.info.max_halo_rank_in_forest = max_halo_rank_in_forest;
+  SNAP.info = candidate;
 
   *info = SNAP.info;
 }

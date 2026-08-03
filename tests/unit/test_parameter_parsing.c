@@ -134,12 +134,24 @@ static int write_null_phase_fixture(char *path, size_t path_size, const char *la
   return injected ? 0 : -1;
 }
 
+/**
+ * @brief   Write a fixture forcing input.processing_order, with a matching reader.
+ *
+ * The source run file is the generated core test input, whose input section is
+ * inherited from the compiled simulation package, so its tree_type declares
+ * whatever order that package uses. Forcing processing_order alone would produce
+ * a reader/order mismatch for any package whose declared order differs, so the
+ * fixture also overrides tree_type (and, for the snapshot reader, the exact
+ * tree_name the format fixes) to match the order it forces. Any inherited
+ * tree_type/tree_name line is dropped rather than duplicated.
+ */
 static int write_processing_order_fixture(char *path, size_t path_size,
                                           const char *processing_order) {
   FILE *src;
   FILE *dst;
   char line[1024];
   int wrote_processing_order = 0;
+  const int snapshot_ordered = (strcmp(processing_order, "snapshot_ordered") == 0);
 
   if (mkdir("archive", 0777) != 0 && errno != EEXIST) {
     return -1;
@@ -161,14 +173,35 @@ static int write_processing_order_fixture(char *path, size_t path_size,
   }
 
   while (fgets(line, sizeof(line), src) != NULL) {
+    const char *cursor = line;
+    while (*cursor == ' ' || *cursor == '\t') {
+      cursor++;
+    }
+    /* Drop any inherited reader declaration; the override below replaces it. */
+    if (strncmp(cursor, "tree_type:", strlen("tree_type:")) == 0 ||
+        strncmp(cursor, "tree_name:", strlen("tree_name:")) == 0) {
+      continue;
+    }
     fputs(line, dst);
     if (!wrote_processing_order && is_input_section_header(line)) {
       fprintf(dst, "  processing_order: %s\n", processing_order);
+      if (snapshot_ordered) {
+        /* The snapshot format fixes this filename convention; configuration
+           accepts no other value. It is data here, never a printf format. */
+        fprintf(dst, "  tree_type: snapshot_hdf5\n  tree_name: %s\n", "snapshot_%03d.h5");
+      } else {
+        fprintf(dst, "  tree_type: lhalo_binary\n  tree_name: trees_063\n");
+      }
       wrote_processing_order = 1;
     }
   }
   if (!wrote_processing_order) {
     fprintf(dst, "\ninput:\n  processing_order: %s\n", processing_order);
+    if (snapshot_ordered) {
+      fprintf(dst, "  tree_type: snapshot_hdf5\n  tree_name: %s\n", "snapshot_%03d.h5");
+    } else {
+      fprintf(dst, "  tree_type: lhalo_binary\n  tree_name: trees_063\n");
+    }
     wrote_processing_order = 1;
   }
 
@@ -482,18 +515,62 @@ int test_basic_parsing(void) {
 
 /**
  * @test    test_default_processing_order
- * @brief   Test that omitted input.processing_order defaults to tree_ordered
+ * @brief   Test that the parsed input.processing_order is the one the compiled
+ *          configuration declares, defaulting to tree_ordered when none is declared
+ *
+ * The generated core test run file inherits its input section from the compiled
+ * simulation package, so a hard-coded tree_ordered expectation would silently
+ * assert that package's choice while looking package-independent. The expectation
+ * is instead read out of the configuration itself: an explicit
+ * input.processing_order in the run file, else one in the simulation config the
+ * run file points at, else the framework default.
  */
 int test_default_processing_order(void) {
+  char declared[64] = "";
+  char sim_config[MAX_STRING_LEN] = "";
+  char line[1024];
+  FILE *fp;
+
   /* ===== SETUP ===== */
   setup_test();
+
+  fp = fopen(test_binary_param_file(), "r");
+  TEST_ASSERT(fp != NULL, "Should open the generated core test run file");
+  while (fgets(line, sizeof(line), fp) != NULL) {
+    if (sscanf(line, " processing_order: %63s", declared) == 1) {
+      break;
+    }
+    sscanf(line, " config: %1023s", sim_config);
+  }
+  fclose(fp);
+
+  if (declared[0] == '\0' && sim_config[0] != '\0') {
+    fp = fopen(sim_config, "r");
+    TEST_ASSERT(fp != NULL, "Should open the simulation config the run file inherits from");
+    while (fgets(line, sizeof(line), fp) != NULL) {
+      if (sscanf(line, " processing_order: %63s", declared) == 1) {
+        break;
+      }
+    }
+    fclose(fp);
+  }
+  if (declared[0] == '\0') {
+    snprintf(declared, sizeof(declared), "tree_ordered");
+  }
 
   /* ===== EXECUTE ===== */
   read_parameter_file(test_binary_param_file());
 
   /* ===== VALIDATE ===== */
-  TEST_ASSERT(MimicConfig.ProcessingOrder == INPUT_PROCESSING_ORDER_TREE,
-              "Default processing_order should be tree_ordered");
+  TEST_ASSERT(
+      strcmp(input_processing_order_name((enum InputProcessingOrder)MimicConfig.ProcessingOrder),
+             declared) == 0,
+      "Parsed processing_order should match the compiled configuration's declared order");
+
+  /* Whichever order the package declares, tree_type resolves in exactly one of
+     the two registries. Across the two build pairs this covers both kinds. */
+  TEST_ASSERT((MimicConfig.reader == NULL) != (MimicConfig.snapshot_reader == NULL),
+              "Exactly one of MimicConfig.reader and MimicConfig.snapshot_reader should be set");
 
   printf("  processing_order: %s\n",
          input_processing_order_name((enum InputProcessingOrder)MimicConfig.ProcessingOrder));
@@ -524,6 +601,8 @@ int test_explicit_tree_ordered_processing_order(void) {
   /* ===== VALIDATE ===== */
   TEST_ASSERT(MimicConfig.ProcessingOrder == INPUT_PROCESSING_ORDER_TREE,
               "Explicit processing_order should be tree_ordered");
+  TEST_ASSERT(MimicConfig.reader != NULL && MimicConfig.snapshot_reader == NULL,
+              "A tree-ordered configuration should resolve a tree reader and no snapshot reader");
 
   printf("  explicit processing_order: %s\n",
          input_processing_order_name((enum InputProcessingOrder)MimicConfig.ProcessingOrder));

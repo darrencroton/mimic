@@ -26,9 +26,13 @@ enum TimestepScheme { TIMESTEP_SCHEME_FIXED = 0, TIMESTEP_SCHEME_DYNAMIC = 1 };
 struct PhaseModuleConfig;
 struct ModulePhaseConfig;
 
-/* Active merger-tree reader, resolved from tree_type at config time
- * (defined in tree/reader.h, registered in tree/registry.c). */
+/* Active input reader, resolved from tree_type at config time. Exactly one of
+ * the two is non-NULL after a successful configuration: struct TreeReader
+ * (tree/reader.h, registered in tree/registry.c) for forest-ordered input, or
+ * struct SnapshotReader (snapshot/reader.h, registered in snapshot/registry.c)
+ * for snapshot-ordered input. */
 struct TreeReader;
+struct SnapshotReader;
 
 /* Configuration structure to hold global parameters */
 struct MimicConfig {
@@ -102,8 +106,15 @@ struct MimicConfig {
   double G;
   double Hubble;
 
-  /* Active merger-tree reader (resolved from tree_type) */
+  /* Active input reader (resolved from tree_type). Exactly one is non-NULL. */
   const struct TreeReader *reader;
+  const struct SnapshotReader *snapshot_reader;
+
+  /* Forest multiplier used to encode UniqueGalaxyID
+   * (simulation.unique_galaxy_id_multiplier, default TREE_MUL_FAC). The
+   * tree-ordered encoder in galaxy_id.h is still hard-coded to TREE_MUL_FAC, so
+   * configuration rejects a non-default value for tree-ordered runs. */
+  int64_t UniqueGalaxyIDMultiplier;
 
   /* Output format */
   enum Valid_OutputFormats OutputFormat;

@@ -299,7 +299,8 @@ compile_and_run_test() {
     local extra_sources=""
     if [ "$test_name" = "test_ctrees_hdf5_reader" ] || \
        [ "$test_name" = "test_master_hdf5_partitions" ] || \
-       [ "$test_name" = "test_unit_snapshot_reader_open" ]; then
+       [ "$test_name" = "test_unit_snapshot_reader_open" ] || \
+       [ "$test_name" = "test_unit_snapshot_reader_realdata" ]; then
         if [ "$HDF5_AVAILABLE" != "1" ]; then
             echo "MIMIC_RESULT: SKIP ${test_display} -- HDF5 development library not available"
             if ! summary_enabled; then

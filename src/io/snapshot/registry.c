@@ -25,6 +25,9 @@ extern const struct SnapshotReader SnapshotHDF5Reader;
 static const struct SnapshotReader *const snapshot_reader_table[] = {
     &SnapshotHDF5Reader,
 };
+
+#define SNAPSHOT_READER_TABLE_COUNT                                                                \
+  (sizeof(snapshot_reader_table) / sizeof(snapshot_reader_table[0]))
 #endif
 
 const struct SnapshotReader *snapshot_reader_lookup(const char *name) {
@@ -34,11 +37,29 @@ const struct SnapshotReader *snapshot_reader_lookup(const char *name) {
 #ifdef HDF5
   /* Case-insensitive, matching tree_reader_lookup() and the output_format
      parser in read_parameter_file.c. */
-  for (size_t i = 0; i < sizeof(snapshot_reader_table) / sizeof(snapshot_reader_table[0]); i++) {
+  for (size_t i = 0; i < SNAPSHOT_READER_TABLE_COUNT; i++) {
     if (strcasecmp(snapshot_reader_table[i]->name, name) == 0)
       return snapshot_reader_table[i];
   }
 #endif
 
+  return NULL;
+}
+
+size_t snapshot_reader_count(void) {
+#ifdef HDF5
+  return SNAPSHOT_READER_TABLE_COUNT;
+#else
+  return 0;
+#endif
+}
+
+const struct SnapshotReader *snapshot_reader_at(size_t index) {
+#ifdef HDF5
+  if (index < SNAPSHOT_READER_TABLE_COUNT)
+    return snapshot_reader_table[index];
+#else
+  (void)index;
+#endif
   return NULL;
 }

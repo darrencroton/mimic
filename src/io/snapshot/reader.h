@@ -1,6 +1,7 @@
 #ifndef IO_SNAPSHOT_READER_H
 #define IO_SNAPSHOT_READER_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 /* enum InputProcessingOrder and input_processing_order_name() are shared with
@@ -39,6 +40,26 @@ struct SnapshotRunInfo {
   int64_t n_forests_total;         /* run-scoped forest count (identity bound) */
   int64_t max_halo_rank_in_forest; /* run-scoped maximum rank (identity bound) */
 };
+
+/**
+ * Empty-dataset sentinel for the run-scoped identity bounds. The converter
+ * emits this pair when no snapshot in the dataset contains a halo, so there is
+ * no forest count and no rank to report (scripts/convert/links.py:468).
+ */
+#define SNAPSHOT_EMPTY_N_FORESTS ((int64_t)0)
+#define SNAPSHOT_EMPTY_MAX_RANK ((int64_t)-1)
+
+/**
+ * The only accepted input.tree_name for a snapshot-ordered configuration.
+ *
+ * This is a filename convention fixed by format_version 1, not a user-supplied
+ * pattern: configuration copies arbitrary text into MimicConfig.TreeName, so
+ * accepting anything else would either pass configured text to a printf-family
+ * format argument or silently mismatch the files on disk. Readers build their
+ * paths from a fixed internal format string; configuration only checks that the
+ * declared convention is the one the reader implements.
+ */
+#define SNAPSHOT_READER_TREE_NAME "snapshot_%03d.h5"
 
 /** Sentinel snapnum marking a slab that holds no loaded snapshot. */
 #define SNAPSHOT_SLAB_NO_SNAPSHOT ((int64_t)-1)
@@ -107,6 +128,40 @@ struct SnapshotReader {
  *          non-HDF5 builds) or if name is NULL.
  */
 const struct SnapshotReader *snapshot_reader_lookup(const char *name);
+
+/**
+ * @brief   Number of snapshot readers registered in this build.
+ *
+ * Zero in a non-HDF5 build. Together with snapshot_reader_at() this lets a test
+ * enumerate the registered names, which is how the disjointness of the tree and
+ * snapshot name sets is asserted.
+ */
+size_t snapshot_reader_count(void);
+
+/**
+ * @brief   Registered snapshot reader by index.
+ * @param   index  Position in [0, snapshot_reader_count()).
+ * @return  The reader, or NULL when index is out of range.
+ */
+const struct SnapshotReader *snapshot_reader_at(size_t index);
+
+/**
+ * @brief   Are the run-scoped identity bounds encodable with this multiplier?
+ * @param   info        Run metadata carrying n_forests_total and
+ *                      max_halo_rank_in_forest.
+ * @param   multiplier  Configured simulation.unique_galaxy_id_multiplier.
+ * @return  Non-zero when the bounds are valid, zero otherwise.
+ *
+ * The identity bounds the frozen format requires to be checked at startup
+ * (docs/dev/SNAPSHOT-HDF5-FORMAT.md:126-130): every halo rank must fit below the
+ * multiplier, and forest_index * multiplier must stay inside int64_t. A
+ * non-positive multiplier is rejected before any division is performed, so the
+ * check itself can neither divide by zero nor overflow.
+ *
+ * A predicate rather than a validator so it is directly unit-testable; callers
+ * turn a zero return into a diagnostic naming the offending values.
+ */
+int snapshot_identity_bounds_valid(const struct SnapshotRunInfo *info, int64_t multiplier);
 
 /* Dispatchers (snapshot/interface.c). Each verifies that the reader implements
    the hook it needs before calling it, so a reader may register with a subset
