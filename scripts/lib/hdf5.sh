@@ -29,6 +29,15 @@ detect_hdf5() {
     HDF5_AVAILABLE=0
     HDF5_CFLAGS=""
     HDF5_LDFLAGS=""
+    # Test-only override: force the non-HDF5 code path on a machine that has
+    # HDF5 installed, so the reduced source set stays buildable and linkable in
+    # CI-equivalent conditions. USE-HDF5 is a Make variable and cannot serve
+    # here — a hyphen is not valid in a shell variable name — so this follows
+    # the MIMIC_TEST_BUILD / MIMIC_BASELINE_RTOL environment-variable
+    # convention. Unset, detection behaves exactly as it did before.
+    if [ "${MIMIC_TEST_DISABLE_HDF5:-0}" = "1" ]; then
+        return 0
+    fi
     if pkg-config --exists hdf5 2>/dev/null; then
         HDF5_AVAILABLE=1
         HDF5_CFLAGS="$(pkg-config --cflags hdf5 2>/dev/null)"

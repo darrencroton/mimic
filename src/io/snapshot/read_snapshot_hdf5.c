@@ -1,0 +1,794 @@
+/**
+ * @file    snapshot/read_snapshot_hdf5.c
+ * @brief   snapshot_hdf5 reader: run lifecycle, validation, and count table.
+ *
+ * Reads the frozen snapshot-ordered HDF5 contract described in
+ * docs/dev/SNAPSHOT-HDF5-FORMAT.md (format_version = 1): one
+ * `snapshot_NNN.h5` file per snapshot under MimicConfig.SimulationDir, each
+ * holding exactly the `/header` and `/halos` groups.
+ *
+ * This file owns the run-level half of the reader. open_run validates the whole
+ * dataset and publishes run-scoped metadata plus a per-snapshot halo-count
+ * table, snapshot_halo_count serves that table, and close_run releases it. Slab
+ * loading is a later phase; its hooks are registered NULL until then, and the
+ * dispatchers in snapshot/interface.c report that by name rather than
+ * dereferencing NULL.
+ *
+ * Validation order per file is structure first, data second: object set, header
+ * attribute set and dtypes, header values, dataset set with dtypes and shapes,
+ * and only then the bounded data scans. A file whose shape disagrees with its
+ * header is therefore rejected rather than read. Every failure aborts naming
+ * the file and the offending object, attribute or value; nothing is repaired.
+ *
+ * The data scans (format invariant 5) are fixed-size hyperslab reads
+ * accumulating running maxima: no buffer here is proportional to n_halos.
+ *
+ * The small HDF5 helpers below are local by design rather than lifted out of
+ * tree/read_ctrees_hdf5.c, whose byte-identical output is this phase's gate and
+ * which is therefore left untouched.
+ */
+
+#ifdef HDF5
+
+#include <hdf5.h>
+
+#include <inttypes.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
+
+#include "config.h"
+#include "constants.h"
+#include "error.h"
+#include "memory.h"
+#include "snapshot/reader.h"
+#include "types.h"
+
+/* Supported on-disk contract version (docs/dev/SNAPSHOT-HDF5-FORMAT.md). */
+#define SNAPSHOT_HDF5_FORMAT_VERSION 1
+
+/* Halos read per hyperslab during the data scans. Fixed by construction so scan
+   memory is bounded independently of snapshot size. */
+#define SNAPSHOT_HDF5_SCAN_BLOCK 8192
+
+/* Room for "<SimulationDir>/snapshot_NNN.h5". */
+#define SNAPSHOT_HDF5_PATH_LEN (MAX_STRING_LEN + 32)
+
+/* The empty-dataset sentinel the converter stamps when a dataset holds no halos
+   in any snapshot (scripts/convert/links.py). */
+#define SNAPSHOT_HDF5_EMPTY_N_FORESTS ((int64_t)0)
+#define SNAPSHOT_HDF5_EMPTY_MAX_RANK ((int64_t)-1)
+
+/* ---------------------------------------------------------------------------
+ * Contract tables
+ *
+ * The names, dtypes and shapes below are the normative format_version = 1
+ * record. They are stated here rather than derived from the compiled-in
+ * simulation package on purpose: the reader validates a file against the
+ * format, not against whatever a package happens to declare.
+ * ------------------------------------------------------------------------- */
+
+enum snapshot_h5_scalar_type {
+  SNAPSHOT_H5_I32 = 0,
+  SNAPSHOT_H5_I64,
+  SNAPSHOT_H5_F32,
+  SNAPSHOT_H5_F64,
+};
+
+/** One file's header, as read. Every contract attribute is read, so every one
+    is dtype-checked -- including the physical values this phase does not
+    consume. */
+struct snapshot_h5_header {
+  int32_t format_version;
+  int32_t links_adjacent;
+  int32_t snapshot_number;
+  double scale_factor;
+  int64_t n_halos;
+  int64_t n_forests_total;
+  int64_t max_halo_rank_in_forest;
+  double box_size_mpc_h;
+  double particle_mass_msun_h;
+  double omega_matter;
+  double omega_lambda;
+  double hubble_h;
+};
+
+struct snapshot_h5_attr_spec {
+  const char *name;
+  enum snapshot_h5_scalar_type type;
+  size_t offset; /* destination field within struct snapshot_h5_header */
+};
+
+#define SNAPSHOT_H5_HEADER_ATTR(attr, dtype)                                                       \
+  {#attr, dtype, offsetof(struct snapshot_h5_header, attr)}
+
+static const struct snapshot_h5_attr_spec SNAPSHOT_H5_HEADER_ATTRS[] = {
+    SNAPSHOT_H5_HEADER_ATTR(format_version, SNAPSHOT_H5_I32),
+    SNAPSHOT_H5_HEADER_ATTR(links_adjacent, SNAPSHOT_H5_I32),
+    SNAPSHOT_H5_HEADER_ATTR(snapshot_number, SNAPSHOT_H5_I32),
+    SNAPSHOT_H5_HEADER_ATTR(scale_factor, SNAPSHOT_H5_F64),
+    SNAPSHOT_H5_HEADER_ATTR(n_halos, SNAPSHOT_H5_I64),
+    SNAPSHOT_H5_HEADER_ATTR(n_forests_total, SNAPSHOT_H5_I64),
+    SNAPSHOT_H5_HEADER_ATTR(max_halo_rank_in_forest, SNAPSHOT_H5_I64),
+    SNAPSHOT_H5_HEADER_ATTR(box_size_mpc_h, SNAPSHOT_H5_F64),
+    SNAPSHOT_H5_HEADER_ATTR(particle_mass_msun_h, SNAPSHOT_H5_F64),
+    SNAPSHOT_H5_HEADER_ATTR(omega_matter, SNAPSHOT_H5_F64),
+    SNAPSHOT_H5_HEADER_ATTR(omega_lambda, SNAPSHOT_H5_F64),
+    SNAPSHOT_H5_HEADER_ATTR(hubble_h, SNAPSHOT_H5_F64),
+};
+#define SNAPSHOT_H5_HEADER_ATTR_COUNT                                                              \
+  (sizeof(SNAPSHOT_H5_HEADER_ATTRS) / sizeof(SNAPSHOT_H5_HEADER_ATTRS[0]))
+
+struct snapshot_h5_dataset_spec {
+  const char *name;
+  enum snapshot_h5_scalar_type type;
+  int ncols; /* 0 = rank-1 column, 3 = [n_halos, 3] vector */
+};
+
+static const struct snapshot_h5_dataset_spec SNAPSHOT_H5_HALO_DATASETS[] = {
+    {"Descendant", SNAPSHOT_H5_I32, 0},
+    {"FirstProgenitor", SNAPSHOT_H5_I32, 0},
+    {"NextProgenitor", SNAPSHOT_H5_I32, 0},
+    {"FirstHaloInFOFgroup", SNAPSHOT_H5_I32, 0},
+    {"NextHaloInFOFgroup", SNAPSHOT_H5_I32, 0},
+    {"Len", SNAPSHOT_H5_I32, 0},
+    {"SnapNum", SNAPSHOT_H5_I32, 0},
+    {"M_Crit200", SNAPSHOT_H5_F32, 0},
+    {"Pos", SNAPSHOT_H5_F32, 3},
+    {"Vel", SNAPSHOT_H5_F32, 3},
+    {"Spin", SNAPSHOT_H5_F32, 3},
+    {"VelDisp", SNAPSHOT_H5_F32, 0},
+    {"Vmax", SNAPSHOT_H5_F32, 0},
+    {"MostBoundID", SNAPSHOT_H5_I64, 0},
+    {"ForestIndex", SNAPSHOT_H5_I64, 0},
+    {"HaloRankInForest", SNAPSHOT_H5_I64, 0},
+};
+#define SNAPSHOT_H5_HALO_DATASET_COUNT                                                             \
+  (sizeof(SNAPSHOT_H5_HALO_DATASETS) / sizeof(SNAPSHOT_H5_HALO_DATASETS[0]))
+
+/** Run-scoped reader state. One reader instance per process, so a file-static
+    record is sufficient (mirrors the tree readers). */
+struct snapshot_hdf5_run {
+  int is_open;
+  int64_t snapshot_count;
+  int64_t *halo_counts; /* [snapshot_count] */
+  struct SnapshotRunInfo info;
+};
+static struct snapshot_hdf5_run SNAP;
+
+/* Fixed-size scan buffers, never resized: the scans below read in blocks of
+   SNAPSHOT_HDF5_SCAN_BLOCK halos regardless of snapshot size. */
+static int32_t snapshot_h5_scan_i32[SNAPSHOT_HDF5_SCAN_BLOCK];
+static int64_t snapshot_h5_scan_i64[SNAPSHOT_HDF5_SCAN_BLOCK];
+
+/* ---------------------------------------------------------------------------
+ * Local HDF5 helpers
+ * ------------------------------------------------------------------------- */
+
+/** @brief Human-readable name of a contract dtype, for diagnostics. */
+static const char *snapshot_h5_type_name(enum snapshot_h5_scalar_type type) {
+  switch (type) {
+  case SNAPSHOT_H5_I32:
+    return "int32";
+  case SNAPSHOT_H5_I64:
+    return "int64";
+  case SNAPSHOT_H5_F32:
+    return "float32";
+  case SNAPSHOT_H5_F64:
+    return "float64";
+  }
+  return "unknown";
+}
+
+/**
+ * @brief   Does an on-disk datatype match a contract dtype?
+ *
+ * Compared by class, size and signedness rather than by H5Tequal against a
+ * native type, so the check is byte-order agnostic.
+ */
+static int snapshot_h5_type_matches(hid_t dtype, enum snapshot_h5_scalar_type expected) {
+  const H5T_class_t cls = H5Tget_class(dtype);
+  const size_t size = H5Tget_size(dtype);
+
+  switch (expected) {
+  case SNAPSHOT_H5_I32:
+    return cls == H5T_INTEGER && size == 4 && H5Tget_sign(dtype) == H5T_SGN_2;
+  case SNAPSHOT_H5_I64:
+    return cls == H5T_INTEGER && size == 8 && H5Tget_sign(dtype) == H5T_SGN_2;
+  case SNAPSHOT_H5_F32:
+    return cls == H5T_FLOAT && size == 4;
+  case SNAPSHOT_H5_F64:
+    return cls == H5T_FLOAT && size == 8;
+  }
+  return 0;
+}
+
+/** @brief Build "<SimulationDir>/snapshot_NNN.h5" with a fixed format string. */
+static void snapshot_h5_format_path(char *path, size_t path_size, int64_t snapnum) {
+  /* The format string is a literal by construction: configured text
+     (SimulationDir) is an argument, never a printf format. */
+  const int written =
+      snprintf(path, path_size, "%s/snapshot_%03d.h5", MimicConfig.SimulationDir, (int)snapnum);
+  if (written < 0 || (size_t)written >= path_size) {
+    FATAL_ERROR("Snapshot file path for snapshot %" PRId64
+                " under simulation directory '%s' does not fit in %zu bytes",
+                snapnum, MimicConfig.SimulationDir, path_size);
+  }
+}
+
+/** Iteration state for snapshot_h5_reject_unknown_attr(). */
+struct snapshot_h5_attr_scan {
+  const char *path;
+};
+
+/** @brief H5Aiterate2 callback rejecting any attribute the contract omits. */
+static herr_t snapshot_h5_reject_unknown_attr(hid_t location_id, const char *attr_name,
+                                              const H5A_info_t *ainfo, void *op_data) {
+  const struct snapshot_h5_attr_scan *scan = (const struct snapshot_h5_attr_scan *)op_data;
+  (void)location_id;
+  (void)ainfo;
+
+  for (size_t i = 0; i < SNAPSHOT_H5_HEADER_ATTR_COUNT; i++) {
+    if (strcmp(SNAPSHOT_H5_HEADER_ATTRS[i].name, attr_name) == 0) {
+      return 0;
+    }
+  }
+  FATAL_ERROR("%s: '/header' carries unexpected attribute '%s'; format_version %d defines exactly "
+              "%zu header attributes",
+              scan->path, attr_name, SNAPSHOT_HDF5_FORMAT_VERSION,
+              (size_t)SNAPSHOT_H5_HEADER_ATTR_COUNT);
+}
+
+/** @brief Validate the root object set: exactly the groups /header and /halos. */
+static void snapshot_h5_validate_object_set(hid_t file, const char *path) {
+  static const char *const expected[] = {"halos", "header"};
+  const size_t expected_count = sizeof(expected) / sizeof(expected[0]);
+
+  hid_t root = H5Gopen2(file, "/", H5P_DEFAULT);
+  if (root < 0) {
+    FATAL_ERROR("%s: could not open the root group", path);
+  }
+
+  H5G_info_t ginfo;
+  if (H5Gget_info(root, &ginfo) < 0) {
+    FATAL_ERROR("%s: could not read the root group link count", path);
+  }
+
+  for (hsize_t i = 0; i < ginfo.nlinks; i++) {
+    char name[MAX_STRING_LEN];
+    const ssize_t len = H5Lget_name_by_idx(root, ".", H5_INDEX_NAME, H5_ITER_INC, i, name,
+                                           sizeof(name), H5P_DEFAULT);
+    if (len < 0 || (size_t)len >= sizeof(name)) {
+      FATAL_ERROR("%s: could not read the name of root object %" PRIu64, path, (uint64_t)i);
+    }
+    int known = 0;
+    for (size_t e = 0; e < expected_count; e++) {
+      if (strcmp(expected[e], name) == 0) {
+        known = 1;
+        break;
+      }
+    }
+    if (!known) {
+      FATAL_ERROR("%s: unexpected root object '%s'; format_version %d defines exactly the groups "
+                  "'/header' and '/halos'",
+                  path, name, SNAPSHOT_HDF5_FORMAT_VERSION);
+    }
+  }
+
+  for (size_t e = 0; e < expected_count; e++) {
+    if (H5Lexists(root, expected[e], H5P_DEFAULT) <= 0) {
+      FATAL_ERROR("%s: required group '/%s' is missing", path, expected[e]);
+    }
+    hid_t obj = H5Gopen2(root, expected[e], H5P_DEFAULT);
+    if (obj < 0) {
+      FATAL_ERROR("%s: object '/%s' is not a group", path, expected[e]);
+    }
+    if (H5Gclose(obj) < 0) {
+      FATAL_ERROR("%s: could not close group '/%s'", path, expected[e]);
+    }
+  }
+
+  if (H5Gclose(root) < 0) {
+    FATAL_ERROR("%s: could not close the root group", path);
+  }
+}
+
+/**
+ * @brief   Read one scalar header attribute, validating its rank and dtype.
+ * @param   dst   Destination sized for the contract dtype.
+ */
+static void snapshot_h5_read_header_attr(hid_t file, const char *path,
+                                         const struct snapshot_h5_attr_spec *spec, void *dst) {
+  hid_t attr = H5Aopen_by_name(file, "/header", spec->name, H5P_DEFAULT, H5P_DEFAULT);
+  if (attr < 0) {
+    FATAL_ERROR("%s: required header attribute '%s' is missing", path, spec->name);
+  }
+
+  hid_t space = H5Aget_space(attr);
+  if (space < 0) {
+    FATAL_ERROR("%s: could not read the dataspace of header attribute '%s'", path, spec->name);
+  }
+  if (H5Sget_simple_extent_type(space) != H5S_SCALAR) {
+    FATAL_ERROR("%s: header attribute '%s' must be a scalar", path, spec->name);
+  }
+  if (H5Sclose(space) < 0) {
+    FATAL_ERROR("%s: could not close the dataspace of header attribute '%s'", path, spec->name);
+  }
+
+  hid_t dtype = H5Aget_type(attr);
+  if (dtype < 0) {
+    FATAL_ERROR("%s: could not read the datatype of header attribute '%s'", path, spec->name);
+  }
+  if (!snapshot_h5_type_matches(dtype, spec->type)) {
+    FATAL_ERROR("%s: header attribute '%s' must be %s on disk; found HDF5 type class %d of %zu "
+                "bytes",
+                path, spec->name, snapshot_h5_type_name(spec->type), (int)H5Tget_class(dtype),
+                H5Tget_size(dtype));
+  }
+
+  if (H5Aread(attr, dtype, dst) < 0) {
+    FATAL_ERROR("%s: could not read header attribute '%s'", path, spec->name);
+  }
+  if (H5Tclose(dtype) < 0 || H5Aclose(attr) < 0) {
+    FATAL_ERROR("%s: could not close header attribute '%s'", path, spec->name);
+  }
+}
+
+/**
+ * @brief   Validate the header attribute set and read every attribute.
+ *
+ * An extra attribute is rejected by the iteration; a missing one is reported by
+ * the read that needs it, naming it.
+ */
+static void snapshot_h5_read_header(hid_t file, const char *path,
+                                    struct snapshot_h5_header *header) {
+  hid_t group = H5Gopen2(file, "/header", H5P_DEFAULT);
+  if (group < 0) {
+    FATAL_ERROR("%s: could not open group '/header'", path);
+  }
+  struct snapshot_h5_attr_scan scan = {path};
+  hsize_t idx = 0;
+  if (H5Aiterate2(group, H5_INDEX_NAME, H5_ITER_INC, &idx, snapshot_h5_reject_unknown_attr, &scan) <
+      0) {
+    FATAL_ERROR("%s: could not enumerate the attributes of '/header'", path);
+  }
+  if (H5Gclose(group) < 0) {
+    FATAL_ERROR("%s: could not close group '/header'", path);
+  }
+
+  for (size_t i = 0; i < SNAPSHOT_H5_HEADER_ATTR_COUNT; i++) {
+    snapshot_h5_read_header_attr(file, path, &SNAPSHOT_H5_HEADER_ATTRS[i],
+                                 (char *)header + SNAPSHOT_H5_HEADER_ATTRS[i].offset);
+  }
+}
+
+/**
+ * @brief   Validate the /halos dataset set, dtypes, ranks and shapes.
+ *
+ * Runs before any bulk read, so a dataset of the wrong shape is rejected rather
+ * than read into a buffer sized from the header.
+ */
+static void snapshot_h5_validate_halo_datasets(hid_t file, const char *path, int64_t n_halos) {
+  hid_t group = H5Gopen2(file, "/halos", H5P_DEFAULT);
+  if (group < 0) {
+    FATAL_ERROR("%s: could not open group '/halos'", path);
+  }
+
+  H5G_info_t ginfo;
+  if (H5Gget_info(group, &ginfo) < 0) {
+    FATAL_ERROR("%s: could not read the link count of '/halos'", path);
+  }
+
+  for (hsize_t i = 0; i < ginfo.nlinks; i++) {
+    char name[MAX_STRING_LEN];
+    const ssize_t len = H5Lget_name_by_idx(group, ".", H5_INDEX_NAME, H5_ITER_INC, i, name,
+                                           sizeof(name), H5P_DEFAULT);
+    if (len < 0 || (size_t)len >= sizeof(name)) {
+      FATAL_ERROR("%s: could not read the name of '/halos' member %" PRIu64, path, (uint64_t)i);
+    }
+    int known = 0;
+    for (size_t s = 0; s < SNAPSHOT_H5_HALO_DATASET_COUNT; s++) {
+      if (strcmp(SNAPSHOT_H5_HALO_DATASETS[s].name, name) == 0) {
+        known = 1;
+        break;
+      }
+    }
+    if (!known) {
+      FATAL_ERROR("%s: unexpected dataset '/halos/%s'; format_version %d defines exactly %zu halo "
+                  "datasets",
+                  path, name, SNAPSHOT_HDF5_FORMAT_VERSION, (size_t)SNAPSHOT_H5_HALO_DATASET_COUNT);
+    }
+  }
+
+  for (size_t s = 0; s < SNAPSHOT_H5_HALO_DATASET_COUNT; s++) {
+    const struct snapshot_h5_dataset_spec *spec = &SNAPSHOT_H5_HALO_DATASETS[s];
+
+    if (H5Lexists(group, spec->name, H5P_DEFAULT) <= 0) {
+      FATAL_ERROR("%s: required dataset '/halos/%s' is missing", path, spec->name);
+    }
+
+    hid_t dset = H5Dopen2(group, spec->name, H5P_DEFAULT);
+    if (dset < 0) {
+      FATAL_ERROR("%s: could not open dataset '/halos/%s'", path, spec->name);
+    }
+
+    hid_t dtype = H5Dget_type(dset);
+    if (dtype < 0) {
+      FATAL_ERROR("%s: could not read the datatype of '/halos/%s'", path, spec->name);
+    }
+    if (!snapshot_h5_type_matches(dtype, spec->type)) {
+      FATAL_ERROR("%s: dataset '/halos/%s' must be %s on disk; found HDF5 type class %d of %zu "
+                  "bytes",
+                  path, spec->name, snapshot_h5_type_name(spec->type), (int)H5Tget_class(dtype),
+                  H5Tget_size(dtype));
+    }
+    if (H5Tclose(dtype) < 0) {
+      FATAL_ERROR("%s: could not close the datatype of '/halos/%s'", path, spec->name);
+    }
+
+    hid_t space = H5Dget_space(dset);
+    if (space < 0) {
+      FATAL_ERROR("%s: could not read the dataspace of '/halos/%s'", path, spec->name);
+    }
+    const int expected_rank = spec->ncols == 0 ? 1 : 2;
+    const int rank = H5Sget_simple_extent_ndims(space);
+    if (rank != expected_rank) {
+      FATAL_ERROR("%s: dataset '/halos/%s' must have rank %d; found rank %d", path, spec->name,
+                  expected_rank, rank);
+    }
+    hsize_t dims[2] = {0, 0};
+    if (H5Sget_simple_extent_dims(space, dims, NULL) != expected_rank) {
+      FATAL_ERROR("%s: could not read the extent of '/halos/%s'", path, spec->name);
+    }
+    if ((int64_t)dims[0] != n_halos) {
+      FATAL_ERROR("%s: dataset '/halos/%s' has length %" PRIu64 " but header n_halos is %" PRId64,
+                  path, spec->name, (uint64_t)dims[0], n_halos);
+    }
+    if (expected_rank == 2 && (int)dims[1] != spec->ncols) {
+      FATAL_ERROR("%s: dataset '/halos/%s' must have shape [%" PRId64
+                  ", %d]; found second dimension %" PRIu64,
+                  path, spec->name, n_halos, spec->ncols, (uint64_t)dims[1]);
+    }
+    if (H5Sclose(space) < 0) {
+      FATAL_ERROR("%s: could not close the dataspace of '/halos/%s'", path, spec->name);
+    }
+    if (H5Dclose(dset) < 0) {
+      FATAL_ERROR("%s: could not close dataset '/halos/%s'", path, spec->name);
+    }
+  }
+
+  if (H5Gclose(group) < 0) {
+    FATAL_ERROR("%s: could not close group '/halos'", path);
+  }
+}
+
+/** @brief Read [offset, offset+count) of a validated rank-1 dataset into buf. */
+static void snapshot_h5_read_block(hid_t dset, hid_t space, const char *path,
+                                   const char *dataset_name, hid_t mem_type, hsize_t offset,
+                                   hsize_t count, void *buf) {
+  const hsize_t start[1] = {offset};
+  const hsize_t block[1] = {count};
+
+  if (H5Sselect_hyperslab(space, H5S_SELECT_SET, start, NULL, block, NULL) < 0) {
+    FATAL_ERROR("%s: could not select halos [%" PRIu64 ", %" PRIu64 ") of '/halos/%s'", path,
+                (uint64_t)offset, (uint64_t)(offset + count), dataset_name);
+  }
+  hid_t memspace = H5Screate_simple(1, block, NULL);
+  if (memspace < 0) {
+    FATAL_ERROR("%s: could not create a read buffer dataspace for '/halos/%s'", path, dataset_name);
+  }
+  if (H5Dread(dset, mem_type, memspace, space, H5P_DEFAULT, buf) < 0) {
+    FATAL_ERROR("%s: could not read halos [%" PRIu64 ", %" PRIu64 ") of '/halos/%s'", path,
+                (uint64_t)offset, (uint64_t)(offset + count), dataset_name);
+  }
+  if (H5Sclose(memspace) < 0) {
+    FATAL_ERROR("%s: could not close the read buffer dataspace for '/halos/%s'", path,
+                dataset_name);
+  }
+}
+
+/** @brief Open one validated /halos dataset and its dataspace for scanning. */
+static void snapshot_h5_open_scan(hid_t file, const char *path, const char *dataset_name,
+                                  hid_t *dset, hid_t *space) {
+  char full_name[MAX_STRING_LEN];
+  const int written = snprintf(full_name, sizeof(full_name), "/halos/%s", dataset_name);
+  if (written < 0 || (size_t)written >= sizeof(full_name)) {
+    FATAL_ERROR("%s: dataset name '/halos/%s' is too long", path, dataset_name);
+  }
+
+  *dset = H5Dopen2(file, full_name, H5P_DEFAULT);
+  if (*dset < 0) {
+    FATAL_ERROR("%s: could not open dataset '%s' for validation", path, full_name);
+  }
+  *space = H5Dget_space(*dset);
+  if (*space < 0) {
+    FATAL_ERROR("%s: could not read the dataspace of '%s'", path, full_name);
+  }
+}
+
+static void snapshot_h5_close_scan(const char *path, const char *dataset_name, hid_t dset,
+                                   hid_t space) {
+  if (H5Sclose(space) < 0 || H5Dclose(dset) < 0) {
+    FATAL_ERROR("%s: could not close dataset '/halos/%s' after validation", path, dataset_name);
+  }
+}
+
+/**
+ * @brief   Invariant 5: every SnapNum equals the file's snapshot_number.
+ */
+static void snapshot_h5_scan_snapnum(hid_t file, const char *path, int64_t n_halos,
+                                     int32_t snapshot_number) {
+  hid_t dset, space;
+  snapshot_h5_open_scan(file, path, "SnapNum", &dset, &space);
+
+  for (int64_t offset = 0; offset < n_halos; offset += SNAPSHOT_HDF5_SCAN_BLOCK) {
+    const int64_t remaining = n_halos - offset;
+    const int64_t count =
+        remaining < SNAPSHOT_HDF5_SCAN_BLOCK ? remaining : (int64_t)SNAPSHOT_HDF5_SCAN_BLOCK;
+    snapshot_h5_read_block(dset, space, path, "SnapNum", H5T_NATIVE_INT32, (hsize_t)offset,
+                           (hsize_t)count, snapshot_h5_scan_i32);
+    for (int64_t i = 0; i < count; i++) {
+      if (snapshot_h5_scan_i32[i] != snapshot_number) {
+        FATAL_ERROR("%s: '/halos/SnapNum' is %" PRId32 " at halo %" PRId64
+                    " but the header snapshot_number is %" PRId32,
+                    path, snapshot_h5_scan_i32[i], offset + i, snapshot_number);
+      }
+    }
+  }
+
+  snapshot_h5_close_scan(path, "SnapNum", dset, space);
+}
+
+/**
+ * @brief   Running maximum of an int64 /halos column, with a range check.
+ * @param   lower_bound  Inclusive lower bound; a smaller value aborts.
+ * @param   upper_bound  Inclusive upper bound; a larger value aborts. Pass
+ *                       (INT64_MIN, INT64_MAX) to accept any value.
+ * @return  Maximum over this file, or INT64_MIN if it holds no halos.
+ */
+static int64_t snapshot_h5_scan_i64_max(hid_t file, const char *path, const char *dataset_name,
+                                        int64_t n_halos, int64_t lower_bound, int64_t upper_bound) {
+  hid_t dset, space;
+  int64_t measured = INT64_MIN;
+
+  snapshot_h5_open_scan(file, path, dataset_name, &dset, &space);
+
+  for (int64_t offset = 0; offset < n_halos; offset += SNAPSHOT_HDF5_SCAN_BLOCK) {
+    const int64_t remaining = n_halos - offset;
+    const int64_t count =
+        remaining < SNAPSHOT_HDF5_SCAN_BLOCK ? remaining : (int64_t)SNAPSHOT_HDF5_SCAN_BLOCK;
+    snapshot_h5_read_block(dset, space, path, dataset_name, H5T_NATIVE_INT64, (hsize_t)offset,
+                           (hsize_t)count, snapshot_h5_scan_i64);
+    for (int64_t i = 0; i < count; i++) {
+      const int64_t value = snapshot_h5_scan_i64[i];
+      if (value < lower_bound || value > upper_bound) {
+        FATAL_ERROR("%s: '/halos/%s' is %" PRId64 " at halo %" PRId64
+                    "; the permitted range is [%" PRId64 ", %" PRId64 "]",
+                    path, dataset_name, value, offset + i, lower_bound, upper_bound);
+      }
+      if (value > measured) {
+        measured = value;
+      }
+    }
+  }
+
+  snapshot_h5_close_scan(path, dataset_name, dset, space);
+  return measured;
+}
+
+/* ---------------------------------------------------------------------------
+ * Reader hooks
+ * ------------------------------------------------------------------------- */
+
+/**
+ * @brief   Open and fully validate the configured snapshot dataset.
+ *
+ * Publishes run-scoped metadata and builds the per-snapshot halo-count table
+ * served by snapshot_halo_count().
+ */
+static void open_run_snapshot_hdf5(struct SnapshotRunInfo *info) {
+  if (SNAP.is_open) {
+    FATAL_ERROR("snapshot_hdf5: open_run called while a run is already open");
+  }
+  if (MimicConfig.Snaplistlen <= 0) {
+    FATAL_ERROR("snapshot_hdf5: the snapshot list is empty (Snaplistlen = %d); there is nothing to "
+                "open",
+                MimicConfig.Snaplistlen);
+  }
+
+  const int64_t snapshot_count = (int64_t)MimicConfig.Snaplistlen;
+  int64_t *halo_counts = mymalloc_cat(sizeof(int64_t) * (size_t)snapshot_count, MEM_TREES);
+
+  int32_t format_version = 0;
+  int64_t n_forests_total = 0;
+  int64_t max_halo_rank_in_forest = 0;
+  int64_t total_halos = 0;
+  int64_t measured_max_forest_index = INT64_MIN;
+  int64_t measured_max_halo_rank = INT64_MIN;
+  int is_empty_dataset = 0;
+
+  for (int64_t snap = 0; snap < snapshot_count; snap++) {
+    char path[SNAPSHOT_HDF5_PATH_LEN];
+    snapshot_h5_format_path(path, sizeof(path), snap);
+
+    if (access(path, R_OK) != 0) {
+      FATAL_ERROR("%s: no readable file for configured snapshot %" PRId64
+                  "; every snapshot in the snapshot list must have a snapshot_NNN.h5 file",
+                  path, snap);
+    }
+
+    hid_t file = H5Fopen(path, H5F_ACC_RDONLY, H5P_DEFAULT);
+    if (file < 0) {
+      FATAL_ERROR("%s: could not open the file as HDF5", path);
+    }
+
+    /* Structure before values, values before bulk reads. */
+    snapshot_h5_validate_object_set(file, path);
+
+    struct snapshot_h5_header header;
+    snapshot_h5_read_header(file, path, &header);
+
+    if (header.format_version != SNAPSHOT_HDF5_FORMAT_VERSION) {
+      FATAL_ERROR("%s: header attribute 'format_version' is %" PRId32
+                  " but this reader supports only version %d",
+                  path, header.format_version, SNAPSHOT_HDF5_FORMAT_VERSION);
+    }
+    if (header.links_adjacent != 1) {
+      FATAL_ERROR("%s: header attribute 'links_adjacent' is %" PRId32
+                  " but format_version %d requires 1",
+                  path, header.links_adjacent, SNAPSHOT_HDF5_FORMAT_VERSION);
+    }
+    if ((int64_t)header.snapshot_number != snap) {
+      FATAL_ERROR("%s: header attribute 'snapshot_number' is %" PRId32
+                  " but the filename names snapshot %" PRId64,
+                  path, header.snapshot_number, snap);
+    }
+    if (header.n_halos < 0 || header.n_halos > (int64_t)INT32_MAX) {
+      FATAL_ERROR("%s: header attribute 'n_halos' is %" PRId64 "; it must lie in [0, %" PRId64 "]",
+                  path, header.n_halos, (int64_t)INT32_MAX);
+    }
+    if (header.scale_factor != MimicConfig.AA[snap]) {
+      FATAL_ERROR("%s: header attribute 'scale_factor' is %.17g but snapshot list entry %" PRId64
+                  " is %.17g; they must agree exactly",
+                  path, header.scale_factor, snap, MimicConfig.AA[snap]);
+    }
+
+    if (snap == 0) {
+      format_version = header.format_version;
+      n_forests_total = header.n_forests_total;
+      max_halo_rank_in_forest = header.max_halo_rank_in_forest;
+      is_empty_dataset = (n_forests_total == SNAPSHOT_HDF5_EMPTY_N_FORESTS &&
+                          max_halo_rank_in_forest == SNAPSHOT_HDF5_EMPTY_MAX_RANK);
+      if (!is_empty_dataset && (n_forests_total < 0 || max_halo_rank_in_forest < 0)) {
+        FATAL_ERROR("%s: header attributes 'n_forests_total' (%" PRId64
+                    ") and 'max_halo_rank_in_forest' (%" PRId64
+                    ") must both be non-negative, or exactly the empty-dataset sentinel (%" PRId64
+                    ", %" PRId64 ")",
+                    path, n_forests_total, max_halo_rank_in_forest, SNAPSHOT_HDF5_EMPTY_N_FORESTS,
+                    SNAPSHOT_HDF5_EMPTY_MAX_RANK);
+      }
+    } else {
+      if (header.n_forests_total != n_forests_total) {
+        FATAL_ERROR("%s: header attribute 'n_forests_total' is %" PRId64
+                    " but snapshot 0 declares %" PRId64 "; it is run-scoped and must be identical "
+                    "in every file",
+                    path, header.n_forests_total, n_forests_total);
+      }
+      if (header.max_halo_rank_in_forest != max_halo_rank_in_forest) {
+        FATAL_ERROR("%s: header attribute 'max_halo_rank_in_forest' is %" PRId64
+                    " but snapshot 0 declares %" PRId64 "; it is run-scoped and must be identical "
+                    "in every file",
+                    path, header.max_halo_rank_in_forest, max_halo_rank_in_forest);
+      }
+    }
+
+    if (is_empty_dataset && header.n_halos > 0) {
+      FATAL_ERROR("%s: the header carries the empty-dataset sentinel (n_forests_total %" PRId64
+                  ", max_halo_rank_in_forest %" PRId64 ") but declares %" PRId64 " halos",
+                  path, n_forests_total, max_halo_rank_in_forest, header.n_halos);
+    }
+    if (!is_empty_dataset && n_forests_total == 0 && header.n_halos > 0) {
+      FATAL_ERROR("%s: header attribute 'n_forests_total' is 0 but the file declares %" PRId64
+                  " halos",
+                  path, header.n_halos);
+    }
+
+    snapshot_h5_validate_halo_datasets(file, path, header.n_halos);
+
+    /* Invariant 5's measured-data component. Bounded block scans only. */
+    snapshot_h5_scan_snapnum(file, path, header.n_halos, header.snapshot_number);
+    if (header.n_halos > 0) {
+      const int64_t file_max_rank = snapshot_h5_scan_i64_max(file, path, "HaloRankInForest",
+                                                             header.n_halos, INT64_MIN, INT64_MAX);
+      if (file_max_rank > measured_max_halo_rank) {
+        measured_max_halo_rank = file_max_rank;
+      }
+      const int64_t file_max_forest = snapshot_h5_scan_i64_max(
+          file, path, "ForestIndex", header.n_halos, 0, n_forests_total - 1);
+      if (file_max_forest > measured_max_forest_index) {
+        measured_max_forest_index = file_max_forest;
+      }
+    }
+
+    halo_counts[snap] = header.n_halos;
+    total_halos += header.n_halos;
+
+    if (H5Fclose(file) < 0) {
+      FATAL_ERROR("%s: could not close the file", path);
+    }
+  }
+
+  if (is_empty_dataset) {
+    if (total_halos > 0) {
+      FATAL_ERROR("The dataset under '%s' carries the empty-dataset sentinel (n_forests_total "
+                  "%" PRId64 ", max_halo_rank_in_forest %" PRId64 ") but holds %" PRId64 " halos",
+                  MimicConfig.SimulationDir, n_forests_total, max_halo_rank_in_forest, total_halos);
+    }
+  } else if (total_halos > 0) {
+    if (measured_max_halo_rank != max_halo_rank_in_forest) {
+      FATAL_ERROR("The dataset under '%s' declares max_halo_rank_in_forest %" PRId64
+                  " but the measured maximum of '/halos/HaloRankInForest' is %" PRId64,
+                  MimicConfig.SimulationDir, max_halo_rank_in_forest, measured_max_halo_rank);
+    }
+    if (measured_max_forest_index != n_forests_total - 1) {
+      FATAL_ERROR("The dataset under '%s' declares n_forests_total %" PRId64
+                  " but the measured maximum of '/halos/ForestIndex' is %" PRId64 "; it must be "
+                  "%" PRId64,
+                  MimicConfig.SimulationDir, n_forests_total, measured_max_forest_index,
+                  n_forests_total - 1);
+    }
+  }
+
+  SNAP.is_open = 1;
+  SNAP.snapshot_count = snapshot_count;
+  SNAP.halo_counts = halo_counts;
+  SNAP.info.snapshot_count = snapshot_count;
+  SNAP.info.format_version = format_version;
+  SNAP.info.n_forests_total = n_forests_total;
+  SNAP.info.max_halo_rank_in_forest = max_halo_rank_in_forest;
+
+  *info = SNAP.info;
+}
+
+/** @brief Release everything open_run acquired. */
+static void close_run_snapshot_hdf5(void) {
+  if (!SNAP.is_open) {
+    FATAL_ERROR("snapshot_hdf5: close_run called with no open run");
+  }
+
+  myfree(SNAP.halo_counts);
+  SNAP.halo_counts = NULL;
+  SNAP.snapshot_count = 0;
+  SNAP.is_open = 0;
+  memset(&SNAP.info, 0, sizeof(SNAP.info));
+}
+
+/** @brief Halo count of one snapshot, from the table open_run built. */
+static int64_t snapshot_halo_count_snapshot_hdf5(int64_t snapnum) {
+  if (!SNAP.is_open) {
+    FATAL_ERROR("snapshot_hdf5: snapshot_halo_count called with no open run");
+  }
+  if (snapnum < 0 || snapnum >= SNAP.snapshot_count) {
+    FATAL_ERROR("snapshot_hdf5: snapshot %" PRId64 " is outside the open run's range [0, %" PRId64
+                ")",
+                snapnum, SNAP.snapshot_count);
+  }
+  return SNAP.halo_counts[snapnum];
+}
+
+/* Snapshot-ordered HDF5: one file per snapshot, validated in full at open.
+   load_slab/release_slab arrive with the slab-loading phase; until then the
+   dispatchers report them as unimplemented by name. */
+const struct SnapshotReader SnapshotHDF5Reader = {
+    .name = "snapshot_hdf5",
+    .processing_order = INPUT_PROCESSING_ORDER_SNAPSHOT,
+    .open_run = open_run_snapshot_hdf5,
+    .close_run = close_run_snapshot_hdf5,
+    .snapshot_halo_count = snapshot_halo_count_snapshot_hdf5,
+    .load_slab = NULL,
+    .release_slab = NULL,
+};
+
+#endif /* HDF5 */
