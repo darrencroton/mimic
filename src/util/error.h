@@ -54,10 +54,20 @@ void disable_debug_log_rate_limiting(void);
 int is_debug_log_rate_limiting_enabled(void);
 FILE *set_log_output(FILE *output_file);
 
+// Both GCC and Clang define __GNUC__; expands to nothing elsewhere.
+#if defined(__GNUC__)
+#define MIMIC_NORETURN __attribute__((noreturn))
+#else
+#define MIMIC_NORETURN
+#endif
+
 // Process-exit hook invoked by the FATAL_ERROR/IO_FATAL_ERROR macros below.
 // Declared here so every translation unit that uses those macros has a
 // prototype without depending on proto.h (defined in src/core/main.c).
-void myexit(int signum);
+// Marked noreturn (it always calls exit) so compilers and static analysers know
+// FATAL_ERROR terminates; without it they report unreachable cleanup as a
+// double free and treat post-FATAL_ERROR code as live.
+MIMIC_NORETURN void myexit(int signum);
 
 // I/O-specific error handling function prototypes
 const char *get_io_error_name(IOErrorCode code);
