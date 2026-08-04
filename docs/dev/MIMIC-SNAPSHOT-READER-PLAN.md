@@ -491,6 +491,8 @@ Because `tree_name` is required unconditionally, the snapshot package **declares
 
 ## Deferred and Out of Scope (recorded so nothing is silently dropped)
 
+**Status note added 2026-08-04.** Five items below were *decisions* rather than tasks, and all five are now settled in `MIMIC-DUAL-DRIVER-PLAN.md`'s Phase 5 section after a two-round adversarial review (`codex gpt-5.6-sol`, high effort, read-only): the `virial.c` coupling (explicit input view, as an early standalone slice), the identity-field access mechanism (removed from the property system entirely — reader-owned parallel arrays on `struct SnapshotSlab`), the `galaxy_id.h` encoder replacement (wider than this plan recorded: three tree-reader sites also hard-code `TREE_MUL_FAC`), physical header agreement (abort at `open_run`, rounding tolerance, all files), and open-time validation cost (measure at Shin-Uchuu scale, do not pre-emptively relax). **Read the dual-driver plan for the resolutions; the entries below record what Phase 4b found, not what Phase 5 will do.**
+
 - **Full micro-Uchuu dataset regeneration** — operator precondition 3, **done 2026-08-03** and no longer deferred. Phase 5's prerequisite is satisfied, and Slice 4's opt-in test is now a real check rather than a SKIP.
 - **`populate_halo_payload_from_snapshot.inc`** and the accompanying snapshot accessor family — Phase 5. Adding it also requires an entry in `scripts/check_generated.py`'s hand-maintained file list, or it will silently drift.
 - **`virial.c` tree-index coupling** — `get_virial_mass` and its siblings call `mimic_tree_get_*` internally, so Phase 5 must either emit snapshot-flavoured virial helpers or refactor them to take explicit arguments. The largest hidden coupling found while planning.
