@@ -338,9 +338,11 @@ For balanced work, choose a rank count that divides `last_file - first_file + 1`
 
 ## Choosing Model and Simulation Packages
 
-Both halves of a Mimic run are interchangeable packages. **Model packages** live under `models/`, and each one is self-documenting: its README describes the scientific scope, module pipeline, parameters, and references, and its `input/` directory holds ready-to-run configurations. **Simulation packages** live under `simulations/` and wrap a merger-tree catalogue with its cosmology, units, and snapshot list. The workflow in this guide applies to every combination equally — including packages you build yourself.
+Both halves of a Mimic run are interchangeable packages. **Model packages** live under `models/`, and each one is self-documenting: its README describes the scientific scope, module pipeline, parameters, and references, and its `input/` directory holds ready-to-run configurations. **Simulation packages** live under `simulations/` and wrap a merger-tree catalogue with its cosmology, units, and snapshot list. The workflow in this guide applies to every *runnable* combination equally — including packages you build yourself.
 
-To run any pairing, build for it and use the matching run file:
+One current exception: `micro-uchuu-snapshot` is **input-only** until the snapshot-ordered driver lands. It is a snapshot-ordered package, no model can run on it yet, and it deliberately ships no run file — see [Input Tree Formats](#input-tree-formats). A package is runnable when a run file pairs it with a model under `models/<model>/input/`.
+
+To run any runnable pairing, build for it and use the matching run file:
 
 ```bash
 make MODEL=<model> SIMULATION=<simulation>
