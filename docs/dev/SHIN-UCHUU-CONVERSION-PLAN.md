@@ -474,8 +474,8 @@ One sequence (see `MIMIC-DUAL-DRIVER-PLAN.md`):
 
 1. Freeze the format contract (this plan's schema → durable `docs/` spec)
 2. **Build this converter; validate on micro-Uchuu ASCII** (topology cross-check vs `read_ctrees_ascii.c`) — no new Mimic code needed
-3. Dual-driver Phase 4b: snapshot reader against the micro-Uchuu fixtures
-4. Dual-driver Phase 5: snapshot driver + cross-format identity gate on micro-Uchuu
+3. ~~Dual-driver Phase 4b: snapshot reader against the micro-Uchuu fixtures~~ — **done 2026-08-04** (`MIMIC-SNAPSHOT-READER-PLAN.md`); the format this plan emits is now readable and validated by Mimic
+4. Dual-driver Phase 5: snapshot driver + cross-format identity gate on micro-Uchuu — **← next**
 5. **Then** the one-time 5.6 TB Shin-Uchuu production conversion (this plan at full scale)
 6. `simulations/shin-uchuu/` package; sage16 end to end; HMF/GSMF sanity at z = 0, 1, 2
 

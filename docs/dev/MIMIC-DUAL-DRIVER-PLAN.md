@@ -179,6 +179,8 @@ Snapshot-global operation hooks may be identified, but production global module 
 
 **Gate:** all standard checks and tests pass, and the cross-format identity test (defined above) is green on micro-Uchuu with snapshot-global physics disabled — run under **both** timestep schemes (fixed `SubSteps` and `TimestepScheme: dynamic`) so `time_interval`/substep derivation mismatches cannot hide.
 
+**Practical note on building a comparison baseline (recorded 2026-08-04 from the Phase 4b run).** The identity gate compares output produced by two different builds, and Phase 4b's byte-identical tree-path check had the same shape. Do **not** plan to stand up the second build with `git worktree add <commit> && make`: in a worktree `.git` is a *file* pointing at the real git directory, not a directory, so the Makefile's `.git/HEAD` prerequisite for `build/generated/git_version.h` has no rule and the build dies with `No rule to make target '.git/HEAD'`. Phase 4b hit this directly. Use `git clone --shared . <dir> && git -C <dir> checkout <commit>` instead, which has a real `.git`; mini-millennium needs no data symlinks because its input is the committed `tests/data/input/trees_063.0`. Better still, capture the "before" side from the unmodified tree before starting the work. Either fix the Makefile prerequisite to tolerate a worktree `.git` file or keep prescribing the clone — but do not prescribe the worktree.
+
 ### Then: Shin-Uchuu Production
 
 The 5.6 TB conversion runs exactly once, after the identity gate proves the format and driver. Production conversion, the `simulations/shin-uchuu/` package, and the end-to-end run are specified in `SHIN-UCHUU-CONVERSION-PLAN.md`.
