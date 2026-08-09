@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generated_by": "scripts/generate_properties.py",
-  "source_md5": "86a97bc9f7e78c3d416d5129075daf93",
+  "source_md5": "18baff79b5c10f2d7b575372fdaa76c1",
   "model": "sage16",
   "model_path": "models/sage16",
   "reference_units": {
@@ -51,7 +51,7 @@
       "offset": 8,
       "size": 8,
       "units": "dimensionless",
-      "description": "Persistent run-scoped unique galaxy identifier across all snapshots (creation_halonr + 10^9 * forestnr_global)"
+      "description": "Persistent run-scoped unique galaxy identifier across all snapshots (creation_halonr + 10^9 * (forestnr_global + 1))"
     },
     {
       "name": "UniqueCentralGalaxyID",

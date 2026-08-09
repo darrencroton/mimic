@@ -10,6 +10,16 @@
 #            to core halo tracking algorithms. Never regenerate to "fix"
 #            a failing test - investigate the failure first!
 #
+# LAYOUT FREEZE: the committed HDF5 baseline is intentionally frozen at a
+#            pre-precision-widening record layout (its sidecar declares
+#            binary_record_size 224 vs the current 264). The baseline
+#            comparison decodes each side with its own schema and compares
+#            values within tolerance, so the old layout is deliberate, not
+#            stale. Running this script re-lays the baseline out to the
+#            CURRENT schema - that is a real baseline regeneration and needs
+#            the scientific-method evidence discipline, not just a green
+#            comparison afterwards.
+#
 # Usage:
 #   ./scripts/regenerate_baseline.sh
 #   ./scripts/regenerate_baseline.sh --help
