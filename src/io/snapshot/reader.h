@@ -154,9 +154,10 @@ const struct SnapshotReader *snapshot_reader_at(size_t index);
  *
  * The identity bounds the frozen format requires to be checked at startup
  * (docs/dev/SNAPSHOT-HDF5-FORMAT.md:126-130): every halo rank must fit below the
- * multiplier, and forest_index * multiplier must stay inside int64_t. A
- * non-positive multiplier is rejected before any division is performed, so the
- * check itself can neither divide by zero nor overflow.
+ * multiplier, and multiplier * (n_forests_total + 1) must fit in int64_t (the
+ * + 1 reserves the encoder's forest offset). A non-positive multiplier is
+ * rejected before any division is performed, so the check itself can neither
+ * divide by zero nor overflow.
  *
  * A predicate rather than a validator so it is directly unit-testable; callers
  * turn a zero return into a diagnostic naming the offending values.

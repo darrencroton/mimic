@@ -19,12 +19,15 @@ temporary workdir this generator:
    production-layout dataset — every dataset element, every header attribute,
    and every ``/ForestID`` value — aborting on any difference.
 
-Chunk shape is the only permitted difference between the two. The production
-contract chunk shape is ``(65536,)``/``(65536, 3)``, which allocates 6.25 MiB
-per populated snapshot file; the frozen spec makes chunk layout a storage
-detail consumers must not depend on
-(docs/dev/SNAPSHOT-HDF5-FORMAT.md, Storage Layout), so the committed copy is
-re-chunked small and the conformance checker deliberately ignores chunk shape.
+Chunk shape and object-header time tracking are the only permitted
+differences between the two. The production contract chunk shape is
+``(65536,)``/``(65536, 3)``, which allocates 6.25 MiB per populated snapshot
+file; the frozen spec makes chunk layout a storage detail consumers must not
+depend on (docs/dev/SNAPSHOT-HDF5-FORMAT.md, Storage Layout), so the committed
+copy is re-chunked small and the conformance checker deliberately ignores
+chunk shape. The committed copy also writes with ``track_times=False``, which
+omits the object-header modification timestamps HDF5 stamps by default; that
+is what makes the committed copy byte-reproducible across regenerations.
 
 The generator also writes a canonical ``fixture_manifest.json``. The converter's
 own ``manifest.json`` is unsuitable to commit verbatim: it records absolute
@@ -45,6 +48,7 @@ Re-running regenerates byte-identical ``.h5`` files and a byte-identical
 import argparse
 import hashlib
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -623,20 +627,43 @@ def assert_fixture_features(data_dir):
 
 
 def regenerate(data_dir):
+    """Stage a full validated fixture set, then move it into place.
+
+    Everything that can fail during the build -- the converter run, re-chunking,
+    the value-equality assertion, the content-feature assertion, and the
+    manifest build -- happens in a staging directory first, so a failed build
+    leaves the committed fixture untouched. The install itself (unlink stale,
+    move staged) is a sequence of filesystem operations and is not atomic; it
+    moves the data files first and the manifest last, so an interrupted install
+    leaves a set with no manifest (loudly incomplete) rather than a stale
+    manifest beside partial data.
+    """
+    data_dir = Path(data_dir)
     with tempfile.TemporaryDirectory(prefix="mimic-snapshot-fixture-") as workdir:
         production_dir = produce_production_dataset(workdir)
-        data_dir = Path(data_dir)
+
+        staged_dir = Path(workdir) / "staged"
+        staged_dir.mkdir()
+        for name in snapshot_files(production_dir) + ["forests.h5"]:
+            rechunk_file(production_dir / name, staged_dir / name)
+        write_a_list(staged_dir / A_LIST_NAME)
+        log("wrote re-chunked copy to a staging directory")
+        assert_value_equality(production_dir, staged_dir)
+        assert_fixture_features(staged_dir)
+        write_manifest(staged_dir, build_manifest(staged_dir))
+        log("wrote fixture_manifest.json")
+
         data_dir.mkdir(parents=True, exist_ok=True)
+        for stale_name in (A_LIST_NAME, "fixture_manifest.json"):
+            stale_path = data_dir / stale_name
+            if stale_path.is_file():
+                stale_path.unlink()
         for stale in list(data_dir.glob("*.h5")):
             stale.unlink()
-        for name in snapshot_files(production_dir) + ["forests.h5"]:
-            rechunk_file(production_dir / name, data_dir / name)
-        write_a_list(data_dir / A_LIST_NAME)
-        log("wrote re-chunked copy to {}".format(data_dir))
-        assert_value_equality(production_dir, data_dir)
-        assert_fixture_features(data_dir)
-        write_manifest(data_dir, build_manifest(data_dir))
-        log("wrote fixture_manifest.json")
+        manifest_name = "fixture_manifest.json"
+        for item in sorted(staged_dir.iterdir(), key=lambda p: p.name == manifest_name):
+            shutil.move(str(item), str(data_dir / item.name))
+        log("moved the validated staged fixture into {}".format(data_dir))
 
 
 def compare_only(candidate_dir):

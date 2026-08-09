@@ -764,6 +764,21 @@ static const struct snapshot_h5_link_spec SNAPSHOT_H5_LINKS[] = {
 };
 #define SNAPSHOT_H5_LINK_COUNT (sizeof(SNAPSHOT_H5_LINKS) / sizeof(SNAPSHOT_H5_LINKS[0]))
 
+/* The link validator below reads each of these members through offsetof() and
+   a `*(const int *)` cast; nothing in that path re-checks the member's type, so
+   a package widening a link field would otherwise validate a silently
+   truncated value instead of failing to compile. */
+_Static_assert(sizeof(((struct RawHalo *)0)->FirstProgenitor) == sizeof(int),
+               "FirstProgenitor must stay int-sized for the *(const int *) link validator");
+_Static_assert(sizeof(((struct RawHalo *)0)->NextProgenitor) == sizeof(int),
+               "NextProgenitor must stay int-sized for the *(const int *) link validator");
+_Static_assert(sizeof(((struct RawHalo *)0)->FirstHaloInFOFgroup) == sizeof(int),
+               "FirstHaloInFOFgroup must stay int-sized for the *(const int *) link validator");
+_Static_assert(sizeof(((struct RawHalo *)0)->NextHaloInFOFgroup) == sizeof(int),
+               "NextHaloInFOFgroup must stay int-sized for the *(const int *) link validator");
+_Static_assert(sizeof(((struct RawHalo *)0)->Descendant) == sizeof(int),
+               "Descendant must stay int-sized for the *(const int *) link validator");
+
 /**
  * @brief   Halo count bounding one link field, and the snapshot it comes from.
  *

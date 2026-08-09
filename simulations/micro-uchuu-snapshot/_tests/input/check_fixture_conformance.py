@@ -2,10 +2,12 @@
 """Structural conformance checker for the committed snapshot-HDF5 fixtures.
 
 Asserts everything ``scripts/convert/validate.py`` asserts about the structure
-of a snapshot-HDF5 dataset **except chunk shape**: the exact object set, the
-exact header attribute names, dtypes and values, the exact ``/halos`` dataset
-set with contract dtypes and ranks/shapes, the absence of compression and other
-filters, and the ``/ForestID`` sidecar shape.
+of a snapshot-HDF5 dataset **except chunk shape**, which is the only excluded
+structural check: the exact object set, the exact header attribute names,
+dtypes and values, the ``n_halos`` value bounds, the exact ``/halos`` dataset
+set with contract dtypes and ranks/shapes, chunked (not contiguous) storage
+with the absence of compression and other filters, and the ``/ForestID``
+sidecar shape.
 
 Chunk shape is deliberately excluded. The committed fixture is re-chunked small
 so it costs kilobytes rather than the 6.25 MiB per populated snapshot the
@@ -111,6 +113,11 @@ def load_physical_metadata(path):
 def check_filters(dataset, name, failures):
     """The storage contract is chunked and UNFILTERED (chunk shape itself is
     deliberately not checked — see the module docstring)."""
+    if dataset.chunks is None:
+        failures.append(
+            "{} is stored contiguously; contiguous storage violates the contract's chunked "
+            "layout requirement (chunk shape itself is unchecked)".format(name)
+        )
     if dataset.compression is not None:
         failures.append(
             "{} is compressed ({}); the contract forbids compression".format(
@@ -180,6 +187,22 @@ def check_snapshot_file(path, snap, scale_factor, physical, failures):
                     )
                 )
 
+        # Ordered comparisons only make sense on an integer; a wrong-dtype
+        # n_halos is already reported by the dtype loop above, and comparing it
+        # here would raise instead of adding to the collected report.
+        n_halos = header.get("n_halos")
+        if not isinstance(n_halos, (int, np.integer)):
+            n_halos = None
+        if n_halos is not None:
+            if n_halos < 0:
+                failures.append("{}: attribute n_halos is {}, must be >= 0".format(prefix, n_halos))
+            if n_halos > np.iinfo(np.int32).max:
+                failures.append(
+                    "{}: attribute n_halos is {}, exceeds the int32 topology bound {}".format(
+                        prefix, n_halos, np.iinfo(np.int32).max
+                    )
+                )
+
         halos = handle["halos"]
         dataset_names = set(halos.keys())
         expected_datasets = set(HALO_DATASETS)
@@ -191,7 +214,6 @@ def check_snapshot_file(path, snap, scale_factor, physical, failures):
                     sorted(dataset_names - expected_datasets),
                 )
             )
-        n_halos = header.get("n_halos")
         for name in sorted(dataset_names & expected_datasets):
             dtype, is_vec = HALO_DATASETS[name]
             dataset = halos[name]

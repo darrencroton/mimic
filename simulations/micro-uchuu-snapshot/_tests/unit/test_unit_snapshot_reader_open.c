@@ -113,7 +113,24 @@ static int copy_file(const char *src, const char *dst) {
   return rc;
 }
 
-/** @brief Copy the committed fixture into a fresh scratch directory. */
+static void remove_staged_fixture(const char *dir) {
+  char path[MAX_STRING_LEN];
+  for (int snap = 0; snap < FIXTURE_SNAPSHOTS; snap++) {
+    snapshot_path(path, sizeof(path), dir, snap);
+    unlink(path);
+  }
+  snprintf(path, sizeof(path), "%s/%s", dir, FIXTURE_A_LIST);
+  unlink(path);
+  rmdir(dir);
+}
+
+/**
+ * @brief   Copy the committed fixture into a fresh scratch directory.
+ *
+ * A failed copy partway through leaves some files staged and others not; every
+ * failure path removes them with remove_staged_fixture() before returning, so
+ * a broken copy never leaks the mkdtemp() scratch directory.
+ */
 static int stage_fixture(char *dir, size_t dir_size) {
   char template_path[] = "/tmp/mimic_snapshot_reader_XXXXXX";
   char *made = mkdtemp(template_path);
@@ -128,24 +145,18 @@ static int stage_fixture(char *dir, size_t dir_size) {
     snapshot_path(src, sizeof(src), fixture_source_dir(), snap);
     snapshot_path(dst, sizeof(dst), dir, snap);
     if (copy_file(src, dst) != 0) {
+      remove_staged_fixture(dir);
       return -1;
     }
   }
 
   snprintf(src, sizeof(src), "%s/%s", fixture_source_dir(), FIXTURE_A_LIST);
   snprintf(dst, sizeof(dst), "%s/%s", dir, FIXTURE_A_LIST);
-  return copy_file(src, dst);
-}
-
-static void remove_staged_fixture(const char *dir) {
-  char path[MAX_STRING_LEN];
-  for (int snap = 0; snap < FIXTURE_SNAPSHOTS; snap++) {
-    snapshot_path(path, sizeof(path), dir, snap);
-    unlink(path);
+  if (copy_file(src, dst) != 0) {
+    remove_staged_fixture(dir);
+    return -1;
   }
-  snprintf(path, sizeof(path), "%s/%s", dir, FIXTURE_A_LIST);
-  unlink(path);
-  rmdir(dir);
+  return 0;
 }
 
 /**
@@ -270,6 +281,50 @@ static int retype_header_attr(const char *file_path, const char *name, hid_t fil
   return rc;
 }
 
+/** @brief Create a new scalar attribute on /header (the group must not already have one). */
+static int add_header_attr(const char *file_path, const char *name, hid_t type, const void *value) {
+  hid_t file = H5Fopen(file_path, H5F_ACC_RDWR, H5P_DEFAULT);
+  if (file < 0) {
+    return -1;
+  }
+  hid_t group = H5Gopen2(file, "/header", H5P_DEFAULT);
+  int rc = 0;
+  if (group < 0) {
+    rc = -1;
+  } else {
+    hid_t space = H5Screate(H5S_SCALAR);
+    hid_t attr = H5Acreate2(group, name, type, space, H5P_DEFAULT, H5P_DEFAULT);
+    if (attr < 0 || H5Awrite(attr, type, value) < 0) {
+      rc = -1;
+    }
+    if (attr >= 0) {
+      H5Aclose(attr);
+    }
+    H5Sclose(space);
+    H5Gclose(group);
+  }
+  H5Fclose(file);
+  return rc;
+}
+
+/** @brief Create an empty group directly under the file root. */
+static int create_root_group(const char *file_path, const char *name) {
+  char link[MAX_STRING_LEN];
+  snprintf(link, sizeof(link), "/%s", name);
+
+  hid_t file = H5Fopen(file_path, H5F_ACC_RDWR, H5P_DEFAULT);
+  if (file < 0) {
+    return -1;
+  }
+  hid_t group = H5Gcreate2(file, link, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+  const int rc = group < 0 ? -1 : 0;
+  if (group >= 0) {
+    H5Gclose(group);
+  }
+  H5Fclose(file);
+  return rc;
+}
+
 static int delete_halo_dataset(const char *file_path, const char *dataset) {
   char link[MAX_STRING_LEN];
   snprintf(link, sizeof(link), "/halos/%s", dataset);
@@ -377,6 +432,37 @@ static int set_i32_element(const char *file_path, const char *dataset, hsize_t i
   return rc;
 }
 
+/** @brief Overwrite one element of a rank-1 int64 /halos dataset. */
+static int set_i64_element(const char *file_path, const char *dataset, hsize_t index,
+                           int64_t value) {
+  char link[MAX_STRING_LEN];
+  snprintf(link, sizeof(link), "/halos/%s", dataset);
+
+  hid_t file = H5Fopen(file_path, H5F_ACC_RDWR, H5P_DEFAULT);
+  if (file < 0) {
+    return -1;
+  }
+  hid_t dset = H5Dopen2(file, link, H5P_DEFAULT);
+  int rc = 0;
+  if (dset < 0) {
+    rc = -1;
+  } else {
+    hid_t fspace = H5Dget_space(dset);
+    const hsize_t start[1] = {index};
+    const hsize_t count[1] = {1};
+    hid_t mspace = H5Screate_simple(1, count, NULL);
+    if (H5Sselect_hyperslab(fspace, H5S_SELECT_SET, start, NULL, count, NULL) < 0 ||
+        H5Dwrite(dset, H5T_NATIVE_INT64, mspace, fspace, H5P_DEFAULT, &value) < 0) {
+      rc = -1;
+    }
+    H5Sclose(mspace);
+    H5Sclose(fspace);
+    H5Dclose(dset);
+  }
+  H5Fclose(file);
+  return rc;
+}
+
 /** @brief Set every element of a rank-1 int32 /halos dataset. */
 static int set_i32_column(const char *file_path, const char *dataset, int64_t n, int32_t value) {
   for (int64_t i = 0; i < n; i++) {
@@ -439,7 +525,27 @@ static int read_halo_column(const char *file_path, const char *dataset, hid_t me
   if (dset < 0) {
     rc = -1;
   } else {
-    if (H5Dread(dset, mem_type, H5S_ALL, H5S_ALL, H5P_DEFAULT, out) < 0) {
+    /* The comparison buffers below are hard-sized from FIXTURE_MAX_HALOS; a
+       larger dataset extent would silently overflow them, so an unreadable or
+       oversized extent fails the read (callers surface it as a test failure)
+       with both handles closed rather than leaked. */
+    hid_t space = H5Dget_space(dset);
+    hsize_t dims[2] = {0, 0};
+    if (space < 0 || H5Sget_simple_extent_dims(space, dims, NULL) < 0) {
+      rc = -1;
+    }
+    if (space >= 0) {
+      H5Sclose(space);
+    }
+    if (rc == 0 && dims[0] > (hsize_t)FIXTURE_MAX_HALOS) {
+      fprintf(stderr,
+              "  dataset '/halos/%s' has extent %" PRIu64 " but the fixed comparison buffer "
+              "holds only %d; raise FIXTURE_MAX_HALOS\n",
+              dataset, (uint64_t)dims[0], FIXTURE_MAX_HALOS);
+      rc = -1;
+    }
+
+    if (rc == 0 && H5Dread(dset, mem_type, H5S_ALL, H5S_ALL, H5P_DEFAULT, out) < 0) {
       rc = -1;
     }
     H5Dclose(dset);
@@ -507,6 +613,11 @@ static int expect_fatal_capture(const char *dir, child_body_fn body, const char 
   }
 
   if (waitpid(pid, &status, 0) < 0) {
+    return -1;
+  }
+  if (used == sizeof(output) - 1) {
+    fprintf(stderr, "  child output truncated at %zu bytes; raise the capture buffer\n",
+            sizeof(output) - 1);
     return -1;
   }
   if (WIFSIGNALED(status)) {
@@ -679,6 +790,29 @@ static int corrupt_n_forests_total_vs_data(const char *dir) {
   return set_attr_i64_all(dir, "n_forests_total", 5);
 }
 
+static int corrupt_n_forests_total_below_data(const char *dir) {
+  return set_attr_i64_all(dir, "n_forests_total", 1);
+}
+
+static int corrupt_forest_index_negative(const char *dir) {
+  char path[MAX_STRING_LEN];
+  snapshot_path(path, sizeof(path), dir, 4);
+  return set_i64_element(path, "ForestIndex", 0, -1);
+}
+
+static int corrupt_extra_root_object(const char *dir) {
+  char path[MAX_STRING_LEN];
+  snapshot_path(path, sizeof(path), dir, 2);
+  return create_root_group(path, "bogus");
+}
+
+static int corrupt_extra_header_attr(const char *dir) {
+  char path[MAX_STRING_LEN];
+  int32_t value = 0;
+  snapshot_path(path, sizeof(path), dir, 1);
+  return add_header_attr(path, "bogus_attr", H5T_NATIVE_INT32, &value);
+}
+
 static int corrupt_shape_and_data(const char *dir) {
   char path[MAX_STRING_LEN];
   snapshot_path(path, sizeof(path), dir, 4);
@@ -732,6 +866,14 @@ static const struct corrupt_case CORRUPT_CASES[] = {
      "declares max_halo_rank_in_forest 2 but the measured maximum"},
     {"n_forests_total disagrees with the measured ForestIndex range",
      corrupt_n_forests_total_vs_data, NULL, "declares n_forests_total 5 but the measured maximum"},
+    {"n_forests_total below measured maximum", corrupt_n_forests_total_below_data,
+     "snapshot_001.h5", "the permitted range is [0, 0]"},
+    {"negative ForestIndex value", corrupt_forest_index_negative, "snapshot_004.h5",
+     "'/halos/ForestIndex' is -1 at halo 0"},
+    {"unexpected root object", corrupt_extra_root_object, "snapshot_002.h5",
+     "unexpected root object"},
+    {"unexpected header attribute", corrupt_extra_header_attr, "snapshot_001.h5",
+     "unexpected attribute"},
     {"structural defect is reported before any bulk read", corrupt_shape_and_data,
      "snapshot_004.h5", "dataset '/halos/Pos' must have shape [6, 3]"},
 };
