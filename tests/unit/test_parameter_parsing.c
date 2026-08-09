@@ -320,6 +320,26 @@ static int write_output_chunking_fixture(char *path, size_t path_size, const cha
   return injected ? 0 : -1;
 }
 
+/**
+ * @brief   Write a fixture that splices a fixed simulation config into the run file.
+ *
+ * The substituted simulation config always points at mini-millennium's 64-entry
+ * a_list (valid output.snapshot_list range [0, 63]), regardless of which package
+ * is selected. The source run file is the generated core test input, whose
+ * output.snapshot_list is inherited from the selected package's own a_list count
+ * (e.g. `[49]` for a 50-snapshot package, `[63]` for a 64-snapshot one) — kept
+ * as-is it can exceed the substituted config's valid range and hit the
+ * output.snapshot_list FATAL. The copy therefore drops the inherited
+ * snapshot_list and writes an explicit one within range; it also drops any
+ * inherited tree_type/tree_name (the run file does not carry these today, since
+ * they come from the simulation config being replaced, but dropping them keeps
+ * the fixture self-consistent if that ever changes).
+ *
+ * output.target_file_size_mb is set to 5000 MB rather than 4096 MB so the
+ * "simulation default" case is distinguishable from MIMIC_DEFAULT_TARGET_FILE_SIZE
+ * (also 4096 MB) — the assertion must be able to detect a sim-config value that
+ * failed to apply, not just one that coincides with the fallback.
+ */
 static int write_simulation_output_fixture(char *run_path, size_t run_path_size, const char *label,
                                            int include_run_override) {
   FILE *src;
@@ -328,6 +348,8 @@ static int write_simulation_output_fixture(char *run_path, size_t run_path_size,
   char sim_path[MAX_STRING_LEN];
   int replaced_sim_config = 0;
   int injected_run_override = 0;
+  int injected_snapshot_list = 0;
+  int skipping_output_snapshot_list = 0;
 
   if (mkdir("archive", 0777) != 0 && errno != EEXIST) {
     return -1;
@@ -351,7 +373,7 @@ static int write_simulation_output_fixture(char *run_path, size_t run_path_size,
                "  snapshot_list_file: simulations/mini-millennium/mini-millennium.a_list\n"
                "\n"
                "output:\n"
-               "  target_file_size_mb: 4096\n"
+               "  target_file_size_mb: 5000\n"
                "  forests_per_file: 2468\n"
                "\n"
                "simulation:\n"
@@ -382,13 +404,41 @@ static int write_simulation_output_fixture(char *run_path, size_t run_path_size,
   }
 
   while (fgets(line, sizeof(line), src) != NULL) {
-    if (strncmp(line, "  config:", strlen("  config:")) == 0) {
-      fprintf(dst, "  config: %s\n", sim_path);
-      replaced_sim_config = 1;
-    } else {
-      fputs(line, dst);
+    const char *cursor = line;
+    while (*cursor == ' ' || *cursor == '\t') {
+      cursor++;
     }
 
+    if (skipping_output_snapshot_list) {
+      if (*cursor == '-') {
+        continue; /* drop an inherited snapshot_list item */
+      }
+      skipping_output_snapshot_list = 0;
+    }
+
+    if (strncmp(cursor, "config:", strlen("config:")) == 0) {
+      fprintf(dst, "  config: %s\n", sim_path);
+      replaced_sim_config = 1;
+      continue;
+    }
+    if (strncmp(cursor, "snapshot_list:", strlen("snapshot_list:")) == 0) {
+      skipping_output_snapshot_list = 1;
+      continue;
+    }
+    if (strncmp(cursor, "tree_type:", strlen("tree_type:")) == 0 ||
+        strncmp(cursor, "tree_name:", strlen("tree_name:")) == 0) {
+      continue;
+    }
+
+    fputs(line, dst);
+
+    if (!injected_snapshot_list && is_output_section_header(line)) {
+      /* The substituted simulation config's a_list has 64 entries (valid
+         range [0, 63]); 63 is always in range regardless of which package's
+         own a_list count was inherited above. */
+      fputs("  snapshot_list:\n  - 63\n", dst);
+      injected_snapshot_list = 1;
+    }
     if (include_run_override && !injected_run_override && is_output_section_header(line)) {
       fputs("  target_file_size_mb: 8192\n"
             "  forests_per_file: 1357\n",
@@ -401,6 +451,9 @@ static int write_simulation_output_fixture(char *run_path, size_t run_path_size,
   fclose(src);
 
   if (!replaced_sim_config) {
+    return -1;
+  }
+  if (!injected_snapshot_list) {
     return -1;
   }
   if (include_run_override && !injected_run_override) {
@@ -969,6 +1022,50 @@ int test_snapshot_list(void) {
 }
 
 /**
+ * @brief   Derive the target_file_size_mb (in bytes) the parser is expected to produce.
+ *
+ * The generated core test run file inherits output.target_file_size_mb from the
+ * compiled simulation package, so a hard-coded 4 GiB expectation would silently
+ * assert that package's coincidental value while looking package-independent
+ * (e.g. uchuu declares 16384 MB). Mirrors read_parameter_file()'s own precedence:
+ * an explicit value in the run file wins, else the simulation config it points
+ * at, else the framework default.
+ */
+static long long expected_default_target_file_size(void) {
+  char sim_config[MAX_STRING_LEN] = "";
+  char line[1024];
+  long long mb = -1;
+  FILE *fp = fopen(test_binary_param_file(), "r");
+
+  if (fp != NULL) {
+    while (fgets(line, sizeof(line), fp) != NULL) {
+      if (sscanf(line, " target_file_size_mb: %lld", &mb) == 1) {
+        break;
+      }
+      sscanf(line, " config: %1023s", sim_config);
+    }
+    fclose(fp);
+  }
+
+  if (mb < 0 && sim_config[0] != '\0') {
+    fp = fopen(sim_config, "r");
+    if (fp != NULL) {
+      while (fgets(line, sizeof(line), fp) != NULL) {
+        if (sscanf(line, " target_file_size_mb: %lld", &mb) == 1) {
+          break;
+        }
+      }
+      fclose(fp);
+    }
+  }
+
+  if (mb < 0) {
+    return MIMIC_DEFAULT_TARGET_FILE_SIZE;
+  }
+  return mb * 1024LL * 1024LL;
+}
+
+/**
  * @test    test_output_chunking_defaults
  * @brief   Default chunking parameters are positive after parsing the canonical run file
  */
@@ -988,8 +1085,10 @@ int test_output_chunking_defaults(void) {
     TEST_ASSERT(MimicConfig.ForestsPerFile > 0,
                 "ASCII tests should inherit a positive forests_per_file default");
   } else if (MimicConfig.ForestsPerFile == MIMIC_DEFAULT_FORESTS_PER_FILE) {
-    TEST_ASSERT_EQUAL(MimicConfig.TargetFileSize, MIMIC_DEFAULT_TARGET_FILE_SIZE,
-                      "Global target_file_size fallback should be 4 GiB");
+    TEST_ASSERT_EQUAL(
+        MimicConfig.TargetFileSize, expected_default_target_file_size(),
+        "Effective target_file_size should match the compiled configuration's declared "
+        "value (falling back to the 4 GiB global default when none is declared)");
   }
 
   printf("  effective target_file_size default: %lld\n", (long long)MimicConfig.TargetFileSize);
@@ -1087,7 +1186,10 @@ int test_simulation_output_chunking_defaults_and_run_override(void) {
   read_parameter_file(simulation_default_path);
 
   /* ===== VALIDATE ===== */
-  TEST_ASSERT_EQUAL(MimicConfig.TargetFileSize, 4096LL * 1024 * 1024,
+  /* 5000 MB, not 4096 MB: distinct from MIMIC_DEFAULT_TARGET_FILE_SIZE so this
+     assertion can tell a sim-config value that was applied from one that
+     silently fell back to the global default. */
+  TEST_ASSERT_EQUAL(MimicConfig.TargetFileSize, 5000LL * 1024 * 1024,
                     "simulation output.target_file_size_mb should set the default");
   TEST_ASSERT_EQUAL(MimicConfig.ForestsPerFile, 2468LL,
                     "simulation output.forests_per_file should set the default");

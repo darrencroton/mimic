@@ -122,6 +122,13 @@ static void yaml_file_close(struct YamlFile *yf) {
   fclose(yf->fh);
 }
 
+/* Set when input.processing_order is assigned from either the simulation
+   config or the run file (parse_input_section() below). Reset alongside
+   MimicConfig.ProcessingOrder's own seed, once per read_parameter_file() call,
+   so the reader/order compatibility message can tell an explicitly configured
+   value from the internal tree_ordered seed. */
+static int ProcessingOrderConfigured = 0;
+
 /**
  * @brief   Read and parse YAML parameter file
  *
@@ -155,6 +162,7 @@ void read_parameter_file(const char *fname) {
   MimicConfig.ProcessingOrder = (int)INPUT_PROCESSING_ORDER_TREE;
   MimicConfig.reader = NULL;
   MimicConfig.snapshot_reader = NULL;
+  ProcessingOrderConfigured = 0;
 
   /*
    * Load order: simulation config file first (provides defaults), then all
@@ -831,6 +839,7 @@ static void parse_input_section(yaml_document_t *doc, yaml_node_t *section) {
   node = get_mapping_value(doc, section, "processing_order");
   if (node && (str = get_scalar_value(node))) {
     MimicConfig.ProcessingOrder = parse_processing_order(str);
+    ProcessingOrderConfigured = 1;
     DEBUG_LOG("processing_order = %s",
               input_processing_order_name((enum InputProcessingOrder)MimicConfig.ProcessingOrder));
   }
@@ -1413,11 +1422,14 @@ static void validate_and_postprocess(void) {
                        : MimicConfig.snapshot_reader->processing_order;
 
     if (reader_order != (enum InputProcessingOrder)MimicConfig.ProcessingOrder) {
-      ERROR_LOG(
-          "Reader '%s' is compatible with processing_order '%s', but "
-          "input.processing_order is '%s'",
-          reader_name, input_processing_order_name(reader_order),
-          input_processing_order_name((enum InputProcessingOrder)MimicConfig.ProcessingOrder));
+      /* Failing closed is correct either way, but a value the user never wrote
+         (the internal tree_ordered seed) should not be reported as if they had. */
+      ERROR_LOG("Reader '%s' is compatible with processing_order '%s', but "
+                "input.processing_order is '%s'%s",
+                reader_name, input_processing_order_name(reader_order),
+                input_processing_order_name((enum InputProcessingOrder)MimicConfig.ProcessingOrder),
+                ProcessingOrderConfigured ? ""
+                                          : " (the default; input.processing_order was not set)");
       errors++;
     }
 
