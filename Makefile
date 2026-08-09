@@ -304,10 +304,15 @@ export TEST_SUMMARY
 # -----------------------------------------------------------------------------
 GIT_VERSION_H = $(BUILD_DIR)/generated/git_version.h
 
+# Resolve the real git directory so the version header's prerequisites work in a
+# worktree (where .git is a file) and collapse to nothing in an exported tarball
+# (where the recipe already degrades to 'unknown' values).
+GIT_DIR := $(shell git rev-parse --git-dir 2>/dev/null)
+
 # -----------------------------------------------------------------------------
 # Build Targets
 # -----------------------------------------------------------------------------
-.PHONY: all clean tidy help info generate generate-modules generate-test-inputs check-generated check-docs check-format tests tests-unit tests-integration tests-scientific test-clean validate-modules lint-parameters validate-build summary dump-ctrees-topology-tool
+.PHONY: all clean tidy help info generate generate-modules generate-test-inputs check-generated check-docs check-format check-snapshot-fixture tests tests-unit tests-integration tests-scientific tests-converter test-clean validate-modules lint-parameters validate-build summary dump-ctrees-topology-tool
 
 all: validate-build $(EXEC)
 
@@ -320,7 +325,7 @@ validate-build:
 	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) --no-print-directory lint-parameters
 	@echo "Pre-build validation passed"
 
-$(GIT_VERSION_H): .git/HEAD .git/index
+$(GIT_VERSION_H): $(wildcard $(GIT_DIR)/HEAD $(GIT_DIR)/index)
 	@echo "Generating git version..."
 	@mkdir -p $(BUILD_DIR)/generated
 	@echo "#ifndef GIT_VERSION_H" > $@
@@ -494,6 +499,8 @@ help:
 	@echo "  make tests-unit         - Run unit tests only"
 	@echo "  make tests-integration  - Run integration tests only"
 	@echo "  make tests-scientific   - Run scientific tests only"
+	@echo "  make tests-converter    - Run the ctrees->snapshot-HDF5 converter self-tests"
+	@echo "  make check-snapshot-fixture - Check the committed snapshot fixture against the format spec"
 	@echo "  make tests summary     - Run all tests with concise warning/failure/skip output"
 	@echo "  make test-clean                   - Clean test artifacts"
 	@echo "  make generate-test-registry - Discover selected tests"
@@ -741,6 +748,9 @@ tests:
 	@if [ "$(TEST_SUMMARY)" != "1" ]; then echo ""; fi
 	$(call RUN_SUMMARY_AWARE_RECORD,$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) validate-modules,validate-modules)
 	@if [ "$(TEST_SUMMARY)" != "1" ]; then echo ""; fi
+	$(call RUN_SUMMARY_AWARE_RECORD,$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) check-snapshot-fixture,check-snapshot-fixture)
+	@if [ "$(TEST_SUMMARY)" != "1" ]; then echo ""; fi
+	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) tests-converter || { grep -qx converter build/.test_failures 2>/dev/null || echo "converter" >> build/.test_failures; true; }
 	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) tests-unit || { grep -q '^unit:' build/.test_failures 2>/dev/null || grep -qx unit build/.test_failures 2>/dev/null || echo "unit" >> build/.test_failures; true; }
 	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) tests-integration || { grep -q '^integration:' build/.test_failures 2>/dev/null || grep -qx integration build/.test_failures 2>/dev/null || echo "integration" >> build/.test_failures; true; }
 	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) tests-scientific || { grep -q '^scientific:' build/.test_failures 2>/dev/null || grep -qx scientific build/.test_failures 2>/dev/null || echo "scientific" >> build/.test_failures; true; }
@@ -755,7 +765,7 @@ tests:
 		printf "$${RED}############################################################$${NC}\n"; \
 	else \
 		printf "$${GREEN}############################################################$${NC}\n"; \
-		printf "$${GREEN}=== TLDR: ALL UNIT, INTEGRATION, SCIENTIFIC TESTS PASSED ===$${NC}\n"; \
+		printf "$${GREEN}=== TLDR: ALL TESTS AND CHECKS PASSED ===$${NC}\n"; \
 		printf "$${GREEN}############################################################$${NC}\n"; \
 	fi
 	@echo ""
@@ -763,6 +773,27 @@ tests:
 		rm -f build/.test_failures; \
 		exit 1; \
 	fi
+
+# Converter self-tests: stdlib-unittest suite for scripts/convert/ (the
+# external ctrees -> snapshot-HDF5 converter). Independent of MODEL/SIMULATION
+# and of the C build. Unlike $(PYTHON), this always prefers mimic_venv when it
+# exists: the suite needs the venv stack (pandas, h5py) even when the venv is
+# not activated in the calling shell.
+CONVERTER_PYTHON := $(shell if [ -f mimic_venv/bin/python3 ]; then echo mimic_venv/bin/python3; else echo python3; fi)
+tests-converter:
+	@if [ "$(TEST_SUMMARY)" != "1" ]; then echo ""; fi
+	@. scripts/lib/colors.sh; \
+	printf "$${BLUE}============================================================$${NC}\n"; \
+	printf "$${BLUE}RUNNING CONVERTER TESTS$${NC}\n"; \
+	printf "$${BLUE}============================================================$${NC}\n"
+	$(call RUN_SUMMARY_AWARE,$(CONVERTER_PYTHON) -m unittest discover -s scripts/convert/tests,converter tests)
+
+# Structural conformance of the committed snapshot-HDF5 contract fixture
+# (simulations/micro-uchuu-snapshot/_tests/data/) against the frozen format
+# spec. Package-independent and fast; keeps the fixture from drifting between
+# the manual regeneration runs that produce it.
+check-snapshot-fixture:
+	$(call RUN_SUMMARY_AWARE,$(CONVERTER_PYTHON) simulations/micro-uchuu-snapshot/_tests/input/check_fixture_conformance.py simulations/micro-uchuu-snapshot/_tests/data,snapshot fixture conformance)
 
 tests-unit:
 	@if [ "$(TEST_SUMMARY)" != "1" ]; then echo ""; fi

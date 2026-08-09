@@ -40,8 +40,10 @@ echo "exit_code=$rc"   # non-zero = failure regardless of log text
 | Unit | `make tests-unit` | C; direct function calls, no full pipeline | up to ~3 min |
 | Integration | `make tests-integration` | Python; real `./mimic` runs via run files; keep each test under ~30 s | up to ~3 min |
 | Scientific | `make tests-scientific` | Python; physics contracts vs reference data and metadata-declared ranges | ~30 s |
+| Converter | `make tests-converter` | Python stdlib-unittest suite for `scripts/convert/`; package-independent, needs `mimic_venv` | ~10 s |
+| Fixture conformance | `make check-snapshot-fixture` | Structural check of the committed snapshot-HDF5 fixture against the frozen format spec | seconds |
 
-`make tests` composes: clean → generate test registry → one build → `check-docs` → `validate-modules` → all three tiers, accumulating failures in `build/.test_failures` and printing a final verdict block. Append the `summary` goal to any test target to filter output to `MIMIC_RESULT:` FAIL/SKIP/WARN/ERROR lines (PASS suppressed; infra steps silenced on success, dumped in full on failure; a crashing test that emits no markers dumps its full log). Unit and integration are long with large output — when orchestrating from a main agent context, delegate the run and act on the summarized report (AGENTS.md testing strategy).
+`make tests` composes: clean → generate test registry → one build → `check-docs` → `validate-modules` → `check-snapshot-fixture` → `tests-converter` → all three tiers, accumulating failures in `build/.test_failures` and printing a final verdict block. Append the `summary` goal to any test target to filter output to `MIMIC_RESULT:` FAIL/SKIP/WARN/ERROR lines (PASS suppressed; infra steps silenced on success, dumped in full on failure; a crashing test that emits no markers dumps its full log). Unit and integration are long with large output — when orchestrating from a main agent context, delegate the run and act on the summarized report (AGENTS.md testing strategy).
 
 ## 2. The marker protocol
 

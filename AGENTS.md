@@ -44,7 +44,7 @@ make clean                    # Remove build artifacts
 
 ./mimic models/sage16/input/sage16_mini-millennium.yaml   # Run (see mimic-run-and-operate for flags)
 
-make tests                    # Full suite: validate-modules, then unit/integration/scientific
+make tests                    # Full suite: validate-modules, fixture/converter checks, then unit/integration/scientific
 make tests summary            # Same, showing only warnings/failures/skips/outcomes
 ```
 

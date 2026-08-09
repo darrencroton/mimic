@@ -24,6 +24,8 @@ make tests
 make tests-unit          # C unit tests
 make tests-integration   # Python integration tests
 make tests-scientific    # Scientific validation
+make tests-converter     # ctrees->snapshot-HDF5 converter self-tests (scripts/convert/tests/)
+make check-snapshot-fixture  # Committed snapshot-fixture conformance vs the frozen format spec
 ```
 
 Append "summary" to suppress most output and only show warnings, failures, skipped tests, and final suite outcomes (e.g. `make tests summary`).
@@ -53,7 +55,7 @@ NOTE: `MODEL` and `SIMULATION` default to `sage16` and `mini-millennium`. Change
 - Selected-simulation tests come from `simulations/<SIMULATION>/_tests/scientific/`
 - Selected-model scientific tests come from `models/<MODEL>/modules/**/_tests/`
 
-The `make MODEL=<name> SIMULATION=<name> tests-unit`, `tests-integration`, `tests-scientific`, and `tests` targets run core tests, selected-simulation tests, and, for full-validation simulations, tests declared by the selected model package. Empty generated lists are valid; a tier with no model or simulation tests still runs the core tests and exits successfully.
+The `make MODEL=<name> SIMULATION=<name> tests-unit`, `tests-integration`, `tests-scientific`, and `tests` targets run core tests, selected-simulation tests, and, for full-validation simulations, tests declared by the selected model package. Empty generated lists are valid; a tier with no model or simulation tests still runs the core tests and exits successfully. `make tests` additionally runs the two package-independent checks: the converter's stdlib-unittest suite (`tests-converter`, ~10 s, needs the `mimic_venv` Python stack) and the committed snapshot-fixture conformance check (`check-snapshot-fixture`).
 
 Full model validation runs for `mini-millennium`, `micro-uchuu`, `micro-uchuu-hdf5`, and `micro-uchuu-ascii`. The three micro-Uchuu packages intentionally use their production `simulation_info.yaml` files so the same small catalogue validates the L-Halo binary, Consistent-Trees HDF5, and Consistent-Trees ASCII reader paths. Larger packages such as `millennium`, `mini-uchuu`, and `uchuu` run core and selected-simulation tests against fixture-sized inputs and skip selected-model physics tests; they rely on the default and micro catalogues for full model validation.
 
