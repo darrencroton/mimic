@@ -77,8 +77,9 @@ struct SnapshotRunInfo {
  * the frozen format carries explicitly (docs/dev/SNAPSHOT-HDF5-FORMAT.md).
  * They live here rather than as struct RawHalo members or halo_properties.yaml
  * catalog fields: they are snapshot-format identity metadata, not catalog halo
- * properties, and struct RawHalo must stay build-invariant across every
- * simulation package.
+ * properties, and this reader compiles under every selected simulation package
+ * (Makefile:112), so it must not depend on RawHalo members that only one
+ * package's catalog would declare.
  */
 struct SnapshotSlab {
   int64_t snapnum;              /* loaded snapshot, or SNAPSHOT_SLAB_NO_SNAPSHOT */

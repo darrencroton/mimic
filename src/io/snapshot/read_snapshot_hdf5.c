@@ -735,8 +735,12 @@ static void snapshot_h5_fill_halos(hid_t file, const char *path, int64_t n_halos
  *
  * The same lookup pattern snapshot_h5_validate_halo_datasets() already uses to
  * check a dataset's membership, reused here so a dataset's name and on-disk
- * type are read from SNAPSHOT_H5_HALO_DATASETS once, not repeated as a second
- * pair of string/type literals.
+ * scalar type come from SNAPSHOT_H5_HALO_DATASETS rather than being retyped as
+ * literals at the call site. The caller (snapshot_h5_fill_identity() below)
+ * still hard-types its destination buffers as int64_t and passes a literal
+ * column count of 1; that is not derived from this lookup, and is safe only
+ * because format_version 1 fixes ForestIndex and HaloRankInForest as scalar
+ * (ncols 0) int64 columns -- this function does not itself enforce that.
  */
 static const struct snapshot_h5_dataset_spec *snapshot_h5_dataset_spec_by_name(const char *name) {
   for (size_t s = 0; s < SNAPSHOT_H5_HALO_DATASET_COUNT; s++) {
@@ -1141,10 +1145,10 @@ static int64_t snapshot_halo_count_snapshot_hdf5(int64_t snapnum) {
  * @brief   Load one snapshot into a reader-owned slab and validate its links.
  *
  * The destination handle must be empty: overwriting a loaded one would leak the
- * array it holds, so that is an abort rather than a silent replacement. A
+ * arrays it holds, so that is an abort rather than a silent replacement. A
  * snapshot holding no halos is a legal result -- the handle then carries its
- * snapshot number with a NULL array, which snapshot_slab_is_empty() correctly
- * reports as loaded.
+ * snapshot number with three NULL arrays, which snapshot_slab_is_empty()
+ * correctly reports as loaded.
  */
 static void load_slab_snapshot_hdf5(int64_t snapnum, struct SnapshotSlab *slab) {
   if (!SNAP.is_open) {
