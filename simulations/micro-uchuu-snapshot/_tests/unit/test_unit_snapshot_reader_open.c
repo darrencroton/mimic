@@ -1104,10 +1104,15 @@ static const struct corrupt_case CORRUPT_CASES[] = {
     {"particle_mass_msun_h equals PartMass without the 1e10 factor (naive-comparison trap)",
      corrupt_particle_mass_missing_unit_factor, "snapshot_003.h5", "'particle_mass_msun_h' is",
      "is 0.032500000000000001 but the configured simulation value is 325000000"},
+    /* The non-finite token itself ("nan"/"inf", possibly "-nan" or with a
+       payload suffix) is libc-rendering-defined, so these two needle_extra
+       strings deliberately omit it and pin only the mismatch phrasing and the
+       configured-side value -- unlike the seven finite cases above, which pin
+       the exact text of both values. */
     {"NaN in a compared physical attribute", corrupt_box_size_nan, "snapshot_004.h5",
-     "'box_size_mpc_h' is", "is nan but the configured simulation value is 100"},
+     "'box_size_mpc_h' is", "but the configured simulation value is 100"},
     {"infinity in a compared physical attribute", corrupt_hubble_h_infinite, "snapshot_001.h5",
-     "'hubble_h' is", "is inf but the configured simulation value is 0.6774"},
+     "'hubble_h' is", "but the configured simulation value is 0.6774"},
     {"physical header mismatch in the last snapshot, not only snapshot 0",
      corrupt_box_size_last_snapshot, "snapshot_005.h5", "'box_size_mpc_h' is",
      "is 90 but the configured simulation value is 100"},

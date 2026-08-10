@@ -17,8 +17,11 @@
  * Validation order per file is structure first, data second: object set, header
  * attribute set and dtypes, header values, dataset set with dtypes and shapes,
  * and only then the bounded data scans. A file whose shape disagrees with its
- * header is therefore rejected rather than read. Every failure aborts naming
- * the file and the offending object, attribute or value; nothing is repaired.
+ * header is therefore rejected rather than read. Header values additionally
+ * require the five physical attributes (box_size_mpc_h, particle_mass_msun_h,
+ * omega_matter, omega_lambda, hubble_h) to agree with MimicConfig's configured
+ * simulation, not only with the format. Every failure aborts naming the file
+ * and the offending object, attribute or value; nothing is repaired.
  *
  * The open-time data scans (format invariant 5) are fixed-size hyperslab reads
  * accumulating running maxima: no buffer there is proportional to n_halos. The
@@ -927,8 +930,10 @@ static void snapshot_h5_validate_links(const char *path, int64_t snapnum, int64_
  *
  * Asserts the two are the same number, not that they agree scientifically: a
  * non-finite value on either side is rejected outright, an exact-zero pair is
- * accepted outright, and otherwise the relative difference must lie within
- * 16 ULPs of the larger magnitude.
+ * accepted outright, and otherwise the absolute difference must be at most
+ * 16 * DBL_EPSILON relative to the larger magnitude (not 16 ULPs -- for a
+ * normal value that bound is itself several times DBL_EPSILON wide, so this
+ * is looser than 16 ULPs).
  */
 static int snapshot_h5_physical_value_agrees(double header_value, double configured_value) {
   if (!isfinite(header_value) || !isfinite(configured_value)) {
