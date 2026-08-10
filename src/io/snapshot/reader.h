@@ -65,18 +65,27 @@ struct SnapshotRunInfo {
 #define SNAPSHOT_SLAB_NO_SNAPSHOT ((int64_t)-1)
 
 /** Static initializer for the empty slab state. */
-#define SNAPSHOT_SLAB_INIT {SNAPSHOT_SLAB_NO_SNAPSHOT, 0, NULL}
+#define SNAPSHOT_SLAB_INIT {SNAPSHOT_SLAB_NO_SNAPSHOT, 0, NULL, NULL, NULL}
 
 /**
  * One snapshot's halo population, owned by the reader between load_slab and
  * release_slab. Counts and indices are int64_t throughout: production slabs
  * reach hundreds of millions of halos, so the tree driver's int idiom does not
  * carry over.
+ *
+ * forest_index/halo_rank_in_forest are the UniqueGalaxyID identity components
+ * the frozen format carries explicitly (docs/dev/SNAPSHOT-HDF5-FORMAT.md).
+ * They live here rather than as struct RawHalo members or halo_properties.yaml
+ * catalog fields: they are snapshot-format identity metadata, not catalog halo
+ * properties, and struct RawHalo must stay build-invariant across every
+ * simulation package.
  */
 struct SnapshotSlab {
-  int64_t snapnum;       /* loaded snapshot, or SNAPSHOT_SLAB_NO_SNAPSHOT */
-  int64_t nhalos;        /* halos in this slab */
-  struct RawHalo *halos; /* [nhalos], reader-owned */
+  int64_t snapnum;              /* loaded snapshot, or SNAPSHOT_SLAB_NO_SNAPSHOT */
+  int64_t nhalos;               /* halos in this slab */
+  struct RawHalo *halos;        /* [nhalos], reader-owned */
+  int64_t *forest_index;        /* [nhalos], reader-owned */
+  int64_t *halo_rank_in_forest; /* [nhalos], reader-owned */
 };
 
 /** @brief Value of an empty (unloaded) slab handle. */

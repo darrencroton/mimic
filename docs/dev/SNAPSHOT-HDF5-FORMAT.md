@@ -65,7 +65,7 @@ All scalar metadata lives as HDF5 attributes on the `/header` group:
 
 ## Halo Datasets
 
-All datasets live under `/halos`, each of length `n_halos` (vectors are `[n_halos, 3]`). **Dataset names and types are normative**: they must match what the consuming simulation package's `halo_properties.yaml` declares, so the generated `RawHalo` struct and accessors consume the file directly. The names below follow the established Consistent-Trees bridge contract (as in `simulations/micro-uchuu-ascii/halo_properties.yaml`).
+All datasets live under `/halos`, each of length `n_halos` (vectors are `[n_halos, 3]`). **Dataset names and types are normative**: for every dataset except `ForestIndex` and `HaloRankInForest`, they must match what the consuming simulation package's `halo_properties.yaml` declares, so the generated `RawHalo` struct and accessors consume the file directly. `ForestIndex` and `HaloRankInForest` are snapshot-format identity metadata, not catalog halo properties (see [Simulation Package Integration](#simulation-package-integration)): the reader consumes them directly by dataset name into `struct SnapshotSlab`'s own `forest_index`/`halo_rank_in_forest` arrays, so they are exempt from the `halo_properties.yaml` declaration rule. The names below follow the established Consistent-Trees bridge contract (as in `simulations/micro-uchuu-ascii/halo_properties.yaml`).
 
 | Dataset | Type | Semantics |
 |---|---|---|
@@ -145,10 +145,10 @@ The multiplier is per-simulation metadata declared in the simulation package (`s
 A simulation package shipping snapshot-HDF5 data declares:
 
 - `simulation_info.yaml` — box size, particle mass, cosmology (matching the header attributes), the `UniqueGalaxyID` multiplier, and the snapshot list; run files select `input.tree_type: snapshot_hdf5` and `input.processing_order: snapshot_ordered`.
-- `halo_properties.yaml` — the on-disk record: every `/halos` dataset above, with `provides_core_role` mappings (`M_Crit200` → HaloMass, plus Descendant, FirstProgenitor, NextProgenitor, FirstHaloInFOFgroup, NextHaloInFOFgroup, SnapNum, Len) and the identity fields `ForestIndex`/`HaloRankInForest`.
+- `halo_properties.yaml` — the on-disk record for every `/halos` dataset **except** `ForestIndex` and `HaloRankInForest`, with `provides_core_role` mappings (`M_Crit200` → HaloMass, plus Descendant, FirstProgenitor, NextProgenitor, FirstHaloInFOFgroup, NextHaloInFOFgroup, SnapNum, Len). `ForestIndex` and `HaloRankInForest` are snapshot-format identity metadata, not catalog halo properties: they are not declared in `halo_properties.yaml`, generate no `RawHalo` member, and are read directly by the reader (`src/io/snapshot/read_snapshot_hdf5.c`) into `struct SnapshotSlab`'s own `forest_index`/`halo_rank_in_forest` arrays.
 - An `a_list` snapshot file whose entries match the per-file `scale_factor` attributes, and a `snapshots/` link to the HDF5 files.
 
-Field names and types in `halo_properties.yaml` must match this specification exactly; the generated reader-side code consumes the datasets by name.
+Field names and types in `halo_properties.yaml` must match this specification exactly; the generated reader-side code consumes those datasets by name. `ForestIndex` and `HaloRankInForest` are consumed by name directly by the reader's own schema table instead, independent of `halo_properties.yaml` and the generated code.
 
 ## Producing Snapshot-HDF5 Data
 
@@ -170,6 +170,7 @@ A **correction** is an edit that changes what this document *says* without chang
 | Date | Section | Correction |
 |---|---|---|
 | 2026-07-24 | [Ordering Contracts](#ordering-contracts) item 1 | The `NextProgenitor` chain order was described as "the remaining progenitors in reference encounter order". That paraphrase is wrong whenever a descendant has three or more progenitors and a mid-chain head replacement occurs. The text now states the reference reader's literal incremental-insertion loop (`assign_mergertree_indices`), which is what `format_version = 1` always denoted and what both the reader and `scripts/convert/links.py` have always implemented. A producer that had implemented the paraphrase literally would have emitted non-conforming chain order; the converter's `topology-chains` cross-check compares this order directly against the reference reader. |
+| 2026-08-11 | [Halo Datasets](#halo-datasets), [Simulation Package Integration](#simulation-package-integration) | `ForestIndex` and `HaloRankInForest` were described as datasets a consuming simulation package's `halo_properties.yaml` must declare, like every other `/halos` dataset. That was never necessary: the reader has always consumed both by dataset name through its own schema table (`src/io/snapshot/read_snapshot_hdf5.c`), never through `halo_properties.yaml` or a `struct RawHalo` member. The wording now states that these two identity datasets are exempt from the `halo_properties.yaml` declaration rule, consistent with `simulations/micro-uchuu-snapshot/halo_properties.yaml` no longer declaring them. Nothing on disk changed: both datasets remain required, read, and validated exactly as before, and `format_version` stays 1. |
 
 ---
 

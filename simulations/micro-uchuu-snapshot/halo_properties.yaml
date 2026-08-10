@@ -14,11 +14,13 @@
 # Msun/h, positions are Mpc/h, Spin is dimensionless J/Mvir, and Len is derived
 # as round(Mvir * 1e-10 / particle_mass).
 #
-# Two entries have no counterpart in the tree-ordered packages: ForestIndex and
-# HaloRankInForest, the producer-owned UniqueGalaxyID identity components the
-# format carries explicitly. They are catalog-only fields — no core role, no
-# init_source, no output — declared like the ctrees packages' catalog-only link
-# fields.
+# ForestIndex and HaloRankInForest, the producer-owned UniqueGalaxyID identity
+# components the on-disk format carries explicitly, are deliberately NOT
+# declared here: they are snapshot-format identity metadata governed by
+# docs/dev/SNAPSHOT-HDF5-FORMAT.md, not catalog halo properties, so they are
+# read directly by src/io/snapshot/read_snapshot_hdf5.c into
+# struct SnapshotSlab's reader-owned forest_index/halo_rank_in_forest arrays,
+# never through this file or the generated RawHalo struct.
 #
 # Required core roles (src/core/core_properties.yaml required_inputs):
 # Descendant, FirstProgenitor, NextProgenitor, FirstHaloInFOFgroup,
@@ -141,14 +143,3 @@ halo_properties:
     units: dimensionless
     description: Snapshot number (index in simulation output)
     provides_core_role: SnapNum
-
-  # --- UniqueGalaxyID identity components (catalog-only, producer-owned) ---
-  - name: ForestIndex
-    type: long long
-    units: dimensionless
-    description: Dense run-scoped forest number in [0, n_forests_total)
-
-  - name: HaloRankInForest
-    type: long long
-    units: dimensionless
-    description: Within-forest halo index in reference tree-driver order

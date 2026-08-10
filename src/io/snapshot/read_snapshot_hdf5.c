@@ -10,8 +10,9 @@
  * open_run validates the whole dataset and publishes run-scoped metadata plus a
  * per-snapshot halo-count table, snapshot_halo_count serves that table, and
  * close_run releases it. load_slab reads one snapshot into a reader-owned
- * struct RawHalo array and validates its links; release_slab returns the handle
- * to its empty state.
+ * struct RawHalo array plus the reader-owned ForestIndex/HaloRankInForest
+ * identity arrays, and validates the RawHalo links; release_slab returns the
+ * handle to its empty state.
  *
  * Validation order per file is structure first, data second: object set, header
  * attribute set and dtypes, header values, dataset set with dtypes and shapes,
@@ -729,6 +730,45 @@ static void snapshot_h5_fill_halos(hid_t file, const char *path, int64_t n_halos
 #undef READ_TREE_PROPERTY
 #undef READ_TREE_PROPERTY_MULTIPLEDIM
 
+/**
+ * @brief   Schema-table entry by dataset name, or NULL if not declared.
+ *
+ * The same lookup pattern snapshot_h5_validate_halo_datasets() already uses to
+ * check a dataset's membership, reused here so a dataset's name and on-disk
+ * type are read from SNAPSHOT_H5_HALO_DATASETS once, not repeated as a second
+ * pair of string/type literals.
+ */
+static const struct snapshot_h5_dataset_spec *snapshot_h5_dataset_spec_by_name(const char *name) {
+  for (size_t s = 0; s < SNAPSHOT_H5_HALO_DATASET_COUNT; s++) {
+    if (strcmp(SNAPSHOT_H5_HALO_DATASETS[s].name, name) == 0) {
+      return &SNAPSHOT_H5_HALO_DATASETS[s];
+    }
+  }
+  return NULL;
+}
+
+/**
+ * @brief   Fill the reader-owned identity arrays from one snapshot file.
+ *
+ * ForestIndex and HaloRankInForest are snapshot-format identity metadata
+ * (docs/dev/SNAPSHOT-HDF5-FORMAT.md), not struct RawHalo members: they are
+ * read directly by dataset name into slab-owned arrays, independent of
+ * halo_properties.yaml and the generated property list that fills struct
+ * RawHalo above.
+ */
+static void snapshot_h5_fill_identity(hid_t file, const char *path, int64_t n_halos,
+                                      int64_t *forest_index, int64_t *halo_rank_in_forest) {
+  const struct snapshot_h5_dataset_spec *forest_spec =
+      snapshot_h5_dataset_spec_by_name("ForestIndex");
+  const struct snapshot_h5_dataset_spec *rank_spec =
+      snapshot_h5_dataset_spec_by_name("HaloRankInForest");
+
+  snapshot_h5_read_column(file, path, forest_spec->name, snapshot_h5_native_type(forest_spec->type),
+                          n_halos, 1, forest_index);
+  snapshot_h5_read_column(file, path, rank_spec->name, snapshot_h5_native_type(rank_spec->type),
+                          n_halos, 1, halo_rank_in_forest);
+}
+
 /* ---------------------------------------------------------------------------
  * Link validation
  *
@@ -1126,6 +1166,8 @@ static void load_slab_snapshot_hdf5(int64_t snapnum, struct SnapshotSlab *slab) 
   snapshot_h5_format_path(path, sizeof(path), snapnum);
 
   struct RawHalo *halos = NULL;
+  int64_t *forest_index = NULL;
+  int64_t *halo_rank_in_forest = NULL;
   if (n_halos > 0) {
     hid_t file = H5Fopen(path, H5F_ACC_RDONLY, H5P_DEFAULT);
     if (file < 0) {
@@ -1135,6 +1177,10 @@ static void load_slab_snapshot_hdf5(int64_t snapnum, struct SnapshotSlab *slab) 
 
     halos = mymalloc_cat(sizeof(struct RawHalo) * (size_t)n_halos, MEM_TREES);
     snapshot_h5_fill_halos(file, path, n_halos, halos);
+
+    forest_index = mymalloc_cat(sizeof(int64_t) * (size_t)n_halos, MEM_TREES);
+    halo_rank_in_forest = mymalloc_cat(sizeof(int64_t) * (size_t)n_halos, MEM_TREES);
+    snapshot_h5_fill_identity(file, path, n_halos, forest_index, halo_rank_in_forest);
 
     if (H5Fclose(file) < 0) {
       FATAL_ERROR("%s: could not close the file after loading snapshot %" PRId64, path, snapnum);
@@ -1146,6 +1192,8 @@ static void load_slab_snapshot_hdf5(int64_t snapnum, struct SnapshotSlab *slab) 
   slab->snapnum = snapnum;
   slab->nhalos = n_halos;
   slab->halos = halos;
+  slab->forest_index = forest_index;
+  slab->halo_rank_in_forest = halo_rank_in_forest;
   SNAP.loaded_slabs++;
 }
 
@@ -1156,6 +1204,12 @@ static void release_slab_snapshot_hdf5(struct SnapshotSlab *slab) {
   }
   if (slab->halos != NULL) {
     myfree(slab->halos);
+  }
+  if (slab->forest_index != NULL) {
+    myfree(slab->forest_index);
+  }
+  if (slab->halo_rank_in_forest != NULL) {
+    myfree(slab->halo_rank_in_forest);
   }
   *slab = snapshot_slab_empty();
   if (SNAP.loaded_slabs > 0) {

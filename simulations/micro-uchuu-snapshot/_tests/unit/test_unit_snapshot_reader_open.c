@@ -1131,10 +1131,11 @@ int test_open_close_leaves_no_leak(void) {
  * @brief   Compare one loaded slab against a direct read of its fixture file.
  * @return  0 when every field of every halo matches, -1 otherwise.
  *
- * Every one of the sixteen contract datasets is checked, the three vec3 fields
- * component by component and the two long long identity fields at full width.
- * Floats are compared by their bytes, so the check is bit-for-bit rather than
- * numeric.
+ * Every one of the sixteen contract datasets is checked: the three vec3 fields
+ * component by component, MostBoundID as a struct RawHalo field, and the two
+ * identity datasets against the slab's own forest_index/halo_rank_in_forest
+ * arrays. Floats are compared by their bytes, so the check is bit-for-bit
+ * rather than numeric.
  */
 static int slab_matches_fixture(const char *file_path, const struct SnapshotSlab *slab) {
   static int32_t i32[FIXTURE_MAX_HALOS];
@@ -1204,6 +1205,25 @@ static int slab_matches_fixture(const char *file_path, const struct SnapshotSlab
     }                                                                                              \
   } while (0)
 
+/* ForestIndex and HaloRankInForest are reader-owned slab arrays, not
+   struct RawHalo members (Slice 2), so they are compared against
+   slab->array[h] directly rather than through the CHECK_I64 field-access
+   pattern above. */
+#define CHECK_I64_ARRAY(dataset, array)                                                            \
+  do {                                                                                             \
+    if (read_halo_column(file_path, dataset, H5T_NATIVE_INT64, i64) != 0) {                        \
+      fprintf(stderr, "  could not read '/halos/%s'\n", dataset);                                  \
+      return -1;                                                                                   \
+    }                                                                                              \
+    for (int64_t h = 0; h < n; h++) {                                                              \
+      if (slab->array[h] != i64[h]) {                                                              \
+        fprintf(stderr, "  %s halo %" PRId64 ": slab %" PRId64 ", fixture %" PRId64 "\n", dataset, \
+                h, slab->array[h], i64[h]);                                                        \
+        return -1;                                                                                 \
+      }                                                                                            \
+    }                                                                                              \
+  } while (0)
+
   CHECK_I32("Descendant", Descendant);
   CHECK_I32("FirstProgenitor", FirstProgenitor);
   CHECK_I32("NextProgenitor", NextProgenitor);
@@ -1218,11 +1238,12 @@ static int slab_matches_fixture(const char *file_path, const struct SnapshotSlab
   CHECK_VEC3("Vel", Vel);
   CHECK_VEC3("Spin", Spin);
   CHECK_I64("MostBoundID", MostBoundID);
-  CHECK_I64("ForestIndex", ForestIndex);
-  CHECK_I64("HaloRankInForest", HaloRankInForest);
+  CHECK_I64_ARRAY("ForestIndex", forest_index);
+  CHECK_I64_ARRAY("HaloRankInForest", halo_rank_in_forest);
 
 #undef CHECK_I32
 #undef CHECK_I64
+#undef CHECK_I64_ARRAY
 #undef CHECK_F32
 #undef CHECK_VEC3
   return 0;
@@ -1256,8 +1277,16 @@ int test_load_slab_matches_fixture(void) {
     TEST_ASSERT(!snapshot_slab_is_empty(&slab), "a loaded slab should not report itself empty");
     if (FIXTURE_HALO_COUNTS[snap] == 0) {
       TEST_ASSERT(slab.halos == NULL, "a zero-halo snapshot should allocate no halo array");
+      TEST_ASSERT(slab.forest_index == NULL,
+                  "a zero-halo snapshot should allocate no forest_index array");
+      TEST_ASSERT(slab.halo_rank_in_forest == NULL,
+                  "a zero-halo snapshot should allocate no halo_rank_in_forest array");
     } else {
       TEST_ASSERT(slab.halos != NULL, "a populated snapshot should carry a halo array");
+      TEST_ASSERT(slab.forest_index != NULL,
+                  "a populated snapshot should carry a forest_index array");
+      TEST_ASSERT(slab.halo_rank_in_forest != NULL,
+                  "a populated snapshot should carry a halo_rank_in_forest array");
       TEST_ASSERT(slab_matches_fixture(path, &slab) == 0,
                   "every slab field should equal the fixture bit-for-bit");
     }
@@ -1265,6 +1294,9 @@ int test_load_slab_matches_fixture(void) {
     snapshot_reader_release_slab(reader, &slab);
     TEST_ASSERT(snapshot_slab_is_empty(&slab), "release_slab should empty the handle");
     TEST_ASSERT(slab.halos == NULL, "release_slab should clear the halo pointer");
+    TEST_ASSERT(slab.forest_index == NULL, "release_slab should clear the forest_index pointer");
+    TEST_ASSERT(slab.halo_rank_in_forest == NULL,
+                "release_slab should clear the halo_rank_in_forest pointer");
     TEST_ASSERT_EQUAL(slab.nhalos, 0, "release_slab should clear the halo count");
   }
 
@@ -1522,6 +1554,9 @@ int test_slab_lifecycle(void) {
   snapshot_reader_open_run(reader, &info);
 
   struct SnapshotSlab empty = snapshot_slab_empty();
+  TEST_ASSERT(empty.forest_index == NULL, "snapshot_slab_empty should carry a NULL forest_index");
+  TEST_ASSERT(empty.halo_rank_in_forest == NULL,
+              "snapshot_slab_empty should carry a NULL halo_rank_in_forest");
   snapshot_reader_release_slab(reader, &empty);
   TEST_ASSERT(snapshot_slab_is_empty(&empty), "releasing an empty slab should be a no-op");
 
@@ -1530,6 +1565,9 @@ int test_slab_lifecycle(void) {
   snapshot_reader_release_slab(reader, &slab);
   snapshot_reader_release_slab(reader, &slab);
   TEST_ASSERT(snapshot_slab_is_empty(&slab), "a second release should leave the handle empty");
+  TEST_ASSERT(slab.forest_index == NULL, "a second release should leave forest_index NULL");
+  TEST_ASSERT(slab.halo_rank_in_forest == NULL,
+              "a second release should leave halo_rank_in_forest NULL");
 
   /* A released slab leaves close_run unblocked. */
   snapshot_reader_close_run(reader);
