@@ -58,8 +58,9 @@ void create_binary_output_files(int filenr) {
  * @brief   Write ProcessedHalos for the current tree to per-snapshot binary files.
  * @param   filenr   Output chunk identifier (maps to one output file per snapshot).
  * @param   tree     Tree index within the current filenr (for counter updates).
+ * @param   view     Input view over the raw halos this tree was built from.
  */
-void save_halos(int filenr, int tree) {
+void save_halos(int filenr, int tree, struct HaloInputView view) {
   char buf[MAX_BUF_SIZE + 1];
   int i, n;
   int nwritten;
@@ -101,7 +102,7 @@ void save_halos(int filenr, int tree) {
       if (ProcessedHalos[i].SnapNum == MimicConfig.ListOutputSnaps[n]) {
         struct HaloOutput halo_output = {0};
 
-        prepare_halo_for_output(&ProcessedHalos[i], &halo_output);
+        prepare_halo_for_output(view, &ProcessedHalos[i], &halo_output);
 
         size_t halo_size = sizeof(struct HaloOutput);
         nwritten = fwrite(&halo_output, halo_size, 1, save_fd[n]);

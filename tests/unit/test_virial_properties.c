@@ -28,7 +28,6 @@ static int passed = 0;
 static int failed = 0;
 
 /* External globals */
-extern struct RawHalo *InputTreeHalos;
 extern double *Age_base; /* For cleanup of init() allocation */
 
 /* Shared core-test fixtures (config reset, registration, generated run file path) */
@@ -38,7 +37,7 @@ extern double *Age_base; /* For cleanup of init() allocation */
  * @test    test_virial_mass_from_mvir
  * @brief   Test virial mass calculation when Mvir is available
  *
- * Expected: Returns Mvir value from InputTreeHalos for central halos
+ * Expected: Returns Mvir value from the input view for central halos
  * Validates: get_virial_mass() with Mvir >= 0
  */
 int test_virial_mass_from_mvir(void) {
@@ -48,17 +47,18 @@ int test_virial_mass_from_mvir(void) {
 
   /* Set M_Crit200 deliberately different from Len * PartMass so the two paths
    * return distinguishable results regardless of the unit convention. */
-  InputTreeHalos = mymalloc_cat(sizeof(struct RawHalo), MEM_HALOS);
-  InputTreeHalos[0].M_Crit200 = 100.0;       /* catalog mass in native units */
-  InputTreeHalos[0].FirstHaloInFOFgroup = 0; /* central halo — should take catalog path */
-  InputTreeHalos[0].Len = 1;                 /* Len * PartMass = 0.1 ≪ any sane catalog mass */
+  struct RawHalo *halos = mymalloc_cat(sizeof(struct RawHalo), MEM_HALOS);
+  const struct HaloInputView view = {halos, 1};
+  halos[0].M_Crit200 = 100.0;       /* catalog mass in native units */
+  halos[0].FirstHaloInFOFgroup = 0; /* central halo — should take catalog path */
+  halos[0].Len = 1;                 /* Len * PartMass = 0.1 ≪ any sane catalog mass */
 
   MimicConfig.PartMass = 0.1; /* Particle mass in 10^10 Msun/h */
 
   /* ===== EXECUTE ===== */
-  double mvir = get_virial_mass(0);
-  double catalog_path = mimic_tree_get_HaloMass(0);
-  double fallback_path = InputTreeHalos[0].Len * MimicConfig.PartMass;
+  double mvir = get_virial_mass(view, 0);
+  double catalog_path = mimic_tree_get_HaloMass(view, 0);
+  double fallback_path = halos[0].Len * MimicConfig.PartMass;
 
   /* ===== VALIDATE ===== */
   TEST_ASSERT_DOUBLE_EQUAL(mvir, catalog_path, 1e-12,
@@ -69,8 +69,7 @@ int test_virial_mass_from_mvir(void) {
   printf("  Mvir from catalog: %g (10^10 Msun/h, fallback would be %.2f)\n", mvir, fallback_path);
 
   /* ===== CLEANUP ===== */
-  myfree(InputTreeHalos);
-  InputTreeHalos = NULL;
+  myfree(halos);
   check_memory_leaks();
 
   return TEST_PASS;
@@ -88,16 +87,17 @@ int test_virial_mass_zero_catalog_central(void) {
   init_memory_system(0);
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
 
-  InputTreeHalos = mymalloc_cat(sizeof(struct RawHalo), MEM_HALOS);
-  InputTreeHalos[0].M_Crit200 = 0.0;         /* Catalog edge case */
-  InputTreeHalos[0].FirstHaloInFOFgroup = 0; /* Central halo */
-  InputTreeHalos[0].Len = 500;               /* Would yield fallback 50.0 if used */
+  struct RawHalo *halos = mymalloc_cat(sizeof(struct RawHalo), MEM_HALOS);
+  const struct HaloInputView view = {halos, 1};
+  halos[0].M_Crit200 = 0.0;         /* Catalog edge case */
+  halos[0].FirstHaloInFOFgroup = 0; /* Central halo */
+  halos[0].Len = 500;               /* Would yield fallback 50.0 if used */
 
   MimicConfig.PartMass = 0.1;
 
   /* ===== EXECUTE ===== */
-  double mvir = get_virial_mass(0);
-  double fallback = InputTreeHalos[0].Len * MimicConfig.PartMass;
+  double mvir = get_virial_mass(view, 0);
+  double fallback = halos[0].Len * MimicConfig.PartMass;
 
   /* ===== VALIDATE ===== */
   TEST_ASSERT_DOUBLE_EQUAL(mvir, 0.0, 1e-6,
@@ -108,8 +108,7 @@ int test_virial_mass_zero_catalog_central(void) {
   printf("  Mvir=0 central: catalog %.2f retained (fallback would be %.2f)\n", mvir, fallback);
 
   /* ===== CLEANUP ===== */
-  myfree(InputTreeHalos);
-  InputTreeHalos = NULL;
+  myfree(halos);
   check_memory_leaks();
 
   return TEST_PASS;
@@ -128,30 +127,30 @@ int test_virial_mass_from_particles(void) {
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
 
   /* Create satellite halo (not FirstHaloInFOFgroup) */
-  InputTreeHalos = mymalloc_cat(2 * sizeof(struct RawHalo), MEM_HALOS);
-  InputTreeHalos[0].M_Crit200 = 100.0;
-  InputTreeHalos[0].FirstHaloInFOFgroup = 0;
+  struct RawHalo *halos = mymalloc_cat(2 * sizeof(struct RawHalo), MEM_HALOS);
+  const struct HaloInputView view = {halos, 2};
+  halos[0].M_Crit200 = 100.0;
+  halos[0].FirstHaloInFOFgroup = 0;
 
-  InputTreeHalos[1].M_Crit200 = -1.0;        /* Satellite - Mvir not available */
-  InputTreeHalos[1].FirstHaloInFOFgroup = 0; /* Points to central */
-  InputTreeHalos[1].Len = 500;
+  halos[1].M_Crit200 = -1.0;        /* Satellite - Mvir not available */
+  halos[1].FirstHaloInFOFgroup = 0; /* Points to central */
+  halos[1].Len = 500;
 
   MimicConfig.PartMass = 0.1; /* 10^9 Msun/h per particle */
 
   /* ===== EXECUTE ===== */
-  double mvir = get_virial_mass(1); /* Satellite halo */
+  double mvir = get_virial_mass(view, 1); /* Satellite halo */
 
   /* ===== VALIDATE ===== */
   double expected = 500 * 0.1; /* Len * PartMass = 50.0 */
   TEST_ASSERT_DOUBLE_EQUAL(mvir, expected, 1e-6,
                            "Virial mass should be Len * PartMass for satellite");
 
-  printf("  Mvir from particles: %.2f = %d * %.2f (10^10 Msun/h)\n", mvir, InputTreeHalos[1].Len,
+  printf("  Mvir from particles: %.2f = %d * %.2f (10^10 Msun/h)\n", mvir, halos[1].Len,
          MimicConfig.PartMass);
 
   /* ===== CLEANUP ===== */
-  myfree(InputTreeHalos);
-  InputTreeHalos = NULL;
+  myfree(halos);
   check_memory_leaks();
 
   return TEST_PASS;
@@ -174,13 +173,14 @@ int test_virial_radius_calculation(void) {
   init(); /* Initializes cosmology and ZZ[] array */
 
   /* Create test halo at the final snapshot */
-  InputTreeHalos = mymalloc_cat(sizeof(struct RawHalo), MEM_HALOS);
-  InputTreeHalos[0].M_Crit200 = 100.0; /* 10^12 Msun/h */
-  InputTreeHalos[0].FirstHaloInFOFgroup = 0;
-  InputTreeHalos[0].SnapNum = MimicConfig.LastSnapshotNr;
+  struct RawHalo *halos = mymalloc_cat(sizeof(struct RawHalo), MEM_HALOS);
+  const struct HaloInputView view = {halos, 1};
+  halos[0].M_Crit200 = 100.0; /* 10^12 Msun/h */
+  halos[0].FirstHaloInFOFgroup = 0;
+  halos[0].SnapNum = MimicConfig.LastSnapshotNr;
 
   /* ===== EXECUTE ===== */
-  double rvir = get_virial_radius(0);
+  double rvir = get_virial_radius(view, 0);
 
   /* ===== VALIDATE ===== */
   /* At z=0 with standard cosmology (Omega=0.25, OmegaLambda=0.75, h=0.73):
@@ -191,11 +191,12 @@ int test_virial_radius_calculation(void) {
   TEST_ASSERT(rvir < 10.0, "Virial radius should be reasonable (< 10 Mpc/h)");
   TEST_ASSERT(isfinite(rvir), "Virial radius should be finite");
 
-  printf("  Mvir = %.2f (10^10 Msun/h) → Rvir = %.4f (Mpc/h) at z=0\n", get_virial_mass(0), rvir);
+  printf("  Mvir = %.2f (10^10 Msun/h) → Rvir = %.4f (Mpc/h) at z=0\n", get_virial_mass(view, 0),
+         rvir);
 
   /* Test scaling: Rvir ∝ Mvir^(1/3) */
-  InputTreeHalos[0].M_Crit200 = 800.0; /* 8x mass */
-  double rvir_8x = get_virial_radius(0);
+  halos[0].M_Crit200 = 800.0; /* 8x mass */
+  double rvir_8x = get_virial_radius(view, 0);
   double ratio = rvir_8x / rvir;
   TEST_ASSERT_DOUBLE_EQUAL(ratio, 2.0, 0.01,
                            "Rvir should scale as Mvir^(1/3): 8x mass → 2x radius");
@@ -203,8 +204,7 @@ int test_virial_radius_calculation(void) {
   printf("  Scaling test: 8x mass → %.2fx radius (expected 2.0)\n", ratio);
 
   /* ===== CLEANUP ===== */
-  myfree(InputTreeHalos);
-  InputTreeHalos = NULL;
+  myfree(halos);
   myfree(Age_base); /* Free Age array allocated by init() */
   check_memory_leaks();
 
@@ -228,15 +228,16 @@ int test_virial_velocity_calculation(void) {
   init();
 
   /* Create test halo */
-  InputTreeHalos = mymalloc_cat(sizeof(struct RawHalo), MEM_HALOS);
-  InputTreeHalos[0].M_Crit200 = 100.0; /* 10^12 Msun/h */
-  InputTreeHalos[0].FirstHaloInFOFgroup = 0;
-  InputTreeHalos[0].SnapNum = MimicConfig.LastSnapshotNr;
+  struct RawHalo *halos = mymalloc_cat(sizeof(struct RawHalo), MEM_HALOS);
+  const struct HaloInputView view = {halos, 1};
+  halos[0].M_Crit200 = 100.0; /* 10^12 Msun/h */
+  halos[0].FirstHaloInFOFgroup = 0;
+  halos[0].SnapNum = MimicConfig.LastSnapshotNr;
 
   /* ===== EXECUTE ===== */
-  double vvir = get_virial_velocity(0);
-  double rvir = get_virial_radius(0);
-  double mvir = get_virial_mass(0);
+  double vvir = get_virial_velocity(view, 0);
+  double rvir = get_virial_radius(view, 0);
+  double mvir = get_virial_mass(view, 0);
 
   /* ===== VALIDATE ===== */
   /* For Mvir = 10^12 Msun/h, Vvir ~ 100-200 km/s is typical */
@@ -253,8 +254,7 @@ int test_virial_velocity_calculation(void) {
          vvir_expected);
 
   /* ===== CLEANUP ===== */
-  myfree(InputTreeHalos);
-  InputTreeHalos = NULL;
+  myfree(halos);
   myfree(Age_base); /* Free Age array allocated by init() */
   check_memory_leaks();
 
@@ -276,19 +276,20 @@ int test_virial_consistency_relations(void) {
   read_parameter_file(test_binary_param_file());
   init();
 
-  InputTreeHalos = mymalloc_cat(sizeof(struct RawHalo), MEM_HALOS);
-  InputTreeHalos[0].M_Crit200 = 100.0;
-  InputTreeHalos[0].FirstHaloInFOFgroup = 0;
-  InputTreeHalos[0].SnapNum = MimicConfig.LastSnapshotNr;
+  struct RawHalo *halos = mymalloc_cat(sizeof(struct RawHalo), MEM_HALOS);
+  const struct HaloInputView view = {halos, 1};
+  halos[0].M_Crit200 = 100.0;
+  halos[0].FirstHaloInFOFgroup = 0;
+  halos[0].SnapNum = MimicConfig.LastSnapshotNr;
 
   /* ===== EXECUTE ===== */
-  double mvir1 = get_virial_mass(0);
-  double rvir1 = get_virial_radius(0);
-  double vvir1 = get_virial_velocity(0);
+  double mvir1 = get_virial_mass(view, 0);
+  double rvir1 = get_virial_radius(view, 0);
+  double vvir1 = get_virial_velocity(view, 0);
 
   /* Test 8x mass */
-  InputTreeHalos[0].M_Crit200 = 800.0;
-  double vvir2 = get_virial_velocity(0);
+  halos[0].M_Crit200 = 800.0;
+  double vvir2 = get_virial_velocity(view, 0);
 
   /* ===== VALIDATE ===== */
   /* Consistency: Vvir^2 = G * Mvir / Rvir */
@@ -305,8 +306,7 @@ int test_virial_consistency_relations(void) {
   printf("  Scaling: 8x mass → %.2fx velocity (expected 2.0)\n", vvir_ratio);
 
   /* ===== CLEANUP ===== */
-  myfree(InputTreeHalos);
-  InputTreeHalos = NULL;
+  myfree(halos);
   myfree(Age_base); /* Free Age array allocated by init() */
   check_memory_leaks();
 
@@ -328,23 +328,24 @@ int test_virial_edge_cases(void) {
   read_parameter_file(test_binary_param_file());
   init();
 
-  InputTreeHalos = mymalloc_cat(sizeof(struct RawHalo), MEM_HALOS);
-  InputTreeHalos[0].FirstHaloInFOFgroup = 0;
-  InputTreeHalos[0].SnapNum = MimicConfig.LastSnapshotNr;
-  InputTreeHalos[0].Len = 0; /* No particles */
+  struct RawHalo *halos = mymalloc_cat(sizeof(struct RawHalo), MEM_HALOS);
+  const struct HaloInputView view = {halos, 1};
+  halos[0].FirstHaloInFOFgroup = 0;
+  halos[0].SnapNum = MimicConfig.LastSnapshotNr;
+  halos[0].Len = 0; /* No particles */
 
   MimicConfig.PartMass = 0.1;
 
   /* ===== EXECUTE & VALIDATE ===== */
 
   /* Case 1: Zero mass halo (no particles, Mvir < 0) */
-  InputTreeHalos[0].M_Crit200 = -1.0;
-  double mvir_zero = get_virial_mass(0);
+  halos[0].M_Crit200 = -1.0;
+  double mvir_zero = get_virial_mass(view, 0);
   TEST_ASSERT_DOUBLE_EQUAL(mvir_zero, 0.0, 1e-6, "Zero particles should give zero mass");
 
   /* Case 2: Zero mass should give zero velocity (safe_div protection) */
-  double rvir_zero = get_virial_radius(0);
-  double vvir_zero = get_virial_velocity(0);
+  double rvir_zero = get_virial_radius(view, 0);
+  double vvir_zero = get_virial_velocity(view, 0);
 
   /* Rvir will be very small but not exactly zero due to cbrt(0) = 0 */
   /* Vvir should handle this safely */
@@ -355,9 +356,9 @@ int test_virial_edge_cases(void) {
          vvir_zero);
 
   /* Case 3: Very small but non-zero mass */
-  InputTreeHalos[0].M_Crit200 = 0.001; /* 10^7 Msun/h */
-  double rvir_small = get_virial_radius(0);
-  double vvir_small = get_virial_velocity(0);
+  halos[0].M_Crit200 = 0.001; /* 10^7 Msun/h */
+  double rvir_small = get_virial_radius(view, 0);
+  double vvir_small = get_virial_velocity(view, 0);
 
   TEST_ASSERT(rvir_small > 0.0, "Small mass should give positive radius");
   TEST_ASSERT(vvir_small > 0.0, "Small mass should give positive velocity");
@@ -367,8 +368,7 @@ int test_virial_edge_cases(void) {
   printf("  Small mass case: Mvir=%.6f → Rvir=%.6f → Vvir=%.6f\n", 0.001, rvir_small, vvir_small);
 
   /* ===== CLEANUP ===== */
-  myfree(InputTreeHalos);
-  InputTreeHalos = NULL;
+  myfree(halos);
   myfree(Age_base); /* Free Age array allocated by init() */
   check_memory_leaks();
 

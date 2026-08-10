@@ -58,11 +58,12 @@ void output_increment_halo_counters_checked(int filenr, int snap_index, int snap
  * This function is format-agnostic and used by both binary and HDF5 output
  * writers, ensuring consistent halo conversion across all output formats.
  *
+ * @param   view      Input view over the raw halos this record was built from
  * @param   g         Pointer to the internal halo tracking structure (const)
  * @param   o         Pointer to the output halo structure to be filled
  *
  * @note Includes auto-generated code from copy_to_output.inc
  */
-void prepare_halo_for_output(const struct Halo *g, struct HaloOutput *o);
+void prepare_halo_for_output(struct HaloInputView view, const struct Halo *g, struct HaloOutput *o);
 
 #endif /* #ifndef IO_SAVE_UTIL_H */

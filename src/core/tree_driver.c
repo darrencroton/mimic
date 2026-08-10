@@ -227,18 +227,22 @@ static void process_partition(int output_id, ProgressBar *ext_bar, int64_t tree_
 
     NumProcessedHalos = 0;
 
+    /* One explicit view over this unit's loaded halos, so the output writers
+     * below take their raw halos from the driver rather than from the global. */
+    const struct HaloInputView view = {InputTreeHalos, (int64_t)InputTreeNHalos[unit]};
+
     for (halonr = 0; halonr < InputTreeNHalos[unit]; halonr++)
       if (HaloAux[halonr].DoneFlag == 0)
         build_halo_tree(halonr, unit, 0);
 
 #ifdef HDF5
     if (MimicConfig.OutputFormat == output_hdf5) {
-      save_halos_hdf5(output_id, unit);
+      save_halos_hdf5(output_id, unit, view);
     } else {
-      save_halos(output_id, unit);
+      save_halos(output_id, unit, view);
     }
 #else
-    save_halos(output_id, unit);
+    save_halos(output_id, unit, view);
 #endif
     free_unit_halos();
   }

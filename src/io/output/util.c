@@ -61,10 +61,12 @@ void output_increment_halo_counters_checked(int filenr, int snap_index, int snap
 
 /**
  * @brief   Copy struct Halo fields into struct HaloOutput via generated copy_to_output.inc.
- * @param   g   Source halo (internal tracking structure).
- * @param   o   Destination halo output record (zeroed by caller).
+ * @param   view  Input view over the raw halos this record was built from.
+ * @param   g     Source halo (internal tracking structure).
+ * @param   o     Destination halo output record (zeroed by caller).
  */
-void prepare_halo_for_output(const struct Halo *g, struct HaloOutput *o) {
+void prepare_halo_for_output(struct HaloInputView view, const struct Halo *g,
+                             struct HaloOutput *o) {
 /* AUTO-GENERATED: Copy all properties from struct Halo to struct HaloOutput */
 /* Includes automatic unit conversion for dT (seconds → Myr) with sentinel preservation */
 #include "../../include/generated/copy_to_output.inc"

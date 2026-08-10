@@ -136,13 +136,13 @@ def test_required_input_roles_generate_accessors_from_inline_bindings():
     accessors = generate_tree_property_accessors_h(halo_props, catalog_info, "0" * 32)
 
     assert "mimic_tree_get_FirstProgenitor" in accessors
-    assert "InputTreeHalos[halonr].FirstProg" in accessors
+    assert "view.halos[halonr].FirstProg" in accessors
     assert "mimic_tree_get_SnapNum" in accessors
-    assert "InputTreeHalos[halonr].Snap" in accessors
+    assert "view.halos[halonr].Snap" in accessors
     assert "mimic_tree_get_Len" in accessors
-    assert "InputTreeHalos[halonr].NPart" in accessors
+    assert "view.halos[halonr].NPart" in accessors
     assert "mimic_tree_get_HaloMass" in accessors
-    assert "InputTreeHalos[halonr].Mass200" in accessors
+    assert "view.halos[halonr].Mass200" in accessors
 
 
 def test_tree_link_core_roles_reject_non_integer_catalog_fields():

@@ -18,6 +18,10 @@
 #ifndef OUTPUT_HELPERS_H
 #define OUTPUT_HELPERS_H
 
+/* struct HaloInputView (the explicit raw-input view the virial helpers below
+ * read through) is a complete type here because it is passed by value. */
+#include "types.h"
+
 /* Forward declaration - avoid circular includes */
 struct Halo;
 
@@ -58,10 +62,10 @@ static inline double output_infall_property_or_zero(const struct Halo *g, double
  *
  * Used by: Rvir property
  */
-static inline double output_rvir_conditional(const struct Halo *g) {
+static inline double output_rvir_conditional(struct HaloInputView view, const struct Halo *g) {
   /* Type 2 orphans: preserve value from when the orphan had a subhalo;
    * Type 0/1: recalculate current (stored value is "maximum ever") */
-  return (g->Type == 2) ? g->Rvir : get_virial_radius(g->HaloNr);
+  return (g->Type == 2) ? g->Rvir : get_virial_radius(view, g->HaloNr);
 }
 
 /**
@@ -72,10 +76,10 @@ static inline double output_rvir_conditional(const struct Halo *g) {
  *
  * Used by: Vvir property
  */
-static inline double output_vvir_conditional(const struct Halo *g) {
+static inline double output_vvir_conditional(struct HaloInputView view, const struct Halo *g) {
   /* Type 2 orphans: preserve value from when the orphan had a subhalo;
    * Type 0/1: recalculate current (stored value is "maximum ever") */
-  return (g->Type == 2) ? g->Vvir : get_virial_velocity(g->HaloNr);
+  return (g->Type == 2) ? g->Vvir : get_virial_velocity(view, g->HaloNr);
 }
 
 #endif /* OUTPUT_HELPERS_H */

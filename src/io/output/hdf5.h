@@ -21,7 +21,7 @@ void prep_hdf5_file(char *fname);
 void open_hdf5_output_file(int filenr);
 
 /** @brief Buffer ProcessedHalos into the cross-tree write buffers. */
-void save_halos_hdf5(int filenr, int tree);
+void save_halos_hdf5(int filenr, int tree, struct HaloInputView view);
 /** @brief Flush all per-snapshot write buffers and release them. */
 void flush_hdf5_buffers(int filenr);
 /** @brief Append a prepared batch of HaloOutput records to the open HDF5 file. */

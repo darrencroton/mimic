@@ -12,6 +12,20 @@
  * field order and types are the binary file layout. */
 #include "generated/raw_halo_defs.h"
 
+/* Explicit view over the raw input halos a driver is currently processing.
+ *
+ * Passed by value from the driver down through the generated tree accessors,
+ * the virial helpers, the halo-init payload populator, and output conversion,
+ * so none of those layers has to reach for a file-scope input array. The tree
+ * driver builds one view per loaded unit over its own halo storage; a
+ * snapshot-ordered driver will build one per slab. It borrows that storage, and
+ * carries no bounds enforcement: `halonr` indices are trusted exactly as they
+ * were when the accessors read a global array. */
+struct HaloInputView {
+  const struct RawHalo *halos;
+  int64_t count;
+};
+
 #define MIMIC_DEFAULT_TARGET_FILE_SIZE (4LL * 1024LL * 1024LL * 1024LL)
 #define MIMIC_DEFAULT_FORESTS_PER_FILE 0LL
 

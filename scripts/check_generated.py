@@ -51,7 +51,7 @@ PROPERTY_GENERATED_FILES = [
     REPO_ROOT / "src" / "include" / "generated" / "tree_property_accessors.h",
     REPO_ROOT / "src" / "include" / "generated" / "read_tree_hdf5_properties.inc",
     REPO_ROOT / "src" / "include" / "generated" / "parameter_unit_conversions.h",
-    REPO_ROOT / "src" / "include" / "generated" / "populate_halo_payload_from_tree.inc",
+    REPO_ROOT / "src" / "include" / "generated" / "populate_halo_payload.inc",
     REPO_ROOT / "src" / "include" / "generated" / "property_test_helpers.h",
     REPO_ROOT / "src" / "include" / "generated" / "copy_to_output.inc",
     REPO_ROOT / "src" / "include" / "generated" / "hdf5_field_count.inc",

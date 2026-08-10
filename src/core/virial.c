@@ -34,6 +34,7 @@
 /**
  * @brief   Returns the virial mass of a halo
  *
+ * @param   view    Explicit view over the raw input halos being processed
  * @param   halonr  Index of the halo in the Halo array
  * @return  Virial mass in 10^10 Msun/h
  *
@@ -41,18 +42,19 @@
  * (spherical-overdensity mass estimate from the halo finder). Falls back to
  * Len * PartMass for subhalos and centrals without a valid HaloMass entry.
  */
-double get_virial_mass(int halonr) {
-  const double halo_mass = mimic_tree_get_HaloMass(halonr);
+double get_virial_mass(struct HaloInputView view, int halonr) {
+  const double halo_mass = mimic_tree_get_HaloMass(view, halonr);
 
-  if (halonr == mimic_tree_get_FirstHaloInFOFgroup(halonr) && halo_mass >= 0.0)
+  if (halonr == mimic_tree_get_FirstHaloInFOFgroup(view, halonr) && halo_mass >= 0.0)
     return halo_mass; /* take spherical overdensity mass estimate */
   else
-    return mimic_tree_get_Len(halonr) * MimicConfig.PartMass;
+    return mimic_tree_get_Len(view, halonr) * MimicConfig.PartMass;
 }
 
 /**
  * @brief   Calculates the virial velocity of a halo
  *
+ * @param   view    Explicit view over the raw input halos being processed
  * @param   halonr  Index of the halo in the Halo array
  * @return  Virial velocity in km/s
  *
@@ -65,13 +67,13 @@ double get_virial_mass(int halonr) {
  *
  * Returns 0.0 if the virial radius is zero or negative.
  */
-double get_virial_velocity(int halonr) {
+double get_virial_velocity(struct HaloInputView view, int halonr) {
   double Rvir;
 
-  Rvir = get_virial_radius(halonr);
+  Rvir = get_virial_radius(view, halonr);
 
   if (Rvir > 0.0)
-    return sqrt(MimicConfig.G * get_virial_mass(halonr) / Rvir);
+    return sqrt(MimicConfig.G * get_virial_mass(view, halonr) / Rvir);
   else
     return 0.0;
 }
@@ -79,6 +81,7 @@ double get_virial_velocity(int halonr) {
 /**
  * @brief   Calculates the virial radius of a halo
  *
+ * @param   view    Explicit view over the raw input halos being processed
  * @param   halonr  Index of the halo in the Halo array
  * @return  Virial radius in Mpc/h
  *
@@ -96,14 +99,14 @@ double get_virial_velocity(int halonr) {
  * Note: For certain simulations like Bolshoi, the Rvir property from the
  * halo catalog could be used directly instead of this calculation.
  */
-double get_virial_radius(int halonr) {
+double get_virial_radius(struct HaloInputView view, int halonr) {
   /* Rvir is recomputed from Mvir and the critical density rather than taken
    * from the catalog, so all simulations share one virial definition
    * (catalogs like Bolshoi provide Rvir directly, but with varying
    * conventions). */
   double zplus1, hubble_of_z_sq, rhocrit, fac;
 
-  zplus1 = 1 + MimicConfig.ZZ[mimic_tree_get_SnapNum(halonr)];
+  zplus1 = 1 + MimicConfig.ZZ[mimic_tree_get_SnapNum(view, halonr)];
   hubble_of_z_sq = MimicConfig.Hubble * MimicConfig.Hubble *
                    (MimicConfig.Omega * zplus1 * zplus1 * zplus1 +
                     (1 - MimicConfig.Omega - MimicConfig.OmegaLambda) * zplus1 * zplus1 +
@@ -112,5 +115,5 @@ double get_virial_radius(int halonr) {
   rhocrit = safe_div(3 * hubble_of_z_sq, 8 * M_PI * MimicConfig.G, 0.0);
   fac = safe_div(1.0, 200 * 4 * M_PI / 3.0 * rhocrit, 0.0);
 
-  return cbrt(get_virial_mass(halonr) * fac);
+  return cbrt(get_virial_mass(view, halonr) * fac);
 }

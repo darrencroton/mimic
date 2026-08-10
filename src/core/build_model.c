@@ -43,8 +43,29 @@
 #include "types.h"
 #include "generated/tree_property_accessors.h"
 
-static int count_fof_subhalos(int first_fof_halo);
+static int count_fof_subhalos(struct HaloInputView view, int first_fof_halo);
 static struct OutputBufferSegment *ensure_output_segment_scratch(int required);
+static void build_halo_tree_from_view(struct HaloInputView view, int halonr, int unit, int depth);
+
+/**
+ * @brief   Build the tree driver's input view over one loaded unit
+ *
+ * @param   unit   Index of the loaded unit (merger tree)
+ * @return  View over the tree driver's halo storage for that unit
+ *
+ * The input array remains the tree driver's own per-unit storage; this is where
+ * it becomes the explicit view that the accessors, the virial helpers, the
+ * payload populator, and output conversion all read through. Nothing below the
+ * driver reaches for the global.
+ */
+static struct HaloInputView tree_driver_input_view(int unit) {
+  struct HaloInputView view;
+
+  view.halos = InputTreeHalos;
+  view.count = (int64_t)InputTreeNHalos[unit];
+
+  return view;
+}
 
 /**
  * @brief   Recursively constructs halos by traversing the merger tree
@@ -67,6 +88,12 @@ static struct OutputBufferSegment *ensure_output_segment_scratch(int required);
  * high redshift to low redshift.
  */
 void build_halo_tree(int halonr, int unit, int depth) {
+  build_halo_tree_from_view(tree_driver_input_view(unit), halonr, unit, depth);
+}
+
+/* Recursive body of build_halo_tree(), carrying the unit's input view so every
+ * accessor and virial call below reads the halos this unit actually loaded. */
+static void build_halo_tree_from_view(struct HaloInputView view, int halonr, int unit, int depth) {
   int prog, fofhalo, ngal;
 
   /* Check recursion depth */
@@ -78,25 +105,25 @@ void build_halo_tree(int halonr, int unit, int depth) {
 
   HaloAux[halonr].DoneFlag = 1;
 
-  prog = mimic_tree_get_FirstProgenitor(halonr);
+  prog = mimic_tree_get_FirstProgenitor(view, halonr);
   while (prog >= 0) {
     if (HaloAux[prog].DoneFlag == 0)
-      build_halo_tree(prog, unit, depth + 1);
-    prog = mimic_tree_get_NextProgenitor(prog);
+      build_halo_tree_from_view(view, prog, unit, depth + 1);
+    prog = mimic_tree_get_NextProgenitor(view, prog);
   }
 
-  fofhalo = mimic_tree_get_FirstHaloInFOFgroup(halonr);
+  fofhalo = mimic_tree_get_FirstHaloInFOFgroup(view, halonr);
   if (HaloAux[fofhalo].HaloFlag == 0) {
     HaloAux[fofhalo].HaloFlag = 1;
     while (fofhalo >= 0) {
-      prog = mimic_tree_get_FirstProgenitor(fofhalo);
+      prog = mimic_tree_get_FirstProgenitor(view, fofhalo);
       while (prog >= 0) {
         if (HaloAux[prog].DoneFlag == 0)
-          build_halo_tree(prog, unit, depth + 1);
-        prog = mimic_tree_get_NextProgenitor(prog);
+          build_halo_tree_from_view(view, prog, unit, depth + 1);
+        prog = mimic_tree_get_NextProgenitor(view, prog);
       }
 
-      fofhalo = mimic_tree_get_NextHaloInFOFgroup(fofhalo);
+      fofhalo = mimic_tree_get_NextHaloInFOFgroup(view, fofhalo);
     }
   }
 
@@ -106,19 +133,19 @@ void build_halo_tree(int halonr, int unit, int depth) {
   // ahead and construct all halos for the subhalos in this FOF halo, and
   // evolve them in time.
 
-  fofhalo = mimic_tree_get_FirstHaloInFOFgroup(halonr);
+  fofhalo = mimic_tree_get_FirstHaloInFOFgroup(view, halonr);
   if (HaloAux[fofhalo].HaloFlag == 1) {
     ngal = 0;
     HaloAux[fofhalo].HaloFlag = 2;
 
-    int nsegments = count_fof_subhalos(fofhalo);
+    int nsegments = count_fof_subhalos(view, fofhalo);
     struct OutputBufferSegment *segments = ensure_output_segment_scratch(nsegments);
     int segment_index = 0;
 
     while (fofhalo >= 0) {
       int workspace_start = ngal;
       int source_halo = fofhalo;
-      ngal = join_progenitor_halos(fofhalo, ngal, unit);
+      ngal = join_progenitor_halos(view, fofhalo, ngal, unit);
 
       /*
        * Stamp the FoF-central catalog virial mass onto every member of this
@@ -129,24 +156,25 @@ void build_halo_tree(int halonr, int unit, int depth) {
        * value still reaches output unchanged and the shared marshaller no
        * longer needs to know about this field.
        */
-      double central_mvir = get_virial_mass(mimic_tree_get_FirstHaloInFOFgroup(source_halo));
+      double central_mvir =
+          get_virial_mass(view, mimic_tree_get_FirstHaloInFOFgroup(view, source_halo));
       for (int p = workspace_start; p < ngal; p++) {
         FoFWorkspace[p].CentralMvir = central_mvir;
       }
 
       segments[segment_index].source_id = source_halo;
-      segments[segment_index].snapshot_number = mimic_tree_get_SnapNum(source_halo);
+      segments[segment_index].snapshot_number = mimic_tree_get_SnapNum(view, source_halo);
       segments[segment_index].workspace_start = workspace_start;
       segments[segment_index].workspace_count = ngal - workspace_start;
       segments[segment_index].output_first = -1;
       segments[segment_index].output_count = 0;
       segment_index++;
 
-      fofhalo = mimic_tree_get_NextHaloInFOFgroup(fofhalo);
+      fofhalo = mimic_tree_get_NextHaloInFOFgroup(view, fofhalo);
     }
 
     /* Tree driver: run physics, then marshal the workspace to output. */
-    process_halo_evolution(mimic_tree_get_FirstHaloInFOFgroup(halonr), ngal);
+    process_halo_evolution(view, mimic_tree_get_FirstHaloInFOFgroup(view, halonr), ngal);
 
     struct OutputBuffer output_buffer = {ProcessedHalos, NumProcessedHalos, MaxProcessedHalos};
     marshal_workspace_to_output_buffer(FoFWorkspace, &output_buffer, segments, segment_index);
@@ -164,6 +192,7 @@ void build_halo_tree(int halonr, int unit, int depth) {
 /**
  * @brief   Finds the most massive progenitor halo that contains an object
  *
+ * @param   view      Input view over this unit's raw halos
  * @param   halonr    Index of the current halo in the Halo array
  * @return  Index of the most massive progenitor with an object
  *
@@ -180,12 +209,12 @@ void build_halo_tree(int halonr, int unit, int depth) {
  * object, which is used to determine which object should become the central
  * of the descendant halo.
  */
-int find_most_massive_progenitor(int halonr) {
+int find_most_massive_progenitor(struct HaloInputView view, int halonr) {
   int prog, first_occupied, lenoccmax;
 
   lenoccmax = 0;
-  first_occupied = mimic_tree_get_FirstProgenitor(halonr);
-  prog = mimic_tree_get_FirstProgenitor(halonr);
+  first_occupied = mimic_tree_get_FirstProgenitor(view, halonr);
+  prog = mimic_tree_get_FirstProgenitor(view, halonr);
 
   if (prog >= 0)
     if (HaloAux[prog].NHalos > 0)
@@ -194,11 +223,11 @@ int find_most_massive_progenitor(int halonr) {
   // Find most massive progenitor that contains an actual object
   // Maybe FirstProgenitor never was FirstHaloInFOFGroup and thus has no object
   while (prog >= 0) {
-    if (lenoccmax != -1 && mimic_tree_get_Len(prog) > lenoccmax && HaloAux[prog].NHalos > 0) {
-      lenoccmax = mimic_tree_get_Len(prog);
+    if (lenoccmax != -1 && mimic_tree_get_Len(view, prog) > lenoccmax && HaloAux[prog].NHalos > 0) {
+      lenoccmax = mimic_tree_get_Len(view, prog);
       first_occupied = prog;
     }
-    prog = mimic_tree_get_NextProgenitor(prog);
+    prog = mimic_tree_get_NextProgenitor(view, prog);
   }
 
   return first_occupied;
@@ -229,13 +258,13 @@ int find_most_massive_progenitor(int halonr) {
  * their properties while updating their status based on the evolving
  * dark matter structures.
  */
-static int count_progenitor_galaxies(int halonr) {
+static int count_progenitor_galaxies(struct HaloInputView view, int halonr) {
   int count = 0;
-  int prog = mimic_tree_get_FirstProgenitor(halonr);
+  int prog = mimic_tree_get_FirstProgenitor(view, halonr);
 
   while (prog >= 0) {
     count += HaloAux[prog].NHalos;
-    prog = mimic_tree_get_NextProgenitor(prog);
+    prog = mimic_tree_get_NextProgenitor(view, prog);
   }
 
   return count;
@@ -289,10 +318,10 @@ static int64_t make_unique_galaxy_id(int halonr, int unit) {
  * added. This is the only place tree-index coupling touches halo init; the
  * consumer (init_halo_from_payload) is format-neutral.
  */
-static struct HaloInitPayload make_halo_init_payload(int halonr) {
+static struct HaloInitPayload make_halo_init_payload(struct HaloInputView view, int halonr) {
   struct HaloInitPayload payload;
 
-#include "../include/generated/populate_halo_payload_from_tree.inc"
+#include "../include/generated/populate_halo_payload.inc"
 
   return payload;
 }
@@ -318,13 +347,13 @@ static struct InheritanceProgenitorGalaxy *ensure_progenitor_scratch(int require
   return ProgenitorScratch;
 }
 
-static int count_fof_subhalos(int first_fof_halo) {
+static int count_fof_subhalos(struct HaloInputView view, int first_fof_halo) {
   int count = 0;
   int fofhalo = first_fof_halo;
 
   while (fofhalo >= 0) {
     count++;
-    fofhalo = mimic_tree_get_NextHaloInFOFgroup(fofhalo);
+    fofhalo = mimic_tree_get_NextHaloInFOFgroup(view, fofhalo);
   }
 
   return count;
@@ -352,10 +381,10 @@ void free_tree_driver_scratch(void) {
   }
 }
 
-static void gather_progenitor_galaxies(int halonr, int first_occupied,
+static void gather_progenitor_galaxies(struct HaloInputView view, int halonr, int first_occupied,
                                        struct InheritanceProgenitorGalaxy *progenitors) {
   int index = 0;
-  int prog = mimic_tree_get_FirstProgenitor(halonr);
+  int prog = mimic_tree_get_FirstProgenitor(view, halonr);
 
   while (prog >= 0) {
     for (int i = 0; i < HaloAux[prog].NHalos; i++) {
@@ -366,13 +395,14 @@ static void gather_progenitor_galaxies(int halonr, int first_occupied,
       index++;
     }
 
-    prog = mimic_tree_get_NextProgenitor(prog);
+    prog = mimic_tree_get_NextProgenitor(view, prog);
   }
 }
 
 /**
  * @brief   Main function to join halos from progenitor halos
  *
+ * @param   view         Input view over this unit's raw halos
  * @param   halonr       Index of the current halo in the Halo array
  * @param   ngalstart    Starting index for halos in the Gal array
  * @param   tree         Index of the current merger tree
@@ -391,37 +421,37 @@ static void gather_progenitor_galaxies(int halonr, int first_occupied,
  * The function ensures proper inheritance of object properties while
  * maintaining the hierarchy of central and satellite halos.
  */
-int join_progenitor_halos(int halonr, int ngalstart, int unit) {
+int join_progenitor_halos(struct HaloInputView view, int halonr, int ngalstart, int unit) {
   int current_snap, first_occupied, ngal, nprogenitors, required;
   struct InheritanceDescendant descendant;
   struct InheritanceProgenitorGalaxy *progenitors = NULL;
 
   /* Find the most massive progenitor with halos */
-  first_occupied = find_most_massive_progenitor(halonr);
+  first_occupied = find_most_massive_progenitor(view, halonr);
 
-  nprogenitors = count_progenitor_galaxies(halonr);
+  nprogenitors = count_progenitor_galaxies(view, halonr);
   required = ngalstart + nprogenitors;
-  if (nprogenitors == 0 && halonr == mimic_tree_get_FirstHaloInFOFgroup(halonr)) {
+  if (nprogenitors == 0 && halonr == mimic_tree_get_FirstHaloInFOFgroup(view, halonr)) {
     required++;
   }
   ensure_fof_workspace_capacity(required);
 
   if (nprogenitors > 0) {
     progenitors = ensure_progenitor_scratch(nprogenitors);
-    gather_progenitor_galaxies(halonr, first_occupied, progenitors);
+    gather_progenitor_galaxies(view, halonr, first_occupied, progenitors);
   }
 
-  current_snap = mimic_tree_get_SnapNum(halonr);
+  current_snap = mimic_tree_get_SnapNum(view, halonr);
   descendant.halo_nr = halonr;
   descendant.current_snap = current_snap;
   descendant.current_time = Age[current_snap];
   descendant.new_halo_dt = (current_snap > 0) ? Age[current_snap - 1] - Age[current_snap] : -1.0;
-  descendant.virial_mass = get_virial_mass(halonr);
-  descendant.virial_radius = get_virial_radius(halonr);
-  descendant.virial_velocity = get_virial_velocity(halonr);
-  descendant.is_fof_central = (halonr == mimic_tree_get_FirstHaloInFOFgroup(halonr));
+  descendant.virial_mass = get_virial_mass(view, halonr);
+  descendant.virial_radius = get_virial_radius(view, halonr);
+  descendant.virial_velocity = get_virial_velocity(view, halonr);
+  descendant.is_fof_central = (halonr == mimic_tree_get_FirstHaloInFOFgroup(view, halonr));
   descendant.unique_galaxy_id = make_unique_galaxy_id(halonr, unit);
-  descendant.halo_payload = make_halo_init_payload(halonr);
+  descendant.halo_payload = make_halo_init_payload(view, halonr);
 
   ngal = inherit_descendant_halos(FoFWorkspace, ngalstart, MaxFoFWorkspace, &descendant,
                                   progenitors, nprogenitors);
@@ -433,11 +463,13 @@ int join_progenitor_halos(int halonr, int ngalstart, int unit) {
  * @brief   Setup module context for current snapshot and FOF group
  *
  * @param   ctx          Module context to populate
- * @param   halonr       Index of main halo in InputTreeHalos
+ * @param   view         Input view over this unit's raw halos
+ * @param   halonr       Index of main halo in the input view
  * @param   centralgal   Index of central galaxy in FoFWorkspace
  */
-static void setup_module_context(struct ModuleContext *ctx, int halonr, int centralgal) {
-  int snap = mimic_tree_get_SnapNum(halonr);
+static void setup_module_context(struct ModuleContext *ctx, struct HaloInputView view, int halonr,
+                                 int centralgal) {
+  int snap = mimic_tree_get_SnapNum(view, halonr);
 
   /* Snapshot information */
   ctx->redshift = MimicConfig.ZZ[snap];
@@ -466,8 +498,8 @@ static void setup_module_context(struct ModuleContext *ctx, int halonr, int cent
   }
 
   if (MimicConfig.TimestepScheme == TIMESTEP_SCHEME_DYNAMIC) {
-    double rvir = get_virial_radius(halonr);
-    double vvir = get_virial_velocity(halonr);
+    double rvir = get_virial_radius(view, halonr);
+    double vvir = get_virial_velocity(view, halonr);
     double t_dyn = (vvir > 0.0) ? (rvir / vvir) : 0.0;
     ctx->num_substeps = compute_dynamic_substeps(ctx->time_interval, t_dyn, MimicConfig.SubSteps,
                                                  MimicConfig.MaxDynamicSubsteps);
@@ -484,6 +516,7 @@ static void setup_module_context(struct ModuleContext *ctx, int halonr, int cent
 /**
  * @brief   Evolve one FoF workspace through the physics-execution engine
  *
+ * @param   view      Input view over this unit's raw halos
  * @param   halonr    Index of the FOF-background subhalo (main halo)
  * @param   ngal      Total number of halos to process
  *
@@ -496,7 +529,7 @@ static void setup_module_context(struct ModuleContext *ctx, int halonr, int cent
  * Phase assignments and loop modes are configured in the input YAML file.
  * TimestepScheme and SubSteps together determine the active substep count.
  */
-void process_halo_evolution(int halonr, int ngal) {
+void process_halo_evolution(struct HaloInputView view, int halonr, int ngal) {
   int centralgal, i;
   struct ModuleContext ctx;
 
@@ -524,7 +557,7 @@ void process_halo_evolution(int halonr, int ngal) {
   }
 
   /* Setup module execution context */
-  setup_module_context(&ctx, halonr, centralgal);
+  setup_module_context(&ctx, view, halonr, centralgal);
 
   /* Run the configured module lifecycle over this FoF workspace */
   execute_module_pipeline(&ctx, FoFWorkspace, ngal);

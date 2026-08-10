@@ -11,12 +11,13 @@ void create_binary_output_files(int filenr);
  * @brief   Write halos to binary output files for all snapshots
  * @param   filenr  File number being processed
  * @param   tree    Tree number being processed
+ * @param   view    Input view over the raw halos this tree was built from
  *
  * Writes all processed halos for the current tree to their respective
  * output files (one file per snapshot). Opens files on first write and
  * converts internal halo structures to output format.
  */
-void save_halos(int filenr, int tree);
+void save_halos(int filenr, int tree, struct HaloInputView view);
 
 /**
  * @brief   Finalize binary output files by writing headers

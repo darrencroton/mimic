@@ -188,11 +188,12 @@ void load_unit_hdf5(int unit) {
   free(buffer_multipledim);
 
 #ifdef DEBUG_HDF5_READER
+  const struct HaloInputView view = {InputTreeHalos, (int64_t)NHalos_ThisTree};
   int32_t i;
   for (i = 0; i < 20; ++i) {
     DEBUG_LOG("halo %d: Descendant %d FirstProg %d x %.4f y %.4f z %.4f", i,
-              mimic_tree_get_Descendant(i), mimic_tree_get_FirstProgenitor(i),
-              InputTreeHalos[i].Pos[0], InputTreeHalos[i].Pos[1], InputTreeHalos[i].Pos[2]);
+              mimic_tree_get_Descendant(view, i), mimic_tree_get_FirstProgenitor(view, i),
+              view.halos[i].Pos[0], view.halos[i].Pos[1], view.halos[i].Pos[2]);
   }
   // Debug exit point
   FATAL_ERROR("Debug exit after showing first 20 halos");

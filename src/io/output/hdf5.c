@@ -288,7 +288,7 @@ void flush_hdf5_buffers(int filenr) {
   }
 }
 
-void save_halos_hdf5(int filenr, int tree) {
+void save_halos_hdf5(int filenr, int tree, struct HaloInputView view) {
   int i, n;
 
   for (n = 0; n < MimicConfig.NOUT; n++) {
@@ -301,7 +301,7 @@ void save_halos_hdf5(int filenr, int tree) {
             HDF5_WRITE_BUFFER_RECORDS * sizeof(struct HaloOutput), MEM_IO);
       }
 
-      prepare_halo_for_output(&ProcessedHalos[i], &hdf5_wbuf[n][hdf5_wbuf_count[n]]);
+      prepare_halo_for_output(view, &ProcessedHalos[i], &hdf5_wbuf[n][hdf5_wbuf_count[n]]);
       hdf5_wbuf_count[n]++;
 
       output_increment_halo_counters_checked(filenr, n, MimicConfig.ListOutputSnaps[n], tree);

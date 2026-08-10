@@ -16,7 +16,7 @@ Reads:
 
 Generates:
     src/include/generated/property_defs.h
-    src/include/generated/populate_halo_payload_from_tree.inc
+    src/include/generated/populate_halo_payload.inc
     src/include/generated/property_test_helpers.h
     src/include/generated/copy_to_output.inc
     src/include/generated/hdf5_field_count.inc
@@ -115,6 +115,16 @@ VALID_OUTPUT_SOURCES = [
 VALID_OUTPUT_TRANSFORMS = [
     "log10",
 ]
+
+# Output helpers (src/module_system/output_helpers.h) that recompute a value from
+# the raw input catalog and therefore need the caller's struct HaloInputView as
+# their leading argument. Recorded here rather than in property metadata: the
+# YAML describes properties, not C calling conventions, and a helper's need for
+# the input view is a property of the helper.
+VIEW_TAKING_OUTPUT_FUNCTIONS = {
+    "output_rvir_conditional",
+    "output_vvir_conditional",
+}
 
 NUMERIC_TYPES = {"float", "double", "vec3_float"}
 H_CONVENTIONS = {"carried", "none", "free"}
@@ -883,7 +893,12 @@ def generate_tree_property_accessors_h(
     catalog_info: Dict[str, Dict[str, Any]],
     yaml_hash: str,
 ) -> str:
-    """Generate tree/raw field accessors with catalog-to-reference conversion."""
+    """Generate tree/raw field accessors with catalog-to-reference conversion.
+
+    Every accessor reads through an explicit `struct HaloInputView view` handed
+    in by the caller rather than a file-scope input array, so the same generated
+    family serves any driver that can produce a view over struct RawHalo records.
+    """
     virial = catalog_info["virial_mass_input"]
     code = generate_header(yaml_hash)
     code += "#ifndef GENERATED_TREE_PROPERTY_ACCESSORS_H\n"
@@ -895,14 +910,17 @@ def generate_tree_property_accessors_h(
         role_name = required["name"]
         source_name = catalog_info["core_role_map"][role_name]
         source = catalog_info["catalog_by_name"][source_name]
-        raw_expr = f"InputTreeHalos[halonr].{source['name']}"
+        raw_expr = f"view.halos[halonr].{source['name']}"
         if role_name == "HaloMass":
             c_type = "double"
             expr = _c_expr_with_conversion(raw_expr, virial["_input_convert"])
         else:
             c_type = TYPE_MAP[source["type"]]["c_type"]
             expr = raw_expr
-        code += f"static inline {c_type} mimic_tree_get_{role_name}(int halonr) {{\n"
+        code += (
+            f"static inline {c_type} mimic_tree_get_{role_name}"
+            "(struct HaloInputView view, int halonr) {\n"
+        )
         code += f"  return ({c_type})({expr});\n"
         code += "}\n\n"
         emitted.add(role_name)
@@ -919,13 +937,19 @@ def generate_tree_property_accessors_h(
         type_info = TYPE_MAP[prop["type"]]
         c_type = type_info["c_type"]
         if type_info["is_array"]:
-            code += f"static inline {c_type} mimic_tree_get_{prop['name']}_component(int halonr, int component) {{\n"
-            expr = _c_expr_with_conversion(f"InputTreeHalos[halonr].{raw_field}[component]", conv)
+            code += (
+                f"static inline {c_type} mimic_tree_get_{prop['name']}_component"
+                "(struct HaloInputView view, int halonr, int component) {\n"
+            )
+            expr = _c_expr_with_conversion(f"view.halos[halonr].{raw_field}[component]", conv)
             code += f"  return ({c_type})({expr});\n"
             code += "}\n\n"
         else:
-            code += f"static inline {c_type} mimic_tree_get_{prop['name']}(int halonr) {{\n"
-            expr = _c_expr_with_conversion(f"InputTreeHalos[halonr].{raw_field}", conv)
+            code += (
+                f"static inline {c_type} mimic_tree_get_{prop['name']}"
+                "(struct HaloInputView view, int halonr) {\n"
+            )
+            expr = _c_expr_with_conversion(f"view.halos[halonr].{raw_field}", conv)
             code += f"  return ({c_type})({expr});\n"
             code += "}\n\n"
 
@@ -1019,29 +1043,31 @@ def generate_parameter_unit_conversions_h(
     return code
 
 
-def generate_populate_halo_payload_from_tree(halo_props: List[Dict], yaml_hash: str) -> str:
-    """Generate populate_halo_payload_from_tree.inc.
+def generate_populate_halo_payload(halo_props: List[Dict], yaml_hash: str) -> str:
+    """Generate populate_halo_payload.inc.
 
     Fills a local `struct HaloInitPayload payload` for descendant `halonr` from
-    the tree-ordered input catalog. Included inside the tree driver's
+    the raw input halos in `view`. Included inside the tree driver's
     make_halo_init_payload() (build_model.c).
 
-    This is the tree-driver-specific half of the gather/inherit split: it is the
-    only place where tree-index coupling (InputTreeHalos, virial helpers) touches
-    halo initialization. It is generated so that the payload is populated directly
-    from metadata and can never silently desync from struct HaloInitPayload --
-    both this populator and the struct iterate the identical init_source filter
+    There is one shared populator, not a per-driver family: because it reads
+    through the explicit input view rather than a driver-owned global, any driver
+    that can hand it a `struct HaloInputView view` and a `halonr` gets the same
+    payload. It is generated so that the payload is populated directly from
+    metadata and can never silently desync from struct HaloInitPayload -- both
+    this populator and the struct iterate the identical init_source filter
     (copy_from_tree / copy_from_tree_array / calculate), so adding a new
-    tree-sourced halo property updates both at once. The format-neutral
-    consumer (init_halo_from_payload in property_defs.h) carries no tree coupling.
+    catalog-sourced halo property updates both at once. The format-neutral
+    consumer (init_halo_from_payload in property_defs.h) carries no input
+    coupling at all.
     """
 
     code = generate_header(yaml_hash)
-    code += "/* Populate `payload` for descendant `halonr` from the tree input.\n"
+    code += "/* Populate `payload` for descendant `halonr` from the input `view`.\n"
     code += " *\n"
     code += " * Mirrors struct HaloInitPayload (init_source in copy_from_tree /\n"
     code += " * copy_from_tree_array / calculate). Included in a function body that\n"
-    code += " * declares `struct HaloInitPayload payload;`. */\n\n"
+    code += " * declares `struct HaloInitPayload payload;` and has `view` in scope. */\n\n"
 
     for prop in halo_props:
         init_source = prop.get("init_source", "skip")
@@ -1049,7 +1075,7 @@ def generate_populate_halo_payload_from_tree(halo_props: List[Dict], yaml_hash: 
         type_info = TYPE_MAP[prop["type"]]
 
         if init_source == "copy_from_tree":
-            code += f"payload.{name} = mimic_tree_get_{name}(halonr);\n"
+            code += f"payload.{name} = mimic_tree_get_{name}(view, halonr);\n"
 
         elif init_source == "copy_from_tree_array":
             if not type_info["is_array"]:
@@ -1057,12 +1083,12 @@ def generate_populate_halo_payload_from_tree(halo_props: List[Dict], yaml_hash: 
                     f"Property '{name}' uses copy_from_tree_array but type is not array"
                 )
             code += f"for (int j = 0; j < {type_info['array_size']}; j++) {{\n"
-            code += f"  payload.{name}[j] = mimic_tree_get_{name}_component(halonr, j);\n"
+            code += f"  payload.{name}[j] = mimic_tree_get_{name}_component(view, halonr, j);\n"
             code += "}\n"
 
         elif init_source == "calculate":
             func = prop["init_function"]
-            code += f"payload.{name} = {func}(halonr);\n"
+            code += f"payload.{name} = {func}(view, halonr);\n"
 
     return code
 
@@ -1177,7 +1203,8 @@ def generate_copy_to_output(
 
     code = generate_header(yaml_hash)
     code += "/* Copy properties from struct Halo to struct HaloOutput\n"
-    code += " * Used in prepare_halo_for_output(const struct Halo *g, struct HaloOutput *o)\n"
+    code += " * Used in prepare_halo_for_output(struct HaloInputView view,\n"
+    code += " *                                 const struct Halo *g, struct HaloOutput *o)\n"
     code += " */\n\n"
 
     code += "/* Halo properties */\n"
@@ -1205,7 +1232,10 @@ def generate_copy_to_output(
         elif output_source == "recalculate":
             func = prop["output_function"]
             arg = prop["output_function_arg"]
-            code += f"o->{name} = {func}({arg});\n"
+            if func in VIEW_TAKING_OUTPUT_FUNCTIONS:
+                code += f"o->{name} = {func}(view, {arg});\n"
+            else:
+                code += f"o->{name} = {func}({arg});\n"
 
         elif output_source == "conditional":
             condition = prop["output_condition"]
@@ -1925,8 +1955,8 @@ def main():
     # which must be tree-coupled and therefore cannot be a driver-neutral header
     # function.
     write_file(
-        GENERATED_DIR / "populate_halo_payload_from_tree.inc",
-        generate_populate_halo_payload_from_tree(halo_props, yaml_hash),
+        GENERATED_DIR / "populate_halo_payload.inc",
+        generate_populate_halo_payload(halo_props, yaml_hash),
     )
     write_file(
         GENERATED_DIR / "property_test_helpers.h",
@@ -1971,7 +2001,7 @@ def main():
     print()
     print("Generated files:")
     print("  C headers:       src/include/generated/property_defs.h")
-    print("  C init code:     src/include/generated/populate_halo_payload_from_tree.inc")
+    print("  C init code:     src/include/generated/populate_halo_payload.inc")
     print("  C output code:   src/include/generated/copy_to_output.inc")
     print("  HDF5 code:       src/include/generated/hdf5_*.inc")
     print("  Schema writer:   src/include/generated/output_schema_writer.inc")

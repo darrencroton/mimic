@@ -8,9 +8,9 @@
 
 /* Tree driver (src/core/build_model.c) */
 void build_halo_tree(int halonr, int unit, int depth);
-void process_halo_evolution(int halonr, int ngal);
-int join_progenitor_halos(int halonr, int nstart, int unit);
-int find_most_massive_progenitor(int halonr);
+void process_halo_evolution(struct HaloInputView view, int halonr, int ngal);
+int join_progenitor_halos(struct HaloInputView view, int halonr, int nstart, int unit);
+int find_most_massive_progenitor(struct HaloInputView view, int halonr);
 void free_tree_driver_scratch(void);
 
 /* Initialization (src/core/init.c) */
@@ -29,13 +29,13 @@ int compute_dynamic_substeps(double time_interval, double t_dyn, int substeps_pe
                              int max_dynamic_substeps);
 
 /* Output writers (src/io/output/) */
-void save_halos(int filenr, int tree);
+void save_halos(int filenr, int tree, struct HaloInputView view);
 void finalize_halo_file(int filenr);
-void prepare_halo_for_output(const struct Halo *g, struct HaloOutput *o);
+void prepare_halo_for_output(struct HaloInputView view, const struct Halo *g, struct HaloOutput *o);
 
 /* Virial property helpers (src/core/virial.c) */
-double get_virial_velocity(int halonr);
-double get_virial_radius(int halonr);
-double get_virial_mass(int halonr);
+double get_virial_velocity(struct HaloInputView view, int halonr);
+double get_virial_radius(struct HaloInputView view, int halonr);
+double get_virial_mass(struct HaloInputView view, int halonr);
 
 #endif /* #ifndef CORE_PROTO_H */
