@@ -67,11 +67,15 @@ Generated files are untracked build artefacts regenerated per `MODEL`/`SIMULATIO
 
 - Mode B (`project-manager`) executes all eleven slices atomically in plan order. Batches are not used and are not defined.
 - Slices 1, 7, 9, and 10 deserve the strongest available implementer (generator + physics coupling; identity encoding; the driver itself; the gate harness). Slices 3, 4, and 11 are suitable for a cheaper implementer. Slices 2, 5, 6, and 8 sit between.
-- Every slice except Slice 3 carries `Independent audit required: yes` — this phase can move galaxy numbers, and the cost of an unaudited drift here is a divergence discovered at the gate.
+- That tiering is recorded per slice as a **Developer seat** line under each slice heading, in `pm start-slice` flag form. The lines are the PM's recommended default, not an acceptance criterion: the PM may raise a seat on evidence and records the choice per slice either way.
+- Suggested run defaults: PM seat `opus` at medium effort (the seat is turn-heavy and judgement-bound, not frontier-reasoning-bound; low effort degrades exactly the diff reading it exists for). `init --model sonnet --effort high` as the Developer default, overridden per the seat lines. `--max-attempts 5`, so a struggling slice surfaces to the human rather than grinding.
+- Every slice except Slice 3 carries `Independent audit required: yes` — this phase can move galaxy numbers, and the cost of an unaudited drift here is a divergence discovered at the gate. Review cost therefore dominates this run, which is the main argument for the stronger Developer seats above: on an elevated slice a single steer costs an attempt *plus* re-running both mandatory reviews, since any tree change stales them.
 
 ---
 
 ## Slice 1: Explicit input view through the accessor, virial, payload, and output-conversion paths
+
+**Developer seat:** `--model opus --effort high` — Strongest implementer (plan profile): generator emission, the virial/payload/output-conversion threading, and a bitwise-neutrality obligation on the tree path.
 
 ### Intended Change
 - Define `struct HaloInputView { const struct RawHalo *halos; int64_t count; }` in `src/include/types.h`.
@@ -151,6 +155,8 @@ Generated files are untracked build artefacts regenerated per `MODEL`/`SIMULATIO
 
 ## Slice 2: Identity fields out of the property system, onto reader-owned slab arrays
 
+**Developer seat:** `--model sonnet --effort high` — Mechanical but atomic: a YAML removal plus reader-owned slab arrays and their tests, fully specified and touching no core/IO tree-path file.
+
 ### Intended Change
 - Remove the `ForestIndex` and `HaloRankInForest` entries from `simulations/micro-uchuu-snapshot/halo_properties.yaml`, so they are no longer catalog fields, no longer `RawHalo` members, and generate nothing (dual-driver recorded input 3, option D).
 - `src/io/snapshot/reader.h`: `struct SnapshotSlab` gains `int64_t *forest_index` and `int64_t *halo_rank_in_forest`, reader-owned parallel arrays allocated, read, validated, and freed with the slab; the empty state, `SNAPSHOT_SLAB_INIT`, and `snapshot_slab_is_empty()` cover them.
@@ -211,6 +217,8 @@ Generated files are untracked build artefacts regenerated per `MODEL`/`SIMULATIO
 
 ## Slice 3: Physical header agreement with configuration at open_run
 
+**Developer seat:** `--model sonnet --effort high` — Cheapest tier (plan profile) and the only slice needing no independent audit; self-contained header validation plus corrupt-fixture tests. Drop to `medium` if trimming cost.
+
 ### Intended Change
 - `src/io/snapshot/read_snapshot_hdf5.c` (`open_run`): for **every** snapshot file, compare the physical header attributes against the configured simulation and **abort** on mismatch (dual-driver Phase 5 item 8): `box_size_mpc_h` against `MimicConfig.BoxSize`; `omega_matter`, `omega_lambda`, `hubble_h` against the three configured cosmology values; and `particle_mass_msun_h` against `MimicConfig.PartMass * 1e10` — multiplying the configured value up to native units, matching the producer's own operation, never dividing the header down.
 - Comparison rule, applied per value: reject non-finite values; require exact equality when both values are zero; otherwise accept iff `fabs(header - configured) <= 16 * DBL_EPSILON * fmax(fabs(header), fabs(configured))`. This is a rounding tolerance asserting the two are the same number, not a scientific tolerance.
@@ -257,6 +265,8 @@ Generated files are untracked build artefacts regenerated per `MODEL`/`SIMULATIO
 - Revert the commit; the reader returns to Phase 4b validation semantics.
 
 ## Slice 4: Snapshot run gating and the driver skeleton (open_run wired into the run path)
+
+**Developer seat:** `--model sonnet --effort high` — Cheaper tier (plan profile): a skeleton driver behind a deliberate FATAL, but it edits `read_parameter_file.c` and `tree_driver.c`, so the bitwise tree-path check is load-bearing.
 
 ### Intended Change
 - `src/core/read_parameter_file.c` (`validate_and_postprocess()`, beside the existing snapshot-configuration checks at `:1410-1457`): a snapshot-ordered configuration is rejected at config time when (a) `output_format` is `binary` (message: snapshot-ordered runs are HDF5-only), (b) `--skip` was given (`MimicConfig.OverwriteOutputFiles == 0`; message: resume is not supported for snapshot-ordered runs), or (c) `NTask > 1` (message: snapshot-ordered runs are serial in this phase; multi-rank execution belongs to the distributed plan, `docs/dev/MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md`).
@@ -318,6 +328,8 @@ Generated files are untracked build artefacts regenerated per `MODEL`/`SIMULATIO
 - Revert the commit; the dispatch case returns to the Phase 4b FATAL and the config rejections disappear with it.
 
 ## Slice 5: Instanced galaxy pool and the explicit pool handle through inheritance
+
+**Developer seat:** `--model sonnet --effort high` — Middle tier: instancing the galaxy pool and threading an explicit handle through inheritance — wide but mechanical, with a bitwise check as the backstop.
 
 ### Intended Change
 - `src/core/galaxy_pool.{c,h}`: refactor the file-static singleton to an instanced handle API — `struct GalaxyPool`, with `galaxy_pool_create(initial_capacity)` / `galaxy_pool_alloc(pool)` / `galaxy_pool_reset(pool)` / `galaxy_pool_destroy(pool)` (names indicative; the discipline — chunked allocation, stable pointers, bulk reset, `NULL`-means-no-galaxy — carries over unchanged, per dual-driver Phase 5 item 7 and the Phase 3 learning).
@@ -385,6 +397,8 @@ Generated files are untracked build artefacts regenerated per `MODEL`/`SIMULATIO
 
 ## Slice 6: int64 output widths through the buffer, segments, and marshalling
 
+**Developer seat:** `--model sonnet --effort high` — Middle tier: `int` → `int64_t` widening through buffer, segments, and marshalling. Broad, repetitive, and precisely enumerated.
+
 ### Intended Change
 - `src/core/output_buffer.{c,h}`: `struct OutputBuffer.count`/`.capacity` become `int64_t`; `struct OutputBufferSegment.output_first`/`.output_count` become `int64_t`; `workspace_start`/`workspace_count` remain `int` (FoF-local, bounded by one FoF group, per dual-driver Phase 5 item 1's resolution). Growth arithmetic and the `MAX_HALO_ARRAY_SIZE` cap (`output_buffer.c:48-52`) are performed in `int64_t`.
 - `src/core/build_model.c` / `src/core/tree_driver.c` / output writers: every consumer of the widened fields updates its types; where a widened value is narrowed back to `int` (e.g. syncing segment ranges into the tree driver's `int` `HaloAux.FirstHalo`/`NHalos`, or passing counts to the existing writer signatures), the narrowing is **explicit and checked** — an out-of-range value FATALs rather than truncates. `NumProcessedHalos`/`MaxProcessedHalos` (`src/core/allvars.c:46-49`, declared `src/include/globals.h:105-106`) widen with the buffer they mirror.
@@ -449,6 +463,8 @@ Generated files are untracked build artefacts regenerated per `MODEL`/`SIMULATIO
 - Revert the commit.
 
 ## Slice 7: Configured identity multiplier through the encoder, and its output provenance
+
+**Developer seat:** `--model opus --effort high` — Strongest implementer (plan profile): identity encoding and its output provenance — this slice can move galaxy IDs.
 
 ### Intended Change
 - `src/include/galaxy_id.h`: every helper takes the multiplier as an explicit `int64_t` parameter instead of using `TREE_MUL_FAC` — `mimic_unique_galaxy_id_max_forests(multiplier)`, `mimic_unique_galaxy_id_total_forests_valid(multiplier, total_forests)`, `mimic_unique_galaxy_id_components_valid(multiplier, halonr, forestnr_global)`, `mimic_encode_unique_galaxy_id(multiplier, halonr, forestnr_global)`. The bound expression is unified onto the snapshot form: `max_forests = INT64_MAX / multiplier - 1` (equal to the old form at 10⁹ and 10¹⁰, one stricter exactly when the multiplier divides 2⁶³ — the safe direction, and the frozen format's stated startup contract). Component validation derives from the same helper: `halonr` in `[0, multiplier)`, `forestnr_global` in `[0, max_forests)`.
@@ -529,6 +545,8 @@ Generated files are untracked build artefacts regenerated per `MODEL`/`SIMULATIO
 
 ## Slice 8: Driver-neutral output partition seam and the snapshot output schema
 
+**Developer seat:** `--model sonnet --effort high` — Middle tier, but the heaviest of them: the driver-neutral partition seam, the snapshot output schema, the `TotHalosPerSnap` widening, and the `hdf5_format_version` bump land together.
+
 ### Intended Change
 - New `struct OutputPartitionSource` (in `src/io/output/util.h` or a small new header under `src/io/output/`): supplies partition count, partition output id, partition existence, and the resolved reader-format name. The tree side populates it from `MimicConfig.reader`'s hooks (including `prepare_run`/`teardown_run` pass-through); the snapshot side is a trivial single-partition implementation (count 1, output id 0, always exists, name `snapshot_hdf5`). Construction lives **outside** `src/io/output/` — a `get_output_partition_source()` beside the driver dispatch in `src/core/tree_driver.c` switches on the resolved reader kind — so that after this slice **no file under `src/io/output/` reads `MimicConfig.reader`** (`master_hdf5.c:46-55`, `:77-80`, `:151-152`; `metadata_hdf5.c:582`, which now takes the format name from the source, so a snapshot run's provenance records `snapshot_hdf5`).
 - `src/io/output/hdf5.c` (`write_hdf5_attrs`): for snapshot-ordered runs, each `Snap%03d` group **omits `Ntrees` and the `TreeHalosPerSnap` dataset entirely** (absent, not zero/empty) and keeps `TotHalosPerSnap`; for all runs, the `TotHalosPerSnap` attribute **widens to `int64`** (permitted HDF5 delta 2), writing the Slice 6-widened `int64_t` global directly and removing Slice 6's temporary checked narrowing at this site (the binary header's permanent narrowing is untouched). Tree-ordered output keeps `Ntrees` and `TreeHalosPerSnap` unchanged.
@@ -596,6 +614,8 @@ Generated files are untracked build artefacts regenerated per `MODEL`/`SIMULATIO
 
 ## Slice 9: The snapshot driver end to end, the identity comparator, and the first cross-format comparison
 
+**Developer seat:** `--model opus --effort high` — Strongest implementer (plan profile) and the hardest slice in the phase: the driver end to end, the committed comparator, and the first cross-format identity comparison. Escalate a relaunch to `--model fable` only if `opus` burns two attempts here.
+
 ### Intended Change
 - `src/core/snapshot_driver.c` grows from the Slice 4 skeleton into the full driver (dual-driver Phase 5 items 1, 2, 4, 6):
   - **Loop:** snapshots in increasing time order. For snapshot N: load slab N (slab N−1 retained); walk FoF groups in slab order (`FirstHaloInFOFgroup`/`NextHaloInFOFgroup` chains, each group processed when its central is first met in slab order); per subhalo, gather progenitor galaxies via `FirstProgenitor` into slab N−1 and `NextProgenitor` within slab N−1, using a per-slab aux array (prev-slab halo index → processed range, `int64_t` fields) that mirrors the tree driver's `HaloAux` role; build `InheritanceDescendant` from the shared view-based populator over the slab-N view; call `inherit_descendant_halos` with the current generation's pool; run the shared physics engine with a snapshot-side context setup mirroring `setup_module_context`'s slab-based virial/time quantities; marshal through the shared output buffer; and, for snapshots in `ListOutputSnaps`, write per-snapshot HDF5 output through the Slice 8 seam (single partition, output id 0).
@@ -660,6 +680,8 @@ Generated files are untracked build artefacts regenerated per `MODEL`/`SIMULATIO
 
 ## Slice 10: The cross-format identity gate in the scientific tier
 
+**Developer seat:** `--model opus --effort high` — Strongest implementer (plan profile): the gate harness spans four `MODEL`/`SIMULATION` pairs and the scientific tier's single-pair build assumption.
+
 ### Intended Change
 - Two new committed run files: `models/halos-only/input/halos-only_micro-uchuu-snapshot.yaml` and `models/sage16/input/sage16_micro-uchuu-snapshot.yaml`, each **identical to its `_micro-uchuu-ascii` counterpart except `simulation.name` and `output.output_directory`** (exactly two changed lines; the mechanical diff is asserted by the harness, not merely eyeballed).
 - `simulations/micro-uchuu-snapshot/_tests/scientific/test_cross_format_identity.py`: the frozen gate, registered by the existing scientific-tier discovery when `SIMULATION=micro-uchuu-snapshot` is selected. The harness, in order:
@@ -718,6 +740,8 @@ Generated files are untracked build artefacts regenerated per `MODEL`/`SIMULATIO
 - Revert the commit; no production code is affected.
 
 ## Slice 11: Documentation of record, narrow vision update, and phase closeout
+
+**Developer seat:** `--model sonnet --effort high` — Cheapest tier (plan profile): documentation of record, a narrow vision update, and phase closeout. Drop to `medium` if trimming cost.
 
 ### Intended Change
 - `docs/DEVELOPER-GUIDE.md`: the snapshot driver (loop, rotation, two pools, parity behaviours at a summary level), the explicit input view, the instanced pool, the output-partition seam and snapshot output schema, the configured multiplier now honoured on both paths, and the identity gate's location and how to run it.
