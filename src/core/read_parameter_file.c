@@ -1412,8 +1412,11 @@ static void validate_and_postprocess(void) {
     errors++;
   } else {
     /* Whichever registry answered, the resolved reader declares the processing
-       order it feeds. A snapshot-ordered configuration that gets past here stops
-       at run_processing_driver(), the single not-implemented point. */
+       order it feeds. A snapshot-ordered configuration that gets past here and
+       past the three rejections below reaches run_snapshot_driver(), which
+       opens and validates the dataset, loads and releases every snapshot, and
+       then fails honestly at output: no physics, gather, or writer exists yet
+       (src/core/snapshot_driver.c). */
     const int is_tree_reader = (MimicConfig.reader != NULL);
     const char *reader_name =
         is_tree_reader ? MimicConfig.reader->name : MimicConfig.snapshot_reader->name;

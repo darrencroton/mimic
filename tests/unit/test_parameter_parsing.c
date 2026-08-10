@@ -14,6 +14,7 @@
 
 #include "../../src/include/proto.h"
 #include "../../src/include/types.h"
+#include "../../src/io/snapshot/reader.h"
 #include "../../src/io/tree/reader.h"
 #include "../../src/util/error.h"
 #include "../../src/util/memory.h"
@@ -754,10 +755,23 @@ int test_explicit_tree_ordered_processing_order(void) {
  * Validates: snapshot-ordered runs are serial in this phase (Slice 4 acceptance
  *            criterion c); a tree-ordered configuration is unaffected (see the
  *            paired test below).
+ *
+ * Skips when no snapshot reader is registered: the fixture below declares
+ * tree_type: snapshot_hdf5, and snapshot_reader_lookup() (like every snapshot
+ * reader) is only compiled in under -DHDF5. Without it the lookup returns
+ * NULL and read_parameter_file() FATALs with "Unknown tree_type" before ever
+ * reaching the NTask check this test pins -- this file must still run without
+ * HDF5, so it follows the runner's own skip-when-unavailable convention
+ * rather than joining run_tests.sh's HDF5-only test list.
  */
 int test_ntask_multi_rejects_snapshot_ordered_processing_order(void) {
   /* ===== SETUP ===== */
   char fixture_path[MAX_STRING_LEN];
+
+  if (snapshot_reader_count() == 0) {
+    return TEST_SKIP_WITH("no snapshot reader registered (HDF5 development library not "
+                          "available); tree_type: snapshot_hdf5 cannot resolve");
+  }
 
   TEST_ASSERT(
       write_processing_order_fixture(fixture_path, sizeof(fixture_path), "snapshot_ordered") == 0,

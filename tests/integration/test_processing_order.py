@@ -18,7 +18,14 @@ import yaml
 # Add framework to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from framework import MIMIC_EXE, TestSkipped, create_test_param_file, run_mimic, run_test_suite
+from framework import (
+    MIMIC_EXE,
+    REPO_ROOT,
+    TestSkipped,
+    create_test_param_file,
+    run_mimic,
+    run_test_suite,
+)
 
 TEMP_DIR = None
 
@@ -27,6 +34,17 @@ DEFAULT_MULTIPLIER = 1000000000
 
 #: The only input.tree_name the snapshot_hdf5 reader accepts.
 SNAPSHOT_TREE_NAME = "snapshot_%03d.h5"
+
+#: Committed snapshot-package fixture (small, deterministic, always present in a
+#: full checkout) -- used instead of the machine-local production dataset so the
+#: driver test below is reproducible on any checkout and reads kilobytes, not
+#: the multi-gigabyte real conversion.
+SNAPSHOT_FIXTURE_DIR = REPO_ROOT / "simulations" / "micro-uchuu-snapshot" / "_tests" / "data"
+SNAPSHOT_FIXTURE_A_LIST = SNAPSHOT_FIXTURE_DIR / "micro-uchuu-fixture.a_list"
+#: Last snapshot index in the fixture's 6-entry scale-factor list (0..5); the
+#: generated core run file's own snapshot_list requests 49, valid only for the
+#: real package's 50-snapshot production list.
+SNAPSHOT_FIXTURE_LAST_SNAPSHOT = 5
 
 #: Explicit tree-ordered input configuration for tests whose observable is a
 #: tree-reader-only config-time check. lhalo_binary is registered in every
@@ -146,18 +164,32 @@ def test_snapshot_config_reaches_driver_and_aborts_without_output():
     Expected: Non-zero exit; output does NOT include "Parameter validation failed" or
               "The snapshot-ordered driver is not implemented yet"; output DOES include
               the driver's own cannot-yet-produce-output message and a debug log line
-              proving two slab generations were live together at some point in the loop.
+              proving two slab generations were live together at some point in the loop;
+              the configured output directory holds nothing (no galaxy, master, schema,
+              or metadata output of any kind).
     Validates: open_run runs on the run path for the first time, every slab is loaded
                and released under the two-generation rotation, and the run fails
-               honestly at output rather than exiting 0 or regressing to either of the
-               two messages this slice retires.
+               honestly at output -- not exiting 0, not producing any output artifact,
+               and not regressing to either of the two messages this slice retires.
 
-    Exercising this for real requires a real on-disk snapshot dataset at the path the
-    reader opens, so the test only runs when the selected package is itself
-    snapshot-ordered (its own configuration already points input.tree_type/tree_name/
-    simulation_dir at one); forcing tree_type: snapshot_hdf5 onto a tree-ordered
-    package's own directory would abort for an unrelated I/O reason, not the message
-    this test pins.
+    Runs against the committed snapshot-package fixture (simulations/micro-uchuu-snapshot/
+    _tests/data/), not the machine-local production dataset: the latter is multi-gigabyte,
+    gitignored, and absent on a fresh checkout, which would make this criterion's own
+    proof unreproducible outside this workstation. input.simulation_dir and
+    input.snapshot_list_file are overridden to point at the fixture; output.snapshot_list
+    is overridden to the fixture's own last valid index (5 of a 6-entry a_list), since the
+    generated core run file's default (49) is only valid for the real package's 50-snapshot
+    production list. simulations/micro-uchuu-snapshot/_tests/unit/test_unit_snapshot_reader_open.c
+    already proves open_run succeeds against exactly this fixture with these same two fields
+    set, and Slice 3's physical-header comparison still matches it (the fixture headers were
+    stamped from the package's own simulation_info.yaml).
+
+    The test still only runs when the selected package is itself snapshot-ordered (its own
+    configuration is the only source of input.tree_type/tree_name/processing_order here);
+    forcing tree_type: snapshot_hdf5 onto a tree-ordered package would abort for an
+    unrelated config-mismatch reason, not the message this test pins. Guarded separately
+    against the fixture itself being absent (mirrors test_unit_snapshot_reader_realdata.c's
+    access() precedent), so a sparse or partial checkout skips rather than fails.
 
     output_format is forced to hdf5: the generated core test input this run file is
     based on is named test_binary.yaml for a reason -- output_format: binary -- which
@@ -171,13 +203,25 @@ def test_snapshot_config_reaches_driver_and_aborts_without_output():
     """
     if effective_input_setting("valid_snapshot_probe", "processing_order") != "snapshot_ordered":
         raise TestSkipped(
-            "selected package is not snapshot-ordered; no real snapshot dataset is "
-            "available at its simulation_dir to drive the loop over"
+            "selected package is not snapshot-ordered; its own configuration is the only "
+            "source of input.tree_type/tree_name/processing_order this test relies on"
         )
+    if not SNAPSHOT_FIXTURE_A_LIST.is_file():
+        raise TestSkipped(f"committed snapshot fixture not found at {SNAPSHOT_FIXTURE_DIR}")
+
+    output_dir = Path(TEMP_DIR) / "valid_snapshot_output"
 
     returncode, output = run_config(
         "valid_snapshot",
-        output_overrides={"output_format": "hdf5"},
+        input_overrides={
+            "simulation_dir": str(SNAPSHOT_FIXTURE_DIR),
+            "snapshot_list_file": str(SNAPSHOT_FIXTURE_A_LIST),
+        },
+        output_overrides={
+            "output_format": "hdf5",
+            "output_directory": str(output_dir),
+            "snapshot_list": [SNAPSHOT_FIXTURE_LAST_SNAPSHOT],
+        },
         extra_args=["--debug"],
     )
 
@@ -193,6 +237,14 @@ def test_snapshot_config_reaches_driver_and_aborts_without_output():
         "cannot yet produce output" in output
     )
     assert "2 slabs live" in output, "two slab generations must be live together at some point"
+
+    # ensure_directory_exists() creates output_directory before the driver runs (main.c),
+    # so its mere existence proves nothing; the driver must leave it with no galaxy,
+    # master, schema, or metadata output of any kind, since it aborts before any writer
+    # or write_run_metadata() call is ever reached.
+    if output_dir.exists():
+        leftover = sorted(p.name for p in output_dir.iterdir())
+        assert not leftover, f"the driver must produce no output, found: {leftover}"
 
 
 def test_snapshot_binary_output_rejected_at_config_time():
@@ -361,6 +413,9 @@ def test_snapshot_tree_name_must_be_exact_literal():
     Test that a snapshot configuration accepts only the exact tree_name literal.
 
     Expected: Non-zero exit for every other value, with a message naming the accepted literal.
+              The accepted-literal control additionally asserts "Unknown tree_type" is absent
+              (see the comment above it) and, where the selected package is itself
+              snapshot-ordered, that the run reaches and exercises the real driver.
     Validates: configured text never becomes a printf format or a silent filename mismatch.
     """
     rejected = ["snapshot_%d.h5", "snapshot_%s.h5", "", "trees_063"]
@@ -382,14 +437,20 @@ def test_snapshot_tree_name_must_be_exact_literal():
                 in output
             )
 
-    # The accepted literal is the control: it gets past configuration validation.
-    # What happens past that point depends on whether the forced tree_type matches a
-    # real dataset at the selected package's own simulation_dir (see
-    # test_snapshot_config_reaches_driver_and_aborts_without_output), so this control
-    # only pins the config-time half of the contract: the literal itself is accepted.
-    # output_format is forced to hdf5 for the same reason as that test: the generated
-    # reference run file is output_format: binary, which this slice's own new check
-    # now rejects for a snapshot-ordered configuration, independent of tree_name.
+    # The accepted literal is the control. An absence-only assertion on "Parameter
+    # validation failed" alone cannot distinguish "config accepted" from "config never
+    # got that far", so this also asserts "Unknown tree_type" is absent -- ruling out
+    # the specific alternative explanation that the literal silently failed reader
+    # lookup instead of being genuinely accepted. output_format is forced to hdf5 for
+    # the same reason test_snapshot_config_reaches_driver_and_aborts_without_output
+    # does: the generated reference run file is output_format: binary, which this
+    # slice's own new check now rejects for a snapshot-ordered configuration,
+    # independent of tree_name. simulation_dir/snapshot_list_file are deliberately
+    # NOT repointed at the committed snapshot fixture here (unlike that test): this
+    # config keeps the selected package's own cosmology, so pointing it at a
+    # different package's fixture data would abort on Slice 3's physical-header
+    # mismatch instead of proving anything about tree_name -- the driver-message
+    # proof belongs to that other, package-scoped test.
     returncode, output = run_config(
         "tree_name_accepted",
         input_overrides={
@@ -400,6 +461,16 @@ def test_snapshot_tree_name_must_be_exact_literal():
         output_overrides={"output_format": "hdf5"},
     )
     assert "Parameter validation failed" not in output
+    assert "Unknown tree_type" not in output, "the accepted literal must resolve the reader"
+
+    if (
+        effective_input_setting("tree_name_accepted_probe", "processing_order")
+        == "snapshot_ordered"
+    ):
+        assert (
+            "The snapshot-ordered driver has validated and loaded every snapshot but "
+            "cannot yet produce output" in output
+        ), "under a snapshot-ordered package the accepted literal should reach the real driver"
 
 
 def test_multiplier_default_and_non_positive_rejection():

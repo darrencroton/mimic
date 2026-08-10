@@ -48,7 +48,11 @@ void run_snapshot_driver(void) {
 
     snapshot_reader_load_slab(reader, snapnum, &slabs[slot]);
 
-    const int live_slabs = (snapnum > 0) ? 2 : 1;
+    /* Derived from the slabs' own state, not the loop counter: a rotation bug
+       (wrong slot, a skipped or early release) would then show up here rather
+       than being masked by an assertion that could never be false. */
+    const int live_slabs =
+        (!snapshot_slab_is_empty(&slabs[0])) + (!snapshot_slab_is_empty(&slabs[1]));
     DEBUG_LOG("Loaded snapshot %" PRId64 " (%" PRId64 " halos); %d slab%s live", snapnum,
               slabs[slot].nhalos, live_slabs, live_slabs == 1 ? "" : "s");
 
