@@ -154,7 +154,7 @@ fi
 
 # Source files needed for tests (non-main files)
 UTIL_SRCS="${SRC_DIR}/util/memory.c ${SRC_DIR}/util/error.c ${SRC_DIR}/util/numeric.c ${SRC_DIR}/util/version.c ${SRC_DIR}/util/integration.c ${SRC_DIR}/util/io.c ${SRC_DIR}/util/run_log.c ${SRC_DIR}/util/progress.c"
-CORE_SRCS="${SRC_DIR}/core/allvars.c ${SRC_DIR}/core/read_parameter_file.c ${SRC_DIR}/core/init.c ${SRC_DIR}/core/tree_driver.c ${SRC_DIR}/core/virial.c ${SRC_DIR}/core/timestep.c ${SRC_DIR}/core/inheritance.c ${SRC_DIR}/core/output_buffer.c ${SRC_DIR}/core/galaxy_pool.c"
+CORE_SRCS="${SRC_DIR}/core/allvars.c ${SRC_DIR}/core/read_parameter_file.c ${SRC_DIR}/core/init.c ${SRC_DIR}/core/tree_driver.c ${SRC_DIR}/core/snapshot_driver.c ${SRC_DIR}/core/virial.c ${SRC_DIR}/core/timestep.c ${SRC_DIR}/core/inheritance.c ${SRC_DIR}/core/output_buffer.c ${SRC_DIR}/core/galaxy_pool.c"
 IO_SRCS="${SRC_DIR}/io/tree/interface.c ${SRC_DIR}/io/tree/binary.c ${SRC_DIR}/io/tree/registry.c ${SRC_DIR}/io/tree/chunk_plan.c ${SRC_DIR}/io/tree/read_ctrees_ascii.c ${SRC_DIR}/io/tree/ctrees/ctrees_utils.c ${SRC_DIR}/io/tree/ctrees/forest_utils.c ${SRC_DIR}/io/snapshot/interface.c ${SRC_DIR}/io/snapshot/registry.c ${SRC_DIR}/io/output/util.c ${SRC_DIR}/io/output/binary.c"
 if [ "$HDF5_AVAILABLE" = "1" ]; then
     IO_SRCS="${IO_SRCS} ${SRC_DIR}/io/tree/hdf5.c ${SRC_DIR}/io/tree/read_ctrees_hdf5.c ${SRC_DIR}/io/snapshot/read_snapshot_hdf5.c ${SRC_DIR}/io/output/master_hdf5.c"

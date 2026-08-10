@@ -1600,6 +1600,83 @@ int test_load_slab_matches_fixture(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test  test_two_generation_rotation_holds_two_slabs_live
+ * Loading and releasing the fixture under the driver's two-generation
+ * rotation (load N while N-1 is still live, then release N-1) holds exactly
+ * two slab generations live at once, keeps their contents distinct, and
+ * leaves no tracked allocation once the last slab is released and the run is
+ * closed. Mirrors src/core/snapshot_driver.c's own rotation pattern.
+ */
+int test_two_generation_rotation_holds_two_slabs_live(void) {
+  char dir[MAX_STRING_LEN];
+  struct SnapshotRunInfo info;
+  struct SnapshotSlab slabs[2] = {SNAPSHOT_SLAB_INIT, SNAPSHOT_SLAB_INIT};
+
+  TEST_ASSERT(stage_fixture(dir, sizeof(dir)) == 0, "should stage a scratch copy of the fixture");
+  configure_for_fixture(dir);
+
+  const struct SnapshotReader *reader = snapshot_reader_lookup("snapshot_hdf5");
+  snapshot_reader_open_run(reader, &info);
+  TEST_ASSERT_EQUAL(info.snapshot_count, FIXTURE_SNAPSHOTS,
+                    "run info should publish six snapshots");
+
+  for (int64_t snap = 0; snap < info.snapshot_count; snap++) {
+    const int slot = (int)(snap % 2);
+
+    snapshot_reader_load_slab(reader, snap, &slabs[slot]);
+    TEST_ASSERT_EQUAL(slabs[slot].snapnum, snap, "the just-loaded slab should carry its snapnum");
+
+    if (snap > 0) {
+      const int prev_slot = (int)((snap - 1) % 2);
+      /* Both generations must be live and distinct right before the older one
+         is released -- the exact instant Slice 4's criterion requires. */
+      TEST_ASSERT(!snapshot_slab_is_empty(&slabs[slot]), "the newly loaded slab should be live");
+      TEST_ASSERT(!snapshot_slab_is_empty(&slabs[prev_slot]),
+                  "the previous generation should still be live");
+      TEST_ASSERT(slabs[slot].snapnum != slabs[prev_slot].snapnum,
+                  "the two live generations should carry different snapshot numbers");
+
+      snapshot_reader_release_slab(reader, &slabs[prev_slot]);
+      TEST_ASSERT(snapshot_slab_is_empty(&slabs[prev_slot]),
+                  "releasing the previous generation should empty its handle");
+    }
+  }
+
+  const int last_slot = (int)((info.snapshot_count - 1) % 2);
+  snapshot_reader_release_slab(reader, &slabs[last_slot]);
+  TEST_ASSERT(snapshot_slab_is_empty(&slabs[last_slot]),
+              "releasing the final slab should empty its handle");
+
+  snapshot_reader_close_run(reader);
+  remove_staged_fixture(dir);
+
+  char log_template[] = "/tmp/mimic_snapshot_rotation_leak_XXXXXX";
+  const int fd = mkstemp(log_template);
+  TEST_ASSERT(fd >= 0, "should create a scratch log file");
+  FILE *log = fdopen(fd, "w+");
+  TEST_ASSERT(log != NULL, "should open the scratch log file");
+
+  FILE *previous = set_log_output(log);
+  check_memory_leaks();
+  set_log_output(previous);
+  fflush(log);
+
+  rewind(log);
+  char captured[4096];
+  const size_t read_bytes = fread(captured, 1, sizeof(captured) - 1, log);
+  captured[read_bytes] = '\0';
+  fclose(log);
+  unlink(log_template);
+
+  TEST_ASSERT(strstr(captured, "Memory leak detected") == NULL,
+              "the two-generation rotation should leave no tracked allocation");
+
+  /* Re-emit for the captured unit-run output. */
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
 /* ---------------------------------------------------------------------------
  * Link-range abort cases
  * ------------------------------------------------------------------------- */
@@ -2092,6 +2169,7 @@ int main(void) {
   TEST_RUN(test_link_diagnostics_are_bounded);
   TEST_RUN(test_slab_lifecycle);
   TEST_RUN(test_load_release_leaves_no_leak);
+  TEST_RUN(test_two_generation_rotation_holds_two_slabs_live);
   TEST_RUN(test_registries_are_disjoint);
   TEST_RUN(test_identity_bounds_predicate);
   TEST_RUN(test_identity_bounds_division_boundary);

@@ -1455,6 +1455,26 @@ static void validate_and_postprocess(void) {
                 MimicConfig.UniqueGalaxyIDMultiplier, (int64_t)TREE_MUL_FAC);
       errors++;
     }
+
+    /* The skeleton driver (and everything after it in this phase) has no
+       resume, binary-writer, or multi-rank support yet; reject at config time
+       rather than let a snapshot-ordered run reach the driver only to FATAL
+       there for a reason unrelated to the driver's own missing output path. */
+    if (!is_tree_reader && MimicConfig.OutputFormat == output_binary) {
+      ERROR_LOG("output_format is 'binary', but snapshot-ordered runs are HDF5-only");
+      errors++;
+    }
+    if (!is_tree_reader && MimicConfig.OverwriteOutputFiles == 0) {
+      ERROR_LOG("--skip was given, but resume is not supported for snapshot-ordered runs");
+      errors++;
+    }
+    if (!is_tree_reader && NTask > 1) {
+      ERROR_LOG("NTask is %d, but snapshot-ordered runs are serial in this phase; multi-rank "
+                "execution belongs to the distributed plan, "
+                "docs/dev/MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md",
+                NTask);
+      errors++;
+    }
   }
   if (strlen(MimicConfig.FileWithSnapList) == 0) {
     ERROR_LOG("Required parameter 'input.snapshot_list_file' missing");

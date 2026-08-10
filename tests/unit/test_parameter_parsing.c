@@ -38,11 +38,14 @@ static const char *TestExecutablePath = NULL;
 /**
  * @brief   Setup function for test initialization
  *
- * Initializes memory system and error handling with warning level.
+ * Initializes memory system and error handling with warning level, and
+ * installs the CLI's OverwriteOutputFiles default (see
+ * install_overwrite_output_default_for_test() in core_test_fixtures.h).
  */
 static void setup_test(void) {
   init_memory_system(0);
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
+  install_overwrite_output_default_for_test();
 }
 
 static void install_output_chunking_defaults_for_test(void) {
@@ -110,7 +113,7 @@ static int write_null_phase_fixture(char *path, size_t path_size, const char *la
   }
 
   snprintf(path, path_size, "archive/test-fixtures/test_null_phase_%s.yaml", label);
-  src = fopen(test_binary_param_file(), "r");
+  src = fopen(test_cosmology_param_file(), "r");
   if (src == NULL) {
     return -1;
   }
@@ -224,7 +227,7 @@ static int write_timestep_scheme_fixture_with_label(char *path, size_t path_size
   }
 
   snprintf(path, path_size, "archive/test-fixtures/test_timestep_scheme_%s.yaml", label);
-  src = fopen(test_binary_param_file(), "r");
+  src = fopen(test_cosmology_param_file(), "r");
   if (src == NULL) {
     return -1;
   }
@@ -262,7 +265,7 @@ static int write_max_dynamic_substeps_fixture(char *path, size_t path_size, cons
   }
 
   snprintf(path, path_size, "archive/test-fixtures/test_max_dynamic_substeps_%s.yaml", label);
-  src = fopen(test_binary_param_file(), "r");
+  src = fopen(test_cosmology_param_file(), "r");
   if (src == NULL) {
     return -1;
   }
@@ -297,7 +300,7 @@ static int write_output_chunking_fixture(char *path, size_t path_size, const cha
   }
 
   snprintf(path, path_size, "archive/test-fixtures/test_output_chunking_%s.yaml", label);
-  src = fopen(test_binary_param_file(), "r");
+  src = fopen(test_cosmology_param_file(), "r");
   if (src == NULL) {
     return -1;
   }
@@ -393,7 +396,7 @@ static int write_simulation_output_fixture(char *run_path, size_t run_path_size,
 
   snprintf(run_path, run_path_size, "archive/test-fixtures/test_run_simulation_output_%s.yaml",
            label);
-  src = fopen(test_binary_param_file(), "r");
+  src = fopen(test_cosmology_param_file(), "r");
   if (src == NULL) {
     return -1;
   }
@@ -544,6 +547,69 @@ static int read_parameter_file_fatal_message_contains(const char *path, const ch
 }
 
 /**
+ * @brief   Like read_parameter_file_fatal_message_contains, but with NTask forced.
+ *
+ * NTask is a process-global set once at MPI_Init in production, so the only way to
+ * exercise a chosen value on the run path is to pass it across the exec() that starts
+ * the fresh child image (exec resets globals; a value set in this parent before
+ * fork() does not survive it). The child re-enters main() in "--expect-fatal-ntask"
+ * mode, which sets NTask from argv before calling read_parameter_file().
+ */
+static int read_parameter_file_fatal_message_contains_with_ntask(const char *path, int ntask,
+                                                                 const char *needle) {
+  int pipefd[2];
+  pid_t pid;
+  int status;
+  char output[4096];
+  size_t used = 0;
+  ssize_t nread;
+  char ntask_arg[16];
+
+  snprintf(ntask_arg, sizeof(ntask_arg), "%d", ntask);
+
+  fflush(NULL);
+
+  if (pipe(pipefd) != 0) {
+    return -1;
+  }
+
+  pid = fork();
+  if (pid < 0) {
+    close(pipefd[0]);
+    close(pipefd[1]);
+    return -1;
+  }
+
+  if (pid == 0) {
+    close(pipefd[0]);
+    (void)freopen("/dev/null", "w", stdout);
+    dup2(pipefd[1], STDERR_FILENO);
+    close(pipefd[1]);
+    execl(TestExecutablePath, TestExecutablePath, "--expect-fatal-ntask", ntask_arg, path,
+          (char *)NULL);
+    _exit(127);
+  }
+
+  close(pipefd[1]);
+  while (used < sizeof(output) - 1 &&
+         (nread = read(pipefd[0], output + used, sizeof(output) - 1 - used)) > 0) {
+    used += (size_t)nread;
+  }
+  output[used] = '\0';
+  close(pipefd[0]);
+
+  if (waitpid(pid, &status, 0) < 0) {
+    return -1;
+  }
+
+  if (WIFSIGNALED(status) || (WIFEXITED(status) && WEXITSTATUS(status) == 127)) {
+    return -1;
+  }
+
+  return WIFEXITED(status) && WEXITSTATUS(status) != 0 && strstr(output, needle) != NULL;
+}
+
+/**
  * @test    test_basic_parsing
  * @brief   Test that parameter file can be parsed without errors
  *
@@ -555,7 +621,7 @@ int test_basic_parsing(void) {
   setup_test();
 
   /* ===== EXECUTE ===== */
-  read_parameter_file(test_binary_param_file());
+  read_parameter_file(test_cosmology_param_file());
 
   /* ===== VALIDATE ===== */
   printf("  ✓ Parameter file parsed successfully\n");
@@ -577,12 +643,26 @@ int test_basic_parsing(void) {
  * is instead read out of the configuration itself: an explicit
  * input.processing_order in the run file, else one in the simulation config the
  * run file points at, else the framework default.
+ *
+ * Skips for a snapshot-ordered package: the generated core run file this test
+ * reads is output_format: binary, which Slice 4's config-time gating now
+ * rejects for a snapshot-ordered configuration (output_format: hdf5 is not a
+ * substitute -- see test_cosmology_param_file() in core_test_fixtures.h), so
+ * no generated core run file both declares that package's real processing
+ * order AND parses successfully in this harness.
  */
 int test_default_processing_order(void) {
   char declared[64] = "";
   char sim_config[MAX_STRING_LEN] = "";
   char line[1024];
   FILE *fp;
+
+  if (compiled_simulation_is_snapshot_ordered()) {
+    return TEST_SKIP_WITH(
+        "no generated core run file both declares a snapshot-ordered package's real "
+        "processing_order and parses in this harness (output_format: binary is rejected; "
+        "output_format: hdf5 hits read_parameter_file.c's #ifndef HDF5 guard here)");
+  }
 
   /* ===== SETUP ===== */
   setup_test();
@@ -667,6 +747,77 @@ int test_explicit_tree_ordered_processing_order(void) {
 }
 
 /**
+ * @test    test_ntask_multi_rejects_snapshot_ordered_processing_order
+ * @brief   Test that NTask > 1 rejects a snapshot-ordered configuration at config time.
+ *
+ * Expected: FATAL with the serial-only message naming the distributed plan.
+ * Validates: snapshot-ordered runs are serial in this phase (Slice 4 acceptance
+ *            criterion c); a tree-ordered configuration is unaffected (see the
+ *            paired test below).
+ */
+int test_ntask_multi_rejects_snapshot_ordered_processing_order(void) {
+  /* ===== SETUP ===== */
+  char fixture_path[MAX_STRING_LEN];
+
+  TEST_ASSERT(
+      write_processing_order_fixture(fixture_path, sizeof(fixture_path), "snapshot_ordered") == 0,
+      "Should create explicit snapshot_ordered fixture");
+
+  /* ===== EXECUTE / VALIDATE ===== */
+  int result = read_parameter_file_fatal_message_contains_with_ntask(
+      fixture_path, 2,
+      "snapshot-ordered runs are serial in this phase; multi-rank execution belongs to the "
+      "distributed plan, docs/dev/MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md");
+  TEST_ASSERT(
+      result == 1,
+      "NTask=2 with a snapshot-ordered configuration should FATAL with the serial-only message");
+
+  printf("  NTask=2 + snapshot_ordered -> serial-only rejection confirmed\n");
+
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_ntask_multi_allows_tree_ordered_processing_order
+ * @brief   Test that NTask > 1 leaves a tree-ordered configuration's validation unchanged.
+ *
+ * Expected: validation passes exactly as it did before this slice's NTask gating.
+ * Validates: the NTask > 1 rejection added in this slice applies only to
+ *            snapshot-ordered configurations.
+ */
+int test_ntask_multi_allows_tree_ordered_processing_order(void) {
+  /* ===== SETUP ===== */
+  char fixture_path[MAX_STRING_LEN];
+  int saved_ntask;
+
+  setup_test();
+
+  TEST_ASSERT(write_processing_order_fixture(fixture_path, sizeof(fixture_path), "tree_ordered") ==
+                  0,
+              "Should create explicit tree_ordered fixture");
+
+  saved_ntask = NTask;
+  NTask = 2;
+
+  /* ===== EXECUTE ===== */
+  read_parameter_file(fixture_path);
+
+  /* ===== VALIDATE ===== */
+  TEST_ASSERT(MimicConfig.ProcessingOrder == INPUT_PROCESSING_ORDER_TREE,
+              "Tree-ordered processing_order should still parse under NTask=2");
+  TEST_ASSERT(MimicConfig.reader != NULL && MimicConfig.snapshot_reader == NULL,
+              "A tree-ordered configuration should still resolve a tree reader under NTask=2");
+
+  printf("  NTask=2 + tree_ordered -> validation still passes\n");
+
+  /* ===== CLEANUP ===== */
+  NTask = saved_ntask;
+  teardown_test();
+
+  return TEST_PASS;
+}
+
+/**
  * @test    test_default_timestep_scheme
  * @brief   Test that omitted TimestepScheme defaults to fixed
  */
@@ -675,7 +826,7 @@ int test_default_timestep_scheme(void) {
   setup_test();
 
   /* ===== EXECUTE ===== */
-  read_parameter_file(test_binary_param_file());
+  read_parameter_file(test_cosmology_param_file());
 
   /* ===== VALIDATE ===== */
   TEST_ASSERT(MimicConfig.TimestepScheme == TIMESTEP_SCHEME_FIXED,
@@ -789,7 +940,7 @@ int test_default_max_dynamic_substeps(void) {
   setup_test();
 
   /* ===== EXECUTE ===== */
-  read_parameter_file(test_binary_param_file());
+  read_parameter_file(test_cosmology_param_file());
 
   /* ===== VALIDATE ===== */
   TEST_ASSERT(MimicConfig.MaxDynamicSubsteps == DEFAULT_MAX_DYNAMIC_SUBSTEPS,
@@ -874,7 +1025,7 @@ int test_integer_parameters(void) {
   setup_test();
 
   /* ===== EXECUTE ===== */
-  read_parameter_file(test_binary_param_file());
+  read_parameter_file(test_cosmology_param_file());
 
   /* ===== VALIDATE ===== */
   TEST_ASSERT(MimicConfig.FirstFile == 0, "FirstFile should be 0");
@@ -905,7 +1056,7 @@ int test_float_parameters(void) {
   setup_test();
 
   /* ===== EXECUTE ===== */
-  read_parameter_file(test_binary_param_file());
+  read_parameter_file(test_cosmology_param_file());
 
   /* ===== VALIDATE ===== */
   TEST_ASSERT(MimicConfig.BoxSize > 0.0, "BoxSize should be positive");
@@ -932,7 +1083,7 @@ int test_string_parameters(void) {
   setup_test();
 
   /* ===== EXECUTE ===== */
-  read_parameter_file(test_binary_param_file());
+  read_parameter_file(test_cosmology_param_file());
 
   /* ===== VALIDATE ===== */
   TEST_ASSERT_STRING_EQUAL(MimicConfig.OutputFileBaseName, "model",
@@ -965,7 +1116,7 @@ int test_cosmology_parameters(void) {
   setup_test();
 
   /* ===== EXECUTE ===== */
-  read_parameter_file(test_binary_param_file());
+  read_parameter_file(test_cosmology_param_file());
 
   /* ===== VALIDATE ===== */
   TEST_ASSERT(MimicConfig.Omega > 0.0 && MimicConfig.Omega < 1.0,
@@ -1001,7 +1152,7 @@ int test_snapshot_list(void) {
   setup_test();
 
   /* ===== EXECUTE ===== */
-  read_parameter_file(test_binary_param_file());
+  read_parameter_file(test_cosmology_param_file());
 
   /* ===== VALIDATE ===== */
   TEST_ASSERT(MimicConfig.NOUT == 1, "Should have 1 output snapshot");
@@ -1075,7 +1226,7 @@ int test_output_chunking_defaults(void) {
   install_output_chunking_defaults_for_test();
 
   /* ===== EXECUTE ===== */
-  read_parameter_file(test_binary_param_file());
+  read_parameter_file(test_cosmology_param_file());
 
   /* ===== VALIDATE ===== */
   TEST_ASSERT(MimicConfig.TargetFileSize > 0, "Effective target_file_size should be positive");
@@ -1444,6 +1595,15 @@ int main(int argc, char **argv) {
     return 0;
   }
 
+  if (argc == 4 && strcmp(argv[1], "--expect-fatal-ntask") == 0) {
+    NTask = atoi(argv[2]);
+    setup_test();
+    install_output_chunking_defaults_for_test();
+    read_parameter_file(argv[3]);
+    teardown_test();
+    return 0;
+  }
+
   TestExecutablePath = argv[0];
 
   printf("%s", BLUE);
@@ -1459,6 +1619,8 @@ int main(int argc, char **argv) {
   TEST_RUN(test_basic_parsing);
   TEST_RUN(test_default_processing_order);
   TEST_RUN(test_explicit_tree_ordered_processing_order);
+  TEST_RUN(test_ntask_multi_rejects_snapshot_ordered_processing_order);
+  TEST_RUN(test_ntask_multi_allows_tree_ordered_processing_order);
   TEST_RUN(test_default_timestep_scheme);
   TEST_RUN(test_explicit_timestep_scheme);
   TEST_RUN(test_timestep_scheme_rejects_invalid_value);

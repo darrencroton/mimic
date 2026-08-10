@@ -38,4 +38,7 @@ double get_virial_velocity(struct HaloInputView view, int halonr);
 double get_virial_radius(struct HaloInputView view, int halonr);
 double get_virial_mass(struct HaloInputView view, int halonr);
 
+/* Snapshot driver (src/core/snapshot_driver.c) */
+void run_snapshot_driver(void);
+
 #endif /* #ifndef CORE_PROTO_H */

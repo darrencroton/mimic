@@ -105,7 +105,7 @@ int test_view_accessor_and_virial_reads_are_independent(void) {
   init_memory_system(0);
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
 
-  read_parameter_file(test_binary_param_file());
+  read_parameter_file(test_cosmology_param_file());
   init(); /* Initializes cosmology and ZZ[] array */
 
   struct RawHalo *halos_a = mymalloc_cat(VIEW_TEST_NHALOS * sizeof(struct RawHalo), MEM_HALOS);
@@ -187,7 +187,7 @@ int test_output_conversion_reads_view_not_global(void) {
   init_memory_system(0);
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
 
-  read_parameter_file(test_binary_param_file());
+  read_parameter_file(test_cosmology_param_file());
   init();
 
   struct RawHalo *halos_a = mymalloc_cat(VIEW_TEST_NHALOS * sizeof(struct RawHalo), MEM_HALOS);
@@ -264,7 +264,7 @@ int test_payload_populator_reads_view_not_global(void) {
   init_memory_system(0);
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
 
-  read_parameter_file(test_binary_param_file());
+  read_parameter_file(test_cosmology_param_file());
   init();
 
   struct RawHalo *halos_a = mymalloc_cat(VIEW_TEST_NHALOS * sizeof(struct RawHalo), MEM_HALOS);

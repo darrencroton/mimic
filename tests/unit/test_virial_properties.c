@@ -169,7 +169,7 @@ int test_virial_radius_calculation(void) {
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
 
   /* Load parameter file to get cosmology */
-  read_parameter_file(test_binary_param_file());
+  read_parameter_file(test_cosmology_param_file());
   init(); /* Initializes cosmology and ZZ[] array */
 
   /* Create test halo at the final snapshot */
@@ -224,7 +224,7 @@ int test_virial_velocity_calculation(void) {
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
 
   /* Load parameter file to get cosmology and G */
-  read_parameter_file(test_binary_param_file());
+  read_parameter_file(test_cosmology_param_file());
   init();
 
   /* Create test halo */
@@ -273,7 +273,7 @@ int test_virial_consistency_relations(void) {
   init_memory_system(0);
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
 
-  read_parameter_file(test_binary_param_file());
+  read_parameter_file(test_cosmology_param_file());
   init();
 
   struct RawHalo *halos = mymalloc_cat(sizeof(struct RawHalo), MEM_HALOS);
@@ -325,7 +325,7 @@ int test_virial_edge_cases(void) {
   init_memory_system(0);
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
 
-  read_parameter_file(test_binary_param_file());
+  read_parameter_file(test_cosmology_param_file());
   init();
 
   struct RawHalo *halos = mymalloc_cat(sizeof(struct RawHalo), MEM_HALOS);

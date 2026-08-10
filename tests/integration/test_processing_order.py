@@ -39,9 +39,15 @@ TREE_ORDERED_OVERRIDES = {
 }
 
 
-def make_param_file(name, input_overrides=None, simulation_overrides=None, package_multiplier=None):
+def make_param_file(
+    name,
+    input_overrides=None,
+    simulation_overrides=None,
+    output_overrides=None,
+    package_multiplier=None,
+):
     """
-    Return a run file path with the given input/simulation overrides applied.
+    Return a run file path with the given input/simulation/output overrides applied.
 
     Generates a base test run file via create_test_param_file and rewrites it.
     When package_multiplier is given, a scratch copy of the simulation config the
@@ -75,6 +81,8 @@ def make_param_file(name, input_overrides=None, simulation_overrides=None, packa
         config.setdefault("input", {}).update(input_overrides)
     if simulation_overrides:
         config.setdefault("simulation", {}).update(simulation_overrides)
+    if output_overrides:
+        config.setdefault("output", {}).update(output_overrides)
 
     rewritten = Path(TEMP_DIR) / f"{name}.yaml"
     with open(rewritten, "w") as handle:
@@ -82,13 +90,13 @@ def make_param_file(name, input_overrides=None, simulation_overrides=None, packa
     return rewritten
 
 
-def run_config(name, **kwargs):
+def run_config(name, extra_args=None, **kwargs):
     """Run Mimic on a rewritten run file and return (returncode, combined output)."""
     if not MIMIC_EXE.exists():
         raise TestSkipped("Mimic not built")
 
     param_file = make_param_file(name, **kwargs)
-    returncode, stdout, stderr = run_mimic(param_file)
+    returncode, stdout, stderr = run_mimic(param_file, extra_args=extra_args)
     return returncode, stdout + stderr
 
 
@@ -131,31 +139,112 @@ def test_unknown_processing_order_fails_fast():
     assert "Valid values are tree_ordered, snapshot_ordered" in output
 
 
-def test_snapshot_config_reaches_unimplemented_driver():
+def test_snapshot_config_reaches_driver_and_aborts_without_output():
     """
-    Test that a snapshot reader with snapshot_ordered passes config and stops at the driver.
+    Test that a valid snapshot-ordered configuration exercises the full driver skeleton.
 
-    Expected: Non-zero exit; output includes "The snapshot-ordered driver is not implemented yet"
-              and does NOT include "Parameter validation failed".
-    Validates: configuration accepts a snapshot-ordered configuration, leaving
-               run_processing_driver() as the single not-implemented point. The absent
-               "Parameter validation failed" is what distinguishes the driver rejection
-               from the old config-time rejection, whose text was identical.
+    Expected: Non-zero exit; output does NOT include "Parameter validation failed" or
+              "The snapshot-ordered driver is not implemented yet"; output DOES include
+              the driver's own cannot-yet-produce-output message and a debug log line
+              proving two slab generations were live together at some point in the loop.
+    Validates: open_run runs on the run path for the first time, every slab is loaded
+               and released under the two-generation rotation, and the run fails
+               honestly at output rather than exiting 0 or regressing to either of the
+               two messages this slice retires.
+
+    Exercising this for real requires a real on-disk snapshot dataset at the path the
+    reader opens, so the test only runs when the selected package is itself
+    snapshot-ordered (its own configuration already points input.tree_type/tree_name/
+    simulation_dir at one); forcing tree_type: snapshot_hdf5 onto a tree-ordered
+    package's own directory would abort for an unrelated I/O reason, not the message
+    this test pins.
+
+    output_format is forced to hdf5: the generated core test input this run file is
+    based on is named test_binary.yaml for a reason -- output_format: binary -- which
+    this slice's own new config-time check now rejects for a snapshot-ordered
+    configuration (see test_snapshot_binary_output_rejected_at_config_time), so a
+    "valid" snapshot-ordered configuration needs the override to reach the driver.
+
+    --debug is passed so the driver's per-snapshot DEBUG_LOG line (silent at the
+    default log level) is captured, which is how the two-live-slabs assertion below
+    is proven.
+    """
+    if effective_input_setting("valid_snapshot_probe", "processing_order") != "snapshot_ordered":
+        raise TestSkipped(
+            "selected package is not snapshot-ordered; no real snapshot dataset is "
+            "available at its simulation_dir to drive the loop over"
+        )
+
+    returncode, output = run_config(
+        "valid_snapshot",
+        output_overrides={"output_format": "hdf5"},
+        extra_args=["--debug"],
+    )
+
+    assert returncode != 0, "the snapshot-ordered skeleton driver must never exit 0"
+    assert (
+        "Parameter validation failed" not in output
+    ), "a valid snapshot-ordered configuration must pass config validation"
+    assert (
+        "The snapshot-ordered driver is not implemented yet" not in output
+    ), "the dispatch-time FATAL this slice retires must not reappear"
+    assert (
+        "The snapshot-ordered driver has validated and loaded every snapshot but "
+        "cannot yet produce output" in output
+    )
+    assert "2 slabs live" in output, "two slab generations must be live together at some point"
+
+
+def test_snapshot_binary_output_rejected_at_config_time():
+    """
+    Test that a snapshot-ordered configuration with output_format binary is rejected.
+
+    Expected: Non-zero exit; output includes the HDF5-only message and
+              "Parameter validation failed". The rejection fires purely from parsed
+              configuration, before any reader is opened, so it applies regardless of
+              which package is selected.
+    Validates: acceptance criterion (a) -- output_format: binary is HDF5-only for a
+               snapshot-ordered configuration.
     """
     returncode, output = run_config(
-        "snapshot_driver",
+        "snapshot_binary_output",
         input_overrides={
             "tree_type": "snapshot_hdf5",
             "processing_order": "snapshot_ordered",
             "tree_name": SNAPSHOT_TREE_NAME,
         },
+        output_overrides={"output_format": "binary"},
     )
 
-    assert returncode != 0, "snapshot_ordered should fail until the snapshot driver exists"
-    assert "The snapshot-ordered driver is not implemented yet" in output
-    assert (
-        "Parameter validation failed" not in output
-    ), "the snapshot-ordered configuration must pass config validation and fail at the driver"
+    assert returncode != 0, "binary output_format must be rejected for a snapshot-ordered config"
+    assert "output_format is 'binary', but snapshot-ordered runs are HDF5-only" in output
+    assert "Parameter validation failed" in output
+
+
+def test_snapshot_skip_rejected_at_config_time():
+    """
+    Test that --skip is rejected for a snapshot-ordered configuration.
+
+    Expected: Non-zero exit; output includes the no-resume message and
+              "Parameter validation failed". The rejection fires purely from parsed
+              configuration, before any reader is opened, so it applies regardless of
+              which package is selected.
+    Validates: acceptance criterion (b) -- resume is not supported for snapshot-ordered
+               runs.
+    """
+    returncode, output = run_config(
+        "snapshot_skip",
+        input_overrides={
+            "tree_type": "snapshot_hdf5",
+            "processing_order": "snapshot_ordered",
+            "tree_name": SNAPSHOT_TREE_NAME,
+        },
+        extra_args=["--skip"],
+    )
+
+    assert returncode != 0, "--skip must be rejected for a snapshot-ordered config"
+    assert "--skip was given, but resume is not supported for snapshot-ordered runs" in output
+    assert "Parameter validation failed" in output
 
 
 def test_snapshot_reader_rejects_tree_ordered():
@@ -293,7 +382,14 @@ def test_snapshot_tree_name_must_be_exact_literal():
                 in output
             )
 
-    # The accepted literal is the control: it gets past configuration to the driver.
+    # The accepted literal is the control: it gets past configuration validation.
+    # What happens past that point depends on whether the forced tree_type matches a
+    # real dataset at the selected package's own simulation_dir (see
+    # test_snapshot_config_reaches_driver_and_aborts_without_output), so this control
+    # only pins the config-time half of the contract: the literal itself is accepted.
+    # output_format is forced to hdf5 for the same reason as that test: the generated
+    # reference run file is output_format: binary, which this slice's own new check
+    # now rejects for a snapshot-ordered configuration, independent of tree_name.
     returncode, output = run_config(
         "tree_name_accepted",
         input_overrides={
@@ -301,9 +397,9 @@ def test_snapshot_tree_name_must_be_exact_literal():
             "processing_order": "snapshot_ordered",
             "tree_name": SNAPSHOT_TREE_NAME,
         },
+        output_overrides={"output_format": "hdf5"},
     )
     assert "Parameter validation failed" not in output
-    assert "The snapshot-ordered driver is not implemented yet" in output
 
 
 def test_multiplier_default_and_non_positive_rejection():
@@ -414,7 +510,9 @@ def main():
     try:
         tests = [
             test_unknown_processing_order_fails_fast,
-            test_snapshot_config_reaches_unimplemented_driver,
+            test_snapshot_config_reaches_driver_and_aborts_without_output,
+            test_snapshot_binary_output_rejected_at_config_time,
+            test_snapshot_skip_rejected_at_config_time,
             test_snapshot_reader_rejects_tree_ordered,
             test_snapshot_reader_unset_processing_order_names_the_default,
             test_tree_reader_rejects_snapshot_ordered,

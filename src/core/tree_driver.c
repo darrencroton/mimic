@@ -533,7 +533,8 @@ void run_processing_driver(void) {
     run_tree_driver();
     return;
   case INPUT_PROCESSING_ORDER_SNAPSHOT:
-    FATAL_ERROR("The snapshot-ordered driver is not implemented yet");
+    run_snapshot_driver();
+    return;
   }
 
   FATAL_ERROR("Unknown input.processing_order '%s'",
