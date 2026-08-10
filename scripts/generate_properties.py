@@ -1951,9 +1951,12 @@ def main():
     # Halo/galaxy initialization and snapshot-accumulator reset are emitted as
     # typed inline functions in property_defs.h (init_halo_from_payload,
     # init_galaxy_defaults, reset_galaxy_snapshot_accumulators). The only
-    # initialization .inc that remains is the tree-driver payload populator,
-    # which must be tree-coupled and therefore cannot be a driver-neutral header
-    # function.
+    # initialization .inc that remains is the halo payload populator, and there
+    # is exactly one of it: it reads through the explicit struct HaloInputView
+    # rather than any driver-owned global, so every driver shares it. It stays a
+    # statement-sequence .inc rather than a header function because it is
+    # included into a function body that already declares `payload` and supplies
+    # `view` and `halonr` from its own scope.
     write_file(
         GENERATED_DIR / "populate_halo_payload.inc",
         generate_populate_halo_payload(halo_props, yaml_hash),

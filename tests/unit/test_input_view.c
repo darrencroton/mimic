@@ -13,9 +13,13 @@
  * InputTreeHalos global points at the other array, and assert that reads
  * through view A never return view B's values (and the reverse).
  *
- * Catalog field names used here (M_Crit200, FirstHaloInFOFgroup, Len, SnapNum,
- * Vmax) are core-role fields declared by every simulation package this suite
- * builds against, matching the convention in test_virial_properties.c.
+ * The names written here (M_Crit200, FirstHaloInFOFgroup, Len, SnapNum, Vmax)
+ * are catalog field names, not core roles. They work because every simulation
+ * package this suite currently builds against happens to bind those names to
+ * the core roles the accessors read - a contingent coupling, not a guarantee:
+ * the same roles are bound to Mass200/NPart/Snap/FirstFOF/FirstProg in
+ * tests/integration/test_unit_contract_generation.py's synthetic catalog. This
+ * matches the convention already used in test_virial_properties.c.
  */
 
 #include "../framework/test_framework.h"
@@ -73,7 +77,9 @@ static struct HaloInitPayload populate_payload_through_view(struct HaloInputView
 
 /* Seed one fixture array. Every halo is its own FoF central with a positive
  * catalog mass, so get_virial_mass() takes the catalog path and the two arrays
- * stay distinguishable through every derived quantity. */
+ * stay distinguishable through every derived quantity. The member names below
+ * are catalog fields that the packages this suite builds against currently bind
+ * to those core roles (see the file header). */
 static void seed_fixture_array(struct RawHalo *halos, double catalog_mass, int len, int snapnum,
                                float vmax) {
   memset(halos, 0, VIEW_TEST_NHALOS * sizeof(struct RawHalo));

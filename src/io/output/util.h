@@ -13,6 +13,9 @@
 #include <stddef.h>
 
 #include "constants.h"
+/* struct HaloInputView is passed by value below, so the type must be complete
+ * here rather than relying on every includer reaching types.h first. */
+#include "types.h"
 
 /**
  * @brief   Build the path of one binary output file (one file per snapshot per filenr)

@@ -135,7 +135,10 @@ def test_required_input_roles_generate_accessors_from_inline_bindings():
     catalog_info = normalize_catalog_contract(halo_props, catalog_contract, reference_units)
     accessors = generate_tree_property_accessors_h(halo_props, catalog_info, "0" * 32)
 
-    assert "mimic_tree_get_FirstProgenitor" in accessors
+    # Pins the calling convention as well as the array source: without the
+    # signature assertion, reverting the accessors to (int halonr) over a
+    # file-scope `view` object would still satisfy every check below.
+    assert "mimic_tree_get_FirstProgenitor(struct HaloInputView view, int halonr)" in accessors
     assert "view.halos[halonr].FirstProg" in accessors
     assert "mimic_tree_get_SnapNum" in accessors
     assert "view.halos[halonr].Snap" in accessors

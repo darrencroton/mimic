@@ -1,6 +1,10 @@
 #ifndef IO_SAVE_BINARY_H
 #define IO_SAVE_BINARY_H
 
+/* struct HaloInputView is passed by value below, so the type must be complete
+ * here rather than relying on every includer reaching types.h first. */
+#include "types.h"
+
 /**
  * @brief   Create one empty output file per requested snapshot for this filenr
  * @param   filenr  File number being processed
