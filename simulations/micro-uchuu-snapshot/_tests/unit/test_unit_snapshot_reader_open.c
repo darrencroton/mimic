@@ -37,6 +37,7 @@
 #include <hdf5.h>
 
 #include <errno.h>
+#include <float.h>
 #include <inttypes.h>
 #include <math.h>
 #include <stdint.h>
@@ -159,6 +160,18 @@ static int stage_fixture(char *dir, size_t dir_size) {
   return 0;
 }
 
+/* The physical values simulations/micro-uchuu-snapshot/simulation_info.yaml
+   declares. The fixture's headers were stamped from these by the converter
+   (create_snapshot_fixture.py), so open_run must see the same values to pass
+   the unmodified fixture by construction. PartMass is carried in 1e10 Msun/h,
+   the units simulation_info.yaml declares; open_run multiplies it up by 1e10
+   before comparing against particle_mass_msun_h. */
+#define FIXTURE_BOX_SIZE 100.0
+#define FIXTURE_OMEGA_MATTER 0.3089
+#define FIXTURE_OMEGA_LAMBDA 0.6911
+#define FIXTURE_HUBBLE_H 0.6774
+#define FIXTURE_PART_MASS 0.0325
+
 /**
  * @brief   Point MimicConfig at a staged fixture directory.
  *
@@ -178,6 +191,14 @@ static void configure_for_fixture(const char *dir) {
      it from simulation.unique_galaxy_id_multiplier, which defaults to
      TREE_MUL_FAC; a memset MimicConfig would leave it at zero. */
   MimicConfig.UniqueGalaxyIDMultiplier = (int64_t)TREE_MUL_FAC;
+  /* open_run now compares these against the header on every file (Slice 3);
+     the fixture's headers were stamped from the package's own
+     simulation_info.yaml, so these are that package's values. */
+  MimicConfig.BoxSize = FIXTURE_BOX_SIZE;
+  MimicConfig.Omega = FIXTURE_OMEGA_MATTER;
+  MimicConfig.OmegaLambda = FIXTURE_OMEGA_LAMBDA;
+  MimicConfig.Hubble_h = FIXTURE_HUBBLE_H;
+  MimicConfig.PartMass = FIXTURE_PART_MASS;
 }
 
 /* ---------------------------------------------------------------------------
@@ -645,11 +666,82 @@ static int expect_fatal(const char *dir, child_body_fn body, const char *needle_
   return expect_fatal_capture(dir, body, needle_a, needle_b, NULL, 0);
 }
 
+/**
+ * @brief   Run `body` in a forked child and require it to complete without
+ *          aborting.
+ * @return  1 when the child exited 0, 0 when it aborted or was signaled
+ *          (captured output is printed for diagnosis), -1 on a harness
+ *          failure.
+ *
+ * The mirror image of expect_fatal_capture(): used to pin the accepted side of
+ * the physical-header tolerance, where open_run must run to completion.
+ */
+static int expect_success(const char *dir, child_body_fn body) {
+  int pipefd[2];
+  char output[16384];
+  size_t used = 0;
+  ssize_t nread;
+  int status;
+
+  fflush(NULL);
+  if (pipe(pipefd) != 0) {
+    return -1;
+  }
+
+  const pid_t pid = fork();
+  if (pid < 0) {
+    close(pipefd[0]);
+    close(pipefd[1]);
+    return -1;
+  }
+
+  if (pid == 0) {
+    close(pipefd[0]);
+    if (freopen("/dev/null", "w", stdout) == NULL) {
+      _exit(127);
+    }
+    dup2(pipefd[1], STDERR_FILENO);
+    close(pipefd[1]);
+    body(dir);
+    _exit(0);
+  }
+
+  close(pipefd[1]);
+  while (used < sizeof(output) - 1 &&
+         (nread = read(pipefd[0], output + used, sizeof(output) - 1 - used)) > 0) {
+    used += (size_t)nread;
+  }
+  output[used] = '\0';
+  close(pipefd[0]);
+
+  if (waitpid(pid, &status, 0) < 0) {
+    return -1;
+  }
+  if (WIFSIGNALED(status)) {
+    fprintf(stderr, "  child died on signal %d; captured output:\n%s\n", WTERMSIG(status), output);
+    return 0;
+  }
+  if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+    fprintf(stderr, "  child aborted; captured output:\n%s\n", output);
+    return 0;
+  }
+  return 1;
+}
+
 /** @brief Child body: configure for `dir` and open the dataset. */
 static void child_open_run(const char *dir) {
   struct SnapshotRunInfo info;
   configure_for_fixture(dir);
   snapshot_reader_open_run(snapshot_reader_lookup("snapshot_hdf5"), &info);
+}
+
+/** @brief Child body: configure for `dir`, open, and cleanly close. */
+static void child_open_run_close(const char *dir) {
+  const struct SnapshotReader *reader = snapshot_reader_lookup("snapshot_hdf5");
+  struct SnapshotRunInfo info;
+  configure_for_fixture(dir);
+  snapshot_reader_open_run(reader, &info);
+  snapshot_reader_close_run(reader);
 }
 
 /* ---------------------------------------------------------------------------
@@ -772,6 +864,103 @@ static int corrupt_scale_factor(const char *dir) {
   return set_attr_f64(path, "scale_factor", nextafter(0.5, 1.0));
 }
 
+/* ---------------------------------------------------------------------------
+ * Physical header agreement (Slice 3)
+ *
+ * These mutate the physical header attributes open_run now checks against the
+ * configured simulation (MimicConfig.BoxSize/Omega/OmegaLambda/Hubble_h/
+ * PartMass). Each mutates a single file; the check runs per file against the
+ * same configured values, so one corrupted file is enough to trigger it.
+ * ------------------------------------------------------------------------- */
+
+static int corrupt_box_size(const char *dir) {
+  char path[MAX_STRING_LEN];
+  snapshot_path(path, sizeof(path), dir, 2);
+  return set_attr_f64(path, "box_size_mpc_h", 90.0);
+}
+
+static int corrupt_omega_matter(const char *dir) {
+  char path[MAX_STRING_LEN];
+  snapshot_path(path, sizeof(path), dir, 3);
+  return set_attr_f64(path, "omega_matter", 0.5);
+}
+
+static int corrupt_omega_lambda(const char *dir) {
+  char path[MAX_STRING_LEN];
+  snapshot_path(path, sizeof(path), dir, 4);
+  return set_attr_f64(path, "omega_lambda", 0.5);
+}
+
+static int corrupt_hubble_h(const char *dir) {
+  char path[MAX_STRING_LEN];
+  snapshot_path(path, sizeof(path), dir, 1);
+  return set_attr_f64(path, "hubble_h", 0.5);
+}
+
+static int corrupt_particle_mass(const char *dir) {
+  char path[MAX_STRING_LEN];
+  snapshot_path(path, sizeof(path), dir, 2);
+  return set_attr_f64(path, "particle_mass_msun_h", 4.0e8);
+}
+
+/**
+ * @brief   The naive-comparison trap: particle_mass_msun_h set to the
+ *          configured PartMass value with the 1e10 unit factor omitted.
+ *
+ * A reader that compared the header directly against MimicConfig.PartMass
+ * (instead of MimicConfig.PartMass * 1e10) would accept this file. The
+ * correct comparison must reject it: 0.0325 is nowhere near
+ * 325000000.0 under a rounding tolerance.
+ */
+static int corrupt_particle_mass_missing_unit_factor(const char *dir) {
+  char path[MAX_STRING_LEN];
+  snapshot_path(path, sizeof(path), dir, 3);
+  return set_attr_f64(path, "particle_mass_msun_h", FIXTURE_PART_MASS);
+}
+
+static int corrupt_box_size_nan(const char *dir) {
+  char path[MAX_STRING_LEN];
+  snapshot_path(path, sizeof(path), dir, 4);
+  return set_attr_f64(path, "box_size_mpc_h", NAN);
+}
+
+static int corrupt_hubble_h_infinite(const char *dir) {
+  char path[MAX_STRING_LEN];
+  snapshot_path(path, sizeof(path), dir, 1);
+  return set_attr_f64(path, "hubble_h", INFINITY);
+}
+
+/** @brief The check must run on every file, not only snapshot 0: mutate the
+    LAST fixture snapshot (index FIXTURE_SNAPSHOTS - 1). */
+static int corrupt_box_size_last_snapshot(const char *dir) {
+  char path[MAX_STRING_LEN];
+  snapshot_path(path, sizeof(path), dir, FIXTURE_SNAPSHOTS - 1);
+  return set_attr_f64(path, "box_size_mpc_h", 90.0);
+}
+
+/**
+ * @brief   Pin the tolerance from both sides: a 4 * DBL_EPSILON relative
+ *          perturbation is inside it (accepted), a 1e-9 relative
+ *          perturbation is outside it (rejected).
+ *
+ * 4 * DBL_EPSILON is a quarter of the frozen 16 * DBL_EPSILON tolerance;
+ * 1e-9 is roughly six orders of magnitude beyond it, so both sides have
+ * comfortable margin against arithmetic rounding in the perturbation itself.
+ */
+static int mutate_box_size_relative(const char *dir, int snap, double relative_perturbation) {
+  char path[MAX_STRING_LEN];
+  snapshot_path(path, sizeof(path), dir, snap);
+  return set_attr_f64(path, "box_size_mpc_h", FIXTURE_BOX_SIZE * (1.0 + relative_perturbation));
+}
+
+static int perturb_box_size_within_tolerance(const char *dir) {
+  return mutate_box_size_relative(dir, 2, 4.0 * DBL_EPSILON);
+}
+
+static int perturb_box_size_beyond_tolerance(const char *dir) {
+  return mutate_box_size_relative(dir, 2, 1e-9);
+}
+
 static int corrupt_snapnum_value(const char *dir) {
   char path[MAX_STRING_LEN];
   snapshot_path(path, sizeof(path), dir, 5);
@@ -864,6 +1053,24 @@ static const struct corrupt_case CORRUPT_CASES[] = {
      "header attribute 'n_halos' must be int64"},
     {"scale_factor disagrees with the a_list", corrupt_scale_factor, "snapshot_002.h5",
      "header attribute 'scale_factor' is"},
+    {"box_size_mpc_h disagrees with the configured BoxSize", corrupt_box_size, "snapshot_002.h5",
+     "'box_size_mpc_h' is"},
+    {"omega_matter disagrees with the configured cosmology", corrupt_omega_matter,
+     "snapshot_003.h5", "'omega_matter' is"},
+    {"omega_lambda disagrees with the configured cosmology", corrupt_omega_lambda,
+     "snapshot_004.h5", "'omega_lambda' is"},
+    {"hubble_h disagrees with the configured cosmology", corrupt_hubble_h, "snapshot_001.h5",
+     "'hubble_h' is"},
+    {"particle_mass_msun_h disagrees with the configured PartMass * 1e10", corrupt_particle_mass,
+     "snapshot_002.h5", "'particle_mass_msun_h' is"},
+    {"particle_mass_msun_h equals PartMass without the 1e10 factor (naive-comparison trap)",
+     corrupt_particle_mass_missing_unit_factor, "snapshot_003.h5", "'particle_mass_msun_h' is"},
+    {"NaN in a compared physical attribute", corrupt_box_size_nan, "snapshot_004.h5",
+     "'box_size_mpc_h' is"},
+    {"infinity in a compared physical attribute", corrupt_hubble_h_infinite, "snapshot_001.h5",
+     "'hubble_h' is"},
+    {"physical header mismatch in the last snapshot, not only snapshot 0",
+     corrupt_box_size_last_snapshot, "snapshot_005.h5", "'box_size_mpc_h' is"},
     {"SnapNum disagrees with the header", corrupt_snapnum_value, "snapshot_005.h5",
      "'/halos/SnapNum' is 3 at halo 0"},
     {"max_halo_rank_in_forest above the measured maximum", corrupt_max_rank_too_large, NULL,
@@ -1009,6 +1216,32 @@ int test_corrupt_inputs_abort(void) {
       TEST_ASSERT(0, "corrupt dataset should abort with a naming message");
     }
   }
+  return TEST_PASS;
+}
+
+/**
+ * @test  test_physical_value_tolerance_boundary
+ * Pins the physical-header rounding tolerance from both sides: a
+ * 4 * DBL_EPSILON relative perturbation is inside it and open_run succeeds; a
+ * 1e-9 relative perturbation is outside it and open_run aborts.
+ */
+int test_physical_value_tolerance_boundary(void) {
+  char dir[MAX_STRING_LEN];
+
+  TEST_ASSERT(stage_fixture(dir, sizeof(dir)) == 0, "should stage a scratch copy of the fixture");
+  TEST_ASSERT(perturb_box_size_within_tolerance(dir) == 0,
+              "should apply the within-tolerance perturbation");
+  TEST_ASSERT(expect_success(dir, child_open_run_close) == 1,
+              "a 4 * DBL_EPSILON relative perturbation should be accepted");
+  remove_staged_fixture(dir);
+
+  TEST_ASSERT(stage_fixture(dir, sizeof(dir)) == 0, "should stage a scratch copy of the fixture");
+  TEST_ASSERT(perturb_box_size_beyond_tolerance(dir) == 0,
+              "should apply the beyond-tolerance perturbation");
+  TEST_ASSERT(expect_fatal(dir, child_open_run, "snapshot_002.h5", "'box_size_mpc_h' is") == 1,
+              "a 1e-9 relative perturbation should be rejected");
+  remove_staged_fixture(dir);
+
   return TEST_PASS;
 }
 
@@ -1789,6 +2022,7 @@ int main(void) {
   TEST_RUN(test_open_run_publishes_run_metadata);
   TEST_RUN(test_snapshot_halo_count_range);
   TEST_RUN(test_corrupt_inputs_abort);
+  TEST_RUN(test_physical_value_tolerance_boundary);
   TEST_RUN(test_missing_hook_aborts);
   TEST_RUN(test_open_close_leaves_no_leak);
   TEST_RUN(test_load_slab_matches_fixture);

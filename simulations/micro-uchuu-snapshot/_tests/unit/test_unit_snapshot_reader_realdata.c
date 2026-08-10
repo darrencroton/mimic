@@ -55,6 +55,17 @@ extern struct MimicConfig MimicConfig;
 #define REALDATA_MAX_RANK INT64_C(350074)
 #define REALDATA_FORMAT_VERSION 1
 
+/* simulations/micro-uchuu-snapshot/simulation_info.yaml's physical values. The
+   real dataset's headers were stamped from these same values (Slice 3), so
+   open_run's per-file physical-header check needs them configured here too;
+   PartMass is carried in 1e10 Msun/h, the units simulation_info.yaml
+   declares. */
+#define REALDATA_BOX_SIZE 100.0
+#define REALDATA_OMEGA_MATTER 0.3089
+#define REALDATA_OMEGA_LAMBDA 0.6911
+#define REALDATA_HUBBLE_H 0.6774
+#define REALDATA_PART_MASS 0.0325
+
 static const char *package_path(const char *leaf) {
   static char path[MAX_STRING_LEN];
   snprintf(path, sizeof(path), "simulations/%s/%s", MIMIC_COMPILED_SIMULATION, leaf);
@@ -87,6 +98,11 @@ int test_open_run_against_full_dataset(void) {
   read_snap_list();
   MimicConfig.MAXSNAPS = MimicConfig.Snaplistlen;
   MimicConfig.UniqueGalaxyIDMultiplier = (int64_t)TREE_MUL_FAC;
+  MimicConfig.BoxSize = REALDATA_BOX_SIZE;
+  MimicConfig.Omega = REALDATA_OMEGA_MATTER;
+  MimicConfig.OmegaLambda = REALDATA_OMEGA_LAMBDA;
+  MimicConfig.Hubble_h = REALDATA_HUBBLE_H;
+  MimicConfig.PartMass = REALDATA_PART_MASS;
 
   TEST_ASSERT_EQUAL(MimicConfig.Snaplistlen, REALDATA_SNAPSHOTS,
                     "the package snapshot list should hold fifty entries");

@@ -39,7 +39,9 @@
 
 #include <hdf5.h>
 
+#include <float.h>
 #include <inttypes.h>
+#include <math.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -918,6 +920,43 @@ static void snapshot_h5_validate_links(const char *path, int64_t snapnum, int64_
   }
 }
 
+/**
+ * @brief   Rounding-tolerance equality between a header value and its
+ *          configured counterpart.
+ *
+ * Asserts the two are the same number, not that they agree scientifically: a
+ * non-finite value on either side is rejected outright, an exact-zero pair is
+ * accepted outright, and otherwise the relative difference must lie within
+ * 16 ULPs of the larger magnitude.
+ */
+static int snapshot_h5_physical_value_agrees(double header_value, double configured_value) {
+  if (!isfinite(header_value) || !isfinite(configured_value)) {
+    return 0;
+  }
+  if (header_value == 0.0 && configured_value == 0.0) {
+    return 1;
+  }
+  const double scale = fmax(fabs(header_value), fabs(configured_value));
+  return fabs(header_value - configured_value) <= 16.0 * DBL_EPSILON * scale;
+}
+
+/**
+ * @brief   Abort if one physical header attribute disagrees with the
+ *          configured simulation.
+ *
+ * Names the file, the attribute and both values so a mismatched dataset is
+ * diagnosable without a debugger. See snapshot_h5_physical_value_agrees() for
+ * the tolerance this enforces.
+ */
+static void snapshot_h5_check_physical_value(const char *path, const char *attr_name,
+                                             double header_value, double configured_value) {
+  if (!snapshot_h5_physical_value_agrees(header_value, configured_value)) {
+    FATAL_ERROR("%s: header attribute '%s' is %.17g but the configured simulation value is "
+                "%.17g; they must agree to a rounding tolerance",
+                path, attr_name, header_value, configured_value);
+  }
+}
+
 /* ---------------------------------------------------------------------------
  * Reader hooks
  * ------------------------------------------------------------------------- */
@@ -994,6 +1033,21 @@ static void open_run_snapshot_hdf5(struct SnapshotRunInfo *info) {
                   " is %.17g; they must agree exactly",
                   path, header.scale_factor, snap, MimicConfig.AA[snap]);
     }
+
+    /* Physical header agreement with the configured simulation (dual-driver
+       Phase 5 item 8). A rounding tolerance, not a scientific one -- see
+       snapshot_h5_physical_value_agrees(). particle_mass_msun_h is compared by
+       multiplying the configured value up to native units, matching the
+       producer's own operation (scripts/convert/hdf5_writer.py), never by
+       dividing the header down. */
+    snapshot_h5_check_physical_value(path, "box_size_mpc_h", header.box_size_mpc_h,
+                                     MimicConfig.BoxSize);
+    snapshot_h5_check_physical_value(path, "omega_matter", header.omega_matter, MimicConfig.Omega);
+    snapshot_h5_check_physical_value(path, "omega_lambda", header.omega_lambda,
+                                     MimicConfig.OmegaLambda);
+    snapshot_h5_check_physical_value(path, "hubble_h", header.hubble_h, MimicConfig.Hubble_h);
+    snapshot_h5_check_physical_value(path, "particle_mass_msun_h", header.particle_mass_msun_h,
+                                     MimicConfig.PartMass * 1e10);
 
     if (snap == 0) {
       format_version = header.format_version;
