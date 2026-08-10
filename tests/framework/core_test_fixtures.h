@@ -46,10 +46,18 @@ static inline void ensure_modules_registered(void) {
  * prose comment such as "# processing_order: snapshot_ordered is not
  * supported here" -- plausible in a package's simulation_info.yaml banner --
  * must not match.
+ *
+ * The captured token has at most one matching pair of leading/trailing quotes
+ * stripped before comparison, so the equally legal quoted YAML forms
+ * (`processing_order: "snapshot_ordered"` or `'snapshot_ordered'`) still
+ * match -- otherwise a future package writing either would be silently
+ * classified tree-ordered and handed the snapshot-ordered-plus-binary file
+ * this whole fixture exists to avoid.
  */
 static inline int yaml_line_declares_snapshot_ordered(const char *line) {
   const char *cursor = line;
   char value[64];
+  size_t len;
 
   while (*cursor == ' ' || *cursor == '\t') {
     cursor++;
@@ -57,8 +65,15 @@ static inline int yaml_line_declares_snapshot_ordered(const char *line) {
   if (*cursor == '#') {
     return 0;
   }
-  return sscanf(cursor, "processing_order: %63s", value) == 1 &&
-         strcmp(value, "snapshot_ordered") == 0;
+  if (sscanf(cursor, "processing_order: %63s", value) != 1) {
+    return 0;
+  }
+  len = strlen(value);
+  if (len >= 2 && (value[0] == '"' || value[0] == '\'') && value[len - 1] == value[0]) {
+    memmove(value, value + 1, len - 2);
+    value[len - 2] = '\0';
+  }
+  return strcmp(value, "snapshot_ordered") == 0;
 }
 
 /**

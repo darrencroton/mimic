@@ -41,10 +41,29 @@ SNAPSHOT_TREE_NAME = "snapshot_%03d.h5"
 #: the multi-gigabyte real conversion.
 SNAPSHOT_FIXTURE_DIR = REPO_ROOT / "simulations" / "micro-uchuu-snapshot" / "_tests" / "data"
 SNAPSHOT_FIXTURE_A_LIST = SNAPSHOT_FIXTURE_DIR / "micro-uchuu-fixture.a_list"
+SNAPSHOT_FIXTURE_FORESTS = SNAPSHOT_FIXTURE_DIR / "forests.h5"
 #: Last snapshot index in the fixture's 6-entry scale-factor list (0..5); the
 #: generated core run file's own snapshot_list requests 49, valid only for the
 #: real package's 50-snapshot production list.
 SNAPSHOT_FIXTURE_LAST_SNAPSHOT = 5
+#: The one payload file the run below actually loads (snapshot_list is capped
+#: to SNAPSHOT_FIXTURE_LAST_SNAPSHOT). Checking the a_list alone would pass a
+#: partial checkout that has the 48-byte a_list but not the HDF5 payload, so
+#: the presence guard checks this too -- a resized fixture invalidates this
+#: derived path rather than letting the guard drift silently out of sync.
+SNAPSHOT_FIXTURE_LAST_SNAPSHOT_FILE = (
+    SNAPSHOT_FIXTURE_DIR / f"snapshot_{SNAPSHOT_FIXTURE_LAST_SNAPSHOT:03d}.h5"
+)
+
+
+def snapshot_fixture_present():
+    """Is the committed snapshot-package fixture's full payload present?"""
+    return (
+        SNAPSHOT_FIXTURE_A_LIST.is_file()
+        and SNAPSHOT_FIXTURE_FORESTS.is_file()
+        and SNAPSHOT_FIXTURE_LAST_SNAPSHOT_FILE.is_file()
+    )
+
 
 #: Explicit tree-ordered input configuration for tests whose observable is a
 #: tree-reader-only config-time check. lhalo_binary is registered in every
@@ -206,7 +225,7 @@ def test_snapshot_config_reaches_driver_and_aborts_without_output():
             "selected package is not snapshot-ordered; its own configuration is the only "
             "source of input.tree_type/tree_name/processing_order this test relies on"
         )
-    if not SNAPSHOT_FIXTURE_A_LIST.is_file():
+    if not snapshot_fixture_present():
         raise TestSkipped(f"committed snapshot fixture not found at {SNAPSHOT_FIXTURE_DIR}")
 
     output_dir = Path(TEMP_DIR) / "valid_snapshot_output"
@@ -414,8 +433,8 @@ def test_snapshot_tree_name_must_be_exact_literal():
 
     Expected: Non-zero exit for every other value, with a message naming the accepted literal.
               The accepted-literal control additionally asserts "Unknown tree_type" is absent
-              (see the comment above it) and, where the selected package is itself
-              snapshot-ordered, that the run reaches and exercises the real driver.
+              (see the comment above it) -- reaching and exercising the real driver is a
+              separate concern, owned by test_snapshot_config_reaches_driver_and_aborts_without_output.
     Validates: configured text never becomes a printf format or a silent filename mismatch.
     """
     rejected = ["snapshot_%d.h5", "snapshot_%s.h5", "", "trees_063"]
@@ -445,12 +464,13 @@ def test_snapshot_tree_name_must_be_exact_literal():
     # the same reason test_snapshot_config_reaches_driver_and_aborts_without_output
     # does: the generated reference run file is output_format: binary, which this
     # slice's own new check now rejects for a snapshot-ordered configuration,
-    # independent of tree_name. simulation_dir/snapshot_list_file are deliberately
-    # NOT repointed at the committed snapshot fixture here (unlike that test): this
-    # config keeps the selected package's own cosmology, so pointing it at a
-    # different package's fixture data would abort on Slice 3's physical-header
-    # mismatch instead of proving anything about tree_name -- the driver-message
-    # proof belongs to that other, package-scoped test.
+    # independent of tree_name. This control's contract is tree_name acceptance only
+    # -- it deliberately does not also assert the driver reaches and aborts, since
+    # doing so (without repointing simulation_dir/snapshot_list_file at the committed
+    # fixture) would reintroduce a dependency on the selected package's own
+    # machine-local production dataset; that proof already belongs to
+    # test_snapshot_config_reaches_driver_and_aborts_without_output, which runs
+    # against the committed fixture instead.
     returncode, output = run_config(
         "tree_name_accepted",
         input_overrides={
@@ -463,15 +483,6 @@ def test_snapshot_tree_name_must_be_exact_literal():
     assert "Parameter validation failed" not in output
     assert "Unknown tree_type" not in output, "the accepted literal must resolve the reader"
 
-    if (
-        effective_input_setting("tree_name_accepted_probe", "processing_order")
-        == "snapshot_ordered"
-    ):
-        assert (
-            "The snapshot-ordered driver has validated and loaded every snapshot but "
-            "cannot yet produce output" in output
-        ), "under a snapshot-ordered package the accepted literal should reach the real driver"
-
 
 def test_multiplier_default_and_non_positive_rejection():
     """
@@ -483,10 +494,12 @@ def test_multiplier_default_and_non_positive_rejection():
                and rejects non-positive values.
 
     The returncode == 0 assertions below require the selected package's own reader
-    to reach a working, implemented driver — true for every tree-ordered package
-    today. A snapshot-ordered package (e.g. micro-uchuu-snapshot) would pass config
-    validation but fail at run_processing_driver() ("not implemented yet"), a driver
-    limitation unrelated to this test's assertions, so the test skips there.
+    to reach a working driver that actually produces output — true for every
+    tree-ordered package today. A snapshot-ordered package (e.g. micro-uchuu-snapshot)
+    would pass config validation but reach only the skeleton driver, which always
+    exits non-zero by design (src/core/snapshot_driver.c has no physics, gather, or
+    output writer yet), a driver limitation unrelated to this test's assertions, so
+    the test skips there.
     """
     if effective_input_setting("multiplier_probe", "processing_order") == "snapshot_ordered":
         raise TestSkipped(
