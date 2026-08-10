@@ -88,9 +88,10 @@ enum snapshot_h5_scalar_type {
   SNAPSHOT_H5_F64,
 };
 
-/** One file's header, as read. Every contract attribute is read, so every one
-    is dtype-checked -- including the physical values this phase does not
-    consume. */
+/** One file's header, as read. Every contract attribute is read and
+    dtype-checked; the five physical values (box_size_mpc_h,
+    particle_mass_msun_h, omega_matter, omega_lambda, hubble_h) are also
+    compared against the configured simulation in open_run_snapshot_hdf5(). */
 struct snapshot_h5_header {
   int32_t format_version;
   int32_t links_adjacent;

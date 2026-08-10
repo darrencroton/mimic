@@ -244,6 +244,31 @@ static int set_attr_f64(const char *file_path, const char *name, double value) {
   return write_scalar_attr(file_path, name, H5T_NATIVE_DOUBLE, &value);
 }
 
+/** @brief Read a scalar /header attribute back, so a mutation can be confirmed
+    before it is exercised (e.g. that a perturbation did not round-trip away). */
+static int read_attr_f64(const char *file_path, const char *name, double *out) {
+  hid_t file = H5Fopen(file_path, H5F_ACC_RDONLY, H5P_DEFAULT);
+  if (file < 0) {
+    return -1;
+  }
+  hid_t group = H5Gopen2(file, "/header", H5P_DEFAULT);
+  int rc = 0;
+  if (group < 0) {
+    rc = -1;
+  } else {
+    hid_t attr = H5Aopen(group, name, H5P_DEFAULT);
+    if (attr < 0 || H5Aread(attr, H5T_NATIVE_DOUBLE, out) < 0) {
+      rc = -1;
+    }
+    if (attr >= 0) {
+      H5Aclose(attr);
+    }
+    H5Gclose(group);
+  }
+  H5Fclose(file);
+  return rc;
+}
+
 /** @brief Set a run-scoped header attribute in every fixture file. */
 static int set_attr_i64_all(const char *dir, const char *name, int64_t value) {
   char path[MAX_STRING_LEN];
@@ -753,6 +778,16 @@ struct corrupt_case {
   int (*mutate)(const char *dir);
   const char *needle_file;   /* fragment naming the offending file, or NULL */
   const char *needle_detail; /* fragment naming the offending object or value */
+  /* Additional captured-output fragment to require, or NULL (the trailing
+     struct member of every existing initializer below zero-initializes to
+     NULL, so this is opt-in). needle_detail alone is a weak pin for the
+     physical-header-mismatch cases: "'box_size_mpc_h' is" is also a substring
+     of the missing-attribute message "required header attribute '%s' is
+     missing". needle_extra pins the mismatch phrasing and, where practical,
+     the exact printed text of both compared values, so a message that
+     dropped the comparison detail (or fired for the wrong reason) would fail
+     this needle even though needle_file/needle_detail still matched. */
+  const char *needle_extra;
 };
 
 static int corrupt_format_version(const char *dir) {
@@ -1054,23 +1089,28 @@ static const struct corrupt_case CORRUPT_CASES[] = {
     {"scale_factor disagrees with the a_list", corrupt_scale_factor, "snapshot_002.h5",
      "header attribute 'scale_factor' is"},
     {"box_size_mpc_h disagrees with the configured BoxSize", corrupt_box_size, "snapshot_002.h5",
-     "'box_size_mpc_h' is"},
+     "'box_size_mpc_h' is", "is 90 but the configured simulation value is 100"},
     {"omega_matter disagrees with the configured cosmology", corrupt_omega_matter,
-     "snapshot_003.h5", "'omega_matter' is"},
+     "snapshot_003.h5", "'omega_matter' is",
+     "is 0.5 but the configured simulation value is 0.30890000000000001"},
     {"omega_lambda disagrees with the configured cosmology", corrupt_omega_lambda,
-     "snapshot_004.h5", "'omega_lambda' is"},
+     "snapshot_004.h5", "'omega_lambda' is",
+     "is 0.5 but the configured simulation value is 0.69110000000000005"},
     {"hubble_h disagrees with the configured cosmology", corrupt_hubble_h, "snapshot_001.h5",
-     "'hubble_h' is"},
+     "'hubble_h' is", "is 0.5 but the configured simulation value is 0.6774"},
     {"particle_mass_msun_h disagrees with the configured PartMass * 1e10", corrupt_particle_mass,
-     "snapshot_002.h5", "'particle_mass_msun_h' is"},
+     "snapshot_002.h5", "'particle_mass_msun_h' is",
+     "is 400000000 but the configured simulation value is 325000000"},
     {"particle_mass_msun_h equals PartMass without the 1e10 factor (naive-comparison trap)",
-     corrupt_particle_mass_missing_unit_factor, "snapshot_003.h5", "'particle_mass_msun_h' is"},
+     corrupt_particle_mass_missing_unit_factor, "snapshot_003.h5", "'particle_mass_msun_h' is",
+     "is 0.032500000000000001 but the configured simulation value is 325000000"},
     {"NaN in a compared physical attribute", corrupt_box_size_nan, "snapshot_004.h5",
-     "'box_size_mpc_h' is"},
+     "'box_size_mpc_h' is", "is nan but the configured simulation value is 100"},
     {"infinity in a compared physical attribute", corrupt_hubble_h_infinite, "snapshot_001.h5",
-     "'hubble_h' is"},
+     "'hubble_h' is", "is inf but the configured simulation value is 0.6774"},
     {"physical header mismatch in the last snapshot, not only snapshot 0",
-     corrupt_box_size_last_snapshot, "snapshot_005.h5", "'box_size_mpc_h' is"},
+     corrupt_box_size_last_snapshot, "snapshot_005.h5", "'box_size_mpc_h' is",
+     "is 90 but the configured simulation value is 100"},
     {"SnapNum disagrees with the header", corrupt_snapnum_value, "snapshot_005.h5",
      "'/halos/SnapNum' is 3 at halo 0"},
     {"max_halo_rank_in_forest above the measured maximum", corrupt_max_rank_too_large, NULL,
@@ -1199,6 +1239,7 @@ int test_corrupt_inputs_abort(void) {
   for (size_t i = 0; i < CORRUPT_CASE_COUNT; i++) {
     const struct corrupt_case *test_case = &CORRUPT_CASES[i];
     char dir[MAX_STRING_LEN];
+    char captured[16384];
 
     TEST_ASSERT(stage_fixture(dir, sizeof(dir)) == 0, "should stage a scratch copy of the fixture");
     if (test_case->mutate(dir) != 0) {
@@ -1207,13 +1248,18 @@ int test_corrupt_inputs_abort(void) {
       TEST_ASSERT(0, "fixture corruption helper failed");
     }
 
-    const int aborted =
-        expect_fatal(dir, child_open_run, test_case->needle_file, test_case->needle_detail);
+    const int aborted = expect_fatal_capture(dir, child_open_run, test_case->needle_file,
+                                             test_case->needle_detail, captured, sizeof(captured));
     remove_staged_fixture(dir);
 
     if (aborted != 1) {
       fprintf(stderr, "  case: %s\n", test_case->description);
       TEST_ASSERT(0, "corrupt dataset should abort with a naming message");
+    }
+    if (test_case->needle_extra != NULL && strstr(captured, test_case->needle_extra) == NULL) {
+      fprintf(stderr, "  case: %s\n  wanted additionally: '%s'\n  got:\n%s\n",
+              test_case->description, test_case->needle_extra, captured);
+      TEST_ASSERT(0, "corrupt dataset abort message should also carry the expected detail");
     }
   }
   return TEST_PASS;
@@ -1227,10 +1273,21 @@ int test_corrupt_inputs_abort(void) {
  */
 int test_physical_value_tolerance_boundary(void) {
   char dir[MAX_STRING_LEN];
+  char path[MAX_STRING_LEN];
+  double stored = 0.0;
 
   TEST_ASSERT(stage_fixture(dir, sizeof(dir)) == 0, "should stage a scratch copy of the fixture");
   TEST_ASSERT(perturb_box_size_within_tolerance(dir) == 0,
               "should apply the within-tolerance perturbation");
+  /* Confirm the perturbation is genuinely representable before relying on it:
+     if it ever rounded back to the exact configured value, the acceptance
+     below would prove nothing about the tolerance. */
+  snapshot_path(path, sizeof(path), dir, 2);
+  TEST_ASSERT(read_attr_f64(path, "box_size_mpc_h", &stored) == 0,
+              "should read back the perturbed box_size_mpc_h");
+  TEST_ASSERT(stored != FIXTURE_BOX_SIZE,
+              "the within-tolerance perturbation must not round-trip back to the exact "
+              "configured value");
   TEST_ASSERT(expect_success(dir, child_open_run_close) == 1,
               "a 4 * DBL_EPSILON relative perturbation should be accepted");
   remove_staged_fixture(dir);
