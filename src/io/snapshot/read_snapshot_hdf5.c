@@ -996,8 +996,9 @@ static void open_run_snapshot_hdf5(struct SnapshotRunInfo *info) {
     /* Invariant 5's measured-data component. Bounded block scans only. */
     snapshot_h5_scan_snapnum(file, path, header.n_halos, header.snapshot_number);
     if (header.n_halos > 0) {
-      const int64_t file_max_rank = snapshot_h5_scan_i64_max(file, path, "HaloRankInForest",
-                                                             header.n_halos, INT64_MIN, INT64_MAX);
+      /* Upper bound stays open here; it is checked below against the run-scoped measured max. */
+      const int64_t file_max_rank =
+          snapshot_h5_scan_i64_max(file, path, "HaloRankInForest", header.n_halos, 0, INT64_MAX);
       if (file_max_rank > measured_max_halo_rank) {
         measured_max_halo_rank = file_max_rank;
       }

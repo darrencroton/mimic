@@ -800,6 +800,12 @@ static int corrupt_forest_index_negative(const char *dir) {
   return set_i64_element(path, "ForestIndex", 0, -1);
 }
 
+static int corrupt_halo_rank_negative(const char *dir) {
+  char path[MAX_STRING_LEN];
+  snapshot_path(path, sizeof(path), dir, 4);
+  return set_i64_element(path, "HaloRankInForest", 0, -1);
+}
+
 static int corrupt_extra_root_object(const char *dir) {
   char path[MAX_STRING_LEN];
   snapshot_path(path, sizeof(path), dir, 2);
@@ -870,6 +876,8 @@ static const struct corrupt_case CORRUPT_CASES[] = {
      "snapshot_001.h5", "the permitted range is [0, 0]"},
     {"negative ForestIndex value", corrupt_forest_index_negative, "snapshot_004.h5",
      "'/halos/ForestIndex' is -1 at halo 0"},
+    {"negative HaloRankInForest value", corrupt_halo_rank_negative, "snapshot_004.h5",
+     "'/halos/HaloRankInForest' is -1 at halo 0"},
     {"unexpected root object", corrupt_extra_root_object, "snapshot_002.h5",
      "unexpected root object"},
     {"unexpected header attribute", corrupt_extra_header_attr, "snapshot_001.h5",

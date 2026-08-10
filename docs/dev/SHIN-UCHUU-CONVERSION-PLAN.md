@@ -481,6 +481,14 @@ One sequence (see `MIMIC-DUAL-DRIVER-PLAN.md`):
 
 Shin-Uchuu is the primary scientific motivation for the snapshot pathway — and the only way Mimic can process it at all, because of the super-forest.
 
+### Delegated obligation: the snapshot-driver memory fallback (owned here, decided elsewhere)
+
+`MIMIC-DUAL-DRIVER-PLAN.md` Phase 5 item 6 decides that the snapshot driver keeps **two complete raw slabs** unconditionally and builds no alternative, because the micro-Uchuu gate is nowhere near any ceiling. It then explicitly assigns the production-scale fallback to *this* plan — "This trigger belongs to `SHIN-UCHUU-CONVERSION-PLAN.md`, not to Phase 5" — on the grounds that its inputs are design outputs Phase 5 has not produced yet. Recorded here so it is not rediscovered under time pressure at the production step (added 2026-08-10; it was decided 2026-08-04 but never written into this plan).
+
+**Before the production run**, recompute the adjacent-snapshot peak from *actual* allocation capacities, not estimates: both retained raw slabs, both processed generations, the galaxy pools, the output and HDF5 buffers, and allocator growth. Include the reader's transient staging buffers — `snapshot_h5_fill_halos()` allocates one scalar and one vector buffer at the widest native element size, 32 bytes per halo in total (≈10 GB at the projected 315M-halo z = 0 slab), live only during a slab load but concurrent with the slab it is filling.
+
+**If the peak exceeds 85% of installed RAM** (≈435 GB on a 512 GB machine), replace the retained *previous* raw slab with a compact projection of `{int32_t Len, int32_t NextProgenitor}` — all the previous generation is ever read for — costing ≈315e6 × 8 B ≈ 2.5 GB against the ≈32.8 GB of a full second slab. Measured struct sizes at the 2026-08-04 audit: `struct RawHalo` 104 B, `struct Halo` 176 B, `struct GalaxyData` 176 B, `struct HaloOutput` 264 B.
+
 ---
 
 ## Definition of Done

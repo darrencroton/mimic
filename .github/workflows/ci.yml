@@ -50,6 +50,14 @@ jobs:
       run: |
         make validate-modules
 
+    - name: Run converter tests
+      run: |
+        make tests-converter
+
+    - name: Check snapshot fixture conformance
+      run: |
+        make check-snapshot-fixture
+
     - name: Run unit tests
       run: |
         make tests-unit
