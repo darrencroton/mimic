@@ -17,6 +17,7 @@
 #include "../../src/util/memory.h"
 #include "../framework/test_framework.h"
 
+#include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
 
@@ -41,6 +42,17 @@ static int slot_has_stamp(const struct GalaxyData *galaxy, int value) {
     }
   }
   return 1;
+}
+
+static int compare_uintptr(const void *a, const void *b) {
+  uintptr_t pa = *(const uintptr_t *)a;
+  uintptr_t pb = *(const uintptr_t *)b;
+
+  if (pa < pb)
+    return -1;
+  if (pa > pb)
+    return 1;
+  return 0;
 }
 
 /**
@@ -137,17 +149,20 @@ int test_two_pools_interleave_without_interference(void) {
   struct GalaxyData *b_ptrs[COUNT];
 
   /* Interleave allocations between the two pools and stamp each with a value
-   * that identifies both its owning pool and its index. */
+   * that identifies both its owning pool and its index. A's range (0..63) and
+   * B's range (128..191) are both single bytes and stay disjoint after the
+   * `value & 0xff` reduction in stamp_slot() -- unlike a naive 200+i for
+   * i in 0..63, which wraps past 255 and collides with A's low indices. */
   for (int i = 0; i < COUNT; i++) {
     a_ptrs[i] = galaxy_pool_alloc(pool_a);
     stamp_slot(a_ptrs[i], i);
     b_ptrs[i] = galaxy_pool_alloc(pool_b);
-    stamp_slot(b_ptrs[i], 200 + i);
+    stamp_slot(b_ptrs[i], 128 + i);
   }
 
   int distinct = 1;
   for (int i = 0; i < COUNT; i++) {
-    if (!slot_has_stamp(a_ptrs[i], i) || !slot_has_stamp(b_ptrs[i], 200 + i)) {
+    if (!slot_has_stamp(a_ptrs[i], i) || !slot_has_stamp(b_ptrs[i], 128 + i)) {
       distinct = 0;
       break;
     }
@@ -243,6 +258,105 @@ int test_destroy_one_pool_leaves_other_functional(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_two_pools_survive_interleaved_chunk_growth_and_one_reset
+ * @brief   Two pools, driven past their first chunk interleaved, stay independent through growth
+ *          and a reset of only one of them
+ *
+ * The other independence tests never allocate enough from either pool to force
+ * a second chunk, so they only prove independence within a single chunk. This
+ * test interleaves both pools' allocation past one default-sized chunk (the
+ * 8192-galaxy default in galaxy_pool.c -- not part of the public API, so this
+ * uses a literal margin rather than an include), then resets only pool A and
+ * confirms pool B's post-growth, second-chunk pointers and contents survive.
+ */
+int test_two_pools_survive_interleaved_chunk_growth_and_one_reset(void) {
+  init_memory_system(0);
+  initialize_error_handling(LOG_LEVEL_WARNING, NULL);
+
+  struct GalaxyPool *pool_a = galaxy_pool_create(0);
+  struct GalaxyPool *pool_b = galaxy_pool_create(0);
+
+  enum { PAST_ONE_CHUNK = 8192 + 500 };
+
+  struct GalaxyData **a_ptrs = malloc((size_t)PAST_ONE_CHUNK * sizeof(*a_ptrs));
+  struct GalaxyData **b_ptrs = malloc((size_t)PAST_ONE_CHUNK * sizeof(*b_ptrs));
+  TEST_ASSERT(a_ptrs != NULL && b_ptrs != NULL,
+              "Test harness pointer tables for both pools should allocate");
+
+  for (int i = 0; i < PAST_ONE_CHUNK; i++) {
+    a_ptrs[i] = galaxy_pool_alloc(pool_a);
+    b_ptrs[i] = galaxy_pool_alloc(pool_b);
+  }
+
+  /* Stamp a handful of representative slots -- start, chunk boundary on both
+   * sides, and the last slot -- rather than every slot, since a single-byte
+   * stamp cannot stay unique per index across thousands of slots. */
+  const int marks[] = {0, 1, 8190, 8191, 8192, 8193, PAST_ONE_CHUNK - 1};
+  const int nmarks = (int)(sizeof(marks) / sizeof(marks[0]));
+  for (int m = 0; m < nmarks; m++) {
+    stamp_slot(a_ptrs[marks[m]], 1);
+    stamp_slot(b_ptrs[marks[m]], 2);
+  }
+
+  /* No pointer handed to pool A may equal any pointer handed to pool B,
+   * across the full interleaved, multi-chunk allocation. Sorted comparison
+   * keeps this O(n log n) instead of the O(n^2) pairwise loop the smaller
+   * independence tests use. */
+  size_t total = (size_t)PAST_ONE_CHUNK * 2;
+  uintptr_t *all_ptrs = malloc(total * sizeof(*all_ptrs));
+  TEST_ASSERT(all_ptrs != NULL, "Test harness combined pointer table should allocate");
+  for (int i = 0; i < PAST_ONE_CHUNK; i++) {
+    all_ptrs[i] = (uintptr_t)a_ptrs[i];
+    all_ptrs[(size_t)PAST_ONE_CHUNK + i] = (uintptr_t)b_ptrs[i];
+  }
+  qsort(all_ptrs, total, sizeof(*all_ptrs), compare_uintptr);
+  int distinct = 1;
+  for (size_t i = 1; i < total; i++) {
+    if (all_ptrs[i] == all_ptrs[i - 1]) {
+      distinct = 0;
+      break;
+    }
+  }
+  TEST_ASSERT(distinct,
+              "Interleaved multi-chunk allocations from two pools must never alias, including "
+              "across the chunk-growth boundary");
+  free(all_ptrs);
+
+  galaxy_pool_reset(pool_a);
+
+  /* Pool B's marked slots -- including the ones in its second, grown chunk --
+   * must survive pool A's reset untouched. */
+  int b_intact = 1;
+  for (int m = 0; m < nmarks; m++) {
+    if (!slot_has_stamp(b_ptrs[marks[m]], 2)) {
+      b_intact = 0;
+      break;
+    }
+  }
+  TEST_ASSERT(b_intact, "Resetting pool A after interleaved multi-chunk growth must leave pool "
+                        "B's high-water contents intact, including in its second chunk");
+
+  /* Pool A must rewind to its first slot even though it grew a second chunk
+   * before the reset. */
+  struct GalaxyData *a_after_reset = galaxy_pool_alloc(pool_a);
+  TEST_ASSERT(a_after_reset == a_ptrs[0],
+              "Pool A must rewind to its first slot after reset, even after growing multiple "
+              "chunks");
+
+  /* Pool B must remain usable for fresh allocation after pool A's reset. */
+  struct GalaxyData *b_more = galaxy_pool_alloc(pool_b);
+  TEST_ASSERT(b_more != NULL,
+              "Pool B must remain usable for further allocation after pool A's reset");
+
+  free(a_ptrs);
+  free(b_ptrs);
+  galaxy_pool_destroy(pool_a);
+  galaxy_pool_destroy(pool_b);
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
 /** @brief Main test runner */
 int main(void) {
   printf("%s", BLUE);
@@ -258,6 +372,7 @@ int main(void) {
   TEST_RUN(test_two_pools_interleave_without_interference);
   TEST_RUN(test_reset_one_pool_leaves_other_intact);
   TEST_RUN(test_destroy_one_pool_leaves_other_functional);
+  TEST_RUN(test_two_pools_survive_interleaved_chunk_growth_and_one_reset);
 
   TEST_SUMMARY();
   return TEST_RESULT();

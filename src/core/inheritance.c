@@ -143,6 +143,7 @@ int inherit_descendant_halos(struct GalaxyPool *pool, struct Halo *workspace, in
                              int nprogenitors) {
   int end = start;
 
+  assert(pool != NULL);
   assert(workspace != NULL);
   assert(descendant != NULL);
   assert(start >= 0);

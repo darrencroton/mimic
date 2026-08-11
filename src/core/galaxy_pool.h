@@ -3,7 +3,7 @@
 
 /**
  * @file    galaxy_pool.h
- * @brief   Per-tree galaxy storage pool
+ * @brief   Instanced galaxy storage pool
  *
  * Galaxy data (struct GalaxyData) is fixed-size, POD, and lives exactly as long
  * as the tree that owns it. Rather than one tracked mymalloc block per halo (a

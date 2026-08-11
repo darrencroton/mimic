@@ -32,6 +32,10 @@ struct InheritanceProgenitorGalaxy {
  * galaxy pool `pool` that every inherited or newly created galaxy is
  * allocated from.
  *
+ * Precondition: `pool` must not be NULL; every caller owns a live pool before
+ * calling this function, so unlike `free_unit_halos()`, NULL is not a legal
+ * "no galaxies allocated" signal here.
+ *
  * Precondition: `capacity` must be large enough for every halo this call can
  * produce, i.e. capacity >= start + nprogenitors (+1 when a new central object
  * is created because no progenitor galaxy survives). The caller (the driver

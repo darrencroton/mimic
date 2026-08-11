@@ -460,6 +460,7 @@ int main(int argc, char **argv) {
   /* Release the galaxy pool before the leak check so its chunks are accounted
    * for and not reported as leaks. */
   galaxy_pool_destroy(TreeGalaxyPool);
+  TreeGalaxyPool = NULL;
 
   /* Check for memory leaks and clean up memory system */
   check_memory_leaks();

@@ -345,10 +345,15 @@ int test_no_progenitor_satellite_creates_none(void) {
   struct InheritanceDescendant descendant = make_descendant(0);
   memset(workspace, 0, sizeof(workspace));
 
-  int end = inherit_descendant_halos(NULL, workspace, 0, 1, &descendant, NULL, 0);
+  /* This call path allocates no galaxy, but inherit_descendant_halos requires
+   * a live pool unconditionally (unlike free_unit_halos(), NULL is not a
+   * legal "no galaxies allocated" signal here) — give it a real one. */
+  struct GalaxyPool *pool = galaxy_pool_create(0);
+  int end = inherit_descendant_halos(pool, workspace, 0, 1, &descendant, NULL, 0);
 
   TEST_ASSERT(end == 0, "No-progenitor satellite subhalo should create no halo");
 
+  galaxy_pool_destroy(pool);
   check_memory_leaks();
   return TEST_PASS;
 }
