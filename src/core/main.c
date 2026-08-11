@@ -128,8 +128,13 @@ void bye() {
 #endif
 
   if (exitfail) {
-    /* Remove in-progress output files so a failed run leaves no partial output */
+    /* Remove in-progress output files so a failed run leaves no partial output.
+     * Each driver owns its own registry and the inactive one has nothing
+     * registered, so both are called unconditionally. The snapshot registry
+     * additionally covers the master file, which is written below after the
+     * driver has already returned. */
     tree_driver_remove_incomplete_outputs();
+    snapshot_driver_remove_incomplete_outputs();
 
 #ifdef MPI
     if (ThisTask == 0 && TreeDriverGotXCPU == 1)
@@ -430,6 +435,10 @@ int main(int argc, char **argv) {
     if (ThisTask == 0) {
       VERBOSE_LOG("Creating master HDF5 file");
       write_master_file();
+      /* A snapshot-ordered run is only complete once its master exists, so the
+       * snapshot driver's output-cleanup registration is disarmed here rather
+       * than when the driver returned. No-op for a tree-ordered run. */
+      snapshot_driver_clear_output_paths();
     }
     free_hdf5_ids();
   } else

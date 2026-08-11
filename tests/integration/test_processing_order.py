@@ -42,28 +42,48 @@ SNAPSHOT_TREE_NAME = "snapshot_%03d.h5"
 #: the multi-gigabyte real conversion.
 SNAPSHOT_FIXTURE_DIR = REPO_ROOT / "simulations" / "micro-uchuu-snapshot" / "_tests" / "data"
 SNAPSHOT_FIXTURE_A_LIST = SNAPSHOT_FIXTURE_DIR / "micro-uchuu-fixture.a_list"
-SNAPSHOT_FIXTURE_FORESTS = SNAPSHOT_FIXTURE_DIR / "forests.h5"
-#: Last snapshot index in the fixture's 6-entry scale-factor list (0..5); the
-#: generated core run file's own snapshot_list requests 49, valid only for the
-#: real package's 50-snapshot production list.
-SNAPSHOT_FIXTURE_LAST_SNAPSHOT = 5
-#: The one payload file the run below actually loads (snapshot_list is capped
-#: to SNAPSHOT_FIXTURE_LAST_SNAPSHOT). Checking the a_list alone would pass a
-#: partial checkout that has the 48-byte a_list but not the HDF5 payload, so
-#: the presence guard checks this too -- a resized fixture invalidates this
-#: derived path rather than letting the guard drift silently out of sync.
-SNAPSHOT_FIXTURE_LAST_SNAPSHOT_FILE = (
-    SNAPSHOT_FIXTURE_DIR / f"snapshot_{SNAPSHOT_FIXTURE_LAST_SNAPSHOT:03d}.h5"
-)
+
+
+def snapshot_fixture_snapshot_count():
+    """Number of snapshots the fixture's scale-factor list declares, or 0 if absent."""
+    if not SNAPSHOT_FIXTURE_A_LIST.is_file():
+        return 0
+    with open(SNAPSHOT_FIXTURE_A_LIST, "r") as handle:
+        return sum(1 for line in handle if line.strip())
+
+
+def snapshot_fixture_snapshot_files():
+    """Every snapshot payload file the fixture's a_list implies, in load order."""
+    return [
+        SNAPSHOT_FIXTURE_DIR / f"snapshot_{snap:03d}.h5"
+        for snap in range(snapshot_fixture_snapshot_count())
+    ]
 
 
 def snapshot_fixture_present():
-    """Is the committed snapshot-package fixture's full payload present?"""
-    return (
-        SNAPSHOT_FIXTURE_A_LIST.is_file()
-        and SNAPSHOT_FIXTURE_FORESTS.is_file()
-        and SNAPSHOT_FIXTURE_LAST_SNAPSHOT_FILE.is_file()
+    """Is the committed snapshot-package fixture's full payload present?
+
+    The guard is derived from the a_list, because the a_list is what bounds the
+    run: the driver loads every snapshot the scale-factor list declares, and
+    open_run validates every one of those files. output.snapshot_list selects
+    which of them are *written*, and bounds nothing that is *read*. Checking the
+    a_list alone would pass a partial checkout that has the 48-byte list but no
+    payload, so every implied file is checked; a resized fixture changes the set
+    checked here rather than letting the guard drift out of sync. forests.h5 is
+    deliberately not checked: it is converter provenance the C reader never
+    opens.
+    """
+    return snapshot_fixture_snapshot_count() > 0 and all(
+        path.is_file() for path in snapshot_fixture_snapshot_files()
     )
+
+
+def snapshot_fixture_input_overrides():
+    """input.* overrides that repoint a run at the committed fixture dataset."""
+    return {
+        "simulation_dir": str(SNAPSHOT_FIXTURE_DIR),
+        "snapshot_list_file": str(SNAPSHOT_FIXTURE_A_LIST),
+    }
 
 
 def make_param_file(
@@ -166,50 +186,49 @@ def test_unknown_processing_order_fails_fast():
     assert "Valid values are tree_ordered, snapshot_ordered" in output
 
 
-def test_snapshot_config_reaches_driver_and_aborts_without_output():
+def test_snapshot_run_completes_and_writes_output_over_the_fixture():
     """
-    Test that a valid snapshot-ordered configuration exercises the full driver skeleton.
+    Test that a valid snapshot-ordered configuration runs end to end and writes output.
 
-    Expected: Non-zero exit; output does NOT include "Parameter validation failed" or
-              "The snapshot-ordered driver is not implemented yet"; output DOES include
-              the driver's own cannot-yet-produce-output message and a debug log line
-              proving two slab generations were live together at some point in the loop;
-              the configured output directory holds nothing (no galaxy, master, schema,
-              or metadata output of any kind).
-    Validates: open_run runs on the run path for the first time, every slab is loaded
-               and released under the two-generation rotation, and the run fails
-               honestly at output -- not exiting 0, not producing any output artifact,
-               and not regressing to either of the two messages this slice retires.
+    Expected: exit 0; output does NOT include "Parameter validation failed" or either of
+              the two messages earlier slices retired; the per-snapshot lifecycle lines
+              show every snapshot loaded and released in ascending order under the
+              two-generation rotation, with two slabs live from snapshot 1 onward; and
+              the run leaves exactly one numbered partition file plus a master, whose
+              TotHalosPerSnap totals equal the rows actually written, with no Ntrees
+              attribute, no TreeHalosPerSnap dataset or link, TreeType "snapshot_hdf5",
+              and UniqueGalaxyIDMultiplier in both per-file and master RunProperties.
+    Validates: the snapshot-ordered driver produces output through the driver-neutral
+               output partition seam, and does so under the state rotation the phase
+               specifies rather than by holding every slab live.
 
     Runs against the committed snapshot-package fixture (simulations/micro-uchuu-snapshot/
     _tests/data/), not the machine-local production dataset: the latter is multi-gigabyte,
-    gitignored, and absent on a fresh checkout, which would make this criterion's own
-    proof unreproducible outside this workstation. input.simulation_dir and
-    input.snapshot_list_file are overridden to point at the fixture; output.snapshot_list
-    is overridden to the fixture's own last valid index (5 of a 6-entry a_list), since the
-    generated core run file's default (49) is only valid for the real package's 50-snapshot
-    production list. simulations/micro-uchuu-snapshot/_tests/unit/test_unit_snapshot_reader_open.c
-    already proves open_run succeeds against exactly this fixture with these same two fields
-    set, and Slice 3's physical-header comparison still matches it (the fixture headers were
-    stamped from the package's own simulation_info.yaml).
+    gitignored, and absent on a fresh checkout, which would make this proof unreproducible
+    outside one workstation. input.simulation_dir and input.snapshot_list_file are
+    overridden to point at the fixture; output.snapshot_list is overridden to indices the
+    fixture's own a_list actually contains, since the generated core run file's default
+    (49) is only valid for the real package's 50-snapshot production list.
+    simulations/micro-uchuu-snapshot/_tests/unit/test_unit_snapshot_reader_open.c already
+    proves open_run succeeds against exactly this fixture with these same two fields set.
 
     The test still only runs when the selected package is itself snapshot-ordered (its own
     configuration is the only source of input.tree_type/tree_name/processing_order here);
     forcing tree_type: snapshot_hdf5 onto a tree-ordered package would abort for an
-    unrelated config-mismatch reason, not the message this test pins. Guarded separately
-    against the fixture itself being absent (mirrors test_unit_snapshot_reader_realdata.c's
-    access() precedent), so a sparse or partial checkout skips rather than fails.
+    unrelated config-mismatch reason. Guarded separately against the fixture being absent,
+    so a sparse or partial checkout skips rather than fails.
 
-    output_format is forced to hdf5: the generated core test input this run file is
-    based on is named test_binary.yaml for a reason -- output_format: binary -- which
-    this slice's own new config-time check now rejects for a snapshot-ordered
-    configuration (see test_snapshot_binary_output_rejected_at_config_time), so a
-    "valid" snapshot-ordered configuration needs the override to reach the driver.
+    output_format is forced to hdf5 because the generated core test input this run file is
+    based on is output_format: binary, which a snapshot-ordered configuration rejects at
+    config time (see test_snapshot_binary_output_rejected_at_config_time).
 
-    --debug is passed so the driver's per-snapshot DEBUG_LOG line (silent at the
-    default log level) is captured, which is how the two-live-slabs assertion below
-    is proven.
+    -v is passed so the driver's per-snapshot lifecycle lines (silent at the default log
+    level) are captured. They are VERBOSE_LOG rather than DEBUG_LOG deliberately: the
+    driver enables debug-log rate limiting for the physics phase, which caps each
+    DEBUG_LOG site at five calls and would truncate the ordered sequence asserted below.
     """
+    import h5py
+
     if effective_input_setting("valid_snapshot_probe", "processing_order") != "snapshot_ordered":
         raise TestSkipped(
             "selected package is not snapshot-ordered; its own configuration is the only "
@@ -218,42 +237,101 @@ def test_snapshot_config_reaches_driver_and_aborts_without_output():
     if not snapshot_fixture_present():
         raise TestSkipped(f"committed snapshot fixture not found at {SNAPSHOT_FIXTURE_DIR}")
 
+    nsnapshots = snapshot_fixture_snapshot_count()
+    requested = [nsnapshots - 1, 1]
     output_dir = Path(TEMP_DIR) / "valid_snapshot_output"
 
     returncode, output = run_config(
         "valid_snapshot",
-        input_overrides={
-            "simulation_dir": str(SNAPSHOT_FIXTURE_DIR),
-            "snapshot_list_file": str(SNAPSHOT_FIXTURE_A_LIST),
-        },
+        input_overrides=snapshot_fixture_input_overrides(),
         output_overrides={
             "output_format": "hdf5",
             "output_directory": str(output_dir),
-            "snapshot_list": [SNAPSHOT_FIXTURE_LAST_SNAPSHOT],
+            "snapshot_list": requested,
         },
-        extra_args=["--debug"],
+        extra_args=["-v"],
     )
 
-    assert returncode != 0, "the snapshot-ordered skeleton driver must never exit 0"
+    assert returncode == 0, f"a valid snapshot-ordered run should complete:\n{output}"
     assert (
         "Parameter validation failed" not in output
     ), "a valid snapshot-ordered configuration must pass config validation"
     assert (
         "The snapshot-ordered driver is not implemented yet" not in output
-    ), "the dispatch-time FATAL this slice retires must not reappear"
+    ), "the dispatch-time FATAL an earlier slice retired must not reappear"
     assert (
-        "The snapshot-ordered driver has validated and loaded every snapshot but "
-        "cannot yet produce output" in output
-    )
-    assert "2 slabs live" in output, "two slab generations must be live together at some point"
+        "cannot yet produce output" not in output
+    ), "the skeleton driver's abort must not survive into a producing driver"
 
-    # ensure_directory_exists() creates output_directory before the driver runs (main.c),
-    # so its mere existence proves nothing; the driver must leave it with no galaxy,
-    # master, schema, or metadata output of any kind, since it aborts before any writer
-    # or write_run_metadata() call is ever reached.
-    if output_dir.exists():
-        leftover = sorted(p.name for p in output_dir.iterdir())
-        assert not leftover, f"the driver must produce no output, found: {leftover}"
+    # The FULL ordered lifecycle, not just "a line mentioning two slabs somewhere":
+    # every snapshot must be loaded in ascending order, each load after the first
+    # with two generations live, and every snapshot released. Asserting the ordered
+    # subsequence is what makes a shortened or reordered loop fail here.
+    expected_sequence = []
+    for snap in range(nsnapshots):
+        live = 1 if snap == 0 else 2
+        expected_sequence.append(f"Loaded snapshot {snap} (")
+        expected_sequence.append(f"; {live} slab{'' if live == 1 else 's'} live")
+        if snap > 0:
+            expected_sequence.append(f"Released snapshot {snap - 1} ")
+    expected_sequence.append(f"Released snapshot {nsnapshots - 1} ")
+
+    cursor = 0
+    for needle in expected_sequence:
+        found = output.find(needle, cursor)
+        assert found >= 0, (
+            f"expected {needle!r} after position {cursor} in the driver's lifecycle log; "
+            f"the rotation sequence is incomplete or out of order:\n{output}"
+        )
+        cursor = found + len(needle)
+
+    partitions = sorted(output_dir.glob("*_[0-9][0-9][0-9].hdf5"))
+    assert [p.name for p in partitions] == [
+        "model_000.hdf5"
+    ], f"a snapshot-ordered run writes exactly one partition, found {[p.name for p in partitions]}"
+    master = output_dir / "model.hdf5"
+    assert master.is_file(), f"the master file is missing from {output_dir}"
+
+    with h5py.File(partitions[0], "r") as handle:
+        for snap in requested:
+            group = handle[f"Snap{snap:03d}"]
+            dataset = group["Galaxies"]
+            total = int(dataset.attrs["TotHalosPerSnap"].ravel()[0])
+            assert total == dataset.shape[0], (
+                f"Snap{snap:03d}: TotHalosPerSnap {total} should equal the "
+                f"{dataset.shape[0]} marshalled rows"
+            )
+            assert (
+                "Ntrees" not in dataset.attrs
+            ), f"Snap{snap:03d}: a snapshot-ordered run has no trees to count"
+            assert (
+                "TreeHalosPerSnap" not in group
+            ), f"Snap{snap:03d}: a snapshot-ordered run has no per-tree counts"
+        assert (
+            "UniqueGalaxyIDMultiplier" in handle["RunProperties"].attrs
+        ), "per-file RunProperties should record the identity multiplier"
+
+    with h5py.File(master, "r") as handle:
+        for snap in requested:
+            members = sorted(handle[f"Snap{snap:03d}"])
+            assert members == [
+                "File000"
+            ], f"master Snap{snap:03d} should hold exactly File000, found {members}"
+            file_group = handle[f"Snap{snap:03d}/File000"]
+            assert sorted(file_group) == [
+                "Galaxies"
+            ], f"master Snap{snap:03d}/File000 should link only Galaxies, found {sorted(file_group)}"
+            assert isinstance(
+                file_group.get("Galaxies", getlink=True), h5py.ExternalLink
+            ), f"master Snap{snap:03d}/File000/Galaxies should be an external link"
+        properties = handle["RunProperties"].attrs
+        tree_type = properties["TreeType"].ravel()[0]
+        if isinstance(tree_type, bytes):
+            tree_type = tree_type.decode()
+        assert tree_type == "snapshot_hdf5", f"master TreeType is {tree_type!r}"
+        assert (
+            "UniqueGalaxyIDMultiplier" in properties
+        ), "master RunProperties should record the identity multiplier"
 
 
 def test_snapshot_binary_output_rejected_at_config_time():
@@ -424,7 +502,7 @@ def test_snapshot_tree_name_must_be_exact_literal():
     Expected: Non-zero exit for every other value, with a message naming the accepted literal.
               The accepted-literal control additionally asserts "Unknown tree_type" is absent
               (see the comment above it) -- reaching and exercising the real driver is a
-              separate concern, owned by test_snapshot_config_reaches_driver_and_aborts_without_output.
+              separate concern, owned by test_snapshot_run_completes_and_writes_output_over_the_fixture.
     Validates: configured text never becomes a printf format or a silent filename mismatch.
     """
     rejected = ["snapshot_%d.h5", "snapshot_%s.h5", "", "trees_063"]
@@ -451,24 +529,31 @@ def test_snapshot_tree_name_must_be_exact_literal():
     # got that far", so this also asserts "Unknown tree_type" is absent -- ruling out
     # the specific alternative explanation that the literal silently failed reader
     # lookup instead of being genuinely accepted. output_format is forced to hdf5 for
-    # the same reason test_snapshot_config_reaches_driver_and_aborts_without_output
-    # does: the generated reference run file is output_format: binary, which this
-    # slice's own new check now rejects for a snapshot-ordered configuration,
-    # independent of tree_name. This control's contract is tree_name acceptance only
-    # -- it deliberately does not also assert the driver reaches and aborts, since
-    # doing so (without repointing simulation_dir/snapshot_list_file at the committed
-    # fixture) would reintroduce a dependency on the selected package's own
-    # machine-local production dataset; that proof already belongs to
-    # test_snapshot_config_reaches_driver_and_aborts_without_output, which runs
-    # against the committed fixture instead.
+    # the same reason the completing-run test does: the generated reference run file is
+    # output_format: binary, which a snapshot-ordered configuration rejects at config
+    # time, independent of tree_name.
+    #
+    # simulation_dir/snapshot_list_file are repointed at the committed fixture so this
+    # control cannot start a full production run: now that the driver produces output,
+    # leaving them at a snapshot-ordered package's own machine-local dataset would make
+    # this config-time control read gigabytes and write a complete run. Whether the
+    # driver then aborts (any package whose catalog does not match the fixture) or
+    # completes is outside this control's contract -- it asserts config-time acceptance
+    # only, and the run is cheap either way.
     returncode, output = run_config(
         "tree_name_accepted",
         input_overrides={
             "tree_type": "snapshot_hdf5",
             "processing_order": "snapshot_ordered",
             "tree_name": SNAPSHOT_TREE_NAME,
+            **snapshot_fixture_input_overrides(),
         },
-        output_overrides={"output_format": "hdf5"},
+        # snapshot_list must name an index the fixture's own 6-entry scale-factor
+        # list contains: the generated reference run file requests a snapshot valid
+        # only for the selected package's production list, and an out-of-range
+        # request is itself a config-time rejection, which would mask the one this
+        # control is looking for.
+        output_overrides={"output_format": "hdf5", "snapshot_list": [1]},
     )
     assert "Parameter validation failed" not in output
     assert "Unknown tree_type" not in output, "the accepted literal must resolve the reader"
@@ -483,18 +568,19 @@ def test_multiplier_default_and_non_positive_rejection():
     Validates: simulation.unique_galaxy_id_multiplier parses, defaults to TREE_MUL_FAC,
                and rejects non-positive values.
 
-    The returncode == 0 assertions below require the selected package's own reader
-    to reach a working driver that actually produces output — true for every
-    tree-ordered package today. A snapshot-ordered package (e.g. micro-uchuu-snapshot)
-    would pass config validation but reach only the skeleton driver, which always
-    exits non-zero by design (src/core/snapshot_driver.c has no physics, gather, or
-    output writer yet), a driver limitation unrelated to this test's assertions, so
-    the test skips there.
+    The returncode == 0 assertions below run the selected package's own committed
+    configuration to completion, and the multiplier is then read back out of BINARY
+    galaxy output (_run_and_read_unique_ids). A snapshot-ordered package rejects
+    output_format: binary at config time, and its own dataset is the machine-local
+    production conversion rather than the committed fixture, so neither the run nor
+    the read-back applies there and the test skips. The snapshot-ordered driver's own
+    end-to-end behaviour is covered by
+    test_snapshot_run_completes_and_writes_output_over_the_fixture.
     """
     if effective_input_setting("multiplier_probe", "processing_order") == "snapshot_ordered":
         raise TestSkipped(
-            "selected package is snapshot-ordered; the success-path assertions "
-            "require an implemented driver"
+            "selected package is snapshot-ordered; these assertions read binary galaxy "
+            "output, which a snapshot-ordered configuration rejects at config time"
         )
     # Absent key: the seeded default is TREE_MUL_FAC, so a tree-ordered run is
     # accepted by the non-default guard and completes normally.
@@ -519,13 +605,13 @@ def test_multiplier_default_and_non_positive_rejection():
 
 
 def _skip_unless_selected_package_is_tree_ordered(probe_name):
-    """Skip tests that need a completed run when the selected package cannot produce one."""
+    """Skip tests that read binary galaxy output when the selected package forbids it."""
     if not MIMIC_EXE.exists():
         raise TestSkipped("Mimic not built")
     if effective_input_setting(probe_name, "processing_order") == "snapshot_ordered":
         raise TestSkipped(
-            "selected package is snapshot-ordered; these assertions require a driver "
-            "that produces output"
+            "selected package is snapshot-ordered; these assertions read binary galaxy "
+            "output, which a snapshot-ordered configuration rejects at config time"
         )
 
 
@@ -642,7 +728,7 @@ def main():
     try:
         tests = [
             test_unknown_processing_order_fails_fast,
-            test_snapshot_config_reaches_driver_and_aborts_without_output,
+            test_snapshot_run_completes_and_writes_output_over_the_fixture,
             test_snapshot_binary_output_rejected_at_config_time,
             test_snapshot_skip_rejected_at_config_time,
             test_snapshot_reader_rejects_tree_ordered,

@@ -190,4 +190,35 @@ struct HaloAuxData {
   int FirstHalo;
 };
 
+/* Snapshot-driver counterpart of struct HaloAuxData's FirstHalo/NHalos pair:
+ * where one snapshot's processed halos landed in that snapshot's output buffer,
+ * indexed by slab halo index. The snapshot driver keeps one of these arrays per
+ * live slab generation and reads the previous generation's when it gathers
+ * progenitor galaxies.
+ *
+ * The traversal flags (DoneFlag/HaloFlag) have no counterpart here: they exist
+ * to sequence the tree driver's depth-first recursion, and a snapshot slab is
+ * walked once in slab order instead. The range fields are int64_t because a
+ * production slab's output can exceed a tree's (Slice 6 widened the output
+ * buffer's own counts to int64_t for the same reason). */
+struct SnapshotHaloAux {
+  int64_t FirstHalo; /* first output index for this halo, or -1 when it has none */
+  int64_t NHalos;    /* output halos produced for this halo */
+};
+
+/* The previous slab generation, as the snapshot driver's gather step sees it.
+ *
+ * Bundled into one struct so a gather cannot be handed the current slab's view
+ * with the previous slab's aux array (or vice versa): the three members are
+ * always the same generation, and the compiler cannot catch a mismatch between
+ * three separately passed arguments whose indices happen to overlap.
+ * `view.halos` is NULL and `aux`/`processed` are NULL at snapshot 0, where no
+ * previous generation exists; every progenitor chain is then empty because a
+ * snapshot-0 halo can carry no FirstProgenitor. */
+struct SnapshotGatherContext {
+  struct HaloInputView view;         /* raw halos of snapshot N-1 */
+  const struct SnapshotHaloAux *aux; /* [view.count], snapshot N-1 output ranges */
+  const struct Halo *processed;      /* snapshot N-1 output buffer */
+};
+
 #endif /* #ifndef TYPES_H */

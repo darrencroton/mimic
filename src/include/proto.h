@@ -39,7 +39,35 @@ double get_virial_radius(struct HaloInputView view, int halonr);
 double get_virial_mass(struct HaloInputView view, int halonr);
 
 /* Snapshot driver (src/core/snapshot_driver.c) */
+struct InheritanceProgenitorGalaxy; /* core/inheritance.h */
+
 void run_snapshot_driver(void);
+
+/* Incomplete-output cleanup for snapshot-ordered runs. The snapshot driver
+ * registers both of its output paths (the single partition file and the master
+ * file) when it creates the partition, and — unlike the tree driver, whose
+ * registry is cleared as each partition completes — keeps them registered after
+ * run_snapshot_driver() returns. main.c writes the master only after that
+ * return, so the registration is disarmed by snapshot_driver_clear_output_paths()
+ * once write_master_file() has succeeded; any failure before that point runs
+ * snapshot_driver_remove_incomplete_outputs() from bye() and leaves no output
+ * behind. Both are no-ops for a tree-ordered run, which registers nothing. */
+void snapshot_driver_remove_incomplete_outputs(void);
+void snapshot_driver_clear_output_paths(void);
+
+/* Snapshot-side counterparts of the tree driver's progenitor lookup
+ * (build_model.c). They take the previous generation as one bundle so the
+ * current and previous slabs cannot be transposed, and are declared here — as
+ * the tree-side pair is — so the fixture package's unit tests can drive them
+ * directly with two synthetic slabs. */
+int snapshot_find_most_massive_progenitor(struct HaloInputView view,
+                                          const struct SnapshotGatherContext *prev, int halonr);
+int64_t snapshot_count_progenitor_galaxies(struct HaloInputView view,
+                                           const struct SnapshotGatherContext *prev, int halonr);
+void snapshot_gather_progenitor_galaxies(struct HaloInputView view,
+                                         const struct SnapshotGatherContext *prev, int halonr,
+                                         int first_occupied,
+                                         struct InheritanceProgenitorGalaxy *progenitors);
 
 /* Output-width narrowing (src/core/output_buffer.c) */
 int narrow_int64_to_int_checked(int64_t value, const char *context);
