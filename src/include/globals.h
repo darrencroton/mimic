@@ -111,13 +111,13 @@ struct GalaxyPool; /* opaque; defined in galaxy_pool.c */
 extern struct GalaxyPool *TreeGalaxyPool;
 
 /* runtime file information */
-extern int Ntrees;            /* number of trees in current file  */
-extern int NumProcessedHalos; /* Total number of halos stored for current tree */
-extern int MaxProcessedHalos; /* Maximum number of halos allowed for current tree */
+extern int Ntrees;                /* number of trees in current file  */
+extern int64_t NumProcessedHalos; /* Total number of halos stored for current tree */
+extern int64_t MaxProcessedHalos; /* Maximum number of halos allowed for current tree */
 extern int MaxFoFWorkspace;
 
 /* halo information */
-extern int TotHalosPerSnap[ABSOLUTEMAXSNAPS];
+extern int64_t TotHalosPerSnap[ABSOLUTEMAXSNAPS];
 extern int *InputHalosPerSnap[ABSOLUTEMAXSNAPS];
 extern int *InputTreeNHalos;
 extern int *InputTreeFirstHalo;

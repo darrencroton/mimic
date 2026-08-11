@@ -209,7 +209,9 @@ void write_hdf5_attrs(int n, int filenr) {
 
   attribute_id = H5Acreate(dataset_id, "TotHalosPerSnap", H5T_NATIVE_INT, dataspace_id, H5P_DEFAULT,
                            H5P_DEFAULT);
-  status = H5Awrite(attribute_id, H5T_NATIVE_INT, &TotHalosPerSnap[n]);
+  const int tot_halos_attr =
+      narrow_int64_to_int_checked(TotHalosPerSnap[n], "HDF5 TotHalosPerSnap attribute");
+  status = H5Awrite(attribute_id, H5T_NATIVE_INT, &tot_halos_attr);
   if (status < 0) {
     FATAL_ERROR("Failed to write TotHalosPerSnap attribute to HDF5 file (filenr %d)", filenr);
   }
@@ -289,7 +291,8 @@ void flush_hdf5_buffers(int filenr) {
 }
 
 void save_halos_hdf5(int filenr, int tree, struct HaloInputView view) {
-  int i, n;
+  int64_t i;
+  int n;
 
   for (n = 0; n < MimicConfig.NOUT; n++) {
     for (i = 0; i < NumProcessedHalos; i++) {

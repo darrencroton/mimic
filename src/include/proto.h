@@ -41,4 +41,7 @@ double get_virial_mass(struct HaloInputView view, int halonr);
 /* Snapshot driver (src/core/snapshot_driver.c) */
 void run_snapshot_driver(void);
 
+/* Output-width narrowing (src/core/output_buffer.c) */
+int narrow_int64_to_int_checked(int64_t value, const char *context);
+
 #endif /* #ifndef CORE_PROTO_H */

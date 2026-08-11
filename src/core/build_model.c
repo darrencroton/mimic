@@ -183,8 +183,10 @@ static void build_halo_tree_from_view(struct HaloInputView view, int halonr, int
     MaxProcessedHalos = output_buffer.capacity;
 
     for (int i = 0; i < segment_index; i++) {
-      HaloAux[segments[i].source_id].FirstHalo = segments[i].output_first;
-      HaloAux[segments[i].source_id].NHalos = segments[i].output_count;
+      HaloAux[segments[i].source_id].FirstHalo =
+          narrow_int64_to_int_checked(segments[i].output_first, "HaloAux.FirstHalo");
+      HaloAux[segments[i].source_id].NHalos =
+          narrow_int64_to_int_checked(segments[i].output_count, "HaloAux.NHalos");
     }
   }
 }

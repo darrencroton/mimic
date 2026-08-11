@@ -46,12 +46,12 @@ int HDF5_n_props;
 hid_t HDF5_current_file_id = -1; /* -1 means no file currently open */
 #endif
 
-int MaxProcessedHalos;
+int64_t MaxProcessedHalos;
 int MaxFoFWorkspace;
-int Ntrees;            /*  number of trees in current file  */
-int NumProcessedHalos; /*  Total number of halos stored for current tree  */
+int Ntrees;                /*  number of trees in current file  */
+int64_t NumProcessedHalos; /*  Total number of halos stored for current tree  */
 
-int TotHalosPerSnap[ABSOLUTEMAXSNAPS];
+int64_t TotHalosPerSnap[ABSOLUTEMAXSNAPS];
 int *InputHalosPerSnap[ABSOLUTEMAXSNAPS];
 
 int *InputTreeNHalos;

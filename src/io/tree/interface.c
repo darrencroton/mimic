@@ -146,18 +146,21 @@ void load_unit(int unit) {
    * All allocations use MEM_HALOS except InputTreeHalos (MEM_TREES).
    */
 
-  MaxProcessedHalos = (int)(MAXHALOFAC * InputTreeNHalos[unit]);
+  MaxProcessedHalos = (int64_t)MAXHALOFAC * InputTreeNHalos[unit];
   if (MaxProcessedHalos < MIN_HALO_ARRAY_GROWTH)
     MaxProcessedHalos = MIN_HALO_ARRAY_GROWTH;
 
   MaxFoFWorkspace = INITIAL_FOF_HALOS;
-  if ((int)(0.1 * MaxProcessedHalos) > MaxFoFWorkspace)
-    MaxFoFWorkspace = (int)(0.1 * MaxProcessedHalos);
+  const int fof_from_processed = narrow_int64_to_int_checked(
+      (int64_t)(0.1 * (double)MaxProcessedHalos), "initial MaxFoFWorkspace estimate");
+  if (fof_from_processed > MaxFoFWorkspace)
+    MaxFoFWorkspace = fof_from_processed;
 
   HaloAux = mymalloc_cat(sizeof(struct HaloAuxData) * InputTreeNHalos[unit], MEM_HALOS);
 
-  ProcessedHalos = mymalloc_cat(sizeof(struct Halo) * MaxProcessedHalos, MEM_HALOS);
-  memset(ProcessedHalos, 0, sizeof(struct Halo) * MaxProcessedHalos); /* NULL galaxy pointers */
+  ProcessedHalos = mymalloc_cat((size_t)MaxProcessedHalos * sizeof(struct Halo), MEM_HALOS);
+  memset(ProcessedHalos, 0,
+         (size_t)MaxProcessedHalos * sizeof(struct Halo)); /* NULL galaxy pointers */
 
   FoFWorkspace = mymalloc_cat(sizeof(struct Halo) * MaxFoFWorkspace, MEM_HALOS);
   memset(FoFWorkspace, 0, sizeof(struct Halo) * MaxFoFWorkspace); /* NULL galaxy pointers */

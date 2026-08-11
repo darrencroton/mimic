@@ -8,6 +8,7 @@
  * are written. Format-agnostic utilities (shared with HDF5) are in util.c.
  */
 
+#include <inttypes.h>
 #include <math.h>
 #include <limits.h>
 #include <stdio.h>
@@ -62,7 +63,8 @@ void create_binary_output_files(int filenr) {
  */
 void save_halos(int filenr, int tree, struct HaloInputView view) {
   char buf[MAX_BUF_SIZE + 1];
-  int i, n;
+  int64_t i;
+  int n;
   int nwritten;
 
   for (n = 0; n < MimicConfig.NOUT; n++) {
@@ -108,7 +110,7 @@ void save_halos(int filenr, int tree, struct HaloInputView view) {
         nwritten = fwrite(&halo_output, halo_size, 1, save_fd[n]);
 
         if (nwritten != 1) {
-          FATAL_ERROR("Failed to write halo data for halo %d (tree %d, "
+          FATAL_ERROR("Failed to write halo data for halo %" PRId64 " (tree %d, "
                       "filenr %d, snapshot %d)",
                       i, tree, filenr, MimicConfig.ListOutputSnaps[n]);
         }
@@ -146,7 +148,9 @@ void finalize_halo_file(int filenr) {
       FATAL_ERROR("Failed to write number of trees to header of file %d (filenr %d)", n, filenr);
     }
 
-    nwritten = fwrite(&TotHalosPerSnap[n], sizeof(int), 1, save_fd[n]);
+    const int tot_halos_header =
+        narrow_int64_to_int_checked(TotHalosPerSnap[n], "binary header TotHalosPerSnap");
+    nwritten = fwrite(&tot_halos_header, sizeof(int), 1, save_fd[n]);
     if (nwritten != 1) {
       FATAL_ERROR("Failed to write total halo count to header of file %d (filenr %d)", n, filenr);
     }

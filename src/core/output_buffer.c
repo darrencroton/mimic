@@ -4,6 +4,8 @@
  */
 
 #include <assert.h>
+#include <inttypes.h>
+#include <limits.h>
 
 #include "constants.h"
 #include "error.h"
@@ -15,6 +17,19 @@ static void validate_segment(const struct OutputBufferSegment *segment) {
     FATAL_ERROR("Invalid output segment for source %d: start=%d count=%d", segment->source_id,
                 segment->workspace_start, segment->workspace_count);
   }
+}
+
+/*
+ * Narrow a widened int64_t count/index back to int, FATALing rather than
+ * truncating if it does not fit. `context` names the narrowing site for the
+ * fatal message (e.g. "HaloAux.FirstHalo").
+ */
+int narrow_int64_to_int_checked(int64_t value, const char *context) {
+  if (value < INT_MIN || value > INT_MAX) {
+    FATAL_ERROR("%s: value %" PRId64 " does not fit in a 32-bit int (range [%d, %d])", context,
+                value, INT_MIN, INT_MAX);
+  }
+  return (int)value;
 }
 
 void marshal_workspace_to_output_buffer(struct Halo *workspace, struct OutputBuffer *buffer,
@@ -42,7 +57,7 @@ void marshal_workspace_to_output_buffer(struct Halo *workspace, struct OutputBuf
 
       if (buffer->count >= buffer->capacity) {
         /* Growth arithmetic mirrors ensure_fof_workspace_capacity in build_model.c. */
-        int new_capacity = (int)(buffer->capacity * HALO_ARRAY_GROWTH_FACTOR);
+        int64_t new_capacity = (int64_t)(buffer->capacity * HALO_ARRAY_GROWTH_FACTOR);
         if (new_capacity - buffer->capacity < MIN_HALO_ARRAY_GROWTH)
           new_capacity = buffer->capacity + MIN_HALO_ARRAY_GROWTH;
         if (new_capacity > MAX_HALO_ARRAY_SIZE)

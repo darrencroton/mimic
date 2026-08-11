@@ -14,8 +14,8 @@
 
 struct OutputBuffer {
   struct Halo *halos;
-  int count;
-  int capacity;
+  int64_t count;
+  int64_t capacity;
 };
 
 struct OutputBufferSegment {
@@ -23,8 +23,8 @@ struct OutputBufferSegment {
   int snapshot_number;
   int workspace_start;
   int workspace_count;
-  int output_first;
-  int output_count;
+  int64_t output_first;
+  int64_t output_count;
 };
 
 /*
