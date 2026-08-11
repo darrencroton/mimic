@@ -62,6 +62,13 @@
  * output id 0 for this processing order). */
 #define SNAPSHOT_OUTPUT_ID 0
 
+/* The `tree` argument of save_halos_hdf5(), which the shared output counter
+ * ignores entirely in snapshot mode: output_increment_halo_counters_checked()
+ * never touches the per-tree counters for a snapshot-ordered run, because only
+ * the tree reader allocates them. A snapshot run has no trees to number, so
+ * this is a placeholder rather than a meaningful index. */
+#define SNAPSHOT_OUTPUT_TREE_ID 0
+
 /* Same bound as the tree driver's MAX_PATH_BUF_SIZE (tree_driver.c:39). */
 #define SNAPSHOT_PATH_BUF_SIZE (3 * MAX_STRING_LEN + 25)
 
@@ -533,6 +540,21 @@ static int snapshot_process_fof_group(struct SnapshotDriverState *state,
 /* Output (the only HDF5-dependent code in this driver)                       */
 /* ------------------------------------------------------------------------- */
 
+/*
+ * Return the tree driver's output-buffer globals to their unowned state.
+ *
+ * This driver owns two output buffers and lends one to the shared writer for
+ * the duration of a single save call (see snapshot_write_output). Outside that
+ * window the globals must point at nothing: the generation they were lent from
+ * is freed at its rotation, so leaving them set would leave a dangling pointer
+ * live for the rest of the run for any shared code that reads them.
+ */
+static void snapshot_clear_output_globals(void) {
+  ProcessedHalos = NULL;
+  NumProcessedHalos = 0;
+  MaxProcessedHalos = 0;
+}
+
 #ifdef HDF5
 
 /* Create the single output partition and arm its cleanup registration. */
@@ -554,6 +576,11 @@ static void snapshot_open_output(void) {
  * are pointed at this generation and the view is this snapshot's slab — which
  * is exactly why the raw slab must still be live here (output conversion
  * recomputes Rvir/Vvir from it).
+ *
+ * The loan lasts exactly as long as the save call: this generation's buffer is
+ * freed when the rotation releases it, which for a sparse output list can be
+ * several snapshots before the next save, so the globals are cleared again on
+ * the way out rather than left pointing into freed memory.
  */
 static void snapshot_write_output(struct SnapshotGeneration *cur) {
   const struct HaloInputView view = {cur->slab.halos, cur->slab.nhalos};
@@ -562,7 +589,9 @@ static void snapshot_write_output(struct SnapshotGeneration *cur) {
   NumProcessedHalos = cur->processed.count;
   MaxProcessedHalos = cur->processed.capacity;
 
-  save_halos_hdf5(SNAPSHOT_OUTPUT_ID, 0, view);
+  save_halos_hdf5(SNAPSHOT_OUTPUT_ID, SNAPSHOT_OUTPUT_TREE_ID, view);
+
+  snapshot_clear_output_globals();
 
   /* VERBOSE_LOG, not DEBUG_LOG: this driver enables the tree driver's debug
    * rate limiting for the physics phase, which caps each DEBUG_LOG site at
@@ -671,6 +700,12 @@ static void snapshot_release_generation(struct SnapshotDriverState *state,
   const int64_t released = gen->snapnum;
 
   snapshot_reader_release_slab(state->reader, &gen->slab);
+
+  /* Belt and braces: snapshot_write_output() already returns the globals to
+   * their unowned state, so this only ever matters if a future edit stops doing
+   * that. Clearing before the free keeps "the globals point at a live buffer or
+   * at nothing" true at every point in the rotation. */
+  snapshot_clear_output_globals();
 
   myfree(gen->processed.halos);
   gen->processed.halos = NULL;
@@ -827,11 +862,9 @@ void run_snapshot_driver(void) {
   }
   myfree(state.workspace);
 
-  /* The globals were only ever pointed at a generation's buffer for the
-   * duration of an output call; nothing owns them now. */
-  ProcessedHalos = NULL;
-  NumProcessedHalos = 0;
-  MaxProcessedHalos = 0;
+  /* Already cleared after each output call and at each release; repeated here
+   * so the driver cannot return with them set under any path. */
+  snapshot_clear_output_globals();
 
   disable_debug_log_rate_limiting();
 }

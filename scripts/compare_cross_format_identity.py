@@ -14,15 +14,21 @@ the required predicate, because it reports NaN != NaN (hiding a changed NaN
 payload behind a difference that is always there) and -0.0 == 0.0 (hiding a sign
 flip). Comparing bytes decides both correctly.
 
-Per output snapshot, in this order:
+In this order:
 
-1. **No duplicate ``UniqueGalaxyID`` within either run.** Checked first, because
-   every later step assumes an id identifies one galaxy: a duplicated id would
-   otherwise let a set comparison pass while the runs disagree about how many
-   galaxies exist, and would make "the record for this id" ambiguous.
-2. **Identical id sets**, reporting the symmetric difference with counts.
-3. **Byte-identical fields** for every shared id, reported per field with a
-   bounded sample of the ids that differ.
+1. **No duplicate ``UniqueGalaxyID`` within either run.** Checked first, across
+   *every* output snapshot of *both* runs — including snapshots only one run
+   has — because every later step assumes an id identifies one galaxy: a
+   duplicated id would otherwise let a set comparison pass while the runs
+   disagree about how many galaxies exist, and would make "the record for this
+   id" ambiguous. Scanning the shared snapshots only would leave a duplicate in
+   a one-sided snapshot unnamed, reported as nothing more than a snapshot-set
+   mismatch.
+2. **The same field schema** in both runs, then **the same set of output
+   snapshots**.
+3. Per shared output snapshot: **identical id sets**, reporting the symmetric
+   difference with counts, then **byte-identical fields** for every shared id,
+   reported per field with a bounded sample of the ids that differ.
 
 Usage:
 
@@ -186,21 +192,32 @@ def report_duplicates(label, snap, ids, max_report):
     return int(repeated.size)
 
 
+def report_run_duplicates(label, run, max_report):
+    """Scan every output snapshot of one run for duplicated ids.
+
+    Returns the number of snapshots that carry duplicates. Run before anything
+    else and over every snapshot the run has, not only the shared ones, so a
+    duplicate in a snapshot the other run lacks is still named.
+    """
+    return sum(
+        1 for snap in sorted(run) if report_duplicates(label, snap, run[snap][ID_FIELD], max_report)
+    )
+
+
 def compare_snapshot(snap, left, right, labels, max_report):
-    """Compare one output snapshot. Returns the number of failures found."""
+    """Compare one output snapshot's shared records. Returns the failures found.
+
+    Precondition: neither run carries duplicated ids — report_run_duplicates()
+    has already run over both and the comparison stopped if it found any. That
+    is what lets the set difference below assume unique inputs.
+    """
     left_label, right_label = labels
     failures = 0
 
     left_ids = left[ID_FIELD]
     right_ids = right[ID_FIELD]
 
-    # 1. Duplicate ids first: everything below assumes an id names one galaxy.
-    failures += 1 if report_duplicates(left_label, snap, left_ids, max_report) else 0
-    failures += 1 if report_duplicates(right_label, snap, right_ids, max_report) else 0
-    if failures:
-        return failures
-
-    # 2. Identical id sets.
+    # Identical id sets.
     only_left = numpy.setdiff1d(left_ids, right_ids, assume_unique=True)
     only_right = numpy.setdiff1d(right_ids, left_ids, assume_unique=True)
     if only_left.size or only_right.size:
@@ -220,7 +237,7 @@ def compare_snapshot(snap, left, right, labels, max_report):
         print(f"  ok   Snap{snap:03d}: both runs are empty")
         return 0
 
-    # 3. Byte-identical fields for every shared id, aligned by id.
+    # Byte-identical fields for every shared id, aligned by id.
     left_order = numpy.argsort(left_ids, kind="stable")
     right_order = numpy.argsort(right_ids, kind="stable")
     aligned_ids = left_ids[left_order]
@@ -289,6 +306,20 @@ def main(argv=None):
     labels = (args.left_label, args.right_label)
     print(f"{args.left_label}:  {args.left} ({len(left_files)} partition file(s))")
     print(f"{args.right_label}: {args.right} ({len(right_files)} partition file(s))")
+
+    # Duplicate ids first, over every output snapshot of BOTH runs -- including
+    # snapshots only one run has. Everything below assumes an id names exactly
+    # one galaxy, so a duplicate is reported and the comparison stops here
+    # rather than being described later as a set or field difference.
+    duplicate_snapshots = report_run_duplicates(
+        args.left_label, left, args.max_report
+    ) + report_run_duplicates(args.right_label, right, args.max_report)
+    if duplicate_snapshots:
+        print(
+            f"\nFAILED: duplicated {ID_FIELD} values in {duplicate_snapshots} output "
+            f"snapshot(s); no further comparison is meaningful"
+        )
+        return 1
 
     failures = 0
 
