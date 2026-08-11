@@ -125,9 +125,11 @@ struct MimicConfig {
   const struct SnapshotReader *snapshot_reader;
 
   /* Forest multiplier used to encode UniqueGalaxyID
-   * (simulation.unique_galaxy_id_multiplier, default TREE_MUL_FAC). The
-   * tree-ordered encoder in galaxy_id.h is still hard-coded to TREE_MUL_FAC, so
-   * configuration rejects a non-default value for tree-ordered runs. */
+   * (simulation.unique_galaxy_id_multiplier, default 10^9 from constants.h).
+   * Every galaxy_id.h helper takes this value explicitly, so both processing
+   * orders honour a configured multiplier; configuration requires only that it
+   * be positive, and HDF5 output records the value used as the
+   * RunProperties/UniqueGalaxyIDMultiplier attribute. */
   int64_t UniqueGalaxyIDMultiplier;
 
   /* Output format */

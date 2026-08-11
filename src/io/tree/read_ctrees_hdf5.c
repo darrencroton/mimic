@@ -384,10 +384,10 @@ static int validate_ctrees_hdf5_forest_slab(const hsize_t halo_extent, const int
   XRETURN(nhalos < INT_MAX, CT_H5_ERR,
           "Error: forest %d in file %d has %" PRId64 " halos, above the int index limit\n", unit,
           filenum, nhalos);
-  XRETURN(nhalos < TREE_MUL_FAC, CT_H5_ERR,
+  XRETURN(nhalos < MimicConfig.UniqueGalaxyIDMultiplier, CT_H5_ERR,
           "Error: forest %d in file %d has %" PRId64
-          " halos, at or above the unique-galaxy-id limit of %lld\n",
-          unit, filenum, nhalos, (long long)TREE_MUL_FAC);
+          " halos, at or above the unique-galaxy-id limit of %" PRId64 "\n",
+          unit, filenum, nhalos, MimicConfig.UniqueGalaxyIDMultiplier);
   XRETURN(halosoffset >= 0, CT_H5_ERR,
           "Error: forest %d in file %d has negative halo offset %" PRId64 "\n", unit, filenum,
           halosoffset);
@@ -767,10 +767,10 @@ static int validate_forestinfo_cache_row_ctrees_hdf5(const struct ctrees_foresti
           "Error: file %d ForestInfo row %" PRId64 " has %" PRId64
           " halos, above the int index limit\n",
           ifile, row, finfo->forestnhalos);
-  XRETURN(finfo->forestnhalos < TREE_MUL_FAC, CT_H5_ERR,
+  XRETURN(finfo->forestnhalos < MimicConfig.UniqueGalaxyIDMultiplier, CT_H5_ERR,
           "Error: file %d ForestInfo row %" PRId64 " has %" PRId64
-          " halos, at or above the unique-galaxy-id limit of %lld\n",
-          ifile, row, finfo->forestnhalos, (long long)TREE_MUL_FAC);
+          " halos, at or above the unique-galaxy-id limit of %" PRId64 "\n",
+          ifile, row, finfo->forestnhalos, MimicConfig.UniqueGalaxyIDMultiplier);
   XRETURN(finfo->foresthalosoffset >= 0, CT_H5_ERR,
           "Error: file %d ForestInfo row %" PRId64 " has negative ForestHalosOffset=%" PRId64 "\n",
           ifile, row, finfo->foresthalosoffset);
@@ -1558,7 +1558,8 @@ static int prepare_run_ctrees_hdf5_state(void) {
     CTH.nforests_per_file[i] = 0;
     CTH.first_forest_in_file[i] = 0;
   }
-  const int64_t max_unique_id_forests = mimic_unique_galaxy_id_max_forests();
+  const int64_t id_multiplier = MimicConfig.UniqueGalaxyIDMultiplier;
+  const int64_t max_unique_id_forests = mimic_unique_galaxy_id_max_forests(id_multiplier);
   int64_t totnforests = 0;
   for (int ifile = firstfile; ifile <= lastfile; ifile++) {
     char file_group_name[MAX_STRING_LEN];
@@ -1581,7 +1582,7 @@ static int prepare_run_ctrees_hdf5_state(void) {
   CTH.totnforests = totnforests;
   XRETURN(totnforests >= 1, CT_H5_ERR, "Error: total forest count %" PRId64 " must be >= 1\n",
           totnforests);
-  XRETURN(mimic_unique_galaxy_id_total_forests_valid(totnforests), CT_H5_ERR,
+  XRETURN(mimic_unique_galaxy_id_total_forests_valid(id_multiplier, totnforests), CT_H5_ERR,
           "Error: Consistent-Trees total forest count %" PRId64
           " exceeds the UniqueGalaxyID encoding limit of %" PRId64 "\n",
           totnforests, max_unique_id_forests);

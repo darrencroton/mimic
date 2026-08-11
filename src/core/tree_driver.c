@@ -162,6 +162,7 @@ static int64_t *build_partition_file_offsets(const struct TreeReader *reader, co
                                              int64_t *total_out) {
   int64_t total_forests = 0;
   int64_t *offsets = mymalloc_cat(sizeof(*offsets) * npartitions, MEM_TREES);
+  const int64_t multiplier = MimicConfig.UniqueGalaxyIDMultiplier;
 
   REQUIRE_READER_HOOK(reader, partition_output_id);
 
@@ -179,10 +180,10 @@ static int64_t *build_partition_file_offsets(const struct TreeReader *reader, co
       FATAL_ERROR("L-Halo total forest count would overflow int64 after partition %d", output_id);
     }
     total_forests += partition_trees;
-    if (!mimic_unique_galaxy_id_total_forests_valid(total_forests)) {
+    if (!mimic_unique_galaxy_id_total_forests_valid(multiplier, total_forests)) {
       FATAL_ERROR("L-Halo total forest count %" PRId64
                   " exceeds the UniqueGalaxyID encoding limit of %" PRId64,
-                  total_forests, mimic_unique_galaxy_id_max_forests());
+                  total_forests, mimic_unique_galaxy_id_max_forests(multiplier));
     }
   }
 

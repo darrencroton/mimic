@@ -17,6 +17,7 @@
 #include <stdint.h>
 
 #include "error.h"
+#include "galaxy_id.h"
 #include "snapshot/reader.h"
 
 /**
@@ -117,8 +118,11 @@ int snapshot_identity_bounds_valid(const struct SnapshotRunInfo *info, int64_t m
   if (multiplier <= info->max_halo_rank_in_forest) {
     return 0;
   }
-  /* (n_forests_total + 1) * multiplier must stay inside int64_t. */
-  if (info->n_forests_total > INT64_MAX / multiplier - 1) {
+  /* (n_forests_total + 1) * multiplier must stay inside int64_t. The bound is
+     the encoder's own, taken from galaxy_id.h so this check and the encoder
+     cannot drift apart; the multiplier is known positive by the guard above,
+     which is that helper's precondition. */
+  if (info->n_forests_total > mimic_unique_galaxy_id_max_forests(multiplier)) {
     return 0;
   }
   return 1;

@@ -169,6 +169,33 @@ static void write_parameters_metadata(hid_t parent_group_id) {
 }
 
 /**
+ * @brief   Writes the run's UniqueGalaxyID forest multiplier as an int64 attribute
+ *
+ * @param   parent_group_id   RunProperties group to attach the attribute to
+ *
+ * Every output record carries a UniqueGalaxyID encoded as
+ * `halonr + multiplier * (forestnr_global + 1)`, so a file that does not record
+ * the multiplier cannot be decomposed back into its components. The master file
+ * gets the same attribute through its configuration table in
+ * store_run_properties(); per-file outputs write it here because their metadata
+ * path is separate and must stay self-contained.
+ */
+static void write_unique_galaxy_id_multiplier(hid_t parent_group_id) {
+  hsize_t dims = 1;
+  hid_t dataspace_id = H5Screate_simple(1, &dims, NULL);
+  hid_t attribute_id = H5Acreate(parent_group_id, "UniqueGalaxyIDMultiplier", H5T_NATIVE_INT64,
+                                 dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
+  if (attribute_id < 0) {
+    FATAL_ERROR("Failed to create UniqueGalaxyIDMultiplier attribute in HDF5 output");
+  }
+  if (H5Awrite(attribute_id, H5T_NATIVE_INT64, &MimicConfig.UniqueGalaxyIDMultiplier) < 0) {
+    FATAL_ERROR("Failed to write UniqueGalaxyIDMultiplier attribute to HDF5 output");
+  }
+  H5Aclose(attribute_id);
+  H5Sclose(dataspace_id);
+}
+
+/**
  * @brief   Writes redshift array to HDF5 file
  *
  * @param   parent_group_id   HDF5 group ID to create Redshifts dataset in
@@ -442,11 +469,12 @@ void write_perfile_metadata(hid_t file_id) {
   }
 
   /* Write essential metadata for self-containment (same order as master) */
-  write_version_metadata(props_group_id);    /* Identity */
-  write_enabled_modules(props_group_id);     /* Configuration */
-  write_event_contracts(props_group_id);     /* Configuration: event wiring */
-  write_parameters_metadata(props_group_id); /* Configuration */
-  write_redshifts(props_group_id);           /* Auxiliary */
+  write_version_metadata(props_group_id);            /* Identity */
+  write_enabled_modules(props_group_id);             /* Configuration */
+  write_event_contracts(props_group_id);             /* Configuration: event wiring */
+  write_parameters_metadata(props_group_id);         /* Configuration */
+  write_unique_galaxy_id_multiplier(props_group_id); /* Configuration: identity encoding */
+  write_redshifts(props_group_id);                   /* Auxiliary */
 
   /* Field schema (names, units, descriptions) is identical across snapshots,
    * so write it once per file here. The generated snippet targets `group_id`. */
@@ -517,6 +545,10 @@ void store_run_properties(hid_t master_file_id) {
       /* Output chunking controls */
       {"TargetFileSize", CONFIG_PARAM_INT64, &MimicConfig.TargetFileSize},
       {"ForestsPerFile", CONFIG_PARAM_INT64, &MimicConfig.ForestsPerFile},
+
+      /* Identity encoding: without this, output UniqueGalaxyIDs cannot be
+         decomposed back into (halonr, forestnr_global). */
+      {"UniqueGalaxyIDMultiplier", CONFIG_PARAM_INT64, &MimicConfig.UniqueGalaxyIDMultiplier},
 
       /* Units */
       {"UnitVelocity_in_cm_per_s", DOUBLE, &MimicConfig.UnitVelocity_in_cm_per_s},

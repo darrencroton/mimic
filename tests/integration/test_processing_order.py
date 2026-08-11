@@ -5,7 +5,7 @@ Integration tests for startup validation of the reader/processing-order seam.
 Covers input.processing_order, the two-registry input.tree_type resolution, the
 snapshot reader's exact tree_name contract, and the
 simulation.unique_galaxy_id_multiplier key (parse, default, precedence across
-both parser passes, and the tree-ordered rejection of a non-default value).
+both parser passes, and a tree-ordered run honouring a non-default value).
 """
 
 import shutil
@@ -23,6 +23,7 @@ from framework import (
     REPO_ROOT,
     TestSkipped,
     create_test_param_file,
+    load_binary_halos,
     run_mimic,
     run_test_suite,
 )
@@ -63,17 +64,6 @@ def snapshot_fixture_present():
         and SNAPSHOT_FIXTURE_FORESTS.is_file()
         and SNAPSHOT_FIXTURE_LAST_SNAPSHOT_FILE.is_file()
     )
-
-
-#: Explicit tree-ordered input configuration for tests whose observable is a
-#: tree-reader-only config-time check. lhalo_binary is registered in every
-#: build, and the config-time rejections under test fire before any input file
-#: is opened, so the tree_name value never has to exist on disk.
-TREE_ORDERED_OVERRIDES = {
-    "tree_type": "lhalo_binary",
-    "processing_order": "tree_ordered",
-    "tree_name": "trees_063",
-}
 
 
 def make_param_file(
@@ -528,28 +518,82 @@ def test_multiplier_default_and_non_positive_rejection():
         assert "must be positive" in output
 
 
-def test_tree_ordered_rejects_non_default_multiplier():
-    """
-    Test that a tree-ordered configuration rejects a non-default multiplier.
+def _skip_unless_selected_package_is_tree_ordered(probe_name):
+    """Skip tests that need a completed run when the selected package cannot produce one."""
+    if not MIMIC_EXE.exists():
+        raise TestSkipped("Mimic not built")
+    if effective_input_setting(probe_name, "processing_order") == "snapshot_ordered":
+        raise TestSkipped(
+            "selected package is snapshot-ordered; these assertions require a driver "
+            "that produces output"
+        )
 
-    Expected: Non-zero exit; the message names the configured value and states that the
-              tree-ordered identity encoder does not yet honour a configurable multiplier.
-    Validates: a value the hard-coded encoder in src/include/galaxy_id.h would ignore is
-               refused rather than silently producing ids from TREE_MUL_FAC. The tree-ordered
-               configuration is forced explicitly so the rejection (a tree-reader-only check)
-               fires regardless of the selected package's own reader family.
+
+def _run_and_read_unique_ids(name, **kwargs):
     """
-    returncode, output = run_config(
-        "multiplier_non_default",
-        input_overrides=dict(TREE_ORDERED_OVERRIDES),
-        simulation_overrides={"unique_galaxy_id_multiplier": 12345},
+    Run a tree-ordered configuration to completion and return its UniqueGalaxyID list.
+
+    The effective identity multiplier is only observable in what the encoder actually
+    wrote, so the multiplier tests below read the ids back out of the binary galaxy
+    output rather than trusting a log line or a config-time message.
+    """
+    param_file = make_param_file(name, output_overrides={"output_format": "binary"}, **kwargs)
+    returncode, stdout, stderr = run_mimic(param_file)
+    assert returncode == 0, (
+        f"tree-ordered run '{name}' should succeed (rc={returncode})\n"
+        f"STDOUT:\n{stdout}\nSTDERR:\n{stderr}"
     )
 
-    assert returncode != 0, "a non-default multiplier must be rejected for tree-ordered runs"
-    assert "simulation.unique_galaxy_id_multiplier is 12345" in output
-    assert "tree-ordered identity encoder does not yet honour a configurable multiplier" in output
-    assert f"TREE_MUL_FAC ({DEFAULT_MULTIPLIER})" in output
-    assert "Parameter validation failed" in output
+    with open(param_file, "r") as handle:
+        output_dir = Path(yaml.safe_load(handle)["output"]["output_directory"])
+    output_files = sorted(output_dir.glob("model_z*_*"))
+    assert output_files, f"no binary output partitions found in {output_dir}"
+
+    ids = []
+    for path in output_files:
+        halos, _metadata = load_binary_halos(path)
+        ids.extend(int(value) for value in halos["UniqueGalaxyID"])
+    assert ids, f"run '{name}' produced no galaxies to read ids from"
+    return ids
+
+
+def test_tree_ordered_accepts_non_default_multiplier():
+    """
+    Test that a tree-ordered run honours a non-default identity multiplier end to end.
+
+    Expected: exit 0, and the run's ids decompose under 10^10 into exactly the
+              (halonr, forestnr_global) component pairs the same run produces under the
+              default 10^9 multiplier.
+    Validates: a tree-ordered configuration declaring 10^10 passes config validation, runs,
+               and produces ids encoded with 10^10. Comparing decomposed COMPONENTS rather
+               than raw ids is what makes this falsifiable: an encoder still hard-coded to
+               TREE_MUL_FAC would emit the default run's ids, which decompose under 10^10
+               to forest index -1 and cannot match. The min-id assertion catches the same
+               failure independently.
+    """
+    _skip_unless_selected_package_is_tree_ordered("multiplier_accept_probe")
+
+    ten_billion = 10 * DEFAULT_MULTIPLIER
+
+    default_ids = _run_and_read_unique_ids("multiplier_default_reference")
+    scaled_ids = _run_and_read_unique_ids(
+        "multiplier_non_default",
+        simulation_overrides={"unique_galaxy_id_multiplier": ten_billion},
+    )
+
+    def components(ids, multiplier):
+        return sorted((value % multiplier, value // multiplier - 1) for value in ids)
+
+    assert components(scaled_ids, ten_billion) == components(default_ids, DEFAULT_MULTIPLIER), (
+        "a 10^10 multiplier must encode the same (halonr, forestnr_global) components "
+        "as the default run, only scaled"
+    )
+    assert (
+        min(scaled_ids) >= ten_billion
+    ), "under a 10^10 multiplier every id must sit at or above one multiplier block"
+    assert set(scaled_ids) != set(
+        default_ids
+    ), "the configured multiplier must actually change the encoding"
 
 
 def test_multiplier_precedence_across_both_parser_passes():
@@ -557,35 +601,39 @@ def test_multiplier_precedence_across_both_parser_passes():
     Test both precedence directions for simulation.unique_galaxy_id_multiplier.
 
     Expected: a value set only in the simulation config survives a run file that omits the
-              key (the rejection names 777); a run-file value overrides the package value
-              (the rejection names 888 and never 777).
+              key (ids encoded with 2x10^9); a run-file value overrides the package value
+              (ids encoded with 9x10^9, neither 2x10^9 nor the default).
     Validates: the default is seeded once before either parse_simulation_section pass and
                assigned only when the key is present, so the second pass cannot clobber a
-               package value. Both directions use the tree-ordered non-default rejection as
-               the observable, so the tree-ordered configuration is forced explicitly and the
-               test is independent of the selected package's own reader family.
+               package value. The observable is the encoding the run actually used -- the
+               smallest id in a run belongs to forest 0, so it lies in [M, 2M) and
+               min(ids) // M == 1 identifies the effective multiplier M. The three candidate
+               values are spread more than two-fold apart precisely so the test cannot pass
+               under the wrong one.
     """
-    returncode, output = run_config(
-        "multiplier_package_only",
-        input_overrides=dict(TREE_ORDERED_OVERRIDES),
-        package_multiplier=777,
-    )
-    assert returncode != 0, "the package multiplier should survive and be rejected"
-    assert (
-        "simulation.unique_galaxy_id_multiplier is 777" in output
-    ), "a simulation_info.yaml value must survive a run file that omits the key"
+    _skip_unless_selected_package_is_tree_ordered("multiplier_precedence_probe")
 
-    returncode, output = run_config(
-        "multiplier_run_file_wins",
-        input_overrides=dict(TREE_ORDERED_OVERRIDES),
-        package_multiplier=777,
-        simulation_overrides={"unique_galaxy_id_multiplier": 888},
-    )
-    assert returncode != 0, "the run-file multiplier should be rejected"
+    package_value = 2 * DEFAULT_MULTIPLIER
+    run_file_value = 9 * DEFAULT_MULTIPLIER
+
+    ids = _run_and_read_unique_ids("multiplier_package_only", package_multiplier=package_value)
     assert (
-        "simulation.unique_galaxy_id_multiplier is 888" in output
+        min(ids) // package_value == 1
+    ), "a simulation_info.yaml value must survive a run file that omits the key"
+    assert (
+        min(ids) // DEFAULT_MULTIPLIER != 1
+    ), "the seeded default must not win over a package value"
+
+    ids = _run_and_read_unique_ids(
+        "multiplier_run_file_wins",
+        package_multiplier=package_value,
+        simulation_overrides={"unique_galaxy_id_multiplier": run_file_value},
+    )
+    assert (
+        min(ids) // run_file_value == 1
     ), "an explicit run-file value must override the package value"
-    assert "is 777" not in output, "the package value must not survive an explicit run-file value"
+    assert min(ids) // package_value != 1, "the package value must not survive a run-file value"
+    assert min(ids) // DEFAULT_MULTIPLIER != 1, "the seeded default must not win either"
 
 
 def main():
@@ -603,7 +651,7 @@ def main():
             test_unknown_tree_type_names_both_registries,
             test_snapshot_tree_name_must_be_exact_literal,
             test_multiplier_default_and_non_positive_rejection,
-            test_tree_ordered_rejects_non_default_multiplier,
+            test_tree_ordered_accepts_non_default_multiplier,
             test_multiplier_precedence_across_both_parser_passes,
         ]
         return run_test_suite(tests, "Processing Order Validation")

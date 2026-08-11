@@ -1446,19 +1446,6 @@ static void validate_and_postprocess(void) {
       errors++;
     }
 
-    /* Every helper in src/include/galaxy_id.h is hard-coded to TREE_MUL_FAC and
-       takes no configured multiplier, so honouring a different value on the
-       tree-ordered path would silently emit ids computed from the compile-time
-       constant. Rejected until the encoder takes the configured value. */
-    if (is_tree_reader && MimicConfig.UniqueGalaxyIDMultiplier != (int64_t)TREE_MUL_FAC) {
-      ERROR_LOG("simulation.unique_galaxy_id_multiplier is %" PRId64
-                ", but the tree-ordered identity encoder does not yet honour a configurable "
-                "multiplier; it is hard-coded to TREE_MUL_FAC (%" PRId64
-                "). Tree-ordered runs must use the default.",
-                MimicConfig.UniqueGalaxyIDMultiplier, (int64_t)TREE_MUL_FAC);
-      errors++;
-    }
-
     /* The skeleton driver (and everything after it in this phase) has no
        resume, binary-writer, or multi-rank support yet; reject at config time
        rather than let a snapshot-ordered run reach the driver only to FATAL

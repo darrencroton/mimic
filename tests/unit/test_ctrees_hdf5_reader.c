@@ -9,6 +9,7 @@
 
 #include "../framework/test_framework.h"
 
+#include "constants.h"
 #include "error.h"
 #include "globals.h"
 #include "memory.h"
@@ -726,10 +727,27 @@ int test_stage_rejects_oversized_chunk(void) {
   return TEST_PASS;
 }
 
+/**
+ * @brief   Backfills the identity multiplier production gets from configuration.
+ *
+ * The reader's forest-size guards compare against
+ * MimicConfig.UniqueGalaxyIDMultiplier, which read_parameter_file() seeds to
+ * TREE_MUL_FAC before either parser pass. These tests drive the reader through
+ * its ctrees_hdf5_test_* seams and never call read_parameter_file(), so the
+ * field would sit at its zero-initialised value and every guard would compare
+ * against 0. Same pattern as install_output_chunking_defaults_for_test() in
+ * test_parameter_parsing.c and install_overwrite_output_default_for_test() in
+ * tests/framework/core_test_fixtures.h.
+ */
+static void install_unique_galaxy_id_multiplier_default_for_test(void) {
+  MimicConfig.UniqueGalaxyIDMultiplier = (int64_t)TREE_MUL_FAC;
+}
+
 /** @brief Main test runner */
 int main(void) {
   H5Eset_auto2(H5E_DEFAULT, NULL, NULL);
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
+  install_unique_galaxy_id_multiplier_default_for_test();
 
   printf("%s", BLUE);
   printf("============================================================\n");

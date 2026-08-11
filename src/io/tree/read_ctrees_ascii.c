@@ -459,10 +459,11 @@ static int prepare_run_ctrees_ascii_state(void) {
     }
   }
   CT.totnforests = totnforests;
-  if (!mimic_unique_galaxy_id_total_forests_valid(totnforests)) {
+  const int64_t id_multiplier = MimicConfig.UniqueGalaxyIDMultiplier;
+  if (!mimic_unique_galaxy_id_total_forests_valid(id_multiplier, totnforests)) {
     ERROR_LOG("Consistent-Trees total forest count %" PRId64
               " exceeds the UniqueGalaxyID encoding limit of %" PRId64 "",
-              totnforests, mimic_unique_galaxy_id_max_forests());
+              totnforests, mimic_unique_galaxy_id_max_forests(id_multiplier));
     free_unowned_files_fd_ctrees_ascii(&files_fd);
     return EXIT_FAILURE;
   }
@@ -681,11 +682,11 @@ static void load_unit_ctrees_ascii(int unit) {
                 "int",
                 unit, totnhalos);
   }
-  if (totnhalos >= TREE_MUL_FAC) {
+  if (totnhalos >= MimicConfig.UniqueGalaxyIDMultiplier) {
     FATAL_ERROR("Consistent-Trees forest %d has %" PRId64
                 " halos, at or above the unique-galaxy-id "
-                "limit of %lld",
-                unit, totnhalos, (long long)TREE_MUL_FAC);
+                "limit of %" PRId64,
+                unit, totnhalos, MimicConfig.UniqueGalaxyIDMultiplier);
   }
 
   /* Reconstruct the L-Halo merger pointers across the whole forest. */

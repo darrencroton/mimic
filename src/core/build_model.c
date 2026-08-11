@@ -302,15 +302,16 @@ static int64_t make_unique_galaxy_id(int halonr, int unit) {
                 GlobalForestOffset, unit);
   }
 
+  const int64_t multiplier = MimicConfig.UniqueGalaxyIDMultiplier;
   const int64_t forestnr_global = GlobalForestOffset + (int64_t)unit;
-  if (!mimic_unique_galaxy_id_components_valid((int64_t)halonr, forestnr_global)) {
+  if (!mimic_unique_galaxy_id_components_valid(multiplier, (int64_t)halonr, forestnr_global)) {
     FATAL_ERROR("UniqueGalaxyID components out of range: halonr=%d, forestnr_global=%" PRId64
-                " (limits: halonr < %lld, forestnr_global < %" PRId64 ")",
-                halonr, forestnr_global, (long long)TREE_MUL_FAC,
-                mimic_unique_galaxy_id_max_forests());
+                " (limits: halonr < %" PRId64 ", forestnr_global < %" PRId64 ")",
+                halonr, forestnr_global, multiplier,
+                mimic_unique_galaxy_id_max_forests(multiplier));
   }
 
-  return mimic_encode_unique_galaxy_id((int64_t)halonr, forestnr_global);
+  return mimic_encode_unique_galaxy_id(multiplier, (int64_t)halonr, forestnr_global);
 }
 
 /*
