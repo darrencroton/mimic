@@ -55,6 +55,22 @@ static int compare_uintptr(const void *a, const void *b) {
   return 0;
 }
 
+/* Within one chunk, a pool's GalaxyData array is contiguous, so consecutive
+ * allocations satisfy ptrs[i] == ptrs[i - 1] + 1. A new chunk is a separate
+ * allocation, so the first slot of a new chunk breaks that adjacency. Scan
+ * for that break instead of assuming its index, so a test built on this
+ * returns -1 (and its caller can fail loudly) if growth never actually
+ * crossed a chunk boundary in the range examined -- e.g. because
+ * GALAXY_POOL_DEFAULT_CHUNK grew past what the caller allocated. */
+static int find_chunk_boundary(struct GalaxyData *const *ptrs, int count) {
+  for (int i = 1; i < count; i++) {
+    if (ptrs[i] != ptrs[i - 1] + 1) {
+      return i;
+    }
+  }
+  return -1;
+}
+
 /**
  * @test    test_alloc_beyond_block_cap_grows_and_is_stable
  * @brief   Pool grows past the tracked-block cap; all slots remain stable and distinct
@@ -269,6 +285,11 @@ int test_destroy_one_pool_leaves_other_functional(void) {
  * 8192-galaxy default in galaxy_pool.c -- not part of the public API, so this
  * uses a literal margin rather than an include), then resets only pool A and
  * confirms pool B's post-growth, second-chunk pointers and contents survive.
+ * It locates each pool's actual chunk boundary by scanning for the pointer
+ * discontinuity between chunks rather than assuming a literal index, so the
+ * test fails loudly instead of silently narrowing to single-chunk coverage
+ * if the default chunk size or the create()-with-zero sizing rule ever
+ * changes.
  */
 int test_two_pools_survive_interleaved_chunk_growth_and_one_reset(void) {
   init_memory_system(0);
@@ -289,14 +310,34 @@ int test_two_pools_survive_interleaved_chunk_growth_and_one_reset(void) {
     b_ptrs[i] = galaxy_pool_alloc(pool_b);
   }
 
-  /* Stamp a handful of representative slots -- start, chunk boundary on both
-   * sides, and the last slot -- rather than every slot, since a single-byte
-   * stamp cannot stay unique per index across thousands of slots. */
-  const int marks[] = {0, 1, 8190, 8191, 8192, 8193, PAST_ONE_CHUNK - 1};
-  const int nmarks = (int)(sizeof(marks) / sizeof(marks[0]));
+  /* Find each pool's own chunk boundary by scanning the pointers actually
+   * returned, rather than assuming it sits at literal indices matching
+   * today's GALAXY_POOL_DEFAULT_CHUNK. If the default chunk size ever grows
+   * past PAST_ONE_CHUNK, or the create()-with-zero sizing rule changes, no
+   * boundary exists inside the allocated range and these asserts fail
+   * loudly -- instead of the test silently degrading into single-chunk
+   * coverage while still reporting green. */
+  int a_boundary = find_chunk_boundary(a_ptrs, PAST_ONE_CHUNK);
+  int b_boundary = find_chunk_boundary(b_ptrs, PAST_ONE_CHUNK);
+  TEST_ASSERT(a_boundary >= 2 && a_boundary <= PAST_ONE_CHUNK - 2,
+              "Pool A's allocation must actually cross a chunk boundary inside the allocated "
+              "range, or this test is silently testing only a single chunk");
+  TEST_ASSERT(b_boundary >= 2 && b_boundary <= PAST_ONE_CHUNK - 2,
+              "Pool B's allocation must actually cross a chunk boundary inside the allocated "
+              "range, or this test is silently testing only a single chunk");
+
+  /* Stamp a handful of representative slots -- start, both sides of each
+   * pool's own discovered chunk boundary, and the last slot -- rather than
+   * every slot, since a single-byte stamp cannot stay unique per index
+   * across thousands of slots. */
+  const int a_marks[] = {
+      0, 1, a_boundary - 2, a_boundary - 1, a_boundary, a_boundary + 1, PAST_ONE_CHUNK - 1};
+  const int b_marks[] = {
+      0, 1, b_boundary - 2, b_boundary - 1, b_boundary, b_boundary + 1, PAST_ONE_CHUNK - 1};
+  const int nmarks = (int)(sizeof(a_marks) / sizeof(a_marks[0]));
   for (int m = 0; m < nmarks; m++) {
-    stamp_slot(a_ptrs[marks[m]], 1);
-    stamp_slot(b_ptrs[marks[m]], 2);
+    stamp_slot(a_ptrs[a_marks[m]], 1);
+    stamp_slot(b_ptrs[b_marks[m]], 2);
   }
 
   /* No pointer handed to pool A may equal any pointer handed to pool B,
@@ -329,7 +370,7 @@ int test_two_pools_survive_interleaved_chunk_growth_and_one_reset(void) {
    * must survive pool A's reset untouched. */
   int b_intact = 1;
   for (int m = 0; m < nmarks; m++) {
-    if (!slot_has_stamp(b_ptrs[marks[m]], 2)) {
+    if (!slot_has_stamp(b_ptrs[b_marks[m]], 2)) {
       b_intact = 0;
       break;
     }
@@ -344,10 +385,24 @@ int test_two_pools_survive_interleaved_chunk_growth_and_one_reset(void) {
               "Pool A must rewind to its first slot after reset, even after growing multiple "
               "chunks");
 
-  /* Pool B must remain usable for fresh allocation after pool A's reset. */
+  /* Pool B must continue its own high-water sequence after pool A's reset --
+   * not collide with the slot pool A just re-handed out, and not re-hand a
+   * slot it already issued (a plain non-NULL check would pass even if the
+   * allocator strayed into A's memory or looped back over B's own history,
+   * since galaxy_pool_alloc() FATALs rather than returning NULL on failure
+   * and so can never fail this test the way a bug here should). */
   struct GalaxyData *b_more = galaxy_pool_alloc(pool_b);
-  TEST_ASSERT(b_more != NULL,
-              "Pool B must remain usable for further allocation after pool A's reset");
+  TEST_ASSERT(b_more != a_after_reset,
+              "Pool B's next allocation must not collide with pool A's post-reset slot");
+  int b_more_is_new = 1;
+  for (int i = 0; i < PAST_ONE_CHUNK; i++) {
+    if (b_ptrs[i] == b_more) {
+      b_more_is_new = 0;
+      break;
+    }
+  }
+  TEST_ASSERT(b_more_is_new, "Pool B must continue its own high-water sequence after pool A's "
+                             "reset, not re-hand a previously issued slot");
 
   free(a_ptrs);
   free(b_ptrs);
