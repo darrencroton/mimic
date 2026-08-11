@@ -212,9 +212,13 @@ int test_reset_one_pool_leaves_other_intact(void) {
 
   enum { COUNT = 32 };
   struct GalaxyData *b_ptrs[COUNT];
+  struct GalaxyData *a_first = NULL;
 
   for (int i = 0; i < COUNT; i++) {
     struct GalaxyData *a_slot = galaxy_pool_alloc(pool_a);
+    if (i == 0) {
+      a_first = a_slot;
+    }
     stamp_slot(a_slot, i);
     b_ptrs[i] = galaxy_pool_alloc(pool_b);
     stamp_slot(b_ptrs[i], 100 + i);
@@ -232,13 +236,17 @@ int test_reset_one_pool_leaves_other_intact(void) {
   }
   TEST_ASSERT(intact, "Resetting one pool must leave another pool's contents intact");
 
-  /* Pool A must still be usable after its own reset. */
+  /* Pool A must rewind to the start of its retained chunk after reset. */
   struct GalaxyData *a_after_reset = galaxy_pool_alloc(pool_a);
-  TEST_ASSERT(a_after_reset != NULL, "Reset pool must remain usable for further allocation");
+  TEST_ASSERT(a_after_reset == a_first,
+              "Reset must rewind pool A to the start of its retained chunk (its first-ever slot)");
 
-  /* Pool B must still be usable for fresh allocation after pool A's reset. */
+  /* Pool B must advance to a new slot, not repeat its last allocation, for
+   * fresh allocation after pool A's reset. */
   struct GalaxyData *b_extra = galaxy_pool_alloc(pool_b);
-  TEST_ASSERT(b_extra != NULL, "Untouched pool must remain usable for further allocation");
+  TEST_ASSERT(b_extra != b_ptrs[COUNT - 1],
+              "Untouched pool must advance to a new slot, not repeat its last allocation, after "
+              "another pool's reset");
 
   galaxy_pool_destroy(pool_a);
   galaxy_pool_destroy(pool_b);
@@ -263,11 +271,14 @@ int test_destroy_one_pool_leaves_other_functional(void) {
   galaxy_pool_destroy(pool_a);
 
   /* Pool B's prior allocation must still hold its value, and the pool must
-   * still be able to hand out further slots, after pool A is gone. */
+   * still continue its own sequence -- not re-hand its prior slot -- after
+   * pool A is gone. */
   TEST_ASSERT(slot_has_stamp(b_slot, 7),
               "Surviving pool's contents must be unaffected by another pool's destroy");
   struct GalaxyData *b_more = galaxy_pool_alloc(pool_b);
-  TEST_ASSERT(b_more != NULL, "Surviving pool must remain usable after another pool is destroyed");
+  TEST_ASSERT(b_more != b_slot,
+              "Surviving pool must continue its own sequence, not re-hand its prior slot, after "
+              "another pool is destroyed");
 
   galaxy_pool_destroy(pool_b);
   check_memory_leaks();
