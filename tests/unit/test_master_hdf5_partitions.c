@@ -223,6 +223,22 @@ static int assert_total_attr(hid_t file_id, const char *group_path, int64_t expe
   TEST_ASSERT(group_id >= 0, "master File group should open");
   hid_t attribute_id = H5Aopen(group_id, "TotHalosPerSnap", H5P_DEFAULT);
   TEST_ASSERT(attribute_id >= 0, "TotHalosPerSnap attribute should open");
+
+  /* H5Aread(..., H5T_NATIVE_INT64, ...) below is a CONVERTING read: HDF5
+   * silently promotes a stored int32 attribute to an int64_t destination, so
+   * value equality alone cannot catch a regression back to H5T_NATIVE_INT at
+   * the write site. Query the attribute's own stored type first. */
+  hid_t type_id = H5Aget_type(attribute_id);
+  TEST_ASSERT(type_id >= 0, "TotHalosPerSnap attribute type should be queryable");
+  TEST_ASSERT_EQUAL(H5Tget_class(type_id), H5T_INTEGER,
+                    "TotHalosPerSnap must be stored as an integer type");
+  TEST_ASSERT_EQUAL(H5Tget_sign(type_id), H5T_SGN_2,
+                    "TotHalosPerSnap must be stored as a signed integer");
+  TEST_ASSERT_EQUAL((int64_t)H5Tget_size(type_id), (int64_t)8,
+                    "TotHalosPerSnap must be stored 8 bytes wide (int64), not narrowed at the "
+                    "write site and merely widened by this converting read");
+  H5Tclose(type_id);
+
   TEST_ASSERT(H5Aread(attribute_id, H5T_NATIVE_INT64, &value) >= 0,
               "TotHalosPerSnap attribute should read");
   H5Aclose(attribute_id);
@@ -250,7 +266,10 @@ static int test_enumerated_master_links_existing_partitions_only(void) {
   char dir_template[] = "/tmp/mimic_master_enum_XXXXXX";
   const int64_t file10_totals[] = {4, 5};
   const int64_t file11_totals[] = {99, 99};
-  const int64_t file12_totals[] = {6, 7};
+  /* Snap001's total is deliberately above INT32_MAX so a silent 32-bit
+   * narrowing at the write site would produce a visibly wrong number, not
+   * just a value that happens to still fit. */
+  const int64_t file12_totals[] = {6, 5000000012LL};
   const int cleanup_filenrs[] = {10, 11, 12};
   hid_t master_file_id;
 
@@ -290,7 +309,7 @@ static int test_enumerated_master_links_existing_partitions_only(void) {
               "existing partition 12 should be linked");
   TEST_ASSERT(assert_total_attr(master_file_id, "Snap000/File010", 4) == TEST_PASS,
               "partition 10 snap 0 total should be copied");
-  TEST_ASSERT(assert_total_attr(master_file_id, "Snap001/File012", 7) == TEST_PASS,
+  TEST_ASSERT(assert_total_attr(master_file_id, "Snap001/File012", 5000000012LL) == TEST_PASS,
               "partition 12 snap 1 total should be copied");
   H5Fclose(master_file_id);
 
