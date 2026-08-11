@@ -144,7 +144,7 @@ static int write_int_dataset(hid_t group_id, const char *name, int value) {
   return TEST_PASS;
 }
 
-static int write_galaxies_dataset(hid_t group_id, int total) {
+static int write_galaxies_dataset(hid_t group_id, int64_t total) {
   int value = 0;
   hsize_t dims = 1;
   hid_t space_id = H5Screate_simple(1, &dims, NULL);
@@ -157,9 +157,9 @@ static int write_galaxies_dataset(hid_t group_id, int total) {
     return TEST_FAIL;
   }
 
-  hid_t attribute_id =
-      H5Acreate(dataset_id, "TotHalosPerSnap", H5T_NATIVE_INT, space_id, H5P_DEFAULT, H5P_DEFAULT);
-  if (attribute_id < 0 || H5Awrite(attribute_id, H5T_NATIVE_INT, &total) < 0) {
+  hid_t attribute_id = H5Acreate(dataset_id, "TotHalosPerSnap", H5T_NATIVE_INT64, space_id,
+                                 H5P_DEFAULT, H5P_DEFAULT);
+  if (attribute_id < 0 || H5Awrite(attribute_id, H5T_NATIVE_INT64, &total) < 0) {
     return TEST_FAIL;
   }
 
@@ -169,7 +169,7 @@ static int write_galaxies_dataset(hid_t group_id, int total) {
   return TEST_PASS;
 }
 
-static int create_partition_file(int filenr, const int *totals, int nout) {
+static int create_partition_file(int filenr, const int64_t *totals, int nout) {
   char path[512];
   char group_name[64];
   output_path_hdf5(path, sizeof(path), filenr);
@@ -183,7 +183,7 @@ static int create_partition_file(int filenr, const int *totals, int nout) {
     TEST_ASSERT(group_id >= 0, "snapshot group should be created");
     TEST_ASSERT(write_galaxies_dataset(group_id, totals[n]) == TEST_PASS,
                 "Galaxies dataset should be created");
-    TEST_ASSERT(write_int_dataset(group_id, "TreeHalosPerSnap", totals[n]) == TEST_PASS,
+    TEST_ASSERT(write_int_dataset(group_id, "TreeHalosPerSnap", (int)totals[n]) == TEST_PASS,
                 "TreeHalosPerSnap dataset should be created");
     H5Gclose(group_id);
   }
@@ -217,13 +217,13 @@ static int assert_link_exists(hid_t file_id, const char *path, int should_exist)
   return TEST_PASS;
 }
 
-static int assert_total_attr(hid_t file_id, const char *group_path, int expected) {
-  int value = -1;
+static int assert_total_attr(hid_t file_id, const char *group_path, int64_t expected) {
+  int64_t value = -1;
   hid_t group_id = H5Gopen(file_id, group_path, H5P_DEFAULT);
   TEST_ASSERT(group_id >= 0, "master File group should open");
   hid_t attribute_id = H5Aopen(group_id, "TotHalosPerSnap", H5P_DEFAULT);
   TEST_ASSERT(attribute_id >= 0, "TotHalosPerSnap attribute should open");
-  TEST_ASSERT(H5Aread(attribute_id, H5T_NATIVE_INT, &value) >= 0,
+  TEST_ASSERT(H5Aread(attribute_id, H5T_NATIVE_INT64, &value) >= 0,
               "TotHalosPerSnap attribute should read");
   H5Aclose(attribute_id);
   H5Gclose(group_id);
@@ -248,9 +248,9 @@ static void cleanup_outputs(const int *filenrs, int nfiles) {
  */
 static int test_enumerated_master_links_existing_partitions_only(void) {
   char dir_template[] = "/tmp/mimic_master_enum_XXXXXX";
-  const int file10_totals[] = {4, 5};
-  const int file11_totals[] = {99, 99};
-  const int file12_totals[] = {6, 7};
+  const int64_t file10_totals[] = {4, 5};
+  const int64_t file11_totals[] = {99, 99};
+  const int64_t file12_totals[] = {6, 7};
   const int cleanup_filenrs[] = {10, 11, 12};
   hid_t master_file_id;
 
@@ -304,8 +304,8 @@ static int test_enumerated_master_links_existing_partitions_only(void) {
  */
 static int test_per_file_master_links_match_lhalo_layout(void) {
   char dir_template[] = "/tmp/mimic_master_lhalo_XXXXXX";
-  const int file0_totals[] = {3};
-  const int file1_totals[] = {8};
+  const int64_t file0_totals[] = {3};
+  const int64_t file1_totals[] = {8};
   const int cleanup_filenrs[] = {0, 1};
   hid_t master_file_id;
 
@@ -348,6 +348,76 @@ static int test_per_file_master_links_match_lhalo_layout(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_snapshot_output_partition_source_is_trivial_single_partition
+ * @brief   The snapshot-ordered output partition source is the frozen single-partition shape
+ */
+static int test_snapshot_output_partition_source_is_trivial_single_partition(void) {
+  memset(&MimicConfig, 0, sizeof(MimicConfig));
+  MimicConfig.ProcessingOrder = (int)INPUT_PROCESSING_ORDER_SNAPSHOT;
+
+  struct OutputPartitionSource source = get_output_partition_source();
+
+  TEST_ASSERT(source.num_partitions != NULL, "snapshot source must supply num_partitions");
+  TEST_ASSERT(source.partition_output_id != NULL,
+              "snapshot source must supply partition_output_id");
+  TEST_ASSERT(source.partition_exists != NULL, "snapshot source must supply partition_exists");
+  TEST_ASSERT_EQUAL(source.num_partitions(), 1, "snapshot source has exactly one partition");
+  TEST_ASSERT_EQUAL(source.partition_output_id(0), 0, "snapshot source's partition output id is 0");
+  TEST_ASSERT(source.partition_exists(0) != 0, "snapshot source's single partition always exists");
+  TEST_ASSERT(source.format_name != NULL && strcmp(source.format_name, "snapshot_hdf5") == 0,
+              "snapshot source records format name snapshot_hdf5");
+  TEST_ASSERT(source.prepare_run == NULL, "snapshot source keeps no run-scoped prepare hook");
+  TEST_ASSERT(source.teardown_run == NULL, "snapshot source keeps no run-scoped teardown hook");
+
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_tree_output_partition_source_wraps_configured_reader
+ * @brief   The tree-ordered output partition source wraps the configured reader's hooks
+ */
+static int test_tree_output_partition_source_wraps_configured_reader(void) {
+  reset_master_partitions();
+  memset(&MimicConfig, 0, sizeof(MimicConfig));
+  MimicConfig.ProcessingOrder = (int)INPUT_PROCESSING_ORDER_TREE;
+  MimicConfig.reader = &EnumeratedMasterReader;
+
+  master_npartitions = 2;
+  master_output_ids[0] = 5;
+  master_output_ids[1] = 6;
+  master_exists[0] = 1;
+  master_exists[1] = 0;
+
+  struct OutputPartitionSource source = get_output_partition_source();
+
+  TEST_ASSERT(strcmp(source.format_name, "master_enumerated") == 0,
+              "tree source records the configured reader's name");
+  TEST_ASSERT_EQUAL(source.num_partitions(), 2, "tree source passes through num_partitions");
+  TEST_ASSERT_EQUAL(source.partition_output_id(0), 5,
+                    "tree source passes through partition_output_id");
+  TEST_ASSERT(source.partition_exists(0) != 0,
+              "tree source honours an existing enumerated partition");
+  TEST_ASSERT(source.partition_exists(1) == 0,
+              "tree source honours a missing enumerated partition");
+
+  /* PARTITION_PER_FILE readers keep their prior behaviour bit for bit: the
+   * seam never consults their exists hook (the output-file access() check
+   * downstream is what gates them), so this must read as always-existing
+   * even though the fake hook below says otherwise. */
+  reset_master_partitions();
+  MimicConfig.reader = &PerFileMasterReader;
+  master_npartitions = 1;
+  master_output_ids[0] = 9;
+  master_exists[0] = 0;
+
+  struct OutputPartitionSource per_file_source = get_output_partition_source();
+  TEST_ASSERT(per_file_source.partition_exists(0) != 0,
+              "tree source treats a per-file partition as existing regardless of its exists hook");
+
+  return TEST_PASS;
+}
+
 /** @brief Main test runner */
 int main(void) {
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
@@ -360,6 +430,8 @@ int main(void) {
 
   TEST_RUN(test_enumerated_master_links_existing_partitions_only);
   TEST_RUN(test_per_file_master_links_match_lhalo_layout);
+  TEST_RUN(test_snapshot_output_partition_source_is_trivial_single_partition);
+  TEST_RUN(test_tree_output_partition_source_wraps_configured_reader);
 
   TEST_SUMMARY();
   return TEST_RESULT();

@@ -45,11 +45,48 @@ void prepare_output_files(int filenr);
 /**
  * @brief   Increment per-file halo counters with the 32-bit output guard
  *
- * Output headers and HDF5 attributes currently store per-snapshot and per-tree
- * halo counts as int. Fatal before incrementing if the next record would
- * overflow that contract.
+ * Always increments the snapshot total (TotHalosPerSnap). Tree-ordered runs
+ * additionally increment the per-tree count (InputHalosPerSnap), which only
+ * the tree reader allocates; snapshot-ordered runs never touch it. Fatal
+ * before incrementing a counter that would overflow its 32-bit output
+ * contract.
  */
 void output_increment_halo_counters_checked(int filenr, int snap_index, int snap_num, int tree);
+
+/**
+ * @brief   Driver-neutral view onto the run's output partitions.
+ *
+ * Output writers under src/io/output/ enumerate, check existence of, and
+ * name the format of output partitions through this source instead of
+ * reading the active tree reader pointer directly, so the same writer code
+ * serves both the tree-ordered and snapshot-ordered drivers. Populated by
+ * get_output_partition_source() (src/core/tree_driver.c), which resolves the
+ * active processing order and constructs the matching source: the tree-side
+ * construction wraps the configured tree reader's partition hooks (including
+ * a prepare_run/teardown_run pass-through); the snapshot side is the trivial
+ * single-partition shape (count 1, output id 0, always exists, format name
+ * "snapshot_hdf5").
+ */
+struct OutputPartitionSource {
+  /** Number of output partitions this run produces. */
+  int (*num_partitions)(void);
+  /** Output id (used in output file names) for a given partition index. */
+  int (*partition_output_id)(int partition);
+  /** Whether a given partition's input is present and should be linked. */
+  int (*partition_exists)(int partition);
+  /** Optional run-scoped lifecycle hooks; NULL if the source keeps no state. */
+  void (*prepare_run)(void);
+  void (*teardown_run)(void);
+  /** Resolved reader-format name recorded in output provenance. */
+  const char *format_name;
+};
+
+/**
+ * @brief   Resolve this run's output partition source from the active processing order.
+ *
+ * Defined beside the driver dispatch in src/core/tree_driver.c.
+ */
+struct OutputPartitionSource get_output_partition_source(void);
 
 /**
  * @brief Converts internal halo structure to output format

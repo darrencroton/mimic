@@ -351,12 +351,17 @@ def load_hdf5_run_properties(output_file):
         return {key: _decode_hdf5_attr(value) for key, value in f["RunProperties"].attrs.items()}
 
 
-def assert_hdf5_schema_layout(output_file, expected_format_version="1.1"):
+def assert_hdf5_schema_layout(output_file, expected_format_version="1.2"):
     """
     Validate the current Mimic HDF5 schema layout.
 
     FieldMetadata is intentionally written once per file under RunProperties.
     Snapshot-local copies are stale duplication and should not be reintroduced.
+
+    expected_format_version has no safe default across callers: fresh output
+    from the current build is "1.2", but tracked pre-Slice-8 baselines under
+    tests/data/ are "1.1" and must pass that explicitly. Every call site
+    should state the version it expects rather than rely on this default.
     """
     try:
         import h5py

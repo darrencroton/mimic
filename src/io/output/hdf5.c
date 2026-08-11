@@ -30,6 +30,7 @@
 #include "error.h"
 #include "module_system/output_helpers.h"
 #include "module_registry.h" /* For PhaseModuleConfig */
+#include "tree/reader.h"     /* enum InputProcessingOrder (MimicConfig.ProcessingOrder) */
 
 #include "hdf5_internal.h"
 
@@ -171,8 +172,11 @@ void write_hdf5_halo_batch(struct HaloOutput *halo_batch, int num_halos, int n, 
  * @param   n        Snapshot index into ListOutputSnaps.
  * @param   filenr   File number (for error messages).
  *
- * Writes Ntrees and TotHalosPerSnap[n] as scalar attributes on Snap{NNN}/Galaxies, and
- * TreeHalosPerSnap[0..Ntrees-1] as a dataset. On n==0, also writes RunProperties metadata.
+ * Writes TotHalosPerSnap[n] as a scalar attribute on Snap{NNN}/Galaxies. On
+ * n==0, also writes RunProperties metadata. Tree-ordered runs additionally
+ * write Ntrees and the TreeHalosPerSnap[0..Ntrees-1] dataset; snapshot-ordered
+ * runs have no tree structure, so both are omitted entirely (absent, not
+ * zero/empty) rather than reading the tree-only InputHalosPerSnap.
  */
 void write_hdf5_attrs(int n, int filenr) {
 
@@ -180,6 +184,8 @@ void write_hdf5_attrs(int n, int filenr) {
   hid_t dataset_id, attribute_id, dataspace_id, group_id;
   hsize_t dims;
   char target_group[100];
+  const int snapshot_run =
+      (enum InputProcessingOrder)MimicConfig.ProcessingOrder == INPUT_PROCESSING_ORDER_SNAPSHOT;
 
   if (HDF5_current_file_id < 0) {
     FATAL_ERROR("HDF5 file not open for writing attributes (file_id = %lld)",
@@ -199,19 +205,19 @@ void write_hdf5_attrs(int n, int filenr) {
   dims = 1;
   dataspace_id = H5Screate_simple(1, &dims, NULL);
 
-  attribute_id =
-      H5Acreate(dataset_id, "Ntrees", H5T_NATIVE_INT, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
-  status = H5Awrite(attribute_id, H5T_NATIVE_INT, &Ntrees);
-  if (status < 0) {
-    FATAL_ERROR("Failed to write Ntrees attribute to HDF5 file (filenr %d)", filenr);
+  if (!snapshot_run) {
+    attribute_id =
+        H5Acreate(dataset_id, "Ntrees", H5T_NATIVE_INT, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
+    status = H5Awrite(attribute_id, H5T_NATIVE_INT, &Ntrees);
+    if (status < 0) {
+      FATAL_ERROR("Failed to write Ntrees attribute to HDF5 file (filenr %d)", filenr);
+    }
+    H5Aclose(attribute_id);
   }
-  H5Aclose(attribute_id);
 
-  attribute_id = H5Acreate(dataset_id, "TotHalosPerSnap", H5T_NATIVE_INT, dataspace_id, H5P_DEFAULT,
-                           H5P_DEFAULT);
-  const int tot_halos_attr =
-      narrow_int64_to_int_checked(TotHalosPerSnap[n], "HDF5 TotHalosPerSnap attribute");
-  status = H5Awrite(attribute_id, H5T_NATIVE_INT, &tot_halos_attr);
+  attribute_id = H5Acreate(dataset_id, "TotHalosPerSnap", H5T_NATIVE_INT64, dataspace_id,
+                           H5P_DEFAULT, H5P_DEFAULT);
+  status = H5Awrite(attribute_id, H5T_NATIVE_INT64, &TotHalosPerSnap[n]);
   if (status < 0) {
     FATAL_ERROR("Failed to write TotHalosPerSnap attribute to HDF5 file (filenr %d)", filenr);
   }
@@ -224,30 +230,33 @@ void write_hdf5_attrs(int n, int filenr) {
    * file under RunProperties (see write_perfile_metadata) rather than being
    * duplicated in each snapshot group. */
 
-  // Create an array dataset to hold the number of objects per tree and write
-  // it.
-  dims = Ntrees;
-  if (dims <= 0) {
-    FATAL_ERROR("Invalid number of trees (Ntrees=%d) in write_hdf5_attrs for "
-                "snapshot %d (filenr %d)",
-                (int)dims, MimicConfig.ListOutputSnaps[n], filenr);
+  if (!snapshot_run) {
+    // Create an array dataset to hold the number of objects per tree and write
+    // it.
+    dims = Ntrees;
+    if (dims <= 0) {
+      FATAL_ERROR("Invalid number of trees (Ntrees=%d) in write_hdf5_attrs for "
+                  "snapshot %d (filenr %d)",
+                  (int)dims, MimicConfig.ListOutputSnaps[n], filenr);
+    }
+    dataspace_id = H5Screate_simple(1, &dims, NULL);
+    dataset_id = H5Dcreate(group_id, "TreeHalosPerSnap", H5T_NATIVE_INT, dataspace_id, H5P_DEFAULT,
+                           H5P_DEFAULT, H5P_DEFAULT);
+
+    write_description_attr(dataset_id, "Number of halos per merger tree at this snapshot");
+
+    status =
+        H5Dwrite(dataset_id, H5T_NATIVE_INT, H5S_ALL, H5S_ALL, H5P_DEFAULT, InputHalosPerSnap[n]);
+    if (status < 0) {
+      FATAL_ERROR("Failed to write TreeHalosPerSnap dataset for snapshot %d "
+                  "(filenr %d, status=%d)",
+                  MimicConfig.ListOutputSnaps[n], filenr, (int)status);
+    }
+
+    H5Sclose(dataspace_id);
+    H5Dclose(dataset_id);
   }
-  dataspace_id = H5Screate_simple(1, &dims, NULL);
-  dataset_id = H5Dcreate(group_id, "TreeHalosPerSnap", H5T_NATIVE_INT, dataspace_id, H5P_DEFAULT,
-                         H5P_DEFAULT, H5P_DEFAULT);
 
-  write_description_attr(dataset_id, "Number of halos per merger tree at this snapshot");
-
-  status =
-      H5Dwrite(dataset_id, H5T_NATIVE_INT, H5S_ALL, H5S_ALL, H5P_DEFAULT, InputHalosPerSnap[n]);
-  if (status < 0) {
-    FATAL_ERROR("Failed to write TreeHalosPerSnap dataset for snapshot %d "
-                "(filenr %d, status=%d)",
-                MimicConfig.ListOutputSnaps[n], filenr, (int)status);
-  }
-
-  H5Sclose(dataspace_id);
-  H5Dclose(dataset_id);
   H5Gclose(group_id); /* file handle stays open; closed by the driver after filenr is finalized */
 }
 

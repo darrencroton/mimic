@@ -526,6 +526,84 @@ void run_tree_driver(void) {
 }
 
 /**
+ * @brief   Output-partition existence for a tree reader, gated by partition model.
+ *
+ * Mirrors the existence gating master_hdf5.c used to apply inline: enumerated
+ * readers consult their own existence hook; per-file readers are treated as
+ * always-existing here (the output-file access() check downstream is what
+ * actually gates them), preserving prior behaviour bit for bit.
+ */
+static const struct TreeReader *g_partition_source_reader = NULL;
+
+static int tree_partition_source_partition_exists(int partition) {
+  if (g_partition_source_reader->partition_model == PARTITION_ENUMERATED) {
+    return g_partition_source_reader->partition_exists(partition);
+  }
+  return 1;
+}
+
+/**
+ * @brief   Wrap a tree reader's partition hooks as a driver-neutral output partition source.
+ */
+static struct OutputPartitionSource
+tree_reader_output_partition_source(const struct TreeReader *reader) {
+  g_partition_source_reader = reader;
+  return (struct OutputPartitionSource){
+      .num_partitions = reader->num_partitions,
+      .partition_output_id = reader->partition_output_id,
+      .partition_exists = tree_partition_source_partition_exists,
+      .prepare_run = reader->prepare_run,
+      .teardown_run = reader->teardown_run,
+      .format_name = reader->name,
+  };
+}
+
+static int snapshot_output_partition_count(void) { return 1; }
+
+static int snapshot_output_partition_output_id(int partition) {
+  (void)partition;
+  return 0;
+}
+
+static int snapshot_output_partition_exists(int partition) {
+  (void)partition;
+  return 1;
+}
+
+/**
+ * @brief   The trivial single-partition output source for snapshot-ordered runs.
+ */
+static struct OutputPartitionSource snapshot_output_partition_source(void) {
+  return (struct OutputPartitionSource){
+      .num_partitions = snapshot_output_partition_count,
+      .partition_output_id = snapshot_output_partition_output_id,
+      .partition_exists = snapshot_output_partition_exists,
+      .prepare_run = NULL,
+      .teardown_run = NULL,
+      .format_name = "snapshot_hdf5",
+  };
+}
+
+/**
+ * @brief   Resolve this run's output partition source from the active processing order.
+ *
+ * The sole construction site for struct OutputPartitionSource: output writers
+ * under src/io/output/ call this instead of reading MimicConfig.reader.
+ */
+struct OutputPartitionSource get_output_partition_source(void) {
+  switch ((enum InputProcessingOrder)MimicConfig.ProcessingOrder) {
+  case INPUT_PROCESSING_ORDER_TREE:
+    return tree_reader_output_partition_source(MimicConfig.reader);
+  case INPUT_PROCESSING_ORDER_SNAPSHOT:
+    return snapshot_output_partition_source();
+  }
+
+  FATAL_ERROR("Unknown input.processing_order '%s'",
+              input_processing_order_name((enum InputProcessingOrder)MimicConfig.ProcessingOrder));
+  return (struct OutputPartitionSource){0}; /* unreachable */
+}
+
+/**
  * @brief   Dispatch to the processing driver selected by input.processing_order.
  */
 void run_processing_driver(void) {

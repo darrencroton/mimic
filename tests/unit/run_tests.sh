@@ -300,7 +300,8 @@ compile_and_run_test() {
     if [ "$test_name" = "test_ctrees_hdf5_reader" ] || \
        [ "$test_name" = "test_master_hdf5_partitions" ] || \
        [ "$test_name" = "test_unit_snapshot_reader_open" ] || \
-       [ "$test_name" = "test_unit_snapshot_reader_realdata" ]; then
+       [ "$test_name" = "test_unit_snapshot_reader_realdata" ] || \
+       [ "$test_name" = "test_hdf5_write_attrs" ]; then
         if [ "$HDF5_AVAILABLE" != "1" ]; then
             echo "MIMIC_RESULT: SKIP ${test_display} -- HDF5 development library not available"
             if ! summary_enabled; then
@@ -310,6 +311,14 @@ compile_and_run_test() {
             return 0
         fi
         test_cflags="${test_cflags} -DHDF5 ${HDF5_CFLAGS}"
+    fi
+    # test_hdf5_write_attrs exercises write_hdf5_attrs() directly (per-file
+    # HDF5 writer, src/io/output/hdf5.c), which is not part of the shared
+    # object pool above (SHARED_OBJS): it is exercised end to end by the
+    # integration tier instead, so no other unit test needs it linked. Add it
+    # only for this one test rather than growing every test's link.
+    if [ "$test_name" = "test_hdf5_write_attrs" ]; then
+        extra_sources="${SRC_DIR}/io/output/hdf5.c"
     fi
 
     # Compile the test file and link the pre-built shared objects

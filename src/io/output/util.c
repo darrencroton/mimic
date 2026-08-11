@@ -21,6 +21,7 @@
 #endif
 #include "module_system/output_helpers.h"
 #include "module_system/physical_constants.h" /* For SEC_PER_MEGAYEAR */
+#include "tree/reader.h" /* enum InputProcessingOrder only (the ProcessingOrder field), never the active reader pointer */
 
 void output_path_binary(char *buf, size_t size, int filenr, int snap_index) {
   int written =
@@ -50,6 +51,21 @@ void prepare_output_files(int filenr) {
 }
 
 void output_increment_halo_counters_checked(int filenr, int snap_index, int snap_num, int tree) {
+  const int snapshot_run =
+      (enum InputProcessingOrder)MimicConfig.ProcessingOrder == INPUT_PROCESSING_ORDER_SNAPSHOT;
+
+  if (snapshot_run) {
+    /* Snapshot-ordered runs never allocate InputHalosPerSnap (only the tree
+     * reader does, src/io/tree/interface.c), so only the snapshot total is
+     * tracked here; touching InputHalosPerSnap would dereference NULL. */
+    if (TotHalosPerSnap[snap_index] == INT_MAX) {
+      FATAL_ERROR("Halo counter overflow for output chunk %d at snapshot %d (tree %d)", filenr,
+                  snap_num, tree);
+    }
+    TotHalosPerSnap[snap_index]++;
+    return;
+  }
+
   if (TotHalosPerSnap[snap_index] == INT_MAX || InputHalosPerSnap[snap_index][tree] == INT_MAX) {
     FATAL_ERROR("Halo counter overflow for output chunk %d at snapshot %d (tree %d)", filenr,
                 snap_num, tree);

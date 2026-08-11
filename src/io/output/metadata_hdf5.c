@@ -19,7 +19,7 @@
 #include "error.h"
 #include "hdf5_internal.h"
 #include "module_registry.h" /* for_each_phase, event-contract enumeration */
-#include "tree/reader.h"     /* struct TreeReader (MimicConfig.reader->name) */
+#include "output/util.h"     /* struct OutputPartitionSource, get_output_partition_source() */
 
 static void copy_hdf5_string(char dest[MAX_STRING_LEN], const char *src) {
   if (src == NULL) {
@@ -109,7 +109,7 @@ static void write_version_metadata(hid_t parent_group_id) {
   H5Aclose(attribute_id);
 
   /* Increment hdf5_format_version when the output schema changes. */
-  const char *hdf5_format_version = "1.1";
+  const char *hdf5_format_version = "1.2";
   attribute_id = H5Acreate(version_group_id, "hdf5_format_version", str_type, dataspace_id,
                            H5P_DEFAULT, H5P_DEFAULT);
   H5Awrite(attribute_id, str_type, hdf5_format_version);
@@ -610,8 +610,10 @@ void store_run_properties(hid_t master_file_id) {
   H5Awrite(attribute_id, str_type, timestep_scheme);
   H5Aclose(attribute_id);
 
-  /* Record the active reader's format name (see tree/registry.c) */
-  const char *tree_type_str = MimicConfig.reader->name;
+  /* Record the resolved output partition source's format name, never the
+   * active reader pointer directly (see output/util.h). */
+  const struct OutputPartitionSource partition_source = get_output_partition_source();
+  const char *tree_type_str = partition_source.format_name;
   attribute_id =
       H5Acreate(props_group_id, "TreeType", str_type, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
   H5Awrite(attribute_id, str_type, tree_type_str);
