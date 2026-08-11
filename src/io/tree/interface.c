@@ -173,14 +173,17 @@ void load_unit(int unit) {
  * @brief   Free the current unit's halo and processing memory (LIFECYCLE: Deallocation Phase).
  *
  * Frees in reverse allocation order: FoFWorkspace, ProcessedHalos, HaloAux,
- * InputTreeHalos. Galaxy data is reclaimed via galaxy_pool_reset() first.
- * See globals.h for the complete data-structure lifetime.
+ * InputTreeHalos. Galaxy data is reclaimed via galaxy_pool_reset(pool) first,
+ * unless `pool` is NULL (the caller allocated no galaxies, so there is nothing
+ * to reset). See globals.h for the complete data-structure lifetime.
  */
-void free_unit_halos(void) {
-  /* Galaxy data is owned by the per-unit galaxy pool, not by individual halos.
+void free_unit_halos(struct GalaxyPool *pool) {
+  /* Galaxy data is owned by the caller's galaxy pool, not by individual halos.
    * Resetting the pool reclaims every galaxy slot for the next unit in one step
    * (and avoids the per-halo free traffic that previously capped tree size). */
-  galaxy_pool_reset();
+  if (pool != NULL) {
+    galaxy_pool_reset(pool);
+  }
 
   /* Reverse allocation order — see load_unit() */
   myfree(FoFWorkspace);

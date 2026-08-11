@@ -3,6 +3,8 @@
 
 #include "types.h"
 
+struct GalaxyPool; /* opaque; defined in galaxy_pool.c */
+
 struct InheritanceDescendant {
   /* Driver-supplied identity, time, and descendant halo properties. */
   int halo_nr;
@@ -26,7 +28,9 @@ struct InheritanceProgenitorGalaxy {
 
 /*
  * Build the FoFWorkspace slice [start, return value) for one descendant
- * subhalo. The caller owns workspace capacity and progenitor lookup.
+ * subhalo. The caller owns workspace capacity, progenitor lookup, and the
+ * galaxy pool `pool` that every inherited or newly created galaxy is
+ * allocated from.
  *
  * Precondition: `capacity` must be large enough for every halo this call can
  * produce, i.e. capacity >= start + nprogenitors (+1 when a new central object
@@ -36,8 +40,8 @@ struct InheritanceProgenitorGalaxy {
  * assert(), so callers must satisfy the precondition rather than rely on
  * runtime growth here.
  */
-int inherit_descendant_halos(struct Halo *workspace, int start, int capacity,
-                             const struct InheritanceDescendant *descendant,
+int inherit_descendant_halos(struct GalaxyPool *pool, struct Halo *workspace, int start,
+                             int capacity, const struct InheritanceDescendant *descendant,
                              const struct InheritanceProgenitorGalaxy *progenitors,
                              int nprogenitors);
 

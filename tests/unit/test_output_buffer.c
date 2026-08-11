@@ -90,7 +90,8 @@ int test_skips_type3_and_clears_galaxy_pointer(void) {
   init_halo(&workspace[1], 1, 7);
   /* Galaxy memory is owned by the pool; the marshaller must clear (not free) the
    * Type-3 pointer and leave reclamation to the per-tree pool reset. */
-  workspace[0].galaxy = galaxy_pool_alloc();
+  struct GalaxyPool *pool = galaxy_pool_create(0);
+  workspace[0].galaxy = galaxy_pool_alloc(pool);
   memset(workspace[0].galaxy, 0, sizeof(struct GalaxyData));
 
   marshal_workspace_to_output_buffer(workspace, &buffer, &segment, 1);
@@ -101,7 +102,7 @@ int test_skips_type3_and_clears_galaxy_pointer(void) {
   TEST_ASSERT(workspace[0].galaxy == NULL, "Type 3 galaxy pointer should be cleared");
   TEST_ASSERT(output[0].Type == 1, "Copied halo should be the surviving non-Type-3 entry");
 
-  galaxy_pool_destroy();
+  galaxy_pool_destroy(pool);
   check_memory_leaks();
   return TEST_PASS;
 }

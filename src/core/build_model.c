@@ -453,8 +453,8 @@ int join_progenitor_halos(struct HaloInputView view, int halonr, int ngalstart, 
   descendant.unique_galaxy_id = make_unique_galaxy_id(halonr, unit);
   descendant.halo_payload = make_halo_init_payload(view, halonr);
 
-  ngal = inherit_descendant_halos(FoFWorkspace, ngalstart, MaxFoFWorkspace, &descendant,
-                                  progenitors, nprogenitors);
+  ngal = inherit_descendant_halos(TreeGalaxyPool, FoFWorkspace, ngalstart, MaxFoFWorkspace,
+                                  &descendant, progenitors, nprogenitors);
 
   return ngal;
 }

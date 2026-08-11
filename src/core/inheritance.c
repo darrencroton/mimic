@@ -18,11 +18,12 @@
 #include "galaxy_pool.h"
 #include "error.h"
 
-static void copy_progenitor_galaxy(struct Halo *target, const struct Halo *source) {
+static void copy_progenitor_galaxy(struct GalaxyPool *pool, struct Halo *target,
+                                   const struct Halo *source) {
   *target = *source;
 
   if (source->galaxy != NULL) {
-    target->galaxy = galaxy_pool_alloc();
+    target->galaxy = galaxy_pool_alloc(pool);
     memcpy(target->galaxy, source->galaxy, sizeof(struct GalaxyData));
     reset_galaxy_snapshot_accumulators(target->galaxy);
   } else {
@@ -91,14 +92,15 @@ static void make_orphan(struct Halo *halo) {
   halo->Type = 2;
 }
 
-static void init_new_halo(struct Halo *halo, const struct InheritanceDescendant *descendant) {
+static void init_new_halo(struct GalaxyPool *pool, struct Halo *halo,
+                          const struct InheritanceDescendant *descendant) {
   init_halo_from_payload(halo, &descendant->halo_payload);
 
   halo->HaloNr = descendant->halo_nr;
   halo->SnapNum = descendant->current_snap - 1;
   halo->dT = descendant->new_halo_dt;
   halo->UniqueGalaxyID = descendant->unique_galaxy_id;
-  halo->galaxy = galaxy_pool_alloc();
+  halo->galaxy = galaxy_pool_alloc(pool);
   init_galaxy_defaults(halo->galaxy);
 }
 
@@ -135,8 +137,8 @@ static void set_local_centrals(struct Halo *workspace, int start, int end) {
   }
 }
 
-int inherit_descendant_halos(struct Halo *workspace, int start, int capacity,
-                             const struct InheritanceDescendant *descendant,
+int inherit_descendant_halos(struct GalaxyPool *pool, struct Halo *workspace, int start,
+                             int capacity, const struct InheritanceDescendant *descendant,
                              const struct InheritanceProgenitorGalaxy *progenitors,
                              int nprogenitors) {
   int end = start;
@@ -152,7 +154,7 @@ int inherit_descendant_halos(struct Halo *workspace, int start, int capacity,
     assert(end < capacity);
     assert(progenitors[i].source != NULL);
 
-    copy_progenitor_galaxy(&workspace[end], progenitors[i].source);
+    copy_progenitor_galaxy(pool, &workspace[end], progenitors[i].source);
     workspace[end].HaloNr = descendant->halo_nr;
     workspace[end].dT = progenitors[i].source_time - descendant->current_time;
 
@@ -174,7 +176,7 @@ int inherit_descendant_halos(struct Halo *workspace, int start, int capacity,
 
   if (end == start && descendant->is_fof_central) {
     assert(end < capacity);
-    init_new_halo(&workspace[end], descendant);
+    init_new_halo(pool, &workspace[end], descendant);
     end++;
   }
 

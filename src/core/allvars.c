@@ -33,6 +33,9 @@ struct RawHalo *InputTreeHalos;
 /* Auxiliary halo data */
 struct HaloAuxData *HaloAux;
 
+/* The tree driver's single galaxy pool instance; see globals.h */
+struct GalaxyPool *TreeGalaxyPool;
+
 #ifdef HDF5
 size_t HDF5_dst_size;
 size_t *HDF5_dst_offsets;

@@ -31,7 +31,6 @@
 
 #include "config.h"
 #include "error.h"
-#include "galaxy_pool.h"
 #include "globals.h"
 #include "memory.h"
 #include "proto.h"
@@ -113,7 +112,6 @@ int main(int argc, char **argv) {
    * this harness read-only with no output side effects beyond the dump. */
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
   init_memory_system(0);
-  galaxy_pool_init(0);
 
   read_parameter_file(param_file);
   init();
@@ -154,7 +152,7 @@ int main(int argc, char **argv) {
     for (int unit = 0; unit < Ntrees; unit++) {
       load_unit(unit);
       topology_dump_forest(out, unit, (long long)GlobalForestOffset + unit);
-      free_unit_halos();
+      free_unit_halos(NULL);
     }
     close_partition();
   }

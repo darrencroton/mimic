@@ -1,6 +1,8 @@
 #ifndef IO_TREE_H
 #define IO_TREE_H
 
+struct GalaxyPool; /* opaque; defined in galaxy_pool.c */
+
 /**
  * @brief   Load a specific unit (merger tree) from the open partition
  * @param   unit        Unit (tree) index to load
@@ -24,7 +26,9 @@ void close_partition(void);
 
 /**
  * @brief   Free the current unit's halo and tree memory
+ * @param   pool   Galaxy pool to reset, or NULL if the caller allocated no
+ *                  galaxies (the reset is skipped)
  */
-void free_unit_halos(void);
+void free_unit_halos(struct GalaxyPool *pool);
 
 #endif /* IO_TREE_H */

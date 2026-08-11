@@ -1,6 +1,6 @@
 /**
  * @file    galaxy_pool.c
- * @brief   Chunked, per-tree storage pool for galaxy data
+ * @brief   Chunked, instanced storage pool for galaxy data
  *
  * See galaxy_pool.h for the ownership model and the fully-initialise-before-read
  * invariant. Chunks are a singly linked list; each chunk holds its header and a
@@ -12,6 +12,8 @@
  * This mirrors the run-persistent, grow-to-high-water scratch idiom already used
  * for the inheritance gather buffers (see ProgenitorScratch in build_model.c).
  */
+
+#include <assert.h>
 
 #include "galaxy_pool.h"
 #include "memory.h"
@@ -27,9 +29,11 @@ struct GalaxyChunk {
   struct GalaxyData *data; /* points to the contiguous run just past this header */
 };
 
-static struct GalaxyChunk *PoolHead = NULL;               /* first chunk (NULL until initialised) */
-static struct GalaxyChunk *PoolCurrent = NULL;            /* chunk currently being filled */
-static int PoolChunkCapacity = GALAXY_POOL_DEFAULT_CHUNK; /* size of newly grown chunks */
+struct GalaxyPool {
+  struct GalaxyChunk *head;    /* first chunk */
+  struct GalaxyChunk *current; /* chunk currently being filled */
+  int chunk_capacity;          /* size of newly grown chunks */
+};
 
 static struct GalaxyChunk *new_chunk(int capacity) {
   if (capacity < GALAXY_POOL_MIN_CHUNK)
@@ -44,51 +48,51 @@ static struct GalaxyChunk *new_chunk(int capacity) {
   return chunk;
 }
 
-void galaxy_pool_init(int initial_capacity) {
-  if (PoolHead != NULL)
-    return; /* already initialised */
+struct GalaxyPool *galaxy_pool_create(int initial_capacity) {
+  struct GalaxyPool *pool = mymalloc_cat(sizeof(struct GalaxyPool), MEM_GALAXIES);
 
-  PoolChunkCapacity =
+  pool->chunk_capacity =
       initial_capacity > GALAXY_POOL_MIN_CHUNK ? initial_capacity : GALAXY_POOL_DEFAULT_CHUNK;
-  PoolHead = new_chunk(PoolChunkCapacity);
-  PoolCurrent = PoolHead;
+  pool->head = new_chunk(pool->chunk_capacity);
+  pool->current = pool->head;
+  return pool;
 }
 
-struct GalaxyData *galaxy_pool_alloc(void) {
-  if (PoolCurrent == NULL)
-    galaxy_pool_init(0); /* robust against a skipped explicit init */
+struct GalaxyData *galaxy_pool_alloc(struct GalaxyPool *pool) {
+  assert(pool != NULL);
 
-  if (PoolCurrent->used >= PoolCurrent->capacity) {
-    if (PoolCurrent->next != NULL) {
+  if (pool->current->used >= pool->current->capacity) {
+    if (pool->current->next != NULL) {
       /* Reuse a chunk left over from a previous, larger tree. */
-      PoolCurrent = PoolCurrent->next;
-      PoolCurrent->used = 0;
+      pool->current = pool->current->next;
+      pool->current->used = 0;
     } else {
-      struct GalaxyChunk *chunk = new_chunk(PoolChunkCapacity);
-      PoolCurrent->next = chunk;
-      PoolCurrent = chunk;
+      struct GalaxyChunk *chunk = new_chunk(pool->chunk_capacity);
+      pool->current->next = chunk;
+      pool->current = chunk;
     }
   }
 
-  return &PoolCurrent->data[PoolCurrent->used++];
+  return &pool->current->data[pool->current->used++];
 }
 
-void galaxy_pool_reset(void) {
+void galaxy_pool_reset(struct GalaxyPool *pool) {
+  assert(pool != NULL);
+
   /* Rewind to the first chunk; trailing chunks are reset lazily as alloc reaches
    * them, so a single reset is O(1) regardless of how many chunks exist. */
-  PoolCurrent = PoolHead;
-  if (PoolHead != NULL)
-    PoolHead->used = 0;
+  pool->current = pool->head;
+  pool->head->used = 0;
 }
 
-void galaxy_pool_destroy(void) {
-  struct GalaxyChunk *chunk = PoolHead;
+void galaxy_pool_destroy(struct GalaxyPool *pool) {
+  assert(pool != NULL);
+
+  struct GalaxyChunk *chunk = pool->head;
   while (chunk != NULL) {
     struct GalaxyChunk *next = chunk->next;
     myfree(chunk);
     chunk = next;
   }
-  PoolHead = NULL;
-  PoolCurrent = NULL;
-  PoolChunkCapacity = GALAXY_POOL_DEFAULT_CHUNK;
+  myfree(pool);
 }

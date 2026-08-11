@@ -108,7 +108,8 @@ int test_main_branch_deep_copy_and_reset(void) {
   progenitor.source_time = 14.0;
   progenitor.is_main_branch = 1;
 
-  int end = inherit_descendant_halos(workspace, 0, 2, &descendant, &progenitor, 1);
+  struct GalaxyPool *pool = galaxy_pool_create(0);
+  int end = inherit_descendant_halos(pool, workspace, 0, 2, &descendant, &progenitor, 1);
 
   TEST_ASSERT(end == 1, "Main branch progenitor should produce one workspace halo");
   TEST_ASSERT(workspace[0].galaxy != source.galaxy, "Inherited galaxy data must be deep-copied");
@@ -131,7 +132,7 @@ int test_main_branch_deep_copy_and_reset(void) {
   TEST_ASSERT(workspace[0].CentralHalo == 0,
               "Single inherited central should point CentralHalo to itself");
 
-  galaxy_pool_destroy();
+  galaxy_pool_destroy(pool);
   check_memory_leaks();
   return TEST_PASS;
 }
@@ -156,7 +157,8 @@ int test_satellite_transition_captures_infall(void) {
   progenitor.source_time = 14.0;
   progenitor.is_main_branch = 1;
 
-  int end = inherit_descendant_halos(workspace, 0, 2, &descendant, &progenitor, 1);
+  struct GalaxyPool *pool = galaxy_pool_create(0);
+  int end = inherit_descendant_halos(pool, workspace, 0, 2, &descendant, &progenitor, 1);
 
   TEST_ASSERT(end == 1, "Satellite main branch should produce one halo");
   TEST_ASSERT(workspace[0].Type == 1, "Main branch in non-FOF subhalo should become Type 1");
@@ -167,7 +169,7 @@ int test_satellite_transition_captures_infall(void) {
   TEST_ASSERT_DOUBLE_EQUAL(workspace[0].infallVmax, 210.0, 1e-6,
                            "Type 0 to Type 1 transition should capture infall Vmax");
 
-  galaxy_pool_destroy();
+  galaxy_pool_destroy(pool);
   check_memory_leaks();
   return TEST_PASS;
 }
@@ -196,7 +198,8 @@ int test_orphan_conversion_and_local_central(void) {
   progenitors[1].source_time = 14.0;
   progenitors[1].is_main_branch = 0;
 
-  int end = inherit_descendant_halos(workspace, 0, 4, &descendant, progenitors, 2);
+  struct GalaxyPool *pool = galaxy_pool_create(0);
+  int end = inherit_descendant_halos(pool, workspace, 0, 4, &descendant, progenitors, 2);
 
   TEST_ASSERT(end == 2, "Two non-merged progenitors should produce two halos");
   TEST_ASSERT(workspace[0].Type == 1, "Main Type 1 source should remain Type 1");
@@ -210,7 +213,7 @@ int test_orphan_conversion_and_local_central(void) {
   TEST_ASSERT(workspace[0].CentralHalo == 0 && workspace[1].CentralHalo == 0,
               "Type 2 orphan should point to the subhalo-local Type 1 central");
 
-  galaxy_pool_destroy();
+  galaxy_pool_destroy(pool);
   check_memory_leaks();
   return TEST_PASS;
 }
@@ -235,7 +238,8 @@ int test_type3_skip_and_new_halo_creation(void) {
   progenitor.source_time = 14.0;
   progenitor.is_main_branch = 1;
 
-  int end = inherit_descendant_halos(workspace, 0, 2, &descendant, &progenitor, 1);
+  struct GalaxyPool *pool = galaxy_pool_create(0);
+  int end = inherit_descendant_halos(pool, workspace, 0, 2, &descendant, &progenitor, 1);
 
   TEST_ASSERT(end == 1, "All-Type-3 central slice should create a new halo");
   TEST_ASSERT(workspace[0].Type == 0, "New central halo should be Type 0");
@@ -249,7 +253,7 @@ int test_type3_skip_and_new_halo_creation(void) {
   TEST_ASSERT(generated_test_default_galaxy_properties_equal_init(workspace[0].galaxy),
               "New halo galaxy properties should use generated defaults");
 
-  galaxy_pool_destroy();
+  galaxy_pool_destroy(pool);
   check_memory_leaks();
   return TEST_PASS;
 }
@@ -281,7 +285,8 @@ int test_type2_preserved_without_orphan_retransition(void) {
   progenitors[1].source_time = 14.0;
   progenitors[1].is_main_branch = 0;
 
-  int end = inherit_descendant_halos(workspace, 0, 3, &descendant, progenitors, 2);
+  struct GalaxyPool *pool = galaxy_pool_create(0);
+  int end = inherit_descendant_halos(pool, workspace, 0, 3, &descendant, progenitors, 2);
 
   TEST_ASSERT(end == 2, "Valid Type 1 + Type 2 slice should produce two halos");
   TEST_ASSERT(workspace[1].Type == 2, "Type 2 source should remain Type 2 without retransition");
@@ -292,7 +297,7 @@ int test_type2_preserved_without_orphan_retransition(void) {
   TEST_ASSERT(workspace[0].CentralHalo == 0 && workspace[1].CentralHalo == 0,
               "Preserved Type 2 should point to the local Type 1 central");
 
-  galaxy_pool_destroy();
+  galaxy_pool_destroy(pool);
   check_memory_leaks();
   return TEST_PASS;
 }
@@ -309,7 +314,8 @@ int test_no_progenitor_central_creates_new_halo(void) {
   struct InheritanceDescendant descendant = make_descendant(1);
   memset(workspace, 0, sizeof(workspace));
 
-  int end = inherit_descendant_halos(workspace, 0, 1, &descendant, NULL, 0);
+  struct GalaxyPool *pool = galaxy_pool_create(0);
+  int end = inherit_descendant_halos(pool, workspace, 0, 1, &descendant, NULL, 0);
 
   TEST_ASSERT(end == 1, "No-progenitor central subhalo should create one halo");
   TEST_ASSERT(workspace[0].Type == 0, "New no-progenitor halo should be Type 0");
@@ -322,7 +328,7 @@ int test_no_progenitor_central_creates_new_halo(void) {
   TEST_ASSERT(workspace[0].CentralHalo == 0,
               "New no-progenitor halo should be its subhalo-local central");
 
-  galaxy_pool_destroy();
+  galaxy_pool_destroy(pool);
   check_memory_leaks();
   return TEST_PASS;
 }
@@ -339,7 +345,7 @@ int test_no_progenitor_satellite_creates_none(void) {
   struct InheritanceDescendant descendant = make_descendant(0);
   memset(workspace, 0, sizeof(workspace));
 
-  int end = inherit_descendant_halos(workspace, 0, 1, &descendant, NULL, 0);
+  int end = inherit_descendant_halos(NULL, workspace, 0, 1, &descendant, NULL, 0);
 
   TEST_ASSERT(end == 0, "No-progenitor satellite subhalo should create no halo");
 

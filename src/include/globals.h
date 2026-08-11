@@ -79,16 +79,20 @@ extern char *ThisNode;
  *       build_halo_tree syncs ProcessedHalos and MaxProcessedHalos back from the
  *       OutputBuffer struct after each marshal call
  *
- *   free_unit_halos():
- *     galaxy_pool_reset()   // reclaim all galaxy slots for the next tree
+ *   free_unit_halos(pool):
+ *     galaxy_pool_reset(pool) // reclaim all galaxy slots for the next tree
+ *                             // (a NULL pool means no galaxy was allocated;
+ *                             // the reset is skipped)
  *     myfree(FoFWorkspace)   // frees the final (possibly grown) pointer
  *     myfree(ProcessedHalos) // frees the final (possibly grown) pointer
  *     myfree(HaloAux)
  *     myfree(InputTreeHalos)
  *
- * IMPORTANT: GalaxyData is owned by the per-tree galaxy pool (see galaxy_pool.h),
- * not by individual halos. Inheritance allocates each workspace galaxy from the
- * pool; the output-buffer marshaller transfers surviving halos (and their galaxy
+ * IMPORTANT: GalaxyData is owned by an explicit galaxy pool instance (see
+ * galaxy_pool.h), not by individual halos. The tree driver holds one such
+ * instance (TreeGalaxyPool, below) for the run's lifetime. Inheritance
+ * allocates each workspace galaxy from the pool passed to it; the
+ * output-buffer marshaller transfers surviving halos (and their galaxy
  * pointers) into ProcessedHalos by struct copy; the pool's slots stay valid
  * because chunks never move. No per-halo galaxy frees occur — free_unit_halos()
  * resets the pool in one step, which is why the same galaxy pointer can be held
@@ -99,6 +103,12 @@ extern char *ThisNode;
 extern struct Halo *FoFWorkspace, *ProcessedHalos;
 extern struct RawHalo *InputTreeHalos;
 extern struct HaloAuxData *HaloAux;
+
+/* The tree driver's single galaxy pool instance (see galaxy_pool.h): created
+   once at startup, reset per tree via free_unit_halos(), destroyed once at
+   shutdown. */
+struct GalaxyPool; /* opaque; defined in galaxy_pool.c */
+extern struct GalaxyPool *TreeGalaxyPool;
 
 /* runtime file information */
 extern int Ntrees;            /* number of trees in current file  */

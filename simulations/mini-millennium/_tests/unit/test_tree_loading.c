@@ -123,7 +123,7 @@ int test_tree_data_loading(void) {
   printf("  Number of halos: %d\n", InputTreeNHalos[0]);
 
   /* ===== CLEANUP ===== */
-  free_unit_halos();
+  free_unit_halos(NULL);
   close_partition();
   teardown_test();
 
@@ -153,7 +153,7 @@ int test_tree_halo_count(void) {
   printf("  Halo count: %d (reasonable)\n", nhalo);
 
   /* ===== CLEANUP ===== */
-  free_unit_halos();
+  free_unit_halos(NULL);
   close_partition();
   teardown_test();
 
@@ -212,7 +212,7 @@ int test_tree_data_validity(void) {
   }
 
   /* ===== CLEANUP ===== */
-  free_unit_halos();
+  free_unit_halos(NULL);
   close_partition();
   teardown_test();
 
@@ -274,7 +274,7 @@ int test_tree_cleanup(void) {
   load_unit(0);
 
   /* ===== EXECUTE ===== */
-  free_unit_halos();
+  free_unit_halos(NULL);
   close_partition();
 
   /* ===== VALIDATE ===== */

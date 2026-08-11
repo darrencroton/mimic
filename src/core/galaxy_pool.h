@@ -13,12 +13,18 @@
  * bulk-reset between trees. This keeps the number of tracked allocator blocks at
  * O(chunks) instead of O(halos) and bounds memory by the largest single tree.
  *
- * Ownership: the pool owns all galaxy memory. Nothing else frees a galaxy. The
- * tree driver resets the pool at the end of each tree (galaxy_pool_reset) and
- * destroys it once at shutdown (galaxy_pool_destroy). Chunks are never moved
- * once allocated, so pointers returned by galaxy_pool_alloc stay valid as the
- * pool grows and as halo structs (and their galaxy pointers) are copied between
- * the workspace and the output buffer.
+ * A pool is an explicit instance (struct GalaxyPool), created with
+ * galaxy_pool_create() and passed to every other call. Two instances never
+ * share chunks or state, so allocations from one pool cannot interfere with
+ * another's.
+ *
+ * Ownership: a pool owns all galaxy memory allocated from it. Nothing else
+ * frees a galaxy. The owner resets the pool at the end of each tree
+ * (galaxy_pool_reset) and destroys it once at shutdown (galaxy_pool_destroy).
+ * Chunks are never moved once allocated, so pointers returned by
+ * galaxy_pool_alloc stay valid as the pool grows and as halo structs (and
+ * their galaxy pointers) are copied between the workspace and the output
+ * buffer.
  *
  * INVARIANT: galaxy_pool_alloc returns raw, uninitialised storage (a slot may
  * hold bytes from a prior tree). Every caller MUST fully overwrite the slot
@@ -28,19 +34,22 @@
  */
 
 struct GalaxyData; /* defined in generated/property_defs.h via types.h */
+struct GalaxyPool; /* opaque; defined in galaxy_pool.c */
 
-/* Prepare the pool with an initial chunk sized for `initial_capacity` galaxies
- * (clamped to a sensible minimum). Call once at startup. */
-void galaxy_pool_init(int initial_capacity);
+/* Create a pool with an initial chunk sized for `initial_capacity` galaxies
+ * (clamped to a sensible minimum). Returns a handle that must be passed to
+ * every other galaxy_pool_* call and, eventually, to galaxy_pool_destroy(). */
+struct GalaxyPool *galaxy_pool_create(int initial_capacity);
 
-/* Return a stable pointer to one uninitialised GalaxyData slot, growing the pool
- * by a chunk when the current chunk is full. */
-struct GalaxyData *galaxy_pool_alloc(void);
+/* Return a stable pointer to one uninitialised GalaxyData slot in `pool`,
+ * growing the pool by a chunk when the current chunk is full. */
+struct GalaxyData *galaxy_pool_alloc(struct GalaxyPool *pool);
 
-/* Reclaim every slot for reuse (retains chunks). Call at the end of each tree. */
-void galaxy_pool_reset(void);
+/* Reclaim every slot in `pool` for reuse (retains chunks). Call at the end of
+ * each tree. */
+void galaxy_pool_reset(struct GalaxyPool *pool);
 
-/* Free all chunks and reset state. Call once at shutdown. */
-void galaxy_pool_destroy(void);
+/* Free every chunk of `pool` and the pool itself. Call once at shutdown. */
+void galaxy_pool_destroy(struct GalaxyPool *pool);
 
 #endif /* GALAXY_POOL_H */

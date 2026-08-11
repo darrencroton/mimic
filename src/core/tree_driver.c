@@ -244,7 +244,7 @@ static void process_partition(int output_id, ProgressBar *ext_bar, int64_t tree_
 #else
     save_halos(output_id, unit, view);
 #endif
-    free_unit_halos();
+    free_unit_halos(TreeGalaxyPool);
   }
 
   if (ext_bar == NULL)

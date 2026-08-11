@@ -355,8 +355,8 @@ int main(int argc, char **argv) {
   /* Initialize memory management system (will log at correct level) */
   init_memory_system(0); /* Use default block limit */
 
-  /* Prepare the per-tree galaxy storage pool (grows to the largest tree). */
-  galaxy_pool_init(0);
+  /* Prepare the tree driver's galaxy storage pool (grows to the largest tree). */
+  TreeGalaxyPool = galaxy_pool_create(0);
 
   /* Log startup information */
   DEBUG_LOG("Starting Mimic with verbosity level: %s", get_log_level_name(log_level));
@@ -459,7 +459,7 @@ int main(int argc, char **argv) {
 
   /* Release the galaxy pool before the leak check so its chunks are accounted
    * for and not reported as leaks. */
-  galaxy_pool_destroy();
+  galaxy_pool_destroy(TreeGalaxyPool);
 
   /* Check for memory leaks and clean up memory system */
   check_memory_leaks();
