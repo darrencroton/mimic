@@ -1,0 +1,95 @@
+# Mimic SAGE on micro-Uchuu Run Configuration - snapshot-ordered HDF5
+
+model:
+  name: sage16
+
+simulation:
+  name: micro-uchuu-snapshot
+
+output:
+  output_filename: model
+  output_directory: output/sage16-micro-uchuu-snapshot
+  output_format: hdf5
+  snapshot_list: [49, 28, 23, 16, 12, 10, 8, 7]
+
+SubSteps: 10
+
+modules:
+
+  pre_timestep:
+    # Setup and snapshot budgets
+    - sage_reionization:              process_full_halo
+    - sage_prepare_infall_budget:     process_full_halo
+    - sage_set_disk_scale_radius:     process_full_halo
+    - sage_initialise_merger_clock:   process_full_halo
+
+  # Ordered, user-named substep middle phases. Each runs once per substep, in the
+  # order listed. Within a phase, full-halo/event work precedes galaxy-local work.
+  phases:
+
+    galaxy_physics:
+      # Baryon supply (central-only, full-halo)
+      - sage_apply_infall:              process_full_halo
+      - sage_reincorporation:           process_full_halo
+
+      # Satellite stripping
+      - sage_satellite_stripping:       process_by_galaxy
+
+      # Cooling and AGN suppression
+      - sage_calculate_cooling_budget:  process_by_galaxy
+      - sage_radio_mode_heating:        process_by_galaxy
+      - sage_apply_cooling:             process_by_galaxy
+
+      # Star formation and supernova feedback
+      - sage_calculate_star_formation:          process_by_galaxy
+      - sage_calculate_supernova_feedback:      process_by_galaxy
+      - sage_apply_star_formation_supernova:    process_by_galaxy
+
+      # Disk instability
+      - sage_disk_instability:          process_by_galaxy
+      - sage_quasar_mode:               process_by_galaxy
+      - sage_starburst_feedback:        process_by_galaxy
+
+      # Disk-SF metal yield — must follow the disk-instability chain (SAGE ordering)
+      - sage_apply_metal_enrichment:    process_by_galaxy
+
+    satellite_mergers:
+      # Mergers and disruption — runs after all galaxy physics for the current substep
+      # sage_resolve_mergers_and_disruption emits its merger event for downstream consumers
+      - sage_resolve_mergers_and_disruption: process_full_halo
+      - sage_quasar_mode:               process_per_event   # merger event consumer
+      - sage_starburst_feedback:        process_per_event   # merger event consumer
+
+  post_timestep:
+
+  parameters:
+    # Reionisation
+    GlobalBaryonFraction: 0.17          # Cosmic baryon fraction (Planck 2018)
+
+    # Star Formation
+    SfrEfficiency: 0.05                 # Star formation efficiency
+    StarFormingDiskFactor: 3.0          # Number of disc scale radii to form stars over
+
+    # Supernova Feedback
+    FeedbackReheatingEpsilon: 3.0       # Reheating efficiency
+    FeedbackEjectionEfficiency: 0.3     # Ejection efficiency
+
+    # Gas Reincorporation
+    ReIncorporationFactor: 0.15          # Reincorporation timescale factor
+
+    # Cooling & AGN Feedback
+    AGNrecipe: 2                        # AGN feedback mode (0=off, 1=empirical, 2=Bondi, 3=cold cloud)
+    RadioModeEfficiency: 0.08           # Radio-mode AGN feedback efficiency
+
+    # Black Hole Growth
+    BlackHoleGrowthRate: 0.015          # BH growth efficiency during mergers
+    QuasarModeEfficiency: 0.005         # Quasar-mode AGN feedback efficiency
+
+    # Metals
+    RecycleFraction: 0.43               # Instantaneous recycling fraction
+    Yield: 0.025                        # Metal yield per unit stellar mass
+    FracZleaveDisk: 0.0                 # Fraction of metals leaving disk
+
+    # Mergers & Disruption
+    ThresholdMajorMerger: 0.3           # Mass ratio threshold for major mergers
+    ThresholdSatDisruption: 1.0         # Mvir-to-baryonic mass ratio threshold for sat merger/disruption

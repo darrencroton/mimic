@@ -28,6 +28,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import yaml
 
 # Add framework to path
 REPO_ROOT = Path(__file__).parent.parent.parent
@@ -46,6 +47,8 @@ from framework import (
     ensure_output_dirs,
     find_nonfinite,
     load_binary_halos,
+    load_hdf5_halos,
+    resolve_sim_config_path,
     run_mimic_fresh,
     run_test_suite,
 )
@@ -77,6 +80,33 @@ def gravity_code_units_from_schema(schema):
 # stale files from other runs/models, and the first regeneration in this
 # process establishes that guarantee for every test in the suite.
 _regenerated_output = None
+_regenerated_format = None
+
+
+def selected_package_writes_binary():
+    """
+    Whether the selected simulation package can produce binary output.
+
+    A snapshot-ordered package cannot: the driver rejects any output format but
+    HDF5 at configuration time, so the generated ``test_binary.yaml`` is invalid
+    by construction for it and every check below would fail on a run that never
+    happened. The effective processing order is read exactly as the parser
+    resolves it -- an explicit ``input.processing_order`` in the run file wins,
+    otherwise the simulation config the run file points at -- so a package is
+    identified by its own declaration rather than by name.
+    """
+    param_file = core_input_file("test_binary.yaml")
+    with open(param_file) as handle:
+        config = yaml.safe_load(handle)
+
+    order = (config.get("input") or {}).get("processing_order")
+    if order is None:
+        sim_config_path = resolve_sim_config_path(config["simulation"]["config"], param_file)
+        with open(sim_config_path) as handle:
+            sim_config = yaml.safe_load(handle)
+        order = ((sim_config or {}).get("input") or {}).get("processing_order")
+
+    return order != "snapshot_ordered"
 
 
 def regenerate_output():
@@ -88,19 +118,44 @@ def regenerate_output():
     writing the same shared path -- cannot be validated as if it were this
     run. Subsequent calls in the same process reuse that output.
 
+    Binary output is used wherever the selected package can produce it, which
+    keeps the default pair on the format it has always validated. For a package
+    that cannot (snapshot-ordered: HDF5-only), the HDF5 configuration is run and
+    read instead. Only the vehicle changes -- the checks below are
+    format-agnostic and are applied to the same records either way.
+
     Returns:
         Path: Path to output file
     """
-    global _regenerated_output
+    global _regenerated_output, _regenerated_format
     if _regenerated_output is None:
-        output_dir = TEST_DATA_DIR / "output" / "binary"
-        output_file = output_dir / "model_z0.000_0"  # last snapshot is z≈0 for all supported sims
+        if selected_package_writes_binary():
+            output_file = TEST_DATA_DIR / "output" / "binary" / "model_z0.000_0"
+            param_file = core_input_file("test_binary.yaml")
+            output_format = "binary"
+        else:
+            # filenr 0: a snapshot-ordered run writes a single output partition.
+            output_file = TEST_DATA_DIR / "output" / "hdf5" / "model_000.hdf5"
+            param_file = core_input_file("test_hdf5.yaml")
+            output_format = "hdf5"
 
-        param_file = core_input_file("test_binary.yaml")
         run_mimic_fresh(param_file, output_file)
         _regenerated_output = output_file
+        _regenerated_format = output_format
 
     return _regenerated_output
+
+
+def load_output_halos(output_file):
+    """
+    Load halos from the output produced by ``regenerate_output()``.
+
+    Dispatches on the format that run actually wrote. Both loaders return the
+    same ``(recarray, metadata)`` shape, so every check downstream is identical.
+    """
+    if _regenerated_format == "hdf5":
+        return load_hdf5_halos(output_file)
+    return load_binary_halos(output_file)
 
 
 def check_zeros(halos, manifest):
@@ -258,7 +313,7 @@ def test_numerical_validity():
         raise TestSkipped("Mimic not built")
 
     output_file = regenerate_output()
-    halos, metadata = load_binary_halos(output_file)
+    halos, metadata = load_output_halos(output_file)
     print(f"Loaded {metadata['TotHalos']} halos from {metadata['Ntrees']} trees\n")
 
     nonfinite = find_nonfinite(halos)
@@ -303,7 +358,7 @@ def test_zero_values():
         raise TestSkipped("Mimic not built")
 
     output_file = regenerate_output()
-    halos, metadata = load_binary_halos(output_file)
+    halos, metadata = load_output_halos(output_file)
     total_halos = metadata["TotHalos"]
 
     zero_counts = check_zeros(halos, manifest)
@@ -338,7 +393,7 @@ def test_physical_ranges():
         raise TestSkipped("Mimic not built")
 
     output_file = regenerate_output()
-    halos, metadata = load_binary_halos(output_file)
+    halos, metadata = load_output_halos(output_file)
 
     failures = 0
 
@@ -442,7 +497,7 @@ def test_unit_consistency():
         raise TestSkipped("Mimic not built")
 
     output_file = regenerate_output()
-    halos, metadata = load_binary_halos(output_file)
+    halos, metadata = load_output_halos(output_file)
     schema = load_schema(output_file)
 
     failures = 0

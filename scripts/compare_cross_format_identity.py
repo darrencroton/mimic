@@ -355,7 +355,10 @@ def compare_snapshot(snap, left, right, labels, max_report):
         del mismatched
 
     if not differing_fields:
-        print(f"  ok   Snap{snap:03d}: {left_ids.size} galaxies, all fields byte-identical")
+        print(
+            f"  ok   Snap{snap:03d}: {left_ids.size} galaxies, "
+            f"all {len(left.dtype.names)} fields byte-identical"
+        )
         return 0
 
     print(
@@ -469,9 +472,14 @@ def compare_runs(args):
         print(f"\nFAILED: {failures} difference(s) across {shared} shared output snapshot(s)")
         return 1
 
+    # The field count is part of the summary so a passing report states what was
+    # compared rather than only that nothing differed: a reader (or a harness)
+    # can check it against the run's own output schema without rerunning
+    # anything.
     print(
         f"\nPASSED: {total} galaxies over {shared} output snapshot(s) are bitwise identical "
-        f"in every field, with identical {ID_FIELD} sets and no duplicates"
+        f"in all {len(left.dtype.names)} field(s), with identical {ID_FIELD} sets and "
+        f"no duplicates"
     )
     return 0
 
