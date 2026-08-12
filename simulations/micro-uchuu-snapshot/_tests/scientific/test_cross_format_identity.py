@@ -26,14 +26,19 @@ Stages, in order (one MIMIC_RESULT marker each):
 2. Run-file diffs -- each committed snapshot run file differs from its ascii
    counterpart in exactly the two authorized functional keys
    (``simulation.name`` and ``output.output_directory``), plus at most the
-   leading header comment block, which carries no functional weight.
+   leading header comment block, which carries no functional weight. All four
+   run files must also match their committed HEAD copies, so a dirty working
+   tree is reported rather than certified.
 3. Builds -- one detached git worktree per ``{halos-only, sage16} x {ascii,
    snapshot}`` pair at the current HEAD, each built on its own. The ambient tier
    build in the main tree is never touched.
 4-7. Identity -- ``halos-only`` first (fixed timesteps, then dynamic), then
-   ``sage16``. A ``halos-only`` divergence is a driver bug and is reported before
-   the sage16 cost is paid; a ``halos-only`` pass alone is not the gate. Each
-   stage runs both orderings, checks the preflight equalities, and compares with
+   ``sage16``, which does not start until **both** halos-only stages have
+   passed: a divergence in either is a driver bug and is reported before the
+   sage16 cost is paid, and a ``halos-only`` pass alone is not the gate. Each
+   stage runs both orderings from the worktrees' own run files, checks the
+   preflight equalities -- including that each run wrote exactly the output
+   snapshots its run file requests, none of them empty -- and compares with
    ``scripts/compare_cross_format_identity.py``, which aggregates every partition
    of each run (the tree side writes five; comparing one file would silently
    compare a fifth of the run).
@@ -105,9 +110,19 @@ ASCII_DATASET_FILES = ("forests.list", "locations.dat", "tree_0_0_0.dat")
 BASELINE_COMMIT = "ae22d278"
 
 #: HDF5 attributes that legitimately differ between two builds/runs of the same
-#: code and carry no scientific content. Reported separately, never counted as a
-#: delta, and never silently dropped.
-EXCLUDED_PROVENANCE_ATTRS = ("git_commit", "git_branch", "git_date", "build_date", "RunEndTime")
+#: code and carry no scientific content, mapped to the object paths where they
+#: legitimately live. Reported separately, never counted as a delta, and never
+#: silently dropped -- but excused only where they belong: the same name
+#: appearing anywhere else is a real difference, and excusing it by name alone
+#: would let a genuine metadata change hide behind a provenance label.
+PROVENANCE_ATTR_PATHS = {
+    "git_commit": ("/RunProperties/Version",),
+    "git_branch": ("/RunProperties/Version",),
+    "git_date": ("/RunProperties/Version",),
+    "build_date": ("/RunProperties/Version",),
+    "RunEndTime": ("/RunProperties",),
+}
+EXCLUDED_PROVENANCE_ATTRS = tuple(PROVENANCE_ATTR_PATHS)
 
 #: The four permitted HDF5 metadata deltas between the pre-Phase-5 baseline and
 #: HEAD. Every one of them must be observed; anything else is a failure.
@@ -135,6 +150,24 @@ REQUIRED_FREE_BYTES = 20 * 1024**3
 
 SNAP_GROUP_RE = re.compile(r"^Snap(\d+)$")
 FILE_GROUP_RE = re.compile(r"^File(\d+)$")
+
+#: Object paths a permitted delta is allowed to occur at. `TotHalosPerSnap`
+#: lives on the master's per-partition groups and on each partition's own
+#: Galaxies dataset; the other three live at one fixed path each. Binding the
+#: classification to the path (and, below, to the exact before/after transition)
+#: is what keeps "exactly four permitted deltas" meaning four *specific*
+#: changes rather than four attribute names that may change in any way anywhere.
+VERSION_GROUP_PATH = "/RunProperties/Version"
+RUN_PROPERTIES_PATH = "/RunProperties"
+FIELD_METADATA_PATH = "/RunProperties/FieldMetadata"
+MASTER_SNAP_FILE_RE = re.compile(r"^/Snap\d+/File\d+$")
+PARTITION_SNAP_GALAXIES_RE = re.compile(r"^/Snap\d+/Galaxies$")
+
+#: The exact transitions the permitted deltas must show. A widening that lands
+#: on a different width, or a version that moves anywhere other than 1.1 -> 1.2,
+#: is an unclassified difference and fails the stage.
+TOTHALOS_DTYPE_TRANSITION_RE = re.compile(r"^dtype int32(\(.*?\)) -> int64(\(.*?\))$")
+FORMAT_VERSION_TRANSITION_RE = re.compile(r"^value \[b'1\.1'\] -> \[b'1\.2'\]$")
 COMPARATOR_PASS_RE = re.compile(
     r"^PASSED: (\d+) galaxies over (\d+) output snapshot\(s\) are bitwise identical "
     r"in all (\d+) field"
@@ -370,6 +403,38 @@ def committed_run_file(model: str, simulation: str) -> Path:
     return REPO_ROOT / "models" / model / "input" / f"{model}_{simulation}.yaml"
 
 
+def head_bytes(path: Path) -> bytes:
+    """The content of `path` as HEAD holds it, independent of the working tree."""
+    relative = path.relative_to(REPO_ROOT).as_posix()
+    completed = subprocess.run(
+        ["git", "show", f"HEAD:{relative}"], cwd=REPO_ROOT, capture_output=True
+    )
+    if completed.returncode != 0:
+        raise AssertionError(
+            f"{path} is not committed at HEAD: git show HEAD:{relative} failed "
+            f"({completed.stderr.decode(errors='replace').strip()}). The gate certifies "
+            f"committed run files and builds worktrees at HEAD, so an uncommitted run file "
+            f"cannot be part of it."
+        )
+    return completed.stdout
+
+
+def assert_matches_head(path: Path) -> None:
+    """Fail when a run file in the working tree differs from its HEAD copy.
+
+    The worktrees are pinned to HEAD and execute their own copies, so a dirty
+    working-tree run file would never reach the runs -- but it would still be
+    the file stage 2 inspected. Reporting the divergence keeps the gate's PASS
+    a statement about a self-contained HEAD, rather than about whatever happens
+    to be on disk.
+    """
+    if path.read_bytes() != head_bytes(path):
+        raise AssertionError(
+            f"{path} differs from its committed copy at HEAD. This gate certifies committed "
+            f"run files against HEAD-built executables; commit or revert the file and re-run."
+        )
+
+
 def split_leading_header(lines: list[str]) -> tuple[list[str], list[str]]:
     """Split a run file into its leading header comment block and the rest.
 
@@ -534,6 +599,11 @@ def stage_run_file_diffs():
         for path in (ascii_path, snapshot_path):
             if not path.is_file():
                 raise AssertionError(f"run file is missing: {path}")
+            # Both sides, before anything is built or run: a dirty run file on
+            # either side would make the two-key relative diff pass while the
+            # HEAD-built executables consumed something else.
+            assert_matches_head(path)
+        log(f"  {model}: both run files match their committed HEAD copies")
         assert_snapshot_run_file_diff(ascii_path, snapshot_path)
         log(
             f"  {model}: {snapshot_path.name} differs from {ascii_path.name} in exactly "
@@ -684,12 +754,18 @@ def execute_run(model: str, simulation: str, scheme: str) -> RunOutput:
     """Run one model x ordering x scheme into its own scratch output directory."""
     key = f"{model}__{simulation}__{scheme}"
     worktree = GATE.worktrees[pair_key(model, simulation)]
-    committed = committed_run_file(model, simulation)
+
+    # The worktree's OWN copy of the run file, never the working tree's. The
+    # executable is pinned to HEAD, so its input must be too: reading the
+    # ambient copy would let a dirty tree be certified by a HEAD build.
+    worktree_run_file = worktree / committed_run_file(model, simulation).relative_to(REPO_ROOT)
+    if not worktree_run_file.is_file():
+        raise AssertionError(f"{key}: the HEAD worktree has no run file at {worktree_run_file}")
 
     if scheme == "fixed":
-        run_file = committed
+        run_file = worktree_run_file
     else:
-        run_file = dynamic_variant(committed, GATE.scratch_dir("run-files"))
+        run_file = dynamic_variant(worktree_run_file, GATE.scratch_dir("run-files"))
 
     declared_directory, basename = read_run_file_output(run_file)
 
@@ -771,6 +847,46 @@ def assert_alist_byte_equal(left: Path, right: Path) -> None:
                 "\n".join(differing[:10])
                 or f"    (line counts {len(left_lines)} vs {len(right_lines)})"
             )
+        )
+
+
+def requested_snapshots(run: RunOutput) -> set[int]:
+    """The output snapshots the run file under test actually asks for.
+
+    The gate's counts are only evidence if they cover the whole run. Reading the
+    request from the run file gives an expectation the runs had no part in
+    producing, so a shared output-selection or writer regression that drops the
+    same snapshot from both sides cannot pass by agreeing with itself.
+    """
+    config = yaml.safe_load(run.run_file.read_text())
+    selected = (config.get("output") or {}).get("snapshot_list")
+    if not selected:
+        raise AssertionError(f"{run.run_file}: no output.snapshot_list to compare against")
+    return {int(entry) for entry in selected}
+
+
+def assert_snapshot_coverage(run: RunOutput, counts: dict[int, int], expected: set[int]) -> None:
+    """One run wrote exactly the requested output snapshots, none of them empty.
+
+    Exactly: a missing snapshot means the comparison covers part of the run, and
+    an extra one means the run is not the run the file describes. Non-empty:
+    an empty snapshot compares equal to an empty snapshot, so a writer that
+    emitted nothing on both sides would otherwise be indistinguishable from a
+    run that agreed everywhere.
+    """
+    written = set(counts)
+    if written != expected:
+        raise AssertionError(
+            f"{run.key}: wrote output snapshots {sorted(written)}, its run file requests "
+            f"{sorted(expected)} (missing {sorted(expected - written)}, "
+            f"unexpected {sorted(written - expected)}); the comparison would cover only "
+            f"part of the run"
+        )
+    empty = sorted(snap for snap, count in counts.items() if count <= 0)
+    if empty:
+        raise AssertionError(
+            f"{run.key}: output snapshot(s) {empty} hold no galaxies; an empty snapshot "
+            f"compares equal to an empty snapshot and is not evidence of anything"
         )
 
 
@@ -898,11 +1014,30 @@ def preflight(tree_run: RunOutput, snapshot_run: RunOutput) -> tuple[int, int]:
             f"the two runs record different galaxy counts per output snapshot:\n"
             f"  tree: {tree_records}\n  snap: {snap_records}"
         )
+
+    # Equal counts on both sides say the two runs agree; they do not say the runs
+    # wrote what was asked for. Both of those must hold, or a regression that
+    # drops the same snapshot -- or empties it -- on both sides passes the gate
+    # having compared a subset, or nothing at all.
+    expected = requested_snapshots(tree_run)
+    snapshot_expected = requested_snapshots(snapshot_run)
+    if expected != snapshot_expected:
+        raise AssertionError(
+            f"the two run files request different output snapshots: "
+            f"{sorted(expected)} vs {sorted(snapshot_expected)}"
+        )
+    log(f"  preflight: run files request output snapshots {sorted(expected)}")
+    assert_snapshot_coverage(tree_run, tree_records, expected)
+    assert_snapshot_coverage(snapshot_run, snap_records, expected)
+
+    total = sum(tree_records.values())
+    if total <= 0:
+        raise AssertionError(f"{tree_run.key}: the runs recorded no galaxies at all")
     log(
-        f"  preflight: {sum(tree_records.values())} galaxies over {len(tree_records)} output "
-        f"snapshots recorded on both sides"
+        f"  preflight: {total} galaxies over {len(tree_records)} output "
+        f"snapshots recorded on both sides, all {len(expected)} requested and none empty"
     )
-    return sum(tree_records.values()), fields
+    return total, fields
 
 
 def record_signature(run: RunOutput):
@@ -986,6 +1121,11 @@ def compare_pair(
 
     compared_records, compared_snapshots, compared_fields = (int(value) for value in match.groups())
     expected_snapshots = len(recorded_records(tree_run))
+    if compared_records <= 0:
+        raise AssertionError(
+            f"{model}/{scheme}: the comparator reported success over {compared_records} "
+            f"galaxies; a comparison of nothing is not a pass"
+        )
     if compared_records != records:
         raise AssertionError(
             f"{model}/{scheme}: the comparator compared {compared_records} galaxies but the two "
@@ -1038,21 +1178,30 @@ def stage_halos_only_dynamic():
     identity_stage("halos-only", "dynamic")
 
 
+def require_halos_only_complete() -> None:
+    """Both halos-only identity stages must pass before any sage16 run starts.
+
+    Either divergence is a driver bug, and the contract is that a driver bug is
+    reported before the sage16 cost is paid -- so a dynamic failure must stop the
+    fixed sage16 run just as surely as a fixed failure stops it.
+    """
+    for scheme in SCHEMES:
+        GATE.require(
+            f"identity:halos-only:{scheme}",
+            "a halos-only divergence is a driver bug and is reported before the sage16 "
+            "cost is paid; neither sage16 stage runs until both halos-only stages pass",
+        )
+
+
 def stage_sage16_fixed():
     """sage16, fixed timesteps: the full physics pipeline, compared bitwise."""
-    GATE.require(
-        "identity:halos-only:fixed",
-        "a halos-only divergence is a driver bug and is " "reported before the sage16 cost is paid",
-    )
+    require_halos_only_complete()
     identity_stage("sage16", "fixed")
 
 
 def stage_sage16_dynamic():
     """sage16, dynamic timesteps."""
-    GATE.require(
-        "identity:halos-only:dynamic",
-        "a halos-only divergence is a driver bug and is " "reported before the sage16 cost is paid",
-    )
+    require_halos_only_complete()
     identity_stage("sage16", "dynamic")
 
 
@@ -1216,21 +1365,48 @@ def field_metadata_delta(where, objpath, baseline: Path, head: Path) -> list[Del
 
 
 def classify(delta: Delta) -> str | None:
-    """Map one difference to a permitted delta, to provenance, or to None."""
+    """Map one difference to a permitted delta, to provenance, or to None.
+
+    Every acceptance below is bound to three things at once: the attribute (or
+    metadata column), the object path it occurred at, and the exact before/after
+    transition. Matching on the name alone would accept a version string moving
+    to any value, a counter widening to any width, or a provenance name changing
+    at a path where it does not belong -- all of which are real metadata changes
+    that the Definition of Done's "exactly four permitted deltas" excludes.
+    Anything unmatched returns None and fails the stage as unclassified.
+    """
     item = delta.item
     if item.startswith("attr "):
         name = item.split(" ", 1)[1]
-        if name in EXCLUDED_PROVENANCE_ATTRS:
-            return "provenance"
-        if name == "UniqueGalaxyIDMultiplier" and delta.detail == "added":
-            return "UniqueGalaxyIDMultiplier attribute"
-        if name == "TotHalosPerSnap" and delta.detail.startswith("dtype"):
-            return "TotHalosPerSnap int64"
+
+        provenance_paths = PROVENANCE_ATTR_PATHS.get(name)
+        if provenance_paths is not None:
+            return "provenance" if delta.objpath in provenance_paths else None
+
+        if name == "UniqueGalaxyIDMultiplier":
+            if delta.objpath == RUN_PROPERTIES_PATH and delta.detail == "added":
+                return "UniqueGalaxyIDMultiplier attribute"
+            return None
+
+        if name == "TotHalosPerSnap":
+            at_expected_path = MASTER_SNAP_FILE_RE.match(delta.objpath) or (
+                PARTITION_SNAP_GALAXIES_RE.match(delta.objpath)
+            )
+            transition = TOTHALOS_DTYPE_TRANSITION_RE.match(delta.detail)
+            # Same shape on both sides: this delta is a widening, not a reshape.
+            if at_expected_path and transition and transition.group(1) == transition.group(2):
+                return "TotHalosPerSnap int64"
+            return None
+
         if name == "hdf5_format_version":
-            return "hdf5_format_version 1.2"
-    if item.startswith("FieldMetadata ") and item.endswith(".description"):
-        if item == "FieldMetadata UniqueGalaxyID.description":
-            return "UniqueGalaxyID description"
+            if delta.objpath == VERSION_GROUP_PATH and FORMAT_VERSION_TRANSITION_RE.match(
+                delta.detail
+            ):
+                return "hdf5_format_version 1.2"
+            return None
+
+    if item == "FieldMetadata UniqueGalaxyID.description":
+        return "UniqueGalaxyID description" if delta.objpath == FIELD_METADATA_PATH else None
     return None
 
 
@@ -1333,12 +1509,16 @@ def stage_tree_path_preservation():
     head_run = GATE.runs[f"halos-only__{ASCII_SIMULATION}__fixed"]
 
     worktree = build_worktree("baseline", BASELINE_COMMIT, "halos-only", ASCII_SIMULATION)
-    committed = committed_run_file("halos-only", ASCII_SIMULATION)
-    baseline_committed = worktree / committed.relative_to(REPO_ROOT)
-    if baseline_committed.read_bytes() != committed.read_bytes():
+    # Each side runs its own worktree's copy; they are required to be identical
+    # bytes, so the two runs provably share one input without either of them
+    # reaching into the working tree.
+    baseline_committed = worktree / committed_run_file("halos-only", ASCII_SIMULATION).relative_to(
+        REPO_ROOT
+    )
+    if baseline_committed.read_bytes() != head_run.run_file.read_bytes():
         raise AssertionError(
             f"the run file changed since {BASELINE_COMMIT}: {baseline_committed} differs from "
-            f"{committed}; the two runs would not share an input"
+            f"{head_run.run_file}; the two runs would not share an input"
         )
 
     output_root = GATE.scratch_dir("runs", "baseline")
@@ -1348,16 +1528,20 @@ def stage_tree_path_preservation():
     link.symlink_to(output_root)
     env = worktree_env(worktree, "halos-only", ASCII_SIMULATION)
     run_logged(
-        ["./mimic", str(committed)],
+        ["./mimic", str(baseline_committed)],
         worktree,
         env,
         GATE.scratch_dir("logs") / "baseline-run.log",
         f"baseline ({BASELINE_COMMIT}): mimic run",
         show_tail=3,
     )
-    declared_directory, basename = read_run_file_output(committed)
+    declared_directory, basename = read_run_file_output(baseline_committed)
     baseline_run = RunOutput(
-        "baseline", output_root / Path(declared_directory).name, basename, worktree, committed
+        "baseline",
+        output_root / Path(declared_directory).name,
+        basename,
+        worktree,
+        baseline_committed,
     )
     if not baseline_run.master.is_file():
         raise AssertionError(f"baseline run produced no master at {baseline_run.master}")
