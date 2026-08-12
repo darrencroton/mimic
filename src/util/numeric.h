@@ -13,6 +13,7 @@
 #include "constants.h"
 #include <math.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 /**
  * @brief   Checks if a value is effectively zero (within EPSILON_SMALL)
@@ -113,5 +114,15 @@ bool is_within(double x, double min, double max);
  * @note    Returns default_value if either argument is NaN (IEEE 754 standard)
  */
 double safe_div(double numerator, double denominator, double default_value);
+
+/**
+ * @brief   Narrow a widened int64_t count/index back to int
+ *
+ * FATALs rather than truncating when the value does not fit.
+ *
+ * @param   context  Names the narrowing site in the fatal message
+ *                   (e.g. "HaloAux.FirstHalo")
+ */
+int narrow_int64_to_int_checked(int64_t value, const char *context);
 
 #endif /* UTIL_NUMERIC_H */

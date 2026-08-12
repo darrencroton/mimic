@@ -92,7 +92,7 @@ Registered unit labels (the ONLY valid `units:` values; generation fails loudly 
 
 `make generate` runs `scripts/generate_properties.py`, which writes into `src/include/generated/`: `property_defs.h` (structs + init/reset inline functions), `raw_halo_defs.h`, `tree_property_accessors.h`, `reference_units.h`, `unit_registry.h`, `parameter_unit_conversions.h`, `populate_halo_payload_from_tree.inc`, `read_tree_hdf5_properties.inc`, `copy_to_output.inc`, `output_schema_writer.inc` (the binary schema), `hdf5_field_count.inc`, `hdf5_field_definitions.inc`, `hdf5_field_metadata.inc`, `property_test_helpers.h`; plus `tests/generated/property_ranges.json`. Every file embeds a `Source MD5:` header; `make check-generated` recomputes and compares (that is the drift check — never diff generated files by eye).
 
-Known quirk: `init_halo_properties.inc`, `init_galaxy_properties.inc`, `reset_galaxy_properties.inc` (and `tests/generated/module_sources.mk`) exist on disk but are **stale legacy artifacts no current generator writes** (init/reset logic moved into `property_defs.h` inline functions). Don't chase them as drift and don't hand-edit them; the Makefile's `GENERATED_HEADERS` still names two of them (harmless, order-only prereqs).
+Known quirk: `reset_galaxy_properties.inc` and `tests/generated/module_sources.mk` exist on disk but are **stale legacy artifacts no current generator writes** (init/reset logic moved into `property_defs.h` inline functions). Don't chase them as drift and don't hand-edit them. The Makefile's `GENERATED_HEADERS` **no longer names any of them**: `init_halo_properties.inc` and `init_galaxy_properties.inc` were verified orphaned on both ends (no generator writes them, no C source includes them), removed from `GENERATED_HEADERS`, and moved to `archive/orphaned-generated/` on 2026-08-13.
 
 Generation is hash-gated: the Makefile re-runs the generator every build (stamp + FORCE), and the generator itself no-ops when the MD5 of generator+YAMLs matches `build/generated/property_hash.txt`.
 
@@ -135,8 +135,8 @@ EOF
 grep -n "reset_galaxy_snapshot_accumulators" src/core/inheritance.c  # reset call site (per snapshot)
 sed -n '/void reset_galaxy_snapshot_accumulators/,/^}/p' src/include/generated/property_defs.h
 sed -n '/^required_inputs/,/^halo_properties/p' src/core/core_properties.yaml   # core roles
-ls src/include/generated/                                            # generated set incl. stale legacy trio
-grep -n "init_halo_properties\|init_galaxy_properties" Makefile      # legacy refs still present?
+ls src/include/generated/                                            # generated set incl. stale legacy reset_ file
+grep -n "init_halo_properties\|init_galaxy_properties" Makefile      # expect no hits since 2026-08-13
 ```
 
 The schema tables and unit-label list drift only with `scripts/generate_properties.py`; the reset-at-inheritance semantics is core architecture (re-check the call site if `src/core/inheritance.c` changes); the precision policy is doctrine anchored in verified history.

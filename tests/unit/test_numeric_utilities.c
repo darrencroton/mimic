@@ -21,6 +21,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <limits.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 /* Test statistics (required for TEST_RUN macro) */
 static int passed = 0;
@@ -277,6 +280,88 @@ int test_consistency(void) {
 }
 
 /**
+ * @brief   Run narrow_int64_to_int_checked(value, "test") in a child process.
+ * @return  0 if the child exited normally (status set to its exit code via
+ *          @p exit_code), -1 if fork/wait failed or the child was signalled.
+ */
+static int run_narrow_in_child(int64_t value, int *exit_code) {
+  fflush(NULL);
+
+  pid_t pid = fork();
+  if (pid < 0) {
+    return -1;
+  }
+
+  if (pid == 0) {
+    (void)freopen("/dev/null", "w", stdout);
+    (void)freopen("/dev/null", "w", stderr);
+    initialize_error_handling(LOG_LEVEL_WARNING, NULL);
+    int result = narrow_int64_to_int_checked(value, "test narrow");
+    (void)result;
+    _exit(0);
+  }
+
+  int status;
+  if (waitpid(pid, &status, 0) < 0) {
+    return -1;
+  }
+  if (WIFSIGNALED(status)) {
+    return -1;
+  }
+
+  *exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+  return 0;
+}
+
+/**
+ * @test    test_narrow_int64_returns_value_within_range
+ * @brief   Values inside [INT_MIN, INT_MAX], including both boundaries, pass through unchanged
+ *
+ * Exercised in-process (no fork) because these calls must NOT fatal; proves
+ * the helper is not tautologically fatal on every input.
+ */
+int test_narrow_int64_returns_value_within_range(void) {
+  initialize_error_handling(LOG_LEVEL_WARNING, NULL);
+
+  TEST_ASSERT(narrow_int64_to_int_checked(42, "mid-range") == 42,
+              "mid-range value should pass through");
+  TEST_ASSERT(narrow_int64_to_int_checked((int64_t)INT_MAX, "INT_MAX boundary") == INT_MAX,
+              "INT_MAX boundary should pass through, not fatal");
+  TEST_ASSERT(narrow_int64_to_int_checked((int64_t)INT_MIN, "INT_MIN boundary") == INT_MIN,
+              "INT_MIN boundary should pass through, not fatal");
+
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_narrow_int64_fatals_above_int_max
+ * @brief   The first value one past INT_MAX fatals rather than truncating
+ */
+int test_narrow_int64_fatals_above_int_max(void) {
+  int exit_code = -1;
+  int rc = run_narrow_in_child((int64_t)INT_MAX + 1, &exit_code);
+
+  TEST_ASSERT(rc == 0, "above-INT_MAX child should not crash");
+  TEST_ASSERT(exit_code != 0, "narrowing INT_MAX+1 should fatal (nonzero exit)");
+
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_narrow_int64_fatals_below_int_min
+ * @brief   The first value one below INT_MIN fatals rather than truncating
+ */
+int test_narrow_int64_fatals_below_int_min(void) {
+  int exit_code = -1;
+  int rc = run_narrow_in_child((int64_t)INT_MIN - 1, &exit_code);
+
+  TEST_ASSERT(rc == 0, "below-INT_MIN child should not crash");
+  TEST_ASSERT(exit_code != 0, "narrowing INT_MIN-1 should fatal (nonzero exit)");
+
+  return TEST_PASS;
+}
+
+/**
  * @brief   Main test runner
  *
  * Executes all test cases and reports results.
@@ -298,6 +383,9 @@ int main(void) {
   TEST_RUN(test_range_checking);
   TEST_RUN(test_edge_cases);
   TEST_RUN(test_consistency);
+  TEST_RUN(test_narrow_int64_returns_value_within_range);
+  TEST_RUN(test_narrow_int64_fatals_above_int_max);
+  TEST_RUN(test_narrow_int64_fatals_below_int_min);
 
   /* Print summary and return result */
   TEST_SUMMARY();

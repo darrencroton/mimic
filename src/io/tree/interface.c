@@ -33,6 +33,7 @@
 #include "galaxy_pool.h"
 #include "globals.h"
 #include "types.h"
+#include "numeric.h"
 #include "proto.h"
 #include "tree/interface.h"
 #include "tree/reader.h"

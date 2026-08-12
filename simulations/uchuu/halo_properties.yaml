@@ -96,7 +96,7 @@ halo_properties:
     output: true
     init_source: copy_from_tree_array
     output_source: copy_direct_array
-    range: [-20.0, 20.0]
+    range: [-5000.0, 5000.0]  # J/Mvir grows as Mvir^(2/3); sized for this box's ~2e15 Msun/h clusters
 
   - name: VelDisp
     type: float

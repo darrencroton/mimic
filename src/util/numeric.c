@@ -11,6 +11,8 @@
 #include "numeric.h"
 #include "constants.h"
 #include "error.h"
+#include <inttypes.h>
+#include <limits.h>
 #include <math.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -67,4 +69,12 @@ double safe_div(double numerator, double denominator, double default_value) {
     return default_value;
   }
   return numerator / denominator;
+}
+
+int narrow_int64_to_int_checked(int64_t value, const char *context) {
+  if (value < INT_MIN || value > INT_MAX) {
+    FATAL_ERROR("%s: value %" PRId64 " does not fit in a 32-bit int (range [%d, %d])", context,
+                value, INT_MIN, INT_MAX);
+  }
+  return (int)value;
 }

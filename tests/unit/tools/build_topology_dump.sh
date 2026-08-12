@@ -100,7 +100,11 @@ UTIL_SRCS="${SRC_DIR}/util/memory.c ${SRC_DIR}/util/error.c ${SRC_DIR}/util/nume
 # output writer, and registers no physics modules. Excluding them keeps the
 # harness's dependency surface exactly as small as what it actually calls.
 CORE_SRCS="${SRC_DIR}/core/allvars.c ${SRC_DIR}/core/read_parameter_file.c ${SRC_DIR}/core/init.c ${SRC_DIR}/core/galaxy_pool.c"
-IO_SRCS="${SRC_DIR}/io/tree/interface.c ${SRC_DIR}/io/tree/binary.c ${SRC_DIR}/io/tree/registry.c ${SRC_DIR}/io/tree/chunk_plan.c ${SRC_DIR}/io/tree/read_ctrees_ascii.c ${SRC_DIR}/io/tree/ctrees/ctrees_utils.c ${SRC_DIR}/io/tree/ctrees/forest_utils.c"
+# io/snapshot/registry.c is built without -DHDF5: read_parameter_file.c calls
+# snapshot_reader_lookup() when resolving tree_type against both registries, but
+# this harness reads tree-ordered input only, so an empty snapshot table is
+# correct and avoids pulling in the snapshot reader.
+IO_SRCS="${SRC_DIR}/io/tree/interface.c ${SRC_DIR}/io/tree/binary.c ${SRC_DIR}/io/tree/registry.c ${SRC_DIR}/io/tree/chunk_plan.c ${SRC_DIR}/io/tree/read_ctrees_ascii.c ${SRC_DIR}/io/tree/ctrees/ctrees_utils.c ${SRC_DIR}/io/tree/ctrees/forest_utils.c ${SRC_DIR}/io/snapshot/registry.c"
 if [ "$HDF5_AVAILABLE" = "1" ]; then
     IO_SRCS="${IO_SRCS} ${SRC_DIR}/io/tree/hdf5.c ${SRC_DIR}/io/tree/read_ctrees_hdf5.c"
 fi

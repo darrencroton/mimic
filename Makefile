@@ -402,8 +402,6 @@ endif
 GEN_DIR := $(SRC_DIR)/include/generated
 GENERATED_HEADERS := \
     $(GEN_DIR)/property_defs.h \
-    $(GEN_DIR)/init_halo_properties.inc \
-    $(GEN_DIR)/init_galaxy_properties.inc \
     $(GEN_DIR)/copy_to_output.inc \
     $(GEN_DIR)/hdf5_field_count.inc \
     $(GEN_DIR)/hdf5_field_definitions.inc \

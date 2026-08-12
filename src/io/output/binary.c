@@ -20,6 +20,7 @@
 #include "globals.h"
 #include "types.h"
 #include "error.h"
+#include "numeric.h"
 #include "output/binary.h"
 #include "output/util.h"
 #include "proto.h"

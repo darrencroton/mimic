@@ -210,11 +210,10 @@ static inline int yaml_line_starts_with_key(const char *line, const char *key) {
  *   - input.processing_order forced to tree_ordered and input.tree_type/
  *     tree_name forced to a registered tree reader -- never opened, since
  *     these tests only reach the config-time reader lookup, not the driver;
- *   - simulation.unique_galaxy_id_multiplier forced to the tree-ordered
- *     encoder's hard-coded TREE_MUL_FAC, since the tree-ordered branch these
- *     overrides now route through hard-rejects any other value, and nothing
- *     requires a snapshot-ordered package's declared multiplier (validated
- *     instead against its own identity bounds) to equal TREE_MUL_FAC.
+ *   - simulation.unique_galaxy_id_multiplier forced to TREE_MUL_FAC, the
+ *     default these config-time tests expect. The encoder takes the configured
+ *     multiplier and no branch rejects other values, so this pins a valid
+ *     default for determinism rather than satisfying a rejection.
  * Both overrides are scoped to the section they belong to (tracked while
  * scanning, not matched as a bare substring), so a same-named key belonging
  * to a different section is never touched. For every other package this

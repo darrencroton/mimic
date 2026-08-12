@@ -64,8 +64,9 @@ void output_increment_halo_counters_checked(int filenr, int snap_index, int snap
  * active processing order and constructs the matching source: the tree-side
  * construction wraps the configured tree reader's partition hooks (including
  * a prepare_run/teardown_run pass-through); the snapshot side is the trivial
- * single-partition shape (count 1, output id 0, always exists, format name
- * "snapshot_hdf5").
+ * single-partition shape (count 1, output id 0, always exists), taking the
+ * format name from the resolved snapshot reader so a second registered reader
+ * records its own name in provenance.
  */
 struct OutputPartitionSource {
   /** Number of output partitions this run produces. */

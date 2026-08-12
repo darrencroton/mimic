@@ -48,6 +48,7 @@
 #include "globals.h"
 #include "inheritance.h"
 #include "memory.h"
+#include "numeric.h"
 #include "output_buffer.h"
 #include "progress.h"
 #include "proto.h"

@@ -11,7 +11,7 @@ Define how physics modules operate on a whole co-resident snapshot population in
 
 ## Scope and Independent Value
 
-Single-node only. Shin-Uchuu's peak snapshot is expected to fit on the current hardware — though the peak is **pending recomputation** now that the driver retains two complete raw slabs (`POST-PHASE-5-WORK.md` §2.2) — so every method above should be scientifically usable without MPI — this plan delivers value on its own. The first concrete candidate is a true global SHAM module (the existing `sham_assign_stellar_mass` is per-galaxy from `ShamVpeak` and never needed the co-resident population).
+Single-node only. Shin-Uchuu's peak snapshot is **expected** to fit on the current hardware — **recomputed 2026-08-13 from measured struct sizes at ≈317 GB against 512 GB installed** for the `sage16` production configuration, clear of the 85% fallback trigger even with the driver retaining two complete raw slabs, though the galaxy-pool high-water is still unmeasured and the rehearsal is the binding check (`POST-PHASE-5-WORK.md` §2.2) — so every method above should be scientifically usable without MPI — this plan delivers value on its own. The first concrete candidate is a true global SHAM module (the existing `sham_assign_stellar_mass` is per-galaxy from `ShamVpeak` and never needed the co-resident population).
 
 ## Relationship to Other Plans
 

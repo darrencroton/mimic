@@ -75,7 +75,4 @@ void snapshot_gather_progenitor_galaxies(struct HaloInputView view,
                                          int first_occupied,
                                          struct InheritanceProgenitorGalaxy *progenitors);
 
-/* Output-width narrowing (src/core/output_buffer.c) */
-int narrow_int64_to_int_checked(int64_t value, const char *context);
-
 #endif /* #ifndef CORE_PROTO_H */
