@@ -122,7 +122,6 @@ PROVENANCE_ATTR_PATHS = {
     "build_date": ("/RunProperties/Version",),
     "RunEndTime": ("/RunProperties",),
 }
-EXCLUDED_PROVENANCE_ATTRS = tuple(PROVENANCE_ATTR_PATHS)
 
 #: The four permitted HDF5 metadata deltas between the pre-Phase-5 baseline and
 #: HEAD. Every one of them must be observed; anything else is a failure.
@@ -719,17 +718,22 @@ def stage_build_worktrees():
 
 
 def read_run_file_output(run_file: Path) -> tuple[str, str]:
-    """Return (output_directory, output_filename) as the run file declares them."""
-    directory = filename = None
-    for line in run_file.read_text().splitlines():
-        stripped = line.strip()
-        if stripped.startswith("output_directory:"):
-            directory = stripped.split(":", 1)[1].strip()
-        elif stripped.startswith("output_filename:"):
-            filename = stripped.split(":", 1)[1].strip()
-    if directory is None or filename is None:
-        raise AssertionError(f"{run_file}: output_directory/output_filename not found")
-    return directory, filename
+    """Return (output_directory, output_filename) as the run file declares them.
+
+    Parsed with the same ``yaml.safe_load`` the rest of the gate uses on this
+    file (`assert_snapshot_run_file_diff`, `requested_snapshots`), rather than a
+    second, independent reading of it: one parse of a run file, not two that
+    could silently disagree.
+    """
+    config = yaml.safe_load(run_file.read_text()) or {}
+    output = config.get("output") or {}
+    directory = output.get("output_directory")
+    filename = output.get("output_filename")
+    if directory is None:
+        raise AssertionError(f"{run_file}: output.output_directory not found")
+    if filename is None:
+        raise AssertionError(f"{run_file}: output.output_filename not found")
+    return str(directory), str(filename)
 
 
 def dynamic_variant(run_file: Path, scratch: Path) -> Path:
@@ -1582,7 +1586,7 @@ def stage_tree_path_preservation():
         detail = "\n".join(f"    {delta}" for delta in unclassified[:20])
         raise AssertionError(
             f"{len(unclassified)} HDF5 metadata difference(s) beyond the four permitted deltas "
-            f"and the five excluded provenance attributes:\n{detail}"
+            f"and the {len(PROVENANCE_ATTR_PATHS)} excluded provenance attributes:\n{detail}"
         )
     missing = [name for name, count in observed.items() if count == 0]
     if missing:

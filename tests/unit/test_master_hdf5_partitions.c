@@ -10,6 +10,7 @@
 #include "output/hdf5.h"
 #include "output/hdf5_internal.h"
 #include "output/util.h"
+#include "snapshot/reader.h"
 #include "tree/reader.h"
 
 #include <hdf5.h>
@@ -367,6 +368,15 @@ static int test_per_file_master_links_match_lhalo_layout(void) {
   return TEST_PASS;
 }
 
+/* Minimal resolved snapshot reader for the partition-source test: only .name is
+ * consulted by snapshot_output_partition_source(), which takes the format name
+ * from the resolved reader (as config validation guarantees one exists for a
+ * snapshot-ordered run). */
+static const struct SnapshotReader SnapshotSourceReader = {
+    .name = "snapshot_hdf5",
+    .processing_order = INPUT_PROCESSING_ORDER_SNAPSHOT,
+};
+
 /**
  * @test    test_snapshot_output_partition_source_is_trivial_single_partition
  * @brief   The snapshot-ordered output partition source is the frozen single-partition shape
@@ -374,6 +384,9 @@ static int test_per_file_master_links_match_lhalo_layout(void) {
 static int test_snapshot_output_partition_source_is_trivial_single_partition(void) {
   memset(&MimicConfig, 0, sizeof(MimicConfig));
   MimicConfig.ProcessingOrder = (int)INPUT_PROCESSING_ORDER_SNAPSHOT;
+  /* A snapshot-ordered configuration always carries a resolved snapshot reader
+   * (config validation rejects it otherwise); the source reads its name. */
+  MimicConfig.snapshot_reader = &SnapshotSourceReader;
 
   struct OutputPartitionSource source = get_output_partition_source();
 

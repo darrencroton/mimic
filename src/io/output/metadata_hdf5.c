@@ -90,29 +90,59 @@ static void write_version_metadata(hid_t parent_group_id) {
 
   attribute_id =
       H5Acreate(version_group_id, "git_commit", str_type, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
-  H5Awrite(attribute_id, str_type, GIT_COMMIT);
+  if (attribute_id < 0) {
+    FATAL_ERROR("Failed to create git_commit attribute in HDF5 output");
+  }
+  status = H5Awrite(attribute_id, str_type, GIT_COMMIT);
+  if (status < 0) {
+    FATAL_ERROR("Failed to write git_commit attribute to HDF5 output");
+  }
   H5Aclose(attribute_id);
 
   attribute_id =
       H5Acreate(version_group_id, "git_branch", str_type, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
-  H5Awrite(attribute_id, str_type, GIT_BRANCH);
+  if (attribute_id < 0) {
+    FATAL_ERROR("Failed to create git_branch attribute in HDF5 output");
+  }
+  status = H5Awrite(attribute_id, str_type, GIT_BRANCH);
+  if (status < 0) {
+    FATAL_ERROR("Failed to write git_branch attribute to HDF5 output");
+  }
   H5Aclose(attribute_id);
 
   attribute_id =
       H5Acreate(version_group_id, "git_date", str_type, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
-  H5Awrite(attribute_id, str_type, GIT_DATE);
+  if (attribute_id < 0) {
+    FATAL_ERROR("Failed to create git_date attribute in HDF5 output");
+  }
+  status = H5Awrite(attribute_id, str_type, GIT_DATE);
+  if (status < 0) {
+    FATAL_ERROR("Failed to write git_date attribute to HDF5 output");
+  }
   H5Aclose(attribute_id);
 
   attribute_id =
       H5Acreate(version_group_id, "build_date", str_type, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
-  H5Awrite(attribute_id, str_type, BUILD_DATE);
+  if (attribute_id < 0) {
+    FATAL_ERROR("Failed to create build_date attribute in HDF5 output");
+  }
+  status = H5Awrite(attribute_id, str_type, BUILD_DATE);
+  if (status < 0) {
+    FATAL_ERROR("Failed to write build_date attribute to HDF5 output");
+  }
   H5Aclose(attribute_id);
 
   /* Increment hdf5_format_version when the output schema changes. */
   const char *hdf5_format_version = "1.2";
   attribute_id = H5Acreate(version_group_id, "hdf5_format_version", str_type, dataspace_id,
                            H5P_DEFAULT, H5P_DEFAULT);
-  H5Awrite(attribute_id, str_type, hdf5_format_version);
+  if (attribute_id < 0) {
+    FATAL_ERROR("Failed to create hdf5_format_version attribute in HDF5 output");
+  }
+  status = H5Awrite(attribute_id, str_type, hdf5_format_version);
+  if (status < 0) {
+    FATAL_ERROR("Failed to write hdf5_format_version attribute to HDF5 output");
+  }
   H5Aclose(attribute_id);
 
   H5Sclose(dataspace_id);
@@ -560,6 +590,9 @@ void store_run_properties(hid_t master_file_id) {
   /* Create the group to hold the run properties */
   props_group_id =
       H5Gcreate(master_file_id, "RunProperties", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+  if (props_group_id < 0) {
+    FATAL_ERROR("Failed to create RunProperties group in HDF5 output");
+  }
 
   /* Set up common data structures for attributes */
   dims = 1;
@@ -576,28 +609,52 @@ void store_run_properties(hid_t master_file_id) {
     case INT:
       attribute_id = H5Acreate(props_group_id, config_params[i].name, H5T_NATIVE_INT, dataspace_id,
                                H5P_DEFAULT, H5P_DEFAULT);
-      H5Awrite(attribute_id, H5T_NATIVE_INT, config_params[i].address);
+      if (attribute_id < 0) {
+        FATAL_ERROR("Failed to create %s attribute in HDF5 output", config_params[i].name);
+      }
+      status = H5Awrite(attribute_id, H5T_NATIVE_INT, config_params[i].address);
+      if (status < 0) {
+        FATAL_ERROR("Failed to write %s attribute to HDF5 output", config_params[i].name);
+      }
       H5Aclose(attribute_id);
       break;
 
     case CONFIG_PARAM_INT64:
       attribute_id = H5Acreate(props_group_id, config_params[i].name, H5T_NATIVE_INT64,
                                dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
-      H5Awrite(attribute_id, H5T_NATIVE_INT64, config_params[i].address);
+      if (attribute_id < 0) {
+        FATAL_ERROR("Failed to create %s attribute in HDF5 output", config_params[i].name);
+      }
+      status = H5Awrite(attribute_id, H5T_NATIVE_INT64, config_params[i].address);
+      if (status < 0) {
+        FATAL_ERROR("Failed to write %s attribute to HDF5 output", config_params[i].name);
+      }
       H5Aclose(attribute_id);
       break;
 
     case DOUBLE:
       attribute_id = H5Acreate(props_group_id, config_params[i].name, H5T_NATIVE_DOUBLE,
                                dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
-      H5Awrite(attribute_id, H5T_NATIVE_DOUBLE, config_params[i].address);
+      if (attribute_id < 0) {
+        FATAL_ERROR("Failed to create %s attribute in HDF5 output", config_params[i].name);
+      }
+      status = H5Awrite(attribute_id, H5T_NATIVE_DOUBLE, config_params[i].address);
+      if (status < 0) {
+        FATAL_ERROR("Failed to write %s attribute to HDF5 output", config_params[i].name);
+      }
       H5Aclose(attribute_id);
       break;
 
     case STRING:
       attribute_id = H5Acreate(props_group_id, config_params[i].name, str_type, dataspace_id,
                                H5P_DEFAULT, H5P_DEFAULT);
-      H5Awrite(attribute_id, str_type, config_params[i].address);
+      if (attribute_id < 0) {
+        FATAL_ERROR("Failed to create %s attribute in HDF5 output", config_params[i].name);
+      }
+      status = H5Awrite(attribute_id, str_type, config_params[i].address);
+      if (status < 0) {
+        FATAL_ERROR("Failed to write %s attribute to HDF5 output", config_params[i].name);
+      }
       H5Aclose(attribute_id);
       break;
     }
@@ -607,7 +664,13 @@ void store_run_properties(hid_t master_file_id) {
   copy_hdf5_string(timestep_scheme, timestep_scheme_name(MimicConfig.TimestepScheme));
   attribute_id =
       H5Acreate(props_group_id, "TimestepScheme", str_type, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
-  H5Awrite(attribute_id, str_type, timestep_scheme);
+  if (attribute_id < 0) {
+    FATAL_ERROR("Failed to create TimestepScheme attribute in HDF5 output");
+  }
+  status = H5Awrite(attribute_id, str_type, timestep_scheme);
+  if (status < 0) {
+    FATAL_ERROR("Failed to write TimestepScheme attribute to HDF5 output");
+  }
   H5Aclose(attribute_id);
 
   /* Record the resolved output partition source's format name, never the
@@ -616,18 +679,30 @@ void store_run_properties(hid_t master_file_id) {
   const char *tree_type_str = partition_source.format_name;
   attribute_id =
       H5Acreate(props_group_id, "TreeType", str_type, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
-  H5Awrite(attribute_id, str_type, tree_type_str);
+  if (attribute_id < 0) {
+    FATAL_ERROR("Failed to create TreeType attribute in HDF5 output");
+  }
+  status = H5Awrite(attribute_id, str_type, tree_type_str);
+  if (status < 0) {
+    FATAL_ERROR("Failed to write TreeType attribute to HDF5 output");
+  }
   H5Aclose(attribute_id);
 
   /* Runtime metadata */
   attribute_id =
       H5Acreate(props_group_id, "NCores", H5T_NATIVE_INT, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
+  if (attribute_id < 0) {
+    FATAL_ERROR("Failed to create NCores attribute in HDF5 output");
+  }
 #ifdef MPI
-  H5Awrite(attribute_id, H5T_NATIVE_INT, &NTask);
+  status = H5Awrite(attribute_id, H5T_NATIVE_INT, &NTask);
 #else
   int ncores = 1;
-  H5Awrite(attribute_id, H5T_NATIVE_INT, &ncores);
+  status = H5Awrite(attribute_id, H5T_NATIVE_INT, &ncores);
 #endif
+  if (status < 0) {
+    FATAL_ERROR("Failed to write NCores attribute to HDF5 output");
+  }
   H5Aclose(attribute_id);
 
   time(&t);
@@ -636,14 +711,26 @@ void store_run_properties(hid_t master_file_id) {
   strftime(end_time, sizeof(end_time), "%Y-%m-%dT%H:%M:%S", local);
   attribute_id =
       H5Acreate(props_group_id, "RunEndTime", str_type, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
-  H5Awrite(attribute_id, str_type, end_time);
+  if (attribute_id < 0) {
+    FATAL_ERROR("Failed to create RunEndTime attribute in HDF5 output");
+  }
+  status = H5Awrite(attribute_id, str_type, end_time);
+  if (status < 0) {
+    FATAL_ERROR("Failed to write RunEndTime attribute to HDF5 output");
+  }
   H5Aclose(attribute_id);
 
   /* Add input simulation info if defined */
 #ifdef INPUTSIM
   attribute_id = H5Acreate(props_group_id, "InputSimulation", str_type, dataspace_id, H5P_DEFAULT,
                            H5P_DEFAULT);
-  H5Awrite(attribute_id, str_type, INPUTSIM);
+  if (attribute_id < 0) {
+    FATAL_ERROR("Failed to create InputSimulation attribute in HDF5 output");
+  }
+  status = H5Awrite(attribute_id, str_type, INPUTSIM);
+  if (status < 0) {
+    FATAL_ERROR("Failed to write InputSimulation attribute to HDF5 output");
+  }
   H5Aclose(attribute_id);
 #endif
 

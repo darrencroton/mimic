@@ -146,8 +146,7 @@ class RunIndex:
     on demand, so neither run is ever held whole.
     """
 
-    def __init__(self, spec, files, signature, dtype, layout):
-        self.spec = spec
+    def __init__(self, files, signature, dtype, layout):
         self.files = files
         self.signature = signature
         self.dtype = dtype
@@ -157,9 +156,6 @@ class RunIndex:
     @property
     def snapshots(self):
         return set(self.layout)
-
-    def rows(self, snap):
-        return sum(rows for _, rows in self.layout.get(snap, ()))
 
 
 def scan_run(spec):
@@ -204,7 +200,7 @@ def scan_run(spec):
     if ID_FIELD not in [name for name, _, _ in signature]:
         raise ComparisonError(f"{spec}: Galaxies records carry no {ID_FIELD} field")
 
-    return RunIndex(spec, files, signature, dtype, layout)
+    return RunIndex(files, signature, dtype, layout)
 
 
 def read_snapshot(index, snap, field=None):

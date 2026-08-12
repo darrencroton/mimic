@@ -86,10 +86,16 @@ void prep_hdf5_file(char *fname) {
 
   DEBUG_LOG("Creating new HDF5 file '%s'", fname);
   file_id = H5Fcreate(fname, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
+  if (file_id < 0) {
+    FATAL_ERROR("Failed to create HDF5 file '%s'", fname);
+  }
 
   for (i_snap = 0; i_snap < MimicConfig.NOUT; i_snap++) {
     sprintf(target_group, "Snap%03d", MimicConfig.ListOutputSnaps[i_snap]);
     snap_group_id = H5Gcreate(file_id, target_group, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+    if (snap_group_id < 0) {
+      FATAL_ERROR("Failed to create group '%s' in HDF5 file '%s'", target_group, fname);
+    }
 
     // Make the table. Compression (gzip) is off by default and enabled at
     // runtime via --compress; it trades CPU for disk and changes only the
@@ -105,7 +111,10 @@ void prep_hdf5_file(char *fname) {
     H5Gclose(snap_group_id);
   }
 
-  H5Fclose(file_id);
+  status = H5Fclose(file_id);
+  if (status < 0) {
+    FATAL_ERROR("Failed to close HDF5 file '%s'", fname);
+  }
 }
 
 /**
@@ -200,14 +209,27 @@ void write_hdf5_attrs(int n, int filenr) {
 
   sprintf(target_group, "Snap%03d", MimicConfig.ListOutputSnaps[n]);
   group_id = H5Gopen(HDF5_current_file_id, target_group, H5P_DEFAULT);
+  if (group_id < 0) {
+    FATAL_ERROR("Failed to open HDF5 group '%s' for writing attributes (filenr %d)", target_group,
+                filenr);
+  }
   dataset_id = H5Dopen(group_id, "Galaxies", H5P_DEFAULT);
+  if (dataset_id < 0) {
+    FATAL_ERROR("Failed to open Galaxies dataset for writing attributes (filenr %d)", filenr);
+  }
 
   dims = 1;
   dataspace_id = H5Screate_simple(1, &dims, NULL);
+  if (dataspace_id < 0) {
+    FATAL_ERROR("Failed to create dataspace for attributes in HDF5 file (filenr %d)", filenr);
+  }
 
   if (!snapshot_run) {
     attribute_id =
         H5Acreate(dataset_id, "Ntrees", H5T_NATIVE_INT, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
+    if (attribute_id < 0) {
+      FATAL_ERROR("Failed to create Ntrees attribute in HDF5 file (filenr %d)", filenr);
+    }
     status = H5Awrite(attribute_id, H5T_NATIVE_INT, &Ntrees);
     if (status < 0) {
       FATAL_ERROR("Failed to write Ntrees attribute to HDF5 file (filenr %d)", filenr);
@@ -217,6 +239,9 @@ void write_hdf5_attrs(int n, int filenr) {
 
   attribute_id = H5Acreate(dataset_id, "TotHalosPerSnap", H5T_NATIVE_INT64, dataspace_id,
                            H5P_DEFAULT, H5P_DEFAULT);
+  if (attribute_id < 0) {
+    FATAL_ERROR("Failed to create TotHalosPerSnap attribute in HDF5 file (filenr %d)", filenr);
+  }
   status = H5Awrite(attribute_id, H5T_NATIVE_INT64, &TotHalosPerSnap[n]);
   if (status < 0) {
     FATAL_ERROR("Failed to write TotHalosPerSnap attribute to HDF5 file (filenr %d)", filenr);
@@ -240,8 +265,17 @@ void write_hdf5_attrs(int n, int filenr) {
                   (int)dims, MimicConfig.ListOutputSnaps[n], filenr);
     }
     dataspace_id = H5Screate_simple(1, &dims, NULL);
+    if (dataspace_id < 0) {
+      FATAL_ERROR("Failed to create dataspace for TreeHalosPerSnap dataset for snapshot %d "
+                  "(filenr %d)",
+                  MimicConfig.ListOutputSnaps[n], filenr);
+    }
     dataset_id = H5Dcreate(group_id, "TreeHalosPerSnap", H5T_NATIVE_INT, dataspace_id, H5P_DEFAULT,
                            H5P_DEFAULT, H5P_DEFAULT);
+    if (dataset_id < 0) {
+      FATAL_ERROR("Failed to create TreeHalosPerSnap dataset for snapshot %d (filenr %d)",
+                  MimicConfig.ListOutputSnaps[n], filenr);
+    }
 
     write_description_attr(dataset_id, "Number of halos per merger tree at this snapshot");
 

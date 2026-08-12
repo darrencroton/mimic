@@ -9,6 +9,14 @@
  * pool grows and across resets. Reset rewinds to the first chunk and reuses the
  * existing chunks for the next tree; destroy frees them all at shutdown.
  *
+ * New-chunk sizing is geometric, not fixed: each chunk allocated to extend the
+ * pool doubles the previous chunk_capacity, clamped to GALAXY_POOL_MAX_CHUNK
+ * (growth is logarithmic until the cap, then linear in far larger steps). This
+ * keeps the number of tracked allocator blocks per pool small — well under 200
+ * at hundreds of millions of galaxies — which matters because every chunk is
+ * one mymalloc_cat() block and the allocator FATALs once its block table fills
+ * (see DEFAULT_MAX_MEMORY_BLOCKS in memory.h).
+ *
  * This mirrors the run-persistent, grow-to-high-water scratch idiom already used
  * for the inheritance gather buffers (see ProgenitorScratch in build_model.c).
  */
@@ -20,7 +28,15 @@
 #include "types.h" /* struct GalaxyData */
 
 #define GALAXY_POOL_MIN_CHUNK 1024     /* smallest chunk we bother allocating */
-#define GALAXY_POOL_DEFAULT_CHUNK 8192 /* ~1.1 MB of GalaxyData per chunk */
+#define GALAXY_POOL_DEFAULT_CHUNK 8192 /* first chunk's size when no larger hint is given */
+
+/* Upper bound on chunk_capacity (2^22 galaxies; ~700 MB of GalaxyData at 176 B/
+ * galaxy). Chunks grow geometrically to keep the tracked-block count small, but
+ * an unbounded chunk would make a single mymalloc_cat() call arbitrarily large;
+ * this caps that while keeping the block count well under the allocator's
+ * 50,000-block table even for a ~315M-galaxy generation (well under 200 chunks
+ * per pool). */
+#define GALAXY_POOL_MAX_CHUNK 4194304
 
 struct GalaxyChunk {
   struct GalaxyChunk *next;
@@ -51,8 +67,14 @@ static struct GalaxyChunk *new_chunk(int capacity) {
 struct GalaxyPool *galaxy_pool_create(int initial_capacity) {
   struct GalaxyPool *pool = mymalloc_cat(sizeof(struct GalaxyPool), MEM_GALAXIES);
 
-  pool->chunk_capacity =
+  int capacity =
       initial_capacity > GALAXY_POOL_MIN_CHUNK ? initial_capacity : GALAXY_POOL_DEFAULT_CHUNK;
+  /* Clamp a caller-supplied hint the same way grown chunks are clamped, so
+   * chunk_capacity never starts above the cap that galaxy_pool_alloc()
+   * maintains. */
+  if (capacity > GALAXY_POOL_MAX_CHUNK)
+    capacity = GALAXY_POOL_MAX_CHUNK;
+  pool->chunk_capacity = capacity;
   pool->head = new_chunk(pool->chunk_capacity);
   pool->current = pool->head;
   return pool;
@@ -67,6 +89,17 @@ struct GalaxyData *galaxy_pool_alloc(struct GalaxyPool *pool) {
       pool->current = pool->current->next;
       pool->current->used = 0;
     } else {
+      /* Grow geometrically before allocating the new chunk: double
+       * chunk_capacity, clamped to GALAXY_POOL_MAX_CHUNK. This doubling cannot
+       * overflow `int` -- chunk_capacity is always <= GALAXY_POOL_MAX_CHUNK
+       * (2^22) on entry, by this same clamp and by the clamp in
+       * galaxy_pool_create(), so the doubled value is at most 2^23, far below
+       * INT_MAX -- so no runtime overflow check is needed. */
+      int new_capacity = pool->chunk_capacity * 2;
+      if (new_capacity > GALAXY_POOL_MAX_CHUNK)
+        new_capacity = GALAXY_POOL_MAX_CHUNK;
+      pool->chunk_capacity = new_capacity;
+
       struct GalaxyChunk *chunk = new_chunk(pool->chunk_capacity);
       pool->current->next = chunk;
       pool->current = chunk;

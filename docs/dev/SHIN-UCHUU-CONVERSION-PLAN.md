@@ -328,7 +328,7 @@ format_version and links_adjacent.
 Release snap_N arrays; retain snap_N.idx until snap_N+1 completes.
 ```
 
-**Rank pass (between Phase 2 and Phase 3, or fused into Phase 3 bookkeeping):** ranks are per-forest over all snapshots, so they need a forest-major view once. For ordinary forests this is cheap grouping. For the super-forest (~5–9 billion halos), it is one large deterministic sort of ~(scale, upid, pid, id, slab-slot) keys — ~150–250 GB of key data: in-RAM on this machine or a chunked external merge sort on scratch. It runs once, its output is the `HaloRankInForest` column plus the run-scoped `max_halo_rank_in_forest`/`n_forests_total` header values, and it is the direct input to setting the shin-uchuu identity multiplier (see below).
+**Rank pass (between Phase 2 and Phase 3, or fused into Phase 3 bookkeeping):** ranks are per-forest over all snapshots, so they need a forest-major view once. For ordinary forests this is cheap grouping. For the super-forest (~5–9 billion halos), it is one large deterministic sort of ~(scale, upid, pid, id, slab-slot) keys — ~150–250 GB of key data: in-RAM on this machine or a chunked external merge sort on scratch. **Design figure, not implemented:** the shipped `compute_identity()` (`scripts/convert/links.py`) instead concatenates and lexsorts the key columns over *all* snapshots globally (~600–720 GB at production scale) — see the risk table and the "Pre-conversion obligation" subsection. It runs once, its output is the `HaloRankInForest` column plus the run-scoped `max_halo_rank_in_forest`/`n_forests_total` header values, and it is the direct input to setting the shin-uchuu identity multiplier (see below).
 
 **Memory at peak** (snap 68 processing, which loads snap 68 + snap 69 index):
 - snap_68 sorted data: ~33 GB
@@ -336,7 +336,7 @@ Release snap_N arrays; retain snap_N.idx until snap_N+1 completes.
 - snap_68 working arrays (sort keys, resolved upid, groupby, progenitor inversion): ~2× data ≈ 66 GB
 - snap_69 FirstProgenitor pending buffer: 315M × 4 bytes = 1.3 GB
 - HDF5 write buffer: ~2 GB
-- **Realistic peak: ~140–170 GB** — comfortable within 512 GB. The super-forest rank sort peaks separately at ~150–250 GB, also within budget.
+- **Realistic peak: ~140–170 GB** — comfortable within 512 GB. The super-forest rank sort peaks separately at ~150–250 GB *as designed*, also within budget — but the shipped rank pass does not implement that design (it sorts all snapshots globally, ~600–720 GB; see the risk table and the "Pre-conversion obligation" subsection).
 
 ### Phase 4: Validation
 
@@ -365,7 +365,7 @@ Release snap_N arrays; retain snap_N.idx until snap_N+1 completes.
 | Phase 1 scatter | ~15–25 GB | Bounded pool × per-worker parse state + write buffers |
 | Phase 1 concat | ~5 GB | Sequential cat; I/O-bound |
 | Phase 2 sort | ~74 GB (peak, snap 69) | Data + sort temporaries |
-| Rank pass (super-forest) | ~150–250 GB | One-time key sort; chunked external sort as fallback |
+| Rank pass (super-forest) | ~150–250 GB (design; shipped code sorts all snapshots globally, ~600–720 GB — see "Pre-conversion obligation") | One-time key sort; chunked external sort as fallback |
 | Phase 3 remap | ~140–170 GB (peak, snap 68+69) | Two snapshots + working arrays + pending buffer |
 | Phase 4 validate | ~40 GB | One snapshot at a time |
 | **Peak** | **~250 GB** | **≥2× margin against 512 GB** |
@@ -442,7 +442,7 @@ A new `simulations/shin-uchuu/` package:
 - **No `--skip`** — a partially completed run cannot be resumed by re-running with `--skip`; plan for a single uninterrupted run, or for restarting it.
 - Output is written as **one partition plus a master**, carries no `Ntrees` and no `TreeHalosPerSnap`, and uses int64 `TotHalosPerSnap`. `hdf5_format_version` is `1.2`.
 
-Property ranges requiring calibration from a test run: `deltaMvir`, `Len` (floor is 1 at this resolution), `Spin`.
+Property ranges requiring calibration from a test run: `deltaMvir`, `Len` (floor is 1 at this resolution), `Spin`. Note `deltaMvir` is a **core-level output property** (`src/core/core_properties.yaml`, range `[-20000.0, 20000.0]`, already annotated for Uchuu-scale mass swings), not an entry in `simulations/shin-uchuu/halo_properties.yaml` like `Len`/`Spin` — its calibration is checked and edited in `core_properties.yaml`.
 
 ---
 
@@ -453,7 +453,7 @@ Property ranges requiring calibration from a test run: `deltaMvir`, `Len` (floor
 | fix_flybys / fix_upid divergence from reference | Critical | Micro-Uchuu topology cross-check by stable halo identity gates the converter before any Mimic code |
 | Non-adjacent `desc_scale` links in Shin-Uchuu | High | Abort — corrupt data by definition; no repair path exists or is wanted |
 | Particle mass inferred, not documented | High | Confirm from simulation metadata **before** freezing the package; wrong value corrupts every Len |
-| Super-forest rank sort resource surprise | Medium | Measured key volume ~150–250 GB fits RAM; chunked external merge sort is the fallback; one-time cost |
+| Super-forest rank sort resource surprise | **Blocker (until the converter scale pass lands)** | The "measured key volume ~150–250 GB fits RAM" figure below is inconsistent with the implementation as written: `compute_identity()` (`scripts/convert/links.py`) concatenates five int64 columns over *all* snapshots (~600–720 GB at 15–18B halos) plus the lexsort's order array (~120–144 GB), and the function's own docstring defers the external-merge sort as a "production concern" rather than implementing it. Mitigation: the scheduled converter scale-engineering pass (joint review D4) — see the "Pre-conversion obligation" subsection below — re-derives the actual key volume and implements the external-merge rank sort before this row can be downgraded. |
 | Transfer stalls / partial batches | Medium | rsync --checksum, per-file resume manifest, consumptive deletes keep disk bounded |
 | Phase 1 parser too slow | Medium | C tokeniser fallback; same worker interface |
 | snap_num vs snap_idx naming variant | Medium | Check both column names (matching setup_column_info) |
@@ -496,6 +496,16 @@ Shin-Uchuu is the primary scientific motivation for the snapshot pathway — and
 **If the peak exceeds 85% of installed RAM** (≈435 GB on a 512 GB machine), replace the retained *previous* raw slab with a compact projection of `{int32_t Len, int32_t NextProgenitor}` — all the previous generation is ever read for — costing ≈315e6 × 8 B ≈ 2.5 GB against a full second slab. Measured struct sizes at the 2026-08-04 audit: `struct RawHalo` 104 B, `struct Halo` 176 B, `struct GalaxyData` 176 B, `struct HaloOutput` 264 B.
 
 **Correction 2026-08-12.** That 104 B is the **default pair's** `RawHalo` (`sage16`/`mini-millennium`), not this catalog's. The ctrees-bridge catalog the snapshot packages use measures **88 B** (verified against `micro-uchuu-snapshot`), so a full second slab is ≈315e6 × 88 B ≈ **27.7 GB**, not ≈32.8 GB. Re-derive the figure from the `shin-uchuu` package's own `sizeof(struct RawHalo)` rather than from either number quoted here. Note also that neither the two processed generations nor the two galaxy pools are quantified anywhere in this plan — the numeric memory tables above are converter-side only — so they must be measured, not assumed, during the recompute. Phase 5 shipped **no** memory-projection branch: the driver holds two complete raw slabs unconditionally, so the projection described here would have to be implemented if the trigger fires.
+
+### Pre-conversion obligation: converter scale-engineering pass (2026-08-13)
+
+The dual-driver Phase 5 joint review (`docs/dev/POST-PHASE-5-JOINT-REVIEW.md` F-13/D4) found that the converter as implemented **cannot execute the production conversion**, independently of the runtime readiness this plan otherwise reports. Three distinct limits, all confirmed against the code and all already recorded in `scripts/convert/README.md`'s "Shin-Uchuu-scale notes" as deferred to a future production pass, but scheduled by no plan until now: the identity/rank pass (`compute_identity()` in `links.py`) is in-memory over all snapshots — at 15–18B halos that is ≈600–720 GB for its five concatenated int64 columns plus ≈120–144 GB for the lexsort's order array on a 512 GB machine, and its own docstring defers the external-merge sort as a production concern (this also corrects the risk-table row above); the required producer validation battery (`validate.py`) is likewise in-memory, loading and retaining full-dataset columns, and cannot be skipped because producer validation is part of the format contract and this plan's own Definition of Done; and the scatter phase's resume model is incompatible with this plan's own "Getting the Data to the Mac" transfer strategy — `run_scatter` requires every listed source file to exist at start, freezes the ordered source set into the manifest and refuses resume when it changes, and `source_completed()` re-stats completed files, so batches deleted under the batched, consumptive-delete transfer this plan requires break resume. Also recorded in the same README note: the ~5 GB Phase 0 forest map is passed to pool workers by pickling, and the fix-up stage's sequential per-satellite scan (up to 31 searches per satellite) "would need revisiting for Shin-Uchuu."
+
+**Scope of the pass:** external-merge rank sort (replacing the in-memory lexsort); streaming/per-snapshot validation (replacing the full-dataset-resident battery); a batch-aware scatter inventory compatible with consumptive deletes (replacing the frozen-source-set resume model); shared or memory-mapped forest-map distribution (replacing per-worker pickling); and a production-scale benchmark of the fix-up stage's sequential satellite scan with an explicit, measurement-first retain/optimize decision.
+
+**Acceptance gate:** the full micro-Uchuu validation battery and topology cross-check must re-run green (the converter's reference semantics must not move while its machinery is rebuilt), plus a measured memory profile of the rank pass at projected Shin-Uchuu scale.
+
+This pass is converter-side, gate-checkable, and well-bounded — it deserves its own frozen implementation plan, and is the single largest unscheduled item between here and the Shin-Uchuu production conversion.
 
 ---
 

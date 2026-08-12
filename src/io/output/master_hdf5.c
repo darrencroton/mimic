@@ -45,6 +45,9 @@ void write_master_file(void) {
   }
   DEBUG_LOG("Creating master HDF5 file '%s'", master_file);
   master_file_id = H5Fcreate(master_file, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
+  if (master_file_id < 0) {
+    FATAL_ERROR("Failed to create master HDF5 file '%s'", master_file);
+  }
 
   const struct OutputPartitionSource source = get_output_partition_source();
 
@@ -61,13 +64,29 @@ void write_master_file(void) {
   for (n = 0; n < MimicConfig.NOUT; n++) {
     sprintf(target_group, "Snap%03d", MimicConfig.ListOutputSnaps[n]);
     group_id = H5Gcreate(master_file_id, target_group, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+    if (group_id < 0) {
+      FATAL_ERROR("Failed to create group '%s' in master file '%s'", target_group, master_file);
+    }
 
     dims = 1;
     dataspace_id = H5Screate_simple(1, &dims, NULL);
+    if (dataspace_id < 0) {
+      FATAL_ERROR("Failed to create dataspace for Redshift attribute in group '%s' of master "
+                  "file '%s'",
+                  target_group, master_file);
+    }
     attribute_id =
         H5Acreate(group_id, "Redshift", H5T_NATIVE_FLOAT, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
+    if (attribute_id < 0) {
+      FATAL_ERROR("Failed to create Redshift attribute in group '%s' of master file '%s'",
+                  target_group, master_file);
+    }
     redshift = (float)(MimicConfig.ZZ[MimicConfig.ListOutputSnaps[n]]);
-    H5Awrite(attribute_id, H5T_NATIVE_FLOAT, &redshift);
+    status = H5Awrite(attribute_id, H5T_NATIVE_FLOAT, &redshift);
+    if (status < 0) {
+      FATAL_ERROR("Failed to write Redshift attribute in group '%s' of master file '%s'",
+                  target_group, master_file);
+    }
     H5Aclose(attribute_id);
     H5Sclose(dataspace_id);
 
@@ -101,6 +120,9 @@ void write_master_file(void) {
     for (n = 0; n < MimicConfig.NOUT; n++) {
       sprintf(target_group, "Snap%03d/File%03d", MimicConfig.ListOutputSnaps[n], filenr);
       group_id = H5Gcreate(master_file_id, target_group, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+      if (group_id < 0) {
+        FATAL_ERROR("Failed to create group '%s' in master file '%s'", target_group, master_file);
+      }
       H5Gclose(group_id);
 
       sprintf(target_group, "Snap%03d/File%03d/Galaxies", MimicConfig.ListOutputSnaps[n], filenr);
@@ -140,17 +162,38 @@ void write_master_file(void) {
 
       dims = 1;
       dataspace_id = H5Screate_simple(1, &dims, NULL);
+      if (dataspace_id < 0) {
+        FATAL_ERROR("Failed to create dataspace for TotHalosPerSnap attribute in master file "
+                    "'%s'",
+                    master_file);
+      }
       sprintf(target_group, "Snap%03d/File%03d", MimicConfig.ListOutputSnaps[n], filenr);
       group_id = H5Gopen(master_file_id, target_group, H5P_DEFAULT);
+      if (group_id < 0) {
+        FATAL_ERROR("Failed to open group '%s' in master file '%s'", target_group, master_file);
+      }
       attribute_id = H5Acreate(group_id, "TotHalosPerSnap", H5T_NATIVE_INT64, dataspace_id,
                                H5P_DEFAULT, H5P_DEFAULT);
-      H5Awrite(attribute_id, H5T_NATIVE_INT64, &ngal_in_core);
+      if (attribute_id < 0) {
+        FATAL_ERROR("Failed to create TotHalosPerSnap attribute in group '%s' of master file "
+                    "'%s'",
+                    target_group, master_file);
+      }
+      status = H5Awrite(attribute_id, H5T_NATIVE_INT64, &ngal_in_core);
+      if (status < 0) {
+        FATAL_ERROR("Failed to write TotHalosPerSnap attribute in group '%s' of master file "
+                    "'%s'",
+                    target_group, master_file);
+      }
       H5Aclose(attribute_id);
       H5Gclose(group_id);
       H5Sclose(dataspace_id);
     }
 
-    H5Fclose(target_file_id);
+    status = H5Fclose(target_file_id);
+    if (status < 0) {
+      FATAL_ERROR("Failed to close output file '%s' while building master file", target_file);
+    }
   }
 
   if (source.teardown_run != NULL) {
@@ -162,18 +205,42 @@ void write_master_file(void) {
 
   dims = 1;
   hid_t str_type = H5Tcopy(H5T_C_S1);
-  H5Tset_size(str_type, 45);
+  if (str_type < 0) {
+    FATAL_ERROR("Failed to copy string type for GitRef/Model attributes in master file '%s'",
+                master_file);
+  }
+  status = H5Tset_size(str_type, 45);
+  if (status < 0) {
+    FATAL_ERROR("Failed to set string size for GitRef/Model attributes in master file '%s'",
+                master_file);
+  }
   dataspace_id = H5Screate_simple(1, &dims, NULL);
+  if (dataspace_id < 0) {
+    FATAL_ERROR("Failed to create dataspace for GitRef/Model attributes in master file '%s'",
+                master_file);
+  }
 
   sprintf(tempstr, GITREF_STR);
   attribute_id =
       H5Acreate(master_file_id, "GitRef", str_type, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
-  H5Awrite(attribute_id, str_type, tempstr);
+  if (attribute_id < 0) {
+    FATAL_ERROR("Failed to create GitRef attribute in master file '%s'", master_file);
+  }
+  status = H5Awrite(attribute_id, str_type, tempstr);
+  if (status < 0) {
+    FATAL_ERROR("Failed to write GitRef attribute in master file '%s'", master_file);
+  }
 
   sprintf(tempstr, MODELNAME);
   attribute_id =
       H5Acreate(master_file_id, "Model", str_type, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
-  H5Awrite(attribute_id, str_type, tempstr);
+  if (attribute_id < 0) {
+    FATAL_ERROR("Failed to create Model attribute in master file '%s'", master_file);
+  }
+  status = H5Awrite(attribute_id, str_type, tempstr);
+  if (status < 0) {
+    FATAL_ERROR("Failed to write Model attribute in master file '%s'", master_file);
+  }
 
   H5Aclose(attribute_id);
   H5Sclose(dataspace_id);
@@ -181,5 +248,8 @@ void write_master_file(void) {
 
   store_run_properties(master_file_id);
 
-  H5Fclose(master_file_id);
+  status = H5Fclose(master_file_id);
+  if (status < 0) {
+    FATAL_ERROR("Failed to close master HDF5 file '%s'", master_file);
+  }
 }

@@ -423,6 +423,69 @@ int test_two_pools_survive_interleaved_chunk_growth_and_one_reset(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_alloc_across_multiple_grown_chunks_stable_and_reusable
+ * @brief   Pointers survive several rounds of geometric chunk growth, and reset reuses chunks
+ *
+ * Allocates enough galaxies to force at least three new-chunk allocations
+ * beyond the first (i.e. past 8192 + 16384 + 32768 slots), so the pool has
+ * grown through several different chunk sizes rather than just crossing one
+ * boundary. Confirms the stable-pointer contract holds across that growth,
+ * then resets and re-allocates the same volume to confirm the pool reuses its
+ * existing chunks (observed only via allocation succeeding and pointers
+ * repeating the earlier sequence -- chunk sizes are not public API and are
+ * not asserted directly).
+ */
+int test_alloc_across_multiple_grown_chunks_stable_and_reusable(void) {
+  init_memory_system(0);
+  initialize_error_handling(LOG_LEVEL_WARNING, NULL);
+  struct GalaxyPool *pool = galaxy_pool_create(0);
+
+  /* 8192 + 16384 + 32768 = 57344; allocate past that so at least three new
+   * chunks (beyond the first) have been allocated. */
+  enum { PAST_THREE_GROWTHS = 8192 + 16384 + 32768 + 1000 };
+
+  struct GalaxyData **ptrs = malloc((size_t)PAST_THREE_GROWTHS * sizeof(*ptrs));
+  TEST_ASSERT(ptrs != NULL, "Test harness allocation for pointer table should succeed");
+
+  for (int i = 0; i < PAST_THREE_GROWTHS; i++) {
+    ptrs[i] = galaxy_pool_alloc(pool);
+    TEST_ASSERT(ptrs[i] != NULL, "Pool allocation across several chunk growths should succeed");
+    stamp_slot(ptrs[i], i);
+  }
+
+  /* Stable-pointer contract: every slot handed out before later growth must
+   * still hold its own value once growth has moved on to later chunks. */
+  int stable = 1;
+  for (int i = 0; i < PAST_THREE_GROWTHS; i++) {
+    if (!slot_has_stamp(ptrs[i], i)) {
+      stable = 0;
+      break;
+    }
+  }
+  TEST_ASSERT(stable, "Every slot must retain its value across several rounds of chunk growth");
+
+  /* Reset then re-allocate the same volume: this must succeed by reusing the
+   * chunks already grown, not by growing further or failing. */
+  struct GalaxyData *first = ptrs[0];
+  galaxy_pool_reset(pool);
+  struct GalaxyData *after_reset = galaxy_pool_alloc(pool);
+  TEST_ASSERT(after_reset == first,
+              "Reset after multi-chunk growth should rewind to the first-ever slot");
+
+  for (int i = 1; i < PAST_THREE_GROWTHS; i++) {
+    struct GalaxyData *g = galaxy_pool_alloc(pool);
+    TEST_ASSERT(g == ptrs[i],
+                "Re-allocating after reset should reuse the existing chunks, handing back the "
+                "same slot sequence");
+  }
+
+  free(ptrs);
+  galaxy_pool_destroy(pool);
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
 /** @brief Main test runner */
 int main(void) {
   printf("%s", BLUE);
@@ -439,6 +502,7 @@ int main(void) {
   TEST_RUN(test_reset_one_pool_leaves_other_intact);
   TEST_RUN(test_destroy_one_pool_leaves_other_functional);
   TEST_RUN(test_two_pools_survive_interleaved_chunk_growth_and_one_reset);
+  TEST_RUN(test_alloc_across_multiple_grown_chunks_stable_and_reusable);
 
   TEST_SUMMARY();
   return TEST_RESULT();

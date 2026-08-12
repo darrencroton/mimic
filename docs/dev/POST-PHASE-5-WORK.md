@@ -46,7 +46,8 @@ A production-volume box will host far more massive clusters than micro-Uchuu, so
 |---|---|---|
 | `micro-uchuu-{ascii,hdf5,snapshot}` | J/Mvir | `[-1000, 1000]` (widened 2026-08-12) |
 | `uchuu` | J/Mvir | `[-20, 20]` ⚠️ |
-| `micro-uchuu`, `mini-uchuu`, `millennium`, `mini-millennium` | Bullock spin parameter λ (order 0.03–0.05) | `[-20, 20]` |
+| `micro-uchuu` | Bullock spin parameter λ (order 0.03–0.05) | `[-200, 200]` (`simulations/micro-uchuu/halo_properties.yaml:131`) |
+| `mini-uchuu`, `millennium`, `mini-millennium` | Bullock spin parameter λ (order 0.03–0.05) | `[-20, 20]` |
 
 Note that range metadata reaches only `tests/generated/property_ranges.json` — it never enters `output_schema.json` or the HDF5 `FieldMetadata` table — so changing a range produces no output-schema or metadata delta.
 
@@ -54,18 +55,22 @@ Note that range metadata reaches only `tests/generated/property_ranges.json` —
 
 The snapshot driver holds **two complete raw slabs unconditionally**, plus two processed generations, two galaxy pools, and the output and HDF5 buffers. **There is no memory-projection fallback branch in the code** — Phase 5 deliberately built none.
 
-`SHIN-UCHUU-CONVERSION-PLAN.md:486-490` already carries this obligation, including the trigger: if the peak exceeds ~85% of installed RAM (≈435 GB on a 512 GB machine), replace the retained *previous* raw slab with a compact `{int32_t Len, int32_t NextProgenitor}` projection. Two corrections to that text:
+`SHIN-UCHUU-CONVERSION-PLAN.md`'s "Delegated obligation" subsection already carries this obligation, including the 85%-of-RAM trigger sentence: if the peak exceeds ~85% of installed RAM (≈435 GB on a 512 GB machine), replace the retained *previous* raw slab with a compact `{int32_t Len, int32_t NextProgenitor}` projection. Four corrections/additions to that text, the first two carried from the original recompute obligation and the last two from the joint review (`POST-PHASE-5-JOINT-REVIEW.md` F-5, F-9):
 
 - Its `struct RawHalo` figure of **104 B is the default pair's** (mini-millennium/sage16). The ctrees-bridge catalog that Shin-Uchuu will use measures **88 B**, so the full-second-slab cost is ≈315e6 × 88 B ≈ **27.7 GB**, not ≈32.8 GB. Re-derive from the `shin-uchuu` package's own `sizeof(struct RawHalo)`, not from either recorded number.
 - Neither the two processed generations nor the two galaxy pools are quantified anywhere; the plan's only numeric memory tables are converter-side.
+- **The snapshot driver's output buffer is seeded at slab size, and `memset` makes the full seed capacity resident immediately** (`src/core/snapshot_driver.c:683-692`): the buffer is seeded at `nhalos + MIN_HALO_ARRAY_GROWTH` records, ~315M × 264 B ≈ 78 GiB at a z=0 Shin-Uchuu slab, and the seeding `memset` touches all of it immediately — do not remove the `memset` (it is defensive zeroing the marshaller is contractually expected to overwrite), but a `sizeof`-based projection that assumes lazy residency will underestimate the true peak by this amount. The recompute must count full seed capacity as resident, not just the bytes the marshaller happens to fill.
+- **The reader's two staging buffers total ~10 GB transient at a 315M slab and are held simultaneously during a slab fill** (`src/io/snapshot/read_snapshot_hdf5.c:678-728`): both buffers are allocated at the widest element size (8 B) and held together for the whole fill; every multi-dim catalog field in every current package is float32, so this is free headroom for the recompute rather than a feasibility item on its own, but it must be counted, not silently assumed away.
 
 Two briefs currently rest on a superseded estimate and should not be trusted until this recompute happens: `MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md:17` ("~300–450 GB peak estimated") and `MIMIC-SNAPSHOT-GLOBAL-MODULES-PLAN.md:14` ("fits comfortably"). `MIMIC-DUAL-DRIVER-PLAN.md:186` already retired that number for omitting the retained previous slab.
 
-### 2.3 `output_increment_halo_counters_checked()` still caps at `INT_MAX`
+### 2.3 Two output-path ceilings below the projected z=0 population — check against the lower one first
 
-`src/io/output/util.c` FATALs when `TotHalosPerSnap[snap_index] == INT_MAX` (both branches), even though Phase 5 widened the schema to int64. Unreachable at micro-Uchuu scale — the largest per-snapshot total is ~1.19M against a 2.1e9 cap — and it was deliberately left unfixed because relaxing it changes an error contract no Phase 5 slice specified.
+**First ceiling (record correction, joint review F-2): `MAX_HALO_ARRAY_SIZE = 1000000000`** (`src/include/constants.h:43`), enforced in output-buffer growth (`src/core/output_buffer.c:58-70`). Output-buffer growth is clamped to this constant and FATALs when it cannot grow past it. A snapshot whose output population (slab galaxies + accumulated orphans) exceeds 10⁹ aborts in the marshaller **before** the second ceiling below is ever consulted — at roughly half the headroom this section previously assumed. The constant was not revisited when `OutputBuffer` widened to int64, and the fatal's message presents it as a structural invariant rather than a tunable (its `%d` on what would become an `int64_t` also needs `PRId64` if this is ever widened). **The projected-population check must compare against 10⁹, not 2.1e9; if widening is ever needed, both ceilings move together.**
 
-**At Shin-Uchuu scale this needs a decision.** A per-snapshot output total above 2.1e9 galaxies would abort a multi-day run at the write step. Check the projected z=0 output population against the cap before running; if it is within an order of magnitude, widen the counter and its guard to int64 first.
+**Second ceiling: `output_increment_halo_counters_checked()` still caps at `INT_MAX`.** `src/io/output/util.c` FATALs when `TotHalosPerSnap[snap_index] == INT_MAX` (both branches), even though Phase 5 widened the schema to int64. Unreachable at micro-Uchuu scale — the largest per-snapshot total is ~1.19M against a 2.1e9 cap — and it was deliberately left unfixed because relaxing it changes an error contract no Phase 5 slice specified. This ceiling only matters once the first one above it is cleared.
+
+**At Shin-Uchuu scale this needs a decision.** The projected ~315M z=0 slab sits well under 10⁹, so the first ceiling fires only if the output population exceeds the slab by ~3× (orphan accumulation would have to be extreme) — this is a record correction, not a projected abort. Still, check the projected z=0 output population against **10⁹** before running; if it is within an order of magnitude of either ceiling, widen the counter and its guard to int64 first, moving both ceilings together.
 
 ### 2.4 Confirm the Shin-Uchuu particle mass before freezing the package
 
@@ -74,6 +79,8 @@ Two briefs currently rest on a superseded estimate and should not be trusted unt
 ### 2.5 Calibrate the remaining property ranges for `shin-uchuu`
 
 `SHIN-UCHUU-CONVERSION-PLAN.md:439` lists `deltaMvir`, `Len` (floor is 1 at this resolution) and `Spin` as requiring calibration from a test run. For reference, the micro-Uchuu packages now ship `Spin [-1000, 1000]`, `Vel [-5000, 5000]`, `VelDisp [0, 5000]`, `Vmax [10, 5000]`.
+
+**Clarification (joint review F-10):** `deltaMvir` is not a package catalog range like `Len`/`Spin` — it is a **core-level output property** (`src/core/core_properties.yaml`, range `[-20000.0, 20000.0]`, already annotated "symmetric wide bounds to accommodate Uchuu-scale mass swings"), computed during inheritance rather than read from any simulation package's `halo_properties.yaml`. Calibrating it is legitimate pre-Shin-Uchuu work — the range check still needs confirming against a Shin-Uchuu test run — but it is checked and edited in `core_properties.yaml`, not in `simulations/shin-uchuu/halo_properties.yaml`.
 
 ### 2.6 The identity encoding's cross-reader equivalence has no unit test
 
@@ -165,15 +172,20 @@ Kept for whoever writes the next plan; each cost real time.
 
 ## 6. Shin-Uchuu readiness
 
-**The machinery is ready.** Both drivers are live, the identity gate passes bitwise on two models and two timestep schemes with no tolerance, the tree-ordered path is provably unchanged, and the scientific tier now runs for snapshot-ordered packages.
+**Superseded ordering per `docs/dev/POST-PHASE-5-JOINT-REVIEW.md` §6 (2026-08-13).**
 
-**Before converting and running Shin-Uchuu, close these in order:**
+**The Mimic runtime is ready pending the two fixes now landing, and the converter needs a scheduled scale-engineering pass before the production conversion.** Both drivers are live, the identity gate passes bitwise on two models and two timestep schemes with no tolerance, the tree-ordered path is provably unchanged, and the scientific tier now runs for snapshot-ordered packages — but the joint review found that the galaxy pool's chunk design exhausts the allocator's block table at Shin-Uchuu slab scale (a mid-run abort), that critical HDF5 statuses are ignored on the output finalization path (a damaged run can exit success), and that the converter as implemented — in-memory identity/rank pass, in-memory validation battery, a scatter resume model incompatible with this plan's own batched consumptive-delete transfer — cannot execute the production conversion at all. These limits are recorded in `scripts/convert/README.md`'s "Shin-Uchuu-scale notes" as deferred to a future production pass, but no plan previously scheduled that pass (joint review F-13).
 
-1. Decide `Spin`'s bound for `uchuu` and `shin-uchuu` (§2.1) — this *will* fail otherwise.
-2. Recompute the driver's memory peak from the real `sizeof(struct RawHalo)` and apply the 85%-of-RAM projection trigger if needed (§2.2) — there is no fallback branch in the code.
-3. Check the projected z=0 output population against the `INT_MAX` counter cap (§2.3).
-4. Confirm the particle mass from the simulation documentation (§2.4).
-5. Calibrate the remaining property ranges (§2.5).
-6. **Run the identity gate on a Shin-Uchuu subset before the full run** (§2.6) — the reader/converter index equivalence is validated only by the gate, and this is a new conversion.
+**Before converting and running Shin-Uchuu, close these in order** (renumbered and widened from the six-item list this section previously carried; items newly added or substantively changed by the joint review are marked **[new]**; closing status reflects the change set this documentation edit ships alongside):
+
+1. Decide `Spin`'s bound for `uchuu` and `shin-uchuu` (§2.1) — this *will* fail otherwise. With the §2.1 table correction now applied. **Open** — a scientific call only the owner can make.
+2. **[new] Fix the galaxy-pool block-cap ceiling and the ignored output-finalization statuses in one change set, certified by one evidence run: bitwise tree-path preservation + full tiers + a mandatory identity-gate re-run.** The galaxy pool's chunk design exhausts the allocator's block table at Shin-Uchuu slab scale (fix: geometric chunk growth in `galaxy_pool_alloc()`); critical HDF5 statuses are ignored on the output finalization path — close statuses everywhere, plus create/write results throughout master construction — so a deferred or immediate output error can end a damaged run with exit success (fix: checked failure propagation, cleanup armed until all succeed). The duplicated physics-timing functions (`setup_module_context`, `process_halo_evolution`, and the two smaller members of the same family) ride along in the same change set and evidence run, with a stop-and-defer guard if the merge turns out to be anything more than the verified pure parameterization. **Being closed by this change set** (galaxy-pool fix, HDF5 status checks, duplication consolidation).
+3. **[new] Schedule and execute the converter scale-engineering pass** — external-merge rank sort, streaming/per-snapshot validation, a batch-aware scatter inventory compatible with consumptive deletes, shared/memory-mapped forest-map distribution, and a measured retain/optimize decision on the fix-up stage's sequential per-satellite scan — gated on the micro-Uchuu validation battery + topology cross-check re-running green, plus a measured memory profile of the rank pass at projected Shin-Uchuu scale. See `SHIN-UCHUU-CONVERSION-PLAN.md`'s "Pre-conversion obligation" subsection. **Open** — deserves its own frozen implementation plan; the single largest unscheduled item between here and Shin-Uchuu.
+4. **[new] Partition the snapshot-run output before the production run** (recommended: one file per requested output snapshot) — its own small frozen slice with its own gate re-run, scheduled back-to-back with item 2. A `sage16` micro-Uchuu run already writes five partitions on the tree-ordered side but one single-partition file on the snapshot-ordered side; at Shin-Uchuu scale that single file would be hundreds of GB to TB, operationally unmanageable and the worst blast radius for exactly the failure class item 2's HDF5-status fix addresses. **Open — pending the owner's option choice** (D5 in the joint review; raised by the owner after the first review draft, not yet decided).
+5. Recompute the driver's memory peak (§2.2) — now explicitly counting the output buffer's full-seed-capacity residency and the reader's staging-buffer transients (both folded into §2.2 above), and recording the conclusion against the 85%-of-RAM projection trigger rather than leaving it implicit. **Open.**
+6. Check the projected z=0 output population against **10⁹** (`MAX_HALO_ARRAY_SIZE`, §2.3), not only the `INT_MAX` counter cap. **Open** (record correction only — the projected 315M z=0 slab sits well under 10⁹).
+7. Confirm the particle mass from the simulation documentation (§2.4). **Open.**
+8. Calibrate the remaining property ranges (§2.5) — with the clarification that `deltaMvir` is a core output range, not a package catalog range. **Open.**
+9. **Run the identity gate on a Shin-Uchuu subset before the full run, as a complete rehearsal** (§2.6) — both models including a full `sage16` pass, a subset spanning the earliest snapshots through z=0, output written and read back; this is also the first end-to-end exercise of the 10¹⁰ multiplier and the natural place to measure the output-writer loop's cost and the §2.2 memory profile. **[new — widened]** the rehearsal scope beyond the identity-only run this section previously described. **Open.**
 
 Nothing in §3 blocks the conversion.

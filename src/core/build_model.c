@@ -8,9 +8,11 @@
  * - build_halo_tree(): Recursive function to build halo tracking structures
  * - join_progenitor_halos(): Tree-driver gather step that prepares inheritance
  *   payloads and calls the shared inheritance service
- * - process_halo_evolution(): Tree-driver adapter that evolves a FoF workspace
- *   through the shared physics-execution engine
  * - marshal_workspace_to_output_buffer(): Shared output-buffer marshalling
+ *
+ * The driver-neutral FoF evolution adapters this file's traversal calls
+ * (process_halo_evolution and friends) live in halo_evolution.c, shared with
+ * the snapshot driver.
  *
  * This file owns tree traversal, tree-indexed progenitor lookup, and tree-owned
  * buffer management. Format-neutral inheritance science lives in inheritance.c.
@@ -43,7 +45,6 @@
 #include "types.h"
 #include "generated/tree_property_accessors.h"
 
-static int count_fof_subhalos(struct HaloInputView view, int first_fof_halo);
 static struct OutputBufferSegment *ensure_output_segment_scratch(int required);
 static void build_halo_tree_from_view(struct HaloInputView view, int halonr, int unit, int depth);
 
@@ -174,7 +175,8 @@ static void build_halo_tree_from_view(struct HaloInputView view, int halonr, int
     }
 
     /* Tree driver: run physics, then marshal the workspace to output. */
-    process_halo_evolution(view, mimic_tree_get_FirstHaloInFOFgroup(view, halonr), ngal);
+    process_halo_evolution(view, FoFWorkspace, mimic_tree_get_FirstHaloInFOFgroup(view, halonr),
+                           ngal);
 
     struct OutputBuffer output_buffer = {ProcessedHalos, NumProcessedHalos, MaxProcessedHalos};
     marshal_workspace_to_output_buffer(FoFWorkspace, &output_buffer, segments, segment_index);
@@ -315,21 +317,6 @@ static int64_t make_unique_galaxy_id(int halonr, int unit) {
 }
 
 /*
- * Build the driver-neutral descendant payload from the tree input. The field
- * population is generated from property metadata (see the included file), so it
- * cannot silently desync from struct HaloInitPayload when halo properties are
- * added. This is the only place tree-index coupling touches halo init; the
- * consumer (init_halo_from_payload) is format-neutral.
- */
-static struct HaloInitPayload make_halo_init_payload(struct HaloInputView view, int halonr) {
-  struct HaloInitPayload payload;
-
-#include "../include/generated/populate_halo_payload.inc"
-
-  return payload;
-}
-
-/*
  * Reusable scratch for the gather step: the progenitor-galaxy list for one
  * descendant subhalo. Grown monotonically and kept for the whole run so the
  * depth-first tree hot path does not allocate per subhalo. Freed at shutdown by
@@ -348,18 +335,6 @@ static struct InheritanceProgenitorGalaxy *ensure_progenitor_scratch(int require
     ProgenitorScratchCapacity = required;
   }
   return ProgenitorScratch;
-}
-
-static int count_fof_subhalos(struct HaloInputView view, int first_fof_halo) {
-  int count = 0;
-  int fofhalo = first_fof_halo;
-
-  while (fofhalo >= 0) {
-    count++;
-    fofhalo = mimic_tree_get_NextHaloInFOFgroup(view, fofhalo);
-  }
-
-  return count;
 }
 
 static struct OutputBufferSegment *ensure_output_segment_scratch(int required) {
@@ -460,108 +435,4 @@ int join_progenitor_halos(struct HaloInputView view, int halonr, int ngalstart, 
                                   &descendant, progenitors, nprogenitors);
 
   return ngal;
-}
-
-/**
- * @brief   Setup module context for current snapshot and FOF group
- *
- * @param   ctx          Module context to populate
- * @param   view         Input view over this unit's raw halos
- * @param   halonr       Index of main halo in the input view
- * @param   centralgal   Index of central galaxy in FoFWorkspace
- */
-static void setup_module_context(struct ModuleContext *ctx, struct HaloInputView view, int halonr,
-                                 int centralgal) {
-  int snap = mimic_tree_get_SnapNum(view, halonr);
-
-  /* Snapshot information */
-  ctx->redshift = MimicConfig.ZZ[snap];
-  ctx->time = Age[snap];
-  ctx->snapshot_number = snap;
-
-  /* Halo information */
-  ctx->central_index = centralgal;
-  ctx->central_galaxy = &FoFWorkspace[centralgal];
-  ctx->active_event = NULL;
-
-  /* Configuration access */
-  ctx->params = &MimicConfig;
-
-  /* Calculate total time interval for this timestep.
-   *
-   * INVARIANT: workspace halos still carry their *progenitor's* SnapNum at
-   * this point — inheritance copies it unchanged, and it is only advanced to
-   * the current snapshot when the workspace is marshalled to the output
-   * buffer. That is what makes Age[SnapNum] here the progenitor age. */
-  if (FoFWorkspace[centralgal].SnapNum >= 0) {
-    int prev_snap = FoFWorkspace[centralgal].SnapNum;
-    ctx->time_interval = Age[prev_snap] - Age[snap];
-  } else {
-    ctx->time_interval = 0.0; /* First snapshot has no previous */
-  }
-
-  if (MimicConfig.TimestepScheme == TIMESTEP_SCHEME_DYNAMIC) {
-    double rvir = get_virial_radius(view, halonr);
-    double vvir = get_virial_velocity(view, halonr);
-    double t_dyn = (vvir > 0.0) ? (rvir / vvir) : 0.0;
-    ctx->num_substeps = compute_dynamic_substeps(ctx->time_interval, t_dyn, MimicConfig.SubSteps,
-                                                 MimicConfig.MaxDynamicSubsteps);
-  } else {
-    ctx->num_substeps = (MimicConfig.SubSteps > 0) ? MimicConfig.SubSteps : 1;
-  }
-
-  /* Initialize substep information (updated in substep loop) */
-  ctx->substep_number = 0;
-  ctx->substep_time = ctx->time;
-  ctx->substep_dt = (ctx->num_substeps > 0) ? (ctx->time_interval / ctx->num_substeps) : 0.0;
-}
-
-/**
- * @brief   Evolve one FoF workspace through the physics-execution engine
- *
- * @param   view      Input view over this unit's raw halos
- * @param   halonr    Index of the FOF-background subhalo (main halo)
- * @param   ngal      Total number of halos to process
- *
- * Tree-driver adapter for physics execution: selects the FOF Type 0 central,
- * propagates the stable central unique ID, builds the (tree-coupled) module
- * context, and hands the workspace to the format-neutral physics-execution
- * engine. Output marshalling is a separate, driver-owned step performed by the
- * caller through the shared output-buffer marshaller.
- *
- * Phase assignments and loop modes are configured in the input YAML file.
- * TimestepScheme and SubSteps together determine the active substep count.
- */
-void process_halo_evolution(struct HaloInputView view, int halonr, int ngal) {
-  int centralgal, i;
-  struct ModuleContext ctx;
-
-  /* Identify the FOF Type 0 central used for global module context. */
-  centralgal = -1;
-  for (i = 0; i < ngal; i++) {
-    if (FoFWorkspace[i].Type == 0) {
-      centralgal = i;
-      break;
-    }
-  }
-
-  if (centralgal == -1) {
-    FATAL_ERROR("No Type 0 central found for FOF halo %d (ngal=%d)", halonr, ngal);
-  }
-
-  if (FoFWorkspace[centralgal].HaloNr != halonr) {
-    FATAL_ERROR("Central galaxy HaloNr=%d does not match FOF halo %d",
-                FoFWorkspace[centralgal].HaloNr, halonr);
-  }
-
-  /* Set FOF-host central unique ID for all members (stable output contract). */
-  for (i = 0; i < ngal; i++) {
-    FoFWorkspace[i].UniqueCentralGalaxyID = FoFWorkspace[centralgal].UniqueGalaxyID;
-  }
-
-  /* Setup module execution context */
-  setup_module_context(&ctx, view, halonr, centralgal);
-
-  /* Run the configured module lifecycle over this FoF workspace */
-  execute_module_pipeline(&ctx, FoFWorkspace, ngal);
 }

@@ -680,7 +680,7 @@ static void snapshot_h5_read_column(hid_t file, const char *path, const char *da
 #define SNAPSHOT_H5_MAX_ELEMENT_SIZE 8
 
 /* Snapshot-flavoured counterparts of the tree reader's macros
-   (src/io/tree/hdf5.c:116-143), used to include the same generated property
+   (src/io/tree/hdf5.c), used to include the same generated property
    list. The differences are the dataset path ("/halos/<name>" rather than
    "tree_NNN/<name>"), the destination array (the slab rather than
    InputTreeHalos), int64_t counts, and that values are copied out of the
@@ -756,6 +756,44 @@ static const struct snapshot_h5_dataset_spec *snapshot_h5_dataset_spec_by_name(c
   }
   return NULL;
 }
+
+/* Snapshot-flavoured counterparts of READ_TREE_PROPERTY/READ_TREE_PROPERTY_MULTIPLEDIM
+   above, redefined to check membership instead of reading data. Reused here so the
+   check walks exactly the read list snapshot_h5_fill_halos() will later use, rather
+   than a hand-maintained copy of it drifting out of step. */
+#define READ_TREE_PROPERTY(field_name, hdf5_name, type_int, data_type)                             \
+  if (snapshot_h5_dataset_spec_by_name(hdf5_name) == NULL) {                                       \
+    FATAL_ERROR("Simulation package '%s' declares halo property '%s' as dataset '/halos/%s', "     \
+                "which format_version %d of the snapshot_hdf5 contract does not define; the "      \
+                "selected package's halo_properties.yaml does not match the snapshot format "      \
+                "contract",                                                                        \
+                MIMIC_COMPILED_SIMULATION, #field_name, hdf5_name, SNAPSHOT_HDF5_FORMAT_VERSION);  \
+  }
+#define READ_TREE_PROPERTY_MULTIPLEDIM(field_name, hdf5_name, type_int, data_type)                 \
+  READ_TREE_PROPERTY(field_name, hdf5_name, type_int, data_type)
+
+/**
+ * @brief   Fail fast if the compiled-in read list names a dataset the format
+ *          table does not define.
+ *
+ * snapshot_h5_fill_halos() fills struct RawHalo by the SELECTED SIMULATION
+ * PACKAGE's hdf5_name values, via the same generated read list included below
+ * -- not by SNAPSHOT_H5_HALO_DATASETS. Nothing else in open_run checks that
+ * those two name sets agree: a package built for a different tree format
+ * (for example mini-millennium's lhalo_binary-style halo_properties.yaml,
+ * whose hdf5_name values include M_mean200, M_TopHat, Filenr and
+ * SubHaloIndex) would otherwise pass every structural, header and identity
+ * check above -- for every configured snapshot -- and die only inside the
+ * raw H5Dopen2 at the first load_slab. This check depends on no file, so it
+ * runs once, before any of that per-snapshot work, and names the offending
+ * dataset and package.
+ */
+static void snapshot_h5_validate_read_list_against_format(void) {
+#include "../../include/generated/read_tree_hdf5_properties.inc"
+}
+
+#undef READ_TREE_PROPERTY
+#undef READ_TREE_PROPERTY_MULTIPLEDIM
 
 /**
  * @brief   Fill the reader-owned identity arrays from one snapshot file.
@@ -1096,6 +1134,12 @@ static void open_run_snapshot_hdf5(struct SnapshotRunInfo *info) {
     }
 
     snapshot_h5_validate_halo_datasets(file, path, header.n_halos);
+
+    if (snap == 0) {
+      /* Depends on no file: fail fast on a mismatched package before the
+         per-snapshot data scans below run for every configured snapshot. */
+      snapshot_h5_validate_read_list_against_format();
+    }
 
     /* Invariant 5's measured-data component. Bounded block scans only. */
     snapshot_h5_scan_snapnum(file, path, header.n_halos, header.snapshot_number);

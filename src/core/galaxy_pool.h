@@ -10,8 +10,13 @@
  * pattern that makes the allocator's block-tracking table a hard cap on
  * halos-per-forest), galaxies are handed out from a chunked pool: large
  * contiguous chunks of GalaxyData that grow by appending new chunks and are
- * bulk-reset between trees. This keeps the number of tracked allocator blocks at
- * O(chunks) instead of O(halos) and bounds memory by the largest single tree.
+ * bulk-reset between trees. Each new chunk is sized geometrically -- roughly
+ * double the previous one, capped at GALAXY_POOL_MAX_CHUNK in galaxy_pool.c --
+ * so the tracked-block count stays small (well under 200 chunks per pool even
+ * at hundreds of millions of galaxies per generation) instead of growing by
+ * one block per fixed-size chunk. This keeps the number of tracked allocator
+ * blocks at O(chunks) instead of O(halos) and bounds memory by the largest
+ * single tree.
  *
  * A pool is an explicit instance (struct GalaxyPool), created with
  * galaxy_pool_create() and passed to every other call. Two instances never
@@ -37,12 +42,14 @@ struct GalaxyData; /* defined in generated/property_defs.h via types.h */
 struct GalaxyPool; /* opaque; defined in galaxy_pool.c */
 
 /* Create a pool with an initial chunk sized for `initial_capacity` galaxies
- * (clamped to a sensible minimum). Returns a handle that must be passed to
- * every other galaxy_pool_* call and, eventually, to galaxy_pool_destroy(). */
+ * (clamped to a sensible minimum and maximum). Returns a handle that must be
+ * passed to every other galaxy_pool_* call and, eventually, to
+ * galaxy_pool_destroy(). */
 struct GalaxyPool *galaxy_pool_create(int initial_capacity);
 
 /* Return a stable pointer to one uninitialised GalaxyData slot in `pool`,
- * growing the pool by a chunk when the current chunk is full. */
+ * growing the pool by a new, larger chunk when the current chunk is full and
+ * no already-allocated chunk remains to reuse. */
 struct GalaxyData *galaxy_pool_alloc(struct GalaxyPool *pool);
 
 /* Reclaim every slot in `pool` for reuse (retains chunks). Call at the end of

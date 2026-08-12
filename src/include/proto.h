@@ -6,9 +6,15 @@
 #include "types.h"
 #include "memory.h"
 
+/* Shared driver adapters (src/core/halo_evolution.c); each driver passes its
+   own FoF workspace. */
+void process_halo_evolution(struct HaloInputView view, struct Halo *workspace, int halonr,
+                            int ngal);
+int count_fof_subhalos(struct HaloInputView view, int first_fof_halo);
+struct HaloInitPayload make_halo_init_payload(struct HaloInputView view, int halonr);
+
 /* Tree driver (src/core/build_model.c) */
 void build_halo_tree(int halonr, int unit, int depth);
-void process_halo_evolution(struct HaloInputView view, int halonr, int ngal);
 int join_progenitor_halos(struct HaloInputView view, int halonr, int nstart, int unit);
 int find_most_massive_progenitor(struct HaloInputView view, int halonr);
 void free_tree_driver_scratch(void);

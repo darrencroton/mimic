@@ -17,13 +17,21 @@
  * released as soon as every FoF group at N has deep-copied what it inherits.
  *
  * The physics, inheritance, marshalling and output seams are shared with the
- * tree driver unchanged; what is replicated here rather than reused is the part
- * that is written in tree indices (progenitor lookup, gather, FoF assembly, the
- * module context). Those replications are line-for-line equivalents of
- * find_most_massive_progenitor(), gather_progenitor_galaxies(),
- * join_progenitor_halos(), process_halo_evolution() and setup_module_context()
- * in src/core/build_model.c; the cross-format identity gate rests on them
- * staying that way, so each carries a reference to its tree-side original.
+ * tree driver unchanged, and so are the module-context setup, the halo-evolution
+ * dispatch, the FoF subhalo count and the halo init payload — this driver calls
+ * process_halo_evolution(), count_fof_subhalos() and make_halo_init_payload()
+ * in src/core/halo_evolution.c directly, passing its own workspace.
+ *
+ * What remains replicated here is only the code that crosses the two-generation
+ * boundary: progenitor lookup, count and gather read the previous generation
+ * through `prev` and have no tree-driver equivalent, because the tree driver
+ * holds one generation and finds progenitors inside it. Those three are still
+ * line-for-line equivalents of find_most_massive_progenitor(),
+ * count_progenitor_galaxies() and gather_progenitor_galaxies() modulo that
+ * substitution; the cross-format identity gate rests on them staying that way,
+ * so each carries a reference to its tree-side original. FoF assembly
+ * (snapshot_join_progenitor_halos(), snapshot_process_fof_group()) is likewise
+ * kept local because it is built on those two-generation lookups.
  */
 
 #include <inttypes.h>
@@ -40,7 +48,6 @@
 #include "globals.h"
 #include "inheritance.h"
 #include "memory.h"
-#include "module_registry.h"
 #include "output_buffer.h"
 #include "progress.h"
 #include "proto.h"
@@ -69,7 +76,7 @@
  * this is a placeholder rather than a meaningful index. */
 #define SNAPSHOT_OUTPUT_TREE_ID 0
 
-/* Same bound as the tree driver's MAX_PATH_BUF_SIZE (tree_driver.c:39). */
+/* Same bound as the tree driver's MAX_PATH_BUF_SIZE in tree_driver.c. */
 #define SNAPSHOT_PATH_BUF_SIZE (3 * MAX_STRING_LEN + 25)
 
 /* Output paths this run has created or will create: the partition file and the
@@ -165,7 +172,7 @@ struct SnapshotDriverState {
 /* Scratch growth                                                             */
 /* ------------------------------------------------------------------------- */
 
-/* Mirrors ensure_fof_workspace_capacity() (build_model.c:275-297): same growth
+/* Mirrors ensure_fof_workspace_capacity() in build_model.c: same growth
  * factor, same minimum increment, same ceiling, same fatal. */
 static void snapshot_ensure_workspace_capacity(struct SnapshotDriverState *state, int required) {
   while (required > state->workspace_capacity) {
@@ -219,7 +226,7 @@ snapshot_ensure_segment_scratch(struct SnapshotDriverState *state, int required)
 /* ------------------------------------------------------------------------- */
 
 /*
- * Snapshot-side find_most_massive_progenitor() (build_model.c:214-236).
+ * Snapshot-side find_most_massive_progenitor() in build_model.c.
  *
  * The chain crosses generations exactly once: FirstProgenitor is an index into
  * the previous slab (SNAPSHOT-HDF5-FORMAT.md "Link Scope"), and every
@@ -233,6 +240,7 @@ snapshot_ensure_segment_scratch(struct SnapshotDriverState *state, int required)
 int snapshot_find_most_massive_progenitor(struct HaloInputView view,
                                           const struct SnapshotGatherContext *prev, int halonr) {
   int prog, first_occupied, lenoccmax;
+  int64_t steps = 0;
 
   lenoccmax = 0;
   first_occupied = mimic_tree_get_FirstProgenitor(view, halonr);
@@ -243,6 +251,15 @@ int snapshot_find_most_massive_progenitor(struct HaloInputView view,
       lenoccmax = -1;
 
   while (prog >= 0) {
+    /* First traversal of this chain in the FoF sweep, so it carries its own
+     * cycle guard: the chain stays inside the previous slab and can visit each
+     * of that slab's halos at most once. */
+    if (++steps > prev->view.count) {
+      FATAL_ERROR("Progenitor chain of halo %d visits more than the %" PRId64
+                  " halos of the previous snapshot; the input's NextProgenitor links "
+                  "contain a cycle",
+                  halonr, prev->view.count);
+    }
     if (lenoccmax != -1 && mimic_tree_get_Len(prev->view, prog) > lenoccmax &&
         prev->aux[prog].NHalos > 0) {
       lenoccmax = mimic_tree_get_Len(prev->view, prog);
@@ -254,13 +271,23 @@ int snapshot_find_most_massive_progenitor(struct HaloInputView view,
   return first_occupied;
 }
 
-/* Snapshot-side count_progenitor_galaxies() (build_model.c:263-273). */
+/* Snapshot-side count_progenitor_galaxies() in build_model.c. */
 int64_t snapshot_count_progenitor_galaxies(struct HaloInputView view,
                                            const struct SnapshotGatherContext *prev, int halonr) {
   int64_t count = 0;
+  int64_t steps = 0;
   int prog = mimic_tree_get_FirstProgenitor(view, halonr);
 
   while (prog >= 0) {
+    /* The chain stays inside the previous slab, so it can visit each of that
+     * slab's halos at most once; more steps than that means the input's
+     * progenitor links form a cycle, which would otherwise loop forever. */
+    if (++steps > prev->view.count) {
+      FATAL_ERROR("Progenitor chain of halo %d visits more than the %" PRId64
+                  " halos of the previous snapshot; the input's NextProgenitor links "
+                  "contain a cycle",
+                  halonr, prev->view.count);
+    }
     count += prev->aux[prog].NHalos;
     prog = mimic_tree_get_NextProgenitor(prev->view, prog);
   }
@@ -269,7 +296,7 @@ int64_t snapshot_count_progenitor_galaxies(struct HaloInputView view,
 }
 
 /*
- * Snapshot-side gather_progenitor_galaxies() (build_model.c:387-403).
+ * Snapshot-side gather_progenitor_galaxies() in build_model.c.
  *
  * Visit order is load-bearing for cross-format identity: each progenitor chain
  * entry in chain order, then that halo's own output range in order. source_time
@@ -298,11 +325,11 @@ void snapshot_gather_progenitor_galaxies(struct HaloInputView view,
 }
 
 /* ------------------------------------------------------------------------- */
-/* Identity and payload                                                       */
+/* Identity                                                                   */
 /* ------------------------------------------------------------------------- */
 
 /*
- * Snapshot-side make_unique_galaxy_id() (build_model.c:299-315).
+ * Snapshot-side make_unique_galaxy_id() in build_model.c.
  *
  * The two components are carried by the format in reference tree-driver order
  * (SNAPSHOT-HDF5-FORMAT.md "Galaxy Identity Encoding") and live on the slab, not
@@ -326,36 +353,12 @@ static int64_t snapshot_make_unique_galaxy_id(const struct SnapshotSlab *slab, i
   return mimic_encode_unique_galaxy_id(multiplier, rank_in_forest, forestnr_global);
 }
 
-/* Snapshot-side make_halo_init_payload() (build_model.c:324-330): the same
- * generated, driver-neutral populator over this driver's own view. */
-static struct HaloInitPayload snapshot_make_halo_init_payload(struct HaloInputView view,
-                                                              int halonr) {
-  struct HaloInitPayload payload;
-
-#include "../include/generated/populate_halo_payload.inc"
-
-  return payload;
-}
-
 /* ------------------------------------------------------------------------- */
 /* FoF assembly and physics                                                   */
 /* ------------------------------------------------------------------------- */
 
-/* Snapshot-side count_fof_subhalos() (build_model.c:353-363). */
-static int snapshot_count_fof_subhalos(struct HaloInputView view, int first_fof_halo) {
-  int count = 0;
-  int fofhalo = first_fof_halo;
-
-  while (fofhalo >= 0) {
-    count++;
-    fofhalo = mimic_tree_get_NextHaloInFOFgroup(view, fofhalo);
-  }
-
-  return count;
-}
-
 /*
- * Snapshot-side join_progenitor_halos() (build_model.c:427-463).
+ * Snapshot-side join_progenitor_halos() in build_model.c.
  *
  * Every descendant field is derived exactly as the tree side derives it; the
  * only substitutions are the previous-generation lookup (which crosses slabs)
@@ -396,86 +399,10 @@ static int snapshot_join_progenitor_halos(struct SnapshotDriverState *state,
   descendant.virial_velocity = get_virial_velocity(view, halonr);
   descendant.is_fof_central = (halonr == mimic_tree_get_FirstHaloInFOFgroup(view, halonr));
   descendant.unique_galaxy_id = snapshot_make_unique_galaxy_id(&cur->slab, halonr);
-  descendant.halo_payload = snapshot_make_halo_init_payload(view, halonr);
+  descendant.halo_payload = make_halo_init_payload(view, halonr);
 
   return inherit_descendant_halos(cur->pool, state->workspace, ngalstart, state->workspace_capacity,
                                   &descendant, progenitors, nprogenitors);
-}
-
-/*
- * Snapshot-side setup_module_context() (build_model.c:473-517).
- *
- * The slab-based virial and time quantities are the same expressions over this
- * driver's view, and the same INVARIANT holds: workspace halos still carry
- * their progenitor's SnapNum here, because the output-buffer marshaller is what
- * advances it, so Age[SnapNum] below is the progenitor age.
- */
-static void snapshot_setup_module_context(struct ModuleContext *ctx,
-                                          struct SnapshotDriverState *state,
-                                          struct HaloInputView view, int halonr, int centralgal) {
-  const int snap = mimic_tree_get_SnapNum(view, halonr);
-
-  ctx->redshift = MimicConfig.ZZ[snap];
-  ctx->time = Age[snap];
-  ctx->snapshot_number = snap;
-
-  ctx->central_index = centralgal;
-  ctx->central_galaxy = &state->workspace[centralgal];
-  ctx->active_event = NULL;
-
-  ctx->params = &MimicConfig;
-
-  if (state->workspace[centralgal].SnapNum >= 0) {
-    const int prev_snap = state->workspace[centralgal].SnapNum;
-    ctx->time_interval = Age[prev_snap] - Age[snap];
-  } else {
-    ctx->time_interval = 0.0; /* First snapshot has no previous */
-  }
-
-  if (MimicConfig.TimestepScheme == TIMESTEP_SCHEME_DYNAMIC) {
-    const double rvir = get_virial_radius(view, halonr);
-    const double vvir = get_virial_velocity(view, halonr);
-    const double t_dyn = (vvir > 0.0) ? (rvir / vvir) : 0.0;
-    ctx->num_substeps = compute_dynamic_substeps(ctx->time_interval, t_dyn, MimicConfig.SubSteps,
-                                                 MimicConfig.MaxDynamicSubsteps);
-  } else {
-    ctx->num_substeps = (MimicConfig.SubSteps > 0) ? MimicConfig.SubSteps : 1;
-  }
-
-  ctx->substep_number = 0;
-  ctx->substep_time = ctx->time;
-  ctx->substep_dt = (ctx->num_substeps > 0) ? (ctx->time_interval / ctx->num_substeps) : 0.0;
-}
-
-/* Snapshot-side process_halo_evolution() (build_model.c:535-567). */
-static void snapshot_evolve_fof_workspace(struct SnapshotDriverState *state,
-                                          struct HaloInputView view, int halonr, int ngal) {
-  struct ModuleContext ctx;
-  int centralgal = -1;
-
-  for (int i = 0; i < ngal; i++) {
-    if (state->workspace[i].Type == 0) {
-      centralgal = i;
-      break;
-    }
-  }
-
-  if (centralgal == -1) {
-    FATAL_ERROR("No Type 0 central found for FOF halo %d (ngal=%d)", halonr, ngal);
-  }
-
-  if (state->workspace[centralgal].HaloNr != halonr) {
-    FATAL_ERROR("Central galaxy HaloNr=%d does not match FOF halo %d",
-                state->workspace[centralgal].HaloNr, halonr);
-  }
-
-  for (int i = 0; i < ngal; i++) {
-    state->workspace[i].UniqueCentralGalaxyID = state->workspace[centralgal].UniqueGalaxyID;
-  }
-
-  snapshot_setup_module_context(&ctx, state, view, halonr, centralgal);
-
-  execute_module_pipeline(&ctx, state->workspace, ngal);
 }
 
 /*
@@ -483,7 +410,7 @@ static void snapshot_evolve_fof_workspace(struct SnapshotDriverState *state,
  * subhalo slice, evolve it, and marshal it into this generation's output
  * buffer.
  *
- * This is the body of build_halo_tree()'s FoF block (build_model.c:136-191)
+ * This is the body of build_halo_tree()'s FoF block in build_model.c
  * with the recursion removed: a snapshot slab needs none, because every
  * progenitor was already processed when snapshot N-1 was swept.
  *
@@ -493,12 +420,15 @@ static int snapshot_process_fof_group(struct SnapshotDriverState *state,
                                       struct SnapshotGeneration *cur,
                                       const struct SnapshotGatherContext *prev, int central) {
   const struct HaloInputView view = {cur->slab.halos, cur->slab.nhalos};
-  const int nsegments = snapshot_count_fof_subhalos(view, central);
+  const int nsegments = count_fof_subhalos(view, central);
   struct OutputBufferSegment *segments = snapshot_ensure_segment_scratch(state, nsegments);
   int segment_index = 0;
   int fofhalo = central;
   int ngal = 0;
 
+  /* Cycle safety: count_fof_subhalos() above already walked this exact chain
+   * over the same immutable slab with a bounded-iteration guard, so this second
+   * traversal cannot loop. */
   while (fofhalo >= 0) {
     const int workspace_start = ngal;
     const int source_halo = fofhalo;
@@ -506,7 +436,7 @@ static int snapshot_process_fof_group(struct SnapshotDriverState *state,
     ngal = snapshot_join_progenitor_halos(state, cur, prev, fofhalo, ngal);
 
     /* Stamp the FoF-central catalog virial mass onto every member of this
-     * subhalo slice before physics runs, exactly as build_model.c:159-163. */
+     * subhalo slice before physics runs, exactly as the tree FoF block in build_model.c. */
     const double central_mvir =
         get_virial_mass(view, mimic_tree_get_FirstHaloInFOFgroup(view, source_halo));
     for (int p = workspace_start; p < ngal; p++) {
@@ -524,7 +454,7 @@ static int snapshot_process_fof_group(struct SnapshotDriverState *state,
     fofhalo = mimic_tree_get_NextHaloInFOFgroup(view, fofhalo);
   }
 
-  snapshot_evolve_fof_workspace(state, view, central, ngal);
+  process_halo_evolution(view, state->workspace, central, ngal);
 
   marshal_workspace_to_output_buffer(state->workspace, &cur->processed, segments, segment_index);
 
@@ -613,8 +543,16 @@ static void snapshot_finalize_output(void) {
   if (HDF5_current_file_id >= 0) {
     DEBUG_LOG("Closing HDF5 file (ID %lld) for the snapshot-ordered partition",
               (long long)HDF5_current_file_id);
-    H5Fclose(HDF5_current_file_id);
+    /* A deferred write error (a full filesystem, a failed flush of a chunk
+     * still in the library cache) surfaces here and nowhere else, so an ignored
+     * status would let a truncated partition exit successfully. */
+    const herr_t close_status = H5Fclose(HDF5_current_file_id);
     HDF5_current_file_id = -1;
+    if (close_status < 0) {
+      FATAL_ERROR("Failed to close the HDF5 output partition %d ('%s'); its galaxy data may be "
+                  "truncated or unflushed (check free space and file permissions)",
+                  SNAPSHOT_OUTPUT_ID, snapshot_output_paths[0]);
+    }
   }
 }
 

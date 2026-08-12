@@ -28,6 +28,7 @@
 #include "progress.h"
 #include "proto.h"
 #include "run_log.h"
+#include "snapshot/reader.h" /* struct SnapshotReader, for the snapshot partition source */
 #include "tree/chunk_plan.h"
 #include "tree/interface.h"
 #include "tree/reader.h"
@@ -262,8 +263,16 @@ static void process_partition(int output_id, ProgressBar *ext_bar, int64_t tree_
     if (HDF5_current_file_id >= 0) {
       DEBUG_LOG("Closing HDF5 file (ID %lld) for partition %d", (long long)HDF5_current_file_id,
                 output_id);
-      H5Fclose(HDF5_current_file_id);
+      /* A deferred write error (a full filesystem, a failed flush of a chunk
+       * still in the library cache) surfaces here and nowhere else, so an
+       * ignored status would let a truncated partition exit successfully. */
+      const herr_t close_status = H5Fclose(HDF5_current_file_id);
       HDF5_current_file_id = -1;
+      if (close_status < 0) {
+        FATAL_ERROR("Failed to close the HDF5 output file for partition %d; its galaxy data may "
+                    "be truncated or unflushed (check free space and file permissions)",
+                    output_id);
+      }
     }
   } else {
     finalize_halo_file(output_id);
@@ -580,7 +589,7 @@ static struct OutputPartitionSource snapshot_output_partition_source(void) {
       .partition_exists = snapshot_output_partition_exists,
       .prepare_run = NULL,
       .teardown_run = NULL,
-      .format_name = "snapshot_hdf5",
+      .format_name = MimicConfig.snapshot_reader->name,
   };
 }
 

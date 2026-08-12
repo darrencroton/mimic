@@ -61,7 +61,8 @@ run YAML
           inherit_descendant_halos()       src/core/inheritance.c — deep-copies progenitor
                                            galaxies via the galaxy pool; applies Type
                                            transitions; resets snapshot accumulators
-      → process_halo_evolution()
+      → process_halo_evolution()          src/core/halo_evolution.c — shared driver adapter;
+                                           the snapshot driver calls the same function
           → execute_module_pipeline()      pre_timestep once → for each substep, each named
                                            phase in YAML order → post_timestep once.
                                            Within a phase: full-halo modules first (YAML
