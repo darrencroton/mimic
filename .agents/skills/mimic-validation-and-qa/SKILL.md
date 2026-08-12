@@ -102,9 +102,21 @@ Always start from a template — `tests/framework/c_unit_test_template.c`, `pyth
 
 Then: run the individual test → run its tier with `summary` → confirm your markers appear (including the SKIP path if you wrote one).
 
+## 8. The cross-format identity gate (package-local, manual)
+
+`simulations/micro-uchuu-snapshot/_tests/scientific/test_cross_format_identity.py` is a third kind of scientific-tier evidence, distinct from the two baselines in section 5: it proves the snapshot-ordered driver agrees with the tree-ordered driver, not that either matches a fixed golden output. It is registered by the scientific-tier registry only when `SIMULATION=micro-uchuu-snapshot` is selected (package-local placement, section 3), so it is invisible to the default pair and to CI.
+
+- **What it checks**: for every output snapshot, the same `UniqueGalaxyID` set and per-ID bitwise-identical fields between `micro-uchuu-ascii` (tree-ordered) and `micro-uchuu-snapshot` (snapshot-ordered), aggregated across every output partition, under both `halos-only` and `sage16`, under both `TimestepScheme: fixed` and `dynamic` — no tolerance of any kind.
+- **Dataset preconditions**: both the full `micro-uchuu-ascii` and `micro-uchuu-snapshot` datasets must resolve through their machine-local gitignored `snapshots` symlinks. Unlike an ordinary test, a missing dataset **fails** the gate (naming the path it looked for) rather than skipping — a gate whose only defense is the dataset it verifies must never silently report success on an empty comparison.
+- **Cost**: it builds four executables in isolated git worktrees (`{halos-only, sage16} × {ascii, snapshot}`) and performs nine full runs — on the order of hours. Run it deliberately, not as part of routine iteration.
+- **How to run it**: `make MODEL=halos-only SIMULATION=micro-uchuu-snapshot tests-scientific`, on a machine holding both datasets.
+- **Comparator**: `scripts/compare_cross_format_identity.py` — duplicate-ID assertion, then ID-set equality, then per-field raw-byte comparison; the one implementation of the frozen algorithm, consumed by nothing else.
+
+Full driver mechanics and the parity checklist the gate is checking: `docs/DEVELOPER-GUIDE.md` → "The Snapshot Driver" and "The cross-format identity gate".
+
 ## Provenance and maintenance
 
-Verified against the live repo 2026-07-04. Re-verify drift-prone specifics:
+Verified against the live repo 2026-07-04; the cross-format identity gate (section 8) added 2026-08-12 once the snapshot driver landed. Re-verify drift-prone specifics:
 
 ```bash
 sed -n '41,56p' scripts/discovery.py                       # FULL_MODEL_TEST_SIMULATIONS membership
@@ -115,6 +127,7 @@ grep -n -i "never regenerate" scripts/regenerate_baseline.sh
 sed -n '15,30p' models/sage16/modules/_tests/test_scientific_sage_physics_baseline.py  # refresh recipe
 ls tests/framework/*template* models/sage16/modules/_tests/sage_test_fixtures.h
 grep -n "strict" scripts/generate_test_registry.py | head -3
+ls simulations/micro-uchuu-snapshot/_tests/scientific/test_cross_format_identity.py scripts/compare_cross_format_identity.py
 ```
 
 Tier runtimes and the gating set are the most drift-prone facts; the marker protocol and placement rules are framework architecture and durable.

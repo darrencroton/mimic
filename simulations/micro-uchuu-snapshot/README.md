@@ -49,6 +49,29 @@ ln -s /path/to/micro-uchuu-snapshot simulations/micro-uchuu-snapshot/snapshots
 
 The directory must hold `snapshot_000.h5` … `snapshot_049.h5` and `forests.h5`. The symlink is machine-local and gitignored; nothing in the repository ships the 2.3 GB dataset.
 
+## Running this package
+
+The package is runnable end to end through the snapshot-ordered driver (`run_snapshot_driver()`), with shipped run files pairing it with both `halos-only` and `sage16`:
+
+```bash
+make MODEL=halos-only SIMULATION=micro-uchuu-snapshot
+./mimic models/halos-only/input/halos-only_micro-uchuu-snapshot.yaml
+```
+
+Snapshot-ordered runs are HDF5-only, serial-only (`NTask == 1`, see [`MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md`](../../docs/dev/MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md) for multi-rank execution), and do not support `--skip` — all three are rejected at configuration time. See [`docs/USER-GUIDE.md`](../../docs/USER-GUIDE.md) → "Running Snapshot-Ordered Input" and [`docs/DEVELOPER-GUIDE.md`](../../docs/DEVELOPER-GUIDE.md) → "The Snapshot Driver".
+
+## The cross-format identity gate
+
+`_tests/scientific/test_cross_format_identity.py` proves the snapshot-ordered driver agrees with the tree-ordered driver reading the same catalogue (`micro-uchuu-ascii`): for every output snapshot, the same `UniqueGalaxyID` set and per-ID bitwise-identical fields, under both `halos-only` and `sage16`, under both fixed and dynamic timestep schemes, with no tolerance of any kind.
+
+It is a **manual, dataset-present operation**:
+
+```bash
+make MODEL=halos-only SIMULATION=micro-uchuu-snapshot tests-scientific
+```
+
+on a machine holding both the `micro-uchuu-ascii` and `micro-uchuu-snapshot` datasets. It is registered only when this package is selected, so it never runs as part of the default-pair suite or CI, and no automated tier runs it once Phase 5 closes. A missing dataset fails the gate loudly, naming the path it looked for, rather than skipping. The comparator is [`scripts/compare_cross_format_identity.py`](../../scripts/compare_cross_format_identity.py); full mechanics are in [`docs/DEVELOPER-GUIDE.md`](../../docs/DEVELOPER-GUIDE.md) → "The cross-format identity gate".
+
 ## Committed contract fixtures
 
 `_tests/data/` holds a tiny conforming dataset — six snapshots (one of them empty), three forests, and topology chosen to exercise the cases a reader must handle: a descendant with three progenitors, a two-member FoF group, and a flyby-demoted central carrying a negated `MostBoundID`.

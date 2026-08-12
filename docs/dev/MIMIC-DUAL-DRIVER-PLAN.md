@@ -1,6 +1,6 @@
 # Mimic Dual-Driver Plan
 
-**Status:** Active. Phases 0–3 are complete v1.0 work (verified against the tagged baseline). **Phase 4a is done (2026-07-18 / 2026-07-24) and Phase 4b is done (2026-08-04); Phase 5 is next.** The former Phases 6–7 have moved to their own plans (`MIMIC-EMBEDDED-ENGINE-PLAN.md`, `MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md`).
+**Status:** Active. Phases 0–3 are complete v1.0 work (verified against the tagged baseline). **Phase 4a is done (2026-07-18 / 2026-07-24), Phase 4b is done (2026-08-04), and Phase 5 is done (2026-08-12) — the cross-format identity gate passed for both models and both timestep schemes; Shin-Uchuu production conversion is next.** The former Phases 6–7 have moved to their own plans (`MIMIC-EMBEDDED-ENGINE-PLAN.md`, `MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md`).
 **Date:** 2026-07-02 (post-v1.0 review applied; decisions D1–D12 from the joint plan review are baked in; the review record is archived at `archive/dev-plans/dual-driver-plan-review.md`). **Amended 2026-08-04** at Phase 4b closeout: the Reader Interface, Determinism and Galaxy Identity, file-inventory, Phase 4b, and Phase 5 identity sections are corrected against what shipped, and the recorded Phase 5 inputs are carried forward. Where this document and the repository disagree, the repository wins.
 **Context:** Read `MIMIC-DEVELOPMENT-PATHWAY.md` first. This plan and the Shin-Uchuu conversion plan form one pathway: format contract → converter (validated on micro-Uchuu) → snapshot reader → snapshot driver + identity gate → Shin-Uchuu production conversion and run.
 
@@ -126,6 +126,8 @@ These are the format-carried preconditions; the driver-side behaviours the snaps
 
 New driver and reader internals use `int64_t` for slab indices, counts, and offset arithmetic: peak slabs are 315M halos, and `int` state like `Ntrees`/`NumProcessedHalos` is a tree-driver idiom that does not carry over.
 
+**Correction, added at Phase 5 closeout (2026-08-12).** The table above describes the state this plan's Phase 5 section was written against — before Phase 5 landed — and is retained for that historical reason; every "Phase 5" or "not yet started" note in it is now stale by construction. What shipped: `inherit_descendant_halos()` (`src/core/inheritance.c`) takes an explicit `struct GalaxyPool *`; `struct OutputBuffer` (`src/core/output_buffer.h`) counts, capacities, and segment ranges are `int64_t`; `src/core/galaxy_pool.c` is an instanced handle API (`galaxy_pool_create()`/`_alloc()`/`_reset()`/`_destroy()`), not a file-static singleton; `src/io/output/master_hdf5.c` and `hdf5.c` read partition information through the driver-neutral `struct OutputPartitionSource get_output_partition_source(void)` (`src/io/output/util.h`) and no longer dereference `MimicConfig.reader`; `src/include/galaxy_id.h`'s helpers take the configured `MimicConfig.UniqueGalaxyIDMultiplier` explicitly; and `src/core/snapshot_driver.c` exists and is the live `run_snapshot_driver()`. See the Phase 5 section below, and `docs/DEVELOPER-GUIDE.md` → "The Snapshot Driver", for the full picture of what shipped.
+
 ---
 
 ## Migration Plan
@@ -148,7 +150,7 @@ Freeze the snapshot-HDF5 format contract (schema, invariants, identity fields, v
 
 ### Phase 4b: Snapshot Reader — DONE 2026-08-04
 
-Implemented from the frozen five-slice [`MIMIC-SNAPSHOT-READER-PLAN.md`](MIMIC-SNAPSHOT-READER-PLAN.md) (Revision 5), which owns the detailed record; that plan's Deferred section is the authoritative follow-up list and feeds the Phase 5 inputs below.
+Implemented from the frozen five-slice `MIMIC-SNAPSHOT-READER-PLAN.md` (Revision 5, archived to `archive/dev-plans/` once Phase 5 closed 2026-08-12), which owns the detailed record; that plan's Deferred section was the authoritative follow-up list and fed the Phase 5 inputs below (the four still-live entries at Phase 5 closeout — shared HDF5 read utilities, the empty-dataset-with-non-sentinel-metadata reader check, the reader strictness gaps, and `scripts/discovery.py` test-gating membership — are recorded in `MIMIC-DEVELOPMENT-PATHWAY.md`).
 
 Scope as built: the `SnapshotReader` interface, its registry and dispatchers, and the `snapshot_hdf5` implementation, plus the `micro-uchuu-snapshot` fixture package declaring the on-disk record in `halo_properties.yaml` — from which the generator produces `RawHalo` and the accessors with **no generator change**. The reader exposes run metadata (`format_version`, snapshot count, `n_forests_total`, `max_halo_rank_in_forest`), per-snapshot halo counts without loading, and reader-owned slab load/release; it reads the link and identity columns (`FirstProgenitor`, `NextProgenitor`, the FoF chains, `ForestIndex`, `HaloRankInForest`) and validates their index ranges, never reconstructing or reordering them. Validation at `open_run` covers structure before any bulk read, header values, `links_adjacent`, exact `scale_factor` agreement with the a_list, invariant 5 in full via bounded hyperslab scans, and the identity-multiplier bounds; link ranges are validated at slab load with bounded counted diagnostics.
 
@@ -156,7 +158,11 @@ Scope as built: the `SnapshotReader` interface, its registry and dispatchers, an
 
 **Gate met** (as stated: reader unit tests pass against the Phase 4a fixtures; the tree path untouched and green). Reader unit tests pass under `MODEL=halos-only SIMULATION=micro-uchuu-snapshot`, covering every corrupt-input abort and the lifecycle cases with no leak diagnostic, and the opt-in real-data test opened all 50 snapshots of the regenerated micro-Uchuu dataset rather than skipping. No file under `src/io/tree/` was modified, the tree-ordered path was proven byte-identical by an explicit bitwise comparison of a default-pair binary run's galaxy output, and the default-pair unit, integration, and scientific tiers are green. A snapshot-ordered configuration now passes *configuration* validation and fails at exactly one place: `run_processing_driver()`. **Scope boundary Phase 5 must close:** `snapshot_reader_open_run()` has no caller in `src/` — only the fixture unit tests — so the dataset validation and link checks described above, while implemented and tested, do not run on any run path. Wiring `open_run` (and `load_slab`) into the snapshot driver is part of Phase 5 item 1, and until then a snapshot-ordered run aborts with its input never opened. `docs/dev/SNAPSHOT-HDF5-FORMAT.md` was consumed unchanged (`format_version` still 1).
 
-### Phase 5: Snapshot Driver + Identity Gate
+### Phase 5: Snapshot Driver + Identity Gate — DONE 2026-08-12
+
+Implemented from the frozen [`MIMIC-SNAPSHOT-DRIVER-PLAN.md`](MIMIC-SNAPSHOT-DRIVER-PLAN.md) (eleven slices, Mode B), which owns the detailed record. What this section specifies below is the design this plan committed to before implementation; `MIMIC-SNAPSHOT-DRIVER-PLAN.md` and the repository are authoritative for what actually shipped where the two disagree in any small mechanical detail.
+
+**Gate met (as stated below: cross-format identity green on micro-Uchuu with snapshot-global physics disabled, under both timestep schemes).** `make MODEL=halos-only SIMULATION=micro-uchuu-snapshot tests-scientific` passes: `halos-only` first, then `sage16`, each under `TimestepScheme: fixed` and `dynamic`. For every output snapshot, aggregated across every output partition on each side (five tree-ordered, one snapshot-ordered), the two drivers produce identical `UniqueGalaxyID` sets and per-ID bitwise-equal fields, with no tolerance of any kind. The tree-ordered path stayed byte-identical at the galaxy-record level throughout, with exactly the four deltas the Definition of Done enumerates below, and the run-local `metadata/output_schema.json` differed in exactly the description and `source_md5`. The gate (`simulations/micro-uchuu-snapshot/_tests/scientific/test_cross_format_identity.py`, comparator `scripts/compare_cross_format_identity.py`) is package-local and a manual, dataset-present operation — no automated tier or CI runs it now that Phase 5 has closed.
 
 Add `run_snapshot_driver()`:
 
@@ -279,3 +285,5 @@ Long-running test output should be captured under `archive/test-logs/`, exit cod
 ## Vision Review Timing
 
 Do not update `docs/VISION.md` for this plan until the Phase 5 identity gate passes. At that point, review the vision narrowly for per-driver memory bounds, determinism as an invariant, and a pointer to the implemented dual-driver architecture.
+
+**Done 2026-08-12.** The gate passed (see the Phase 5 section above); `docs/VISION.md` was updated narrowly, touching only those three aspects — a per-driver memory-bounds requirement under "Bounded Memory and Explicit Ownership", a determinism requirement plus the dual-driver pointer under "One Coherent Processing Model" — and nothing else.

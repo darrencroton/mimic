@@ -95,6 +95,25 @@ Deleting one line from `modules.phases:` is only safe for a self-contained modul
 
 Rule: to disable a physics process, remove the whole coupled chain, and check each module's `module_info.yaml` `dependencies:` block first. Some modules also enforce ordering at init and will FATAL if their partner is missing or misordered — that failure is your friend; do not work around it. Missing parameters for enabled modules fail during module `init()`; extra entries in `modules.parameters:` are currently tolerated, recorded in metadata, and not caught by `scripts/lint_parameter_usage.py` (that linter compares C parameter loads against `module_info.yaml`, not run YAML).
 
+## Snapshot-ordered runs
+
+`input.processing_order: snapshot_ordered` selects the second live driver, `run_snapshot_driver()` (`src/core/snapshot_driver.c`), reached through the same `./mimic <run.yaml>` invocation as any other run. `micro-uchuu-snapshot` is the shipped example package, with its own run files:
+
+```bash
+make MODEL=halos-only SIMULATION=micro-uchuu-snapshot
+./mimic models/halos-only/input/halos-only_micro-uchuu-snapshot.yaml; echo "rc=$?"
+```
+
+Three restrictions are enforced at config time, before any snapshot file is opened (`validate_and_postprocess()`, `src/core/read_parameter_file.c`):
+
+- **HDF5-only** — `output.output_format: binary` is rejected ("snapshot-ordered runs are HDF5-only").
+- **No `--skip`** — resume is not supported for snapshot-ordered runs in this phase; the flag is rejected rather than silently ignored.
+- **Serial only** — `NTask > 1` is rejected, naming `docs/dev/MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md` as where multi-rank execution belongs.
+
+The driver calls the reader's `open_run` before processing anything, so the dataset is fully validated up front, then sweeps snapshots in increasing time order holding exactly two live generations (the current slab/processed state and the retained previous one). Output differences from a tree-ordered run, all deliberate: no `Ntrees` attribute and no `TreeHalosPerSnap` dataset on any `Snap%03d/Galaxies` group (omitted entirely, not zero or empty); `TotHalosPerSnap` is `int64` rather than `int` (the same widened type a tree-ordered run's output now also carries); the master file links exactly one output partition; `RunProperties/Version/hdf5_format_version` reads `1.2`. Full driver mechanics (the two-generation rotation, the two ping-ponged galaxy pools, the parity checklist): `docs/DEVELOPER-GUIDE.md` → "The Snapshot Driver".
+
+**The cross-format identity gate** is how the snapshot driver is validated against the tree driver end to end: same `UniqueGalaxyID` set per output snapshot, per-ID bitwise-identical fields, no tolerance. It is a **manual, dataset-present operation** — `make MODEL=halos-only SIMULATION=micro-uchuu-snapshot tests-scientific` on a machine holding both the `micro-uchuu-ascii` and `micro-uchuu-snapshot` datasets — not part of the default-pair suite, CI, or any automated tier; it fails loudly rather than skipping when a dataset is absent. See `docs/DEVELOPER-GUIDE.md` → "The cross-format identity gate" and the `mimic-validation-and-qa` skill.
+
 ## What a run produces
 
 Everything goes into `output.output_directory`. Both formats ALWAYS get a `metadata/` directory.
@@ -230,7 +249,10 @@ python plot/mimic-plot/mimic-plot.py --param-file=models/sage16/input/sage16_min
 
 ## Provenance and maintenance
 
-Facts verified against the repo on 2026-07-04. Re-verify before trusting anything volatile:
+Facts verified against the repo on 2026-07-04; the snapshot-ordered run mechanics added 2026-08-12 once `run_snapshot_driver()` landed. Re-verify before trusting anything volatile:
+
+- Snapshot-ordered config-time rejections: `grep -n "snapshot-ordered runs are HDF5-only\|resume is not supported for snapshot-ordered\|snapshot-ordered runs are serial" src/core/read_parameter_file.c`
+- Snapshot output schema differences: `grep -n "snapshot_run\|Ntrees\|TotHalosPerSnap" src/io/output/hdf5.c | head`
 
 - CLI flags and usage text: `grep -n "usage\|--skip\|--compress\|--quiet" src/core/main.c`
 - Mismatch FATAL and unknown-key rejection: `grep -n "FATAL\|model.name\|Unknown" src/core/read_parameter_file.c | head`

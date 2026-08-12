@@ -41,12 +41,22 @@ All numeric scalars use strict parsers (`get_strict_int_value`, `get_strict_int6
 | `first_file` / `last_file` | int | Tree-file number range to process (split across MPI tasks when built with `USE-MPI`) |
 | `tree_name` | string | Required unconditionally, but its **meaning is reader-specific** — it is not a general filename pattern. `lhalo_binary`: filename base before the file-number suffix, with the reader's extension appended. Both ctrees readers: a literal filename under `simulation_dir`. `lhalo_hdf5`: an explicit filename, optionally with a `%d` file-number placeholder. `snapshot_hdf5`: a *declaration of the format's fixed convention* — accepted only as the exact literal `snapshot_%03d.h5` (`SNAPSHOT_READER_TREE_NAME`, `src/io/snapshot/reader.h`), every other value rejected by `validate_and_postprocess` with a message naming the literal. The reader builds paths from a fixed internal format string; configured text is never used as a `printf` format |
 | `tree_type` | string | Required. Resolved at parse time against **two** registries: `tree_reader_lookup()` (`src/io/tree/registry.c`) first, then `snapshot_reader_lookup()` (`src/io/snapshot/registry.c`). The name sets are disjoint, so the order fixes only which registry answers first. Unknown → FATAL naming both registries and reminding that HDF5 types need an HDF5-enabled build. Exactly one of `MimicConfig.reader` / `MimicConfig.snapshot_reader` is left non-NULL; `TreeExtension` is set only for tree readers. Registered names: forest-ordered `lhalo_binary`, `lhalo_hdf5`, `consistent_trees_ascii`, `consistent_trees_hdf5`; snapshot-ordered `snapshot_hdf5` |
-| `processing_order` | string | Case-insensitive `tree_ordered` (default) or `snapshot_ordered`; anything else fatal. Validated against the resolved reader's own declared `processing_order`, whichever registry answered it, so a mismatched reader/order pair is a config error. A correctly paired `snapshot_ordered` configuration now passes configuration validation and fails later at `run_processing_driver()` (`src/core/tree_driver.c`) with "The snapshot-ordered driver is not implemented yet" — distinguishable from a config rejection by the absence of "Parameter validation failed". The snapshot files are **not** opened on this path: the reader's `open_run` dataset validation has no caller in `src/` until the Phase 5 driver, so input errors go undetected |
+| `processing_order` | string | Case-insensitive `tree_ordered` (default) or `snapshot_ordered`; anything else fatal. Validated against the resolved reader's own declared `processing_order`, whichever registry answered it, so a mismatched reader/order pair is a config error. A correctly paired `snapshot_ordered` configuration passes configuration validation (including the three snapshot-ordered-only rejections below the table) and reaches the live snapshot driver, `run_snapshot_driver()` (`src/core/snapshot_driver.c`), which calls the reader's `open_run` before processing anything, so the dataset is fully validated and a bad file aborts naming the file, object, and value |
 | `simulation_dir` | string | Required. Directory containing the tree files |
 | `snapshot_list_file` | string | Required. Path to the `.a_list` scale-factor file; line count defines `MAXSNAPS` |
 | `max_tree_depth` | int | Default 500 (seeded in `parse_cli`). Recursion guard for `build_halo_tree` |
 | `forest_distribution_scheme` | string | `uniform` (default), `linear`, `quadratic`, `exponent`, `generic_power`; unknown value fatal listing the valid five. Consistent-Trees forest→task load balancing only; other readers ignore it, and the ASCII reader always splits uniformly |
 | `exponent_forest_dist_scheme` | double | Default 0.7. Exponent for the power-law schemes |
+
+### Snapshot-ordered-only rejections (`validate_and_postprocess()`, beside the `processing_order` check above)
+
+These are not separate `input:` keys — they are additional config-time checks that apply only when the resolved `processing_order` is `snapshot_ordered`, each accumulated into the same "Parameter validation failed" report as every other required-key violation:
+
+| Condition | Rejection |
+|---|---|
+| `output.output_format: binary` | "output_format is 'binary', but snapshot-ordered runs are HDF5-only" |
+| `--skip` given (`MimicConfig.OverwriteOutputFiles == 0`) | "--skip was given, but resume is not supported for snapshot-ordered runs" |
+| `NTask > 1` | Serial-only message naming `docs/dev/MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md` as the home for multi-rank execution |
 
 ## `output:` section — valid keys: `output_filename`, `output_directory`, `output_format`, `snapshot_list`, `target_file_size_mb`, `forests_per_file`
 
