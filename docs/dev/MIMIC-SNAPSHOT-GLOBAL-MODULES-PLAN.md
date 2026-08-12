@@ -1,6 +1,6 @@
 # Mimic Snapshot-Global Module Contracts Plan
 
-**Status:** Requirements brief. Blocked on the snapshot driver passing its cross-format identity gate (`MIMIC-DUAL-DRIVER-PLAN.md` Phase 5). Not scheduled.
+**Status:** Requirements brief. Its prerequisite is met — the snapshot driver passed its cross-format identity gate on 2026-08-12 (`MIMIC-DUAL-DRIVER-PLAN.md` Phase 5) — so this brief is unblocked. Not yet scheduled.
 **Date:** 2026-07-02
 
 ---
@@ -11,7 +11,7 @@ Define how physics modules operate on a whole co-resident snapshot population in
 
 ## Scope and Independent Value
 
-Single-node only. Shin-Uchuu's peak snapshot fits comfortably on the current hardware, so every method above is scientifically usable without MPI — this plan delivers value on its own. The first concrete candidate is a true global SHAM module (the existing `sham_assign_stellar_mass` is per-galaxy from `ShamVpeak` and never needed the co-resident population).
+Single-node only. Shin-Uchuu's peak snapshot is expected to fit on the current hardware — though the peak is **pending recomputation** now that the driver retains two complete raw slabs (`POST-PHASE-5-WORK.md` §2.2) — so every method above should be scientifically usable without MPI — this plan delivers value on its own. The first concrete candidate is a true global SHAM module (the existing `sham_assign_stellar_mass` is per-galaxy from `ShamVpeak` and never needed the co-resident population).
 
 ## Relationship to Other Plans
 

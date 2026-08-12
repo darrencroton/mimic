@@ -1,8 +1,8 @@
 # Shin-Uchuu ctrees ASCII → Snapshot HDF5 Conversion Plan
 
-**Status:** Converter built and micro-Uchuu-validated 2026-07-24 — the external converter described here exists under `scripts/convert/` and passed its micro-Uchuu acceptance gate (full pipeline over the real 22,580,924-halo / 50-snapshot ASCII data; producer validation battery + a seven-check cross-check against a `halos-only` reference run, topology-order proof fully discharged, zero unexplained mismatches). That gate was re-run end to end on 2026-08-03 on a fully regenerated micro-Uchuu dataset, now placed at `/Volumes/Internal/data/uchuu/micro-uchuu/micro-uchuu-snapshot/` for snapshot-reader development: same three totals, producer battery 15/15, cross-check green including `topology-chains`. Remaining: the one-time Shin-Uchuu production conversion, after the dual-driver Phase 5 identity gate. All previously open design decisions resolved (joint plan review 2026-07-02, decisions D1–D12; review record archived at `archive/dev-plans/dual-driver-plan-review.md`). Earlier revision reviewed twice by Codex gpt-5.5 (2026-06-27).
+**Status:** Converter built and micro-Uchuu-validated 2026-07-24 — the external converter described here exists under `scripts/convert/` and passed its micro-Uchuu acceptance gate (full pipeline over the real 22,580,924-halo / 50-snapshot ASCII data; producer validation battery + a seven-check cross-check against a `halos-only` reference run, topology-order proof fully discharged, zero unexplained mismatches). That gate was re-run end to end on 2026-08-03 on a fully regenerated micro-Uchuu dataset, now placed at `/Volumes/Internal/data/uchuu/micro-uchuu/micro-uchuu-snapshot/` for snapshot-reader development: same three totals, producer battery 15/15, cross-check green including `topology-chains`. Remaining: the one-time Shin-Uchuu production conversion. **Its precondition is met — the dual-driver Phase 5 identity gate passed 2026-08-12** (both models, both timestep schemes, per-ID bitwise), so the production conversion is unblocked; see `POST-PHASE-5-WORK.md` §2 for the items to close first. All previously open design decisions resolved (joint plan review 2026-07-02, decisions D1–D12; review record archived at `archive/dev-plans/dual-driver-plan-review.md`). Earlier revision reviewed twice by Codex gpt-5.5 (2026-06-27).
 **Date:** 2026-07-02
-**Context:** This plan is one sequence with `MIMIC-DUAL-DRIVER-PLAN.md`. The converter is **not** blocked on the snapshot driver: it is blocked only on the frozen format contract, and it is built and validated first, against micro-Uchuu ASCII, using the existing tree-ordered `read_ctrees_ascii.c` reader as the reference — zero new Mimic code required. The full 5.6 TB Shin-Uchuu conversion runs exactly once, after the dual-driver Phase 5 identity gate is green. Mimic itself performs no internal conversion.
+**Context:** This plan is one sequence with `MIMIC-DUAL-DRIVER-PLAN.md`. The converter is **not** blocked on the snapshot driver: it is blocked only on the frozen format contract, and it is built and validated first, against micro-Uchuu ASCII, using the existing tree-ordered `read_ctrees_ascii.c` reader as the reference — zero new Mimic code required. The full 5.6 TB Shin-Uchuu conversion runs exactly once, after the dual-driver Phase 5 identity gate is green (**green 2026-08-12**). Mimic itself performs no internal conversion.
 
 ---
 
@@ -38,7 +38,7 @@ Both problems are structural consequences of forest-ordered processing and both 
 
 ## Target Format: Snapshot-Ordered HDF5
 
-One HDF5 file per snapshot, named `snapshot_000.h5` through `snapshot_069.h5` (per-snapshot files are decided, not open: partial recovery, per-snapshot parallelism, and the driver's access pattern all favour them). All topology links are snapshot-local integer indices (no global IDs). Scalar metadata lives in HDF5 **attributes** on the `/header` group. **Field names and types on disk must match what `simulations/shin-uchuu/halo_properties.yaml` declares**, so the generated `RawHalo`/accessors consume the file directly; the names below already match the existing `micro-uchuu-ascii` bridge contract (`M_Crit200`→`HaloMass`, `Len`, `SnapNum`, `MostBoundID`, spin conventions). The contract is **frozen** at [`docs/dev/SNAPSHOT-HDF5-FORMAT.md`](SNAPSHOT-HDF5-FORMAT.md) (`format_version = 1`, 2026-07-18), which is now authoritative; this section remains as the working draft it was promoted from — if they ever disagree, the spec wins.
+One HDF5 file per snapshot, named `snapshot_000.h5` through `snapshot_069.h5` (per-snapshot files are decided, not open: partial recovery, per-snapshot parallelism, and the driver's access pattern all favour them). All topology links are snapshot-local integer indices (no global IDs). Scalar metadata lives in HDF5 **attributes** on the `/header` group. **Field names and types on disk must match what `simulations/shin-uchuu/halo_properties.yaml` declares** — except `ForestIndex` and `HaloRankInForest`, which are exempt (see the package section below and `SNAPSHOT-HDF5-FORMAT.md` errata 2026-08-11) — so the generated `RawHalo`/accessors consume the file directly; the names below already match the existing `micro-uchuu-ascii` bridge contract (`M_Crit200`→`HaloMass`, `Len`, `SnapNum`, `MostBoundID`, spin conventions). The contract is **frozen** at [`docs/dev/SNAPSHOT-HDF5-FORMAT.md`](SNAPSHOT-HDF5-FORMAT.md) (`format_version = 1`, 2026-07-18), which is now authoritative; this section remains as the working draft it was promoted from — if they ever disagree, the spec wins.
 
 ```text
 snapshot_NNN.h5
@@ -69,10 +69,9 @@ snapshot_NNN.h5
     NextHaloInFOFgroup    int32[N]    index in this snapshot of the next FoF member; -1 if last
     Len                   int32[N]    round(Mvir_native * 1e-10 / PartMass); required core role
     SnapNum               int32[N]    snapshot index, matching the file header snapshot_number
-                                      (the reader may later synthesize this from the header
-                                      instead of reading ~70 GB of redundant column; decide
-                                      during reader design — the column stays in the contract
-                                      until then)
+                                      (decision closed 2026-08-04 when the reader shipped:
+                                      SnapNum is a required, read catalog field. Changing that
+                                      now would bump format_version)
     M_Crit200             float32[N]  native Msun/h (generated accessor converts to 1e10 Msun/h)
     Pos                   float32[N,3] Mpc/h comoving
     Vel                   float32[N,3] km/s peculiar
@@ -432,9 +431,16 @@ The 70 Shin-Uchuu scale factors are extracted from unique `(SnapNum, scale)` pai
 
 A new `simulations/shin-uchuu/` package:
 - `simulation_info.yaml`: 140 Mpc/h box, confirmed particle mass, `tree_type: snapshot_hdf5`, `processing_order: snapshot_ordered` in run files, 70-snapshot list, and the identity multiplier from the conversion report (D9)
-- `halo_properties.yaml`: ctrees bridge contract mirroring `micro-uchuu-ascii` (`M_Crit200` → `HaloMass`, `Len`, `SnapNum`, `Pos` range `[0.0, 140.0]`); `ForestIndex` and `HaloRankInForest` as identity fields
+- `halo_properties.yaml`: ctrees bridge contract mirroring `micro-uchuu-ascii` (`M_Crit200` → `HaloMass`, `Len`, `SnapNum`, `Pos` range `[0.0, 140.0]`). **Do not declare `ForestIndex` or `HaloRankInForest`** — corrected 2026-08-12. They are snapshot-format identity metadata rather than catalog halo properties, and are exempt from the declaration rule (`SNAPSHOT-HDF5-FORMAT.md` errata 2026-08-11): the reader consumes both directly by dataset name into `struct SnapshotSlab`'s own `forest_index`/`halo_rank_in_forest` arrays. Declaring them is unnecessary rather than forbidden, but the working exemplar `simulations/micro-uchuu-snapshot/halo_properties.yaml` omits both, and mirroring it is the safe course
 - `shin-uchuu.a_list`: from Phase 1
 - `snapshots/`: symlink to the 70 HDF5 files
+
+**Run constraints for snapshot-ordered runs** (added 2026-08-12; enforced at config time in `src/core/read_parameter_file.c:1452-1466`, so a production run that violates one aborts at startup rather than part way through):
+
+- **HDF5 output only** — `output_format: binary` is rejected.
+- **Serial only** — `NTask > 1` is rejected; there is no MPI path (see `MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md`).
+- **No `--skip`** — a partially completed run cannot be resumed by re-running with `--skip`; plan for a single uninterrupted run, or for restarting it.
+- Output is written as **one partition plus a master**, carries no `Ntrees` and no `TreeHalosPerSnap`, and uses int64 `TotHalosPerSnap`. `hdf5_format_version` is `1.2`.
 
 Property ranges requiring calibration from a test run: `deltaMvir`, `Len` (floor is 1 at this resolution), `Spin`.
 
@@ -475,7 +481,7 @@ One sequence (see `MIMIC-DUAL-DRIVER-PLAN.md`):
 1. Freeze the format contract (this plan's schema → durable `docs/` spec)
 2. **Build this converter; validate on micro-Uchuu ASCII** (topology cross-check vs `read_ctrees_ascii.c`) — no new Mimic code needed
 3. ~~Dual-driver Phase 4b: snapshot reader against the micro-Uchuu fixtures~~ — **done 2026-08-04** (`MIMIC-SNAPSHOT-READER-PLAN.md`); the format this plan emits is now readable and validated by Mimic
-4. Dual-driver Phase 5: snapshot driver + cross-format identity gate on micro-Uchuu — **← next**
+4. Dual-driver Phase 5: snapshot driver + cross-format identity gate on micro-Uchuu — **done 2026-08-12** (gate green: both models, both timestep schemes, per-ID bitwise)
 5. **Then** the one-time 5.6 TB Shin-Uchuu production conversion (this plan at full scale)
 6. `simulations/shin-uchuu/` package; sage16 end to end; HMF/GSMF sanity at z = 0, 1, 2
 
@@ -487,7 +493,9 @@ Shin-Uchuu is the primary scientific motivation for the snapshot pathway — and
 
 **Before the production run**, recompute the adjacent-snapshot peak from *actual* allocation capacities, not estimates: both retained raw slabs, both processed generations, the galaxy pools, the output and HDF5 buffers, and allocator growth. Include the reader's transient staging buffers — `snapshot_h5_fill_halos()` allocates one scalar and one vector buffer at the widest native element size, 32 bytes per halo in total (≈10 GB at the projected 315M-halo z = 0 slab), live only during a slab load but concurrent with the slab it is filling.
 
-**If the peak exceeds 85% of installed RAM** (≈435 GB on a 512 GB machine), replace the retained *previous* raw slab with a compact projection of `{int32_t Len, int32_t NextProgenitor}` — all the previous generation is ever read for — costing ≈315e6 × 8 B ≈ 2.5 GB against the ≈32.8 GB of a full second slab. Measured struct sizes at the 2026-08-04 audit: `struct RawHalo` 104 B, `struct Halo` 176 B, `struct GalaxyData` 176 B, `struct HaloOutput` 264 B.
+**If the peak exceeds 85% of installed RAM** (≈435 GB on a 512 GB machine), replace the retained *previous* raw slab with a compact projection of `{int32_t Len, int32_t NextProgenitor}` — all the previous generation is ever read for — costing ≈315e6 × 8 B ≈ 2.5 GB against a full second slab. Measured struct sizes at the 2026-08-04 audit: `struct RawHalo` 104 B, `struct Halo` 176 B, `struct GalaxyData` 176 B, `struct HaloOutput` 264 B.
+
+**Correction 2026-08-12.** That 104 B is the **default pair's** `RawHalo` (`sage16`/`mini-millennium`), not this catalog's. The ctrees-bridge catalog the snapshot packages use measures **88 B** (verified against `micro-uchuu-snapshot`), so a full second slab is ≈315e6 × 88 B ≈ **27.7 GB**, not ≈32.8 GB. Re-derive the figure from the `shin-uchuu` package's own `sizeof(struct RawHalo)` rather than from either number quoted here. Note also that neither the two processed generations nor the two galaxy pools are quantified anywhere in this plan — the numeric memory tables above are converter-side only — so they must be measured, not assumed, during the recompute. Phase 5 shipped **no** memory-projection branch: the driver holds two complete raw slabs unconditionally, so the projection described here would have to be implemented if the trigger fires.
 
 ---
 
