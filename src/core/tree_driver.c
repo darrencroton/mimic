@@ -196,12 +196,13 @@ static int64_t *build_partition_file_offsets(const struct TreeReader *reader, co
 /**
  * @brief   Process every unit of one partition and finalize its output.
  */
-static void process_partition(int output_id, ProgressBar *ext_bar, int64_t tree_base) {
+static void process_partition(int output_id, ProgressBar *ext_bar, int64_t tree_base,
+                              struct OutputSnapshotSelection selection) {
   int unit, halonr;
 
   FileNum = output_id;
   open_partition(output_id);
-  prepare_output_files(output_id);
+  prepare_output_files(output_id, selection);
 
   ProgressBar local_bar;
   ProgressBar *bar = ext_bar;
@@ -239,7 +240,7 @@ static void process_partition(int output_id, ProgressBar *ext_bar, int64_t tree_
 
 #ifdef HDF5
     if (MimicConfig.OutputFormat == output_hdf5) {
-      save_halos_hdf5(output_id, unit, view);
+      save_halos_hdf5(output_id, unit, view, selection);
     } else {
       save_halos(output_id, unit, view);
     }
@@ -254,7 +255,7 @@ static void process_partition(int output_id, ProgressBar *ext_bar, int64_t tree_
 
 #ifdef HDF5
   if (MimicConfig.OutputFormat == output_hdf5) {
-    flush_hdf5_buffers(output_id);
+    flush_hdf5_buffers(output_id, selection);
 
     for (int n = 0; n < MimicConfig.NOUT; n++) {
       write_hdf5_attrs(n, output_id);
@@ -286,7 +287,8 @@ static void process_partition(int output_id, ProgressBar *ext_bar, int64_t tree_
 /**
  * @brief   Claim and process one output partition, honoring --skip.
  */
-static int claim_and_process_partition(int output_id, ProgressBar *ext_bar, int64_t tree_base) {
+static int claim_and_process_partition(int output_id, ProgressBar *ext_bar, int64_t tree_base,
+                                       struct OutputSnapshotSelection selection) {
   set_current_output_paths(output_id);
   int existing_outputs = count_existing_current_outputs();
   if (!MimicConfig.OverwriteOutputFiles) {
@@ -304,7 +306,7 @@ static int claim_and_process_partition(int output_id, ProgressBar *ext_bar, int6
 
   claim_current_output_paths(output_id);
 
-  process_partition(output_id, ext_bar, tree_base);
+  process_partition(output_id, ext_bar, tree_base, selection);
 
   tree_driver_clear_current_output_paths();
   return 1;
@@ -315,6 +317,8 @@ static void run_per_file_driver(const struct TreeReader *reader) {
   REQUIRE_READER_HOOK(reader, partition_output_id);
 
   reader_prepare_run(reader);
+
+  const struct OutputPartitionSource output_source = get_output_partition_source();
 
   const int npartitions = reader->num_partitions();
   int64_t total_trees = 0;
@@ -328,7 +332,8 @@ static void run_per_file_driver(const struct TreeReader *reader) {
       continue;
     }
     GlobalForestOffset = global_forest_offsets[partition];
-    if (claim_and_process_partition(output_id, NULL, 0) && !progress_display_active()) {
+    const struct OutputSnapshotSelection selection = output_source.partition_snapshots(partition);
+    if (claim_and_process_partition(output_id, NULL, 0, selection) && !progress_display_active()) {
       INFO_LOG("%sCompleted input file %d%s", mimic_color_green(), output_id, mimic_color_reset());
     }
   }
@@ -343,7 +348,9 @@ static void run_per_file_driver(const struct TreeReader *reader) {
       continue;
     }
     GlobalForestOffset = global_forest_offsets[partition];
-    claim_and_process_partition(output_id, &global_bar, global_forest_offsets[partition]);
+    const struct OutputSnapshotSelection selection = output_source.partition_snapshots(partition);
+    claim_and_process_partition(output_id, &global_bar, global_forest_offsets[partition],
+                                selection);
   }
   progress_bar_finish(&global_bar);
 #endif
@@ -429,6 +436,8 @@ static void run_enumerated_driver(const struct TreeReader *reader) {
 
   reader_prepare_run(reader);
 
+  const struct OutputPartitionSource output_source = get_output_partition_source();
+
   const int npartitions = reader->num_partitions();
   if (npartitions < 0) {
     FATAL_ERROR("Tree reader '%s' reported negative partition count %d", reader->name, npartitions);
@@ -469,7 +478,8 @@ static void run_enumerated_driver(const struct TreeReader *reader) {
     }
     const int output_id = reader->partition_output_id(partition);
     GlobalForestOffset = reader->global_forest_offset(partition);
-    if (claim_and_process_partition(output_id, NULL, 0) && !progress_display_active()) {
+    const struct OutputSnapshotSelection selection = output_source.partition_snapshots(partition);
+    if (claim_and_process_partition(output_id, NULL, 0, selection) && !progress_display_active()) {
       INFO_LOG("%sCompleted output file %d%s", mimic_color_green(), output_id, mimic_color_reset());
     }
   }
@@ -483,7 +493,8 @@ static void run_enumerated_driver(const struct TreeReader *reader) {
     }
     const int output_id = reader->partition_output_id(partition);
     GlobalForestOffset = reader->global_forest_offset(partition);
-    claim_and_process_partition(output_id, &global_bar, unit_offsets[partition]);
+    const struct OutputSnapshotSelection selection = output_source.partition_snapshots(partition);
+    claim_and_process_partition(output_id, &global_bar, unit_offsets[partition], selection);
   }
   progress_bar_finish(&global_bar);
 #endif
@@ -552,6 +563,30 @@ static int tree_partition_source_partition_exists(int partition) {
 }
 
 /**
+ * @brief   Ascending 0..NOUT-1 index table into MimicConfig.ListOutputSnaps.
+ *
+ * Filled by get_output_partition_source() before either constructor runs.
+ * Every partition_snapshots() hook below returns the whole table this slice,
+ * so each partition carries every requested snapshot; a future source may
+ * hand out a narrower slice of the same table without changing its contents.
+ */
+static int g_output_snapshot_indices[ABSOLUTEMAXSNAPS];
+
+static void fill_output_snapshot_indices(void) {
+  for (int i = 0; i < MimicConfig.NOUT; i++) {
+    g_output_snapshot_indices[i] = i;
+  }
+}
+
+static struct OutputSnapshotSelection all_requested_snapshots(int partition) {
+  (void)partition;
+  return (struct OutputSnapshotSelection){
+      .count = MimicConfig.NOUT,
+      .indices = g_output_snapshot_indices,
+  };
+}
+
+/**
  * @brief   Wrap a tree reader's partition hooks as a driver-neutral output partition source.
  */
 static struct OutputPartitionSource
@@ -561,6 +596,7 @@ tree_reader_output_partition_source(const struct TreeReader *reader) {
       .num_partitions = reader->num_partitions,
       .partition_output_id = reader->partition_output_id,
       .partition_exists = tree_partition_source_partition_exists,
+      .partition_snapshots = all_requested_snapshots,
       .prepare_run = reader->prepare_run,
       .teardown_run = reader->teardown_run,
       .format_name = reader->name,
@@ -587,6 +623,7 @@ static struct OutputPartitionSource snapshot_output_partition_source(void) {
       .num_partitions = snapshot_output_partition_count,
       .partition_output_id = snapshot_output_partition_output_id,
       .partition_exists = snapshot_output_partition_exists,
+      .partition_snapshots = all_requested_snapshots,
       .prepare_run = NULL,
       .teardown_run = NULL,
       .format_name = MimicConfig.snapshot_reader->name,
@@ -600,6 +637,8 @@ static struct OutputPartitionSource snapshot_output_partition_source(void) {
  * under src/io/output/ call this instead of reading MimicConfig.reader.
  */
 struct OutputPartitionSource get_output_partition_source(void) {
+  fill_output_snapshot_indices();
+
   switch ((enum InputProcessingOrder)MimicConfig.ProcessingOrder) {
   case INPUT_PROCESSING_ORDER_TREE:
     return tree_reader_output_partition_source(MimicConfig.reader);

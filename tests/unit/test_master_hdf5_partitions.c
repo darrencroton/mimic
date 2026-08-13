@@ -387,6 +387,7 @@ static int test_snapshot_output_partition_source_is_trivial_single_partition(voi
   /* A snapshot-ordered configuration always carries a resolved snapshot reader
    * (config validation rejects it otherwise); the source reads its name. */
   MimicConfig.snapshot_reader = &SnapshotSourceReader;
+  MimicConfig.NOUT = 3;
 
   struct OutputPartitionSource source = get_output_partition_source();
 
@@ -394,9 +395,19 @@ static int test_snapshot_output_partition_source_is_trivial_single_partition(voi
   TEST_ASSERT(source.partition_output_id != NULL,
               "snapshot source must supply partition_output_id");
   TEST_ASSERT(source.partition_exists != NULL, "snapshot source must supply partition_exists");
+  TEST_ASSERT(source.partition_snapshots != NULL,
+              "snapshot source must supply partition_snapshots");
   TEST_ASSERT_EQUAL(source.num_partitions(), 1, "snapshot source has exactly one partition");
   TEST_ASSERT_EQUAL(source.partition_output_id(0), 0, "snapshot source's partition output id is 0");
   TEST_ASSERT(source.partition_exists(0) != 0, "snapshot source's single partition always exists");
+
+  struct OutputSnapshotSelection selection = source.partition_snapshots(0);
+  TEST_ASSERT_EQUAL(selection.count, MimicConfig.NOUT,
+                    "snapshot source's single partition carries every requested snapshot");
+  for (int i = 0; i < selection.count; i++) {
+    TEST_ASSERT_EQUAL(selection.indices[i], i, "selection indices should be ascending 0..NOUT-1");
+  }
+
   TEST_ASSERT(source.format_name != NULL && strcmp(source.format_name, "snapshot_hdf5") == 0,
               "snapshot source records format name snapshot_hdf5");
   TEST_ASSERT(source.prepare_run == NULL, "snapshot source keeps no run-scoped prepare hook");
@@ -414,6 +425,7 @@ static int test_tree_output_partition_source_wraps_configured_reader(void) {
   memset(&MimicConfig, 0, sizeof(MimicConfig));
   MimicConfig.ProcessingOrder = (int)INPUT_PROCESSING_ORDER_TREE;
   MimicConfig.reader = &EnumeratedMasterReader;
+  MimicConfig.NOUT = 2;
 
   master_npartitions = 2;
   master_output_ids[0] = 5;
@@ -432,6 +444,10 @@ static int test_tree_output_partition_source_wraps_configured_reader(void) {
               "tree source honours an existing enumerated partition");
   TEST_ASSERT(source.partition_exists(1) == 0,
               "tree source honours a missing enumerated partition");
+  TEST_ASSERT(source.partition_snapshots != NULL, "tree source must supply partition_snapshots");
+  struct OutputSnapshotSelection selection = source.partition_snapshots(0);
+  TEST_ASSERT_EQUAL(selection.count, MimicConfig.NOUT,
+                    "tree source's partition carries every requested snapshot");
 
   /* PARTITION_PER_FILE readers keep their prior behaviour bit for bit: the
    * seam never consults their exists hook (the output-file access() check

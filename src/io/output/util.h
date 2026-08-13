@@ -34,13 +34,25 @@ void output_path_binary(char *buf, size_t size, int filenr, int snap_index);
 void output_path_hdf5(char *buf, size_t size, int filenr);
 
 /**
+ * @brief   A partition's selection of requested output snapshots.
+ *
+ * count is the number of entries carried; indices holds that many ascending
+ * indices into MimicConfig.ListOutputSnaps naming which requested output
+ * snapshots this partition writes.
+ */
+struct OutputSnapshotSelection {
+  int count;
+  const int *indices;
+};
+
+/**
  * @brief   Create/initialize this filenr's output files (dispatches on OutputFormat)
  *
  * Binary: creates one empty file per requested snapshot. HDF5: creates the
- * per-filenr file with its snapshot tables and leaves it open for writing
- * (HDF5_current_file_id).
+ * per-filenr file with tables for @p selection's snapshots and leaves it open
+ * for writing (HDF5_current_file_id).
  */
-void prepare_output_files(int filenr);
+void prepare_output_files(int filenr, struct OutputSnapshotSelection selection);
 
 /**
  * @brief   Increment per-file halo counters with the 32-bit output guard
@@ -63,10 +75,13 @@ void output_increment_halo_counters_checked(int filenr, int snap_index, int snap
  * get_output_partition_source() (src/core/tree_driver.c), which resolves the
  * active processing order and constructs the matching source: the tree-side
  * construction wraps the configured tree reader's partition hooks (including
- * a prepare_run/teardown_run pass-through); the snapshot side is the trivial
- * single-partition shape (count 1, output id 0, always exists), taking the
- * format name from the resolved snapshot reader so a second registered reader
- * records its own name in provenance.
+ * a prepare_run/teardown_run pass-through); the snapshot side constructs its
+ * own hooks directly, taking the format name from the resolved snapshot
+ * reader so a second registered reader records its own name in provenance.
+ * Each partition also names the requested output snapshots it carries via
+ * partition_snapshots(); a tree-ordered partition always carries every
+ * requested snapshot, and the snapshot side does today too, though nothing
+ * here requires it to stay that way.
  */
 struct OutputPartitionSource {
   /** Number of output partitions this run produces. */
@@ -75,6 +90,8 @@ struct OutputPartitionSource {
   int (*partition_output_id)(int partition);
   /** Whether a given partition's input is present and should be linked. */
   int (*partition_exists)(int partition);
+  /** Requested output snapshots carried by a given partition index. */
+  struct OutputSnapshotSelection (*partition_snapshots)(int partition);
   /** Optional run-scoped lifecycle hooks; NULL if the source keeps no state. */
   void (*prepare_run)(void);
   void (*teardown_run)(void);

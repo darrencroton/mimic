@@ -67,15 +67,16 @@ void calc_hdf5_props(void) {
 }
 
 /**
- * @brief   Create a new HDF5 output file with one table per requested snapshot.
- * @param   fname   Path to the output file.
+ * @brief   Create a new HDF5 output file with one table per selected snapshot.
+ * @param   fname       Path to the output file.
+ * @param   selection   Requested output snapshots this file carries.
  *
- * Creates the file, one Snap{NNN} group per ListOutputSnaps entry, and an empty
+ * Creates the file, one Snap{NNN} group per selection entry, and an empty
  * HDF5 table ("Galaxies") in each group. chunk_size=1000 (≈140 KB per chunk for
  * HaloOutput) is a tuning constant; compression is controlled at runtime via
  * MimicConfig.HDF5CompressionLevel (0 = off).
  */
-void prep_hdf5_file(char *fname) {
+void prep_hdf5_file(char *fname, struct OutputSnapshotSelection selection) {
   /* 1000 records ≈ 140 KB per chunk: sweet spot for sequential write throughput vs. overhead. */
   hsize_t chunk_size = 1000;
   int *fill_data = NULL;
@@ -90,7 +91,8 @@ void prep_hdf5_file(char *fname) {
     FATAL_ERROR("Failed to create HDF5 file '%s'", fname);
   }
 
-  for (i_snap = 0; i_snap < MimicConfig.NOUT; i_snap++) {
+  for (int idx = 0; idx < selection.count; idx++) {
+    i_snap = selection.indices[idx];
     sprintf(target_group, "Snap%03d", MimicConfig.ListOutputSnaps[i_snap]);
     snap_group_id = H5Gcreate(file_id, target_group, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
     if (snap_group_id < 0) {
@@ -120,22 +122,27 @@ void prep_hdf5_file(char *fname) {
 /**
  * @brief   Create this filenr's HDF5 output file and leave it open for writing
  *
- * Creates the per-filenr file with one table per requested snapshot
- * (prep_hdf5_file), then reopens it and stores the handle in
- * HDF5_current_file_id so subsequent batch writes are cheap. The handle is
- * closed by the driver after the filenr is finalized.
+ * Creates the per-filenr file with one table per selected snapshot
+ * (prep_hdf5_file), then reopens it, stores the handle in
+ * HDF5_current_file_id so subsequent batch writes are cheap, and writes the
+ * per-file RunProperties metadata immediately: this is the only site that
+ * assigns HDF5_current_file_id, so "per-file metadata" is a property of
+ * opening a file rather than of a snapshot index. The handle is closed by the
+ * driver after the filenr is finalized.
  */
-void open_hdf5_output_file(int filenr) {
+void open_hdf5_output_file(int filenr, struct OutputSnapshotSelection selection) {
   char buf[3 * MAX_STRING_LEN + 40];
 
   output_path_hdf5(buf, sizeof(buf), filenr);
-  prep_hdf5_file(buf);
+  prep_hdf5_file(buf, selection);
 
   HDF5_current_file_id = H5Fopen(buf, H5F_ACC_RDWR, H5P_DEFAULT);
   if (HDF5_current_file_id < 0) {
     FATAL_ERROR("Failed to open HDF5 file '%s' for writing", buf);
   }
   DEBUG_LOG("HDF5 file '%s' opened with ID %lld", buf, (long long)HDF5_current_file_id);
+
+  write_perfile_metadata(HDF5_current_file_id);
 }
 
 /**
@@ -181,11 +188,12 @@ void write_hdf5_halo_batch(struct HaloOutput *halo_batch, int num_halos, int n, 
  * @param   n        Snapshot index into ListOutputSnaps.
  * @param   filenr   File number (for error messages).
  *
- * Writes TotHalosPerSnap[n] as a scalar attribute on Snap{NNN}/Galaxies. On
- * n==0, also writes RunProperties metadata. Tree-ordered runs additionally
- * write Ntrees and the TreeHalosPerSnap[0..Ntrees-1] dataset; snapshot-ordered
- * runs have no tree structure, so both are omitted entirely (absent, not
- * zero/empty) rather than reading the tree-only InputHalosPerSnap.
+ * Writes TotHalosPerSnap[n] as a scalar attribute on Snap{NNN}/Galaxies.
+ * Tree-ordered runs additionally write Ntrees and the
+ * TreeHalosPerSnap[0..Ntrees-1] dataset; snapshot-ordered runs have no tree
+ * structure, so both are omitted entirely (absent, not zero/empty) rather
+ * than reading the tree-only InputHalosPerSnap. Per-file RunProperties
+ * metadata is written once, at file open (open_hdf5_output_file()), not here.
  */
 void write_hdf5_attrs(int n, int filenr) {
 
@@ -199,12 +207,6 @@ void write_hdf5_attrs(int n, int filenr) {
   if (HDF5_current_file_id < 0) {
     FATAL_ERROR("HDF5 file not open for writing attributes (file_id = %lld)",
                 (long long)HDF5_current_file_id);
-  }
-
-  /* Write RunProperties metadata to per-file output for self-containment
-   * (only written once per file, on first snapshot) */
-  if (n == 0) {
-    write_perfile_metadata(HDF5_current_file_id);
   }
 
   sprintf(target_group, "Snap%03d", MimicConfig.ListOutputSnaps[n]);
@@ -323,8 +325,9 @@ static void flush_hdf5_buffer(int n, int filenr) {
   }
 }
 
-void flush_hdf5_buffers(int filenr) {
-  for (int n = 0; n < MimicConfig.NOUT; n++) {
+void flush_hdf5_buffers(int filenr, struct OutputSnapshotSelection selection) {
+  for (int idx = 0; idx < selection.count; idx++) {
+    int n = selection.indices[idx];
     flush_hdf5_buffer(n, filenr);
     if (hdf5_wbuf[n] != NULL) {
       myfree(hdf5_wbuf[n]);
@@ -333,11 +336,13 @@ void flush_hdf5_buffers(int filenr) {
   }
 }
 
-void save_halos_hdf5(int filenr, int tree, struct HaloInputView view) {
+void save_halos_hdf5(int filenr, int tree, struct HaloInputView view,
+                     struct OutputSnapshotSelection selection) {
   int64_t i;
   int n;
 
-  for (n = 0; n < MimicConfig.NOUT; n++) {
+  for (int idx = 0; idx < selection.count; idx++) {
+    n = selection.indices[idx];
     for (i = 0; i < NumProcessedHalos; i++) {
       if (ProcessedHalos[i].SnapNum != MimicConfig.ListOutputSnaps[n])
         continue;

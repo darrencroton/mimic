@@ -489,14 +489,14 @@ static void snapshot_clear_output_globals(void) {
 #ifdef HDF5
 
 /* Create the single output partition and arm its cleanup registration. */
-static void snapshot_open_output(void) {
+static void snapshot_open_output(struct OutputSnapshotSelection selection) {
   snapshot_register_output_paths();
 
   for (int n = 0; n < MimicConfig.NOUT; n++) {
     TotHalosPerSnap[n] = 0;
   }
 
-  prepare_output_files(SNAPSHOT_OUTPUT_ID);
+  prepare_output_files(SNAPSHOT_OUTPUT_ID, selection);
 }
 
 /*
@@ -513,14 +513,15 @@ static void snapshot_open_output(void) {
  * several snapshots before the next save, so the globals are cleared again on
  * the way out rather than left pointing into freed memory.
  */
-static void snapshot_write_output(struct SnapshotGeneration *cur) {
+static void snapshot_write_output(struct SnapshotGeneration *cur,
+                                  struct OutputSnapshotSelection selection) {
   const struct HaloInputView view = {cur->slab.halos, cur->slab.nhalos};
 
   ProcessedHalos = cur->processed.halos;
   NumProcessedHalos = cur->processed.count;
   MaxProcessedHalos = cur->processed.capacity;
 
-  save_halos_hdf5(SNAPSHOT_OUTPUT_ID, SNAPSHOT_OUTPUT_TREE_ID, view);
+  save_halos_hdf5(SNAPSHOT_OUTPUT_ID, SNAPSHOT_OUTPUT_TREE_ID, view, selection);
 
   snapshot_clear_output_globals();
 
@@ -534,8 +535,8 @@ static void snapshot_write_output(struct SnapshotGeneration *cur) {
 }
 
 /* Flush, stamp per-snapshot counts and metadata, and close the partition. */
-static void snapshot_finalize_output(void) {
-  flush_hdf5_buffers(SNAPSHOT_OUTPUT_ID);
+static void snapshot_finalize_output(struct OutputSnapshotSelection selection) {
+  flush_hdf5_buffers(SNAPSHOT_OUTPUT_ID, selection);
 
   for (int n = 0; n < MimicConfig.NOUT; n++) {
     write_hdf5_attrs(n, SNAPSHOT_OUTPUT_ID);
@@ -570,14 +571,22 @@ static void snapshot_finalize_output(void) {
 #define SNAPSHOT_NO_HDF5_MESSAGE                                                                   \
   "Snapshot-ordered runs require an HDF5-enabled build; rebuild with USE-HDF5=yes"
 
-static void snapshot_open_output(void) { FATAL_ERROR(SNAPSHOT_NO_HDF5_MESSAGE); }
-
-static void snapshot_write_output(struct SnapshotGeneration *cur) {
-  (void)cur;
+static void snapshot_open_output(struct OutputSnapshotSelection selection) {
+  (void)selection;
   FATAL_ERROR(SNAPSHOT_NO_HDF5_MESSAGE);
 }
 
-static void snapshot_finalize_output(void) { FATAL_ERROR(SNAPSHOT_NO_HDF5_MESSAGE); }
+static void snapshot_write_output(struct SnapshotGeneration *cur,
+                                  struct OutputSnapshotSelection selection) {
+  (void)cur;
+  (void)selection;
+  FATAL_ERROR(SNAPSHOT_NO_HDF5_MESSAGE);
+}
+
+static void snapshot_finalize_output(struct OutputSnapshotSelection selection) {
+  (void)selection;
+  FATAL_ERROR(SNAPSHOT_NO_HDF5_MESSAGE);
+}
 
 #endif /* HDF5 */
 
@@ -704,7 +713,13 @@ void run_snapshot_driver(void) {
   TreeID = 0;
   GlobalForestOffset = 0;
 
-  snapshot_open_output();
+  /* This driver has exactly one partition (partition 0), so its selection is
+   * resolved once here and threaded through every output call below rather
+   * than re-resolved per call. */
+  const struct OutputSnapshotSelection selection =
+      get_output_partition_source().partition_snapshots(0);
+
+  snapshot_open_output(selection);
 
   state.workspace_capacity = INITIAL_FOF_HALOS;
   state.workspace = mymalloc_cat((size_t)state.workspace_capacity * sizeof(struct Halo), MEM_HALOS);
@@ -775,7 +790,7 @@ void run_snapshot_driver(void) {
     }
 
     if (snapshot_is_output_snapshot(snapnum)) {
-      snapshot_write_output(cur);
+      snapshot_write_output(cur, selection);
     }
   }
 
@@ -785,7 +800,7 @@ void run_snapshot_driver(void) {
     snapshot_release_generation(&state, &state.gen[(info.snapshot_count - 1) % 2]);
   }
 
-  snapshot_finalize_output();
+  snapshot_finalize_output(selection);
   snapshot_reader_close_run(state.reader);
 
   for (int slot = 0; slot < 2; slot++) {

@@ -40,13 +40,17 @@ void output_path_hdf5(char *buf, size_t size, int filenr) {
   }
 }
 
-void prepare_output_files(int filenr) {
+void prepare_output_files(int filenr, struct OutputSnapshotSelection selection) {
 #ifdef HDF5
   if (MimicConfig.OutputFormat == output_hdf5) {
-    open_hdf5_output_file(filenr);
+    open_hdf5_output_file(filenr, selection);
     return;
   }
 #endif
+  /* Binary output is tree-ordered-only (rejected at configuration time for
+   * snapshot runs), so it always carries every requested snapshot; the
+   * selection is not consulted here. */
+  (void)selection;
   create_binary_output_files(filenr);
 }
 

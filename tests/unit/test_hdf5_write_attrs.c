@@ -135,7 +135,8 @@ static int test_tree_run_attrs_include_ntrees_and_tree_halos_per_snap(void) {
 
   write_hdf5_attrs(0, 0);
 
-  TEST_ASSERT_EQUAL(perfile_metadata_calls, 1, "n==0 should write per-file metadata once");
+  TEST_ASSERT_EQUAL(perfile_metadata_calls, 0,
+                    "write_hdf5_attrs must never write per-file metadata (moved to file open)");
 
   hid_t group_id = H5Gopen(HDF5_current_file_id, "Snap000", H5P_DEFAULT);
   hid_t dataset_id = H5Dopen(group_id, "Galaxies", H5P_DEFAULT);

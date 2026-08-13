@@ -55,7 +55,8 @@ void write_master_file(void) {
     source.prepare_run();
   }
 
-  if (source.num_partitions == NULL || source.partition_output_id == NULL) {
+  if (source.num_partitions == NULL || source.partition_output_id == NULL ||
+      source.partition_snapshots == NULL) {
     FATAL_ERROR("Output partition source '%s' cannot enumerate HDF5 master partitions",
                 source.format_name);
   }
@@ -117,7 +118,10 @@ void write_master_file(void) {
 
     sprintf(relative_target_file, "%s_%03d.hdf5", MimicConfig.OutputFileBaseName, filenr);
 
-    for (n = 0; n < MimicConfig.NOUT; n++) {
+    const struct OutputSnapshotSelection selection = source.partition_snapshots(partition);
+
+    for (int idx = 0; idx < selection.count; idx++) {
+      n = selection.indices[idx];
       sprintf(target_group, "Snap%03d/File%03d", MimicConfig.ListOutputSnaps[n], filenr);
       group_id = H5Gcreate(master_file_id, target_group, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
       if (group_id < 0) {
