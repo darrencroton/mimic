@@ -69,11 +69,20 @@ def test_specific_angular_momentum_is_identity_when_carried():
     assert _effective_h_convention({"units": "Mpc/h km/s"}) == "carried"
     assert _unit_info("Mpc/h km/s")["dimension"] == "specific_angular_momentum"
 
+    # The target side of the real generator path is resolved from
+    # reference_units, not hardcoded -- pin that resolution too, so an edit to
+    # core_properties.yaml's specific_angular_momentum entry (e.g. changing its
+    # h_convention) fails this test rather than silently changing Spin values.
+    reference_units = reference_units_from_core(load_core_metadata())
+    sam_reference = reference_units["specific_angular_momentum"]
+    assert sam_reference["label"] == "Mpc/h km/s"
+    assert sam_reference["h_convention"] == "carried"
+
     expr = _linear_conversion_expr(
         "Mpc/h km/s",
         "carried",
-        "Mpc/h km/s",
-        "carried",
+        sam_reference["label"],
+        sam_reference["h_convention"],
         "test specific angular momentum",
     )
     assert expr == "1.0", expr
