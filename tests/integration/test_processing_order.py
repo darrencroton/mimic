@@ -8,6 +8,7 @@ simulation.unique_galaxy_id_multiplier key (parse, default, precedence across
 both parser passes, and a tree-ordered run honouring a non-default value).
 """
 
+import os
 import shutil
 import sys
 import tempfile
@@ -78,12 +79,69 @@ def snapshot_fixture_present():
     )
 
 
-def snapshot_fixture_input_overrides():
-    """input.* overrides that repoint a run at the committed fixture dataset."""
+def snapshot_fixture_input_overrides(simulation_dir=None):
+    """input.* overrides that repoint a run at the committed fixture dataset.
+
+    A caller that has built a modified copy of the fixture (the failure-injection
+    cases below) passes its directory, and the copy's own scale-factor list is
+    used with it so the run reads one self-consistent dataset.
+    """
+    if simulation_dir is None:
+        return {
+            "simulation_dir": str(SNAPSHOT_FIXTURE_DIR),
+            "snapshot_list_file": str(SNAPSHOT_FIXTURE_A_LIST),
+        }
     return {
-        "simulation_dir": str(SNAPSHOT_FIXTURE_DIR),
-        "snapshot_list_file": str(SNAPSHOT_FIXTURE_A_LIST),
+        "simulation_dir": str(simulation_dir),
+        "snapshot_list_file": str(Path(simulation_dir) / SNAPSHOT_FIXTURE_A_LIST.name),
     }
+
+
+def snapshot_partition_files(output_dir):
+    """The numbered partition files a snapshot-ordered run left in output_dir.
+
+    Named by glob rather than by expectation so a run that wrote a file nobody
+    asked for shows up as an extra entry instead of going unnoticed.
+    """
+    return sorted(Path(output_dir).glob("*_[0-9][0-9][0-9].hdf5"))
+
+
+def snapshot_partition_path(output_dir, snapnum):
+    """Where a snapshot-ordered run puts snapshot `snapnum`'s partition file."""
+    return Path(output_dir) / f"model_{snapnum:03d}.hdf5"
+
+
+def fixture_copy_with_broken_fof_link(destination, snapnum):
+    """Copy the fixture to `destination` and break one FoF link in one snapshot.
+
+    FirstHaloInFOFgroup is bounded by its OWN snapshot's halo count
+    (src/io/snapshot/read_snapshot_hdf5.c:849, :884-886), so setting it to that
+    count is guaranteed out of range rather than accidentally valid. The
+    validator that rejects it runs only from load_slab_snapshot_hdf5() (:1297),
+    never from open_run, so the abort lands mid-sweep — after earlier requested
+    snapshots have already been written and closed — rather than at startup.
+    """
+    import h5py
+
+    destination = Path(destination)
+    shutil.copytree(SNAPSHOT_FIXTURE_DIR, destination)
+
+    with h5py.File(destination / f"snapshot_{snapnum:03d}.h5", "r+") as handle:
+        dataset = handle["halos/FirstHaloInFOFgroup"]
+        n_halos = dataset.shape[0]
+        assert n_halos > 0, (
+            f"snapshot {snapnum} of the fixture is empty, so it cannot carry a link to "
+            f"corrupt; pick a populated snapshot"
+        )
+        dataset[0] = n_halos
+
+    return destination
+
+
+def skip_unless_mode_bits_deny_access():
+    """Skip a permission-based injection where mode bits do not deny access."""
+    if os.geteuid() == 0:
+        raise TestSkipped("running as root: mode bits do not deny access, so this cannot be forced")
 
 
 def make_param_file(
@@ -194,10 +252,12 @@ def test_snapshot_run_completes_and_writes_output_over_the_fixture():
               the two messages earlier slices retired; the per-snapshot lifecycle lines
               show every snapshot loaded and released in ascending order under the
               two-generation rotation, with two slabs live from snapshot 1 onward; and
-              the run leaves exactly one numbered partition file plus a master, whose
-              TotHalosPerSnap totals equal the rows actually written, with no Ntrees
-              attribute, no TreeHalosPerSnap dataset or link, TreeType "snapshot_hdf5",
-              and UniqueGalaxyIDMultiplier in both per-file and master RunProperties.
+              the run leaves exactly one numbered partition file per requested output
+              snapshot, each named for and holding only that snapshot, plus a master
+              linking each snapshot to its own file, with TotHalosPerSnap totals equal
+              to the rows actually written, no Ntrees attribute, no TreeHalosPerSnap
+              dataset or link, TreeType "snapshot_hdf5", and UniqueGalaxyIDMultiplier in
+              both per-file and master RunProperties.
     Validates: the snapshot-ordered driver produces output through the driver-neutral
                output partition seam, and does so under the state rotation the phase
                specifies rather than by holding every slab live.
@@ -238,7 +298,13 @@ def test_snapshot_run_completes_and_writes_output_over_the_fixture():
         raise TestSkipped(f"committed snapshot fixture not found at {SNAPSHOT_FIXTURE_DIR}")
 
     nsnapshots = snapshot_fixture_snapshot_count()
-    requested = [nsnapshots - 1, 1]
+    # Deliberately unsorted, and deliberately including snapshot 0, which the
+    # fixture documents as empty (create_snapshot_fixture.py:164-167). One list
+    # therefore exercises both the unsorted-naming contract (each file must be
+    # named for the snapshot it holds, not for its position in this list) and the
+    # zero-galaxy partition, which must still be written.
+    requested = [nsnapshots - 1, 1, 0]
+    empty_snapshot = 0
     output_dir = Path(TEMP_DIR) / "valid_snapshot_output"
 
     returncode, output = run_config(
@@ -285,15 +351,25 @@ def test_snapshot_run_completes_and_writes_output_over_the_fixture():
         )
         cursor = found + len(needle)
 
-    partitions = sorted(output_dir.glob("*_[0-9][0-9][0-9].hdf5"))
-    assert [p.name for p in partitions] == [
-        "model_000.hdf5"
-    ], f"a snapshot-ordered run writes exactly one partition, found {[p.name for p in partitions]}"
+    partitions = snapshot_partition_files(output_dir)
+    assert [p.name for p in partitions] == sorted(f"model_{snap:03d}.hdf5" for snap in requested), (
+        f"a snapshot-ordered run writes one partition per requested output snapshot named by "
+        f"that snapshot's number, found {[p.name for p in partitions]}"
+    )
     master = output_dir / "model.hdf5"
     assert master.is_file(), f"the master file is missing from {output_dir}"
 
-    with h5py.File(partitions[0], "r") as handle:
-        for snap in requested:
+    # Every requested snapshot is checked, so the assertions below cover
+    # partitions whose requested-snapshot index is NOT 0 (with this unsorted list
+    # only snapshot nsnapshots-1 sits at index 0) -- which is what proves the
+    # per-file metadata is written at file open rather than for one index.
+    for snap in requested:
+        with h5py.File(snapshot_partition_path(output_dir, snap), "r") as handle:
+            snapshot_groups = sorted(name for name in handle if name.startswith("Snap"))
+            assert snapshot_groups == [f"Snap{snap:03d}"], (
+                f"model_{snap:03d}.hdf5 should hold only its own snapshot group, "
+                f"found {snapshot_groups}"
+            )
             group = handle[f"Snap{snap:03d}"]
             dataset = group["Galaxies"]
             total = int(dataset.attrs["TotHalosPerSnap"].ravel()[0])
@@ -307,23 +383,56 @@ def test_snapshot_run_completes_and_writes_output_over_the_fixture():
             assert (
                 "TreeHalosPerSnap" not in group
             ), f"Snap{snap:03d}: a snapshot-ordered run has no per-tree counts"
-        assert (
-            "UniqueGalaxyIDMultiplier" in handle["RunProperties"].attrs
-        ), "per-file RunProperties should record the identity multiplier"
+            assert "UniqueGalaxyIDMultiplier" in handle["RunProperties"].attrs, (
+                f"model_{snap:03d}.hdf5: per-file RunProperties should record the identity "
+                f"multiplier"
+            )
+
+    # The empty snapshot is asserted empty as well as present: if the fixture ever
+    # stopped having one, this fails loudly instead of quietly leaving the
+    # zero-galaxy partition contract untested.
+    with h5py.File(snapshot_partition_path(output_dir, empty_snapshot), "r") as handle:
+        rows = handle[f"Snap{empty_snapshot:03d}/Galaxies"].shape[0]
+        assert rows == 0, (
+            f"snapshot {empty_snapshot} is the fixture's empty snapshot, so its partition "
+            f"should carry an empty Galaxies table, found {rows} rows"
+        )
 
     with h5py.File(master, "r") as handle:
+        master_groups = sorted(name for name in handle if name.startswith("Snap"))
+        assert master_groups == sorted(f"Snap{snap:03d}" for snap in requested), (
+            f"the master should hold one group per requested output snapshot, "
+            f"found {master_groups}"
+        )
         for snap in requested:
             members = sorted(handle[f"Snap{snap:03d}"])
             assert members == [
-                "File000"
-            ], f"master Snap{snap:03d} should hold exactly File000, found {members}"
-            file_group = handle[f"Snap{snap:03d}/File000"]
-            assert sorted(file_group) == [
-                "Galaxies"
-            ], f"master Snap{snap:03d}/File000 should link only Galaxies, found {sorted(file_group)}"
+                f"File{snap:03d}"
+            ], f"master Snap{snap:03d} should hold exactly File{snap:03d}, found {members}"
+            file_group = handle[f"Snap{snap:03d}/File{snap:03d}"]
+            assert sorted(file_group) == ["Galaxies"], (
+                f"master Snap{snap:03d}/File{snap:03d} should link only Galaxies, "
+                f"found {sorted(file_group)}"
+            )
+            link = file_group.get("Galaxies", getlink=True)
             assert isinstance(
-                file_group.get("Galaxies", getlink=True), h5py.ExternalLink
-            ), f"master Snap{snap:03d}/File000/Galaxies should be an external link"
+                link, h5py.ExternalLink
+            ), f"master Snap{snap:03d}/File{snap:03d}/Galaxies should be an external link"
+            # The link must resolve to the file named for THIS snapshot: a master
+            # that pointed every snapshot at one partition would still satisfy an
+            # is-a-link assertion.
+            assert link.filename == f"model_{snap:03d}.hdf5", (
+                f"master Snap{snap:03d} should link into model_{snap:03d}.hdf5, "
+                f"found {link.filename}"
+            )
+            assert (
+                link.path == f"Snap{snap:03d}/Galaxies"
+            ), f"master Snap{snap:03d} should link that file's own group, found {link.path}"
+            linked_total = int(file_group.attrs["TotHalosPerSnap"].ravel()[0])
+            assert linked_total == file_group["Galaxies"].shape[0], (
+                f"master Snap{snap:03d}/File{snap:03d}: TotHalosPerSnap {linked_total} should "
+                f"equal the {file_group['Galaxies'].shape[0]} rows it links to"
+            )
         properties = handle["RunProperties"].attrs
         tree_type = properties["TreeType"].ravel()[0]
         if isinstance(tree_type, bytes):
@@ -332,6 +441,177 @@ def test_snapshot_run_completes_and_writes_output_over_the_fixture():
         assert (
             "UniqueGalaxyIDMultiplier" in properties
         ), "master RunProperties should record the identity multiplier"
+
+
+def skip_unless_snapshot_driver_is_runnable(probe_name):
+    """Skip unless the selected package is snapshot-ordered and the fixture is present.
+
+    Same two guards the completing-run test above carries, for the same reasons:
+    the package's own configuration is the only source of
+    input.tree_type/tree_name/processing_order here, and a sparse checkout has no
+    fixture payload to run against.
+    """
+    if effective_input_setting(probe_name, "processing_order") != "snapshot_ordered":
+        raise TestSkipped(
+            "selected package is not snapshot-ordered; its own configuration is the only "
+            "source of input.tree_type/tree_name/processing_order this test relies on"
+        )
+    if not snapshot_fixture_present():
+        raise TestSkipped(f"committed snapshot fixture not found at {SNAPSHOT_FIXTURE_DIR}")
+
+
+def test_snapshot_failure_keeps_partition_files_that_already_closed():
+    """
+    Test that a mid-run abort leaves completed partition files alone and writes no master.
+
+    Expected: non-zero exit naming the invalid link; the partition file of the requested
+              snapshot that completed BEFORE the corrupted snapshot still exists; the
+              partition file of the requested snapshot AFTER it does not; and no master
+              file exists.
+    Validates: the per-partition cleanup contract D5(a) decision 2 replaces the Phase 5
+               all-or-nothing one with. A closed partition file is final output and must
+               survive a later failure, because destroying weeks of finished output on a
+               late abort is the larger hazard; the master, which never got written, must
+               not be left behind.
+
+    The fault is a deterministic link corruption in a temporary copy of the fixture, not a
+    committed corrupt fixture: FirstHaloInFOFgroup is range-checked only when its slab is
+    loaded, so the abort lands mid-sweep with one requested snapshot already written and
+    closed. Nothing here can exercise the in-flight half of the registry -- the failing
+    snapshot's own output file does not exist yet -- which is why the next test exists.
+    """
+    skip_unless_snapshot_driver_is_runnable("retention_probe")
+
+    broken_snapshot = 3
+    requested = [1, snapshot_fixture_snapshot_count() - 1]
+    dataset_dir = fixture_copy_with_broken_fof_link(
+        Path(TEMP_DIR) / "retention_dataset", broken_snapshot
+    )
+    output_dir = Path(TEMP_DIR) / "retention_output"
+
+    returncode, output = run_config(
+        "retention",
+        input_overrides=snapshot_fixture_input_overrides(dataset_dir),
+        output_overrides={
+            "output_format": "hdf5",
+            "output_directory": str(output_dir),
+            "snapshot_list": requested,
+        },
+        extra_args=["-v"],
+    )
+
+    assert returncode != 0, f"an out-of-range FoF link should abort the run:\n{output}"
+    assert "invalid link field(s)" in output, f"the abort should name the invalid link:\n{output}"
+
+    completed = snapshot_partition_path(output_dir, requested[0])
+    assert completed.is_file(), (
+        f"{completed.name} closed before the failure and must survive it; "
+        f"{output_dir} holds {[p.name for p in snapshot_partition_files(output_dir)]}"
+    )
+    later = snapshot_partition_path(output_dir, requested[1])
+    assert (
+        not later.exists()
+    ), f"{later.name} is after the corrupted snapshot and should never have been created"
+    assert not (
+        output_dir / "model.hdf5"
+    ).exists(), "a failed run must not leave a master file claiming complete output"
+
+
+def test_snapshot_failure_removes_the_in_flight_partition_file():
+    """
+    Test that a failure while a partition file is in flight removes that file.
+
+    Expected: non-zero exit naming the file it could not create; the pre-created marker
+              file at the later snapshot's partition path is GONE; the earlier requested
+              snapshot's partition file survives; and no master exists.
+    Validates: the removal half of the cleanup registry -- the in-flight partition slot is
+               armed before the file is created and acted on by bye(). This is the only
+               injection that reaches it, since a slab-loading failure aborts before the
+               output file exists.
+
+    The fault is a read-only regular file pre-created at the target partition path, which
+    makes H5Fcreate fail on a path the driver has already armed. unlink() needs write
+    permission on the directory rather than on the file, so cleanup can still remove it --
+    and the marker byte is what proves the file that disappeared was this one.
+    """
+    skip_unless_snapshot_driver_is_runnable("inflight_probe")
+    skip_unless_mode_bits_deny_access()
+
+    requested = [1, snapshot_fixture_snapshot_count() - 1]
+    output_dir = Path(TEMP_DIR) / "inflight_output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    blocked = snapshot_partition_path(output_dir, requested[1])
+    blocked.write_bytes(b"marker")
+    blocked.chmod(0o444)
+
+    returncode, output = run_config(
+        "inflight",
+        input_overrides=snapshot_fixture_input_overrides(),
+        output_overrides={
+            "output_format": "hdf5",
+            "output_directory": str(output_dir),
+            "snapshot_list": requested,
+        },
+        extra_args=["-v"],
+    )
+
+    assert returncode != 0, f"an uncreatable partition file should abort the run:\n{output}"
+    assert (
+        f"Failed to create HDF5 file '{blocked}'" in output
+    ), f"the abort should name the partition file it could not create:\n{output}"
+    assert not blocked.exists(), (
+        f"{blocked.name} was armed as the in-flight partition and must be removed by "
+        f"cleanup, marker byte and all"
+    )
+    completed = snapshot_partition_path(output_dir, requested[0])
+    assert completed.is_file(), f"{completed.name} closed before the failure and must survive it"
+    assert not (
+        output_dir / "model.hdf5"
+    ).exists(), "a failed run must not leave a master file claiming complete output"
+
+
+def test_snapshot_unwritable_output_directory_fails_before_the_dataset_opens():
+    """
+    Test that an unwritable output directory aborts the run before the dataset is opened.
+
+    Expected: non-zero exit; output names the output directory as not writable; and the
+              driver's "Opened snapshot-ordered run" line -- emitted once the reader has
+              validated the whole dataset -- is absent, so the failure preceded it.
+    Validates: the up-front writability probe. main.c proves the output directory can be
+               created, not written to, and now that a partition file appears only when its
+               snapshot completes, an unwritable directory would otherwise surface at the
+               first requested output snapshot -- the end of a multi-week run for a z=0-only
+               request.
+    """
+    skip_unless_snapshot_driver_is_runnable("writability_probe")
+    skip_unless_mode_bits_deny_access()
+
+    output_dir = Path(TEMP_DIR) / "unwritable_output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir.chmod(0o555)
+    try:
+        returncode, output = run_config(
+            "unwritable",
+            input_overrides=snapshot_fixture_input_overrides(),
+            output_overrides={
+                "output_format": "hdf5",
+                "output_directory": str(output_dir),
+                "snapshot_list": [1],
+            },
+            extra_args=["-v"],
+        )
+    finally:
+        output_dir.chmod(0o755)
+
+    assert returncode != 0, f"an unwritable output directory should abort the run:\n{output}"
+    assert (
+        f"Output directory '{output_dir}' is not writable" in output
+    ), f"the abort should name the unwritable output directory:\n{output}"
+    assert "Opened snapshot-ordered run" not in output, (
+        "the writability probe must fail before the dataset is opened and validated, "
+        f"which is not instant at production scale:\n{output}"
+    )
 
 
 def test_snapshot_binary_output_rejected_at_config_time():
@@ -729,6 +1009,9 @@ def main():
         tests = [
             test_unknown_processing_order_fails_fast,
             test_snapshot_run_completes_and_writes_output_over_the_fixture,
+            test_snapshot_failure_keeps_partition_files_that_already_closed,
+            test_snapshot_failure_removes_the_in_flight_partition_file,
+            test_snapshot_unwritable_output_directory_fails_before_the_dataset_opens,
             test_snapshot_binary_output_rejected_at_config_time,
             test_snapshot_skip_rejected_at_config_time,
             test_snapshot_reader_rejects_tree_ordered,

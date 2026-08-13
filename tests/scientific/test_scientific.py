@@ -109,6 +109,24 @@ def selected_package_writes_binary():
     return order != "snapshot_ordered"
 
 
+def first_requested_output_snapshot(param_file):
+    """The first snapshot ``output.snapshot_list`` in ``param_file`` asks for.
+
+    A snapshot-ordered run writes one partition file per requested output
+    snapshot, named by that snapshot's number, so the filename cannot be derived
+    from a fixed partition index. Reading the request from the run file keeps this
+    correct for any list configuration validation admits, including an unsorted
+    one.
+    """
+    with open(param_file) as handle:
+        config = yaml.safe_load(handle)
+
+    requested = (config.get("output") or {}).get("snapshot_list")
+    if not requested:
+        raise TestSkipped(f"{param_file} declares no output.snapshot_list to read output from")
+    return int(requested[0])
+
+
 def regenerate_output():
     """
     Regenerate Mimic output for the selected model and return its path.
@@ -134,9 +152,12 @@ def regenerate_output():
             param_file = core_input_file("test_binary.yaml")
             output_format = "binary"
         else:
-            # filenr 0: a snapshot-ordered run writes a single output partition.
-            output_file = TEST_DATA_DIR / "output" / "hdf5" / "model_000.hdf5"
             param_file = core_input_file("test_hdf5.yaml")
+            # A snapshot-ordered run names each partition file after the output
+            # snapshot it holds, so the file to read comes from the run file's own
+            # request rather than from a partition index.
+            snapnum = first_requested_output_snapshot(param_file)
+            output_file = TEST_DATA_DIR / "output" / "hdf5" / f"model_{snapnum:03d}.hdf5"
             output_format = "hdf5"
 
         run_mimic_fresh(param_file, output_file)

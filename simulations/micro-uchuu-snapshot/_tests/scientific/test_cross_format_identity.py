@@ -1153,6 +1153,16 @@ def compare_pair(
             f"{model}/{scheme}: the tree-ordered run wrote {tree_partitions} partition file(s); "
             f"micro-uchuu-ascii must write several, or partition aggregation is untested"
         )
+    # D5(a): one partition file per requested output snapshot. Asserted rather
+    # than merely logged, so the count is evidence of the contract instead of an
+    # observation that would survive a regression to a single file.
+    snapshot_requested = len(requested_snapshots(snapshot_run))
+    if snapshot_partitions != snapshot_requested:
+        raise AssertionError(
+            f"{model}/{scheme}: the snapshot-ordered run wrote {snapshot_partitions} partition "
+            f"file(s) for {snapshot_requested} requested output snapshot(s); a snapshot-ordered "
+            f"run writes exactly one file per requested snapshot"
+        )
     log(
         f"  PASS {model}/{scheme}: {compared_records} records, {compared_fields} fields, "
         f"{compared_snapshots} output snapshots compared bitwise "

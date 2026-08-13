@@ -7,7 +7,7 @@
  * link in every build (the reader interface symbols it calls are always
  * present; a non-HDF5 build already rejects tree_type: snapshot_hdf5 at
  * configuration, long before this driver runs). Every call into the HDF5
- * writers is therefore confined to the three output helpers below, which have
+ * writers is therefore confined to the two output helpers below, which have
  * fail-fast stubs when HDF5 is absent.
  *
  * Where the tree driver walks one forest's full history depth-first and holds
@@ -34,10 +34,12 @@
  * kept local because it is built on those two-generation lookups.
  */
 
+#include <errno.h>
 #include <inttypes.h>
 #include <limits.h>
 #include <stddef.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -65,11 +67,6 @@
 
 #include "generated/tree_property_accessors.h"
 
-/* Snapshot-ordered runs write exactly one output partition (see
- * get_output_partition_source() in tree_driver.c, which publishes count 1 and
- * output id 0 for this processing order). */
-#define SNAPSHOT_OUTPUT_ID 0
-
 /* The `tree` argument of save_halos_hdf5(), which the shared output counter
  * ignores entirely in snapshot mode: output_increment_halo_counters_checked()
  * never touches the per-tree counters for a snapshot-ordered run, because only
@@ -80,25 +77,44 @@
 /* Same bound as the tree driver's MAX_PATH_BUF_SIZE in tree_driver.c. */
 #define SNAPSHOT_PATH_BUF_SIZE (3 * MAX_STRING_LEN + 25)
 
-/* Output paths this run has created or will create: the partition file and the
- * master file, in that order. Registered together when the partition file is
- * created and unlinked by bye() if the program exits with a failure while they
- * are still registered. Unlike the tree driver's registry (which is cleared as
- * each partition completes), this one stays armed after run_snapshot_driver()
- * returns, because main.c writes the master afterwards; only a successful
- * write_master_file() disarms it. */
-static char snapshot_output_paths[2][SNAPSHOT_PATH_BUF_SIZE + 1];
-static int snapshot_output_path_count = 0;
+/* Output paths bye() unlinks if the program exits with a failure while they are
+ * still armed. Two slots with independent lifetimes:
+ *
+ *   slot INFLIGHT - the partition file currently being written. Armed when a
+ *     requested output snapshot's file is about to be created and released the
+ *     moment that file closes cleanly, so a completed snapshot's output is never
+ *     destroyed by a later failure. This is the tree driver's own per-partition
+ *     discipline (tree_driver.c:309), applied to the snapshot side by D5(a).
+ *   slot MASTER - the run's master file. Armed once at run start and, unlike the
+ *     tree driver's registry, still armed when run_snapshot_driver() returns,
+ *     because main.c writes the master afterwards; only a successful
+ *     write_master_file() disarms it.
+ *
+ * An empty slot is skipped by both operations below, so the two lifetimes need
+ * no bookkeeping beyond the strings themselves. */
+#define SNAPSHOT_OUTPUT_PATH_INFLIGHT 0
+#define SNAPSHOT_OUTPUT_PATH_MASTER 1
+#define SNAPSHOT_OUTPUT_PATH_SLOTS 2
+
+static char snapshot_output_paths[SNAPSHOT_OUTPUT_PATH_SLOTS][SNAPSHOT_PATH_BUF_SIZE + 1];
+
+/* The fixed extent of the array above, not a running count of armed slots. */
+static const int snapshot_output_path_count = SNAPSHOT_OUTPUT_PATH_SLOTS;
 
 void snapshot_driver_clear_output_paths(void) {
-  if (snapshot_output_path_count > 0) {
-    VERBOSE_LOG("Disarming snapshot output cleanup for %d registered path%s",
-                snapshot_output_path_count, snapshot_output_path_count == 1 ? "" : "s");
-  }
+  int armed = 0;
+
   for (int i = 0; i < snapshot_output_path_count; i++) {
+    if (snapshot_output_paths[i][0] != '\0') {
+      armed++;
+    }
     snapshot_output_paths[i][0] = '\0';
   }
-  snapshot_output_path_count = 0;
+
+  if (armed > 0) {
+    VERBOSE_LOG("Disarming snapshot output cleanup for %d remaining path%s", armed,
+                armed == 1 ? "" : "s");
+  }
 }
 
 void snapshot_driver_remove_incomplete_outputs(void) {
@@ -110,30 +126,44 @@ void snapshot_driver_remove_incomplete_outputs(void) {
 }
 
 #ifdef HDF5
-/* Register the partition and master paths as this run's incomplete output.
- *
- * Only the HDF5 build has an output path to arm: without HDF5 the driver's
- * output helpers fail fast (see below) and arming the registry would let bye()
- * unlink a completed earlier run's files on the way out.
- *
- * The master path is formatted the way write_master_file() formats it
- * (master_hdf5.c) rather than through a shared helper: adding one would mean
- * editing an output-writer seam this driver only consumes. */
-static void snapshot_register_output_paths(void) {
-  snapshot_driver_clear_output_paths();
+/* The three arming operations below are HDF5-only, as their sole callers are:
+ * without HDF5 the driver's output helpers fail fast (see below) and arming the
+ * registry would let bye() unlink a completed earlier run's files on the way
+ * out. */
 
-  output_path_hdf5(snapshot_output_paths[0], SNAPSHOT_PATH_BUF_SIZE, SNAPSHOT_OUTPUT_ID);
-
-  const int written = snprintf(snapshot_output_paths[1], SNAPSHOT_PATH_BUF_SIZE, "%s/%s.hdf5",
-                               MimicConfig.OutputDir, MimicConfig.OutputFileBaseName);
+/* Arm the master file for cleanup, once, at run start.
+ *
+ * The path is formatted the way write_master_file() formats it (master_hdf5.c)
+ * rather than through a shared helper: adding one would mean editing an
+ * output-writer seam this driver only consumes. */
+static void snapshot_arm_master_output_path(void) {
+  const int written =
+      snprintf(snapshot_output_paths[SNAPSHOT_OUTPUT_PATH_MASTER], SNAPSHOT_PATH_BUF_SIZE,
+               "%s/%s.hdf5", MimicConfig.OutputDir, MimicConfig.OutputFileBaseName);
   if (written < 0 || written >= SNAPSHOT_PATH_BUF_SIZE) {
     FATAL_ERROR("Master HDF5 output path too long: %s/%s.hdf5", MimicConfig.OutputDir,
                 MimicConfig.OutputFileBaseName);
   }
 
-  snapshot_output_path_count = 2;
-  VERBOSE_LOG("Snapshot output cleanup armed for '%s' and '%s'", snapshot_output_paths[0],
-              snapshot_output_paths[1]);
+  VERBOSE_LOG("Snapshot master output cleanup armed for '%s'",
+              snapshot_output_paths[SNAPSHOT_OUTPUT_PATH_MASTER]);
+}
+
+/* Arm the partition file about to be created for output id @p output_id. Armed
+ * before H5Fcreate, so a failure that leaves a half-created file behind still
+ * has that file registered for removal. */
+static void snapshot_arm_partition_output_path(int output_id) {
+  output_path_hdf5(snapshot_output_paths[SNAPSHOT_OUTPUT_PATH_INFLIGHT], SNAPSHOT_PATH_BUF_SIZE,
+                   output_id);
+
+  VERBOSE_LOG("Snapshot partition output cleanup armed for '%s'",
+              snapshot_output_paths[SNAPSHOT_OUTPUT_PATH_INFLIGHT]);
+}
+
+/* Release the in-flight partition slot after its file has closed cleanly: that
+ * file is now final output and must survive any later failure. */
+static void snapshot_clear_partition_output_path(void) {
+  snapshot_output_paths[SNAPSHOT_OUTPUT_PATH_INFLIGHT][0] = '\0';
 }
 #endif /* HDF5 */
 
@@ -488,63 +518,76 @@ static void snapshot_clear_output_globals(void) {
 
 #ifdef HDF5
 
-/* Create the single output partition and arm its cleanup registration. */
-static void snapshot_open_output(struct OutputSnapshotSelection selection) {
-  snapshot_register_output_paths();
+/*
+ * Prepare the run's output without creating any file yet.
+ *
+ * Under D5(a) a partition file appears only when its own snapshot finishes, so
+ * there is nothing to open here: this zeroes the per-snapshot output counters
+ * the writers accumulate into and arms the master file for cleanup, and the rest
+ * of the lifecycle belongs to snapshot_write_output() below.
+ */
+static void snapshot_open_output(void) {
+  snapshot_arm_master_output_path();
 
   for (int n = 0; n < MimicConfig.NOUT; n++) {
     TotHalosPerSnap[n] = 0;
   }
-
-  prepare_output_files(SNAPSHOT_OUTPUT_ID, selection);
 }
 
 /*
- * Buffer this snapshot's processed halos into the shared HDF5 write buffers.
+ * Write one requested output snapshot to its own partition file, start to
+ * finish, and close it before returning.
+ *
+ * @param   cur            The generation holding this snapshot's processed halos.
+ * @param   output_index   Index of this snapshot in MimicConfig.ListOutputSnaps,
+ *                         which is also its partition index.
+ * @param   selection      That partition's selection — this one snapshot.
+ *
+ * The file is created, filled, stamped and closed inside this call, so a
+ * finished snapshot's output is final the moment this returns and the driver
+ * never holds a second writable output file open. Its cleanup registration is
+ * armed before the file is created and released after it closes cleanly, so a
+ * later failure removes only whatever was still in flight.
  *
  * save_halos_hdf5() reads the driver's output buffer through the ProcessedHalos
  * globals and converts each record through the supplied view, so the globals
  * are pointed at this generation and the view is this snapshot's slab — which
  * is exactly why the raw slab must still be live here (output conversion
- * recomputes Rvir/Vvir from it).
- *
- * The loan lasts exactly as long as the save call: this generation's buffer is
- * freed when the rotation releases it, which for a sparse output list can be
- * several snapshots before the next save, so the globals are cleared again on
- * the way out rather than left pointing into freed memory.
+ * recomputes Rvir/Vvir from it). The loan lasts exactly as long as the save
+ * call: this generation's buffer is freed when the rotation releases it, so the
+ * globals are cleared again on the way out rather than left pointing into freed
+ * memory.
  */
-static void snapshot_write_output(struct SnapshotGeneration *cur,
+static void snapshot_write_output(struct SnapshotGeneration *cur, int output_index,
                                   struct OutputSnapshotSelection selection) {
   const struct HaloInputView view = {cur->slab.halos, cur->slab.nhalos};
+  const int output_id = MimicConfig.ListOutputSnaps[output_index];
+
+  /* This partition's output id, as the tree driver sets it per partition
+   * (tree_driver.c:203). */
+  FileNum = output_id;
+
+  snapshot_arm_partition_output_path(output_id);
+  prepare_output_files(output_id, selection);
 
   ProcessedHalos = cur->processed.halos;
   NumProcessedHalos = cur->processed.count;
   MaxProcessedHalos = cur->processed.capacity;
 
-  save_halos_hdf5(SNAPSHOT_OUTPUT_ID, SNAPSHOT_OUTPUT_TREE_ID, view, selection);
+  save_halos_hdf5(output_id, SNAPSHOT_OUTPUT_TREE_ID, view, selection);
 
   snapshot_clear_output_globals();
 
-  /* VERBOSE_LOG, not DEBUG_LOG: this driver enables the tree driver's debug
-   * rate limiting for the physics phase, which caps each DEBUG_LOG site at
-   * DEBUG_LOG_MAX_CALLS. These lifecycle lines are bounded by the snapshot
-   * count, not by halo count, and are the operator's (and the integration
-   * suite's) evidence of the rotation, so they must not be capped. */
-  VERBOSE_LOG("Buffered snapshot %" PRId64 " output (%" PRId64 " galax%s)", cur->snapnum,
-              cur->processed.count, cur->processed.count == 1 ? "y" : "ies");
-}
+  flush_hdf5_buffers(output_id, selection);
 
-/* Flush, stamp per-snapshot counts and metadata, and close the partition. */
-static void snapshot_finalize_output(struct OutputSnapshotSelection selection) {
-  flush_hdf5_buffers(SNAPSHOT_OUTPUT_ID, selection);
-
-  for (int n = 0; n < MimicConfig.NOUT; n++) {
-    write_hdf5_attrs(n, SNAPSHOT_OUTPUT_ID);
-  }
+  /* This partition holds exactly one Snap%03d group, so it is stamped for its
+   * own snapshot index alone; the other requested snapshots' groups do not
+   * exist in this file. */
+  write_hdf5_attrs(output_index, output_id);
 
   if (HDF5_current_file_id >= 0) {
-    DEBUG_LOG("Closing HDF5 file (ID %lld) for the snapshot-ordered partition",
-              (long long)HDF5_current_file_id);
+    DEBUG_LOG("Closing HDF5 file (ID %lld) for snapshot-ordered partition %d",
+              (long long)HDF5_current_file_id, output_id);
     /* A deferred write error (a full filesystem, a failed flush of a chunk
      * still in the library cache) surfaces here and nowhere else, so an ignored
      * status would let a truncated partition exit successfully. */
@@ -553,9 +596,20 @@ static void snapshot_finalize_output(struct OutputSnapshotSelection selection) {
     if (close_status < 0) {
       FATAL_ERROR("Failed to close the HDF5 output partition %d ('%s'); its galaxy data may be "
                   "truncated or unflushed (check free space and file permissions)",
-                  SNAPSHOT_OUTPUT_ID, snapshot_output_paths[0]);
+                  output_id, snapshot_output_paths[SNAPSHOT_OUTPUT_PATH_INFLIGHT]);
     }
   }
+
+  snapshot_clear_partition_output_path();
+
+  /* VERBOSE_LOG, not DEBUG_LOG: this driver enables the tree driver's debug
+   * rate limiting for the physics phase, which caps each DEBUG_LOG site at
+   * DEBUG_LOG_MAX_CALLS. These lifecycle lines are bounded by the snapshot
+   * count, not by halo count, and are the operator's (and the integration
+   * suite's) evidence of the rotation, so they must not be capped. */
+  VERBOSE_LOG("Wrote snapshot %" PRId64 " output (%" PRId64 " galax%s) to partition %d",
+              cur->snapnum, cur->processed.count, cur->processed.count == 1 ? "y" : "ies",
+              output_id);
 }
 
 #else /* !HDF5 */
@@ -571,32 +625,34 @@ static void snapshot_finalize_output(struct OutputSnapshotSelection selection) {
 #define SNAPSHOT_NO_HDF5_MESSAGE                                                                   \
   "Snapshot-ordered runs require an HDF5-enabled build; rebuild with USE-HDF5=yes"
 
-static void snapshot_open_output(struct OutputSnapshotSelection selection) {
-  (void)selection;
-  FATAL_ERROR(SNAPSHOT_NO_HDF5_MESSAGE);
-}
+static void snapshot_open_output(void) { FATAL_ERROR(SNAPSHOT_NO_HDF5_MESSAGE); }
 
-static void snapshot_write_output(struct SnapshotGeneration *cur,
+static void snapshot_write_output(struct SnapshotGeneration *cur, int output_index,
                                   struct OutputSnapshotSelection selection) {
   (void)cur;
-  (void)selection;
-  FATAL_ERROR(SNAPSHOT_NO_HDF5_MESSAGE);
-}
-
-static void snapshot_finalize_output(struct OutputSnapshotSelection selection) {
+  (void)output_index;
   (void)selection;
   FATAL_ERROR(SNAPSHOT_NO_HDF5_MESSAGE);
 }
 
 #endif /* HDF5 */
 
-static int snapshot_is_output_snapshot(int64_t snapnum) {
+/*
+ * Index of `snapnum` in MimicConfig.ListOutputSnaps, or -1 if this snapshot was
+ * not requested for output.
+ *
+ * The index is also the output partition this snapshot's galaxies belong to, so
+ * a hit names both the requested-snapshot slot the writers stamp and the file
+ * they write. output.snapshot_list may be unsorted, so this is a scan rather
+ * than a search.
+ */
+static int snapshot_output_snapshot_index(int64_t snapnum) {
   for (int n = 0; n < MimicConfig.NOUT; n++) {
     if ((int64_t)MimicConfig.ListOutputSnaps[n] == snapnum) {
-      return 1;
+      return n;
     }
   }
-  return 0;
+  return -1;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -673,16 +729,87 @@ static void snapshot_release_generation(struct SnapshotDriverState *state,
 /* Driver                                                                     */
 /* ------------------------------------------------------------------------- */
 
+/*
+ * Prove the output directory is writable before the run starts.
+ *
+ * main.c:393 proves the directory can be *created*, which is not the same
+ * property: a pre-existing directory the run cannot write to passes that check.
+ * The driver used to catch it immediately, because it created its output file up
+ * front; now the first partition file appears only when its snapshot completes,
+ * which for a z=0-only request is the end of a multi-week run. So the property
+ * is restored explicitly, and deliberately ahead of the dataset open, which
+ * validates every input file first and is not instant at production scale.
+ *
+ * Every status is checked, including both unlinks: a probe that cannot be
+ * removed means something is wrong with the directory even though the write
+ * succeeded, and in the failure branch the removal is reported alongside — never
+ * instead of — whatever actually failed.
+ *
+ * The probe is created by mkstemp() rather than by name. That is what makes it
+ * collision-safe in the sense that matters: mkstemp() creates with
+ * O_CREAT | O_EXCL and mode 0600 and keeps trying fresh names, so it can neither
+ * follow a symlink planted at the probe path (which would truncate the link's
+ * target) nor adopt and truncate a stale probe left by an earlier run. A
+ * pid-derived name is unique only among live processes and is neither of those
+ * things.
+ */
+static void snapshot_probe_output_directory(void) {
+  /* mkstemp() rewrites the six X's in place, so after a successful call this
+   * holds the real path of the file that was created. */
+  char probe_path[SNAPSHOT_PATH_BUF_SIZE + 1];
+
+  const int written = snprintf(probe_path, sizeof(probe_path), "%s/.mimic_write_probe_XXXXXX",
+                               MimicConfig.OutputDir);
+  if (written < 0 || written >= (int)sizeof(probe_path)) {
+    FATAL_ERROR("Output-directory write-probe path too long under '%s'", MimicConfig.OutputDir);
+  }
+
+  const int probe_fd = mkstemp(probe_path);
+  if (probe_fd < 0) {
+    /* The template is left unspecified by a failed mkstemp(), so the directory
+     * is what gets named here rather than a path that may be half-substituted. */
+    FATAL_ERROR("Output directory '%s' is not writable: could not create a probe file there: %s",
+                MimicConfig.OutputDir, strerror(errno));
+  }
+
+  /* Both statuses are taken before either is judged, so the descriptor is closed
+   * exactly once whichever of them failed: a deferred write error can surface at
+   * the close, and bailing out at the write would leak the descriptor. */
+  const char probe_byte = '\0';
+  const int write_failed = (write(probe_fd, &probe_byte, 1) != 1);
+  const int write_errno = errno;
+  const int close_failed = (close(probe_fd) != 0);
+  const int close_errno = errno;
+
+  if (write_failed || close_failed) {
+    const int unlink_failed = (unlink(probe_path) != 0);
+    FATAL_ERROR("Output directory '%s' is not writable: could not %s the probe file '%s': %s "
+                "(check free space)%s",
+                MimicConfig.OutputDir, write_failed ? "write to" : "close", probe_path,
+                strerror(write_failed ? write_errno : close_errno),
+                unlink_failed ? "; the probe file could not be removed either" : "");
+  }
+
+  if (unlink(probe_path) != 0) {
+    FATAL_ERROR(
+        "Output directory '%s' is writable but its probe file '%s' could not be removed: %s",
+        MimicConfig.OutputDir, probe_path, strerror(errno));
+  }
+
+  VERBOSE_LOG("Output directory '%s' is writable", MimicConfig.OutputDir);
+}
+
 /**
  * @brief   Run a snapshot-ordered configuration end to end.
  *
- * Opens the configured dataset, creates the single output partition, then walks
+ * Proves the output directory writable, opens the configured dataset, then walks
  * every snapshot in increasing time order holding at most two slab generations
  * live at once. For snapshot N: load slab N (N-1 still live), process every FoF
- * group against N-1, release generation N-1, then write snapshot N's output if
- * it was requested. After the final snapshot the last generation is released,
- * the partition is finalized and the dataset closed; main.c writes the master
- * file afterwards and only then disarms this driver's output cleanup.
+ * group against N-1, release generation N-1, then — if snapshot N was requested
+ * for output — write it to its own partition file and close that file before the
+ * sweep continues. After the final snapshot the last generation is released and
+ * the dataset closed; main.c writes the master file afterwards and only then
+ * disarms this driver's remaining output cleanup.
  */
 void run_snapshot_driver(void) {
   struct SnapshotDriverState state;
@@ -696,6 +823,8 @@ void run_snapshot_driver(void) {
     state.gen[slot].slab = snapshot_slab_empty();
   }
 
+  snapshot_probe_output_directory();
+
   snapshot_reader_open_run(state.reader, &info);
   INFO_LOG("Opened snapshot-ordered run '%s': %" PRId64 " snapshot%s, format_version %" PRId32
            ", %" PRId64 " forest%s, max halo rank in forest %" PRId64,
@@ -707,19 +836,17 @@ void run_snapshot_driver(void) {
   enable_debug_log_rate_limiting();
 
   /* The tree driver's per-partition globals have no meaning here; the writers
-   * that still read them are guarded on the processing order (Slice 8), and
-   * FileNum names the one partition this run produces. */
-  FileNum = SNAPSHOT_OUTPUT_ID;
+   * that still read them are guarded on the processing order (Slice 8). FileNum
+   * is set per partition instead, by snapshot_write_output(). */
   TreeID = 0;
   GlobalForestOffset = 0;
 
-  /* This driver has exactly one partition (partition 0), so its selection is
-   * resolved once here and threaded through every output call below rather
-   * than re-resolved per call. */
-  const struct OutputSnapshotSelection selection =
-      get_output_partition_source().partition_snapshots(0);
+  /* One partition per requested output snapshot, resolved through the shared
+   * seam so this driver never derives a partition's snapshot range itself. */
+  const struct OutputPartitionSource output_source = get_output_partition_source();
+  const int npartitions = output_source.num_partitions();
 
-  snapshot_open_output(selection);
+  snapshot_open_output();
 
   state.workspace_capacity = INITIAL_FOF_HALOS;
   state.workspace = mymalloc_cat((size_t)state.workspace_capacity * sizeof(struct Halo), MEM_HALOS);
@@ -729,8 +856,8 @@ void run_snapshot_driver(void) {
     state.gen[slot].pool = galaxy_pool_create(0);
   }
 
-  INFO_LOG("Processing %" PRId64 " snapshot%s → 1 output file", info.snapshot_count,
-           info.snapshot_count == 1 ? "" : "s");
+  INFO_LOG("Processing %" PRId64 " snapshot%s → %d output file%s", info.snapshot_count,
+           info.snapshot_count == 1 ? "" : "s", npartitions, npartitions == 1 ? "" : "s");
   progress_bar_init(&bar, info.snapshot_count, "");
 
   for (int64_t snapnum = 0; snapnum < info.snapshot_count; snapnum++) {
@@ -789,8 +916,9 @@ void run_snapshot_driver(void) {
       snapshot_release_generation(&state, previous);
     }
 
-    if (snapshot_is_output_snapshot(snapnum)) {
-      snapshot_write_output(cur, selection);
+    const int output_index = snapshot_output_snapshot_index(snapnum);
+    if (output_index >= 0) {
+      snapshot_write_output(cur, output_index, output_source.partition_snapshots(output_index));
     }
   }
 
@@ -800,7 +928,6 @@ void run_snapshot_driver(void) {
     snapshot_release_generation(&state, &state.gen[(info.snapshot_count - 1) % 2]);
   }
 
-  snapshot_finalize_output(selection);
   snapshot_reader_close_run(state.reader);
 
   for (int slot = 0; slot < 2; slot++) {

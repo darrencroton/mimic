@@ -79,9 +79,12 @@ void output_increment_halo_counters_checked(int filenr, int snap_index, int snap
  * own hooks directly, taking the format name from the resolved snapshot
  * reader so a second registered reader records its own name in provenance.
  * Each partition also names the requested output snapshots it carries via
- * partition_snapshots(); a tree-ordered partition always carries every
- * requested snapshot, and the snapshot side does today too, though nothing
- * here requires it to stay that way.
+ * partition_snapshots(), and the two sides differ there: a tree-ordered
+ * partition is one input chunk and carries every requested snapshot, while a
+ * snapshot-ordered partition is one requested output snapshot and carries only
+ * that one. A snapshot-ordered run therefore has MimicConfig.NOUT partitions,
+ * each identified by its own snapshot number rather than by a dense index, so
+ * every output filename names the snapshot it holds.
  */
 struct OutputPartitionSource {
   /** Number of output partitions this run produces. */

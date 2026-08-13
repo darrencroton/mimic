@@ -565,10 +565,12 @@ static int tree_partition_source_partition_exists(int partition) {
 /**
  * @brief   Ascending 0..NOUT-1 index table into MimicConfig.ListOutputSnaps.
  *
- * Filled by get_output_partition_source() before either constructor runs.
- * Every partition_snapshots() hook below returns the whole table this slice,
- * so each partition carries every requested snapshot; a future source may
- * hand out a narrower slice of the same table without changing its contents.
+ * Filled by get_output_partition_source() before either constructor runs, and
+ * never mutated afterwards. Every partition_snapshots() hook below returns a
+ * contiguous sub-range of this one table rather than a scratch buffer of its
+ * own: a tree-ordered partition returns the whole table, a snapshot-ordered
+ * partition the single entry naming its own snapshot. A returned selection
+ * therefore stays valid for the whole run, whoever holds it.
  */
 static int g_output_snapshot_indices[ABSOLUTEMAXSNAPS];
 
@@ -603,11 +605,15 @@ tree_reader_output_partition_source(const struct TreeReader *reader) {
   };
 }
 
-static int snapshot_output_partition_count(void) { return 1; }
+/* One partition per requested output snapshot: partition p carries requested
+ * snapshot p and nothing else. */
+static int snapshot_output_partition_count(void) { return MimicConfig.NOUT; }
 
+/* The snapshot number itself, not a dense index, so every output filename names
+ * the snapshot it holds even for an unsorted output.snapshot_list (D5(a) owner
+ * decision 1). */
 static int snapshot_output_partition_output_id(int partition) {
-  (void)partition;
-  return 0;
+  return MimicConfig.ListOutputSnaps[partition];
 }
 
 static int snapshot_output_partition_exists(int partition) {
@@ -615,15 +621,26 @@ static int snapshot_output_partition_exists(int partition) {
   return 1;
 }
 
+static struct OutputSnapshotSelection snapshot_output_partition_snapshots(int partition) {
+  return (struct OutputSnapshotSelection){
+      .count = 1,
+      .indices = &g_output_snapshot_indices[partition],
+  };
+}
+
 /**
- * @brief   The trivial single-partition output source for snapshot-ordered runs.
+ * @brief   The per-output-snapshot partition source for snapshot-ordered runs.
+ *
+ * One partition per requested output snapshot, each named by that snapshot's
+ * number and carrying only its own snapshot, so the driver writes one file per
+ * requested snapshot and never holds more than one of them open for writing.
  */
 static struct OutputPartitionSource snapshot_output_partition_source(void) {
   return (struct OutputPartitionSource){
       .num_partitions = snapshot_output_partition_count,
       .partition_output_id = snapshot_output_partition_output_id,
       .partition_exists = snapshot_output_partition_exists,
-      .partition_snapshots = all_requested_snapshots,
+      .partition_snapshots = snapshot_output_partition_snapshots,
       .prepare_run = NULL,
       .teardown_run = NULL,
       .format_name = MimicConfig.snapshot_reader->name,

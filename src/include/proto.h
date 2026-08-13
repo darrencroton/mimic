@@ -49,15 +49,18 @@ struct InheritanceProgenitorGalaxy; /* core/inheritance.h */
 
 void run_snapshot_driver(void);
 
-/* Incomplete-output cleanup for snapshot-ordered runs. The snapshot driver
- * registers both of its output paths (the single partition file and the master
- * file) when it creates the partition, and — unlike the tree driver, whose
- * registry is cleared as each partition completes — keeps them registered after
- * run_snapshot_driver() returns. main.c writes the master only after that
- * return, so the registration is disarmed by snapshot_driver_clear_output_paths()
- * once write_master_file() has succeeded; any failure before that point runs
- * snapshot_driver_remove_incomplete_outputs() from bye() and leaves no output
- * behind. Both are no-ops for a tree-ordered run, which registers nothing. */
+/* Incomplete-output cleanup for snapshot-ordered runs. The snapshot driver keeps
+ * two registrations with independent lifetimes: the partition file currently
+ * being written, armed just before that file is created and released as soon as
+ * it closes cleanly (the tree driver's own per-partition discipline), and the
+ * master file, armed at run start. main.c writes the master only after
+ * run_snapshot_driver() returns, so the master registration outlives the driver
+ * and is disarmed by snapshot_driver_clear_output_paths() once
+ * write_master_file() has succeeded; any failure before that point runs
+ * snapshot_driver_remove_incomplete_outputs() from bye(), which removes whatever
+ * is still armed — the in-flight partition and the master — while every partition
+ * file that already closed survives as final output. Both are no-ops for a
+ * tree-ordered run, which registers nothing. */
 void snapshot_driver_remove_incomplete_outputs(void);
 void snapshot_driver_clear_output_paths(void);
 

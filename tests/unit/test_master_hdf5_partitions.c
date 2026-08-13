@@ -170,6 +170,27 @@ static int write_galaxies_dataset(hid_t group_id, int64_t total) {
   return TEST_PASS;
 }
 
+/* One snapshot-ordered partition file: exactly its own Snap%03d group, with no
+ * TreeHalosPerSnap dataset, which is what the snapshot writers produce. */
+static int create_snapshot_partition_file(int snapnum, int64_t total) {
+  char path[512];
+  char group_name[64];
+  output_path_hdf5(path, sizeof(path), snapnum);
+
+  hid_t file_id = H5Fcreate(path, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
+  TEST_ASSERT(file_id >= 0, "snapshot partition HDF5 file should be created");
+
+  snprintf(group_name, sizeof(group_name), "Snap%03d", snapnum);
+  hid_t group_id = H5Gcreate(file_id, group_name, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+  TEST_ASSERT(group_id >= 0, "snapshot group should be created");
+  TEST_ASSERT(write_galaxies_dataset(group_id, total) == TEST_PASS,
+              "Galaxies dataset should be created");
+  H5Gclose(group_id);
+
+  H5Fclose(file_id);
+  return TEST_PASS;
+}
+
 static int create_partition_file(int filenr, const int64_t *totals, int nout) {
   char path[512];
   char group_name[64];
@@ -245,6 +266,34 @@ static int assert_total_attr(hid_t file_id, const char *group_path, int64_t expe
   H5Aclose(attribute_id);
   H5Gclose(group_id);
   TEST_ASSERT_EQUAL(value, expected, "TotHalosPerSnap value should match source file");
+  return TEST_PASS;
+}
+
+/* An external link's target must be the RIGHT file, not merely a link that
+ * resolves: a master that linked every snapshot into one partition file would
+ * satisfy an existence check while contradicting the partitioning contract. */
+static int assert_external_link_target(hid_t file_id, const char *path, const char *expected_file,
+                                       const char *expected_object) {
+  H5L_info2_t info;
+  TEST_ASSERT(H5Lget_info(file_id, path, &info, H5P_DEFAULT) >= 0,
+              "master link should be queryable");
+  TEST_ASSERT_EQUAL((int)info.type, (int)H5L_TYPE_EXTERNAL, "master link should be external");
+
+  char buffer[512];
+  TEST_ASSERT(info.u.val_size <= sizeof(buffer), "external link value should fit the buffer");
+  TEST_ASSERT(H5Lget_val(file_id, path, buffer, sizeof(buffer), H5P_DEFAULT) >= 0,
+              "external link value should be readable");
+
+  const char *target_file = NULL;
+  const char *target_object = NULL;
+  unsigned flags = 0;
+  TEST_ASSERT(H5Lunpack_elink_val(buffer, info.u.val_size, &flags, &target_file, &target_object) >=
+                  0,
+              "external link value should unpack");
+  TEST_ASSERT(target_file != NULL && strcmp(target_file, expected_file) == 0,
+              "external link should name the expected partition file");
+  TEST_ASSERT(target_object != NULL && strcmp(target_object, expected_object) == 0,
+              "external link should name the expected object in that file");
   return TEST_PASS;
 }
 
@@ -378,16 +427,28 @@ static const struct SnapshotReader SnapshotSourceReader = {
 };
 
 /**
- * @test    test_snapshot_output_partition_source_is_trivial_single_partition
- * @brief   The snapshot-ordered output partition source is the frozen single-partition shape
+ * @test    test_snapshot_output_partition_source_is_one_partition_per_output_snapshot
+ * @brief   The snapshot-ordered source publishes one partition per requested output snapshot
+ *
+ * The requested list here is deliberately UNSORTED, which is what
+ * output.snapshot_list validation admits (range and uniqueness only). Each
+ * partition's output id must be its own snapshot number rather than its index,
+ * so a dense-numbering regression cannot pass: under dense ids partition 0
+ * would report 0 while carrying snapshot 5.
  */
-static int test_snapshot_output_partition_source_is_trivial_single_partition(void) {
+static int test_snapshot_output_partition_source_is_one_partition_per_output_snapshot(void) {
+  const int requested[] = {5, 1, 0};
+  const int nout = (int)(sizeof(requested) / sizeof(requested[0]));
+
   memset(&MimicConfig, 0, sizeof(MimicConfig));
   MimicConfig.ProcessingOrder = (int)INPUT_PROCESSING_ORDER_SNAPSHOT;
   /* A snapshot-ordered configuration always carries a resolved snapshot reader
    * (config validation rejects it otherwise); the source reads its name. */
   MimicConfig.snapshot_reader = &SnapshotSourceReader;
-  MimicConfig.NOUT = 3;
+  MimicConfig.NOUT = nout;
+  for (int n = 0; n < nout; n++) {
+    MimicConfig.ListOutputSnaps[n] = requested[n];
+  }
 
   struct OutputPartitionSource source = get_output_partition_source();
 
@@ -397,15 +458,21 @@ static int test_snapshot_output_partition_source_is_trivial_single_partition(voi
   TEST_ASSERT(source.partition_exists != NULL, "snapshot source must supply partition_exists");
   TEST_ASSERT(source.partition_snapshots != NULL,
               "snapshot source must supply partition_snapshots");
-  TEST_ASSERT_EQUAL(source.num_partitions(), 1, "snapshot source has exactly one partition");
-  TEST_ASSERT_EQUAL(source.partition_output_id(0), 0, "snapshot source's partition output id is 0");
-  TEST_ASSERT(source.partition_exists(0) != 0, "snapshot source's single partition always exists");
+  TEST_ASSERT_EQUAL(source.num_partitions(), nout,
+                    "snapshot source has one partition per requested output snapshot");
 
-  struct OutputSnapshotSelection selection = source.partition_snapshots(0);
-  TEST_ASSERT_EQUAL(selection.count, MimicConfig.NOUT,
-                    "snapshot source's single partition carries every requested snapshot");
-  for (int i = 0; i < selection.count; i++) {
-    TEST_ASSERT_EQUAL(selection.indices[i], i, "selection indices should be ascending 0..NOUT-1");
+  for (int partition = 0; partition < nout; partition++) {
+    TEST_ASSERT_EQUAL(source.partition_output_id(partition), requested[partition],
+                      "a snapshot partition's output id is its own snapshot number");
+    TEST_ASSERT(source.partition_exists(partition) != 0,
+                "every snapshot partition exists; the run creates all of them");
+
+    struct OutputSnapshotSelection selection = source.partition_snapshots(partition);
+    TEST_ASSERT_EQUAL(selection.count, 1,
+                      "a snapshot partition carries exactly one requested snapshot");
+    TEST_ASSERT(selection.indices != NULL, "a snapshot partition's selection must name its index");
+    TEST_ASSERT_EQUAL(selection.indices[0], partition,
+                      "a snapshot partition carries the requested snapshot at its own index");
   }
 
   TEST_ASSERT(source.format_name != NULL && strcmp(source.format_name, "snapshot_hdf5") == 0,
@@ -413,6 +480,85 @@ static int test_snapshot_output_partition_source_is_trivial_single_partition(voi
   TEST_ASSERT(source.prepare_run == NULL, "snapshot source keeps no run-scoped prepare hook");
   TEST_ASSERT(source.teardown_run == NULL, "snapshot source keeps no run-scoped teardown hook");
 
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_snapshot_master_links_each_snapshot_to_its_own_partition
+ * @brief   The master file links every requested snapshot to the partition file named for it
+ *
+ * The requested list is unsorted, so index order and snapshot order disagree and
+ * a master that used the partition index in either the group name or the link
+ * target would produce visibly wrong pairings. The link targets are read back
+ * and unpacked rather than merely checked for existence, and each snapshot group
+ * is asserted to hold exactly its one File group.
+ */
+static int test_snapshot_master_links_each_snapshot_to_its_own_partition(void) {
+  char dir_template[] = "/tmp/mimic_master_snapshot_XXXXXX";
+  const int requested[] = {5, 1, 0};
+  const int64_t totals[] = {7, 3, 0};
+  const int nout = (int)(sizeof(requested) / sizeof(requested[0]));
+  hid_t master_file_id;
+
+  TEST_ASSERT(create_temp_output_dir(dir_template) == TEST_PASS,
+              "temporary output directory should be available");
+
+  memset(&MimicConfig, 0, sizeof(MimicConfig));
+  MimicConfig.ProcessingOrder = (int)INPUT_PROCESSING_ORDER_SNAPSHOT;
+  MimicConfig.snapshot_reader = &SnapshotSourceReader;
+  MimicConfig.NOUT = nout;
+  snprintf(MimicConfig.OutputDir, sizeof(MimicConfig.OutputDir), "%s", dir_template);
+  snprintf(MimicConfig.OutputFileBaseName, sizeof(MimicConfig.OutputFileBaseName), "%s", "model");
+  for (int n = 0; n < nout; n++) {
+    MimicConfig.ListOutputSnaps[n] = requested[n];
+    MimicConfig.ZZ[requested[n]] = (double)(nout - n);
+  }
+
+  for (int n = 0; n < nout; n++) {
+    TEST_ASSERT(create_snapshot_partition_file(requested[n], totals[n]) == TEST_PASS,
+                "each snapshot's partition fixture should be created");
+  }
+
+  write_master_file();
+
+  TEST_ASSERT(open_master_file(&master_file_id) == TEST_PASS, "master file should be readable");
+
+  for (int n = 0; n < nout; n++) {
+    char group_path[64], link_path[96], target_file[64], target_object[64];
+    snprintf(group_path, sizeof(group_path), "Snap%03d/File%03d", requested[n], requested[n]);
+    snprintf(link_path, sizeof(link_path), "%s/Galaxies", group_path);
+    snprintf(target_file, sizeof(target_file), "model_%03d.hdf5", requested[n]);
+    snprintf(target_object, sizeof(target_object), "Snap%03d/Galaxies", requested[n]);
+
+    TEST_ASSERT(assert_external_link_target(master_file_id, link_path, target_file,
+                                            target_object) == TEST_PASS,
+                "each snapshot should link into the partition file named for it");
+    TEST_ASSERT(assert_total_attr(master_file_id, group_path, totals[n]) == TEST_PASS,
+                "each master link should carry its own partition's TotHalosPerSnap");
+
+    /* A snapshot-ordered run has no trees, so the master links no per-tree
+     * counts, and no other snapshot's File group appears under this snapshot. */
+    snprintf(link_path, sizeof(link_path), "%s/TreeHalosPerSnap", group_path);
+    TEST_ASSERT(assert_link_exists(master_file_id, link_path, 0) == TEST_PASS,
+                "a snapshot-ordered master links no TreeHalosPerSnap");
+
+    hid_t snap_group_id = H5Gopen(master_file_id, group_path, H5P_DEFAULT);
+    TEST_ASSERT(snap_group_id >= 0, "master snapshot File group should open");
+    H5Gclose(snap_group_id);
+
+    for (int other = 0; other < nout; other++) {
+      if (other == n) {
+        continue;
+      }
+      snprintf(link_path, sizeof(link_path), "Snap%03d/File%03d", requested[n], requested[other]);
+      TEST_ASSERT(assert_link_exists(master_file_id, link_path, 0) == TEST_PASS,
+                  "a snapshot group must not link any partition but its own");
+    }
+  }
+
+  H5Fclose(master_file_id);
+
+  cleanup_outputs(requested, nout);
   return TEST_PASS;
 }
 
@@ -478,7 +624,8 @@ int main(void) {
 
   TEST_RUN(test_enumerated_master_links_existing_partitions_only);
   TEST_RUN(test_per_file_master_links_match_lhalo_layout);
-  TEST_RUN(test_snapshot_output_partition_source_is_trivial_single_partition);
+  TEST_RUN(test_snapshot_output_partition_source_is_one_partition_per_output_snapshot);
+  TEST_RUN(test_snapshot_master_links_each_snapshot_to_its_own_partition);
   TEST_RUN(test_tree_output_partition_source_wraps_configured_reader);
 
   TEST_SUMMARY();
