@@ -11,6 +11,7 @@ Add MPI/domain decomposition and cross-domain communication for snapshot-global 
 
 ## Constraints carried from the dual-driver work
 
+- **Serial partitioned snapshot output — delivered, not by this plan (recorded 2026-08-13).** This plan was nominally assigned "partitioned snapshot output" when it split out of `MIMIC-DUAL-DRIVER-PLAN.md`, but its text never recorded that obligation. D5(a) delivers the serial case: a serial (`NTask == 1`) snapshot-ordered run already writes one HDF5 partition file per requested output snapshot, named by that snapshot's number, plus a master — see `docs/dev/SNAPSHOT-OUTPUT-PARTITIONING-PLAN.md` and `docs/DEVELOPER-GUIDE.md` → "The Snapshot Driver". This supersedes this plan's nominal assignment for the serial case. What remains here is genuinely distributed: spreading snapshot-global work (and, if needed, further partitioning) across MPI tasks once at least one snapshot-global module contract exists — not introducing per-snapshot output partitioning, which is done.
 - Output identity must remain deterministic across task counts (standing constraint in `MIMIC-DEVELOPMENT-PATHWAY.md`).
 - Stochastic modules seed from stable per-halo/per-FoF keys, never traversal-order RNG streams.
 - The snapshot-HDF5 format is the input contract; any domain decomposition (spatial or forest-sharded) is a driver concern layered over the same files, not a new format.

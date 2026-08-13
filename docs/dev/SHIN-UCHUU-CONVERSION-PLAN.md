@@ -440,7 +440,7 @@ A new `simulations/shin-uchuu/` package:
 - **HDF5 output only** — `output_format: binary` is rejected.
 - **Serial only** — `NTask > 1` is rejected; there is no MPI path (see `MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md`).
 - **No `--skip`** — a partially completed run cannot be resumed by re-running with `--skip`; plan for a single uninterrupted run, or for restarting it.
-- Output is written as **one partition plus a master**, carries no `Ntrees` and no `TreeHalosPerSnap`, and uses int64 `TotHalosPerSnap`. `hdf5_format_version` is `1.2`.
+- Output is written as **one HDF5 partition file per requested output snapshot** (named by that snapshot's number, `model_<snapnum>.hdf5`) **plus a master**, carries no `Ntrees` and no `TreeHalosPerSnap`, and uses int64 `TotHalosPerSnap`. `hdf5_format_version` is `1.2`.
 
 Property ranges requiring calibration from a test run: `deltaMvir`, `Len` (floor is 1 at this resolution), `Spin`. Note `deltaMvir` is a **core-level output property** (`src/core/core_properties.yaml`, range `[-20000.0, 20000.0]`, already annotated for Uchuu-scale mass swings), not an entry in `simulations/shin-uchuu/halo_properties.yaml` like `Len`/`Spin` — its calibration is checked and edited in `core_properties.yaml`.
 

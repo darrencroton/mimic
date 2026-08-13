@@ -70,14 +70,14 @@ The snapshot pathway is the chosen direction (it is both the scientific priority
    | 1. Pool ceiling + HDF5 statuses + D1 consolidation | **Closed** — landed `74e8a70e`, certified by an identity-gate re-run | — |
    | 2. `Spin` bounds (D6/D7) | Decided and applied for `uchuu`; **provisional** until the rehearsal measures actual extrema | Metadata + measurement |
    | 3. Memory peak + output-population ceiling | **Open** — projection is parametric in the buffer capacity `C` and pool high-water `G`, both unmeasured; binding gate is peak process RSS at the rehearsal | Measurement |
-   | 4. Snapshot-run output partitioning (D5(a)) | **Open** — decided, not built | **Implementation slice** |
+   | 4. Snapshot-run output partitioning (D5(a)) | **Closed 2026-08-13** — landed `3e31cc0c`/`7b68e01d`, certified by a cross-format identity gate re-run (8/8 stages) on the real micro-Uchuu dataset; see `docs/dev/SNAPSHOT-OUTPUT-PARTITIONING-PLAN.md` | — |
    | 5. `Spin` units-label reconciliation (D8) | **Open** — decided, not built | **Implementation slice** |
    | 6. Subset conversion + complete rehearsal | **Open** — blocked on source data; settles items 2, 3 and 9 | Measurement |
    | 7. Converter scale-engineering pass (D4) | **Open** — largest remaining item; deserves its own frozen implementation plan (`SHIN-UCHUU-CONVERSION-PLAN.md`, "Pre-conversion obligation"). Its `dump-ctrees-topology-tool` prerequisite was fixed 2026-08-13 | **Implementation plan + slice** |
    | 8. Particle mass | **Open** — needs external simulation documentation | Fact-check |
    | 9. Remaining property ranges | **Open** — needs the rehearsal | Measurement |
 
-   **Next step: item 4**, the D5(a) output-partitioning slice — one partition file per requested output snapshot, no size knob. It is the smallest remaining implementation item, it is already decided, and it must land *before* the rehearsal (item 6) because the rehearsal certifies an output contract that has to be final. Item 5 follows it for the same reason. Items 2, 3 and 9 are then all settled by item 6's measurements, which in turn scope item 7.
+   **Next step: item 5**, the D8 `Spin` units-label reconciliation slice. It is the smallest remaining implementation item, it is already decided, and it must land *before* the rehearsal (item 6) because the rehearsal certifies an output contract that has to be final. Items 2, 3 and 9 are then all settled by item 6's measurements, which in turn scope item 7.
 
 Afterwards, the requirements briefs, in the expected (not frozen) order: `MIMIC-SNAPSHOT-GLOBAL-MODULES-PLAN.md` then `MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md`, which go together — the module contracts are the single-node physics payoff of the snapshot driver, and distribution has nothing to parallelise until they exist; then `MIMIC-EMBEDDED-ENGINE-PLAN.md`; then `MIMIC-MODEL-BUILDER-PLAN.md`. Re-prioritise on scientific need once the sequence above completes.
 

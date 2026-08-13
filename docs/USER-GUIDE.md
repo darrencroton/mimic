@@ -402,7 +402,7 @@ make MODEL=halos-only SIMULATION=micro-uchuu-snapshot
 
 - Each `Snap%03d/Galaxies` group carries no `Ntrees` attribute and no `TreeHalosPerSnap` dataset — they are omitted entirely (absent, not zero or empty), because a snapshot run has no per-tree structure to report.
 - `TotHalosPerSnap` is still the per-snapshot galaxy-count attribute, but stored as `int64` rather than `int` — the same widened type a tree-ordered run's output now carries too.
-- The master file links a snapshot run's output as exactly one partition: one `Snap%03d` group per requested output snapshot, each with a single external link, and no per-tree table.
+- A snapshot-ordered run writes one HDF5 partition file per requested output snapshot, named by that snapshot's number (`model_<snapnum>.hdf5` — filenames stay self-describing even for an unsorted `output.snapshot_list`), plus the master `<basename>.hdf5`. Each partition file holds exactly one `Snap%03d` group: its own. The master creates one `Snap%03d` group per requested output snapshot, each holding a single `File%03d` subgroup whose external link resolves into that snapshot's own partition file, and no per-tree table.
 - `RunProperties/Version/hdf5_format_version` reads `1.2`.
 
 Everything else in [Reading HDF5 Output](#reading-hdf5-output) below applies unchanged.
@@ -512,6 +512,19 @@ The master HDF5 file, `model.hdf5`, contains run metadata plus external links to
 /Snap063/
   File000/Galaxies -> model_000.hdf5:/Snap063/Galaxies
   File000/TreeHalosPerSnap -> model_000.hdf5:/Snap063/TreeHalosPerSnap
+```
+
+A snapshot-ordered run's master links one partition file per requested output snapshot instead — each named for the snapshot it holds, not a chunk number — and no `TreeHalosPerSnap` link exists because snapshot-run output never carries per-tree structure. This is real output from an unsorted `output.snapshot_list: [5, 1, 0]`; every link still resolves to the partition file named for its own snapshot number:
+
+```text
+/RunProperties/
+  FieldMetadata
+/Snap000/
+  File000/Galaxies -> model_000.hdf5:/Snap000/Galaxies
+/Snap001/
+  File001/Galaxies -> model_001.hdf5:/Snap001/Galaxies
+/Snap005/
+  File005/Galaxies -> model_005.hdf5:/Snap005/Galaxies
 ```
 
 `RunProperties/EnabledModules`, `RunProperties/Parameters`, and `RunProperties/EventContracts` are the main reproducibility datasets: months later, you can recover exactly which physics pipeline and parameter values produced a file without finding the original run YAML.
