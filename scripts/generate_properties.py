@@ -883,6 +883,14 @@ def generate_unit_registry_h(yaml_hash: str) -> str:
         code += f'    return "{convention}";\n'
     code += "  return NULL;\n"
     code += "}\n\n"
+    code += "/* dimension for a unit label, or NULL if the label is unknown. */\n"
+    code += "static inline const char *mimic_unit_label_dimension(const char *label) {\n"
+    for label in sorted(UNIT_REGISTRY):
+        dimension = UNIT_REGISTRY[label]["dimension"]
+        code += f'  if (strcmp(label, "{label}") == 0)\n'
+        code += f'    return "{dimension}";\n'
+    code += "  return NULL;\n"
+    code += "}\n\n"
     code += "#endif /* GENERATED_UNIT_REGISTRY_H */\n"
     return code
 

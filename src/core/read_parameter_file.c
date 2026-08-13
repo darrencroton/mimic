@@ -588,8 +588,24 @@ static const char *unit_label_h_convention(const char *label, const char *field_
   return h_convention;
 }
 
+static const char *unit_label_dimension(const char *label, const char *field_name) {
+  const char *dimension = mimic_unit_label_dimension(label);
+  if (dimension == NULL)
+    FATAL_ERROR("%s has unsupported units '%s'", field_name, label);
+  return dimension;
+}
+
 static double convert_unit_scalar(double value, const char *units, const char *h_convention,
                                   const char *reference_label, const char *field_name) {
+  const char *source_dimension = unit_label_dimension(units, field_name);
+  const char *target_dimension = unit_label_dimension(reference_label, field_name);
+
+  if (strcmp(source_dimension, target_dimension) != 0) {
+    FATAL_ERROR("%s has units '%s' with dimension '%s', but the reference units '%s' require "
+                "dimension '%s'",
+                field_name, units, source_dimension, reference_label, target_dimension);
+  }
+
   const double source_cgs = unit_label_cgs(units, field_name);
   const double target_cgs = unit_label_cgs(reference_label, field_name);
   const char *target_h_convention = unit_label_h_convention(reference_label, field_name);
