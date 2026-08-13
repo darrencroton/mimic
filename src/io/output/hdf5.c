@@ -297,7 +297,12 @@ void write_hdf5_attrs(int n, int filenr) {
 }
 
 /**
- * @brief   Buffer ProcessedHalos into the cross-tree write buffers for all output snapshots.
+ * @brief   Buffer ProcessedHalos into the cross-tree write buffers for the snapshots in the
+ *          supplied selection.
+ * @param   filenr      File number (for output counters).
+ * @param   tree        Tree index within the partition (for output counters).
+ * @param   view        Input view over the raw halos this record was built from.
+ * @param   selection   Requested output snapshots this partition carries.
  *
  * Halos accumulate in hdf5_wbuf[n] and are flushed to write_hdf5_halo_batch() only
  * when a buffer fills or at end-of-file (flush_hdf5_buffers). See the cross-tree

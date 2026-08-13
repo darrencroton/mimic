@@ -21,10 +21,11 @@ void prep_hdf5_file(char *fname, struct OutputSnapshotSelection selection);
 /** @brief Create and open this filenr's HDF5 output file; leaves it open for writes. */
 void open_hdf5_output_file(int filenr, struct OutputSnapshotSelection selection);
 
-/** @brief Buffer ProcessedHalos into the cross-tree write buffers. */
+/** @brief Buffer ProcessedHalos into the cross-tree write buffers for the snapshots in the
+ *         supplied selection. */
 void save_halos_hdf5(int filenr, int tree, struct HaloInputView view,
                      struct OutputSnapshotSelection selection);
-/** @brief Flush all per-snapshot write buffers and release them. */
+/** @brief Flush and release the selection's per-snapshot write buffers. */
 void flush_hdf5_buffers(int filenr, struct OutputSnapshotSelection selection);
 /** @brief Append a prepared batch of HaloOutput records to the open HDF5 file. */
 void write_hdf5_halo_batch(struct HaloOutput *halo_batch, int num_halos, int n, int filenr);
