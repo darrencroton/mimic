@@ -359,9 +359,11 @@ def assert_hdf5_schema_layout(output_file, expected_format_version="1.2"):
     Snapshot-local copies are stale duplication and should not be reintroduced.
 
     expected_format_version has no safe default across callers: fresh output
-    from the current build is "1.2", but tracked pre-Slice-8 baselines under
-    tests/data/ are "1.1" and must pass that explicitly. Every call site
-    should state the version it expects rather than rely on this default.
+    from the current build is "1.2", and tracked baselines under tests/data/
+    are regenerated whenever a schema-affecting change lands, so they also
+    carry the current format version rather than a fixed historical one.
+    Every call site should state the version it expects rather than rely on
+    this default.
     """
     try:
         import h5py

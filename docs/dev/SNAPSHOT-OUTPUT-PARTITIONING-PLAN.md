@@ -11,7 +11,7 @@
 
 Run reports: `.pm/runs/20260813T124718Z-eb0160/run-report.md` and `.pm/runs/20260813T140546Z-b11de2/run-report.md`.
 **Date:** 2026-08-13
-**Owns:** Pre-Shin-Uchuu checklist item 4 (`POST-PHASE-5-JOINT-REVIEW.md` §6.4), the decided-but-unbuilt D5(a).
+**Owns:** Pre-Shin-Uchuu checklist item 4 (`POST-PHASE-5-JOINT-REVIEW.md` §6.4), D5(a).
 **Scope:** One HDF5 output partition file per requested output snapshot for snapshot-ordered runs. No size knob, no new configuration surface, no change to tree-ordered behaviour.
 
 ---

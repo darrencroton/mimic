@@ -11,8 +11,8 @@
 # bindings): the snapshot dataset is produced from the same micro-Uchuu
 # Consistent-Trees source by scripts/convert/, which applies the same reference
 # value conventions. M_Crit200 therefore carries the native ctrees Mvir in
-# Msun/h, positions are Mpc/h, Spin is dimensionless J/Mvir, and Len is derived
-# as round(Mvir * 1e-10 / particle_mass).
+# Msun/h, positions are Mpc/h, Spin is the specific angular momentum J/Mvir,
+# (Mpc/h)(km/s), and Len is derived as round(Mvir * 1e-10 / particle_mass).
 #
 # ForestIndex and HaloRankInForest, the producer-owned UniqueGalaxyID identity
 # components the on-disk format carries explicitly, are deliberately NOT

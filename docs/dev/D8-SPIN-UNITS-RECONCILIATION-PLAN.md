@@ -1,8 +1,15 @@
 # D8: `Spin` Units-Label Reconciliation — Implementation Plan
 
-**Status:** Frozen, ready for implementation.
+**Status:** Implemented; Slice 1 accepted (`612f83da`, `8746dc2c`, `c60b51b8`, `6267a1ab`), Slice 2 implemented but stopped rather than accepted (`f81e2385`) — the supervising PM stopped it because it left the default integration suite red for a reason outside this plan's frozen surface. See `docs/dev/D8-FOLLOWUP-RECONCILIATION-PLAN.md`, which reconciles the resulting baseline format-version mismatch and finishes this plan's documentation closure.
 **Owner reference:** `docs/dev/POST-PHASE-5-JOINT-REVIEW.md` §6 item 5 (D8); scoping evidence in `docs/dev/POST-PHASE-5-WORK.md` §2.1, "D8 implementation scope, established 2026-08-14".
-**Gates:** `docs/dev/MIMIC-DEVELOPMENT-PATHWAY.md` marks this the next step before the Shin-Uchuu rehearsal (item 6). This plan must land before that rehearsal, per the pathway's own ordering.
+**Gates:** `docs/dev/MIMIC-DEVELOPMENT-PATHWAY.md` marked this the next step before the Shin-Uchuu rehearsal (item 6). This plan landed before that rehearsal, per the pathway's own ordering; the rehearsal remained blocked until `docs/dev/D8-FOLLOWUP-RECONCILIATION-PLAN.md` Slice 1 restored a green default suite.
+
+**Post-implementation note (2026-08-14) — three plan defects found by the review panel:**
+- (a) This plan's own Validation Plan (Slice 2) runs the full default-pair test suite *before* the baseline refresh and gates the refresh on that suite passing, so it never tested the final committed tree — the exact tree the refresh produced went untested by this plan's own procedure.
+- (b) The bitwise/regeneration comparison recipe in Slice 1's Validation Plan, "strip only the `Source MD5:` header line" before diffing generated output, is unachievable as stated: the same source hash is also embedded as a runtime JSON value inside `output_schema_writer.inc` and inside the headerless `tests/generated/property_ranges.json`, neither of which carries a `Source MD5:` line to strip.
+- (c) Slice 2's requirement that the refreshed `output_schema.json` sidecars show only the `Spin` entry and `source_md5` changed is unsatisfiable, because those sidecars were already stale against their own committed data before this plan touched them.
+
+These defects are recorded here as history; this plan's slice contracts are not restructured to fix them. `docs/dev/D8-FOLLOWUP-RECONCILIATION-PLAN.md` addresses the downstream consequence of (a).
 
 ---
 
