@@ -1,6 +1,6 @@
 # Snapshot-Run Output Partitioning (D5(a)) — Implementation Plan
 
-**Status:** Frozen (Revision 4, amended mid-execution — see the amendment record at the end). Slice 1 executed and accepted; Slices 2–4 outstanding.
+**Status:** Frozen (Revision 5, amended mid-execution — see the amendment record at the end). Slices 1–2 executed and accepted; Slices 3–4 outstanding.
 **Date:** 2026-08-13
 **Owns:** Pre-Shin-Uchuu checklist item 4 (`POST-PHASE-5-JOINT-REVIEW.md` §6.4), the decided-but-unbuilt D5(a).
 **Scope:** One HDF5 output partition file per requested output snapshot for snapshot-ordered runs. No size knob, no new configuration surface, no change to tree-ordered behaviour.
@@ -298,7 +298,7 @@ Revert the slice commit; Slice 1's inert seam remains and is harmless on its own
 - `docs/dev/POST-PHASE-5-JOINT-REVIEW.md`: close §6 item 4 with the evidence, and update the checklist-state paragraph in §8.
 - `docs/dev/MIMIC-DEVELOPMENT-PATHWAY.md`: mark item 4 closed in the sequence-item-5 table and move the "next step" pointer to item 5 (the D8 `Spin` units-label slice).
 - `.agents/skills/mimic-run-and-operate/SKILL.md`: its "What a run produces" section describes per-file HDF5 outputs as carrying `Snap<NNN>/Galaxies` and `Snap<NNN>/TreeHalosPerSnap` "per output snapshot", which is wrong for a snapshot run both before and after this change. Correct both points. Sweep `mimic-architecture-contract` and `mimic-diagnostics-and-tooling` for the same class of statement.
-- Mark Slices 1–3 executed and record where their evidence lives. Slice 4 closes the plan, so do not mark the plan itself complete here.
+- `docs/dev/MIMIC-SNAPSHOT-DRIVER-PLAN.md:856`: its closing summary still states that snapshot-ordered runs "write a single output partition". Add a dated supersession note in the same style as the `MIMIC-DUAL-DRIVER-PLAN.md` notes; do not rewrite the historical statement. (Added by the Revision 5 amendment — see the amendment record.)
 
 ### Acceptance Criteria
 
@@ -326,12 +326,13 @@ Revert the slice commit; Slice 1's inert seam remains and is harmless on its own
   - `docs/dev/SHIN-UCHUU-CONVERSION-PLAN.md`
   - `docs/dev/POST-PHASE-5-JOINT-REVIEW.md`
   - `docs/dev/MIMIC-DEVELOPMENT-PATHWAY.md`
-  - `docs/dev/SNAPSHOT-OUTPUT-PARTITIONING-PLAN.md`
+  - `docs/dev/MIMIC-SNAPSHOT-DRIVER-PLAN.md`
   - `.agents/skills/mimic-run-and-operate/**`
   - `.agents/skills/mimic-architecture-contract/**`
   - `.agents/skills/mimic-diagnostics-and-tooling/**`
 - Functions/classes/components allowed to change: none.
 - Tests allowed or expected to change: none.
+- **This plan file is deliberately *not* in the surface** (Revision 5). Recording execution status inside the contract being executed changes the frozen plan digest mid-run, which the supervising toolkit treats as a non-waivable integrity failure. Plan-closure bookkeeping happens after the run, outside any slice.
 
 ### Explicit Non-Goals
 
@@ -371,7 +372,6 @@ Added by the Revision 4 amendment. `tests/integration/test_output_formats.py` ca
 - Give `test_format_equivalence()` (`:645-771`, filename at `:697`) a processing-order guard so it **skips** on a snapshot-ordered package, following the pattern already in `tests/scientific/test_scientific.py`'s `selected_package_writes_binary()` (`:86-109`). This test compares binary against HDF5 output, and a snapshot-ordered package cannot produce binary at all — the run is rejected at configuration time — so the correct behaviour is a documented skip, not a filename fix.
 - **Leave `test_hdf5_baseline_comparison()` (`:468-577`) alone**, including both its `model_000.hdf5` references (`:509`, `:523`). It already guards on `skip_non_default_baseline()` / `is_default_baseline_combo()` (`:495`) and therefore never runs on a snapshot pair, and its filenames are correct for the committed tree-ordered baseline under `tests/data/output/baseline/hdf5/`. Changing them would break a passing test.
 - Update the docstring references at `:317`, `:472-473`, `:488` and `:650` only where the surrounding test's behaviour actually changed.
-- Mark this plan fully executed and record where the evidence for all four slices lives.
 
 ### Acceptance Criteria
 
@@ -391,7 +391,7 @@ Added by the Revision 4 amendment. `tests/integration/test_output_formats.py` ca
 
 - Files allowed to change:
   - `tests/integration/test_output_formats.py`
-  - `docs/dev/SNAPSHOT-OUTPUT-PARTITIONING-PLAN.md`
+- **This plan file is deliberately *not* in the surface** (Revision 5), for the reason recorded in Slice 3's Authorized Surface. Marking the plan fully executed happens after the run, outside any slice.
 - Functions/classes/components allowed to change: `test_hdf5_format_loading`, `test_hdf5_compression_equivalence`, `test_unique_id_contract`, `test_format_equivalence`, and their docstrings.
 - Tests allowed or expected to change: the four named above only.
 
@@ -425,6 +425,22 @@ Revert the slice commit. Test code and documentation only; no source, baseline, 
 ---
 
 ## Amendment record
+
+### Revision 5 — 2026-08-14, amended mid-execution by the supervising PM at the owner's explicit instruction
+
+Slices 1 and 2 were executed and accepted against Revision 4 (`cb660208` + `b5b969d7`; `3e31cc0c` + `7b68e01d`). Slice 3 then executed its contract faithfully and **failed the supervising toolkit's mechanical floor anyway**, on a defect in this plan rather than in the change.
+
+**The defect.** Slice 3's Intended Change ended with "Mark Slices 1–3 executed and record where their evidence lives", and Slice 3's Authorized Surface listed this plan file. Both were satisfiable only by editing the frozen contract during its own execution, which changes the plan digest the run froze at `init` — floor fact 1, which is non-waivable. The two facts contradicted each other in the same floor run: fact 5 (changed files ⊆ authorized surface) **passed**, because the file was genuinely authorized, while fact 1 **failed**, because that same file *is* the contract. No in-contract implementation could satisfy both. Slice 4 carried the identical defect: this plan file in its surface, and "Mark this plan fully executed" in its Intended Change.
+
+The owner was stopped for, and authorized this amendment and the continuation.
+
+**Changes made:**
+
+1. **This plan file is removed from Slice 3's and Slice 4's authorized surfaces**, with the reason recorded in both, so no future execution of either slice can break its own digest.
+2. **Both self-marking instructions are dropped** — Slice 3's "Mark Slices 1–3 executed" and Slice 4's "Mark this plan fully executed". Plan-closure bookkeeping is a post-run action, outside any slice. Execution status is already recorded durably in the PM run report, the per-slice assessments, and the commit history.
+3. **`docs/dev/MIMIC-SNAPSHOT-DRIVER-PLAN.md` is added to Slice 3's authorized surface.** Its closing summary (`:856`) still states that snapshot-ordered runs "write a single output partition", which Slice 3's own acceptance criterion 1 forbids — but the file was absent from Slice 3's surface, so no in-contract implementation could fix it. This is the same defect class the external panel corrected four times in Revision 1 and once more in Revision 4: a stale contract surface the plan invalidates but never authorizes. Found by the PM while verifying Slice 3's criteria, and folded in here under the owner's standing pre-approval for genuinely-required surface expansion.
+
+**Standing caveat, unchanged from Revision 4 and applying equally here.** Revisions 4 and 5 were written by the PM that supervises execution against them, not by the arm's-length external panel that converged Revisions 1–3. Reviewers commissioned on Slices 3–4 should be told which text is PM-authored so they read it as a contract under test rather than as settled ground.
 
 ### Revision 4 — 2026-08-13, amended mid-execution by the supervising PM at the owner's instruction
 
