@@ -1,6 +1,15 @@
 # Snapshot-Run Output Partitioning (D5(a)) — Implementation Plan
 
-**Status:** Frozen (Revision 5, amended mid-execution — see the amendment record at the end). Slices 1–2 executed and accepted; Slices 3–4 outstanding.
+**Status:** **FULLY EXECUTED 2026-08-14.** All four slices implemented and accepted (Revision 5; see the amendment record at the end). Closes pre-Shin-Uchuu checklist item 4.
+
+| Slice | Landed | Evidence |
+|---|---|---|
+| 1. Selection through the output seam | `cb660208` + `b5b969d7` | `.pm/runs/20260813T074443Z-6abd5c/slices/slice-001/` |
+| 2. One partition file per requested output snapshot | `3e31cc0c` + `7b68e01d` | `.pm/runs/20260813T124718Z-eb0160/slices/slice-002/` — cross-format identity gate **8/8** on the real micro-Uchuu dataset, `tree-ordered 5 partition(s) vs snapshot-ordered 8 partition(s)`, 4,409,282 × 20 fields (halos-only) and 3,111,793 / 3,111,759 × 42 fields (sage16) |
+| 3. Documents of record | `ce689907` + `962b783f` + `00616b3a` + `e9619440` | `.pm/runs/20260813T140546Z-b11de2/slices/slice-003/` — eleven stale statements annotated across four documents |
+| 4. Integration-tier filenames | `1cb3208e` | `.pm/runs/20260813T140546Z-b11de2/slices/slice-004/` — default-pair integration result unchanged before/after |
+
+Run reports: `.pm/runs/20260813T124718Z-eb0160/run-report.md` and `.pm/runs/20260813T140546Z-b11de2/run-report.md`.
 **Date:** 2026-08-13
 **Owns:** Pre-Shin-Uchuu checklist item 4 (`POST-PHASE-5-JOINT-REVIEW.md` §6.4), the decided-but-unbuilt D5(a).
 **Scope:** One HDF5 output partition file per requested output snapshot for snapshot-ordered runs. No size knob, no new configuration surface, no change to tree-ordered behaviour.
@@ -307,8 +316,8 @@ Revert the slice commit; Slice 1's inert seam remains and is harmless on its own
 - User-visible behaviour: no code behaviour changes.
 - Behaviour that must not change: all of it — no source file is in this slice's authorized surface.
 
-- [ ] No document of record or skill still states that a snapshot-ordered run writes exactly one output partition.
-- [ ] No document of record still states that any failure removes every output file a snapshot run created.
+- [ ] No document of record or skill states, **without a dated supersession note**, that a snapshot-ordered run writes exactly one output partition. *(Reworded at closure, 2026-08-14. As originally written — "still states that ..." — this criterion contradicted the same slice's non-goal "No rewriting of historical records — supersession notes only" and its per-file "do not rewrite the historical statement" instructions: it forbade the very sentences the contract mandates be kept. The slice was executed on the only coherent reading, which this wording now states directly. Both the supervising PM and the commissioned drift audit reached that reading independently.)*
+- [ ] No document of record states, **without a dated supersession note**, that any failure removes every output file a snapshot run created. *(Same rewording and rationale.)*
 - [ ] `SHIN-UCHUU-CONVERSION-PLAN.md`'s run-constraints list describes the delivered output layout.
 - [ ] Both `MIMIC-DUAL-DRIVER-PLAN.md` and `MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md` record the supersession, as D5 requires.
 - [ ] The new layout is documented with a worked master-file example a reader can match against real output.
@@ -363,6 +372,8 @@ Revert the slice commit. Documentation-only.
 ## Slice 4: Retire the last fixed-partition-index filename assumptions in the integration tier
 
 **Developer seat:** `--model sonnet --effort high`. Narrow, fully specified, and its risk is concentrated in "did the tree path move?", which the default-pair tier answers mechanically.
+
+**Executed and accepted 2026-08-14.** Landed in `1cb3208e`, first attempt with no steer. Evidence: `.pm/runs/20260813T140546Z-b11de2/slices/slice-004/validation.md`.
 
 Added by the Revision 4 amendment. `tests/integration/test_output_formats.py` carries the same hard-coded `model_000.hdf5` assumption that blocked Slice 2, but it is unreachable from Slice 2's mandatory commands, so fixing it there would have shipped unvalidated edits inside the plan's riskiest slice. It gets its own slice and its own gate instead.
 

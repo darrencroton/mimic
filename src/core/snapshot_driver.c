@@ -84,7 +84,7 @@
  *     requested output snapshot's file is about to be created and released the
  *     moment that file closes cleanly, so a completed snapshot's output is never
  *     destroyed by a later failure. This is the tree driver's own per-partition
- *     discipline (tree_driver.c:309), applied to the snapshot side by D5(a).
+ *     discipline (tree_driver.c:311), applied to the snapshot side by D5(a).
  *   slot MASTER - the run's master file. Armed once at run start and, unlike the
  *     tree driver's registry, still armed when run_snapshot_driver() returns,
  *     because main.c writes the master afterwards; only a successful

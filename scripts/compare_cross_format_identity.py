@@ -210,8 +210,12 @@ def read_snapshot(index, snap, field=None):
     recorded, and whole records are read straight into their slice of it with
     read_direct, so no partition array outlives the read that produced it and no
     concatenated second copy of the snapshot ever exists. That matters most
-    where it is largest: a single-partition snapshot-ordered run would otherwise
-    hold the entire snapshot twice at the moment it is read.
+    where it is largest: a snapshot-ordered run holds one snapshot's whole
+    record set in a single partition file, and would otherwise hold that
+    snapshot twice at the moment it is read. (Since D5(a) such a run writes one
+    partition file per requested output snapshot rather than one for the whole
+    run; the memory argument is unchanged, because it was always about one
+    snapshot's records landing in one file.)
 
     With `field`, only that column is read -- which is how the duplicate pass
     looks at every snapshot of both runs for the price of one int64 per galaxy

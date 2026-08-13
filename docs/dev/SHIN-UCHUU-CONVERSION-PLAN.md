@@ -31,7 +31,7 @@ Both problems are structural consequences of forest-ordered processing and both 
 | Estimated total halos (all snapshots) | ~15–18 billion (file-size estimate: 5.6 TB / ~350 bytes/line) |
 | Snapshots | 70 (a = 0.04773 to 0.99998) |
 | Box size | 140 Mpc/h |
-| Particle mass | ~8.97 × 10⁴ Msun/h (inferred; **confirm from simulation docs before freezing the package — `Len` derives from it**) |
+| Particle mass | **8.97 × 10⁵ Msun/h** — confirmed 2026-08-14 from Ishiyama et al. 2021, the Uchuu suite paper ([arXiv:2007.14720](https://arxiv.org/abs/2007.14720)): "262 billion (6400³) particles in a box of side-length 140 Mpc/h, with particle mass 8.97 × 10⁵ M☉/h". **Corrects the value previously recorded here as ~8.97 × 10⁴, which was low by exactly a factor of 10** and had propagated into two derived claims elsewhere. Independently cross-checked against this table's own 140 Mpc/h box and the package cosmology (Ω_m = 0.3089): Ω_m ρ_crit L³ / N = 0.3089 × 2.77537 × 10¹¹ × 140³ / 6400³ = 8.97 × 10⁵ Msun/h. `Len` derives from this, so it is now fixed rather than inferred |
 | Cosmology | Planck 2015 (Ωm=0.3089, h=0.6774) — identical to rest of Uchuu suite |
 
 ---
@@ -452,7 +452,7 @@ Property ranges requiring calibration from a test run: `deltaMvir`, `Len` (floor
 |---|---|---|
 | fix_flybys / fix_upid divergence from reference | Critical | Micro-Uchuu topology cross-check by stable halo identity gates the converter before any Mimic code |
 | Non-adjacent `desc_scale` links in Shin-Uchuu | High | Abort — corrupt data by definition; no repair path exists or is wanted |
-| Particle mass inferred, not documented | High | Confirm from simulation metadata **before** freezing the package; wrong value corrupts every Len |
+| ~~Particle mass inferred, not documented~~ — **RETIRED 2026-08-14** | ~~High~~ | Confirmed as **8.97 × 10⁵ Msun/h** from Ishiyama et al. 2021 ([arXiv:2007.14720](https://arxiv.org/abs/2007.14720)) and cross-checked against the 140 Mpc/h box, 6400³ particles and Ω_m = 0.3089. The risk was real: the recorded value was low by exactly 10×, and `Len = round(Mvir_native × 1e-10 / PartMass)` would have been inflated 10× for every halo. Use the confirmed value when freezing `simulation_info.yaml` |
 | Super-forest rank sort resource surprise | **Blocker (until the converter scale pass lands)** | The "measured key volume ~150–250 GB fits RAM" figure below is inconsistent with the implementation as written: `compute_identity()` (`scripts/convert/links.py`) concatenates five int64 columns over *all* snapshots (~600–720 GB at 15–18B halos) plus the lexsort's order array (~120–144 GB), and the function's own docstring defers the external-merge sort as a "production concern" rather than implementing it. Mitigation: the scheduled converter scale-engineering pass (joint review D4) — see the "Pre-conversion obligation" subsection below — re-derives the actual key volume and implements the external-merge rank sort before this row can be downgraded. |
 | Transfer stalls / partial batches | Medium | rsync --checksum, per-file resume manifest, consumptive deletes keep disk bounded |
 | Phase 1 parser too slow | Medium | C tokeniser fallback; same worker interface |
