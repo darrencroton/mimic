@@ -24,6 +24,10 @@ reference_units:
     label: code
     derived_from: length/velocity
     h_convention: carried
+  specific_angular_momentum:
+    label: Mpc/h km/s
+    in_cgs: 3.08568e29
+    h_convention: carried
 
 required_inputs:
   - { name: Descendant, role: tree_link }

@@ -55,6 +55,20 @@ def test_velocity_is_h_independent():
     assert expr == "1.0", expr
 
 
+def test_specific_angular_momentum_is_identity_when_carried():
+    # Pins the invariant the D8 Spin units-label reconciliation depends on: the
+    # registered "Mpc/h km/s" label converts to itself as a literal "1.0", not
+    # merely a numerically-equal expression.
+    expr = _linear_conversion_expr(
+        "Mpc/h km/s",
+        "carried",
+        "Mpc/h km/s",
+        "carried",
+        "test specific angular momentum",
+    )
+    assert expr == "1.0", expr
+
+
 def test_time_conversion_is_rejected():
     # The reference time unit is derived (length/velocity); registry-driven time
     # conversion must fail loudly rather than emit a silently wrong factor.
@@ -237,6 +251,7 @@ def main():
             test_h_free_length_to_carried_reference_multiplies_by_h,
             test_identity_when_label_equals_reference,
             test_velocity_is_h_independent,
+            test_specific_angular_momentum_is_identity_when_carried,
             test_time_conversion_is_rejected,
             test_required_input_roles_generate_accessors_from_inline_bindings,
             test_tree_link_core_roles_reject_non_integer_catalog_fields,

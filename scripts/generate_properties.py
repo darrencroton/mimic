@@ -159,6 +159,11 @@ UNIT_REGISTRY = {
     "log10(erg/s)": {"dimension": "luminosity_log", "cgs": 1.0, "h_convention": "none"},
     "Msun/yr": {"dimension": "mass_rate", "cgs": 1.989e33 / 3.155e7, "h_convention": "free"},
     "erg cm^3/s": {"dimension": "cooling_rate", "cgs": 1.0, "h_convention": "none"},
+    "Mpc/h km/s": {
+        "dimension": "specific_angular_momentum",
+        "cgs": 3.08568e29,
+        "h_convention": "carried",
+    },
 }
 
 # ==============================================================================
