@@ -161,7 +161,7 @@ UNIT_REGISTRY = {
     "erg cm^3/s": {"dimension": "cooling_rate", "cgs": 1.0, "h_convention": "none"},
     "Mpc/h km/s": {
         "dimension": "specific_angular_momentum",
-        "cgs": 3.08568e29,
+        "cgs": 3.08568e24 * 1.0e5,
         "h_convention": "carried",
     },
 }
