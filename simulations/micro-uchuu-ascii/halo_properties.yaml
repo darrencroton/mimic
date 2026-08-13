@@ -95,8 +95,8 @@ halo_properties:
 
   - name: Spin
     type: vec3_float
-    units: dimensionless
-    description: Dimensionless spin (J/Mvir, applied by reader before bridging)
+    units: Mpc/h km/s
+    description: Specific angular momentum (J/Mvir, applied by reader before bridging)
     output: true
     init_source: copy_from_tree_array
     output_source: copy_direct_array

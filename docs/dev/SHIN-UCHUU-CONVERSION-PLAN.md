@@ -75,7 +75,7 @@ snapshot_NNN.h5
     M_Crit200             float32[N]  native Msun/h (generated accessor converts to 1e10 Msun/h)
     Pos                   float32[N,3] Mpc/h comoving
     Vel                   float32[N,3] km/s peculiar
-    Spin                  float32[N,3] dimensionless J/Mvir (applied during conversion)
+    Spin                  float32[N,3] Mpc/h km/s; J/Mvir (applied during conversion)
     VelDisp               float32[N]  km/s
     Vmax                  float32[N]  km/s
     MostBoundID           int64[N]    ctrees halo ID; negated for flyby-demoted halos

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generated_by": "scripts/generate_properties.py",
-  "source_md5": "18baff79b5c10f2d7b575372fdaa76c1",
+  "source_md5": "87a8c783a11155b485c0492abf73ffff",
   "model": "sage16",
   "model_path": "models/sage16",
   "reference_units": {
@@ -51,7 +51,7 @@
       "offset": 8,
       "size": 8,
       "units": "dimensionless",
-      "description": "Persistent run-scoped unique galaxy identifier across all snapshots (creation_halonr + 10^9 * (forestnr_global + 1))"
+      "description": "Persistent run-scoped unique galaxy identifier across all snapshots (creation_halonr + multiplier * (forestnr_global + 1), where multiplier is simulation.unique_galaxy_id_multiplier, default 10^9, provenance attribute UniqueGalaxyIDMultiplier)"
     },
     {
       "name": "UniqueCentralGalaxyID",
@@ -242,8 +242,8 @@
       "shape": [3],
       "offset": 136,
       "size": 12,
-      "units": "dimensionless",
-      "description": "Dimensionless spin parameter (Bullock definition)"
+      "units": "Mpc/h km/s",
+      "description": "Specific angular momentum (J/Mvir)"
     },
     {
       "name": "MostBoundID",

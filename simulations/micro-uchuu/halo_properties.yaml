@@ -123,12 +123,12 @@ halo_properties:
 
   - name: Spin
     type: vec3_float
-    units: dimensionless
-    description: Dimensionless spin parameter (Bullock definition)
+    units: Mpc/h km/s
+    description: Specific angular momentum (J/Mvir)
     output: true
     init_source: copy_from_tree_array
     output_source: copy_direct_array
-    range: [-200.0, 200.0]
+    range: [-1000.0, 1000.0]
 
   - name: MostBoundID
     type: long long
