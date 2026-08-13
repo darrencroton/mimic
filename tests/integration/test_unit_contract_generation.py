@@ -13,7 +13,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from framework import run_test_suite
 from generate_properties import (
+    _effective_h_convention,
     _linear_conversion_expr,
+    _unit_info,
     core_property_files,
     generate_tree_property_accessors_h,
     load_core_metadata,
@@ -56,9 +58,17 @@ def test_velocity_is_h_independent():
 
 
 def test_specific_angular_momentum_is_identity_when_carried():
-    # Pins the invariant the D8 Spin units-label reconciliation depends on: the
-    # registered "Mpc/h km/s" label converts to itself as a literal "1.0", not
-    # merely a numerically-equal expression.
+    # Pins the Spin units-label contract: the registered "Mpc/h km/s" label
+    # converts to itself as a literal "1.0", not merely a numerically-equal
+    # expression. That identity rests on two registry-derived facts, pinned
+    # here the same way the generator itself resolves them: the label's
+    # effective h_convention derives to "carried" (via _effective_h_convention,
+    # with no explicit override), and its dimension is
+    # "specific_angular_momentum" (via _unit_info). Either drifting would
+    # silently break the identity below without failing any other test.
+    assert _effective_h_convention({"units": "Mpc/h km/s"}) == "carried"
+    assert _unit_info("Mpc/h km/s")["dimension"] == "specific_angular_momentum"
+
     expr = _linear_conversion_expr(
         "Mpc/h km/s",
         "carried",
