@@ -1,6 +1,6 @@
 # Snapshot-Run Output Partitioning (D5(a)) — Implementation Plan
 
-**Status:** Frozen (Revision 3, external panel converged with no P0/P1 outstanding), not yet executed.
+**Status:** Frozen (Revision 4, amended mid-execution — see the amendment record at the end). Slice 1 executed and accepted; Slices 2–4 outstanding.
 **Date:** 2026-08-13
 **Owns:** Pre-Shin-Uchuu checklist item 4 (`POST-PHASE-5-JOINT-REVIEW.md` §6.4), the decided-but-unbuilt D5(a).
 **Scope:** One HDF5 output partition file per requested output snapshot for snapshot-ordered runs. No size knob, no new configuration surface, no change to tree-ordered behaviour.
@@ -123,7 +123,7 @@ Per-slice developer seats are stated in each receipt.
 - User-visible behaviour: none. This slice is inert by construction.
 - Behaviour that must not change: everything.
 
-- [ ] `struct OutputPartitionSource` carries `partition_snapshots`, and every construction site in `src/core/tree_driver.c` supplies it; no output writer computes a snapshot range from `MimicConfig.NOUT` directly any more.
+- [ ] `struct OutputPartitionSource` carries `partition_snapshots`, and every construction site in `src/core/tree_driver.c` supplies it; no *partition-local* HDF5 writer loop among the functions threaded above computes its snapshot range from `MimicConfig.NOUT` directly any more. The master file's run-global outer group-creation loop (required to stay over all `NOUT` by the criterion below) and the binary writers (excluded by this slice's non-goals) are the contract's own stated exceptions.
 - [ ] `prep_hdf5_file()` creates a `Snap%03d` group and `Galaxies` table for exactly the selection's indices, in the order given.
 - [ ] `save_halos_hdf5()` and `flush_hdf5_buffers()` iterate exactly the selection's indices; no other index is buffered, flushed, or freed by a call.
 - [ ] Per-file `RunProperties` is written exactly once per output file, at open, on **every** path that opens an output file — and `write_hdf5_attrs()` no longer writes it under any condition.
@@ -220,7 +220,8 @@ Revert the single slice commit. No generated files, baselines, schema versions, 
 - [ ] An unwritable output directory fails the run before the dataset is opened, not at the first requested output snapshot.
 - [ ] The tree-ordered path is unchanged: byte-identical binary galaxy records, and zero `h5dump -A` deltas beyond the five always-excluded provenance attributes.
 - [ ] The cross-format identity gate passes 8/8 stages on the real micro-Uchuu dataset — both models × both timestep schemes — with the comparator reporting a non-zero record count that matches what the runs' own master files record.
-- [ ] No in-source comment still describes the snapshot side as producing a single output partition, or its cleanup as all-or-nothing.
+- [ ] No in-source comment still describes the snapshot side as producing a single output partition, or its cleanup as all-or-nothing. **Scope of this criterion:** it binds the files in this slice's authorized surface. `scripts/compare_cross_format_identity.py:213` also contains the phrase "a single-partition snapshot-ordered run", but its technical claim survives this change — one snapshot's records still land in one partition file, which is what its memory argument concerns — so it is out of scope here and needs no edit.
+- [ ] No test in the mandatory validation commands derives a snapshot-run output filename from a fixed partition index. Every such filename is derived from the run file's `output.snapshot_list`.
 - [ ] `make USE-HDF5=no` builds and links clean.
 
 ### Authorized Surface
@@ -233,8 +234,9 @@ Revert the single slice commit. No generated files, baselines, schema versions, 
   - `tests/unit/test_master_hdf5_partitions.c`
   - `tests/integration/test_processing_order.py`
   - `simulations/micro-uchuu-snapshot/_tests/scientific/test_cross_format_identity.py`
+  - `tests/scientific/test_scientific.py`
 - Functions/classes/components allowed to change: the snapshot partition-source constructor and its four hooks in `src/core/tree_driver.c`; in `src/core/snapshot_driver.c`, the output helpers (`snapshot_open_output`, `snapshot_write_output`, `snapshot_finalize_output` and their non-HDF5 stubs), the cleanup-registry helpers, `snapshot_is_output_snapshot`, and the output-related statements inside `run_snapshot_driver()`; comment text only in `src/io/output/util.h` and `src/include/proto.h`.
-- Tests allowed or expected to change: `tests/unit/test_master_hdf5_partitions.c`'s `test_snapshot_output_partition_source_is_trivial_single_partition` (`:381-403`, `:465`), which pins the shape this slice replaces, plus a new master-file case proving the snapshot branch links each snapshot to its own file; `tests/integration/test_processing_order.py` at `:288-291` (the single-partition file-set assertion), `:295-312` (the per-file content loop, which currently reads every requested snapshot from `partitions[0]` and must fan out across partition files; its `RunProperties` assertion is at `:310-312`), and `:314-326` (the `File000` master assertions); the gate's partition-count assertion.
+- Tests allowed or expected to change: `tests/unit/test_master_hdf5_partitions.c`'s `test_snapshot_output_partition_source_is_trivial_single_partition` (`:381-403`, `:465`), which pins the shape this slice replaces, plus a new master-file case proving the snapshot branch links each snapshot to its own file; `tests/integration/test_processing_order.py` at `:288-291` (the single-partition file-set assertion), `:295-312` (the per-file content loop, which currently reads every requested snapshot from `partitions[0]` and must fan out across partition files; its `RunProperties` assertion is at `:310-312`), and `:314-326` (the `File000` master assertions); the gate's partition-count assertion; and `tests/scientific/test_scientific.py`'s `regenerate_output()` (`:132-140`), whose snapshot-ordered branch hard-codes `tests/data/output/hdf5/model_000.hdf5` and carries the comment "filenr 0: a snapshot-ordered run writes a single output partition". Derive that filename from the run file's `output.snapshot_list` — `simulations/micro-uchuu-snapshot/_tests/scientific/test_cross_format_identity.py:857-869` already has the helper pattern — and retire the comment. This file is unavoidably inside the mandatory identity-gate command: `scripts/generate_test_registry.py`'s `core_scientific_tests()` globs **every** `tests/scientific/test_*.py` into the scientific tier for **every** simulation, and `tests/scientific/` contains only this file. The generated snapshot-pair vehicle requests `snapshot_list: [49]` (`scripts/generate_test_inputs.py:211`, `snapshot_list=[last_snap]`, against a 50-entry `a_list`), so this slice renames the file it reads to `model_049.hdf5`. Do **not** change the tree-side branch of that function.
 
 ### Explicit Non-Goals
 
@@ -245,6 +247,8 @@ Revert the single slice commit. No generated files, baselines, schema versions, 
 - No documentation-of-record edits — Slice 3 owns those, and this slice is not complete work until Slice 3 lands.
 - No new unit test for selective group creation: the integration test proves it against a real run, and a unit-level duplicate would test the same statement twice.
 - No new committed corrupt fixture: the failure-injection check below builds its corrupted copy in a temporary directory at test time.
+- No change to `tests/integration/test_output_formats.py`, which carries the same hard-coded-filename defect at three live sites. It is unreachable from this slice's mandatory commands (they run the integration tier only on the tree-ordered default pair), and Slice 4 owns it with its own gate. Do not fix it here, where nothing this slice runs would verify the fix.
+- No relocation of the `FileNum` assignment. **Recorded consequence, not a defect:** `FileNum` has exactly one read site in physics — `models/sham/modules/sham_assign_stellar_mass/sham_assign_stellar_mass.c:86`, an RNG-seed fallback that fires only when `halo->UniqueGalaxyID == 0`. Today a snapshot run holds `FileNum == 0` throughout; afterwards it is re-pointed per partition. This is unreachable in the current repository — `sham` has run files for `millennium` and `mini-millennium` only, both tree-ordered, and the identity gate's `MODELS` are `halos-only` and `sage16` — so it becomes live only if someone later writes a `sham` run file for a snapshot-ordered package. Implement the assignment where this contract pins it and do not work around this.
 
 ### Risk Flags
 
@@ -261,6 +265,7 @@ Revert the single slice commit. No generated files, baselines, schema versions, 
   - `tests/integration/test_processing_order.py`, writability case: make the output directory read-only, run, and assert a non-zero exit with the probe's message before any dataset validation output.
   - The two permission-based cases above must skip when the effective uid is `0`, where mode bits do not deny access.
   - `tests/unit/test_master_hdf5_partitions.c`: replace the single-partition source case and add the snapshot master-link case.
+  - `tests/scientific/test_scientific.py`: derive the snapshot-ordered partition filename as described in the authorized surface above. Establish that this test is **green before** your change on the snapshot pair (`MODEL=halos-only SIMULATION=micro-uchuu-snapshot python3 tests/scientific/test_scientific.py`) and green after, so the edit is proved to preserve a passing test rather than to rescue a broken one.
   - The gate's partition-count assertion.
 - Commands to run:
   - `make check-generated`, `make validate-modules`, `make check-format` (exit 0)
@@ -293,7 +298,7 @@ Revert the slice commit; Slice 1's inert seam remains and is harmless on its own
 - `docs/dev/POST-PHASE-5-JOINT-REVIEW.md`: close §6 item 4 with the evidence, and update the checklist-state paragraph in §8.
 - `docs/dev/MIMIC-DEVELOPMENT-PATHWAY.md`: mark item 4 closed in the sequence-item-5 table and move the "next step" pointer to item 5 (the D8 `Spin` units-label slice).
 - `.agents/skills/mimic-run-and-operate/SKILL.md`: its "What a run produces" section describes per-file HDF5 outputs as carrying `Snap<NNN>/Galaxies` and `Snap<NNN>/TreeHalosPerSnap` "per output snapshot", which is wrong for a snapshot run both before and after this change. Correct both points. Sweep `mimic-architecture-contract` and `mimic-diagnostics-and-tooling` for the same class of statement.
-- Mark this plan executed and record where its evidence lives.
+- Mark Slices 1–3 executed and record where their evidence lives. Slice 4 closes the plan, so do not mark the plan itself complete here.
 
 ### Acceptance Criteria
 
@@ -351,6 +356,97 @@ Revert the slice commit; Slice 1's inert seam remains and is harmless on its own
 ### Rollback Path
 
 Revert the slice commit. Documentation-only.
+
+---
+
+## Slice 4: Retire the last fixed-partition-index filename assumptions in the integration tier
+
+**Developer seat:** `--model sonnet --effort high`. Narrow, fully specified, and its risk is concentrated in "did the tree path move?", which the default-pair tier answers mechanically.
+
+Added by the Revision 4 amendment. `tests/integration/test_output_formats.py` carries the same hard-coded `model_000.hdf5` assumption that blocked Slice 2, but it is unreachable from Slice 2's mandatory commands, so fixing it there would have shipped unvalidated edits inside the plan's riskiest slice. It gets its own slice and its own gate instead.
+
+### Intended Change
+
+- In `tests/integration/test_output_formats.py`, derive the HDF5 output filename from the run file's `output.snapshot_list` — the same derivation Slice 2 applies to `tests/scientific/test_scientific.py` — at exactly these three live sites: `test_hdf5_format_loading()` (`:333`), `test_hdf5_compression_equivalence()` (`:434`), and `test_unique_id_contract()` (`:601`). Retire the now-false `# filenr 0` comment at `:333`.
+- Give `test_format_equivalence()` (`:645-771`, filename at `:697`) a processing-order guard so it **skips** on a snapshot-ordered package, following the pattern already in `tests/scientific/test_scientific.py`'s `selected_package_writes_binary()` (`:86-109`). This test compares binary against HDF5 output, and a snapshot-ordered package cannot produce binary at all — the run is rejected at configuration time — so the correct behaviour is a documented skip, not a filename fix.
+- **Leave `test_hdf5_baseline_comparison()` (`:468-577`) alone**, including both its `model_000.hdf5` references (`:509`, `:523`). It already guards on `skip_non_default_baseline()` / `is_default_baseline_combo()` (`:495`) and therefore never runs on a snapshot pair, and its filenames are correct for the committed tree-ordered baseline under `tests/data/output/baseline/hdf5/`. Changing them would break a passing test.
+- Update the docstring references at `:317`, `:472-473`, `:488` and `:650` only where the surrounding test's behaviour actually changed.
+- Mark this plan fully executed and record where the evidence for all four slices lives.
+
+### Acceptance Criteria
+
+- Inputs: unchanged run YAMLs; no new configuration keys, Make variables, or CLI flags.
+- Outputs: no change to any Mimic output. Test-code and documentation changes only.
+- User-visible behaviour: none.
+- Behaviour that must not change: every galaxy record on both paths; the tree-ordered default pair's integration results.
+
+- [ ] No test in `tests/integration/test_output_formats.py` derives a snapshot-run output filename from a fixed partition index.
+- [ ] `test_hdf5_baseline_comparison()` is byte-for-byte unchanged.
+- [ ] `test_format_equivalence()` skips on a snapshot-ordered package with a message naming the reason, and is unchanged in behaviour on a tree-ordered one.
+- [ ] The default pair's `make tests-integration` result is unchanged from before this slice — same pass count, same skip count, zero failures.
+- [ ] On the snapshot pair, the four HDF5-format tests named above each pass or skip for a documented reason, and none fails with a missing `model_000.hdf5`.
+- [ ] No source file changed.
+
+### Authorized Surface
+
+- Files allowed to change:
+  - `tests/integration/test_output_formats.py`
+  - `docs/dev/SNAPSHOT-OUTPUT-PARTITIONING-PLAN.md`
+- Functions/classes/components allowed to change: `test_hdf5_format_loading`, `test_hdf5_compression_equivalence`, `test_unique_id_contract`, `test_format_equivalence`, and their docstrings.
+- Tests allowed or expected to change: the four named above only.
+
+### Explicit Non-Goals
+
+- No source, generated-file, or baseline changes; no new fixture.
+- No change to `test_hdf5_baseline_comparison()`, or to any binary-format test.
+- No attempt to make the snapshot pair's whole integration tier pass. That tier carries pre-existing failures for that pair — tests that default to `output_format: binary`, which snapshot-ordered runs reject at `src/core/read_parameter_file.c:1453` — and repairing them is a separate change with its own justification.
+- No new helper in `tests/framework/`; reuse the existing pattern in place.
+
+### Risk Flags
+
+- Risky surfaces touched: none. Test code only, with the tree-ordered path protected by an unchanged-result criterion.
+- Approval needed before implementation: no
+- Independent audit required: no
+
+### Validation Plan
+
+- Tests to add/update: as described above.
+- Commands to run:
+  - Default pair: `make tests-integration` **before and after**, and show the two result lines side by side. This is the criterion that proves the tree path did not move.
+  - Snapshot pair: `MODEL=halos-only SIMULATION=micro-uchuu-snapshot python3 tests/integration/test_output_formats.py`, before and after. Quote the `MIMIC_RESULT` lines for the four named tests both times. Restore the default pair afterwards.
+  - `make check-format` (exit 0).
+- Lint (differential, via the `lint` skill): required.
+- Manual checks: confirm `test_hdf5_baseline_comparison()` is untouched in the diff.
+
+### Rollback Path
+
+Revert the slice commit. Test code and documentation only; no source, baseline, generated file, or on-disk format is involved.
+
+---
+
+## Amendment record
+
+### Revision 4 — 2026-08-13, amended mid-execution by the supervising PM at the owner's instruction
+
+Revision 3 was frozen and Slice 1 was executed and accepted against it (commits `cb660208` and `b5b969d7`). Slice 2 then **stopped before any file was edited**: its Developer established that the slice could not pass its own mandatory validation without changing a file outside its authorized surface. The owner authorised this amendment; the scope below was the owner's choice from options put to them.
+
+**The blocker, verified independently by the PM against the repository:**
+
+`tests/scientific/test_scientific.py`'s `regenerate_output()` hard-codes `tests/data/output/hdf5/model_000.hdf5` for a snapshot-ordered package, and Slice 2 necessarily renames that file to `model_049.hdf5`. All four links were checked directly: the hard-coded path exists and does not skip for snapshot-ordered packages; `scripts/generate_test_registry.py`'s `core_scientific_tests()` puts every `tests/scientific/test_*.py` into the scientific tier for every simulation, and that directory contains only this file, so it is unavoidably inside the mandatory identity-gate command; the generated vehicle requests `snapshot_list: [49]` because `scripts/generate_test_inputs.py:211` uses `snapshot_list=[last_snap]` against a 50-entry `a_list`; and the file appeared in neither of Slice 2's two closed enumerations. No second implementable reading exists — owner decision 1 pins the partition output id to the snapshot number precisely to reject dense index numbering.
+
+This is the same defect class the external panel already fixed for four other stale contract surfaces in Revision 1. Two further instances were missed; a new acceptance criterion in Slice 2 now guards the class rather than the instances.
+
+**Changes made:**
+
+1. **Slice 2 authorized surface** gains `tests/scientific/test_scientific.py`, with the required fix, the reason it is unavoidable, and the instruction not to touch its tree-side branch.
+2. **Slice 2 acceptance criteria** gain "no test derives a snapshot-run output filename from a fixed partition index", and the in-source-comment criterion gains an explicit scope ruling that excludes `scripts/compare_cross_format_identity.py:213` — its technical claim survives the change, so it needs no edit.
+3. **Slice 2 validation plan** requires the affected test to be shown green *before* the change as well as after, so the edit is proved to preserve a passing test rather than to rescue a broken one.
+4. **Slice 2 non-goals** now record the `FileNum` consequence explicitly. `FileNum` has exactly one read site in physics (`sham_assign_stellar_mass.c:86`, an RNG-seed fallback), and it is unreachable today because `sham` has no snapshot-ordered run file. It is a recorded consequence, not a defect, and the implementer is told not to work around it.
+5. **Slice 1's criterion at `:126`** is narrowed to the reading the PM ruled on during execution. As literally written it was contradicted by the same slice's own binding requirements — the master's outer loop must stay over all `NOUT`, and the binary writers are excluded — so no in-contract implementation could satisfy it. Slice 1 is already accepted on the narrowed reading; this edit is record hygiene and requires no re-run. The defect was found by the `codex` code reviewer, which correctly addressed it to the PM rather than filing it as implementer drift.
+6. **Slice 3** now marks Slices 1–3 executed rather than the whole plan, since Slice 4 closes it.
+7. **Slice 4 is new**, owning `tests/integration/test_output_formats.py`. That file carries the same defect at three live sites plus one test needing a processing-order skip, but it is unreachable from Slice 2's mandatory commands, so folding it into Slice 2 would have meant unvalidated edits inside the plan's riskiest slice. It gets its own gate: the default pair's integration result must be unchanged, and the snapshot pair's four HDF5 tests must pass or skip for a documented reason. `test_hdf5_baseline_comparison()` is explicitly excluded — it already skips on non-default combos and its `model_000.hdf5` references are correct for the committed tree-ordered baseline.
+
+**Standing caveat on this revision.** Revisions 1–3 were converged by two independent external reviewers. Revision 4 was written by the PM that supervises execution against it, so the amended clauses have not had that arm's-length review. The clauses concerned are listed in change 1–7 above; reviewers commissioned on Slices 2–4 should be told which text is PM-authored so they read it as a contract under test rather than as settled ground.
 
 ---
 
