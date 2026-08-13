@@ -12,7 +12,8 @@
 # header: "#X/Y/Z: Halo position (Mpc/h comoving)"). Snap_idx is stored as
 # float64 in this dataset; the reader auto-detects and handles the float type.
 # Spin is the specific angular momentum J/Mvir, (Mpc/h)(km/s), after
-# apply_ctrees_value_conventions().
+# apply_ctrees_value_conventions() -- for non-zero Mvir; zero-mass halos
+# deliberately retain raw J rather than J/Mvir.
 # Len is derived: round(Mvir * 1e-10 / particle_mass).
 #
 # Required core roles (src/core/core_properties.yaml required_inputs):

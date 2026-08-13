@@ -12,7 +12,8 @@
 # Consistent-Trees source by scripts/convert/, which applies the same reference
 # value conventions. M_Crit200 therefore carries the native ctrees Mvir in
 # Msun/h, positions are Mpc/h, Spin is the specific angular momentum J/Mvir,
-# (Mpc/h)(km/s), and Len is derived as round(Mvir * 1e-10 / particle_mass).
+# (Mpc/h)(km/s), for non-zero Mvir -- the converter deliberately keeps raw J
+# for zero-mass halos -- and Len is derived as round(Mvir * 1e-10 / particle_mass).
 #
 # ForestIndex and HaloRankInForest, the producer-owned UniqueGalaxyID identity
 # components the on-disk format carries explicitly, are deliberately NOT

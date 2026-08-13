@@ -15,7 +15,8 @@
 # native ctrees Mvir in Msun/h (not 1e10 Msun/h); the generated reference-unit
 # accessor applies the ×1e-10 conversion. Positions are already in Mpc/h.
 # Spin is the specific angular momentum J/Mvir, (Mpc/h)(km/s), after
-# apply_ctrees_value_conventions().
+# apply_ctrees_value_conventions() -- for non-zero Mvir; zero-mass halos
+# deliberately retain raw J rather than J/Mvir.
 # Len is derived: round(Mvir * 1e-10 / particle_mass).
 #
 # Required core roles (src/core/core_properties.yaml required_inputs):
