@@ -274,7 +274,13 @@ static int assert_total_attr(hid_t file_id, const char *group_path, int64_t expe
  * satisfy an existence check while contradicting the partitioning contract. */
 static int assert_external_link_target(hid_t file_id, const char *path, const char *expected_file,
                                        const char *expected_object) {
-  H5L_info2_t info;
+  /* The unversioned H5L_info_t/H5Lget_info() spellings are deliberate: they
+   * follow HDF5's default API version mapping, so this compiles against 1.10
+   * (which has no H5L_info2_t at all) as well as 1.12+. Both members read below
+   * exist in either struct generation. Do not "modernise" these to the
+   * explicitly numbered names — it would break the Linux install path the
+   * Makefile recommends. */
+  H5L_info_t info;
   TEST_ASSERT(H5Lget_info(file_id, path, &info, H5P_DEFAULT) >= 0,
               "master link should be queryable");
   TEST_ASSERT_EQUAL((int)info.type, (int)H5L_TYPE_EXTERNAL, "master link should be external");
