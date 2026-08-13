@@ -402,7 +402,7 @@ make MODEL=halos-only SIMULATION=micro-uchuu-snapshot
 
 - Each `Snap%03d/Galaxies` group carries no `Ntrees` attribute and no `TreeHalosPerSnap` dataset — they are omitted entirely (absent, not zero or empty), because a snapshot run has no per-tree structure to report.
 - `TotHalosPerSnap` is still the per-snapshot galaxy-count attribute, but stored as `int64` rather than `int` — the same widened type a tree-ordered run's output now carries too.
-- A snapshot-ordered run writes one HDF5 partition file per requested output snapshot, named by that snapshot's number (`model_<snapnum>.hdf5` — filenames stay self-describing even for an unsorted `output.snapshot_list`), plus the master `<basename>.hdf5`. Each partition file holds exactly one `Snap%03d` group: its own. The master creates one `Snap%03d` group per requested output snapshot, each holding a single `File%03d` subgroup whose external link resolves into that snapshot's own partition file, and no per-tree table.
+- A snapshot-ordered run writes one HDF5 partition file per requested output snapshot, named by that snapshot's number zero-padded to at least three digits (`model_<snapnum>.hdf5`, `%03d`-formatted — e.g. snapshot 5 is `model_005.hdf5` — filenames stay self-describing even for an unsorted `output.snapshot_list`), plus the master `<basename>.hdf5`. Each partition file holds exactly one `Snap%03d` group: its own. The master creates one `Snap%03d` group per requested output snapshot, each holding a single `File%03d` subgroup whose external link resolves into that snapshot's own partition file, and no per-tree table.
 - `RunProperties/Version/hdf5_format_version` reads `1.2`.
 
 Everything else in [Reading HDF5 Output](#reading-hdf5-output) below applies unchanged.
