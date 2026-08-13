@@ -19,6 +19,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import yaml
 
 # Add framework to path
 REPO_ROOT = Path(__file__).parent.parent.parent
@@ -43,6 +44,7 @@ from framework import (
     load_binary_halos,
     load_hdf5_halos,
     load_hdf5_run_properties,
+    resolve_sim_config_path,
     run_mimic,
     run_mimic_fresh,
     run_test_suite,
@@ -91,6 +93,50 @@ def _probe_hdf5_support():
             return False
 
     return returncode == 0
+
+
+def selected_package_writes_binary():
+    """
+    Whether the selected simulation package can produce binary output.
+
+    A snapshot-ordered package cannot: the driver rejects any output format but
+    HDF5 at configuration time, so the generated ``test_binary.yaml`` is invalid
+    by construction for it and every check below would fail on a run that never
+    happened. The effective processing order is read exactly as the parser
+    resolves it -- an explicit ``input.processing_order`` in the run file wins,
+    otherwise the simulation config the run file points at -- so a package is
+    identified by its own declaration rather than by name.
+    """
+    param_file = core_input_file("test_binary.yaml")
+    with open(param_file) as handle:
+        config = yaml.safe_load(handle)
+
+    order = (config.get("input") or {}).get("processing_order")
+    if order is None:
+        sim_config_path = resolve_sim_config_path(config["simulation"]["config"], param_file)
+        with open(sim_config_path) as handle:
+            sim_config = yaml.safe_load(handle)
+        order = ((sim_config or {}).get("input") or {}).get("processing_order")
+
+    return order != "snapshot_ordered"
+
+
+def first_requested_output_snapshot(param_file):
+    """The first snapshot ``output.snapshot_list`` in ``param_file`` asks for.
+
+    A snapshot-ordered run writes one partition file per requested output
+    snapshot, named by that snapshot's number, so the filename cannot be derived
+    from a fixed partition index. Reading the request from the run file keeps this
+    correct for any list configuration validation admits, including an unsorted
+    one.
+    """
+    with open(param_file) as handle:
+        config = yaml.safe_load(handle)
+
+    requested = (config.get("output") or {}).get("snapshot_list")
+    if not requested:
+        raise TestSkipped(f"{param_file} declares no output.snapshot_list to read output from")
+    return int(requested[0])
 
 
 def baseline_halo_properties():
@@ -314,7 +360,9 @@ def test_hdf5_format_loading():
     """
     Test that HDF5 output file can be loaded and parsed
 
-    What: Loads model_000.hdf5 using load_hdf5_halos() function
+    What: Loads the selected package's HDF5 output partition file (filenr 0 on
+          a tree-ordered package, the first requested output snapshot on a
+          snapshot-ordered one) using load_hdf5_halos() function
     Expected: File exists, halos array is populated, metadata is valid
     Validates: HDF5 format structure is readable by analysis tools
     Requires: h5py library (skips if not available)
@@ -329,12 +377,22 @@ def test_hdf5_format_loading():
         raise TestSkipped("HDF5 not compiled")
 
     # Check output file exists
+    param_file = core_input_file("test_hdf5.yaml")
     output_dir = TEST_DATA_DIR / "output" / "hdf5"
-    output_file = output_dir / "model_000.hdf5"  # filenr 0
+    if selected_package_writes_binary():
+        # Tree-ordered partition files are named by filenr (forests_per_file
+        # chunking), independent of which output snapshots are requested;
+        # filenr 0 is always the first partition.
+        output_file = output_dir / "model_000.hdf5"
+    else:
+        # A snapshot-ordered run names each partition file after the output
+        # snapshot it holds, so the file to read comes from the run file's own
+        # request rather than from a fixed partition index.
+        snapnum = first_requested_output_snapshot(param_file)
+        output_file = output_dir / f"model_{snapnum:03d}.hdf5"
 
     # Always regenerate output for the selected model so a stale file cannot
     # satisfy this assertion.
-    param_file = core_input_file("test_hdf5.yaml")
     run_mimic_fresh(param_file, output_file)
 
     assert output_file.exists(), f"HDF5 output file not created: {output_file}"
@@ -430,9 +488,19 @@ def test_hdf5_compression_equivalence():
     except ImportError:
         raise TestSkipped("h5py not available")
 
-    output_dir = TEST_DATA_DIR / "output" / "hdf5"
-    output_file = output_dir / "model_000.hdf5"
     param_file = core_input_file("test_hdf5.yaml")
+    output_dir = TEST_DATA_DIR / "output" / "hdf5"
+    if selected_package_writes_binary():
+        # Tree-ordered partition files are named by filenr (forests_per_file
+        # chunking), independent of which output snapshots are requested;
+        # filenr 0 is always the first partition.
+        output_file = output_dir / "model_000.hdf5"
+    else:
+        # A snapshot-ordered run names each partition file after the output
+        # snapshot it holds, so the file to read comes from the run file's own
+        # request rather than from a fixed partition index.
+        snapnum = first_requested_output_snapshot(param_file)
+        output_file = output_dir / f"model_{snapnum:03d}.hdf5"
 
     run_mimic_fresh(param_file, output_file)
     halos_uncompressed, metadata_uncompressed = load_hdf5_halos(output_file)
@@ -597,12 +665,22 @@ def test_unique_id_contract():
     except ImportError:
         raise TestSkipped("h5py not available")
 
+    param_file = core_input_file("test_hdf5.yaml")
     output_dir = TEST_DATA_DIR / "output" / "hdf5"
-    output_file = output_dir / "model_000.hdf5"
+    if selected_package_writes_binary():
+        # Tree-ordered partition files are named by filenr (forests_per_file
+        # chunking), independent of which output snapshots are requested;
+        # filenr 0 is always the first partition.
+        output_file = output_dir / "model_000.hdf5"
+    else:
+        # A snapshot-ordered run names each partition file after the output
+        # snapshot it holds, so the file to read comes from the run file's own
+        # request rather than from a fixed partition index.
+        snapnum = first_requested_output_snapshot(param_file)
+        output_file = output_dir / f"model_{snapnum:03d}.hdf5"
 
     # Always regenerate output for the selected model so a stale file cannot
     # satisfy this assertion.
-    param_file = core_input_file("test_hdf5.yaml")
     run_mimic_fresh(param_file, output_file)
 
     halos, metadata = load_hdf5_halos(output_file)
@@ -663,11 +741,21 @@ def test_format_equivalence():
 
     Note: This test compares ALL properties because both files are generated
           in the same run, so they should have identical property sets
+
+    Note: Skips on a snapshot-ordered package. Such a package cannot produce
+          binary output at all -- the run is rejected at configuration time --
+          so there is no binary output for this test to compare against HDF5.
     """
     print("Testing binary vs HDF5 format equivalence...")
 
     if not MIMIC_EXE.exists():
         raise TestSkipped("Mimic not built")
+
+    if not selected_package_writes_binary():
+        raise TestSkipped(
+            "Snapshot-ordered packages reject binary output at configuration "
+            "time, so binary vs HDF5 format equivalence cannot be compared"
+        )
 
     # Check if HDF5 is supported
     if not check_hdf5_support():
