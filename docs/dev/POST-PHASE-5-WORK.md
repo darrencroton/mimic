@@ -59,16 +59,37 @@ The numbers are derived from one measured anchor and are **order-of-magnitude es
 
 **Separately (joint review D8): the `dimensionless` units label on the ctrees packages' `Spin` is wrong metadata** — the quantity is J/Mvir in (Mpc/h)(km/s). Vision Principle 3 makes metadata the source of structural truth, and the vision statement asks that hidden assumptions be *harder* to introduce. Reconcile it as **its own slice with its own evidence run**, not folded into the range change: unlike ranges, units reach user-visible HDF5 `FieldMetadata` and the run-local `output_schema.json`. Do it before any Shin-Uchuu output exists — afterwards, every production file carries the wrong label permanently.
 
-**Related, and worth reconciling once:** `Spin` names *two different quantities* across packages, and the declared ranges do not track the definitions.
+**Corrected 2026-08-14 — `Spin` does NOT name two different quantities.** This section previously claimed that some packages store the Bullock parameter λ and others J/Mvir, and that the declared ranges track two different definitions. **That is wrong, and the correction enlarges D8's scope rather than shrinking it: every package stores J/Mvir, so every package's `dimensionless` label is wrong — not just the ctrees ones.**
 
-| Package(s) | Definition | Declared range |
-|---|---|---|
-| `micro-uchuu-{ascii,hdf5,snapshot}` | J/Mvir | `[-1000, 1000]` (widened 2026-08-12) |
-| `uchuu` | J/Mvir | `[-5000, 5000]` (set 2026-08-13 per D6; was `[-20, 20]`) |
-| `micro-uchuu` | Bullock spin parameter λ (order 0.03–0.05) | `[-200, 200]` (`simulations/micro-uchuu/halo_properties.yaml:131`) |
-| `mini-uchuu`, `millennium`, `mini-millennium` | Bullock spin parameter λ (order 0.03–0.05) | `[-20, 20]` |
+Two independent lines of evidence, both checked directly:
+
+- **The physics proves it.** `sage_set_disk_scale_radius.c:49` computes `lambda = spin_magnitude / (1.414 * vvir * rvir)`. For λ to be dimensionless, `Spin` must carry units of `Vvir × Rvir` = (Mpc/h)(km/s). λ is *derived from* `Spin`, never stored in it, and this is shared model code applied identically to every package.
+- **The data proves it.** The tracked `mini-millennium` baseline (`tests/data/output/baseline/hdf5/model_000.hdf5`, `Snap063`) has `Spin` spanning **−18.23 to 14.49** with median |Spin| ≈ 0.083. A Bullock λ is order 0.03–0.05 and cannot reach ±18. The magnitudes are those of specific angular momentum for this box.
+
+| Package(s) | Stored quantity | Declared range | Note |
+|---|---|---|---|
+| `micro-uchuu-{ascii,hdf5,snapshot}` | J/Mvir | `[-1000, 1000]` (widened 2026-08-12) | consistent with the measured 270.3 |
+| `uchuu` | J/Mvir | `[-5000, 5000]` (set 2026-08-13 per D6; was `[-20, 20]`) | sized for this box's clusters |
+| `micro-uchuu` | J/Mvir | `[-200, 200]` (`simulations/micro-uchuu/halo_properties.yaml:131`) | **Defect found 2026-08-14** — this is the *same micro-Uchuu data* in `lhalo_binary` form, and its ctrees siblings measure a maximum of **270.3**, so the declared bound is exceeded by its own data. Widen to `[-1000, 1000]` to match the siblings |
+| `mini-uchuu`, `millennium`, `mini-millennium` | J/Mvir | `[-20, 20]` | plausible for these boxes, but no longer justified by a "λ is order 0.05" argument — confirm against measurement when convenient |
+
+The descriptions are wrong too, not only the units: `millennium`, `mini-millennium` and `micro-uchuu` all read "Dimensionless spin parameter (Bullock definition)", which describes λ rather than what the field holds.
 
 Note that range metadata reaches only `tests/generated/property_ranges.json` — it never enters `output_schema.json` or the HDF5 `FieldMetadata` table — so changing a range produces no output-schema or metadata delta.
+
+#### D8 implementation scope, established 2026-08-14 — it is **not** a relabel
+
+A scoping investigation was run before implementing D8. It is more than editing eight YAML strings, and the reason is that the units label is **not documentary — it drives code generation and unit conversion**:
+
+- **`UNIT_REGISTRY` is a hard-coded dict in `scripts/generate_properties.py:132`**, and `_unit_info()` (`:331-334`) **raises `ValueError: Unknown unit label` for anything not in it**. `(Mpc/h)(km/s)` is not there, so simply writing it into the YAML fails `make generate` outright. Adding it is a **generator code change**, and the registry is shared by every property in every package.
+- **`reference_units` in `src/core/core_properties.yaml` has only `mass`, `length`, `velocity` and `time`** — no specific-angular-momentum dimension. `time` shows the precedent for a compound entry (`derived_from: length/velocity`), so the shape exists; it has to be added deliberately, with its `in_cgs` (3.08568 × 10²⁴ × 1.0 × 10⁵ = 3.08568 × 10²⁹).
+- **The h-convention is the trap, and it is the reason this needs an evidence run.** `Spin` declares no explicit `h_convention`, so it is *derived from the units label* (`_effective_h_convention()`, `:337-346`). Today `dimensionless` yields `h_convention: none`. A `(Mpc/h)(km/s)` label would naturally be **`carried`** — `Mpc/h` carries h, `km/s` does not. If that derivation changes, the generated conversion path can apply an h factor and **silently move every `Spin` value**, which would be a scientific change disguised as a metadata fix. The implementer must either pin `h_convention` explicitly to preserve today's behaviour, or add the reference dimension so source and target labels match and the factor cancels — and must **prove** the outcome, not assume it.
+
+**Therefore the binding acceptance criterion is: `Spin` values byte-identical before and after; only the label, description and (for `micro-uchuu`) the range change.** That is exactly the "own slice with its own evidence run" D8 asked for, and it wants the bitwise tree-path preservation vehicle rather than a tiers-only pass.
+
+**What is *not* a risk, checked directly:** the committed baselines are self-describing — each carries its own `metadata/output_schema.json` and is read through the schema written by the run that produced it, never a regenerated guess (`tests/data/README.md:23`). A units-label change therefore cannot invalidate them, and `assert_hdf5_schema_layout()` (`tests/framework/data_loader.py:354`) asserts group presence and format version, not units strings. No test asserts the string `dimensionless`.
+
+**Recommended shape:** a small frozen implementation plan rather than a direct edit — not for size, but because the change touches shared generator machinery and carries a live path to silently altering numeric output. Its slices are naturally: (1) extend the unit registry and reference dimension with the h-convention decision made explicitly and proved byte-neutral; (2) relabel the eight packages and fix the three wrong descriptions; (3) widen `micro-uchuu`'s range to `[-1000, 1000]`.
 
 ### 2.2 Recompute the driver's memory peak before the production run
 
@@ -174,6 +195,22 @@ The gate's correctness rests on the snapshot reader's `forest_index` / `halo_ran
 
 **Run the identity gate on a Shin-Uchuu subset before trusting a full production run.** That is the cheapest possible check against a conversion-side indexing error.
 
+### 2.7 The Uchuu-family packages declare a particle mass that is 0.6% low — NEW 2026-08-14
+
+**All six Uchuu-family packages declare `particle_mass: 0.0325` (1e10 Msun/h) = 3.25 × 10⁸ Msun/h. The physically consistent value is 3.27 × 10⁸ Msun/h.** Found while confirming the *Shin*-Uchuu mass for §2.4; that item is closed and correct, this is a separate, newly-discovered defect in the shipped packages.
+
+Affected: `uchuu`, `mini-uchuu`, `micro-uchuu`, `micro-uchuu-ascii`, `micro-uchuu-hdf5`, `micro-uchuu-snapshot`.
+
+**Evidence.** Ishiyama et al. 2021 ([arXiv:2007.14720](https://arxiv.org/abs/2007.14720)) gives Uchuu as 12800³ particles in 2.0 Gpc/h at **3.27 × 10⁸ M☉/h**; the suite shares mass resolution across box sizes. The arithmetic agrees and is self-checking: for micro-Uchuu's 100 Mpc/h box, Ω_m ρ_crit L³ / N with Ω_m = 0.3089 gives exactly 3.2703 × 10⁸ at **640³** particles, whereas the declared 3.25 × 10⁸ implies **641.6³** — not an integer particle count, which is the tell that it is a transcription error rather than a different convention.
+
+**This is not a one-line config fix. Changing the YAML alone breaks every snapshot-format run.** Phase 5 added a physical-header agreement check: the reader compares each file's `particle_mass_msun_h` against `MimicConfig.PartMass × 1e10` and **aborts** on mismatch, with a rounding tolerance of 16 × DBL_EPSILON (≈ 1.2 × 10⁻⁶ at this magnitude) against a difference of 2 × 10⁶ — twelve orders of magnitude outside. Both the committed test fixture (`simulations/micro-uchuu-snapshot/_tests/data/snapshot_*.h5`) and the real 50-file dataset stamp `particle_mass_msun_h = 325000000.0`, so both would abort at `open_run`, taking the **cross-format identity gate** and every snapshot-pair integration test with them.
+
+**It also moves physics.** `src/core/virial.c:51` returns `Len × PartMass` for every halo that is not an FoF central with a valid `HaloMass` — that is the `else` branch for all subhalos, not a rare fallback. A 0.62% change in `PartMass` shifts every subhalo's virial mass, and therefore `Rvir`, `Vvir` and downstream galaxy properties, for all Uchuu-family runs. Separately, `Len` in snapshot-format data is computed by the converter as `round(Mvir_native × 1e-10 / PartMass)`, so regenerated data shifts by the same fraction and may move by a whole particle for small halos.
+
+**What a correct fix requires**, in order: correct the six `simulation_info.yaml` files; regenerate the committed snapshot fixture; re-convert or re-stamp the 50-file real micro-Uchuu snapshot dataset so its headers agree; re-run the cross-format identity gate to re-certify (it is self-consistent, so it should pass once both sides agree, but the previously certified output values will have moved); and record the ~0.6% shift as an intended scientific change rather than a regression.
+
+**Not a Shin-Uchuu blocker** — the Shin-Uchuu package will be created with the confirmed 8.97 × 10⁵ — but it is a correctness defect in six shipped packages and should be scheduled deliberately. **Confirm the micro-Uchuu and mini-Uchuu particle counts from Skies & Universes before implementing**: the 640³ and 2560³ figures above are inferred from the box size and the suite's shared mass resolution, not read from a source.
+
 ---
 
 ## 3. Correctness and hygiene items (do not block Shin-Uchuu)
@@ -276,10 +313,11 @@ Kept for whoever writes the next plan; each cost real time.
 | 2. `Spin` bounds (D6/D7) | **Decided and applied for `uchuu`** (`[-5000, 5000]`); `shin-uchuu` applies when that package is created. **Still open as a measurement**: both bounds are provisional until the rehearsal measures actual extrema, and the assumed `uchuu` maximum mass is unsourced | §2.1 |
 | 3. Memory recompute + 10⁹ population check | **Population check CLOSED** (clear by 3.17× / 6.8×). **Memory REOPENED** — ≈317 GB for `sage16` under its measured 0.99×N output ratio, but the projection is parametric in the buffer capacity `C` and the pool high-water `G`, and `G` is unmeasured; ≈428 GB at `C=G=1.5N`. Binding gate is instrumenting `C` and `G` at the rehearsal. Surfaced a 1.5× error in F-5's per-record size | §2.2, §2.3 |
 | 4. Output partitioning (D5(a)) | **CLOSED 2026-08-13** — landed `3e31cc0c`/`7b68e01d`, certified by a cross-format identity gate re-run (8/8 stages) on the real micro-Uchuu dataset; documentation of record closed in `ce689907`…`e9619440`, integration-tier filenames in `1cb3208e`. See `SNAPSHOT-OUTPUT-PARTITIONING-PLAN.md` | One file per requested output snapshot, no size knob; its own frozen slice with its own gate re-run |
-| 5. `Spin` units-label reconciliation (D8) | **Open — decided, not implemented** | §2.1. Own slice, own evidence run, before any Shin-Uchuu output exists |
+| 5. `Spin` units-label reconciliation (D8) | **Open — decided, not implemented. Scope established 2026-08-14 and it is larger than a relabel** | §2.1. Affects **all eight** packages (every one stores J/Mvir; the "two different quantities" claim was wrong), needs a `scripts/generate_properties.py` `UNIT_REGISTRY` entry and a reference dimension, and carries an h-convention path that can silently move `Spin` values — so the binding criterion is byte-identical values with only the label changed. Own slice, own evidence run, before any Shin-Uchuu output exists |
 | 6. Subset conversion + complete rehearsal | **Open — blocked on source data** | §2.6. Subset must include the most massive forests or it certifies nothing |
 | 7. Converter scale-engineering pass (D4) | **Open — largest remaining item** | `SHIN-UCHUU-CONVERSION-PLAN.md`'s "Pre-conversion obligation". Deserves its own frozen implementation plan. **Prerequisite: §3.1 (D10)** |
 | 8. Particle mass | **CLOSED 2026-08-14** — 8.97 × 10⁵ Msun/h, confirmed from Ishiyama et al. 2021 ([arXiv:2007.14720](https://arxiv.org/abs/2007.14720)); corrected a recorded value that was low by 10× | §2.4 |
 | 9. Remaining property ranges | **Open — needs the rehearsal** | §2.5 |
+| 10. Uchuu-family particle mass 0.6% low | **Open — NEW 2026-08-14** | §2.7. Six packages declare 3.25e8 where the consistent value is 3.27e8. Not a config-only fix: the header-agreement check aborts every snapshot run until the fixture and the real dataset are re-stamped, and `virial.c:51` moves every subhalo's mass. Not a Shin-Uchuu blocker |
 
 Nothing else in §3 blocks the conversion; §3.1 does, and was reclassified accordingly (D10).
