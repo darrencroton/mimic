@@ -18,7 +18,14 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from framework import MIMIC_EXE, TestSkipped, create_test_param_file, run_mimic, run_test_suite
+from framework import (
+    MIMIC_EXE,
+    TestSkipped,
+    create_test_param_file,
+    resolve_sim_config_path,
+    run_mimic,
+    run_test_suite,
+)
 
 TEMP_DIR = None
 
@@ -80,17 +87,51 @@ def test_box_size_with_correct_dimension_still_runs():
     Validates: the new guard is a dimension check, not a label-identity check --
                'kpc/h' (dimension 'length', same as the 'Mpc/h' reference) is
                accepted and converted normally.
+
+    This test runs under every MODEL/SIMULATION pair the core integration tier is
+    invoked with (scripts/generate_test_registry.py globs every test_*.py file into
+    every pair), so the injected box_size cannot be a literal tied to one package's
+    fixture: a tree reader may cross-check the declared box_size against its own
+    file's box size (e.g. read_ctrees_hdf5.c against uchuu's committed fixture), so
+    a literal borrowed from mini-millennium (62.5 Mpc/h) would collide with a
+    different package's real box size and fail for the wrong reason, or -- for a
+    package whose reader carries no such cross-check -- pass vacuously without
+    actually exercising a genuine box size. The injected value is instead derived
+    from the SELECTED package's own declared box_size, relabelled from Mpc/h to the
+    numerically-equivalent kpc/h (1 Mpc/h == 1000 kpc/h), so the run always sees its
+    own package's real box size under a different, but dimensionally matching,
+    label.
     """
     if not MIMIC_EXE.exists():
         raise TestSkipped("Mimic not built")
 
-    # 62500 kpc/h == 62.5 Mpc/h, the same box size the reference test run file
-    # already declares directly -- this exercises a different, but dimensionally
-    # matching, units label rather than merely re-declaring the reference label.
-    param_file = _make_param_file(
-        "box_size_correct_dimension",
-        {"value": 62500.0, "units": "kpc/h", "h_convention": "carried"},
+    param_file, _output_dir, _ = create_test_param_file(
+        output_name="box_size_correct_dimension",
+        first_file=0,
+        last_file=0,
+        temp_dir=TEMP_DIR,
     )
+    with open(param_file, "r") as handle:
+        config = yaml.safe_load(handle)
+
+    sim_config_path = resolve_sim_config_path(config["simulation"]["config"], param_file)
+    with open(sim_config_path, "r") as handle:
+        sim_config = yaml.safe_load(handle)
+    box_size = (sim_config.get("simulation") or {}).get("box_size")
+    if not isinstance(box_size, dict) or box_size.get("units") != "Mpc/h":
+        raise TestSkipped(
+            "selected package's simulation.box_size is not declared in Mpc/h; cannot "
+            "derive an equivalent kpc/h value for the positive case"
+        )
+
+    config["simulation"]["box_size"] = {
+        "value": box_size["value"] * 1000.0,
+        "units": "kpc/h",
+        "h_convention": box_size.get("h_convention", "carried"),
+    }
+    with open(param_file, "w") as handle:
+        yaml.safe_dump(config, handle, default_flow_style=False, sort_keys=False)
+
     returncode, stdout, stderr = run_mimic(param_file)
     output = stdout + stderr
 
