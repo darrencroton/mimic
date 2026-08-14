@@ -79,7 +79,7 @@ mimic_venv/bin/python3 .agents/skills/mimic-diagnostics-and-tooling/scripts/insp
 
 Prints per-field min/max/NaN/Inf plus range-violation counts (sentinel-aware), and — critically — refuses to read any partition file whose header-implied size disagrees with the schema, reporting `SCHEMA MISMATCH` instead of garbage. That guard exists because mixed-era directories are real: `tests/data/output/baseline/binary/` contains intentionally frozen old-schema `model_uniquegalid_*` fixtures alongside current-schema files (verified 2026-07-04: the inspector loads 9265 records from the current file and correctly rejects the two frozen ones). Exit 0 clean, 1 on any finding.
 
-**Framework loaders as instruments** (importable with `cd tests` or `sys.path` on `tests/`): `load_binary_halos`, `load_hdf5_halos`, `load_hdf5_run_properties`, `assert_hdf5_schema_layout(expected_format_version="1.1")`, `validate_no_nans` / `validate_no_infs` / `find_nonfinite(halos, max_examples=5)` (rich per-field NaN/Inf report), `validate_range` / `assert_range` — all in `tests/framework/data_loader.py`.
+**Framework loaders as instruments** (importable with `cd tests` or `sys.path` on `tests/`): `load_binary_halos`, `load_hdf5_halos`, `load_hdf5_run_properties`, `assert_hdf5_schema_layout(path, expected_format_version)` (version is required — state the one your input carries), `validate_no_nans` / `validate_no_infs` / `find_nonfinite(halos, max_examples=5)` (rich per-field NaN/Inf report), `validate_range` / `assert_range` — all in `tests/framework/data_loader.py`.
 
 ## 5. Regression comparison tools
 

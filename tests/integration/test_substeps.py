@@ -305,16 +305,34 @@ def test_substeps_one_no_loop():
         shutil.rmtree(temp_dir)
 
 
-def test_dynamic_timestep_varies_substeps():
+def test_dynamic_timestep_computes_substeps():
     """
-    Test that dynamic timestep mode varies num_substeps across snapshots.
+    Test that dynamic timestep mode computes num_substeps instead of using SubSteps.
 
-    Expected: Dynamic mode runs end-to-end and assigns more substeps to at least
-    one higher-redshift snapshot than the lowest-redshift snapshot.
+    Expected: Dynamic mode runs end-to-end, replaces the configured SubSteps with a
+    computed count inside the configured MaxDynamicSubsteps bound, and dispatches
+    exactly that many substeps for each FOF group.
+
+    Validates: the dynamic scheme engages, MaxDynamicSubsteps reaches the core, and
+    the computed per-group count is what actually drives the substep loop.
+
+    This deliberately does not assert that the count rises with redshift. The count
+    is ceil(time_interval * SubSteps / t_dyn) (src/core/timestep.c), an integer
+    bucket that need not change across a given fixture's snapshots - a smoke fixture
+    spanning a fraction of a redshift unit legitimately reports the same count at
+    every snapshot, and every simulation package runs this file. The formula itself,
+    its degenerate inputs, and the cap are covered by tests/unit/test_dynamic_substeps.c.
     """
-    print("Testing dynamic timestep varies substep count...")
+    print("Testing dynamic timestep computes substep counts...")
 
     # ===== SETUP =====
+    # The cap is set BELOW SubSteps on purpose. compute_dynamic_substeps() always
+    # returns within [1, cap], so any count equal to SubSteps could only have come
+    # from the fixed scheme. That makes the bound check below a fall-back detector
+    # that holds for every fixture, without assuming what any of them computes.
+    configured_substeps = 10
+    configured_max_substeps = 8
+
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="dynamic_substeps",
         phase_config={
@@ -326,8 +344,9 @@ def test_dynamic_timestep_varies_substeps():
         model_params={"TestFixtureDummyParameter": 1.0, "TestFixtureEnableLogging": 1},
         first_file=0,
         last_file=0,
-        substeps=10,
+        substeps=configured_substeps,
         timestep_scheme="dynamic",
+        max_dynamic_substeps=configured_max_substeps,
     )
 
     try:
@@ -340,28 +359,37 @@ def test_dynamic_timestep_varies_substeps():
 
         all_executions = parse_test_fixture_executions(stdout)
         assert len(all_executions) > 0, "Should have at least one execution"
+        assert (
+            all_executions[0]["substep_number"] == 0
+        ), "First execution should open a substep group"
 
-        substeps_by_redshift = {}
+        # Each FOF group is a consecutive run of executions restarting at substep 0.
+        groups = []
         for execution in all_executions:
-            substeps_by_redshift.setdefault(execution["redshift"], []).append(
-                execution["num_substeps"]
+            if execution["substep_number"] == 0:
+                groups.append([])
+            groups[-1].append(execution)
+
+        for index, group in enumerate(groups):
+            reported = {execution["num_substeps"] for execution in group}
+            assert len(reported) == 1, f"FOF group {index} reported mixed N: {sorted(reported)}"
+            group_substeps = reported.pop()
+
+            numbers = [execution["substep_number"] for execution in group]
+            assert numbers == list(range(group_substeps)), (
+                f"FOF group {index} reported num_substeps={group_substeps} "
+                f"but dispatched substeps {numbers}"
             )
 
-        counts_by_redshift = {
-            redshift: max(num_substeps) for redshift, num_substeps in substeps_by_redshift.items()
-        }
-        low_z = min(counts_by_redshift)
-        low_z_count = counts_by_redshift[low_z]
-        high_z, high_z_count = max(counts_by_redshift.items(), key=lambda item: item[1])
+        observed = sorted({execution["num_substeps"] for execution in all_executions})
+        assert all(1 <= count <= configured_max_substeps for count in observed), (
+            f"Dynamic N must stay within [1, {configured_max_substeps}], got {observed}. "
+            f"A count of {configured_substeps} means the run used the fixed scheme"
+        )
 
-        assert high_z > low_z, f"Largest dynamic N should occur above z={low_z}, got z={high_z}"
-        assert (
-            high_z_count > low_z_count
-        ), f"Expected higher-z N > low-z N, got {high_z_count} <= {low_z_count}"
-
-        print("  ✓ Dynamic timestep uses varied substep counts")
-        print(f"    z={high_z:.4f}: num_substeps={high_z_count}")
-        print(f"    z={low_z:.4f}: num_substeps={low_z_count}")
+        print("  ✓ Dynamic timestep computes substep counts and drives the loop with them")
+        print(f"    {len(groups)} FOF groups, observed num_substeps={observed}")
+        print(f"    configured SubSteps={configured_substeps}, cap={configured_max_substeps}")
 
     finally:
         # ===== CLEANUP =====
@@ -376,7 +404,7 @@ def main():
             test_substep_dt_calculation,
             test_module_context_fields,
             test_substeps_one_no_loop,
-            test_dynamic_timestep_varies_substeps,
+            test_dynamic_timestep_computes_substeps,
         ],
         "SubSteps Time-Stepping and ModuleContext (test_substeps.py)",
     )

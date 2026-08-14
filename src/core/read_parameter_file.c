@@ -597,8 +597,14 @@ static const char *unit_label_dimension(const char *label, const char *field_nam
 
 static double convert_unit_scalar(double value, const char *units, const char *h_convention,
                                   const char *reference_label, const char *field_name) {
+  /* The reference label comes from this file, not from the run file. Naming the
+   * user's field as the subject of a reference-side lookup failure would blame
+   * their input for a maintainer's misconfiguration. */
+  char reference_subject[MAX_STRING_LEN];
+  snprintf(reference_subject, sizeof(reference_subject), "reference basis for %s", field_name);
+
   const char *source_dimension = unit_label_dimension(units, field_name);
-  const char *target_dimension = unit_label_dimension(reference_label, field_name);
+  const char *target_dimension = unit_label_dimension(reference_label, reference_subject);
 
   if (strcmp(source_dimension, target_dimension) != 0) {
     FATAL_ERROR("%s has units '%s' with dimension '%s', but the reference units '%s' require "
@@ -607,8 +613,8 @@ static double convert_unit_scalar(double value, const char *units, const char *h
   }
 
   const double source_cgs = unit_label_cgs(units, field_name);
-  const double target_cgs = unit_label_cgs(reference_label, field_name);
-  const char *target_h_convention = unit_label_h_convention(reference_label, field_name);
+  const double target_cgs = unit_label_cgs(reference_label, reference_subject);
+  const char *target_h_convention = unit_label_h_convention(reference_label, reference_subject);
   double factor = source_cgs / target_cgs;
 
   if (strcmp(h_convention, target_h_convention) != 0) {

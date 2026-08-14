@@ -10,28 +10,24 @@
 #            to core halo tracking algorithms. Never regenerate to "fix"
 #            a failing test - investigate the failure first!
 #
-# LAYOUT FREEZE: the committed HDF5 baseline is intentionally frozen at a
-#            pre-precision-widening record layout (its sidecar declares
-#            binary_record_size 224 vs the current 264). The baseline
-#            comparison decodes each side with its own schema and compares
-#            values within tolerance, so the old layout is deliberate, not
-#            stale. Running this script re-lays the baseline out to the
-#            CURRENT schema - that is a real baseline regeneration and needs
-#            the scientific-method evidence discipline, not just a green
-#            comparison afterwards.
+# The baseline is a coherent SET: the shard, the master file, and every file
+# in metadata/ must all come from the same run, so this script installs them
+# together (tests/data/README.md). The committed baseline belongs to the
+# default package pair, and only that pair can validate it, so a non-default
+# MODEL/SIMULATION is refused rather than silently installed unvalidated.
 #
 # Usage:
 #   ./scripts/regenerate_baseline.sh
 #   ./scripts/regenerate_baseline.sh --help
-#   MODEL=sham ./scripts/regenerate_baseline.sh
 #
 # What this script does:
-#   1. Verifies mimic is compiled with HDF5 support
-#   2. Validates that parameter file is physics-free (no modules enabled)
-#   3. Runs mimic to generate fresh baseline
-#   4. Copies output to baseline directory
-#   5. Validates baseline against current output
-#   6. Provides git commit instructions
+#   1. Verifies the selected package pair owns the committed baseline
+#   2. Verifies mimic is compiled with HDF5 support
+#   3. Validates that parameter file is physics-free (no modules enabled)
+#   4. Runs mimic to generate fresh baseline
+#   5. Installs the shard, master, and metadata/ set into the baseline
+#   6. Validates baseline against current output, failing if it cannot
+#   7. Provides git commit instructions
 ###############################################################################
 
 show_help() {
@@ -45,14 +41,18 @@ Options:
 
 Environment:
   MODEL         Model package to use (default: Makefile DEFAULT_MODEL)
-  SIMULATION    Simulation package to use (default: mini-millennium)
+  SIMULATION    Simulation package to use (default: Makefile DEFAULT_SIMULATION)
+
+Both must match the default pair: the committed baseline belongs to that pair
+and only that pair can validate it. Any other selection is refused.
 
 What this script does:
-  1. Verifies mimic is compiled with HDF5 support
-  2. Validates that the generated HDF5 test parameter file is physics-free
-  3. Runs mimic to generate fresh baseline output
-  4. Backs up and replaces tests/data/output/baseline/hdf5/model_000.hdf5
-  5. Runs the HDF5 baseline comparison check
+  1. Verifies the selected package pair owns the committed baseline
+  2. Verifies mimic is compiled with HDF5 support
+  3. Validates that the generated HDF5 test parameter file is physics-free
+  4. Runs mimic to generate fresh baseline output
+  5. Backs up and replaces the baseline shard, master, and metadata/ set
+  6. Runs the HDF5 baseline comparison check, failing if it cannot run
 
 Only regenerate the baseline after deliberate, validated changes to core halo
 tracking behavior. Never regenerate it merely to silence a failing test.
@@ -88,13 +88,23 @@ cd "$REPO_ROOT" || exit 1
 MIMIC_EXE="$REPO_ROOT/mimic"
 MODEL="${MODEL:-${DEFAULT_MODEL}}"
 export MODEL
-SIMULATION="${SIMULATION:-mini-millennium}"
+SIMULATION="${SIMULATION:-${DEFAULT_SIMULATION}}"
 export SIMULATION
 PARAM_FILE="$REPO_ROOT/build/generated/test_inputs/$MODEL/$SIMULATION/core/test_hdf5.yaml"
 OUTPUT_DIR="$REPO_ROOT/tests/data/output/hdf5"
 BASELINE_DIR="$REPO_ROOT/tests/data/output/baseline/hdf5"
+
+# The committed baseline is a coherent set written by one run: the shard, the
+# master, and the whole metadata/ directory (schema sidecar, run and simulation
+# configs, snapshot list, version info). Anything installed piecemeal leaves the
+# baseline describing a run that did not produce it.
 OUTPUT_FILE="$OUTPUT_DIR/model_000.hdf5"
+OUTPUT_MASTER="$OUTPUT_DIR/model.hdf5"
+OUTPUT_METADATA="$OUTPUT_DIR/metadata"
+OUTPUT_SCHEMA="$OUTPUT_METADATA/output_schema.json"
 BASELINE_FILE="$BASELINE_DIR/model_000.hdf5"
+BASELINE_MASTER="$BASELINE_DIR/model.hdf5"
+BASELINE_METADATA="$BASELINE_DIR/metadata"
 
 echo "============================================================"
 echo "Mimic Baseline Regeneration Script"
@@ -103,6 +113,26 @@ echo "Repository: $REPO_ROOT"
 echo "Model: $MODEL"
 echo "Simulation: $SIMULATION"
 echo "Parameter file: $PARAM_FILE"
+echo ""
+
+# Step 0: Refuse to install a baseline the selected pair cannot validate.
+# The comparison test skips for any non-default pair, so installing from one
+# would overwrite the committed baseline with output nothing checks. The owning
+# pair is read straight from the Makefile: defaults.sh honours an ambient
+# DEFAULT_MODEL/DEFAULT_SIMULATION, which must not be able to unlock this gate.
+echo -e "${BLUE}Step 0: Checking package pair...${NC}"
+BASELINE_MODEL="$(make_default DEFAULT_MODEL sage16)"
+BASELINE_SIMULATION="$(make_default DEFAULT_SIMULATION mini-millennium)"
+if [ "$MODEL" != "$BASELINE_MODEL" ] || [ "$SIMULATION" != "$BASELINE_SIMULATION" ]; then
+    echo -e "${RED}ERROR: The committed baseline belongs to MODEL=$BASELINE_MODEL SIMULATION=$BASELINE_SIMULATION${NC}"
+    echo "Selected: MODEL=$MODEL SIMULATION=$SIMULATION"
+    echo ""
+    echo "The baseline comparison test skips for any other pair, so a baseline"
+    echo "installed from this selection would never be validated. Re-run with the"
+    echo "default pair, or leave MODEL/SIMULATION unset."
+    exit 1
+fi
+echo -e "${GREEN}✓ Selected pair owns the committed baseline${NC}"
 echo ""
 
 # Step 1: Check mimic is compiled
@@ -179,8 +209,16 @@ mkdir -p "$BASELINE_DIR"
 echo -e "${GREEN}✓ Directories ready${NC}"
 echo ""
 
-# Step 5: Run Mimic to generate baseline
+# Step 5: Run Mimic to generate baseline.
+# The output directory persists between runs, so clear everything this script
+# installs first. Otherwise a component the current build no longer emits would
+# survive from an earlier run and be installed as if it were fresh.
 echo -e "${BLUE}Step 5: Running Mimic to generate baseline...${NC}"
+rm -rf "$OUTPUT_FILE" "$OUTPUT_MASTER" "$OUTPUT_METADATA" || {
+    echo -e "${RED}ERROR: Could not clear previous output in $OUTPUT_DIR${NC}"
+    echo "Refusing to run: a surviving file could be installed as if it were fresh."
+    exit 1
+}
 echo "Command: $MIMIC_EXE $PARAM_FILE"
 echo ""
 
@@ -195,39 +233,82 @@ echo ""
 echo -e "${GREEN}✓ Mimic executed successfully${NC}"
 echo ""
 
-# Step 6: Verify output file exists
-echo -e "${BLUE}Step 6: Verifying output file...${NC}"
-if [ ! -f "$OUTPUT_FILE" ]; then
-    echo -e "${RED}ERROR: Output file not created: $OUTPUT_FILE${NC}"
-    echo "Expected Mimic to create HDF5 output"
-    exit 1
-fi
-
-OUTPUT_SIZE=$(stat -f%z "$OUTPUT_FILE" 2>/dev/null || stat -c%s "$OUTPUT_FILE" 2>/dev/null)
-echo "Output file: $OUTPUT_FILE"
-echo "File size: $OUTPUT_SIZE bytes"
-echo -e "${GREEN}✓ Output file created successfully${NC}"
+# Step 6: Verify the whole output set exists before touching the baseline
+echo -e "${BLUE}Step 6: Verifying output files...${NC}"
+for output in "$OUTPUT_FILE" "$OUTPUT_MASTER" "$OUTPUT_SCHEMA"; do
+    if [ ! -f "$output" ]; then
+        echo -e "${RED}ERROR: Output file not created: $output${NC}"
+        echo "Expected Mimic to write the shard, master, and metadata/ set"
+        exit 1
+    fi
+    OUTPUT_SIZE=$(stat -f%z "$output" 2>/dev/null || stat -c%s "$output" 2>/dev/null)
+    echo "Output file: $output ($OUTPUT_SIZE bytes)"
+done
+echo "Output metadata: $OUTPUT_METADATA ($(find "$OUTPUT_METADATA" -type f | wc -l | tr -d ' ') files)"
+echo -e "${GREEN}✓ Output set created successfully${NC}"
 echo ""
 
-# Step 7: Backup existing baseline (if it exists)
-if [ -f "$BASELINE_FILE" ]; then
-    echo -e "${BLUE}Step 7: Backing up existing baseline...${NC}"
-    BACKUP_FILE="${BASELINE_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
-    cp "$BASELINE_FILE" "$BACKUP_FILE"
-    echo "Backed up to: $BACKUP_FILE"
-    echo -e "${GREEN}✓ Existing baseline backed up${NC}"
-    echo ""
-else
-    echo -e "${BLUE}Step 7: No existing baseline to backup${NC}"
-    echo ""
+# Step 7: Backup existing baseline set (whatever part of it exists).
+# Backups go OUTSIDE the baseline tree: tests/data/output/baseline/** is
+# deliberately un-ignored (.gitignore), so a backup written beside the baseline
+# would be picked up by the staging command this script prints.
+echo -e "${BLUE}Step 7: Backing up existing baseline...${NC}"
+BACKUP_STAMP="$(date +%Y%m%d_%H%M%S)"
+if [ -z "$BACKUP_STAMP" ]; then
+    echo -e "${RED}ERROR: Could not generate a backup timestamp${NC}"
+    exit 1
 fi
+BACKUP_DIR="$REPO_ROOT/archive/baseline-backups/hdf5-${BACKUP_STAMP}"
+BACKED_UP=0
+for baseline in "$BASELINE_FILE" "$BASELINE_MASTER" "$BASELINE_METADATA"; do
+    if [ -e "$baseline" ]; then
+        mkdir -p "$BACKUP_DIR" || {
+            echo -e "${RED}ERROR: Could not create backup directory: $BACKUP_DIR${NC}"
+            exit 1
+        }
+        cp -R "$baseline" "$BACKUP_DIR/" || {
+            echo -e "${RED}ERROR: Could not back up $baseline${NC}"
+            echo "Refusing to overwrite a baseline that cannot be restored."
+            exit 1
+        }
+        BACKED_UP=$((BACKED_UP + 1))
+    fi
+done
+if [ "$BACKED_UP" -gt 0 ]; then
+    echo "Backed up $BACKED_UP items to: $BACKUP_DIR"
+    echo -e "${GREEN}✓ Existing baseline backed up${NC}"
+    RESTORE_HINT="restore the copies in $BACKUP_DIR"
+else
+    echo "No existing baseline to backup"
+    RESTORE_HINT="note there was no previous baseline to restore"
+fi
+echo ""
 
-# Step 8: Copy to baseline directory
+# Step 8: Install the complete set, so every committed baseline file describes
+# the run that produced the records beside it (tests/data/README.md). Every copy
+# is checked: Step 9 compares halo values and the two files' embedded layouts, so
+# a half-installed metadata/ directory would survive it unnoticed.
 echo -e "${BLUE}Step 8: Installing new baseline...${NC}"
-cp "$OUTPUT_FILE" "$BASELINE_FILE"
-BASELINE_SIZE=$(stat -f%z "$BASELINE_FILE" 2>/dev/null || stat -c%s "$BASELINE_FILE" 2>/dev/null)
-echo "Baseline file: $BASELINE_FILE"
-echo "File size: $BASELINE_SIZE bytes"
+install_baseline_path() {
+    cp -R "$1" "$2" || {
+        echo -e "${RED}ERROR: Could not install $2${NC}"
+        echo "The baseline set is now PARTIAL - $RESTORE_HINT."
+        exit 1
+    }
+}
+rm -rf "$BASELINE_METADATA" || {
+    echo -e "${RED}ERROR: Could not clear $BASELINE_METADATA${NC}"
+    echo "Nothing was installed; the existing baseline is untouched."
+    exit 1
+}
+install_baseline_path "$OUTPUT_FILE" "$BASELINE_FILE"
+install_baseline_path "$OUTPUT_MASTER" "$BASELINE_MASTER"
+install_baseline_path "$OUTPUT_METADATA" "$BASELINE_METADATA"
+for baseline in "$BASELINE_FILE" "$BASELINE_MASTER"; do
+    BASELINE_SIZE=$(stat -f%z "$baseline" 2>/dev/null || stat -c%s "$baseline" 2>/dev/null)
+    echo "Baseline file: $baseline ($BASELINE_SIZE bytes)"
+done
+echo "Baseline metadata: $BASELINE_METADATA ($(find "$BASELINE_METADATA" -type f | wc -l | tr -d ' ') files)"
 echo -e "${GREEN}✓ New baseline installed${NC}"
 echo ""
 
@@ -250,17 +331,21 @@ except AssertionError as e:
     print(str(e))
     sys.exit(1)
 except Exception as e:
-    print('${YELLOW}⚠ Could not run validation:${NC}')
+    print('${RED}✗ Could not run validation:${NC}')
     print(str(e))
-    print('${YELLOW}Baseline installed but not validated${NC}')
-    sys.exit(0)
+    sys.exit(1)
 "; then
     echo ""
 else
+    # An unvalidated baseline is worse than no baseline: it looks authoritative
+    # and nothing checked it. Fail loudly and point at the backups.
     echo ""
-    echo -e "${YELLOW}WARNING: Validation had issues (see above)${NC}"
-    echo "Baseline has been installed but may need manual verification"
+    echo -e "${RED}ERROR: Baseline validation did not pass${NC}"
+    echo "The new baseline is installed but UNVALIDATED. Investigate before"
+    echo "committing it, or $RESTORE_HINT."
     echo ""
+    cd "$REPO_ROOT" || exit 1
+    exit 1
 fi
 
 cd "$REPO_ROOT" || exit 1
@@ -274,13 +359,16 @@ echo ""
 echo "Next steps:"
 echo ""
 echo "1. Review the change:"
-echo "   git diff tests/data/output/baseline/hdf5/model_000.hdf5"
+echo "   git diff --stat tests/data/output/baseline/hdf5/"
 echo ""
 echo "2. Verify tests pass:"
 echo "   make tests-integration"
 echo ""
-echo "3. Commit the new baseline:"
-echo "   git add tests/data/output/baseline/hdf5/model_000.hdf5"
+echo "3. Commit the new baseline as one set (records plus their metadata):"
+echo "   git add tests/data/output/baseline/hdf5/model_000.hdf5 \\"
+echo "           tests/data/output/baseline/hdf5/model.hdf5 \\"
+echo "           tests/data/output/baseline/hdf5/metadata/"
+echo "   git status --short   # confirm nothing else was picked up"
 echo "   git commit -m \"test: regenerate HDF5 baseline after [reason]"
 echo ""
 echo "   [Describe why baseline needed regeneration, e.g.:]"

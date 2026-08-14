@@ -552,8 +552,10 @@ def test_hdf5_baseline_comparison():
 
     Requires: h5py library (skips if not available)
 
-    Note: If this test fails after a deliberate core change, regenerate baseline with:
-          cp tests/data/output/hdf5/model_000.hdf5 tests/data/output/baseline/hdf5/
+    Note: If this test fails after a deliberate core change, regenerate the baseline
+          with ./scripts/regenerate_baseline.sh. The baseline is a coherent set -
+          shard, master, and schema sidecar from one run - so copying the shard
+          alone leaves it internally inconsistent (tests/data/README.md).
     """
     print("Testing HDF5 baseline comparison...")
 

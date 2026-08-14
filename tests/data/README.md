@@ -20,7 +20,7 @@ tests/data/
                                test (gitignored)
 ```
 
-Each baseline directory carries its own `metadata/` (including `output_schema.json`) so loaders interpret the file through the schema written by the run that produced it — never through a regenerated guess. The apparent duplication across format directories is this self-containment contract.
+Each baseline directory carries its own `metadata/` (including `output_schema.json`) so a baseline is interpreted through the run that produced it — never through a regenerated guess. The two formats use that sidecar differently: binary records are *decoded* through it, since the record layout is otherwise unknown, while HDF5 files are self-describing and are decoded from their own embedded compound dtype. An HDF5 sidecar therefore records provenance rather than the decode contract — but it still ships with the data it describes, and a baseline whose sidecar and records come from different runs is a defect, not a deliberate freeze. The apparent duplication across format directories is this self-containment contract.
 
 ## What the baselines gate
 
@@ -33,19 +33,21 @@ Both comparisons use the strict `1e-6` relative tolerance by default; CI relaxes
 
 Only after a **deliberate, user-approved core change** that is intended to alter outputs. Never to make a failing test pass.
 
-```bash
-# Binary core baseline (run the suite first so outputs are current):
-cp tests/data/output/binary/model_z0.000_0 tests/data/output/baseline/binary/
-cp tests/data/output/binary/metadata/output_schema.json \
-   tests/data/output/baseline/binary/metadata/
+A baseline is regenerated as a **whole set** — the record files *and* the entire `metadata/` directory that describes them. Copying only some of them leaves a baseline whose parts came from different runs, which is how the HDF5 sidecar once drifted a full record layout behind its own data.
 
-# HDF5 core baseline:
-cp tests/data/output/hdf5/model_000.hdf5 tests/data/output/hdf5/model.hdf5 \
-   tests/data/output/baseline/hdf5/
-cp tests/data/output/hdf5/metadata/output_schema.json \
-   tests/data/output/baseline/hdf5/metadata/
+For the HDF5 baseline, prefer the script; it installs the complete set, refuses any package pair that cannot validate the result, and fails rather than leaving an unvalidated baseline in place:
+
+```bash
+./scripts/regenerate_baseline.sh
 ```
 
-If the property schema changed, copy the other refreshed `metadata/` files alongside the schema, then run `make tests` and commit the baseline update in its own clearly-labelled commit.
+The binary baseline has no script; copy its set by hand after running the suite so the outputs are current:
+
+```bash
+cp tests/data/output/binary/model_z0.000_0 tests/data/output/baseline/binary/
+cp -R tests/data/output/binary/metadata/. tests/data/output/baseline/binary/metadata/
+```
+
+Then run `make tests` and commit the baseline update in its own clearly-labelled commit.
 
 Note: `baseline/binary/` also carries `model_uniquegalid_*` files committed as part of the baseline set; the unique-galaxy-ID test currently regenerates and validates its own outputs rather than comparing against them.
