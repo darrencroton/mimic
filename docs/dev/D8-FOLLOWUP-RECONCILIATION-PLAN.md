@@ -1,6 +1,6 @@
 # D8 Follow-up: Baseline Format-Version Reconciliation and Unit-Dimension Validation — Implementation Plan
 
-**Status:** Frozen, ready for implementation.
+**Status:** **FULLY EXECUTED 2026-08-14.** Both slices implemented and accepted by the supervising PM. Slice 1 (`13c0c9a7`, `4c522290`, `2ac94deb`) restored a green default-pair suite and finished D8's documentation closure; Slice 2 (`206cdce8`, `713d0238`) added the `convert_unit_scalar()` dimension guard. Verified at acceptance: `make MODEL=sage16 SIMULATION=mini-millennium tests summary` exits 0 with `ALL TESTS AND CHECKS PASSED`, and `test_hdf5_baseline_comparison` passes (confirmed by a direct file run, since summary mode lists only non-passing tests).
 **Owner reference:** Follow-up to `docs/dev/D8-SPIN-UNITS-RECONCILIATION-PLAN.md`. Slice 1 of that plan landed (`612f83da`, `8746dc2c`, `c60b51b8`, `6267a1ab`); its Slice 2 landed as `f81e2385` but was **stopped by the supervising PM**, not accepted, because it leaves the default integration suite red and the fix lies outside that plan's frozen surface.
 **Authorization:** The repository owner pre-approved this extension in-session on 2026-08-14, explicitly granting the surface expansion the parent plan could not.
 **Gates:** `docs/dev/MIMIC-DEVELOPMENT-PATHWAY.md` §6 item 6 (the Shin-Uchuu subset rehearsal) is the next step after this. This plan must land before it, because the rehearsal certifies an output contract and cannot be certified from a red suite.
