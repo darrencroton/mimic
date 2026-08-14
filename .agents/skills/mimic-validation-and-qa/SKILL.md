@@ -45,6 +45,8 @@ echo "exit_code=$rc"   # non-zero = failure regardless of log text
 
 `make tests` composes: clean → generate test registry → one build → `check-docs` → `validate-modules` → `check-snapshot-fixture` → `tests-converter` → all three tiers, accumulating failures in `build/.test_failures` and printing a final verdict block. Append the `summary` goal to any test target to filter output to `MIMIC_RESULT:` FAIL/SKIP/WARN/ERROR lines (PASS suppressed; infra steps silenced on success, dumped in full on failure; a crashing test that emits no markers dumps its full log). Unit and integration are long with large output — when orchestrating from a main agent context, delegate the run and act on the summarized report (AGENTS.md testing strategy).
 
+**Two traps worth knowing before you trust a result.** `summary` suppresses PASS, so a summary log can only evidence that nothing failed — it can never evidence that a particular test *passed*. To prove a specific test passes, run its file directly (`python3 tests/integration/<file>.py`) and read its markers. Separately, run `make check-generated` **without** `TEST_BUILD=yes`: `check_generated.py` and `generate_properties.py` hash different input sets under a test build, so a test-build run reports drift that is not there.
+
 ## 2. The marker protocol
 
 Every test case emits exactly one line:
@@ -69,6 +71,8 @@ MIMIC_RESULT: PASS|FAIL|SKIP|WARN|ERROR <test_name> [-- <reason>]
 **The model-neutral rule**: core tests must never name production physics modules — they use the `test_fixture` module (`src/module_system/test_fixture/`, compiled only in `TEST_BUILD=yes` builds via `MIMIC_TEST_BUILD=1`). This upholds the physics-agnostic-core principle: archiving or changing a sage16 module can never break framework tests.
 
 Registration flows through `scripts/generate_test_registry.py` into `build/generated/{unit,integration,scientific}_tests.txt` (refresh: `make generate-test-registry`; `--strict` fails on declared-but-missing test files). Shared test run files are materialized under `build/generated/test_inputs/<MODEL>/<SIMULATION>/` (`make generate-test-inputs`), with snapshot indices derived from the simulation's a_list — never hardcoded.
+
+**A core test runs against EVERY package, so it must assert nothing package-specific.** `generate_test_registry.py` globs `tests/{unit,integration,scientific}/` into the core tier for whichever pair is selected, so a hard-coded box size, particle mass, snapshot count or halo count passes vacuously under the package it was written against and fails spuriously under another — and a `if SIMULATION == "…"` conditional is the same defect wearing a disguise. Derive the value from the selected package's own configuration instead (`resolve_sim_config_path`; precedent `tests/integration/test_unique_galaxy_id_encoding.py`), or assert a property true of every package. This applies to *physical trends* as much as to literals: an expectation that holds across the 64-snapshot mini-Millennium fixture can be vacuous on a two-snapshot smoke fixture. `test_dynamic_timestep_computes_substeps` is the worked example — it asserts per-group dispatch and a configured bound rather than a redshift trend, precisely because the trend was not a contract of the algorithm.
 
 ## 4. Selector gating — what actually runs
 
