@@ -19,6 +19,108 @@ The architectural direction is still governed by `docs/VISION.md`: Mimic is a ph
 
 ---
 
+## How The Plans Compose
+
+The table below lists what each plan owns. This section answers the question the table cannot: **why these particular pieces, what they add up to, and what to actually do next.** Most are worth building on their own — distributed operation is the exception, having nothing to distribute until a snapshot-global contract exists — but the reason to sequence them deliberately is that several are worth considerably more in combination than apart.
+
+**The diagram and the sequence are different things, deliberately.** The *solid* arrows are a partial order: they record what genuinely cannot start before something else. The dotted arrows are not precedence at all — they carry candidacy, sequencing economy and design constraint, which is why one of them can point against the step numbers without contradicting them. The `STEP n` markers are the order we plan to work in, decided as far as it goes and with one deliberate gap: **step 2 holds two plans, both of which happen, and which of them leads is the open A/B question** in [After Shin-Uchuu](#after-shin-uchuu-the-two-candidate-orderings) rather than a settled fact. Where a step number is not forced by a solid arrow it is a judgement call about priority, risk and attention, and can be revisited without breaking anything.
+
+**The two orders visibly disagree, and that disagreement is the useful part.** Laid out by dependency, the emulator floats to the top of the graph because nothing feeds it, while steps 3 to 5 sink to the bottom because much does — so the picture does not read top-to-bottom in step order, and should not be forced to. The graph is ordered by what is *possible*; the numbers by what is *intended*. Every place they differ is a scheduling decision rather than a technical constraint, which makes the disagreement a checklist: the numbers, not the arrows, are what has to be defended.
+
+```mermaid
+flowchart TD
+    subgraph DONE["Delivered"]
+        CORE["v1.0 core<br/>physics-agnostic execution, module ABI,<br/>generated metadata, validation gates"]
+        FMT["Frozen snapshot-HDF5 contract<br/>+ ctrees converter, micro-Uchuu validated"]
+        DUAL["Dual driver<br/>tree-ordered and snapshot-ordered<br/>cross-format identity gate green"]
+    end
+
+    subgraph FLIGHT["In flight"]
+        SHIN["STEP 1 · now<br/>Shin-Uchuu<br/>converter scale pass, production conversion,<br/>then sage16 end to end"]
+    end
+
+    subgraph BRIEFS["Requirements briefs — none scheduled"]
+        RATE["STEP 2 · leads under Option A<br/>Coupled rate formulation<br/>declared transfers, one integrated system"]
+        GLOBAL["STEP 2 · leads under Option B<br/>Snapshot-global modules<br/>global SHAM, HOD, environment,<br/>synchronous reionization, lightcones"]
+        DIST["STEP 3<br/>Distributed snapshot operations<br/>MPI domain decomposition"]
+        ENGINE["STEP 4<br/>Embedded engine<br/>physics-only API for external hosts"]
+        BUILDER["STEP 5<br/>Model builder<br/>paper to tested model package"]
+        EMU["SPIKE NOW · work before step 5<br/>Emulator<br/>is this model package well-posed?"]
+    end
+
+    subgraph VALUE["What it composes into"]
+        VSCALE(["Scale — the largest merger trees Mimic can reach"])
+        VREACH(["Reach — physics that needs the whole box at once"])
+        VRIGOUR(["Rigour — defensible numerics,<br/>and model choices defensible in the same sense"])
+        VLEVER(["Leverage — the same physics investment reused:<br/>new models gated on evidence, and Mimic physics<br/>driven from outside Mimic"])
+    end
+
+    CORE --> DUAL
+    FMT --> DUAL
+    DUAL --> SHIN
+    FMT --> SHIN
+    DUAL --> GLOBAL
+    GLOBAL --> DIST
+
+    EMU -.->|candidate science gate| BUILDER
+    RATE -.->|shared dispatch and<br/>metadata machinery| GLOBAL
+    RATE -.->|side-effect-free<br/>rate evaluation| ENGINE
+    RATE -.->|transfers map to<br/>paper equations| BUILDER
+    RATE -.->|decomposition must not cut<br/>a transfer-graph component| DIST
+    EMU -.->|acceptance evidence| RATE
+
+    SHIN --> VSCALE
+    DIST --> VSCALE
+    GLOBAL --> VREACH
+    DIST --> VREACH
+    RATE --> VRIGOUR
+    EMU --> VRIGOUR
+    BUILDER --> VLEVER
+    ENGINE --> VLEVER
+
+    classDef done fill:#d5e8d4,stroke:#478c47,color:#12300f
+    classDef flight fill:#fff2cc,stroke:#c8a415,color:#3d3000
+    classDef brief fill:#e8e8ff,stroke:#6a6ac0,color:#1c1c4d
+    classDef value fill:#fbe0e0,stroke:#c06a6a,color:#4d1c1c
+
+    class CORE,FMT,DUAL done
+    class SHIN flight
+    class GLOBAL,DIST,RATE,EMU,ENGINE,BUILDER brief
+    class VSCALE,VREACH,VRIGOUR,VLEVER value
+```
+
+**Reading the arrows.** Solid arrows are hard dependencies — the target cannot start until the source exists. Dotted arrows are everything weaker: a candidate rather than the only route, a sequencing economy, or a constraint one plan places on another's design. Every brief rests on the v1.0 core, so those edges are omitted rather than drawn: four arrows from one node state something universally true while obscuring the dependencies that actually discriminate.
+
+**Every document in `docs/dev/` appears below.** The diagram carries only the boxes that represent a capability; reconciliation, review and evidence documents have no box because they add no capability, but they are listed here so nothing in the directory is unaccounted for. This document, `MIMIC-DEVELOPMENT-PATHWAY.md`, is the index itself.
+
+| Box | Owned by | Next actionable step |
+|---|---|---|
+| v1.0 core | tagged baseline; no plan file remains open | — delivered |
+| Frozen snapshot-HDF5 contract + converter | [`SNAPSHOT-HDF5-FORMAT.md`](SNAPSHOT-HDF5-FORMAT.md) · [`SHIN-UCHUU-CONVERSION-PLAN.md`](SHIN-UCHUU-CONVERSION-PLAN.md) | Format frozen at `format_version = 1`; the converter's scale pass is part of step 1 |
+| Dual driver | [`MIMIC-DUAL-DRIVER-PLAN.md`](MIMIC-DUAL-DRIVER-PLAN.md) · [`MIMIC-SNAPSHOT-DRIVER-PLAN.md`](MIMIC-SNAPSHOT-DRIVER-PLAN.md) · [`SNAPSHOT-OUTPUT-PARTITIONING-PLAN.md`](SNAPSHOT-OUTPUT-PARTITIONING-PLAN.md) | — delivered; all three are archive candidates once Shin-Uchuu lands |
+| **STEP 1** Shin-Uchuu | [`SHIN-UCHUU-CONVERSION-PLAN.md`](SHIN-UCHUU-CONVERSION-PLAN.md); checklist in [`POST-PHASE-5-JOINT-REVIEW.md`](POST-PHASE-5-JOINT-REVIEW.md) §6 | §6 item 6 — subset conversion and complete rehearsal. **Blocked on an operator at the conversion machine**, nothing else |
+| **STEP 2** Coupled rate formulation | [`MIMIC-COUPLED-RATE-FORMULATION-PLAN.md`](MIMIC-COUPLED-RATE-FORMULATION-PLAN.md) | Run its measurement spike — a throwaway model package, new files under `models/` only, no core change. **Unblocked now** |
+| **STEP 2** Snapshot-global modules | [`MIMIC-SNAPSHOT-GLOBAL-MODULES-PLAN.md`](MIMIC-SNAPSHOT-GLOBAL-MODULES-PLAN.md) | Promote to an implementation plan; the first concrete module is a true global SHAM. Prerequisite met 2026-08-12 |
+| **STEP 3** Distributed snapshot operations | [`MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md`](MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md) | Nothing yet — genuinely blocked until one snapshot-global contract exists |
+| **STEP 4** Embedded engine | [`MIMIC-EMBEDDED-ENGINE-PLAN.md`](MIMIC-EMBEDDED-ENGINE-PLAN.md) | Unblocked but unscheduled; document the remaining `init`/`cleanup` globals before offering any multi-instance guarantee |
+| **STEP 5** Model builder | [`MIMIC-MODEL-BUILDER-PLAN.md`](MIMIC-MODEL-BUILDER-PLAN.md) | Refresh the brief against the tagged v1.0 baseline — its re-review has been due since 2026-08-12 |
+| **SPIKE NOW** Emulator | [`MIMIC-EMULATOR-PLAN.md`](MIMIC-EMULATOR-PLAN.md) | Run its calibrated-variance spike — outside the product tree entirely. **Unblocked now** |
+| *no box — open work registers* | [`POST-PHASE-5-WORK.md`](POST-PHASE-5-WORK.md) · [`POST-PHASE-5-JOINT-REVIEW.md`](POST-PHASE-5-JOINT-REVIEW.md) | The latter's §6 is the authoritative pre-Shin-Uchuu checklist and so owns step 1's ordering; the former holds the deferred and non-blocking residue |
+| *no box — closed reconciliations* | [`D8-SPIN-UNITS-RECONCILIATION-PLAN.md`](D8-SPIN-UNITS-RECONCILIATION-PLAN.md) · [`D8-FOLLOWUP-RECONCILIATION-PLAN.md`](D8-FOLLOWUP-RECONCILIATION-PLAN.md) | Executed and closed; archive once Shin-Uchuu lands |
+| *no box — standing evidence* | [`SAGE16-PRESCRIPTION-CLASSIFICATION.md`](SAGE16-PRESCRIPTION-CLASSIFICATION.md) | Settled the coupled-rate brief's Open Question 1; feeds the step 2 A/B choice rather than being scheduled itself |
+
+**What the arrows say about the plan.** Only two of the six briefs are blocked by anything technical: distributed operation, which needs a snapshot-global contract, and the model builder, which needs a science gate. The other four are unblocked today. The planned order is therefore far more serial than the dependency graph requires, and that serialisation is a deliberate choice — Shin-Uchuu is the scientific goal the whole snapshot pathway was built to reach, and attention is the scarce resource, not technical readiness. **The one place this is worth acting on is the two measurement spikes.** Both the coupled-rate and emulator briefs are gated on a spike that touches no core code and can run beside anything; step 1 is currently blocked on an operator being physically present. That is slack, and the spikes are the natural work to put in it — see [Work available while the Shin-Uchuu rehearsal is blocked](#work-available-while-the-shin-uchuu-rehearsal-is-blocked).
+
+**Where the value compounds.** Three couplings are worth more than the sum of their parts, and each is a reason to care about sequencing rather than only about scope:
+
+- **Emulator with model builder.** The builder specifies physical invariants, paper-figure parity and regression against trusted baselines, but its hardest unsolved problem is defining scientific "done" for a *novel* model, where no trusted baseline exists to regress against. The emulator is the only candidate on record for that part of its science-gate layer — which is why the edge is drawn as a candidate rather than a prerequisite.
+- **Coupled rate with everything downstream.** A declared, side-effect-free transfer contract is simultaneously what makes the embedded engine's process path tractable, what a paper's equations map onto most directly for the builder, and a better-behaved design vector for the emulator. It is the single interface decision with the widest downstream reach, which is why its spike is worth running early even if the work itself is never scheduled.
+- **Snapshot driver with snapshot-global modules.** The driver already makes a whole snapshot population co-resident; without a module contract that can see that population, none of the methods motivating the dual-driver work — global abundance matching, environment, lightcones — are reachable. The scientific payoff is in the pair, not in the driver alone.
+
+Taken together the intended destination is a framework in which a galaxy formation model can be **built from published evidence, tested for identifiability, run at the largest available scale, and compared against alternatives on stated and comparable priors** — each of those backed by recorded evidence rather than by assertion, which is the standard the rest of this repository already holds itself to.
+
+---
+
 ## Active Plans
 
 | Document | Status | Role | Actionability |
