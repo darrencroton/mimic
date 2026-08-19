@@ -1,7 +1,7 @@
 # Mimic Coupled Rate Formulation Plan
 
 **Status:** Requirements brief. Not scheduled. Complete enough to derive a frozen implementation plan from, once two prerequisites exist: the measurement in [First Work](#first-work-measure-before-building), and the per-prescription hybrid classification (Open Question 1).
-**Note 2026-08-19:** both prerequisites are fixture-scale and independent of the Shin-Uchuu sequence, so the classification is queued as *optional parallel* work in `MIMIC-DEVELOPMENT-PATHWAY.md` → "Work available while the Shin-Uchuu source data is unreachable". **No core change starts ahead of the spike**, and the A/B ordering decision in that pathway section is downstream of it.
+**Note 2026-08-19:** both prerequisites are fixture-scale and independent of the Shin-Uchuu sequence, so the classification is queued as *optional parallel* work in `MIMIC-DEVELOPMENT-PATHWAY.md` → "Work available while the Shin-Uchuu rehearsal is blocked". **No core change starts ahead of the spike**, and the A/B ordering decision in that pathway section is downstream of it.
 **Date:** 2026-08-18
 
 ---

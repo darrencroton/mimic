@@ -177,7 +177,17 @@ Three things this already establishes, none of which the projection could assume
 - **`G` can exceed `P`** (15,525 vs 14,648 above), confirming this section's point that Type 3 galaxies are allocated without being emitted, so the output count does not bound the pool.
 - **Measured RSS is far above the analytic terms.** In the snapshot run the per-generation analytic terms come to well under half the 2.593 GB measured, so the unmodelled remainder is large in absolute terms even at fixture scale. **This is corroboration of this section's decision to make RSS the binding gate, not a Shin-Uchuu projection:** the run was `halos-only` (whose `GalaxyData` is a 1-byte placeholder, so its `G` term is negligible and unrepresentative) and `halos-only` is also the configuration whose orphan accumulation reaches 2.11×N. Do not extrapolate this ratio to `sage16` at Shin-Uchuu scale; measure it.
 
-Sequenced in `MIMIC-DEVELOPMENT-PATHWAY.md` → "Work available while the Shin-Uchuu source data is unreachable".
+Sequenced in `MIMIC-DEVELOPMENT-PATHWAY.md` → "Work available while the Shin-Uchuu rehearsal is blocked".
+
+#### Platform audit 2026-08-20 — the instrument is scale- and platform-sound, and the RSS branch is now measured on the target host
+
+The instrumentation above was developed and validated entirely on macOS at fixture scale, which raises a fair question: could an instrument built that way misreport at Shin-Uchuu scale, on the machine the rehearsal actually runs on? That failure would be expensive in exactly the way this item exists to prevent — discovered only after a multi-week run. Audited on 2026-08-20; three findings, no defect.
+
+- **Integer widths are sound at the projected scale.** `C`, `P`, `G`, `MaxProcessedHalos`, `OutputBuffer.count`/`capacity` and the pool's `live`/`live_high_water`/`slots_allocated` are all `int64_t`. `chunk_count` is an `int`, but `GALAXY_POOL_MAX_CHUNK` caps a chunk at 2²² galaxies, so the ~315M-galaxy generation this projection contemplates needs fewer than 200 chunks. `galaxy_pool_create()` takes an `int` capacity, but both production call sites (`src/core/main.c:365`, `src/core/snapshot_driver.c:861`) pass `0`.
+- **The slab has a hard `INT_MAX` ceiling, already guarded.** `snapshot_driver.c:674` FATALs when `slab.nhalos > INT_MAX`, because the member loop narrows the count to `int`. The projected z=0 slab is ~6.7× clear of it and the guard is loud rather than silent, but the rehearsal should confirm the real per-snapshot slab sizes against it — this is a second ceiling alongside §2.3's two, and it applies to the *slab* `N` rather than to the output population `P`.
+- **`ru_maxrss` units differ by platform, and the Linux branch had never been exercised.** `run_profile_peak_rss_bytes()` returns `ru_maxrss` unscaled on macOS (bytes) and multiplied by 1024 elsewhere (kilobytes). Every recorded measurement, including the byte-exact `/usr/bin/time -l` cross-check, was taken on macOS — yet **peak RSS is this section's binding gate** and the rehearsal runs on Linux. Had the scaling been wrong, the single number the memory decision rests on would have been off by 1024×, and only after the run. **Measured on the conversion host** (`tooarrana1`, RHEL 9, kernel 5.14.0, gcc 11.5.0): a probe touching 800 MiB reported `ru_maxrss` = 820,256 against `/proc/self/status` `VmHWM` = 820,480 kB and `/usr/bin/time -v` = 820,156 kB. **Kilobytes confirmed; the `× 1024` branch is correct on the target hardware**, now by measurement rather than by convention.
+
+**What this does not settle.** The audit covers the *instrument*, not the *values*. The fixture-scale numbers in the table above remain validation evidence and nothing more, and the caveat against extrapolating them stands unchanged: §6 items 2, 3 and 9 close against the rehearsal's own measurements.
 
 ### 2.3 Two output-path ceilings below the projected z=0 population — check against the lower one first
 
@@ -204,7 +214,9 @@ An earlier version of this note divided the ceilings by `N` and reported 3.17× 
 
 **Two derived claims rested on the wrong value and are corrected with it.** The `shin-uchuu` row in §2.1's `Spin` table described the particle mass as "far finer" than it is, and `POST-PHASE-5-JOINT-REVIEW.md:154` stated a "3,600× finer particle mass" relative to micro-Uchuu. The true ratio against micro-Uchuu's declared 3.25 × 10⁸ Msun/h is **≈360×, not ≈3,600×**. That matters for the still-open work: the low-mass population, and therefore the orphan statistics that set the output-buffer capacity `C` and the galaxy-pool high-water `G` in item 3, scales with the particle-mass ratio. The projection is an order of magnitude less severe than the superseded figure implied — a correction in the safe direction, but item 3's binding gate remains the measured peak RSS at the rehearsal.
 
-**No package or code change follows.** `simulations/shin-uchuu/` does not exist yet; it is created by the conversion plan, which now carries the confirmed value. The runtime guard is unaffected and still correct: the reader compares `particle_mass_msun_h`, `box_size_mpc_h` and the three cosmology values against `MimicConfig` **in every snapshot file** and aborts on mismatch (`snapshot_h5_check_physical_value()` calls in `open_run`, `src/io/snapshot/read_snapshot_hdf5.c`; mass compared as `PartMass × 1e10`). That guard catches a *disagreeing* pair; it cannot catch an agreeing pair of wrong values, which is precisely why this item existed and why the value now carries a citation rather than an inference.
+**No package or code change follows.** `simulations/shin-uchuu/` does not exist yet; it is created by the conversion plan, which now carries the confirmed value.
+
+**Third independent confirmation, 2026-08-20 — from the simulation's own parameter file.** The source data was located on the conversion host (see §2.2's platform note and `MIMIC-DEVELOPMENT-PATHWAY.md`), and `/fred/oz214/simulations/uchuu/shinuchuu/shinuchuu.par` declares `PartMass 0.0000897` in units of 10¹⁰ Msun/h — that is **8.97 × 10⁵ Msun/h**, matching both the paper and the arithmetic. The same file independently confirms the rest of the package metadata this item will need: `Omega 0.3089`, `OmegaLambda 0.6911`, `Hubble_h 0.6774`, `BoxSize 140.0`, `TreeType consistent_trees_ascii`, `LastSnapShotNr 69` (70 snapshots), and `NumSimulationTreeFiles 2744`. This is the strongest class of evidence available for the value — the producer's own configuration — and it closes any residual doubt that the recorded 8.97 × 10⁴ was a transcription error rather than a convention difference. The runtime guard is unaffected and still correct: the reader compares `particle_mass_msun_h`, `box_size_mpc_h` and the three cosmology values against `MimicConfig` **in every snapshot file** and aborts on mismatch (`snapshot_h5_check_physical_value()` calls in `open_run`, `src/io/snapshot/read_snapshot_hdf5.c`; mass compared as `PartMass × 1e10`). That guard catches a *disagreeing* pair; it cannot catch an agreeing pair of wrong values, which is precisely why this item existed and why the value now carries a citation rather than an inference.
 
 ### 2.5 Calibrate the remaining property ranges for `shin-uchuu`
 
@@ -224,7 +236,7 @@ The gate's correctness rests on the snapshot reader's `forest_index` / `halo_ran
 
 Affected: `uchuu`, `mini-uchuu`, `micro-uchuu`, `micro-uchuu-ascii`, `micro-uchuu-hdf5`, `micro-uchuu-snapshot`.
 
-**Evidence.** Ishiyama et al. 2021 ([arXiv:2007.14720](https://arxiv.org/abs/2007.14720)) gives Uchuu as 12800³ particles in 2.0 Gpc/h at **3.27 × 10⁸ M☉/h**; the suite shares mass resolution across box sizes. The arithmetic agrees and is self-checking: for micro-Uchuu's 100 Mpc/h box, Ω_m ρ_crit L³ / N with Ω_m = 0.3089 gives exactly 3.2703 × 10⁸ at **640³** particles, whereas the declared 3.25 × 10⁸ implies **641.6³** — not an integer particle count, which is the tell that it is a transcription error rather than a different convention.
+**Evidence.** Ishiyama et al. 2021 ([arXiv:2007.14720](https://arxiv.org/abs/2007.14720)) gives Uchuu as 12800³ particles in 2.0 Gpc/h at **3.27 × 10⁸ M☉/h**; the suite shares mass resolution across box sizes. The arithmetic agrees and is self-checking: for micro-Uchuu's 100 Mpc/h box, Ω_m ρ_crit L³ / N with Ω_m = 0.3089 gives exactly 3.2704 × 10⁸ at **640³** particles, whereas the declared 3.25 × 10⁸ implies **≈641.3³** — not an integer particle count, which is the tell that it is a transcription error rather than a different convention. (Both figures use ρ_crit = 2.77537 × 10¹¹ h² Msun/Mpc³. The cube root was recorded as 641.6³ until 2026-08-20; it is 641.31–641.34 across every reasonable choice of ρ_crit, so the argument is unchanged and only the digit was wrong.)
 
 **This is not a one-line config fix. Changing the YAML alone breaks every snapshot-format run.** Phase 5 added a physical-header agreement check: the reader compares each file's `particle_mass_msun_h` against `MimicConfig.PartMass × 1e10` and **aborts** on mismatch, with a rounding tolerance of 16 × DBL_EPSILON (≈ 1.2 × 10⁻⁶ at this magnitude) against a difference of 2 × 10⁶ — twelve orders of magnitude outside. Both the committed test fixture (`simulations/micro-uchuu-snapshot/_tests/data/snapshot_*.h5`) and the real 50-file dataset stamp `particle_mass_msun_h = 325000000.0`, so both would abort at `open_run`, taking the **cross-format identity gate** and every snapshot-pair integration test with them.
 
@@ -232,15 +244,35 @@ Affected: `uchuu`, `mini-uchuu`, `micro-uchuu`, `micro-uchuu-ascii`, `micro-uchu
 
 **What a correct fix requires**, in order: correct the six `simulation_info.yaml` files; regenerate the committed snapshot fixture; re-convert or re-stamp the 50-file real micro-Uchuu snapshot dataset so its headers agree; re-run the cross-format identity gate to re-certify (it is self-consistent, so it should pass once both sides agree, but the previously certified output values will have moved); and record the ~0.6% shift as an intended scientific change rather than a regression.
 
-**Not a Shin-Uchuu blocker** — the Shin-Uchuu package will be created with the confirmed 8.97 × 10⁵ — but it is a correctness defect in six shipped packages and should be scheduled deliberately. **Confirm the micro-Uchuu and mini-Uchuu particle counts from Skies & Universes before implementing**: the 640³ and 2560³ figures above are inferred from the box size and the suite's shared mass resolution, not read from a source.
+**Not a Shin-Uchuu blocker** — the Shin-Uchuu package will be created with the confirmed 8.97 × 10⁵ — but it is a correctness defect in six shipped packages and should be scheduled deliberately. This item carried one prerequisite, **confirm the micro-Uchuu and mini-Uchuu particle counts from Skies & Universes before implementing**, because the 640³ and 2560³ figures above were inferred from the box size and the suite's shared mass resolution rather than read from a source. **That prerequisite is discharged — see below.**
 
-**Scheduled 2026-08-19.** The count sourcing is queued now as remote-safe work (`MIMIC-DEVELOPMENT-PATHWAY.md` → "Work available while the Shin-Uchuu source data is unreachable", item 1) because it needs nothing but a literature check. **The fix itself stays last**, for the reason above: re-stamping the fixture and the 50-file dataset takes the identity gate offline until both sides agree again.
+**Scheduled 2026-08-19.** The count sourcing is queued now as remote-safe work (`MIMIC-DEVELOPMENT-PATHWAY.md` → "Work available while the Shin-Uchuu rehearsal is blocked", item 1) because it needs nothing but a literature check. **The fix itself stays last**, for the reason above: re-stamping the fixture and the 50-file dataset takes the identity gate offline until both sides agree again.
+
+#### Counts sourced 2026-08-20 — prerequisite discharged, and it confirms the defect
+
+**Both counts are now read from a source rather than inferred.** Skies & Universes — the Uchuu collaboration's own data portal — tabulates the suite directly on its [Uchuu simulation page](https://skiesanduniverses.org/Simulations/Uchuu/):
+
+| Simulation | Box (Mpc/h) | Particles | Particle mass (Msun/h) |
+|---|---|---|---|
+| Uchuu | 2000 | 12800³ = 2,097,152,000,000 | 3.27 × 10⁸ |
+| mini-Uchuu | 400 | 2560³ = 16,777,216,000 | 3.27 × 10⁸ |
+| micro-Uchuu | 100 | 640³ = 262,144,000 | 3.27 × 10⁸ |
+| Shin-Uchuu | 140 | 6400³ = 262,144,000,000 | 8.97 × 10⁵ |
+
+**The 640³ and 2560³ figures are confirmed twice, the second time by a statement independent of that table.** The portal's DarkMatterParticles page describes a micro-Uchuu snapshot as holding "262 million" particles and a mini-Uchuu snapshot "16.8 billion" — and 640³ = 262,144,000 while 2560³ = 16,777,216,000. Those are per-snapshot particle counts written for a different purpose, so they corroborate the table rather than restate it.
+
+**The suite's shared mass resolution is now sourced, not assumed — which is what this item actually turned on.** §2.7's argument required that micro-, mini- and full Uchuu genuinely carry one mass resolution, and they do: the box sizes and the particle counts scale identically, 100 : 400 : 2000 and 640 : 2560 : 12800 both being 1 : 4 : 20. Skies & Universes states **3.27 × 10⁸ Msun/h for all three**, matching the derivation above and confirming that the declared `particle_mass: 0.0325` is wrong for every one of the six packages, not just for the one the arithmetic was worked on.
+
+**Shin-Uchuu's 6400³ is reconfirmed in passing, and item 8 now has a third independent source.** The same portal gives Shin-Uchuu as 262 billion (6400³) particles at 8.97 × 10⁵ Msun/h. Separately, the simulation's own parameter file on the conversion host declares `PartMass 0.0000897` (×10¹⁰ Msun/h) — see §2.4.
+
+**No package or code change follows, deliberately.** This closes the *prerequisite*, not the item: §6 item 10 stays last for the reason stated above, and the fix is still the full sequence in "What a correct fix requires".
+
 
 ---
 
 ## 3. Correctness and hygiene items (do not block Shin-Uchuu)
 
-**§3.5 and §3.6 are scheduled 2026-08-19** as the remote-safe hardening batch to run while the Shin-Uchuu source data is unreachable (`MIMIC-DEVELOPMENT-PATHWAY.md` → "Work available while the Shin-Uchuu source data is unreachable", item 2): they commit test coverage that today exists only as run evidence, hardening the identity gate before it is asked to certify a Shin-Uchuu subset. The rest of §3 stays opportunistic.
+**§3.5 and §3.6 are scheduled 2026-08-19** as the remote-safe hardening batch to run while the Shin-Uchuu source data is unreachable (`MIMIC-DEVELOPMENT-PATHWAY.md` → "Work available while the Shin-Uchuu rehearsal is blocked", item 2): they commit test coverage that today exists only as run evidence, hardening the identity gate before it is asked to certify a Shin-Uchuu subset. The rest of §3 stays opportunistic.
 
 ### 3.1 `make dump-ctrees-topology-tool` is broken — **reclassified 2026-08-13 (D10): this is a converter-scale-pass prerequisite, not hygiene**
 
