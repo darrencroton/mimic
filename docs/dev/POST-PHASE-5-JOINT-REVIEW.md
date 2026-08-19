@@ -242,6 +242,8 @@ Run 2026-08-13 on the development machine, in sequence, exit codes checked. Logs
 
 Nothing in `POST-PHASE-5-WORK.md` §3 blocks the conversion, unchanged from before. The P3 findings here (F-5 through F-12) are opportunistic or fold into the items above; none gates the conversion on its own.
 
+**Item 6 is hard-blocked, and item 3's instrumentation prerequisite is now satisfied (2026-08-19).** The Shin-Uchuu source data is not present on any mounted volume, and a production-scale memory probe needs an operator at the conversion machine. `C`, `P`, `G` and peak process RSS were therefore instrumented first — fixture-scale work that item 3 could not close without, landed as `src/util/run_profile.{c,h}` and recorded with its first measurements in `POST-PHASE-5-WORK.md` §2.2. Item 3 now waits only on the rehearsal. The interim queue is owned by `MIMIC-DEVELOPMENT-PATHWAY.md` → "Work available while the Shin-Uchuu source data is unreachable".
+
 ---
 
 ## 7. External panel record (Phase B)

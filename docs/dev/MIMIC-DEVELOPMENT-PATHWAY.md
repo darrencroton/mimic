@@ -1,11 +1,11 @@
 # Mimic Development Pathway
 
 **Status:** Active planning index for `docs/dev/`.
-**Date:** 2026-07-02 · last revised 2026-08-14
+**Date:** 2026-07-02 · last revised 2026-08-19
 **Scope:** Current plan ownership, post-v1.0 sequence, and source-of-truth boundaries for work after the v1.0 production release.
 
-> ### ► NEXT TASK: the Shin-Uchuu subset conversion and complete rehearsal
-> `POST-PHASE-5-JOINT-REVIEW.md` §6 **item 6**. Blocked only on Shin-Uchuu source data being reachable — every runtime prerequisite (§6 items 1, 4, 5, 8) is closed and the default-pair suite is green. Two small pieces of work come first: **instrument the `C` and `G` memory terms**, and **create the `simulations/shin-uchuu/` package**. The full ordered road to the production run is in [The remaining road to Shin-Uchuu, in order](#the-remaining-road-to-shin-uchuu-in-order).
+> ### ► NEXT TASK: source the micro/mini-Uchuu particle counts, then commit the identity-gate test coverage
+> The goal is still `POST-PHASE-5-JOINT-REVIEW.md` §6 **item 6**, the Shin-Uchuu subset conversion and complete rehearsal: every runtime prerequisite for it is closed (§6 items 1, 4, 5, 8), **road step 0 landed 2026-08-19**, and the default-pair suite is green. **Item 6 is hard-blocked** — the Shin-Uchuu source data is not present on any mounted volume (verified 2026-08-19: `/Volumes/Internal/data/uchuu/shin-uchuu/` is empty), and a production-scale memory probe must run on the conversion machine with an operator present. Work the remaining remote-safe queue in [Work available while the Shin-Uchuu source data is unreachable](#work-available-while-the-shin-uchuu-source-data-is-unreachable) — now at item 1 — and see [The remaining road to Shin-Uchuu, in order](#the-remaining-road-to-shin-uchuu-in-order) for the full road to the production run.
 >
 > Current branch: `feature/ctrees-snapshot-reader`, which merges to `main` once Shin-Uchuu is fully imported.
 
@@ -106,13 +106,13 @@ The snapshot pathway is the chosen direction (it is both the scientific priority
 
    ### The remaining road to Shin-Uchuu, in order
 
-   **The next task is §6 item 6 — the subset conversion and complete rehearsal.** Everything the runtime owed before it is now closed (§6 items 1, 4, 5 and 8), so nothing but source-data access stands in front of it. Work the remainder in this order; each step's output is the next step's input:
+   **The goal is §6 item 6 — the subset conversion and complete rehearsal.** Everything the runtime owed before it is now closed (§6 items 1, 4, 5 and 8), so nothing but source-data access and an operator at the conversion machine stands in front of it. Work the remainder in this order; each step's output is the next step's input:
 
    | # | Work | Why here | Closes |
    |---|---|---|---|
-   | **0** | **Instrument `C` and `G`** — report the output buffer's realised capacity and the galaxy pool's allocation high-water at run end | Small code change, but item 3 cannot close without it: nothing reports the pool high-water today, and `G` is the one unmeasured term in the memory projection. Must exist *before* the rehearsal or the rehearsal produces an unusable memory result | Prerequisite for 3 |
+   | **0** | ~~**Instrument `C`, `P`, `G` and peak process RSS**~~ — **DONE 2026-08-19.** `src/util/run_profile.{c,h}` reports all four at run end, from rank 0, at every verbosity including `--quiet`; `P` (§2.3's output population) was added to the original `C`/`G`/RSS scope because §2.3's ceiling check needs it too | Item 3 could not close without it: nothing reported the pool high-water, `G` was the one unmeasured term in the projection, and §2.2 makes measured RSS the binding gate rather than a reconstructed sum. Validated at fixture scale on both drivers, so it was never blocked on source data | Prerequisite for 3 — now satisfied |
    | **1** | **Create `simulations/shin-uchuu/`** — particle mass 8.97 × 10⁵ Msun/h (confirmed, item 8), 140 Mpc/h box, `Spin` range `[-1000, 1000]` (item 2's decided bound), a_list from the source; re-measure `sizeof(struct RawHalo)` | The rehearsal has nothing to run against without the package. Conversion-plan Definition of Done item 4 | Part of 2 |
-   | **2** | **§6 item 6 — subset conversion + complete rehearsal** ← **NEXT** | A subset spanning the earliest snapshots through z=0 and **including the most massive forests**, or it certifies nothing. Both models including a full `sage16` pass; output written and read back; the identity gate run on the subset (§2.6). Instrument it to record peak process RSS, `C`, `G`, the `Spin` extrema, the remaining property ranges, and F-3's writer cost | 6, and yields the measurements for 2/3/9 and the scope for 7 |
+   | **2** | **§6 item 6 — subset conversion + complete rehearsal** ← **blocked: needs the source data and an operator at the conversion machine** | A subset spanning the earliest snapshots through z=0 and **including the most massive forests**, or it certifies nothing. Both models including a full `sage16` pass; output written and read back; the identity gate run on the subset (§2.6). Instrument it to record peak process RSS, `C`, `G`, the `Spin` extrema, the remaining property ranges, and F-3's writer cost | 6, and yields the measurements for 2/3/9 and the scope for 7 |
    | **3** | **Close §6 items 2, 3 and 9 from those measurements** | `Spin` bounds confirmed against measured extrema; memory closed against measured RSS (and §2.3's output-population check against measured `P`); ranges calibrated. **If the 85%-of-RAM trigger fires**, implement the compact previous-slab projection — a *runtime* change — and re-run the rehearsal, because the rehearsal must certify the final runtime | 2, 3, 9 |
    | **4** | **§6 item 7 — converter scale-engineering pass (D4)** | The largest remaining item and the last hard blocker on the production conversion; deserves its own frozen implementation plan. Scoped from the rehearsal's measurements rather than the superseded projections. Acceptance gate: the micro-Uchuu battery and topology cross-check re-run green, plus a measured memory profile of the rank pass at projected scale | 7 |
    | **5** | **Full Shin-Uchuu production conversion** (one-time, 5.6 TB → 70 snapshot files) | Definition of Done items 1–3 in `SHIN-UCHUU-CONVERSION-PLAN.md`; sets the shin-uchuu identity multiplier from the conversion report's measured counts | — |
@@ -133,6 +133,24 @@ The snapshot pathway is the chosen direction (it is both the scientific priority
    **Item 5's closure carried a follow-up.** Slice 2's mandated baseline refresh moved the tracked HDF5 baselines to `hdf5_format_version` `"1.2"`, but the test suite still asserted `"1.1"`, leaving the default integration suite red on the committed tree — the supervising PM stopped Slice 2 rather than accepting it. `D8-FOLLOWUP-RECONCILIATION-PLAN.md` Slice 1 reconciles the expectation and finishes this documentation closure; its Slice 2 separately addresses a pre-existing dimension-checking gap in `convert_unit_scalar()` that D8's scoping investigation exposed.
 
    **Item 10 is new (2026-08-14) and independent of the Shin-Uchuu path.** The six Uchuu-family packages declare a particle mass 0.6% low. It does not block Shin-Uchuu, which will be created with the confirmed 8.97 × 10⁵, but it is a correctness defect in shipped packages, it moves Uchuu science output through `virial.c:51`, and it cannot be fixed by editing configuration alone — the Phase 5 header-agreement check aborts every snapshot-format run, identity gate included, until the committed fixture and the 50-file real dataset are re-stamped. Full analysis and the required sequence are in `POST-PHASE-5-WORK.md` §2.7. **Confirm the micro/mini-Uchuu particle counts from Skies & Universes before implementing** — they are inferred, not sourced.
+
+### Work available while the Shin-Uchuu source data is unreachable
+
+Item 6 needs the source data and an operator at the conversion machine, so it cannot be worked remotely. Everything below is fixture-scale and remote-safe, and each item is here because it **subtracts from** the critical path rather than running beside it. Work it in this order.
+
+| # | Work | Owner doc | Why it is safe now, and what it feeds |
+|---|---|---|---|
+| **0** | ~~Road step 0 — instrument `C`, `P`, `G` and peak process RSS~~ — **DONE 2026-08-19** | `POST-PHASE-5-WORK.md` §2.2 | Landed as `src/util/run_profile.{c,h}` plus `galaxy_pool_stats()`. Validated at fixture scale on both drivers; only the *rehearsal that consumes it* needed Shin-Uchuu. Feeds §6 item 3 |
+| **1** | **Source the micro/mini-Uchuu particle counts** from Skies & Universes ← **NEXT** | `POST-PHASE-5-WORK.md` §2.7 | A literature lookup, and §6 item 10's own stated prerequisite — the 640³/2560³ figures are inferred, not sourced. **Record the answer only;** the fix itself stays last |
+| **2** | **Commit the test coverage that today exists only as run evidence** — the comparator's synthetic failure modes, the `UniqueGalaxyIDMultiplier` provenance attribute, §3.5's stage-8 record-count guard, and the runner's abort-on-failed-stage | `POST-PHASE-5-WORK.md` §3.5, §3.6 | Pure test code at fixture scale. Hardens the identity gate *before* it is asked to certify a Shin-Uchuu subset (§2.6). Leave the gate's frozen comparison semantics alone |
+| **3** | *Optional, parallel* — **`MIMIC-COUPLED-RATE-FORMULATION-PLAN.md` Open Question 1**: classify every `sage16` prescription as rate, jump, algebraic or forcing by its state-reset semantics | that plan | Analysis and a document, no code and no runs. Its largest prerequisite deliverable, and needed whichever way the A/B ordering below falls |
+
+**Deliberately not now**, each for a stated reason:
+
+- **§6 item 10's particle-mass fix** — re-stamping the committed fixture and the 50-file real dataset removes the cross-format identity gate, which is the regression net items 0–2 above and the whole Shin-Uchuu road depend on.
+- **Road step 1, `simulations/shin-uchuu/`** — its a_list must come from the source, and the reader validates exact `scale_factor` agreement at `open_run`, so it would be redone once the data is reachable.
+- **§6 item 7 / D4, the converter scale pass** — must be scoped from the rehearsal's measurements, not from the superseded projections.
+- **Any coupled-rate core change** — gated on that brief's own measurement spike, and on the A/B ordering decision below.
 
 ### After Shin-Uchuu: the two candidate orderings
 

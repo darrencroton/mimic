@@ -160,6 +160,25 @@ The two models diverge sharply: `halos-only` keeps emitting orphans it never res
 
 Enumerating each of these analytically would add arithmetic without adding confidence; a single RSS number subsumes all of them, including allocator overhead. Measure RSS, and treat the parametric table as the thing RSS is checked against. Note the F-5 correction cuts both ways: at the erroneous 264 B even the `sage16` case would read ≈373 GB.
 
+#### Instrumentation landed 2026-08-19 — road step 0 closed
+
+`C`, `G`, the output population `P` (§2.3's term) and peak process RSS are now instrumented, ahead of the rehearsal that consumes them, because the instrumentation is fixture-scale work and only the *measurement* needs Shin-Uchuu. Reported at run end by `print_run_memory_profile()` (`src/util/run_profile.h`): the output buffer's realised capacity (`C`), the population it actually reached (`P`), the galaxy pool's allocation high-water (`G`) with its resident slot count and chunk slack, and peak process RSS from `getrusage(RUSAGE_SELF).ru_maxrss` — bytes on macOS, kilobytes on Linux, so the conversion is explicit. Each term is collected from every contributing buffer and pool and reported as **one run-level maximum**, which is the per-generation upper bound this projection multiplies; per-contributor values are not printed. **Sizes are reported in GB = 1e9 B to match this section, whereas the tracked allocator's own reports use MB = 1024² — convert before comparing.**
+
+**First measurements, and one caveat worth carrying to the rehearsal.** Fixture-scale validation on both drivers, 2026-08-19:
+
+| Run | `C` | `P` | `G` | Peak RSS |
+|---|---|---|---|---|
+| `sage16` / `mini-millennium`, tree-ordered | 74,345 | 14,648 | 15,525 | 0.065 GB |
+| `halos-only` / `micro-uchuu-snapshot`, snapshot-ordered, all 50 snapshots of the real dataset | 1,398,325 | — | 1,186,334 | 2.593 GB |
+
+Three things this already establishes, none of which the projection could assume:
+
+- **`C` and `P` genuinely differ**, by ~5× on the tree path — that is the `MAXHALOFAC` seed, and it is why the §2.3 ceiling check must use `P` and the §2.2 residency term must use `C`. Conflating them misstates one or the other.
+- **`G` can exceed `P`** (15,525 vs 14,648 above), confirming this section's point that Type 3 galaxies are allocated without being emitted, so the output count does not bound the pool.
+- **Measured RSS is far above the analytic terms.** In the snapshot run the per-generation analytic terms come to well under half the 2.593 GB measured, so the unmodelled remainder is large in absolute terms even at fixture scale. **This is corroboration of this section's decision to make RSS the binding gate, not a Shin-Uchuu projection:** the run was `halos-only` (whose `GalaxyData` is a 1-byte placeholder, so its `G` term is negligible and unrepresentative) and `halos-only` is also the configuration whose orphan accumulation reaches 2.11×N. Do not extrapolate this ratio to `sage16` at Shin-Uchuu scale; measure it.
+
+Sequenced in `MIMIC-DEVELOPMENT-PATHWAY.md` → "Work available while the Shin-Uchuu source data is unreachable".
+
 ### 2.3 Two output-path ceilings below the projected z=0 population — check against the lower one first
 
 **First ceiling (record correction, joint review F-2): `MAX_HALO_ARRAY_SIZE = 1000000000`** (`src/include/constants.h:43`), enforced in output-buffer growth (`marshal_workspace_to_output_buffer()`, `src/core/output_buffer.c`). Output-buffer growth is clamped to this constant and FATALs when it cannot grow past it. A snapshot whose output population (slab galaxies + accumulated orphans) exceeds 10⁹ aborts in the marshaller **before** the second ceiling below is ever consulted — at roughly half the headroom this section previously assumed. The constant was not revisited when `OutputBuffer` widened to int64, and the fatal's message presents it as a structural invariant rather than a tunable (its `%d` on what would become an `int64_t` also needs `PRId64` if this is ever widened). **The projected-population check must compare against 10⁹, not 2.1e9; if widening is ever needed, both ceilings move together.**
@@ -215,9 +234,13 @@ Affected: `uchuu`, `mini-uchuu`, `micro-uchuu`, `micro-uchuu-ascii`, `micro-uchu
 
 **Not a Shin-Uchuu blocker** — the Shin-Uchuu package will be created with the confirmed 8.97 × 10⁵ — but it is a correctness defect in six shipped packages and should be scheduled deliberately. **Confirm the micro-Uchuu and mini-Uchuu particle counts from Skies & Universes before implementing**: the 640³ and 2560³ figures above are inferred from the box size and the suite's shared mass resolution, not read from a source.
 
+**Scheduled 2026-08-19.** The count sourcing is queued now as remote-safe work (`MIMIC-DEVELOPMENT-PATHWAY.md` → "Work available while the Shin-Uchuu source data is unreachable", item 1) because it needs nothing but a literature check. **The fix itself stays last**, for the reason above: re-stamping the fixture and the 50-file dataset takes the identity gate offline until both sides agree again.
+
 ---
 
 ## 3. Correctness and hygiene items (do not block Shin-Uchuu)
+
+**§3.5 and §3.6 are scheduled 2026-08-19** as the remote-safe hardening batch to run while the Shin-Uchuu source data is unreachable (`MIMIC-DEVELOPMENT-PATHWAY.md` → "Work available while the Shin-Uchuu source data is unreachable", item 2): they commit test coverage that today exists only as run evidence, hardening the identity gate before it is asked to certify a Shin-Uchuu subset. The rest of §3 stays opportunistic.
 
 ### 3.1 `make dump-ctrees-topology-tool` is broken — **reclassified 2026-08-13 (D10): this is a converter-scale-pass prerequisite, not hygiene**
 
