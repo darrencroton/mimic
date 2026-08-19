@@ -38,8 +38,22 @@
  * malloc.
  */
 
+#include <stdint.h>
+
 struct GalaxyData; /* defined in generated/property_defs.h via types.h */
 struct GalaxyPool; /* opaque; defined in galaxy_pool.c */
+
+/* What a pool has cost, for the run memory profile (src/util/run_profile.h).
+ * `galaxies_high_water` is the peak number of slots handed out concurrently --
+ * it is reset-aware, counting allocations since the last galaxy_pool_reset and
+ * keeping the largest such run. `slots_allocated` is the sum of chunk
+ * capacities, which is what stays resident; the difference between the two is
+ * chunk slack. */
+struct GalaxyPoolStats {
+  int64_t galaxies_high_water;
+  int64_t slots_allocated;
+  int chunk_count;
+};
 
 /* Create a pool with an initial chunk sized for `initial_capacity` galaxies
  * (clamped to a sensible minimum and maximum). Returns a handle that must be
@@ -55,6 +69,10 @@ struct GalaxyData *galaxy_pool_alloc(struct GalaxyPool *pool);
 /* Reclaim every slot in `pool` for reuse (retains chunks). Call at the end of
  * each tree. */
 void galaxy_pool_reset(struct GalaxyPool *pool);
+
+/* Report `pool`'s cost into `*out`. Cheap and read-only, so it may be called at
+ * any point; call it before galaxy_pool_destroy() if the figures are wanted. */
+void galaxy_pool_stats(const struct GalaxyPool *pool, struct GalaxyPoolStats *out);
 
 /* Free every chunk of `pool` and the pool itself. Call once at shutdown. */
 void galaxy_pool_destroy(struct GalaxyPool *pool);

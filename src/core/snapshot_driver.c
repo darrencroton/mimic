@@ -55,6 +55,7 @@
 #include "progress.h"
 #include "proto.h"
 #include "run_log.h"
+#include "run_profile.h"
 #include "snapshot/reader.h"
 #include "types.h"
 
@@ -694,6 +695,10 @@ static void snapshot_acquire_generation(struct SnapshotDriverState *state,
   gen->processed.halos =
       mymalloc_cat((size_t)gen->processed.capacity * sizeof(struct Halo), MEM_HALOS);
   memset(gen->processed.halos, 0, (size_t)gen->processed.capacity * sizeof(struct Halo));
+  /* The memset makes the full seed capacity resident immediately, so it counts
+   * towards the run memory profile whether or not the marshaller grows it. */
+  run_profile_note_output_buffer(gen->processed.count, gen->processed.capacity,
+                                 sizeof(struct Halo));
 }
 
 /* Release a generation's raw slab, aux array, output buffer and galaxy slots.
@@ -931,6 +936,16 @@ void run_snapshot_driver(void) {
   snapshot_reader_close_run(state.reader);
 
   for (int slot = 0; slot < 2; slot++) {
+    /* Harvest each generation's pool cost before the pool goes away. The two
+     * pools alternate on snapshot parity, so neither is guaranteed to have seen
+     * the largest slab; the profile keeps maxima rather than sums, so the pair
+     * reports a conservative bound on any one generation -- which is the term
+     * the memory projection multiplies by the number of live generations. */
+    struct GalaxyPoolStats pool_stats;
+    galaxy_pool_stats(state.gen[slot].pool, &pool_stats);
+    run_profile_note_galaxy_pool(pool_stats.galaxies_high_water, pool_stats.slots_allocated,
+                                 pool_stats.chunk_count, sizeof(struct GalaxyData));
+
     galaxy_pool_destroy(state.gen[slot].pool);
     state.gen[slot].pool = NULL;
   }

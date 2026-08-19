@@ -9,6 +9,7 @@
 #include "error.h"
 #include "memory.h"
 #include "output_buffer.h"
+#include "run_profile.h"
 
 static void validate_segment(const struct OutputBufferSegment *segment) {
   if (segment->workspace_start < 0 || segment->workspace_count < 0) {
@@ -60,4 +61,10 @@ void marshal_workspace_to_output_buffer(struct Halo *workspace, struct OutputBuf
       segment->output_count++;
     }
   }
+
+  /* Record the capacity this buffer actually reached, for the run memory
+   * profile. Noted after the loop rather than inside the growth branch so a
+   * buffer that never grew still reports the capacity it was seeded at -- that
+   * capacity is resident either way. */
+  run_profile_note_output_buffer(buffer->count, buffer->capacity, sizeof(struct Halo));
 }

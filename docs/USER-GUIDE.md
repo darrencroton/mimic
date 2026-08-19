@@ -138,13 +138,34 @@ Look in `output/sage16-mini-millennium/plots/` for the stellar mass function, ba
 | default | INFO, WARNING, ERROR | Normal interactive runs |
 | `--verbose`, `-v` | Adds timestamp and file:line context | Detailed run logs |
 | `--debug`, `-d` | Adds DEBUG messages | Troubleshooting module/configuration issues |
-| `--quiet`, `-q` | WARNING and ERROR only | Batch or production runs |
+| `--quiet`, `-q` | WARNING and ERROR only, plus the run memory profile below | Batch or production runs |
 | `--skip` | Skips existing output files | Resume interrupted runs |
 | `--compress` | gzip-compresses HDF5 galaxy output (off by default) | Disk-constrained or archival runs |
 
 `--compress` trades a little CPU for roughly half the HDF5 file size and changes only the on-disk byte layout, not the stored values. It has no effect on binary output. Leave it off unless disk space is a constraint.
 
 During tree processing Mimic prints a banner line summarising the configured input file range, then shows a single unified live progress bar (percentage, elapsed time, and ETA) spanning all input files when standard output is an interactive terminal, marking completion with "- COMPLETED" in place. When output is redirected to a file or pipe, or when running under MPI with more than one rank, it falls back to bar-format log lines at every 5% boundary plus a "Completed input file" checkpoint per file instead of an in-place bar, keeping captured logs and multi-rank output clean. `--quiet` suppresses the progress display entirely.
+
+**The run memory profile.** Every successful run ends with a short memory block — a run that aborts never reaches it — printed at every verbosity including `--quiet`, because these figures cannot be recovered afterwards without repeating the run:
+
+```text
+Run memory profile (GB = 1e9 B):
+  Peak process RSS: 0.065 GB
+  Output buffer capacity C: 74345 records at 176 B = 0.013 GB
+  Output population P: 14648 records
+  Galaxy pool high-water G: 15525 galaxies at 176 B = 0.003 GB
+  Galaxy pool allocated: 24576 slots in 2 chunks = 0.004 GB (36.8% chunk slack)
+```
+
+| Line | Meaning |
+| --- | --- |
+| Peak process RSS | The largest resident memory the process reached, from the operating system. This is the number to plan a large run against — it includes everything, whereas the lines below cover only the two structures whose size cannot be derived from the input count |
+| Output buffer capacity `C` | Records the output buffer was sized to hold. It is allocated ahead of need and grows geometrically, so it normally exceeds `P` by a wide margin |
+| Output population `P` | The largest population any one live buffer reached: galaxies emitted plus orphans carried forward. Scoped to whatever the driver keeps live — one snapshot for snapshot-ordered input, one tree for tree-ordered — not a run-wide total |
+| Galaxy pool high-water `G` | The most galaxies live at once. It can exceed `P`, because galaxies consumed by mergers are allocated but never written |
+| Galaxy pool allocated | What the pool holds resident, and how much of that is unused slack in its last chunk |
+
+Sizes here use GB = 1e9 B. The separate allocator report under `--verbose` uses MB = 1024², so convert before comparing the two. Under MPI only rank 0 prints, and its RSS is that one rank rather than the node total.
 
 Example debugging invocation:
 

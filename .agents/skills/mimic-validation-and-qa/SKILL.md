@@ -100,6 +100,8 @@ Always start from a template — `tests/framework/c_unit_test_template.c`, `pyth
 
 **C unit**: copy template to `models/<model>/modules/<mod>/_tests/test_unit_<mod>.c` (or `tests/unit/` for core). New sage16 tests include `models/sage16/modules/_tests/sage_test_fixtures.h` instead of re-declaring boilerplate. Every allocating path ends with `check_memory_leaks()`. Register in `module_info.yaml` `tests.unit`. Run: `make generate-test-registry`, then `tests/unit/run_tests.sh test_unit_<mod>` — **never execute the built `.test` binary directly**; the runner refreshes generated registries and rebuilds. Add `MODEL=<m> SIMULATION=<s>` env for non-default pairs.
 
+**Footgun — a new `src/` source breaks every C unit test until the runner knows about it.** `tests/unit/run_tests.sh` builds against explicit `UTIL_SRCS` / `CORE_SRCS` / `IO_SRCS` lists, not the Makefile's `find`. Add a new `src/util/*.c` or `src/core/*.c` to the matching list or every unit test fails at link with `Undefined symbols`, which reads like a broken test rather than a missing source entry.
+
 **Python integration**: copy template to the module's `_tests/`; it locates the repo root itself and imports `create_test_param_file`, `run_mimic`, `load_binary_halos`, `check_no_memory_leaks` (asserts against the run's captured leak report), `run_test_suite` from `tests/framework`. Register in `tests.integration`. Run directly: `python3 path/to/test_integration_<mod>.py` from the repo root.
 
 **Python scientific**: copy template; state the physical contract and tolerance in the docstring; use `run_mimic_fresh` + generated inputs; reference data lives beside the test or in `tests/data/`. Register in `tests.scientific`.

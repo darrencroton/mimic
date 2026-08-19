@@ -486,6 +486,76 @@ int test_alloc_across_multiple_grown_chunks_stable_and_reusable(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_stats_report_peak_concurrent_and_resident_capacity
+ * @brief   Pool statistics report the peak concurrent galaxy count and what stays resident
+ *
+ * The high-water figure feeds the snapshot driver's memory projection as its
+ * `G` term, so what it counts matters: galaxies are never individually freed,
+ * so every slot handed out since the last reset is concurrently live, and the
+ * peak of that -- not a lifetime total -- is the memory the run required. This
+ * test drives three rounds of differing size across resets, where a lifetime
+ * counter would report their sum instead of the largest. It also pins that a
+ * reset reuses chunks rather than allocating more, and that the resident slot
+ * count always covers the high-water it had to satisfy.
+ */
+int test_stats_report_peak_concurrent_and_resident_capacity(void) {
+  init_memory_system(0);
+  initialize_error_handling(LOG_LEVEL_WARNING, NULL);
+  struct GalaxyPool *pool = galaxy_pool_create(0);
+
+  /* Each round crosses at least one chunk boundary (the first chunk is 8192
+   * galaxies), so the statistics are exercised against real growth rather than
+   * within a single chunk. */
+  enum { FIRST_ROUND = 20000, SMALLER_ROUND = 5000, LARGER_ROUND = 30000 };
+
+  for (int i = 0; i < FIRST_ROUND; i++) {
+    (void)galaxy_pool_alloc(pool);
+  }
+
+  struct GalaxyPoolStats stats;
+  galaxy_pool_stats(pool, &stats);
+  TEST_ASSERT(stats.galaxies_high_water == FIRST_ROUND,
+              "High-water must equal the number of slots handed out since the last reset");
+  TEST_ASSERT(stats.slots_allocated >= FIRST_ROUND,
+              "Resident slot count must cover the high-water it had to satisfy");
+  TEST_ASSERT(stats.chunk_count >= 2,
+              "A round past the first chunk must be reported as more than one chunk, or this "
+              "test is measuring statistics without any growth");
+
+  const int64_t grown_slots = stats.slots_allocated;
+  const int grown_chunks = stats.chunk_count;
+
+  /* A smaller round after a reset must not lower the high-water: it is the
+   * run's peak, and the memory that peak required is still held. */
+  galaxy_pool_reset(pool);
+  for (int i = 0; i < SMALLER_ROUND; i++) {
+    (void)galaxy_pool_alloc(pool);
+  }
+  galaxy_pool_stats(pool, &stats);
+  TEST_ASSERT(stats.galaxies_high_water == FIRST_ROUND,
+              "A smaller round after a reset must not lower the reported high-water");
+  TEST_ASSERT(stats.slots_allocated == grown_slots && stats.chunk_count == grown_chunks,
+              "A reset must reuse the chunks already grown, not report further allocation");
+
+  /* A larger round raises it -- and to that round's own size, not to the sum of
+   * every round, which is what a lifetime counter would report here. */
+  galaxy_pool_reset(pool);
+  for (int i = 0; i < LARGER_ROUND; i++) {
+    (void)galaxy_pool_alloc(pool);
+  }
+  galaxy_pool_stats(pool, &stats);
+  TEST_ASSERT(stats.galaxies_high_water == LARGER_ROUND,
+              "A larger round must raise the high-water to its own size, not to the running "
+              "total of every round allocated so far");
+  TEST_ASSERT(stats.slots_allocated >= LARGER_ROUND,
+              "Resident slot count must still cover the raised high-water");
+
+  galaxy_pool_destroy(pool);
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
 /** @brief Main test runner */
 int main(void) {
   printf("%s", BLUE);
@@ -503,6 +573,7 @@ int main(void) {
   TEST_RUN(test_destroy_one_pool_leaves_other_functional);
   TEST_RUN(test_two_pools_survive_interleaved_chunk_growth_and_one_reset);
   TEST_RUN(test_alloc_across_multiple_grown_chunks_stable_and_reusable);
+  TEST_RUN(test_stats_report_peak_concurrent_and_resident_capacity);
 
   TEST_SUMMARY();
   return TEST_RESULT();

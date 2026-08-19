@@ -35,6 +35,7 @@
 #include "types.h"
 #include "numeric.h"
 #include "proto.h"
+#include "run_profile.h"
 #include "tree/interface.h"
 #include "tree/reader.h"
 #include "error.h"
@@ -162,6 +163,10 @@ void load_unit(int unit) {
   ProcessedHalos = mymalloc_cat((size_t)MaxProcessedHalos * sizeof(struct Halo), MEM_HALOS);
   memset(ProcessedHalos, 0,
          (size_t)MaxProcessedHalos * sizeof(struct Halo)); /* NULL galaxy pointers */
+  /* The memset above makes the whole allocation resident immediately, so the
+   * seeded capacity counts towards the run memory profile even for a unit that
+   * marshals nothing. */
+  run_profile_note_output_buffer(0, MaxProcessedHalos, sizeof(struct Halo));
 
   FoFWorkspace = mymalloc_cat(sizeof(struct Halo) * MaxFoFWorkspace, MEM_HALOS);
   memset(FoFWorkspace, 0, sizeof(struct Halo) * MaxFoFWorkspace); /* NULL galaxy pointers */

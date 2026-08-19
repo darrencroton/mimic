@@ -39,6 +39,7 @@
 #include "tree/interface.h"
 #include "tree/reader.h"
 #include "run_log.h"
+#include "run_profile.h"
 #include "progress.h"
 
 #include "output/hdf5.h"
@@ -466,10 +467,26 @@ int main(int argc, char **argv) {
   /* Release the run-persistent inheritance gather scratch buffer */
   free_tree_driver_scratch();
 
+  /* Harvest the tree driver's pool cost before the pool goes away. A
+   * snapshot-ordered run leaves this pool untouched and reports its own two
+   * pools from inside the driver, so the profile's maxima come from whichever
+   * driver actually ran. */
+  struct GalaxyPoolStats tree_pool_stats;
+  galaxy_pool_stats(TreeGalaxyPool, &tree_pool_stats);
+  run_profile_note_galaxy_pool(tree_pool_stats.galaxies_high_water, tree_pool_stats.slots_allocated,
+                               tree_pool_stats.chunk_count, sizeof(struct GalaxyData));
+
   /* Release the galaxy pool before the leak check so its chunks are accounted
    * for and not reported as leaks. */
   galaxy_pool_destroy(TreeGalaxyPool);
   TreeGalaxyPool = NULL;
+
+  /* Report the run's memory profile unconditionally, not under --verbose: a
+   * long production run whose peak RSS went unrecorded cannot be re-measured
+   * without repeating the run. Rank 0 only -- RSS is per process. */
+  if (ThisTask == 0) {
+    print_run_memory_profile();
+  }
 
   /* Check for memory leaks and clean up memory system */
   check_memory_leaks();

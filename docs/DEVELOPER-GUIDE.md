@@ -215,6 +215,19 @@ Four arrays are allocated per unit and freed together by `free_unit_halos()` aft
 
 `marshal_workspace_to_output_buffer` takes a `struct OutputBuffer *`. The `halos` field must be a tracked heap allocation (`mymalloc_cat` or `myrealloc_cat`); passing a stack array will produce a fatal error on overflow because the allocator cannot find a stack address in its tracking table. After the call, callers must read back `buffer->halos` and `buffer->capacity` if they mirror those values in globals.
 
+**Observing what these structures actually cost**
+
+Because neither the output buffer's realised capacity nor the galaxy pool's occupancy can be derived from the input size — the paragraphs above explain why — both are measured rather than predicted. `src/util/run_profile.h` accumulates the run-level maximum of each measured term — plus peak RSS, which the operating system reports as a single high-water reading — and `print_run_memory_profile()` reports them once at run end, from rank 0, at every verbosity including `--quiet`:
+
+| Term | Source | Notes |
+| --- | --- | --- |
+| `C` | output buffer capacity, noted wherever a buffer is seeded or grown | Overshoots `P`; the tree driver seeds it at `MAXHALOFAC` (5) × the input-tree halo count before any growth |
+| `P` | output buffer count, noted after each marshal | The population the record ceilings (`MAX_HALO_ARRAY_SIZE`) apply to, scoped to the live buffer: one snapshot under the snapshot driver, one tree under the tree driver |
+| `G` | `galaxy_pool_stats()`, harvested before each pool is destroyed | Peak concurrent galaxies. Survives `galaxy_pool_reset()`, which zeroes the live count but not the high-water. Can exceed `P` because Type 3 galaxies are allocated and never emitted |
+| Peak RSS | `getrusage(RUSAGE_SELF).ru_maxrss` | Bytes on macOS, kilobytes on Linux. The authoritative figure: the tracked allocator cannot see a `myrealloc_cat` whose block has to move, since it subtracts the old allocation before calling libc `realloc`, so old and new coexist invisibly to it |
+
+Adding a term means adding a note call at the site that owns the quantity, not deriving it in the reporter. Sizes are reported in GB = 1e9 B, unlike the allocator's own MB = 1024² reports.
+
 ### Module Lifecycle
 
 Every runtime module implements three functions named after the module:

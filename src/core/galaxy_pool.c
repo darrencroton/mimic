@@ -49,6 +49,14 @@ struct GalaxyPool {
   struct GalaxyChunk *head;    /* first chunk */
   struct GalaxyChunk *current; /* chunk currently being filled */
   int chunk_capacity;          /* size of newly grown chunks */
+  /* Cost accounting for the run memory profile. `live` counts slots handed out
+   * since the last reset, so its high-water is the peak concurrent galaxy count
+   * rather than a lifetime total; `slots_allocated` and `chunk_count` describe
+   * what is resident. */
+  int64_t live;
+  int64_t live_high_water;
+  int64_t slots_allocated;
+  int chunk_count;
 };
 
 static struct GalaxyChunk *new_chunk(int capacity) {
@@ -75,7 +83,15 @@ struct GalaxyPool *galaxy_pool_create(int initial_capacity) {
   if (capacity > GALAXY_POOL_MAX_CHUNK)
     capacity = GALAXY_POOL_MAX_CHUNK;
   pool->chunk_capacity = capacity;
+  pool->live = 0;
+  pool->live_high_water = 0;
+  pool->slots_allocated = 0;
+  pool->chunk_count = 0;
   pool->head = new_chunk(pool->chunk_capacity);
+  /* Count the chunk's own capacity, not the requested one: new_chunk() raises
+   * anything below GALAXY_POOL_MIN_CHUNK. */
+  pool->slots_allocated += pool->head->capacity;
+  pool->chunk_count++;
   pool->current = pool->head;
   return pool;
 }
@@ -101,10 +117,16 @@ struct GalaxyData *galaxy_pool_alloc(struct GalaxyPool *pool) {
       pool->chunk_capacity = new_capacity;
 
       struct GalaxyChunk *chunk = new_chunk(pool->chunk_capacity);
+      pool->slots_allocated += chunk->capacity;
+      pool->chunk_count++;
       pool->current->next = chunk;
       pool->current = chunk;
     }
   }
+
+  pool->live++;
+  if (pool->live > pool->live_high_water)
+    pool->live_high_water = pool->live;
 
   return &pool->current->data[pool->current->used++];
 }
@@ -116,6 +138,18 @@ void galaxy_pool_reset(struct GalaxyPool *pool) {
    * them, so a single reset is O(1) regardless of how many chunks exist. */
   pool->current = pool->head;
   pool->head->used = 0;
+  /* The high-water survives the reset -- it is the peak across the whole run --
+   * but the live count restarts with the next processing unit. */
+  pool->live = 0;
+}
+
+void galaxy_pool_stats(const struct GalaxyPool *pool, struct GalaxyPoolStats *out) {
+  assert(pool != NULL);
+  assert(out != NULL);
+
+  out->galaxies_high_water = pool->live_high_water;
+  out->slots_allocated = pool->slots_allocated;
+  out->chunk_count = pool->chunk_count;
 }
 
 void galaxy_pool_destroy(struct GalaxyPool *pool) {

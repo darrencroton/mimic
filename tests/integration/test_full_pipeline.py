@@ -219,6 +219,49 @@ def test_stdout_content():
     print("  ✓ Stdout contains expected run milestones")
 
 
+def test_memory_profile_survives_quiet_mode():
+    """
+    Test that the run-end memory profile is reported even under --quiet
+
+    Expected: the profile block and its four terms appear in a --quiet run
+    Validates: print_run_memory_profile() (src/util/run_profile.c) reports
+               regardless of the log threshold
+
+    The profile records peak RSS and the C/P/G terms the snapshot driver's memory
+    projection is parametric in. Those measurements cannot be recovered without
+    repeating the run, and --quiet is the documented mode for batch and
+    production runs -- exactly the runs whose memory is worth measuring. Because
+    the block is emitted at INFO, a --quiet threshold of WARNING would silently
+    discard all of it, so the report deliberately lowers and restores the
+    threshold around itself. This test pins that behaviour; without it the
+    regression is invisible until a long run finishes having measured nothing.
+
+    run_mimic() always passes --verbose, so the run under test is invoked as
+    "--verbose --quiet". Those two flags do not compete: --verbose only turns on
+    the verbose message format, while --quiet is the only one of the pair that
+    sets the log threshold. The threshold under test is therefore genuinely
+    WARNING, which is the condition that matters, since the suppression this
+    pins is purely a threshold comparison in log_message().
+    """
+    print("Testing memory profile under --quiet...")
+
+    param_file = core_input_file("test_binary.yaml")
+    returncode, stdout, stderr = run_mimic(param_file, extra_args=["--quiet"])
+    assert returncode == 0, f"{RED}Mimic execution failed under --quiet{NC}"
+
+    output_combined = stdout + stderr
+    for line in (
+        "Run memory profile",
+        "Peak process RSS",
+        "Output buffer capacity C",
+        "Output population P",
+        "Galaxy pool high-water G",
+    ):
+        assert line in output_combined, f"{RED}--quiet suppressed the profile line: '{line}'{NC}"
+
+    print("  ✓ Memory profile is reported under --quiet")
+
+
 def main():
     """Run this file's tests via the shared framework runner."""
     print(f"Repository root: {REPO_ROOT}")
@@ -237,6 +280,7 @@ def main():
             test_no_memory_leaks,
             test_output_loadable,
             test_stdout_content,
+            test_memory_profile_survives_quiet_mode,
         ],
         "Full Pipeline (test_full_pipeline.py)",
     )
