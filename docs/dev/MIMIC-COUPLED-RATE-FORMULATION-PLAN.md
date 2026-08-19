@@ -168,7 +168,7 @@ This spike touches only new files under `models/`, so it is safe to run alongsid
 
 To be settled before or during the implementation plan, not by it:
 
-1. **Per-prescription hybrid classification.** Every current `sage16` prescription must be classified as rate, jump, algebraic, or forcing, by its state-reset semantics. This is the largest prerequisite deliverable and the input to everything else.
+1. ~~**Per-prescription hybrid classification.**~~ — **SETTLED 2026-08-20**, in [`SAGE16-PRESCRIPTION-CLASSIFICATION.md`](SAGE16-PRESCRIPTION-CLASSIFICATION.md). All 18 shipped `sage16` prescriptions classified by state-reset semantics with `path:line` evidence: 10 rate, 4 jump, 3 algebraic, 1 forcing. Three results feed the questions below — the eight operator-split fluxes are already declared transport buffers with producer→consumer notes (bears on Question 2), the six `min(requested, available)` sites and two clamp-to-zero sites are enumerated (the clamps are a real behavioural difference, so acceptance must be observational — Question 7), and the transfer graph connects the whole FoF group in the common case (bears on cost and on Question 9).
 2. **Metadata mechanism.** Whether reservoirs and their roles are declared explicitly in property YAML, or derived from module transfer endpoints with validation for undeclared writes. Derivation is preferable if it can be made complete and fast-failing.
 3. **Solver family.** Explicit adaptive versus semi-implicit or Rosenbrock, decided from measured stiffness rather than assumed.
 4. **Tolerance policy.** Component-wise absolute and relative tolerances, acceptance norms, and the precision at which state is committed to output.
