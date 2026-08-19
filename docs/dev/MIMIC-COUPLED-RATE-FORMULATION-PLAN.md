@@ -1,7 +1,7 @@
 # Mimic Coupled Rate Formulation Plan
 
 **Status:** Requirements brief. Not scheduled. Complete enough to derive a frozen implementation plan from, once two prerequisites exist: the measurement in [First Work](#first-work-measure-before-building), and the per-prescription hybrid classification (Open Question 1).
-**Note 2026-08-19:** both prerequisites are fixture-scale and independent of the Shin-Uchuu sequence, so the classification is queued as *optional parallel* work in `MIMIC-DEVELOPMENT-PATHWAY.md` → "Work available while the Shin-Uchuu rehearsal is blocked". **No core change starts ahead of the spike**, and the A/B ordering decision in that pathway section is downstream of it.
+**Note, updated 2026-08-20:** the classification prerequisite is discharged ([`SAGE16-PRESCRIPTION-CLASSIFICATION.md`](SAGE16-PRESCRIPTION-CLASSIFICATION.md)), and the ordering question this brief once fed is settled — `MIMIC-DEVELOPMENT-PATHWAY.md` → "The Ordered Road" schedules this work as step 5, after the snapshot-global modules, and treats it as certain rather than contingent. **No core change starts ahead of the measurement spike**, which stays fixture-scale and independent of the Shin-Uchuu sequence; what it sets is priority, solver family and the attribution baseline, not permission.
 **Date:** 2026-08-18
 
 ---
@@ -161,6 +161,8 @@ stratified by halo mass and redshift, and reported against familiar `sage16` sta
 
 Symmetric splitting is a **comparator, not an alternative**: it reduces error for two operators without removing permutation dependence among many, and it does nothing about the undefined hybrid semantics. The measurement sets priority and sizes the defect. It does not decide whether the defect is real.
 
+**Nor does it decide whether the work happens. Recorded 2026-08-20, so the spike is never read as a veto.** Sequential operator splitting has no defined answer to adjudicate: permuting the module list in a run file changes the result, and that ordering carries no physics. A small residual measured for `sage16` at z = 0 constrains this package at this epoch — it says nothing about a stiffer successor, nor about massive halos where cooling and dynamical timescales separate. The declarative benefits are independent of the residual's size in any case: machine-checkable conservation, a side-effect-free process path, and transfers that map onto published equations. What the measurement sets is **priority, solver family, and the baseline the eventual comparison is attributed against** — not permission.
+
 This spike touches only new files under `models/`, so it is safe to run alongside any other in-flight work.
 
 ---
@@ -183,7 +185,7 @@ To be settled before or during the implementation plan, not by it:
 
 ## Gate (when activated)
 
-1. The measurement in [First Work](#first-work-measure-before-building) is complete and published, and the defect it reports justifies the work.
+1. The measurement in [First Work](#first-work-measure-before-building) is complete and published, and its results have set the solver family, the error target, and the baseline that gate item 5's attribution is measured against.
 2. A new model package reproduces the classified rate-shaped subset as declared transfers, with a machine-checked conservation ledger and a demonstrated convergence rate under step refinement.
 3. Order-independence is demonstrated: permuting rate terms in the run file produces bit-identical output.
 4. All existing packages, both drivers, and the cross-format identity gate stay green with the new mode unused.

@@ -8,7 +8,7 @@
 
 ## Problem Statement
 
-The Shin-Uchuu merger trees exist at `/fred/oz004/simulations/uchuu_suite/shinuchuu/mergertrees` in Consistent-Trees ASCII format. Two structural problems prevent running Mimic's existing `consistent_trees_ascii` reader on this data:
+The Shin-Uchuu merger trees are in Consistent-Trees ASCII format. **Operative location, verified 2026-08-20: `/fred/oz214/simulations/uchuu/shinuchuu/mergertrees` on OzSTAR** (`ssh dcroton@nt.swin.edu.au`) — 5.6 TB across 2,744 `tree_*.dat` files plus `forests.list` and `locations.dat`, alongside the producer's own `shinuchuu.par`. This document previously recorded `/fred/oz004/simulations/uchuu_suite/shinuchuu/mergertrees`; that path was never verified in the 2026-08-20 sweep and should be treated as historical unless an operator confirms it is a live mirror. Use the oz214 path. Two structural problems prevent running Mimic's existing `consistent_trees_ascii` reader on this data:
 
 1. **Percolation super-forest**: forest `26551468179` contains 104,845,278 tree roots — 33% of all trees — almost certainly a ctrees linking artifact. The tree driver must load a forest as a single in-memory unit; it cannot. This also rules out the uchuutools forests-HDF5 packaging.
 2. **Index memory wall**: the ASCII reader loads a global `forests.list` index (315M entries) into every MPI rank at startup, costing ~18 GB per rank before a single halo is processed.

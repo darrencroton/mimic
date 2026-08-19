@@ -177,7 +177,7 @@ Three things this already establishes, none of which the projection could assume
 - **`G` can exceed `P`** (15,525 vs 14,648 above), confirming this section's point that Type 3 galaxies are allocated without being emitted, so the output count does not bound the pool.
 - **Measured RSS is far above the analytic terms.** In the snapshot run the per-generation analytic terms come to well under half the 2.593 GB measured, so the unmodelled remainder is large in absolute terms even at fixture scale. **This is corroboration of this section's decision to make RSS the binding gate, not a Shin-Uchuu projection:** the run was `halos-only` (whose `GalaxyData` is a 1-byte placeholder, so its `G` term is negligible and unrepresentative) and `halos-only` is also the configuration whose orphan accumulation reaches 2.11×N. Do not extrapolate this ratio to `sage16` at Shin-Uchuu scale; measure it.
 
-Sequenced in `MIMIC-DEVELOPMENT-PATHWAY.md` → "Work available while the Shin-Uchuu rehearsal is blocked".
+The instrumentation this depends on landed 2026-08-19 as `src/util/run_profile.{c,h}`; see `MIMIC-DEVELOPMENT-PATHWAY.md` → "Completed Work".
 
 #### Platform audit 2026-08-20 — the instrument is scale- and platform-sound, and the RSS branch is now measured on the target host
 
@@ -246,7 +246,7 @@ Affected: `uchuu`, `mini-uchuu`, `micro-uchuu`, `micro-uchuu-ascii`, `micro-uchu
 
 **Not a Shin-Uchuu blocker** — the Shin-Uchuu package will be created with the confirmed 8.97 × 10⁵ — but it is a correctness defect in six shipped packages and should be scheduled deliberately. This item carried one prerequisite, **confirm the micro-Uchuu and mini-Uchuu particle counts from Skies & Universes before implementing**, because the 640³ and 2560³ figures above were inferred from the box size and the suite's shared mass resolution rather than read from a source. **That prerequisite is discharged — see below.**
 
-**Scheduled 2026-08-19.** The count sourcing is queued now as remote-safe work (`MIMIC-DEVELOPMENT-PATHWAY.md` → "Work available while the Shin-Uchuu rehearsal is blocked", item 1) because it needs nothing but a literature check. **The fix itself stays last**, for the reason above: re-stamping the fixture and the 50-file dataset takes the identity gate offline until both sides agree again.
+**Scheduled 2026-08-19, discharged 2026-08-20.** The count sourcing needed nothing but a literature check and was done as remote-safe work; the result is recorded immediately below. **The fix itself stays last**, for the reason above: re-stamping the fixture and the 50-file dataset takes the identity gate offline until both sides agree again.
 
 #### Counts sourced 2026-08-20 — prerequisite discharged, and it confirms the defect
 
@@ -272,7 +272,7 @@ Affected: `uchuu`, `mini-uchuu`, `micro-uchuu`, `micro-uchuu-ascii`, `micro-uchu
 
 ## 3. Correctness and hygiene items (do not block Shin-Uchuu)
 
-**§3.5 and §3.6 were scheduled 2026-08-19 and closed 2026-08-20** as the remote-safe hardening batch run while the Shin-Uchuu rehearsal is blocked (`MIMIC-DEVELOPMENT-PATHWAY.md` → "Work available while the Shin-Uchuu rehearsal is blocked", item 2): they commit test coverage that today exists only as run evidence, hardening the identity gate before it is asked to certify a Shin-Uchuu subset. The rest of §3 stays opportunistic.
+**§3.5 and §3.6 were scheduled 2026-08-19 and closed 2026-08-20** as the remote-safe hardening batch run while the Shin-Uchuu rehearsal is blocked (recorded in `MIMIC-DEVELOPMENT-PATHWAY.md` → "Completed Work"): they commit test coverage that today exists only as run evidence, hardening the identity gate before it is asked to certify a Shin-Uchuu subset. The rest of §3 stays opportunistic.
 
 ### 3.1 `make dump-ctrees-topology-tool` is broken — **reclassified 2026-08-13 (D10): this is a converter-scale-pass prerequisite, not hygiene**
 
@@ -343,7 +343,7 @@ Both are traceable:
 
 ### 3.8 D8's residual panel findings — ALL CLOSED 2026-08-14 (`2385b480`)
 
-The review panel that supervised D8 raised six findings deliberately left outside both plans' frozen surfaces. Five are closed; the sixth was a history decision, now recorded in `MIMIC-DEVELOPMENT-PATHWAY.md` → "History decisions". Kept here because two of them corrected beliefs that had already cost time.
+The review panel that supervised D8 raised six findings deliberately left outside both plans' frozen surfaces. Five are closed; the sixth was a history decision, now recorded in `MIMIC-DEVELOPMENT-PATHWAY.md` → "Completed Work". Kept here because two of them corrected beliefs that had already cost time.
 
 - **The HDF5 baseline was never "frozen" at an old record layout, and the note claiming so was false when written.** `scripts/regenerate_baseline.sh` carried a LAYOUT FREEZE note asserting the committed baseline was deliberately held at a pre-precision-widening layout (sidecar `binary_record_size` 224 against the current 264). Measured across the boundary: at `bf0993fa~1` the baseline's `Snap063/Galaxies` dtype was itemsize 224 with `Mvir` float32 and its sidecar agreed; `bf0993fa` regenerated that **data** to 264 / float64 and refreshed the sibling *binary* sidecar but not the HDF5 one. `77ab8462` then read the resulting mismatch as a deliberate freeze, wrote the note, and cited it to justify a surgical byte-edit instead of a re-run. **No cross-layout test coverage ever existed and none was lost:** `test_hdf5_baseline_comparison` decodes through each file's own embedded compound dtype (`load_hdf5_halos`), and `binary_record_size` is consumed only on the binary path. D8's sidecar refresh restored consistency for the first time since `bf0993fa`. The note is retired; see §2.1's dated correction for the belief that produced it.
 - **The defect the note misdiagnosed was real.** The script installed only `model_000.hdf5`, while the committed baseline is **seven** tracked files — so any regeneration left the master and `metadata/` describing a different run, which is exactly how the sidecar fell a record layout behind its own data. It now installs the shard, master and whole `metadata/` directory as one set; refuses any `MODEL`/`SIMULATION` other than the pair owning the committed baseline (the comparison test skips for others, so the result would never be checked); writes backups under `archive/baseline-backups/` rather than inside the deliberately un-ignored baseline tree; clears prior output so a stale component cannot be installed as fresh; checks every copy; and exits non-zero instead of reporting success when validation cannot run.
@@ -354,7 +354,7 @@ The review panel that supervised D8 raised six findings deliberately left outsid
 
 ## 4. Carried forward from the Phase 4b reader plan
 
-`docs/dev/MIMIC-SNAPSHOT-READER-PLAN.md` was archived to `archive/dev-plans/` at Phase 5 closeout. Its four still-live deferred entries survive in `MIMIC-DEVELOPMENT-PATHWAY.md:31` and `MIMIC-DUAL-DRIVER-PLAN.md:153`, and are repeated here so one document holds everything:
+`docs/dev/MIMIC-SNAPSHOT-READER-PLAN.md` was archived to `archive/dev-plans/` at Phase 5 closeout. Its four still-live deferred entries survive in `MIMIC-DEVELOPMENT-PATHWAY.md` → "Completed Work" and `MIMIC-DUAL-DRIVER-PLAN.md:155`, and are repeated here so one document holds everything:
 
 1. The shared HDF5 read-utilities refactor (downgraded to optional; nothing independently requires it).
 2. The empty-dataset-with-non-sentinel-metadata reader check.

@@ -2,10 +2,10 @@
 
 **Status:** Active planning index for `docs/dev/`.
 **Date:** 2026-07-02 · last revised 2026-08-20
-**Scope:** Current plan ownership, post-v1.0 sequence, and source-of-truth boundaries for work after the v1.0 production release.
+**Scope:** What is being built, in what order, and which document owns each piece. Current and future work only; everything finished is consolidated in [Completed Work](#completed-work) at the end.
 
 > ### ► NEXT TASK: the Shin-Uchuu subset conversion and rehearsal — needs an operator at the machine
-> The goal is still `POST-PHASE-5-JOINT-REVIEW.md` §6 **item 6**, the Shin-Uchuu subset conversion and complete rehearsal: every runtime prerequisite for it is closed (§6 items 1, 4, 5, 8), **road step 0 landed 2026-08-19**, **the whole remote-safe queue closed 2026-08-20** (items 0–3), and the default-pair suite is green. **There is no remaining work that can be done away from the conversion machine.** **Item 6 remains blocked, but for one reason rather than two** — a production-scale conversion and memory probe must run on the conversion machine with an operator present. The other half of the recorded blocker is retired: **the source data was located on 2026-08-20** at `/fred/oz214/simulations/uchuu/shinuchuu` on OzSTAR (`nt.swin.edu.au`), 5.6 TB of ctrees ASCII across 2,744 tree files, 70 snapshots, complete a_list — see [Where the Shin-Uchuu source data lives](#where-the-shin-uchuu-source-data-lives). The remote-safe queue in [Work available while the Shin-Uchuu rehearsal is blocked](#work-available-while-the-shin-uchuu-rehearsal-is-blocked) is fully worked; see [The remaining road to Shin-Uchuu, in order](#the-remaining-road-to-shin-uchuu-in-order) for the full road to the production run.
+> `POST-PHASE-5-JOINT-REVIEW.md` §6 **item 6**. Every runtime prerequisite is closed and the default-pair suite is green. **No remaining work on step 1's critical path can be done away from the conversion machine** — the remote-safe queue was fully worked on 2026-08-20. The steps 4 and 5 spikes are technically unblocked and touch no core code, but they are sequenced later by choice, not blocked. The source data is located and readable at `/fred/oz214/simulations/uchuu/shinuchuu` on OzSTAR; what remains is a production-scale conversion and memory probe that need an operator physically present. See [Step 1](#step-1-shin-uchuu-in-flight).
 >
 > Current branch: `feature/ctrees-snapshot-reader`, which merges to `main` once Shin-Uchuu is fully imported.
 
@@ -13,285 +13,150 @@
 
 ## Purpose
 
-This document is the entry point for active development plans in `docs/dev/`. It should answer three questions quickly: what is active, what order should it happen in, and which document owns the details. It deliberately avoids completed-work logs; archived records remain available under `archive/dev-plans/` when historical evidence is needed.
+The entry point for active development plans. It answers three questions and delegates everything else: what is being built, in what order, and which document owns the details.
 
-The architectural direction is still governed by `docs/VISION.md`: Mimic is a physics-agnostic core with runtime-configurable physics modules, metadata as structural truth, explicit validation, bounded memory, and reproducible output provenance.
+The architectural direction is governed by `docs/VISION.md`: Mimic is a physics-agnostic core with runtime-configurable physics modules, metadata as structural truth, explicit validation, bounded memory, and reproducible output provenance.
 
 ---
 
-## How The Plans Compose
+## The Work In One Picture
 
-The table below lists what each plan owns. This section answers the question the table cannot: **why these particular pieces, what they add up to, and what to actually do next.** Most are worth building on their own — distributed operation is the exception, having nothing to distribute until a snapshot-global contract exists — but the reason to sequence them deliberately is that several are worth considerably more in combination than apart.
-
-**The diagram and the sequence are different things, deliberately.** The *solid* arrows are a partial order: they record what genuinely cannot start before something else. The dotted arrows are not precedence at all — they carry candidacy, sequencing economy and design constraint, which is why one of them can point against the step numbers without contradicting them. The `STEP n` markers are the order we plan to work in, decided as far as it goes and with one deliberate gap: **step 2 holds two plans, both of which happen, and which of them leads is the open A/B question** in [After Shin-Uchuu](#after-shin-uchuu-the-two-candidate-orderings) rather than a settled fact. Where a step number is not forced by a solid arrow it is a judgement call about priority, risk and attention, and can be revisited without breaking anything.
-
-**The two orders visibly disagree, and that disagreement is the useful part.** Laid out by dependency, the emulator floats to the top of the graph because nothing feeds it, while steps 3 to 5 sink to the bottom because much does — so the picture does not read top-to-bottom in step order, and should not be forced to. The graph is ordered by what is *possible*; the numbers by what is *intended*. Every place they differ is a scheduling decision rather than a technical constraint, which makes the disagreement a checklist: the numbers, not the arrows, are what has to be defended.
+Seven pieces remain. Most are worth building on their own — distributed operation is the exception, having nothing to distribute until a snapshot-global contract exists — but the reason to sequence them deliberately is that several are worth considerably more in combination than apart.
 
 ```mermaid
 flowchart TD
-    subgraph DONE["Delivered"]
-        CORE["v1.0 core<br/>physics-agnostic execution, module ABI,<br/>generated metadata, validation gates"]
-        FMT["Frozen snapshot-HDF5 contract<br/>+ ctrees converter, micro-Uchuu validated"]
-        DUAL["Dual driver<br/>tree-ordered and snapshot-ordered<br/>cross-format identity gate green"]
-    end
+    DONE["Delivered<br/>v1.0 core · dual driver · cross-format identity gate green"]
 
-    subgraph FLIGHT["In flight"]
-        SHIN["STEP 1 · now<br/>Shin-Uchuu<br/>converter scale pass, production conversion,<br/>then sage16 end to end"]
-    end
-
-    subgraph BRIEFS["Requirements briefs — none scheduled"]
-        RATE["STEP 2 · leads under Option A<br/>Coupled rate formulation<br/>declared transfers, one integrated system"]
-        GLOBAL["STEP 2 · leads under Option B<br/>Snapshot-global modules<br/>global SHAM, HOD, environment,<br/>synchronous reionization, lightcones"]
-        DIST["STEP 3<br/>Distributed snapshot operations<br/>MPI domain decomposition"]
-        ENGINE["STEP 4<br/>Embedded engine<br/>physics-only API for external hosts"]
-        BUILDER["STEP 5<br/>Model builder<br/>paper to tested model package"]
-        EMU["SPIKE NOW · work before step 5<br/>Emulator<br/>is this model package well-posed?"]
-    end
+    S1["1 · Shin-Uchuu<br/>production conversion, then sage16 end to end"]
+    S2["2 · Snapshot-global modules<br/>global SHAM, HOD, environment, lightcones"]
+    S3["3 · Distributed snapshot operations<br/>MPI decomposition, so Shin-Uchuu runs on OzSTAR"]
+    S4["4 · Emulator<br/>is this model package well-posed?"]
+    S5["5 · Coupled rate formulation<br/>declared transfers, one integrated system"]
+    S6["6 · Model builder<br/>paper to tested model package"]
+    S7["7 · Embedded engine — optional<br/>physics-only API for external hosts"]
 
     subgraph VALUE["What it composes into"]
-        VSCALE(["Scale — the largest merger trees Mimic can reach"])
+        VSCALE(["Scale — the largest merger trees Mimic can reach,<br/>on hardware other than the conversion machine"])
         VREACH(["Reach — physics that needs the whole box at once"])
         VRIGOUR(["Rigour — defensible numerics,<br/>and model choices defensible in the same sense"])
-        VLEVER(["Leverage — the same physics investment reused:<br/>new models gated on evidence, and Mimic physics<br/>driven from outside Mimic"])
+        VLEVER(["Leverage — the same physics investment reused"])
     end
 
-    CORE --> DUAL
-    FMT --> DUAL
-    DUAL --> SHIN
-    FMT --> SHIN
-    DUAL --> GLOBAL
-    GLOBAL --> DIST
+    DONE --> S1 --> S2 --> S3 --> S4 --> S5 --> S6 --> S7
 
-    EMU -.->|candidate science gate| BUILDER
-    RATE -.->|shared dispatch and<br/>metadata machinery| GLOBAL
-    RATE -.->|side-effect-free<br/>rate evaluation| ENGINE
-    RATE -.->|transfers map to<br/>paper equations| BUILDER
-    RATE -.->|decomposition must not cut<br/>a transfer-graph component| DIST
-    EMU -.->|acceptance evidence| RATE
+    S5 -.->|mode and metadata machinery<br/>must anticipate a rate mode| S2
+    S5 -.->|decomposition must not cut<br/>a transfer-graph component| S3
+    S4 -.->|candidate science gate| S6
 
-    SHIN --> VSCALE
-    DIST --> VSCALE
-    GLOBAL --> VREACH
-    DIST --> VREACH
-    RATE --> VRIGOUR
-    EMU --> VRIGOUR
-    BUILDER --> VLEVER
-    ENGINE --> VLEVER
+    S1 --> VSCALE
+    S3 --> VSCALE
+    S2 --> VREACH
+    S3 --> VREACH
+    S4 --> VRIGOUR
+    S5 --> VRIGOUR
+    S6 --> VLEVER
+    S7 --> VLEVER
 
     classDef done fill:#d5e8d4,stroke:#478c47,color:#12300f
+    classDef step fill:#e8e8ff,stroke:#6a6ac0,color:#1c1c4d
     classDef flight fill:#fff2cc,stroke:#c8a415,color:#3d3000
-    classDef brief fill:#e8e8ff,stroke:#6a6ac0,color:#1c1c4d
     classDef value fill:#fbe0e0,stroke:#c06a6a,color:#4d1c1c
-
-    class CORE,FMT,DUAL done
-    class SHIN flight
-    class GLOBAL,DIST,RATE,EMU,ENGINE,BUILDER brief
+    class DONE done
+    class S1 flight
+    class S2,S3,S4,S5,S6,S7 step
     class VSCALE,VREACH,VRIGOUR,VLEVER value
+
+    style VALUE fill:#fffafa,stroke:#c06a6a
 ```
 
-**Reading the arrows.** Solid arrows are hard dependencies — the target cannot start until the source exists. Dotted arrows are everything weaker: a candidate rather than the only route, a sequencing economy, or a constraint one plan places on another's design. Every brief rests on the v1.0 core, so those edges are omitted rather than drawn: four arrows from one node state something universally true while obscuring the dependencies that actually discriminate.
-
-**Every document in `docs/dev/` appears below.** The diagram carries only the boxes that represent a capability; reconciliation, review and evidence documents have no box because they add no capability, but they are listed here so nothing in the directory is unaccounted for. This document, `MIMIC-DEVELOPMENT-PATHWAY.md`, is the index itself.
-
-| Box | Owned by | Next actionable step |
-|---|---|---|
-| v1.0 core | tagged baseline; no plan file remains open | — delivered |
-| Frozen snapshot-HDF5 contract + converter | [`SNAPSHOT-HDF5-FORMAT.md`](SNAPSHOT-HDF5-FORMAT.md) · [`SHIN-UCHUU-CONVERSION-PLAN.md`](SHIN-UCHUU-CONVERSION-PLAN.md) | Format frozen at `format_version = 1`; the converter's scale pass is part of step 1 |
-| Dual driver | [`MIMIC-DUAL-DRIVER-PLAN.md`](MIMIC-DUAL-DRIVER-PLAN.md) · [`MIMIC-SNAPSHOT-DRIVER-PLAN.md`](MIMIC-SNAPSHOT-DRIVER-PLAN.md) · [`SNAPSHOT-OUTPUT-PARTITIONING-PLAN.md`](SNAPSHOT-OUTPUT-PARTITIONING-PLAN.md) | — delivered; all three are archive candidates once Shin-Uchuu lands |
-| **STEP 1** Shin-Uchuu | [`SHIN-UCHUU-CONVERSION-PLAN.md`](SHIN-UCHUU-CONVERSION-PLAN.md); checklist in [`POST-PHASE-5-JOINT-REVIEW.md`](POST-PHASE-5-JOINT-REVIEW.md) §6 | §6 item 6 — subset conversion and complete rehearsal. **Blocked on an operator at the conversion machine**, nothing else |
-| **STEP 2** Coupled rate formulation | [`MIMIC-COUPLED-RATE-FORMULATION-PLAN.md`](MIMIC-COUPLED-RATE-FORMULATION-PLAN.md) | Run its measurement spike — a throwaway model package, new files under `models/` only, no core change. **Unblocked now** |
-| **STEP 2** Snapshot-global modules | [`MIMIC-SNAPSHOT-GLOBAL-MODULES-PLAN.md`](MIMIC-SNAPSHOT-GLOBAL-MODULES-PLAN.md) | Promote to an implementation plan; the first concrete module is a true global SHAM. Prerequisite met 2026-08-12 |
-| **STEP 3** Distributed snapshot operations | [`MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md`](MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md) | Nothing yet — genuinely blocked until one snapshot-global contract exists |
-| **STEP 4** Embedded engine | [`MIMIC-EMBEDDED-ENGINE-PLAN.md`](MIMIC-EMBEDDED-ENGINE-PLAN.md) | Unblocked but unscheduled; document the remaining `init`/`cleanup` globals before offering any multi-instance guarantee |
-| **STEP 5** Model builder | [`MIMIC-MODEL-BUILDER-PLAN.md`](MIMIC-MODEL-BUILDER-PLAN.md) | Refresh the brief against the tagged v1.0 baseline — its re-review has been due since 2026-08-12 |
-| **SPIKE NOW** Emulator | [`MIMIC-EMULATOR-PLAN.md`](MIMIC-EMULATOR-PLAN.md) | Run its calibrated-variance spike — outside the product tree entirely. **Unblocked now** |
-| *no box — open work registers* | [`POST-PHASE-5-WORK.md`](POST-PHASE-5-WORK.md) · [`POST-PHASE-5-JOINT-REVIEW.md`](POST-PHASE-5-JOINT-REVIEW.md) | The latter's §6 is the authoritative pre-Shin-Uchuu checklist and so owns step 1's ordering; the former holds the deferred and non-blocking residue |
-| *no box — closed reconciliations* | [`D8-SPIN-UNITS-RECONCILIATION-PLAN.md`](D8-SPIN-UNITS-RECONCILIATION-PLAN.md) · [`D8-FOLLOWUP-RECONCILIATION-PLAN.md`](D8-FOLLOWUP-RECONCILIATION-PLAN.md) | Executed and closed; archive once Shin-Uchuu lands |
-| *no box — standing evidence* | [`SAGE16-PRESCRIPTION-CLASSIFICATION.md`](SAGE16-PRESCRIPTION-CLASSIFICATION.md) | Settled the coupled-rate brief's Open Question 1; feeds the step 2 A/B choice rather than being scheduled itself |
-
-**What the arrows say about the plan.** Only two of the six briefs are blocked by anything technical: distributed operation, which needs a snapshot-global contract, and the model builder, which needs a science gate. The other four are unblocked today. The planned order is therefore far more serial than the dependency graph requires, and that serialisation is a deliberate choice — Shin-Uchuu is the scientific goal the whole snapshot pathway was built to reach, and attention is the scarce resource, not technical readiness. **The one place this is worth acting on is the two measurement spikes.** Both the coupled-rate and emulator briefs are gated on a spike that touches no core code and can run beside anything; step 1 is currently blocked on an operator being physically present. That is slack, and the spikes are the natural work to put in it — see [Work available while the Shin-Uchuu rehearsal is blocked](#work-available-while-the-shin-uchuu-rehearsal-is-blocked).
+**Reading it.** The numbered chain is the **planned order**, not a dependency chain — only one link is a genuine hard dependency, distributed operation needing a snapshot-global contract to exist. The dotted arrows are the couplings that explain why the order is what it is, and **two of them point backwards**: coupled-rate work constrains the design of steps 2 and 3 even though it is scheduled after them. Those constraints are knowledge rather than code, so they can be honoured in advance — and must be, which is why they are drawn.
 
 **Where the value compounds.** Three couplings are worth more than the sum of their parts, and each is a reason to care about sequencing rather than only about scope:
 
-- **Emulator with model builder.** The builder specifies physical invariants, paper-figure parity and regression against trusted baselines, but its hardest unsolved problem is defining scientific "done" for a *novel* model, where no trusted baseline exists to regress against. The emulator is the only candidate on record for that part of its science-gate layer — which is why the edge is drawn as a candidate rather than a prerequisite.
-- **Coupled rate with everything downstream.** A declared, side-effect-free transfer contract is simultaneously what makes the embedded engine's process path tractable, what a paper's equations map onto most directly for the builder, and a better-behaved design vector for the emulator. It is the single interface decision with the widest downstream reach, which is why its spike is worth running early even if the work itself is never scheduled.
+- **Emulator with model builder.** The builder specifies physical invariants, paper-figure parity and regression against trusted baselines, but its hardest unsolved problem is defining scientific "done" for a *novel* model, where no trusted baseline exists to regress against. The emulator is the only candidate on record for that part of its science-gate layer — a candidate rather than a prerequisite, since a different instrument could satisfy the same precondition.
+- **Coupled rate with everything downstream.** A declared, side-effect-free transfer contract is simultaneously what makes the embedded engine's process path tractable, what a paper's equations map onto most directly for the builder, and a better-behaved design vector for the emulator. It is the single interface decision with the widest downstream reach — which is why steps 2 and 3 must be designed knowing it is coming.
 - **Snapshot driver with snapshot-global modules.** The driver already makes a whole snapshot population co-resident; without a module contract that can see that population, none of the methods motivating the dual-driver work — global abundance matching, environment, lightcones — are reachable. The scientific payoff is in the pair, not in the driver alone.
 
 Taken together the intended destination is a framework in which a galaxy formation model can be **built from published evidence, tested for identifiability, run at the largest available scale, and compared against alternatives on stated and comparable priors** — each of those backed by recorded evidence rather than by assertion, which is the standard the rest of this repository already holds itself to.
 
 ---
 
-## Active Plans
+## The Ordered Road
 
-| Document | Status | Role | Actionability |
+**Ordering decided 2026-08-20, and it settles the former A/B question.** Snapshot-global work precedes coupled-rate work, which is the old "Option B". Its recorded cost — the dispatch and metadata machinery being extended twice, the second extension reconciling with the first — is accepted knowingly, because the coupled rate formulation is now treated as **certain rather than contingent**: sequential operator splitting has no defined answer to adjudicate, since permuting a run file's module list changes the result and that ordering carries no physics. Because it is certain, the cost is mitigated by design rather than by sequencing — steps 2 and 3 are built against a known future contract, per the two backward arrows above.
+
+| Step | Work | Owned by | Gate or next action |
 |---|---|---|---|
-| `MIMIC-DUAL-DRIVER-PLAN.md` | **Phase 5 executed — retained until Shin-Uchuu consumes it** | Snapshot-ordered reader and driver over the shared v1.0 core seams; owns the cross-format identity gate and the merged sequence | Phases 0–5 all done; Phase 5's gate passed 2026-08-12 (see [`MIMIC-SNAPSHOT-DRIVER-PLAN.md`](MIMIC-SNAPSHOT-DRIVER-PLAN.md)). Stays under `docs/dev/` until the Shin-Uchuu step (item 5) consumes it |
-| `MIMIC-SNAPSHOT-DRIVER-PLAN.md` | **Executed** | The eleven-slice implementation plan for sequence item 4 (dual-driver Phase 5): the explicit input view, the instanced galaxy pool, the snapshot driver, the driver-neutral output seam, the configured identity multiplier on both paths, and the cross-format identity gate. Derives its scope from `MIMIC-DUAL-DRIVER-PLAN.md`'s Phase 5 section | All eleven slices implemented under `project-manager` Mode B, 2026-08-10 to 2026-08-12; the gate passed for both models and both timestep schemes |
-| `POST-PHASE-5-WORK.md` | **Open** | Everything deferred, reported-but-not-fixed, or newly discovered during dual-driver Phase 5, with the context needed to act on each. Includes the items to close before the Shin-Uchuu conversion (§2) and the plan defects recorded during execution (§5) | Written 2026-08-12 at Phase 5 closeout; §2 is the pre-Shin-Uchuu checklist, §3 is non-blocking hygiene. **Its §6 ordering is superseded by `POST-PHASE-5-JOINT-REVIEW.md` §6** |
-| `POST-PHASE-5-JOINT-REVIEW.md` | **Open — owns the pre-Shin-Uchuu ordering** | Holistic code-review and simplification pass over the completed Phase 5 change set and the remaining post-Phase-5 work, externally reviewed to panel convergence. Its §6 is the authoritative pre-Shin-Uchuu checklist (superseding `POST-PHASE-5-WORK.md` §6); §4 holds decisions D1–D10; §8 records what has landed | Written 2026-08-13. D1–D4 accepted and implemented in `74e8a70e`; D5–D10 accepted 2026-08-13. §6 items 1, 4, 5 and 8 are closed (1 and 4 certified by a gate re-run; 5 by the bitwise tree-path proof plus its follow-up and residuals; 8 by the confirmed Shin-Uchuu particle mass). **Item 6 is the next task**; items 2, 3 and 9 are settled by its measurements, item 7 is scoped from them, and item 10 (Uchuu-family particle mass 0.6% low, added 2026-08-14) is deliberately sequenced last. Item 3 (memory) is reopened pending a measured pool high-water — see the ordered road below |
-| `D8-SPIN-UNITS-RECONCILIATION-PLAN.md` | **Executed and closed; Slice 2 stopped, not accepted** | Corrects the `dimensionless` units label on `Spin` (actually specific angular momentum, J/Mvir) across all eight simulation packages | Slice 1 accepted (`612f83da`, `8746dc2c`, `c60b51b8`, `6267a1ab`); Slice 2 implemented but stopped by the supervising PM (`f81e2385`) because it left the default integration suite red — reconciled by `D8-FOLLOWUP-RECONCILIATION-PLAN.md` below. **History decision, 2026-08-14: `f81e2385` stays a separate commit — see "History decisions" below.** Archive candidate once Shin-Uchuu lands |
-| `D8-FOLLOWUP-RECONCILIATION-PLAN.md` | **Fully executed 2026-08-14; residuals closed** | Follow-up to D8: reconciled the baseline format-version test expectation D8 Slice 2 left mismatched, finished D8's documentation closure, and added an unconditional dimension guard to `convert_unit_scalar()` closing a pre-existing gap D8 exposed | Slice 1 accepted (`13c0c9a7`, `4c522290`, `2ac94deb`) — restored a green default-pair suite, the prerequisite for §6 item 6. Slice 2 accepted (`206cdce8`, `713d0238`) — a dimensionally-wrong `units` on `simulation.box_size`/`particle_mass` now fails at load instead of silently mis-scaling; no tracked configuration was affected. The six residual findings the review panel raised outside both frozen surfaces closed in `2385b480` (`POST-PHASE-5-WORK.md` §3.8). Archive candidate once Shin-Uchuu lands |
-| `SHIN-UCHUU-CONVERSION-PLAN.md` | **Converter done — Shin-Uchuu production conversion pending** | External ctrees-ASCII → snapshot-HDF5 converter, validated on micro-Uchuu; Shin-Uchuu production conversion remains, now that the dual-driver identity gate has passed | Converter built and micro-Uchuu-validated 2026-07-24, and re-gated on a regenerated dataset 2026-08-03; format contract frozen 2026-07-18 at `docs/dev/SNAPSHOT-HDF5-FORMAT.md` |
-| `MIMIC-COUPLED-RATE-FORMULATION-PLAN.md` | Requirements brief | Replace sequential operator-split module execution with declared conservative transfers assembled into one coupled system and integrated with error control; discrete physics stays explicit jumps. Additive new processing mode — the existing `process(ctx, halos, ngal)` ABI stays frozen and existing packages are untouched | Written 2026-08-18. **Not scheduled, and deliberately gated on its own measurement**: a zero-core-change spike must first size the splitting error before any core work is justified. That spike is safe to run alongside anything else. Its interface decision (additive mode, frozen ABI) is what keeps the three briefs below compatible — see the sequencing note under the road to Shin-Uchuu |
-| `MIMIC-SNAPSHOT-GLOBAL-MODULES-PLAN.md` | Requirements brief | Module contracts over a co-resident snapshot population (true global SHAM, HOD, environment, synchronous reionization) — the single-node scientific payoff of the snapshot driver | The dual-driver Phase 5 identity gate has passed; prerequisite for the distributed plan below |
-| `MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md` | Requirements brief | MPI/domain decomposition for snapshot-global operations (former dual-driver Phase 7); pairs with the module-contracts brief above | Snapshot-driver prerequisite met 2026-08-12; blocked only on at least one snapshot-global module contract existing |
-| `MIMIC-EMBEDDED-ENGINE-PLAN.md` | Requirements brief | Physics-only API for external hosts (former dual-driver Phase 6) | Not scheduled; independent of the snapshot pathway |
-| [`MIMIC-EMULATOR-PLAN.md`](MIMIC-EMULATOR-PLAN.md) | Requirements brief | Emulator-based model diagnosis (Bayes linear emulation + history matching): whether a model package is well-posed, and which data constrains which physics | Written 2026-08-20. Not scheduled, and gated on its own measurement spike, which touches no Mimic code. A candidate for the science-gate prototype `MIMIC-MODEL-BUILDER-PLAN.md` names as an unmet precondition, and the instrument `MIMIC-COUPLED-RATE-FORMULATION-PLAN.md` needs for the comparison half of its Gate item 5 |
-| `MIMIC-MODEL-BUILDER-PLAN.md` | Requirements brief | Assisted, gate-driven model-package construction from scientific evidence | Re-review against the tagged baseline before any implementation RFC |
+| **1** | **Shin-Uchuu** — production conversion and `sage16` end to end | [`SHIN-UCHUU-CONVERSION-PLAN.md`](SHIN-UCHUU-CONVERSION-PLAN.md); checklist at [`POST-PHASE-5-JOINT-REVIEW.md`](POST-PHASE-5-JOINT-REVIEW.md) §6 | See [Step 1](#step-1-shin-uchuu-in-flight). **Blocked on an operator at the conversion machine**, nothing else |
+| **2** | **Snapshot-global modules** — the snapshot driver's scientific payoff | [`MIMIC-SNAPSHOT-GLOBAL-MODULES-PLAN.md`](MIMIC-SNAPSHOT-GLOBAL-MODULES-PLAN.md) | Promote to an implementation plan; the first module is a true global SHAM. **Design its mode and metadata machinery to host a rate mode later** |
+| **3** | **Distributed snapshot operations** — MPI domain decomposition | [`MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md`](MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md) | Needs step 2 to exist first — the one hard dependency in the chain. **Treat the transfer-graph non-cutting rule as binding from the first design sketch** |
+| **4** | **Emulator** — is a model package well-posed, and what constrains what | [`MIMIC-EMULATOR-PLAN.md`](MIMIC-EMULATOR-PLAN.md) | Run its calibrated-variance spike, outside the product tree entirely |
+| **5** | **Coupled rate formulation** — declared transfers, one integrated system | [`MIMIC-COUPLED-RATE-FORMULATION-PLAN.md`](MIMIC-COUPLED-RATE-FORMULATION-PLAN.md) | Run its measurement spike — new files under `models/` only, no core change. The spike sets priority, solver family and the attribution baseline; it is **not** a veto |
+| **6** | **Model builder** — paper to tested model package | [`MIMIC-MODEL-BUILDER-PLAN.md`](MIMIC-MODEL-BUILDER-PLAN.md) | Refresh the brief against the tagged v1.0 baseline; its re-review has been due since 2026-08-12 |
+| **7** | **Embedded engine** — optional, possibly never | [`MIMIC-EMBEDDED-ENGINE-PLAN.md`](MIMIC-EMBEDDED-ENGINE-PLAN.md) | Nothing depends on it. Promote only if a scientific need arises |
 
-Mimic v1.0 is tagged and released from `main` as the first production baseline. The 2026-07-02 joint review of the dual-driver and Shin-Uchuu plans (findings, decisions D1–D12, and rationale) is archived at `archive/dev-plans/dual-driver-plan-review.md`; its decisions are baked into the two active plans, which are self-contained.
+**Why the emulator precedes the coupled rate work.** It is an instrument: built early it can measure everything after it, built late it measures nothing. Concretely, the coupled-rate brief's gate item 5 requires the new package's differences from the control to be quantified, and a point calibration cannot compare two structures on equal footing because each is judged at one hand-tuned operating point.
 
-Completed plans are archived out of `docs/dev/` to `archive/dev-plans/` (gitignored local history); durable current instructions live in `docs/USER-GUIDE.md`, `docs/DEVELOPER-GUIDE.md`, `docs/dev/SNAPSHOT-HDF5-FORMAT.md`, the package READMEs, the skills, and the code itself. Already archived this way: `chunked-output-plan.md` (chunked HDF5 output); `MIMIC-CONVERTER-IMPLEMENTATION-PLAN.md` (the ctrees→snapshot converter build, complete 2026-07-24 — the converter now lives under `scripts/convert/`); and, once Phase 5 closed (2026-08-12), `MIMIC-SNAPSHOT-READER-PLAN.md` (the Phase 4b reader plan, retained until Phase 5 landed as recorded above), `PHASE-4B-REVIEW-AND-PRE-PHASE-5-WORK.md`, and `PRE-PHASE-5-READINESS-REVIEW.md` (both ephemeral Phase 4b/5 handoff reviews). The reader plan's four still-live deferred entries (shared HDF5 read utilities; the empty-dataset-with-non-sentinel-metadata reader check; the reader strictness gaps around nested `/header` objects and same-size datatype acceptance; and `scripts/discovery.py` test-gating membership for `micro-uchuu-snapshot`) survive its archival in `MIMIC-DUAL-DRIVER-PLAN.md`'s Phase 5 follow-up notes.
+**Why distributed operation is step 3 rather than later.** Its recorded triggers were a larger simulation or wall-clock pressure. The nearer driver is deployment: Shin-Uchuu is meant to be run by students on OzSTAR, where per-node memory is smaller and work spreads across nodes. Note the boundary — MPI decomposition serves the cluster case, not a single low-memory workstation, where the rehearsal's subset dataset is the relevant artifact instead.
 
-Archived predecessor plans, validation records, and closeout handoffs are historical evidence, not active planning inputs.
+### Step 1: Shin-Uchuu (in flight)
+
+Work these in order; each step's output is the next step's input.
+
+| # | Work | Why here |
+|---|---|---|
+| **1.1** | **§6 item 6 — subset conversion + complete rehearsal, creating `simulations/shin-uchuu/` as part of it** ← **blocked on an operator** | The package cannot be completed first: its identity multiplier must come from the conversion report and never from an assumption, its `snapshots/` symlink points at files the conversion has not produced, and `Len`, `Spin` and core `deltaMvir` need calibration from a test run. Its known metadata — particle mass 8.97 × 10⁵ Msun/h, 140 Mpc/h box, `Spin` range `[-1000, 1000]`, the a_list — is in hand; re-measure `sizeof(struct RawHalo)` while there. Subset composition is a hard constraint in its own right — see below. Both models including a full `sage16` pass; output written and read back; the identity gate run on the subset. Instrument it for peak process RSS, `C`, `P`, `G`, the `Spin` extrema, the remaining property ranges, and the writer cost |
+| **1.2** | **Close §6 items 2, 3 and 9** from those measurements | `Spin` bounds against measured extrema; memory against measured RSS; ranges calibrated. **If the 85%-of-RAM trigger fires**, implement the compact previous-slab projection — a *runtime* change — and re-run the rehearsal, because the rehearsal must certify the final runtime |
+| **1.3** | **§6 item 7 — converter scale-engineering pass (D4)** | The largest remaining item and the last hard blocker on production. Deserves its own frozen implementation plan, scoped from the rehearsal's measurements. Acceptance: the micro-Uchuu battery and topology cross-check re-run green, plus a measured memory profile of the rank pass at projected scale |
+| **1.4** | **Full production conversion** — one-time, 5.6 TB → 70 snapshot files | Sets the shin-uchuu identity multiplier from the conversion report's measured counts |
+| **1.5** | **Production run + science checks** — `sage16` end to end, then HMF and GSMF at z = 0, 1, 2 | The goal the whole snapshot pathway exists to reach |
+
+**Subset composition decides whether the rehearsal certifies anything.** It must span the earliest snapshots through z=0 and satisfy **both** halves of the D9 design constraint: include the most massive forests **and** a representative low-mass sample. The most massive forests exercise the `Spin` range and the memory ceilings; the low-mass population drives the orphan statistics that set `C` and `G` — which is exactly what a ≈360× finer particle mass changes between micro-Uchuu and Shin-Uchuu. A randomly chosen subset passes while certifying nothing, and a most-massive-only subset measures the ceilings while leaving the ratio unvalidated. `POST-PHASE-5-JOINT-REVIEW.md` D9 owns the constraint.
+
+**Open §6 items.** 2 (`Spin` bounds, provisional until measured), 3 (memory peak and output-population ceiling), 6 (the rehearsal), 7 (converter scale pass), 9 (remaining property ranges), and 10 below. Items 1, 4, 5 and 8 are closed — see [Completed Work](#completed-work). `POST-PHASE-5-JOINT-REVIEW.md` §6 is authoritative for the numbering; `POST-PHASE-5-WORK.md` holds the deferred and non-blocking residue, none of which blocks any of the above.
+
+**§6 item 10 (Uchuu-family particle mass) is deliberately last, and is not a blocker.** Six packages declare 3.25 × 10⁸ Msun/h where the consistent value is 3.27 × 10⁸ — a real correctness defect that moves Uchuu science output through `virial.c:51`. Fixing it re-stamps the committed fixture and the 50-file real micro-Uchuu dataset, and until both agree the header-agreement check aborts every snapshot-format run **including the cross-format identity gate**, which is the regression net the steps above depend on. Its prerequisite was discharged 2026-08-20 (640³ and 2560³ confirmed); full analysis in `POST-PHASE-5-WORK.md` §2.7.
+
+**Where the Shin-Uchuu source data lives.** OzSTAR/Ngarrgu Tindebeek, `ssh dcroton@nt.swin.edu.au`. This is a pointer to the data, not permission to start converting.
+
+| Path under `/fred/oz214/simulations/uchuu/shinuchuu/` | Contents |
+|---|---|
+| `mergertrees/` | **5.6 TB**, 2,744 `tree_*.dat` ctrees-ASCII files plus `forests.list` and `locations.dat` — the converter's input |
+| `halos/` | 42 GB `ShinUchuu_halolist_9p35.h5` |
+| `shinuchuu_scalefactor.txt` | 70 scale factors, 0.0477 → 1.0000, in the format the a_list contract wants |
+| `shinUchuu_snapshot_redshift_scalefactor.txt` | the same list with snapshot numbers and redshifts, z = 19.9490 → 0.0000 |
+| `shinuchuu.par` | the producer's own SAGE parameter file, independently confirming `PartMass 0.0000897`, `BoxSize 140.0`, `Omega 0.3089`, `OmegaLambda 0.6911`, `Hubble_h 0.6774`, `TreeType consistent_trees_ascii`, `LastSnapShotNr 69`, `NumSimulationTreeFiles 2744` |
 
 ---
 
-## History decisions
+## Plan Inventory
 
-**`f81e2385` is not squashed into `13c0c9a7`. Decided 2026-08-14; do not revisit without new evidence.**
+Every document in `docs/dev/`. This file is the index itself.
 
-D8 Slice 2 (`f81e2385`) landed and was then *stopped rather than accepted*, because it left the default integration suite red; `13c0c9a7` restored it. Flattening the two would read more cleanly but was rejected on three grounds, in the order they were weighed:
-
-- **Provenance.** `f81e2385` is cited by SHA in eight places across five documents in this directory, and `13c0c9a7` in two more. Squashing rewrites those SHAs and turns every citation into a pointer to a commit that does not exist — a mechanical regression in the record, in a repository whose whole discipline is provenance. This alone settles it.
-- **Mechanics.** The two commits are not adjacent: `9f24efc1` sits between them. This would be a history reorder, not a neighbour fixup — more risk for no gain. Note also the standing project rule against amending landed commits.
-- **Scientific record.** The commit boundary is the primary evidence for a lesson now recorded in `.agents/skills/mimic-validation-and-qa`: run the full suite as the *last* action, because the parent plan's validation ordering ran it before the baseline refresh and so never tested its own final tree. Deleting the artifact while keeping the lesson is how a checkable fact decays into folklore.
-
-The usual objection — never rewrite published history — did **not** apply: these commits are unpushed at the time of the decision. The decision rests on the reasons above instead. The one real cost is accepted knowingly: `git bisect` can land on a red tree for exactly two commits (`f81e2385`, `9f24efc1`); the failure is one assertion about a format-version string, not a physics fault, and `git bisect skip` covers it.
-
-If branch history ever needs to read more cleanly for review, narrate the arc in the merge commit or PR description rather than rewriting the commits.
-
----
-
-## Current Sequence
-
-The snapshot pathway is the chosen direction (it is both the scientific priority and the only way Mimic can process Shin-Uchuu, whose percolation super-forest defeats forest-ordered loading). One sequence, each step gating the next:
-
-1. **Freeze the snapshot-HDF5 format contract** as a durable `docs/` spec, from the schema drafted in `SHIN-UCHUU-CONVERSION-PLAN.md`. — **Done 2026-07-18:** frozen at [`docs/dev/SNAPSHOT-HDF5-FORMAT.md`](SNAPSHOT-HDF5-FORMAT.md) (`format_version = 1`).
-2. **Build the converter and validate it on micro-Uchuu ASCII** (`SHIN-UCHUU-CONVERSION-PLAN.md`) — topology cross-check against the existing tree-ordered reader. — **Done 2026-07-24:** converter built under [`scripts/convert/`](../../scripts/convert/) and validated end to end on the real micro-Uchuu ASCII data (22,580,924 halos, 50 snapshots, 440,651 forests); producer validation battery passes all invariants, and the cross-check against a `halos-only` reference run passes all seven checks with zero unexplained mismatches. The topology-order gate is **fully discharged**: the optional Slice 10 read-only reference-topology dump harness (`tests/unit/tools/dump_ctrees_topology.c`, the plan's one deliberate exception to "no new Mimic code") let `crosscheck.py --reference-topology` compare, per halo and by stable id, `FirstProgenitor`/`NextProgenitor`/`NextHaloInFOFgroup` chain order, `ForestIndex`/`HaloRankInForest`, and the signed `MostBoundID` directly against the tree-ordered reader — over an asserted-complete dump of all 22,580,924 halos, so the comparison is exhaustive rather than a sample.
-   **Dataset regenerated and re-gated 2026-08-03.** The converted micro-Uchuu dataset was rebuilt from the ASCII source and now lives at `/Volumes/Internal/data/uchuu/micro-uchuu/micro-uchuu-snapshot/` (50 `snapshot_NNN.h5` plus `forests.h5`, 2.3 GB), reachable through the machine-local gitignored symlink `simulations/micro-uchuu-snapshot/snapshots`. The whole gate was re-run rather than assumed, because the Python stack is not the one the original run used (observed now: pandas 3.0.5, numpy 2.4.6; the 2026-07-24 stack was never recorded, so the delta is unknown rather than measured): the three totals the original gate recorded are reproduced exactly (22,580,924 halos, 50 snapshots, 440,651 forests), the producer battery passes all 15 checks, and the cross-check against a fresh `halos-only` reference run passes every check including `topology-chains` over an asserted-complete dump of all 22,580,924 halos. `max_halo_rank_in_forest = 350074` is recorded here for the first time. This satisfies step 3's development fixture and step 4's Phase 5 prerequisite.
-
-3. **Snapshot reader** (dual-driver Phase 4b) against the micro-Uchuu fixtures. — **Done 2026-08-04**, implemented from the frozen `MIMIC-SNAPSHOT-READER-PLAN.md` (five slices, Mode B; archived to `archive/dev-plans/` once Phase 5 closed 2026-08-12) whose scope derives from `MIMIC-DUAL-DRIVER-PLAN.md` Phase 4b. What shipped: the `simulations/micro-uchuu-snapshot/` fixture package with committed re-chunked fixtures; `struct SnapshotReader` with its own registry and dispatchers under `src/io/snapshot/`; the `snapshot_hdf5` reader validating structure, headers, exact `scale_factor` agreement with the a_list, invariant 5 in full via bounded hyperslab scans, and the identity-multiplier bounds at `open_run`, plus slab loading with link-range validation under a defined lifecycle; and startup wiring resolving `input.tree_type` against both registries, with the new `simulation.unique_galaxy_id_multiplier` key.
-   **Gate met (Phase 4b's stated gate: reader unit tests pass against the Phase 4a fixtures, tree path untouched and green).** Reader unit tests pass under `MODEL=halos-only SIMULATION=micro-uchuu-snapshot`, covering every corrupt-input abort with no leak diagnostic, and the opt-in real-data test opened all 50 snapshots of the regenerated dataset rather than skipping. The tree-ordered path was proven unchanged by an explicit bitwise comparison of a default-pair binary run's galaxy output across the wiring slice, and the default-pair unit, integration, and scientific tiers are green. A snapshot-ordered configuration now passes *configuration* validation and stops at exactly one place: `run_processing_driver()`. Note the boundary precisely, because it is Phase 5's first job: the reader's dataset validation (`open_run`) and link checks (`load_slab`) are implemented and unit-tested but have **no caller in `src/`**, so a snapshot-ordered run aborts before opening any snapshot file. `docs/dev/SNAPSHOT-HDF5-FORMAT.md` was consumed unchanged (`format_version` still 1).
-4. **Snapshot driver + cross-format identity gate** (dual-driver Phase 5) on micro-Uchuu. — **Done 2026-08-12**, implemented from the frozen [`MIMIC-SNAPSHOT-DRIVER-PLAN.md`](MIMIC-SNAPSHOT-DRIVER-PLAN.md) (eleven slices, Mode B). `MIMIC-DUAL-DRIVER-PLAN.md` Phase 5 owned the scope and is now marked executed with a pointer to that plan; its "Recorded Phase 5 inputs" block is the detailed record of the five findings the reader work surfaced.
-   **Gate met (dual-driver Phase 5's stated gate: the cross-format identity test green on micro-Uchuu with snapshot-global physics disabled, under both timestep schemes).** `make MODEL=halos-only SIMULATION=micro-uchuu-snapshot tests-scientific` passes both tiers it runs, `halos-only` first and then `sage16`, each under `TimestepScheme: fixed` and `dynamic`: for every output snapshot, aggregated across every output partition (five on the tree side, one on the snapshot side), the two drivers produce identical `UniqueGalaxyID` sets and per-ID bitwise-equal fields, with no tolerance of any kind. The tree-ordered path stayed byte-identical at the galaxy-record level to the pre-Phase-5 baseline throughout, with exactly the four permitted HDF5 metadata deltas (the `UniqueGalaxyIDMultiplier` provenance attribute; `TotHalosPerSnap` widened to `int64`; the `UniqueGalaxyID` field description naming the configured multiplier; `hdf5_format_version` `1.1` → `1.2`) and the run-local `metadata/output_schema.json` differing in exactly the description and `source_md5`. The gate is package-local to `micro-uchuu-snapshot` and a **manual, dataset-present operation**: no automated tier or CI runs it now that Phase 5 has closed. See `docs/DEVELOPER-GUIDE.md` → "The cross-format identity gate" for the mechanics and how to reproduce it.
-
-   **Note added 2026-08-13 (D5(a)) — this record is historical and correct as history, do not compare it to today's partition counts without reading this.** "One on the snapshot side" reports what this specific gate run measured before D5(a) shipped; do not treat it as a live invariant. Today the same gate reports the snapshot side aggregating one partition per requested output snapshot (`MimicConfig.NOUT` partitions rather than one) — a topology change, not a regression: the identity result this record certifies (equal `UniqueGalaxyID` sets, bitwise-equal fields, no tolerance) is unaffected by D5(a) and remains the certified outcome. See `docs/DEVELOPER-GUIDE.md` → "The Snapshot Driver" and `docs/dev/SNAPSHOT-OUTPUT-PARTITIONING-PLAN.md` for the delivered design.
-   **Architecture decisions settled 2026-08-04, before planning begins.** A two-round adversarial review (`codex gpt-5.6-sol`, high effort, read-only, artifacts under `.orchestrator/runs/`) resolved every open Phase 5 design question and surfaced several risks nothing had recorded — including that two raw slabs must be live at once, that the galaxy pool has no allocation seam for the instanced API this phase assumes, and that `TREE_MUL_FAC` is hard-coded in three tree-reader sites beyond `galaxy_id.h`. All resolutions, the frozen identity-gate configuration, and the per-ID byte-level comparison algorithm are recorded in the dual-driver plan's Phase 5 section. The resolutions were then re-reviewed twice more against the repository, in fresh sessions, until no P0 or P1 finding survived — those passes also froze the snapshot HDF5 output schema, an integer-width contract, a non-HDF5 build contract, and a serial-only (`NTask == 1`) policy for Phase 5. **That section is now the sole input a Phase 5 implementation plan needs; `.pm/` and `.orchestrator/` are gitignored audit trails, not planning inputs.**
-
-   **Do these three before Phase 5 starts — ALL THREE DONE 2026-08-10**, together with the wider residual-work list in `docs/dev/PHASE-4B-REVIEW-AND-PRE-PHASE-5-WORK.md` (the Phase 4b review report, whose W1–W8 items subsume these three; item 1's fix proved wider than recorded below — three committed baseline schema sidecars, both tracked HDF5 baseline files' embedded `FieldMetadata`, and two test docstrings also carried the wrong formula, all corrected with records proven bitwise-unchanged). The original items, retained for the record:
-
-   1. **Correct the `UniqueGalaxyID` description in `src/core/core_properties.yaml:79` — this is a live bug on `main`, not a planning item.** It reads `creation_halonr + 10^9 * forestnr_global`, but the encoder is `halonr + TREE_MUL_FAC × (forestnr_global + 1)` (`src/include/galaxy_id.h:31`): the `+ 1` forest offset is missing. This is the identical defect corrected in `docs/DEVELOPER-GUIDE.md` during Phase 4b, but this copy is **user-visible metadata** — the generator copies property descriptions into the HDF5 `FieldMetadata` table and the run-local `metadata/output_schema.json`, so every output file Mimic has produced carries the wrong formula. Fix the `+ 1` only; leave the `10^9` alone, because generalising it to the configured multiplier is Phase 5's job (its allowed-delta 3) and doing it early would describe behaviour that does not exist yet. Consequences to expect and accept: `FieldMetadata` text changes, and the run-local schema's description and `source_md5` both change. No field layout, dtype, or record byte changes, so this does **not** require an `hdf5_format_version` bump — that rule (`src/io/output/metadata_hdf5.c:110-115`) is tied to schema changes, and a corrected description is not one.
-   2. **Fix the `.git/HEAD` prerequisite in the Makefile.** `Makefile:323` depends on `.git/HEAD` and `.git/index` literally, so any build from a git worktree dies with `No rule to make target '.git/HEAD'` — in a worktree `.git` is a file. Phase 5's identity gate needs two builds and will hit this. Resolve the real git directory instead (`GIT_DIR := $(shell git rev-parse --git-dir 2>/dev/null)` with `$(wildcard $(GIT_DIR)/HEAD $(GIT_DIR)/index)`), which also fixes the same breakage for builds from an exported tarball, where the recipe already degrades gracefully but the prerequisite does not.
-   3. **Sweep `tests/unit/` for package-dependent "default" assertions.** Core unit tests are driven by the generated `build/generated/test_inputs/<model>/<sim>/core/test_binary.yaml`, whose simulation configuration is the *selected* package's, so any test asserting a "default" actually asserts that package's value. Phase 4b fixed two instances in `test_parameter_parsing.c` under an amendment; `write_simulation_output_fixture()` / `test_simulation_output_chunking_defaults_and_run_override` is a known third. Phase 5 adds more non-tree-ordered configurations and will keep tripping this.
-
-   **Independent readiness review, 2026-08-10 — `docs/dev/PRE-PHASE-5-READINESS-REVIEW.md`.** After the work above landed, a fresh second-opinion code review and code-simplification pass was run over Phase 4b plus the five pre-Phase-5 commits, then externally reviewed (`codex gpt-5.6-sol` high effort; an `opencode` counterpart contributed a narrowed pass). Verdict **PASS WITH RISKS, no P0/P1**. Three findings, all now implemented:
-   - **F1** — the five pre-Phase-5 commits shifted line numbers in four files the dual-driver plan's Phase 5 section cites, breaking four references, drifting two more, and leaving one quoted fact stale, inside the very document this pathway calls the sole Phase 5 input. All corrected, including two that the F2 code edit shifted a second time.
-   - **F2** — `HaloRankInForest` was scanned at `open_run` with no per-value lower bound while its sibling identity column `ForestIndex` was bounded, so a negative rank passed validation and would have produced a silently wrong `UniqueGalaxyID` under the Phase 5 encoder. Lower bound now `0`; the upper bound stays open deliberately, since the run-scoped measured-maximum check owns that end. A corrupt-fixture regression case pins the branch.
-   - **F3** — `tests-converter` and `check-snapshot-fixture` gated only local `make tests`; both are now steps in `.github/workflows/ci.yml`.
-
-   The simplification pass deliberately changed **nothing**: four micro-cleanups were considered and left (the two reviewers split on them, which settled it), and four larger consolidations are recorded as refused or deferred so they are not rediscovered.
-5. **Shin-Uchuu production conversion** (one-time, 5.6 TB) and the `simulations/shin-uchuu/` package; sage16 end to end with HMF/GSMF sanity checks. — **← NEXT.** This plan now also owns the snapshot-driver **memory-projection fallback trigger** that Phase 5 item 6 delegates to it — recorded in `SHIN-UCHUU-CONVERSION-PLAN.md` on 2026-08-10, having been decided 2026-08-04 but never written there.
-   **Gated on the pre-Shin-Uchuu checklist at `POST-PHASE-5-JOINT-REVIEW.md` §6.** State as of 2026-08-14. **Note two independent numbering schemes:** the numbered list you are reading is this pathway's own roadmap (its item 5 is this Shin-Uchuu conversion, marked ← NEXT above), while the table below and every "item N" reference inside this section are `POST-PHASE-5-JOINT-REVIEW.md` §6 checklist numbers. They are not the same item 5.
-
-   | §6 item | Status | Kind |
-   |---|---|---|
-   | 1. Pool ceiling + HDF5 statuses + D1 consolidation | **Closed** — landed `74e8a70e`, certified by an identity-gate re-run | — |
-   | 2. `Spin` bounds (D6/D7) | Decided and applied for `uchuu`; **provisional** until the rehearsal measures actual extrema | Metadata + measurement |
-   | 3. Memory peak + output-population ceiling | **Open** — projection is parametric in the buffer capacity `C` and pool high-water `G`, both unmeasured; binding gate is peak process RSS at the rehearsal | Measurement |
-   | 4. Snapshot-run output partitioning (D5(a)) | **Closed 2026-08-13** — landed `3e31cc0c`/`7b68e01d`, certified by a cross-format identity gate re-run (8/8 stages) on the real micro-Uchuu dataset; see `docs/dev/SNAPSHOT-OUTPUT-PARTITIONING-PLAN.md` | — |
-   | 5. `Spin` units-label reconciliation (D8) | **Closed 2026-08-14, fully** — landed per `D8-SPIN-UNITS-RECONCILIATION-PLAN.md`; all eight packages now declare `units: Mpc/h km/s` with an accurate description, `micro-uchuu`'s range widened to `[-1000, 1000]`, and the bitwise tree-path proof confirmed every `Spin` value unchanged. Its follow-up (`D8-FOLLOWUP-RECONCILIATION-PLAN.md`) restored the green default-pair suite, and the six residual panel findings outside both frozen surfaces closed in `2385b480` (`POST-PHASE-5-WORK.md` §3.8) | — |
-   | 6. Subset conversion + complete rehearsal | **OPEN — ← NEXT TASK.** Blocked only on Shin-Uchuu source data being reachable. Settles items 2, 3 and 9, and scopes item 7 | Measurement |
-   | 7. Converter scale-engineering pass (D4) | **Open** — largest remaining item; deserves its own frozen implementation plan (`SHIN-UCHUU-CONVERSION-PLAN.md`, "Pre-conversion obligation"). Its `dump-ctrees-topology-tool` prerequisite was fixed 2026-08-13 | **Implementation plan + slice** |
-   | 8. Particle mass | **Closed 2026-08-14** — Shin-Uchuu is **8.97 × 10⁵ Msun/h** (Ishiyama et al. 2021, [arXiv:2007.14720](https://arxiv.org/abs/2007.14720)); corrected a recorded value low by 10× and the "3,600× finer" figure derived from it (true ratio ≈360×) | — |
-   | 9. Remaining property ranges | **Open** — needs the rehearsal | Measurement |
-   | 10. Uchuu-family particle mass 0.6% low | **Open — added 2026-08-14.** Six packages declare 3.25e8 Msun/h; the consistent value is **3.27e8**. Not a Shin-Uchuu blocker, but a correctness defect in shipped packages | **Implementation slice + data regeneration** |
-
-   ### Where the Shin-Uchuu source data lives
-
-   **Located 2026-08-20. This retires half of item 6's recorded blocker.** The data was previously recorded as "not present on any mounted volume", which was true of the local machine and led to the conclusion that it was unreachable. It is not: it lives on OzSTAR/Ngarrgu Tindebeek, reachable as `ssh dcroton@nt.swin.edu.au`.
-
-   | Path | Contents |
-   |---|---|
-   | `/fred/oz214/simulations/uchuu/shinuchuu/mergertrees/` | **5.6 TB**, 2,744 `tree_*.dat` ctrees-ASCII files plus `forests.list` and `locations.dat` — the converter's input |
-   | `/fred/oz214/simulations/uchuu/shinuchuu/halos/` | 42 GB `ShinUchuu_halolist_9p35.h5` |
-   | `/fred/oz214/simulations/uchuu/shinuchuu/shinuchuu_scalefactor.txt` | 70 scale factors, 0.0477 → 1.0000 — **the a_list road step 1 needs**, in the format the a_list contract wants (one per line, increasing a) |
-   | `/fred/oz214/simulations/uchuu/shinuchuu/shinUchuu_snapshot_redshift_scalefactor.txt` | the same list with snapshot numbers and redshifts, z = 19.9490 → 0.0000 |
-   | `/fred/oz214/simulations/uchuu/shinuchuu/shinuchuu.par` | the producer's own SAGE parameter file — see below |
-
-   **`shinuchuu.par` independently confirms the package metadata road step 1 must declare**: `PartMass 0.0000897` (×10¹⁰ Msun/h = **8.97 × 10⁵**, a third independent confirmation of §6 item 8), `BoxSize 140.0`, `Omega 0.3089`, `OmegaLambda 0.6911`, `Hubble_h 0.6774`, `TreeType consistent_trees_ascii`, `LastSnapShotNr 69` (70 snapshots), `NumSimulationTreeFiles 2744`. It also confirms the input format is the one `SHIN-UCHUU-CONVERSION-PLAN.md` assumes.
-
-   **What this does and does not unblock.** It retires the a_list blocker on **road step 1** (`simulations/shin-uchuu/`) — but not the step itself, which still needs the conversion report's measured identity multiplier, the converted files its `snapshots/` symlink points at, and calibrated ranges; see the deferral note under the queue below. It does **not** unblock item 6 either: a subset conversion and a production-scale memory probe still need an operator at the conversion machine, and the 5.6 TB does not move over a login session. Treat this section as a pointer to the data, not as permission to start converting.
-
-   ### The remaining road to Shin-Uchuu, in order
-
-   **The goal is §6 item 6 — the subset conversion and complete rehearsal.** Everything the runtime owed before it is now closed (§6 items 1, 4, 5 and 8), so nothing but an operator at the conversion machine stands in front of it — the source data is located and readable (see [Where the Shin-Uchuu source data lives](#where-the-shin-uchuu-source-data-lives)). Work the remainder in this order; each step's output is the next step's input:
-
-   | # | Work | Why here | Closes |
-   |---|---|---|---|
-   | **0** | ~~**Instrument `C`, `P`, `G` and peak process RSS**~~ — **DONE 2026-08-19.** `src/util/run_profile.{c,h}` reports all four at run end, from rank 0, at every verbosity including `--quiet`; `P` (§2.3's output population) was added to the original `C`/`G`/RSS scope because §2.3's ceiling check needs it too | Item 3 could not close without it: nothing reported the pool high-water, `G` was the one unmeasured term in the projection, and §2.2 makes measured RSS the binding gate rather than a reconstructed sum. Validated at fixture scale on both drivers, so it was never blocked on source data | Prerequisite for 3 — now satisfied |
-   | **1** | **Create `simulations/shin-uchuu/`** — particle mass 8.97 × 10⁵ Msun/h (confirmed, item 8), 140 Mpc/h box, `Spin` range `[-1000, 1000]` (item 2's decided bound), a_list from the source; re-measure `sizeof(struct RawHalo)` | The rehearsal has nothing to run against without the package. Conversion-plan Definition of Done item 4 | Part of 2 |
-   | **2** | **§6 item 6 — subset conversion + complete rehearsal** ← **blocked: needs an operator at the conversion machine** (the source data is located — see [Where the Shin-Uchuu source data lives](#where-the-shin-uchuu-source-data-lives)) | A subset spanning the earliest snapshots through z=0 and **including the most massive forests**, or it certifies nothing. Both models including a full `sage16` pass; output written and read back; the identity gate run on the subset (§2.6). Instrument it to record peak process RSS, `C`, `G`, the `Spin` extrema, the remaining property ranges, and F-3's writer cost | 6, and yields the measurements for 2/3/9 and the scope for 7 |
-   | **3** | **Close §6 items 2, 3 and 9 from those measurements** | `Spin` bounds confirmed against measured extrema; memory closed against measured RSS (and §2.3's output-population check against measured `P`); ranges calibrated. **If the 85%-of-RAM trigger fires**, implement the compact previous-slab projection — a *runtime* change — and re-run the rehearsal, because the rehearsal must certify the final runtime | 2, 3, 9 |
-   | **4** | **§6 item 7 — converter scale-engineering pass (D4)** | The largest remaining item and the last hard blocker on the production conversion; deserves its own frozen implementation plan. Scoped from the rehearsal's measurements rather than the superseded projections. Acceptance gate: the micro-Uchuu battery and topology cross-check re-run green, plus a measured memory profile of the rank pass at projected scale | 7 |
-   | **5** | **Full Shin-Uchuu production conversion** (one-time, 5.6 TB → 70 snapshot files) | Definition of Done items 1–3 in `SHIN-UCHUU-CONVERSION-PLAN.md`; sets the shin-uchuu identity multiplier from the conversion report's measured counts | — |
-   | **6** | **Production run + science checks** — `sage16` end to end on Shin-Uchuu, then HMF and GSMF at z=0, 1, 2 | Definition of Done items 5–6. This is the goal the whole snapshot pathway exists to reach | — |
-
-   **§6 item 10 (Uchuu-family particle mass) is deliberately last, and is not a blocker.** It is a real correctness defect in six shipped packages, but fixing it re-stamps the committed fixture and the 50-file real micro-Uchuu dataset, and until both agree the Phase 5 header-agreement check aborts every snapshot-format run — **including the cross-format identity gate**, which is the regression net the steps above depend on. Doing it before or during them would remove that net exactly when it is needed. Its one prerequisite — sourcing the micro/mini-Uchuu particle counts — was **discharged 2026-08-20** (640³ and 2560³ confirmed, both at 3.27 × 10⁸ Msun/h); the item itself is unchanged and still last.
-
-   Nothing in `POST-PHASE-5-WORK.md` §3 blocks any of this.
-
-   **Item 5 closed 2026-08-14, per `D8-SPIN-UNITS-RECONCILIATION-PLAN.md`.** The scoping investigation that preceded implementation (run 2026-08-14, recorded in `POST-PHASE-5-WORK.md` §2.1 → "D8 implementation scope, established 2026-08-14") found the item was **not** the small relabel it was assumed to be, in three specific ways, each evidenced there:
-
-   1. **It affects all eight packages, not four.** Every package stores J/Mvir; the earlier claim that some store the Bullock parameter λ was wrong. Proved by the physics (`sage_set_disk_scale_radius.c:49` computes λ from `Spin`, so `Spin` must be (Mpc/h)(km/s)) and by the tracked baseline's own `Spin` range of −18.23 to 14.49, impossible for a λ of order 0.03–0.05.
-   2. **The units label drives code generation, not just documentation.** `UNIT_REGISTRY` (`scripts/generate_properties.py:132`) raises on any unregistered label, so writing `(Mpc/h)(km/s)` into the YAML fails `make generate` until the registry and a `reference_units` dimension are extended.
-   3. **There is a live path to silently changing science output.** `Spin`'s h-convention is *derived from* its units label, and `(Mpc/h)(km/s)` naturally implies `carried` where `dimensionless` gives `none` — so a naive change can apply an h factor to every `Spin` value. The binding acceptance criterion was therefore **`Spin` values byte-identical, only the label changed**, proved with the bitwise tree-path preservation vehicle.
-
-   For that reason item 5 was implemented as its own frozen plan and slices rather than a direct edit. A related defect surfaced with it and was folded into the same work: **`micro-uchuu` declared `Spin` range `[-200, 200]` while its own data measures 270.3** through its ctrees siblings — widened to `[-1000, 1000]` to match them.
-
-   **Item 5's closure carried a follow-up.** Slice 2's mandated baseline refresh moved the tracked HDF5 baselines to `hdf5_format_version` `"1.2"`, but the test suite still asserted `"1.1"`, leaving the default integration suite red on the committed tree — the supervising PM stopped Slice 2 rather than accepting it. `D8-FOLLOWUP-RECONCILIATION-PLAN.md` Slice 1 reconciles the expectation and finishes this documentation closure; its Slice 2 separately addresses a pre-existing dimension-checking gap in `convert_unit_scalar()` that D8's scoping investigation exposed.
-
-   **Item 10 is new (2026-08-14) and independent of the Shin-Uchuu path.** The six Uchuu-family packages declare a particle mass 0.6% low. It does not block Shin-Uchuu, which will be created with the confirmed 8.97 × 10⁵, but it is a correctness defect in shipped packages, it moves Uchuu science output through `virial.c:51`, and it cannot be fixed by editing configuration alone — the Phase 5 header-agreement check aborts every snapshot-format run, identity gate included, until the committed fixture and the 50-file real dataset are re-stamped. Full analysis and the required sequence are in `POST-PHASE-5-WORK.md` §2.7. Its stated prerequisite, **confirm the micro/mini-Uchuu particle counts from Skies & Universes before implementing**, was discharged 2026-08-20: 640³ and 2560³ are now sourced rather than inferred, both at 3.27 × 10⁸ Msun/h, confirming the defect in all six packages.
-
-### Work available while the Shin-Uchuu rehearsal is blocked
-
-Item 6 needs an operator at the conversion machine and a production-scale run, so it cannot be worked remotely — the source data itself is reachable (see [Where the Shin-Uchuu source data lives](#where-the-shin-uchuu-source-data-lives)), but reading it is not the same as rehearsing on it. Everything below is fixture-scale and remote-safe, and each item is here because it **subtracts from** the critical path rather than running beside it. Work it in this order.
-
-| # | Work | Owner doc | Why it is safe now, and what it feeds |
-|---|---|---|---|
-| **0** | ~~Road step 0 — instrument `C`, `P`, `G` and peak process RSS~~ — **DONE 2026-08-19** | `POST-PHASE-5-WORK.md` §2.2 | Landed as `src/util/run_profile.{c,h}` plus `galaxy_pool_stats()`. Validated at fixture scale on both drivers; only the *rehearsal that consumes it* needed Shin-Uchuu. Feeds §6 item 3 |
-| **1** | ~~**Source the micro/mini-Uchuu particle counts** from Skies & Universes~~ — **DONE 2026-08-20** | `POST-PHASE-5-WORK.md` §2.7 | Confirmed **640³ = 262,144,000** (micro) and **2560³ = 16,777,216,000** (mini), both at **3.27 × 10⁸ Msun/h**, from the Uchuu portal's own suite table and corroborated by its independent per-snapshot particle counts. Discharges §6 item 10's stated prerequisite and confirms the shipped 3.25 × 10⁸ is wrong in all six packages. Recorded only — the fix itself stays last |
-| **2** | ~~**Commit the test coverage that today exists only as run evidence**~~ — **DONE 2026-08-20** | `POST-PHASE-5-WORK.md` §3.5, §3.6 | All four landed: 15 comparator self-tests (`tests/scientific/`, core tier so CI runs them — the gate itself never can), the `UniqueGalaxyIDMultiplier` provenance test run at both the default and 10^10, §3.5's stage-8 zero-record guard, and an opt-in `abort_on_failure` the gate now uses. The gate's frozen comparison semantics were not touched |
-| **3** | ~~*Optional, parallel* — **`MIMIC-COUPLED-RATE-FORMULATION-PLAN.md` Open Question 1**~~ — **DONE 2026-08-20** | [`SAGE16-PRESCRIPTION-CLASSIFICATION.md`](SAGE16-PRESCRIPTION-CLASSIFICATION.md) | All 18 prescriptions classified with `path:line` evidence: 10 rate, 4 jump, 3 algebraic, 1 forcing. Three findings bear on the ordering decision below — the operator-split fluxes are already declared transport buffers (encouraging for Open Question 2), the clamp-to-zero sites mean a coupled package cannot be validated by bitwise parity, and `sage16`'s transfer graph couples the whole FoF group in the common case, so by-galaxy dispatch does **not** survive unchanged |
-
-**Deliberately not now**, each for a stated reason:
-
-- **§6 item 10's particle-mass fix** — re-stamping the committed fixture and the 50-file real dataset removes the cross-format identity gate, which is the regression net items 0–2 above and the whole Shin-Uchuu road depend on.
-- **Road step 1, `simulations/shin-uchuu/`** — still deferred, but **the stated reason changed on 2026-08-20 and the new one is stronger.** The old reason (the a_list must come from the source) has expired: the a_list is now in hand, 70 lines, 0.0477 → 1.0000, along with box size, particle mass and cosmology from the simulation's own `shinuchuu.par`. Checked against `SHIN-UCHUU-CONVERSION-PLAN.md` → "Simulation package changes required", though, the package **cannot be completed** without the conversion: its identity multiplier must come "from the conversion report, never from an assumption" (D9) and no report exists; its `snapshots/` symlink points at 70 HDF5 files the conversion has not produced; and `Len`, `Spin` and core `deltaMvir` need calibration from a test run. Building the runnable parts now would ship an unvalidatable package carrying exactly the assumed multiplier the plan forbids — the reader cannot check any of it without data. **Do it as part of the conversion, not before.**
-- **§6 item 7 / D4, the converter scale pass** — must be scoped from the rehearsal's measurements, not from the superseded projections.
-- **Any coupled-rate core change** — gated on that brief's own measurement spike, and on the A/B ordering decision below.
-
-### After Shin-Uchuu: the two candidate orderings
-
-Five requirements briefs remain, plus `MIMIC-COUPLED-RATE-FORMULATION-PLAN.md`. **Three of them assume the physics-module ABI `process(ctx, halos, ngal)` is frozen** (`MIMIC-SNAPSHOT-GLOBAL-MODULES-PLAN.md` states it as an explicit constraint; `MIMIC-EMBEDDED-ENGINE-PLAN.md` states it in its gate; `MIMIC-MODEL-BUILDER-PLAN.md` names stable module interfaces as a constraint it relies on). The coupled-rate brief is compatible with all three **because its contract is additive** — a new processing mode, not a change to the existing one. That decision is load-bearing for everything below; if it were ever reversed, this ordering changes completely.
-
-The genuine ordering question is therefore economy, not compatibility, and it turns on one shared surface: **`MIMIC-SNAPSHOT-GLOBAL-MODULES-PLAN.md` and `MIMIC-COUPLED-RATE-FORMULATION-PLAN.md` both add a processing mode and both extend the same dispatch and metadata machinery.** Each brief was written without the other in view. Extending that machinery twice, independently, risks two incompatible notions of what a "mode" is.
-
-**Option A — coupled-rate first (recommended if its measurement justifies the work).** Settle the mode/metadata machinery once, then build snapshot-global contracts on top of it. Also puts the declarative contract in place before the embedded engine and model builder, both of which become materially easier against it. Cost: delays the snapshot driver's scientific payoff.
-
-**Option B — snapshot-global first (recommended if the coupled-rate measurement is inconclusive, or if global SHAM is scientifically urgent).** Delivers the payoff the whole snapshot pathway was built for. Cost: the dispatch machinery is extended twice, and the second extension must reconcile with the first.
-
-**[`MIMIC-EMULATOR-PLAN.md`](MIMIC-EMULATOR-PLAN.md) sits outside the A/B question entirely, and is wanted earlier than its table position suggests.** It adds no processing mode and touches none of the shared dispatch or metadata machinery the ordering argument turns on — it drives the existing executable through run files and reads its output — so it neither contends with either option nor is gated by them. Two things pull it forward: `MIMIC-MODEL-BUILDER-PLAN.md` cannot start without the science-gate prototype it still lists as unmet, and `MIMIC-COUPLED-RATE-FORMULATION-PLAN.md` Gate item 5 requires the new package's differences from the control to be quantified and attributed, and a point calibration cannot compare two structures on equal footing (the attribution half stays a direct comparison either way). **If Option A is chosen, this brief's own spike should be sequenced with it rather than after it.** The spike touches no Mimic code and is safe to run beside anything, exactly like the coupled-rate measurement.
-
-**Either way**, `MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md` follows the global-modules brief — it has nothing to parallelise until a snapshot-global contract exists — and it carries a constraint from the coupled-rate work whichever order is chosen: **a domain decomposition must not cut a connected component of the transfer graph.** Cheaper to know while designing decomposition than to retrofit. Then `MIMIC-EMBEDDED-ENGINE-PLAN.md`, then `MIMIC-MODEL-BUILDER-PLAN.md`.
-
-**The decision does not need making yet, but it now has evidence.** [`SAGE16-PRESCRIPTION-CLASSIFICATION.md`](SAGE16-PRESCRIPTION-CLASSIFICATION.md) (2026-08-20) settles the coupled-rate brief's Open Question 1 and reports one finding that bears directly on cost: under `sage16` the declared transfer graph connects the whole FoF group whenever any satellite is forming stars or retains hot gas, so the brief's hope that "galaxies remain independently solvable" does not hold for this package. Price that into Option A before choosing it. The coupled-rate brief is still gated on a zero-core-change measurement spike that is safe to run at any time and touches only new files under `models/`. Run that spike, then choose between A and B on its evidence. Re-prioritise on scientific need once the Shin-Uchuu sequence completes.
+| Document | Status | Role |
+|---|---|---|
+| [`SHIN-UCHUU-CONVERSION-PLAN.md`](SHIN-UCHUU-CONVERSION-PLAN.md) | **Open — step 1** | Converter built and micro-Uchuu-validated; the production conversion and the memory-projection fallback trigger remain |
+| [`POST-PHASE-5-JOINT-REVIEW.md`](POST-PHASE-5-JOINT-REVIEW.md) | **Open — owns step 1's ordering** | Holistic review of the Phase 5 change set; its §6 is the authoritative pre-Shin-Uchuu checklist, §4 holds decisions D1–D10, §8 records what has landed |
+| [`POST-PHASE-5-WORK.md`](POST-PHASE-5-WORK.md) | **Open** | Everything deferred, reported-but-not-fixed, or discovered during Phase 5. §2 is the pre-Shin-Uchuu detail, §3 non-blocking hygiene. **Its §6 ordering is superseded by the joint review's §6** |
+| [`MIMIC-SNAPSHOT-GLOBAL-MODULES-PLAN.md`](MIMIC-SNAPSHOT-GLOBAL-MODULES-PLAN.md) | Requirements brief — step 2 | Module contracts over a co-resident snapshot population; prerequisite met 2026-08-12 |
+| [`MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md`](MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md) | Requirements brief — step 3 | MPI decomposition for snapshot-global operations; blocked on step 2 existing |
+| [`MIMIC-EMULATOR-PLAN.md`](MIMIC-EMULATOR-PLAN.md) | Requirements brief — step 4 | Emulator-based model diagnosis: whether a package is well-posed, and which data constrains which physics |
+| [`MIMIC-COUPLED-RATE-FORMULATION-PLAN.md`](MIMIC-COUPLED-RATE-FORMULATION-PLAN.md) | Requirements brief — step 5 | Declared conservative transfers integrated as one coupled system; additive processing mode, existing ABI frozen |
+| [`MIMIC-MODEL-BUILDER-PLAN.md`](MIMIC-MODEL-BUILDER-PLAN.md) | Requirements brief — step 6 | Assisted, gate-driven model-package construction from scientific evidence |
+| [`MIMIC-EMBEDDED-ENGINE-PLAN.md`](MIMIC-EMBEDDED-ENGINE-PLAN.md) | Requirements brief — step 7, optional | Physics-only API for external hosts |
+| [`SNAPSHOT-HDF5-FORMAT.md`](SNAPSHOT-HDF5-FORMAT.md) | **Frozen contract** | The snapshot-ordered input format, `format_version = 1`, with its own versioning ratchet |
+| [`SAGE16-PRESCRIPTION-CLASSIFICATION.md`](SAGE16-PRESCRIPTION-CLASSIFICATION.md) | Standing evidence | All 18 `sage16` prescriptions classified rate/jump/algebraic/forcing; settled the coupled-rate brief's Open Question 1 |
+| [`MIMIC-DUAL-DRIVER-PLAN.md`](MIMIC-DUAL-DRIVER-PLAN.md) | Executed | Phases 0–5 all done; owns the cross-format identity gate. Archive candidate once Shin-Uchuu lands |
+| [`MIMIC-SNAPSHOT-DRIVER-PLAN.md`](MIMIC-SNAPSHOT-DRIVER-PLAN.md) | Executed | The eleven-slice Phase 5 implementation plan. Archive candidate once Shin-Uchuu lands |
+| [`SNAPSHOT-OUTPUT-PARTITIONING-PLAN.md`](SNAPSHOT-OUTPUT-PARTITIONING-PLAN.md) | Executed | D5(a): one HDF5 partition per requested output snapshot on the snapshot path. Archive candidate once Shin-Uchuu lands |
+| [`D8-SPIN-UNITS-RECONCILIATION-PLAN.md`](D8-SPIN-UNITS-RECONCILIATION-PLAN.md) | Executed and closed | `Spin` relabelled as specific angular momentum across all eight packages. Archive candidate once Shin-Uchuu lands |
+| [`D8-FOLLOWUP-RECONCILIATION-PLAN.md`](D8-FOLLOWUP-RECONCILIATION-PLAN.md) | Executed and closed | Reconciled the baseline format-version expectation D8 left mismatched; added an unconditional dimension guard to `convert_unit_scalar()`. Archive candidate once Shin-Uchuu lands |
 
 ---
 
 ## Source-Of-Truth Boundaries
 
-- `docs/VISION.md` owns architectural principles and should change only when implemented behaviour justifies a narrow vision update (for this pathway: only after the identity gate passes).
+- `docs/VISION.md` owns architectural principles and should change only when implemented behaviour justifies a narrow vision update.
 - Active plan files own implementation scope, acceptance criteria, risk gates, and validation commands.
 - `docs/DEVELOPER-GUIDE.md`, `docs/USER-GUIDE.md`, package READMEs, and `.agents/skills/` own durable user/developer instructions after a plan lands.
 - `archive/dev-plans/` owns historical records and closeouts. Do not mine it as current instruction unless an active plan explicitly cites it.
@@ -308,3 +173,26 @@ The genuine ordering question is therefore economy, not compatibility, and it tu
 - Keep output identity deterministic across MPI task counts and, for the dual-driver work, across equivalent tree-ordered and snapshot-ordered inputs (per-`UniqueGalaxyID` equality, not byte equality).
 - Snapshot-ordered input has strictly adjacent links as a format invariant; Mimic validates and aborts, never repairs. Phantom halos are Consistent-Trees' job and are already present in ctrees data.
 - Treat failing tests, generated-code drift, docs-link failures, and validation failures as real release blockers.
+
+---
+
+## Completed Work
+
+Mimic v1.0 is tagged and released from `main` as the first production baseline. What has landed since, in order. Detail lives in the owning documents and in `archive/dev-plans/`; this is the index, not the record.
+
+| Date | What landed |
+|---|---|
+| 2026-07-18 | **Snapshot-HDF5 format contract frozen** at [`SNAPSHOT-HDF5-FORMAT.md`](SNAPSHOT-HDF5-FORMAT.md), `format_version = 1` |
+| 2026-07-24 | **Converter built** under `scripts/convert/` and validated end to end on real micro-Uchuu ASCII — 22,580,924 halos, 50 snapshots, 440,651 forests. The topology-order gate was fully discharged by an exhaustive per-halo cross-check against the tree-ordered reader |
+| 2026-08-03 | **Converted dataset regenerated and re-gated** rather than assumed, because the Python stack had moved. All three totals reproduced exactly; producer battery 15/15; cross-check green including `topology-chains` |
+| 2026-08-04 | **Snapshot reader** (dual-driver Phase 4b): the `micro-uchuu-snapshot` fixture package, `struct SnapshotReader` with its own registry under `src/io/snapshot/`, and startup wiring resolving `input.tree_type` against both registries |
+| 2026-08-10 | **Pre-Phase-5 work**: the `UniqueGalaxyID` description defect corrected everywhere it had propagated, the `.git/HEAD` worktree build fix, and a sweep of package-dependent "default" test assertions. An independent readiness review returned PASS WITH RISKS, no P0/P1 |
+| 2026-08-12 | **Snapshot driver + cross-format identity gate** (Phase 5, eleven slices). For every output snapshot, aggregated across every partition, both drivers produce identical `UniqueGalaxyID` sets and per-ID bitwise-equal fields, with no tolerance — under both models and both timestep schemes. The tree path stayed byte-identical at the galaxy-record level. The gate is package-local to `micro-uchuu-snapshot` and is a **manual, dataset-present operation**; no automated tier runs it. Mechanics in `docs/DEVELOPER-GUIDE.md` → "The cross-format identity gate" |
+| 2026-08-13 | **Snapshot output partitioning** (D5(a)): one HDF5 partition per requested output snapshot, certified by an 8/8-stage identity-gate re-run on the real dataset |
+| 2026-08-14 | **`Spin` units reconciliation** (D8) across all eight packages, with `Spin` values proved byte-identical and only the label changed; plus its follow-up restoring a green default-pair suite and closing a pre-existing dimension-checking gap in `convert_unit_scalar()` |
+| 2026-08-19/20 | **Remote-safe queue fully worked**: run-profile instrumentation reporting peak RSS and the `C`/`P`/`G` terms; micro/mini-Uchuu particle counts sourced; identity-gate test coverage that existed only as run evidence committed; all 18 `sage16` prescriptions classified |
+| 2026-08-20 | **Shin-Uchuu source data located** on OzSTAR, retiring half of item 6's recorded blocker. **Emulator brief written**, and this pathway restructured around the decided seven-step order |
+
+**Archive policy.** Completed plans move out of `docs/dev/` to `archive/dev-plans/` (gitignored local history); durable instructions live in the guides, the frozen format spec, package READMEs, the skills, and the code. Already archived: `chunked-output-plan.md`, `MIMIC-CONVERTER-IMPLEMENTATION-PLAN.md`, `MIMIC-SNAPSHOT-READER-PLAN.md`, `PHASE-4B-REVIEW-AND-PRE-PHASE-5-WORK.md`, `PRE-PHASE-5-READINESS-REVIEW.md`, and `dual-driver-plan-review.md`. The reader plan's four still-live deferred entries survive its archival in `MIMIC-DUAL-DRIVER-PLAN.md`'s Phase 5 follow-up notes. Archived material is historical evidence, not active planning input.
+
+**History decision: `f81e2385` is not squashed into `13c0c9a7`.** Decided 2026-08-14; do not revisit without new evidence. D8 Slice 2 landed and was then *stopped rather than accepted* because it left the default integration suite red; `13c0c9a7` restored it. Flattening was rejected on three grounds. **Provenance** settles it alone: `f81e2385` is cited by SHA in eight places across five documents here, and squashing turns every citation into a pointer to a commit that does not exist. **Mechanics**: the two are not adjacent, so this would be a history reorder rather than a neighbour fixup, against the standing rule on amending landed commits. **Scientific record**: the commit boundary is the primary evidence for a lesson now in `.agents/skills/mimic-validation-and-qa` — run the full suite as the *last* action, because the parent plan's ordering ran it before the baseline refresh and so never tested its own final tree. The accepted cost is that `git bisect` can land on a red tree for exactly two commits; `git bisect skip` covers it. If branch history ever needs to read more cleanly, narrate the arc in the merge commit rather than rewriting the commits.

@@ -17,6 +17,12 @@ Add MPI/domain decomposition and cross-domain communication for snapshot-global 
 - The snapshot-HDF5 format is the input contract; any domain decomposition (spatial or forest-sharded) is a driver concern layered over the same files, not a new format.
 - Shin-Uchuu is **expected** to fit single-node on the current hardware, but this is not yet settled. **Recomputed 2026-08-13 from measured struct sizes** (`POST-PHASE-5-WORK.md` §2.2): ≈**317 GB** against 512 GB installed for the `sage16` production configuration under its measured output ratio, clear of the 85% fallback trigger (≈435 GB) — but the galaxy pool's allocation high-water is unmeasured, and the peak reaches ≈428 GB if the processed buffer and pool both grow to 1.5× the slab. Treat single-node feasibility as **pending the rehearsal measurement**, not as established. This still supersedes the old "~300–450 GB estimated" figure, which predated the decision to retain a second complete raw slab. The first concrete driver for this plan is likely a larger simulation (e.g. full Uchuu snapshot slabs approach 10⁸–10⁹ halos) or wall-clock pressure rather than Shin-Uchuu itself — unless that measurement says otherwise.
 
+## Why this arrives sooner than the scale trigger suggests
+
+**Recorded 2026-08-20: running Shin-Uchuu somewhere other than the conversion machine is a third driver, and the nearest one.** The single-node projection above is against 512 GB installed on one specific host. Shin-Uchuu is intended to be run by students on OzSTAR, where the per-node memory is smaller and work is allocated across nodes — so distribution is a *deployment* requirement here, not only a scale one, and it does not wait for a bigger simulation.
+
+Note the boundary precisely, because it decides whether this plan is the right lever at all. MPI decomposition serves the **cluster** case: more nodes, each holding a subdomain. It does **not** reduce what a single low-memory workstation needs, since every rank still lives in that machine's RAM and ghost regions add duplication. For a student on one workstation the relevant levers are the subset dataset the Shin-Uchuu rehearsal already produces, and the compact previous-slab projection recorded as the memory fallback in `POST-PHASE-5-WORK.md` §2.2 — not this plan.
+
 ## Gate (when activated)
 
 Distributed results match the single-node reference within a documented tolerance on a reference box.

@@ -127,9 +127,9 @@ This is the most favourable structural finding in the document: the hybrid split
 
 **Not settled, and not settleable here.**
 
-- Whether the work is justified at all. The brief gates itself on a zero-core-change measurement spike that sizes the splitting error, and this classification is an input to designing that spike, not a substitute for it. **Nothing here argues the coupled formulation should be built.**
+- Whether this classification alone argues for the work. It does not — it is an input to designing the measurement spike, not a substitute for it. Note the surrounding decision, though, recorded 2026-08-20 in `MIMIC-DEVELOPMENT-PATHWAY.md` → "The Ordered Road": the coupled formulation is treated as **certain rather than contingent**, and the spike sets priority, solver family and the attribution baseline rather than permission.
 - The clamp-to-zero sites (finding 2) are a behavioural difference, so a coupled package cannot be validated against `sage16` by bitwise parity. Its acceptance must be observational (brief Open Question 7).
-- Finding 4 raises the expected solver cost. The A/B ordering decision in `MIMIC-DEVELOPMENT-PATHWAY.md` → "After Shin-Uchuu: the two candidate orderings" should be re-read against it once the measurement spike reports.
+- Finding 4 raises the expected solver cost. The ordering question it bore on is now settled — `MIMIC-DEVELOPMENT-PATHWAY.md` → "The Ordered Road" places the snapshot-global modules before the coupled rate formulation — so this finding bears on step 5's solver family and cost estimate rather than on a sequencing choice.
 
 ---
 
