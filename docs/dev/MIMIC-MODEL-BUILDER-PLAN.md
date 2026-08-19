@@ -20,7 +20,7 @@ The model builder is not ready to implement. It becomes actionable only after:
 
 - Mimic v1.0 is tagged and the v1.0 baseline is refreshed.
 - ~~The dual-driver architecture is implemented and the snapshot driver passes cross-format identity.~~ **Met 2026-08-12.**
-- A science-gate prototype exists and has been validated on at least one trusted model or module.
+- A science-gate prototype exists and has been validated on at least one trusted model or module. **A candidate mechanism is now on record: [`MIMIC-EMULATOR-PLAN.md`](MIMIC-EMULATOR-PLAN.md) (2026-08-20).** It is a brief, not a prototype, and it is gated on its own measurement spike — so this precondition is still unmet, but it is no longer unaddressed.
 - The team has reviewed which orchestration and model-serving tools are appropriate at that time.
 
 Until those conditions hold, this document is a requirements brief and design checklist.
@@ -104,6 +104,8 @@ The builder needs a science-gate layer that does not yet exist as a complete mec
 - Figure or relation parity against digitised paper targets where tolerances can be defended.
 - Regression checks against trusted baseline output where physics is shared.
 - A structured report of deviations, uncertainties, and failed or review-class relations.
+
+**An emulator-based candidate for part of this layer is on record.** [`MIMIC-EMULATOR-PLAN.md`](MIMIC-EMULATOR-PLAN.md) proposes Bayes linear emulation with history matching to answer whether a model package is *well-posed* — whether its parameters are identifiable, whether its degrees of freedom are supported by the constraint set, and which observables constrain which physics. That is a different question from the relation-parity checks above and complements them: it needs no trusted baseline, which is what a novel model requires, and it combines multiple constraints without a weighted-sum objective, though the per-observable discrepancy budget is where their relative weight then lives (see *Calibration trade-offs* below). It does **not** discharge the injected-error validation problem — an emulator gate needs the same mutation evidence as any other gate here.
 
 Unit consistency deserves first-class weight: a silent unit mismatch has already produced a severe defect in Mimic (the quasar-wind unit error in `sage_agn_physics.h`), so unit-explicit assertions are part of the invariant set, not an optional extra.
 

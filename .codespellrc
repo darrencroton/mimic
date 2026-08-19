@@ -13,8 +13,9 @@ skip = ./mimic_venv,./sage-code,./output,./archive,./build,./benchmarks,./.git,.
 #   disjointness  the standard mathematical noun
 #   statics       a literal key in a code example, not prose
 #   re-declaring  a valid hyphenation in Mimic's own docs
+#   mutch         Simon J. Mutch, Meraxes author cited in docs/dev/MIMIC-EMULATOR-PLAN.md
 # The rest are genuine misspellings confined to vendored sources we do not
 # rewrite: rightt/righmost/refering in src/include/third_party/sglib.h;
 # assinging, spefied, therefor, re-use in src/io/tree/ctrees/ (from sage-model,
 # (C) Manodeep Sinha, MIT). Accepted cost: unflagged if they appear in our prose.
-ignore-words-list = fof,propert,disjointness,statics,re-declaring,rightt,righmost,refering,assinging,spefied,therefor,re-use
+ignore-words-list = fof,propert,disjointness,statics,re-declaring,mutch,rightt,righmost,refering,assinging,spefied,therefor,re-use
