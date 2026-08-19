@@ -16,6 +16,7 @@ This test validates that Mimic's output system correctly:
 import json
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -52,6 +53,10 @@ from framework import (
 )
 
 VALIDATION_MANIFEST_PATH = REPO_ROOT / "tests" / "generated" / "property_ranges.json"
+
+# The parser's default identity multiplier when a run declares none
+# (read_parameter_file.c seeds MimicConfig.UniqueGalaxyIDMultiplier to TREE_MUL_FAC).
+TREE_MUL_FAC = 1_000_000_000
 
 # Ensure output directories exist before any tests run
 ensure_output_dirs()
@@ -724,6 +729,164 @@ def test_unique_id_contract():
     print("  ✓ UniqueGalaxyID uniqueness and UniqueCentralGalaxyID host-central mapping validated")
 
 
+def configured_unique_galaxy_id_multiplier(param_file):
+    """The identity multiplier the run in ``param_file`` is configured with.
+
+    Read from whichever simulation config the run file points at, rather than
+    from the selected package's own ``simulation_info.yaml``: the generated core
+    test inputs point at a metadata fixture, and it is the config the run
+    actually loaded that the output must record. Absent means the parser's
+    default applies (``read_parameter_file.c`` seeds ``TREE_MUL_FAC``).
+    """
+    with open(param_file) as handle:
+        config = yaml.safe_load(handle)
+
+    declared = (config.get("simulation") or {}).get("unique_galaxy_id_multiplier")
+    if declared is None:
+        sim_config_path = resolve_sim_config_path(config["simulation"]["config"], param_file)
+        with open(sim_config_path) as handle:
+            sim_config = yaml.safe_load(handle)
+        declared = ((sim_config or {}).get("simulation") or {}).get("unique_galaxy_id_multiplier")
+
+    return int(declared) if declared is not None else TREE_MUL_FAC
+
+
+def multiplier_run_files(param_file, temp_dir, multiplier):
+    """A copy of `param_file` declaring `multiplier`, plus its output paths.
+
+    The value is written into the run file rather than the simulation config, so
+    it arrives through the run-file parser pass. That is the same override
+    mechanism `test_processing_order.py` uses, and it works for any package
+    because it does not depend on what the package itself declares.
+    """
+    with open(param_file) as handle:
+        config = yaml.safe_load(handle)
+    config.setdefault("simulation", {})["unique_galaxy_id_multiplier"] = multiplier
+
+    rewritten = Path(temp_dir) / f"multiplier_{multiplier}.yaml"
+    with open(rewritten, "w") as handle:
+        yaml.safe_dump(config, handle, default_flow_style=False, sort_keys=False)
+    return rewritten
+
+
+def assert_multiplier_recorded(master_file, partition_file, expected):
+    """Assert both output files record `expected` as the identity multiplier."""
+    import h5py
+
+    # Master and partition are written by different code paths, so both are read
+    # rather than one being taken as evidence for the other.
+    for path in (master_file, partition_file):
+        with h5py.File(path, "r") as handle:
+            assert "RunProperties" in handle, f"{path.name}: no RunProperties group"
+            attrs = handle["RunProperties"].attrs
+            assert "UniqueGalaxyIDMultiplier" in attrs, (
+                f"{path.name}: RunProperties records no UniqueGalaxyIDMultiplier, so the "
+                f"UniqueGalaxyID values in this file cannot be decoded"
+            )
+            recorded = int(np.ravel(attrs["UniqueGalaxyIDMultiplier"])[0])
+            assert recorded == expected, (
+                f"{path.name}: RunProperties/UniqueGalaxyIDMultiplier is {recorded}, but the "
+                f"run was configured with {expected}"
+            )
+
+
+def test_hdf5_unique_galaxy_id_multiplier_provenance():
+    """
+    Test that HDF5 output records the identity multiplier that encoded its ids.
+
+    Contract:
+      - RunProperties/UniqueGalaxyIDMultiplier is present in the master file and
+        in a numbered partition file, not only one of them
+      - both record the multiplier the run was actually configured with, under a
+        non-default configuration as well as the default
+      - the recorded value is consistent with the ids actually written
+
+    UniqueGalaxyID is meaningless without the multiplier that produced it --
+    ``halonr + multiplier * (forestnr_global + 1)`` cannot be decoded, and two
+    runs cannot be compared, without knowing which multiplier was used. The
+    attribute is that provenance, so an output file that omits it or records the
+    wrong value is unusable in a way nothing else here would detect.
+
+    The second run is what makes this falsifiable, and it is the reason the test
+    does not stop at the default. Every shipped package either declares the
+    default 10^9 or inherits it, so a writer that ignored
+    ``MimicConfig.UniqueGalaxyIDMultiplier`` and stamped the ``TREE_MUL_FAC``
+    constant instead would record the right number for every package and pass a
+    default-only test. Running once at 10^10 and requiring the attribute to
+    follow catches exactly that: it is a claim about the producer, not about the
+    configuration the test itself supplied. 10^10 has package-neutral precedent
+    in ``test_processing_order.py``.
+
+    The id-consistency check is the weaker half and is stated as such: because
+    the encoder adds one to the forest index, every id divided by the true
+    multiplier is at least 1, so a recorded multiplier that is too large
+    collapses those quotients below 1 and is caught. A multiplier too small is
+    caught by the equality assertions instead.
+    """
+    print("Testing UniqueGalaxyIDMultiplier provenance...")
+
+    if not MIMIC_EXE.exists():
+        raise TestSkipped("Mimic not built")
+
+    if not check_hdf5_support():
+        raise TestSkipped("HDF5 not compiled")
+
+    try:
+        import h5py  # noqa: F401 - import used only for availability check
+    except ImportError:
+        raise TestSkipped("h5py not available")
+
+    param_file = core_input_file("test_hdf5.yaml")
+    output_dir = TEST_DATA_DIR / "output" / "hdf5"
+    master_file = output_dir / "model.hdf5"
+    if selected_package_writes_binary():
+        # Tree-ordered partition files are named by filenr; filenr 0 always exists.
+        partition_file = output_dir / "model_000.hdf5"
+    else:
+        # A snapshot-ordered run names each partition file after the snapshot it
+        # holds, so the name comes from the run file's own request.
+        partition_file = (
+            output_dir / f"model_{first_requested_output_snapshot(param_file):03d}.hdf5"
+        )
+
+    def run_and_check(run_file, expected):
+        # run_mimic_fresh removes only the path it is given, so the partition is
+        # cleared explicitly: a stale partition from an earlier run would
+        # otherwise satisfy the per-file assertion without being regenerated.
+        if partition_file.exists():
+            partition_file.unlink()
+        run_mimic_fresh(run_file, master_file)
+        assert partition_file.exists(), f"HDF5 partition file not created: {partition_file}"
+        assert_multiplier_recorded(master_file, partition_file, expected)
+
+    # 1. The configuration as shipped, whatever the selected package declares.
+    default_expected = configured_unique_galaxy_id_multiplier(param_file)
+    run_and_check(param_file, default_expected)
+
+    halos, _ = load_hdf5_halos(partition_file)
+    ids = np.asarray(halos.UniqueGalaxyID)
+    if ids.size:
+        forest_indices = ids // default_expected
+        assert forest_indices.min() >= 1, (
+            f"{partition_file.name}: {int((forest_indices < 1).sum())} UniqueGalaxyID value(s) "
+            f"divide by the recorded multiplier {default_expected} to less than 1, which the "
+            f"encoder's forest offset makes impossible -- the recorded multiplier is too large"
+        )
+
+    # 2. A non-default multiplier the producer must actually follow.
+    non_default = 10 * default_expected
+    temp_dir = tempfile.mkdtemp(prefix="mimic_multiplier_provenance_")
+    try:
+        run_and_check(multiplier_run_files(param_file, temp_dir, non_default), non_default)
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+    print(
+        f"  ✓ UniqueGalaxyIDMultiplier recorded in master and partition at both "
+        f"{default_expected} and {non_default}"
+    )
+
+
 def test_format_equivalence():
     """
     Test that binary and HDF5 formats produce identical output (all properties)
@@ -853,6 +1016,7 @@ def main():
             test_hdf5_compression_equivalence,
             test_hdf5_baseline_comparison,
             test_unique_id_contract,
+            test_hdf5_unique_galaxy_id_multiplier_provenance,
             test_format_equivalence,
         ],
         "Output Formats (test_output_formats.py)",

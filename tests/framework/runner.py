@@ -33,13 +33,23 @@ def _first_line(exc):
     return lines[0] if lines else ""
 
 
-def run_test_suite(tests, title):
+def run_test_suite(tests, title, abort_on_failure=False):
     """Run test callables with marker emission and a summary; return exit code.
 
     Args:
         tests: Iterable of zero-argument test callables (see module docstring
             for the outcome contract).
         title: Suite title for the banner, e.g. "Full Pipeline (test_full_pipeline.py)".
+        abort_on_failure: Stop after the first FAIL or ERROR instead of running
+            the rest. Off by default, because independent tests are more useful
+            run to completion: one failure should not hide the state of the
+            others. Turn it on for a suite whose entries are ordered *stages*,
+            where each depends on the previous one having completed -- there
+            every later stage fails its own prerequisite check, which costs the
+            stage's setup time and buries the real failure under redundant ones.
+            Skipped-by-abort tests still emit a marker naming the stage that
+            stopped the suite, so the one-marker-per-test contract holds and no
+            test silently disappears from the record.
 
     Returns:
         int: 0 if no test failed (warnings and skips allowed), 1 otherwise.
@@ -49,12 +59,13 @@ def run_test_suite(tests, title):
     print(f"{BLUE}Test Suite: {title}{NC}")
     print(f"{BLUE}{'=' * 60}{NC}")
 
+    tests = list(tests)
     passed = 0
     failed = 0
     skipped = 0
     warned = 0
 
-    for test in tests:
+    for index, test in enumerate(tests):
         print()
         try:
             outcome = test()
@@ -73,6 +84,12 @@ def run_test_suite(tests, title):
         except Exception as exc:  # deliberate: any other exception is an ERROR
             result_error(test.__name__, _first_line(exc))
             failed += 1
+
+        if abort_on_failure and failed:
+            for remaining in tests[index + 1 :]:
+                result_skip(remaining.__name__, f"aborted after {test.__name__} failed")
+                skipped += 1
+            break
 
     print()
     print(f"{BLUE}{'=' * 60}{NC}")

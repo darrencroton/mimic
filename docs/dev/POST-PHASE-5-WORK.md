@@ -272,7 +272,7 @@ Affected: `uchuu`, `mini-uchuu`, `micro-uchuu`, `micro-uchuu-ascii`, `micro-uchu
 
 ## 3. Correctness and hygiene items (do not block Shin-Uchuu)
 
-**§3.5 and §3.6 are scheduled 2026-08-19** as the remote-safe hardening batch to run while the Shin-Uchuu source data is unreachable (`MIMIC-DEVELOPMENT-PATHWAY.md` → "Work available while the Shin-Uchuu rehearsal is blocked", item 2): they commit test coverage that today exists only as run evidence, hardening the identity gate before it is asked to certify a Shin-Uchuu subset. The rest of §3 stays opportunistic.
+**§3.5 and §3.6 were scheduled 2026-08-19 and closed 2026-08-20** as the remote-safe hardening batch run while the Shin-Uchuu rehearsal is blocked (`MIMIC-DEVELOPMENT-PATHWAY.md` → "Work available while the Shin-Uchuu rehearsal is blocked", item 2): they commit test coverage that today exists only as run evidence, hardening the identity gate before it is asked to certify a Shin-Uchuu subset. The rest of §3 stays opportunistic.
 
 ### 3.1 `make dump-ctrees-topology-tool` is broken — **reclassified 2026-08-13 (D10): this is a converter-scale-pass prerequisite, not hygiene**
 
@@ -311,17 +311,27 @@ Both are traceable:
 
 `FULL_MODEL_TEST_SIMULATIONS` and `PRODUCTION_TEST_CONFIG_SIMULATIONS` (`:41-56`) list `micro-uchuu`, `micro-uchuu-hdf5` and `micro-uchuu-ascii` but not `micro-uchuu-snapshot`. Carried forward from the Phase 4b reader plan's deferred list. Nothing in the identity gate consumes these lists, so this is a gating-completeness question, not a correctness one.
 
-### 3.5 Gate hardening: an unreachable gap and a runner annoyance
+### 3.5 Gate hardening: an unreachable gap and a runner annoyance — CLOSED 2026-08-20
 
 - `simulations/micro-uchuu-snapshot/_tests/scientific/test_cross_format_identity.py` — stage 8's `assert_records_byte_identical()` returns a record count but never asserts it is greater than zero. **Not reachable today:** stage 8 opens with `GATE.require("identity:halos-only:fixed", ...)`, and `compare_pair` hard-fails when `compared_records <= 0` or when it mismatches the independently derived count. A two-line guard whenever this file is next legitimately open.
 - `tests/framework/runner.py` does not abort the suite on a failed stage: it records the failure and continues, so every later stage still spins up and fails its prerequisite check. Exit status stays non-zero, so there is no correctness impact — but on a multi-stage gate it wastes time and buries the root cause under redundant failures.
 
-### 3.6 Test-coverage gaps recorded during the run
+**Both closed 2026-08-20.** The stage-8 guard now lives inside `assert_records_byte_identical()` rather than at the call site, so the function that promises "records byte identical" refuses to return a vacuous zero-record success. `run_test_suite()` gained an **opt-in** `abort_on_failure=False`; the default is behaviour-preserving for every existing caller and only the identity gate passes `True`, since only its entries are ordered stages. Aborted entries emit SKIP naming the stage that stopped the suite, so the one-marker-per-test contract holds and nothing disappears from the record.
+
+### 3.6 Test-coverage gaps recorded during the run — first two CLOSED 2026-08-20
 
 - **No committed self-test for `scripts/compare_cross_format_identity.py`.** Its three synthetic failure modes (perturbed byte, dropped ID, duplicated ID) plus signed-zero, NaN-payload, one-sided-duplicate and corrupt-input cases were all demonstrated as run evidence and independently re-derived by the PM, but nothing committed exercises them. The natural home is beside the gate.
 - **No committed regression test for the `UniqueGalaxyIDMultiplier` provenance attribute.** Read-back evidence exists for per-file and master on two packages; a committed test needs `tests/integration/test_output_formats.py`.
 - **The Consistent-Trees reader guards lack durable discriminating-multiplier tests.** The three forest-size guards were proven by a temporary reseed experiment and by multiplier-4 rejections on real data, then reverted.
 - **The quote-stripping branch in `tests/framework/core_test_fixtures.h` has no test.**
+
+**The first two closed 2026-08-20; the last two remain open.**
+
+`tests/scientific/test_compare_cross_format_identity.py` commits the comparator's failure modes as 15 cases. It is in the **core** tier rather than "beside the gate" as this section originally suggested, and that relocation was deliberate: the gate needs two multi-gigabyte machine-local datasets and takes hours, so nothing registered beside it runs in CI, and a self-test that never runs hardens nothing. The file is package-neutral by construction — it synthesises its own HDF5, imports the comparator from `scripts/`, and never runs Mimic — so the core tier costs nothing and runs it on every default-pair suite. Verified to pass under both the default pair and `halos-only`/`micro-uchuu-snapshot`, which exercises the other processing order.
+
+**The lesson worth carrying, because it cost a review round.** The first version of this file was validated by mutation testing and looked convincing: six deliberate breakages of the comparator, each caught by exactly the right case. An external reviewer then pointed out that all six probed the comparison *predicate* — bytes versus values, tolerant versus exact, which exit status — and none probed *coverage*. Three further mutations were tried and **all three survived**: skipping the last field of the record (`left.dtype.names[:-1]`), comparing only the first shared snapshot, and scanning duplicates on the left run only. Every payload divergence sat in an early field of Snap000, and both duplicate cases put their defect on the left. The fixtures were fixed rather than the count of cases raised: one case now perturbs the *final* field of a *later* snapshot with Snap000 identical, the one-sided duplicate moved to the right run, and the aggregation case now models both real partition layouts with ids reversed within each snapshot (which also catches removal of the per-id sort alignment). All nine mutations are now caught. **Mutation-test a comparator along both axes — what it compares, and what it visits.**
+
+`test_hdf5_unique_galaxy_id_multiplier_provenance` (`tests/integration/test_output_formats.py`) covers the provenance attribute in master and partition. It runs **twice**, once as configured and once at 10^10, for a reason worth recording: every shipped package either declares the default 10^9 or inherits it, so a writer that ignored `MimicConfig.UniqueGalaxyIDMultiplier` and stamped the `TREE_MUL_FAC` constant would record the right number everywhere and pass a default-only test. That producer mutation was applied to `src/io/output/metadata_hdf5.c:221`, rebuilt, and confirmed to fail the strengthened test and pass the original one.
 
 ### 3.7 Smaller items, verified and recorded
 

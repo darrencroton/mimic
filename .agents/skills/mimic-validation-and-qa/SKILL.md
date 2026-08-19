@@ -57,7 +57,7 @@ MIMIC_RESULT: PASS|FAIL|SKIP|WARN|ERROR <test_name> [-- <reason>]
 
 **C** (`tests/framework/test_framework.h`): `TEST_RUN(fn)` runs a function returning `TEST_PASS` (0) / `TEST_FAIL` (1) / `TEST_SKIP` (2) and emits the marker; `TEST_ASSERT`, `TEST_ASSERT_EQUAL`, `TEST_ASSERT_DOUBLE_EQUAL(a,b,tol,msg)`, `TEST_ASSERT_STRING_EQUAL` emit FAIL markers automatically; a failing test with no assertion marker still gets a generic FAIL so nothing is invisible in summary mode. `return TEST_SKIP_WITH("reason")` for configurations where the test genuinely cannot run. Finish with `TEST_SUMMARY()`/`TEST_RESULT()`.
 
-**Python** (`tests/framework`): `result_pass/result_fail/result_skip/result_warn/result_error` from `markers.py`; raise `TestSkipped("reason")` to skip. The shared loop `run_test_suite` (`tests/framework/runner.py`) catches `TestSkipped` → `result_skip`, and a test function that *returns a non-empty string* is surfaced as a WARN with that string as the reason (verified at `runner.py:61-62`) — use that for soft findings that shouldn't fail the suite.
+**Python** (`tests/framework`): `result_pass/result_fail/result_skip/result_warn/result_error` from `markers.py`; raise `TestSkipped("reason")` to skip. The shared loop `run_test_suite` (`tests/framework/runner.py`) catches `TestSkipped` → `result_skip`, and a test function that *returns a non-empty string* is surfaced as a WARN with that string as the reason (verified at `runner.py:72-73`) — use that for soft findings that shouldn't fail the suite. **`run_test_suite` also takes an opt-in `abort_on_failure=False`**: leave it off for ordinary suites, where independent tests are more useful run to completion, and turn it on only for a suite whose entries are ordered *stages* that each depend on the previous (the cross-format identity gate is the one such caller). Aborted entries emit SKIP naming the stage that stopped the suite, so every test still produces exactly one marker.
 
 ## 3. Where a test lives (placement decision table)
 
@@ -117,6 +117,7 @@ Then: run the individual test → run its tier with `summary` → confirm your m
 - **Cost**: it builds four executables in isolated git worktrees (`{halos-only, sage16} × {ascii, snapshot}`) and performs nine full runs — on the order of hours. Run it deliberately, not as part of routine iteration.
 - **How to run it**: `make MODEL=halos-only SIMULATION=micro-uchuu-snapshot tests-scientific`, on a machine holding both datasets.
 - **Comparator**: `scripts/compare_cross_format_identity.py` — duplicate-ID assertion, then ID-set equality, then per-field raw-byte comparison; the one implementation of the frozen algorithm, consumed by nothing else.
+- **Comparator self-test**: `tests/scientific/test_compare_cross_format_identity.py` — synthesises its own tiny HDF5 runs and asserts the comparator's exit status for each way two runs can disagree (perturbed value, dropped id, duplicated id on either side, signed zero, matching and differing NaN payloads, schema and snapshot-set mismatches, unreadable input). It is in the **core** tier, not beside the gate, deliberately: the gate needs multi-gigabyte datasets and hours so it never runs in CI, while this is package-neutral and runs in seconds on the default pair. **A gate is only as trustworthy as its comparator's ability to fail**, and the gate itself cannot demonstrate that. When changing the comparator, mutation-test it: break it deliberately and confirm this file catches it — coverage of the comparison *predicate* is not coverage of which fields, snapshots and runs are actually visited.
 
 Full driver mechanics and the parity checklist the gate is checking: `docs/DEVELOPER-GUIDE.md` → "The Snapshot Driver" and "The cross-format identity gate".
 
@@ -128,12 +129,12 @@ Verified against the live repo 2026-07-04; the cross-format identity gate (secti
 sed -n '41,56p' scripts/discovery.py                       # FULL_MODEL_TEST_SIMULATIONS membership
 grep -n "BASELINE_RTOL_DEFAULT\|BASELINE_ATOL_DEFAULT" tests/framework/harness.py
 grep -n "MIMIC_BASELINE_RTOL" .github/workflows/ci.yml     # CI tolerance still 1e-3
-sed -n '55,65p' tests/framework/runner.py                  # string-return -> WARN behavior
+sed -n '65,95p' tests/framework/runner.py                  # string-return -> WARN; abort_on_failure
 grep -n -i "never regenerate" scripts/regenerate_baseline.sh
 sed -n '15,30p' models/sage16/modules/_tests/test_scientific_sage_physics_baseline.py  # refresh recipe
 ls tests/framework/*template* models/sage16/modules/_tests/sage_test_fixtures.h
 grep -n "strict" scripts/generate_test_registry.py | head -3
-ls simulations/micro-uchuu-snapshot/_tests/scientific/test_cross_format_identity.py scripts/compare_cross_format_identity.py
+ls simulations/micro-uchuu-snapshot/_tests/scientific/test_cross_format_identity.py scripts/compare_cross_format_identity.py tests/scientific/test_compare_cross_format_identity.py
 ```
 
 Tier runtimes and the gating set are the most drift-prone facts; the marker protocol and placement rules are framework architecture and durable.

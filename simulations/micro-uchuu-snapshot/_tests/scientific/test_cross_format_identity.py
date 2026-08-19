@@ -1477,6 +1477,17 @@ def assert_records_byte_identical(baseline: RunOutput, head: RunOutput) -> int:
                         )
                 total += int(left.shape[0])
                 del left_records, right_records
+
+    # A byte-identity claim over zero records is vacuously true, and every
+    # structural check above passes on two runs that both produced nothing.
+    # Nothing else in this stage would notice, so the count the comparison
+    # actually made is asserted here rather than only logged by the caller.
+    if total == 0:
+        raise AssertionError(
+            f"compared 0 galaxy records between {baseline.master.name} and "
+            f"{head.master.name}; a byte-identity result over an empty comparison "
+            f"certifies nothing"
+        )
     return total
 
 
@@ -1675,7 +1686,17 @@ def main() -> int:
     for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
         signal.signal(signum, _cleanup_on_signal)
     try:
-        return run_test_suite(STAGES, "Cross-format identity gate (test_cross_format_identity.py)")
+        # Stages, not independent tests: every one calls GATE.require() for the
+        # previous. Without the abort, a failure in an early stage is followed by
+        # each later stage building nothing, failing its prerequisite check, and
+        # burying the real cause under redundant failures -- on a gate whose
+        # stages build worktrees and run Mimic, that is hours spent restating one
+        # fault.
+        return run_test_suite(
+            STAGES,
+            "Cross-format identity gate (test_cross_format_identity.py)",
+            abort_on_failure=True,
+        )
     finally:
         cleanup()
 

@@ -116,7 +116,7 @@ Integration tests are plain Python scripts. You can run core tests under `tests/
 python3 tests/scientific/test_scientific.py
 ```
 
-Scientific validation currently has one repository-level script in `tests/scientific/`. Future simulation or module scientific tests can be run the same way with `python3 path/to/test.py`.
+Scientific validation has two repository-level scripts in `tests/scientific/`: `test_scientific.py` (model-neutral scientific contracts) and `test_compare_cross_format_identity.py` (an adversarial self-test of `scripts/compare_cross_format_identity.py`, the comparator behind the cross-format identity gate — it synthesises its own HDF5, needs no dataset and no Mimic run, and takes seconds). Future simulation or module scientific tests can be run the same way with `python3 path/to/test.py`.
 
 ## Directory Structure
 
