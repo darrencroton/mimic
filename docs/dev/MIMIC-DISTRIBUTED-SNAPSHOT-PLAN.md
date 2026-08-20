@@ -23,6 +23,10 @@ Add MPI/domain decomposition and cross-domain communication for snapshot-global 
 
 Note the boundary precisely, because it decides whether this plan is the right lever at all. MPI decomposition serves the **cluster** case: more nodes, each holding a subdomain. It does **not** reduce what a single low-memory workstation needs, since every rank still lives in that machine's RAM and ghost regions add duplication. For a student on one workstation the relevant levers are the subset dataset the Shin-Uchuu rehearsal already produces, and the compact previous-slab projection recorded as the memory fallback in `POST-PHASE-5-WORK.md` §2.2 — not this plan.
 
+## Constraint carried backwards from the performance work
+
+**Do not assume single-threaded ranks. Recorded 2026-08-20.** [`OPTIMISATION-SPECTRUM.md`](OPTIMISATION-SPECTRUM.md) item 16 (thread-per-forest) and item 18 (snapshot-slab parallelism) are live candidates scheduled as pathway step 4, after this work. Whether a rank is threaded changes the per-rank memory budget, ghost-region duplication, the load-balance unit, and the required `MPI_THREAD_*` support level — implementation commitments, not knowledge that can be deferred. **State the assumed thread model explicitly in the first design sketch.** Note also that the enabling refactor for item 16 — instancing the tree-driver globals listed in that item — is substantially the same refactor a rank-parallel design wants, and it is already half done (the galaxy pool is an instanced handle API; the snapshot driver holds its state in a struct). If that sketch finds the thread model genuinely blocking, say so and revisit the pathway ordering rather than working around it.
+
 ## Gate (when activated)
 
 Distributed results match the single-node reference within a documented tolerance on a reference box.
