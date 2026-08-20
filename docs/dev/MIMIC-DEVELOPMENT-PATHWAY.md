@@ -47,7 +47,7 @@ flowchart TD
 
     S6 -.->|mode and metadata machinery<br/>must anticipate a rate mode| S2
     S6 -.->|decomposition must not cut<br/>a transfer-graph component| S3
-    S6 -.->|deletes transport scratch (don't add more),<br/>adds a mode: defer SoA and batch dispatch| S4
+    S6 -.->|deletes transport scratch, adds a mode:<br/>defer SoA and batch dispatch| S4
     S4 -.->|decomposition must not assume<br/>single-threaded ranks| S3
     S5 -.->|candidate science gate| S7
 
