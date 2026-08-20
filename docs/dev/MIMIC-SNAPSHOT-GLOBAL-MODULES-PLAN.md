@@ -25,6 +25,8 @@ Single-node only. Shin-Uchuu's peak snapshot is **expected** to fit on the curre
 - Determinism: global operations must be reproducible for a given input — stable ordering for rank ties, stable per-halo seeding, no traversal-order RNG.
 - Cross-format identity for FoF-scoped physics must remain green with snapshot-global modules disabled; runs using snapshot-global modules are snapshot-driver-only by definition and make no tree-driver identity claim.
 
+**One of the methods this brief exists to unlock may not be a one-way population operation. Recorded 2026-08-20.** [`MIMIC-COUPLED-RATE-FORMULATION-PLAN.md`](MIMIC-COUPLED-RATE-FORMULATION-PLAN.md) treats snapshot-global work as orthogonal to its coupled system because global operations *"are population operations, not transfers"* — true of rank-order SHAM, HOD population and environment measures, which read the population and write per-galaxy results one way. A **synchronous reionization radiation field couples in both directions**, since the field suppresses the sources that produce it. That does not by itself require an implicit solve: the field could be lagged between steps, evolved causally, or made consistent within a snapshot, and those are different contracts. Which of them the mode supports — or that it excludes the case — is a decision for this brief's implementation plan, cheaper made before the machinery exists than retrofitted after. The shipped `sage16` reionization is not this case; it is the one-way algebraic prescription (`SAGE16-PRESCRIPTION-CLASSIFICATION.md` item 1).
+
 ## Gate (when activated)
 
 A first snapshot-global module (global SHAM) runs on the micro-Uchuu snapshot fixture with documented, reproducible output, and all existing FoF-scoped gates stay green.
