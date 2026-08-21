@@ -1,6 +1,6 @@
 ---
 name: mimic-diagnostics-and-tooling
-description: "Mimic's measurement toolbox - how to MEASURE instead of eyeball. Load when a task needs to inspect or quantify anything: validator exit codes (validate-modules, check-generated, lint-parameters, check-docs, check-format, make info), grepping MIMIC_RESULT markers from logs, memory leak reports and valgrind, inspecting HDF5 or binary galaxy output (h5ls, h5py, output_schema.json), NaN/Inf/range scanning, baseline comparison tools (compare_halos_comprehensive, baseline_rtol), the pipeline fuzzer (fuzz_pipeline.py), benchmarking (benchmark_mimic.sh), or git-history inspection recipes. This is the toolbox; for WHERE to look when something is broken, use mimic-debugging-playbook."
+description: "Mimic's measurement toolbox - how to MEASURE instead of eyeball. Load when a task needs to inspect or quantify anything: validator exit codes (validate-modules, check-generated, lint-parameters, check-docs, check-format, make info), grepping MIMIC_RESULT markers from logs, memory leak reports and valgrind, inspecting HDF5 or binary galaxy output (h5ls, h5py, output_schema.json), NaN/Inf/range scanning, baseline comparison tools (compare_halos_comprehensive, baseline_rtol), the pipeline fuzzer (fuzz_pipeline.py), whole-run benchmarking (benchmark_mimic.sh), component-level CPU profiling and attribution (scripts/profiling), or git-history inspection recipes. This is the toolbox; for WHERE to look when something is broken, use mimic-debugging-playbook."
 ---
 
 # Mimic Diagnostics and Tooling
@@ -101,9 +101,20 @@ python3 scripts/fuzz_pipeline.py --seed 12345                   # replay one fai
 
 Options: `--runs/--hours`, `--seed`, `--model`/`--simulation`, `--timeout` (120 s default), `--sampling random|valid-subset` (random stresses the validation boundary; valid-subset builds dependency-closed executable pipelines), `--strict` (count ordering-validation rejections as failures), `--log-dir`, `--progress-every`. Failure artifacts (config + stdout/stderr + result) land under `archive/fuzz-logs/failures/<seed>/` — note `archive/` is a gitignored machine-local dir; create it if absent. Reach for the fuzzer after changes to dispatch, phase parsing, or pipeline validation.
 
-## 7. Benchmarking
+## 7. Benchmarking and CPU profiling
 
 `./scripts/benchmark_mimic.sh [--verbose] [--compress] [--param-file FILE]` — clean-builds, times a full run (`/usr/bin/time`, platform-aware), and writes timestamped JSON under `benchmarks/` (gitignored machine-local symlink; results include git SHA, system, runtime, peak memory). Env vars: `MIMIC_FLAGS`, `EXTRA_CFLAGS` (e.g. `-O3 -march=native`), `MAKE_FLAGS` (e.g. `USE-HDF5=no`), `MPI_RUN_COMMAND` (e.g. `mpirun -np 4`), `MIMIC_EXECUTABLE`. Discipline: same machine, before AND after, for any performance-sensitive change; a faster generated test input exists via `make generate-test-inputs` + `--param-file build/generated/test_inputs/sage16/mini-millennium/core/test_binary.yaml`.
+
+`benchmark_mimic.sh` answers "how long does the run take". For **where the time goes**, use the CPU attribution harness in `scripts/profiling/` (**macOS only** — it depends on `/usr/bin/sample` for `file:line` call-graph annotations; `scripts/profiling/README.md` covers the absent Linux path). It samples a run, assigns every self-sample to exactly one component along the VISION ownership boundaries, and writes per-component, per-line, libm-payer and inclusive tables as JSON:
+
+```bash
+python3 scripts/profiling/nm_index.py                             # symbol -> source index (gitignored)
+scripts/profiling/sample_runs.sh <run.yaml> 20 /tmp/samples       # serialised sampled runs
+python3 scripts/profiling/run_wall.py <run.yaml> 15 baseline -o /tmp/wall.json   # sampler-free wall time
+python3 scripts/profiling/attribute.py /tmp/samples /tmp/agg.json --skip-first --wall-mean-s <mean_s>
+```
+
+Discipline that makes the output trustworthy: pass the **sampler-free** wall mean (`--wall-mean-s`), because the realised sampling interval is coarser than the nominal 1 ms and sample counts must never be multiplied by it; `--skip-first` to drop the cold-cache repeat. **The harness's failure mode is not a crash but a plausible-looking wrong profile**, so `attribute.py` exits non-zero when source-annotated samples stop mapping to components (a `MIMIC_REPO` mismatch, recorded as `source_attribution.mapped_fraction`) or when the `Unattributed` share grows. Trust per-component totals; per-line attribution inside a translation unit is soft because `-O2` inlines static helpers into their caller. The reference output is `docs/dev/BENCHMARK-SAGE16-MINI-MILLENNIUM.md`, and `docs/dev/OPTIMISATION-SPECTRUM.md` says to re-measure before acting on any of it.
 
 ## 8. Git-history instruments
 

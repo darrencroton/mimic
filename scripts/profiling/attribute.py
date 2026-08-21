@@ -1,40 +1,65 @@
 #!/usr/bin/env python3
 """Component attribution and aggregation over a set of parsed `sample` reports.
 
-Usage: attribute.py <sample_dir> <out.json> [wall_seconds_mean]
+    attribute.py <sample_dir> <out.json> [--wall-mean-s S] [--nm-index PATH]
+                 [--skip-first] [--max-unattributed-pct P]
 
-Attribution rules (VISION.md architectural boundaries):
+Every self-sample is assigned to exactly one component along the ownership boundaries in
+`docs/VISION.md`:
 
-  source-annotated frames        -> component from the source path
-  libsystem_m frames             -> "Math library" (plus a secondary
-                                    "who pays for libm" table keyed on the
-                                    nearest source-annotated ancestor)
-  libhdf5 frames                 -> "Output I/O" (checked: nearest sourced
-                                    ancestor must be src/io/output; otherwise
-                                    the frame is reported as Unattributed)
-  kernel read/open/lseek/close   -> component of nearest sourced ancestor when
-  write/pwrite/ftruncate/fstat      that ancestor is Tree input I/O or Output I/O,
-                                    else Runtime/system
-  libsystem_platform/malloc/c,   -> "Runtime/system" (memmove/bzero also get a
-  dyld, other kernel                secondary "who pays" table)
-  mimic DYLD-STUB$$<libm fn>     -> "Math library" (PLT thunk for that call)
-  anything else                  -> "Unattributed" (never silently folded in)
+  source-annotated frames        -> component from the repository-relative source path
+  libsystem_m frames             -> "Math library", plus a secondary "who pays for libm"
+                                    table keyed on the nearest source-annotated ancestor
+  libhdf5 frames                 -> the I/O component of the nearest sourced ancestor,
+                                    falling back to "Output I/O" when no I/O ancestor is found
+  kernel syscalls                -> the same I/O component when reached through libhdf5,
+                                    "Runtime/system" when reached through the allocator,
+                                    otherwise the component of the nearest sourced ancestor
+  libsystem_platform/malloc/c,   -> "Runtime/system"; memmove/bzero/malloc also get a
+  dyld, other kernel                secondary "who pays" table
+  mimic DYLD-STUB$$<libm fn>     -> "Math library" (the PLT thunk for that call)
+  anything else                  -> "Unattributed", never silently folded into a component
 
-Symbols in ./mimic with no source annotation and no rule are resolved to their
-defining translation unit by the nm index built by nm_index.py, if available.
+Frames in ./mimic with no source annotation and no rule are resolved to their defining
+translation unit through the index built by nm_index.py, when one is available.
+
+Two health checks decide whether the attribution itself can be trusted, because the way
+this harness fails is not a crash but a plausible-looking profile that is quietly wrong.
+Both exit non-zero rather than adding a footnote:
+
+  - The reports must carry self-samples at all, and some of them must carry file:line
+    annotations.  Without annotations the whole method rests on the coarser symbol index,
+    which is exactly the state the next check exists to detect.
+  - Source-annotated samples must overwhelmingly map to a component.  When they do not,
+    the report's paths do not sit under REPO, and every annotated frame has silently
+    fallen through to the symbol-index fallback.
+  - The Unattributed share must stay small, or whole binaries matched no rule at all.
 """
 
+import argparse
 import collections
 import json
+import math
 import os
 import sys
+from functools import lru_cache
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from parse_sample import parse_file, walk  # noqa: E402
 
-REPO = os.environ.get(
-    "MIMIC_REPO", os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+REPO = os.path.realpath(
+    os.environ.get(
+        "MIMIC_REPO",
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    )
 )
+DEFAULT_NM_INDEX = os.path.join(os.path.dirname(os.path.abspath(__file__)), "nm_index.json")
+DEFAULT_MAX_UNATTRIBUTED_PCT = 1.0
+# Below this share of source-annotated samples mapping to a component, REPO is wrong.
+MIN_SOURCE_MAPPED_FRACTION = 0.9
+HOT_LINE_LIMIT = 60
+INCLUSIVE_LIMIT = 60
+UNMAPPED_EXAMPLE_LIMIT = 5
 
 CORE_SUBPART = {
     "tree_driver.c": "core: tree_driver",
@@ -65,119 +90,25 @@ UTIL_SUBPART = {
     "run_profile.c": "util: run_profile",
     "version.c": "util: version",
 }
-KERNEL_IO = {
-    "__read_nocancel",
-    "read",
-    "__open",
-    "__open_nocancel",
-    "open",
-    "lseek",
-    "__lseek",
-    "close",
-    "fstat",
-    "fstat64",
-    "pread",
-    "write",
-    "__write_nocancel",
-    "pwrite",
-    "ftruncate",
-    "fsync",
-    "__pwrite_nocancel",
-}
-LIBM_FNS = {
-    "log10",
-    "__exp10",
-    "exp",
-    "pow",
-    "cbrt",
-    "log",
-    "sqrt",
-    "exp2",
-    "log2",
-    "sin",
-    "cos",
-    "atan",
-    "pow_precise",
-}
-
-
-def component_from_source(src):
-    """(component, detail) for a source-annotated frame; None if not ours."""
-    if not src:
-        return None
-    p = src.replace(REPO, "")
-    p = p.replace("src/core/../", "src/").replace("src/io/output/../../", "src/")
-    p = p.replace("src/io/tree/../../", "src/")
-    base = os.path.basename(p)
-    if p.startswith("models/") and "/modules/" in p:
-        mod = p.split("/modules/", 1)[1].split("/")[0]
-        if mod.endswith(".c"):
-            mod = mod[:-2]
-        return ("Physics modules", mod)
-    if p.startswith("models/") and "/shared/" in p:
-        return ("Model shared helpers", base)
-    if p.startswith("src/module_system/"):
-        return ("Module system framework", base)
-    if p.startswith("src/io/tree/"):
-        return ("Tree input I/O", base)
-    if p.startswith("src/io/output/"):
-        return ("Output I/O", base)
-    if p.startswith("src/util/"):
-        return ("Utilities", UTIL_SUBPART.get(base, f"util: {base}"))
-    if p.startswith("src/core/") or "include/generated" in p:
-        return ("Core execution", CORE_SUBPART.get(base, f"core: {base}"))
-    if p.startswith("src/include/"):
-        return ("Core execution", f"core: {base}")
-    return None
-
-
-def nearest_sourced(node):
-    p = node.parent
-    while p is not None:
-        c = component_from_source(p.srcfile)
-        if c:
-            return c
-        p = p.parent
-    return None
-
-
-def classify(node, nm_index):
-    """-> (component, detail, payer_component_or_None, unattributed_reason)"""
-    c = component_from_source(node.srcfile)
-    if c:
-        return c[0], c[1], None, None
-    b = node.binary
-    sym = node.symbol
-    ancestor = nearest_sourced(node)
-    payer = f"{ancestor[0]} / {ancestor[1]}" if ancestor else "unknown caller"
-    if b == "libsystem_m.dylib" or (
-        b == "mimic" and sym.startswith("DYLD-STUB$$") and sym.split("$$")[-1] in LIBM_FNS
-    ):
-        return "Math library", sym, payer, None
-    if b.startswith("libhdf5"):
-        if ancestor and ancestor[0] == "Output I/O":
-            return "Output I/O", f"libhdf5: {sym}", None, None
-        if ancestor and ancestor[0] == "Tree input I/O":
-            return "Tree input I/O", f"libhdf5: {sym}", None, None
-        return "Output I/O", f"libhdf5 (caller {payer}): {sym}", None, None
-    if b == "libsystem_kernel.dylib":
-        # Walk the library frames between this syscall and the nearest source-
-        # annotated ancestor: an intervening libhdf5 frame means the syscall is
-        # HDF5 output traffic; an intervening malloc-zone frame means it is
-        # allocator internals; otherwise it belongs to the calling component.
-        inter = []
-        q = node.parent
-        while q is not None and not component_from_source(q.srcfile):
-            inter.append(q.binary)
-            q = q.parent
-        if any(x.startswith("libhdf5") for x in inter):
-            return "Output I/O", f"kernel via libhdf5: {sym}", None, None
-        if any(x == "libsystem_malloc.dylib" for x in inter):
-            return "Runtime/system", f"malloc zone: {sym}", payer, None
-        if ancestor:
-            return ancestor[0], f"kernel: {sym}", None, None
-        return "Runtime/system", f"kernel: {sym}", payer, None
-    if b in (
+LIBM_FNS = frozenset(
+    {
+        "log10",
+        "__exp10",
+        "exp",
+        "pow",
+        "cbrt",
+        "log",
+        "sqrt",
+        "exp2",
+        "log2",
+        "sin",
+        "cos",
+        "atan",
+        "pow_precise",
+    }
+)
+RUNTIME_BINARIES = frozenset(
+    {
         "libsystem_platform.dylib",
         "libsystem_malloc.dylib",
         "libsystem_c.dylib",
@@ -186,95 +117,261 @@ def classify(node, nm_index):
         "libz.1.dylib",
         "libcompiler_rt.dylib",
         "dyld",
+    }
+)
+# Runtime details worth a secondary "who pays" table: bulk memory work and allocation.
+RUNTIME_PAYER_MARKERS = ("platform", "bzero", "memmove", "memset", "malloc")
+# Components that own file I/O, and so keep ownership of libhdf5 work done for them.
+IO_COMPONENTS = frozenset({"Output I/O", "Tree input I/O", "Snapshot input I/O"})
+
+
+@lru_cache(maxsize=None)
+def repo_relative(src):
+    """Repository-relative form of a source annotation, or None if it is not ours.
+
+    `sample -fullPaths` emits absolute paths, while annotations for headers reached through
+    relative includes arrive as `src/core/../include/x.h`.  Both must reduce to the same
+    repository-relative path, because attribution dispatches on a path prefix: a stray
+    leading separator or an unresolved `..` sends every frame to Unattributed instead.
+    """
+    if not src:
+        return None
+    path = os.path.normpath(src)
+    if not os.path.isabs(path):
+        return None if path.startswith(os.pardir) else path
+    relative = os.path.relpath(os.path.realpath(path), REPO)
+    return None if relative.startswith(os.pardir) else relative
+
+
+@lru_cache(maxsize=None)
+def component_from_source(src):
+    """(component, detail) for a source-annotated frame, or None if not repository source."""
+    path = repo_relative(src)
+    if path is None:
+        return None
+    base = os.path.basename(path)
+    if path.startswith("models/") and "/modules/" in path:
+        module = path.split("/modules/", 1)[1].split("/")[0]
+        if module.endswith(".c"):
+            module = module[:-2]  # a standalone prototype module, not a module directory
+        return ("Physics modules", module)
+    if path.startswith("models/") and "/shared/" in path:
+        return ("Model shared helpers", base)
+    if path.startswith("src/module_system/"):
+        return ("Module system framework", base)
+    if path.startswith("src/io/tree/"):
+        return ("Tree input I/O", base)
+    if path.startswith("src/io/snapshot/"):
+        return ("Snapshot input I/O", base)
+    if path.startswith("src/io/output/"):
+        return ("Output I/O", base)
+    if path.startswith("src/util/"):
+        return ("Utilities", UTIL_SUBPART.get(base, f"util: {base}"))
+    # src/include/generated holds the generated marshalling includes, which are core work.
+    if path.startswith("src/core/") or path.startswith("src/include/"):
+        return ("Core execution", CORE_SUBPART.get(base, f"core: {base}"))
+    return None
+
+
+def nearest_sourced(node):
+    """(component, detail) of the closest source-annotated ancestor, or None."""
+    parent = node.parent
+    while parent is not None:
+        component = component_from_source(parent.srcfile)
+        if component:
+            return component
+        parent = parent.parent
+    return None
+
+
+def classify(node, nm_index):
+    """Assign one frame to a component.
+
+    Args:
+        node: a parsed frame.
+        nm_index: symbol -> source path map from nm_index.py; may be empty.
+
+    Returns:
+        (component, detail, payer, reason).  `payer` names the component that caused a
+        library or kernel frame, for the secondary tables; `reason` is set only for
+        Unattributed frames and records why no rule matched.
+    """
+    component = component_from_source(node.srcfile)
+    if component:
+        return component[0], component[1], None, None
+
+    binary = node.binary
+    symbol = node.symbol
+    ancestor = nearest_sourced(node)
+    payer = f"{ancestor[0]} / {ancestor[1]}" if ancestor else "unknown caller"
+
+    if binary == "libsystem_m.dylib" or (
+        binary == "mimic"
+        and symbol.startswith("DYLD-STUB$$")
+        and symbol.split("$$")[-1] in LIBM_FNS
     ):
-        return "Runtime/system", f"{b}: {sym}", payer, None
-    if b == "mimic":
-        tu = nm_index.get(sym)
-        if tu:
-            c2 = component_from_source(REPO + tu)
-            if c2:
-                return c2[0], c2[1], None, None
-        return "Unattributed", f"mimic symbol unresolved: {sym}", payer, "no source, no nm hit"
-    if b == "<thread>":
+        return "Math library", symbol, payer, None
+    if binary.startswith("libhdf5"):
+        if ancestor and ancestor[0] in IO_COMPONENTS:
+            return ancestor[0], f"libhdf5: {symbol}", None, None
+        return "Output I/O", f"libhdf5 (caller {payer}): {symbol}", None, None
+    if binary == "libsystem_kernel.dylib":
+        # Walk the library frames between this syscall and the nearest source-annotated
+        # ancestor: an intervening libhdf5 frame means the syscall is HDF5 output traffic;
+        # an intervening malloc-zone frame means allocator internals; otherwise the syscall
+        # belongs to the calling component.
+        intervening = []
+        parent = node.parent
+        while parent is not None and not component_from_source(parent.srcfile):
+            intervening.append(parent.binary)
+            parent = parent.parent
+        if any(b.startswith("libhdf5") for b in intervening):
+            # An HDF5 read on behalf of a tree or snapshot reader is input, not output.
+            owner = ancestor[0] if ancestor and ancestor[0] in IO_COMPONENTS else "Output I/O"
+            return owner, f"kernel via libhdf5: {symbol}", None, None
+        if "libsystem_malloc.dylib" in intervening:
+            return "Runtime/system", f"malloc zone: {symbol}", payer, None
+        if ancestor:
+            return ancestor[0], f"kernel: {symbol}", None, None
+        return "Runtime/system", f"kernel: {symbol}", payer, None
+    if binary in RUNTIME_BINARIES:
+        return "Runtime/system", f"{binary}: {symbol}", payer, None
+    if binary == "mimic":
+        source = nm_index.get(symbol)
+        if source:
+            resolved = component_from_source(source)
+            if resolved:
+                return resolved[0], resolved[1], None, None
+            return (
+                "Unattributed",
+                f"mimic symbol in unmapped source: {symbol}",
+                payer,
+                f"nm hit {source}, no component rule",
+            )
+        return "Unattributed", f"mimic symbol unresolved: {symbol}", payer, "no source, no nm hit"
+    if binary == "<thread>":
         return "Unattributed", "sampler thread-header residual", None, "thread header frame"
-    return "Unattributed", f"{b}: {sym}", payer, "unknown binary"
+    return "Unattributed", f"{binary}: {symbol}", payer, "unknown binary"
 
 
-def main():
-    sdir, outjson = sys.argv[1], sys.argv[2]
-    wall_mean = float(sys.argv[3]) if len(sys.argv) > 3 else None
-    nm_index = {}
-    nmf = os.path.join(os.path.dirname(os.path.abspath(__file__)), "nm_index.json")
-    if os.path.exists(nmf):
-        nm_index = json.load(open(nmf))
-    files = sorted(f for f in os.listdir(sdir) if f.startswith("sample_"))
-    comp = collections.Counter()
-    detail = collections.Counter()
-    lines = collections.Counter()
-    libm_payer = collections.Counter()
-    plat_payer = collections.Counter()
-    unattr = collections.Counter()
-    incl = collections.Counter()
-    per_run_total = []
-    for f in files:
-        roots, total = parse_file(os.path.join(sdir, f))
-        per_run_total.append(total)
+class Aggregation:
+    """Self-sample and inclusive-sample tallies accumulated across sample reports."""
+
+    def __init__(self):
+        self.components = collections.Counter()
+        self.details = collections.Counter()
+        self.lines = collections.Counter()
+        self.libm_payers = collections.Counter()
+        self.runtime_payers = collections.Counter()
+        self.unattributed = collections.Counter()
+        self.inclusive = collections.Counter()
+        self.per_run_total_samples = []
+        # Health check: every frame carrying a source annotation should map to a component.
+        self.annotated_self_samples = 0
+        self.mapped_self_samples = 0
+        self.unmapped_sources = collections.Counter()
+
+
+def _is_outermost(node, keys):
+    """True when no ancestor carries the same component/detail key.
+
+    Inclusive time is only meaningful for the outermost entry into a component; counting
+    every occurrence would multiply-count recursion such as the depth-first tree walk.
+    """
+    key = keys[id(node)][:2]
+    parent = node.parent
+    while parent is not None:
+        if keys[id(parent)][:2] == key:
+            return False
+        parent = parent.parent
+    return True
+
+
+def aggregate(sample_files, nm_index):
+    """Tally every frame in every report into one Aggregation.
+
+    Raises:
+        ValueError: a frame has negative self-time, which means the call tree was
+            reconstructed wrongly; the totals below it cannot be trusted.
+    """
+    agg = Aggregation()
+    for path in sample_files:
+        roots, total = parse_file(path)
+        agg.per_run_total_samples.append(total)
         nodes = list(walk(roots))
-        for n in nodes:
-            # inclusive, outermost occurrence only (recursion-safe)
-            c = component_from_source(n.srcfile)
-            keyname = None
-            if c:
-                keyname = f"{c[0]} / {c[1]}"
-            else:
-                cc = classify(n, nm_index)
-                keyname = f"{cc[0]} / {cc[1]}"
-            outer = True
-            p = n.parent
-            while p is not None:
-                cp = component_from_source(p.srcfile)
-                pk = f"{cp[0]} / {cp[1]}" if cp else None
-                if pk == keyname or (p.symbol == n.symbol and p.srcfile == n.srcfile):
-                    outer = False
-                    break
-                p = p.parent
-            if outer:
-                incl[keyname] += n.count
-                if c:
-                    incl["COMPONENT::" + c[0]] += 0  # placeholder
-            if not n.self_:
-                continue
-            cname, det, payer, reason = classify(n, nm_index)
-            comp[cname] += n.self_
-            detail[(cname, det)] += n.self_
-            if n.srcfile:
-                rel = n.srcfile.replace(REPO, "")
-                lines[(rel, n.line, n.symbol)] += n.self_
-            else:
-                lines[(f"<{n.binary}>", None, n.symbol)] += n.self_
-            if cname == "Math library" and payer:
-                libm_payer[payer] += n.self_
-            if (
-                cname == "Runtime/system"
-                and payer
-                and (
-                    "platform" in det
-                    or "bzero" in det
-                    or "memmove" in det
-                    or "memset" in det
-                    or "malloc" in det
+        keys = {id(node): classify(node, nm_index) for node in nodes}
+        for node in nodes:
+            component, detail, payer, reason = keys[id(node)]
+            if _is_outermost(node, keys):
+                agg.inclusive[f"{component} / {detail}"] += node.count
+            if node.self_ < 0:
+                raise ValueError(
+                    f"{path}: frame {node.symbol!r} has self-time {node.self_}; "
+                    "the call tree was mis-nested and the aggregate would be wrong"
                 )
+            if not node.self_:
+                continue
+            if node.srcfile:
+                agg.annotated_self_samples += node.self_
+                if component_from_source(node.srcfile):
+                    agg.mapped_self_samples += node.self_
+                else:
+                    # Named so a failed health check says which paths it could not place.
+                    agg.unmapped_sources[node.srcfile] += node.self_
+            agg.components[component] += node.self_
+            agg.details[(component, detail)] += node.self_
+            if node.srcfile:
+                # Fall back to the raw path so a source outside the repo still names itself.
+                named = repo_relative(node.srcfile) or node.srcfile
+                agg.lines[(named, node.line, node.symbol)] += node.self_
+            else:
+                agg.lines[(f"<{node.binary}>", None, node.symbol)] += node.self_
+            if component == "Math library" and payer:
+                agg.libm_payers[payer] += node.self_
+            if (
+                component == "Runtime/system"
+                and payer
+                and any(marker in detail for marker in RUNTIME_PAYER_MARKERS)
             ):
-                plat_payer[payer] += n.self_
-            if cname == "Unattributed":
-                unattr[(det, reason, payer)] += n.self_
-    nruns = len(files)
-    grand = sum(comp.values())
-    res = {
-        "n_runs": nruns,
-        "per_run_total_samples": per_run_total,
+                agg.runtime_payers[payer] += node.self_
+            if component == "Unattributed":
+                agg.unattributed[(detail, reason, payer)] += node.self_
+    return agg
+
+
+def _share(value, grand, n_runs, wall_mean_s):
+    """Percentage, Poisson sigma, per-run mean, and wall-time equivalent for one tally."""
+    pct = 100.0 * value / grand
+    return {
+        "self_samples_total": value,
+        "mean_per_run": value / n_runs,
+        "pct": pct,
+        "pct_sigma_poisson": 100.0 * math.sqrt(value) / grand,
+        "wall_ms_equiv": (wall_mean_s * 1000.0 * pct / 100.0) if wall_mean_s else None,
+    }
+
+
+def build_report(agg, n_runs, wall_mean_s):
+    """Assemble the JSON report from an Aggregation."""
+    grand = sum(agg.components.values())
+    report = {
+        "n_runs": n_runs,
+        "per_run_total_samples": agg.per_run_total_samples,
         "grand_total_self_samples": grand,
-        "wall_mean_s": wall_mean,
+        "wall_mean_s": wall_mean_s,
+        "source_attribution": {
+            "annotated_self_samples": agg.annotated_self_samples,
+            "mapped_self_samples": agg.mapped_self_samples,
+            "mapped_fraction": (
+                agg.mapped_self_samples / agg.annotated_self_samples
+                if agg.annotated_self_samples
+                else None
+            ),
+            "unmapped_sources": [
+                {"file": path, "self_samples": value}
+                for path, value in agg.unmapped_sources.most_common(UNMAPPED_EXAMPLE_LIMIT)
+            ],
+        },
         "components": {},
         "details": {},
         "hot_lines": [],
@@ -283,55 +380,182 @@ def main():
         "unattributed": [],
         "inclusive": {},
     }
-    import math
-
-    for k, v in comp.most_common():
-        pct = 100.0 * v / grand
-        res["components"][k] = {
-            "self_samples_total": v,
-            "mean_per_run": v / nruns,
-            "pct": pct,
-            "pct_sigma_poisson": 100.0 * math.sqrt(v) / grand,
-            "wall_ms_equiv": (wall_mean * 1000.0 * pct / 100.0) if wall_mean else None,
-        }
-    for (c, d), v in detail.most_common():
-        pct = 100.0 * v / grand
-        res["details"][f"{c} :: {d}"] = {
-            "self_samples_total": v,
-            "mean_per_run": v / nruns,
-            "pct": pct,
-            "pct_sigma_poisson": 100.0 * math.sqrt(v) / grand,
-            "wall_ms_equiv": (wall_mean * 1000.0 * pct / 100.0) if wall_mean else None,
-        }
-    for (f, l, s), v in lines.most_common(60):
-        res["hot_lines"].append(
+    for name, value in agg.components.most_common():
+        report["components"][name] = _share(value, grand, n_runs, wall_mean_s)
+    for (component, detail), value in agg.details.most_common():
+        report["details"][f"{component} :: {detail}"] = _share(value, grand, n_runs, wall_mean_s)
+    for (path, line, symbol), value in agg.lines.most_common(HOT_LINE_LIMIT):
+        report["hot_lines"].append(
             {
-                "file": f,
-                "line": l,
-                "symbol": s,
-                "self_samples": v,
-                "pct": 100.0 * v / grand,
-                "wall_ms_equiv": (wall_mean * 1000.0 * v / grand) if wall_mean else None,
+                "file": path,
+                "line": line,
+                "symbol": symbol,
+                "self_samples": value,
+                "pct": 100.0 * value / grand,
+                "wall_ms_equiv": (wall_mean_s * 1000.0 * value / grand) if wall_mean_s else None,
             }
         )
-    for k, v in libm_payer.most_common():
-        res["libm_payers"][k] = {"self_samples": v, "pct_of_total": 100.0 * v / grand}
-    for k, v in plat_payer.most_common():
-        res["platform_malloc_payers"][k] = {"self_samples": v, "pct_of_total": 100.0 * v / grand}
-    for (d, r, p), v in unattr.most_common():
-        res["unattributed"].append(
-            {"detail": d, "reason": r, "caller": p, "self_samples": v, "pct": 100.0 * v / grand}
+    for payer, value in agg.libm_payers.most_common():
+        report["libm_payers"][payer] = {
+            "self_samples": value,
+            "pct_of_total": 100.0 * value / grand,
+        }
+    for payer, value in agg.runtime_payers.most_common():
+        report["platform_malloc_payers"][payer] = {
+            "self_samples": value,
+            "pct_of_total": 100.0 * value / grand,
+        }
+    for (detail, reason, payer), value in agg.unattributed.most_common():
+        report["unattributed"].append(
+            {
+                "detail": detail,
+                "reason": reason,
+                "caller": payer,
+                "self_samples": value,
+                "pct": 100.0 * value / grand,
+            }
         )
-    for k, v in incl.most_common(60):
-        if k.startswith("COMPONENT::"):
-            continue
-        res["inclusive"][k] = {"inclusive_samples": v, "pct": 100.0 * v / grand}
-    with open(outjson, "w") as fh:
-        json.dump(res, fh, indent=1)
-    print(f"runs={nruns} grand_total_self={grand} components={len(comp)}")
-    for k, d in list(res["components"].items()):
-        print(f"  {d['pct']:6.2f}% +-{d['pct_sigma_poisson']:.2f}  {k}")
+    for name, value in agg.inclusive.most_common(INCLUSIVE_LIMIT):
+        report["inclusive"][name] = {
+            "inclusive_samples": value,
+            "pct": 100.0 * value / grand,
+        }
+    return report
+
+
+def load_nm_index(path, explicit):
+    """Load the symbol index, warning when an implicit default is simply absent."""
+    if os.path.exists(path):
+        try:
+            with open(path) as fh:
+                return json.load(fh)
+        except (OSError, ValueError) as exc:
+            raise SystemExit(f"attribute.py: cannot read symbol index {path}: {exc}") from exc
+    message = f"no symbol index at {path}; unannotated mimic frames stay Unattributed"
+    if explicit:
+        raise SystemExit(f"attribute.py: {message} (run nm_index.py -o {path})")
+    print(f"attribute.py: warning: {message} (run nm_index.py)", file=sys.stderr)
+    return {}
+
+
+def find_sample_files(sample_dir, skip_first):
+    """Sorted sample reports in a directory, optionally dropping the warm-up repeat."""
+    if not os.path.isdir(sample_dir):
+        raise SystemExit(f"attribute.py: no such sample directory: {sample_dir}")
+    files = sorted(
+        os.path.join(sample_dir, f)
+        for f in os.listdir(sample_dir)
+        if f.startswith("sample_") and f.endswith(".txt")
+    )
+    if skip_first:
+        files = files[1:]
+    if not files:
+        raise SystemExit(
+            f"attribute.py: no sample_*.txt reports to aggregate in {sample_dir}"
+            f"{' after --skip-first' if skip_first else ''}"
+        )
+    return files
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Attribute sampled CPU time to Mimic components along VISION boundaries."
+    )
+    parser.add_argument("sample_dir", help="directory of sample_NN.txt reports")
+    parser.add_argument("out_json", help="where to write the aggregate report")
+    parser.add_argument(
+        "--wall-mean-s",
+        type=float,
+        help="sampler-free mean wall time, used to convert percentages to milliseconds",
+    )
+    parser.add_argument(
+        "--nm-index",
+        default=DEFAULT_NM_INDEX,
+        help="symbol index from nm_index.py (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--skip-first",
+        action="store_true",
+        help="drop the first report as a cold-cache warm-up",
+    )
+    parser.add_argument(
+        "--max-unattributed-pct",
+        type=float,
+        default=DEFAULT_MAX_UNATTRIBUTED_PCT,
+        help="fail if Unattributed exceeds this share (default: %(default)s)",
+    )
+    args = parser.parse_args()
+
+    nm_index = load_nm_index(args.nm_index, explicit=args.nm_index != DEFAULT_NM_INDEX)
+    files = find_sample_files(args.sample_dir, args.skip_first)
+    agg = aggregate(files, nm_index)
+    report = build_report(agg, len(files), args.wall_mean_s)
+
+    with open(args.out_json, "w") as fh:
+        json.dump(report, fh, indent=1)
+
+    print(
+        f"runs={len(files)} grand_total_self={report['grand_total_self_samples']} "
+        f"components={len(report['components'])}"
+    )
+    for name, share in report["components"].items():
+        print(f"  {share['pct']:6.2f}% +-{share['pct_sigma_poisson']:.2f}  {name}")
+
+    return report_health(report, args.max_unattributed_pct)
+
+
+def report_health(report, max_unattributed_pct):
+    """Exit status for one report: 0 when the attribution itself can be trusted.
+
+    Two independent failures produce a plausible-looking but wrong profile, so both are
+    hard failures rather than footnotes.  A low mapped fraction means the source paths in
+    the reports do not sit under REPO, which silently pushes every annotated frame onto the
+    symbol-index fallback -- coarser, and wrong wherever the compiler inlined across files.
+    A large Unattributed share means whole binaries matched no rule at all.
+    """
+    if not report["grand_total_self_samples"]:
+        print(
+            "\nattribute.py: the reports carry no self-samples; there is nothing to attribute.",
+            file=sys.stderr,
+        )
+        return 1
+
+    source = report["source_attribution"]
+    if not source["annotated_self_samples"]:
+        print(
+            "\nattribute.py: no sampled frame carries a file:line annotation, so every frame "
+            "would rest on the coarser symbol index.\nBuild with symbols (-g) before profiling; "
+            "see precondition 2 in README.md.",
+            file=sys.stderr,
+        )
+        return 1
+
+    mapped = source["mapped_fraction"]
+    if mapped < MIN_SOURCE_MAPPED_FRACTION:
+        print(
+            f"\nattribute.py: only {100.0 * mapped:.1f}% of source-annotated samples mapped to a "
+            f"component (need {100.0 * MIN_SOURCE_MAPPED_FRACTION:.0f}%).\n"
+            f"The reports' source paths do not sit under MIMIC_REPO ({REPO}); "
+            "attribution has silently fallen back to the symbol index.\nUnplaced paths:",
+            file=sys.stderr,
+        )
+        for entry in source["unmapped_sources"]:
+            print(f"  {entry['self_samples']:6d} samples  {entry['file']}", file=sys.stderr)
+        return 1
+
+    unattributed_pct = report["components"].get("Unattributed", {}).get("pct", 0.0)
+    if unattributed_pct > max_unattributed_pct:
+        print(
+            f"\nattribute.py: {unattributed_pct:.2f}% Unattributed exceeds "
+            f"{max_unattributed_pct:.2f}%; attribution is broken, not merely noisy.\n"
+            "Largest unattributed buckets:",
+            file=sys.stderr,
+        )
+        for entry in report["unattributed"][:5]:
+            print(f"  {entry['pct']:6.2f}%  {entry['reason']}: {entry['detail']}", file=sys.stderr)
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

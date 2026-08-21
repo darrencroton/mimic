@@ -1,26 +1,30 @@
 #!/usr/bin/env python3
 """Parser for /usr/bin/sample "Call graph:" output.
 
-Builds the sample call tree, computes per-frame SELF samples
-(count - sum of direct children's counts) and INCLUSIVE samples for
-outermost occurrences (recursion-safe), and aggregates by
-(source file, symbol) and by (source file, line, symbol).
+    parse_sample.py <sample.txt>
+
+Run directly, it prints a self-check of one report: frame count, total samples, and the
+number of frames whose self-time came out negative.
+
+Builds the sample call tree and computes per-frame SELF samples (count minus the sum of
+the direct children's counts).  Callers aggregate those; see attribute.py.
 
 Line grammar observed on macOS 26 / sample report version 7:
 
     <gutter><count> <symbol>  (in <binary>) [+ <off>]  [<addr>]  [<abs source path>:<line>]
 
-The gutter is built from ' ', '+', '!', ':', '|' characters; the column at
-which the count starts encodes tree depth, so depth is recovered with a
-monotonic column stack rather than by assuming a fixed indent step.
+The gutter is built from ' ', '+', '!', ':', '|' characters; the column at which the count
+starts encodes tree depth, so depth is recovered with a monotonic column stack rather than
+by assuming a fixed indent step.
 
 API:
-    parse_file(path) -> Sample(root_nodes, total)
-    Node: count, self, symbol, binary, srcfile, line, children, parent
+    parse_file(path) -> (roots, total_samples)
+    walk(nodes) -> iterator over every node, depth first
+    Node: count, self_, symbol, binary, srcfile, line, children, parent, col
 """
 
+import argparse
 import re
-import sys
 
 FRAME_RE = re.compile(r"^(?P<pre>[ +!:|]*?)(?P<count>\d+) (?P<rest>.*?)\s*$")
 # symbol  (in binary) + off  [addr]  path:line
@@ -30,6 +34,8 @@ REST_RE = re.compile(
     r"(?:\s*\[(?P<addr>[^\]]*)\])?"
     r"(?:\s+(?P<src>\S+):(?P<line>\d+))?\s*$"
 )
+
+THREAD_BINARY = "<thread>"
 
 
 class Node:
@@ -56,22 +62,41 @@ class Node:
         self.parent = None
         self.col = col
 
-    def key(self):
-        return (self.srcfile, self.symbol, self.binary)
 
-
-def parse_file(path):
-    """Return (roots, total_samples, thread_roots)."""
-    with open(path, "r", errors="replace") as fh:
-        lines = fh.read().split("\n")
+def _section_bounds(lines, path):
+    """First and last line indices of the call-graph body, or raise ValueError."""
     try:
         start = next(i for i, l in enumerate(lines) if l.startswith("Call graph:")) + 1
     except StopIteration as exc:
-        raise ValueError(f"{path}: no Call graph section") from exc
-    end = next(
-        i for i, l in enumerate(lines) if i > start and l.startswith("Total number in stack")
-    )
-    stack = []  # list of (col, Node)
+        raise ValueError(f"{path}: no 'Call graph:' section; not a sample report") from exc
+    try:
+        end = next(
+            i for i, l in enumerate(lines) if i > start and l.startswith("Total number in stack")
+        )
+    except StopIteration as exc:
+        raise ValueError(f"{path}: call graph never ends; report is truncated") from exc
+    return start, end
+
+
+def parse_file(path):
+    """Parse one sample report.
+
+    Args:
+        path: a `sample` text report.
+
+    Returns:
+        (roots, total_samples), where roots are the per-thread top frames and
+        total_samples is the sum of their counts.
+
+    Raises:
+        ValueError: the file is not a complete sample report, or a frame line
+            does not match the expected grammar.
+    """
+    with open(path, "r", errors="replace") as fh:
+        lines = fh.read().split("\n")
+    start, end = _section_bounds(lines, path)
+
+    stack = []  # (column, node), strictly increasing in column
     roots = []
     total = 0
     for raw in lines[start:end]:
@@ -83,63 +108,62 @@ def parse_file(path):
         col = len(m.group("pre"))
         count = int(m.group("count"))
         rest = m.group("rest")
+        # Thread headers ("Thread_2158546   DispatchQueue_1: ...") carry no binary.
         rm = None if rest.startswith("Thread_") else REST_RE.match(rest)
-        if False:
-            rm = None
         if rm:
-            sym = rm.group("sym").strip()
+            symbol = rm.group("sym").strip()
             binary = rm.group("bin").strip()
-            src = rm.group("src")
+            srcfile = rm.group("src")
             line = int(rm.group("line")) if rm.group("line") else None
         else:
-            # thread header line, e.g. "Thread_2158546   DispatchQueue_1: ..."
-            sym = rest.strip()
-            binary = "<thread>"
-            src = None
+            symbol = rest.strip()
+            binary = THREAD_BINARY
+            srcfile = None
             line = None
-        node = Node(count, sym, binary, src, line, col)
+        node = Node(count, symbol, binary, srcfile, line, col)
         while stack and stack[-1][0] >= col:
             stack.pop()
         if stack:
-            parent = stack[-1][1]
-            parent.children.append(node)
-            node.parent = parent
+            node.parent = stack[-1][1]
+            node.parent.children.append(node)
         else:
             roots.append(node)
             total += count
         stack.append((col, node))
 
-    # self samples
-    def fix(n):
-        s = n.count
-        for c in n.children:
-            s -= c.count
-            fix(c)
-        n.self_ = s
-
-    for r in roots:
-        fix(r)
+    for root in roots:
+        _assign_self_samples(root)
     return roots, total
 
 
+def _assign_self_samples(node):
+    """Set self_ on node and its descendants: own count minus the direct children's."""
+    remaining = node.count
+    for child in node.children:
+        remaining -= child.count
+        _assign_self_samples(child)
+    node.self_ = remaining
+
+
 def walk(nodes):
-    for n in nodes:
-        yield n
-        yield from walk(n.children)
+    """Yield every node in the given subtrees, depth first."""
+    for node in nodes:
+        yield node
+        yield from walk(node.children)
 
 
-def ancestors(n):
-    p = n.parent
-    while p is not None:
-        yield p
-        p = p.parent
+def main():
+    parser = argparse.ArgumentParser(description="Self-check one /usr/bin/sample report.")
+    parser.add_argument("report", help="a sample text report to parse")
+    args = parser.parse_args()
+
+    roots, total = parse_file(args.report)
+    nodes = list(walk(roots))
+    negative = [n for n in nodes if n.self_ < 0]
+    print(f"total {total} frames {len(nodes)}")
+    print(f"negative-self frames: {len(negative)}")
+    print(f"sum of self: {sum(n.self_ for n in nodes)}")
 
 
 if __name__ == "__main__":
-    roots, total = parse_file(sys.argv[1])
-    nodes = list(walk(roots))
-    print("total", total, "frames", len(nodes))
-    neg = [n for n in nodes if n.self_ < 0]
-    print("negative-self frames:", len(neg))
-    ssum = sum(n.self_ for n in nodes)
-    print("sum of self:", ssum)
+    main()

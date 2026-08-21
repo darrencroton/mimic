@@ -63,3 +63,6 @@ HANDOFF.md
 # Python virtual environment
 mimic_venv/
 tests/data/output/physics-binary/
+
+# Machine-local symbol index built by scripts/profiling/nm_index.py
+scripts/profiling/nm_index.json
