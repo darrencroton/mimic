@@ -1,14 +1,14 @@
 # Shin-Uchuu ctrees ASCII → Snapshot HDF5 Conversion Plan
 
 **Status:** Converter built and micro-Uchuu-validated 2026-07-24 — the external converter described here exists under `scripts/convert/` and passed its micro-Uchuu acceptance gate (full pipeline over the real 22,580,924-halo / 50-snapshot ASCII data; producer validation battery + a seven-check cross-check against a `halos-only` reference run, topology-order proof fully discharged, zero unexplained mismatches). That gate was re-run end to end on 2026-08-03 on a fully regenerated micro-Uchuu dataset, now placed at `/Volumes/Internal/data/uchuu/micro-uchuu/micro-uchuu-snapshot/` for snapshot-reader development: same three totals, producer battery 15/15, cross-check green including `topology-chains`. Remaining: the one-time Shin-Uchuu production conversion. **Its precondition is met — the dual-driver Phase 5 identity gate passed 2026-08-12** (both models, both timestep schemes, per-ID bitwise), so the production conversion is unblocked; see `POST-PHASE-5-WORK.md` §2 for the items to close first. All previously open design decisions resolved (joint plan review 2026-07-02, decisions D1–D12; review record archived at `archive/dev-plans/dual-driver-plan-review.md`). Earlier revision reviewed twice by Codex gpt-5.5 (2026-06-27).
-**Date:** 2026-07-02
-**Context:** This plan is one sequence with `MIMIC-DUAL-DRIVER-PLAN.md`. The converter is **not** blocked on the snapshot driver: it is blocked only on the frozen format contract, and it is built and validated first, against micro-Uchuu ASCII, using the existing tree-ordered `read_ctrees_ascii.c` reader as the reference — zero new Mimic code required. The full 5.6 TB Shin-Uchuu conversion runs exactly once, after the dual-driver Phase 5 identity gate is green (**green 2026-08-12**). Mimic itself performs no internal conversion.
+**Date:** 2026-07-02 · **substantially revised 2026-08-25** — source data re-measured at the operative path (total size, row width and halo count all corrected), the conversion machine and storage layout decided and recorded, and the previously unspecified rehearsal subset selection designed. See "Source Data Summary" → measurement note, "Where The Work Runs", "Feasibility" and "Subset Selection and Extraction".
+**Context:** This plan is one sequence with `MIMIC-DUAL-DRIVER-PLAN.md`. The converter is **not** blocked on the snapshot driver: it is blocked only on the frozen format contract, and it is built and validated first, against micro-Uchuu ASCII, using the existing tree-ordered `read_ctrees_ascii.c` reader as the reference — zero new Mimic code required. The full 11.61 TB Shin-Uchuu conversion runs exactly once, after the dual-driver Phase 5 identity gate is green (**green 2026-08-12**). Mimic itself performs no internal conversion.
 
 ---
 
 ## Problem Statement
 
-The Shin-Uchuu merger trees are in Consistent-Trees ASCII format. **Operative location, verified 2026-08-20: `/fred/oz214/simulations/uchuu/shinuchuu/mergertrees` on OzSTAR** (`ssh dcroton@nt.swin.edu.au`) — 5.6 TB across 2,744 `tree_*.dat` files plus `forests.list` and `locations.dat`, alongside the producer's own `shinuchuu.par`. This document previously recorded `/fred/oz004/simulations/uchuu_suite/shinuchuu/mergertrees`; that path was never verified in the 2026-08-20 sweep and should be treated as historical unless an operator confirms it is a live mirror. Use the oz214 path. Two structural problems prevent running Mimic's existing `consistent_trees_ascii` reader on this data:
+The Shin-Uchuu merger trees are in Consistent-Trees ASCII format. **Operative location, verified 2026-08-20: `/fred/oz214/simulations/uchuu/shinuchuu/mergertrees` on OzSTAR** (`ssh dcroton@nt.swin.edu.au`) — 11.61 TB apparent (5.6 TB as `du` reports it; see the measurement note in Source Data Summary) across 2,744 `tree_*.dat` files plus `forests.list` and `locations.dat`, alongside the producer's own `shinuchuu.par`. This document previously recorded `/fred/oz004/simulations/uchuu_suite/shinuchuu/mergertrees`; that path was never verified in the 2026-08-20 sweep and should be treated as historical unless an operator confirms it is a live mirror. Use the oz214 path. Two structural problems prevent running Mimic's existing `consistent_trees_ascii` reader on this data:
 
 1. **Percolation super-forest**: forest `26551468179` contains 104,845,278 tree roots — 33% of all trees — almost certainly a ctrees linking artifact. The tree driver must load a forest as a single in-memory unit; it cannot. This also rules out the uchuutools forests-HDF5 packaging.
 2. **Index memory wall**: the ASCII reader loads a global `forests.list` index (315M entries) into every MPI rank at startup, costing ~18 GB per rank before a single halo is processed.
@@ -22,17 +22,26 @@ Both problems are structural consequences of forest-ordered processing and both 
 | Parameter | Value |
 |---|---|
 | Format | Consistent-Trees ASCII |
-| Total size | 5.6 TB across 2,747 `.dat` files |
-| Largest file | 88 GB (`tree_8_12_10.dat`) |
-| `locations.dat` | 13 GB (symlink to `locations_no_extra_columns.dat`) |
-| `forests.list` | 17 GB, 315,004,242 lines |
-| Total halos (z=0) | 315,004,242 |
+| Total size | **11.61 TB** (10.56 TiB) across **2,744** `tree_*.dat` files — measured 2026-08-25, see the measurement note below |
+| Largest file | 93.49 GB / 87.07 GiB (`tree_8_12_10.dat`); smallest 287.4 MB (`tree_2_7_0.dat`) |
+| `locations.dat` | 13.75 GB (symlink to `locations_no_extra_columns.dat`), 315,004,242 rows at 43.6 B/row |
+| `forests.list` | **7.56 GB**, 315,004,242 lines at exactly 24.0 B/line |
+| Total halos (z=0) | 315,004,242 (= the tree count; every tree root is a z=0 halo) |
 | Total forests | 166,547,771 |
-| Estimated total halos (all snapshots) | ~15–18 billion (file-size estimate: 5.6 TB / ~350 bytes/line) |
+| Mean ASCII data-row width | **506.3 B** — measured over 240 MB sampled at five depths in each of 12 randomly chosen files (474,031 rows); three whole-file midpoint samples gave 505.4 / 508.3 / 512.9 B |
+| Estimated total halos (all snapshots) | **≈22.9 billion** (11.61 TB ÷ 506.3 B/row; the ~315M `#tree` marker lines contribute ~5.7 GB, immaterial). ≈72.8 halos per tree |
 | Snapshots | 70 (a = 0.04773 to 0.99998) |
 | Box size | 140 Mpc/h |
 | Particle mass | **8.97 × 10⁵ Msun/h** — confirmed 2026-08-14 from Ishiyama et al. 2021, the Uchuu suite paper ([arXiv:2007.14720](https://arxiv.org/abs/2007.14720)): "262 billion (6400³) particles in a box of side-length 140 Mpc/h, with particle mass 8.97 × 10⁵ M☉/h". **Corrects the value previously recorded here as ~8.97 × 10⁴, which was low by exactly a factor of 10** and had propagated into two derived claims elsewhere. Independently cross-checked against this table's own 140 Mpc/h box and the package cosmology (Ω_m = 0.3089): Ω_m ρ_crit L³ / N = 0.3089 × 2.77537 × 10¹¹ × 140³ / 6400³ = 8.97 × 10⁵ Msun/h. `Len` derives from this, so it is now fixed rather than inferred |
 | Cosmology | Planck 2015 (Ωm=0.3089, h=0.6774) — identical to rest of Uchuu suite |
+
+**Measurement note, 2026-08-25 — three of the figures above were wrong, and two of them matter.** All values in this table were re-measured directly against `/fred/oz214/simulations/uchuu/shinuchuu/` on the dates shown; the superseded figures are recorded here because downstream projections were derived from them.
+
+- **Total size was recorded as 5.6 TB; the apparent size is 11.61 TB.** Both numbers are real and describe the same data: `du -sh` reports **5.6 T** and `du -sh --apparent-size` reports **11 T**, because this Lustre filesystem under-reports `st_blocks` (the largest file stats at 93.49 GB apparent against 50.26 GB of reported 512-B blocks, a ratio near 0.54 across files of very different sizes). **The apparent size is the operative one**: it is what `read()`, `rsync` and the parser see. The data was checked for genuine sparseness and is dense — 60 probes of 4 MB each, at five depths in each of 12 randomly chosen files, returned **zero NUL bytes** and a uniform ~506 B row width throughout. Every byte-count, transfer-time and parse-time estimate must use 11.61 TB.
+- **`forests.list` was recorded as 17 GB; it is 7.56 GB.** This one is a transcription error with no downstream effect, and its own arithmetic confirms the line count that *does* matter: 7,560,101,829 B ÷ 315,004,242 lines = exactly 24.0 B/line, the width of a `<11-digit id> <11-digit id>\n` row. That corroborates the **315,004,242 tree count** — one row per tree — and nothing more. The **166,547,771 forest count is a count of distinct forest IDs, which no row-width arithmetic can confirm**; it remains inherited and is measured for the first time by Step 1 of subset selection.
+- **Total halos were estimated at 15–18 billion from an assumed ~350 B/line; the measured width is 506.3 B and the count is ≈22.9 billion.** Roughly +30% on the figure that drives the output size, the scratch budget, the rank-pass memory and the wall clock. The Feasibility section below has been recomputed from 22.9 billion throughout; anything elsewhere in `docs/dev/` still reasoning from 15–18 billion is stale.
+
+**Where the source data lives, and the one thing it is not.** `ssh dcroton@nt.swin.edu.au` reaches `tooarrana1`, a **data node**: 251 GB RAM, 4 cores, no Slurm, `/fred` writable with no user quota. It holds the data and nothing else — it is not a candidate conversion machine. Exactly two plan steps run there, both streaming and both sub-1 GB: the root-row sampling (`sample-roots`) and the byte-range extraction (`extract`); see "Subset Selection and Extraction". The conversion machine is the Mac Studio; see "Where the work runs" below.
 
 ---
 
@@ -114,17 +123,37 @@ Do **not** use gzip or any HDF5 compression for production files — chunked unc
 
 ---
 
-## Getting the Data to the Mac
+## Where The Work Runs, And Getting The Data There
 
-Source is on the HPC filesystem; conversion runs on the Mac Studio (M3 Ultra, 512 GB unified memory, 8 TB internal SSD). Landing all 5.6 TB of ASCII locally alongside scratch and output breaks the disk budget (5.6 + 1.9 + 1.1 > 8 TB), so the transfer is batched and consumptive:
+**Decided 2026-08-25, and it is not a preference — it is the only machine that fits.** Every step of this plan that needs memory or CPU — the whole conversion, every Mimic run, and all subset planning — happens on the **Mac Studio (M3 Ultra, 32 cores, 512 GB unified memory)**. `tooarrana1` holds the source data but has 251 GB of RAM and 4 cores, roughly half what the rank pass and the snapshot driver need at production scale, so it is a **source and streaming host only**. Exactly **two** plan steps execute remotely, both described under "Subset Selection and Extraction", both streaming and both under 1 GB: the root-row sampling (`sample-roots`) and the byte-range extraction (`extract`). Nothing else does.
 
-1. Fetch `.dat` files in batches with `rsync --checksum` (the 88 GB largest file is a single-batch item).
+This supersedes the assumption in `POST-PHASE-5-WORK.md` §2.2's platform audit that the rehearsal would run on Linux. It runs on macOS, where `run_profile_peak_rss_bytes()` takes the **bytes** branch of `ru_maxrss` — the branch every recorded measurement to date has used and the one already cross-checked byte-exact against `/usr/bin/time -l`. The audit's Linux `× 1024` confirmation stays valid as evidence about the instrument; it is simply no longer the branch in play.
+
+### Local storage
+
+The Mac Studio's internal APFS container is **3.6 TB with ~142 GB free**, not the 8 TB this plan previously assumed — `/Volumes/Internal` already holds 2.7 TB of other data. Conversion storage is therefore external:
+
+| Volume | Free | Role |
+|---|---|---|
+| `/Volumes/LaCie` | 7.3 TB | **Primary scratch and output.** Case-sensitive APFS, USB |
+| `/Volumes/Scratch` | 2.7 TB | **Overflow only**, if the converter's terminal accumulation is not fixed first (see below) |
+| `/Volumes/Internal` | 142 GB | Existing datasets (micro-Uchuu, mini-Uchuu). **Not** available for Shin-Uchuu |
+
+**Is 7.3 TB enough? Not as the converter stands, and the reason is a defect rather than a budget.** Deletion stops after the concat stage: `scatter.py` removes its verified worker parts (`scatter.py:753-780`) and `sort_index.py` removes the unsorted scratch once the sort verifies (`sort_index.py:116`, `:129`), but `fixups.py`, `links.py` and `hdf5_writer.py` delete nothing — `fixups.py:573-580` registers the new `fixed` artifact and retains its `sorted` input — so at the end of Phase 4 the workdir still holds every intermediate at once — **≈8.60 TB** at the corrected 22.9-billion-halo scale (see the Disk table). That exceeds LaCie alone and fits only by spanning both external volumes, with ~1.4 TB of margin on a one-shot run. **Adding consumptive deletes to the fixups, links and write stages drops the peak to ≈6.0 TB and makes LaCie sufficient on its own**, which is why it is now scoped into the converter scale-engineering pass (D4) below rather than left to operator vigilance.
+
+### Transfer
+
+**Measured 2026-08-25, single ssh stream from `tooarrana1`:** 287 MB in 2.66 s (108 MB/s) and 4 GiB in 37.5 s (**114.5 MB/s**). A rough four-stream test moved 4.84 GB in 39.2 s (123 MB/s) but two streams ran short, so treat parallelism as offering **no demonstrated gain** until measured properly. Use **≈110 MB/s** for planning — at the top of the 50–100 MB/s this plan previously assumed, which partly offsets the doubled data volume.
+
+At 110 MB/s the full 11.61 TB is **≈29 hours** of transfer. The batched, consumptive strategy is unchanged and still right:
+
+1. Fetch `.dat` files in batches with `rsync --checksum` (the 93.5 GB largest file is a single-batch item).
 2. Phase 1 scatters each fetched file, then **deletes the local ASCII copy**.
 3. A resume manifest records per-file completion: name, size, halo count, checksum. Re-running skips completed files; a crashed batch re-fetches cleanly.
 
-Peak local disk stays ≈ scratch (1.9 TB) + output (1.1 TB) + in-flight batch (~100–200 GB). At ssh-realistic 50–100 MB/s the transfer is ~16–31 h, overlappable with parsing; total wall clock comfortably 1–3 days, which is acceptable — the design optimises for restartability and few failure points, not speed.
+**But note the standing incompatibility, unchanged and still open:** `run_scatter` requires every listed source file to exist at start, freezes the ordered source set into the manifest, and `source_completed()` re-stats completed files — so consumptive deletes break resume today. That is D4's batch-aware scatter inventory, and it is a hard prerequisite for this transfer strategy, not an optimisation.
 
-Fallback if ssh throughput disappoints badly: run Phase 1 scatter HPC-side and transfer the ~1.9 TB scratch instead (3× less data, at the cost of a second execution environment). Not the default.
+Fallback if throughput degrades: run Phase 1 scatter on the source side and transfer the ~2.5 TB of scratch instead (4.7× less data, at the cost of a second execution environment) — **except that `tooarrana1` has neither the memory nor the cores to do it well**, so this fallback is weaker than it was when the plan assumed a capable remote host. Not the default.
 
 ---
 
@@ -138,7 +167,7 @@ Stream `forests.list` once to build the tree-root-id → forest-id map (315M × 
 
 ### Phase 1: Scatter (ASCII → per-snapshot binary)
 
-Stream-read all 2,747 ctrees ASCII files using a bounded worker pool. `locations.dat` is never needed.
+Stream-read all 2,744 ctrees ASCII files using a bounded worker pool. `locations.dat` is never needed.
 
 **Parsing ctrees ASCII correctly**: ctrees files contain a header line and `#tree <id>` block markers. Do not use `comment='#'` with pandas default `header='infer'`. **Erratum (2026-07-18, verified against `tree_0_0_0.dat`):** the Uchuu-suite files use an **indexed** first-line header — `#scale(0) id(1) desc_scale(2) … Snap_num(31) …` — with `(N)` column-number suffixes and mixed case, not a `#fields:` line; the reference parser strips the suffixes and matches names case-insensitively (`src/io/tree/ctrees/parse_ctrees.h`). Correct approach:
 1. Read the first header line; strip `(N)` suffixes; match column names case-insensitively (support a `#fields:` dialect as secondary if encountered).
@@ -328,7 +357,7 @@ format_version and links_adjacent.
 Release snap_N arrays; retain snap_N.idx until snap_N+1 completes.
 ```
 
-**Rank pass (between Phase 2 and Phase 3, or fused into Phase 3 bookkeeping):** ranks are per-forest over all snapshots, so they need a forest-major view once. For ordinary forests this is cheap grouping. For the super-forest (~5–9 billion halos), it is one large deterministic sort of ~(scale, upid, pid, id, slab-slot) keys — ~150–250 GB of key data: in-RAM on this machine or a chunked external merge sort on scratch. **Design figure, not implemented:** the shipped `compute_identity()` (`scripts/convert/links.py`) instead concatenates and lexsorts the key columns over *all* snapshots globally (~600–720 GB at production scale) — see the risk table and the "Pre-conversion obligation" subsection. It runs once, its output is the `HaloRankInForest` column plus the run-scoped `max_halo_rank_in_forest`/`n_forests_total` header values, and it is the direct input to setting the shin-uchuu identity multiplier (see below).
+**Rank pass (between Phase 2 and Phase 3, or fused into Phase 3 bookkeeping):** ranks are per-forest over all snapshots, so they need a forest-major view once. For ordinary forests this is cheap grouping. For the super-forest (~7–8 billion halos at the measured 22.9-billion total), it is one large deterministic sort of ~(scale, upid, pid, id, slab-slot) keys — ~150–250 GB of key data: in-RAM on this machine or a chunked external merge sort on scratch. **Design figure, not implemented:** the shipped `compute_identity()` (`scripts/convert/links.py`) instead concatenates and lexsorts the key columns over *all* snapshots globally (**~1.10 TB** at the measured production scale; recomputed 2026-08-25 from the superseded ~600–720 GB) — see the risk table and the "Pre-conversion obligation" subsection. It runs once, its output is the `HaloRankInForest` column plus the run-scoped `max_halo_rank_in_forest`/`n_forests_total` header values, and it is the direct input to setting the shin-uchuu identity multiplier (see below).
 
 **Memory at peak** (snap 68 processing, which loads snap 68 + snap 69 index):
 - snap_68 sorted data: ~33 GB
@@ -336,7 +365,7 @@ Release snap_N arrays; retain snap_N.idx until snap_N+1 completes.
 - snap_68 working arrays (sort keys, resolved upid, groupby, progenitor inversion): ~2× data ≈ 66 GB
 - snap_69 FirstProgenitor pending buffer: 315M × 4 bytes = 1.3 GB
 - HDF5 write buffer: ~2 GB
-- **Realistic peak: ~140–170 GB** — comfortable within 512 GB. The super-forest rank sort peaks separately at ~150–250 GB *as designed*, also within budget — but the shipped rank pass does not implement that design (it sorts all snapshots globally, ~600–720 GB; see the risk table and the "Pre-conversion obligation" subsection).
+- **Realistic peak: ~140–170 GB** — comfortable within 512 GB. The super-forest rank sort peaks separately at ~150–250 GB *as designed*, also within budget — but the shipped rank pass does not implement that design (it sorts all snapshots globally, **~1.10 TB** at the measured scale; see the risk table and the "Pre-conversion obligation" subsection).
 
 ### Phase 4: Validation
 
@@ -353,49 +382,65 @@ Release snap_N arrays; retain snap_N.idx until snap_N+1 completes.
 
 ---
 
-## Feasibility: Back-of-Envelope Calculations
+## Feasibility: Recomputed 2026-08-25 Against Measured Inputs
 
-**Hardware:** Mac Studio M3 Ultra, 512 GB unified memory, ~8 TB internal NVMe SSD.
+**Hardware:** Mac Studio M3 Ultra, 32 cores, 512 GB unified memory; external storage per "Where The Work Runs" above. **These tables were recomputed from N = 22.9 × 10⁹ halos** (the measured count, ~30% above the superseded 15–18 billion) and from the converter's **actual** on-disk record sizes read out of the code rather than estimated:
+
+| Stage artifact | Source of truth | Bytes/halo |
+|---|---|---|
+| `snap_NNN.bin`, `snap_NNN_sorted.bin` | `RECORD_DTYPE`, `ctrees_parser.py:30` | 108 |
+| `snap_NNN.idx` | int64 halo id | 8 |
+| `snap_NNN_fixed.bin` | `FIXED_RECORD_DTYPE`, `fixups.py:47` | 120 |
+| `snap_NNN_links.bin` | `LINKS_RECORD_DTYPE`, `links.py:67` | 36 |
+| `snap_NNN_pending_fp.bin` | int32 | 4 |
+| `snapshot_NNN.h5` `/halos` | `SNAPSHOT-HDF5-FORMAT.md`, 16 datasets | **100 exactly** |
 
 ### Memory
 
-| Phase | Realistic working set | Notes |
+| Phase | Working set | Notes |
 |---|---|---|
-| Phase 0 pre-pass | ~5–10 GB | forests.list as sorted arrays |
+| Phase 0 pre-pass | ~10–15 GB | `forests.list` as sorted arrays; 315M rows |
 | Phase 1 scatter | ~15–25 GB | Bounded pool × per-worker parse state + write buffers |
-| Phase 1 concat | ~5 GB | Sequential cat; I/O-bound |
-| Phase 2 sort | ~74 GB (peak, snap 69) | Data + sort temporaries |
-| Rank pass (super-forest) | ~150–250 GB (design; shipped code sorts all snapshots globally, ~600–720 GB — see "Pre-conversion obligation") | One-time key sort; chunked external sort as fallback |
-| Phase 3 remap | ~140–170 GB (peak, snap 68+69) | Two snapshots + working arrays + pending buffer |
-| Phase 4 validate | ~40 GB | One snapshot at a time |
-| **Peak** | **~250 GB** | **≥2× margin against 512 GB** |
+| Phase 2 sort | ~110 GB (peak, largest snapshot) | Scales with the largest slab, not the total |
+| **Rank pass** | **~1.10 TB as implemented** | 5 concatenated int64 columns over *all* snapshots (916 GB) + the lexsort order array (183 GB). **Over installed RAM by 2.1×** |
+| Phase 3 remap | ~200–250 GB (peak, snaps 68+69) | Two snapshots + working arrays + pending buffer |
+| Phase 4 validate | ~60 GB | Full-dataset-resident battery, one snapshot at a time only after D4 |
+
+**The rank pass is the binding constraint and it got worse, not better.** The superseded figure was 600–720 GB against 512 GB; recomputed at 22.9 billion halos it is **~1.10 TB**. This is not a margin question — the external-merge rank sort in D4 is mandatory, and the measurement strengthens rather than merely confirms that conclusion. Note the subset rehearsal is unaffected: at its ~3.6 × 10⁸ halos the same in-memory pass needs ~17.5 GB, so **the rehearsal can run on the shipped converter with no D4 work at all**, which is exactly what D9's ordering assumed.
 
 ### Disk
 
-| Artifact | Size |
-|---|---|
-| Source ASCII (in-flight batches only; deleted after scatter) | ~100–200 GB at a time |
-| Phase 1 scratch (post-concat; replaced by sorted scratch per snapshot in Phase 2) | ~1.9–2.2 TB |
-| Phase 1 worker files before concat | up to ~1× scratch = ~2.2 TB peak (transient) |
-| Phase 2 sorted scratch (replaces unsorted; +1 snapshot transient during each swap) | ~1.9–2.2 TB |
-| Phase 2 index files (70 snapshots) | ~120–145 GB |
-| Output HDF5 (~100 B/halo × 15–18 B halos, uncompressed, incl. identity columns) | ~1.5–1.8 TB |
-| **Peak simultaneous working storage** | **~5–6 TB** — fits the internal 8 TB SSD only because every stage is consumptive (delete-after-verify); keeping any stage's input alongside its output does not fit |
+At N = 22.9 × 10⁹, on the external volumes described above:
+
+| Artifact | Size | Deleted when consumed? |
+|---|---|---|
+| Source ASCII (in-flight batches only) | ~100–200 GB at a time | yes, by the transfer strategy |
+| Phase 1 worker files (pre-concat, transient) | ~2.47 TB | yes, at concat |
+| `snap_NNN.bin` (concatenated) | 2.47 TB | **yes** — `sort_index.py` removes it after the sort verifies |
+| `snap_NNN_sorted.bin` | 2.47 TB | **no** |
+| `snap_NNN.idx` | 0.18 TB | **no** |
+| `snap_NNN_fixed.bin` | 2.75 TB | **no** |
+| `snap_NNN_links.bin` | 0.82 TB | **no** |
+| `snap_NNN_pending_fp.bin` | 0.09 TB | **no** |
+| Output HDF5 (uncompressed, incl. identity columns) | **2.29 TB** | — |
+| **Phase 1 peak** | **≈4.95 TB** | worker files alongside their concat output |
+| **Terminal accumulation, as the converter stands** | **≈8.60 TB** | LaCie alone is insufficient; needs LaCie + Scratch |
+| **Terminal accumulation, with D4 consumptive deletes** | **≈6.04 TB** | fits LaCie alone with ~1.3 TB spare |
 
 ### Time
 
 | Phase | Bottleneck | Estimate |
 |---|---|---|
-| Transfer (batched rsync, overlapped with Phase 1) | ssh throughput 50–100 MB/s | 16–31 h |
-| Phase 1 ASCII parse | Tokenisation; ~500 MB/s pandas, ~2 GB/s C | 1–8 h compute |
-| Phase 1 concat | SSD ~5 GB/s | 20–40 min |
-| Phase 2 sort + index (parallel) | I/O ~4 TB at ~5 GB/s | 30–45 min |
-| Rank pass | Super-forest sort | 1–4 h |
-| Phase 3 remap + write | Merge-join + FoF + inversion + I/O | 2–4 h |
-| Phase 4 validate | Sequential reads | 1–2 h |
-| **Total wall clock** | Transfer-dominated | **~1–3 days** |
+| Transfer (batched rsync, overlapped with Phase 1) | ssh throughput, **measured 110 MB/s** | **~29 h** |
+| Phase 1 ASCII parse | Tokenisation over 11.61 TB | 4–12 h compute |
+| Phase 1 concat | External SSD write | 1–2 h |
+| Phase 2 sort + index | I/O ~5 TB | 1–2 h |
+| Rank pass | External-merge sort over 22.9e9 keys (post-D4) | 3–8 h |
+| Phase 3 remap + write | Merge-join + FoF + inversion + I/O | 4–8 h |
+| Phase 4 validate | Sequential reads over 2.29 TB | 2–4 h |
+| **Total wall clock** | Transfer-dominated | **~2–4 days** |
 
-Acceptable by design: the pipeline optimises for restartability and few failure points, not speed.
+Acceptable by design: the pipeline optimises for restartability and few failure points, not speed. **Every row above is a projection except the transfer rate**; the subset rehearsal measures the per-halo constants that turn them into estimates worth trusting.
 
 ---
 
@@ -429,13 +474,20 @@ The 70 Shin-Uchuu scale factors are extracted from unique `(SnapNum, scale)` pai
 
 ### Simulation package changes required
 
+**Two packages, not one — recorded 2026-08-25.** The rehearsal runs the cross-format identity gate, which by construction needs a *tree-ordered* run over the same data as the snapshot-ordered run. That mirrors the micro-Uchuu pair (`micro-uchuu-ascii` + `micro-uchuu-snapshot`) and this plan previously named only the snapshot half.
+
+- **`simulations/shin-uchuu-ascii/`** — `tree_type: consistent_trees_ascii`, `snapshots/` pointing at the **subset** ASCII directory. This package is only ever usable on a subset: the full dataset cannot be processed tree-ordered at all, which is this plan's entire premise. Its `halo_properties.yaml` mirrors `micro-uchuu-ascii`'s ctrees bridge contract.
+- **`simulations/shin-uchuu/`** — the snapshot package below. Its `snapshots/` symlink points at the **subset** HDF5 during the rehearsal and is re-pointed at the production dataset after the production conversion.
+
+Set `unique_galaxy_id_multiplier: 10000000000` (10¹⁰) in **both** from the start, so the rehearsal exercises it end to end as `POST-PHASE-5-JOINT-REVIEW.md` §4 says it must. The **forest** bound holds at production scale, and the **rank** bound does not yet: `mimic_unique_galaxy_id_max_forests(10¹⁰)` = `INT64_MAX / 10¹⁰ − 1` = 922,337,202 forests against the box's 166,547,771, and `HaloRankInForest` must stay below 10¹⁰ — both confirmed against the production conversion report before the production run.
+
 A new `simulations/shin-uchuu/` package:
 - `simulation_info.yaml`: 140 Mpc/h box, confirmed particle mass, `tree_type: snapshot_hdf5`, `processing_order: snapshot_ordered` in run files, 70-snapshot list, and the identity multiplier from the conversion report (D9)
 - `halo_properties.yaml`: ctrees bridge contract mirroring `micro-uchuu-ascii` (`M_Crit200` → `HaloMass`, `Len`, `SnapNum`, `Pos` range `[0.0, 140.0]`). **Do not declare `ForestIndex` or `HaloRankInForest`** — corrected 2026-08-12. They are snapshot-format identity metadata rather than catalog halo properties, and are exempt from the declaration rule (`SNAPSHOT-HDF5-FORMAT.md` errata 2026-08-11): the reader consumes both directly by dataset name into `struct SnapshotSlab`'s own `forest_index`/`halo_rank_in_forest` arrays. Declaring them is unnecessary rather than forbidden, but the working exemplar `simulations/micro-uchuu-snapshot/halo_properties.yaml` omits both, and mirroring it is the safe course
 - `shin-uchuu.a_list`: from Phase 1
 - `snapshots/`: symlink to the 70 HDF5 files
 
-**Run constraints for snapshot-ordered runs** (added 2026-08-12; enforced at config time in `src/core/read_parameter_file.c:1452-1466`, so a production run that violates one aborts at startup rather than part way through):
+**Run constraints for snapshot-ordered runs** (added 2026-08-12; enforced at config time in `src/core/read_parameter_file.c:1475-1488`, so a production run that violates one aborts at startup rather than part way through):
 
 - **HDF5 output only** — `output_format: binary` is rejected.
 - **Serial only** — `NTask > 1` is rejected; there is no MPI path (see `MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md`).
@@ -446,6 +498,157 @@ Property ranges requiring calibration from a test run: `deltaMvir`, `Len` (floor
 
 ---
 
+## Subset Selection and Extraction (the rehearsal's input)
+
+**Recorded 2026-08-25. This closes a genuine gap:** `POST-PHASE-5-JOINT-REVIEW.md` D9 states the rehearsal subset's *composition constraint* — most massive forests **and** a representative low-mass sample — in four places across three documents, but **no document anywhere specified how to choose or extract such a subset, and no tool exists to do it.** A sweep of `docs/`, `scripts/convert/` and `archive/dev-plans/` found the constraint restated and never operationalised. The design below is the answer; building it is the first task of the rehearsal.
+
+### What makes this non-trivial
+
+Six facts, all verified against the code and the data, constrain any solution:
+
+1. **A subset of *files* is not a subset of *forests*.** `locations.dat` places each tree by file and byte offset and forests may span files, so picking whole files yields partial forests — and `fix_flybys`/`fix_upid` operate with per-forest max-snapshot scope (D12), so a partial forest converts differently from the same forest in the full run. **Select whole forests.**
+2. **The converter refuses a mismatched index.** `validate_root_coverage()` (`scatter.py:155`) enforces **one-to-one** coverage between observed `#tree` roots and `forests.list` — surplus listed roots abort just as loudly as missing ones. A subset therefore needs its **own** `forests.list`, and the tree-ordered reference run needs its own `locations.dat` to match.
+3. **The per-file tree-count header line is checked.** `scatter.py:423-428` aborts when the count line disagrees with the number of `#tree` markers. It is fixed-width space-padded (`45002` followed by blanks, at byte 3,659 of `tree_0_0_0.dat`), so the extractor must rewrite it in place at the same width.
+4. **`locations.dat` offsets point at the first *data row*, not at the `#tree` line.** Verified byte-exact: in `tree_0_0_0.dat` the marker `#tree 26551522494` starts at 3,678 and ends at 3,695; the recorded offset is 3,696. The extractor must therefore re-emit the `#tree <root>\n` line itself and copy the body from the recorded offset.
+5. **The reader requires file IDs to be contiguous from 0 *and* the file count to be a perfect cube.** `read_locations()` asserts `max_fileid + 1 == numfiles` and then `round(cbrt(numfiles))³ == numfiles` (`src/io/tree/ctrees/ctrees_utils.c:236-246`). **2,744 = 14³** — the full dataset satisfies this exactly, which means the subset must too. An earlier draft of this design claimed sparse original `FileID`s were safe because the fd table grows on demand; **that was wrong** — the table does grow, but both assertions fire afterwards. See the file-coverage rule below.
+6. **A forest's reader memory has a floor set by its *tree count*, independent of its halo count.** `load_unit_ctrees_ascii()` preallocates `1000 × ntrees` records in **both** `halo_data` and `additional_info` before reading anything (`src/io/tree/read_ctrees_ascii.c:647-655`). Measured exactly: `sizeof(struct halo_data)` = 104 B and `sizeof(struct additional_info)` = 48 B, so the preallocation is **152,000 B per tree**. At the measured 72.8 halos/tree this over-allocates by ~13.7×, and it dominates — but the arrays still **grow** if a forest's actual halo count exceeds that capacity (`src/io/tree/ctrees/parse_ctrees.h:365-384`), so tree count sets a floor rather than a ceiling. That is why the gate below has two halves. The super-forest would demand 104,845,278 × 152,000 B ≈ **15.9 TB**, which settles its exclusion beyond argument — but it also means a forest with many *small* trees can be intractable while its halo estimate looks modest.
+
+There is also a **cost** fact that shapes the whole approach: ranking forests by *size* needs only the index files — **21.3 GB, about 3 minutes at the measured 110 MB/s** — and touches none of the 11.61 TB of tree data. Beyond that, the tree bytes are read remotely and sparsely: one root row per candidate in Stage 2 (~1 GB), then the selected byte ranges in Stage 4. The bulk 11.61 TB is never read for selection at all.
+
+### The two-host split
+
+**Four stages, alternating hosts.** An earlier draft had a single local `plan` step and one remote `extract`; that was not executable, because the root-row sampling in Stage 2 needs the remote `.dat` bytes, which are not local and must not be transferred in bulk. The subcommand boundaries below follow the host boundaries.
+
+| # | Subcommand | Where | Reads | Writes | Memory |
+|---|---|---|---|---|---|
+| 1 | `subset.py plan-candidates` | **Mac Studio** | `forests.list`, `locations.dat`, **`filesizes.tsv`** | `forest_table.npy`, `candidates.npy` | ~20 GB |
+| 2 | `subset.py sample-roots` | **`tooarrana1`** | `candidates.npy` (36 MB, shipped up), **`shinuchuu_scalefactor.txt`** (for the scale assertion), + one line at each candidate offset | `root_values.npy` | **< 1 GB** |
+| 3 | `subset.py finalize` | **Mac Studio** | `forest_table.npy` + `candidates.npy` + `root_values.npy` (~40 MB down) | `selection.json` + `selection.npy` | ~20 GB |
+| 4 | `subset.py extract` | **`tooarrana1`** | `selection.npy` (≈140 MB, shipped up) + the selected byte ranges | subset `tree_*.dat`, `forests.list`, `locations.dat` under `/fred/oz214` | **< 1 GB** |
+
+**Fetch four things in the index step, not two.** An earlier draft transferred only the two index files, which left three stages unable to run:
+
+| Artifact | Size | Why it is needed, and by whom |
+|---|---|---|
+| `forests.list` | 7.56 GB | Stage 1 — tree → forest |
+| `locations.dat` | 13.75 GB | Stage 1 — tree → file, offset |
+| **`filesizes.tsv`** | ~100 KB | **Stage 1 cannot compute the last tree's extent without it.** `[offset, file_size)` needs the file size, and neither index file carries it. Produce with one `stat` pass over the 2,744 files |
+| **`shinuchuu_scalefactor.txt`** | 490 B | **Stage 2's per-row assertion needs the final a_list scale** to check that each sampled row really is a z=0 root — Stage 2 reads it on the remote host, where it already lives. It is also the source of `shin-uchuu.a_list`, so fetch a local copy now rather than after extraction |
+
+**Artifact schemas, because the stage boundaries are where a wrong assumption hides.** `candidates.npy` must carry `(tree_root_id int64, forest_id int64, file_id int32, offset int64, extent int64)` — **`forest_id` included**, or Stage 3 cannot map a measured root back to its forest, `forest_table.npy` being forest-aggregated. At M = 10⁶ that is 36 MB. `root_values.npy` carries `(tree_root_id int64, mvir float64, jx float64, jy float64, jz float64)`, row-aligned with `candidates.npy` and keyed by root id so the join is checkable rather than positional. `selection.npy` carries the per-file tree lists as `(file_id int32, tree_root_id int64, offset int64, extent int64)` — 28 B per selected tree, ≈140 MB at the 5 × 10⁶-tree target — sorted by `(file_id, offset)`.
+
+**Numeric contract for `root_values.npy`, because "reproduce the convention" is not precise enough.** The production path parses the ASCII columns into **float32** scratch before `apply_ctrees_value_conventions()` widens them to divide and stores a float32 result (`scripts/convert/ctrees_parser.py:433-453`; `src/io/tree/read_ctrees_ascii.c:96-106`). A sampler that parses straight to float64 can therefore disagree with the converter at ties and threshold boundaries. **Quantize each parsed column to float32 first, then apply the float64 divide and float32 store, and record in the artifact that its float64 fields hold widened float32 reader-visible values — not raw parsed text.**
+
+Then transfer the ~184 GB subset down. Both remote stages are chosen precisely because they need no memory — they seek, read, and write. `tooarrana1` has no Slurm, so run them under `tmux`/`nohup`; both are I/O-bound and single-threaded by design. The artifacts crossing hosts are small (tens of MB) in every direction except the final subset.
+
+### Step 1 — build the forest table (Mac Studio)
+
+Parse both index files into `numpy` arrays and join on `TreeRootID`: `forests.list` → `(root_id, forest_id)` int64 (5.0 GB); `locations.dat` → `(root_id, file_id, offset)` (5.7 GB). Then per source file, sort its trees by offset and derive each tree's byte extent:
+
+- `body_end` = the next tree's `offset` − `len("#tree " + str(next_root) + "\n")`;
+- for the last tree in a file, `body_end` = file size. This rests on files ending with a newline after the final data row and carrying no trailer, which was **spot-checked on one file only** — the extractor must verify it per file (see the extraction checks).
+
+Aggregate to `(forest_id, n_trees, total_bytes)` — 166.5M rows, ~4 GB — and convert bytes to an estimated halo count at the measured **506.3 B/row**. Keep this table; it is a durable artifact and the cheapest possible answer to "how big is forest X" for the rest of this work.
+
+### Step 2 — the tractability gate, and the file-coverage rule
+
+Report the distribution, then apply **two** gates. Both are binding; the first is the one that actually bites.
+
+**Gate A — per-forest tree count.** The reader preallocates 152,000 B per tree (constraint 6 above), so a forest's peak reader allocation is `152,000 × n_trees` **before** any halo is read. Cap selection at **n_trees ≤ 5 × 10⁵** (≈76 GB) for comfortable headroom inside 512 GB, and record the largest selected forest's projected allocation explicitly. This gate, not the halo count, is what excludes the super-forest: 104,845,278 trees × 152,000 B ≈ **15.9 TB**.
+
+**Gate B — per-forest halo count.** At roughly 500 B/halo across `RawHalo`, `Halo`, `GalaxyData` and the output buffer, 512 GB is an absolute ceiling near 1 × 10⁹ halos; cap at **1 × 10⁸ halos per forest**. Retained as a second bound because Gate A's 1000-halos-per-tree assumption is an over-allocation for typical forests but an *under*-estimate for an unusually deep one.
+
+**The file-coverage rule (constraint 5).** The subset's `locations.dat` must reference file IDs `0 … 2743` **contiguously**, and 2,744 must remain the file count, because 2,744 = 14³ and the reader asserts both contiguity and cubeness. So:
+
+> **Every one of the 2,744 source files must contribute at least one selected tree, and the subset must emit all 2,744 files.**
+
+At a 5 × 10⁶-tree target spread over 2,744 files this is satisfied ~1,800× over *on average* — but average is not proof, and a coverage hole would surface only at Task 6's tree-ordered reference run, after extraction and transfer are paid for. **Make it an explicit acceptance assertion.**
+
+**Closing a hole must not break the whole-forest invariant.** An earlier draft said to "force-add the smallest tree" from a missed file. That is wrong: adding one tree creates a *partial* forest, which is exactly what constraint 1 forbids, and it would change `fix_flybys`/`fix_upid` semantics for that forest. The correct rule:
+
+> For each missed file, add the **smallest complete forest that touches it and passes both gates**. Adding a forest adds all of its trees, which may themselves close other files, so **iterate to closure** — the process is monotone in coverage and converges quickly. Re-run Gate A, Gate B and the balance rule after closure, because the added forests change the totals.
+
+**And name the failure case rather than assuming it away:** if some file is touched only by intractable forests — in the limit, only by the super-forest — no complete-forest closure exists and this route is blocked for that file. With ~115,000 trees per file on average and the super-forest holding 33% of trees, a file that is *entirely* super-forest is implausible, but implausible is not checked. If it happens, **treat it as a blocker and report it** — do not improvise. Renumbering to a different perfect cube (1,728 = 12³, 2,197 = 13³) is arithmetically reader-compatible, but it is not a ready fallback: it requires a fully specified repartition-and-rewrite procedure, and both the extractor and the acceptance gates above currently assume the original 2,744 filenames and IDs are preserved end to end. Specifying that procedure is its own piece of work, to be scoped only if the case actually arises.
+
+### Step 2b — root-row sampling: exact values for sampled rows, and a rigorous lower bound
+
+Byte size is a proxy for mass, and a proxy is not what D9 asks for. It can be improved cheaply, though **not** turned into a global guarantee — be precise about which.
+
+**The mechanism.** The first data row of a tree is its z=0 root — ctrees writes each tree depth-first from the root, and the recorded `locations.dat` offset points at exactly that row (constraint 4). Spot-verified: the first data row of `tree_0_0_0.dat` carries `scale = 0.99998`. So take the top `M` candidate trees by byte size (suggest **M = 10⁶**), seek to each recorded offset and read to the end of that line. Per candidate this yields the exact z=0 `Mvir` (column 10) and `Jx, Jy, Jz` (columns 23–25) from the header's own index.
+
+**What this establishes, and what it does not.** The distinction matters because an earlier draft overclaimed both halves:
+
+| Claim | Status |
+|---|---|
+| Values are exact **for sampled rows** | **Yes** — read from the data, not derived |
+| `max \|J_k\| / Mvir` over the sample is a **lower bound** on the box's z=0 `Spin` maximum | **Yes, rigorously.** If it already exceeds 1000, D7's bound is refuted on the spot — a real result |
+| It is an **upper bound**, or "the" extremum | **No.** `Spin ∝ Mvir^(2/3)` is a population scaling, not an extremal bound, and `POST-PHASE-5-WORK.md` §2.1 already records scatter at fixed mass (σ in ln λ ≈ 0.4–0.5) and extremal statistics as unresolved. A high-spin halo below the byte cut can exceed the sampled maximum |
+| The top-`K` forests by root `Mvir` are **globally** the top `K` | **No.** The candidate pool is chosen by a byte proxy, so exactness inside the pool says nothing about what the proxy excluded |
+
+**So validate the proxy rather than assume it — on data we already hold — and make the result a gate, not a note.** micro-Uchuu is fully local in both ASCII and converted form, so measure there: the Spearman rank correlation between tree byte extent and root `Mvir`, and the **recovery fraction** — what fraction of the true top-200 forests by maximum root `Mvir` a byte-extent prefilter of relative depth `M/N_trees` recovers.
+
+> **Acceptance: recovery ≥ 0.90 at the chosen relative depth.** If a prefilter at relative depth `M/N` recovers less than 90% of the true top-200, **increase `M` until it does**, and carry that calibrated relative depth to Shin-Uchuu — `M = ceil(depth × 315,004,242)`. If no depth up to 1% of trees reaches 0.90, the proxy is too weak to support a high-mass stratum: **stop and report**, rather than proceeding with an untested heuristic and a D9 claim that rests on it.
+
+The suggested `M = 10⁶` (≈0.3% of trees) is a **starting point pending this measurement**, not a decided value. Do the measurement as part of Task 1's micro-Uchuu round trip; it costs one extra pass over data already on disk, and it is the only thing standing between "byte size correlates with mass" and an assumption.
+
+**Required per-row assertions.** The universal first-row-is-root premise is verified on exactly one tree, and the reader never checks it — `assign_forest_ids()` cross-checks root ids between `forests.list` and `locations.dat` only (`src/io/tree/ctrees/ctrees_utils.c:299-312`). So the sampler must assert, on **every** sampled row, that the row's `id` equals the `#tree` marker's root id and that its `scale` is the final a_list scale, and it must read to the newline rather than assume 1 KB suffices. A violated assertion means the premise is false for this dataset and the design needs revisiting — far better learned here than at Task 6.
+
+**And reproduce the production `Spin` convention, or the numbers are not comparable.** `apply_ctrees_value_conventions()` divides `J` by `Mvir` in float64 and stores float32, and **deliberately leaves zero-mass halos carrying raw `J`** (`src/io/tree/read_ctrees_ascii.c:96-106`, mirrored in `scripts/convert/fixups.py:158-183`). A sampler that divides naively, or that divides zero-mass rows, will not produce the values the range check will later see.
+
+### Step 2c — the residual `Spin` limitation, stated plainly
+
+Even with Step 2b, the *rehearsal run* still cannot exercise a maximum that lives in an excluded forest, and Step 2b measures z=0 only rather than all 70 snapshots. Three things bound what remains, in this order:
+
+1. The `Spin` range is a **validation-tier** check, not a runtime FATAL (`POST-PHASE-5-WORK.md` §2.1) — a too-narrow bound cannot abort the production run, it fails a test afterwards.
+2. **Step 2b returns a rigorous *lower* bound on the z=0 `Spin` maximum**, drawn from a candidate pool that includes super-forest trees. That is genuinely informative — if it exceeds 1000, D7 is refuted immediately — but it is **not** an upper bound and does not close the question. Step 1's forest table separately records what fraction of halos the excluded forests hold; that is exposure *population*, not a magnitude bound either. **Nothing before the production scan bounds the maximum from above.**
+3. The **production** conversion sees every halo at every snapshot, so the **final** `Spin` bound is set from a scan of the production dataset **before** the production run. `report.py` records totals, per-snapshot counts and identity bounds but **not** value extrema (`scripts/convert/report.py:79-97`), so this is a separate `h5py` scan over the 70 files' `Spin` datasets — and it is a **binding pre-run gate**, not an optional check.
+
+The rehearsal's job for `Spin` is to confirm the bound is not wildly wrong and to exercise the code path. Step 2b makes that confirmation quantitative; step 3 of this list still sets the production value.
+
+### Step 3 — stratified selection
+
+Two strata, both recorded in the manifest so every measurement can be attributed:
+
+- **Random stratum (the bulk).** A fixed-seed random sample of tractable forests, drawn from the full distribution rather than from its small end, sized to reach the tree-count target. Random draw is what makes the orphan statistics — and therefore `C` and `G` — representative of the box rather than of an extreme.
+- **High-mass supplement.** The top `K` tractable forests by **measured maximum root `Mvir`** from Step 2b (suggest K = 200) — not by `total_bytes`, which is only a proxy. These are the most massive systems **in the byte-selected candidate pool** — the best available proxy for "most massive outside the super-forest", with its recovery fraction measured on micro-Uchuu rather than assumed — and they exercise the largest-forest tree-driver memory path.
+
+**Target: ≈5 × 10⁶ tree roots**, i.e. ~1.6% of the box's z=0 halos. At the measured 72.8 halos/tree that is **≈3.6 × 10⁸ halos**, ~184 GB of ASCII, ~36 GB of converted HDF5, and a z=0 slab near 5 × 10⁶ halos — about 9× micro-Uchuu's. Large enough for stable ratios, small enough to run in hours and to **re-run**, which item 1.2 may require.
+
+**Balance rule.** The supplement biases `C/N` and `G/N` *upward* (massive forests host more satellites, hence more Type 2/3 galaxies), which is conservative for a memory ceiling — but only while it stays small. **If the supplement contributes more than ~15% of subset halos, raise the random stratum rather than cutting `K`**, so the bias stays bounded and the ratios stay usable for extrapolation. Record both strata's halo counts either way.
+
+**What "representative" has to mean, concretely — with the binning frozen, or the test is unfalsifiable.** "A random sample is representative" is an assertion until it is tested, and a test whose bin edges are chosen after seeing the data can be made to pass or fail at will. Freeze the algorithm:
+
+- **Bins:** half-decade edges on `log10(n_trees)`, i.e. `[1, √10), [√10, 10), [10, 10√10), …`, over the tractable population only, starting at `n_trees = 1`.
+- **Statistic:** for each bin, the **population share** — that bin's forests as a fraction of all tractable forests — compared against the same share within the random stratum. (Not the per-bin sampling *rate*, which is trivially uniform for a uniform draw and therefore tests nothing.)
+- **Tail handling:** bins holding fewer than 1,000 population forests are pooled rightward into the next bin before the comparison, so a handful of giant forests cannot fail the test on counting noise.
+- **Acceptance:** every populated bin after pooling is represented in the sample, and no bin's sampled share departs from its population share by more than a factor of two.
+
+Also record the median and 90th-percentile `n_trees` for both. **State the limitation honestly in the manifest:** this validates the sample's *forest-size* distribution, which is what drives the reader workload and the orphan statistics `C` and `G` depend on. It is not a direct test of low halo *mass*, which no index file carries. D9's rationale is about the low-mass population; forest size is the available proxy for it, and calling it that is better than implying more.
+
+**Two selection acceptance assertions that are easy to forget and expensive to miss:**
+
+- **File coverage** — all 2,744 original file IDs contribute at least one tree (Step 2's file-coverage rule). Close a hole with the smallest **complete** forest touching that file, never a lone tree, and iterate to closure; see the rule under Step 2.
+- **Snapshot span** — D9 requires the earliest snapshots through z=0. `locations.dat` cannot show which snapshots a forest occupies, so this **cannot** be asserted at selection time; it is asserted after conversion instead, from the conversion report's per-snapshot counts. Carry it forward as an explicit gate rather than assuming it: a subset with no early-snapshot halos still produces all 70 files (the writer emits empty snapshots) and can still pass a naive identity comparison.
+
+### Step 4 — extract (`tooarrana1`), then verify before transferring
+
+For each source file holding selected trees: copy the header up to (not including) its first `#tree` line; **rewrite the tree-count line at the same field width**; then for each selected tree in ascending offset order write `"#tree <root>\n"` followed by the body bytes `[offset, body_end)`, recording the new offset. Emit the subset `tree_*.dat` under their **original filenames**, plus a subset `forests.list` and a subset `locations.dat` carrying the new offsets with the original `FileID` and filename preserved. **All 2,744 files must be emitted**, including any that end up holding a single forced-in tree: `read_locations()` grows its fd table on demand but then asserts `max_fileid + 1 == numfiles` and that `numfiles` is a perfect cube (`src/io/tree/ctrees/ctrees_utils.c:236-246`), and 2,744 = 14³.
+
+**Verify remotely, before spending 28 minutes transferring it.** Every check below is cheap; the failure each prevents is not.
+
+- every selected root appears exactly once in both index files;
+- **all 2,744 files exist, file IDs are contiguous `0 … 2743`, and the count is a perfect cube** — the assertion the reader itself will make;
+- each rewritten count line equals that file's `#tree` marker count;
+- each emitted body's md5 equals the md5 of its source byte range;
+- each recorded offset is immediately preceded by its own `#tree <root>\n` and begins a well-formed data row;
+- **each source file ends with a newline after its final data row** — this is an extractor *precondition*, checked per file rather than assumed, because the last tree's body is taken as `[offset, file_size)` and a trailer or a missing newline would corrupt it. It was spot-checked on one file only when this design was written. A subset that fails any of these fails the converter later and much more expensively.
+
+### Tooling and placement
+
+`scripts/convert/subset.py`, with the four subcommands of the staged table above — `plan-candidates` and `finalize` local, `sample-roots` and `extract` on the data node — alongside its own tests — the same home and the same standards as the rest of the converter, which `scripts/convert/README.md` already describes as a long-lived versioned science tool rather than a one-off. **It must be `numpy`-only:** the checkout on `tooarrana1` (`~/Science/mimic`, tracking this branch, with `mimic_venv`) has `numpy` and `h5py` but **no `pandas`**.
+
+---
+
 ## Risks and Mitigations
 
 | Risk | Severity | Mitigation |
@@ -453,7 +656,7 @@ Property ranges requiring calibration from a test run: `deltaMvir`, `Len` (floor
 | fix_flybys / fix_upid divergence from reference | Critical | Micro-Uchuu topology cross-check by stable halo identity gates the converter before any Mimic code |
 | Non-adjacent `desc_scale` links in Shin-Uchuu | High | Abort — corrupt data by definition; no repair path exists or is wanted |
 | ~~Particle mass inferred, not documented~~ — **RETIRED 2026-08-14** | ~~High~~ | Confirmed as **8.97 × 10⁵ Msun/h** from Ishiyama et al. 2021 ([arXiv:2007.14720](https://arxiv.org/abs/2007.14720)) and cross-checked against the 140 Mpc/h box, 6400³ particles and Ω_m = 0.3089. The risk was real: the recorded value was low by exactly 10×, and `Len = round(Mvir_native × 1e-10 / PartMass)` would have been inflated 10× for every halo. Use the confirmed value when freezing `simulation_info.yaml` |
-| Super-forest rank sort resource surprise | **Blocker (until the converter scale pass lands)** | The "measured key volume ~150–250 GB fits RAM" figure below is inconsistent with the implementation as written: `compute_identity()` (`scripts/convert/links.py`) concatenates five int64 columns over *all* snapshots (~600–720 GB at 15–18B halos) plus the lexsort's order array (~120–144 GB), and the function's own docstring defers the external-merge sort as a "production concern" rather than implementing it. Mitigation: the scheduled converter scale-engineering pass (joint review D4) — see the "Pre-conversion obligation" subsection below — re-derives the actual key volume and implements the external-merge rank sort before this row can be downgraded. |
+| Super-forest rank sort resource surprise | **Blocker (until the converter scale pass lands)** | The "measured key volume ~150–250 GB fits RAM" figure below is inconsistent with the implementation as written: `compute_identity()` (`scripts/convert/links.py`) concatenates five int64 columns over *all* snapshots (**916 GB at the measured 22.9B halos**) plus the lexsort's order array (**183 GB**) — **~1.10 TB, 2.1× installed RAM** — and the function's own docstring defers the external-merge sort as a "production concern" rather than implementing it. (Recomputed 2026-08-25; the superseded 600–720 GB figure assumed 15–18 billion halos.) Mitigation: the scheduled converter scale-engineering pass (joint review D4) — see the "Pre-conversion obligation" subsection below — re-derives the actual key volume and implements the external-merge rank sort before this row can be downgraded. |
 | Transfer stalls / partial batches | Medium | rsync --checksum, per-file resume manifest, consumptive deletes keep disk bounded |
 | Phase 1 parser too slow | Medium | C tokeniser fallback; same worker interface |
 | snap_num vs snap_idx naming variant | Medium | Check both column names (matching setup_column_info) |
@@ -482,7 +685,7 @@ One sequence (see `MIMIC-DUAL-DRIVER-PLAN.md`):
 2. **Build this converter; validate on micro-Uchuu ASCII** (topology cross-check vs `read_ctrees_ascii.c`) — no new Mimic code needed
 3. ~~Dual-driver Phase 4b: snapshot reader against the micro-Uchuu fixtures~~ — **done 2026-08-04** (`MIMIC-SNAPSHOT-READER-PLAN.md`); the format this plan emits is now readable and validated by Mimic
 4. Dual-driver Phase 5: snapshot driver + cross-format identity gate on micro-Uchuu — **done 2026-08-12** (gate green: both models, both timestep schemes, per-ID bitwise)
-5. **Then** the one-time 5.6 TB Shin-Uchuu production conversion (this plan at full scale)
+5. **Then** the one-time 11.61 TB Shin-Uchuu production conversion (this plan at full scale)
 6. `simulations/shin-uchuu/` package; sage16 end to end; HMF/GSMF sanity at z = 0, 1, 2
 
 Shin-Uchuu is the primary scientific motivation for the snapshot pathway — and the only way Mimic can process it at all, because of the super-forest.
@@ -501,9 +704,13 @@ Shin-Uchuu is the primary scientific motivation for the snapshot pathway — and
 
 ### Pre-conversion obligation: converter scale-engineering pass (2026-08-13)
 
-The dual-driver Phase 5 joint review (`docs/dev/POST-PHASE-5-JOINT-REVIEW.md` F-13/D4) found that the converter as implemented **cannot execute the production conversion**, independently of the runtime readiness this plan otherwise reports. Three distinct limits, all confirmed against the code and all already recorded in `scripts/convert/README.md`'s "Shin-Uchuu-scale notes" as deferred to a future production pass, but scheduled by no plan until now: the identity/rank pass (`compute_identity()` in `links.py`) is in-memory over all snapshots — at 15–18B halos that is ≈600–720 GB for its five concatenated int64 columns plus ≈120–144 GB for the lexsort's order array on a 512 GB machine, and its own docstring defers the external-merge sort as a production concern (this also corrects the risk-table row above); the required producer validation battery (`validate.py`) is likewise in-memory, loading and retaining full-dataset columns, and cannot be skipped because producer validation is part of the format contract and this plan's own Definition of Done; and the scatter phase's resume model is incompatible with this plan's own "Getting the Data to the Mac" transfer strategy — `run_scatter` requires every listed source file to exist at start, freezes the ordered source set into the manifest and refuses resume when it changes, and `source_completed()` re-stats completed files, so batches deleted under the batched, consumptive-delete transfer this plan requires break resume. Also recorded in the same README note: the ~5 GB Phase 0 forest map is passed to pool workers by pickling, and the fix-up stage's sequential per-satellite scan (up to 31 searches per satellite) "would need revisiting for Shin-Uchuu."
+The dual-driver Phase 5 joint review (`docs/dev/POST-PHASE-5-JOINT-REVIEW.md` F-13/D4) found that the converter as implemented **cannot execute the production conversion**, independently of the runtime readiness this plan otherwise reports. Three distinct limits, all confirmed against the code and all already recorded in `scripts/convert/README.md`'s "Shin-Uchuu-scale notes" as deferred to a future production pass, but scheduled by no plan until now: the identity/rank pass (`compute_identity()` in `links.py`) is in-memory over all snapshots — at the measured 22.9B halos that is **916 GB** for its five concatenated int64 columns plus **183 GB** for the lexsort's order array on a 512 GB machine, ≈1.10 TB in total (the figures recorded here in 2026-08-13, ≈600–720 GB plus ≈120–144 GB, assumed 15–18B halos), and its own docstring defers the external-merge sort as a production concern (this also corrects the risk-table row above); the required producer validation battery (`validate.py`) is likewise in-memory, loading and retaining full-dataset columns, and cannot be skipped because producer validation is part of the format contract and this plan's own Definition of Done; and the scatter phase's resume model is incompatible with this plan's own "Getting the Data to the Mac" transfer strategy — `run_scatter` requires every listed source file to exist at start, freezes the ordered source set into the manifest and refuses resume when it changes, and `source_completed()` re-stats completed files, so batches deleted under the batched, consumptive-delete transfer this plan requires break resume. Also recorded in the same README note: the ~5 GB Phase 0 forest map is passed to pool workers by pickling, and the fix-up stage's sequential per-satellite scan (up to 31 searches per satellite) "would need revisiting for Shin-Uchuu."
 
 **Scope of the pass:** external-merge rank sort (replacing the in-memory lexsort); streaming/per-snapshot validation (replacing the full-dataset-resident battery); a batch-aware scatter inventory compatible with consumptive deletes (replacing the frozen-source-set resume model); shared or memory-mapped forest-map distribution (replacing per-worker pickling); and a production-scale benchmark of the fix-up stage's sequential satellite scan with an explicit, measurement-first retain/optimize decision.
+
+**Added to the scope 2026-08-25 — consumptive deletion of stage intermediates.** Deletion stops after the concat stage: `scatter.py` consumes its worker parts and `sort_index.py` consumes the unsorted scratch, but `fixups.py`, `links.py` and `hdf5_writer.py` delete nothing, so the workdir accumulates every intermediate to **≈8.60 TB** at the measured 22.9-billion-halo scale — more than the 7.3 TB primary scratch volume, fitting only by spanning a second volume with ~1.4 TB of margin on a one-shot run. Adding delete-after-verify to the fixups, links and write stages (the pattern `sort_index.py` already implements, including its crash-between-unlink-and-save recovery) brings the peak to **≈6.04 TB** and restores single-volume operation. This belongs here rather than in the operator's head: the same manifest machinery already exists, and a storage-exhaustion failure part way through a multi-day no-resume run is exactly the class of loss this pass exists to prevent.
+
+**Also re-derived 2026-08-25:** the rank pass figure this obligation is built on is **~1.10 TB, not 600–720 GB** — see the Feasibility section. The conclusion is unchanged and now holds by a wider margin.
 
 **Acceptance gate:** the full micro-Uchuu validation battery and topology cross-check must re-run green (the converter's reference semantics must not move while its machinery is rebuilt), plus a measured memory profile of the rank pass at projected Shin-Uchuu scale.
 

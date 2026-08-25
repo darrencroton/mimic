@@ -236,7 +236,7 @@ Snapshot-global operation hooks may be identified, but production global module 
 
 ### Then: Shin-Uchuu Production
 
-The 5.6 TB conversion runs exactly once, after the identity gate proves the format and driver. Production conversion, the `simulations/shin-uchuu/` package, and the end-to-end run are specified in `SHIN-UCHUU-CONVERSION-PLAN.md`.
+The 11.61 TB conversion runs exactly once, after the identity gate proves the format and driver. Production conversion, the `simulations/shin-uchuu/` package, and the end-to-end run are specified in `SHIN-UCHUU-CONVERSION-PLAN.md`.
 
 ### Sequencing Notes
 
