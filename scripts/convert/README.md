@@ -116,6 +116,61 @@ Re-running `scatter` skips source files whose manifest entry is complete and unc
 
 **Shin-Uchuu-scale notes (production conversion, out of scope here):** the Phase 0 forest map is currently passed to each pool task by pickling — at the ~5 GB Shin-Uchuu map size that needs a worker initializer with shared or memory-mapped storage; per-chunk per-snapshot boolean scans, whole-file concat reads, and the in-memory sort (~350 B/row peak) are likewise sized for micro-Uchuu, with a chunked external-merge fallback deferred to a future production pass. The fix-up stage's satellite chain resolution is a sequential per-satellite scan (reference-order in-place rewrites, required for exact fix_upid parity); it is a few seconds per snapshot at micro-Uchuu scale but would need revisiting for Shin-Uchuu. The link stage's rank pass groups every snapshot's sort keys in memory; the Shin-Uchuu super-forest needs a deferred chunked external-merge rank sort instead. The validation battery and cross-check similarly load the full emitted dataset (and reference galaxy output) into memory. Concurrent converter invocations on one workdir are not locked.
 
+## Building a subset of a very large dataset
+
+`subset.py` selects a tractable, representative **whole-forest** subset of a ctrees dataset far too
+large to convert in one pass, and extracts it byte-exactly. It never reads the bulk tree data:
+forests are ranked from `forests.list`, `locations.dat` and a `stat` size inventory, then one root
+row is read per candidate tree, then only the selected byte ranges are copied. Design:
+`docs/dev/SHIN-UCHUU-CONVERSION-PLAN.md` → "Subset Selection and Extraction".
+
+Stages alternate between the analysis machine and the machine holding the data, because root-row
+sampling needs the source bytes and those must not be transferred in bulk. `subset.py` is
+**numpy-only** for exactly this reason — the data node has no pandas.
+
+```bash
+# 1. local: per-tree and per-forest tables + the top-M candidate pool by byte extent
+mimic_venv/bin/python scripts/convert/subset.py plan-candidates \
+    --index <dir with forests.list, locations.dat, filesizes.tsv> --out <work> --m <M>
+
+# 2. on the data node: one root row per candidate (ship candidates.npy AND filemap.json)
+mimic_venv/bin/python scripts/convert/subset.py sample-roots \
+    --candidates <work>/candidates.npy --filemap <work>/filemap.json \
+    --trees <tree dir> --a-list <scale factor list> --out <work>/root_values.npy
+
+# 3. local: tractability gates, strata, file-coverage closure, selection manifest
+mimic_venv/bin/python scripts/convert/subset.py finalize \
+    --tree-table <work>/tree_table.npy --forest-table <work>/forest_table.npy \
+    --candidates <work>/candidates.npy --root-values <work>/root_values.npy \
+    --filemap <work>/filemap.json --out <work>/selection \
+    --target-trees <n> --k <supplement size> --seed <fixed>
+
+# 4. on the data node: stream the selected ranges out, then verify before transferring
+mimic_venv/bin/python scripts/convert/subset.py extract \
+    --selection <work>/selection --trees <tree dir> --out <subset dir>
+```
+
+**Whole forests, always.** `fix_flybys`/`fix_upid` work with per-forest max-snapshot scope, so a
+partial forest converts differently from the same forest in a full run. When a source file would
+otherwise contribute no selected tree — which `read_locations()` will not tolerate, since it asserts
+file ids are contiguous from 0 and that the file count is a perfect cube — the gap is closed by
+adding the smallest complete forest touching it, never a lone tree, iterating until closed.
+
+**`extract` verifies before you pay for the transfer**, and the verification is not optional: body
+md5s against the source ranges, marker placement, the rewritten count line, that no body contains a
+`#tree` marker and every body ends on a newline (an extent off by even one byte is caught here rather
+than by the converter after transfer), and one-to-one root coverage in the emitted index files.
+
+**`calibrate-proxy` is not a production step.** Byte extent is a *proxy* for root mass, and the
+recovery fraction that measures how good a proxy it is needs the true top-`K` forests over every
+tree. Run it on a calibration dataset small enough to sample exhaustively (`plan-candidates --m 0`,
+then `sample-roots`), and carry the calibrated relative depth to the production dataset as
+`M = ceil(depth × n_trees)`.
+
+Exit codes: **0** success; **1** the run completed but a `finalize` acceptance assertion or an
+`extract` verification failed; **2** fatal — a violated invariant, bad input, or an unreadable
+artifact.
+
 ## Reference-topology proof
 
 The six-check cross-check (above) establishes identity, rank, and central resolution by matching galaxies to halos. It does not, by itself, directly compare the *order* of the converter's `FirstProgenitor`/`NextProgenitor`/`NextHaloInFOFgroup` chains against another implementation reading the same source data — rank equality constrains the underlying sort but does not prove chain construction.
@@ -165,6 +220,7 @@ Failures are reported as one counted summary line per (snapshot, field) with exa
 | `hdf5_writer.py`    | Phase 4: `snapshot_NNN.h5` + `forests.h5` emission per the frozen contract (empty snapshots included; write-verify-record) |
 | `validate.py`       | producer validation battery (standalone CLI): structural conformance, all six format invariants, progenitor round-trip closure, FoF chain walk, identity density, header bounds, count conservation vs the independent pre-counts |
 | `report.py`         | conversion report emission (`conversion_report.{json,txt}`) including battery outcomes and the recommended identity multiplier |
+| `subset.py`         | whole-forest subset selection and byte-exact extraction from a very large ctrees dataset, driven entirely from the index files: `plan-candidates` / `sample-roots` / `calibrate-proxy` / `finalize` / `extract` |
 | `crosscheck.py`     | six-check cross-check vs a halos-only reference run (matching by \|MostBoundID\|, identity decode, FoF central, flyby signs, bit-exact values, occupancy predicate), an optional seventh `topology-chains` check against a reference-topology dump (coverage, links, identity, sign), + reference-run plumbing |
 | `tests/`            | stdlib-unittest suite; synthetic fixture generator (`fixtures.py`); mock reference builder (`mock_reference.py`); committed golden fixtures under `tests/data/` |
 
