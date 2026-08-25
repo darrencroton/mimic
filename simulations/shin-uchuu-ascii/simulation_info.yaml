@@ -23,9 +23,13 @@ output:
   forests_per_file: 500000
 
 simulation:
-  # 10^10 from the start, not the framework default, so the rehearsal exercises
-  # the production identity multiplier. Must match simulations/shin-uchuu/,
-  # or UniqueGalaxyID differs between the two and the identity gate fails.
+  # REHEARSAL VALUE ONLY -- 10^10 is NOT valid for the production box, where the
+  # super-forest pushes max HaloRankInForest to ~1.2835e10 and violates
+  # halonr < multiplier. Correct for this subset (max rank 8,312,565). At
+  # production use a value in 12,834,657,130 <= M <= 55,379,738,354 (2e10
+  # recommended). Must match simulations/shin-uchuu/, or UniqueGalaxyID differs
+  # between the two and the identity gate fails. See
+  # SHIN-UCHUU-CONVERSION-PLAN.md, 'Simulation package changes required'.
   unique_galaxy_id_multiplier: 10000000000
   cosmology:
     omega_matter: 0.3089

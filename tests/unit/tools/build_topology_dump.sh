@@ -92,7 +92,9 @@ fi
 
 # Same production source set as tests/unit/run_tests.sh's ALL_SRCS, minus
 # TEST_STUBS (a test-framework-only file this tool never references).
-UTIL_SRCS="${SRC_DIR}/util/memory.c ${SRC_DIR}/util/error.c ${SRC_DIR}/util/numeric.c ${SRC_DIR}/util/version.c ${SRC_DIR}/util/integration.c ${SRC_DIR}/util/io.c ${SRC_DIR}/util/run_log.c ${SRC_DIR}/util/progress.c"
+# Keep in sync with run_tests.sh by hand: only its copy is exercised by the
+# default-pair suite, so a file added there alone fails to link only here.
+UTIL_SRCS="${SRC_DIR}/util/memory.c ${SRC_DIR}/util/error.c ${SRC_DIR}/util/numeric.c ${SRC_DIR}/util/version.c ${SRC_DIR}/util/integration.c ${SRC_DIR}/util/io.c ${SRC_DIR}/util/run_log.c ${SRC_DIR}/util/progress.c ${SRC_DIR}/util/run_profile.c"
 # Deliberately excludes core/tree_driver.c, core/build_model.c, core/virial.c,
 # core/timestep.c, core/inheritance.c, core/output_buffer.c, io/output/*, and
 # the module system: this harness reimplements only the small partition/unit

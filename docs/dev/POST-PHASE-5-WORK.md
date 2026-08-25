@@ -179,6 +179,48 @@ Three things this already establishes, none of which the projection could assume
 
 The instrumentation this depends on landed 2026-08-19 as `src/util/run_profile.{c,h}`; see `MIMIC-DEVELOPMENT-PATHWAY.md` → "Completed Work".
 
+#### Measured at the Shin-Uchuu rehearsal, 2026-08-26 — the trigger fires, and two corrections to this section
+
+This is the measurement this section was waiting for. Two `sage16` snapshot-ordered runs, identical in model, driver, `SubSteps: 10` and requested output-snapshot count, differing only in slab scale:
+
+| Run | largest slab `N` | peak RSS | `C` | `P` | `G` | pool allocated (slack) |
+|---|---|---|---|---|---|---|
+| `sage16` / `micro-uchuu-snapshot` | 621,360 | **2.184 GB** | 622,360 | 616,114 | 636,789 | 1,040,384 (38.8%) |
+| `sage16` / `shin-uchuu` (rehearsal subset) | 9,006,294 | **14.301 GB** | 9,007,294 | 8,979,389 | 9,210,010 | 12,574,720 (26.8%) |
+
+Ratios are strikingly stable across a 14.5× scale change: `C`/N = 1.00161 → 1.00011, `G`/N = 1.02483 → 1.02262, `P`/N = 0.99156 → 0.99701. **`C` = N + 1000 exactly at the larger scale** — the buffer is seeded at `nhalos + MIN_HALO_ARRAY_GROWTH` and never grew, so the `sage16` production configuration does not exercise the geometric-growth path at all.
+
+**Correction 1 — the `176·G` term must use the pool's *allocated* slots, not its high-water `G`.** This section's own note that "pool chunk slack is real but small: ... at 315M galaxies the unused tail is under one chunk per pool (≈1% of `G`)" is right at production scale and badly wrong at rehearsal scale, where slack is 27–39%. The fit is therefore written with the pool separated:
+
+> **RSS = 1.221 GB + 960.9 B/halo × N + 2 × 176 B × pool_allocated(N)**
+
+reproducing both measured points exactly (2.184 GB and 14.301 GB). Because slack shrinks with scale, the *effective total* slope falls from 1,550 B/halo at micro-Uchuu to 1,452 at the rehearsal and 1,322 at production; a single naive slope through the two points therefore overstates the production peak.
+
+**The unmodelled residency this section predicts is real, and is ~35% of the non-pool slope.** Like for like, the parametric non-pool part is 2·(120 + 176·`C`/N) + 32 = **624.0 B/halo** against the fitted **960.9**, i.e. **336.8 B/halo unaccounted for**. That is the term this section deliberately declines to enumerate analytically, and it is why measured RSS is the gate rather than the parametric sum. **The two projections do not differ by exactly that residual**, because the parametric form carries a flat ~10 GB allowance while the fit carries a 1.221 GB intercept: 336.8 B/halo x N is 106.1 / 119.4 GB at the two production slabs, against table gaps of 97.6 / 111.5 GB - the ~8.7 GB difference being precisely those two constants. Do not substitute one projection for the other.
+
+**Correction 2 — the peak is set by the largest slab, not the z=0 slab.** Every projection in this section uses N = 315,004,242, the box's z=0 halo count. The rehearsal measures the largest slab at **snapshot 44, 1.1258× its own z=0 slab**, and the peak is a **broad plateau** — snapshots 41–48 all within 1% of each other — so both live generations sit at it rather than one being much smaller. The projected production largest slab is therefore **N ≈ 3.546 × 10⁸**.
+
+| Projection at | parametric form | measured-RSS fit (**the one to use**) | vs the 435 GB trigger |
+|---|---|---|---|
+| z=0 slab, N = 315,004,242 | 320.0 GB | **417.6 GB** | clear by 17.4 GB |
+| largest slab, N ≈ 354,618,825 | 358.9 GB | **470.4 GB** | **OVER by 35.4 GB** |
+
+**The trigger is crossed by the point forecast, but the compact previous-slab projection is deferred rather than required (owner decision, 2026-08-26).** It does not cover the gap anyway: replacing the retained previous generation's 88 B `RawHalo` with `{int32_t Len, int32_t NextProgenitor}` saves 80 B/halo, i.e. 28.4 GB at N ~ 3.546e8, taking 470.4 GB to ~442.0 GB - still above 435 GB; also releasing that generation's two int64 identity arrays and its `SnapshotHaloAux` (32 B/halo, 11.3 GB) reaches ~430.7 GB, under by only 1%.
+
+**A units note that matters here, because it makes the recorded trigger more conservative than it reads.** The host reports `hw.memsize` = 549,755,813,888 B, i.e. exactly **512 GiB** — the capacity Apple markets as "512 GB". This section reports in **GB = 10⁹ B**, so that same memory is **549.76 GB** in projection units. The recorded trigger of "~435 GB (85% of 512 GB)" was formed as 512 × 0.85 and then read on the 10⁹-byte scale, so it is really **79% of capacity**; a literal 85% would be **467.3 GB**. No extra memory is being claimed — only the same memory counted consistently.
+
+**And the trigger's headroom assumption does not match the conversion host.** 435 GB was set as 85% of a 512 GB machine, reserving 15% for everything else. Measured on that host with a normal desktop session live, committed memory outside Mimic is **~37.7 GB** (31.0 GB anonymous + 6.7 GB wired); the 170.8 GB of file-backed pages is evictable cache, not competition. On the otherwise-idle box these runs already require, Mimic has **~540 GB**, so 470.4 GB is ~87% utilisation with ~70 GB spare.
+
+**The response is therefore: run lean, and re-project from the production conversion report's own per-snapshot slab counts before committing to the run** - that report supplies the real largest slab and removes this projection's one unavoidable extrapolation. The compact-slab change stays specified and available if the re-projection comes in materially higher.
+
+**What this does not cover, and should be closed cheaply anyway:** `sage16` never grows its output buffer (`C` = N + `MIN_HALO_ARRAY_GROWTH` exactly) and measured `P`/N is 0.99701, i.e. 0.3% below the growth threshold. Crossing it steps `C`/N to 1.5 - about 55 GB more resident plus a `realloc` transient holding both blocks - a step no amount of free RAM absorbs. Seeding the buffer with a few percent headroom above `nhalos` rather than a flat +1000 costs ~2-3 GB at production and removes the cliff. Note also that the recorded "435 GB = 85% of 512 GB" is conservative in its own terms: the machine holds 549.76 × 10⁹ B, so 435 GB is 79% of installed and a literal 85% would be 467.3 GB — which 470.4 GB still exceeds. The z=0 reading is not a safe fallback: clearing by 4% on a 35× extrapolation leaves no headroom for the `realloc` transient described above, where an N-sized buffer growing to 1.5N briefly holds both blocks.
+
+**Why this fit is used for `sage16` and must not be reused for `halos-only`.** The identical method applied to `halos-only` (2.593 GB at N = 621,360 from the 2026-08-19 measurement above, 34.926 GB at N = 9,006,294) fits a slope of 3,851 B/halo against a parametric 1,068 - under-predicting by 3.6x, where `sage16` matches to 0.98x. Growth is a large part of that: `sage16` holds `C` = N + `MIN_HALO_ARRAY_GROWTH` exactly and never grows its output buffer, while `halos-only` reaches `C`/N = 2.25, and the last x1.5 step briefly holds a 1.5N block beside a 2.25N one (about 1,320 B/halo over two generations) that `myrealloc_cat` cannot see. **It is not the whole story** - that accounts for roughly half the 2,783 B/halo gap - so treat it as the identified mechanism, not a complete decomposition. **The corollary is a fragility worth carrying:** measured `P`/N is 0.99701 and 0.99156, so the production configuration sits within ~0.3% of the point where growth triggers, after which `C`/N jumps to 1.5 and the hidden transient appears.
+
+**How much confidence 470.4 GB deserves.** It is a **point forecast with real model uncertainty**, not a measured production peak: the two anchor runs share model, driver, `SubSteps` and output-snapshot count but come from **different simulations with different merger histories**, the extrapolation is 39x beyond the larger point, and the largest-slab step assumes the production box's largest/z=0 ratio matches the subset's 1.1258 - which the excluded super-forest could move. The output-count control rules out accumulation with requested outputs; it does not prove linearity in N. **The trigger decision is therefore a conservative risk decision on a point forecast, not a proof.**
+
+**A control worth recording, because it rules out an obvious alternative explanation.** Varying the requested output-snapshot count on the small run — 1, 8 and 50 snapshots — left peak RSS flat at 2.182 / 2.184 / 1.959 GB. Residency scales with the slab, not with output volume, which is what licenses extrapolating in N and also means the writer's per-snapshot rescan (F-3 / D3) costs time rather than memory.
+
 #### Platform audit 2026-08-20 — the instrument is scale- and platform-sound, and the RSS branch is now measured on the target host
 
 The instrumentation above was developed and validated entirely on macOS at fixture scale, which raises a fair question: could an instrument built that way misreport at Shin-Uchuu scale, on the machine the rehearsal actually runs on? That failure would be expensive in exactly the way this item exists to prevent — discovered only after a multi-week run. Audited on 2026-08-20; three findings, no defect.
@@ -210,6 +252,8 @@ For this section that means `run_profile_peak_rss_bytes()` takes the **bytes** b
 | `sage16` (0.99×N, the production model) | ≈312M | 3.21× clear | 6.9× clear |
 | `halos-only` (2.11×N) | ≈665M | **1.50× clear** | 3.23× clear |
 
+**Measured at the rehearsal, 2026-08-26 — clear, and now on a measured `P`/N rather than a carried-over one.** `sage16` snapshot-ordered gives `P`/N = **0.99701** at a 9,006,294 slab, reproducing micro-Uchuu's 0.99 at 15× the scale on a different simulation. At the projected production largest slab (N ≈ 3.546 × 10⁸, see §2.2's correction 2) that is P ≈ 3.536 × 10⁸: **2.83× clear** of `MAX_HALO_ARRAY_SIZE` = 10⁹ and **6.07× clear** of `INT_MAX`. The slab itself is **6.06× clear** of the `INT_MAX` slab guard at `snapshot_driver.c:674`. No widening is required. Note the `halos-only` configuration measures `P`/N = 1.908 on the same dataset, so the caution about configuration-dependence in this section stands — it is simply not the production model.
+
 An earlier version of this note divided the ceilings by `N` and reported 3.17× / 6.8× unconditionally — the same `N`-versus-`P` conflation §2.2 corrects, and it overstated the margin for any configuration whose output exceeds its slab. The production configuration is genuinely clear, so **no widening is required now**; but since §2.2 also concludes that micro-Uchuu's 0.99× ratio may not carry to Shin-Uchuu's far finer resolution, **this check stays parametric in `P` and is confirmed by the same rehearsal measurement** rather than closed on the projection. If the measured `P` lands within an order of magnitude of 10⁹, widen the counter and its guard to int64 first, moving both ceilings together.
 
 ### 2.4 Confirm the Shin-Uchuu particle mass before freezing the package — CLOSED 2026-08-14
@@ -227,6 +271,12 @@ An earlier version of this note divided the ceilings by `N` and reported 3.17× 
 ### 2.5 Calibrate the remaining property ranges for `shin-uchuu`
 
 `SHIN-UCHUU-CONVERSION-PLAN.md:439` lists `deltaMvir`, `Len` (floor is 1 at this resolution) and `Spin` as requiring calibration from a test run. For reference, the micro-Uchuu packages now ship `Spin [-1000, 1000]`, `Vel [-5000, 5000]`, `VelDisp [0, 5000]`, `Vmax [10, 5000]`.
+
+**Calibrated at the rehearsal, 2026-08-26.** Measured over the whole converted subset (all 70 snapshots, 406,668,896 halos, zero non-finite values): `Spin` **[−11.673591, +17.797567]**, `Len` **[2, 13,575,251]**, `Pos` **[0.0, 140.0]** (touching both declared bounds; the check is inclusive so it passes), `Vel` [−2198.26, +2782.30], `VelDisp` [0.0, 465.57], **`Vmax` [1.77, 407.38]**. In output, `deltaMvir` is [−58.55, +78.72] for `sage16` and [−205.30, +78.72] for `halos-only`.
+
+**Both surviving bounds are anchored against micro-Uchuu rather than against the subset alone, because the subset's margins flatter them.** micro-Uchuu reaches `Spin` 270.30 and `deltaMvir` [−2409, +3860] at a maximum halo mass of 3.09 × 10¹⁴ Msun/h, against the subset's 1.2177 × 10¹³. Scaling to the production box's ≥1.2288 × 10¹⁵ (3.98× micro-Uchuu) gives `Spin` ≈ 270.30 × 3.98^(2/3) ≈ **680** against the 1000 bound, and `deltaMvir` plausibly **1.5–2 × 10⁴** against ±20000. Both are inside, neither comfortably. **The two need different gates, and only one can be a pre-run scan.** `Spin` is present in the converted input dataset, so it is scannable before the run - a binding pre-run gate. `deltaMvir` is created during inheritance (`src/core/inheritance.c`) and exists only in Mimic output, so it cannot be scanned in advance: it is a **binding post-run range validation** on the production run's own output.
+
+Outcome: `Spin` and `deltaMvir` left unchanged — neither is *confirmed*, both are **not refuted by the rehearsal**, which is why both carry a production gate; no `Len` range added (output `Len` is legitimately 0 for orphans); and **`Vmax` corrected from `[10.0, 5000.0]` to `[0.0, 5000.0]` in both shin-uchuu packages** — the micro-Uchuu floor is violated by Shin-Uchuu's 362×-finer particle mass, which resolves halos down to 1.77 km/s at `Len` = 2. That was a live failure of `test_physical_ranges`, not a theoretical one. See `POST-PHASE-5-JOINT-REVIEW.md` §6 items 2 and 9.
 
 **Clarification (joint review F-10):** `deltaMvir` is not a package catalog range like `Len`/`Spin` — it is a **core-level output property** (`src/core/core_properties.yaml`, range `[-20000.0, 20000.0]`, already annotated "symmetric wide bounds to accommodate Uchuu-scale mass swings"), computed during inheritance rather than read from any simulation package's `halo_properties.yaml`. Calibrating it is legitimate pre-Shin-Uchuu work — the range check still needs confirming against a Shin-Uchuu test run — but it is checked and edited in `core_properties.yaml`, not in `simulations/shin-uchuu/halo_properties.yaml`.
 

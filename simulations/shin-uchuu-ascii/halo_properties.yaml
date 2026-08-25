@@ -125,7 +125,9 @@ halo_properties:
     output: true
     init_source: copy_from_tree
     output_source: copy_direct
-    range: [10.0, 5000.0]
+    # Floor 0.0, not micro-Uchuu's 10.0: this box's 362x finer particle mass
+    # resolves halos down to a measured 1.77 km/s at Len = 2, and Vmax is a speed.
+    range: [0.0, 5000.0]
 
   # --- halo identity ---
   - name: MostBoundID
