@@ -1,0 +1,43 @@
+# Shin-Uchuu Simulation Metadata — Consistent-Trees ASCII format (rehearsal subset)
+#
+# `snapshots/` is a machine-local symlink to the SUBSET ASCII tree data, not the
+# full production box (docs/dev/SHIN-UCHUU-CONVERSION-PLAN.md). The reader uses
+# forests.list, locations.dat and the tree_X_Y_Z.dat files there;
+# first_file/last_file are metadata only for ASCII.
+#
+# The subset preserves the production layout of 2744 files (14^3, ids 0..2743),
+# and every file contributes at least one selected tree, so tree_0_0_0.dat is
+# always present to supply the shared Consistent-Trees column header.
+
+input:
+  first_file: 0
+  last_file: 2743
+  tree_name: tree_0_0_0.dat
+  tree_type: consistent_trees_ascii
+  simulation_dir: simulations/shin-uchuu-ascii/snapshots
+  snapshot_list_file: simulations/shin-uchuu-ascii/shin-uchuu.a_list
+
+output:
+  # Required > 0: the ASCII reader cannot estimate chunk sizes from its input.
+  # The rehearsal subset holds 6,011,205 forests, so this gives 13 output chunks.
+  forests_per_file: 500000
+
+simulation:
+  # 10^10 from the start, not the framework default, so the rehearsal exercises
+  # the production identity multiplier. Must match simulations/shin-uchuu/,
+  # or UniqueGalaxyID differs between the two and the identity gate fails.
+  unique_galaxy_id_multiplier: 10000000000
+  cosmology:
+    omega_matter: 0.3089
+    omega_lambda: 0.6911
+    hubble_h: 0.6774
+  box_size:
+    value: 140.0
+    units: Mpc/h
+    h_convention: carried
+  particle_mass:
+    # 8.97e5 Msun/h in the reference basis unit (1e10 Msun/h). Confirmed for
+    # Shin-Uchuu specifically; keep in sync with the sibling package.
+    value: 0.0000897
+    units: 1e10 Msun/h
+    h_convention: carried

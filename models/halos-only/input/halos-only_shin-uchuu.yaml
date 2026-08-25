@@ -1,0 +1,23 @@
+# Mimic halos-only Shin-Uchuu (snapshot-ordered HDF5, rehearsal subset) Run Configuration
+
+model:
+  name: halos-only
+
+simulation:
+  name: shin-uchuu
+
+output:
+  output_filename: halos
+  output_directory: output/halos-only-shin-uchuu
+  output_format: hdf5
+  # Identical across all four shin-uchuu run files: the cross-format identity gate
+  # compares them snapshot for snapshot and requires every compared snapshot to be
+  # non-empty on BOTH sides. All eight are measured non-empty on the ASCII side
+  # (snapshot 0 is the sparsest and is still populated); confirm the converted side
+  # against the conversion report's per-snapshot counts before running the gate.
+  snapshot_list: [69, 40, 20, 10, 5, 2, 1, 0]
+
+SubSteps: 1
+
+modules:
+  parameters: {}
