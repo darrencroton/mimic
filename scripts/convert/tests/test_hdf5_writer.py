@@ -30,7 +30,12 @@ from hdf5_writer import (  # noqa: E402
     snapshot_h5_name,
 )
 from links import LINKS_RECORD_DTYPE, run_links  # noqa: E402
-from report import build_report, recommended_multiplier, run_report  # noqa: E402
+from report import (  # noqa: E402
+    build_report,
+    identity_multiplier_window,
+    recommended_multiplier,
+    run_report,
+)
 from scatter import Manifest  # noqa: E402
 from test_links import GOLDEN_LINKS, make_linked_workdir  # noqa: E402
 from validate import run_battery  # noqa: E402
@@ -332,8 +337,60 @@ class TestReport(unittest.TestCase):
         self.assertEqual(recommended_multiplier(5, 5), 10**9)
         self.assertEqual(recommended_multiplier(10**9 - 1, 5), 10**9)
         self.assertEqual(recommended_multiplier(10**9, 5), 10**10)
-        with self.assertRaisesRegex(ConverterError, "overflows int64"):
+        with self.assertRaisesRegex(ConverterError, "no valid identity multiplier"):
             recommended_multiplier(10**17, 10**3)
+
+    def test_identity_multiplier_window_matches_the_reader_bounds(self):
+        # Cross-check against the two conditions snapshot_identity_bounds_valid()
+        # applies at run time (src/io/snapshot/interface.c), re-derived here
+        # rather than reusing the implementation under test. Figures are the
+        # projected Shin-Uchuu production dataset.
+        max_rank, n_forests_total = 12_834_657_129, 166_547_771
+
+        def reader_accepts(multiplier):
+            return multiplier > max_rank and n_forests_total <= (2**63 - 1) // multiplier - 1
+
+        lower, upper = identity_multiplier_window(max_rank, n_forests_total)
+        self.assertEqual((lower, upper), (12_834_657_130, 55_379_738_354))
+        self.assertTrue(reader_accepts(lower))
+        self.assertTrue(reader_accepts(upper))
+        self.assertFalse(reader_accepts(lower - 1))
+        self.assertFalse(reader_accepts(upper + 1))
+
+    def test_recommended_multiplier_searches_past_the_decade_ladder(self):
+        # Shin-Uchuu production: the window is 4.3e10 wide but holds no power of
+        # ten, so a decade-only search wrongly reports no valid multiplier.
+        self.assertEqual(
+            recommended_multiplier(max_rank=12_834_657_129, n_forests_total=166_547_771),
+            2 * 10**10,
+        )
+
+    def test_window_floor_stays_positive_for_the_empty_dataset_sentinel(self):
+        # An all-empty dataset carries (n_forests_total 0, max_rank -1); the
+        # reader requires multiplier > 0, so the window must not offer 0.
+        lower, upper = identity_multiplier_window(max_rank=-1, n_forests_total=0)
+        self.assertEqual(lower, 1)
+        self.assertLessEqual(lower, upper)
+
+    def test_window_below_the_reader_default_still_yields_a_multiplier(self):
+        # Very many small forests put the ceiling under TREE_MUL_FAC (1e9).
+        # Flooring the window at the default would report it empty and abort a
+        # report the reader would have accepted -- the same defect on new input.
+        max_rank, n_forests_total = 5_000_000, 10**10
+        lower, upper = identity_multiplier_window(max_rank, n_forests_total)
+        self.assertLess(upper, 10**9)
+        self.assertLessEqual(lower, upper)
+        multiplier = recommended_multiplier(max_rank, n_forests_total)
+        self.assertGreater(multiplier, max_rank)
+        self.assertLessEqual(n_forests_total, (2**63 - 1) // multiplier - 1)
+
+    def test_recommended_multiplier_falls_back_to_the_window_floor(self):
+        # A window too narrow to hold any 1/2/5 x 10**k value still yields one.
+        max_rank, n_forests_total = 12 * 10**17, 4
+        lower, upper = identity_multiplier_window(max_rank, n_forests_total)
+        multiplier = recommended_multiplier(max_rank, n_forests_total)
+        self.assertEqual(multiplier, lower)
+        self.assertLessEqual(multiplier, upper)
 
     def test_run_report_writes_artifacts(self):
         workdir, a_list, _, _ = make_written_workdir(self.root)
@@ -343,6 +400,9 @@ class TestReport(unittest.TestCase):
         self.assertEqual(report["n_forests_total"], 5)
         self.assertEqual(report["max_halo_rank_in_forest"], 5)
         self.assertEqual(report["recommended_identity_multiplier"], 10**9)
+        window_min, window_max = report["identity_multiplier_window"]
+        self.assertLessEqual(window_min, report["recommended_identity_multiplier"])
+        self.assertLessEqual(report["recommended_identity_multiplier"], window_max)
         self.assertEqual(report["totals"]["flyby_demotions"], 1)
         self.assertEqual(report["totals"]["snapshots_with_halos"], 5)
         # every a_list snapshot appears, with explicit zeros for empty ones

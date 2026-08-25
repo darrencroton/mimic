@@ -661,7 +661,15 @@ static int snapshot_output_snapshot_index(int64_t snapnum) {
 /* ------------------------------------------------------------------------- */
 
 /* Load snapshot `snapnum` into `gen` and allocate its per-halo aux array and
- * output buffer. */
+ * output buffer.
+ *
+ * The output buffer is seeded with proportional headroom rather than a flat
+ * increment: the output-to-slab ratio sits just under 1.0 and rises with scale,
+ * so a flat increment leaves a large run a fraction of a percent from a growth
+ * that reallocs the whole buffer. The tree driver's MAXHALOFAC over-allocation
+ * is not copied -- at slab scale a five-fold reservation is hundreds of
+ * megabytes -- and the seed never enlarges a slab already past
+ * MAX_HALO_ARRAY_SIZE, which the marshaller's growth path would refuse. */
 static void snapshot_acquire_generation(struct SnapshotDriverState *state,
                                         struct SnapshotGeneration *gen, int64_t snapnum) {
   snapshot_reader_load_slab(state->reader, snapnum, &gen->slab);
@@ -685,13 +693,20 @@ static void snapshot_acquire_generation(struct SnapshotDriverState *state,
     gen->aux[i].NHalos = 0;
   }
 
-  /* The output count of a snapshot is its halo count plus the orphans carried
-   * forward from earlier snapshots, so start one halo per slab entry (plus the
-   * shared minimum growth increment) and let the marshaller's own growth take
-   * it from there. The tree driver's MAXHALOFAC over-allocation is not copied:
-   * at slab scale a five-fold reservation is hundreds of megabytes. */
+  /* Output count is the slab plus the orphans carried forward from earlier
+   * snapshots; seed for that and let the marshaller grow if it is exceeded.
+   * Seeding policy and its rationale are on the function comment above. */
+  int64_t seed_headroom = (int64_t)((double)nhalos * SNAPSHOT_OUTPUT_SEED_HEADROOM);
+  if (seed_headroom < MIN_HALO_ARRAY_GROWTH) {
+    seed_headroom = MIN_HALO_ARRAY_GROWTH;
+  }
+  int64_t seed_capacity = nhalos + seed_headroom;
+  if (seed_capacity > MAX_HALO_ARRAY_SIZE) {
+    seed_capacity =
+        nhalos > MAX_HALO_ARRAY_SIZE ? nhalos + MIN_HALO_ARRAY_GROWTH : MAX_HALO_ARRAY_SIZE;
+  }
   gen->processed.count = 0;
-  gen->processed.capacity = nhalos + MIN_HALO_ARRAY_GROWTH;
+  gen->processed.capacity = seed_capacity;
   gen->processed.halos =
       mymalloc_cat((size_t)gen->processed.capacity * sizeof(struct Halo), MEM_HALOS);
   memset(gen->processed.halos, 0, (size_t)gen->processed.capacity * sizeof(struct Halo));

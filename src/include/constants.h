@@ -38,11 +38,12 @@
 #define TREE_MUL_FAC (1000000000LL) /* Global forest multiplier: 10^9 */
 
 /* Memory allocation parameters */
-#define HALO_ARRAY_GROWTH_FACTOR 1.5    /* Factor to grow arrays by (1.5 = 50% growth) */
-#define MIN_HALO_ARRAY_GROWTH 1000      /* Minimum growth increment regardless of factor */
-#define MAX_HALO_ARRAY_SIZE 1000000000  /* Upper limit to prevent excessive allocation */
-#define INITIAL_FOF_HALOS 1000          /* Initial size for FOF halo arrays */
-#define MEMORY_REPORT_THRESHOLD_MB 10.0 /* Report if > 10 MB allocated */
+#define HALO_ARRAY_GROWTH_FACTOR 1.5       /* Factor to grow arrays by (1.5 = 50% growth) */
+#define MIN_HALO_ARRAY_GROWTH 1000         /* Minimum growth increment regardless of factor */
+#define MAX_HALO_ARRAY_SIZE 1000000000     /* Upper limit to prevent excessive allocation */
+#define SNAPSHOT_OUTPUT_SEED_HEADROOM 0.05 /* Snapshot output seed = slab + this fraction */
+#define INITIAL_FOF_HALOS 1000             /* Initial size for FOF halo arrays */
+#define MEMORY_REPORT_THRESHOLD_MB 10.0    /* Report if > 10 MB allocated */
 
 /* Data type IDs */
 #define DOUBLE 1
