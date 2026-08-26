@@ -74,15 +74,31 @@ def _flip_last_byte(path: Path) -> None:
     path.write_bytes(bytes(data))
 
 
-class ScatterEnv:
-    """One synthetic two-file scatter setup in a temp directory."""
+def _split_forests(forests, n_files: int):
+    """Split forests into n_files contiguous, non-empty groups, as evenly as
+    possible with any remainder in the earliest groups. For n_files=2 over
+    the 5 standard_forests() entries this reproduces the original 3/2 split
+    (file 0: forests 100/200/400; file 1: forests 500/600) exactly."""
+    n = len(forests)
+    base, extra = divmod(n, n_files)
+    groups = []
+    start = 0
+    for i in range(n_files):
+        size = base + (1 if i < extra else 0)
+        groups.append(forests[start : start + size])
+        start += size
+    return groups
 
-    def __init__(self, root: Path):
+
+class ScatterEnv:
+    """One synthetic multi-file scatter setup in a temp directory (2 files by
+    default; pass n_files for a larger fixture)."""
+
+    def __init__(self, root: Path, n_files: int = 2):
         self.root = root
         self.workdir = root / "workdir"
         self.forests = fixtures.standard_forests()
-        split = 3  # file 0: forests 100/200/400; file 1: forests 500/600
-        self.file_forests = [self.forests[:split], self.forests[split:]]
+        self.file_forests = _split_forests(self.forests, n_files)
         self.tree_files = []
         for i, group in enumerate(self.file_forests):
             path = fixtures.write_ctrees_file(
@@ -550,25 +566,25 @@ class TestBatchedManifestSave(unittest.TestCase):
         CrashOnNamedFileParser.crash_on_filename = None
         self.tmp.cleanup()
 
-    def _clean_baseline_manifest_bytes(self) -> bytes:
-        """Run once, uninterrupted, to capture reference manifest bytes, then
-        reset the workdir so a later scenario starts from scratch at the
-        exact same path — the source files, forests.list and a_list (all
-        outside the workdir) are untouched, so every path embedded in the
-        manifest matches between the two scenarios and a raw byte compare is
-        meaningful."""
-        self.env.run()
-        baseline = (self.env.workdir / "manifest.json").read_bytes()
-        shutil.rmtree(self.env.workdir)
+    def _clean_baseline_manifest_bytes(self, env=None, **run_kwargs) -> bytes:
+        """Run once, uninterrupted, with the given save-policy kwargs, to
+        capture reference manifest bytes, then reset the workdir so a later
+        scenario starts from scratch at the exact same path — the source
+        files, forests.list and a_list (all outside the workdir) are
+        untouched, so every path embedded in the manifest matches between
+        the two scenarios and a raw byte compare is meaningful."""
+        env = env if env is not None else self.env
+        env.run(**run_kwargs)
+        baseline = (env.workdir / "manifest.json").read_bytes()
+        shutil.rmtree(env.workdir)
         return baseline
 
     def test_manifest_byte_identical_regardless_of_save_policy(self):
         # save_every_n_files=1 reproduces the pre-batching per-file-save
         # cadence; the default policy batches saves. Same input -> the final
         # manifest content must not depend on when it was written.
-        per_file_bytes = self._clean_baseline_manifest_bytes()
-        self.env.run()
-        batched_bytes = (self.env.workdir / "manifest.json").read_bytes()
+        per_file_bytes = self._clean_baseline_manifest_bytes(save_every_n_files=1)
+        batched_bytes = self._clean_baseline_manifest_bytes()
         self.assertEqual(batched_bytes, per_file_bytes)
 
     def test_default_policy_leaves_recent_completion_unsaved_on_crash(self):
@@ -626,6 +642,64 @@ class TestBatchedManifestSave(unittest.TestCase):
             self.assertEqual(manifest.data["snapshots"][str(snap)]["rows"], count)
 
         resumed_bytes = (self.env.workdir / "manifest.json").read_bytes()
+        self.assertEqual(resumed_bytes, baseline_bytes)
+
+    def test_crash_between_saves_resumes_only_the_unsaved_files(self):
+        # a two-file fixture can only construct 'crash before the first
+        # save'; the ONLY in 're-scatters only the unsaved files' needs a
+        # crash where SOME completions already reached disk and others did
+        # not. Four files + save_every_n_files=2 (save_every_seconds set high
+        # enough never to fire on its own) gives: file 0 completes (1 <2, no
+        # save), file 1 completes (2 >=2, SAVE covers files 0+1, counter
+        # resets), file 2 completes (1 <2, no save), file 3 crashes before
+        # completing -- so file 2 is the mixed state: durably written but
+        # never saved, sitting between the save after file 1 and the save
+        # that would have followed file 3.
+        four_root = Path(self.tmp.name) / "four"
+        four_root.mkdir()
+        env = ScatterEnv(four_root, n_files=4)
+        baseline_bytes = self._clean_baseline_manifest_bytes(env)
+        scratch = env.workdir / "scratch"
+
+        CrashOnNamedFileParser.crash_on_filename = env.tree_files[3].name
+        with mock.patch("scatter.CtreesFileParser", CrashOnNamedFileParser):
+            with self.assertRaisesRegex(ConverterError, "simulated crash"):
+                env.run(save_every_n_files=2, save_every_seconds=999.0)
+
+        manifest_path = env.workdir / "manifest.json"
+        self.assertTrue(manifest_path.exists())
+        data = json.loads(manifest_path.read_text())
+        saved_sources = {
+            entry["src_index"]
+            for entry in data["source_files"].values()
+            if entry["status"] == "completed"
+        }
+        self.assertEqual(saved_sources, {0, 1})  # exactly the threshold-saved pair
+
+        # file 2 was durably written (record() ran) but the save covering it
+        # never happened before the crash
+        roots_2 = scratch / "roots_src_2.npy"
+        self.assertTrue(roots_2.exists())
+        mtime_saved_0 = (scratch / "roots_src_0.npy").stat().st_mtime_ns
+        mtime_saved_1 = (scratch / "roots_src_1.npy").stat().st_mtime_ns
+        mtime_unsaved_2 = roots_2.stat().st_mtime_ns
+
+        manifest = env.run()  # resume
+
+        # (a) already-saved files 0 and 1 were skip-trusted, not re-scattered
+        self.assertEqual((scratch / "roots_src_0.npy").stat().st_mtime_ns, mtime_saved_0)
+        self.assertEqual((scratch / "roots_src_1.npy").stat().st_mtime_ns, mtime_saved_1)
+        # (b) the unsaved file 2 and the never-completed file 3 were
+        # (re-)scattered
+        self.assertNotEqual(roots_2.stat().st_mtime_ns, mtime_unsaved_2)
+        self.assertTrue((scratch / "roots_src_3.npy").exists())
+
+        # (c) the converged result matches an uninterrupted run over the same
+        # four files, byte for byte
+        expected = env.expected_snapshot_counts()
+        for snap, count in expected.items():
+            self.assertEqual(manifest.data["snapshots"][str(snap)]["rows"], count)
+        resumed_bytes = manifest_path.read_bytes()
         self.assertEqual(resumed_bytes, baseline_bytes)
 
 
