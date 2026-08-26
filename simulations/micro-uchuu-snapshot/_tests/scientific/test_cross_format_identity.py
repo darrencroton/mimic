@@ -44,7 +44,7 @@ Stages, in order (one MIMIC_RESULT marker each):
    compare a fifth of the run).
 8. Tree-path preservation -- the same tree-ordered run built from the pre-Phase-5
    baseline commit, whose galaxy records must be byte-identical to HEAD's and
-   whose HDF5 metadata must differ in exactly the four permitted deltas beyond
+   whose HDF5 metadata must differ in exactly the permitted deltas beyond
    five provenance attributes that carry no scientific content.
 
 Worktrees and scratch outputs are removed on every exit path.
@@ -130,6 +130,8 @@ PERMITTED_DELTAS = (
     "TotHalosPerSnap int64",
     "UniqueGalaxyID description",
     "hdf5_format_version 1.2",
+    "Spin units",
+    "Spin description",
 )
 
 #: Attributes required to be exactly equal between the two runs of a pair before
@@ -167,6 +169,16 @@ PARTITION_SNAP_GALAXIES_RE = re.compile(r"^/Snap\d+/Galaxies$")
 #: is an unclassified difference and fails the stage.
 TOTHALOS_DTYPE_TRANSITION_RE = re.compile(r"^dtype int32(\(.*?\)) -> int64(\(.*?\))$")
 FORMAT_VERSION_TRANSITION_RE = re.compile(r"^value \[b'1\.1'\] -> \[b'1\.2'\]$")
+
+#: D8 relabelled Spin from a dimensionless quantity to the specific angular
+#: momentum J/Mvir it always held. Values were proved byte-identical and only
+#: the label moved, so the two metadata columns it touches are pinned by their
+#: exact before/after strings rather than merely by having changed.
+SPIN_UNITS_BEFORE = b"dimensionless"
+SPIN_UNITS_AFTER = b"Mpc/h km/s"
+SPIN_DESCRIPTION_BEFORE = b"Dimensionless spin"
+SPIN_DESCRIPTION_AFTER = b"Specific angular momentum"
+
 COMPARATOR_PASS_RE = re.compile(
     r"^PASSED: (\d+) galaxies over (\d+) output snapshot\(s\) are bitwise identical "
     r"in all (\d+) field"
@@ -1386,7 +1398,7 @@ def classify(delta: Delta) -> str | None:
     transition. Matching on the name alone would accept a version string moving
     to any value, a counter widening to any width, or a provenance name changing
     at a path where it does not belong -- all of which are real metadata changes
-    that the Definition of Done's "exactly four permitted deltas" excludes.
+    that the Definition of Done's "exactly the permitted deltas" excludes.
     Anything unmatched returns None and fails the stage as unclassified.
     """
     item = delta.item
@@ -1421,6 +1433,10 @@ def classify(delta: Delta) -> str | None:
 
     if item == "FieldMetadata UniqueGalaxyID.description":
         return "UniqueGalaxyID description" if delta.objpath == FIELD_METADATA_PATH else None
+    if item == "FieldMetadata Spin.units":
+        return "Spin units" if delta.objpath == FIELD_METADATA_PATH else None
+    if item == "FieldMetadata Spin.description":
+        return "Spin description" if delta.objpath == FIELD_METADATA_PATH else None
     return None
 
 
@@ -1492,7 +1508,12 @@ def assert_records_byte_identical(baseline: RunOutput, head: RunOutput) -> int:
 
 
 def assert_output_schema_delta(baseline: RunOutput, head: RunOutput) -> None:
-    """The run-local output schema differs in exactly the description and source_md5."""
+    """The run-local output schema differs in exactly the permitted field changes.
+
+    The same D8 relabel that moves Spin's HDF5 FieldMetadata also moves it here,
+    so the two lists are kept in step: a change that appears in one and not the
+    other means the schema writer and the HDF5 writer have diverged.
+    """
     before = json.loads(baseline.schema_path().read_text())
     after = json.loads(head.schema_path().read_text())
 
@@ -1517,7 +1538,12 @@ def assert_output_schema_delta(baseline: RunOutput, head: RunOutput) -> None:
 
     compare(before, after, "")
 
-    expected = {".source_md5", ".fields[UniqueGalaxyID].description"}
+    expected = {
+        ".source_md5",
+        ".fields[UniqueGalaxyID].description",
+        ".fields[Spin].description",
+        ".fields[Spin].units",
+    }
     if set(differences) != expected:
         raise AssertionError(
             f"{head.schema_path()} differs from the pre-Phase-5 baseline in "
@@ -1606,7 +1632,8 @@ def stage_tree_path_preservation():
     if unclassified:
         detail = "\n".join(f"    {delta}" for delta in unclassified[:20])
         raise AssertionError(
-            f"{len(unclassified)} HDF5 metadata difference(s) beyond the four permitted deltas "
+            f"{len(unclassified)} HDF5 metadata difference(s) beyond the "
+            f"{len(PERMITTED_DELTAS)} permitted deltas "
             f"and the {len(PROVENANCE_ATTR_PATHS)} excluded provenance attributes:\n{detail}"
         )
     missing = [name for name, count in observed.items() if count == 0]
@@ -1663,7 +1690,30 @@ def assert_permitted_delta_values(baseline: RunOutput, head: RunOutput) -> None:
                 f"the new UniqueGalaxyID description does not name the provenance attribute: "
                 f"{new_description!r}"
             )
-    log("  all four permitted deltas observed with their expected before/after values")
+
+        spin = [index for index, r in enumerate(old_rows) if r["field_name"] == b"Spin"]
+        if not spin:
+            raise AssertionError("no Spin row in FieldMetadata")
+        old_spin, new_spin = old_rows[spin[0]], new_rows[spin[0]]
+        if old_spin["units"] != SPIN_UNITS_BEFORE or new_spin["units"] != SPIN_UNITS_AFTER:
+            raise AssertionError(
+                f"Spin units moved {old_spin['units']!r} -> {new_spin['units']!r}, expected "
+                f"{SPIN_UNITS_BEFORE!r} -> {SPIN_UNITS_AFTER!r}"
+            )
+        if SPIN_DESCRIPTION_BEFORE not in old_spin["description"]:
+            raise AssertionError(
+                f"baseline Spin description {old_spin['description']!r} does not contain "
+                f"{SPIN_DESCRIPTION_BEFORE!r}"
+            )
+        if SPIN_DESCRIPTION_AFTER not in new_spin["description"]:
+            raise AssertionError(
+                f"HEAD Spin description {new_spin['description']!r} does not contain "
+                f"{SPIN_DESCRIPTION_AFTER!r}"
+            )
+    log(
+        f"  all {len(PERMITTED_DELTAS)} permitted deltas observed with their expected "
+        "before/after values"
+    )
 
 
 # --------------------------------------------------------------------------

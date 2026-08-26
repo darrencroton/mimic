@@ -141,6 +141,17 @@ The Mac Studio's internal APFS container is **3.6 TB with ~142 GB free**, not th
 
 **Is 7.3 TB enough? Not as the converter stands, and the reason is a defect rather than a budget.** Deletion stops after the concat stage: `scatter.py` removes its verified worker parts (`scatter.py:753-780`) and `sort_index.py` removes the unsorted scratch once the sort verifies (`sort_index.py:116`, `:129`), but `fixups.py`, `links.py` and `hdf5_writer.py` delete nothing — `fixups.py:573-580` registers the new `fixed` artifact and retains its `sorted` input — so at the end of Phase 4 the workdir still holds every intermediate at once — **≈8.60 TB** at the corrected 22.9-billion-halo scale (see the Disk table). That exceeds LaCie alone and fits only by spanning both external volumes, with ~1.4 TB of margin on a one-shot run. **Adding consumptive deletes to the fixups, links and write stages drops the peak to ≈6.0 TB and makes LaCie sufficient on its own**, which is why it is now scoped into the converter scale-engineering pass (D4) below rather than left to operator vigilance.
 
+### Remote working and output space on OzSTAR
+
+**Decided 2026-08-26, and constrained by permissions rather than preference.** The converted dataset is produced on the Mac Studio and must stay there for the production `sage16` run, which projects to ≈476.6 GB of peak RSS against `tooarrana1`'s 251 GB. Archiving a copy back to OzSTAR afterwards is worthwhile — it is durable, shareable, and ≈2.29 TB at the measured ≈110 MB/s is ≈5.8 h in the background — but it is a **post-P6 step**, not an alternative to holding the dataset locally.
+
+| Path | Role |
+|---|---|
+| `/fred/oz214/dcroton/shin-uchuu/working/` | Working data for the production conversion |
+| `/fred/oz214/dcroton/shin-uchuu/snapshot-trees/` | The archived converted snapshot trees |
+
+**These are not beside the source, and that is a permission constraint.** The natural home — `/fred/oz214/simulations/uchuu/shinuchuu/`, parallel to `mergertrees/` — is owned by `msinha` with group `oz214` at mode `drwxr-sr-x`: the group has read and execute but **no write**, and a real `mkdir` there fails with `Permission denied`. Placing the converted trees beside the source requires the directory owner or an `oz214` administrator to grant write access or create the directories; that is an operator action, and there is time to arrange it because the archive step follows the production run.
+
 ### Transfer
 
 **Measured 2026-08-25, single ssh stream from `tooarrana1`:** 287 MB in 2.66 s (108 MB/s) and 4 GiB in 37.5 s (**114.5 MB/s**). A rough four-stream test moved 4.84 GB in 39.2 s (123 MB/s) but two streams ran short, so treat parallelism as offering **no demonstrated gain** until measured properly. Use **≈110 MB/s** for planning — at the top of the 50–100 MB/s this plan previously assumed, which partly offsets the doubled data volume.
