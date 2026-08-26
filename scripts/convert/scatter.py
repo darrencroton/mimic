@@ -507,9 +507,28 @@ def scatter_one_file(
     )
 
 
+#: per-worker-process forest map (item 4): set once by ``_init_scatter_worker``
+#: rather than pickled into every task's argument tuple. ``None`` in the
+#: parent process and in any process that never ran the pool initializer.
+_worker_forest_map: Optional[ForestMap] = None
+
+
+def _init_scatter_worker(forests_list_path) -> None:
+    """``Pool`` initializer: load the forest map once per worker process.
+
+    The start method is ``spawn`` on this host (the platform default since
+    Python 3.8, not set anywhere in this package), so worker globals are not
+    fork-inherited and each worker must load its own copy; the same
+    initializer works unchanged under a ``fork`` default. Loading from
+    ``forests_list_path`` introduces no new on-disk representation.
+    """
+    global _worker_forest_map
+    _worker_forest_map = load_forests_list(forests_list_path)
+
+
 def _scatter_worker(args) -> FileScatterResult:
-    path, src_index, scratch_dir, forest_map, chunksize = args
-    return scatter_one_file(path, src_index, scratch_dir, forest_map, chunksize)
+    path, src_index, scratch_dir, chunksize = args
+    return scatter_one_file(path, src_index, scratch_dir, _worker_forest_map, chunksize)
 
 
 def run_scatter(
@@ -671,8 +690,15 @@ def run_scatter(
         for path, src_index in pending:
             record(scatter_one_file(path, src_index, scratch_dir, forest_map, chunksize))
     else:
-        args = [(path, i, scratch_dir, forest_map, chunksize) for path, i in pending]
-        with Pool(processes=min(pool_size, len(pending))) as pool:
+        # the forest map itself is never in this argument tuple (item 4): each
+        # worker loads its own copy once, in _init_scatter_worker, instead of
+        # the whole ForestMap being pickled into every task
+        args = [(path, i, scratch_dir, chunksize) for path, i in pending]
+        with Pool(
+            processes=min(pool_size, len(pending)),
+            initializer=_init_scatter_worker,
+            initargs=(forests_list_path,),
+        ) as pool:
             for result in pool.imap_unordered(_scatter_worker, args):
                 record(result)
 

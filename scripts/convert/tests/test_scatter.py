@@ -2,6 +2,7 @@
 conservation, manifest resume, aggregates, cleanup containment guard."""
 
 import json
+import multiprocessing as mp
 import os
 import shutil
 import sys
@@ -16,6 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import fixtures  # noqa: E402
+import scatter  # noqa: E402
 from ctrees_parser import DTYPE_TAG, RECORD_DTYPE, ConverterError, CtreesFileParser  # noqa: E402
 from scatter import (  # noqa: E402
     Manifest,
@@ -26,6 +28,33 @@ from scatter import (  # noqa: E402
     validate_observed_pairs,
     validate_root_coverage,
 )
+
+
+def _mp_worker_init_and_count(forests_list_path, counter, barrier) -> None:
+    """Test-only Pool initializer: run the real per-worker loader, record
+    that this worker process ran it, then rendezvous with the parent and
+    every sibling worker. Must be module-level so it can be pickled by
+    reference under the ``spawn`` start method.
+
+    The barrier is the difference between a deterministic count and a race:
+    without it, ``Pool.map`` can satisfy every task from whichever worker(s)
+    finish spawning first, and the context manager's ``terminate()`` on exit
+    can kill a slower sibling before it ever reaches this initializer —
+    undercounting workers that were requested but never needed. Waiting here
+    forces all requested workers to complete initialization before the
+    parent submits any task.
+    """
+    scatter._init_scatter_worker(forests_list_path)
+    with counter.get_lock():
+        counter.value += 1
+    barrier.wait()
+
+
+def _mp_lookup_task(root_id: int) -> int:
+    """Test-only pool task: look up one root id via the worker-global map
+    ``_init_scatter_worker`` set, proving the map is actually usable from
+    inside the worker process rather than merely loaded and discarded."""
+    return int(scatter._worker_forest_map.lookup_forest_ids(np.array([root_id]))[0])
 
 
 class KilledMidScatter(ConverterError):
@@ -553,6 +582,103 @@ class TestScatter(unittest.TestCase):
             b = (serial_env.workdir / "scratch" / snapshot_scratch_name(snap)).read_bytes()
             self.assertEqual(a, b)
         self.assertTrue(manifest.data["snapshots"])
+
+
+class TestForestMapWorkerDistribution(unittest.TestCase):
+    """Slice 2 (item 4): the forest map reaches each worker once per worker
+    process, via a Pool initializer, instead of being pickled per task."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+
+    def tearDown(self):
+        scatter._worker_forest_map = None
+        self.tmp.cleanup()
+
+    def test_init_scatter_worker_matches_parent_lookup(self):
+        forests = fixtures.standard_forests()
+        path = fixtures.write_forests_list(self.dir / "forests.list", forests)
+        parent_map = load_forests_list(path)
+
+        scatter._init_scatter_worker(path)
+        worker_map = scatter._worker_forest_map
+        self.assertIsNotNone(worker_map)
+        np.testing.assert_array_equal(
+            worker_map.lookup_forest_ids(parent_map.tree_root_ids),
+            parent_map.lookup_forest_ids(parent_map.tree_root_ids),
+        )
+        # the recorded provenance md5 is computed from the exact bytes the
+        # loader parsed, so an independent worker-side load of the same file
+        # must reproduce it exactly
+        self.assertEqual(worker_map.md5, parent_map.md5)
+
+    def test_initializer_runs_once_per_worker_across_many_tasks(self):
+        # real spawn-backed multiprocessing (this host's platform default):
+        # more tasks than workers, so a per-task load would drive the
+        # counter to n_tasks, while a per-worker load bounds it at n_workers
+        forests = fixtures.standard_forests()
+        path = fixtures.write_forests_list(self.dir / "forests.list", forests)
+        expected_map = load_forests_list(path)
+        roots = expected_map.tree_root_ids.tolist()
+
+        n_workers = 2
+        n_tasks = 8
+        self.assertGreater(n_tasks, n_workers)
+        tasks = [roots[i % len(roots)] for i in range(n_tasks)]
+
+        ctx = mp.get_context("spawn")
+        counter = ctx.Value("i", 0)
+        barrier = ctx.Barrier(n_workers + 1)  # +1 for this parent process
+        with ctx.Pool(
+            processes=n_workers,
+            initializer=_mp_worker_init_and_count,
+            initargs=(path, counter, barrier),
+        ) as pool:
+            # blocks until every requested worker has completed its
+            # initializer, so the count below cannot be short-circuited by
+            # tasks finishing before a slower worker finished starting
+            barrier.wait(timeout=30)
+            results = pool.map(_mp_lookup_task, tasks)
+
+        self.assertEqual(counter.value, n_workers)
+        expected = expected_map.lookup_forest_ids(np.asarray(tasks, dtype=np.int64)).tolist()
+        self.assertEqual(results, expected)
+
+    def test_pool_dispatch_wires_initializer_instead_of_per_task_map(self):
+        # serialization-event evidence: the task argument tuples handed to
+        # imap_unordered must not carry a ForestMap at all, and Pool must be
+        # constructed with the per-worker loader wired as its initializer.
+        env = ScatterEnv(self.dir, n_files=3)
+        captured = {}
+        real_pool = scatter.Pool
+
+        class RecordingPool:
+            def __init__(self, *args, **kwargs):
+                captured["args"] = args
+                captured["kwargs"] = kwargs
+                self._pool = real_pool(*args, **kwargs)
+
+            def __enter__(self):
+                return self._pool.__enter__()
+
+            def __exit__(self, *exc):
+                return self._pool.__exit__(*exc)
+
+        with mock.patch("scatter.Pool", RecordingPool):
+            env.run(pool_size=2)
+
+        self.assertIs(captured["kwargs"]["initializer"], scatter._init_scatter_worker)
+        self.assertEqual(captured["kwargs"]["initargs"], (env.forests_list,))
+
+    def test_serial_path_still_loads_forest_map_directly_in_parent(self):
+        # pool_size<=1 (and the single-pending-file case) must keep using the
+        # parent-loaded ForestMap object directly, the same code path as
+        # before this slice -- not the worker initializer/global route.
+        env = ScatterEnv(self.dir, n_files=2)
+        scatter._worker_forest_map = None
+        env.run(pool_size=1)
+        self.assertIsNone(scatter._worker_forest_map)
 
 
 class TestBatchedManifestSave(unittest.TestCase):
