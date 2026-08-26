@@ -30,7 +30,7 @@ from scatter import (  # noqa: E402
 )
 
 
-def _mp_worker_init_and_count(forests_list_path, counter, barrier) -> None:
+def _mp_worker_init_and_count(forests_list_path, expected_md5, counter, barrier) -> None:
     """Test-only Pool initializer: run the real per-worker loader, record
     that this worker process ran it, then rendezvous with the parent and
     every sibling worker. Must be module-level so it can be pickled by
@@ -44,7 +44,7 @@ def _mp_worker_init_and_count(forests_list_path, counter, barrier) -> None:
     forces all requested workers to complete initialization before the
     parent submits any task.
     """
-    scatter._init_scatter_worker(forests_list_path)
+    scatter._init_scatter_worker(forests_list_path, expected_md5)
     with counter.get_lock():
         counter.value += 1
     barrier.wait()
@@ -594,6 +594,7 @@ class TestForestMapWorkerDistribution(unittest.TestCase):
 
     def tearDown(self):
         scatter._worker_forest_map = None
+        scatter._worker_init_error = None
         self.tmp.cleanup()
 
     def test_init_scatter_worker_matches_parent_lookup(self):
@@ -601,9 +602,10 @@ class TestForestMapWorkerDistribution(unittest.TestCase):
         path = fixtures.write_forests_list(self.dir / "forests.list", forests)
         parent_map = load_forests_list(path)
 
-        scatter._init_scatter_worker(path)
+        scatter._init_scatter_worker(path, parent_map.md5)
         worker_map = scatter._worker_forest_map
         self.assertIsNotNone(worker_map)
+        self.assertIsNone(scatter._worker_init_error)
         np.testing.assert_array_equal(
             worker_map.lookup_forest_ids(parent_map.tree_root_ids),
             parent_map.lookup_forest_ids(parent_map.tree_root_ids),
@@ -612,6 +614,82 @@ class TestForestMapWorkerDistribution(unittest.TestCase):
         # loader parsed, so an independent worker-side load of the same file
         # must reproduce it exactly
         self.assertEqual(worker_map.md5, parent_map.md5)
+
+    def test_init_scatter_worker_records_mismatch_without_raising(self):
+        # PM correction (steer-attempt-2.md, Finding 1): an uncaught
+        # exception inside a Pool initializer does not fail the pool
+        # promptly -- CPython just keeps replacing the dead worker, turning
+        # a rare data-integrity risk into a silent hang on a multi-day run.
+        # The initializer must record a mismatch, not raise it.
+        forests = fixtures.standard_forests()
+        path = fixtures.write_forests_list(self.dir / "forests.list", forests)
+        real_md5 = load_forests_list(path).md5
+        wrong_md5 = "0" * 32 if real_md5 != "0" * 32 else "1" * 32
+
+        scatter._init_scatter_worker(path, wrong_md5)  # must not raise
+
+        self.assertIsNone(scatter._worker_forest_map)
+        self.assertIsNotNone(scatter._worker_init_error)
+        self.assertIn(str(path), scatter._worker_init_error)
+        self.assertIn(real_md5, scatter._worker_init_error)
+        self.assertIn(wrong_md5, scatter._worker_init_error)
+
+    def test_scatter_worker_raises_clear_error_on_recorded_mismatch(self):
+        # the deterministic surfacing half of Finding 1: _scatter_worker
+        # turns a recorded mismatch into a ConverterError naming the path
+        # and both md5s, raised from the normal per-task path so it
+        # propagates to the parent through Pool's ordinary result mechanism
+        # (unlike an initializer exception).
+        scatter._worker_forest_map = None
+        scatter._worker_init_error = (
+            "/fake/forests.list: worker-loaded forests.list content (md5 aaa) "
+            "does not match the parent's (md5 bbb)"
+        )
+        with self.assertRaisesRegex(ConverterError, r"aaa.*bbb|/fake/forests\.list"):
+            scatter._scatter_worker(("/fake/path.dat", 0, self.dir, 1_000_000))
+
+    def test_scatter_worker_raises_clear_error_when_never_initialized(self):
+        # Finding 2 (opencode, P3): the "never initialized" case must say so
+        # plainly rather than crash with an AttributeError on None.
+        scatter._worker_forest_map = None
+        scatter._worker_init_error = None
+        with self.assertRaisesRegex(ConverterError, "never initialized"):
+            scatter._scatter_worker(("/fake/path.dat", 0, self.dir, 1_000_000))
+
+    def test_worker_forest_map_content_mismatch_aborts_run_with_no_completed_output(self):
+        # end-to-end: the two loads must differ in CONTENT, not merely
+        # mtime. Mutating forests.list inside Pool's own __init__ (called by
+        # run_scatter after the parent's load/md5 are already captured, but
+        # before any worker process spawns and performs its own independent
+        # load) makes every worker's load see the new bytes deterministically
+        # -- not a timing race.
+        env = ScatterEnv(self.dir, n_files=3)
+        real_pool = scatter.Pool
+
+        class MutatingPool:
+            def __init__(self, *args, **kwargs):
+                with open(env.forests_list, "a") as handle:
+                    handle.write("# content changed after the parent's load\n")
+                self._pool = real_pool(*args, **kwargs)
+
+            def __enter__(self):
+                return self._pool.__enter__()
+
+            def __exit__(self, *exc):
+                return self._pool.__exit__(*exc)
+
+        with mock.patch("scatter.Pool", MutatingPool):
+            with self.assertRaisesRegex(ConverterError, "does not match the parent's"):
+                env.run(pool_size=2)
+
+        # no completed output: every worker's independent load disagreed
+        # with the parent's (the mutation lands before any worker spawns),
+        # so no FileScatterResult was ever produced and nothing downstream
+        # of scatter was reached
+        self.assertFalse((env.workdir / "manifest.json").exists())
+        self.assertFalse((env.workdir / "forest_index_table.npy").exists())
+        scratch = env.workdir / "scratch"
+        self.assertEqual(list(scratch.glob("snap_*.src_*.bin")), [])
 
     def test_initializer_runs_once_per_worker_across_many_tasks(self):
         # real spawn-backed multiprocessing (this host's platform default):
@@ -633,7 +711,7 @@ class TestForestMapWorkerDistribution(unittest.TestCase):
         with ctx.Pool(
             processes=n_workers,
             initializer=_mp_worker_init_and_count,
-            initargs=(path, counter, barrier),
+            initargs=(path, expected_map.md5, counter, barrier),
         ) as pool:
             # blocks until every requested worker has completed its
             # initializer, so the count below cannot be short-circuited by
@@ -673,11 +751,13 @@ class TestForestMapWorkerDistribution(unittest.TestCase):
                 captured["task_args"] = task_args
                 return self._entered.imap_unordered(func, task_args, *a, **kw)
 
+        expected_md5 = load_forests_list(env.forests_list).md5
+
         with mock.patch("scatter.Pool", RecordingPool):
             env.run(pool_size=2)
 
         self.assertIs(captured["kwargs"]["initializer"], scatter._init_scatter_worker)
-        self.assertEqual(captured["kwargs"]["initargs"], (env.forests_list,))
+        self.assertEqual(captured["kwargs"]["initargs"], (env.forests_list, expected_md5))
 
         task_args = captured["task_args"]
         self.assertEqual(len(task_args), 3)  # one task per pending source file

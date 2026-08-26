@@ -509,25 +509,66 @@ def scatter_one_file(
 
 #: per-worker-process forest map (item 4): set once by ``_init_scatter_worker``
 #: rather than pickled into every task's argument tuple. ``None`` in the
-#: parent process and in any process that never ran the pool initializer.
+#: parent process, in any process that never ran the pool initializer, and
+#: in a worker whose independent load disagreed with the parent's (see
+#: ``_worker_init_error`` below).
 _worker_forest_map: Optional[ForestMap] = None
 
+#: set by ``_init_scatter_worker`` instead of ``_worker_forest_map`` when
+#: this worker's own load does not match the parent's; ``_scatter_worker``
+#: turns this into a deterministic ``ConverterError`` on the next task.
+_worker_init_error: Optional[str] = None
 
-def _init_scatter_worker(forests_list_path) -> None:
-    """``Pool`` initializer: load the forest map once per worker process.
+
+def _init_scatter_worker(forests_list_path: str, expected_md5: str) -> None:
+    """``Pool`` initializer: load the forest map once per worker process,
+    and bind it to the parent's identity.
 
     The start method is ``spawn`` on this host (the platform default since
     Python 3.8, not set anywhere in this package), so worker globals are not
     fork-inherited and each worker must load its own copy; the same
     initializer works unchanged under a ``fork`` default. Loading from
     ``forests_list_path`` introduces no new on-disk representation.
+
+    Before this initializer existed, the parent loaded ``forests.list``
+    exactly once and pickled that one object to every worker, so divergence
+    between the parent's and a worker's view of the map was impossible by
+    construction. Now there are N+1 independent loads of the same path at
+    N+1 different moments, which opens a window for the file to change
+    between them; ``ForestMap.md5`` is the identity binding
+    ``load_forests_list`` already computes for exactly this purpose, and
+    this initializer is required to consult it rather than trust an
+    unconditioned independent load.
+
+    This function deliberately never raises: an uncaught exception inside a
+    ``Pool`` initializer does not fail the pool promptly — CPython keeps
+    replacing the dead worker instead — which would turn a rare
+    data-integrity risk into a silent hang on a multi-day run. A mismatch is
+    recorded in ``_worker_init_error`` instead and surfaced deterministically
+    by ``_scatter_worker`` on its next task, where an exception propagates to
+    the parent through the normal ``Pool`` result path.
     """
-    global _worker_forest_map
-    _worker_forest_map = load_forests_list(forests_list_path)
+    global _worker_forest_map, _worker_init_error
+    loaded = load_forests_list(forests_list_path)
+    if loaded.md5 != expected_md5:
+        _worker_init_error = (
+            "{}: worker-loaded forests.list content (md5 {}) does not match the "
+            "parent's (md5 {}) — the file changed between the parent's load and this "
+            "worker's independent load; refusing to scatter with a possibly divergent "
+            "forest map".format(forests_list_path, loaded.md5, expected_md5)
+        )
+        return
+    _worker_forest_map = loaded
 
 
 def _scatter_worker(args) -> FileScatterResult:
     path, src_index, scratch_dir, chunksize = args
+    if _worker_forest_map is None:
+        raise ConverterError(
+            _worker_init_error
+            or "worker forest map was never initialized — _init_scatter_worker did not "
+            "run or did not set it before this task started"
+        )
     return scatter_one_file(path, src_index, scratch_dir, _worker_forest_map, chunksize)
 
 
@@ -692,12 +733,14 @@ def run_scatter(
     else:
         # the forest map itself is never in this argument tuple (item 4): each
         # worker loads its own copy once, in _init_scatter_worker, instead of
-        # the whole ForestMap being pickled into every task
+        # the whole ForestMap being pickled into every task. forest_map.md5
+        # travels alongside the path so each worker's independent load can
+        # be bound to the parent's identity rather than trusted blind.
         args = [(path, i, scratch_dir, chunksize) for path, i in pending]
         with Pool(
             processes=min(pool_size, len(pending)),
             initializer=_init_scatter_worker,
-            initargs=(forests_list_path,),
+            initargs=(forests_list_path, forest_map.md5),
         ) as pool:
             for result in pool.imap_unordered(_scatter_worker, args):
                 record(result)
