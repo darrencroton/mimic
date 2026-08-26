@@ -19,6 +19,26 @@ mimic_venv/bin/python scripts/convert/convert_ctrees.py scatter \
     --simulation-info simulations/micro-uchuu-ascii/simulation_info.yaml \
     simulations/micro-uchuu-ascii/snapshots/tree_0_0_0.dat
 
+# Batch mode (item 3): scatter a source that is never all local at once. Every
+# invocation is handed the COMPLETE frozen inventory — not the subset on disk —
+# so the frozen-source-set guard keeps comparing like with like; entries whose
+# bytes have not arrived are deferred, and the run does not finalize.
+mimic_venv/bin/python scripts/convert/convert_ctrees.py scatter --batch \
+    --workdir output/convert/shin-uchuu \
+    --forests-list .../forests.list --a-list .../shin-uchuu.a_list \
+    --simulation-info .../simulation_info.yaml \
+    $(cat inventory.txt)          # all 2,744 files, in the frozen order
+
+# Record a scattered batch as consumed: verifies every intermediate that batch
+# produced, then records that its source bytes may be deleted. The converter
+# never deletes source data itself — the deletion stays with the operator.
+mimic_venv/bin/python scripts/convert/convert_ctrees.py release \
+    --workdir output/convert/shin-uchuu $(cat batch_1.txt)
+
+# Explicit Phase 1 finalize, once no inventory entry is deferred any more
+mimic_venv/bin/python scripts/convert/convert_ctrees.py finalize \
+    --workdir output/convert/shin-uchuu --forests-list .../forests.list
+
 # Phase 2: per-snapshot sort by halo id + id index
 mimic_venv/bin/python scripts/convert/convert_ctrees.py sort \
     --workdir output/convert/micro-uchuu
@@ -112,7 +132,25 @@ Canonical metadata comes from explicit `--simulation-info` and `--a-list` paths,
 
 Scratch records use the frozen 108-byte packed little-endian dtype defined in `ctrees_parser.py` (`RECORD_DTYPE`); the manifest records the dtype tag and refuses to resume across a dtype change.
 
-Re-running `scatter` skips source files whose manifest entry is complete and unchanged (size + mtime), so a crashed run resumes where it stopped. Per-file conservation — the pandas-independent row pre-count must equal the parsed and scattered row count exactly — is enforced before a file is recorded as complete. The manifest is bound to its input identities (a_list, forests.list, and the ordered source set are checksummed at first run); changing any of them, or changing a source file after snapshots were finalized, refuses to resume — use a fresh workdir. Every intermediate is verified against its registered content checksum before it is consumed, skip-trusted, or deleted, and non-finite input values (NaN/inf, or float64 values that overflow float32) abort the parse.
+Re-running `scatter` skips source files whose manifest entry is complete and unchanged (size + mtime), so a crashed run resumes where it stopped. A source entry is `completed` or, in batch mode, `consumed`; `deferred` and `pending` are classified per run from the inventory plus what is on disk and are deliberately never written to the manifest, so a file that arrives later needs no state cleared. Per-file conservation — the pandas-independent row pre-count must equal the parsed and scattered row count exactly — is enforced before a file is recorded as complete. The manifest is bound to its input identities (a_list, forests.list, and the ordered source set are checksummed at first run); changing any of them, or changing a source file after snapshots were finalized, refuses to resume — use a fresh workdir. Every intermediate is verified against its registered content checksum before it is consumed, skip-trusted, or deleted, and non-finite input values (NaN/inf, or float64 values that overflow float32) abort the parse.
+
+### Batch mode: the interleaved consumptive transfer
+
+For a source too large to stage locally in one piece, `scatter --batch` supports the cycle `transfer batch → scatter → release → delete → transfer next batch`, resuming correctly at every step. Batch mode is off by default and changes nothing outside itself; inside it, the two different reasons a source file can be legitimately absent are told apart:
+
+| State | Meaning | Effect |
+|---|---|---|
+| `deferred` | in the frozen inventory, bytes not transferred yet | skipped for now, not an error; the run scatters what has arrived and exits **without finalizing** |
+| `consumed` | scatter completed, intermediates verified, bytes released by `release` | satisfies resume without being re-stat-ed or re-scattered; its recorded identity (size, mtime, md5, counts, checksums, observed pairs) stays the frozen record of what was processed |
+
+Rules the cycle depends on:
+
+- **The complete ordered inventory is frozen once, at first run, and every batch-mode invocation must supply all of it** through the positional `tree_files` argument. Passing only the subset currently on disk changes the frozen set and is refused. There is no new index artifact and no second copy of the list.
+- **Batch mode never finalizes.** `_finalize_scatter` deletes the worker intermediates a later `release` has to verify, so finalizing when the last batch completes would make that batch impossible to release. Finalization is reachable only through `finalize`, which refuses to run while any entry is deferred. Outside batch mode `scatter` still finalizes automatically, exactly as before.
+- **Consumption is an explicit operator action, never inferred from a missing file.** A `completed` entry whose bytes are gone but which was never released is an error naming the file: nothing verified that its intermediates survived. `release` is the way out (it verifies the intermediates, not the source bytes, so it still works once the bytes are gone).
+- **`release` refuses** an entry that is not `completed`, an entry already `consumed`, a source whose on-disk size/mtime no longer match what was scattered, and any registered intermediate that does not verify. It is atomic across the files it is given: a refusal on any of them leaves the persisted manifest untouched.
+- Root-coverage validation at finalize reads each source file's observed roots from its registered sidecar, so it still sees every file's roots when no source byte is left on disk.
+- A conversion driven this way emits a dataset byte-identical to a single all-at-once run, and a manifest identical in provenance and every per-source content field; only the lifecycle state differs (`consumed` versus `completed`).
 
 **Shin-Uchuu-scale notes (production conversion, out of scope here):** the Phase 0 forest map is currently passed to each pool task by pickling — at the ~5 GB Shin-Uchuu map size that needs a worker initializer with shared or memory-mapped storage; per-chunk per-snapshot boolean scans, whole-file concat reads, and the in-memory sort (~350 B/row peak) are likewise sized for micro-Uchuu, with a chunked external-merge fallback deferred to a future production pass. The fix-up stage's satellite chain resolution is a sequential per-satellite scan (reference-order in-place rewrites, required for exact fix_upid parity); it is a few seconds per snapshot at micro-Uchuu scale but would need revisiting for Shin-Uchuu. The link stage's rank pass groups every snapshot's sort keys in memory; the Shin-Uchuu super-forest needs a deferred chunked external-merge rank sort instead. The validation battery and cross-check similarly load the full emitted dataset (and reference galaxy output) into memory. Concurrent converter invocations on one workdir are not locked.
 

@@ -28,6 +28,20 @@ Usage (micro-Uchuu example):
         --workdir output/convert/micro-uchuu \\
         --a-list simulations/micro-uchuu-ascii/micro-uchuu.a_list
 
+For a source too large to hold locally all at once, scatter runs in batch mode:
+every invocation is handed the *complete* frozen inventory, scatters whatever
+subset has arrived, and stops without finalizing. Once a batch is scattered,
+``release`` verifies its intermediates and records its entries as consumed, at
+which point the operator may delete those source bytes and transfer the next
+batch. ``finalize`` runs once nothing is deferred:
+
+    # ... transfer batch 1 ...
+    convert_ctrees.py scatter --batch --workdir W --forests-list F --a-list A \\
+        --simulation-info S <every file of the full inventory, in frozen order>
+    convert_ctrees.py release --workdir W <the batch-1 files>
+    # ... delete batch 1, transfer batch 2, re-run scatter --batch, release ...
+    convert_ctrees.py finalize --workdir W --forests-list F
+
 The producer validation battery is a standalone CLI (see validate.py):
     mimic_venv/bin/python scripts/convert/validate.py output/convert/micro-uchuu/hdf5 \\
         --a-list simulations/micro-uchuu-ascii/micro-uchuu.a_list \\
@@ -67,7 +81,35 @@ def build_arg_parser() -> argparse.ArgumentParser:
     scatter.add_argument(
         "--chunksize", type=int, default=1_000_000, help="parser rows per chunk (default 1e6)"
     )
+    scatter.add_argument(
+        "--batch",
+        action="store_true",
+        help="batch mode for the interleaved consumptive transfer: tree_files must "
+        "still be the complete frozen inventory, entries whose bytes have not "
+        "arrived yet are deferred instead of fatal, and the run does not finalize "
+        "(use the finalize subcommand). Off by default.",
+    )
     scatter.add_argument("tree_files", nargs="+", help="ctrees ASCII tree files")
+
+    release = sub.add_parser(
+        "release",
+        help="batch mode: record completed source files as consumed, after verifying "
+        "every intermediate their scatter produced, so their bytes may be deleted "
+        "(the converter never deletes source data itself)",
+    )
+    _add_workdir(release)
+    release.add_argument(
+        "tree_files", nargs="+", help="completed source files whose bytes are to be released"
+    )
+
+    finalize = sub.add_parser(
+        "finalize",
+        help="batch mode: explicit Phase 1 finalize (root coverage, per-snapshot concat, "
+        "aggregate merge, sidecar tables); refuses to run while any inventory entry "
+        "is still deferred",
+    )
+    _add_workdir(finalize)
+    finalize.add_argument("--forests-list", required=True, help="path to forests.list")
 
     sort = sub.add_parser("sort", help="Phase 2: per-snapshot sort by id + id index")
     _add_workdir(sort)
@@ -150,7 +192,16 @@ def main(argv=None) -> int:
                 pool_size=args.pool_size,
                 chunksize=args.chunksize,
                 simulation_info_path=args.simulation_info,
+                batch_mode=args.batch,
             )
+        elif args.command == "release":
+            from scatter import run_release
+
+            run_release(args.workdir, args.tree_files)
+        elif args.command == "finalize":
+            from scatter import run_finalize
+
+            run_finalize(args.workdir, args.forests_list)
         elif args.command == "sort":
             from sort_index import run_sort
 
