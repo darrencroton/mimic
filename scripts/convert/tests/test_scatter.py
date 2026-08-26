@@ -7,6 +7,7 @@ import os
 import shutil
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -688,6 +689,66 @@ class TestForestMapWorkerDistribution(unittest.TestCase):
         # of scatter was reached
         self.assertFalse((env.workdir / "manifest.json").exists())
         self.assertFalse((env.workdir / "forest_index_table.npy").exists())
+        scratch = env.workdir / "scratch"
+        self.assertEqual(list(scratch.glob("snap_*.src_*.bin")), [])
+
+    def test_worker_forest_map_unparsable_reload_aborts_without_hanging(self):
+        # PM correction 3 (steer-attempt-3.md, Finding 1): the mismatch test
+        # above appends a *valid* comment line, which keeps the worker's own
+        # load_forests_list call succeeding -- it cannot reach the uncaught-
+        # loader-exception subclass of this defect. Here the worker-side
+        # reload is made genuinely unparsable (truncated to empty, which
+        # load_forests_list turns into "no forest rows found"), so
+        # _init_scatter_worker must catch that too and not just an md5
+        # mismatch on an otherwise-parseable file. If the initializer were
+        # ever to let that exception escape uncaught, Pool would keep
+        # replacing the crashed worker forever and imap_unordered would
+        # never receive a result or an error -- a hang, not a failure. Run
+        # the blocking call on a daemon thread with an explicit join
+        # timeout so a regression here fails this test promptly instead of
+        # hanging the whole suite.
+        env = ScatterEnv(self.dir, n_files=3)
+        real_pool = scatter.Pool
+
+        class CorruptingPool:
+            def __init__(self, *args, **kwargs):
+                # truncate to empty AFTER the parent's own successful
+                # load/md5 capture but BEFORE any worker spawns and performs
+                # its own independent load -- deterministic, not a race (see
+                # the mismatch test above for why Pool.__init__ is the right
+                # hook point)
+                Path(env.forests_list).write_bytes(b"")
+                self._pool = real_pool(*args, **kwargs)
+
+            def __enter__(self):
+                return self._pool.__enter__()
+
+            def __exit__(self, *exc):
+                return self._pool.__exit__(*exc)
+
+        outcome = {}
+
+        def target():
+            with mock.patch("scatter.Pool", CorruptingPool):
+                try:
+                    env.run(pool_size=2)
+                except BaseException as exc:  # noqa: BLE001 -- captured across the thread boundary
+                    outcome["exc"] = exc
+
+        thread = threading.Thread(target=target, daemon=True)
+        thread.start()
+        thread.join(timeout=60)
+        self.assertFalse(
+            thread.is_alive(),
+            "run_scatter did not return within 60s -- suspected initializer "
+            "respawn hang (a regression in _init_scatter_worker's total-catch "
+            "guarantee)",
+        )
+        self.assertIn("exc", outcome)
+        self.assertIsInstance(outcome["exc"], ConverterError)
+        self.assertRegex(str(outcome["exc"]), "no forest rows found")
+
+        self.assertFalse((env.workdir / "manifest.json").exists())
         scratch = env.workdir / "scratch"
         self.assertEqual(list(scratch.glob("snap_*.src_*.bin")), [])
 

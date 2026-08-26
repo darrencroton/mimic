@@ -540,28 +540,47 @@ def _init_scatter_worker(forests_list_path: str, expected_md5: str) -> None:
     this initializer is required to consult it rather than trust an
     unconditioned independent load.
 
-    This function deliberately never raises: an uncaught exception inside a
-    ``Pool`` initializer does not fail the pool promptly — CPython keeps
-    replacing the dead worker instead — which would turn a rare
-    data-integrity risk into a silent hang on a multi-day run. A mismatch is
-    recorded in ``_worker_init_error`` instead and surfaced deterministically
-    by ``_scatter_worker`` on its next task, where an exception propagates to
-    the parent through the normal ``Pool`` result path.
+    This function is total: no exception may escape it, for any reason. An
+    uncaught exception inside a ``Pool`` initializer does not fail the pool
+    promptly — CPython keeps replacing the dead worker instead — so letting
+    ANY loader failure (not just an md5 mismatch on an otherwise-parseable
+    file, but a truncated, emptied, unlinked or unreadable
+    ``forests.list`` too) escape here would turn a rare data-integrity risk
+    into a silent respawn-loop hang on a multi-day run, with
+    ``imap_unordered`` never receiving either a result or an error. Every
+    failure mode — a mismatch or any exception ``load_forests_list`` raises
+    — is therefore recorded in ``_worker_init_error`` instead, and surfaced
+    deterministically by ``_scatter_worker`` on its next task, where an
+    exception propagates to the parent through the normal ``Pool`` result
+    path. Do not narrow the ``except Exception`` below to specific loader
+    exceptions: that would silently reopen the hang for any failure mode
+    not on the narrowed list.
     """
     global _worker_forest_map, _worker_init_error
-    loaded = load_forests_list(forests_list_path)
-    if loaded.md5 != expected_md5:
-        _worker_init_error = (
-            "{}: worker-loaded forests.list content (md5 {}) does not match the "
-            "parent's (md5 {}) — the file changed between the parent's load and this "
-            "worker's independent load; refusing to scatter with a possibly divergent "
-            "forest map".format(forests_list_path, loaded.md5, expected_md5)
+    # reset both globals unconditionally at entry, before any work: this
+    # worker process must not depend on starting from pristine module state
+    # (e.g. under worker reuse or a fork default, where prior globals could
+    # otherwise linger)
+    _worker_forest_map = None
+    _worker_init_error = None
+    try:
+        loaded = load_forests_list(forests_list_path)
+        if loaded.md5 != expected_md5:
+            _worker_init_error = (
+                "{}: worker-loaded forests.list content (md5 {}) does not match the "
+                "parent's (md5 {}) — the file changed between the parent's load and this "
+                "worker's independent load; refusing to scatter with a possibly divergent "
+                "forest map".format(forests_list_path, loaded.md5, expected_md5)
+            )
+            return
+        _worker_forest_map = loaded
+    except Exception as exc:  # noqa: BLE001 -- deliberately total, see docstring
+        _worker_init_error = "{}: worker failed to load forests.list: {!r}".format(
+            forests_list_path, exc
         )
-        return
-    _worker_forest_map = loaded
 
 
-def _scatter_worker(args) -> FileScatterResult:
+def _scatter_worker(args: Tuple[Path, int, Path, int]) -> FileScatterResult:
     path, src_index, scratch_dir, chunksize = args
     if _worker_forest_map is None:
         raise ConverterError(
