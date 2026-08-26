@@ -655,21 +655,36 @@ class TestForestMapWorkerDistribution(unittest.TestCase):
 
         class RecordingPool:
             def __init__(self, *args, **kwargs):
-                captured["args"] = args
                 captured["kwargs"] = kwargs
                 self._pool = real_pool(*args, **kwargs)
 
             def __enter__(self):
-                return self._pool.__enter__()
+                self._entered = self._pool.__enter__()
+                return self
 
             def __exit__(self, *exc):
                 return self._pool.__exit__(*exc)
+
+            def imap_unordered(self, func, iterable, *a, **kw):
+                # materialize the iterable so it can be inspected: this is
+                # exactly what run_scatter hands to the real Pool, captured
+                # before it is consumed
+                task_args = list(iterable)
+                captured["task_args"] = task_args
+                return self._entered.imap_unordered(func, task_args, *a, **kw)
 
         with mock.patch("scatter.Pool", RecordingPool):
             env.run(pool_size=2)
 
         self.assertIs(captured["kwargs"]["initializer"], scatter._init_scatter_worker)
         self.assertEqual(captured["kwargs"]["initargs"], (env.forests_list,))
+
+        task_args = captured["task_args"]
+        self.assertEqual(len(task_args), 3)  # one task per pending source file
+        for task in task_args:
+            self.assertEqual(len(task), 4)  # (path, src_index, scratch_dir, chunksize)
+            for element in task:
+                self.assertNotIsInstance(element, scatter.ForestMap)
 
     def test_serial_path_still_loads_forest_map_directly_in_parent(self):
         # pool_size<=1 (and the single-pending-file case) must keep using the
