@@ -96,6 +96,40 @@ The conversion runs on the **Mac Studio M3 Ultra, 32 cores, 512 GB** (`SHIN-UCHU
 
 ---
 
+## Machine load and model selection
+
+Each slice carries this as a banner under its own heading; the table is the at-a-glance version. **The banner is authoritative** — if the two ever disagree, fix the table.
+
+**Machine classes.** These describe what the slice's *verification* demands, not its editing.
+
+| | Meaning |
+|---|---|
+| 🟢 **Free** | Under ~10 GB and no gated timing. Run local models or other large jobs alongside without affecting the result. |
+| 🟡 **Quiet** | Memory is modest, but the slice records a number a contended box would corrupt — wall clock, worker CPU, or a disk envelope. Develop freely; free the box for the measurement run. |
+| 🔴 **Full box** | Needs a large fraction of the 512 GB and/or the LaCie volume. **No local models, no other large jobs.** |
+
+| Slice | What it is | Machine | Peak to expect | Developer |
+|---|---|---|---|---|
+| 1 | Batch the scatter manifest saves | 🟢 Free | < 10 GB | **Sonnet, high** |
+| 2 | Forest-map distribution | 🟡 Quiet (timing) | < 10 GB | **Sonnet, high** |
+| 3 | Batch-aware source inventory | 🟢 Free | fixture-scale | **Opus, high** |
+| 4 | External merge-sort rank core | 🟢 Free | bounded by design | **Opus, high** |
+| 5 | Wire the rank pass | 🔴 **Full box** | 76.39 GB baseline → ≤ 24 GB target | **Opus, high** |
+| 6 | Stream the validation battery | 🔴 **Full box** | 73.27 GB baseline | **Opus, medium** |
+| 7 | Stream the topology cross-check | 🔴 **Full box** | **251.32 GB baseline — the largest here** | **Opus, high** |
+| 8 | Consumptive deletion | 🟡 Quiet (disk/I-O) | modest memory; needs LaCie headroom | **Opus, high** |
+| 9 | Acceptance gate and documentation | 🔴 **Full box** | re-measures everything, incl. the 251 GB cross-check | **Opus, high** |
+
+**Four of the nine slices leave the machine free** — 1, 2, 3 and 4 — and they are deliberately the first four in execution order, so the early part of this pass can overlap other work on the box. **Slices 5, 6, 7 and 9 need the machine to themselves.** Slice 7 is the one to plan around: at 251 GB it is about half the installed memory, for a dataset that is 1.8% of the production box.
+
+**Two reasons the 🟡 class exists, and only one is obvious.** `ru_maxrss` is per-process, so another job cannot inflate a slice's reported peak RSS — the memory numbers stay valid on a busy box. What a busy box *does* corrupt is **wall clock and I/O throughput**, and Slices 2 and 8 each record one. This is the same distinction `HANDOFF.md` draws for the rehearsal tasks, and it is why "quiet" is a real class rather than a weaker "full box".
+
+**Project manager: Opus, high effort.** PM makes accept/reject calls on slices whose failure modes are irreversible data deletion (8), a silently mixed multi-day conversion (3), and a producer check weakened without anyone noticing (6, 7). It also owns the two approval gates and must commission independent review on the five elevated-risk slices. **Opus at medium effort is acceptable while executing Batch A only** — Slices 1 and 2 carry no approval gate and no elevated-audit requirement — but escalate before Slice 3.
+
+**How this relates to the Implementation Profiles above.** Those govern *batching* — how many slices share one implementation and review loop. This table governs *model and effort per slice*. They are independent: a frontier implementer running Batch A should still do so on Sonnet, because Slices 1 and 2 are small and crisply oracled, and spending Opus on them buys nothing.
+
+---
+
 ## Ordering, and why it is this order
 
 Scatter first (Slices 1–3), then the rank pass (Slices 4–5), then validation (Slices 6–7), then deletion (Slice 8), then the gate (Slice 9).
@@ -107,6 +141,10 @@ Scatter first (Slices 1–3), then the rank pass (Slices 4–5), then validation
 ---
 
 ## Slice 1: Batch the scatter manifest saves (item 7)
+
+> **Machine:** 🟢 **Free** — fixture-scale tests plus one micro-Uchuu battery run; under ~10 GB. Run local models freely alongside. *(The parent-side JSON speed-up is a stated behaviour, not a gated number, so it needs no quiet box.)*
+>
+> **Developer model:** **Sonnet, high effort** — a small, well-bounded change to one callback, with byte-equality of the final manifest as an unambiguous oracle.
 
 ### Intended Change
 - `run_scatter`'s `record()` callback calls `manifest.save()` once per completed source file, rewriting the entire manifest each time. Each source entry carries 70 per-snapshot counts, 70 per-snapshot checksums and 70 observed `(SnapNum, scale)` pairs, so the manifest grew a measured 38.2 KB per file and reached 104.9 MB at 2,744 files; the rewrite cost is quadratic in source-file count.
@@ -157,6 +195,10 @@ Scatter first (Slices 1–3), then the rank pass (Slices 4–5), then validation
 
 ## Slice 2: Distribute the forest map without per-task pickling (item 4)
 
+> **Machine:** 🟡 **Quiet for the measurement only** — memory is modest, but this slice records scatter wall clock and worker CPU against the 39.0 MB/s and 12–25% baselines, and a contended box corrupts timings even when it cannot touch peak RSS. Develop and test alongside anything; free the box for the before/after timing run.
+>
+> **Developer model:** **Sonnet, high effort** — localized to the pool dispatch, with a per-worker transfer-count assertion as the gate rather than a judgement call.
+
 ### Intended Change
 - `run_scatter` builds `args = [(path, i, scratch_dir, forest_map, chunksize) ...]` and hands them to `Pool.imap_unordered`, so the whole `ForestMap` is pickled once **per task**: ~176 MB × 2,744 tasks at rehearsal scale, ~5 GB × 2,744 at production. Measured effect: pool workers at 12–25% CPU while the parent serializes.
 - Give each worker the forest map **once per worker instead of once per task**, via a `Pool` initializer. The mechanism is deliberately left open: calling the existing `load_forests_list(path)` in the initializer is sufficient and introduces no new on-disk representation. A shared or memory-mapped representation is permitted if per-worker residency proves too costly at production scale, but it is not required, and it should not be built speculatively.
@@ -205,6 +247,10 @@ Scatter first (Slices 1–3), then the rank pass (Slices 4–5), then validation
 ---
 
 ## Slice 3: Batch-aware source inventory for the interleaved transfer (item 3)
+
+> **Machine:** 🟢 **Free** — fixture-scale throughout; the two-batch cycle runs against a copied fixture dataset, not real data. Run local models freely alongside.
+>
+> **Developer model:** **Opus, high effort** — a resume state machine on an irreplaceable multi-day run. Approval-gated, independent audit required; the failure mode is a silently mixed conversion.
 
 ### Intended Change
 - The batched transfer needs resume to survive a source file being absent for **two different reasons**, and the shipped converter refuses both. `run_scatter` raises if any listed source file is missing at start (`scatter.py:521-524`), freezes the ordered source-file list into provenance and refuses to resume if it changes (`scatter.py:541-556`), and `Manifest.source_completed()` calls `Path(path).stat()` (`scatter.py:361-366`), which raises once a completed source has been deleted.
@@ -267,6 +313,10 @@ Scatter first (Slices 1–3), then the rank pass (Slices 4–5), then validation
 
 ## Slice 4: External merge-sort rank core (item 1, pure logic)
 
+> **Machine:** 🟢 **Free** — synthetic inputs, and the slice's own acceptance bounds resident records by the configured budget. **The best slice in the plan to run beside a local model.**
+>
+> **Developer model:** **Opus, high effort** — external merge with exact tie-breaking and rank assignment is subtle even with the existing `lexsort` as an oracle.
+
 ### Intended Change
 - `compute_identity()` builds five int64 columns concatenated over **all** snapshots, runs one global `np.lexsort`, then ranks within forest groups. Measured 187.84 B/halo against an analytic 48 B/halo — the excess is concatenation temporaries, `lexsort`'s internal copies and process residency. At 22.9 × 10⁹ halos that is **≈4.30 TB**.
 - Add a self-contained external merge-sort core that produces the identical global ordering under a bounded memory budget: generate sorted runs from bounded chunks, spill them to disk, then k-way merge them while assigning `HaloRankInForest` in one streaming pass over the merged key order.
@@ -316,6 +366,10 @@ Scatter first (Slices 1–3), then the rank pass (Slices 4–5), then validation
 ---
 
 ## Slice 5: Wire the rank pass onto the external core (item 1, integration)
+
+> **Machine:** 🔴 **Full box — no local models.** Re-runs `links` over the 406,668,896-halo rehearsal workdir, whose baseline peak is **76.39 GB**, and the ≤24 GB target must be measured **warm and repeated** (Session D-prep saw ~17.7 GB of run-to-run variance at this scale from page cache alone). Also needs the LaCie clone and a second real dataset for the 4× comparison.
+>
+> **Developer model:** **Opus, high effort** — the highest-risk slice here. Every `UniqueGalaxyID` derives from this pass, and `verify_identity` is re-implemented rather than re-called.
 
 ### Intended Change
 - Replace `compute_identity()`'s in-memory concatenate-and-lexsort with the Slice 4 core.
@@ -374,6 +428,10 @@ Scatter first (Slices 1–3), then the rank pass (Slices 4–5), then validation
 ---
 
 ## Slice 6: Stream the producer validation battery (item 2a)
+
+> **Machine:** 🔴 **Full box — no local models.** Runs the battery over the retained rehearsal dataset, baseline peak **73.27 GB**, and the bounded figure must be measured warm and repeated.
+>
+> **Developer model:** **Opus, medium effort** — a mechanical windowing transformation, but the failure mode is silently weakening a producer check, and the injected-defect equivalence tests carry most of the risk.
 
 ### Intended Change
 - `validate.py`'s `load_dataset` reads **every** snapshot file's complete `/halos` arrays into memory before any check runs, then passes the whole list to each check: measured **73.27 GB** on a 1.8% subset, and unbounded at production. Producer validation is part of the format contract and cannot be skipped.
@@ -434,6 +492,10 @@ Scatter first (Slices 1–3), then the rank pass (Slices 4–5), then validation
 
 ## Slice 7: Stream the topology cross-check (item 2b)
 
+> **Machine:** 🔴 **Full box — no local models. The single largest memory demand in this plan.** `crosscheck compare` peaks at **251.32 GB** at rehearsal scale — about half the machine — and the retained artifacts it reads are 141 GB on LaCie.
+>
+> **Developer model:** **Opus, high effort** — two exact bounded mechanisms must be designed from scratch, for global state the current code holds by growing an array.
+
 ### Intended Change
 - `crosscheck.py compare` loads the emitted dataset, the full reference galaxy output (**109.7 GB**, 13 partitions) and the entire 42 GB topology dump simultaneously: measured **251.32 GB peak on a 1.8% subset**, with a 229.5 GB transient during `np.loadtxt` of the dump. It is the converter's own acceptance instrument (D10) and must be bounded, because 251 GB for 1.8% of a box is absurd at any scale.
 - **What this slice does NOT promise, and the recorded scope was wrong about this.** `HANDOFF.md` says the cross-check must become "runnable at production scale". It cannot be, and no amount of comparator streaming changes that: the cross-check's reference side is a **tree-ordered `halos-only` run over the same data** (`crosscheck.py run-reference`), and the tree driver loads a forest as one in-memory unit, so the production super-forest alone projects to ≈15.9 TB of reader preallocation (C5/C6 of the rehearsal handoff). The reference artifact cannot be produced at production scale, independently of memory in `compare`. Storage says the same thing: scaling the measured 109.7 GB reference output and 42 GB dump by the 56.3× production ratio gives ≈6.2 TB and ≈2.4 TB, which do not fit the conversion volume either.
@@ -493,6 +555,10 @@ Scatter first (Slices 1–3), then the rank pass (Slices 4–5), then validation
 ---
 
 ## Slice 8: Consumptive deletion of stage intermediates (item 6)
+
+> **Machine:** 🟡 **Quiet — disk and I/O, not memory.** The micro-Uchuu battery runs at modest memory, but this slice measures a stage-by-stage storage envelope, so it needs LaCie headroom and an uncontended disk. Local models are fine on memory; keep other large I/O off the box.
+>
+> **Developer model:** **Opus, high effort** — irreversible deletion with crash-recovery semantics. Approval-gated, independent audit required.
 
 ### Intended Change
 - Deletion stops after the concat stage: `scatter.py` consumes its worker parts and `sort_index.py` consumes the unsorted scratch, but `fixups.py`, `links.py` and `hdf5_writer.py` delete nothing. Measured, the coexisting set after `links` is `sorted` 108 + `idx` 8 + `fixed` 120 + `links` 36 + `pending_fp` 4 = **277 B/halo**, i.e. **6.34 TB** at production, before this plan's own new intermediates are counted.
@@ -562,6 +628,10 @@ Scatter first (Slices 1–3), then the rank pass (Slices 4–5), then validation
 ---
 
 ## Slice 9: Pass acceptance gate and documentation
+
+> **Machine:** 🔴 **Full box — no local models, and the longest slice.** Re-measures everything: `links` at 406,668,896 halos, the battery, and the cross-check against its **251.32 GB** baseline, each **warm and repeated**, plus a fresh end-to-end micro-Uchuu conversion.
+>
+> **Developer model:** **Opus, high effort** — the judgement call is whether the measurements actually support closing JR §6 item 7, which is a scientific-evidence decision, not a coding one.
 
 ### Intended Change
 - Run the pass's own acceptance gate — the full micro-Uchuu producer validation battery **and** the topology cross-check, both green, proving the converter's reference semantics did not move while its machinery was rebuilt — plus a measured memory profile of the rank pass at Shin-Uchuu subset scale.
