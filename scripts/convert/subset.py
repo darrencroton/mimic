@@ -1303,7 +1303,9 @@ def cmd_finalize(args: argparse.Namespace) -> int:
         )
     )
 
-    # --- file-coverage closure (C4), with complete forests only ---
+    # --- file-coverage closure, with complete forests only ---
+    # Every source file id must contribute at least one selected tree: read_locations()
+    # asserts contiguity from 0 and a perfect-cube file count (module docstring above).
     file_of_tree = tree_table["file_id"]
     if np.any(np.diff(file_of_tree.astype(np.int64)) < 0):
         raise SubsetError(
@@ -1326,7 +1328,7 @@ def cmd_finalize(args: argparse.Namespace) -> int:
             )
             if selected[touching].any():
                 # an addition earlier in this same round already closed this file:
-                # forests span files (C8), so one forest can close several at once
+                # forests span files, so one forest can close several at once
                 continue
             options = touching[tractable[touching] & ~selected[touching]]
             if options.size == 0:

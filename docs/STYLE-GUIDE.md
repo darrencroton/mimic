@@ -204,6 +204,8 @@ Documentation should help users and developers understand the active contract, n
 - Code blocks and YAML/shell examples within Markdown follow the 100-character guideline; keep them readable without horizontal scrolling.
 - Apply these rules to all `.md` files: project docs, READMEs, and skill files.
 
+**Never cite a gitignored or machine-local document as the source of a technical fact.** A committed comment, test, or document that says "see X" must resolve for anyone who clones the repository. Operational working files — a root `HANDOFF.md`, anything under `archive/` — are legitimate to *name* as the place work is tracked, but a fact they carry must be stated where it is used and evidenced against committed code. Prefer `path.c:line` to a prose pointer; a shorthand tag whose key lives only in an untracked file is the failure mode this rule exists to stop.
+
 When code, metadata, and docs disagree, fix the source of truth first. Usually that means metadata or code, then generated artifacts, then documentation.
 
 ---

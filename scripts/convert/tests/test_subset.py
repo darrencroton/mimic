@@ -466,7 +466,7 @@ class SelectionTests(SubsetTestCase):
         np.testing.assert_array_equal(np.unique(selection["file_id"]), np.arange(8))
 
     def test_one_forest_closes_every_file_it_touches_in_the_same_round(self):
-        """Forests span files (C8), so a single added forest can close several
+        """Forests span files, so a single added forest can close several
         missed files at once. Treating the later ones as still-unclosable aborts a
         perfectly good selection with a spurious blocker."""
         tmp = Path(tempfile.mkdtemp(prefix="mimic-subset-span-"))

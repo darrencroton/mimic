@@ -40,7 +40,7 @@ Slice 9 is the pass's own acceptance gate.
 
 ## Measured ground truth this plan is scoped against
 
-All from the Session C rehearsal, 406,668,896 halos, recorded in `HANDOFF.md` §7 and §7a. Production figures scale to 22.9 × 10⁹ halos.
+All from the Session C rehearsal, 406,668,896 halos. The committed record is `SHIN-UCHUU-CONVERSION-PLAN.md` → "Pre-conversion obligation" → "Scope updated 2026-08-26 from the subset rehearsal"; the operator's working ledger repeats them locally. Production figures scale to 22.9 × 10⁹ halos.
 
 | Quantity | Measured | Production projection |
 |---|---|---|
@@ -509,7 +509,7 @@ Scatter first (Slices 1–3), then the rank pass (Slices 4–5), then validation
 
 ### Intended Change
 - `crosscheck.py compare` loads the emitted dataset, the full reference galaxy output (**109.7 GB**, 13 partitions) and the entire 42 GB topology dump simultaneously: measured **251.32 GB peak on a 1.8% subset**, with a 229.5 GB transient during `np.loadtxt` of the dump. It is the converter's own acceptance instrument (D10) and must be bounded, because 251 GB for 1.8% of a box is absurd at any scale.
-- **What this slice does NOT promise, and the recorded scope was wrong about this.** `HANDOFF.md` says the cross-check must become "runnable at production scale". It cannot be, and no amount of comparator streaming changes that: the cross-check's reference side is a **tree-ordered `halos-only` run over the same data** (`crosscheck.py run-reference`), and the tree driver loads a forest as one in-memory unit, so the production super-forest alone projects to ≈15.9 TB of reader preallocation (C5/C6 of the rehearsal handoff). The reference artifact cannot be produced at production scale, independently of memory in `compare`. Storage says the same thing: scaling the measured 109.7 GB reference output and 42 GB dump by the 56.3× production ratio gives ≈6.2 TB and ≈2.4 TB, which do not fit the conversion volume either.
+- **What this slice does NOT promise, and the recorded scope was wrong about this.** The scope recorded for item 2 requires the cross-check to survive production scale. It cannot, and no amount of comparator streaming changes that: the cross-check's reference side is a **tree-ordered `halos-only` run over the same data** (`crosscheck.py run-reference`), and `load_unit_ctrees_ascii()` preallocates 152,000 B per tree for a whole forest before reading a halo (`src/io/tree/read_ctrees_ascii.c:647-655`), so the production super-forest's 104,845,278 tree roots alone project to ≈15.9 TB of reader preallocation. The reference artifact cannot be produced at production scale, independently of memory in `compare`. Storage says the same thing: scaling the measured 109.7 GB reference output and 42 GB dump by the 56.3× production ratio gives ≈6.2 TB and ≈2.4 TB, which do not fit the conversion volume either.
 - **The binding cross-check gate is therefore micro-Uchuu**, exactly as `SHIN-UCHUU-CONVERSION-PLAN.md`'s Definition of Done item 2 states, with the rehearsal subset as the largest scale it is ever run at. This slice delivers a bounded-memory comparator, not a production-scale instrument, and production cross-check artifacts are **not** part of Slice 8's storage envelope.
 - Restructure `compare` around a per-snapshot window: build one snapshot's `SnapMatch`, run the checks against it, accumulate failures, release it.
 - **Two pieces of genuinely global state block a naive per-snapshot rewrite, and this slice owns both:**
@@ -647,7 +647,7 @@ Scatter first (Slices 1–3), then the rank pass (Slices 4–5), then validation
 ### Intended Change
 - Run the pass's own acceptance gate — the full micro-Uchuu producer validation battery **and** the topology cross-check, both green, proving the converter's reference semantics did not move while its machinery was rebuilt — plus a measured memory profile of the rank pass at Shin-Uchuu subset scale.
 - **The gate must run against a dataset this pass actually produced.** `validate` and `crosscheck` both load an existing dataset from disk, so running them over the Session C output would go green without executing a single line of changed converter code. Slice 9 therefore begins with a fresh end-to-end micro-Uchuu conversion, in a new workdir, using the post-Slice-8 code.
-- Record the measured outcomes in this plan, in `SHIN-UCHUU-CONVERSION-PLAN.md`'s pre-conversion-obligation section, in `POST-PHASE-5-JOINT-REVIEW.md` §6 item 7 (closing the item in the style of the already-closed items), and in `HANDOFF.md` §7's ledger.
+- Record the measured outcomes in this plan, in `SHIN-UCHUU-CONVERSION-PLAN.md`'s pre-conversion-obligation section, in `POST-PHASE-5-JOINT-REVIEW.md` §6 item 7 (closing the item in the style of the already-closed items), and — if it is present on this machine — in the operator's local `HANDOFF.md` ledger, which is gitignored and therefore never the record of a technical fact.
 - Update `scripts/convert/README.md`'s "Shin-Uchuu-scale notes", which currently describes every one of these limits as a deferred production concern.
 
 ### Acceptance Criteria
