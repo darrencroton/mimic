@@ -1258,6 +1258,88 @@ class TestBatchModeSourceInventory(unittest.TestCase):
 
     # -- provenance guards, unchanged in batch mode -------------------------
 
+    def test_all_deferred_first_batch_run_still_freezes_the_inventory(self):
+        """A batch-mode scatter issued before any bytes have arrived is legal
+        and ordinary — it is what a scripted transfer/scatter loop does on its
+        first iteration, and what an operator smoke-testing the pipeline does.
+        It classifies every entry as deferred and scatters nothing, so nothing
+        forces a manifest save; the frozen inventory must reach disk anyway.
+        Otherwise the anti-mixing guard is absent at exactly the moment it is
+        supposed to be established, and the next invocation would accept a
+        different conversion."""
+        for path in self.env.tree_files:
+            _stash(path, self.holding)
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            manifest = self.env.run(batch_mode=True)
+        self.assertIn(
+            "scattered 0 file(s), 4 of 4 inventory entries still deferred", err.getvalue()
+        )
+        self.assertEqual(manifest.data["source_files"], {})
+
+        persisted = json.loads((self.env.workdir / scatter.MANIFEST_NAME).read_text())
+        self.assertEqual(
+            persisted["provenance"]["source_files"],
+            [str(p.resolve()) for p in self.env.tree_files],
+        )
+        for key in ("a_list", "forests_list", "simulation_info"):
+            self.assertIn("md5", persisted["provenance"][key])
+
+        original = list(self.env.tree_files)
+        # a different membership is refused ...
+        self.env.tree_files = original[:3]
+        with self.assertRaisesRegex(ConverterError, "source file set/order changed"):
+            self.env.run(batch_mode=True)
+        # ... and so is the same membership in a different order
+        self.env.tree_files = list(reversed(original))
+        with self.assertRaisesRegex(ConverterError, "source file set/order changed"):
+            self.env.run(batch_mode=True)
+        # ... while the frozen inventory itself still resumes and proceeds
+        self.env.tree_files = original
+        for path in original:
+            _restore(self.holding / path.name, path)
+        manifest = self.env.run(batch_mode=True)
+        self.assertEqual(len(manifest.data["source_files"]), 4)
+
+    def test_batch_mode_freeze_costs_one_manifest_save_per_invocation(self):
+        """Guards the item-7 interaction the fix above could have broken:
+        persisting provenance on a batch-mode return must cost one
+        whole-manifest save per INVOCATION, never one per source file. A
+        per-file rewrite is quadratic in file count and is the exact cost
+        Slice 1 exists to remove."""
+        root = self.root / "five"
+        root.mkdir()
+        # five is the ceiling: standard_forests() has five entries and _split_forests
+        # would hand a sixth file an empty forest group, which is not a valid
+        # ctrees file at all
+        env = ScatterEnv(root, n_files=5)
+        real_save = Manifest.save
+        calls = []
+
+        def counting_save(manifest_self):
+            calls.append(1)
+            return real_save(manifest_self)
+
+        # save_every_n_files far above the file count, so the policy's own count
+        # arm never fires and every save observed here is the batch-mode freeze
+        with mock.patch.object(Manifest, "save", counting_save):
+            with contextlib.redirect_stderr(io.StringIO()):
+                env.run(batch_mode=True, save_every_n_files=1000)
+        self.assertEqual(len(calls), 1, "expected exactly one save for five scattered files")
+
+        # and the same holds for an invocation that scatters nothing at all:
+        # a fresh workdir whose sources have not arrived yet, which is the
+        # all-deferred first run the fix above exists for
+        fresh_root = self.root / "fresh"
+        fresh_root.mkdir()
+        fresh = ScatterEnv(fresh_root, n_files=5)
+        for path in fresh.tree_files:
+            _stash(path, fresh_root / "hold")
+        del calls[:]
+        with mock.patch.object(Manifest, "save", counting_save):
+            with contextlib.redirect_stderr(io.StringIO()):
+                fresh.run(batch_mode=True, save_every_n_files=1000)
+        self.assertEqual(len(calls), 1, "the all-deferred freeze must be exactly one save")
+
     def test_partial_inventory_refuses_resume_in_batch_mode(self):
         """Passing only the subset currently on disk instead of the complete
         frozen inventory is the operator mistake batch mode must never absorb:

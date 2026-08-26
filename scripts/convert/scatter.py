@@ -977,9 +977,26 @@ def run_scatter(
             for result in pool.imap_unordered(_scatter_worker, args):
                 record(result)
 
-    # unconditional save once the dispatch loop finishes cleanly, before the
-    # finalize pass reads source_files back out of the manifest
-    if pending:
+    # Save once the dispatch loop finishes cleanly, before the finalize pass
+    # reads source_files back out of the manifest.
+    #
+    # In batch mode this must happen even when nothing was scattered. A
+    # batch-mode invocation issued before any bytes have arrived is legal and
+    # ordinary — it is what a scripted transfer/scatter loop does on its first
+    # iteration, and what an operator smoke-testing the pipeline does — and it
+    # classifies every entry as deferred, so ``pending`` is empty. If
+    # provenance stayed in memory then, the frozen inventory would never reach
+    # disk and the next invocation would accept a different membership or a
+    # different order: the anti-mixing guard would be absent at exactly the
+    # moment it is supposed to be established, which is the worst possible
+    # place for it to be absent on an irreplaceable multi-day run.
+    #
+    # This is one whole-manifest save per batch-mode INVOCATION, not per source
+    # file. That distinction is the whole of item 7: a per-file rewrite is
+    # quadratic in file count (38.2 KB per entry, 104.9 MB at 2,744 files) and
+    # is what the save policy above exists to remove. One extra save per
+    # invocation is negligible against it.
+    if pending or batch_mode:
         manifest.save()
 
     if batch_mode:
