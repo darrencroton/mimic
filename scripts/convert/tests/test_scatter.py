@@ -617,6 +617,47 @@ class TestBatchedManifestSave(unittest.TestCase):
         file0 = str(self.env.tree_files[0].resolve())
         self.assertEqual(data["source_files"][file0]["status"], "completed")
 
+    def test_default_time_policy_does_not_degrade_to_per_file_saves(self):
+        # regression: a finite default for save_every_seconds shorter than
+        # the plan's measured production inter-completion interval
+        # (~40-108 s, serial vs pooled) would make the time arm fire on
+        # every completion, silently reproducing the per-file-save cost
+        # this slice exists to remove. A synthetic fixture's wall clock
+        # cannot reach those intervals, so drive time.monotonic() forward
+        # by far more than any realistic *finite* threshold between every
+        # completion, and confirm the DEFAULT policy still batches: with
+        # save_every_n_files=25 out of reach for a handful of files and the
+        # time arm disabled by default, only the single unconditional
+        # post-loop save should fire -- not one save per file.
+        n_files = 5
+        root = Path(self.tmp.name) / "many"
+        root.mkdir()
+        env = ScatterEnv(root, n_files=n_files)
+
+        fake_now = [0.0]
+
+        def fake_monotonic():
+            fake_now[0] += 200.0
+            return fake_now[0]
+
+        save_calls = []
+        real_save = Manifest.save
+
+        def spy_save(self):
+            save_calls.append(1)
+            return real_save(self)
+
+        # _finalize_scatter also calls manifest.save() internally (per
+        # snapshot, unrelated to this slice); mocking it out isolates the
+        # save count to exactly the dispatch loop and the post-loop save
+        # under test here.
+        with mock.patch("scatter.time.monotonic", side_effect=fake_monotonic), mock.patch.object(
+            Manifest, "save", spy_save
+        ), mock.patch("scatter._finalize_scatter", return_value=None):
+            env.run()
+
+        self.assertEqual(save_calls, [1])
+
     def test_resume_after_unsaved_crash_overwrites_and_matches_clean_manifest(self):
         baseline_bytes = self._clean_baseline_manifest_bytes()
         scratch = self.env.workdir / "scratch"

@@ -40,10 +40,17 @@ MANIFEST_VERSION = 1
 A_LIST_ATOL = 1e-4
 #: default scatter manifest save policy (item 7): bounds the worst-case
 #: re-scatter after an unclean interruption to at most this many completed
-#: source files, or this many seconds of completed-but-unsaved work,
-#: whichever threshold is reached first.
+#: source files. The plan's measured ground truth puts the parent-side
+#: inter-completion interval at production scale at ~40 s (serial, 4.23 GB
+#: average source file at ~105 MB/s) to ~108.5 s (pooled, 39.0 MB/s scatter
+#: aggregate throughput) -- any finite default well below that would make
+#: the time arm fire on every completion and silently reproduce the
+#: per-file-save cost this slice removes. The time arm is therefore
+#: disabled by default (infinite) and the count arm alone bounds worst-case
+#: re-work; an operator who wants a time-boxed ceiling can still pass
+#: save_every_seconds explicitly.
 DEFAULT_SAVE_EVERY_N_FILES = 25
-DEFAULT_SAVE_EVERY_SECONDS = 30.0
+DEFAULT_SAVE_EVERY_SECONDS = float("inf")
 
 
 def snapshot_scratch_name(snap: int) -> str:
@@ -526,11 +533,18 @@ def run_scatter(
     persisted on a bounded-interval policy (``save_every_n_files`` and
     ``save_every_seconds``, whichever is reached first) rather than after
     every source file, plus one unconditional save once the dispatch loop
-    finishes and before ``_finalize_scatter`` runs. Worker-scratch and
-    sidecar artifacts are always durably written before they are registered,
-    so an interruption between saves leaves at most unsaved-but-written
-    artifacts on disk — never a manifest entry naming something absent. A
-    re-scatter of the owning source file overwrites those deterministically.
+    finishes and before ``_finalize_scatter`` runs. ``save_every_seconds``
+    defaults to infinite (disabled): at production scale the parent sees a
+    completion only every ~40-108 s (the plan's measured ground truth), so
+    any finite default in that range would make the time arm fire on every
+    completion and silently reproduce the per-file-save cost this policy
+    exists to remove — only ``save_every_n_files`` (default 25) bounds the
+    default worst-case re-work. Pass ``save_every_seconds`` explicitly for a
+    time-boxed durability ceiling. Worker-scratch and sidecar artifacts are
+    always durably written before they are registered, so an interruption
+    between saves leaves at most unsaved-but-written artifacts on disk —
+    never a manifest entry naming something absent. A re-scatter of the
+    owning source file overwrites those deterministically.
     """
     workdir = Path(workdir).resolve()
     scratch_dir = workdir / "scratch"
