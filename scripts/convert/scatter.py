@@ -516,6 +516,13 @@ class Manifest:
         makes the operator's subsequent deletion of irreplaceable source bytes
         safe. The converter itself never deletes source data (see the module
         docstring); this records permission, nothing more.
+
+        Because that verification is the whole value, it is never skipped: a
+        source whose intermediates finalization has already deleted is
+        **refused**, which makes releasing before finalizing a requirement
+        rather than merely the documented habit. Releasing a source whose bytes
+        the operator has already deleted still works — what must verify is the
+        intermediates, not the source.
         """
         resolved = Path(path).resolve()
         entry = self.source_entry(resolved)
@@ -558,9 +565,29 @@ class Manifest:
                     "intermediate".format(resolved, what, candidate)
                 )
             if registered.get("status") == "removed":
-                # already consumed by the concat stage, which verified it
-                # against its registered checksum before deleting it
-                continue
+                # Finalization has already deleted this artifact, and nothing
+                # on the release path can stand in for it. The rows moved into
+                # the concatenated snapshot, which ``source_intermediates``
+                # does not name and cannot name usefully: that artifact is
+                # itself deleted by the sort stage (sort_index.py:116,129) and
+                # superseded in turn by the sorted, fixed and link files, each
+                # deleted by a different downstream module. Verifying "the
+                # successor" from here would mean encoding every downstream
+                # stage's artifact lifetime in the scatter module, and it would
+                # drift the moment another slice changes one.
+                #
+                # So this is a refusal, not a skip. Releasing here would tell
+                # the operator to delete irreplaceable source bytes while
+                # nothing had verified the artifact that now holds those rows —
+                # the exact opposite of what release exists for. Release a
+                # batch before finalizing, which is the documented order.
+                raise ConverterError(
+                    "refusing to release {}: {} {} was already deleted by finalization, so "
+                    "nothing on the release path can still verify the rows this source "
+                    "contributed — release a batch BEFORE finalizing it, not after".format(
+                        resolved, what, candidate
+                    )
+                )
             self.verify_intermediate(candidate, what)
         entry["status"] = SOURCE_CONSUMED
         return entry

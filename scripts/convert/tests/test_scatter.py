@@ -1551,6 +1551,98 @@ class TestBatchModeSourceInventory(unittest.TestCase):
         self.assertEqual(self._status(0), SOURCE_CONSUMED)
         self.env.run(batch_mode=True)
 
+    def test_release_after_finalize_is_refused(self):
+        """Release must precede finalize, and that is enforced rather than
+        merely documented. _finalize_scatter deletes the worker intermediates,
+        and the rows then live in the concatenated snapshot — which
+        source_intermediates does not name and cannot usefully name, because
+        the sort stage deletes it in turn. Releasing here would authorize
+        deleting irreplaceable source bytes with nothing verified."""
+        self.env.run(batch_mode=True)
+        run_finalize(self.env.workdir, self.env.forests_list)
+        with self.assertRaises(ConverterError) as ctx:
+            run_release(self.env.workdir, [self.env.tree_files[0]])
+        self.assertIn("already deleted by finalization", str(ctx.exception))
+        self.assertIn("BEFORE finalizing", str(ctx.exception))
+        self.assertEqual(self._status(0), SOURCE_COMPLETED)
+
+    def test_release_after_finalize_with_a_corrupted_snapshot_records_nothing(self):
+        """The reproduction this refusal exists for: with the concatenated
+        artifact that now holds the rows corrupt, release must not tell the
+        operator their source bytes may be deleted. Nothing may be recorded,
+        for any of the named files."""
+        manifest = self.env.run(batch_mode=True)
+        manifest = run_finalize(self.env.workdir, self.env.forests_list)
+        snap = sorted(manifest.data["snapshots"], key=int)[0]
+        _flip_last_byte(Path(manifest.data["snapshots"][snap]["scratch_file"]))
+        with self.assertRaises(ConverterError):
+            run_release(self.env.workdir, self.env.tree_files)
+        self.assertEqual([self._status(i) for i in range(4)], [SOURCE_COMPLETED] * 4)
+
+    def test_release_after_finalize_with_a_missing_snapshot_records_nothing(self):
+        manifest = self.env.run(batch_mode=True)
+        manifest = run_finalize(self.env.workdir, self.env.forests_list)
+        snap = sorted(manifest.data["snapshots"], key=int)[0]
+        Path(manifest.data["snapshots"][snap]["scratch_file"]).unlink()
+        with self.assertRaises(ConverterError):
+            run_release(self.env.workdir, self.env.tree_files)
+        self.assertEqual([self._status(i) for i in range(4)], [SOURCE_COMPLETED] * 4)
+
+    def test_release_after_a_partially_completed_finalization_is_refused(self):
+        """A finalization interrupted between two snapshots leaves some
+        source-owned workers deleted and others still present. Any source with
+        even one deleted worker must be refused — a partial state must not be
+        partially trusted."""
+        self.env.run(batch_mode=True)
+        real_remove = Manifest.remove_intermediate
+        calls = []
+
+        def crashing_remove(manifest_self, path):
+            calls.append(path)
+            if len(calls) > 2:
+                raise KilledMidScatter("simulated crash during finalization cleanup")
+            return real_remove(manifest_self, path)
+
+        with mock.patch.object(Manifest, "remove_intermediate", crashing_remove):
+            with self.assertRaises(KilledMidScatter):
+                run_finalize(self.env.workdir, self.env.forests_list)
+
+        manifest = Manifest.load_or_create(self.env.workdir)
+        statuses = {v.get("status") for v in manifest.data["intermediates"].values()}
+        self.assertEqual(statuses, {"present", "removed"}, "expected a partial finalization")
+
+        # First, one atomic invocation over the whole inventory: it must refuse,
+        # and it must record NOTHING — not even for the sources whose own
+        # workers all survived and which a per-file release would have accepted.
+        with self.assertRaises(ConverterError):
+            run_release(self.env.workdir, self.env.tree_files)
+        self.assertEqual([self._status(i) for i in range(4)], [SOURCE_COMPLETED] * 4)
+
+        # Then per file. Every source owning a deleted worker is refused;
+        # sources whose own workers all survived are still releasable — their
+        # rows are still in artifacts release can verify — so the outcome is
+        # mixed, and the recorded statuses must match it exactly, source by
+        # source.
+        refused, released = [], []
+        for index in range(4):
+            try:
+                with contextlib.redirect_stderr(io.StringIO()):
+                    run_release(self.env.workdir, [self.env.tree_files[index]])
+                released.append(index)
+            except ConverterError as exc:
+                self.assertIn("already deleted by finalization", str(exc))
+                refused.append(index)
+        self.assertTrue(refused, "expected at least one source to own a deleted worker")
+        reloaded = Manifest.load_or_create(self.env.workdir)
+        for index in refused:
+            self.assertEqual(
+                reloaded.data["source_files"][self._key(index)]["status"], SOURCE_COMPLETED
+            )
+        for index in released:
+            self.assertEqual(
+                reloaded.data["source_files"][self._key(index)]["status"], SOURCE_CONSUMED
+            )
+
     def test_release_is_atomic_across_the_files_it_is_given(self):
         self.env.run(batch_mode=True)
         _flip_last_byte(self.env.workdir / "scratch" / "roots_src_1.npy")
