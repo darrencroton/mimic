@@ -17,6 +17,7 @@ import hashlib
 import json
 import os
 import sys
+import time
 from dataclasses import dataclass
 from multiprocessing import Pool
 from pathlib import Path
@@ -37,6 +38,12 @@ MANIFEST_NAME = "manifest.json"
 MANIFEST_VERSION = 1
 #: absolute tolerance for observed scale vs canonical a_list entry
 A_LIST_ATOL = 1e-4
+#: default scatter manifest save policy (item 7): bounds the worst-case
+#: re-scatter after an unclean interruption to at most this many completed
+#: source files, or this many seconds of completed-but-unsaved work,
+#: whichever threshold is reached first.
+DEFAULT_SAVE_EVERY_N_FILES = 25
+DEFAULT_SAVE_EVERY_SECONDS = 30.0
 
 
 def snapshot_scratch_name(snap: int) -> str:
@@ -506,12 +513,24 @@ def run_scatter(
     pool_size: int = 1,
     chunksize: int = 1_000_000,
     simulation_info_path=None,
+    save_every_n_files: int = DEFAULT_SAVE_EVERY_N_FILES,
+    save_every_seconds: float = DEFAULT_SAVE_EVERY_SECONDS,
 ) -> Manifest:
     """Phase 0 + Phase 1: map, scatter, concat, aggregates, manifest.
 
     Re-running skips source files whose manifest entry is completed and whose
     size/mtime still match. Per-file conservation (independent pre-count ==
     scattered rows) is enforced before a completion is recorded.
+
+    Completed source entries accumulate in the in-memory manifest and are
+    persisted on a bounded-interval policy (``save_every_n_files`` and
+    ``save_every_seconds``, whichever is reached first) rather than after
+    every source file, plus one unconditional save once the dispatch loop
+    finishes and before ``_finalize_scatter`` runs. Worker-scratch and
+    sidecar artifacts are always durably written before they are registered,
+    so an interruption between saves leaves at most unsaved-but-written
+    artifacts on disk — never a manifest entry naming something absent. A
+    re-scatter of the owning source file overwrites those deterministically.
     """
     workdir = Path(workdir).resolve()
     scratch_dir = workdir / "scratch"
@@ -582,6 +601,25 @@ def run_scatter(
             "use a fresh workdir".format(len(pending), [str(p) for p, _ in pending[:3]])
         )
 
+    # bounded-interval manifest persistence (item 7): a full manifest.json
+    # rewrite after every completed source file is quadratic in file count,
+    # so only a policy-bounded number of completions accumulate in memory
+    # between saves. The worker/sidecar artifacts a completion registers are
+    # always durably written before record() is called, so a save deferred
+    # this way never lets the manifest name something absent from disk.
+    save_every_n_files = max(1, int(save_every_n_files))
+    pending_since_save = 0
+    last_save_monotonic = time.monotonic()
+
+    def maybe_save_manifest() -> None:
+        nonlocal pending_since_save, last_save_monotonic
+        pending_since_save += 1
+        elapsed = time.monotonic() - last_save_monotonic
+        if pending_since_save >= save_every_n_files or elapsed >= save_every_seconds:
+            manifest.save()
+            pending_since_save = 0
+            last_save_monotonic = time.monotonic()
+
     def record(result: FileScatterResult) -> None:
         validate_observed_pairs(result.observed_pairs, a_list, result.path)
         roots_file = scratch_dir / "roots_src_{}.npy".format(result.src_index)
@@ -613,7 +651,7 @@ def run_scatter(
             "observed_pairs": [[snap, scale] for snap, scale in result.observed_pairs],
             "status": "completed",
         }
-        manifest.save()
+        maybe_save_manifest()
 
     if pool_size <= 1 or len(pending) <= 1:
         for path, src_index in pending:
@@ -623,6 +661,11 @@ def run_scatter(
         with Pool(processes=min(pool_size, len(pending))) as pool:
             for result in pool.imap_unordered(_scatter_worker, args):
                 record(result)
+
+    # unconditional save once the dispatch loop finishes cleanly, before the
+    # finalize pass reads source_files back out of the manifest
+    if pending:
+        manifest.save()
 
     _finalize_scatter(manifest, tree_files, forest_map, scratch_dir)
     return manifest

@@ -3,6 +3,7 @@ conservation, manifest resume, aggregates, cleanup containment guard."""
 
 import json
 import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -39,6 +40,22 @@ class CrashAfterFirstChunkParser(CtreesFileParser):
         gen = super().chunks()
         yield next(gen)
         raise KilledMidScatter("simulated kill mid-scatter")
+
+
+class CrashOnNamedFileParser(CtreesFileParser):
+    """Raises before producing any scatter output for one named source file,
+    without ever touching that file's bytes or mtime — unlike editing the
+    source text to force a 'malformed' abort, this keeps a later
+    byte-identical manifest comparison across the simulated crash valid."""
+
+    crash_on_filename = None
+
+    def chunks(self):
+        if self.crash_on_filename is not None and self.path.name == self.crash_on_filename:
+            raise KilledMidScatter(
+                "simulated crash before scattering {}".format(self.crash_on_filename)
+            )
+        yield from super().chunks()
 
 
 class TouchSourceParser(CtreesFileParser):
@@ -309,7 +326,11 @@ class TestScatter(unittest.TestCase):
             self.env.run()
 
     def test_resume_after_crash_skips_completed(self):
-        # simulate a crash: file 1 is malformed, so the run aborts after file 0
+        # simulate a crash: file 1 is malformed, so the run aborts after file 0.
+        # save_every_n_files=1 forces the pre-batching per-file-save behaviour
+        # so file 0's completion is guaranteed to reach disk before the crash —
+        # the scenario this test is actually about (skip a *saved* completion)
+        # is independent of the save-policy knob under test elsewhere.
         good_text = self.env.tree_files[1].read_text()
         lines = good_text.splitlines()
         first_data = next(
@@ -320,7 +341,7 @@ class TestScatter(unittest.TestCase):
         lines[first_data] = lines[first_data].replace(lines[first_data].split()[8], "notanumber", 1)
         self.env.tree_files[1].write_text("\n".join(lines) + "\n")
         with self.assertRaisesRegex(ConverterError, "malformed"):
-            self.env.run()
+            self.env.run(save_every_n_files=1)
 
         manifest = Manifest.load_or_create(self.env.workdir)
         file0 = str(self.env.tree_files[0].resolve())
@@ -412,7 +433,11 @@ class TestScatter(unittest.TestCase):
             self.env.run()
 
     def _crash_between_files(self):
-        """Abort after file 0 completes: its sidecars and worker files persist."""
+        """Abort after file 0 completes: its sidecars and worker files persist.
+        save_every_n_files=1 forces file 0's completion to be saved to the
+        on-disk manifest before the crash, so resume skip-trusts it rather
+        than re-scattering over the tampering these tests inject — the
+        deferred-save behaviour itself is covered by dedicated tests below."""
         good_text = self.env.tree_files[1].read_text()
         lines = good_text.splitlines()
         first_data = next(
@@ -425,7 +450,7 @@ class TestScatter(unittest.TestCase):
         lines[first_data] = " ".join(tokens)
         self.env.tree_files[1].write_text("\n".join(lines) + "\n")
         with self.assertRaisesRegex(ConverterError, "malformed"):
-            self.env.run()
+            self.env.run(save_every_n_files=1)
         return good_text
 
     def test_tampered_roots_sidecar_detected_on_resume(self):
@@ -512,6 +537,96 @@ class TestScatter(unittest.TestCase):
             b = (serial_env.workdir / "scratch" / snapshot_scratch_name(snap)).read_bytes()
             self.assertEqual(a, b)
         self.assertTrue(manifest.data["snapshots"])
+
+
+class TestBatchedManifestSave(unittest.TestCase):
+    """Slice 1 (item 7): bounded-interval manifest persistence in run_scatter."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.env = ScatterEnv(Path(self.tmp.name))
+
+    def tearDown(self):
+        CrashOnNamedFileParser.crash_on_filename = None
+        self.tmp.cleanup()
+
+    def _clean_baseline_manifest_bytes(self) -> bytes:
+        """Run once, uninterrupted, to capture reference manifest bytes, then
+        reset the workdir so a later scenario starts from scratch at the
+        exact same path — the source files, forests.list and a_list (all
+        outside the workdir) are untouched, so every path embedded in the
+        manifest matches between the two scenarios and a raw byte compare is
+        meaningful."""
+        self.env.run()
+        baseline = (self.env.workdir / "manifest.json").read_bytes()
+        shutil.rmtree(self.env.workdir)
+        return baseline
+
+    def test_manifest_byte_identical_regardless_of_save_policy(self):
+        # save_every_n_files=1 reproduces the pre-batching per-file-save
+        # cadence; the default policy batches saves. Same input -> the final
+        # manifest content must not depend on when it was written.
+        per_file_bytes = self._clean_baseline_manifest_bytes()
+        self.env.run()
+        batched_bytes = (self.env.workdir / "manifest.json").read_bytes()
+        self.assertEqual(batched_bytes, per_file_bytes)
+
+    def test_default_policy_leaves_recent_completion_unsaved_on_crash(self):
+        # crash via a named-file parser rather than corrupting file 1's text:
+        # neither source file's bytes/mtime change, so file 0's completion is
+        # the only thing that differs between a clean run and this one.
+        CrashOnNamedFileParser.crash_on_filename = self.env.tree_files[1].name
+        with mock.patch("scatter.CtreesFileParser", CrashOnNamedFileParser):
+            with self.assertRaisesRegex(ConverterError, "simulated crash"):
+                self.env.run()
+        # binding invariant: no manifest was written that could name an
+        # artifact not durably written -- here, none was written at all
+        self.assertFalse((self.env.workdir / "manifest.json").exists())
+        # but file 0's worker/sidecar artifacts were durably written already
+        scratch = self.env.workdir / "scratch"
+        self.assertTrue(next(scratch.glob("snap_*.src_0.bin")).exists())
+        self.assertTrue((scratch / "roots_src_0.npy").exists())
+        self.assertTrue((scratch / "forest_max_src_0.npy").exists())
+
+    def test_time_based_save_policy_persists_before_count_threshold(self):
+        # save_every_n_files is set far out of reach; save_every_seconds=0
+        # forces the time-based branch to fire after file 0's completion.
+        CrashOnNamedFileParser.crash_on_filename = self.env.tree_files[1].name
+        with mock.patch("scatter.CtreesFileParser", CrashOnNamedFileParser):
+            with self.assertRaisesRegex(ConverterError, "simulated crash"):
+                self.env.run(save_every_n_files=999, save_every_seconds=0.0)
+        manifest_path = self.env.workdir / "manifest.json"
+        self.assertTrue(manifest_path.exists())
+        data = json.loads(manifest_path.read_text())
+        file0 = str(self.env.tree_files[0].resolve())
+        self.assertEqual(data["source_files"][file0]["status"], "completed")
+
+    def test_resume_after_unsaved_crash_overwrites_and_matches_clean_manifest(self):
+        baseline_bytes = self._clean_baseline_manifest_bytes()
+        scratch = self.env.workdir / "scratch"
+
+        CrashOnNamedFileParser.crash_on_filename = self.env.tree_files[1].name
+        with mock.patch("scatter.CtreesFileParser", CrashOnNamedFileParser):
+            with self.assertRaisesRegex(ConverterError, "simulated crash"):
+                self.env.run()
+        self.assertFalse((self.env.workdir / "manifest.json").exists())
+        # roots_src_0.npy survives the whole run (unlike worker-scratch,
+        # which finalize deletes after concat), so it can be checked both
+        # before and after resume completes
+        roots_marker = scratch / "roots_src_0.npy"
+        mtime_before = roots_marker.stat().st_mtime_ns
+
+        # resume: file 0's completion was never saved, so it is re-scattered;
+        # the leftover artifacts from the crashed attempt must be
+        # overwritten deterministically, not silently reused
+        manifest = self.env.run()
+        self.assertNotEqual(roots_marker.stat().st_mtime_ns, mtime_before)
+        expected = self.env.expected_snapshot_counts()
+        for snap, count in expected.items():
+            self.assertEqual(manifest.data["snapshots"][str(snap)]["rows"], count)
+
+        resumed_bytes = (self.env.workdir / "manifest.json").read_bytes()
+        self.assertEqual(resumed_bytes, baseline_bytes)
 
 
 class TestCleanupContainment(unittest.TestCase):
