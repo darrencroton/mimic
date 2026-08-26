@@ -124,7 +124,18 @@ Each slice carries this as a banner under its own heading; the table is the at-a
 
 **Two reasons the 🟡 class exists, and only one is obvious.** `ru_maxrss` is per-process, so another job cannot inflate a slice's reported peak RSS — the memory numbers stay valid on a busy box. What a busy box *does* corrupt is **wall clock and I/O throughput**, and Slices 2 and 8 each record one. This is the same distinction `HANDOFF.md` draws for the rehearsal tasks, and it is why "quiet" is a real class rather than a weaker "full box".
 
-**Project manager: Opus, high effort.** PM makes accept/reject calls on slices whose failure modes are irreversible data deletion (8), a silently mixed multi-day conversion (3), and a producer check weakened without anyone noticing (6, 7). It also owns the two approval gates and must commission independent review on the five elevated-risk slices. **Opus at medium effort is acceptable while executing Batch A only** — Slices 1 and 2 carry no approval gate and no elevated-audit requirement — but escalate before Slice 3.
+**Project manager: Opus, medium effort — escalating to high for Slices 5 and 9 only.**
+
+Medium is sufficient for most of this run because **the plan front-loads the judgement PM would otherwise have to supply**: approval gates are marked with an exact flag rather than left to interpretation, independent audit is mandated on five named slices, authorized surfaces are explicit file lists, and acceptance criteria are enumerable checkboxes rather than prose. PM is checking a frozen contract, not inventing one. Three further controls carry risk that would otherwise land on PM: it re-runs validation itself rather than trusting the developer's narration, and that validation is deterministic (unittest suites, `check-format`, `check-docs`, differential lint); the riskiest slices carry mandatory independent drift-audit and code-review, so PM is not the sole defence where risk concentrates; and the two highest-consequence decisions — resume semantics on an irreplaceable run, and irreversible deletion — stop for a human by construction.
+
+**Escalate to high for two slices**, where the acceptance evidence must be *interpreted* rather than merely re-run:
+
+- **Slice 5** — "memory does not scale with total halo count" is a judgement about evidence quality across two datasets, and PM must notice the specific cheat the slice forbids: meeting the ≤ 24 GB ceiling by loosening the budget default rather than by bounding memory.
+- **Slice 9** — "do these measurements support closing JR §6 item 7?" is a scientific-evidence decision, and it is the slice that declares the whole pass done.
+
+Slices 6 and 7 look like they need high — their failure mode is a silently weakened producer check — but their semantics are pinned by injected-defect equivalence tests *and* mandatory independent review, which is what makes medium adequate there.
+
+**The signal to escalate regardless of slice:** if PM ever finds itself accepting a slice on the developer's narration rather than on re-run evidence, effort is the wrong lever and the run should stop.
 
 **How this relates to the Implementation Profiles above.** Those govern *batching* — how many slices share one implementation and review loop. This table governs *model and effort per slice*. They are independent: a frontier implementer running Batch A should still do so on Sonnet, because Slices 1 and 2 are small and crisply oracled, and spending Opus on them buys nothing.
 
