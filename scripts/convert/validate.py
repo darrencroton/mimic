@@ -29,6 +29,15 @@ The battery validates in two stages: structural conformance per file (object
 set, dtypes, shapes, chunking, compression, attribute set) first, and the
 semantic checks only when every file is structurally conformant — semantic
 checks cannot be trusted on files whose layout is already wrong.
+
+Memory is bounded by the window each check needs rather than by the dataset
+(converter scale pass, plan Slice 6). Nothing loads the whole dataset: the
+per-snapshot checks hold one file's arrays, progenitor closure holds the
+adjacent pair, count conservation and the run-scoped header comparison carry
+scalars, and ``check_identity`` streams two chunked passes over
+``(ForestIndex, HaloRankInForest)`` behind an exact one-bit-per-halo structure.
+The in-memory formulation this replaced measured 73.27 GB on a 1.8% subset of
+Shin-Uchuu and was unbounded at production.
 """
 
 import argparse
@@ -36,7 +45,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import h5py
 import numpy as np
@@ -56,6 +65,26 @@ from scatter import file_md5, load_a_list  # noqa: E402
 
 #: Default UniqueGalaxyID multiplier (TREE_MUL_FAC, src/include/constants.h).
 DEFAULT_MULTIPLIER = 10**9
+
+#: Rows the two identity passes read at a time. Four HDF5 chunks (``CHUNK_1D``
+#: is 65536 rows) per read, so reads stay chunk-aligned, and small enough that
+#: the per-chunk working arrays enumerated in ``IDENTITY_CHUNK_BYTES_PER_ROW``
+#: cost tens of MB rather than a fraction of the dataset.
+IDENTITY_CHUNK_ROWS = 4 * CHUNK_1D[0]
+
+#: Bytes an identity pass holds per row of a chunk, enumerated rather than
+#: estimated. Eleven int64-wide arrays: the ForestIndex and HaloRankInForest
+#: blocks read from the file, each row's forest count and bitset base, the
+#: in-range row indices, their slots, those slots' byte indices, the stable
+#: sort permutation, the sorted slots, the deduplicated slots and their byte
+#: indices. Four one-byte arrays: the in-range mask, the slot bit masks, the
+#: already-claimed mask and the repeat mask.
+IDENTITY_CHUNK_BYTES_PER_ROW = 11 * 8 + 4
+
+#: Slots of the identity bitset examined at once when a failure message needs
+#: the first rank a forest holds no halo for. Bounded so the diagnostic scan of
+#: a single huge forest cannot itself allocate without limit.
+_MISSING_RANK_SCAN_SLOTS = 1 << 20
 
 _INT64_MAX = np.iinfo(np.int64).max
 _INT64_MIN = np.iinfo(np.int64).min
@@ -93,6 +122,10 @@ class Outcome:
 
 def _examples(values, limit: int = 5) -> str:
     return ", ".join(str(v) for v in list(values)[:limit])
+
+
+def _log(message: str) -> None:
+    print(message, file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------
@@ -298,14 +331,21 @@ def check_manifest_binding(directory: Path, a_list_md5: str, manifest_path: Path
 
 
 # ---------------------------------------------------------------------------
-# Data loading (after structural conformance)
+# Bounded dataset access (after structural conformance)
 # ---------------------------------------------------------------------------
 
 
 def load_dataset(
     directory: Path, n_snapshots: int
 ) -> Tuple[List[dict], List[Dict[str, np.ndarray]]]:
-    """Load every snapshot file's header attributes and /halos arrays."""
+    """Load every snapshot file's header attributes and /halos arrays.
+
+    **The battery no longer uses this**, and nothing in this module calls it:
+    the checks stream through :class:`_Snapshots` instead. It is retained
+    because ``crosscheck.py`` still imports it, and the cross-check is bounded
+    by its own slice of the converter scale pass (plan Slice 7), which owns
+    both that consumer and this function's removal.
+    """
     headers = []
     arrays = []
     for snap in range(n_snapshots):
@@ -318,20 +358,83 @@ def load_dataset(
     return headers, arrays
 
 
+class _Snapshots:
+    """Bounded access to the emitted snapshot files.
+
+    The whole-dataset battery this replaced read every file's complete /halos
+    arrays into one list and handed that list to every check. Each accessor
+    here opens one file, reads only what the caller names, and closes it again,
+    so what stays resident is whatever window the calling check chose to hold —
+    one snapshot for the per-snapshot checks, the adjacent pair for progenitor
+    closure, one chunk for the identity passes, and nothing at all for the
+    checks that need only row counts.
+    """
+
+    def __init__(self, directory, n_snapshots: int):
+        self.directory = Path(directory)
+        self.n_snapshots = int(n_snapshots)
+        self._rows: Dict[int, int] = {}
+
+    def path(self, snap: int) -> Path:
+        return self.directory / snapshot_h5_name(snap)
+
+    def header(self, snap: int) -> dict:
+        """One file's header attributes, as numpy scalars."""
+        with h5py.File(self.path(snap), "r") as handle:
+            return {name: np.asarray(handle["header"].attrs[name])[()] for name in HEADER_ATTRS}
+
+    def field_rows(self, snap: int) -> Dict[str, int]:
+        """Row count of every /halos dataset of one file, in HALO_DATASETS
+        order, read from the shapes without touching the data."""
+        with h5py.File(self.path(snap), "r") as handle:
+            return {name: int(handle["halos"][name].shape[0]) for name in HALO_DATASETS}
+
+    def rows(self, snap: int) -> int:
+        """Halos in one file — /halos/MostBoundID's row count, which is the
+        same number the whole-dataset battery took from that array's ``size``.
+        Cached, so the count costs one int per snapshot."""
+        if snap not in self._rows:
+            with h5py.File(self.path(snap), "r") as handle:
+                self._rows[snap] = int(handle["halos"]["MostBoundID"].shape[0])
+        return self._rows[snap]
+
+    def load(self, snap: int, fields) -> Dict[str, np.ndarray]:
+        """Named /halos datasets of one file, whole."""
+        with h5py.File(self.path(snap), "r") as handle:
+            return {name: handle["halos"][name][...] for name in fields}
+
+    def chunks(self, snap: int, fields, chunk_rows: int):
+        """Named /halos datasets of one file, yielded together in row-aligned
+        blocks of at most ``chunk_rows`` rows."""
+        with h5py.File(self.path(snap), "r") as handle:
+            datasets = [handle["halos"][name] for name in fields]
+            total = int(datasets[0].shape[0])
+            for start in range(0, total, chunk_rows):
+                stop = min(start + chunk_rows, total)
+                yield tuple(dataset[start:stop] for dataset in datasets)
+
+
 # ---------------------------------------------------------------------------
 # Stage B: semantic checks
 # ---------------------------------------------------------------------------
 
 
-def check_headers(
-    headers: List[dict], arrays: List[Dict[str, np.ndarray]], a_list: np.ndarray
-) -> Tuple[List[str], List[str]]:
+def check_headers(snapshots: _Snapshots, a_list: np.ndarray) -> Tuple[List[str], List[str]]:
     """Invariant 5 (header consistency) plus format_version, links_adjacent,
-    the int32 topology bound (invariant 2), and a_list <-> scale_factor."""
+    the int32 topology bound (invariant 2), and a_list <-> scale_factor.
+
+    The run-scoped comparison asks only whether the files agree, so a carried
+    set of the distinct values per attribute answers it exactly, without a list
+    of every file's header.
+    """
     failures = []
     run_scoped_failures = []
-    for snap, (header, data) in enumerate(zip(headers, arrays)):
+    observed = {attr: set() for attr in RUN_SCOPED_ATTRS}
+    for snap in range(snapshots.n_snapshots):
         name = snapshot_h5_name(snap)
+        header = snapshots.header(snap)
+        for attr in RUN_SCOPED_ATTRS:
+            observed[attr].add(repr(header[attr].item()))
         if int(header["format_version"]) != FORMAT_VERSION:
             failures.append(
                 "{}: format_version {} != {}".format(name, header["format_version"], FORMAT_VERSION)
@@ -353,14 +456,14 @@ def check_headers(
         n_halos = int(header["n_halos"])
         if n_halos > np.iinfo(np.int32).max:
             failures.append("{}: n_halos {} exceeds the int32 topology bound".format(name, n_halos))
-        for field, values in data.items():
-            if values.shape[0] != n_halos:
+        for field, rows in snapshots.field_rows(snap).items():
+            if rows != n_halos:
                 failures.append(
                     "{}: dataset {} has {} rows, header n_halos is {}".format(
-                        name, field, values.shape[0], n_halos
+                        name, field, rows, n_halos
                     )
                 )
-        snapnum = data["SnapNum"]
+        snapnum = snapshots.load(snap, ("SnapNum",))["SnapNum"]
         bad = snapnum != snap
         if bad.any():
             failures.append(
@@ -369,7 +472,7 @@ def check_headers(
                 )
             )
     for attr in RUN_SCOPED_ATTRS:
-        values = {repr(header[attr].item()) for header in headers}
+        values = observed[attr]
         if len(values) > 1:
             run_scoped_failures.append(
                 "{} differs across files: {}".format(attr, _examples(sorted(values)))
@@ -377,7 +480,7 @@ def check_headers(
     return failures, run_scoped_failures
 
 
-def check_slab_order(arrays: List[Dict[str, np.ndarray]]) -> List[str]:
+def check_slab_order(snapshots: _Snapshots) -> List[str]:
     """Invariant 3: ascending unique |MostBoundID| within every file.
 
     INT64_MIN is rejected explicitly: signed absolute value overflows on it
@@ -386,8 +489,9 @@ def check_slab_order(arrays: List[Dict[str, np.ndarray]]) -> List[str]:
     magnitude-based comparison — including in single-halo slabs where no
     adjacent-order comparison would otherwise fire."""
     failures = []
-    for snap, data in enumerate(arrays):
-        sentinel = data["MostBoundID"] == _INT64_MIN
+    for snap in range(snapshots.n_snapshots):
+        mostbound = snapshots.load(snap, ("MostBoundID",))["MostBoundID"]
+        sentinel = mostbound == _INT64_MIN
         if sentinel.any():
             failures.append(
                 "{}: {} MostBoundID value(s) equal INT64_MIN, whose magnitude overflows "
@@ -397,7 +501,7 @@ def check_slab_order(arrays: List[Dict[str, np.ndarray]]) -> List[str]:
                     _examples(np.nonzero(sentinel)[0].tolist()),
                 )
             )
-        mb_abs = np.abs(data["MostBoundID"])
+        mb_abs = np.abs(mostbound)
         if mb_abs.size > 1:
             bad = np.nonzero(mb_abs[1:] <= mb_abs[:-1])[0]
             if bad.size:
@@ -433,16 +537,30 @@ def _range_failures(
     return []
 
 
-def check_link_ranges(arrays: List[Dict[str, np.ndarray]]) -> List[str]:
+def check_link_ranges(snapshots: _Snapshots) -> List[str]:
     """Invariant 6's range component, resolved per the Link Scope table.
     Neighbours beyond the dataset have zero halos, so the final snapshot's
-    Descendant and the first snapshot's FirstProgenitor may only be -1."""
+    Descendant and the first snapshot's FirstProgenitor may only be -1.
+
+    The widest data dependency here is a neighbour's ROW COUNT, which comes
+    from its dataset shape, so only the snapshot under test is resident.
+    """
     failures = []
-    last = len(arrays) - 1
-    for snap, data in enumerate(arrays):
-        n = data["MostBoundID"].size
-        n_next = arrays[snap + 1]["MostBoundID"].size if snap < last else 0
-        n_prev = arrays[snap - 1]["MostBoundID"].size if snap > 0 else 0
+    last = snapshots.n_snapshots - 1
+    for snap in range(snapshots.n_snapshots):
+        data = snapshots.load(
+            snap,
+            (
+                "Descendant",
+                "FirstProgenitor",
+                "NextProgenitor",
+                "NextHaloInFOFgroup",
+                "FirstHaloInFOFgroup",
+            ),
+        )
+        n = snapshots.rows(snap)
+        n_next = snapshots.rows(snap + 1) if snap < last else 0
+        n_prev = snapshots.rows(snap - 1) if snap > 0 else 0
         failures += _range_failures(data["Descendant"], n_next, "Descendant", snap)
         failures += _range_failures(data["FirstProgenitor"], n_prev, "FirstProgenitor", snap)
         for field in ("NextProgenitor", "NextHaloInFOFgroup"):
@@ -458,14 +576,15 @@ def _frontier_duplicates(node: np.ndarray) -> np.ndarray:
     return unique[counts > 1]
 
 
-def check_fof_chains(arrays: List[Dict[str, np.ndarray]]) -> List[str]:
+def check_fof_chains(snapshots: _Snapshots) -> List[str]:
     """Invariant 6's chain component: FoF chains are cycle-free, terminate at
     -1, every FirstHaloInFOFgroup target is a self-referencing central, and
     the chains starting at the centrals cover every halo exactly once with a
     consistent FirstHaloInFOFgroup along each chain."""
     failures = []
-    for snap, data in enumerate(arrays):
+    for snap in range(snapshots.n_snapshots):
         name = snapshot_h5_name(snap)
+        data = snapshots.load(snap, ("FirstHaloInFOFgroup", "NextHaloInFOFgroup"))
         first = data["FirstHaloInFOFgroup"].astype(np.int64)
         nxt = data["NextHaloInFOFgroup"].astype(np.int64)
         n = first.size
@@ -526,18 +645,24 @@ def check_fof_chains(arrays: List[Dict[str, np.ndarray]]) -> List[str]:
     return failures
 
 
-def check_progenitor_closure(arrays: List[Dict[str, np.ndarray]]) -> List[str]:
+def check_progenitor_closure(snapshots: _Snapshots) -> List[str]:
     """Producer round-trip closure: for every snapshot pair (N, N+1), the
     progenitor chains recorded at N+1 (FirstProgenitor into N, then
     NextProgenitor within N) cover exactly the N-halos whose Descendant is
     non-null, each exactly once, with every chain member's Descendant naming
     the chain's owner. NextProgenitor's same-file scope is the range check;
-    here every non-null NextProgenitor must also share the descendant."""
+    here every non-null NextProgenitor must also share the descendant.
+
+    This is the battery's widest per-record dependency: snapshot ``snap``'s
+    Descendant and NextProgenitor against snapshot ``snap + 1``'s
+    FirstProgenitor — the two-snapshot window everything else fits inside.
+    """
     failures = []
-    for snap in range(len(arrays)):
+    for snap in range(snapshots.n_snapshots):
         name = snapshot_h5_name(snap)
-        desc = arrays[snap]["Descendant"].astype(np.int64)
-        nxt = arrays[snap]["NextProgenitor"].astype(np.int64)
+        data = snapshots.load(snap, ("Descendant", "NextProgenitor"))
+        desc = data["Descendant"].astype(np.int64)
+        nxt = data["NextProgenitor"].astype(np.int64)
         n = desc.size
 
         stray = (nxt != -1) & (desc == -1)
@@ -557,9 +682,9 @@ def check_progenitor_closure(arrays: List[Dict[str, np.ndarray]]) -> List[str]:
                     "example rows: {}".format(name, int(mismatch.sum()), _examples(rows.tolist()))
                 )
 
-        if snap + 1 >= len(arrays):
+        if snap + 1 >= snapshots.n_snapshots:
             continue
-        first = arrays[snap + 1]["FirstProgenitor"].astype(np.int64)
+        first = snapshots.load(snap + 1, ("FirstProgenitor",))["FirstProgenitor"].astype(np.int64)
         visited = np.zeros(n, dtype=bool)
         owners = np.nonzero(first != -1)[0]
         node = first[owners]
@@ -613,55 +738,254 @@ def check_progenitor_closure(arrays: List[Dict[str, np.ndarray]]) -> List[str]:
     return failures
 
 
+class _IdentityBits:
+    """The exact one-bit-per-halo claim structure behind ``check_identity``.
+
+    ``base[forest] + rank`` is the position a halo would occupy in the global
+    lexsort of (ForestIndex, HaloRankInForest) the whole-dataset battery built,
+    so ranks are dense and pairs unique within every forest if and only if
+    every halo claims an in-range slot and no slot is claimed twice. One bit
+    per halo is 2.86 GB at the production 22.9e9 halos, and it is EXACT where
+    an aggregate is not: forest counts ``[3, 2]`` admit ``[0,0,2 | 1,1]`` with
+    the same sum, maximum and modular sum of squares as the dense
+    ``[0,1,2 | 0,1]``.
+
+    ``check_identity`` releases it in a ``finally``, so it is released whether
+    that check passes, fails, or raises.
+    """
+
+    def __init__(self, n_slots: int):
+        self.n_slots = int(n_slots)
+        self.bits = np.zeros((self.n_slots + 7) // 8, dtype=np.uint8)
+        #: bytes this structure holds while it is open — the figure the storage
+        #: and memory envelope wants reported rather than estimated
+        self.peak_bytes = int(self.bits.nbytes)
+
+    def claim(self, slots: np.ndarray) -> np.ndarray:
+        """Claim one chunk's slots; return the mask of those already claimed —
+        before this chunk, or earlier within it."""
+        bits = self.bits
+        byte = slots >> 3
+        mask = (1 << (slots & 7)).astype(np.uint8)
+        taken = (bits[byte] & mask) != 0
+        # ...or twice inside this chunk: sorting the chunk's slots makes equal
+        # slots adjacent, and the first of each run keeps the slot
+        order = np.argsort(slots, kind="stable")
+        sorted_slots = slots[order]
+        repeat = np.zeros(sorted_slots.size, dtype=bool)
+        if sorted_slots.size > 1:
+            repeat[1:] = sorted_slots[1:] == sorted_slots[:-1]
+        taken[order] = taken[order] | repeat
+        if sorted_slots.size:
+            unique_slots = sorted_slots[~repeat]
+            unique_bytes = unique_slots >> 3
+            unique_masks = (1 << (unique_slots & 7)).astype(np.uint8)
+            # distinct slots can share a byte, so the bits of one byte are OR-ed
+            # together before the store: a buffered ``|=`` over repeated byte
+            # indices would drop all but one of them
+            starts = np.nonzero(np.r_[True, unique_bytes[1:] != unique_bytes[:-1]])[0]
+            bits[unique_bytes[starts]] |= np.bitwise_or.reduceat(unique_masks, starts)
+        return taken
+
+    def first_unheld(self, base: int, count: int) -> int:
+        """The first rank in one forest that no halo holds, read back out of
+        the bitset for a failure message. One exists whenever that forest
+        rejected a pair: its ``count`` halos then claim at most ``count - 1``
+        distinct slots. Scanned in bounded blocks so a single huge forest's
+        diagnostic cannot itself allocate without limit."""
+        for start in range(0, count, _MISSING_RANK_SCAN_SLOTS):
+            stop = min(start + _MISSING_RANK_SCAN_SLOTS, count)
+            slots = np.arange(base + start, base + stop, dtype=np.int64)
+            held = (self.bits[slots >> 3] >> (slots & 7).astype(np.uint8)) & np.uint8(1)
+            free = np.nonzero(held == 0)[0]
+            if free.size:
+                return int(start + int(free[0]))
+        return -1
+
+    def close(self) -> None:
+        self.bits = None
+
+
+class _ForestTable:
+    """Halo count and bitset base for every ForestIndex group in the dataset.
+
+    In-range values are two ``n_forests_total``-sized int64 arrays — the
+    forest-count-sized metadata the battery is allowed to hold. Out-of-range
+    values get their own groups after them, because the whole-dataset battery
+    grouped them too: it sorted on ForestIndex alone, so a pair of halos with
+    ForestIndex -1 and ranks 0 and 1 formed one dense group and failed only the
+    density condition, not the pair-uniqueness one. They are held in arrays
+    sized by the number of DISTINCT out-of-range values, which is zero on any
+    dataset that satisfies the density condition.
+    """
+
+    def __init__(self, n_forests_total: int, counts: np.ndarray, extra_counts: Dict[int, int]):
+        self.n_forests_total = int(n_forests_total)
+        self.counts = counts
+        self.bases = np.zeros(counts.size, dtype=np.int64)
+        if counts.size > 1:
+            np.cumsum(counts[:-1], out=self.bases[1:])
+        self.extra_values = np.asarray(sorted(extra_counts), dtype=np.int64)
+        self.extra_counts = np.asarray(
+            [extra_counts[value] for value in self.extra_values.tolist()], dtype=np.int64
+        )
+        self.extra_bases = np.zeros(self.extra_values.size, dtype=np.int64)
+        if self.extra_values.size > 1:
+            np.cumsum(self.extra_counts[:-1], out=self.extra_bases[1:])
+        self.extra_bases += int(counts.sum())
+
+    def lookup(self, forest: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Per-row forest halo count and bitset base for one chunk."""
+        limits = np.empty(forest.size, dtype=np.int64)
+        bases = np.empty(forest.size, dtype=np.int64)
+        in_range = (forest >= 0) & (forest < self.n_forests_total)
+        rows = np.nonzero(in_range)[0]
+        if rows.size:
+            limits[rows] = self.counts[forest[rows]]
+            bases[rows] = self.bases[forest[rows]]
+        rows = np.nonzero(~in_range)[0]
+        if rows.size:
+            index = np.searchsorted(self.extra_values, forest[rows])
+            limits[rows] = self.extra_counts[index]
+            bases[rows] = self.extra_bases[index]
+        return limits, bases
+
+    def group_of(self, value: int) -> Tuple[int, int]:
+        """``(base, count)`` of one ForestIndex value, in range or not."""
+        if 0 <= value < self.n_forests_total:
+            return int(self.bases[value]), int(self.counts[value])
+        index = int(np.searchsorted(self.extra_values, value))
+        return int(self.extra_bases[index]), int(self.extra_counts[index])
+
+
+def _identity_counts(
+    snapshots: _Snapshots, n_forests_total: int
+) -> Tuple[np.ndarray, Dict[int, int], int, Optional[int]]:
+    """First identity pass: halos per in-range ForestIndex, halos per distinct
+    out-of-range ForestIndex value, the dataset's halo total, and the largest
+    HaloRankInForest.
+
+    Between them these settle the density condition over
+    ``[0, n_forests_total)`` and the maximum-rank condition, and they size both
+    the bitset the second pass claims into and the groups within it.
+    """
+    counts = np.zeros(max(int(n_forests_total), 0), dtype=np.int64)
+    extra_counts: Dict[int, int] = {}
+    total = 0
+    measured_max = None
+    for snap in range(snapshots.n_snapshots):
+        for forest, rank in snapshots.chunks(
+            snap, ("ForestIndex", "HaloRankInForest"), IDENTITY_CHUNK_ROWS
+        ):
+            total += int(forest.size)
+            if rank.size:
+                block_max = int(rank.max())
+                measured_max = block_max if measured_max is None else max(measured_max, block_max)
+            in_range = (forest >= 0) & (forest < n_forests_total)
+            in_range_values = forest[in_range]
+            if in_range_values.size:
+                counts += np.bincount(in_range_values, minlength=counts.size)
+            if not bool(in_range.all()):
+                values, repeats = np.unique(forest[~in_range], return_counts=True)
+                for value, repeat in zip(values.tolist(), repeats.tolist()):
+                    extra_counts[value] = extra_counts.get(value, 0) + repeat
+    return counts, extra_counts, total, measured_max
+
+
 def check_identity(
-    arrays: List[Dict[str, np.ndarray]], n_forests_total: int, max_rank_header: int
-) -> List[str]:
+    snapshots: _Snapshots, n_forests_total: int, max_rank_header: int
+) -> Tuple[List[str], int]:
     """Invariant 4: (ForestIndex, HaloRankInForest) unique across the dataset,
     ForestIndex dense over [0, n_forests_total), per-forest ranks dense, and
-    the measured maximum rank equal to the header value."""
-    failures = []
-    forest = np.concatenate([data["ForestIndex"] for data in arrays])
-    rank = np.concatenate([data["HaloRankInForest"] for data in arrays])
-    if forest.size == 0:
+    the measured maximum rank equal to the header value.
+
+    Three independent conditions, each still able to fail on its own and each
+    reported in the order the whole-dataset formulation reported it:
+
+    (a) ForestIndex dense over ``[0, n_forests_total)`` — settled by the
+        counting pass, which sees every distinct value the dataset carries;
+    (b) per-forest ranks dense and unique over ``0 .. count-1`` — settled
+        exactly by :class:`_IdentityBits`, one bit per halo;
+    (c) the measured maximum rank equals ``max_halo_rank_in_forest`` — a
+        running maximum over the same counting pass.
+
+    Returns the failures and the identity structure's peak bytes, which the
+    caller reports rather than estimates.
+
+    **The (b) violation count and its five examples are this formulation's
+    own.** The whole-dataset battery counted positions in a global lexsort of
+    every pair, and reproducing that count exactly would need a multiplicity
+    per slot instead of a bit (>= 1 byte per halo, 22.9 GB at production) — the
+    memory wall this battery exists to remove. What is DETECTED is identical: a
+    rank outside its forest's ``[0, count)``, or a slot claimed twice, IS a
+    per-forest density or pair-uniqueness violation, and nothing else is. The
+    message shape is identical, the examples are still the five lowest
+    ``(ForestIndex, rank)`` pairs that violated, and ``expected`` in each is the
+    first rank that forest holds no halo for.
+    """
+    failures: List[str] = []
+    counts, extra_counts, total, measured_max = _identity_counts(snapshots, n_forests_total)
+    if total == 0:
         if n_forests_total != 0:
             failures.append(
                 "dataset has no halos but n_forests_total is {}".format(n_forests_total)
             )
-        return failures
-    order = np.lexsort((rank, forest))
-    forest_sorted = forest[order]
-    rank_sorted = rank[order]
-    new_forest = np.r_[True, forest_sorted[1:] != forest_sorted[:-1]]
-    starts = np.nonzero(new_forest)[0]
-    observed = forest_sorted[starts]
-    if not np.array_equal(observed, np.arange(n_forests_total, dtype=forest_sorted.dtype)):
+        return failures, 0
+
+    distinct = int(np.count_nonzero(counts)) + len(extra_counts)
+    if extra_counts or distinct != n_forests_total:
+        lowest = sorted(np.flatnonzero(counts)[:5].tolist() + sorted(extra_counts)[:5])[:5]
         failures.append(
             "ForestIndex values are not dense over [0, {}); {} distinct value(s) observed, "
-            "examples: {}".format(n_forests_total, observed.size, _examples(observed.tolist()))
+            "examples: {}".format(n_forests_total, distinct, _examples(lowest))
         )
-    group = np.cumsum(new_forest) - 1
-    expected = np.arange(forest_sorted.size, dtype=rank_sorted.dtype) - starts[group]
-    bad = rank_sorted != expected
-    if bad.any():
-        idx = np.nonzero(bad)[0]
-        examples = [
-            "(ForestIndex={}, rank={}, expected {})".format(
-                int(forest_sorted[i]), int(rank_sorted[i]), int(expected[i])
+
+    forests = _ForestTable(n_forests_total, counts, extra_counts)
+    bits = _IdentityBits(total)
+    try:
+        peak_bytes = bits.peak_bytes
+        n_bad = 0
+        examples: List[Tuple[int, int]] = []
+        for snap in range(snapshots.n_snapshots):
+            for forest, rank in snapshots.chunks(
+                snap, ("ForestIndex", "HaloRankInForest"), IDENTITY_CHUNK_ROWS
+            ):
+                limits, bases = forests.lookup(forest)
+                held = (rank >= 0) & (rank < limits)
+                rows = np.nonzero(held)[0]
+                rejected = ~held
+                rejected[rows[bits.claim(bases[rows] + rank[rows])]] = True
+                bad_rows = np.nonzero(rejected)[0]
+                if bad_rows.size:
+                    n_bad += int(bad_rows.size)
+                    # keep only the five lowest (ForestIndex, rank) pairs seen
+                    # so far, so the example state is five tuples, not a list
+                    # that grows with the number of violations
+                    pick = bad_rows[np.lexsort((rank[bad_rows], forest[bad_rows]))[:5]]
+                    examples = sorted(
+                        examples + list(zip(forest[pick].tolist(), rank[pick].tolist()))
+                    )[:5]
+        if n_bad:
+            detail = [
+                "(ForestIndex={}, rank={}, expected {})".format(
+                    value, held_rank, bits.first_unheld(*forests.group_of(value))
+                )
+                for value, held_rank in examples
+            ]
+            failures.append(
+                "{} (ForestIndex, HaloRankInForest) pair(s) violate per-forest density/"
+                "uniqueness; examples: {}".format(n_bad, ", ".join(detail))
             )
-            for i in idx[:5]
-        ]
-        failures.append(
-            "{} (ForestIndex, HaloRankInForest) pair(s) violate per-forest density/"
-            "uniqueness; examples: {}".format(int(bad.sum()), ", ".join(examples))
-        )
-    measured_max = int(rank.max())
+    finally:
+        bits.close()
+
     if measured_max != max_rank_header:
         failures.append(
             "measured max HaloRankInForest {} != header max_halo_rank_in_forest {}".format(
                 measured_max, max_rank_header
             )
         )
-    return failures
+    return failures, peak_bytes
 
 
 def check_header_bounds(n_forests_total: int, max_rank: int, multiplier: int) -> List[str]:
@@ -684,12 +1008,12 @@ def check_header_bounds(n_forests_total: int, max_rank: int, multiplier: int) ->
     return failures
 
 
-def check_len(arrays: List[Dict[str, np.ndarray]]) -> Tuple[List[str], int]:
+def check_len(snapshots: _Snapshots) -> Tuple[List[str], int]:
     """Len >= 0 everywhere; Len == 0 is legal and its count is logged."""
     failures = []
     zero_total = 0
-    for snap, data in enumerate(arrays):
-        length = data["Len"]
+    for snap in range(snapshots.n_snapshots):
+        length = snapshots.load(snap, ("Len",))["Len"]
         bad = length < 0
         if bad.any():
             failures.append(
@@ -714,11 +1038,15 @@ def check_sidecar_content(directory: Path, n_forests_total: int) -> List[str]:
     return failures
 
 
-def check_count_conservation(arrays: List[Dict[str, np.ndarray]], manifest_path: Path) -> List[str]:
+def check_count_conservation(snapshots: _Snapshots, manifest_path: Path) -> List[str]:
     """Total halo count across all emitted files must equal the sum of the
     INDEPENDENT per-source-file pre-counts recorded by the Slice 2 pre-scan
     (plan review finding 7: never validate against parser-derived totals
-    alone)."""
+    alone).
+
+    Global in scope but not in memory: a running accumulator over the emitted
+    row counts reproduces the whole-dataset sum exactly, and the row counts
+    come from the dataset shapes."""
     failures = []
     with open(manifest_path) as handle:
         manifest = json.load(handle)
@@ -726,7 +1054,7 @@ def check_count_conservation(arrays: List[Dict[str, np.ndarray]], manifest_path:
     if not sources:
         return ["manifest {} records no source files".format(manifest_path)]
     pre_total = sum(entry["pre_count"] for entry in sources.values())
-    emitted_total = sum(int(data["MostBoundID"].size) for data in arrays)
+    emitted_total = sum(snapshots.rows(snap) for snap in range(snapshots.n_snapshots))
     if emitted_total != pre_total:
         failures.append(
             "emitted halo total {} != independent source pre-count total {}".format(
@@ -811,33 +1139,41 @@ def run_battery(
             )
         return outcomes
 
-    headers, arrays = load_dataset(directory, n_snapshots)
-    header_failures, run_scoped_failures = check_headers(headers, arrays, a_list)
+    snapshots = _Snapshots(directory, n_snapshots)
+    header_failures, run_scoped_failures = check_headers(snapshots, a_list)
     record("header-values", header_failures)
     run_scoped_ok = record("run-scoped-headers", run_scoped_failures)
-    record("slab-order", check_slab_order(arrays))
-    ranges_ok = record("link-ranges", check_link_ranges(arrays))
+    record("slab-order", check_slab_order(snapshots))
+    ranges_ok = record("link-ranges", check_link_ranges(snapshots))
     if ranges_ok:
-        record("fof-chains", check_fof_chains(arrays))
-        record("progenitor-closure", check_progenitor_closure(arrays))
+        record("fof-chains", check_fof_chains(snapshots))
+        record("progenitor-closure", check_progenitor_closure(snapshots))
     else:
         outcomes.append(Outcome("fof-chains", "SKIP", "link ranges invalid; chains not walked"))
         outcomes.append(
             Outcome("progenitor-closure", "SKIP", "link ranges invalid; chains not walked")
         )
     if run_scoped_ok:
-        n_forests_total = int(headers[0]["n_forests_total"])
-        max_rank = int(headers[0]["max_halo_rank_in_forest"])
-        record("identity", check_identity(arrays, n_forests_total, max_rank))
+        # the run-scoped check just proved every file agrees on these two, so
+        # one file's header carries them for the whole run
+        header = snapshots.header(0)
+        n_forests_total = int(header["n_forests_total"])
+        max_rank = int(header["max_halo_rank_in_forest"])
+        identity_failures, identity_bytes = check_identity(snapshots, n_forests_total, max_rank)
+        record("identity", identity_failures)
+        _log(
+            "validate: identity checked exactly against a {} byte bitset "
+            "(1 bit per halo)".format(identity_bytes)
+        )
         record("header-bounds", check_header_bounds(n_forests_total, max_rank, multiplier))
         record("sidecar-content", check_sidecar_content(directory, n_forests_total))
     else:
         for name in ("identity", "header-bounds", "sidecar-content"):
             outcomes.append(Outcome(name, "SKIP", "run-scoped headers inconsistent"))
-    len_failures, zero_total = check_len(arrays)
+    len_failures, zero_total = check_len(snapshots)
     record("len-nonnegative", len_failures, detail_pass="{} Len==0 halo(s)".format(zero_total))
     if manifest_path is not None:
-        record("count-conservation", check_count_conservation(arrays, Path(manifest_path)))
+        record("count-conservation", check_count_conservation(snapshots, Path(manifest_path)))
     else:
         outcomes.append(
             Outcome(
