@@ -8,9 +8,11 @@ import os
 import stat
 import sys
 import tempfile
+import tracemalloc
 import unittest
 from pathlib import Path
 from typing import Dict, List
+from unittest import mock
 
 import numpy as np
 import yaml
@@ -24,14 +26,17 @@ from crosscheck import (  # noqa: E402
     ConverterError,
     SnapMatch,
     check_flyby_signs,
+    check_identity_creation,
     check_values,
     run_crosscheck,
     run_reference,
     write_reference_run_file,
 )
+from fixtures import write_simulation_info  # noqa: E402
 from fixups import load_particle_mass  # noqa: E402
 from mock_reference import GALAXY_DTYPE, build_mock_galaxies, write_mock_reference  # noqa: E402
 from test_hdf5_writer import make_written_workdir  # noqa: E402
+from test_validate import write_synthetic_dataset  # noqa: E402
 
 M = 10**9
 
@@ -192,6 +197,39 @@ class TestCrosscheck(unittest.TestCase):
         g[5]["UniqueGalaxyID"][i] += 1
         self.assert_fails(self._run_mutated(g), "identity-creation")
 
+    def test_wrong_multiplier_fails_with_the_frozen_report_detail(self):
+        """A wrong multiplier must fail, and the reported detail is pinned
+        verbatim against the whole-dataset formulation's own text: the same
+        message, the same counts and examples, and the same ascending-snapshot
+        order. Snapshot 2 is ABSENT from identity-creation because that
+        snapshot's only galaxy carries an identity first seen at snapshot 1 —
+        the suppression rule, visible in the report itself."""
+        outcomes = self._run(self.reference_dir, multiplier=M * 10)
+        self.assertEqual(
+            outcomes["identity-forest"].detail,
+            "snapshot 1: 1 matched galaxy(ies) whose decoded forest != halo ForestIndex; "
+            "example ctrees ids: 4011; "
+            "snapshot 2: 1 matched galaxy(ies) whose decoded forest != halo ForestIndex; "
+            "example ctrees ids: 4010; "
+            "snapshot 3: 1 matched galaxy(ies) whose decoded forest != halo ForestIndex; "
+            "example ctrees ids: 1013; "
+            "snapshot 4: 4 matched galaxy(ies) whose decoded forest != halo ForestIndex; "
+            "example ctrees ids: 1011, 1012, 1021, 2012; "
+            "snapshot 5: 5 matched galaxy(ies) whose decoded forest != halo ForestIndex; "
+            "example ctrees ids: 1010, 1020, 2010, 5010, 6010",
+        )
+        self.assertEqual(
+            outcomes["identity-creation"].detail,
+            "snapshot 1: 1 newly-created galaxy(ies) whose decoded (forest, rank) != halo "
+            "(ForestIndex, HaloRankInForest); example ctrees ids: 4011; "
+            "snapshot 3: 1 newly-created galaxy(ies) whose decoded (forest, rank) != halo "
+            "(ForestIndex, HaloRankInForest); example ctrees ids: 1013; "
+            "snapshot 4: 3 newly-created galaxy(ies) whose decoded (forest, rank) != halo "
+            "(ForestIndex, HaloRankInForest); example ctrees ids: 1012, 1021, 2012; "
+            "snapshot 5: 2 newly-created galaxy(ies) whose decoded (forest, rank) != halo "
+            "(ForestIndex, HaloRankInForest); example ctrees ids: 5010, 6010",
+        )
+
     # -- 3. fof-central ------------------------------------------------------
 
     def test_fof_central_violation(self):
@@ -217,10 +255,10 @@ class TestCrosscheck(unittest.TestCase):
         ref = np.zeros(2, dtype=[("MostBoundID", np.int64), ("Type", np.int32)])
         ref["MostBoundID"] = [10, 30]
         match = SnapMatch(0, ref, np.array([0, 1]), conv, np.array([0, 2]))
-        self.assertEqual(check_flyby_signs([match]), [])
+        self.assertEqual(check_flyby_signs(match), [])
         # but a sign disagreement on a matched halo still fails
         conv["MostBoundID"] = [-10, -20, 30]  # matched halo 0 negated, reference positive
-        self.assertTrue(check_flyby_signs([match]))
+        self.assertTrue(check_flyby_signs(match))
 
     # -- 5. values -----------------------------------------------------------
 
@@ -281,13 +319,13 @@ class TestCrosscheck(unittest.TestCase):
         match = SnapMatch(0, ref, np.array([0, 1]), conv, np.array([0, 1]))
 
         ref["Mvir"] = [central_ok, sat_ok]
-        self.assertEqual(check_values([match], part_mass), [])
+        self.assertEqual(check_values(match, part_mass), [])
         # satellite must NOT take the central (M_Crit200) rule
         ref["Mvir"] = [central_ok, np.float64(np.float32(9.99e9)) * 1e-10]
-        self.assertTrue(check_values([match], part_mass))
+        self.assertTrue(check_values(match, part_mass))
         # central must NOT take the satellite (Len*PartMass) rule
         ref["Mvir"] = [np.float64(100) * part_mass, sat_ok]
-        self.assertTrue(check_values([match], part_mass))
+        self.assertTrue(check_values(match, part_mass))
 
     def test_values_central_negative_mass_falls_back_to_len_partmass(self):
         # A FoF central whose catalog mass is negative (invalid) takes the
@@ -318,16 +356,16 @@ class TestCrosscheck(unittest.TestCase):
         match = SnapMatch(0, ref, np.array([0]), conv, np.array([0]))
 
         ref["Mvir"] = [np.float64(11) * part_mass]  # fallback, not negative M_Crit200*1e-10
-        self.assertEqual(check_values([match], part_mass), [])
+        self.assertEqual(check_values(match, part_mass), [])
         ref["Mvir"] = [np.float64(np.float32(-5.0)) * 1e-10]  # the would-be central rule
-        self.assertTrue(check_values([match], part_mass))
+        self.assertTrue(check_values(match, part_mass))
 
     def test_values_rejects_nonpositive_part_mass(self):
         ref = np.zeros(0, dtype=GALAXY_DTYPE)
         conv = np.zeros(0, dtype=[("MostBoundID", np.int64)])
         match = SnapMatch(0, ref, np.array([], dtype=np.int64), conv, np.array([], dtype=np.int64))
         with self.assertRaisesRegex(ConverterError, "particle mass must be positive"):
-            check_values([match], 0.0)
+            check_values(match, 0.0)
 
     # -- 6. occupancy --------------------------------------------------------
 
@@ -376,7 +414,7 @@ class TestCrosscheck(unittest.TestCase):
         self.assert_fails(self._run_mutated(g), "reference-sanity")
 
     def test_reference_int64_min_mostboundid_aborts(self):
-        # rejected in build_matches BEFORE any magnitude is taken, so the
+        # rejected in build_match BEFORE any magnitude is taken, so the
         # overflowed value can never influence matching (defense-in-depth: the
         # reference-sanity check carries the same rejection)
         g = self._copy()
@@ -625,9 +663,6 @@ class TestTopologyChains(unittest.TestCase):
         pristine = build_mock_galaxies(cls.hdf5_dir, cls.n_snapshots, cls.sim_info)
         cls.reference_dir = Path(tempfile.mkdtemp(dir=cls.tmp.name)) / "reference"
         write_mock_reference(pristine, cls.reference_dir, n_snapshots=cls.n_snapshots)
-        cls.ref_by_snap = crosscheck.load_reference_galaxies(
-            cls.reference_dir, "halos", cls.n_snapshots
-        )
 
     @classmethod
     def tearDownClass(cls):
@@ -635,8 +670,8 @@ class TestTopologyChains(unittest.TestCase):
 
     # -- helpers -------------------------------------------------------------
 
-    def _matches(self):
-        return crosscheck.build_matches(self.arrays, self.ref_by_snap, self.n_snapshots)
+    def _snapshots(self, directory=None):
+        return validate._Snapshots(directory or self.hdf5_dir, self.n_snapshots)
 
     def _dump_rows(self):
         """Transcribe the converter's own link fields into dump rows: a
@@ -669,9 +704,6 @@ class TestTopologyChains(unittest.TestCase):
                 )
         return rows
 
-    def _dump(self, rows):
-        return np.array([tuple(row) for row in rows], dtype=crosscheck._TOPOLOGY_DUMP_DTYPE)
-
     def _write_dump_file(self, rows, path):
         lines = [
             crosscheck._TOPOLOGY_DUMP_HEADER,
@@ -682,8 +714,25 @@ class TestTopologyChains(unittest.TestCase):
         lines.extend(" ".join(str(v) for v in row) for row in rows)
         Path(path).write_text("\n".join(lines) + "\n")
 
-    def _check(self, rows):
-        return crosscheck.check_topology_chains(self._matches(), self.arrays, self._dump(rows))
+    def _dump_path(self, rows):
+        path = Path(tempfile.mkdtemp(dir=self.tmp.name)) / "topology.dump"
+        self._write_dump_file(rows, path)
+        return path
+
+    def _partition(self, rows):
+        """A partitioned dump the caller must close; every test that opens one
+        does so through a ``with`` block."""
+        return crosscheck.TopologyDumpPartition(self._dump_path(rows), self.n_snapshots)
+
+    def _check(self, rows, directory=None):
+        """Run the check the way ``run_crosscheck`` does: the dump written to a
+        file, parsed and partitioned, and the converter side read one snapshot
+        at a time. This calls the check on its own, as the whole-dump helper it
+        replaced did; the run_crosscheck path that re-asserts the converter's
+        |MostBoundID| order first is covered by
+        test_run_crosscheck_with_dump_end_to_end."""
+        with self._partition(rows) as partition:
+            return crosscheck.check_topology_chains(self._snapshots(directory), partition)
 
     # -- pristine and CLI wiring ----------------------------------------------
 
@@ -781,14 +830,18 @@ class TestTopologyChains(unittest.TestCase):
         central-index) so no search for a populated link is needed; row 0's
         snapshot is looked up rather than assumed 0, since snapshot 0 may be
         empty in this fixture."""
+        import shutil
+
+        import h5py
+
         rows = self._dump_rows()
         snap0 = rows[0][3]
-        arrays_copy = list(self.arrays)
-        arrays_copy[snap0] = dict(arrays_copy[snap0])
-        arrays_copy[snap0]["FirstHaloInFOFgroup"] = arrays_copy[snap0]["FirstHaloInFOFgroup"].copy()
-        out_of_range = arrays_copy[snap0]["FirstHaloInFOFgroup"].size + 100
-        arrays_copy[snap0]["FirstHaloInFOFgroup"][0] = out_of_range
-        failures = crosscheck.check_topology_chains(self._matches(), arrays_copy, self._dump(rows))
+        corrupted = Path(tempfile.mkdtemp(dir=self.tmp.name)) / "hdf5"
+        shutil.copytree(self.hdf5_dir, corrupted)
+        with h5py.File(corrupted / "snapshot_{:03d}.h5".format(snap0), "r+") as handle:
+            dataset = handle["halos"]["FirstHaloInFOFgroup"]
+            dataset[0] = dataset.shape[0] + 100
+        failures = self._check(rows, directory=corrupted)
         self.assertTrue(any("outside snapshot" in f for f in failures), failures)
 
     # -- coverage: the dump must name every converter halo exactly once --------
@@ -807,8 +860,7 @@ class TestTopologyChains(unittest.TestCase):
     def test_empty_dump_fails_coverage(self):
         """A header-only dump parses fine (that is the loader's job) but must
         fail the check against a non-empty dataset — the vacuous-pass case."""
-        empty = np.zeros(0, dtype=crosscheck._TOPOLOGY_DUMP_DTYPE)
-        failures = crosscheck.check_topology_chains(self._matches(), self.arrays, empty)
+        failures = self._check([])
         self.assertTrue(any("every converter halo exactly once" in f for f in failures), failures)
 
     def test_duplicate_dump_id_fails(self):
@@ -852,24 +904,61 @@ class TestTopologyChains(unittest.TestCase):
         failures = self._check(rows)
         self.assertTrue(any("MostBoundID sign mismatch" in f for f in failures), failures)
 
-    # -- dump-file parsing -----------------------------------------------------
+    # -- dump parsing and partitioning -----------------------------------------
 
-    def test_load_reference_topology_dump_roundtrip(self):
+    def test_dump_partition_roundtrip(self):
+        """Every dumped row must survive the parse and land in its own
+        snapshot's partition, in dump order."""
         rows = self._dump_rows()
-        path = Path(tempfile.mkdtemp(dir=self.tmp.name)) / "topology.dump"
-        self._write_dump_file(rows, path)
-        loaded = crosscheck.load_reference_topology_dump(path)
-        expected = self._dump(rows)
-        self.assertEqual(loaded.dtype, expected.dtype)
-        np.testing.assert_array_equal(loaded, expected)
+        expected = np.array([tuple(row) for row in rows], dtype=crosscheck._TOPOLOGY_DUMP_DTYPE)
+        with self._partition(rows) as partition:
+            self.assertEqual(partition.total_rows, len(rows))
+            self.assertEqual(partition.out_of_range, {})
+            recovered = [partition.rows(snap) for snap in range(self.n_snapshots)]
+        recovered = np.concatenate(recovered)
+        # the dump is written snapshot-major, so concatenating the partitions
+        # in snapshot order reproduces it exactly
+        self.assertEqual(recovered.dtype, expected.dtype)
+        np.testing.assert_array_equal(recovered, expected)
 
-    def test_load_reference_topology_dump_bad_header(self):
+    def test_dump_partition_spans_blocks(self):
+        """The parse is blocked, so the fixture must cross a block boundary:
+        with a one-row block every row is its own parse, and the partition must
+        still hold every row in dump order."""
+        rows = self._dump_rows()
+        self.assertGreater(len(rows), 1, "the fixture must have rows to block")
+        with mock.patch.object(crosscheck, "_DUMP_BLOCK_ROWS", 1):
+            with self._partition(rows) as blocked:
+                blocked_rows = [blocked.rows(snap) for snap in range(self.n_snapshots)]
+                blocked_counts = list(blocked.counts)
+        with self._partition(rows) as whole:
+            whole_rows = [whole.rows(snap) for snap in range(self.n_snapshots)]
+            whole_counts = list(whole.counts)
+        self.assertEqual(blocked_counts, whole_counts)
+        for blocked_snap, whole_snap in zip(blocked_rows, whole_rows):
+            np.testing.assert_array_equal(blocked_snap, whole_snap)
+
+    def test_dump_partition_rejects_malformed_row_in_a_later_block(self):
+        """A malformed row past the first block must still abort, and the
+        message must say what its row number is relative to rather than quietly
+        renumbering the dump."""
+        rows = self._dump_rows()
+        path = self._dump_path(rows)
+        with path.open("a") as handle:
+            handle.write("1 2 3\n")
+        with mock.patch.object(crosscheck, "_DUMP_BLOCK_ROWS", 1):
+            with self.assertRaises(ConverterError) as caught:
+                crosscheck.TopologyDumpPartition(path, self.n_snapshots)
+        self.assertIn("malformed data row", str(caught.exception))
+        self.assertIn("relative to the block", str(caught.exception))
+
+    def test_dump_partition_bad_header(self):
         path = Path(tempfile.mkdtemp(dir=self.tmp.name)) / "topology.dump"
         path.write_text("not a dump\nline2\nline3\n")
         with self.assertRaises(ConverterError):
-            crosscheck.load_reference_topology_dump(path)
+            crosscheck.TopologyDumpPartition(path, self.n_snapshots)
 
-    def test_load_reference_topology_dump_bad_sentinel(self):
+    def test_dump_partition_bad_sentinel(self):
         path = Path(tempfile.mkdtemp(dir=self.tmp.name)) / "topology.dump"
         path.write_text(
             "{}\ncolumn names\n# NA sentinel = 0 (no link)\n".format(
@@ -877,48 +966,464 @@ class TestTopologyChains(unittest.TestCase):
             )
         )
         with self.assertRaises(ConverterError):
-            crosscheck.load_reference_topology_dump(path)
+            crosscheck.TopologyDumpPartition(path, self.n_snapshots)
 
-    def test_load_reference_topology_dump_empty_parses(self):
+    def test_dump_partition_empty_parses(self):
         """A header-only dump is a well-formed parse; rejecting it against the
-        dataset is check_topology_chains' coverage assertion, not the loader's
+        dataset is check_topology_chains' coverage assertion, not the reader's
         (see test_empty_dump_fails_coverage)."""
-        path = Path(tempfile.mkdtemp(dir=self.tmp.name)) / "topology.dump"
-        self._write_dump_file([], path)
-        loaded = crosscheck.load_reference_topology_dump(path)
-        self.assertEqual(loaded.size, 0)
+        with self._partition([]) as partition:
+            self.assertEqual(partition.total_rows, 0)
+            self.assertEqual(partition.peak_bytes, 0)
 
-    def test_load_reference_topology_dump_rejects_stray_comment(self):
+    def test_dump_partition_rejects_stray_comment(self):
         """The format is exactly three header lines then data rows, so a "#"
         line after the header means a malformed dump (two runs concatenated, a
         harness re-run appended with ">>"). Skipping it would silently splice
-        unrelated dumps into one array."""
+        unrelated dumps into one comparison."""
         rows = self._dump_rows()
-        path = Path(tempfile.mkdtemp(dir=self.tmp.name)) / "topology.dump"
-        self._write_dump_file(rows, path)
+        path = self._dump_path(rows)
         with path.open("a") as handle:
             handle.write(crosscheck._TOPOLOGY_DUMP_HEADER + "\n")
             handle.write(" ".join(str(v) for v in rows[0]) + "\n")
         with self.assertRaises(ConverterError):
-            crosscheck.load_reference_topology_dump(path)
+            crosscheck.TopologyDumpPartition(path, self.n_snapshots)
 
-    def test_load_reference_topology_dump_rejects_ragged_row(self):
+    def test_dump_partition_rejects_ragged_row(self):
         rows = self._dump_rows()
-        path = Path(tempfile.mkdtemp(dir=self.tmp.name)) / "topology.dump"
-        self._write_dump_file(rows, path)
+        path = self._dump_path(rows)
         with path.open("a") as handle:
             handle.write("1 2 3\n")  # too few columns
         with self.assertRaises(ConverterError):
-            crosscheck.load_reference_topology_dump(path)
+            crosscheck.TopologyDumpPartition(path, self.n_snapshots)
 
-    def test_load_reference_topology_dump_rejects_non_integer(self):
+    def test_dump_partition_rejects_non_integer(self):
         rows = self._dump_rows()
-        path = Path(tempfile.mkdtemp(dir=self.tmp.name)) / "topology.dump"
-        self._write_dump_file(rows, path)
+        path = self._dump_path(rows)
         with path.open("a") as handle:
             handle.write(" ".join(["nope"] * len(crosscheck._TOPOLOGY_DUMP_DTYPE)) + "\n")
         with self.assertRaises(ConverterError):
-            crosscheck.load_reference_topology_dump(path)
+            crosscheck.TopologyDumpPartition(path, self.n_snapshots)
+
+    # -- partition lifetime ----------------------------------------------------
+
+    def test_partition_directory_is_removed_on_success(self):
+        rows = self._dump_rows()
+        with self._partition(rows) as partition:
+            directory = partition._dir
+            self.assertTrue(directory.is_dir())
+            self.assertGreater(partition.peak_bytes, 0)
+        self.assertFalse(directory.exists())
+
+    def test_partition_directory_is_removed_when_the_check_raises(self):
+        rows = self._dump_rows()
+        held = {}
+        with self.assertRaisesRegex(RuntimeError, "injected"):
+            with self._partition(rows) as partition:
+                held["dir"] = partition._dir
+                raise RuntimeError("injected")
+        self.assertFalse(held["dir"].exists())
+
+    def test_partition_directory_is_removed_when_the_parse_raises(self):
+        """The constructor owns the directory until it returns, so a malformed
+        dump must not leave one behind — there is no ``with`` to fall back on."""
+        rows = self._dump_rows()
+        path = self._dump_path(rows)
+        with path.open("a") as handle:
+            handle.write("1 2 3\n")
+        before = set(Path(tempfile.gettempdir()).glob(crosscheck.TOPOLOGY_DIR_PREFIX + "*"))
+        with self.assertRaises(ConverterError):
+            crosscheck.TopologyDumpPartition(path, self.n_snapshots)
+        after = set(Path(tempfile.gettempdir()).glob(crosscheck.TOPOLOGY_DIR_PREFIX + "*"))
+        self.assertEqual(after - before, set())
+
+
+# ---------------------------------------------------------------------------
+# Bounded global state: the suppression set and the dump partition
+# ---------------------------------------------------------------------------
+
+
+class TestSeenIdentities(unittest.TestCase):
+    """The suppression set replaces an in-memory ``np.union1d`` array with a
+    disk-backed sorted union, so it must answer EXACTLY what ``np.isin``
+    against that array answered, at any block size, and leave nothing behind."""
+
+    def _reference(self, snapshots):
+        """What the whole-dataset formulation computed: ~isin against the
+        union of every earlier snapshot's identities."""
+        seen = np.empty(0, dtype=np.int64)
+        expected = []
+        for ugid in snapshots:
+            expected.append(~np.isin(ugid, seen))
+            seen = np.union1d(seen, ugid)
+        return expected, seen
+
+    def _run(self, snapshots, block_rows):
+        with mock.patch.object(crosscheck, "_SEEN_BLOCK_ROWS", block_rows):
+            with crosscheck._SeenIdentities() as seen:
+                masks = [seen.first_appearance(ugid) for ugid in snapshots]
+                store = np.fromfile(seen._path, dtype=np.int64)
+        return masks, store
+
+    def test_matches_isin_and_union_at_every_block_size(self):
+        rng = np.random.default_rng(20260828)
+        snapshots = [
+            rng.integers(0, 40, size=rng.integers(0, 30), dtype=np.int64) for _ in range(12)
+        ]
+        # identities that persist across snapshots, and a snapshot that repeats
+        # one within itself, are the cases the suppression rule turns on
+        snapshots[3] = np.array([7, 7, 11, 11, 11], dtype=np.int64)
+        snapshots[4] = np.array([11, 7, 999], dtype=np.int64)
+        snapshots[7] = np.empty(0, dtype=np.int64)
+        expected_masks, expected_store = self._reference(snapshots)
+        for block_rows in (1, 2, 3, 7, 1 << 20):
+            masks, store = self._run(snapshots, block_rows)
+            for snap, (got, want) in enumerate(zip(masks, expected_masks)):
+                np.testing.assert_array_equal(
+                    got, want, "block {} snapshot {}".format(block_rows, snap)
+                )
+            np.testing.assert_array_equal(store, expected_store, "block {}".format(block_rows))
+
+    def test_duplicates_within_one_call_are_all_unseen(self):
+        # the store is updated only once the mask is complete, so a repeated
+        # identity does not suppress its own siblings at the same snapshot
+        with crosscheck._SeenIdentities() as seen:
+            first = seen.first_appearance(np.array([5, 5, 5], dtype=np.int64))
+            second = seen.first_appearance(np.array([5, 6], dtype=np.int64))
+        np.testing.assert_array_equal(first, [True, True, True])
+        np.testing.assert_array_equal(second, [False, True])
+
+    def test_mask_follows_the_callers_order(self):
+        with crosscheck._SeenIdentities() as seen:
+            seen.first_appearance(np.array([10, 30], dtype=np.int64))
+            mask = seen.first_appearance(np.array([30, 20, 10, 40], dtype=np.int64))
+        np.testing.assert_array_equal(mask, [False, True, False, True])
+
+    def test_peak_bytes_is_recorded(self):
+        with crosscheck._SeenIdentities() as seen:
+            self.assertEqual(seen.peak_bytes, 0)
+            seen.first_appearance(np.arange(100, dtype=np.int64))
+            # the store and its successor coexist while a merge is in flight
+            self.assertGreaterEqual(seen.peak_bytes, 100 * 8)
+
+    def test_store_is_removed_on_exit(self):
+        with crosscheck._SeenIdentities() as seen:
+            directory = seen._dir
+            seen.first_appearance(np.arange(4, dtype=np.int64))
+            self.assertTrue(directory.is_dir())
+        self.assertFalse(directory.exists())
+
+    def test_store_is_removed_when_the_body_raises(self):
+        held = {}
+        with self.assertRaisesRegex(RuntimeError, "injected"):
+            with crosscheck._SeenIdentities() as seen:
+                held["dir"] = seen._dir
+                raise RuntimeError("injected")
+        self.assertFalse(held["dir"].exists())
+
+
+class TestIdentityCreationSuppression(unittest.TestCase):
+    """A galaxy that persists across snapshots keeps its UniqueGalaxyID, so
+    identity-creation must decode it ONCE, at its first appearance, and never
+    again — the whole point of the suppression set."""
+
+    CONV_DTYPE = [
+        ("MostBoundID", np.int64),
+        ("ForestIndex", np.int64),
+        ("HaloRankInForest", np.int64),
+    ]
+
+    def _match(self, snap, ugid, forest, rank, matched=0):
+        """One galaxy at ``snap`` carrying ``ugid``, matched to a halo whose
+        identity is (``forest``, ``rank``)."""
+        conv = np.zeros(1, dtype=self.CONV_DTYPE)
+        conv["MostBoundID"] = [10]
+        conv["ForestIndex"] = [forest]
+        conv["HaloRankInForest"] = [rank]
+        ref = np.zeros(1, dtype=[("UniqueGalaxyID", np.int64), ("MostBoundID", np.int64)])
+        ref["UniqueGalaxyID"] = [ugid]
+        ref["MostBoundID"] = [10]
+        return SnapMatch(snap, ref, np.array([0]), conv, np.array([matched]))
+
+    def test_persisting_galaxy_is_decoded_once_and_never_again(self):
+        # created at snapshot 1 on the halo its id encodes; at snapshots 2-4 the
+        # same galaxy sits on halos whose rank has advanced, which would fail
+        # the decode if it were re-checked
+        ugid = 3 * M + 7
+        with crosscheck._SeenIdentities() as seen:
+            failures = []
+            failures += check_identity_creation(self._match(1, ugid, 2, 7), M, seen)
+            for snap, rank in ((2, 8), (3, 9), (4, 10)):
+                failures += check_identity_creation(self._match(snap, ugid, 2, rank), M, seen)
+        self.assertEqual(failures, [])
+
+    def test_the_same_galaxy_appearing_first_at_a_later_snapshot_is_decoded(self):
+        # the mutation proof for the test above: without the earlier
+        # appearance, snapshot 2's mismatched rank IS a failure, so suppression
+        # is what silences it rather than the check being blind
+        with crosscheck._SeenIdentities() as seen:
+            failures = check_identity_creation(self._match(2, 3 * M + 7, 2, 8), M, seen)
+        self.assertEqual(len(failures), 1)
+        self.assertIn("snapshot 2", failures[0])
+
+    def test_an_unmatched_first_appearance_still_suppresses_later_snapshots(self):
+        # the whole-dataset formulation folded EVERY Type 0/1 identity into
+        # ``seen``, matched or not, so an unmatched galaxy at snapshot 1
+        # suppresses the same identity at snapshot 2
+        ugid = 3 * M + 7
+        with crosscheck._SeenIdentities() as seen:
+            unmatched = self._match(1, ugid, 2, 7, matched=-1)
+            self.assertEqual(check_identity_creation(unmatched, M, seen), [])
+            failures = check_identity_creation(self._match(2, ugid, 2, 8), M, seen)
+        self.assertEqual(failures, [])
+
+
+# ---------------------------------------------------------------------------
+# Bounded memory, on the synthetic dataset the battery's memory tests use
+# ---------------------------------------------------------------------------
+
+
+def build_synthetic_reference(n_snapshots: int, n_halos: int, multiplier: int = M):
+    """Reference galaxies for a ``write_synthetic_dataset`` dataset.
+
+    Every halo there is its own FoF central and descends into the same row of
+    the next snapshot, so every halo is occupied and Type 0, and each forest's
+    galaxy is CREATED at snapshot 0 and then PERSISTS: its UniqueGalaxyID keeps
+    the rank-0 encoding while its halo's HaloRankInForest advances with the
+    snapshot. That makes this fixture a suppression fixture as well as a memory
+    one — identity-creation passes on it only if each galaxy is decoded once,
+    at snapshot 0, and never again.
+    """
+    ids = np.arange(1, n_halos + 1, dtype=np.int64)
+    ugid = multiplier * (np.arange(n_halos, dtype=np.int64) + 1)
+    galaxies = {}
+    for snap in range(n_snapshots):
+        rows = np.zeros(n_halos, dtype=GALAXY_DTYPE)
+        rows["SnapNum"] = snap
+        rows["Type"] = 0
+        rows["UniqueGalaxyID"] = ugid
+        rows["UniqueCentralGalaxyID"] = ugid
+        rows["Len"] = 100  # write_synthetic_dataset's Len
+        rows["Mvir"] = 0.0  # float64(M_Crit200 = 0) * NATIVE_TO_REF_MASS
+        rows["MostBoundID"] = ids
+        galaxies[snap] = rows
+    return galaxies
+
+
+def write_synthetic_dump(path, n_snapshots: int, n_halos: int) -> Path:
+    """The reference-topology dump a faithful independent reader would produce
+    for a ``write_synthetic_dataset`` dataset."""
+    path = Path(path)
+    na = crosscheck._INT64_MIN
+    ids = np.arange(1, n_halos + 1, dtype=np.int64)
+    block = np.zeros((n_halos, 9), dtype=np.int64)
+    block[:, 0] = np.arange(n_halos, dtype=np.int64)  # ForestIndex
+    block[:, 2] = ids
+    block[:, 6] = na  # NextProgenitor
+    block[:, 7] = ids  # FirstHaloInFOFgroup: every halo is its own central
+    block[:, 8] = na  # NextHaloInFOFgroup
+    with open(path, "w") as handle:
+        handle.write(crosscheck._TOPOLOGY_DUMP_HEADER + "\n")
+        handle.write(
+            "# forestnr rank id snapnum desc_id first_prog_id next_prog_id first_fof_id "
+            "next_fof_id\n"
+        )
+        handle.write("# NA sentinel = {} (no link)\n".format(na))
+        for snap in range(n_snapshots):
+            block[:, 1] = snap  # HaloRankInForest
+            block[:, 3] = snap
+            block[:, 4] = ids if snap < n_snapshots - 1 else na
+            block[:, 5] = ids if snap > 0 else na
+            np.savetxt(handle, block, fmt="%d")
+    return path
+
+
+class TestBoundedMemory(unittest.TestCase):
+    """Resident bytes must be bounded by the per-snapshot window plus the two
+    bounded global structures — NOT by the dataset, the reference output or the
+    dump. Measured with tracemalloc, which traces numpy's and h5py's own
+    allocations, so this asserts ACTUAL peak allocation rather than any counter
+    the cross-check keeps about itself."""
+
+    HALOS_PER_SNAPSHOT = 2048
+    SMALL_SNAPSHOTS = 4
+    LARGE_SNAPSHOTS = 40
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        root = Path(cls.tmp.name)
+        cls.sim_info = write_simulation_info(root / "simulation_info.yaml")
+        cls.small = cls._build(root, "small", cls.SMALL_SNAPSHOTS)
+        cls.large = cls._build(root, "large", cls.LARGE_SNAPSHOTS)
+
+    @classmethod
+    def _build(cls, root, name, n_snapshots):
+        """Dataset, matching reference output and matching dump, all of the
+        same shape and differing only in snapshot count."""
+        directory = root / name
+        a_list_path = write_synthetic_dataset(directory, n_snapshots, cls.HALOS_PER_SNAPSHOT)
+        reference_dir = root / "{}-reference".format(name)
+        write_mock_reference(
+            build_synthetic_reference(n_snapshots, cls.HALOS_PER_SNAPSHOT),
+            reference_dir,
+            n_snapshots=n_snapshots,
+        )
+        dump_path = write_synthetic_dump(
+            root / "{}.dump".format(name), n_snapshots, cls.HALOS_PER_SNAPSHOT
+        )
+        return {
+            "dir": directory,
+            "a_list": a_list_path,
+            "reference": reference_dir,
+            "dump": dump_path,
+            "n_snapshots": n_snapshots,
+        }
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def _run(self, fixture):
+        return run_crosscheck(
+            fixture["dir"],
+            fixture["reference"],
+            fixture["a_list"],
+            self.sim_info,
+            multiplier=M,
+            topology_dump_path=fixture["dump"],
+        )
+
+    def _peak_bytes(self, fixture):
+        tracemalloc.start()
+        try:
+            tracemalloc.reset_peak()
+            outcomes = self._run(fixture)
+            peak = tracemalloc.get_traced_memory()[1]
+        finally:
+            tracemalloc.stop()
+        return peak, outcomes
+
+    @staticmethod
+    def _bytes(fixture):
+        return (
+            sum(path.stat().st_size for path in Path(fixture["dir"]).glob("*.h5"))
+            + sum(path.stat().st_size for path in Path(fixture["reference"]).glob("*.hdf5"))
+            + Path(fixture["dump"]).stat().st_size
+        )
+
+    def test_synthetic_fixtures_are_conformant(self):
+        # the memory numbers below only mean anything if every check actually
+        # ran to completion on both fixtures; identity-creation passing here is
+        # itself the suppression proof at fixture scale, since every galaxy
+        # persists onto a halo whose rank has advanced
+        for fixture in (self.small, self.large):
+            outcomes = self._run(fixture)
+            self.assertEqual(len(outcomes), 8)
+            failed = [o.line() for o in outcomes if o.status != "PASS"]
+            self.assertEqual(failed, [], str(fixture["dir"]))
+
+    def test_peak_allocation_does_not_scale_with_the_dataset(self):
+        # Both runs must fill the same fixed buffers, or the comparison
+        # measures how full a buffer got rather than what stayed resident: at
+        # the shipped block sizes the small fixture never fills one dump-parse
+        # block while the large one fills several, which is a difference in the
+        # BUFFER, not in the dataset. Small blocks make both runs fill many,
+        # leaving dataset-sized residency as the only thing that could differ.
+        # The shipped constants are asserted by the declared-bound test below.
+        with mock.patch.object(crosscheck, "_DUMP_BLOCK_ROWS", 512), mock.patch.object(
+            crosscheck, "_SEEN_BLOCK_ROWS", 512
+        ):
+            # warm up: first-call imports and h5py's own caches are not the subject
+            self._peak_bytes(self.small)
+            small_peak, _ = self._peak_bytes(self.small)
+            large_peak, _ = self._peak_bytes(self.large)
+
+        grew_by = self._bytes(self.large) - self._bytes(self.small)
+        self.assertGreater(grew_by, 10 * 1024**2, "the two fixtures must differ materially")
+
+        extra_snapshots = self.LARGE_SNAPSHOTS - self.SMALL_SNAPSHOTS
+        extra_halos = extra_snapshots * self.HALOS_PER_SNAPSHOT
+        # what legitimately grows with the SNAPSHOT count: one open partition
+        # writer per snapshot while the dump is parsed, the cached halo counts,
+        # and the per-snapshot row counts
+        allowance = extra_snapshots * 32 * 1024 + 512 * 1024
+        self.assertLess(large_peak - small_peak, allowance)
+        # and the allowance is far below what even ONE whole-dataset-resident
+        # column would have cost, let alone the three whole-dataset arrays the
+        # formulation this replaced held
+        self.assertLess(allowance, extra_halos * 100)
+
+    def test_peak_allocation_is_within_the_declared_bound(self):
+        peak, _ = self._peak_bytes(self.large)
+        # the window: one snapshot's converter arrays, that snapshot's
+        # reference galaxies, its dump rows and the comparison temporaries.
+        # 512 bytes per halo is a generous ceiling on all of them together
+        window = 4 * self.HALOS_PER_SNAPSHOT * 512
+        # the dump parse holds one block of text lines and its parsed rows
+        parse_buffer = crosscheck._DUMP_BLOCK_ROWS * 512
+        # the suppression merge holds one block of the store, the slice of the
+        # window merged into it, and the merged output
+        merge_buffer = 3 * crosscheck._SEEN_BLOCK_ROWS * 8
+        bound = window + parse_buffer + merge_buffer + 8 * 1024**2
+        self.assertLess(peak, bound)
+
+    def test_on_disk_structures_are_reported_and_removed(self):
+        temp_root = Path(tempfile.gettempdir())
+        before = set(temp_root.glob("crosscheck_*"))
+        with mock.patch.object(crosscheck, "_log") as logged:
+            outcomes = self._run(self.large)
+        self.assertEqual(len(outcomes), 8)
+        lines = [call.args[0] for call in logged.call_args_list]
+        self.assertTrue(any("identity suppression set peaked at" in line for line in lines), lines)
+        self.assertTrue(any("topology dump partition held" in line for line in lines), lines)
+        self.assertEqual(set(temp_root.glob("crosscheck_*")) - before, set())
+
+    def test_the_on_disk_structures_are_removed_when_a_run_aborts(self):
+        temp_root = Path(tempfile.gettempdir())
+        before = set(temp_root.glob("crosscheck_*"))
+        with self.assertRaises(ConverterError):
+            run_crosscheck(
+                self.large["dir"],
+                self.large["reference"],
+                self.large["a_list"],
+                self.sim_info,
+                multiplier=M,
+                # a dump whose header is wrong aborts inside the partition's
+                # own constructor, after the seven checks have run
+                topology_dump_path=self.large["a_list"],
+            )
+        self.assertEqual(set(temp_root.glob("crosscheck_*")) - before, set())
+
+    def test_truncated_dump_fails_end_to_end(self):
+        truncated = Path(self.tmp.name) / "truncated.dump"
+        lines = Path(self.large["dump"]).read_text().splitlines()
+        truncated.write_text("\n".join(lines[:-1]) + "\n")
+        outcomes = outcome_map(
+            run_crosscheck(
+                self.large["dir"],
+                self.large["reference"],
+                self.large["a_list"],
+                self.sim_info,
+                multiplier=M,
+                topology_dump_path=truncated,
+            )
+        )
+        self.assertEqual(outcomes["topology-chains"].status, "FAIL")
+        self.assertIn("every converter halo exactly once", outcomes["topology-chains"].detail)
+
+    def test_wrong_multiplier_fails_end_to_end(self):
+        outcomes = outcome_map(
+            run_crosscheck(
+                self.large["dir"],
+                self.large["reference"],
+                self.large["a_list"],
+                self.sim_info,
+                multiplier=M // 10,
+            )
+        )
+        self.assertEqual(outcomes["identity-forest"].status, "FAIL")
+        self.assertEqual(outcomes["identity-creation"].status, "FAIL")
 
 
 if __name__ == "__main__":

@@ -48,13 +48,35 @@ Matching is by ``|MostBoundID|``: the converter emits ascending-unique
 searchsorted. The ascending-unique invariant is re-asserted and any violation
 aborts (ConverterError) — matching cannot be trusted otherwise.
 
+Memory is bounded by the per-snapshot window rather than by the dataset
+(converter scale pass, plan Slice 7). ``compare`` walks the snapshots in
+ascending order, holding one snapshot's converter arrays and one snapshot's
+reference galaxies at a time, and the two pieces of genuinely cross-snapshot
+state are held exactly but outside memory: the set of ``UniqueGalaxyID``
+values already seen (:class:`_SeenIdentities`, a disk-backed sorted union
+merged one block at a time) and the reference-topology dump
+(:class:`TopologyDumpPartition`, partitioned by snapshot on disk as it is
+parsed). Neither is approximate and
+neither is probabilistic. The whole-dataset formulation this replaced loaded
+the emitted dataset, the whole reference output and the whole dump at once and
+measured 251.32 GB on a 1.8% subset of Shin-Uchuu.
+
+**This is a micro-Uchuu-scale gate, not a production-scale instrument.** The
+reference side is a tree-ordered ``halos-only`` run over the same data, and the
+ctrees reader preallocates per tree for a whole forest before reading a halo
+(``src/io/tree/read_ctrees_ascii.c``), so the reference artifact cannot be
+produced at Shin-Uchuu scale however bounded this comparator is. The binding
+cross-check gate is micro-Uchuu, with the subset rehearsal as the largest scale
+it is ever run at; no cross-check artifact belongs in a production conversion's
+storage envelope.
+
 Also provides reference-run plumbing (``write_reference_run_file`` /
 ``run_reference``) and a CLI (``compare`` / ``prepare`` / ``run-reference``).
 
 An optional seventh check, ``topology-chains``, runs when ``compare`` is given
 ``--reference-topology <dump>``: it compares the converter against a reference
 dump produced by an independent implementation reading the same source data
-(see tests/unit/tools/dump_ctrees_topology.c and load_reference_topology_dump
+(see tests/unit/tools/dump_ctrees_topology.c and TopologyDumpPartition
 below for the dump format). Per halo it checks the five links
 (Descendant/FirstProgenitor/NextProgenitor/FirstHaloInFOFgroup/
 NextHaloInFOFgroup), the two identity fields (ForestIndex/HaloRankInForest),
@@ -69,14 +91,17 @@ unreported.
 """
 
 import argparse
+import itertools
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import warnings
 from pathlib import Path
-from typing import Dict, List
+from typing import BinaryIO, Dict, List, Tuple
 
 import h5py
 import numpy as np
@@ -88,7 +113,14 @@ from ctrees_parser import ConverterError  # noqa: E402
 from fixups import NATIVE_TO_REF_MASS, REF_TO_NATIVE_MASS, load_particle_mass  # noqa: E402
 from hdf5_writer import snapshot_h5_name  # noqa: E402
 from scatter import load_a_list  # noqa: E402
-from validate import DEFAULT_MULTIPLIER, Outcome, load_dataset  # noqa: E402
+
+# _Snapshots is validate.py's bounded reader for the emitted dataset: one file
+# opened per access, only the named /halos datasets read. The cross-check reads
+# the same files the battery does, so it reads them through the same
+# implementation rather than a second copy of it; publishing a non-underscore
+# alias for it would mean editing validate.py, which is outside this slice's
+# authorized surface (converter scale pass, plan Slice 7).
+from validate import DEFAULT_MULTIPLIER, Outcome, _Snapshots  # noqa: E402
 
 #: Reference Galaxies fields the cross-check consumes: name -> (exact dtype,
 #: subshape). All must be present with these EXACT base dtypes (extras are
@@ -115,6 +147,53 @@ _INT64_MIN = np.iinfo(np.int64).min
 #: Bit-exact float32 value fields compared over matched pairs.
 _VEC3_FIELDS = ("Pos", "Vel", "Spin")
 _SCALAR_F32_FIELDS = ("VelDisp", "Vmax")
+
+#: Converter /halos datasets the seven per-snapshot checks read. Naming them
+#: keeps the window to what the checks actually consume rather than to every
+#: emitted field.
+_MATCH_FIELDS = (
+    "MostBoundID",
+    "ForestIndex",
+    "HaloRankInForest",
+    "FirstHaloInFOFgroup",
+    "Descendant",
+    "Len",
+    "M_Crit200",
+    "Pos",
+    "Vel",
+    "Spin",
+    "VelDisp",
+    "Vmax",
+)
+
+#: Converter /halos datasets the topology-chains check reads: the two identity
+#: fields, the five links, and the halo's own signed id.
+_TOPOLOGY_FIELDS = (
+    "MostBoundID",
+    "ForestIndex",
+    "HaloRankInForest",
+    "Descendant",
+    "FirstProgenitor",
+    "NextProgenitor",
+    "FirstHaloInFOFgroup",
+    "NextHaloInFOFgroup",
+)
+
+#: Identities read or written at a time while merging the seen-identity store.
+#: Bounds a buffer, never a total: three of these (the block read, the window
+#: slice merged into it, and the merged output) are live at once, so 1 Mi
+#: identities is tens of MB.
+_SEEN_BLOCK_ROWS = 1 << 20
+
+#: Dump text lines parsed at a time. Bounds the Python string list and the
+#: parsed block, not the dump.
+_DUMP_BLOCK_ROWS = 1 << 16
+
+#: Prefixes of the two private spill directories, created under the system
+#: temporary directory (so TMPDIR places them) and removed on the success,
+#: failure and exception paths alike.
+SEEN_DIR_PREFIX = "crosscheck_seen_"
+TOPOLOGY_DIR_PREFIX = "crosscheck_topology_"
 
 
 def _log(message: str) -> None:
@@ -169,62 +248,93 @@ def _validate_reference_dtype(dtype: np.dtype, path: Path) -> None:
         )
 
 
-def load_reference_galaxies(reference_dir, base: str, n_snapshots: int) -> Dict[int, np.ndarray]:
-    """Load reference galaxies per snapshot from the ``<base>_<digits>.hdf5``
-    chunk files (the master ``<base>.hdf5`` is ignored). Galaxies at a
-    snapshot are concatenated across chunks in ascending numeric-suffix order;
-    a missing ``Snap%03d`` group contributes zero galaxies."""
-    reference_dir = Path(reference_dir)
-    if not reference_dir.is_dir():
-        raise ConverterError("{}: not a directory".format(reference_dir))
-    pattern = re.compile(r"^" + re.escape(base) + r"_(\d+)\.hdf5$")
-    chunks = []
-    for path in reference_dir.iterdir():
-        match = pattern.match(path.name)
-        if match:
-            chunks.append((int(match.group(1)), path))
-    chunks.sort()
-    if not chunks:
-        raise ConverterError(
-            "{}: no reference chunk files {}_<digits>.hdf5 found".format(reference_dir, base)
-        )
+class ReferenceGalaxies:
+    """Bounded per-snapshot access to a reference-run galaxy output.
 
-    by_snap: Dict[int, List[np.ndarray]] = {snap: [] for snap in range(n_snapshots)}
-    ref_dtype = None
-    for _, path in chunks:
-        with h5py.File(path, "r") as handle:
-            for snap in range(n_snapshots):
-                group_name = "Snap{:03d}".format(snap)
-                if group_name not in handle:
-                    continue
-                group = handle[group_name]
-                if "Galaxies" not in group:
-                    continue
-                data = group["Galaxies"][...]
-                # every dataset in every chunk is validated (a later chunk
-                # with a wider dtype would silently promote the concatenated
-                # array and defeat bit-exact comparison)
-                _validate_reference_dtype(data.dtype, path)
-                if ref_dtype is None:
-                    ref_dtype = data.dtype
-                elif data.dtype != ref_dtype:
-                    raise ConverterError(
-                        "{}: Snap{:03d}/Galaxies dtype {} differs from the first chunk's "
-                        "dtype {} — reference chunks must share one structured dtype".format(
-                            path, snap, data.dtype, ref_dtype
-                        )
-                    )
-                by_snap[snap].append(data)
-    if ref_dtype is None:
-        raise ConverterError(
-            "{}: reference chunks carry no Snap###/Galaxies datasets".format(reference_dir)
-        )
+    Galaxies live in the ``<base>_<digits>.hdf5`` chunk files; the master
+    ``<base>.hdf5`` is ignored. A snapshot's galaxies are the concatenation of
+    its ``Snap%03d/Galaxies`` datasets across chunks in ascending numeric-suffix
+    order, and a missing group contributes zero galaxies — exactly what the
+    whole-output loader this replaced produced, one snapshot at a time.
 
-    result: Dict[int, np.ndarray] = {}
-    for snap in range(n_snapshots):
-        parts = by_snap[snap]
-        result[snap] = np.concatenate(parts) if parts else np.empty(0, dtype=ref_dtype)
-    return result
+    Construction scans the chunks' metadata only (no galaxy is read): it
+    validates every ``Snap###/Galaxies`` dtype in the same chunk-major order
+    the whole-output loader validated in, so a missing field, a wrong field
+    width, a chunk whose dtype differs from the first, or an output carrying no
+    Galaxies dataset at all still aborts before any check runs. What the scan
+    keeps is one path list per snapshot, which is bounded by the chunk count
+    times the snapshot count and not by the galaxies.
+    """
+
+    def __init__(self, reference_dir, base: str, n_snapshots: int):
+        reference_dir = Path(reference_dir)
+        if not reference_dir.is_dir():
+            raise ConverterError("{}: not a directory".format(reference_dir))
+        self.directory = reference_dir
+        self.n_snapshots = int(n_snapshots)
+        pattern = re.compile(r"^" + re.escape(base) + r"_(\d+)\.hdf5$")
+        chunks = []
+        for path in reference_dir.iterdir():
+            match = pattern.match(path.name)
+            if match:
+                chunks.append((int(match.group(1)), path))
+        chunks.sort()
+        if not chunks:
+            raise ConverterError(
+                "{}: no reference chunk files {}_<digits>.hdf5 found".format(reference_dir, base)
+            )
+
+        self.dtype = None
+        self._paths_by_snap: Dict[int, List[Path]] = {snap: [] for snap in range(self.n_snapshots)}
+        for _, path in chunks:
+            with h5py.File(path, "r") as handle:
+                for snap in range(self.n_snapshots):
+                    group_name = "Snap{:03d}".format(snap)
+                    if group_name not in handle:
+                        continue
+                    group = handle[group_name]
+                    if "Galaxies" not in group:
+                        continue
+                    # every dataset in every chunk is validated (a later chunk
+                    # with a wider dtype would silently promote the
+                    # concatenated array and defeat bit-exact comparison)
+                    self._require_dtype(group["Galaxies"].dtype, path, snap)
+                    self._paths_by_snap[snap].append(path)
+        if self.dtype is None:
+            raise ConverterError(
+                "{}: reference chunks carry no Snap###/Galaxies datasets".format(reference_dir)
+            )
+
+    def _require_dtype(self, dtype: np.dtype, path: Path, snap: int) -> None:
+        """Validate one Galaxies dtype and bind the run's single dtype to the
+        first one seen."""
+        _validate_reference_dtype(dtype, path)
+        if self.dtype is None:
+            self.dtype = dtype
+        elif dtype != self.dtype:
+            raise ConverterError(
+                "{}: Snap{:03d}/Galaxies dtype {} differs from the first chunk's "
+                "dtype {} — reference chunks must share one structured dtype".format(
+                    path, snap, dtype, self.dtype
+                )
+            )
+
+    def load(self, snap: int) -> np.ndarray:
+        """One snapshot's reference galaxies, concatenated across the chunks
+        that carry it in ascending numeric-suffix order."""
+        parts = []
+        for path in self._paths_by_snap[snap]:
+            with h5py.File(path, "r") as handle:
+                data = handle["Snap{:03d}".format(snap)]["Galaxies"][...]
+            # re-asserted at read time: the scan validated the file's metadata,
+            # and this is the array the checks actually compare
+            self._require_dtype(data.dtype, path, snap)
+            parts.append(data)
+        if not parts:
+            return np.empty(0, dtype=self.dtype)
+        if len(parts) == 1:
+            return parts[0]
+        return np.concatenate(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -248,49 +358,49 @@ class SnapMatch:
         self.matched = matched
 
 
-def build_matches(arrays, ref_by_snap, n_snapshots) -> List[SnapMatch]:
-    """Match every reference Type 0/1 galaxy to a converter halo by
-    ``|MostBoundID|`` for each snapshot, re-asserting the converter's
-    ascending-unique |MostBoundID| slab order first (ConverterError if not)."""
-    matches = []
-    for snap in range(n_snapshots):
-        conv = arrays[snap]
-        sentinel = conv["MostBoundID"] == _INT64_MIN
-        if sentinel.any():
-            raise ConverterError(
-                "{}: {} converter MostBoundID value(s) equal INT64_MIN, whose magnitude "
-                "overflows signed int64 — matching by |MostBoundID| cannot be trusted; "
-                "example rows: {}".format(
-                    snapshot_h5_name(snap),
-                    int(sentinel.sum()),
-                    _examples(np.nonzero(sentinel)[0].tolist()),
-                )
+def build_match(conv, ref, snap: int) -> SnapMatch:
+    """Match one snapshot's reference Type 0/1 galaxies to converter halos by
+    ``|MostBoundID|``, re-asserting the converter's ascending-unique
+    |MostBoundID| slab order first (ConverterError if not).
+
+    ``conv`` is one snapshot's converter arrays and ``ref`` that snapshot's
+    reference galaxies; the whole-dataset formulation this replaced built the
+    same object for every snapshot up front and kept them all.
+    """
+    sentinel = conv["MostBoundID"] == _INT64_MIN
+    if sentinel.any():
+        raise ConverterError(
+            "{}: {} converter MostBoundID value(s) equal INT64_MIN, whose magnitude "
+            "overflows signed int64 — matching by |MostBoundID| cannot be trusted; "
+            "example rows: {}".format(
+                snapshot_h5_name(snap),
+                int(sentinel.sum()),
+                _examples(np.nonzero(sentinel)[0].tolist()),
             )
-        conv_abs = np.abs(conv["MostBoundID"])
-        if conv_abs.size > 1 and not (conv_abs[1:] > conv_abs[:-1]).all():
-            rows = np.nonzero(conv_abs[1:] <= conv_abs[:-1])[0][:5]
-            raise ConverterError(
-                "{}: converter |MostBoundID| is not strictly ascending/unique; example "
-                "rows: {}".format(snapshot_h5_name(snap), _examples(rows.tolist()))
-            )
-        ref = ref_by_snap[snap]
-        types = ref["Type"]
-        t01_idx = np.nonzero((types == 0) | (types == 1))[0]
-        ref_sentinel = ref["MostBoundID"][t01_idx] == _INT64_MIN
-        if ref_sentinel.any():
-            raise ConverterError(
-                "snapshot {}: {} reference Type 0/1 MostBoundID value(s) equal INT64_MIN, "
-                "whose magnitude overflows signed int64 — matching by |MostBoundID| cannot "
-                "be trusted".format(snap, int(ref_sentinel.sum()))
-            )
-        ref_abs = np.abs(ref["MostBoundID"][t01_idx])
-        matched = np.full(ref_abs.shape, -1, dtype=np.int64)
-        if conv_abs.size and ref_abs.size:
-            pos = np.clip(np.searchsorted(conv_abs, ref_abs), 0, conv_abs.size - 1)
-            hit = conv_abs[pos] == ref_abs
-            matched[hit] = pos[hit]
-        matches.append(SnapMatch(snap, ref, t01_idx, conv, matched))
-    return matches
+        )
+    conv_abs = np.abs(conv["MostBoundID"])
+    if conv_abs.size > 1 and not (conv_abs[1:] > conv_abs[:-1]).all():
+        rows = np.nonzero(conv_abs[1:] <= conv_abs[:-1])[0][:5]
+        raise ConverterError(
+            "{}: converter |MostBoundID| is not strictly ascending/unique; example "
+            "rows: {}".format(snapshot_h5_name(snap), _examples(rows.tolist()))
+        )
+    types = ref["Type"]
+    t01_idx = np.nonzero((types == 0) | (types == 1))[0]
+    ref_sentinel = ref["MostBoundID"][t01_idx] == _INT64_MIN
+    if ref_sentinel.any():
+        raise ConverterError(
+            "snapshot {}: {} reference Type 0/1 MostBoundID value(s) equal INT64_MIN, "
+            "whose magnitude overflows signed int64 — matching by |MostBoundID| cannot "
+            "be trusted".format(snap, int(ref_sentinel.sum()))
+        )
+    ref_abs = np.abs(ref["MostBoundID"][t01_idx])
+    matched = np.full(ref_abs.shape, -1, dtype=np.int64)
+    if conv_abs.size and ref_abs.size:
+        pos = np.clip(np.searchsorted(conv_abs, ref_abs), 0, conv_abs.size - 1)
+        hit = conv_abs[pos] == ref_abs
+        matched[hit] = pos[hit]
+    return SnapMatch(snap, ref, t01_idx, conv, matched)
 
 
 def _matched_pairs(match: SnapMatch):
@@ -304,7 +414,7 @@ def _matched_pairs(match: SnapMatch):
 # ---------------------------------------------------------------------------
 
 
-def check_reference_sanity(matches) -> List[str]:
+def check_reference_sanity(match) -> List[str]:
     """Reference data must be internally consistent before it can be a ground
     truth: SnapNum matches the group, no INT64_MIN MostBoundID (its magnitude
     overflows signed int64), |MostBoundID| is unique over Type 0/1, and
@@ -312,98 +422,191 @@ def check_reference_sanity(matches) -> List[str]:
     persistent identity — a duplicate on a satellite would otherwise slip
     past identity-creation once the id had been seen)."""
     failures = []
-    for match in matches:
-        ref = match.ref
-        bad_snap = ref["SnapNum"] != match.snap
-        if bad_snap.any():
-            failures.append(
-                "snapshot {}: {} galaxy(ies) with SnapNum != {}; examples: {}".format(
-                    match.snap,
-                    int(bad_snap.sum()),
-                    match.snap,
-                    _examples(ref["SnapNum"][bad_snap].tolist()),
-                )
+    ref = match.ref
+    bad_snap = ref["SnapNum"] != match.snap
+    if bad_snap.any():
+        failures.append(
+            "snapshot {}: {} galaxy(ies) with SnapNum != {}; examples: {}".format(
+                match.snap,
+                int(bad_snap.sum()),
+                match.snap,
+                _examples(ref["SnapNum"][bad_snap].tolist()),
             )
-        t01_mb = ref["MostBoundID"][match.t01_idx]
-        sentinel = t01_mb == _INT64_MIN
-        if sentinel.any():
-            failures.append(
-                "snapshot {}: {} Type 0/1 galaxy(ies) with MostBoundID == INT64_MIN, whose "
-                "magnitude overflows signed int64".format(match.snap, int(sentinel.sum()))
-            )
-        t01_abs = np.abs(t01_mb)
-        unique, counts = np.unique(t01_abs, return_counts=True)
-        dup = unique[counts > 1]
-        if dup.size:
-            failures.append(
-                "snapshot {}: duplicate |MostBoundID| among Type 0/1 galaxies; examples: "
-                "{}".format(match.snap, _examples(dup.tolist()))
-            )
-        unique, counts = np.unique(ref["UniqueGalaxyID"][match.t01_idx], return_counts=True)
-        dup = unique[counts > 1]
-        if dup.size:
-            failures.append(
-                "snapshot {}: duplicate UniqueGalaxyID among Type 0/1 galaxies; examples: "
-                "{}".format(match.snap, _examples(dup.tolist()))
-            )
+        )
+    t01_mb = ref["MostBoundID"][match.t01_idx]
+    sentinel = t01_mb == _INT64_MIN
+    if sentinel.any():
+        failures.append(
+            "snapshot {}: {} Type 0/1 galaxy(ies) with MostBoundID == INT64_MIN, whose "
+            "magnitude overflows signed int64".format(match.snap, int(sentinel.sum()))
+        )
+    t01_abs = np.abs(t01_mb)
+    unique, counts = np.unique(t01_abs, return_counts=True)
+    dup = unique[counts > 1]
+    if dup.size:
+        failures.append(
+            "snapshot {}: duplicate |MostBoundID| among Type 0/1 galaxies; examples: "
+            "{}".format(match.snap, _examples(dup.tolist()))
+        )
+    unique, counts = np.unique(ref["UniqueGalaxyID"][match.t01_idx], return_counts=True)
+    dup = unique[counts > 1]
+    if dup.size:
+        failures.append(
+            "snapshot {}: duplicate UniqueGalaxyID among Type 0/1 galaxies; examples: "
+            "{}".format(match.snap, _examples(dup.tolist()))
+        )
     return failures
 
 
-def check_identity_forest(matches, multiplier) -> List[str]:
+def check_identity_forest(match, multiplier) -> List[str]:
     """Every matched galaxy's decoded forest equals its halo's ForestIndex."""
     failures = []
-    for match in matches:
-        gal_idx, conv_idx = _matched_pairs(match)
-        if gal_idx.size == 0:
-            continue
-        ugid = match.ref["UniqueGalaxyID"][gal_idx]
-        bad = decode_forest(ugid, multiplier) != match.conv["ForestIndex"][conv_idx]
-        if bad.any():
-            ids = np.abs(match.ref["MostBoundID"][gal_idx[bad]])
-            failures.append(
-                "snapshot {}: {} matched galaxy(ies) whose decoded forest != halo "
-                "ForestIndex; example ctrees ids: {}".format(
-                    match.snap, int(bad.sum()), _examples(ids.tolist())
-                )
+    gal_idx, conv_idx = _matched_pairs(match)
+    if gal_idx.size == 0:
+        return failures
+    ugid = match.ref["UniqueGalaxyID"][gal_idx]
+    bad = decode_forest(ugid, multiplier) != match.conv["ForestIndex"][conv_idx]
+    if bad.any():
+        ids = np.abs(match.ref["MostBoundID"][gal_idx[bad]])
+        failures.append(
+            "snapshot {}: {} matched galaxy(ies) whose decoded forest != halo "
+            "ForestIndex; example ctrees ids: {}".format(
+                match.snap, int(bad.sum()), _examples(ids.tolist())
             )
+        )
     return failures
 
 
-def check_identity_creation(matches, multiplier) -> List[str]:
-    """Process snapshots ascending; each galaxy whose UniqueGalaxyID first
-    appears here must decode to its matched halo's (ForestIndex, rank).
+class _SeenIdentities:
+    """Exact, bounded membership over the UniqueGalaxyIDs seen so far.
 
-    ``seen`` is a sorted int64 array (not a Python set): the check runs over
-    every galaxy of the real micro-Uchuu output, where per-galaxy Python loops
-    and a tens-of-millions-entry set are prohibitive.
-    A galaxy that is unmatched is skipped here — that is an occupancy failure,
-    not an identity failure.
+    ``check_identity_creation`` decodes only identities appearing for the FIRST
+    time, because a galaxy that persists across snapshots legitimately keeps
+    its UniqueGalaxyID and re-checking it would be noise. The whole-dataset
+    formulation held that suppression set as an in-memory sorted int64 array
+    grown with ``np.union1d`` — one entry per distinct identity in the run,
+    which a one-snapshot window does not bound.
+
+    This is the same union, externalised. The store is a single binary file of
+    sorted, unique int64 identities; a snapshot's membership test streams the
+    file one block at a time, merge-joins each block against the slice of the
+    snapshot's own sorted identities that falls inside it, and writes the
+    merged block straight out to the successor file. Nothing probabilistic and
+    nothing approximate is involved: the answer is the same set membership
+    ``np.isin`` computed, and the successor file is the same set ``np.union1d``
+    produced.
+
+    Resident bytes are one block, the window's own identities, and the merge's
+    temporaries. On-disk bytes are the store plus its successor while a merge
+    is in flight; ``peak_bytes`` reports the largest that pair ever reached.
+    """
+
+    def __init__(self, directory=None):
+        self._dir = Path(tempfile.mkdtemp(prefix=SEEN_DIR_PREFIX, dir=directory))
+        self._path = self._dir / "seen.i8"
+        self._next_path = self._dir / "seen.next.i8"
+        self.peak_bytes = 0
+        try:
+            self._path.write_bytes(b"")
+        except BaseException:
+            # the constructor owns the directory until it returns; there is no
+            # ``with`` to fall back on if it raises here
+            self.close()
+            raise
+
+    def __enter__(self) -> "_SeenIdentities":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        self.close()
+        return False
+
+    def close(self) -> None:
+        """Remove the store. Three paths reach it: the constructor's own
+        failure above, ``__exit__`` on the success path, and ``__exit__`` when
+        a check — or anything else inside the ``with`` — raises.
+        ``ignore_errors`` keeps a cleanup problem from masking an error that is
+        already propagating."""
+        shutil.rmtree(self._dir, ignore_errors=True)
+
+    def first_appearance(self, ugid: np.ndarray) -> np.ndarray:
+        """Which of ``ugid``'s entries have NOT been seen at an earlier call,
+        as a boolean mask in ``ugid``'s own order, folding ``ugid`` into the
+        store afterwards.
+
+        The mask answers the same question as ``~np.isin(ugid, seen)`` against
+        the union of every earlier call's identities: identities repeated
+        WITHIN this call are all reported unseen, exactly as the whole-dataset
+        formulation did, because the store is only updated once the mask is
+        complete.
+        """
+        order = np.argsort(ugid, kind="stable")
+        sorted_ugid = ugid[order]
+        unseen_sorted = np.ones(sorted_ugid.size, dtype=bool)
+        cursor = 0
+        with open(self._path, "rb") as source, open(self._next_path, "wb") as target:
+            while True:
+                block = np.fromfile(source, dtype=np.int64, count=_SEEN_BLOCK_ROWS)
+                if block.size == 0:
+                    break
+                # every identity at or below this block's last value is decided
+                # by this block: the store is sorted, so no later block can
+                # hold one of them
+                stop = int(np.searchsorted(sorted_ugid, block[-1], side="right"))
+                chunk = sorted_ugid[cursor:stop]
+                if chunk.size:
+                    pos = np.searchsorted(block, chunk)
+                    unseen_sorted[cursor:stop] = block[np.minimum(pos, block.size - 1)] != chunk
+                np.union1d(block, chunk).tofile(target)
+                cursor = stop
+            remainder = sorted_ugid[cursor:]
+            if remainder.size:
+                # past the store's last value, so unseen, and appended in sorted
+                # order after the merged blocks
+                np.unique(remainder).tofile(target)
+        self.peak_bytes = max(
+            self.peak_bytes, self._path.stat().st_size + self._next_path.stat().st_size
+        )
+        os.replace(self._next_path, self._path)
+        unseen = np.empty(ugid.size, dtype=bool)
+        unseen[order] = unseen_sorted
+        return unseen
+
+
+def check_identity_creation(match, multiplier, seen: _SeenIdentities) -> List[str]:
+    """Each galaxy whose UniqueGalaxyID first appears at this snapshot must
+    decode to its matched halo's (ForestIndex, rank).
+
+    Snapshots must be presented in ascending order, as the whole-dataset
+    formulation processed them: ``seen`` carries the suppression set across
+    calls (see :class:`_SeenIdentities`), and an identity already in it is
+    skipped — a galaxy that persists across snapshots keeps its identity, and
+    re-checking it would be noise rather than signal. A galaxy that is
+    unmatched is skipped too: that is an occupancy failure, not an identity
+    failure.
     """
     failures = []
-    seen = np.empty(0, dtype=np.int64)
-    for match in matches:
-        t01_ugid = np.asarray(match.ref["UniqueGalaxyID"][match.t01_idx], dtype=np.int64)
-        if t01_ugid.size == 0:
-            continue
-        candidate = ~np.isin(t01_ugid, seen) & (match.matched >= 0)
-        conv_i = match.matched[candidate]
-        ugids = t01_ugid[candidate]
-        bad = (decode_forest(ugids, multiplier) != match.conv["ForestIndex"][conv_i]) | (
-            decode_rank(ugids, multiplier) != match.conv["HaloRankInForest"][conv_i]
-        )
-        if bad.any():
-            ids = np.abs(match.ref["MostBoundID"][match.t01_idx[candidate][bad]])
-            failures.append(
-                "snapshot {}: {} newly-created galaxy(ies) whose decoded (forest, rank) != "
-                "halo (ForestIndex, HaloRankInForest); example ctrees ids: {}".format(
-                    match.snap, int(bad.sum()), _examples(ids.tolist())
-                )
+    t01_ugid = np.asarray(match.ref["UniqueGalaxyID"][match.t01_idx], dtype=np.int64)
+    if t01_ugid.size == 0:
+        return failures
+    candidate = seen.first_appearance(t01_ugid) & (match.matched >= 0)
+    conv_i = match.matched[candidate]
+    ugids = t01_ugid[candidate]
+    bad = (decode_forest(ugids, multiplier) != match.conv["ForestIndex"][conv_i]) | (
+        decode_rank(ugids, multiplier) != match.conv["HaloRankInForest"][conv_i]
+    )
+    if bad.any():
+        ids = np.abs(match.ref["MostBoundID"][match.t01_idx[candidate][bad]])
+        failures.append(
+            "snapshot {}: {} newly-created galaxy(ies) whose decoded (forest, rank) != "
+            "halo (ForestIndex, HaloRankInForest); example ctrees ids: {}".format(
+                match.snap, int(bad.sum()), _examples(ids.tolist())
             )
-        seen = np.union1d(seen, t01_ugid)
+        )
     return failures
 
 
-def check_fof_central(matches) -> List[str]:
+def check_fof_central(match) -> List[str]:
     """The Type 0 galaxy named by each matched galaxy's UniqueCentralGalaxyID
     must exist and share |MostBoundID| with the converter FoF-central target.
 
@@ -413,47 +616,46 @@ def check_fof_central(matches) -> List[str]:
     reference-sanity failure and resolve here to their first occurrence.
     """
     failures = []
-    for match in matches:
-        ref = match.ref
-        gal_idx, conv_idx = _matched_pairs(match)
-        if gal_idx.size == 0:
-            continue
-        t0_idx = np.nonzero(ref["Type"] == 0)[0]
-        t0_ugid = np.asarray(ref["UniqueGalaxyID"][t0_idx], dtype=np.int64)
-        order = np.argsort(t0_ugid, kind="stable")
-        t0_ugid_sorted = t0_ugid[order]
-        t0_absmb_sorted = np.abs(ref["MostBoundID"][t0_idx[order]])
-        ids = np.abs(ref["MostBoundID"][gal_idx])
+    ref = match.ref
+    gal_idx, conv_idx = _matched_pairs(match)
+    if gal_idx.size == 0:
+        return failures
+    t0_idx = np.nonzero(ref["Type"] == 0)[0]
+    t0_ugid = np.asarray(ref["UniqueGalaxyID"][t0_idx], dtype=np.int64)
+    order = np.argsort(t0_ugid, kind="stable")
+    t0_ugid_sorted = t0_ugid[order]
+    t0_absmb_sorted = np.abs(ref["MostBoundID"][t0_idx[order]])
+    ids = np.abs(ref["MostBoundID"][gal_idx])
 
-        central_ugid = np.asarray(ref["UniqueCentralGalaxyID"][gal_idx], dtype=np.int64)
-        pos = np.searchsorted(t0_ugid_sorted, central_ugid)
-        if t0_ugid_sorted.size:
-            clipped = np.minimum(pos, t0_ugid_sorted.size - 1)
-            found = t0_ugid_sorted[clipped] == central_ugid
-        else:
-            clipped = np.zeros(central_ugid.size, dtype=np.int64)
-            found = np.zeros(central_ugid.size, dtype=bool)
-        if (~found).any():
-            failures.append(
-                "snapshot {}: {} galaxy(ies) whose UniqueCentralGalaxyID names no Type 0 "
-                "galaxy; example ctrees ids: {}".format(
-                    match.snap, int((~found).sum()), _examples(ids[~found].tolist())
-                )
+    central_ugid = np.asarray(ref["UniqueCentralGalaxyID"][gal_idx], dtype=np.int64)
+    pos = np.searchsorted(t0_ugid_sorted, central_ugid)
+    if t0_ugid_sorted.size:
+        clipped = np.minimum(pos, t0_ugid_sorted.size - 1)
+        found = t0_ugid_sorted[clipped] == central_ugid
+    else:
+        clipped = np.zeros(central_ugid.size, dtype=np.int64)
+        found = np.zeros(central_ugid.size, dtype=bool)
+    if (~found).any():
+        failures.append(
+            "snapshot {}: {} galaxy(ies) whose UniqueCentralGalaxyID names no Type 0 "
+            "galaxy; example ctrees ids: {}".format(
+                match.snap, int((~found).sum()), _examples(ids[~found].tolist())
             )
-        fof_target = match.conv["FirstHaloInFOFgroup"][conv_idx[found]]
-        expected = np.abs(match.conv["MostBoundID"][fof_target])
-        mismatch = t0_absmb_sorted[clipped[found]] != expected
-        if mismatch.any():
-            failures.append(
-                "snapshot {}: {} galaxy(ies) whose FoF-central |MostBoundID| != converter "
-                "FirstHaloInFOFgroup target; example ctrees ids: {}".format(
-                    match.snap, int(mismatch.sum()), _examples(ids[found][mismatch].tolist())
-                )
+        )
+    fof_target = match.conv["FirstHaloInFOFgroup"][conv_idx[found]]
+    expected = np.abs(match.conv["MostBoundID"][fof_target])
+    mismatch = t0_absmb_sorted[clipped[found]] != expected
+    if mismatch.any():
+        failures.append(
+            "snapshot {}: {} galaxy(ies) whose FoF-central |MostBoundID| != converter "
+            "FirstHaloInFOFgroup target; example ctrees ids: {}".format(
+                match.snap, int(mismatch.sum()), _examples(ids[found][mismatch].tolist())
             )
+        )
     return failures
 
 
-def check_flyby_signs(matches) -> List[str]:
+def check_flyby_signs(match) -> List[str]:
     """Over the matched Type 0/1 population, the set of negative MostBoundID
     values from the reference galaxies must equal the set from their matched
     converter halos (both ways). Only matched halos are compared: a correctly
@@ -466,22 +668,21 @@ def check_flyby_signs(matches) -> List[str]:
     sign is not independently re-verified here (occupancy matches on
     ``|MostBoundID|`` and does not inspect sign)."""
     failures = []
-    for match in matches:
-        gal_idx, conv_idx = _matched_pairs(match)
-        ref_neg = {int(v) for v in match.ref["MostBoundID"][gal_idx] if v < 0}
-        conv_neg = {int(v) for v in match.conv["MostBoundID"][conv_idx] if v < 0}
-        only_ref = ref_neg - conv_neg
-        only_conv = conv_neg - ref_neg
-        if only_ref or only_conv:
-            failures.append(
-                "snapshot {}: negative-MostBoundID set mismatch ({} only in reference, {} "
-                "only in converter); examples: {}".format(
-                    match.snap,
-                    len(only_ref),
-                    len(only_conv),
-                    _examples(sorted(only_ref | only_conv)),
-                )
+    gal_idx, conv_idx = _matched_pairs(match)
+    ref_neg = {int(v) for v in match.ref["MostBoundID"][gal_idx] if v < 0}
+    conv_neg = {int(v) for v in match.conv["MostBoundID"][conv_idx] if v < 0}
+    only_ref = ref_neg - conv_neg
+    only_conv = conv_neg - ref_neg
+    if only_ref or only_conv:
+        failures.append(
+            "snapshot {}: negative-MostBoundID set mismatch ({} only in reference, {} "
+            "only in converter); examples: {}".format(
+                match.snap,
+                len(only_ref),
+                len(only_conv),
+                _examples(sorted(only_ref | only_conv)),
             )
+        )
     return failures
 
 
@@ -512,7 +713,7 @@ def _u64(values) -> np.ndarray:
     return arr.view(np.uint64)
 
 
-def check_values(matches, part_mass) -> List[str]:
+def check_values(match, part_mass) -> List[str]:
     """Bit-exact value comparison over matched pairs (frozen rules): float32
     fields via uint32 views (NaN payloads and signed zeros count), Len exact,
     and Mvir reconstructed via the reference get_virial_mass rule (a FoF central
@@ -524,103 +725,101 @@ def check_values(matches, part_mass) -> List[str]:
             "(Len * PartMass); got {}".format(part_mass)
         )
     failures = []
-    for match in matches:
-        gal_idx, conv_idx = _matched_pairs(match)
-        if gal_idx.size == 0:
-            continue
-        ref_sub = match.ref[gal_idx]
-        ids = np.abs(ref_sub["MostBoundID"])
+    gal_idx, conv_idx = _matched_pairs(match)
+    if gal_idx.size == 0:
+        return failures
+    ref_sub = match.ref[gal_idx]
+    ids = np.abs(ref_sub["MostBoundID"])
 
-        # snap/ids bound as defaults, not closed over, so each iteration's
-        # values are captured at definition rather than at call time.
-        def report(field, bad, snap=match.snap, ids=ids):
-            if bad.any():
-                failures.append(
-                    "snapshot {}: {} matched pair(s) with mismatched {}; example ctrees ids: "
-                    "{}".format(snap, int(bad.sum()), field, _examples(ids[bad].tolist()))
-                )
-
-        for field in _VEC3_FIELDS:
-            bad = (_u32(ref_sub[field]) != _u32(match.conv[field][conv_idx])).any(axis=1)
-            report(field, bad)
-        for field in _SCALAR_F32_FIELDS:
-            report(field, _u32(ref_sub[field]) != _u32(match.conv[field][conv_idx]))
-        report(
-            "Len", ref_sub["Len"].astype(np.int64) != match.conv["Len"][conv_idx].astype(np.int64)
-        )
-        # Reference galaxy Mvir is model-derived, not a raw catalog copy
-        # (src/core/virial.c get_virial_mass): a FoF central with a valid
-        # (non-negative) spherical-overdensity mass takes M_Crit200 widened to
-        # float64 and scaled to the reference mass unit in float64; every other
-        # halo — satellites, and any central without a valid catalog mass —
-        # takes Len * PartMass. The converter carries the raw catalog M_Crit200,
-        # so the expected galaxy Mvir is reconstructed here. The scale factor is
-        # NATIVE_TO_REF_MASS — the single converter-side definition shared with
-        # the Len derivation and matching the generated accessor's baked-in
-        # conversion — not a re-typed literal. The operand dtype is asserted
-        # before the deliberate widening.
-        m200 = np.ascontiguousarray(match.conv["M_Crit200"][conv_idx])
-        if m200.dtype != np.float32:
-            raise ConverterError(
-                "converter M_Crit200 must be float32, got {} — refusing to coerce".format(
-                    m200.dtype
-                )
+    def report(field, bad):
+        if bad.any():
+            failures.append(
+                "snapshot {}: {} matched pair(s) with mismatched {}; example ctrees ids: "
+                "{}".format(match.snap, int(bad.sum()), field, _examples(ids[bad].tolist()))
             )
-        halo_mass = m200.astype(np.float64) * NATIVE_TO_REF_MASS
-        len_mass = match.conv["Len"][conv_idx].astype(np.float64) * part_mass
-        is_central = match.conv["FirstHaloInFOFgroup"][conv_idx] == conv_idx
-        expected = np.where(is_central & (halo_mass >= 0.0), halo_mass, len_mass)
-        report("Mvir", _u64(ref_sub["Mvir"]) != _u64(expected))
+
+    for field in _VEC3_FIELDS:
+        bad = (_u32(ref_sub[field]) != _u32(match.conv[field][conv_idx])).any(axis=1)
+        report(field, bad)
+    for field in _SCALAR_F32_FIELDS:
+        report(field, _u32(ref_sub[field]) != _u32(match.conv[field][conv_idx]))
+    report("Len", ref_sub["Len"].astype(np.int64) != match.conv["Len"][conv_idx].astype(np.int64))
+    # Reference galaxy Mvir is model-derived, not a raw catalog copy
+    # (src/core/virial.c get_virial_mass): a FoF central with a valid
+    # (non-negative) spherical-overdensity mass takes M_Crit200 widened to
+    # float64 and scaled to the reference mass unit in float64; every other
+    # halo — satellites, and any central without a valid catalog mass —
+    # takes Len * PartMass. The converter carries the raw catalog M_Crit200,
+    # so the expected galaxy Mvir is reconstructed here. The scale factor is
+    # NATIVE_TO_REF_MASS — the single converter-side definition shared with
+    # the Len derivation and matching the generated accessor's baked-in
+    # conversion — not a re-typed literal. The operand dtype is asserted
+    # before the deliberate widening.
+    m200 = np.ascontiguousarray(match.conv["M_Crit200"][conv_idx])
+    if m200.dtype != np.float32:
+        raise ConverterError(
+            "converter M_Crit200 must be float32, got {} — refusing to coerce".format(m200.dtype)
+        )
+    halo_mass = m200.astype(np.float64) * NATIVE_TO_REF_MASS
+    len_mass = match.conv["Len"][conv_idx].astype(np.float64) * part_mass
+    is_central = match.conv["FirstHaloInFOFgroup"][conv_idx] == conv_idx
+    expected = np.where(is_central & (halo_mass >= 0.0), halo_mass, len_mass)
+    report("Mvir", _u64(ref_sub["Mvir"]) != _u64(expected))
     return failures
 
 
-def check_occupancy(matches, arrays) -> List[str]:
-    """The matched-halo set at each snapshot must equal the reference
+def check_occupancy(match, forwarded_prev) -> Tuple[List[str], np.ndarray]:
+    """The matched-halo set at this snapshot must equal the reference
     occupancy predicate on the converter links, computed by forward induction
     (``occupied(H) = FoF-central(H) OR any occupied progenitor``), and no
-    reference Type 0/1 galaxy may be unmatched."""
-    failures = []
-    occupied_prev = None
-    for match in matches:
-        conv = match.conv
-        n = conv["MostBoundID"].size
-        is_central = conv["FirstHaloInFOFgroup"] == np.arange(n)
-        occupied = is_central.copy()
-        if occupied_prev is not None:
-            desc = arrays[match.snap - 1]["Descendant"]
-            forwarded = desc[occupied_prev]
-            forwarded = forwarded[forwarded != -1]
-            occupied[forwarded] = True
+    reference Type 0/1 galaxy may be unmatched.
 
-        matched_mask = np.zeros(n, dtype=bool)
-        matched_mask[match.matched[match.matched >= 0]] = True
-        only_pred = occupied & ~matched_mask
-        only_match = matched_mask & ~occupied
-        if only_pred.any():
-            ids = np.abs(conv["MostBoundID"][only_pred])
-            failures.append(
-                "snapshot {}: {} predicted-occupied halo(s) with no matching reference "
-                "galaxy; example ctrees ids: {}".format(
-                    match.snap, int(only_pred.sum()), _examples(ids.tolist())
-                )
+    ``forwarded_prev`` is what the previous snapshot's call returned: the
+    Descendant indices of its occupied halos, with the no-descendant sentinel
+    already dropped. The whole-dataset formulation carried the previous
+    snapshot's occupancy mask and re-read its Descendant array here; forwarding
+    the resolved indices instead is the same induction with the previous
+    snapshot released. ``None`` starts the induction at snapshot 0.
+
+    Returns the failures and the indices to forward to the next snapshot.
+    """
+    failures = []
+    conv = match.conv
+    n = conv["MostBoundID"].size
+    is_central = conv["FirstHaloInFOFgroup"] == np.arange(n)
+    occupied = is_central.copy()
+    if forwarded_prev is not None:
+        occupied[forwarded_prev] = True
+
+    matched_mask = np.zeros(n, dtype=bool)
+    matched_mask[match.matched[match.matched >= 0]] = True
+    only_pred = occupied & ~matched_mask
+    only_match = matched_mask & ~occupied
+    if only_pred.any():
+        ids = np.abs(conv["MostBoundID"][only_pred])
+        failures.append(
+            "snapshot {}: {} predicted-occupied halo(s) with no matching reference "
+            "galaxy; example ctrees ids: {}".format(
+                match.snap, int(only_pred.sum()), _examples(ids.tolist())
             )
-        if only_match.any():
-            ids = np.abs(conv["MostBoundID"][only_match])
-            failures.append(
-                "snapshot {}: {} matched halo(s) predicted unoccupied; example ctrees ids: "
-                "{}".format(match.snap, int(only_match.sum()), _examples(ids.tolist()))
+        )
+    if only_match.any():
+        ids = np.abs(conv["MostBoundID"][only_match])
+        failures.append(
+            "snapshot {}: {} matched halo(s) predicted unoccupied; example ctrees ids: "
+            "{}".format(match.snap, int(only_match.sum()), _examples(ids.tolist()))
+        )
+    unmatched = match.matched < 0
+    if unmatched.any():
+        ids = np.abs(match.ref["MostBoundID"][match.t01_idx[unmatched]])
+        failures.append(
+            "snapshot {}: {} reference Type 0/1 galaxy(ies) with no matching converter "
+            "halo; example ctrees ids: {}".format(
+                match.snap, int(unmatched.sum()), _examples(ids.tolist())
             )
-        unmatched = match.matched < 0
-        if unmatched.any():
-            ids = np.abs(match.ref["MostBoundID"][match.t01_idx[unmatched]])
-            failures.append(
-                "snapshot {}: {} reference Type 0/1 galaxy(ies) with no matching converter "
-                "halo; example ctrees ids: {}".format(
-                    match.snap, int(unmatched.sum()), _examples(ids.tolist())
-                )
-            )
-        occupied_prev = occupied
-    return failures
+        )
+    forwarded = conv["Descendant"][occupied]
+    return failures, forwarded[forwarded != -1]
 
 
 # ---------------------------------------------------------------------------
@@ -648,57 +847,221 @@ _TOPOLOGY_DUMP_DTYPE = np.dtype(
 _TOPOLOGY_DUMP_HEADER = "# mimic-topology-dump v1"
 
 
-def load_reference_topology_dump(path) -> np.ndarray:
-    """Load a reference-topology dump: a fixed three-line header (format
-    marker, column names, NA-sentinel value) followed by one whitespace-
-    separated row per halo, in the column order of ``_TOPOLOGY_DUMP_DTYPE``,
-    and nothing else. Raises ConverterError on a header mismatch, a ragged or
-    non-integer row, or a comment line after the header — this loader and the
-    harness that writes the dump must agree on the format exactly, and silent
-    field-order drift or a silently spliced second dump would defeat every
-    comparison below without ever failing loudly."""
-    path = Path(path)
-    # Validate the fixed three-line header, then stream the data rows into the
-    # typed array from the SAME open handle: the real micro-Uchuu dump is ~2 GB
-    # of text (22.6 M rows), so no intermediate Python list is ever built.
-    # ``readline`` past EOF returns "" — a short file therefore fails the
-    # header/sentinel checks rather than raising.
-    with open(path) as handle:
-        header = [handle.readline().rstrip("\n") for _ in range(3)]
-        if header[0] != _TOPOLOGY_DUMP_HEADER:
-            raise ConverterError(
-                "{}: not a recognised reference-topology dump (expected first line {!r})".format(
-                    path, _TOPOLOGY_DUMP_HEADER
+class TopologyDumpPartition:
+    """A reference-topology dump, parsed once and partitioned by snapshot.
+
+    The dump is a fixed three-line header (format marker, column names,
+    NA-sentinel value) followed by one whitespace-separated row per halo, in the
+    column order of ``_TOPOLOGY_DUMP_DTYPE``, and nothing else. Raises
+    ConverterError on a header mismatch, a ragged or non-integer row, or a
+    comment line after the header — this reader and the harness that writes the
+    dump must agree on the format exactly, and silent field-order drift or a
+    silently spliced second dump would defeat every comparison below without
+    ever failing loudly.
+
+    Rows arrive in the harness's own order — forest by forest, snapshots
+    interleaved — while the check consumes them one snapshot at a time, so the
+    rows are written into one binary file per snapshot as they are parsed,
+    keeping each snapshot's rows in dump order. The whole-dump formulation this
+    replaced read the file with a single ``np.loadtxt`` and then built a global
+    sort permutation over it: 42 GB of text became a 229.5 GB transient at
+    rehearsal scale. Here the resident cost is one block of text lines and its
+    parsed block; the partition itself lives on disk and is removed by
+    :meth:`close`.
+
+    ``counts`` is the row count per in-dataset snapshot, ``out_of_range`` maps
+    each snapshot value outside ``[0, n_snapshots)`` to its row count (empty for
+    any conformant dump, and never larger than the number of failure lines the
+    check must emit for those values), and ``peak_bytes`` is the partition's
+    size on disk.
+    """
+
+    def __init__(self, dump_path, n_snapshots: int, directory=None):
+        self.path = Path(dump_path)
+        self.n_snapshots = int(n_snapshots)
+        self.counts = np.zeros(self.n_snapshots, dtype=np.int64)
+        self.out_of_range: Dict[int, int] = {}
+        self.total_rows = 0
+        self.peak_bytes = 0
+        self._dir = Path(tempfile.mkdtemp(prefix=TOPOLOGY_DIR_PREFIX, dir=directory))
+        self._handles: Dict[int, BinaryIO] = {}
+        try:
+            self._load()
+        except BaseException:
+            # the constructor owns the directory until it returns, so a
+            # malformed dump — or anything else raised while parsing — must not
+            # leave it behind
+            self.close()
+            raise
+
+    def __enter__(self) -> "TopologyDumpPartition":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        self.close()
+        return False
+
+    def close(self) -> None:
+        """Close any open partition file and remove the partition directory.
+        Reached from the constructor's own failure path, from ``__exit__`` on
+        the success path, and from ``__exit__`` when the check or anything else
+        inside the ``with`` raises; ``ignore_errors`` keeps a cleanup problem
+        from masking an error already propagating."""
+        for handle in self._handles.values():
+            handle.close()
+        self._handles = {}
+        shutil.rmtree(self._dir, ignore_errors=True)
+
+    def _partition_path(self, snap: int) -> Path:
+        return self._dir / "snap_{:04d}.bin".format(snap)
+
+    def _handle(self, snap: int):
+        """The open writer for one snapshot's partition file. At most one per
+        in-dataset snapshot is open, so this is bounded by the snapshot count
+        and not by the dump."""
+        if snap not in self._handles:
+            self._handles[snap] = open(self._partition_path(snap), "wb")
+        return self._handles[snap]
+
+    def _load(self) -> None:
+        with open(self.path) as handle:
+            header = [handle.readline().rstrip("\n") for _ in range(3)]
+            if header[0] != _TOPOLOGY_DUMP_HEADER:
+                raise ConverterError(
+                    "{}: not a recognised reference-topology dump (expected first line "
+                    "{!r})".format(self.path, _TOPOLOGY_DUMP_HEADER)
                 )
-            )
-        expected_sentinel = "# NA sentinel = {} (no link)".format(_INT64_MIN)
-        if header[2] != expected_sentinel:
-            raise ConverterError(
-                "{}: NA sentinel line {!r} != expected {!r}".format(
-                    path, header[2], expected_sentinel
+            expected_sentinel = "# NA sentinel = {} (no link)".format(_INT64_MIN)
+            if header[2] != expected_sentinel:
+                raise ConverterError(
+                    "{}: NA sentinel line {!r} != expected {!r}".format(
+                        self.path, header[2], expected_sentinel
+                    )
                 )
-            )
-        # np.loadtxt (C-accelerated in NumPy >= 1.23) reads the remaining rows
-        # with bounded memory. ``comments=None`` is deliberate: the format is
-        # exactly three header lines followed by data rows, so a "#" line after
-        # the header means a malformed dump (two runs concatenated, a harness
-        # re-run appended with ">>"). Letting np.loadtxt skip such lines would
-        # silently splice unrelated dumps into one array. A ragged row, a
-        # non-integer field, or a stray comment raises ValueError, remapped to
-        # ConverterError so the loader keeps a single loud failure mode.
+            # ``readline`` past EOF returns "" — a short file therefore fails
+            # the header/sentinel checks above rather than raising.
+            offset = 0
+            while True:
+                lines = list(itertools.islice(handle, _DUMP_BLOCK_ROWS))
+                if not lines:
+                    break
+                self._append(self._parse(lines, offset))
+                offset += len(lines)
+        for target in self._handles.values():
+            target.close()
+        self._handles = {}
+        self.peak_bytes = sum(
+            self._partition_path(snap).stat().st_size
+            for snap in range(self.n_snapshots)
+            if self.counts[snap]
+        )
+
+    def _parse(self, lines, offset: int) -> np.ndarray:
+        """One block of dump text lines as typed rows.
+
+        ``comments=None`` is deliberate: the format is exactly three header
+        lines followed by data rows, so a "#" line after the header means a
+        malformed dump (two runs concatenated, a harness re-run appended with
+        ">>"). Letting np.loadtxt skip such lines would silently splice
+        unrelated dumps into one array. A ragged row, a non-integer field, or a
+        stray comment raises ValueError, remapped to ConverterError so the
+        reader keeps a single loud failure mode.
+        """
         try:
             with warnings.catch_warnings():
-                # A header-only dump parses to zero rows here; it is
-                # check_topology_chains' coverage assertion, not the loader,
-                # that rejects it against the converter's halo counts.
+                # a block of blank lines parses to zero rows here; it is
+                # check_topology_chains' coverage assertion, not this reader,
+                # that rejects a dump with no rows against the halo counts
                 warnings.simplefilter("ignore", category=UserWarning)
-                parsed = np.loadtxt(handle, dtype=_TOPOLOGY_DUMP_DTYPE, comments=None, ndmin=1)
+                return np.loadtxt(lines, dtype=_TOPOLOGY_DUMP_DTYPE, comments=None, ndmin=1)
         except ValueError as exc:
-            raise ConverterError("{}: malformed data row ({})".format(path, exc))
-    return np.ascontiguousarray(parsed)
+            # numpy counts rows within the block it was handed, so the number
+            # it reports is absolute only for the first block; later blocks say
+            # where their numbering starts rather than quietly shifting it
+            detail = "{}: malformed data row ({})".format(self.path, exc)
+            if offset:
+                detail += (
+                    " — the row number is relative to the block of data rows "
+                    "starting at row {}".format(offset)
+                )
+            raise ConverterError(detail)
+
+    def _append(self, block: np.ndarray) -> None:
+        """Write one parsed block into its snapshots' partition files, keeping
+        dump order within each snapshot."""
+        if block.size == 0:
+            return
+        self.total_rows += int(block.size)
+        snaps = block["SnapNum"]
+        in_range = (snaps >= 0) & (snaps < self.n_snapshots)
+        if not in_range.all():
+            values, counts = np.unique(snaps[~in_range], return_counts=True)
+            for value, count in zip(values.tolist(), counts.tolist()):
+                self.out_of_range[value] = self.out_of_range.get(value, 0) + count
+        rows = block[in_range]
+        if rows.size == 0:
+            return
+        # a stable sort keeps each snapshot's rows in the order the dump gave
+        # them, which is the order the whole-dump formulation's single stable
+        # argsort produced and the order the failure examples are drawn in
+        rows = rows[np.argsort(rows["SnapNum"], kind="stable")]
+        values, starts = np.unique(rows["SnapNum"], return_index=True)
+        ends = np.append(starts[1:], rows.size)
+        for value, start, end in zip(values.tolist(), starts.tolist(), ends.tolist()):
+            self._handle(value).write(rows[start:end].tobytes())
+            self.counts[value] += end - start
+
+    def snapshot_values(self) -> List[int]:
+        """Every snapshot value the dump carried, ascending — the order the
+        whole-dump formulation's single stable argsort presented them in, with
+        out-of-range values interleaved at their numeric position (below zero
+        first, past the dataset last)."""
+        below = sorted(value for value in self.out_of_range if value < 0)
+        above = sorted(value for value in self.out_of_range if value >= self.n_snapshots)
+        present = [snap for snap in range(self.n_snapshots) if self.counts[snap]]
+        return below + present + above
+
+    def count(self, snap: int) -> int:
+        """Rows the dump carried at one snapshot value, in range or not."""
+        if 0 <= snap < self.n_snapshots:
+            return int(self.counts[snap])
+        return int(self.out_of_range.get(snap, 0))
+
+    def rows(self, snap: int) -> np.ndarray:
+        """One in-dataset snapshot's dump rows, in dump order."""
+        if not self.counts[snap]:
+            return np.empty(0, dtype=_TOPOLOGY_DUMP_DTYPE)
+        return np.fromfile(self._partition_path(snap), dtype=_TOPOLOGY_DUMP_DTYPE)
 
 
-def check_topology_chains(matches, arrays, dump: np.ndarray) -> List[str]:
+class _MostBoundWindow:
+    """The MostBoundID column of at most three adjacent snapshots.
+
+    Every converter link reaches at most one snapshot either way (descendants
+    advance one, first-progenitors retreat one, the rest are same-snapshot), so
+    resolving snapshot ``s``'s links needs ``s-1``, ``s`` and ``s+1`` and
+    nothing else. Snapshots below the predecessor are dropped as the walk
+    advances, so the window holds three columns rather than the dataset's.
+    """
+
+    def __init__(self, snapshots: _Snapshots):
+        self._snapshots = snapshots
+        self._cache: Dict[int, np.ndarray] = {}
+
+    def advance(self, snap: int) -> None:
+        for held in [key for key in self._cache if key < snap - 1]:
+            del self._cache[held]
+
+    def put(self, snap: int, values: np.ndarray) -> None:
+        self._cache[snap] = values
+
+    def get(self, snap: int) -> np.ndarray:
+        if snap not in self._cache:
+            self._cache[snap] = self._snapshots.load(snap, ("MostBoundID",))["MostBoundID"]
+        return self._cache[snap]
+
+
+def check_topology_chains(snapshots: _Snapshots, partition: TopologyDumpPartition) -> List[str]:
     """Compare the reference dump against the converter, by stable ctrees id,
     for every halo in the dataset: the five link fields
     (Descendant/FirstProgenitor/NextProgenitor/FirstHaloInFOFgroup/
@@ -709,9 +1072,9 @@ def check_topology_chains(matches, arrays, dump: np.ndarray) -> List[str]:
     rank *on the lineage-creation subset*; this check is the direct proof that
     link ORDER matches, by resolving each converter link (a same-file or
     adjacent-file index) to an id and comparing it against the reference's own
-    recorded id for the same link. Matching per snapshot reuses each
-    ``matches[i].conv``'s ascending-unique ``|MostBoundID|`` order, already
-    re-asserted by ``build_matches`` before this check ever runs.
+    recorded id for the same link. Matching per snapshot uses that snapshot's
+    ascending-unique ``|MostBoundID|`` order, already re-asserted by
+    ``build_match`` for every snapshot before this check ever runs.
 
     Coverage is asserted first, and it is what makes the rest a proof rather
     than a sample: the dump must name every converter halo exactly once at
@@ -724,11 +1087,14 @@ def check_topology_chains(matches, arrays, dump: np.ndarray) -> List[str]:
     with example ids, never one line per halo: a systematic converter error at
     micro-Uchuu scale would otherwise build a 22.6 M-element list and a
     multi-gigabyte joined string before anyone could read it.
+
+    The dump arrives already partitioned by snapshot on disk, and the converter
+    side is read one snapshot at a time, so what is resident is one snapshot's
+    dump rows, one snapshot's link and identity arrays, and the three-snapshot
+    MostBoundID window the link resolution needs.
     """
     failures = []
-    n_snapshots = len(arrays)
-    abs_by_snap = [np.abs(match.conv["MostBoundID"]) for match in matches]
-    mostbound_by_snap = [match.conv["MostBoundID"] for match in matches]
+    n_snapshots = snapshots.n_snapshots
 
     #: (dump field, snapshot offset the converter link points into), matching
     #: the HDF5 contract: descendants advance one snapshot, first-progenitors
@@ -748,44 +1114,33 @@ def check_topology_chains(matches, arrays, dump: np.ndarray) -> List[str]:
     #: every halo, including halos that never seed a galaxy.
     identity_fields = ("ForestIndex", "HaloRankInForest")
 
-    dump_snaps = dump["SnapNum"].astype(np.int64)
-
-    # Completeness, per snapshot, before any comparison (see docstring).
-    within_dataset = (dump_snaps >= 0) & (dump_snaps < n_snapshots)
-    dump_counts = np.bincount(dump_snaps[within_dataset], minlength=n_snapshots)
+    # Completeness, per snapshot, before any comparison (see docstring). Only
+    # the row counts are needed, so no halo is read here.
     for snap in range(n_snapshots):
-        converter_n = abs_by_snap[snap].size
-        if int(dump_counts[snap]) != converter_n:
+        converter_n = snapshots.rows(snap)
+        if int(partition.counts[snap]) != converter_n:
             failures.append(
                 "snapshot {}: reference dump has {} halo row(s) but the converter has {} "
                 "halo(s) — the dump must name every converter halo exactly once".format(
-                    snap, int(dump_counts[snap]), converter_n
+                    snap, int(partition.counts[snap]), converter_n
                 )
             )
 
-    if dump_snaps.size == 0:
+    if partition.total_rows == 0:
         return failures
 
-    # Group dump rows by snapshot with a single stable argsort rather than a
-    # per-row Python dict, then work one snapshot-slice at a time with fully
-    # vectorised lookups. The previous row-at-a-time loop did a searchsorted per
-    # halo per field (~5 x 22.6 M interpreter iterations on the real dump); this
-    # collapses it to O(snapshots x fields) batched operations.
-    order = np.argsort(dump_snaps, kind="stable")
-    sorted_snaps = dump_snaps[order]
-    uniq_snaps, slice_starts = np.unique(sorted_snaps, return_index=True)
-    slice_ends = np.append(slice_starts[1:], sorted_snaps.size)
-
-    for snap_val, start, end in zip(uniq_snaps, slice_starts, slice_ends):
-        snap = int(snap_val)
-        rows = dump[order[start:end]]
+    window = _MostBoundWindow(snapshots)
+    for snap in partition.snapshot_values():
         if snap < 0 or snap >= n_snapshots:
             failures.append(
-                "reference dump has {} halo(s) at snapshot {}, outside the dataset's [0, {})".format(
-                    rows.size, snap, n_snapshots
-                )
+                "reference dump has {} halo(s) at snapshot {}, outside the dataset's "
+                "[0, {})".format(partition.count(snap), snap, n_snapshots)
             )
             continue
+        window.advance(snap)
+        rows = partition.rows(snap)
+        arrays = snapshots.load(snap, _TOPOLOGY_FIELDS)
+        window.put(snap, arrays["MostBoundID"])
 
         # Resolve every dumped id to its converter row via one batched
         # searchsorted over this snapshot's ascending-unique |MostBoundID|.
@@ -793,7 +1148,7 @@ def check_topology_chains(matches, arrays, dump: np.ndarray) -> List[str]:
         targets = np.abs(dump_ids)
         # Matching is by magnitude, so a duplicated |id| would let one dumped
         # halo stand in for another and keep the coverage count balanced. The
-        # converter side is already strictly ascending-unique (build_matches).
+        # converter side is already strictly ascending-unique (build_match).
         dup_ids, dup_counts = np.unique(targets, return_counts=True)
         repeated = dup_ids[dup_counts > 1]
         if repeated.size:
@@ -801,7 +1156,7 @@ def check_topology_chains(matches, arrays, dump: np.ndarray) -> List[str]:
                 "snapshot {}: {} duplicate |MostBoundID| value(s) in the reference dump; "
                 "examples: {}".format(snap, int(repeated.size), _examples(repeated.tolist()))
             )
-        arr = abs_by_snap[snap]
+        arr = np.abs(arrays["MostBoundID"])
         if arr.size == 0:
             matched = np.zeros(targets.shape, dtype=bool)
             conv_rows = np.empty(0, dtype=np.intp)
@@ -828,7 +1183,7 @@ def check_topology_chains(matches, arrays, dump: np.ndarray) -> List[str]:
         # resolving to it — and check_flyby_signs compares signs only over the
         # matched Type 0/1 population, so galaxy-less demoted halos depend on
         # this comparison being direct.
-        conv_signed = mostbound_by_snap[snap][conv_rows].astype(np.int64)
+        conv_signed = arrays["MostBoundID"][conv_rows].astype(np.int64)
         sign_bad = conv_signed != m_ids
         if sign_bad.any():
             first = int(np.flatnonzero(sign_bad)[0])
@@ -846,7 +1201,7 @@ def check_topology_chains(matches, arrays, dump: np.ndarray) -> List[str]:
 
         for field in identity_fields:
             expected_identity = rows[field][matched].astype(np.int64)
-            conv_identity = np.asarray(arrays[snap][field])[conv_rows].astype(np.int64)
+            conv_identity = np.asarray(arrays[field])[conv_rows].astype(np.int64)
             bad = conv_identity != expected_identity
             if bad.any():
                 first = int(np.flatnonzero(bad)[0])
@@ -869,7 +1224,7 @@ def check_topology_chains(matches, arrays, dump: np.ndarray) -> List[str]:
             expected = rows[field][matched].astype(np.int64)
             # Converter's own link: a local index into target_snap's array, or a
             # negative "no link" sentinel.
-            conv_target = np.asarray(arrays[snap][field])[conv_rows].astype(np.int64)
+            conv_target = np.asarray(arrays[field])[conv_rows].astype(np.int64)
             no_link = conv_target < 0
             # conv_id defaults to the NA sentinel (covers the no-link rows); a
             # valid in-range target overwrites it with the resolved id below.
@@ -893,7 +1248,7 @@ def check_topology_chains(matches, arrays, dump: np.ndarray) -> List[str]:
                     )
                 compare = no_link
             else:
-                tgt_mostbound = mostbound_by_snap[target_snap]
+                tgt_mostbound = window.get(target_snap)
                 out_of_range = ~no_link & (conv_target >= tgt_mostbound.size)
                 if out_of_range.any():
                     failures.append(
@@ -942,6 +1297,19 @@ def check_topology_chains(matches, arrays, dump: np.ndarray) -> List[str]:
 # ---------------------------------------------------------------------------
 
 
+#: The seven always-run checks, in report order. ``topology-chains`` is
+#: appended after them when a reference-topology dump is supplied.
+CHECK_NAMES = (
+    "reference-sanity",
+    "identity-forest",
+    "identity-creation",
+    "fof-central",
+    "flyby-signs",
+    "values",
+    "occupancy",
+)
+
+
 def run_crosscheck(
     converted_dir,
     reference_dir,
@@ -953,13 +1321,21 @@ def run_crosscheck(
 ) -> List[Outcome]:
     """Run the six cross-checks (plus reference sanity) and return one Outcome
     per named check. When ``topology_dump_path`` is given, also runs the
-    seventh ``topology-chains`` check against that reference-topology dump."""
+    seventh ``topology-chains`` check against that reference-topology dump.
+
+    Snapshots are walked in ascending order and every check is applied to one
+    snapshot's window before it is released, so each check's failures still
+    accumulate in ascending snapshot order and every Outcome reports exactly
+    what the whole-dataset formulation reported. The topology check gets its
+    own second walk, after the seven, so that a malformed dump is still
+    reported after — never instead of — an abort the seven would have raised.
+    """
     converted_dir = Path(converted_dir)
     if not converted_dir.is_dir():
         raise ConverterError("{}: not a directory".format(converted_dir))
     a_list, _ = load_a_list(a_list_path)
     n_snapshots = len(a_list)
-    headers, arrays = load_dataset(converted_dir, n_snapshots)
+    snapshots = _Snapshots(converted_dir, n_snapshots)
     # Particle mass (1e10 Msun/h) needed to reconstruct satellite Mvir
     # (Len * PartMass). Read it from simulation_info — the same native value the
     # reference model uses (MimicConfig.PartMass) and the converter's own Len
@@ -967,35 +1343,56 @@ def run_crosscheck(
     # not only header round-trip-safe ones. Guard that the simulation_info
     # matches the emitted dataset: the header stores particle_mass_msun_h =
     # value * REF_TO_NATIVE_MASS (the same constant the writer used), so
-    # recompute it identically and require agreement across all files.
+    # recompute it identically and require agreement across all files. The
+    # distinct values are carried as a set, so this opens every file (as the
+    # whole-dataset load did) without holding any of them.
     part_mass = load_particle_mass(simulation_info_path)
     expected_header_mass = part_mass * REF_TO_NATIVE_MASS
-    header_masses = {float(np.asarray(header["particle_mass_msun_h"])) for header in headers}
+    header_masses = {
+        float(np.asarray(snapshots.header(snap)["particle_mass_msun_h"]))
+        for snap in range(n_snapshots)
+    }
     if header_masses != {expected_header_mass}:
         raise ConverterError(
             "simulation_info particle mass ({} -> {} Msun/h) does not match the dataset header "
             "particle_mass_msun_h {}".format(part_mass, expected_header_mass, sorted(header_masses))
         )
-    ref_by_snap = load_reference_galaxies(reference_dir, base, n_snapshots)
-    matches = build_matches(arrays, ref_by_snap, n_snapshots)
+    reference = ReferenceGalaxies(reference_dir, base, n_snapshots)
 
-    def outcome(name, failures):
-        if failures:
-            return Outcome(name, "FAIL", "; ".join(failures))
+    failures: Dict[str, List[str]] = {name: [] for name in CHECK_NAMES}
+    with _SeenIdentities() as seen:
+        forwarded = None
+        for snap in range(n_snapshots):
+            match = build_match(snapshots.load(snap, _MATCH_FIELDS), reference.load(snap), snap)
+            failures["reference-sanity"].extend(check_reference_sanity(match))
+            failures["identity-forest"].extend(check_identity_forest(match, multiplier))
+            failures["identity-creation"].extend(check_identity_creation(match, multiplier, seen))
+            failures["fof-central"].extend(check_fof_central(match))
+            failures["flyby-signs"].extend(check_flyby_signs(match))
+            failures["values"].extend(check_values(match, part_mass))
+            occupancy_failures, forwarded = check_occupancy(match, forwarded)
+            failures["occupancy"].extend(occupancy_failures)
+        _log(
+            "crosscheck: identity suppression set peaked at {} byte(s) on disk".format(
+                seen.peak_bytes
+            )
+        )
+
+    def outcome(name, check_failures):
+        if check_failures:
+            return Outcome(name, "FAIL", "; ".join(check_failures))
         return Outcome(name, "PASS")
 
-    outcomes = [
-        outcome("reference-sanity", check_reference_sanity(matches)),
-        outcome("identity-forest", check_identity_forest(matches, multiplier)),
-        outcome("identity-creation", check_identity_creation(matches, multiplier)),
-        outcome("fof-central", check_fof_central(matches)),
-        outcome("flyby-signs", check_flyby_signs(matches)),
-        outcome("values", check_values(matches, part_mass)),
-        outcome("occupancy", check_occupancy(matches, arrays)),
-    ]
+    outcomes = [outcome(name, failures[name]) for name in CHECK_NAMES]
     if topology_dump_path is not None:
-        dump = load_reference_topology_dump(topology_dump_path)
-        outcomes.append(outcome("topology-chains", check_topology_chains(matches, arrays, dump)))
+        with TopologyDumpPartition(topology_dump_path, n_snapshots) as partition:
+            chain_failures = check_topology_chains(snapshots, partition)
+            _log(
+                "crosscheck: topology dump partition held {} byte(s) on disk".format(
+                    partition.peak_bytes
+                )
+            )
+        outcomes.append(outcome("topology-chains", chain_failures))
     return outcomes
 
 
