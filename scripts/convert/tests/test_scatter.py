@@ -1110,10 +1110,6 @@ class TestCleanupContainment(unittest.TestCase):
         self.assertTrue(target.exists())
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestBatchModeSourceInventory(unittest.TestCase):
     """Slice 3 (item 3): the batch-aware source inventory for the interleaved
     consumptive transfer — telling a not-yet-transferred file (deferred) apart
@@ -1892,3 +1888,7 @@ class TestBatchModeCli(unittest.TestCase):
             self.assertEqual(convert_ctrees.main(self._scatter_argv(batch=False)), 0)
         manifest = Manifest.load_or_create(self.env.workdir)
         self.assertTrue(manifest.data["snapshots"])
+
+
+if __name__ == "__main__":
+    unittest.main()
