@@ -4,6 +4,7 @@ pipeline stage with a hand-computed golden fixture."""
 
 import gc
 import os
+import shutil
 import sys
 import tempfile
 import tracemalloc
@@ -33,6 +34,7 @@ from links import (  # noqa: E402
     validate_slab,
     verify_identity,
 )
+from rank_sort import RankSortError  # noqa: E402
 from scatter import Manifest, file_md5, run_scatter  # noqa: E402
 from sort_index import run_sort  # noqa: E402
 from test_fixups import make_fixed  # noqa: E402
@@ -804,6 +806,103 @@ class TestBoundedIdentityPass(Slice5Case):
         with mock.patch.object(links, "_log", side_effect=OSError("No space left on device")):
             with self.assertRaisesRegex(OSError, "No space left on device"):
                 links.compute_identity(manifest)
+        self.assertEqual(self.identity_dirs(manifest), [])
+
+    def test_a_failed_removal_after_a_late_failure_is_reported_and_masks_nothing(self):
+        # the failure branch of the same asymmetry: the stores are written, the
+        # pass then fails, and removal fails too. The warning must name the
+        # store and its real size, and the ORIGINAL exception must be what
+        # reaches the caller — cleaning up after a failure must not replace the
+        # traceback that explains the run
+        workdir, _, _ = make_linked_workdir(self.root)
+        manifest = Manifest.load_or_create(workdir)
+        total = sum(entry["rows"] for entry in manifest.data["snapshots"].values())
+        with mock.patch.object(links, "shutil") as shutil_module:
+            shutil_module.rmtree.return_value = None  # removal silently does nothing
+            with mock.patch.object(
+                links, "verify_identity", side_effect=ConverterError("injected late failure")
+            ):
+                with mock.patch.object(links, "_log") as log:
+                    with self.assertRaisesRegex(ConverterError, "injected late failure"):
+                        links.compute_identity(manifest)
+        warnings = [
+            call.args[0]
+            for call in log.call_args_list
+            if "could not remove the identity store" in call.args[0]
+        ]
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("{} byte(s)".format(2 * 8 * total), warnings[0])
+        leftover = self.identity_dirs(manifest)
+        self.assertEqual(len(leftover), 1)  # it really was left behind
+        for path in leftover:
+            shutil.rmtree(path)
+
+    def test_a_failure_while_reporting_a_failed_removal_does_not_mask_it(self):
+        # cleanup runs while an exception is already propagating, and the
+        # reporting it does can itself fail (a closed stderr is the same class
+        # of problem it exists to report). What reaches the caller must still be
+        # the exception that explains the run
+        workdir, _, _ = make_linked_workdir(self.root)
+        manifest = Manifest.load_or_create(workdir)
+        with mock.patch.object(links, "shutil") as shutil_module:
+            shutil_module.rmtree.return_value = None
+            with mock.patch.object(
+                links, "verify_identity", side_effect=ConverterError("injected late failure")
+            ):
+                with mock.patch.object(links, "_log", side_effect=OSError("stderr is gone")):
+                    with self.assertRaisesRegex(ConverterError, "injected late failure"):
+                        links.compute_identity(manifest)
+        for path in self.identity_dirs(manifest):
+            shutil.rmtree(path)
+
+    def test_stores_are_removed_when_a_setup_statement_raises(self):
+        # the statements between creating the store and the guarded block cannot
+        # raise today, and the guard's comment claims that of the WHOLE window;
+        # this pins the claim instead of trusting it, by making one of them fail
+        workdir, _, _ = make_linked_workdir(self.root)
+        manifest = Manifest.load_or_create(workdir)
+        with mock.patch.object(links, "FOREST_INDEX_STORE_NAME", None):
+            with self.assertRaises(TypeError):
+                links.compute_identity(manifest)
+        self.assertEqual(self.identity_dirs(manifest), [])
+
+    def test_a_failed_removal_before_the_size_is_known_says_unknown(self):
+        # an early failure has no byte count to report yet, and a wrong number
+        # would be worse than none
+        workdir, _, _ = make_linked_workdir(self.root)
+        manifest = Manifest.load_or_create(workdir)
+        with mock.patch.object(links, "shutil") as shutil_module:
+            shutil_module.rmtree.return_value = None
+            with mock.patch.object(
+                links, "rank_forests", side_effect=RankSortError("injected early failure")
+            ):
+                with mock.patch.object(links, "_log") as log:
+                    with self.assertRaisesRegex(ConverterError, "injected early failure"):
+                        links.compute_identity(manifest)
+        warnings = [
+            call.args[0]
+            for call in log.call_args_list
+            if "could not remove the identity store" in call.args[0]
+        ]
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("size unknown", warnings[0])
+        self.assertNotIn("byte(s)", warnings[0])
+        for path in self.identity_dirs(manifest):
+            shutil.rmtree(path)
+
+    def test_an_accessor_nobody_closes_still_releases_its_store(self):
+        # the window between compute_identity returning and run_links entering
+        # ``with identity:`` is two statements, and an asynchronous exception
+        # can land between them. Ownership therefore lives on the accessor's
+        # lifetime: drop the last reference without closing, and the store goes
+        workdir, _, _ = make_linked_workdir(self.root)
+        manifest = Manifest.load_or_create(workdir)
+        identity, _, _ = links.compute_identity(manifest)
+        directory = identity.directory
+        self.assertTrue(directory.exists())
+        del identity
+        gc.collect()
+        self.assertFalse(directory.exists())
         self.assertEqual(self.identity_dirs(manifest), [])
 
     def test_a_store_that_cannot_be_removed_is_reported(self):

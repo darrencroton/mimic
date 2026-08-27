@@ -62,9 +62,10 @@ import os
 import shutil
 import sys
 import tempfile
+import weakref
 from collections import OrderedDict
 from pathlib import Path
-from typing import Dict, Iterator, Tuple
+from typing import Dict, Iterator, Optional, Tuple
 
 import numpy as np
 
@@ -640,25 +641,40 @@ def _load_fixed(manifest: Manifest, snap: int) -> np.ndarray:
     return records
 
 
-def _warn_if_left_behind(directory: Path, store_bytes: int) -> None:
-    """Report an identity store that could not be removed, without raising.
+def _remove_identity_store(directory: Path, store_bytes: Optional[int] = None) -> None:
+    """Remove one identity store, reporting a removal that did not happen, and
+    raising NOTHING whatever goes wrong.
 
-    Called from :meth:`SnapshotIdentity.close`, which must not raise (see its
-    docstring), so both the check and the report are best-effort: a closed
-    stderr or a failing ``stat`` must not turn cleanup into a second failure.
-    Reporting it at all is the point — a silent failure to remove these bytes
-    would leave the storage envelope wrong with nothing on the record.
+    Every phase of the store's ownership routes through here — the identity
+    pass's own failure handler, :meth:`SnapshotIdentity.close`, and the
+    lifetime finalizer that backs both — so the two halves of the guarantee
+    cannot drift apart: the bytes are removed if they can be, and if they
+    cannot, that fact is on the record.
+
+    It must not raise, for two independent reasons. It runs while an exception
+    is already propagating, where a second failure would replace the traceback
+    that explains the run; and it runs from a finalizer, where an exception is
+    unraisable anyway. Hence the broad ``except``: reporting is best-effort by
+    construction, and a closed stderr or a failing ``stat`` must not turn
+    cleanup into a new failure. ``BaseException`` is deliberately NOT caught, so
+    a KeyboardInterrupt still gets out.
+
+    ``store_bytes`` is what the store holds when that is known; ``None`` means
+    the pass failed before it could know, and the message then says the size is
+    unknown rather than printing a number that would be wrong.
     """
     try:
+        shutil.rmtree(directory, ignore_errors=True)
         if not directory.exists():
             return
+        size = "{} byte(s)".format(store_bytes) if store_bytes is not None else "size unknown"
         _log(
-            "links: WARNING — could not remove the identity store {} ({} byte(s)); "
+            "links: WARNING — could not remove the identity store {} ({}); "
             "remove it by hand before trusting the workdir's storage envelope".format(
-                directory, store_bytes
+                directory, size
             )
         )
-    except OSError:
+    except Exception:
         pass
 
 
@@ -679,9 +695,15 @@ class SnapshotIdentity:
     views into arrays covering every snapshot (16 B/halo, 366 GB at production),
     while this holds at most :data:`RESIDENT_SNAPSHOTS` snapshots at a time.
 
-    The accessor owns its backing directory: :meth:`close` removes it, and the
-    identity pass removes it on every failure path, so no store outlives the
-    call that produced it. The reported byte counts are for the storage envelope
+    The accessor owns its backing directory, and owns it from the instant it
+    exists rather than from the instant a caller acquires it: :meth:`close`
+    removes it, the identity pass removes it on every failure path, and a
+    lifetime finalizer removes it if neither ever runs — so **from the moment
+    the directory exists there is no reachable path, normal, exceptional or
+    asynchronous, on which nothing owns it.** (The one exception is outside
+    Python's reach: a signal whose default disposition kills the process, such
+    as an un-handled SIGTERM or a SIGKILL, leaves the store for the operator,
+    as it leaves every other temporary file.) The reported byte counts are for the storage envelope
     (plan Slice 8): ``peak_spill_bytes`` is what the merge core held on disk at
     its high-water mark, ``store_bytes`` what the two identity arrays occupy.
     ``n_runs``, ``n_merge_passes`` and ``merge_records`` report what the budget
@@ -710,6 +732,16 @@ class SnapshotIdentity:
         self.merge_records = int(merge_records)
         self._layout = dict(layout)
         self._resident = OrderedDict()
+        # Ownership is bound to this object's LIFETIME, not to a caller reaching
+        # close() or a ``with``: those are two separate statements in the caller
+        # and an asynchronous exception can land between them. Registering here
+        # means the store is owned from the instant the accessor exists, so
+        # there is no reachable path — normal, exceptional or asynchronous — on
+        # which nothing owns it. The finalizer holds no reference to ``self``
+        # (a Path and an int), or it could never become unreachable.
+        self._finalizer = weakref.finalize(
+            self, _remove_identity_store, self.directory, self.store_bytes
+        )
 
     def __contains__(self, snap) -> bool:
         return int(snap) in self._layout
@@ -746,8 +778,10 @@ class SnapshotIdentity:
         these are ``store_bytes`` that the storage envelope assumes are gone.
         """
         self._resident.clear()
-        shutil.rmtree(self.directory, ignore_errors=True)
-        _warn_if_left_behind(self.directory, self.store_bytes)
+        # the finalizer, not a second removal: it runs its removal exactly once
+        # however it is reached, so close() is idempotent and a store cleaned up
+        # by lifetime is never reported twice
+        self._finalizer()
 
     def __enter__(self) -> "SnapshotIdentity":
         return self
@@ -873,12 +907,16 @@ def compute_identity(
     forest_table = np.load(table_path)
     snaps = sorted(int(s) for s in manifest.data["snapshots"])
     scratch_dir = Path(manifest.data["snapshots"][str(snaps[0])]["fixed_file"]).parent
+    # set before the store exists, so that the handler below can report a size
+    # on a late failure and say "unknown" on an early one, and so that NOTHING
+    # sits between the mkdtemp and the try
+    store_bytes = None
     directory = Path(tempfile.mkdtemp(prefix=IDENTITY_DIR_PREFIX, dir=str(scratch_dir)))
-    forest_index_path = directory / FOREST_INDEX_STORE_NAME
-    ranks_path = directory / RANKS_STORE_NAME
-    chunk_rows = max(1, stream_bytes // IDENTITY_STREAM_BYTES_PER_ROW)
-    layout: Dict[int, Tuple[int, int]] = {}
     try:
+        forest_index_path = directory / FOREST_INDEX_STORE_NAME
+        ranks_path = directory / RANKS_STORE_NAME
+        chunk_rows = max(1, stream_bytes // IDENTITY_STREAM_BYTES_PER_ROW)
+        layout: Dict[int, Tuple[int, int]] = {}
         with open(forest_index_path, "wb") as fi_handle:
             blocks = _iter_identity_blocks(
                 manifest, snaps, forest_table, fi_handle, layout, chunk_rows
@@ -919,6 +957,9 @@ def compute_identity(
                         path, actual, expected_bytes, total, RANK_DTYPE.itemsize
                     )
                 )
+        # from here on the store's size is known, so a failed removal can name
+        # it: this is the earliest point at which the number is true
+        store_bytes = 2 * expected_bytes
         peak_spill_bytes = int(result.peak_spill_bytes)
         n_runs, n_merge_passes = int(result.n_runs), int(result.n_merge_passes)
         merge_records = int(result.merge_records)
@@ -937,7 +978,7 @@ def compute_identity(
             directory,
             layout,
             peak_spill_bytes=peak_spill_bytes,
-            store_bytes=2 * expected_bytes,
+            store_bytes=store_bytes,
             n_runs=n_runs,
             n_merge_passes=n_merge_passes,
             merge_records=merge_records,
@@ -959,14 +1000,18 @@ def compute_identity(
         return identity, n_forests_total, max_rank
     except BaseException:
         # EVERY statement between the mkdtemp above and this return is inside
-        # this guard, the success log and the return itself included: the store
-        # is this call's to remove until the caller holds the accessor, and the
-        # caller cannot hold it before the return completes. Logging is the case
-        # that made the rule explicit — a bare print raises BrokenPipeError on a
-        # closed pipe and ENOSPC on a full volume, which is exactly what this
-        # storage-constrained pass invites, and stranding the store then would
-        # leave 16 B/halo of scratch that nothing else in the converter owns.
-        shutil.rmtree(directory, ignore_errors=True)
+        # this guard, the setup lines, the success log and the return itself
+        # included: the store is this call's to remove until the caller holds
+        # the accessor, and the caller cannot hold it before the return
+        # completes. Logging is the case that made the rule explicit — a bare
+        # print raises BrokenPipeError on a closed pipe and ENOSPC on a full
+        # volume, which is exactly what this storage-constrained pass invites,
+        # and stranding the store then would leave 16 B/halo of scratch that
+        # nothing else in the converter owns. Removal goes through the shared
+        # helper so this branch reports a failed removal exactly as close()
+        # does, and so that cleaning up after a failure cannot raise and
+        # replace the exception that explains the run.
+        _remove_identity_store(directory, store_bytes)
         raise
 
 
@@ -1135,6 +1180,9 @@ def run_links(workdir, *, budget_bytes: int = DEFAULT_RANK_BUDGET_BYTES) -> Mani
             )
 
     identity, n_forests_total, max_rank = compute_identity(manifest, budget_bytes=budget_bytes)
+    # ``with`` is the deterministic release, not the ownership: the accessor
+    # owns its store from construction (see SnapshotIdentity), so an exception
+    # landing between the call above and this line cannot strand it
     with identity:
         recorded = manifest.data.get("links")
         computed = {"n_forests_total": n_forests_total, "max_halo_rank_in_forest": max_rank}
