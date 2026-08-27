@@ -18,6 +18,7 @@ import ast
 import os
 import sys
 import tempfile
+import tracemalloc
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -433,6 +434,68 @@ class TestRanksVerification(RankSortCase):
             rank_sort._Residency(),
         )
 
+    def test_the_verification_block_cannot_overflow_either_sum(self):
+        """The block ceiling, checked by arithmetic instead of by allocating
+        billions of records.
+
+        The squared residues summed per block are bounded by the modulus, NOT
+        by ``max_rank``, so a ceiling derived only from the rank sum leaves a
+        large budget over small forests free to wrap int64 — which rejects a
+        correct store, and this module then deletes it.
+        """
+        modulus = rank_sort._MOMENT_MODULUS
+        scenarios = (
+            ("large budget, small forests", 80 * 1024**3, 10**6, 10**12),
+            ("the threshold near 34 GB", 34 * 1024**3, 10**3, 10**12),
+            ("the Shin-Uchuu shape", 24 * 1024**3, 1280000000, 22_900_000_000),
+            ("the smallest budget", rank_sort.MIN_BUDGET_BYTES, 0, 1),
+        )
+        for label, budget, max_rank, total in scenarios:
+            with self.subTest(scenario=label):
+                block = rank_sort._verify_block_records(budget, max_rank, total)
+                self.assertGreaterEqual(block, 1)
+                self.assertLessEqual(block, total)
+                # a block of ranks must sum inside int64 ...
+                self.assertLess(block * max_rank, 2**63)
+                # ... and so must a block of squared residues
+                self.assertLess(block * (modulus - 1), 2**63)
+                # ... within the budget
+                self.assertLessEqual(block * rank_sort.VERIFY_BYTES_PER_RECORD, budget)
+
+    def test_verification_allocates_no_more_than_its_budget(self):
+        """Observe the ALLOCATIONS, not the module's own meter.
+
+        numpy reports its allocations to ``tracemalloc``, so this measures what
+        the pass really held. A test that reads the instrument cannot catch the
+        instrument being wrong, which is the lesson of this slice.
+        """
+        total = 100_000
+        counts = np.array([total], dtype=np.int64)
+        path = self.write_ranks(np.arange(total, dtype=np.int64))
+        budget = total * 8  # one whole store's worth of int64
+        meter = rank_sort._Residency()
+        tracemalloc.start()
+        try:
+            tracemalloc.reset_peak()
+            before = tracemalloc.get_traced_memory()[0]
+            rank_sort._verify_ranks(path, total, counts, total - 1, budget, meter)
+            peak = tracemalloc.get_traced_memory()[1]
+        finally:
+            tracemalloc.stop()
+        observed = peak - before
+        # tracemalloc traces the interpreter's own objects in the call as well
+        # as numpy's buffers, so allow a small absolute margin for those — the
+        # defect this catches (per-block temporaries, or a block sized by the
+        # store's 8 B/record instead of the pass's 17) overshoots by hundreds
+        # of kilobytes, not by this
+        interpreter_noise = 64 * 1024
+        self.assertLessEqual(observed, budget + interpreter_noise)
+        # the bound is not vacuous: the pass really did allocate its buffers
+        self.assertGreater(observed, budget // 2)
+        # and the module's own meter agrees with what was observed
+        self.assertLessEqual(meter.peak_bytes, budget)
+        self.assertEqual(meter.bytes_current, 0)
+
     def test_a_dense_store_verifies(self):
         path = self.write_ranks([0, 1, 2, 0, 1])
         self.verify(path, 5, [3, 2], 2)
@@ -467,13 +530,28 @@ class TestRanksVerification(RankSortCase):
 
 class TestSpillLifetime(RankSortCase):
     def test_peak_spill_bytes_are_reported(self):
-        blocks = random_blocks(n_snaps=5, per_snap=100, n_forests=6, seed=11)
+        # Every record is spilled at least once, so the peak is AT LEAST the
+        # whole key set at 48 B/record — but it equals that only when no merge
+        # pass ran. A pass holds its inputs and its output on disk at once, and
+        # the peak was measured at 1.13x to 1.55x the key set across ordinary
+        # multi-pass configurations. Slice 8 must fold in the REPORTED number,
+        # never a total * 48 formula.
+        blocks = random_blocks(n_snaps=6, per_snap=200, n_forests=8, seed=11)
         total = sum(int(records.size) for _, records in blocks)
-        result = self.run_core(blocks, budget_bytes=run_budget(64))
-        # a single merge pass holds every generated run at once, so the peak is
-        # the whole key set at 48 B/record
-        self.assertEqual(result.peak_spill_bytes, total * rank_sort.SPILL_RECORD_NBYTES)
-        self.assertEqual(result.ranks_bytes, total * 8)
+        key_set = total * rank_sort.SPILL_RECORD_NBYTES
+
+        single = self.run_core(blocks, budget_bytes=run_budget(256), name="single.i64")
+        self.assertEqual(single.n_merge_passes, 0)
+        self.assertEqual(single.peak_spill_bytes, key_set)
+        self.assertEqual(single.ranks_bytes, total * 8)
+
+        multi = self.run_core(
+            blocks,
+            budget_bytes=8 * rank_sort.MERGE_BYTES_PER_RECORD,
+            name="multi.i64",
+        )
+        self.assertGreaterEqual(multi.n_merge_passes, 1)
+        self.assertGreater(multi.peak_spill_bytes, key_set)
 
     def test_no_spill_survives_a_successful_run(self):
         blocks = random_blocks(n_snaps=4, per_snap=80, n_forests=5, seed=12)

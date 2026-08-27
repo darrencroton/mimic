@@ -43,7 +43,9 @@ slab order, gets exactly the positions ``compute_identity`` assigns today.
 global position (the caller memory-maps or slices it per snapshot); the
 per-forest group boundaries — observed forest ids, ascending, and their halo
 counts — are returned in memory on the :class:`RankSortResult`, together with
-the peak spill bytes the run held on disk.
+the peak spill bytes the run held on disk. That peak is a measurement and must
+be consumed as one: it exceeds the key set at 48 B/record whenever the run
+needed a merge pass.
 
 **Memory.** ``budget_bytes`` bounds the working memory this module allocates,
 and it is bounded in *bytes* rather than in records because the working set is
@@ -147,9 +149,16 @@ MIN_BUDGET_BYTES = MIN_MERGE_RECORDS * MERGE_BYTES_PER_RECORD
 MAX_MERGE_FANIN = 512
 _RESERVED_FDS = 32
 
+#: Working bytes per record of the verification pass, which reads the ranks
+#: store back in blocks: the block itself (8), the int64 scratch the squared
+#: residues are folded through (8), and the bool mask the sentinel scan writes
+#: (1). All three are preallocated once and reused through ``out=``, so a
+#: verification block allocates nothing.
+VERIFY_BYTES_PER_RECORD = 8 + 8 + 1
+
 #: Modulus for the verification's second moment. A Mersenne prime below 2**31,
-#: so a reduced rank squares inside int64 (< 2**62) and a block of reduced
-#: squares sums inside int64 for any block this module reads.
+#: so a reduced rank squares inside int64. It does NOT bound the sum of those
+#: residues — that is what :func:`_verify_block_records` is for.
 _MOMENT_MODULUS = 2**31 - 1
 
 
@@ -176,7 +185,11 @@ class RankSortResult:
 
     ``peak_spill_bytes`` is the high-water mark of live spill bytes on disk, and
     ``ranks_bytes`` the size of the backing store, for the pass's storage
-    envelope.
+    envelope. **Consume the reported figure, never a ``total * 48`` formula.**
+    It equals the whole key set at 48 B/record only when ``n_merge_passes`` is
+    zero; every merge pass holds its inputs and its output at once, and the
+    peak was measured at 1.13x to 1.55x the key set across ordinary
+    multi-pass configurations.
 
     ``peak_resident_bytes`` and ``peak_resident_records`` are measured
     high-water marks of the working memory and the record buffers this module
@@ -933,6 +946,51 @@ def _dense_moments(forest_counts: np.ndarray) -> Tuple[int, int]:
     return total, squares % _MOMENT_MODULUS
 
 
+def _fill_block(handle, raw: memoryview) -> int:
+    """Read ``raw`` full from ``handle``, returning the bytes read.
+
+    A raw file handle may return a short read at any point, so top the buffer
+    up rather than treating one as end of file; the only short return is then
+    the last block, and the store's size was already checked to be a whole
+    number of ranks.
+    """
+    got = 0
+    while got < len(raw):
+        read = handle.readinto(raw[got:])
+        if not read:
+            break
+        got += read
+    return got
+
+
+def _verify_block_records(budget_bytes: int, max_rank: int, total: int) -> int:
+    """How many ranks the verification pass reads at a time.
+
+    Four ceilings meet here, and each one bounds a different quantity the loop
+    in :func:`_verify_ranks` holds or sums. They are spelled out because the
+    running totals there are Python ints and cannot overflow, while the
+    per-block reductions run in int64 and can:
+
+    - **memory** — the pass holds ``VERIFY_BYTES_PER_RECORD`` bytes per record
+      of the block, and that must fit the caller's budget.
+    - **the file** — never allocate buffers larger than the store itself.
+    - **the rank sum** — ``np.sum`` over a block of ranks must stay inside
+      int64, and a rank is at most ``max_rank``, so ``block * max_rank`` is the
+      quantity to bound.
+    - **the residue sum** — ``np.sum`` over a block of squared residues must
+      too, and a residue is bounded by ``_MOMENT_MODULUS - 1``, **not** by
+      ``max_rank``. This is the ceiling that binds when the budget is large and
+      the forests are small: without it a 34 GB budget over low-rank data
+      overflows and REJECTS a correct store, which this module would then
+      delete.
+    """
+    by_memory = int(budget_bytes) // VERIFY_BYTES_PER_RECORD
+    by_file = max(1, int(total))
+    by_rank_sum = 2**62 // (int(max_rank) + 1)
+    by_residue_sum = 2**62 // _MOMENT_MODULUS
+    return max(1, min(by_memory, by_file, by_rank_sum, by_residue_sum))
+
+
 def _verify_ranks(
     ranks_path: Path,
     total: int,
@@ -978,36 +1036,56 @@ def _verify_ranks(
             "per-forest counts sum to {} but {} record(s) were ranked".format(expected_total, total)
         )
     expected_sum, expected_squares = _dense_moments(forest_counts)
-    # cap the read block twice over: by the memory budget, and so that a
-    # block's rank sum cannot overflow int64 whatever the forest sizes are.
-    # The running totals are Python ints and cannot overflow at all.
-    block = max(1, min(budget_bytes // RANK_DTYPE.itemsize, 2**62 // (max_rank + 1)))
+    block = _verify_block_records(budget_bytes, max_rank, total)
+    # preallocated once and reused through out=, so the loop below allocates
+    # nothing per block and the whole pass costs exactly what is metered here
+    chunk_buf = np.empty(block, dtype=RANK_DTYPE)
+    work = np.empty(block, dtype=RANK_DTYPE)
+    mask = np.empty(block, dtype=bool)
+    residency.acquire(block * VERIFY_BYTES_PER_RECORD)
     observed_sum = 0
     observed_squares = 0
     observed_max = -1
     seen = 0
-    with open(str(ranks_path), "rb") as handle:
-        while True:
-            chunk = np.fromfile(handle, dtype=RANK_DTYPE, count=block)
-            if chunk.size == 0:
-                break
-            residency.acquire(chunk.nbytes)
-            try:
-                if bool(np.any(chunk == RANK_UNWRITTEN)):
+    try:
+        raw = memoryview(chunk_buf).cast("B")
+        # unbuffered: a BufferedReader would add its own 8 KB read buffer on
+        # top of the block this pass just sized to the budget, and _fill_block
+        # makes the short reads a raw handle is allowed to return harmless
+        with open(str(ranks_path), "rb", buffering=0) as handle:
+            while True:
+                nbytes = _fill_block(handle, raw)
+                if not nbytes:
+                    break
+                if nbytes % RANK_DTYPE.itemsize:
                     raise RankSortError(
-                        "{}: {} position(s) were never assigned a rank".format(
-                            ranks_path, int(np.count_nonzero(chunk == RANK_UNWRITTEN))
+                        "{}: read {} byte(s), not a whole number of int64 ranks".format(
+                            ranks_path, nbytes
                         )
                     )
+                size = nbytes // RANK_DTYPE.itemsize
+                chunk = chunk_buf[:size]
+                found = mask[:size]
+                np.equal(chunk, RANK_UNWRITTEN, out=found)
+                if bool(np.any(found)):
+                    raise RankSortError(
+                        "{}: {} position(s) were never assigned a rank".format(
+                            ranks_path, int(np.count_nonzero(found))
+                        )
+                    )
+                # each block sum runs in int64; _verify_block_records bounds
+                # the block so that neither can wrap: ranks are at most
+                # max_rank, residues at most _MOMENT_MODULUS - 1
                 observed_sum += int(np.sum(chunk))
-                observed_max = max(observed_max, int(chunk.max()))
-                reduced = chunk % _MOMENT_MODULUS
-                reduced *= reduced
-                reduced %= _MOMENT_MODULUS
-                observed_squares += int(np.sum(reduced))
-                seen += int(chunk.size)
-            finally:
-                residency.release(chunk.nbytes)
+                observed_max = max(observed_max, int(np.max(chunk)))
+                residues = work[:size]
+                np.mod(chunk, _MOMENT_MODULUS, out=residues)
+                np.multiply(residues, residues, out=residues)
+                np.mod(residues, _MOMENT_MODULUS, out=residues)
+                observed_squares += int(np.sum(residues))
+                seen += size
+    finally:
+        residency.release(block * VERIFY_BYTES_PER_RECORD)
     observed_squares %= _MOMENT_MODULUS
     if seen != total:
         raise RankSortError("{}: read back {} of {} rank(s)".format(ranks_path, seen, total))
