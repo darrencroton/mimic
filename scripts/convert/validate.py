@@ -75,14 +75,21 @@ DEFAULT_MULTIPLIER = 10**9
 #: cost tens of MB rather than a fraction of the dataset.
 IDENTITY_CHUNK_ROWS = 4 * CHUNK_1D[0]
 
-#: Bytes an identity pass holds per row of a chunk, enumerated rather than
-#: estimated. Eleven int64-wide arrays: the ForestIndex and HaloRankInForest
-#: blocks read from the file, each row's forest count and bitset base, the
-#: in-range row indices, their slots, those slots' byte indices, the stable
-#: sort permutation, the sorted slots, the deduplicated slots and their byte
-#: indices. Four one-byte arrays: the in-range mask, the slot bit masks, the
-#: already-claimed mask and the repeat mask.
-IDENTITY_CHUNK_BYTES_PER_ROW = 11 * 8 + 4
+#: Bytes an identity pass may hold per row of a chunk. The vectorized bitset
+#: pass holds, per row, the ForestIndex and HaloRankInForest blocks read from
+#: the file, the in-range row indices and the ForestIndex and rank values
+#: gathered through them, each row's forest count and bitset base, the claimed
+#: rows, their slots and those slots' byte indices, the stable sort
+#: permutation, the sorted slots, the deduplicated slots with their byte
+#: indices and byte-group starts, and the violating rows — sixteen int64-wide
+#: arrays — plus the in-range, held, rejected, duplicate and repeat masks and
+#: the slot bit masks. numpy also materialises unnamed temporaries for the
+#: comparisons and the gathers, and their count is an implementation detail of
+#: numpy rather than of this module, so this figure is a CEILING rather than an
+#: exact enumeration: ``test_identity_chunk_cost_is_within_the_declared_bound``
+#: measures the real vectorized path and fails if it exceeds this. It was 117
+#: bytes per row measured at IDENTITY_CHUNK_ROWS when this ceiling was set.
+IDENTITY_CHUNK_BYTES_PER_ROW = 128
 
 #: Slots of the identity bitset examined at once when a failure message needs
 #: the first rank a forest holds no halo for. Bounded so the diagnostic scan of
@@ -869,29 +876,47 @@ class _PairOrdering:
     ordering. This is the plan's second sanctioned mechanism: "an external
     ordering of (ForestIndex, rank)".
 
-    Sorted runs are spilled to a private directory and merged with a bounded
-    fan-in, so nothing here holds more than one run buffer plus one read block
-    per merge input. **On a dataset that satisfies the density condition
-    nothing is spilled at all**: no directory is created, ``finish`` returns
-    ``None`` and ``peak_bytes`` stays 0. The merge is a plain Python
-    ``heapq.merge`` because it only ever runs on an already-broken dataset;
-    correctness and boundedness matter there, throughput does not.
+    **Nothing here is allowed to scale with the number of runs.** Sorted runs
+    are spilled to a private directory and merged AS THEY ACCUMULATE: a level
+    holding ``_ORDERING_FANIN`` runs is merged into one run of the next level,
+    so the list of live runs is bounded by the fan-in times the number of
+    levels (about 50 entries even for the 349,426 runs a wholly out-of-range
+    production dataset would produce) rather than by the run count. Each run's
+    size is recorded when it is written and subtracted when it is unlinked, so
+    the disk accounting costs O(1) per run — an earlier formulation rescanned
+    the directory after every spill, which is O(R^2) file stats and would have
+    spent about 49 hours on that dataset before the merge began.
+
+    **On a dataset that satisfies the density condition nothing is spilled at
+    all**: no directory is created, ``finish`` returns ``None`` and
+    ``peak_bytes`` stays 0. The merge is a plain Python ``heapq.merge`` because
+    it only ever runs on an already-broken dataset; correctness and
+    boundedness matter there, throughput does not.
 
     The owner must :meth:`close` it on every path; ``check_identity`` does so
-    in a ``finally``.
+    in a ``finally``. ``close`` reports a removal it could not confirm rather
+    than swallowing it, and :meth:`raise_if_unremoved` turns that into a real
+    error once no other exception is in flight.
     """
 
     def __init__(self):
         self._directory: Optional[Path] = None
-        self._runs: List[Path] = []
+        #: runs not yet merged, by level; every level holds fewer than
+        #: _ORDERING_FANIN of them, so this list is bounded by the fan-in times
+        #: the level count, never by the number of runs written
+        self._levels: List[List[Tuple[Path, int]]] = []
         self._buffer: List[np.ndarray] = []
         self._buffered = 0
         self._serial = 0
+        self._held = 0
+        self._ordered: Optional[Tuple[Path, int]] = None
         #: pairs handed to :meth:`add`, i.e. out-of-range halos in the dataset
         self.rows = 0
         #: largest number of bytes this ordering has held on disk at once — the
         #: figure the storage envelope wants reported rather than estimated
         self.peak_bytes = 0
+        #: set by :meth:`close` when it could not confirm the directory is gone
+        self.unremoved: Optional[Path] = None
 
     # -- writing -----------------------------------------------------------
 
@@ -923,40 +948,64 @@ class _PairOrdering:
         self._buffer = []
         self._buffered = 0
         block.sort(order=("forest", "rank"))
+        self._promote(self._write(block))
+
+    def _write(self, block: np.ndarray) -> Tuple[Path, int]:
+        """Write one sorted run and charge its bytes to the running total."""
         path = self._new_run()
         block.tofile(str(path))
-        self._runs.append(path)
-        self._note_disk()
+        return self._charge(path, int(block.size))
+
+    def _charge(self, path: Path, rows: int) -> Tuple[Path, int]:
+        size = rows * _PAIR_DTYPE.itemsize
+        self._held += size
+        self.peak_bytes = max(self.peak_bytes, self._held)
+        return path, size
+
+    def _promote(self, run: Tuple[Path, int]) -> None:
+        """Add one run at level 0, cascading a full level into a single run of
+        the level above. This is what keeps the live-run list bounded."""
+        level = 0
+        while True:
+            while len(self._levels) <= level:
+                self._levels.append([])
+            self._levels[level].append(run)
+            if len(self._levels[level]) < _ORDERING_FANIN:
+                return
+            group = self._levels[level]
+            self._levels[level] = []
+            run = self._merge(group)
+            level += 1
 
     def _new_run(self) -> Path:
         if self._directory is None:
             self._directory = Path(tempfile.mkdtemp(prefix=ORDERING_DIR_PREFIX))
         self._serial += 1
-        return self._directory / "run_{:06d}.pairs".format(self._serial)
-
-    def _note_disk(self) -> None:
-        if self._directory is None:
-            return
-        held = sum(path.stat().st_size for path in self._directory.iterdir())
-        self.peak_bytes = max(self.peak_bytes, held)
+        return self._directory / "run_{:08d}.pairs".format(self._serial)
 
     # -- merging -----------------------------------------------------------
 
     def finish(self) -> Optional[Path]:
         """Merge the runs down to one fully ordered file, or ``None`` when no
-        out-of-range pair was ever recorded."""
+        out-of-range pair was ever recorded. Idempotent."""
+        if self._ordered is not None:
+            return self._ordered[0]
         self._spill()
-        while len(self._runs) > 1:
+        runs = [run for level in self._levels for run in level]
+        self._levels = []
+        while len(runs) > 1:
             merged = []
-            for start in range(0, len(self._runs), _ORDERING_FANIN):
-                group = self._runs[start : start + _ORDERING_FANIN]
+            for start in range(0, len(runs), _ORDERING_FANIN):
+                group = runs[start : start + _ORDERING_FANIN]
                 merged.append(group[0] if len(group) == 1 else self._merge(group))
-            self._runs = merged
-        return self._runs[0] if self._runs else None
+            runs = merged
+        self._ordered = runs[0] if runs else None
+        return self._ordered[0] if self._ordered else None
 
-    def _merge(self, paths: List[Path]) -> Path:
+    def _merge(self, runs: List[Tuple[Path, int]]) -> Tuple[Path, int]:
         target = self._new_run()
-        readers = [self._iter_pairs(path) for path in paths]
+        readers = [self._iter_pairs(path) for path, _ in runs]
+        written = 0
         try:
             with open(str(target), "wb") as handle:
                 block: List[tuple] = []
@@ -964,17 +1013,20 @@ class _PairOrdering:
                     block.append(row)
                     if len(block) >= _ORDERING_MERGE_ROWS:
                         np.asarray(block, dtype=_PAIR_DTYPE).tofile(handle)
+                        written += len(block)
                         block = []
                 if block:
                     np.asarray(block, dtype=_PAIR_DTYPE).tofile(handle)
+                    written += len(block)
         finally:
             for reader in readers:
                 reader.close()
-        # measured with the inputs still present: that IS the peak
-        self._note_disk()
-        for path in paths:
+        # charged while the inputs are still on disk: that IS the peak
+        merged = self._charge(target, written)
+        for path, size in runs:
             path.unlink()
-        return target
+            self._held -= size
+        return merged
 
     @staticmethod
     def _iter_pairs(path: Path):
@@ -1005,15 +1057,59 @@ class _PairOrdering:
     # -- lifetime ----------------------------------------------------------
 
     def close(self) -> None:
-        """Remove the spill directory. Called on the success, failure and
-        exception paths alike, and safe to call when nothing was ever
-        spilled."""
+        """Remove the spill directory, reporting a removal it could not
+        confirm instead of swallowing it.
+
+        Ownership is released only on CONFIRMED absence: the directory
+        reference is dropped when, and only when, the directory is gone. A
+        removal that fails leaves ``unremoved`` set, logs a warning naming the
+        path and the bytes at stake, and leaves the reference in place so a
+        later call retries.
+
+        **This never raises.** It is called from a ``finally`` and must not
+        replace the exception that put it there; :meth:`raise_if_unremoved` is
+        how a cleanup failure becomes an error on the paths where nothing else
+        is in flight. Safe to call when nothing was ever spilled, and safe to
+        call twice.
+        """
         self._buffer = []
         self._buffered = 0
-        self._runs = []
-        if self._directory is not None:
-            shutil.rmtree(str(self._directory), ignore_errors=True)
-            self._directory = None
+        self._levels = []
+        self._ordered = None
+        directory = self._directory
+        if directory is None:
+            return
+        error: Optional[BaseException] = None
+        for _attempt in (1, 2):
+            try:
+                shutil.rmtree(str(directory))
+            except OSError as exc:
+                error = exc
+            try:
+                present = directory.exists()
+            except OSError as exc:  # pragma: no cover - stat of a broken mount
+                error = exc
+                present = True
+            if not present:
+                self._directory = None
+                self._held = 0
+                self.unremoved = None
+                return
+        self.unremoved = directory
+        _log(
+            "validate: WARNING — could not remove the identity ordering directory {} ({}); "
+            "about {} byte(s) may remain. Remove it by hand.".format(directory, error, self._held)
+        )
+
+    def raise_if_unremoved(self) -> None:
+        """Turn a cleanup failure into a real error, on the paths where no
+        other exception is in flight. Call it AFTER the ``finally`` that closed
+        the ordering, never inside it."""
+        if self.unremoved is not None:
+            raise ConverterError(
+                "the identity ordering directory {} could not be removed; remove it by hand "
+                "before re-running".format(self.unremoved)
+            )
 
 
 class _GroupDensity:
@@ -1214,8 +1310,11 @@ def check_identity(
         running maximum over the same counting pass.
 
     Returns the failures, the bitset's peak bytes and the ordering's peak
-    on-disk bytes, which the caller reports rather than estimates. Both
-    structures are released on the success, failure and exception paths.
+    on-disk bytes, which the caller reports rather than estimates. The bitset
+    is released on the success, failure and exception paths; the ordering's
+    spill directory is removed on all three too, and a removal that cannot be
+    CONFIRMED is reported — logged from ``close`` so an exception already in
+    flight survives, and raised afterwards on the paths where none is.
 
     **The (b) violation count and its five examples are this formulation's
     own.** The whole-dataset battery counted positions in a global lexsort of
@@ -1228,104 +1327,119 @@ def check_identity(
     five lowest ``(ForestIndex, rank)`` pairs that violated, and ``expected`` in
     each is the first rank that forest holds no halo for.
     """
-    failures: List[str] = []
     ordering = _PairOrdering()
-    bitset_bytes = 0
     try:
-        counts, total, measured_max = _identity_counts(snapshots, n_forests_total, ordering)
-        if total == 0:
-            if n_forests_total != 0:
-                failures.append(
-                    "dataset has no halos but n_forests_total is {}".format(n_forests_total)
-                )
-            return failures, bitset_bytes, ordering.peak_bytes
-
-        ordered_path = ordering.finish()
-        if ordered_path is None:
-            stray_distinct, stray_lowest, stray_bad, stray_examples = 0, [], 0, []
-        else:
-            stray_distinct, stray_lowest, stray_bad, stray_examples = _scan_ordering(ordered_path)
-
-        distinct = int(np.count_nonzero(counts)) + stray_distinct
-        if stray_distinct or distinct != n_forests_total:
-            lowest = sorted(np.flatnonzero(counts)[:5].tolist() + stray_lowest)[:5]
-            failures.append(
-                "ForestIndex values are not dense over [0, {}); {} distinct value(s) observed, "
-                "examples: {}".format(n_forests_total, distinct, _examples(lowest))
-            )
-
-        forests = _ForestTable(n_forests_total, counts)
-        bits = _IdentityBits(int(counts.sum()))
-        try:
-            bitset_bytes = bits.peak_bytes
-            n_bad = stray_bad
-            # (ForestIndex, rank, expected) triples; expected is None for the
-            # in-range candidates until the bitset pass has finished and can be
-            # read back for the rank their forest does not hold
-            examples: List[Tuple[int, int, Optional[int]]] = list(stray_examples)
-            for snap in range(snapshots.n_snapshots):
-                for forest, rank in snapshots.chunks(
-                    snap, ("ForestIndex", "HaloRankInForest"), IDENTITY_CHUNK_ROWS
-                ):
-                    inside = np.nonzero((forest >= 0) & (forest < n_forests_total))[0]
-                    if inside.size == 0:
-                        continue
-                    group = forest[inside]
-                    ranks = rank[inside]
-                    held = (ranks >= 0) & (ranks < forests.counts[group])
-                    claimed = np.nonzero(held)[0]
-                    rejected = ~held
-                    rejected[
-                        claimed[bits.claim(forests.bases[group[claimed]] + ranks[claimed])]
-                    ] = True
-                    bad_rows = np.nonzero(rejected)[0]
-                    if bad_rows.size:
-                        n_bad += int(bad_rows.size)
-                        # keep only the five lowest (ForestIndex, rank) pairs
-                        # seen so far, so the example state is five triples,
-                        # not a list that grows with the violation count
-                        pick = bad_rows[np.lexsort((ranks[bad_rows], group[bad_rows]))[:5]]
-                        examples = sorted(
-                            examples
-                            + [
-                                (value, rank_value, None)
-                                for value, rank_value in zip(
-                                    group[pick].tolist(), ranks[pick].tolist()
-                                )
-                            ],
-                            key=lambda item: (item[0], item[1]),
-                        )[:5]
-            if n_bad:
-                detail = [
-                    "(ForestIndex={}, rank={}, expected {})".format(
-                        value,
-                        rank_value,
-                        (
-                            unheld
-                            if unheld is not None
-                            else bits.first_unheld(
-                                int(forests.bases[value]), int(forests.counts[value])
-                            )
-                        ),
-                    )
-                    for value, rank_value, unheld in examples
-                ]
-                failures.append(
-                    "{} (ForestIndex, HaloRankInForest) pair(s) violate per-forest density/"
-                    "uniqueness; examples: {}".format(n_bad, ", ".join(detail))
-                )
-        finally:
-            bits.close()
-
-        if measured_max != max_rank_header:
-            failures.append(
-                "measured max HaloRankInForest {} != header max_halo_rank_in_forest {}".format(
-                    measured_max, max_rank_header
-                )
-            )
-        return failures, bitset_bytes, ordering.peak_bytes
+        failures, bitset_bytes = _identity_conditions(
+            snapshots, n_forests_total, max_rank_header, ordering
+        )
     finally:
+        # close() never raises: it is called from a finally and must not
+        # replace an exception already in flight, so it records instead
         ordering.close()
+    # ...and here, where nothing else is in flight, a cleanup failure IS the
+    # error, rather than a warning nobody acts on
+    ordering.raise_if_unremoved()
+    return failures, bitset_bytes, ordering.peak_bytes
+
+
+def _identity_conditions(
+    snapshots: _Snapshots,
+    n_forests_total: int,
+    max_rank_header: int,
+    ordering: "_PairOrdering",
+) -> Tuple[List[str], int]:
+    """The three identity conditions themselves; :func:`check_identity` owns
+    the ordering's lifetime around this."""
+    failures: List[str] = []
+    bitset_bytes = 0
+    counts, total, measured_max = _identity_counts(snapshots, n_forests_total, ordering)
+    if total == 0:
+        if n_forests_total != 0:
+            failures.append(
+                "dataset has no halos but n_forests_total is {}".format(n_forests_total)
+            )
+        return failures, bitset_bytes
+
+    ordered_path = ordering.finish()
+    if ordered_path is None:
+        stray_distinct, stray_lowest, stray_bad, stray_examples = 0, [], 0, []
+    else:
+        stray_distinct, stray_lowest, stray_bad, stray_examples = _scan_ordering(ordered_path)
+
+    distinct = int(np.count_nonzero(counts)) + stray_distinct
+    if stray_distinct or distinct != n_forests_total:
+        lowest = sorted(np.flatnonzero(counts)[:5].tolist() + stray_lowest)[:5]
+        failures.append(
+            "ForestIndex values are not dense over [0, {}); {} distinct value(s) observed, "
+            "examples: {}".format(n_forests_total, distinct, _examples(lowest))
+        )
+
+    forests = _ForestTable(n_forests_total, counts)
+    bits = _IdentityBits(int(counts.sum()))
+    try:
+        bitset_bytes = bits.peak_bytes
+        n_bad = stray_bad
+        # (ForestIndex, rank, expected) triples; expected is None for the
+        # in-range candidates until the bitset pass has finished and can be
+        # read back for the rank their forest does not hold
+        examples: List[Tuple[int, int, Optional[int]]] = list(stray_examples)
+        for snap in range(snapshots.n_snapshots):
+            for forest, rank in snapshots.chunks(
+                snap, ("ForestIndex", "HaloRankInForest"), IDENTITY_CHUNK_ROWS
+            ):
+                inside = np.nonzero((forest >= 0) & (forest < n_forests_total))[0]
+                if inside.size == 0:
+                    continue
+                group = forest[inside]
+                ranks = rank[inside]
+                held = (ranks >= 0) & (ranks < forests.counts[group])
+                claimed = np.nonzero(held)[0]
+                rejected = ~held
+                rejected[claimed[bits.claim(forests.bases[group[claimed]] + ranks[claimed])]] = True
+                bad_rows = np.nonzero(rejected)[0]
+                if bad_rows.size:
+                    n_bad += int(bad_rows.size)
+                    # keep only the five lowest (ForestIndex, rank) pairs
+                    # seen so far, so the example state is five triples,
+                    # not a list that grows with the violation count
+                    pick = bad_rows[np.lexsort((ranks[bad_rows], group[bad_rows]))[:5]]
+                    examples = sorted(
+                        examples
+                        + [
+                            (value, rank_value, None)
+                            for value, rank_value in zip(group[pick].tolist(), ranks[pick].tolist())
+                        ],
+                        key=lambda item: (item[0], item[1]),
+                    )[:5]
+        if n_bad:
+            detail = [
+                "(ForestIndex={}, rank={}, expected {})".format(
+                    value,
+                    rank_value,
+                    (
+                        unheld
+                        if unheld is not None
+                        else bits.first_unheld(
+                            int(forests.bases[value]), int(forests.counts[value])
+                        )
+                    ),
+                )
+                for value, rank_value, unheld in examples
+            ]
+            failures.append(
+                "{} (ForestIndex, HaloRankInForest) pair(s) violate per-forest density/"
+                "uniqueness; examples: {}".format(n_bad, ", ".join(detail))
+            )
+    finally:
+        bits.close()
+
+    if measured_max != max_rank_header:
+        failures.append(
+            "measured max HaloRankInForest {} != header max_halo_rank_in_forest {}".format(
+                measured_max, max_rank_header
+            )
+        )
+    return failures, bitset_bytes
 
 
 def check_header_bounds(n_forests_total: int, max_rank: int, multiplier: int) -> List[str]:

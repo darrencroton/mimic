@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import validate  # noqa: E402
+from ctrees_parser import ConverterError  # noqa: E402
 from hdf5_writer import CHUNK_1D, snapshot_h5_name, write_snapshot_file  # noqa: E402
 from test_hdf5_writer import make_written_workdir  # noqa: E402
 from validate import DEFAULT_MULTIPLIER, run_battery  # noqa: E402
@@ -1765,6 +1766,190 @@ class TestBoundedMemoryOnMalformedInput(unittest.TestCase):
             return tracemalloc.get_traced_memory()[1]
         finally:
             tracemalloc.stop()
+
+
+# ---------------------------------------------------------------------------
+# The ordering's accounting, lifetime and per-chunk cost (plan Slice 6)
+# ---------------------------------------------------------------------------
+
+
+def failing_rmtree(*_args, **_kwargs):
+    raise OSError(13, "Permission denied")
+
+
+class TestOrderingAccounting(unittest.TestCase):
+    """Nothing in the ordering may scale with the NUMBER OF RUNS — neither the
+    list of live runs nor the work done to account for their bytes."""
+
+    def setUp(self):
+        tiny_ordering_limits(self)
+
+    def _ordering_for(self, runs):
+        rows = runs * validate._ORDERING_RUN_ROWS
+        ordering = validate._PairOrdering()
+        ordering.add(-1 - np.arange(rows, dtype=np.int64), np.zeros(rows, dtype=np.int64))
+        return ordering
+
+    def test_live_runs_are_bounded_by_the_fan_in_not_the_run_count(self):
+        ordering = self._ordering_for(128)
+        try:
+            live = sum(len(level) for level in ordering._levels)
+            # 128 runs were written...
+            self.assertGreaterEqual(ordering._serial, 128)
+            # ...but a full level is merged away as it fills, so what is held
+            # is the fan-in times the level count, not the run count
+            self.assertLess(live, validate._ORDERING_FANIN * 4)
+        finally:
+            ordering.close()
+
+    def _stat_calls(self, runs):
+        calls = []
+        original = Path.stat
+
+        def counting(path, *args, **kwargs):
+            calls.append(path)
+            return original(path, *args, **kwargs)
+
+        with mock.patch.object(Path, "stat", counting):
+            ordering = self._ordering_for(runs)
+            try:
+                ordering.finish()
+            finally:
+                ordering.close()
+        return len(calls)
+
+    def test_disk_accounting_is_linear_in_the_number_of_runs(self):
+        small = self._stat_calls(64)
+        large = self._stat_calls(256)
+        # each run's bytes are charged when it is written and discharged when
+        # it is unlinked, so the accounting is O(1) per run
+        self.assertLess(small, 8 * 64 + 64)
+        self.assertLess(large, 8 * 256 + 64)
+        # a directory rescan after every spill would be R(R+1)/2 stats — 2,080
+        # for the small case and 32,896 for the large one — so this bound is
+        # what separates linear accounting from quadratic
+        self.assertLess(large, 4 * small + 512)
+
+    def test_reported_peak_matches_the_bytes_actually_written(self):
+        ordering = self._ordering_for(4)
+        try:
+            path = ordering.finish()
+            merged = sum(int(block.size) for block in validate._PairOrdering.blocks(path))
+            self.assertEqual(merged, ordering.rows)
+            # the merge holds its inputs and its output at once, so the peak is
+            # above the ordered file alone and below twice it
+            ordered_bytes = merged * validate._PAIR_DTYPE.itemsize
+            self.assertGreater(ordering.peak_bytes, ordered_bytes)
+            self.assertLessEqual(ordering.peak_bytes, 2 * ordered_bytes)
+        finally:
+            ordering.close()
+
+
+class TestOrderingCleanupFailure(unittest.TestCase):
+    """A removal that cannot be confirmed is reported, never swallowed — and
+    never at the cost of an exception already in flight."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+
+    def _stray_dataset(self, name="stray"):
+        directory = self.root / name
+        a_list_path = write_synthetic_dataset(directory, 2, 2)
+        for snap in range(2):
+            with h5py.File(directory / snapshot_h5_name(snap), "r+") as handle:
+                handle["halos"]["ForestIndex"][...] = np.asarray([0, -1], dtype=np.int64)
+        return directory, a_list_path
+
+    def test_close_reports_a_failed_removal_instead_of_swallowing_it(self):
+        ordering = validate._PairOrdering()
+        ordering.add(np.asarray([-1], dtype=np.int64), np.asarray([0], dtype=np.int64))
+        ordering.finish()
+        directory = ordering._directory
+        self.addCleanup(shutil.rmtree, str(directory), True)
+        with mock.patch.object(validate.shutil, "rmtree", failing_rmtree):
+            ordering.close()
+        # ownership is NOT released: the directory is still named, and the
+        # failure is available to the caller rather than lost
+        self.assertEqual(ordering.unremoved, directory)
+        self.assertTrue(directory.exists())
+        with self.assertRaises(ConverterError) as ctx:
+            ordering.raise_if_unremoved()
+        self.assertIn(str(directory), str(ctx.exception))
+        # a later close that succeeds clears it, on confirmed absence
+        ordering.close()
+        self.assertIsNone(ordering.unremoved)
+        self.assertFalse(directory.exists())
+        ordering.raise_if_unremoved()
+
+    def test_the_battery_surfaces_a_cleanup_failure(self):
+        directory, a_list_path = self._stray_dataset()
+        before = ordering_spill_directories()
+        with mock.patch.object(validate.shutil, "rmtree", failing_rmtree):
+            with self.assertRaises(ConverterError) as ctx:
+                run_battery(directory, a_list_path)
+        self.assertIn("could not be removed", str(ctx.exception))
+        for leftover in set(ordering_spill_directories()) - set(before):
+            shutil.rmtree(str(leftover), ignore_errors=True)
+
+    def test_a_cleanup_failure_does_not_replace_an_exception_in_flight(self):
+        directory, a_list_path = self._stray_dataset("in-flight")
+        before = ordering_spill_directories()
+
+        def explode(path):
+            raise RuntimeError("boom")
+
+        with mock.patch.object(validate, "_scan_ordering", explode):
+            with mock.patch.object(validate.shutil, "rmtree", failing_rmtree):
+                # the RuntimeError must survive: close() runs in a finally and
+                # must not raise a ConverterError over the top of it
+                with self.assertRaises(RuntimeError):
+                    run_battery(directory, a_list_path)
+        for leftover in set(ordering_spill_directories()) - set(before):
+            shutil.rmtree(str(leftover), ignore_errors=True)
+
+
+class TestIdentityChunkCost(unittest.TestCase):
+    """IDENTITY_CHUNK_BYTES_PER_ROW is a ceiling the identity passes claim to
+    stay within, so it is measured rather than asserted in a comment."""
+
+    class OneChunk:
+        """The smallest thing check_identity consumes: one full-size chunk of
+        conformant in-range identity data, regenerated per pass as a real
+        reader would."""
+
+        n_snapshots = 1
+
+        def __init__(self, rows, per_forest):
+            self.rows = int(rows)
+            self.per_forest = int(per_forest)
+
+        def chunks(self, snap, fields, chunk_rows):
+            index = np.arange(self.rows, dtype=np.int64)
+            yield index // self.per_forest, index % self.per_forest
+
+    def test_identity_chunk_cost_is_within_the_declared_bound(self):
+        rows = validate.IDENTITY_CHUNK_ROWS
+        per_forest = 1024
+        n_forests = rows // per_forest
+        source = self.OneChunk(rows, per_forest)
+        tracemalloc.start()
+        try:
+            tracemalloc.reset_peak()
+            base = tracemalloc.get_traced_memory()[0]
+            failures, bitset_bytes, ordering_bytes = validate.check_identity(
+                source, n_forests, per_forest - 1
+            )
+            peak = tracemalloc.get_traced_memory()[1]
+        finally:
+            tracemalloc.stop()
+        self.assertEqual(failures, [])
+        self.assertEqual(ordering_bytes, 0)
+        # everything the passes hold that is NOT per-chunk: the bitset and the
+        # two forest-count-sized tables
+        overhead = bitset_bytes + 2 * 8 * n_forests
+        self.assertLessEqual(peak - base - overhead, rows * validate.IDENTITY_CHUNK_BYTES_PER_ROW)
 
 
 if __name__ == "__main__":
