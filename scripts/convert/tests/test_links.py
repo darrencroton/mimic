@@ -926,6 +926,64 @@ class TestBoundedIdentityPass(Slice5Case):
         self.assertIn("could not remove the identity store", message)
         self.assertIn(str(directory), message)
 
+    def test_a_failed_removal_leaves_the_store_owned_and_a_retry_removes_it(self):
+        # weakref.finalize is one-shot and marks itself dead BEFORE it calls, so
+        # releasing ownership through it would hand a failed removal to nobody:
+        # no later close(), no destruction, no interpreter exit would retry it.
+        # Ownership must survive an attempt that did not confirm absence
+        directory = self.root / "retry"
+        directory.mkdir()
+        np.asarray([0], dtype=np.int64).tofile(directory / links.FOREST_INDEX_STORE_NAME)
+        identity = links.SnapshotIdentity(
+            directory, {3: (0, 1)}, peak_spill_bytes=0, store_bytes=16
+        )
+        with mock.patch.object(links.shutil, "rmtree"):  # removal does nothing
+            with mock.patch.object(links, "_log") as log:
+                identity.close()
+        self.assertTrue(directory.exists())
+        self.assertEqual(len(log.call_args_list), 1)
+        self.assertIn("could not remove the identity store", log.call_args_list[0].args[0])
+        # still owned...
+        self.assertTrue(identity._finalizer.alive)
+        # ...so the retry, whoever makes it, actually removes the bytes
+        with mock.patch.object(links, "_log") as log:
+            identity.close()
+        self.assertFalse(directory.exists())
+        self.assertFalse(identity._finalizer.alive)
+        log.assert_not_called()
+
+    def test_an_interrupted_removal_leaves_the_store_owned(self):
+        # the case a narrowed docstring could not have covered: an asynchronous
+        # exception inside the removal itself. It gets no warning (the helper
+        # deliberately does not catch BaseException), so if ownership were
+        # released first the store would be stranded in SILENCE
+        directory = self.root / "interrupted"
+        directory.mkdir()
+        identity = links.SnapshotIdentity(directory, {}, peak_spill_bytes=0, store_bytes=0)
+        with mock.patch.object(links.shutil, "rmtree", side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                identity.close()
+        self.assertTrue(directory.exists())
+        self.assertTrue(identity._finalizer.alive)
+        identity.close()
+        self.assertFalse(directory.exists())
+
+    def test_lifetime_release_retries_a_removal_close_could_not_make(self):
+        # the same guarantee reached the other way: close() failed, nobody calls
+        # it again, and the accessor becomes unreachable
+        workdir, _, _ = make_linked_workdir(self.root)
+        manifest = Manifest.load_or_create(workdir)
+        identity, _, _ = links.compute_identity(manifest)
+        directory = identity.directory
+        with mock.patch.object(links.shutil, "rmtree"):
+            with mock.patch.object(links, "_log"):
+                identity.close()
+        self.assertTrue(directory.exists())
+        del identity
+        gc.collect()
+        self.assertFalse(directory.exists())
+        self.assertEqual(self.identity_dirs(manifest), [])
+
     def test_close_is_silent_and_raises_nothing_when_removal_works(self):
         directory = self.root / "clean"
         directory.mkdir()

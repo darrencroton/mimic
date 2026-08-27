@@ -641,9 +641,13 @@ def _load_fixed(manifest: Manifest, snap: int) -> np.ndarray:
     return records
 
 
-def _remove_identity_store(directory: Path, store_bytes: Optional[int] = None) -> None:
+def _remove_identity_store(directory: Path, store_bytes: Optional[int] = None) -> bool:
     """Remove one identity store, reporting a removal that did not happen, and
     raising NOTHING whatever goes wrong.
+
+    Returns True only when the directory is CONFIRMED gone. That return value is
+    what lets ownership be released exactly when the bytes are, rather than when
+    an attempt was made — see :meth:`SnapshotIdentity.close`.
 
     Every phase of the store's ownership routes through here — the identity
     pass's own failure handler, :meth:`SnapshotIdentity.close`, and the
@@ -666,7 +670,7 @@ def _remove_identity_store(directory: Path, store_bytes: Optional[int] = None) -
     try:
         shutil.rmtree(directory, ignore_errors=True)
         if not directory.exists():
-            return
+            return True
         size = "{} byte(s)".format(store_bytes) if store_bytes is not None else "size unknown"
         _log(
             "links: WARNING — could not remove the identity store {} ({}); "
@@ -676,6 +680,9 @@ def _remove_identity_store(directory: Path, store_bytes: Optional[int] = None) -
         )
     except Exception:
         pass
+    # anything short of a confirmed absence — a removal that failed, a stat that
+    # failed, a report that failed — leaves the store still needing an owner
+    return False
 
 
 #: Snapshots the identity accessor keeps resident. Two, because the link stage
@@ -697,13 +704,22 @@ class SnapshotIdentity:
 
     The accessor owns its backing directory, and owns it from the instant it
     exists rather than from the instant a caller acquires it: :meth:`close`
-    removes it, the identity pass removes it on every failure path, and a
-    lifetime finalizer removes it if neither ever runs — so **from the moment
-    the directory exists there is no reachable path, normal, exceptional or
-    asynchronous, on which nothing owns it.** (The one exception is outside
-    Python's reach: a signal whose default disposition kills the process, such
-    as an un-handled SIGTERM or a SIGKILL, leaves the store for the operator,
-    as it leaves every other temporary file.) The reported byte counts are for the storage envelope
+    releases it deterministically, the identity pass removes it on every failure
+    path before this object exists, and a ``weakref.finalize`` registered in
+    ``__init__`` releases it if ``close`` is never called — or was called and
+    did not succeed. **From the moment the directory exists there is no
+    reachable in-process path, normal, exceptional or asynchronous, on which
+    nothing owns it.** What makes that true rather than nearly true is the
+    detach rule: ``weakref.finalize`` is ONE-SHOT and marks itself dead before
+    it calls the function, so ``close`` removes the store directly and detaches
+    the finalizer only once the directory is confirmed gone. A removal that
+    fails, or is interrupted part-way by an asynchronous exception, therefore
+    leaves the store still owned, and the next holder — a later ``close``,
+    object destruction, or interpreter exit — retries it and reports again if it
+    fails again. (The one exception is outside Python's reach: a signal whose
+    default disposition kills the process, such as an un-handled SIGTERM or a
+    SIGKILL, leaves the store for the operator, as it leaves every other
+    temporary file.) The reported byte counts are for the storage envelope
     (plan Slice 8): ``peak_spill_bytes`` is what the merge core held on disk at
     its high-water mark, ``store_bytes`` what the two identity arrays occupy.
     ``n_runs``, ``n_merge_passes`` and ``merge_records`` report what the budget
@@ -771,17 +787,27 @@ class SnapshotIdentity:
     def close(self) -> None:
         """Drop the resident arrays and remove the backing directory.
 
-        Never raises, deliberately: it runs on the way out of a FAILING link
-        stage as well as a successful one, and an unlink error must not mask the
-        failure that got the stage here. A removal that did not happen is
-        reported through the module's log rather than passed over in silence —
-        these are ``store_bytes`` that the storage envelope assumes are gone.
+        Raises no ordinary exception, deliberately: it runs on the way out of a
+        FAILING link stage as well as a successful one, and an unlink error must
+        not mask the failure that got the stage here. A removal that did not
+        happen is reported through the module's log rather than passed over in
+        silence — these are ``store_bytes`` that the storage envelope assumes
+        are gone — and the store keeps its owner so the attempt is retried.
+
+        Idempotent: a second call re-attempts nothing that already succeeded (an
+        absent directory confirms as gone) and logs nothing.
         """
         self._resident.clear()
-        # the finalizer, not a second removal: it runs its removal exactly once
-        # however it is reached, so close() is idempotent and a store cleaned up
-        # by lifetime is never reported twice
-        self._finalizer()
+        if _remove_identity_store(self.directory, self.store_bytes):
+            # Ownership is given up only once the bytes are CONFIRMED gone.
+            # ``weakref.finalize`` is one-shot and marks itself dead BEFORE it
+            # calls, so releasing through it — or detaching unconditionally —
+            # would hand a failed or interrupted removal to nobody: no later
+            # close(), no destruction and no interpreter exit would retry it.
+            # Leaving it alive is what keeps the chain unbroken, at the price of
+            # a second WARNING if the retry fails as well, which is a fact worth
+            # printing twice rather than losing.
+            self._finalizer.detach()
 
     def __enter__(self) -> "SnapshotIdentity":
         return self
