@@ -45,14 +45,24 @@ per-forest group boundaries — observed forest ids, ascending, and their halo
 counts — are returned in memory on the :class:`RankSortResult`, together with
 the peak spill bytes the run held on disk.
 
-**Memory.** ``budget_bytes`` bounds the records this module holds in its own
-sort and merge buffers: ``budget_records = budget_bytes // SPILL_RECORD_NBYTES``
-records, reported back as ``peak_resident_records`` so a caller can assert the
-bound rather than trust it. Two allocations sit outside that bound by
-construction and are stated here rather than hidden: the returned group
-boundaries are O(number of forests), not O(number of records), and the ranks
-backing store is a memory-mapped file whose resident pages are page cache the
-kernel may reclaim.
+**Memory.** ``budget_bytes`` bounds the working memory this module allocates,
+and it is bounded in *bytes* rather than in records because the working set is
+not made of records alone: a merge holds each record twice over (once in a run
+buffer, once in the ready block gathered out of those buffers) and the rank
+pass derives int64 and bool scratch from the ready block. Both per-record costs
+are counted, not estimated — see :data:`GEN_BYTES_PER_RECORD` and
+:data:`MERGE_BYTES_PER_RECORD` — and every allocation is reported to a meter
+whose high-water marks come back as ``peak_resident_bytes`` and
+``peak_resident_records``, so a caller can *assert* the bound rather than trust
+it. Run generation and merging do not overlap, so each phase gets the whole
+budget.
+
+Three allocations sit outside that bound by construction and are stated here
+rather than hidden: the returned group boundaries are O(number of forests), not
+O(number of records); the ranks backing store is a memory-mapped file whose
+resident pages are page cache the kernel may reclaim; and numpy's own sort
+scratch inside ``ndarray.sort`` is not visible to this module (it sorts in
+place, so it is small, but it is not zero).
 
 **Spill lifetime.** This module creates its spill files in a private directory
 of its own making and removes every one of them itself, on the success path
@@ -103,10 +113,31 @@ KEY_ARRAY_FIELDS = ("forest_id", "upid", "pid", "id")
 RANK_DTYPE = np.dtype("<i8")
 RANK_UNWRITTEN = -1
 
-#: A k-way merge needs one buffered record per run plus one output record, so
-#: two-way merging needs three; four is the smallest budget that leaves the
-#: arithmetic below non-degenerate.
-MIN_BUDGET_RECORDS = 4
+#: Working bytes per record during run generation: the spill record itself in
+#: the chunk being filled (48), plus one int64 of the position ramp the chunk is
+#: numbered from (8). The ramp is allocated once and reused, so this is the
+#: whole cost.
+GEN_BYTES_PER_RECORD = SPILL_RECORD_NBYTES + 8
+
+#: Working bytes per record of scratch the rank pass derives from one merged
+#: block: a bool mask (1) and, in the worst case of one forest per record, six
+#: int64 arrays (48) — group ids, ranks, group starts, group counts, the
+#: gathered starts, and the contiguous index copy numpy makes to scatter into
+#: the memory-mapped store. Reserved at the worst case before the first of them
+#: is allocated, so the meter never reports less than is held.
+SCRATCH_BYTES_PER_RECORD = 1 + 6 * 8
+
+#: Working bytes per record of a merge's buffered working set: the record in a
+#: run buffer (48), the same record again in the ready block gathered out of
+#: those buffers (48), and the rank pass's scratch (49). The merge holds no
+#: other record-sized allocation — the boundary key is a VIEW into the buffer
+#: that supplied it, never a copy.
+MERGE_BYTES_PER_RECORD = 2 * SPILL_RECORD_NBYTES + SCRATCH_BYTES_PER_RECORD
+
+#: A k-way merge needs at least one buffered record per run, so two-way merging
+#: — the narrowest useful merge — needs two.
+MIN_MERGE_RECORDS = 2
+MIN_BUDGET_BYTES = MIN_MERGE_RECORDS * MERGE_BYTES_PER_RECORD
 
 #: Upper bound on merge fan-in. Two independent limits meet here: every merged
 #: run holds an open file descriptor (macOS's default soft NOFILE is 256), and
@@ -115,6 +146,11 @@ MIN_BUDGET_RECORDS = 4
 #: one resident record. Exceeding it costs merge passes, never correctness.
 MAX_MERGE_FANIN = 512
 _RESERVED_FDS = 32
+
+#: Modulus for the verification's second moment. A Mersenne prime below 2**31,
+#: so a reduced rank squares inside int64 (< 2**62) and a block of reduced
+#: squares sums inside int64 for any block this module reads.
+_MOMENT_MODULUS = 2**31 - 1
 
 
 class RankSortError(RuntimeError):
@@ -140,9 +176,14 @@ class RankSortResult:
 
     ``peak_spill_bytes`` is the high-water mark of live spill bytes on disk, and
     ``ranks_bytes`` the size of the backing store, for the pass's storage
-    envelope. ``peak_resident_records`` is the high-water mark of records held
-    in this module's sort and merge buffers; it is bounded by
-    ``budget_records``.
+    envelope.
+
+    ``peak_resident_bytes`` and ``peak_resident_records`` are measured
+    high-water marks of the working memory and the record buffers this module
+    held; the first is bounded by ``budget_bytes`` and the second by
+    ``budget_records``. ``run_records`` is how many records one generated run
+    holds and ``merge_records`` how many a merge buffers at once — both derived
+    from the budget, and reported so a caller can see what a budget bought.
     """
 
     total_records: int
@@ -153,8 +194,12 @@ class RankSortResult:
     ranks_path: str
     ranks_bytes: int
     peak_spill_bytes: int
+    peak_resident_bytes: int
     peak_resident_records: int
+    budget_bytes: int
     budget_records: int
+    run_records: int
+    merge_records: int
     n_runs: int
     n_merge_passes: int
     merge_fanin: int
@@ -201,29 +246,31 @@ def rank_forests(
     under ``spill_dir`` (default: the ranks file's own directory) and are
     removed before this call returns, whether it returns or raises.
     """
-    budget_records = int(budget_bytes) // SPILL_RECORD_NBYTES
-    if budget_records < MIN_BUDGET_RECORDS:
+    budget_bytes = int(budget_bytes)
+    if budget_bytes < MIN_BUDGET_BYTES:
         raise RankSortError(
-            "memory budget of {} byte(s) allows {} resident record(s) of {} bytes; the merge "
-            "needs at least {}".format(
-                budget_bytes, budget_records, SPILL_RECORD_NBYTES, MIN_BUDGET_RECORDS
+            "memory budget of {} byte(s) is below the {} a two-way merge needs ({} record(s) at "
+            "{} B/record of working set)".format(
+                budget_bytes, MIN_BUDGET_BYTES, MIN_MERGE_RECORDS, MERGE_BYTES_PER_RECORD
             )
         )
+    run_records = max(1, budget_bytes // GEN_BYTES_PER_RECORD)
+    merge_records = max(MIN_MERGE_RECORDS, budget_bytes // MERGE_BYTES_PER_RECORD)
     ranks_path = Path(ranks_path)
     spill_root = Path(spill_dir) if spill_dir is not None else ranks_path.parent
     spills = _Spills(tempfile.mkdtemp(prefix="rank_spill_", dir=str(spill_root)))
     residency = _Residency()
     ranks_created = False
     try:
-        runs, total = _generate_runs(blocks, spills, budget_records, residency)
+        runs, total = _generate_runs(blocks, spills, run_records, residency)
         n_runs = len(runs)
-        fanin_cap = _fanin_cap(budget_records)
-        runs, n_passes = _reduce_runs(runs, spills, fanin_cap, budget_records, residency)
+        fanin_cap = _fanin_cap(merge_records)
+        runs, n_passes = _reduce_runs(runs, spills, fanin_cap, merge_records, residency)
         ranks_created = True
         forest_ids, forest_counts, max_rank = _assign_ranks(
-            runs, ranks_path, total, budget_records, residency
+            runs, ranks_path, total, merge_records, residency
         )
-        _verify_ranks(ranks_path, total, forest_counts, max_rank, budget_records, residency)
+        _verify_ranks(ranks_path, total, forest_counts, max_rank, budget_bytes, residency)
         return RankSortResult(
             total_records=total,
             n_forests=int(forest_ids.size),
@@ -233,8 +280,12 @@ def rank_forests(
             ranks_path=str(ranks_path),
             ranks_bytes=total * RANK_DTYPE.itemsize,
             peak_spill_bytes=spills.peak_bytes,
-            peak_resident_records=residency.peak,
-            budget_records=budget_records,
+            peak_resident_bytes=residency.peak_bytes,
+            peak_resident_records=residency.peak_records,
+            budget_bytes=budget_bytes,
+            budget_records=budget_bytes // SPILL_RECORD_NBYTES,
+            run_records=run_records,
+            merge_records=merge_records,
             n_runs=n_runs,
             n_merge_passes=n_passes,
             merge_fanin=len(runs),
@@ -258,26 +309,53 @@ def rank_forests(
 
 
 class _Residency:
-    """Records held in this module's own buffers, and their high-water mark.
+    """Working memory this module holds, and its high-water marks.
 
-    Every buffer allocation and release is reported here rather than inferred,
-    so ``peak_resident_records`` is a measurement of what the core held, not an
-    argument about what it should have held.
+    Every allocation is reported here — record buffers in both bytes and
+    records, derived int64/bool scratch in bytes — so ``peak_bytes`` is a
+    measurement of what the core held rather than an argument about what it
+    should have held. An instrument that only ever counts the buffers that were
+    *sized* from the budget cannot reveal an overrun, which is the whole reason
+    the scratch is counted too.
     """
 
     def __init__(self) -> None:
-        self.current = 0
-        self.peak = 0
+        self.bytes_current = 0
+        self.bytes_peak = 0
+        self.records_current = 0
+        self.records_peak = 0
 
-    def acquire(self, n_records: int) -> None:
-        self.current += int(n_records)
-        if self.current > self.peak:
-            self.peak = self.current
+    def acquire(self, nbytes: int, records: int = 0) -> None:
+        self.bytes_current += int(nbytes)
+        self.records_current += int(records)
+        if self.bytes_current > self.bytes_peak:
+            self.bytes_peak = self.bytes_current
+        if self.records_current > self.records_peak:
+            self.records_peak = self.records_current
 
-    def release(self, n_records: int) -> None:
-        self.current -= int(n_records)
-        if self.current < 0:  # pragma: no cover - internal accounting bug
-            raise RankSortError("residency accounting went negative ({})".format(self.current))
+    def acquire_records(self, records: int) -> None:
+        self.acquire(int(records) * SPILL_RECORD_NBYTES, int(records))
+
+    def release(self, nbytes: int, records: int = 0) -> None:
+        self.bytes_current -= int(nbytes)
+        self.records_current -= int(records)
+        if self.bytes_current < 0 or self.records_current < 0:  # pragma: no cover
+            raise RankSortError(
+                "residency accounting went negative ({} byte(s), {} record(s))".format(
+                    self.bytes_current, self.records_current
+                )
+            )
+
+    def release_records(self, records: int) -> None:
+        self.release(int(records) * SPILL_RECORD_NBYTES, int(records))
+
+    @property
+    def peak_bytes(self) -> int:
+        return self.bytes_peak
+
+    @property
+    def peak_records(self) -> int:
+        return self.records_peak
 
 
 # --------------------------------------------------------------------------
@@ -389,7 +467,7 @@ class _RunReader:
     def refill(self, residency: _Residency) -> bool:
         """Drop the current block and load the next. False once the run is
         exhausted, at which point its CRC32 must match what was written."""
-        residency.release(self.buf.size)
+        residency.release_records(self.buf.size)
         self.buf = np.empty(0, dtype=SPILL_DTYPE)
         self.offset = 0
         if self.remaining <= 0:
@@ -412,11 +490,11 @@ class _RunReader:
         self.crc = zlib.crc32(block.data, self.crc)
         self.remaining -= count
         self.buf = block
-        residency.acquire(block.size)
+        residency.acquire_records(block.size)
         return True
 
     def close(self, residency: _Residency) -> None:
-        residency.release(self.buf.size)
+        residency.release_records(self.buf.size)
         self.buf = np.empty(0, dtype=SPILL_DTYPE)
         self.handle.close()
 
@@ -450,8 +528,16 @@ def _validate_block(snap, records, index: int) -> int:
             "block {}: snap must be an integer, got {!r}".format(index, type(snap).__name__)
         )
     snap = int(snap)
+    # int64.min is excluded DELIBERATELY, and the bound is strict for a reason:
+    # the key stores -snap, and -(-2**63) is not representable as int64, so
+    # admitting it would wrap silently and sort that snapshot to the wrong end.
     if not np.iinfo(np.int64).min < snap <= np.iinfo(np.int64).max:
-        raise RankSortError("block {}: snap {} is not representable as int64".format(index, snap))
+        raise RankSortError(
+            "block {}: snap {} is outside the int64 range this key can negate — the key stores "
+            "-snap, so {} is excluded as well as anything beyond int64".format(
+                index, snap, np.iinfo(np.int64).min
+            )
+        )
     if not isinstance(records, np.ndarray) or records.dtype.names is None:
         raise RankSortError(
             "block {}: records must be a numpy structured array, got {!r}".format(
@@ -470,7 +556,10 @@ def _validate_block(snap, records, index: int) -> int:
                 )
             )
         dtype = records.dtype.fields[field][0]
-        if dtype != RANK_DTYPE:
+        # compare on INTENT (signed, 8 bytes), not on the store dtype: a
+        # genuinely-int64 array that happens to be big-endian is a valid input
+        # and numpy converts it on the copy into SPILL_DTYPE
+        if dtype.kind != "i" or dtype.itemsize != 8:
             raise RankSortError(
                 "block {}: key field {!r} has dtype {} — every key field must be int64 and is "
                 "never coerced".format(index, field, dtype.str)
@@ -481,17 +570,20 @@ def _validate_block(snap, records, index: int) -> int:
 def _generate_runs(
     blocks: Iterable[Tuple[int, np.ndarray]],
     spills: _Spills,
-    budget_records: int,
+    run_records: int,
     residency: _Residency,
 ) -> Tuple[List[_Run], int]:
     """Fill one budget-sized chunk at a time, sort it, spill it as a run.
 
-    The chunk is allocated once and reused, so run generation holds exactly
-    ``budget_records`` records however many blocks arrive and however large
-    each one is: a caller block wider than the budget is split across runs.
+    The chunk and the position ramp it is numbered from are allocated once and
+    reused, so run generation holds exactly ``run_records`` records however many
+    blocks arrive and however large each one is: a caller block wider than the
+    chunk is split across runs.
     """
-    chunk = np.empty(budget_records, dtype=SPILL_DTYPE)
-    residency.acquire(budget_records)
+    chunk = np.empty(run_records, dtype=SPILL_DTYPE)
+    ramp = np.arange(run_records, dtype=np.int64)
+    residency.acquire_records(run_records)
+    residency.acquire(run_records * 8)
     try:
         runs: List[_Run] = []
         filled = 0
@@ -502,11 +594,11 @@ def _generate_runs(
             count = int(records.size)
             taken = 0
             while taken < count:
-                take = min(count - taken, budget_records - filled)
-                _copy_keys(chunk, filled, records, taken, take, snap, position + taken)
+                take = min(count - taken, run_records - filled)
+                _copy_keys(chunk, ramp, filled, records, taken, take, snap, position + taken)
                 filled += take
                 taken += take
-                if filled == budget_records:
+                if filled == run_records:
                     runs.append(_spill_run(chunk[:filled], spills))
                     filled = 0
             position += count
@@ -514,11 +606,13 @@ def _generate_runs(
             runs.append(_spill_run(chunk[:filled], spills))
         return runs, position
     finally:
-        residency.release(budget_records)
+        residency.release(run_records * 8)
+        residency.release_records(run_records)
 
 
 def _copy_keys(
     chunk: np.ndarray,
+    ramp: np.ndarray,
     at: int,
     records: np.ndarray,
     src: int,
@@ -526,7 +620,11 @@ def _copy_keys(
     snap: int,
     position: int,
 ) -> None:
-    """Copy one caller block's keys into the chunk, in spill layout."""
+    """Copy one caller block's keys into the chunk, in spill layout.
+
+    The position column is written from the preallocated ramp and shifted in
+    place, so numbering a chunk allocates nothing.
+    """
     target = chunk[at : at + count]
     source = records[src : src + count]
     target["forest_id"] = source["forest_id"]
@@ -534,7 +632,8 @@ def _copy_keys(
     target["upid"] = source["upid"]
     target["pid"] = source["pid"]
     target["id"] = source["id"]
-    target["position"] = np.arange(position, position + count, dtype=np.int64)
+    target["position"] = ramp[:count]
+    target["position"] += position
 
 
 def _spill_run(records: np.ndarray, spills: _Spills) -> _Run:
@@ -554,7 +653,7 @@ def _spill_run(records: np.ndarray, spills: _Spills) -> _Run:
 # --------------------------------------------------------------------------
 
 
-def _fanin_cap(budget_records: int) -> int:
+def _fanin_cap(merge_records: int) -> int:
     """Largest number of runs one merge pass may consume."""
     try:
         import resource
@@ -563,25 +662,57 @@ def _fanin_cap(budget_records: int) -> int:
         by_files = MAX_MERGE_FANIN if soft <= 0 else int(soft) - _RESERVED_FDS
     except (ImportError, OSError, ValueError):  # pragma: no cover - platform fallback
         by_files = MAX_MERGE_FANIN
-    # each run needs at least one resident record, and so does the output
-    by_budget = budget_records // 2
-    return max(2, min(MAX_MERGE_FANIN, by_files, by_budget))
+    # each run needs at least one buffered record, so the fan-in can never
+    # exceed the records the budget lets a merge buffer at once
+    return max(2, min(MAX_MERGE_FANIN, by_files, merge_records))
 
 
-def _block_records(budget_records: int, fanin: int) -> int:
+def _block_records(merge_records: int, fanin: int) -> int:
     """Records buffered per run in a merge of ``fanin`` runs.
 
-    A merge holds one buffer per run plus the ready set it gathers out of those
-    buffers before sorting it, so the budget is halved before it is divided.
+    ``MERGE_BYTES_PER_RECORD`` already charges each buffered record for its
+    second copy in the ready block and for the rank pass's scratch, so the
+    buffered working set is divided by the fan-in alone.
     """
-    return max(1, budget_records // (2 * fanin))
+    return max(1, merge_records // fanin)
+
+
+def _key_at(buf: np.ndarray, index: int) -> Tuple[int, ...]:
+    """One record's full six-field key as a tuple of Python ints.
+
+    numpy has no ``minimum`` loop for a void dtype, so the smallest of the
+    buffered ceilings is found by comparing tuples; the boundary itself is then
+    taken as a VIEW into the buffer that supplied it, so choosing it allocates
+    no records.
+    """
+    return tuple(int(buf[name][index]) for name in SPILL_DTYPE.names)
+
+
+def _lowest_ceiling(live: Sequence["_RunReader"]) -> np.ndarray:
+    """The smallest of the buffered runs' last keys, as a one-record VIEW.
+
+    Every buffered run's last key is a ceiling on what that run can still
+    deliver from disk, so the smallest of them bounds the merged prefix that is
+    already complete. The result is a view into the buffer that supplied it,
+    never a copy: a merge iteration must not allocate records outside the
+    buffers the budget sized, and an allocation this module does not make is
+    the only kind its residency meter cannot catch.
+    """
+    lowest = None
+    lowest_key = None
+    for reader in live:
+        key = _key_at(reader.buf, reader.buf.size - 1)
+        if lowest_key is None or key < lowest_key:
+            lowest_key = key
+            lowest = reader
+    return lowest.buf[-1:]
 
 
 def _reduce_runs(
     runs: List[_Run],
     spills: _Spills,
     fanin_cap: int,
-    budget_records: int,
+    merge_records: int,
     residency: _Residency,
 ) -> Tuple[List[_Run], int]:
     """Merge runs until few enough remain for one final pass to consume.
@@ -600,7 +731,7 @@ def _reduce_runs(
                 continue
             writer = _RunWriter(spills, "merge")
             try:
-                merged_blocks = _merge_runs(group, budget_records, residency)
+                merged_blocks = _merge_runs(group, merge_records, residency)
                 with contextlib.closing(merged_blocks):
                     for block in merged_blocks:
                         writer.write(block)
@@ -616,19 +747,18 @@ def _reduce_runs(
 
 
 def _merge_runs(
-    runs: Sequence[_Run], budget_records: int, residency: _Residency
+    runs: Sequence[_Run], merge_records: int, residency: _Residency
 ) -> Iterator[np.ndarray]:
     """Yield the records of ``runs`` in global key order, in bounded blocks.
 
-    Block-wise k-way merge. Every buffered run's last key is a ceiling on what
-    that run can still deliver from disk, so the smallest of those ceilings is
-    a boundary below which the buffered records are already the complete
-    prefix of the merged order: gather everything at or below it, sort the
-    gathered set, emit. The run that set the boundary is drained entirely each
-    iteration, which is what guarantees progress.
+    Block-wise k-way merge around :func:`_lowest_ceiling`: everything buffered
+    at or below that boundary is already the complete prefix of the merged
+    order, so gather it, sort the gathered set, emit. The run that set the
+    boundary is drained entirely each iteration, which is what guarantees
+    progress.
     """
     fanin = len(runs)
-    block_records = _block_records(budget_records, fanin)
+    block_records = _block_records(merge_records, fanin)
     readers: List[_RunReader] = []
     try:
         # opened inside the try so a failure part-way through still closes the
@@ -636,11 +766,8 @@ def _merge_runs(
         for run in runs:
             readers.append(_open_run_reader(run, block_records))
         live = [reader for reader in readers if reader.refill(residency)]
-        maxima = np.empty(max(1, fanin), dtype=SPILL_DTYPE)
         while live:
-            for slot, reader in enumerate(live):
-                maxima[slot] = reader.buf[-1]
-            boundary = np.sort(maxima[: len(live)])[0:1]
+            boundary = _lowest_ceiling(live)
             ready = []
             for reader in live:
                 tail = reader.buf[reader.offset :]
@@ -649,12 +776,12 @@ def _merge_runs(
                     ready.append(reader.buf[reader.offset : reader.offset + count])
                     reader.offset += count
             block = np.concatenate(ready)
-            residency.acquire(block.size)
+            residency.acquire_records(block.size)
             try:
                 block.sort()
                 yield block
             finally:
-                residency.release(block.size)
+                residency.release_records(block.size)
             live = _advance(live, residency)
     finally:
         for reader in readers:
@@ -722,7 +849,7 @@ def _assign_ranks(
     runs: Sequence[_Run],
     ranks_path: Path,
     total: int,
-    budget_records: int,
+    merge_records: int,
     residency: _Residency,
 ) -> Tuple[np.ndarray, np.ndarray, int]:
     """One streaming pass over the merged key order, writing each record's
@@ -740,28 +867,38 @@ def _assign_ranks(
         # was assigned exactly once, rather than argue that it must have been
         ranks_mm[:] = RANK_UNWRITTEN
         current_forest = None
-        merged_blocks = _merge_runs(runs, budget_records, residency)
+        merged_blocks = _merge_runs(runs, merge_records, residency)
         with contextlib.closing(merged_blocks):
             for block in merged_blocks:
-                forest = block["forest_id"]
-                size = int(forest.size)
-                opens = np.empty(size, dtype=bool)
-                opens[0] = True
-                np.not_equal(forest[1:], forest[:-1], out=opens[1:])
-                starts = np.nonzero(opens)[0]
-                counts = np.diff(starts, append=size)
-                ranks = np.arange(size, dtype=np.int64)
-                ranks -= starts[np.cumsum(opens) - 1]
-                if current_forest is not None and int(forest[0]) == current_forest:
-                    # the block boundary fell inside a forest: continue its numbering
-                    ranks[: int(counts[0])] += forests.last_count()
-                    forests.add_to_last(int(counts[0]))
-                    forests.extend(forest[starts[1:]], counts[1:])
-                else:
-                    forests.extend(forest[starts], counts)
-                ranks_mm[block["position"]] = ranks
-                current_forest = int(forest[-1])
-                written += size
+                size = int(block.size)
+                # reserved at the worst case BEFORE the first scratch array is
+                # allocated, so the meter never reports less than is held
+                scratch = size * SCRATCH_BYTES_PER_RECORD
+                residency.acquire(scratch)
+                try:
+                    forest = block["forest_id"]
+                    opens = np.empty(size, dtype=bool)
+                    opens[0] = True
+                    np.not_equal(forest[1:], forest[:-1], out=opens[1:])
+                    starts = np.nonzero(opens)[0]
+                    counts = np.diff(starts, append=size)
+                    group_id = np.cumsum(opens)
+                    group_id -= 1
+                    ranks = np.arange(size, dtype=np.int64)
+                    ranks -= starts[group_id]
+                    if current_forest is not None and int(forest[0]) == current_forest:
+                        # the block boundary fell inside a forest: continue its
+                        # numbering
+                        ranks[: int(counts[0])] += forests.last_count()
+                        forests.add_to_last(int(counts[0]))
+                        forests.extend(forest[starts[1:]], counts[1:])
+                    else:
+                        forests.extend(forest[starts], counts)
+                    ranks_mm[block["position"]] = ranks
+                    current_forest = int(forest[-1])
+                    written += size
+                finally:
+                    residency.release(scratch)
     finally:
         ranks_mm.flush()
         del ranks_mm
@@ -778,20 +915,52 @@ def _assign_ranks(
     return forest_ids, forest_counts, int(forest_counts.max()) - 1
 
 
+def _dense_moments(forest_counts: np.ndarray) -> Tuple[int, int]:
+    """The rank sum and modular sum of squares a dense store must have.
+
+    For a forest of ``c`` halos the dense ranks are ``0 .. c-1``, so they
+    contribute ``c(c-1)/2`` and ``(c-1)c(2c-1)/6``. Both are accumulated as
+    Python ints: at production a single squared rank (~1.6e20) already exceeds
+    int64, so the second moment is only reduced modulo a prime once it is
+    exact.
+    """
+    total = 0
+    squares = 0
+    for value in forest_counts:
+        count = int(value)
+        total += count * (count - 1) // 2
+        squares += (count - 1) * count * (2 * count - 1) // 6
+    return total, squares % _MOMENT_MODULUS
+
+
 def _verify_ranks(
     ranks_path: Path,
     total: int,
     forest_counts: np.ndarray,
     max_rank: int,
-    budget_records: int,
+    budget_bytes: int,
     residency: _Residency,
 ) -> None:
     """Re-read the backing store and check it against the group boundaries.
 
-    The two outputs are derived by different means — the ranks were scattered
-    to disk by global position, the counts accumulated in merged order — so
-    checking one against the other is a real end-to-end verification, not a
-    restatement. No spill file is removed until this passes.
+    The ranks were scattered to disk by global position and the counts were
+    accumulated in merged order, so checking one against the other is a real
+    end-to-end check on two independently derived things, not a restatement of
+    one of them.
+
+    **What it proves, exactly.** The store is the right length, no position was
+    left unwritten, and the ranks' count, largest value, sum and (modular) sum
+    of squares are those of a store that is dense ``0 .. count-1`` within every
+    forest. That is a corruption and partial-write guard strong enough to
+    reject a mis-scattered store — the sum alone is not, since e.g. counts
+    ``[3, 2]`` admit ``[0, 2, 2, 0, 0]`` as readily as the dense
+    ``[0, 1, 2, 0, 1]``, and the second moment is what separates them. **It is
+    still four aggregates, not a proof of density**: a corruption contrived to
+    preserve all four would pass. Density itself rests on how ``_assign_ranks``
+    constructs the ranks, and on the oracle-equality and per-forest density
+    tests in ``tests/test_rank_sort.py``.
+
+    No spill file is removed until this passes.
     """
     expected_bytes = total * RANK_DTYPE.itemsize
     actual_bytes = os.path.getsize(str(ranks_path))
@@ -803,16 +972,18 @@ def _verify_ranks(
         )
     if total == 0:
         return
-    expected_sum = sum(int(c) * (int(c) - 1) // 2 for c in forest_counts)
     expected_total = int(np.sum(forest_counts))
     if expected_total != total:
         raise RankSortError(
             "per-forest counts sum to {} but {} record(s) were ranked".format(expected_total, total)
         )
-    # cap the read block so a block's rank sum cannot overflow int64 whatever
-    # the forest sizes are; the running total is a Python int and cannot
-    block = max(1, min(budget_records, 2**62 // (max_rank + 1)))
+    expected_sum, expected_squares = _dense_moments(forest_counts)
+    # cap the read block twice over: by the memory budget, and so that a
+    # block's rank sum cannot overflow int64 whatever the forest sizes are.
+    # The running totals are Python ints and cannot overflow at all.
+    block = max(1, min(budget_bytes // RANK_DTYPE.itemsize, 2**62 // (max_rank + 1)))
     observed_sum = 0
+    observed_squares = 0
     observed_max = -1
     seen = 0
     with open(str(ranks_path), "rb") as handle:
@@ -820,7 +991,7 @@ def _verify_ranks(
             chunk = np.fromfile(handle, dtype=RANK_DTYPE, count=block)
             if chunk.size == 0:
                 break
-            residency.acquire(chunk.size)
+            residency.acquire(chunk.nbytes)
             try:
                 if bool(np.any(chunk == RANK_UNWRITTEN)):
                     raise RankSortError(
@@ -830,9 +1001,14 @@ def _verify_ranks(
                     )
                 observed_sum += int(np.sum(chunk))
                 observed_max = max(observed_max, int(chunk.max()))
+                reduced = chunk % _MOMENT_MODULUS
+                reduced *= reduced
+                reduced %= _MOMENT_MODULUS
+                observed_squares += int(np.sum(reduced))
                 seen += int(chunk.size)
             finally:
-                residency.release(chunk.size)
+                residency.release(chunk.nbytes)
+    observed_squares %= _MOMENT_MODULUS
     if seen != total:
         raise RankSortError("{}: read back {} of {} rank(s)".format(ranks_path, seen, total))
     if observed_max != max_rank:
@@ -845,5 +1021,12 @@ def _verify_ranks(
         raise RankSortError(
             "{}: ranks sum to {}, but dense ranks over the per-forest counts require {}".format(
                 ranks_path, observed_sum, expected_sum
+            )
+        )
+    if observed_squares != expected_squares:
+        raise RankSortError(
+            "{}: ranks are not dense within every forest — their squares sum to {} (mod {}), but "
+            "dense ranks over the per-forest counts require {}".format(
+                ranks_path, observed_squares, _MOMENT_MODULUS, expected_squares
             )
         )
