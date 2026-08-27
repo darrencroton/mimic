@@ -1461,22 +1461,24 @@ class TestIdentityStructure(unittest.TestCase):
 
     def test_structure_is_bit_packed_and_reported(self):
         made = self._tracked()
-        failures, peak_bytes = validate.check_identity(self.snapshots, 8, 2)
+        failures, peak_bytes, ordering_bytes = validate.check_identity(self.snapshots, 8, 2)
         self.assertEqual(failures, [])
         self.assertEqual(len(made), 1)
         self.assertEqual(peak_bytes, (3 * 8 + 7) // 8)
         self.assertEqual(peak_bytes, made[0].peak_bytes)
+        # a conformant dataset spills nothing at all
+        self.assertEqual(ordering_bytes, 0)
 
     def test_structure_released_on_success(self):
         made = self._tracked()
-        failures, _ = validate.check_identity(self.snapshots, 8, 2)
+        failures, _, _ = validate.check_identity(self.snapshots, 8, 2)
         self.assertEqual(failures, [])
         self.assertIsNone(made[0].bits)
 
     def test_structure_released_on_failure(self):
         made = self._tracked()
         # a wrong header max rank makes the check FAIL after the bitset pass
-        failures, _ = validate.check_identity(self.snapshots, 8, 99)
+        failures, _, _ = validate.check_identity(self.snapshots, 8, 99)
         self.assertTrue(failures)
         self.assertIsNone(made[0].bits)
 
@@ -1528,6 +1530,241 @@ class TestIdentityStructure(unittest.TestCase):
         self.assertEqual(outcomes["identity"].status, "FAIL", detail)
         self.assertIn("not dense over [0, 2)", detail)
         self.assertNotIn("density/uniqueness", detail)
+
+
+# ---------------------------------------------------------------------------
+# Out-of-range ForestIndex: the external ordering (plan Slice 6)
+# ---------------------------------------------------------------------------
+
+
+def write_stray_forest_dataset(directory, n_snapshots: int, n_forests: int) -> Path:
+    """A structurally conformant dataset in which EVERY halo carries a
+    DISTINCT out-of-range ForestIndex.
+
+    The structural checks validate dtype, shape and chunks, not range, so this
+    reaches the semantic checks on the ordinary CLI path. It is the input shape
+    that makes any per-value table grow with the dataset: the number of
+    distinct out-of-range values here is the halo count.
+    """
+    a_list_path = write_synthetic_dataset(directory, n_snapshots, n_forests)
+    for snap in range(n_snapshots):
+        with h5py.File(Path(directory) / snapshot_h5_name(snap), "r+") as handle:
+            first = -1 - snap * n_forests
+            handle["halos"]["ForestIndex"][...] = first - np.arange(n_forests, dtype=np.int64)
+    return a_list_path
+
+
+def tiny_ordering_limits(case):
+    """Shrink the ordering's buffers so a small dataset still spills many runs
+    and merges them over several bounded rounds — the fan-in, and with it the
+    number of concurrent read buffers, is what must stay constant."""
+    for name, value in (
+        ("_ORDERING_RUN_ROWS", 512),
+        ("_ORDERING_READ_ROWS", 512),
+        ("_ORDERING_MERGE_ROWS", 256),
+        ("_ORDERING_MERGE_READ_ROWS", 128),
+    ):
+        patcher = mock.patch.object(validate, name, value)
+        patcher.start()
+        case.addCleanup(patcher.stop)
+
+
+def ordering_spill_directories():
+    return sorted(
+        path
+        for path in Path(tempfile.gettempdir()).glob(validate.ORDERING_DIR_PREFIX + "*")
+        if path.is_dir()
+    )
+
+
+class TestPairOrdering(unittest.TestCase):
+    """The external ordering must be an exact sort, not an approximation, and
+    must clean up after itself."""
+
+    def setUp(self):
+        tiny_ordering_limits(self)
+
+    def test_merged_output_equals_an_in_memory_sort(self):
+        rng = np.random.default_rng(20260827)
+        forest = rng.integers(-500, 500, size=7777, dtype=np.int64)
+        rank = rng.integers(-3, 40, size=7777, dtype=np.int64)
+        ordering = validate._PairOrdering()
+        try:
+            for start in range(0, forest.size, 333):
+                ordering.add(forest[start : start + 333], rank[start : start + 333])
+            path = ordering.finish()
+            merged = np.concatenate(list(validate._PairOrdering.blocks(path)))
+            expected = np.empty(forest.size, dtype=validate._PAIR_DTYPE)
+            expected["forest"] = forest
+            expected["rank"] = rank
+            expected.sort(order=("forest", "rank"))
+            self.assertEqual(merged.size, expected.size)
+            self.assertTrue(np.array_equal(merged["forest"], expected["forest"]))
+            self.assertTrue(np.array_equal(merged["rank"], expected["rank"]))
+            # the run size above forces several bounded merge rounds
+            self.assertGreater(ordering.peak_bytes, 0)
+        finally:
+            ordering.close()
+
+    def test_nothing_is_spilled_when_no_pair_is_added(self):
+        before = ordering_spill_directories()
+        ordering = validate._PairOrdering()
+        try:
+            self.assertIsNone(ordering.finish())
+            self.assertEqual(ordering.peak_bytes, 0)
+            self.assertEqual(ordering_spill_directories(), before)
+        finally:
+            ordering.close()
+
+    def test_close_removes_the_spill_directory(self):
+        before = ordering_spill_directories()
+        ordering = validate._PairOrdering()
+        ordering.add(np.arange(-2000, 0, dtype=np.int64), np.zeros(2000, dtype=np.int64))
+        ordering.finish()
+        self.assertNotEqual(ordering_spill_directories(), before)
+        ordering.close()
+        self.assertEqual(ordering_spill_directories(), before)
+        # and calling it twice is safe
+        ordering.close()
+        self.assertEqual(ordering_spill_directories(), before)
+
+
+class TestStrayForestIndex(unittest.TestCase):
+    """ForestIndex values outside [0, n_forests_total) keep the whole-dataset
+    battery's semantics — their own group per distinct value, judged dense on
+    its own — without any per-value state in memory."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+
+    def _dataset(self, name, n_snapshots, n_forests, forest_values):
+        directory = self.root / name
+        a_list_path = write_synthetic_dataset(directory, n_snapshots, n_forests)
+        for snap, values in enumerate(forest_values):
+            with h5py.File(directory / snapshot_h5_name(snap), "r+") as handle:
+                handle["halos"]["ForestIndex"][...] = np.asarray(values, dtype=np.int64)
+        return directory, a_list_path
+
+    def test_a_dense_stray_group_fails_density_only(self):
+        # two halos share ForestIndex -1 and hold ranks 0 and 1: the
+        # whole-dataset battery sorted on ForestIndex alone, so that group was
+        # dense and only the density condition failed
+        directory, a_list_path = self._dataset("dense-stray", 2, 2, ([0, -1], [0, -1]))
+        detail = outcome_map(run_battery(directory, a_list_path))["identity"].detail
+        self.assertIn("not dense over [0, 2)", detail)
+        self.assertNotIn("density/uniqueness", detail)
+
+    def test_a_non_dense_stray_group_fails_both_conditions(self):
+        # ForestIndex -1 now holds ranks 0 and 0: still its own group, and now
+        # that group is NOT dense
+        directory, a_list_path = self._dataset("broken-stray", 2, 2, ([0, -1], [0, -1]))
+        with h5py.File(directory / snapshot_h5_name(1), "r+") as handle:
+            handle["halos"]["HaloRankInForest"][...] = np.asarray([1, 0], dtype=np.int64)
+        detail = outcome_map(run_battery(directory, a_list_path))["identity"].detail
+        self.assertIn("not dense over [0, 2)", detail)
+        self.assertIn(
+            "1 (ForestIndex, HaloRankInForest) pair(s) violate per-forest density/uniqueness; "
+            "examples: (ForestIndex=-1, rank=0, expected 1)",
+            detail,
+        )
+
+    def test_stray_values_sort_below_in_range_ones_in_the_examples(self):
+        # condition (a) reports the five LOWEST distinct values observed, and a
+        # negative stray sorts below every in-range forest
+        directory, a_list_path = self._dataset("lowest", 2, 3, ([0, 1, -7], [0, 1, -7]))
+        detail = outcome_map(run_battery(directory, a_list_path))["identity"].detail
+        self.assertIn("3 distinct value(s) observed, examples: -7, 0, 1", detail)
+
+    def test_spill_directory_is_removed_on_success_failure_and_exception(self):
+        before = ordering_spill_directories()
+        clean, clean_a_list = self._dataset("clean", 2, 2, ([0, 1], [0, 1]))
+        stray, stray_a_list = self._dataset("stray", 2, 2, ([0, -1], [0, -1]))
+        self.assertEqual(outcome_map(run_battery(clean, clean_a_list))["identity"].status, "PASS")
+        self.assertEqual(ordering_spill_directories(), before)
+        self.assertEqual(outcome_map(run_battery(stray, stray_a_list))["identity"].status, "FAIL")
+        self.assertEqual(ordering_spill_directories(), before)
+
+        def explode(path):
+            raise RuntimeError("boom")
+
+        with mock.patch.object(validate, "_scan_ordering", explode):
+            with self.assertRaises(RuntimeError):
+                run_battery(stray, stray_a_list)
+        self.assertEqual(ordering_spill_directories(), before)
+
+    def test_ordering_peak_bytes_are_reported(self):
+        stray, stray_a_list = self._dataset("reported", 2, 2, ([0, -1], [0, -1]))
+        snapshots = validate._Snapshots(stray, 2)
+        failures, bitset_bytes, ordering_bytes = validate.check_identity(snapshots, 2, 1)
+        self.assertTrue(failures)
+        # two out-of-range halos, 16 bytes per ordered pair
+        self.assertEqual(ordering_bytes, 2 * validate._PAIR_DTYPE.itemsize)
+        self.assertEqual(bitset_bytes, (2 + 7) // 8)
+
+
+class TestBoundedMemoryOnMalformedInput(unittest.TestCase):
+    """The bounded-memory claim has to hold on the corrupt datasets the battery
+    exists to diagnose, not only on conformant ones.
+
+    Every halo here carries a DISTINCT out-of-range ForestIndex, so the number
+    of distinct out-of-range values scales with the dataset. Any per-value
+    table in memory grows with it; the external ordering does not.
+    """
+
+    HALOS_PER_SNAPSHOT = 2048
+    # both sizes must spill more runs than the merge fan-in, so that BOTH runs
+    # pay the same maximum number of concurrent merge read buffers and the only
+    # quantity left differing is retained per-value state
+    SMALL_SNAPSHOTS = 16
+    LARGE_SNAPSHOTS = 64
+
+    def setUp(self):
+        tiny_ordering_limits(self)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        root = Path(self.tmp.name)
+        self.small = root / "small"
+        self.large = root / "large"
+        self.small_a_list = write_stray_forest_dataset(
+            self.small, self.SMALL_SNAPSHOTS, self.HALOS_PER_SNAPSHOT
+        )
+        self.large_a_list = write_stray_forest_dataset(
+            self.large, self.LARGE_SNAPSHOTS, self.HALOS_PER_SNAPSHOT
+        )
+
+    def test_the_defect_is_actually_reached(self):
+        # if these datasets ever stopped being structurally conformant, or
+        # stopped failing on density alone, the memory test below would be
+        # measuring the wrong path
+        outcomes = outcome_map(run_battery(self.small, self.small_a_list))
+        self.assertEqual(outcomes["object-set"].status, "PASS")
+        self.assertEqual(outcomes["identity"].status, "FAIL")
+        self.assertIn("not dense over [0,", outcomes["identity"].detail)
+
+    def test_peak_allocation_does_not_scale_with_distinct_stray_forests(self):
+        run_battery(self.small, self.small_a_list)  # warm up
+        small_peak = self._peak(self.small, self.small_a_list)
+        large_peak = self._peak(self.large, self.large_a_list)
+        extra_halos = (self.LARGE_SNAPSHOTS - self.SMALL_SNAPSHOTS) * self.HALOS_PER_SNAPSHOT
+        # the fan-in caps the concurrent merge buffers, so the only quantity
+        # that differs between the two runs is what is RETAINED per distinct
+        # out-of-range value — which must be nothing
+        self.assertLess(large_peak - small_peak, 256 * 1024)
+        # and the allowance is far below what even 8 bytes per distinct value
+        # would cost, which is what an in-memory table would have charged
+        self.assertLess(256 * 1024, extra_halos * 8)
+
+    @staticmethod
+    def _peak(directory, a_list_path):
+        tracemalloc.start()
+        try:
+            tracemalloc.reset_peak()
+            run_battery(directory, a_list_path)
+            return tracemalloc.get_traced_memory()[1]
+        finally:
+            tracemalloc.stop()
 
 
 if __name__ == "__main__":

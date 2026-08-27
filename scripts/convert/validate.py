@@ -41,9 +41,12 @@ Shin-Uchuu and was unbounded at production.
 """
 
 import argparse
+import heapq
 import json
 import os
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -85,6 +88,33 @@ IDENTITY_CHUNK_BYTES_PER_ROW = 11 * 8 + 4
 #: the first rank a forest holds no halo for. Bounded so the diagnostic scan of
 #: a single huge forest cannot itself allocate without limit.
 _MISSING_RANK_SCAN_SLOTS = 1 << 20
+
+#: One out-of-range (ForestIndex, HaloRankInForest) pair in the external
+#: ordering. Both int64, matching the emitted datasets.
+_PAIR_DTYPE = np.dtype([("forest", "<i8"), ("rank", "<i8")], align=False)
+
+#: Pairs buffered before a sorted run is spilled, how many sorted runs are
+#: merged at once, and the rows read or written per block while merging and
+#: scanning. Every one of them bounds a buffer rather than a total. The read
+#: block is the one that also bounds a PYTHON-side cost: ``_ordered_groups``
+#: materialises one int per group in a block, and a block whose values are all
+#: distinct is all groups, so 8192 rows caps that at a few hundred KB.
+_ORDERING_RUN_ROWS = 1 << 16
+_ORDERING_FANIN = 8
+_ORDERING_MERGE_ROWS = 1 << 13
+_ORDERING_READ_ROWS = 1 << 13
+#: Rows a single merge input reads at a time. Smaller than the scan's block
+#: because up to _ORDERING_FANIN of these are live at once AND each one is
+#: turned into Python ints for heapq, which costs far more per row than the
+#: numpy block it came from.
+_ORDERING_MERGE_READ_ROWS = 1 << 10
+
+#: Prefix of the ordering's private spill directory, created under the system
+#: temporary directory. ``check_identity`` creates it only when a dataset
+#: actually carries an out-of-range ForestIndex, and removes it on the success,
+#: failure and exception paths alike, so it never outlives the call that made
+#: it and no other stage may depend on it.
+ORDERING_DIR_PREFIX = "validate_identity_"
 
 _INT64_MAX = np.iinfo(np.int64).max
 _INT64_MIN = np.iinfo(np.int64).min
@@ -807,70 +837,342 @@ class _IdentityBits:
 
 
 class _ForestTable:
-    """Halo count and bitset base for every ForestIndex group in the dataset.
+    """Halo count and bitset base for every ForestIndex in [0, n_forests_total).
 
-    In-range values are two ``n_forests_total``-sized int64 arrays — the
-    forest-count-sized metadata the battery is allowed to hold. Out-of-range
-    values get their own groups after them, because the whole-dataset battery
-    grouped them too: it sorted on ForestIndex alone, so a pair of halos with
-    ForestIndex -1 and ranks 0 and 1 formed one dense group and failed only the
-    density condition, not the pair-uniqueness one. They are held in arrays
-    sized by the number of DISTINCT out-of-range values, which is zero on any
-    dataset that satisfies the density condition.
+    Two ``n_forests_total``-sized int64 arrays — the forest-count-sized
+    metadata the battery is allowed to hold. ForestIndex values OUTSIDE that
+    range are not here at all: their groups are settled by
+    :class:`_PairOrdering`, because there can be one distinct such value per
+    halo and a per-value table would grow with the dataset.
     """
 
-    def __init__(self, n_forests_total: int, counts: np.ndarray, extra_counts: Dict[int, int]):
+    def __init__(self, n_forests_total: int, counts: np.ndarray):
         self.n_forests_total = int(n_forests_total)
         self.counts = counts
         self.bases = np.zeros(counts.size, dtype=np.int64)
         if counts.size > 1:
             np.cumsum(counts[:-1], out=self.bases[1:])
-        self.extra_values = np.asarray(sorted(extra_counts), dtype=np.int64)
-        self.extra_counts = np.asarray(
-            [extra_counts[value] for value in self.extra_values.tolist()], dtype=np.int64
-        )
-        self.extra_bases = np.zeros(self.extra_values.size, dtype=np.int64)
-        if self.extra_values.size > 1:
-            np.cumsum(self.extra_counts[:-1], out=self.extra_bases[1:])
-        self.extra_bases += int(counts.sum())
 
-    def lookup(self, forest: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """Per-row forest halo count and bitset base for one chunk."""
-        limits = np.empty(forest.size, dtype=np.int64)
-        bases = np.empty(forest.size, dtype=np.int64)
-        in_range = (forest >= 0) & (forest < self.n_forests_total)
-        rows = np.nonzero(in_range)[0]
-        if rows.size:
-            limits[rows] = self.counts[forest[rows]]
-            bases[rows] = self.bases[forest[rows]]
-        rows = np.nonzero(~in_range)[0]
-        if rows.size:
-            index = np.searchsorted(self.extra_values, forest[rows])
-            limits[rows] = self.extra_counts[index]
-            bases[rows] = self.extra_bases[index]
-        return limits, bases
 
-    def group_of(self, value: int) -> Tuple[int, int]:
-        """``(base, count)`` of one ForestIndex value, in range or not."""
-        if 0 <= value < self.n_forests_total:
-            return int(self.bases[value]), int(self.counts[value])
-        index = int(np.searchsorted(self.extra_values, value))
-        return int(self.extra_bases[index]), int(self.extra_counts[index])
+class _PairOrdering:
+    """Bounded EXACT ordering of the (ForestIndex, HaloRankInForest) pairs
+    whose ForestIndex falls outside ``[0, n_forests_total)``.
+
+    Those pairs cannot be summarised in memory. The whole-dataset battery
+    sorted on ForestIndex alone, so halos sharing an out-of-range value formed
+    their own group and were judged dense within it — reproducing that needs
+    the halo count of every distinct out-of-range value, and a structurally
+    conformant dataset may carry one distinct value PER HALO (the structural
+    checks validate dtype, shape and chunks, not range). A dict keyed by value
+    therefore grows with the dataset, which is the thing this slice exists to
+    prevent, and counting distinct values in a stream is not bounded without an
+    ordering. This is the plan's second sanctioned mechanism: "an external
+    ordering of (ForestIndex, rank)".
+
+    Sorted runs are spilled to a private directory and merged with a bounded
+    fan-in, so nothing here holds more than one run buffer plus one read block
+    per merge input. **On a dataset that satisfies the density condition
+    nothing is spilled at all**: no directory is created, ``finish`` returns
+    ``None`` and ``peak_bytes`` stays 0. The merge is a plain Python
+    ``heapq.merge`` because it only ever runs on an already-broken dataset;
+    correctness and boundedness matter there, throughput does not.
+
+    The owner must :meth:`close` it on every path; ``check_identity`` does so
+    in a ``finally``.
+    """
+
+    def __init__(self):
+        self._directory: Optional[Path] = None
+        self._runs: List[Path] = []
+        self._buffer: List[np.ndarray] = []
+        self._buffered = 0
+        self._serial = 0
+        #: pairs handed to :meth:`add`, i.e. out-of-range halos in the dataset
+        self.rows = 0
+        #: largest number of bytes this ordering has held on disk at once — the
+        #: figure the storage envelope wants reported rather than estimated
+        self.peak_bytes = 0
+
+    # -- writing -----------------------------------------------------------
+
+    def add(self, forest: np.ndarray, rank: np.ndarray) -> None:
+        """Record one chunk's out-of-range pairs.
+
+        Taken in ``_ORDERING_RUN_ROWS`` slices rather than whole, so the run
+        buffer is bounded by that constant however large the caller's chunk is
+        — otherwise a chunk of out-of-range halos would set the buffer size
+        instead.
+        """
+        if forest.size == 0:
+            return
+        self.rows += int(forest.size)
+        for start in range(0, int(forest.size), _ORDERING_RUN_ROWS):
+            stop = min(start + _ORDERING_RUN_ROWS, int(forest.size))
+            pairs = np.empty(stop - start, dtype=_PAIR_DTYPE)
+            pairs["forest"] = forest[start:stop]
+            pairs["rank"] = rank[start:stop]
+            self._buffer.append(pairs)
+            self._buffered += int(pairs.size)
+            if self._buffered >= _ORDERING_RUN_ROWS:
+                self._spill()
+
+    def _spill(self) -> None:
+        if not self._buffer:
+            return
+        block = self._buffer[0] if len(self._buffer) == 1 else np.concatenate(self._buffer)
+        self._buffer = []
+        self._buffered = 0
+        block.sort(order=("forest", "rank"))
+        path = self._new_run()
+        block.tofile(str(path))
+        self._runs.append(path)
+        self._note_disk()
+
+    def _new_run(self) -> Path:
+        if self._directory is None:
+            self._directory = Path(tempfile.mkdtemp(prefix=ORDERING_DIR_PREFIX))
+        self._serial += 1
+        return self._directory / "run_{:06d}.pairs".format(self._serial)
+
+    def _note_disk(self) -> None:
+        if self._directory is None:
+            return
+        held = sum(path.stat().st_size for path in self._directory.iterdir())
+        self.peak_bytes = max(self.peak_bytes, held)
+
+    # -- merging -----------------------------------------------------------
+
+    def finish(self) -> Optional[Path]:
+        """Merge the runs down to one fully ordered file, or ``None`` when no
+        out-of-range pair was ever recorded."""
+        self._spill()
+        while len(self._runs) > 1:
+            merged = []
+            for start in range(0, len(self._runs), _ORDERING_FANIN):
+                group = self._runs[start : start + _ORDERING_FANIN]
+                merged.append(group[0] if len(group) == 1 else self._merge(group))
+            self._runs = merged
+        return self._runs[0] if self._runs else None
+
+    def _merge(self, paths: List[Path]) -> Path:
+        target = self._new_run()
+        readers = [self._iter_pairs(path) for path in paths]
+        try:
+            with open(str(target), "wb") as handle:
+                block: List[tuple] = []
+                for row in heapq.merge(*readers):
+                    block.append(row)
+                    if len(block) >= _ORDERING_MERGE_ROWS:
+                        np.asarray(block, dtype=_PAIR_DTYPE).tofile(handle)
+                        block = []
+                if block:
+                    np.asarray(block, dtype=_PAIR_DTYPE).tofile(handle)
+        finally:
+            for reader in readers:
+                reader.close()
+        # measured with the inputs still present: that IS the peak
+        self._note_disk()
+        for path in paths:
+            path.unlink()
+        return target
+
+    @staticmethod
+    def _iter_pairs(path: Path):
+        """Ascending (ForestIndex, rank) tuples from one sorted run."""
+        for block in _PairOrdering.blocks(path, _ORDERING_MERGE_READ_ROWS):
+            for row in zip(block["forest"].tolist(), block["rank"].tolist()):
+                yield row
+
+    # -- reading -----------------------------------------------------------
+
+    @staticmethod
+    def blocks(path: Path, rows: Optional[int] = None):
+        """Sequential blocks of one pair file; never more than one resident.
+
+        ``rows`` is resolved from the module constant on every call rather than
+        bound as a default: a default argument would freeze the value at import
+        and silently ignore anything that changed it, including the tests that
+        shrink these buffers to exercise the multi-round merge.
+        """
+        rows = _ORDERING_READ_ROWS if rows is None else int(rows)
+        with open(str(path), "rb") as handle:
+            while True:
+                block = np.fromfile(handle, dtype=_PAIR_DTYPE, count=rows)
+                if block.size == 0:
+                    return
+                yield block
+
+    # -- lifetime ----------------------------------------------------------
+
+    def close(self) -> None:
+        """Remove the spill directory. Called on the success, failure and
+        exception paths alike, and safe to call when nothing was ever
+        spilled."""
+        self._buffer = []
+        self._buffered = 0
+        self._runs = []
+        if self._directory is not None:
+            shutil.rmtree(str(self._directory), ignore_errors=True)
+            self._directory = None
+
+
+class _GroupDensity:
+    """Per-forest density and uniqueness for ONE out-of-range ForestIndex
+    group, fed the group's ranks in ascending order.
+
+    It reproduces exactly what :class:`_IdentityBits` decides for an in-range
+    forest — a rank outside ``[0, count)``, or an already-claimed rank, is
+    rejected and nothing else is — using the ordering instead of a bitset. In
+    ascending order the first occurrence of a value claims it, so a repeat is
+    simply a rank equal to its predecessor; the accepted rows are therefore the
+    distinct in-range ranks, and ``count - accepted`` rejected rows is the same
+    number the bitset would report.
+    """
+
+    def __init__(self, value: int, count: int):
+        self.value = int(value)
+        self.count = int(count)
+        self.n_bad = 0
+        self.examples: List[Tuple[int, int]] = []
+        self._probe = 0
+        self._gap: Optional[int] = None
+        self._previous: Optional[int] = None
+
+    def feed(self, ranks: np.ndarray) -> None:
+        if ranks.size == 0:
+            return
+        repeat = np.zeros(ranks.size, dtype=bool)
+        repeat[1:] = ranks[1:] == ranks[:-1]
+        if self._previous is not None:
+            repeat[0] = bool(ranks[0] == self._previous)
+        self._previous = int(ranks[-1])
+        in_range = (ranks >= 0) & (ranks < self.count)
+        rejected = ~in_range | repeat
+        bad = np.nonzero(rejected)[0]
+        if bad.size:
+            self.n_bad += int(bad.size)
+            room = 5 - len(self.examples)
+            if room > 0:
+                # ranks arrive ascending, so the earliest rejected rows ARE the
+                # lowest (ForestIndex, rank) pairs this group can offer
+                for value in ranks[bad[:room]].tolist():
+                    self.examples.append((self.value, int(value)))
+        if self._gap is None:
+            claimed = ranks[in_range & ~repeat]
+            if claimed.size:
+                expected = self._probe + np.arange(claimed.size, dtype=np.int64)
+                mismatch = np.nonzero(claimed != expected)[0]
+                if mismatch.size:
+                    self._gap = self._probe + int(mismatch[0])
+                else:
+                    self._probe += int(claimed.size)
+
+    @property
+    def first_unheld(self) -> int:
+        """The first rank in ``[0, count)`` no halo of this group holds — the
+        same diagnostic ``_IdentityBits.first_unheld`` reads back out of the
+        bitset. -1 when the group is complete, which cannot happen for a group
+        that rejected a row."""
+        gap = self._probe if self._gap is None else self._gap
+        return gap if gap < self.count else -1
+
+
+class _OrderedRanks:
+    """Sequential reader that hands out the next ``n`` ranks of the ordered
+    pair file, holding one block at a time."""
+
+    def __init__(self, path: Path):
+        self._blocks = _PairOrdering.blocks(path)
+        self._block: Optional[np.ndarray] = None
+        self._offset = 0
+
+    def take(self, count: int):
+        remaining = int(count)
+        while remaining > 0:
+            if self._block is None or self._offset >= self._block.size:
+                self._block = next(self._blocks)
+                self._offset = 0
+            take = min(remaining, int(self._block.size) - self._offset)
+            yield self._block["rank"][self._offset : self._offset + take]
+            self._offset += take
+            remaining -= take
+
+    def close(self) -> None:
+        self._blocks.close()
+
+
+def _ordered_groups(path: Path):
+    """Yield ``(value, count)`` for every distinct ForestIndex in the ordering,
+    in ascending value order, from a single sequential pass."""
+    current: Optional[int] = None
+    count = 0
+    for block in _PairOrdering.blocks(path):
+        forest = block["forest"]
+        starts = np.nonzero(np.r_[True, forest[1:] != forest[:-1]])[0]
+        lengths = np.diff(np.r_[starts, forest.size])
+        for value, length in zip(forest[starts].tolist(), lengths.tolist()):
+            if current is None or value == current:
+                current = value
+                count += length
+            else:
+                yield current, count
+                current, count = value, length
+    if current is not None:
+        yield current, count
+
+
+def _scan_ordering(path: Path) -> Tuple[int, List[int], int, List[Tuple[int, int, int]]]:
+    """Settle everything the out-of-range ForestIndex values contribute:
+    how many distinct values there are, the five lowest of them, how many of
+    their halos violate per-forest density/uniqueness, and the five lowest
+    violating pairs with the rank their group does not hold.
+
+    Two sequential passes over the same ordered file — the first to learn each
+    group's size, the second to judge it — because a group's rank bounds are
+    its own halo count and that is not known until the group ends. Neither pass
+    holds more than one block.
+    """
+    distinct = 0
+    lowest: List[int] = []
+    n_bad = 0
+    examples: List[Tuple[int, int, int]] = []
+    rows = _OrderedRanks(path)
+    groups = _ordered_groups(path)
+    try:
+        for value, count in groups:
+            distinct += 1
+            if len(lowest) < 5:
+                lowest.append(int(value))
+            group = _GroupDensity(value, count)
+            for ranks in rows.take(count):
+                group.feed(ranks)
+            if group.n_bad:
+                n_bad += group.n_bad
+                if len(examples) < 5:
+                    unheld = group.first_unheld
+                    for forest_value, rank_value in group.examples[: 5 - len(examples)]:
+                        examples.append((forest_value, rank_value, unheld))
+    finally:
+        # both generators hold an open file handle across their yields, so an
+        # exception in the group loop must close them rather than leave that to
+        # collection
+        groups.close()
+        rows.close()
+    return distinct, lowest, n_bad, examples
 
 
 def _identity_counts(
-    snapshots: _Snapshots, n_forests_total: int
-) -> Tuple[np.ndarray, Dict[int, int], int, Optional[int]]:
-    """First identity pass: halos per in-range ForestIndex, halos per distinct
-    out-of-range ForestIndex value, the dataset's halo total, and the largest
-    HaloRankInForest.
+    snapshots: _Snapshots, n_forests_total: int, ordering: _PairOrdering
+) -> Tuple[np.ndarray, int, Optional[int]]:
+    """First identity pass: halos per in-range ForestIndex, the dataset's halo
+    total, and the largest HaloRankInForest. Out-of-range pairs go to
+    ``ordering`` rather than to any per-value table in memory.
 
     Between them these settle the density condition over
     ``[0, n_forests_total)`` and the maximum-rank condition, and they size both
     the bitset the second pass claims into and the groups within it.
     """
     counts = np.zeros(max(int(n_forests_total), 0), dtype=np.int64)
-    extra_counts: Dict[int, int] = {}
     total = 0
     measured_max = None
     for snap in range(snapshots.n_snapshots):
@@ -886,15 +1188,14 @@ def _identity_counts(
             if in_range_values.size:
                 counts += np.bincount(in_range_values, minlength=counts.size)
             if not bool(in_range.all()):
-                values, repeats = np.unique(forest[~in_range], return_counts=True)
-                for value, repeat in zip(values.tolist(), repeats.tolist()):
-                    extra_counts[value] = extra_counts.get(value, 0) + repeat
-    return counts, extra_counts, total, measured_max
+                stray = ~in_range
+                ordering.add(forest[stray], rank[stray])
+    return counts, total, measured_max
 
 
 def check_identity(
     snapshots: _Snapshots, n_forests_total: int, max_rank_header: int
-) -> Tuple[List[str], int]:
+) -> Tuple[List[str], int, int]:
     """Invariant 4: (ForestIndex, HaloRankInForest) unique across the dataset,
     ForestIndex dense over [0, n_forests_total), per-forest ranks dense, and
     the measured maximum rank equal to the header value.
@@ -903,89 +1204,128 @@ def check_identity(
     reported in the order the whole-dataset formulation reported it:
 
     (a) ForestIndex dense over ``[0, n_forests_total)`` — settled by the
-        counting pass, which sees every distinct value the dataset carries;
+        counting pass over the in-range values plus the distinct-value count
+        the ordering yields for everything outside that range;
     (b) per-forest ranks dense and unique over ``0 .. count-1`` — settled
-        exactly by :class:`_IdentityBits`, one bit per halo;
+        exactly by :class:`_IdentityBits` for in-range forests, one bit per
+        halo, and by :class:`_GroupDensity` over :class:`_PairOrdering` for the
+        out-of-range values that cannot have an in-memory table;
     (c) the measured maximum rank equals ``max_halo_rank_in_forest`` — a
         running maximum over the same counting pass.
 
-    Returns the failures and the identity structure's peak bytes, which the
-    caller reports rather than estimates.
+    Returns the failures, the bitset's peak bytes and the ordering's peak
+    on-disk bytes, which the caller reports rather than estimates. Both
+    structures are released on the success, failure and exception paths.
 
     **The (b) violation count and its five examples are this formulation's
     own.** The whole-dataset battery counted positions in a global lexsort of
     every pair, and reproducing that count exactly would need a multiplicity
     per slot instead of a bit (>= 1 byte per halo, 22.9 GB at production) — the
     memory wall this battery exists to remove. What is DETECTED is identical: a
-    rank outside its forest's ``[0, count)``, or a slot claimed twice, IS a
-    per-forest density or pair-uniqueness violation, and nothing else is. The
-    message shape is identical, the examples are still the five lowest
-    ``(ForestIndex, rank)`` pairs that violated, and ``expected`` in each is the
-    first rank that forest holds no halo for.
+    rank outside its forest's ``[0, count)``, or a rank already claimed within
+    that forest, IS a per-forest density or pair-uniqueness violation, and
+    nothing else is. The message shape is identical, the examples are still the
+    five lowest ``(ForestIndex, rank)`` pairs that violated, and ``expected`` in
+    each is the first rank that forest holds no halo for.
     """
     failures: List[str] = []
-    counts, extra_counts, total, measured_max = _identity_counts(snapshots, n_forests_total)
-    if total == 0:
-        if n_forests_total != 0:
-            failures.append(
-                "dataset has no halos but n_forests_total is {}".format(n_forests_total)
-            )
-        return failures, 0
-
-    distinct = int(np.count_nonzero(counts)) + len(extra_counts)
-    if extra_counts or distinct != n_forests_total:
-        lowest = sorted(np.flatnonzero(counts)[:5].tolist() + sorted(extra_counts)[:5])[:5]
-        failures.append(
-            "ForestIndex values are not dense over [0, {}); {} distinct value(s) observed, "
-            "examples: {}".format(n_forests_total, distinct, _examples(lowest))
-        )
-
-    forests = _ForestTable(n_forests_total, counts, extra_counts)
-    bits = _IdentityBits(total)
+    ordering = _PairOrdering()
+    bitset_bytes = 0
     try:
-        peak_bytes = bits.peak_bytes
-        n_bad = 0
-        examples: List[Tuple[int, int]] = []
-        for snap in range(snapshots.n_snapshots):
-            for forest, rank in snapshots.chunks(
-                snap, ("ForestIndex", "HaloRankInForest"), IDENTITY_CHUNK_ROWS
-            ):
-                limits, bases = forests.lookup(forest)
-                held = (rank >= 0) & (rank < limits)
-                rows = np.nonzero(held)[0]
-                rejected = ~held
-                rejected[rows[bits.claim(bases[rows] + rank[rows])]] = True
-                bad_rows = np.nonzero(rejected)[0]
-                if bad_rows.size:
-                    n_bad += int(bad_rows.size)
-                    # keep only the five lowest (ForestIndex, rank) pairs seen
-                    # so far, so the example state is five tuples, not a list
-                    # that grows with the number of violations
-                    pick = bad_rows[np.lexsort((rank[bad_rows], forest[bad_rows]))[:5]]
-                    examples = sorted(
-                        examples + list(zip(forest[pick].tolist(), rank[pick].tolist()))
-                    )[:5]
-        if n_bad:
-            detail = [
-                "(ForestIndex={}, rank={}, expected {})".format(
-                    value, held_rank, bits.first_unheld(*forests.group_of(value))
+        counts, total, measured_max = _identity_counts(snapshots, n_forests_total, ordering)
+        if total == 0:
+            if n_forests_total != 0:
+                failures.append(
+                    "dataset has no halos but n_forests_total is {}".format(n_forests_total)
                 )
-                for value, held_rank in examples
-            ]
-            failures.append(
-                "{} (ForestIndex, HaloRankInForest) pair(s) violate per-forest density/"
-                "uniqueness; examples: {}".format(n_bad, ", ".join(detail))
-            )
-    finally:
-        bits.close()
+            return failures, bitset_bytes, ordering.peak_bytes
 
-    if measured_max != max_rank_header:
-        failures.append(
-            "measured max HaloRankInForest {} != header max_halo_rank_in_forest {}".format(
-                measured_max, max_rank_header
+        ordered_path = ordering.finish()
+        if ordered_path is None:
+            stray_distinct, stray_lowest, stray_bad, stray_examples = 0, [], 0, []
+        else:
+            stray_distinct, stray_lowest, stray_bad, stray_examples = _scan_ordering(ordered_path)
+
+        distinct = int(np.count_nonzero(counts)) + stray_distinct
+        if stray_distinct or distinct != n_forests_total:
+            lowest = sorted(np.flatnonzero(counts)[:5].tolist() + stray_lowest)[:5]
+            failures.append(
+                "ForestIndex values are not dense over [0, {}); {} distinct value(s) observed, "
+                "examples: {}".format(n_forests_total, distinct, _examples(lowest))
             )
-        )
-    return failures, peak_bytes
+
+        forests = _ForestTable(n_forests_total, counts)
+        bits = _IdentityBits(int(counts.sum()))
+        try:
+            bitset_bytes = bits.peak_bytes
+            n_bad = stray_bad
+            # (ForestIndex, rank, expected) triples; expected is None for the
+            # in-range candidates until the bitset pass has finished and can be
+            # read back for the rank their forest does not hold
+            examples: List[Tuple[int, int, Optional[int]]] = list(stray_examples)
+            for snap in range(snapshots.n_snapshots):
+                for forest, rank in snapshots.chunks(
+                    snap, ("ForestIndex", "HaloRankInForest"), IDENTITY_CHUNK_ROWS
+                ):
+                    inside = np.nonzero((forest >= 0) & (forest < n_forests_total))[0]
+                    if inside.size == 0:
+                        continue
+                    group = forest[inside]
+                    ranks = rank[inside]
+                    held = (ranks >= 0) & (ranks < forests.counts[group])
+                    claimed = np.nonzero(held)[0]
+                    rejected = ~held
+                    rejected[
+                        claimed[bits.claim(forests.bases[group[claimed]] + ranks[claimed])]
+                    ] = True
+                    bad_rows = np.nonzero(rejected)[0]
+                    if bad_rows.size:
+                        n_bad += int(bad_rows.size)
+                        # keep only the five lowest (ForestIndex, rank) pairs
+                        # seen so far, so the example state is five triples,
+                        # not a list that grows with the violation count
+                        pick = bad_rows[np.lexsort((ranks[bad_rows], group[bad_rows]))[:5]]
+                        examples = sorted(
+                            examples
+                            + [
+                                (value, rank_value, None)
+                                for value, rank_value in zip(
+                                    group[pick].tolist(), ranks[pick].tolist()
+                                )
+                            ],
+                            key=lambda item: (item[0], item[1]),
+                        )[:5]
+            if n_bad:
+                detail = [
+                    "(ForestIndex={}, rank={}, expected {})".format(
+                        value,
+                        rank_value,
+                        (
+                            unheld
+                            if unheld is not None
+                            else bits.first_unheld(
+                                int(forests.bases[value]), int(forests.counts[value])
+                            )
+                        ),
+                    )
+                    for value, rank_value, unheld in examples
+                ]
+                failures.append(
+                    "{} (ForestIndex, HaloRankInForest) pair(s) violate per-forest density/"
+                    "uniqueness; examples: {}".format(n_bad, ", ".join(detail))
+                )
+        finally:
+            bits.close()
+
+        if measured_max != max_rank_header:
+            failures.append(
+                "measured max HaloRankInForest {} != header max_halo_rank_in_forest {}".format(
+                    measured_max, max_rank_header
+                )
+            )
+        return failures, bitset_bytes, ordering.peak_bytes
+    finally:
+        ordering.close()
 
 
 def check_header_bounds(n_forests_total: int, max_rank: int, multiplier: int) -> List[str]:
@@ -1159,11 +1499,14 @@ def run_battery(
         header = snapshots.header(0)
         n_forests_total = int(header["n_forests_total"])
         max_rank = int(header["max_halo_rank_in_forest"])
-        identity_failures, identity_bytes = check_identity(snapshots, n_forests_total, max_rank)
+        identity_failures, identity_bytes, ordering_bytes = check_identity(
+            snapshots, n_forests_total, max_rank
+        )
         record("identity", identity_failures)
         _log(
-            "validate: identity checked exactly against a {} byte bitset "
-            "(1 bit per halo)".format(identity_bytes)
+            "validate: identity checked exactly against a {} byte bitset (1 bit per halo) "
+            "and {} byte(s) of transient on-disk ordering for out-of-range "
+            "ForestIndex values".format(identity_bytes, ordering_bytes)
         )
         record("header-bounds", check_header_bounds(n_forests_total, max_rank, multiplier))
         record("sidecar-content", check_sidecar_content(directory, n_forests_total))
