@@ -2,11 +2,14 @@
 progenitor insertion semantics, rank pass, identity assertions, and the link
 pipeline stage with a hand-computed golden fixture."""
 
+import gc
 import os
 import sys
 import tempfile
+import tracemalloc
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 
@@ -15,6 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import convert_ctrees  # noqa: E402
 import fixtures  # noqa: E402
+import links  # noqa: E402
 from ctrees_parser import ConverterError  # noqa: E402
 from fixups import run_fixups  # noqa: E402
 from links import (  # noqa: E402
@@ -29,7 +33,7 @@ from links import (  # noqa: E402
     validate_slab,
     verify_identity,
 )
-from scatter import Manifest, run_scatter  # noqa: E402
+from scatter import Manifest, file_md5, run_scatter  # noqa: E402
 from sort_index import run_sort  # noqa: E402
 from test_fixups import make_fixed  # noqa: E402
 
@@ -259,13 +263,16 @@ class TestVerifyIdentity(unittest.TestCase):
             )
 
 
-def make_linked_workdir(root: Path, forests=None):
+def make_linked_workdir(root: Path, forests=None, a_list_values=None):
     """scatter + sort + fixups on the synthetic fixtures; returns
     (workdir, a_list_path, sim_info_path)."""
     forests = forests if forests is not None else fixtures.standard_forests()
-    tree_file = fixtures.write_ctrees_file(root / "tree_0.dat", fixtures.all_trees(forests))
+    a_list_values = a_list_values if a_list_values is not None else fixtures.A_LIST
+    tree_file = fixtures.write_ctrees_file(
+        root / "tree_0.dat", fixtures.all_trees(forests), a_list=a_list_values
+    )
     forests_list = fixtures.write_forests_list(root / "forests.list", forests)
-    a_list = fixtures.write_a_list(root / "test.a_list")
+    a_list = fixtures.write_a_list(root / "test.a_list", a_list=a_list_values)
     sim_info = fixtures.write_simulation_info(root / "simulation_info.yaml")
     workdir = root / "workdir"
     run_scatter(
@@ -529,6 +536,569 @@ class TestLinksPipeline(unittest.TestCase):
     def test_cli_links_failure_exit_code(self):
         rc = convert_ctrees.main(["links", "--workdir", str(self.root / "missing")])
         self.assertEqual(rc, 1)
+
+
+# ---------------------------------------------------------------------------
+# Slice 5: the bounded rank/identity pass (CONVERTER-SCALE-PASS-PLAN.md)
+# ---------------------------------------------------------------------------
+
+
+def in_memory_identity(manifest):
+    """The pre-Slice-5 in-memory formulation, transcribed from the shipped
+    ``compute_identity`` at 3d52446c: five key columns concatenated over all
+    snapshots, one global ``np.lexsort``, ranked within forest groups, with
+    ForestIndex from ``np.searchsorted``.
+
+    This is the binding oracle for the bounded pass — the same arithmetic, not a
+    paraphrase of it — and it returns exactly what that function returned:
+    ``({snap: (forest_index, ranks)}, n_forests_total, max_halo_rank_in_forest)``.
+    """
+    forest_table = np.load(Path(manifest.workdir) / "forest_index_table.npy")
+    snaps = sorted(int(s) for s in manifest.data["snapshots"])
+    forests_l, snaps_l, upids_l, pids_l, ids_l, counts = [], [], [], [], [], []
+    for snap in snaps:
+        records = links._load_fixed(manifest, snap)
+        forests_l.append(records["forest_id"].copy())
+        snaps_l.append(np.full(records.size, snap, dtype=np.int64))
+        upids_l.append(records["upid"].copy())
+        pids_l.append(records["pid"].copy())
+        ids_l.append(records["id"].copy())
+        counts.append(records.size)
+    forest = np.concatenate(forests_l)
+    neg_snap = -np.concatenate(snaps_l)
+    upid = np.concatenate(upids_l)
+    pid = np.concatenate(pids_l)
+    ids = np.concatenate(ids_l)
+    total = forest.size
+
+    order = np.lexsort((ids, pid, upid, neg_snap, forest))
+    sorted_forest = forest[order]
+    new_forest = np.r_[True, sorted_forest[1:] != sorted_forest[:-1]]
+    starts = np.nonzero(new_forest)[0]
+    group_id = np.cumsum(new_forest) - 1
+    ranks = np.empty(total, dtype=np.int64)
+    ranks[order] = np.arange(total, dtype=np.int64) - starts[group_id]
+    forest_index = np.searchsorted(forest_table, forest)
+
+    identity = {}
+    offset = 0
+    for snap, count in zip(snaps, counts):
+        identity[snap] = (forest_index[offset : offset + count], ranks[offset : offset + count])
+        offset += count
+    return identity, int(forest_table.size), (int(ranks.max()) if total else -1)
+
+
+def scaling_forests(n_forests, snaps, halos_per_snap):
+    """``n_forests`` structurally identical forests, each contributing exactly
+    ``halos_per_snap`` halos to every snapshot in ``snaps`` (a contiguous
+    ascending range): one central per snapshot, chained by descendant, with the
+    rest of that snapshot's halos as its satellites.
+
+    The total is ``n_forests * len(snaps) * halos_per_snap`` and the three
+    factors are independent, which is what a memory measurement needs: growing
+    the total by adding snapshots holds every per-snapshot quantity fixed —
+    including the manifest checksum's own read block, which is sized from the
+    file it is checksumming and would otherwise grow with the input.
+    """
+    snaps = list(snaps)
+    assert snaps == list(range(snaps[0], snaps[-1] + 1)), "snaps must be contiguous"
+    assert halos_per_snap <= 99_999, "id layout allows 99,999 halos per forest per snapshot"
+    forests = []
+    for index in range(n_forests):
+        base = 1_000_000 + index * 2_000_000
+        halos = []
+        for snap in snaps:
+            central = base + snap * 100_000
+            halos.append(
+                fixtures.HaloSpec(
+                    halo_id=central,
+                    snap=snap,
+                    mvir=1.0e12 + snap,
+                    desc_id=(central + 100_000) if snap != snaps[-1] else -1,
+                )
+            )
+            for satellite in range(halos_per_snap - 1):
+                halos.append(
+                    fixtures.HaloSpec(
+                        halo_id=central + 1 + satellite,
+                        snap=snap,
+                        mvir=1.0e10 + satellite,
+                        pid=central,
+                        upid=central,
+                    )
+                )
+        forests.append(
+            fixtures.ForestSpec(
+                forest_id=100 + index,
+                trees=[fixtures.TreeSpec(root_id=900_000 + index, halos=halos)],
+            )
+        )
+    return forests
+
+
+#: A longer a_list than the canned fixtures', so a fixture can spread the same
+#: per-snapshot halo count over four times as many snapshots.
+LONG_A_LIST = [round(0.08 * (index + 1), 5) for index in range(12)]
+
+
+def reregister_forest_table(manifest, table):
+    """Rewrite the Phase 0 forest index table and refresh its manifest checksum,
+    so a reconciliation test fails on the mismatch it is testing rather than on
+    the ownership guard."""
+    table_path = Path(manifest.workdir) / "forest_index_table.npy"
+    np.save(table_path, table)
+    manifest.data["intermediates"][str(table_path.resolve())]["md5"] = file_md5(table_path)
+    manifest.save()
+
+
+class Slice5Case(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.addCleanup(self.tmp.cleanup)
+
+    def identity_dirs(self, manifest):
+        entry = manifest.data["snapshots"][sorted(manifest.data["snapshots"])[0]]
+        scratch = Path(entry["fixed_file"]).parent
+        return sorted(scratch.glob(links.IDENTITY_DIR_PREFIX + "*"))
+
+    def assert_matches_oracle(self, manifest, budget_bytes):
+        """Every value the pass produces, against the in-memory formulation."""
+        expected, expected_forests, expected_max = in_memory_identity(manifest)
+        identity, n_forests_total, max_rank = links.compute_identity(
+            manifest, budget_bytes=budget_bytes
+        )
+        with identity:
+            self.assertEqual(n_forests_total, expected_forests)
+            self.assertEqual(max_rank, expected_max)
+            for snap, (forest_index, ranks) in expected.items():
+                observed_fi, observed_ranks = identity[snap]
+                np.testing.assert_array_equal(observed_fi, forest_index)
+                np.testing.assert_array_equal(observed_ranks, ranks)
+                self.assertEqual(observed_fi.dtype, np.dtype("<i8"))
+                self.assertEqual(observed_ranks.dtype, np.dtype("<i8"))
+            return identity
+
+
+class TestBoundedIdentityPass(Slice5Case):
+    def test_matches_the_in_memory_formulation_at_every_budget(self):
+        workdir, _, _ = make_linked_workdir(self.root)
+        manifest = Manifest.load_or_create(workdir)
+        for budget in (4096, 1 << 16, links.DEFAULT_RANK_BUDGET_BYTES):
+            with self.subTest(budget=budget):
+                self.assert_matches_oracle(manifest, budget)
+
+    def test_matches_the_oracle_when_the_budget_forces_spill_and_merge(self):
+        # the fixture forests are 17 halos; scale up so a small budget produces
+        # many sorted runs and a real reduction pass, which is the path that
+        # cannot be exercised at fixture size
+        forests = scaling_forests(n_forests=12, snaps=range(4, 6), halos_per_snap=400)
+        workdir, _, _ = make_linked_workdir(self.root, forests=forests)
+        manifest = Manifest.load_or_create(workdir)
+        identity = self.assert_matches_oracle(manifest, 8192)
+        self.assertGreater(identity.n_runs, identity.merge_records)
+        self.assertGreaterEqual(identity.n_merge_passes, 1)
+        self.assertGreater(identity.peak_spill_bytes, 0)
+
+    def test_emitted_links_are_identical_across_budgets(self):
+        # the budget must be a memory control and nothing else: two runs of the
+        # whole stage over the same input, at budgets three orders of magnitude
+        # apart, must emit the same bytes
+        emitted = {}
+        for label, budget in (("small", 8192), ("default", links.DEFAULT_RANK_BUDGET_BYTES)):
+            root = self.root / label
+            root.mkdir()
+            forests = scaling_forests(n_forests=6, snaps=range(4, 6), halos_per_snap=40)
+            workdir, _, _ = make_linked_workdir(root, forests=forests)
+            manifest = run_links(workdir, budget_bytes=budget)
+            self.assertEqual(
+                manifest.data["links"], {"n_forests_total": 6, "max_halo_rank_in_forest": 79}
+            )
+            emitted[label] = {
+                snap: Path(entry["links_file"]).read_bytes()
+                for snap, entry in manifest.data["snapshots"].items()
+            }
+        self.assertEqual(emitted["small"], emitted["default"])
+
+    def test_golden_links_are_unchanged_at_a_tiny_budget(self):
+        # the recorded hand-computed expectations, re-asserted through the
+        # spilling path rather than only through the single-run path
+        workdir, _, _ = make_linked_workdir(self.root)
+        manifest = run_links(workdir, budget_bytes=4096)
+        self.assertEqual(
+            manifest.data["links"], {"n_forests_total": 5, "max_halo_rank_in_forest": 5}
+        )
+        seen = {}
+        for snap_str, entry in manifest.data["snapshots"].items():
+            links_records = np.fromfile(entry["links_file"], dtype=LINKS_RECORD_DTYPE)
+            seen[int(snap_str)] = {
+                name: links_records[name].tolist() for name in LINKS_RECORD_DTYPE.names
+            }
+        self.assertEqual(seen, GOLDEN_LINKS)
+
+    def test_stores_are_removed_on_success(self):
+        workdir, _, _ = make_linked_workdir(self.root)
+        manifest = run_links(workdir)
+        self.assertEqual(self.identity_dirs(manifest), [])
+
+    def test_stores_are_removed_when_linking_fails(self):
+        # the accessor's directory is not a manifest intermediate, so nothing
+        # else would ever clean it up: the pass owns it on the failure path too
+        tree_a = fixtures.TreeSpec(
+            root_id=901, halos=[fixtures.HaloSpec(halo_id=9010, snap=5, mvir=1.0e12)]
+        )
+        tree_b = fixtures.TreeSpec(
+            root_id=902,
+            halos=[fixtures.HaloSpec(halo_id=9020, snap=4, mvir=5.0e11, desc_id=9010)],
+        )
+        forests = [
+            fixtures.ForestSpec(forest_id=910, trees=[tree_a]),
+            fixtures.ForestSpec(forest_id=920, trees=[tree_b]),
+        ]
+        workdir, _, _ = make_linked_workdir(self.root, forests=forests)
+        with self.assertRaisesRegex(ConverterError, "crossing forest boundaries"):
+            run_links(workdir)
+        manifest = Manifest.load_or_create(workdir)
+        self.assertEqual(self.identity_dirs(manifest), [])
+
+    def test_stores_are_removed_when_the_rank_pass_itself_fails(self):
+        workdir, _, _ = make_linked_workdir(self.root)
+        manifest = Manifest.load_or_create(workdir)
+        # a table with a forest nothing observed: the reconciliation fires after
+        # the core has written both stores, which is the path that leaves them
+        # behind if the pass does not own them
+        table = np.load(Path(workdir) / "forest_index_table.npy")
+        reregister_forest_table(manifest, np.append(table, np.int64(999_999)))
+        with self.assertRaisesRegex(ConverterError, "have no halos"):
+            links.compute_identity(manifest)
+        self.assertEqual(self.identity_dirs(manifest), [])
+
+    def test_accessor_holds_at_most_the_adjacent_pair(self):
+        forests = scaling_forests(n_forests=4, snaps=range(2, 6), halos_per_snap=25)
+        workdir, _, _ = make_linked_workdir(self.root, forests=forests)
+        manifest = Manifest.load_or_create(workdir)
+        identity, _, _ = links.compute_identity(manifest, budget_bytes=1 << 16)
+        with identity:
+            snaps = sorted(int(s) for s in manifest.data["snapshots"])
+            for snap in snaps:
+                identity[snap]
+                if snap + 1 in identity:
+                    identity[snap + 1]
+                # the same access pattern link_one_snapshot uses, including its
+                # second look at snap after the pair check
+                identity[snap]
+                self.assertLessEqual(len(identity.resident_snapshots()), links.RESIDENT_SNAPSHOTS)
+                self.assertIn(snap, identity.resident_snapshots())
+            with self.assertRaises(KeyError):
+                identity[max(snaps) + 5]
+        self.assertFalse(identity.directory.exists())
+
+    def test_accessor_serves_an_empty_snapshot_window(self):
+        # a snapshot with no halos owns a zero-length window into the stores,
+        # and the link stage must still receive two empty int64 arrays for it
+        directory = self.root / "stores"
+        directory.mkdir()
+        np.asarray([0, 0], dtype=np.int64).tofile(directory / links.FOREST_INDEX_STORE_NAME)
+        np.asarray([0, 1], dtype=np.int64).tofile(directory / links.RANKS_STORE_NAME)
+        identity = links.SnapshotIdentity(
+            directory, {3: (0, 2), 4: (2, 0)}, peak_spill_bytes=0, store_bytes=32
+        )
+        with identity:
+            forest_index, ranks = identity[4]
+            self.assertEqual((forest_index.size, ranks.size), (0, 0))
+            self.assertEqual(forest_index.dtype, np.dtype("<i8"))
+            np.testing.assert_array_equal(identity[3][1], [0, 1])
+        self.assertFalse(directory.exists())
+
+    def test_accessor_refuses_a_short_store(self):
+        directory = self.root / "short"
+        directory.mkdir()
+        np.asarray([0], dtype=np.int64).tofile(directory / links.FOREST_INDEX_STORE_NAME)
+        np.asarray([0], dtype=np.int64).tofile(directory / links.RANKS_STORE_NAME)
+        identity = links.SnapshotIdentity(
+            directory, {3: (0, 4)}, peak_spill_bytes=0, store_bytes=16
+        )
+        with identity:
+            with self.assertRaisesRegex(
+                ConverterError, "holds 1 of the 4 ForestIndex value\(s\) snapshot 3 needs"
+            ):
+                identity[3]
+
+    def test_cli_accepts_a_memory_budget(self):
+        workdir, _, _ = make_linked_workdir(self.root)
+        rc = convert_ctrees.main(["links", "--workdir", str(workdir), "--memory-budget-mb", "1"])
+        self.assertEqual(rc, 0)
+        manifest = Manifest.load_or_create(workdir)
+        self.assertEqual(
+            {entry["status"] for entry in manifest.data["snapshots"].values()}, {"linked"}
+        )
+
+    def test_cli_refuses_an_unusable_memory_budget(self):
+        workdir, _, _ = make_linked_workdir(self.root)
+        rc = convert_ctrees.main(["links", "--workdir", str(workdir), "--memory-budget-mb", "0"])
+        self.assertEqual(rc, 1)
+        manifest = Manifest.load_or_create(workdir)
+        self.assertEqual(
+            {entry["status"] for entry in manifest.data["snapshots"].values()}, {"fixed"}
+        )
+
+    def test_budget_below_the_core_minimum_is_refused_with_both_figures(self):
+        workdir, _, _ = make_linked_workdir(self.root)
+        manifest = Manifest.load_or_create(workdir)
+        with self.assertRaisesRegex(ConverterError, "memory budget of 64 byte\\(s\\) is too small"):
+            links.compute_identity(manifest, budget_bytes=64)
+
+
+class TestForestTableReconciliation(Slice5Case):
+    def test_listed_forest_with_no_halos_aborts(self):
+        workdir, _, _ = make_linked_workdir(self.root)
+        manifest = Manifest.load_or_create(workdir)
+        table = np.load(Path(workdir) / "forest_index_table.npy")
+        reregister_forest_table(manifest, np.append(table, np.int64(777_777)))
+        with self.assertRaisesRegex(
+            ConverterError,
+            r"1 listed forest\(s\) have no halos \(examples: \[777777\]\), "
+            r"0 observed forest\(s\) are unlisted",
+        ):
+            run_links(workdir)
+
+    def test_observed_forest_unlisted_aborts(self):
+        workdir, _, _ = make_linked_workdir(self.root)
+        manifest = Manifest.load_or_create(workdir)
+        table = np.load(Path(workdir) / "forest_index_table.npy")
+        dropped = int(table[1])
+        reregister_forest_table(manifest, np.delete(table, 1))
+        with self.assertRaisesRegex(
+            ConverterError,
+            r"0 listed forest\(s\) have no halos \(examples: \[\]\), "
+            r"1 observed forest\(s\) are unlisted \(examples: \[{}\]\)".format(dropped),
+        ):
+            run_links(workdir)
+
+    def test_both_directions_are_reported_together(self):
+        workdir, _, _ = make_linked_workdir(self.root)
+        manifest = Manifest.load_or_create(workdir)
+        table = np.load(Path(workdir) / "forest_index_table.npy")
+        mangled = np.sort(np.append(np.delete(table, 0), np.int64(888_888)))
+        reregister_forest_table(manifest, mangled)
+        with self.assertRaisesRegex(
+            ConverterError,
+            r"1 listed forest\(s\) have no halos \(examples: \[888888\]\), "
+            r"1 observed forest\(s\) are unlisted",
+        ):
+            run_links(workdir)
+
+
+class TestVerifyIdentityBounded(unittest.TestCase):
+    """The verifier's own conditions, exercised across chunk boundaries.
+
+    Its three conditions are unchanged from the lexsort formulation; what
+    changed is that it now reads its inputs in bounded chunks, so every
+    condition is re-asserted for a violation that straddles a chunk and one that
+    does not.
+    """
+
+    def budget_for(self, chunk_rows):
+        return links.STREAM_BUDGET_SHARE * chunk_rows * links.VERIFY_STREAM_BYTES_PER_ROW
+
+    def test_dense_identity_passes_one_row_at_a_time(self):
+        forest_index = np.asarray([0, 0, 0, 1, 1, 2], dtype=np.int64)
+        ranks = np.asarray([2, 0, 1, 1, 0, 0], dtype=np.int64)
+        verify_identity(forest_index, ranks, 3, "test", budget_bytes=self.budget_for(1))
+
+    def test_duplicate_pair_inside_one_chunk_aborts(self):
+        forest_index = np.asarray([0, 0, 0, 0], dtype=np.int64)
+        ranks = np.asarray([1, 1, 2, 3], dtype=np.int64)
+        with self.assertRaisesRegex(ConverterError, r"1 \(ForestIndex, HaloRankInForest\) pair"):
+            verify_identity(forest_index, ranks, 1, "test", budget_bytes=self.budget_for(4))
+
+    def test_duplicate_pair_across_chunks_aborts(self):
+        # the same defect split across two read windows: a per-chunk-only check
+        # would pass this
+        forest_index = np.asarray([0, 0, 0, 0], dtype=np.int64)
+        ranks = np.asarray([1, 2, 3, 1], dtype=np.int64)
+        with self.assertRaisesRegex(ConverterError, r"1 \(ForestIndex, HaloRankInForest\) pair"):
+            verify_identity(forest_index, ranks, 1, "test", budget_bytes=self.budget_for(2))
+
+    def test_rank_outside_the_forest_range_aborts(self):
+        forest_index = np.asarray([0, 0], dtype=np.int64)
+        ranks = np.asarray([0, 7], dtype=np.int64)
+        with self.assertRaisesRegex(
+            ConverterError, r"examples: \(ForestIndex=0, rank=7, expected 1\)"
+        ):
+            verify_identity(forest_index, ranks, 1, "test", budget_bytes=self.budget_for(1))
+
+    def test_negative_rank_aborts(self):
+        forest_index = np.asarray([0, 0], dtype=np.int64)
+        ranks = np.asarray([-1, 1], dtype=np.int64)
+        with self.assertRaisesRegex(
+            ConverterError, r"examples: \(ForestIndex=0, rank=-1, expected 0\)"
+        ):
+            verify_identity(forest_index, ranks, 1, "test", budget_bytes=self.budget_for(2))
+
+    def test_example_names_the_rank_no_halo_holds(self):
+        forest_index = np.asarray([0, 0, 0], dtype=np.int64)
+        ranks = np.asarray([0, 0, 2], dtype=np.int64)
+        with self.assertRaisesRegex(
+            ConverterError,
+            r"1 \(ForestIndex, HaloRankInForest\) pair\(s\) violate per-forest "
+            r"density/uniqueness; examples: \(ForestIndex=0, rank=0, expected 1\)",
+        ):
+            verify_identity(forest_index, ranks, 1, "test", budget_bytes=self.budget_for(2))
+
+    def test_aggregate_collision_is_still_caught(self):
+        # the counter-example the Slice 4 review found for aggregate rank
+        # checks: forest counts [3, 2] with ranks [0,0,2 | 1,1] match dense
+        # [0,1,2 | 0,1] in sum, maximum and modular sum-of-squares, and neither
+        # forest is dense. The bitset does not admit it.
+        forest_index = np.asarray([0, 0, 0, 1, 1], dtype=np.int64)
+        ranks = np.asarray([0, 0, 2, 1, 1], dtype=np.int64)
+        self.assertEqual(int(ranks.sum()), 4)
+        self.assertEqual(int(ranks.max()), 2)
+        with self.assertRaisesRegex(ConverterError, r"2 \(ForestIndex, HaloRankInForest\) pair"):
+            verify_identity(forest_index, ranks, 2, "test", budget_bytes=self.budget_for(2))
+
+    def test_sparse_forest_index_across_chunks_aborts(self):
+        forest_index = np.asarray([0, 0, 2, 2], dtype=np.int64)
+        ranks = np.asarray([0, 1, 0, 1], dtype=np.int64)
+        with self.assertRaisesRegex(ConverterError, r"not dense over \[0, 3\)"):
+            verify_identity(forest_index, ranks, 3, "test", budget_bytes=self.budget_for(2))
+
+    def test_forest_index_above_the_range_aborts(self):
+        forest_index = np.asarray([0, 1], dtype=np.int64)
+        ranks = np.asarray([0, 0], dtype=np.int64)
+        with self.assertRaisesRegex(ConverterError, r"not dense over \[0, 1\)"):
+            verify_identity(forest_index, ranks, 1, "test", budget_bytes=self.budget_for(1))
+
+    def test_column_length_mismatch_refused(self):
+        with self.assertRaisesRegex(ConverterError, "got 3 ForestIndex value\\(s\\) against 2"):
+            verify_identity(np.zeros(3, dtype=np.int64), np.zeros(2, dtype=np.int64), 1, "test")
+
+    def test_empty_run_passes(self):
+        verify_identity(np.empty(0, dtype=np.int64), np.empty(0, dtype=np.int64), 0, "test")
+
+    def test_on_disk_columns_verify_identically(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            forest_index = np.asarray([0, 0, 1, 1, 1], dtype=np.int64)
+            ranks = np.asarray([1, 0, 2, 0, 1], dtype=np.int64)
+            fi_path, rank_path = root / "fi.i64", root / "rank.i64"
+            forest_index.tofile(fi_path)
+            ranks.tofile(rank_path)
+            columns = (
+                links._Int64Column(fi_path, forest_index.size),
+                links._Int64Column(rank_path, ranks.size),
+            )
+            verify_identity(columns[0], columns[1], 2, "test", budget_bytes=self.budget_for(2))
+            broken = ranks.copy()
+            broken[0] = 0
+            broken.tofile(rank_path)
+            with self.assertRaisesRegex(ConverterError, "density/uniqueness"):
+                verify_identity(columns[0], columns[1], 2, "test", budget_bytes=self.budget_for(2))
+
+    def test_truncated_on_disk_column_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "short.i64"
+            np.asarray([0, 0], dtype=np.int64).tofile(path)
+            column = links._Int64Column(path, 4)
+            with self.assertRaisesRegex(ConverterError, "ended after 2 of 4 int64 value"):
+                verify_identity(column, column, 1, "test")
+
+
+class TestIdentityMemoryScaling(Slice5Case):
+    """Actual allocation, not an instrument's own counter.
+
+    Slice 4 lost four rounds to allocations that escaped its meter, each
+    invisible because the test read the meter. This measures ``tracemalloc``'s
+    peak for a whole ``compute_identity`` call at a fixed budget over two real
+    workdirs differing 4x in halo count, and the in-memory formulation it
+    replaced is measured beside it as the control that proves the measurement
+    can see growth at all.
+    """
+
+    #: Allowance for the growth that is NOT per-halo: the sort core's per-run
+    #: bookkeeping (O(number of runs), so it shrinks as the budget grows —
+    #: rank_sort's own exclusion list, category 3), per-snapshot bookkeeping and
+    #: interpreter churn. Small enough that one whole int64 column of the run
+    #: escaping into memory (8 B/halo) cannot hide inside it, which is asserted
+    #: below rather than assumed.
+    ALLOWANCE_BYTES = 1 << 17
+
+    def prepare(self, n_snaps):
+        """A workdir whose snapshots are the same size whatever ``n_snaps`` is,
+        so only the run's TOTAL halo count differs between two calls."""
+        root = self.root / "s{}".format(n_snaps)
+        root.mkdir()
+        forests = scaling_forests(n_forests=10, snaps=range(11 - n_snaps, 11), halos_per_snap=1000)
+        workdir, _, _ = make_linked_workdir(root, forests=forests, a_list_values=LONG_A_LIST)
+        return Manifest.load_or_create(workdir)
+
+    def peak_of(self, call):
+        """``tracemalloc``'s peak for one call, with the manifest checksum's own
+        read block shrunk.
+
+        ``Manifest.verify_intermediate`` checksums through ``file_md5``, whose
+        8 MB read block CPython allocates in full before it knows how much the
+        file holds. That spike is constant, bounded, pre-existing and in
+        ``scatter.py``, which this slice does not touch — but it is larger than
+        any leak this test needs to see, and a peak measurement reports the
+        maximum, so it would mask one completely. The checksum still runs, and
+        still runs for real; only its block size changes.
+        """
+        gc.collect()
+        with mock.patch(
+            "scatter.file_md5", lambda path, blocksize=64 * 1024: file_md5(path, blocksize)
+        ):
+            tracemalloc.start()
+            try:
+                tracemalloc.reset_peak()
+                before = tracemalloc.get_traced_memory()[0]
+                result = call()
+                peak = tracemalloc.get_traced_memory()[1]
+            finally:
+                tracemalloc.stop()
+        return result, peak - before
+
+    def test_peak_allocation_does_not_scale_with_halo_count(self):
+        budget = 1 << 18
+        peaks, oracle_peaks, totals = {}, {}, {}
+        for label, n_snaps in (("base", 2), ("four_times", 8)):
+            manifest = self.prepare(n_snaps)
+            totals[label] = sum(entry["rows"] for entry in manifest.data["snapshots"].values())
+            identity, n_forests, max_rank = None, None, None
+
+            def bounded(manifest=manifest):
+                return links.compute_identity(manifest, budget_bytes=budget)
+
+            (identity, n_forests, max_rank), peaks[label] = self.peak_of(bounded)
+            with identity:
+                # the measurement must be of a call that did the right thing
+                expected, expected_forests, expected_max = in_memory_identity(manifest)
+                self.assertEqual((n_forests, max_rank), (expected_forests, expected_max))
+                for snap, (forest_index, ranks) in expected.items():
+                    observed_fi, observed_ranks = identity[snap]
+                    np.testing.assert_array_equal(observed_fi, forest_index)
+                    np.testing.assert_array_equal(observed_ranks, ranks)
+                self.assertGreater(identity.n_runs, 1)
+            _, oracle_peaks[label] = self.peak_of(
+                lambda manifest=manifest: in_memory_identity(manifest)
+            )
+        self.assertGreaterEqual(totals["four_times"], 4 * totals["base"])
+        grown = totals["four_times"] - totals["base"]
+        # the measurement is only worth making if it could see the defect class
+        # it exists for: one int64 column over the whole run held in memory
+        self.assertGreater(8 * grown, grown // 8 + self.ALLOWANCE_BYTES)
+        # the bounded pass's only halo-count-sized structure is the verifier's
+        # bitset, at one bit per halo, and it is the reason an exact per-forest
+        # density check is affordable at all
+        self.assertLessEqual(peaks["four_times"] - peaks["base"], grown // 8 + self.ALLOWANCE_BYTES)
+        # not a vacuous bound: the same measurement, over the same two inputs,
+        # sees the formulation this replaced blow the very bound the bounded
+        # pass just met — tens of bytes per halo against one bit
+        self.assertGreater(
+            oracle_peaks["four_times"] - oracle_peaks["base"],
+            grown // 8 + self.ALLOWANCE_BYTES,
+        )
 
 
 if __name__ == "__main__":

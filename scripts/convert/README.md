@@ -52,7 +52,9 @@ mimic_venv/bin/python scripts/convert/convert_ctrees.py fixups \
 
 # Phase 3 steps 6-9: FoF chains, descendant/progenitor links, within-forest
 # ranks, identity fields (always all snapshots — FirstProgenitor flows forward
-# through a per-snapshot pending buffer)
+# through a per-snapshot pending buffer). --memory-budget-mb bounds the rank
+# pass's working set (default 2048); it trades memory against spill I/O and
+# changes no emitted value
 mimic_venv/bin/python scripts/convert/convert_ctrees.py links \
     --workdir output/convert/micro-uchuu
 
@@ -126,6 +128,13 @@ Canonical metadata comes from explicit `--simulation-info` and `--a-list` paths,
                            HaloRankInForest int64), row-aligned with the fixed file
     snap_NNN_pending_fp.bin pending FirstProgenitor buffer for snapshot NNN
                            (int32, written while snapshot NNN-1 is resident)
+    links_identity_*/      transient per-invocation rank/identity scratch: the
+                           external merge sort's spill runs plus two int64
+                           arrays (ForestIndex, HaloRankInForest) indexed by
+                           global position, 8 B/halo each. Created and removed
+                           by the links stage itself, on success and on failure,
+                           so it is never a manifest intermediate and never
+                           outlives the run that made it
     roots_src_I.npy        observed #tree roots per source file
     forest_max_src_I.npy   per-file forest max-snapshot aggregates
 ```
@@ -152,7 +161,7 @@ Rules the cycle depends on:
 - Root-coverage validation at finalize reads each source file's observed roots from its registered sidecar, so it still sees every file's roots when no source byte is left on disk.
 - A conversion driven this way emits a dataset byte-identical to a single all-at-once run, and a manifest identical in provenance and every per-source content field; only the lifecycle state differs (`consumed` versus `completed`).
 
-**Shin-Uchuu-scale notes (production conversion, out of scope here):** the Phase 0 forest map is currently passed to each pool task by pickling — at the ~5 GB Shin-Uchuu map size that needs a worker initializer with shared or memory-mapped storage; per-chunk per-snapshot boolean scans, whole-file concat reads, and the in-memory sort (~350 B/row peak) are likewise sized for micro-Uchuu, with a chunked external-merge fallback deferred to a future production pass. The fix-up stage's satellite chain resolution is a sequential per-satellite scan (reference-order in-place rewrites, required for exact fix_upid parity); it is a few seconds per snapshot at micro-Uchuu scale but would need revisiting for Shin-Uchuu. The link stage's rank pass groups every snapshot's sort keys in memory; the Shin-Uchuu super-forest needs a deferred chunked external-merge rank sort instead. The validation battery and cross-check similarly load the full emitted dataset (and reference galaxy output) into memory. Concurrent converter invocations on one workdir are not locked.
+**Shin-Uchuu-scale notes (production conversion, out of scope here):** the Phase 0 forest map is currently passed to each pool task by pickling — at the ~5 GB Shin-Uchuu map size that needs a worker initializer with shared or memory-mapped storage; per-chunk per-snapshot boolean scans, whole-file concat reads, and the in-memory sort (~350 B/row peak) are likewise sized for micro-Uchuu, with a chunked external-merge fallback deferred to a future production pass. The fix-up stage's satellite chain resolution is a sequential per-satellite scan (reference-order in-place rewrites, required for exact fix_upid parity); it is a few seconds per snapshot at micro-Uchuu scale but would need revisiting for Shin-Uchuu. The link stage's rank pass is bounded (converter scale pass, plan Slice 5): it ranks through the external merge sort in `rank_sort.py` under `--memory-budget-mb`, derives `ForestIndex` per snapshot, keeps `(ForestIndex, HaloRankInForest)` in on-disk arrays and holds only the adjacent snapshot pair the link stage is working on, and verifies identity exactly with one bit per halo. Measured at the 406,668,896-halo rehearsal scale it peaks at 9.76 GB against the 76.39 GB in-memory baseline (16 min wall clock, 18.18 GiB of transient spill and 6.06 GiB of identity arrays on disk), emitting byte-identical links; the per-snapshot slabs the link algorithms themselves need are the remaining scale limit there. The validation battery and cross-check similarly load the full emitted dataset (and reference galaxy output) into memory. Concurrent converter invocations on one workdir are not locked.
 
 ## Building a subset of a very large dataset
 

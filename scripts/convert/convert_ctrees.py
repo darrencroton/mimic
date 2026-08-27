@@ -145,6 +145,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "identity fields (always all snapshots — FirstProgenitor flows forward)",
     )
     _add_workdir(links)
+    links.add_argument(
+        "--memory-budget-mb",
+        type=int,
+        default=None,
+        help="working-memory budget for the rank/identity pass, in MiB (default 2048). "
+        "It bounds the external merge sort's resident records and the identity "
+        "stream's read windows; the values written are identical at any budget, so "
+        "this trades memory against spill I/O and nothing else",
+    )
 
     write = sub.add_parser(
         "write",
@@ -216,9 +225,14 @@ def main(argv=None) -> int:
                 snapshots=args.snapshot,
             )
         elif args.command == "links":
-            from links import run_links
+            from links import DEFAULT_RANK_BUDGET_BYTES, run_links
 
-            run_links(args.workdir)
+            budget_bytes = (
+                args.memory_budget_mb * 1024**2
+                if args.memory_budget_mb is not None
+                else DEFAULT_RANK_BUDGET_BYTES
+            )
+            run_links(args.workdir, budget_bytes=budget_bytes)
         elif args.command == "write":
             from hdf5_writer import run_write
 

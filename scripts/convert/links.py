@@ -42,16 +42,29 @@ slice writes out unchanged (ascending id == ascending |MostBoundID|, the
 Slice 5 invariant). All aborts carry counts and concrete examples — never
 repair.
 
-Out of scope (plan Slice 6 non-goals): HDF5 emission (Slice 7) and the chunked
-external-merge rank sort — the rank pass groups all snapshots in memory, which
-is sufficient for micro-Uchuu and fixtures; the external-sort fallback is a
-Shin-Uchuu production concern (see README).
+**The rank pass is bounded** (CONVERTER-SCALE-PASS-PLAN.md Slice 5). It used to
+concatenate five int64 key columns over every snapshot and run one global
+``np.lexsort`` — 187.84 B/halo measured, 4.30 TB at the 22.9e9-halo Shin-Uchuu
+production scale. ``HaloRankInForest`` now comes from the external merge-sort
+core in ``rank_sort.py`` under an explicit memory budget, ``ForestIndex`` is
+derived per snapshot from the Phase 0 forest table (no global pass is needed for
+it), and both columns are written to on-disk arrays indexed by global position:
+``compute_identity`` returns a :class:`SnapshotIdentity` accessor that keeps
+only the adjacent snapshot pair the link stage is working on resident. Identity
+verification is bounded the same way and is exact — see :func:`verify_identity`.
+The ordering, the ranks and every emitted byte are unchanged; only the memory
+profile is.
+
+Out of scope (plan Slice 6 non-goals): HDF5 emission (Slice 7).
 """
 
 import os
+import shutil
 import sys
+import tempfile
+from collections import OrderedDict
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Dict, Iterator, Tuple
 
 import numpy as np
 
@@ -59,6 +72,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from ctrees_parser import ConverterError  # noqa: E402
 from fixups import FIXED_DTYPE_TAG, FIXED_RECORD_DTYPE  # noqa: E402
+from rank_sort import (  # noqa: E402
+    MIN_BUDGET_BYTES,
+    RANK_DTYPE,
+    RankSortError,
+    rank_forests,
+)
 from scatter import Manifest  # noqa: E402
 
 #: Per-snapshot link/identity record, row-aligned with the fixed scratch file
@@ -84,6 +103,57 @@ LINKS_DTYPE_TAG = "ctrees-links-v1/itemsize=36/" + ",".join(
 )
 
 _INT32_MAX = np.iinfo(np.int32).max
+
+#: Default working-memory budget for the rank/identity pass, in bytes. It bounds
+#: the external merge core's buffers and this module's own streaming windows. It
+#: deliberately does NOT cover the forest-count-sized tables (the Phase 0 forest
+#: table, the per-forest counts and offsets) or the exact one-bit-per-halo
+#: verification bitset: those are what make the identity assertion exact, and
+#: their sizes are reported rather than estimated. 2 GiB is the Slice 5 default
+#: because it keeps ``links`` peak RSS at the 406,668,896-halo rehearsal scale
+#: well under the plan's 24 GB ceiling while generating few enough spill runs to
+#: merge in a single pass.
+DEFAULT_RANK_BUDGET_BYTES = 2 * 1024**3
+
+#: How that budget is split: one share for this module's streaming windows, the
+#: remaining shares for the external merge core. The core is the phase a large
+#: budget actually buys something for (fewer, longer sorted runs); the windows
+#: here only need to be large enough for efficient sequential I/O.
+STREAM_BUDGET_SHARE = 4
+
+#: Bytes the identity stream holds per fixed-record row while feeding the core,
+#: enumerated rather than estimated: the block being read (120), the PREVIOUS
+#: block, which the core's own ``for`` loop still references while the generator
+#: reads the next one (120), the int64 ForestIndex derived from a block (8), and
+#: numpy's own contiguous copy of the strided ``forest_id`` column that
+#: ``np.searchsorted`` makes (8).
+IDENTITY_STREAM_BYTES_PER_ROW = 2 * FIXED_RECORD_DTYPE.itemsize + 2 * RANK_DTYPE.itemsize
+
+#: Bytes the verification stream holds per row, enumerated rather than
+#: estimated. Eleven int64-wide arrays: the ForestIndex and rank blocks read
+#: back from disk, each row's forest count, the indices of the in-range rows,
+#: their slot indices, those slots' byte indices, the argsort permutation, the
+#: sorted slots, and the deduplicated slots with their byte indices and byte
+#: group starts. Six one-byte masks: in-range, the slot bit masks, duplicate,
+#: repeat, the deduplicated bit masks, and rejected. Every one of them is
+#: chunk-sized, and the total is the worst case with all of them live.
+VERIFY_STREAM_BYTES_PER_ROW = 11 * RANK_DTYPE.itemsize + 6
+
+#: The two on-disk identity arrays inside the accessor's private directory, both
+#: indexed by global position over the whole run (8 B/halo each).
+FOREST_INDEX_STORE_NAME = "forest_index.i64"
+RANKS_STORE_NAME = "ranks.i64"
+
+#: Prefix of that private directory, created under the workdir scratch dir. The
+#: identity pass creates it and removes it — on success and on every failure
+#: path — so it is never registered as a manifest intermediate: it does not
+#: outlive the call that made it, and no later stage may depend on it.
+IDENTITY_DIR_PREFIX = "links_identity_"
+
+#: Slots of the verification bitset examined at once when a failure message
+#: needs the first rank a forest does not hold. Bounded so the diagnostic scan
+#: of a single huge forest cannot itself allocate without limit.
+_MISSING_RANK_SCAN_SLOTS = 1 << 20
 
 
 def links_scratch_name(snap: int) -> str:
@@ -328,37 +398,200 @@ def verify_descendant_forests(
         )
 
 
+class _Int64Column:
+    """A flat ``RANK_DTYPE`` array on disk, read back in bounded chunks.
+
+    The identity pass hands two of these to :func:`verify_identity` in place of
+    the resident arrays the in-memory formulation used, which is what makes the
+    assertion bounded: nothing here ever holds more than one chunk.
+    """
+
+    def __init__(self, path, size: int):
+        self.path = Path(path)
+        self.size = int(size)
+
+    def chunks(self, chunk_rows: int) -> Iterator[np.ndarray]:
+        remaining = self.size
+        with open(self.path, "rb") as handle:
+            while remaining > 0:
+                block = np.fromfile(handle, dtype=RANK_DTYPE, count=min(chunk_rows, remaining))
+                if block.size == 0:
+                    raise ConverterError(
+                        "{}: ended after {} of {} int64 value(s)".format(
+                            self.path, self.size - remaining, self.size
+                        )
+                    )
+                remaining -= block.size
+                yield block
+
+
+class _ResidentColumn:
+    """An int64 array already in memory, chunked through the same interface, so
+    the verifier has ONE code path: callers holding arrays (the unit tests, any
+    small caller) and the identity pass's on-disk stores are verified by exactly
+    the same arithmetic."""
+
+    def __init__(self, values: np.ndarray):
+        self.values = values
+        self.size = int(values.size)
+
+    def chunks(self, chunk_rows: int) -> Iterator[np.ndarray]:
+        for start in range(0, self.size, chunk_rows):
+            yield self.values[start : start + chunk_rows]
+
+
+def _as_column(values):
+    return _ResidentColumn(values) if isinstance(values, np.ndarray) else values
+
+
+def _not_dense_message(context: str, n_forests: int) -> str:
+    return "{}: observed ForestIndex values are not dense over [0, {})".format(context, n_forests)
+
+
+def _count_halos_per_forest(fi_column, n_forests: int, chunk_rows: int, context: str) -> np.ndarray:
+    """Halos per ForestIndex, and with it the density condition: every value in
+    ``[0, n_forests)`` and every forest in that range observed at least once —
+    exactly what the in-memory formulation's ``fi[starts] == arange(n_forests)``
+    comparison asserted."""
+    counts = np.zeros(n_forests, dtype=np.int64)
+    for block in fi_column.chunks(chunk_rows):
+        if block.size and (int(block.min()) < 0 or int(block.max()) >= n_forests):
+            raise ConverterError(_not_dense_message(context, n_forests))
+        counts += np.bincount(block, minlength=n_forests)
+    if not counts.all():
+        raise ConverterError(_not_dense_message(context, n_forests))
+    return counts
+
+
+def _first_unheld_rank(bits: np.ndarray, offset: int, count: int) -> int:
+    """The first rank in one forest that no halo holds, read back out of the
+    verification bitset for a failure message. Always exists when that forest
+    rejected a pair: its halos then cover fewer than ``count`` distinct slots."""
+    for start in range(0, count, _MISSING_RANK_SCAN_SLOTS):
+        stop = min(start + _MISSING_RANK_SCAN_SLOTS, count)
+        slots = np.arange(offset + start, offset + stop, dtype=np.int64)
+        held = (bits[slots >> 3] >> (slots & 7).astype(np.uint8)) & np.uint8(1)
+        free = np.nonzero(held == 0)[0]
+        if free.size:
+            return int(start + int(free[0]))
+    return -1
+
+
+def _verify_rank_density(
+    fi_column, rank_column, counts: np.ndarray, offsets: np.ndarray, chunk_rows: int, context: str
+) -> None:
+    """Per-forest rank density and (ForestIndex, HaloRankInForest) uniqueness,
+    proved exactly with one bit per halo.
+
+    ``offsets[forest] + rank`` is the position that halo would occupy in the
+    lexsorted (ForestIndex, rank) order, so the pairs are dense and unique if
+    and only if every halo claims an in-range slot and no slot is claimed twice.
+    """
+    total = fi_column.size
+    bits = np.zeros((total + 7) // 8, dtype=np.uint8)
+    n_bad = 0
+    examples = []
+    for fi, rank in zip(fi_column.chunks(chunk_rows), rank_column.chunks(chunk_rows)):
+        limits = counts[fi]
+        in_range = (rank >= 0) & (rank < limits)
+        rows = np.nonzero(in_range)[0]
+        slots = offsets[fi[rows]] + rank[rows]
+        byte = slots >> 3
+        mask = (1 << (slots & 7)).astype(np.uint8)
+        # claimed before this chunk...
+        duplicate = (bits[byte] & mask) != 0
+        # ...or twice inside it: sorting the chunk's slots makes equal slots
+        # adjacent, and the first of each run keeps the slot
+        order = np.argsort(slots, kind="stable")
+        sorted_slots = slots[order]
+        repeat = np.zeros(sorted_slots.size, dtype=bool)
+        if sorted_slots.size > 1:
+            repeat[1:] = sorted_slots[1:] == sorted_slots[:-1]
+        duplicate[order] = duplicate[order] | repeat
+        if sorted_slots.size:
+            unique_slots = sorted_slots[~repeat]
+            unique_bytes = unique_slots >> 3
+            unique_masks = (1 << (unique_slots & 7)).astype(np.uint8)
+            # distinct slots can share a byte, so the bits of one byte are OR-ed
+            # together before the store: a buffered ``|=`` over repeated byte
+            # indices would drop all but one of them
+            byte_starts = np.nonzero(np.r_[True, unique_bytes[1:] != unique_bytes[:-1]])[0]
+            bits[unique_bytes[byte_starts]] |= np.bitwise_or.reduceat(unique_masks, byte_starts)
+        rejected = ~in_range
+        rejected[rows[duplicate]] = True
+        n_rejected = int(rejected.sum())
+        if n_rejected:
+            n_bad += n_rejected
+            if len(examples) < 5:
+                for row in np.nonzero(rejected)[0][: 5 - len(examples)]:
+                    examples.append((int(fi[row]), int(rank[row])))
+    if n_bad:
+        detail = [
+            "(ForestIndex={}, rank={}, expected {})".format(
+                forest, rank, _first_unheld_rank(bits, int(offsets[forest]), int(counts[forest]))
+            )
+            for forest, rank in examples
+        ]
+        raise ConverterError(
+            "{}: {} (ForestIndex, HaloRankInForest) pair(s) violate per-forest "
+            "density/uniqueness; examples: {}".format(context, n_bad, ", ".join(detail))
+        )
+
+
 def verify_identity(
-    forest_index: np.ndarray, ranks: np.ndarray, n_forests: int, context: str
+    forest_index,
+    ranks,
+    n_forests: int,
+    context: str,
+    *,
+    budget_bytes: int = DEFAULT_RANK_BUDGET_BYTES,
 ) -> None:
     """The plan's global identity assertion, checked on the OUTPUT arrays
     independently of how they were constructed: (ForestIndex, HaloRankInForest)
     pairs unique, ForestIndex dense over [0, n_forests), and ranks dense per
-    forest (format invariant 4)."""
-    order = np.lexsort((ranks, forest_index))
-    fi = forest_index[order]
-    rk = ranks[order]
-    new_forest = np.r_[True, fi[1:] != fi[:-1]]
-    starts = np.nonzero(new_forest)[0]
-    if not np.array_equal(fi[starts], np.arange(n_forests, dtype=fi.dtype)):
+    forest (format invariant 4).
+
+    ``forest_index`` and ``ranks`` are each either a resident int64 array or an
+    on-disk :class:`_Int64Column`; both are consumed in bounded chunks, so the
+    assertion holds at any scale (plan Slice 5). Two streaming passes replace
+    the global ``np.lexsort`` the in-memory formulation used:
+
+    1. count halos per ForestIndex, which settles density over
+       ``[0, n_forests)``;
+    2. claim ``forest_offset[ForestIndex] + rank`` in a one-bit-per-halo bitset
+       — exactly the position that halo would occupy in the lexsorted order. A
+       rank outside its forest's ``[0, count)``, or a slot claimed twice, IS a
+       per-forest density or pair-uniqueness violation, and nothing else is.
+
+    Exact by construction rather than by aggregate: sums, hashes and extrema all
+    admit collisions (``[0,0,2 | 1,1]`` matches dense ``[0,1,2 | 0,1]`` in sum,
+    maximum and modular sum-of-squares), a bitset does not.
+
+    Resident cost: one bit per halo, 8 bytes per forest for the counts and 8 for
+    the offsets, plus streaming windows out of ``budget_bytes``.
+
+    **The reported violation count and the five examples are this formulation's
+    own.** Reproducing the lexsorted formulation's positional count exactly
+    would need a multiplicity per slot instead of a bit (>= 1 B/halo, 22.9 GB at
+    production) — the memory wall this slice exists to remove. What is detected
+    is identical, the message shapes are identical, and ``expected`` in each
+    example is the first rank in that forest that no halo holds.
+    """
+    fi_column = _as_column(forest_index)
+    rank_column = _as_column(ranks)
+    if fi_column.size != rank_column.size:
         raise ConverterError(
-            "{}: observed ForestIndex values are not dense over [0, {})".format(context, n_forests)
-        )
-    group_id = np.cumsum(new_forest) - 1
-    expected = np.arange(fi.size, dtype=rk.dtype) - starts[group_id]
-    bad = rk != expected
-    if bad.any():
-        idx = np.nonzero(bad)[0][:5]
-        examples = [
-            "(ForestIndex={}, rank={}, expected {})".format(
-                int(fi[i]), int(rk[i]), int(expected[i])
+            "{}: identity verification got {} ForestIndex value(s) against {} rank(s)".format(
+                context, fi_column.size, rank_column.size
             )
-            for i in idx
-        ]
-        raise ConverterError(
-            "{}: {} (ForestIndex, HaloRankInForest) pair(s) violate per-forest "
-            "density/uniqueness; examples: {}".format(context, int(bad.sum()), ", ".join(examples))
         )
+    n_forests = int(n_forests)
+    chunk_rows = max(1, (budget_bytes // STREAM_BUDGET_SHARE) // VERIFY_STREAM_BYTES_PER_ROW)
+    counts = _count_halos_per_forest(fi_column, n_forests, chunk_rows, context)
+    offsets = np.zeros(n_forests, dtype=np.int64)
+    if n_forests > 1:
+        np.cumsum(counts[:-1], out=offsets[1:])
+    _verify_rank_density(fi_column, rank_column, counts, offsets, chunk_rows, context)
 
 
 def _validate_monotonic_pairs(manifest: Manifest) -> None:
@@ -388,15 +621,14 @@ def _validate_monotonic_pairs(manifest: Manifest) -> None:
 
 
 def _load_fixed(manifest: Manifest, snap: int) -> np.ndarray:
-    """Verify and load one snapshot's fixed scratch file."""
+    """Verify and load one snapshot's fixed scratch file.
+
+    The link stage works on a whole snapshot at a time by construction (FoF
+    chains and the progenitor insertion loop are per-snapshot), so this loads
+    the slab; the rank pass, which does not need a whole snapshot, streams the
+    same file in bounded blocks instead (:func:`_iter_identity_blocks`)."""
     entry = manifest.data["snapshots"][str(snap)]
-    tag = manifest.data["intermediates"][entry["fixed_file"]].get("dtype_tag")
-    if tag != FIXED_DTYPE_TAG:
-        raise ConverterError(
-            "{}: fixed-file dtype tag {!r} != expected {!r} — refusing to link".format(
-                entry["fixed_file"], tag, FIXED_DTYPE_TAG
-            )
-        )
+    _check_fixed_dtype_tag(manifest, entry["fixed_file"])
     manifest.verify_intermediate(entry["fixed_file"], "fixed snapshot scratch")
     records = np.fromfile(entry["fixed_file"], dtype=FIXED_RECORD_DTYPE)
     if len(records) != entry["rows"]:
@@ -408,80 +640,309 @@ def _load_fixed(manifest: Manifest, snap: int) -> np.ndarray:
     return records
 
 
-def compute_identity(
-    manifest: Manifest,
-) -> Tuple[Dict[int, Tuple[np.ndarray, np.ndarray]], int, int]:
-    """Rank pass (conversion plan Phase 3 step 9): HaloRankInForest per forest
-    in reference tree-driver order over all snapshots — (snapshot descending,
-    upid, pid, id ascending) on post-fix values — plus the dense ForestIndex
-    from the Phase 0 table.
+#: Snapshots the identity accessor keeps resident. Two, because the link stage
+#: works on an adjacent pair: ``link_one_snapshot`` verifies snapshot N's halo
+#: forests against snapshot N+1's (``verify_descendant_forests``), and nothing
+#: in the stage ever reaches wider than that.
+RESIDENT_SNAPSHOTS = 2
 
-    In-memory grouping over all snapshots' key columns; sufficient for
-    micro-Uchuu and fixtures (the external-merge sort is a production
-    concern). Returns ``({snap: (forest_index, ranks)}, n_forests_total,
-    max_halo_rank_in_forest)`` with per-snapshot arrays in slab order.
+
+class SnapshotIdentity:
+    """Per-snapshot ``(ForestIndex, HaloRankInForest)`` accessor backed by two
+    on-disk int64 arrays indexed by global position.
+
+    ``identity[snap]`` returns that snapshot's two int64 arrays in slab order —
+    element for element what the ``{snap: (forest_index, ranks)}`` dict handed
+    the link stage before. What changed is residency: the dict was a pair of
+    views into arrays covering every snapshot (16 B/halo, 366 GB at production),
+    while this holds at most :data:`RESIDENT_SNAPSHOTS` snapshots at a time.
+
+    The accessor owns its backing directory: :meth:`close` removes it, and the
+    identity pass removes it on every failure path, so no store outlives the
+    call that produced it. The reported byte counts are for the storage envelope
+    (plan Slice 8): ``peak_spill_bytes`` is what the merge core held on disk at
+    its high-water mark, ``store_bytes`` what the two identity arrays occupy.
+    ``n_runs``, ``n_merge_passes`` and ``merge_records`` report what the budget
+    bought inside the core, so a caller — or a test — can tell whether the spill
+    and merge paths were exercised at all.
+    """
+
+    def __init__(
+        self,
+        directory,
+        layout: Dict[int, Tuple[int, int]],
+        *,
+        peak_spill_bytes: int,
+        store_bytes: int,
+        n_runs: int = 0,
+        n_merge_passes: int = 0,
+        merge_records: int = 0,
+    ):
+        self.directory = Path(directory)
+        self.forest_index_path = self.directory / FOREST_INDEX_STORE_NAME
+        self.ranks_path = self.directory / RANKS_STORE_NAME
+        self.peak_spill_bytes = int(peak_spill_bytes)
+        self.store_bytes = int(store_bytes)
+        self.n_runs = int(n_runs)
+        self.n_merge_passes = int(n_merge_passes)
+        self.merge_records = int(merge_records)
+        self._layout = dict(layout)
+        self._resident = OrderedDict()
+
+    def __contains__(self, snap) -> bool:
+        return int(snap) in self._layout
+
+    def __getitem__(self, snap) -> Tuple[np.ndarray, np.ndarray]:
+        snap = int(snap)
+        if snap in self._resident:
+            self._resident.move_to_end(snap)
+            return self._resident[snap]
+        if snap not in self._layout:
+            raise KeyError(snap)
+        offset, rows = self._layout[snap]
+        pair = (
+            self._read(self.forest_index_path, "ForestIndex", snap, offset, rows),
+            self._read(self.ranks_path, "HaloRankInForest", snap, offset, rows),
+        )
+        self._resident[snap] = pair
+        while len(self._resident) > RESIDENT_SNAPSHOTS:
+            self._resident.popitem(last=False)
+        return pair
+
+    def resident_snapshots(self) -> Tuple[int, ...]:
+        """Which snapshots are held right now — the working set a memory bound
+        is asserted against, rather than inferred."""
+        return tuple(self._resident)
+
+    def close(self) -> None:
+        """Drop the resident arrays and remove the backing directory."""
+        self._resident.clear()
+        shutil.rmtree(self.directory, ignore_errors=True)
+
+    def __enter__(self) -> "SnapshotIdentity":
+        return self
+
+    def __exit__(self, *exc_info) -> None:
+        self.close()
+
+    @staticmethod
+    def _read(path: Path, what: str, snap: int, offset: int, rows: int) -> np.ndarray:
+        if rows == 0:
+            return np.empty(0, dtype=RANK_DTYPE)
+        block = np.fromfile(path, dtype=RANK_DTYPE, count=rows, offset=offset * RANK_DTYPE.itemsize)
+        if block.size != rows:
+            raise ConverterError(
+                "{}: holds {} of the {} {} value(s) snapshot {} needs".format(
+                    path, block.size, rows, what, snap
+                )
+            )
+        return block
+
+
+def _check_fixed_dtype_tag(manifest: Manifest, path: str) -> None:
+    """The fixed-file dtype tag is part of the deal: a scratch file written by a
+    different converter revision must not be ranked or linked."""
+    tag = manifest.data["intermediates"][path].get("dtype_tag")
+    if tag != FIXED_DTYPE_TAG:
+        raise ConverterError(
+            "{}: fixed-file dtype tag {!r} != expected {!r} — refusing to link".format(
+                path, tag, FIXED_DTYPE_TAG
+            )
+        )
+
+
+def _iter_identity_blocks(
+    manifest: Manifest,
+    snaps,
+    forest_table: np.ndarray,
+    fi_handle,
+    layout: Dict[int, Tuple[int, int]],
+    chunk_rows: int,
+):
+    """Feed the rank core one bounded block of fixed records at a time, deriving
+    and persisting ForestIndex as it goes.
+
+    Blocks are yielded snapshot-ascending, each in slab order, so a record's
+    global position is exactly the position the in-memory formulation's
+    concatenation gave it — which is what makes the two orderings identical.
+    ``layout`` is filled in with each snapshot's ``(offset, rows)`` window into
+    the identity stores, and each snapshot's fixed file is dtype-tag-checked and
+    checksum-verified before a byte of it is read.
+    """
+    position = 0
+    for snap in snaps:
+        entry = manifest.data["snapshots"][str(snap)]
+        path = entry["fixed_file"]
+        _check_fixed_dtype_tag(manifest, path)
+        manifest.verify_intermediate(path, "fixed snapshot scratch")
+        rows = 0
+        with open(path, "rb") as handle:
+            while True:
+                records = np.fromfile(handle, dtype=FIXED_RECORD_DTYPE, count=chunk_rows)
+                if records.size == 0:
+                    break
+                forest_index = np.searchsorted(forest_table, records["forest_id"])
+                # written through the buffer as a memoryview: no whole-chunk
+                # bytes copy, and a no-op cast on a little-endian host
+                fi_handle.write(np.ascontiguousarray(forest_index, dtype=RANK_DTYPE).data)
+                rows += records.size
+                yield snap, records
+        if rows != entry["rows"]:
+            raise ConverterError(
+                "{}: has {} rows, manifest records {}".format(path, rows, entry["rows"])
+            )
+        layout[snap] = (position, rows)
+        position += rows
+
+
+def _max_rank(rank_column, budget_bytes: int) -> int:
+    """``max_halo_rank_in_forest`` for the manifest, streamed from the stored
+    ranks column so it is derived from the values the link stage will write, not
+    from the sort core's own bookkeeping. -1 for an empty run, exactly as
+    ``int(ranks.max()) if total else -1`` gave before."""
+    chunk_rows = max(1, (budget_bytes // STREAM_BUDGET_SHARE) // RANK_DTYPE.itemsize)
+    max_rank = -1
+    for block in rank_column.chunks(chunk_rows):
+        max_rank = max(max_rank, int(block.max()))
+    return max_rank
+
+
+def compute_identity(
+    manifest: Manifest, *, budget_bytes: int = DEFAULT_RANK_BUDGET_BYTES
+) -> Tuple[SnapshotIdentity, int, int]:
+    """Rank pass (conversion plan Phase 3 step 9) under an explicit memory
+    budget: HaloRankInForest per forest in reference tree-driver order over all
+    snapshots — (snapshot descending, upid, pid, id ascending) on post-fix
+    values — plus the dense ForestIndex from the Phase 0 table.
+
+    The ordering comes from the external merge-sort core (``rank_sort``), which
+    reproduces the in-memory ``np.lexsort`` formulation's global order exactly
+    while holding only its budget in records; ForestIndex is
+    ``np.searchsorted(forest_table, forest_id)``, which needs no global pass and
+    is computed per snapshot. Both columns are written to on-disk arrays indexed
+    by global position, and only the snapshots the link stage is working on are
+    read back.
+
+    Returns ``(identity accessor, n_forests_total, max_halo_rank_in_forest)``.
+    **The caller owns the accessor and must ``close()`` it**: the two stores are
+    per-invocation scratch under the workdir, deliberately not manifest
+    intermediates, and every failure path here removes them before raising.
     """
     _validate_monotonic_pairs(manifest)
+    stream_bytes = max(1, budget_bytes // STREAM_BUDGET_SHARE)
+    core_bytes = budget_bytes - stream_bytes
+    if core_bytes < MIN_BUDGET_BYTES or stream_bytes < IDENTITY_STREAM_BYTES_PER_ROW:
+        raise ConverterError(
+            "rank-pass memory budget of {} byte(s) is too small: the external merge core needs "
+            "at least {} byte(s) and the identity stream at least {} byte(s) for one row".format(
+                budget_bytes, MIN_BUDGET_BYTES, IDENTITY_STREAM_BYTES_PER_ROW
+            )
+        )
     table_path = Path(manifest.workdir) / "forest_index_table.npy"
     manifest.verify_intermediate(table_path, "forest index table")
     forest_table = np.load(table_path)
-
     snaps = sorted(int(s) for s in manifest.data["snapshots"])
-    forests_l, snaps_l, upids_l, pids_l, ids_l = [], [], [], [], []
-    counts = []
-    for snap in snaps:
-        records = _load_fixed(manifest, snap)
-        forests_l.append(records["forest_id"].copy())
-        snaps_l.append(np.full(records.size, snap, dtype=np.int64))
-        upids_l.append(records["upid"].copy())
-        pids_l.append(records["pid"].copy())
-        ids_l.append(records["id"].copy())
-        counts.append(records.size)
+    scratch_dir = Path(manifest.data["snapshots"][str(snaps[0])]["fixed_file"]).parent
+    directory = Path(tempfile.mkdtemp(prefix=IDENTITY_DIR_PREFIX, dir=str(scratch_dir)))
+    forest_index_path = directory / FOREST_INDEX_STORE_NAME
+    ranks_path = directory / RANKS_STORE_NAME
+    chunk_rows = max(1, stream_bytes // IDENTITY_STREAM_BYTES_PER_ROW)
+    layout: Dict[int, Tuple[int, int]] = {}
+    try:
+        with open(forest_index_path, "wb") as fi_handle:
+            blocks = _iter_identity_blocks(
+                manifest, snaps, forest_table, fi_handle, layout, chunk_rows
+            )
+            try:
+                result = rank_forests(
+                    blocks, ranks_path, budget_bytes=core_bytes, spill_dir=directory
+                )
+            except RankSortError as exc:
+                raise ConverterError("identity pass: {}".format(exc)) from exc
+            finally:
+                blocks.close()
 
-    forest = np.concatenate(forests_l)
-    neg_snap = -np.concatenate(snaps_l)
-    upid = np.concatenate(upids_l)
-    pid = np.concatenate(pids_l)
-    ids = np.concatenate(ids_l)
-    total = forest.size
+        if not np.array_equal(result.forest_ids, forest_table):
+            missing = np.setdiff1d(forest_table, result.forest_ids)
+            extra = np.setdiff1d(result.forest_ids, forest_table)
+            raise ConverterError(
+                "observed forests do not match the Phase 0 forest index table: {} listed "
+                "forest(s) have no halos (examples: {}), {} observed forest(s) are unlisted "
+                "(examples: {})".format(
+                    missing.size, missing[:5].tolist(), extra.size, extra[:5].tolist()
+                )
+            )
+        n_forests_total = int(forest_table.size)
+        total = sum(rows for _, rows in layout.values())
+        if total != result.total_records:
+            raise ConverterError(
+                "identity pass: ranked {} record(s) but the snapshot windows cover {}".format(
+                    result.total_records, total
+                )
+            )
+        expected_bytes = total * RANK_DTYPE.itemsize
+        for path in (forest_index_path, ranks_path):
+            actual = path.stat().st_size
+            if actual != expected_bytes:
+                raise ConverterError(
+                    "{}: identity store is {} bytes, expected {} ({} rows x {} bytes)".format(
+                        path, actual, expected_bytes, total, RANK_DTYPE.itemsize
+                    )
+                )
+        peak_spill_bytes = int(result.peak_spill_bytes)
+        n_runs, n_merge_passes = int(result.n_runs), int(result.n_merge_passes)
+        merge_records = int(result.merge_records)
+        # the per-forest arrays on the result are O(number of forests) and are
+        # not needed again; the verifier below builds its own from the stored
+        # ForestIndex column, deliberately independently of the core's grouping
+        del result, forest_table
 
-    order = np.lexsort((ids, pid, upid, neg_snap, forest))
-    sorted_forest = forest[order]
-    new_forest = np.r_[True, sorted_forest[1:] != sorted_forest[:-1]]
-    starts = np.nonzero(new_forest)[0]
-    observed_forests = sorted_forest[starts]
-    if not np.array_equal(observed_forests, forest_table):
-        missing = np.setdiff1d(forest_table, observed_forests)
-        extra = np.setdiff1d(observed_forests, forest_table)
-        raise ConverterError(
-            "observed forests do not match the Phase 0 forest index table: {} listed forest(s) "
-            "have no halos (examples: {}), {} observed forest(s) are unlisted (examples: "
-            "{})".format(missing.size, missing[:5].tolist(), extra.size, extra[:5].tolist())
+        fi_column = _Int64Column(forest_index_path, total)
+        rank_column = _Int64Column(ranks_path, total)
+        verify_identity(
+            fi_column, rank_column, n_forests_total, "identity pass", budget_bytes=budget_bytes
         )
-    group_id = np.cumsum(new_forest) - 1
-    ranks = np.empty(total, dtype=np.int64)
-    ranks[order] = np.arange(total, dtype=np.int64) - starts[group_id]
-    forest_index = np.searchsorted(forest_table, forest)
-
-    n_forests_total = int(forest_table.size)
-    verify_identity(forest_index, ranks, n_forests_total, "identity pass")
-    max_rank = int(ranks.max()) if total else -1
-
-    identity: Dict[int, Tuple[np.ndarray, np.ndarray]] = {}
-    offset = 0
-    for snap, count in zip(snaps, counts):
-        identity[snap] = (forest_index[offset : offset + count], ranks[offset : offset + count])
-        offset += count
+        max_rank = _max_rank(rank_column, budget_bytes)
+        identity = SnapshotIdentity(
+            directory,
+            layout,
+            peak_spill_bytes=peak_spill_bytes,
+            store_bytes=2 * expected_bytes,
+            n_runs=n_runs,
+            n_merge_passes=n_merge_passes,
+            merge_records=merge_records,
+        )
+    except BaseException:
+        shutil.rmtree(directory, ignore_errors=True)
+        raise
+    _log(
+        "links: rank pass — {} halo(s) over {} snapshot(s), {} forest(s); budget {} B "
+        "({} sorted run(s), {} merge pass(es)); peak spill {} B, identity stores {} B "
+        "on disk".format(
+            total,
+            len(snaps),
+            n_forests_total,
+            budget_bytes,
+            n_runs,
+            n_merge_passes,
+            peak_spill_bytes,
+            identity.store_bytes,
+        )
+    )
     return identity, n_forests_total, max_rank
 
 
 def link_one_snapshot(
     manifest: Manifest,
     snap: int,
-    identity: Dict[int, Tuple[np.ndarray, np.ndarray]],
+    identity: SnapshotIdentity,
 ) -> None:
     """Link one snapshot: FoF chains, descendant merge-join, progenitor
-    chains, pending FirstProgenitor hand-off, and identity carry-through."""
+    chains, pending FirstProgenitor hand-off, and identity carry-through.
+
+    ``identity`` is the accessor :func:`compute_identity` returns; this function
+    asks it only for snapshot ``snap`` and its successor, which is what bounds
+    the accessor's residency."""
     entry = manifest.data["snapshots"][str(snap)]
     if entry.get("status") == "linked":
         meta = manifest.verify_intermediate(entry["links_file"], "snapshot links scratch")
@@ -609,7 +1070,7 @@ def link_one_snapshot(
     )
 
 
-def run_links(workdir) -> Manifest:
+def run_links(workdir, *, budget_bytes: int = DEFAULT_RANK_BUDGET_BYTES) -> Manifest:
     """Run the link stage over every fixed snapshot, in ascending order.
 
     Snapshot subsets are deliberately not supported: FirstProgenitor values
@@ -617,6 +1078,10 @@ def run_links(workdir) -> Manifest:
     order. Snapshots already linked are verified and skipped; the run-scoped
     identity values are recomputed and must match what a previous run
     recorded (refuse-not-repair).
+
+    ``budget_bytes`` is the rank/identity pass's working-memory budget (CLI:
+    ``links --memory-budget-mb``). It changes how much of the pass is resident
+    and nothing else: every value written is identical at any budget.
     """
     manifest = Manifest.load_or_create(workdir)
     if not manifest.path.exists():
@@ -631,19 +1096,20 @@ def run_links(workdir) -> Manifest:
                 "snapshot {}: unexpected status {!r}; run fixups first".format(snap, status)
             )
 
-    identity, n_forests_total, max_rank = compute_identity(manifest)
-    recorded = manifest.data.get("links")
-    computed = {"n_forests_total": n_forests_total, "max_halo_rank_in_forest": max_rank}
-    if recorded is not None and recorded != computed:
-        raise ConverterError(
-            "run-scoped identity values changed across runs: manifest records {}, "
-            "recomputed {} — refusing to mix link outputs".format(recorded, computed)
-        )
-    manifest.data["links"] = computed
-    manifest.save()
+    identity, n_forests_total, max_rank = compute_identity(manifest, budget_bytes=budget_bytes)
+    with identity:
+        recorded = manifest.data.get("links")
+        computed = {"n_forests_total": n_forests_total, "max_halo_rank_in_forest": max_rank}
+        if recorded is not None and recorded != computed:
+            raise ConverterError(
+                "run-scoped identity values changed across runs: manifest records {}, "
+                "recomputed {} — refusing to mix link outputs".format(recorded, computed)
+            )
+        manifest.data["links"] = computed
+        manifest.save()
 
-    for snap in snaps:
-        link_one_snapshot(manifest, snap, identity)
+        for snap in snaps:
+            link_one_snapshot(manifest, snap, identity)
     _log(
         "links: {} snapshot(s) linked — n_forests_total={}, max_halo_rank_in_forest={}".format(
             len(snaps), n_forests_total, max_rank
