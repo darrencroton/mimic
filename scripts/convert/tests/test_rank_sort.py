@@ -15,6 +15,7 @@ spill bytes, and spill removal on the success path and on forced failures.
 """
 
 import ast
+import gc
 import os
 import sys
 import tempfile
@@ -295,8 +296,11 @@ class TestOracleEquality(RankSortCase):
             residency = rank_sort._Residency()
             runs, _ = rank_sort._generate_runs(blocks, spills, 48, residency)
             self.assertGreater(len(runs), 8)
+            # the yielded block is a VIEW into one reusable buffer, so a
+            # consumer that keeps it past its iteration must copy — which is
+            # what makes the merge allocate nothing per block
             merged = np.concatenate(
-                [block["position"] for block in rank_sort._merge_runs(runs, 48, residency)]
+                [block.position.copy() for block in rank_sort._merge_runs(runs, 48, residency)]
             )
         finally:
             spills.cleanup()
@@ -326,6 +330,57 @@ class TestMemoryBound(RankSortCase):
         # a 4x larger input must not hold more working memory
         self.assertEqual(peaks["small"], peaks["four_times"])
 
+    def test_actual_allocation_for_a_whole_call_stays_within_the_budget(self):
+        """Measure what a complete ``rank_forests`` call really allocates.
+
+        Every other memory test here reads ``_Residency``, and four rounds of
+        review each found one more allocation that counter did not know about —
+        a test that reads the instrument cannot detect the instrument being
+        incomplete. This one measures ``tracemalloc``'s peak for the whole call,
+        so a fifth omission fails it whatever the meter says, and asserts it
+        against the budget plus the module's single enumerated allowance.
+        """
+        # a budget large enough that one escaped record buffer (48 B x
+        # merge_records = 786 KB here) cannot hide inside the allowance, which
+        # is flat in absolute terms
+        merge_records = 16384
+        budget = merge_records * rank_sort.MERGE_BYTES_PER_RECORD
+        allowance = rank_sort.UNMETERED_ALLOWANCE_BYTES
+        self.assertGreater(merge_records * rank_sort.SPILL_RECORD_NBYTES, allowance)
+        peaks = {}
+        for label, per_snap in (("base", 8000), ("four_times", 32000)):
+            blocks = random_blocks(n_snaps=6, per_snap=per_snap, n_forests=60, seed=64)
+            gc.collect()
+            tracemalloc.start()
+            try:
+                tracemalloc.reset_peak()
+                before = tracemalloc.get_traced_memory()[0]
+                result = self.run_core(blocks, budget, name="ranks_{}.i64".format(label))
+                peak = tracemalloc.get_traced_memory()[1]
+            finally:
+                tracemalloc.stop()
+            observed = peak - before
+            peaks[label] = observed
+            with self.subTest(input=label):
+                # a real multi-run merge, so the merge, assign and verify
+                # phases all run
+                self.assertGreater(result.n_runs, 1)
+                # the correctness of this configuration is asserted too, so the
+                # measurement cannot be of a call that did the wrong thing
+                expected_ranks, _, _ = lexsort_oracle(blocks)
+                np.testing.assert_array_equal(self.ranks_of(result), expected_ranks)
+                # the module's own meter still holds ...
+                self.assertLessEqual(result.peak_resident_bytes, budget)
+                # ... and so does what was actually allocated
+                self.assertLessEqual(observed, budget + allowance)
+                # the bound is not vacuous: the call really did allocate its
+                # budget-sized buffers
+                self.assertGreater(observed, budget // 2)
+        # and the excluded categories do not scale with the record count: a 4x
+        # larger input at the same budget must not move the peak by more than
+        # the allowance
+        self.assertLessEqual(peaks["four_times"] - peaks["base"], allowance)
+
     def test_bound_holds_when_the_fanin_fills_the_budget(self):
         # the configuration where the merge is most at risk of overrunning: the
         # fan-in is capped by the budget itself, so every run buffers a single
@@ -353,23 +408,32 @@ class TestMemoryBound(RankSortCase):
             residency = rank_sort._Residency()
             runs, _ = rank_sort._generate_runs(blocks, spills, 16, residency)
             self.assertGreater(len(runs), 2)
-            readers = [rank_sort._open_run_reader(run, 8) for run in runs]
+            arena = np.empty(8 * len(runs), dtype=rank_sort.SPILL_DTYPE)
+            columns = tuple(arena[name] for name in rank_sort.SPILL_DTYPE.names)
+            readers = [
+                rank_sort._open_run_reader(
+                    run,
+                    arena[i * 8 : i * 8 + 8],
+                    tuple(column[i * 8 : i * 8 + 8] for column in columns),
+                )
+                for i, run in enumerate(runs)
+            ]
             try:
-                live = [reader for reader in readers if reader.refill(residency)]
+                live = [reader for reader in readers if reader.refill()]
                 boundary = rank_sort._lowest_ceiling(live)
-                self.assertEqual(boundary.size, 1)
+                # the boundary must be one of the readers' ALREADY CACHED
+                # ceiling tuples, by identity — choosing it must not build
+                # anything, since an allocation the module never makes is the
+                # only kind its meter cannot catch
                 self.assertTrue(
-                    any(np.shares_memory(boundary, reader.buf) for reader in live),
-                    "the merge boundary must be a view into a run buffer, not a copy",
+                    any(boundary is reader.ceiling for reader in live),
+                    "the merge boundary must be a cached ceiling, not a fresh object",
                 )
-                # and it must be the smallest of the buffered ceilings
-                ceilings = sorted(
-                    rank_sort._key_at(reader.buf, reader.buf.size - 1) for reader in live
-                )
-                self.assertEqual(rank_sort._key_at(boundary, 0), ceilings[0])
+                # and it must be the smallest of them
+                self.assertEqual(boundary, min(reader.ceiling for reader in live))
             finally:
                 for reader in readers:
-                    reader.close(residency)
+                    reader.close()
         finally:
             spills.cleanup()
 
@@ -392,7 +456,7 @@ class TestMemoryBound(RankSortCase):
                     meter = rank_sort._Residency()
                     emitted = 0
                     for block in rank_sort._merge_runs(runs, merge_records, meter):
-                        emitted += int(block.size)
+                        emitted += block.size
                     self.assertEqual(emitted, total)
                     self.assertGreater(meter.peak_bytes, 0)
                     self.assertLessEqual(meter.peak_bytes, merge_budget)
@@ -579,11 +643,11 @@ class TestSpillLifetime(RankSortCase):
         real_opener = rank_sort._open_run_reader
         calls = {"n": 0}
 
-        def flaky(run, block_records):
+        def flaky(run, buffer, columns):
             calls["n"] += 1
             if calls["n"] == 2:
                 raise OSError("merge input vanished")
-            return real_opener(run, block_records)
+            return real_opener(run, buffer, columns)
 
         with mock.patch.object(rank_sort, "_open_run_reader", flaky):
             with self.assertRaises(OSError):
