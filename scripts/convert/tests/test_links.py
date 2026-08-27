@@ -793,6 +793,50 @@ class TestBoundedIdentityPass(Slice5Case):
                 identity[max(snaps) + 5]
         self.assertFalse(identity.directory.exists())
 
+    def test_stores_are_removed_when_the_success_log_raises(self):
+        # the window between constructing the accessor and returning it: the
+        # store exists, the expensive pass has already SUCCEEDED, and nothing
+        # else in the converter owns those bytes. A bare print is not a safe
+        # statement to leave in that window — BrokenPipeError on a closed pipe,
+        # ENOSPC on the full volume this pass is bounded for
+        workdir, _, _ = make_linked_workdir(self.root)
+        manifest = Manifest.load_or_create(workdir)
+        with mock.patch.object(links, "_log", side_effect=OSError("No space left on device")):
+            with self.assertRaisesRegex(OSError, "No space left on device"):
+                links.compute_identity(manifest)
+        self.assertEqual(self.identity_dirs(manifest), [])
+
+    def test_a_store_that_cannot_be_removed_is_reported(self):
+        # close() must not raise, so a failed removal can only be surfaced
+        # through the log — and it must be surfaced: the storage envelope is
+        # written assuming these bytes are gone
+        directory = self.root / "stuck"
+        directory.mkdir()
+        np.asarray([0], dtype=np.int64).tofile(directory / links.FOREST_INDEX_STORE_NAME)
+        np.asarray([0], dtype=np.int64).tofile(directory / links.RANKS_STORE_NAME)
+        identity = links.SnapshotIdentity(
+            directory, {3: (0, 1)}, peak_spill_bytes=0, store_bytes=16
+        )
+        with mock.patch.object(links.shutil, "rmtree") as rmtree:
+            with mock.patch.object(links, "_log") as log:
+                identity.close()
+        rmtree.assert_called_once()
+        self.assertTrue(directory.exists())
+        self.assertEqual(len(log.call_args_list), 1)
+        message = log.call_args_list[0].args[0]
+        self.assertIn("could not remove the identity store", message)
+        self.assertIn(str(directory), message)
+
+    def test_close_is_silent_and_raises_nothing_when_removal_works(self):
+        directory = self.root / "clean"
+        directory.mkdir()
+        identity = links.SnapshotIdentity(directory, {}, peak_spill_bytes=0, store_bytes=0)
+        with mock.patch.object(links, "_log") as log:
+            identity.close()
+            identity.close()  # idempotent: the second call has nothing to remove
+        self.assertFalse(directory.exists())
+        log.assert_not_called()
+
     def test_accessor_serves_an_empty_snapshot_window(self):
         # a snapshot with no halos owns a zero-length window into the stores,
         # and the link stage must still receive two empty int64 arrays for it
@@ -1010,10 +1054,23 @@ class TestIdentityMemoryScaling(Slice5Case):
 
     Slice 4 lost four rounds to allocations that escaped its meter, each
     invisible because the test read the meter. This measures ``tracemalloc``'s
-    peak for a whole ``compute_identity`` call at a fixed budget over two real
-    workdirs differing 4x in halo count, and the in-memory formulation it
+    peak for a whole ``compute_identity`` call at a fixed budget over two
+    workdirs differing 4x in total halo count, and the in-memory formulation it
     replaced is measured beside it as the control that proves the measurement
     can see growth at all.
+
+    **What these workdirs are, precisely.** They are real converter workdirs —
+    assembled by the real scatter, sort and fix-up stages, with real manifests
+    and real fixed scratch files — but their halos come from synthetic fixture
+    forests. That is deliberately NOT the plan's primary evidence for "memory
+    does not scale with total halo count", which requires two real emitted
+    datasets differing by at least 4x and pointedly excludes synthetic fixtures:
+    that route is satisfied separately by the fixed-budget peak-RSS pair
+    measured on micro-Uchuu against the 406,668,896-halo rehearsal subset. This
+    is the criterion's stated ALTERNATIVE route — instrument the resident
+    buffers so a total-count-sized allocation cannot hide — which a fixture can
+    serve, because it localises growth to a specific buffer in a way that
+    comparing two whole-dataset RSS figures cannot.
     """
 
     #: Allowance for the growth that is NOT per-halo: the sort core's per-run

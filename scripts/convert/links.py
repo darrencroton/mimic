@@ -640,6 +640,28 @@ def _load_fixed(manifest: Manifest, snap: int) -> np.ndarray:
     return records
 
 
+def _warn_if_left_behind(directory: Path, store_bytes: int) -> None:
+    """Report an identity store that could not be removed, without raising.
+
+    Called from :meth:`SnapshotIdentity.close`, which must not raise (see its
+    docstring), so both the check and the report are best-effort: a closed
+    stderr or a failing ``stat`` must not turn cleanup into a second failure.
+    Reporting it at all is the point — a silent failure to remove these bytes
+    would leave the storage envelope wrong with nothing on the record.
+    """
+    try:
+        if not directory.exists():
+            return
+        _log(
+            "links: WARNING — could not remove the identity store {} ({} byte(s)); "
+            "remove it by hand before trusting the workdir's storage envelope".format(
+                directory, store_bytes
+            )
+        )
+    except OSError:
+        pass
+
+
 #: Snapshots the identity accessor keeps resident. Two, because the link stage
 #: works on an adjacent pair: ``link_one_snapshot`` verifies snapshot N's halo
 #: forests against snapshot N+1's (``verify_descendant_forests``), and nothing
@@ -715,9 +737,17 @@ class SnapshotIdentity:
         return tuple(self._resident)
 
     def close(self) -> None:
-        """Drop the resident arrays and remove the backing directory."""
+        """Drop the resident arrays and remove the backing directory.
+
+        Never raises, deliberately: it runs on the way out of a FAILING link
+        stage as well as a successful one, and an unlink error must not mask the
+        failure that got the stage here. A removal that did not happen is
+        reported through the module's log rather than passed over in silence —
+        these are ``store_bytes`` that the storage envelope assumes are gone.
+        """
         self._resident.clear()
         shutil.rmtree(self.directory, ignore_errors=True)
+        _warn_if_left_behind(self.directory, self.store_bytes)
 
     def __enter__(self) -> "SnapshotIdentity":
         return self
@@ -912,24 +942,32 @@ def compute_identity(
             n_merge_passes=n_merge_passes,
             merge_records=merge_records,
         )
+        _log(
+            "links: rank pass — {} halo(s) over {} snapshot(s), {} forest(s); budget {} B "
+            "({} sorted run(s), {} merge pass(es)); peak spill {} B, identity stores {} B "
+            "on disk".format(
+                total,
+                len(snaps),
+                n_forests_total,
+                budget_bytes,
+                n_runs,
+                n_merge_passes,
+                peak_spill_bytes,
+                identity.store_bytes,
+            )
+        )
+        return identity, n_forests_total, max_rank
     except BaseException:
+        # EVERY statement between the mkdtemp above and this return is inside
+        # this guard, the success log and the return itself included: the store
+        # is this call's to remove until the caller holds the accessor, and the
+        # caller cannot hold it before the return completes. Logging is the case
+        # that made the rule explicit — a bare print raises BrokenPipeError on a
+        # closed pipe and ENOSPC on a full volume, which is exactly what this
+        # storage-constrained pass invites, and stranding the store then would
+        # leave 16 B/halo of scratch that nothing else in the converter owns.
         shutil.rmtree(directory, ignore_errors=True)
         raise
-    _log(
-        "links: rank pass — {} halo(s) over {} snapshot(s), {} forest(s); budget {} B "
-        "({} sorted run(s), {} merge pass(es)); peak spill {} B, identity stores {} B "
-        "on disk".format(
-            total,
-            len(snaps),
-            n_forests_total,
-            budget_bytes,
-            n_runs,
-            n_merge_passes,
-            peak_spill_bytes,
-            identity.store_bytes,
-        )
-    )
-    return identity, n_forests_total, max_rank
 
 
 def link_one_snapshot(
