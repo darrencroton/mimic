@@ -28,7 +28,7 @@ plus an empty master ``<base>.hdf5`` to prove the master is ignored.
 import os
 import sys
 from pathlib import Path
-from typing import Dict
+from typing import Dict, List, Tuple
 
 import h5py
 import numpy as np
@@ -36,8 +36,35 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import validate  # noqa: E402
 from fixups import load_particle_mass  # noqa: E402
+from hdf5_writer import HALO_DATASETS, HEADER_ATTRS, snapshot_h5_name  # noqa: E402
+
+
+def load_dataset(directory, n_snapshots: int) -> Tuple[List[dict], List[Dict[str, np.ndarray]]]:
+    """Load every snapshot file's header attributes and /halos arrays.
+
+    A **test-only** helper. It lived in ``validate.py`` until the battery was
+    made bounded, and the cross-check lost its last production caller when
+    ``crosscheck.py`` moved to field-named per-snapshot loads. It survives here
+    because the fixture datasets are a few thousand rows, so the mock reference
+    builder and the cross-check tests can afford to hold them whole:
+    ``build_mock_galaxies`` below, and ``test_crosscheck.py``'s two
+    ``setUpClass`` bodies — which are its only callers. No production module
+    under ``scripts/convert/`` calls it, and none should: a production reader
+    must use ``validate._Snapshots`` or a field-named load, both of which are
+    bounded by the window a check needs rather than by the dataset.
+    """
+    headers = []
+    arrays = []
+    for snap in range(n_snapshots):
+        path = Path(directory) / snapshot_h5_name(snap)
+        with h5py.File(path, "r") as handle:
+            headers.append(
+                {name: np.asarray(handle["header"].attrs[name])[()] for name in HEADER_ATTRS}
+            )
+            arrays.append({name: handle["halos"][name][...] for name in HALO_DATASETS})
+    return headers, arrays
+
 
 #: Reference Galaxies structured dtype: exactly the fields the cross-check
 #: consumes, plus an extra ``dT`` field to prove extras are tolerated.
@@ -86,7 +113,7 @@ def build_mock_galaxies(
     replicating the reference inheritance semantics. Particle mass comes from
     simulation_info (the native 1e10 Msun/h value the reference model uses), so
     satellite Mvir reconstructs bit-for-bit exactly as the cross-check does."""
-    _, arrays = validate.load_dataset(Path(hdf5_dir), n_snapshots)
+    _, arrays = load_dataset(hdf5_dir, n_snapshots)
     part_mass = load_particle_mass(simulation_info_path)
     galaxies_by_snap: Dict[int, np.ndarray] = {}
     ugid_by_snap: Dict[int, np.ndarray] = {}

@@ -539,9 +539,16 @@ def _consume_sorted(manifest: Manifest, entry: dict, snap: int, delete: bool) ->
     The fix-up stage is the sorted scratch's terminal consumer: no later stage
     reads its contents, because ``links`` and the writer both work from the
     fixed file. Two skip-trust paths still *verify* it on a re-run —
-    ``sort_one_snapshot``'s and ``_finalize_scatter``'s — and both go through
-    ``scatter.verify_or_consumed``, so each skips on a recorded consumption
-    instead of failing on a file the pipeline deliberately deleted.
+    ``sort_one_snapshot``'s and ``_finalize_scatter``'s — and each does so on
+    the ONE RULE stated in ``sort_one_snapshot``: strict where the consumption
+    cannot have happened yet, ``scatter.verify_or_consumed`` where it can.
+    ``sort_one_snapshot`` verifies the sorted file OUTRIGHT at ``sorted`` and
+    goes through ``verify_or_consumed`` only at ``fixed`` and ``linked``;
+    ``_finalize_scatter`` likewise verifies it outright in its ``sorted``
+    branch and through ``verify_or_consumed`` only in its ``fixed`` branch.
+    Those consuming statuses are the ones a deletion can precede, so a re-run
+    there skips on a recorded consumption instead of failing on a file the
+    pipeline deliberately deleted.
 
     The successor is durable before the predecessor is dropped, but "durable"
     is established differently on each of the three paths that reach here. On

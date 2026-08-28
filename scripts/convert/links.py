@@ -42,7 +42,8 @@ slice writes out unchanged (ascending id == ascending |MostBoundID|, the
 Slice 5 invariant). All aborts carry counts and concrete examples — never
 repair.
 
-**The rank pass is bounded** (CONVERTER-SCALE-PASS-PLAN.md Slice 5). It used to
+**The rank pass is bounded** — the rank/identity pass was wired to the external
+merge-sort core in ``c5573d0c``, on the core landed in ``3d52446c``. It used to
 concatenate five int64 key columns over every snapshot and run one global
 ``np.lexsort`` — 187.84 B/halo measured, 4.30 TB at the 22.9e9-halo Shin-Uchuu
 production scale. ``HaloRankInForest`` now comes from the external merge-sort

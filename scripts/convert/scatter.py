@@ -663,11 +663,15 @@ def verify_or_consumed(manifest: Manifest, path, what: str, consumed: List[str])
     manifest still records as present is verified exactly as before.
 
     It lives here rather than in the stage that first needed it because three
-    modules now share it — ``sort_one_snapshot``'s skip-trust path and both of
-    ``_finalize_scatter``'s — and a second formulation of a rule this load
-    bearing is how the two would drift apart. ``consumed`` accumulates one
-    ready-to-log phrase per consumed artifact, so the caller decides how to
-    report the skip.
+    modules now share it, each only at the statuses where a consumption can
+    already have happened: ``sort_index.sort_one_snapshot``'s skip-trust path
+    at ``fixed`` and ``linked``, ``fixups.fix_one_snapshot``'s at ``linked``,
+    and ``_finalize_scatter``'s ``fixed`` branch — which is its *only* branch
+    that reaches here, since its ``sorted`` and ``concatenated`` branches
+    verify outright, and it has no ``linked`` branch at all. A second
+    formulation of a rule this load bearing is how the three would drift
+    apart. ``consumed`` accumulates one ready-to-log phrase per consumed
+    artifact, so the caller decides how to report the skip.
     """
     if manifest.is_consumed(path):
         consumed.append("its {} was consumed by a later stage ({})".format(what, path))

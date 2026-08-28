@@ -2,13 +2,15 @@
 
 External converter that transforms Consistent-Trees ASCII output (forest-ordered) into Mimic's snapshot-ordered HDF5 input format. The on-disk output contract is frozen in `docs/dev/SNAPSHOT-HDF5-FORMAT.md` (`format_version = 1`); the algorithm is specified by `docs/dev/SHIN-UCHUU-CONVERSION-PLAN.md`. The sliced implementation plan that built this tool is complete and archived under `archive/dev-plans/` (search there for the converter implementation plan if the slice-level history is needed). The converter is a standalone tool: it never touches Mimic source, packages, or run files, and it never deletes source data — cleanup is restricted to manifest-owned intermediates it created under the workdir.
 
-**Status:** complete and validated on the real micro-Uchuu ASCII data; re-gated end to end on **2026-08-28** after the converter scale-engineering pass rebuilt its scale-critical machinery (see "The 2026-08-28 acceptance gate" below), and re-validated end to end on 2026-08-03 on a fully regenerated dataset (observed stack: pandas 3.0.5, numpy 2.4.6 — the stack used for the original 2026-07-24 run was not recorded, so this is a re-gate on a different-and-unknown-delta stack rather than a measured upgrade): the converter suite as it stood that day — 327 tests — passes, the three totals the original gate recorded are reproduced exactly (22,580,924 halos, 50 snapshots, 440,651 forests), the producer battery passes all 15 checks, and the cross-check passes every check including `topology-chains`. `max_halo_rank_in_forest = 350074` is recorded here for the first time; no earlier value exists to compare against. Phases 0–4 (scatter, sort/index, fixups, links, HDF5 emission + producer validation battery + conversion report) plus the cross-check instrument, including the optional `topology-chains` check against an independent reference-topology dump (see below). The full pipeline ran end to end on the real micro-Uchuu ASCII tree (22,580,924 halos across 50 snapshots, 440,651 forests); the producer validation battery passes all invariants, and the cross-check against a Mimic `halos-only` reference run passes all seven checks — identity, FoF central, flyby signs, values, occupancy, and direct chain-order (`topology-chains`) — with zero unexplained mismatches. The topology-order gate is therefore fully discharged: `topology-chains` compared links, `ForestIndex`/`HaloRankInForest`, and the signed `MostBoundID` per halo over an asserted-complete dump of all 22,580,924 halos.
+**Status:** complete and validated on the real micro-Uchuu ASCII data; re-gated end to end on **2026-08-28** after the converter scale-engineering pass rebuilt its scale-critical machinery (see "The 2026-08-28 acceptance gate" below), and re-validated end to end on 2026-08-03 on a fully regenerated dataset (observed stack: pandas 3.0.5, numpy 2.4.6 — the stack used for the original 2026-07-24 run was not recorded, so this is a re-gate on a different-and-unknown-delta stack rather than a measured upgrade): the converter suite as it stood that day — 327 tests — passes, the three totals the original gate recorded are reproduced exactly (22,580,924 halos, 50 snapshots, 440,651 forests), the producer battery passes all 15 checks, and the cross-check passes every check including `topology-chains`. `max_halo_rank_in_forest = 350074` is recorded here for the first time; no earlier value exists to compare against. Phases 0–4 (scatter, sort/index, fixups, links, HDF5 emission + producer validation battery + conversion report) plus the cross-check instrument, including the optional `topology-chains` check against an independent reference-topology dump (see below). The full pipeline ran end to end on the real micro-Uchuu ASCII tree (22,580,924 halos across 50 snapshots, 440,651 forests); the producer validation battery passes all invariants, and the cross-check against a Mimic `halos-only` reference run passes all eight checks — the seven always-run (`reference-sanity`, `identity-forest`, `identity-creation`, `fof-central`, `flyby-signs`, `values`, `occupancy`; `CHECK_NAMES`, `crosscheck.py:1443-1451`) plus direct chain-order (`topology-chains`), which runs only when `--reference-topology` is passed — with zero unexplained mismatches. The topology-order gate is therefore fully discharged: `topology-chains` compared links, `ForestIndex`/`HaloRankInForest`, and the signed `MostBoundID` per halo over an asserted-complete dump of all 22,580,924 halos.
 
 ## Requirements
 
 Python 3.9+, `numpy`, `pandas`, `PyYAML` — all installed into `mimic_venv` by `pip install -r requirements.txt` from the repository root.
 
 ## Usage
+
+**The commands below are the micro-Uchuu development examples, one per phase.** They are *not* the production sequence: they use `output/`, which cannot hold a production conversion, and they omit both the batch-mode cycle (`--batch` → `release` → `finalize`) and the three flags production needs. The complete production sequence, in the order it must run, is a single block under "The production sequence, end to end" below — start there for Shin-Uchuu.
 
 ```bash
 # Phase 0 + 1: forest map, scatter ctrees files into per-snapshot scratch binaries
@@ -18,26 +20,6 @@ mimic_venv/bin/python scripts/convert/convert_ctrees.py scatter \
     --a-list simulations/micro-uchuu-ascii/micro-uchuu.a_list \
     --simulation-info simulations/micro-uchuu-ascii/simulation_info.yaml \
     simulations/micro-uchuu-ascii/snapshots/tree_0_0_0.dat
-
-# Batch mode (item 3): scatter a source that is never all local at once. Every
-# invocation is handed the COMPLETE frozen inventory — not the subset on disk —
-# so the frozen-source-set guard keeps comparing like with like; entries whose
-# bytes have not arrived are deferred, and the run does not finalize.
-mimic_venv/bin/python scripts/convert/convert_ctrees.py scatter --batch \
-    --workdir output/convert/shin-uchuu \
-    --forests-list .../forests.list --a-list .../shin-uchuu.a_list \
-    --simulation-info .../simulation_info.yaml \
-    $(cat inventory.txt)          # all 2,744 files, in the frozen order
-
-# Record a scattered batch as consumed: verifies every intermediate that batch
-# produced, then records that its source bytes may be deleted. The converter
-# never deletes source data itself — the deletion stays with the operator.
-mimic_venv/bin/python scripts/convert/convert_ctrees.py release \
-    --workdir output/convert/shin-uchuu $(cat batch_1.txt)
-
-# Explicit Phase 1 finalize, once no inventory entry is deferred any more
-mimic_venv/bin/python scripts/convert/convert_ctrees.py finalize \
-    --workdir output/convert/shin-uchuu --forests-list .../forests.list
 
 # Phase 2: per-snapshot sort by halo id + id index
 mimic_venv/bin/python scripts/convert/convert_ctrees.py sort \
@@ -81,7 +63,9 @@ mimic_venv/bin/python scripts/convert/validate.py output/convert/micro-uchuu/hdf
     --manifest output/convert/micro-uchuu/manifest.json
 
 # Conversion report (runs the battery, writes conversion_report.{json,txt};
-# exits 1 if validation failed)
+# exits 1 if validation failed). --multiplier defaults to 1e9, which is correct
+# for micro-Uchuu (max_halo_rank_in_forest = 350074) and WRONG for Shin-Uchuu —
+# see step 8 of "The production sequence, end to end" below.
 mimic_venv/bin/python scripts/convert/convert_ctrees.py report \
     --workdir output/convert/micro-uchuu \
     --a-list simulations/micro-uchuu-ascii/micro-uchuu.a_list
@@ -104,6 +88,100 @@ mimic_venv/bin/python scripts/convert/crosscheck.py compare \
 ```
 
 Canonical metadata comes from explicit `--simulation-info` and `--a-list` paths, keeping the converter simulation-agnostic. Observed `(SnapNum, scale)` pairs from the data are cross-validated against the a_list (absolute tolerance 1e-4; an unknown pair aborts the run).
+
+### The production workdir: `/Volumes/LaCie`, not `output/`
+
+**`output/` is a development convenience and cannot hold a production conversion.** In this repository `output` is a symlink to `/Volumes/Internal/results/mimic` (`readlink output`), and `/Volumes/Internal` measures **1.17 TB free** (`df -k`, 2026-08-29) — against **2.47 TB for scatter's worker scratch alone and 2.56 TB at finalize**, per the projection table below. `docs/dev/SHIN-UCHUU-CONVERSION-PLAN.md` → "Local storage" marks that volume **not available for Shin-Uchuu** for exactly this reason. The micro-Uchuu examples above use `output/convert/micro-uchuu` because that dataset is 22.6 million halos and 2.4 GB; **copying that path into a production command exhausts the internal container part way through a multi-day scatter**, and the converter has no way to warn you in advance.
+
+Production paths, and a preflight that costs two seconds:
+
+```bash
+readlink output                 # /Volumes/Internal/results/mimic — NOT the production workdir
+df -k /Volumes/LaCie            # need >= 7.0 TB free; measured 7.71 TB on 2026-08-29
+```
+
+```text
+workdir:             /Volumes/LaCie/convert/shin-uchuu
+production dataset:  /Volumes/LaCie/data/shin-uchuu/production-snapshot   (write --output-dir)
+retained subset:     /Volumes/LaCie/data/shin-uchuu/subset-snapshot       (must survive)
+```
+
+The **7.0 TB** figure is the policy ceiling the storage envelope below is derived against; the projected production peak is **6.89 TB**, binding at scatter through the staged source batch. Re-check `df -k` between batches — the envelope holds only while each released batch is deleted before `sort` begins.
+
+### The production sequence, end to end
+
+**One chronological sequence, and the order is enforced by the code, not by convention.** `write` refuses any snapshot whose recorded status is not `linked` (`hdf5_writer.py:436-440`), and `sort` → `fixups` → `links` are what carry a snapshot to that status — so a `write` issued before `links` fails outright, and `report` after it has no dataset to validate. Every flag below was checked against its own subparser; each is per invocation and carries no manifest state, so an omission is silent and must be repeated on every batch.
+
+```bash
+WORKDIR=/Volumes/LaCie/convert/shin-uchuu
+DATASET=/Volumes/LaCie/data/shin-uchuu/production-snapshot
+A_LIST=simulations/shin-uchuu/shin-uchuu.a_list
+SIM_INFO=simulations/shin-uchuu/simulation_info.yaml
+FORESTS=/path/to/production/forests.list   # 7.56 GB, transferred before anything else;
+                                           # the rehearsal subset's index is NOT usable here
+
+# 1. Scatter, once per transferred batch. Every invocation is handed the COMPLETE
+#    frozen inventory — not the subset on disk — so the frozen-source-set guard keeps
+#    comparing like with like; entries whose bytes have not arrived are deferred, and
+#    a --batch run never finalizes. --pool-size defaults to 1 and is worth ~24 h here.
+mimic_venv/bin/python scripts/convert/convert_ctrees.py scatter --batch \
+    --pool-size 8 \
+    --workdir "$WORKDIR" \
+    --forests-list "$FORESTS" --a-list "$A_LIST" --simulation-info "$SIM_INFO" \
+    $(cat inventory.txt)          # all 2,744 files, in the frozen order
+
+# 2. Release that batch, before finalizing and before deleting its source bytes.
+#    Verifies every intermediate the batch produced, then records that its bytes may
+#    go. The converter never deletes source data itself. Repeat 1-2 per batch, and
+#    delete each released batch before step 4 — the storage envelope depends on it.
+mimic_venv/bin/python scripts/convert/convert_ctrees.py release \
+    --workdir "$WORKDIR" $(cat batch_1.txt)
+
+# 3. Finalize, once and only once every inventory entry has been scattered and
+#    released. It refuses to run while any entry is still deferred.
+mimic_venv/bin/python scripts/convert/convert_ctrees.py finalize \
+    --workdir "$WORKDIR" --forests-list "$FORESTS"
+
+# 4. Sort. No --consume-intermediates flag exists here: sort always deletes the
+#    concatenated file once its successors verify.
+mimic_venv/bin/python scripts/convert/convert_ctrees.py sort --workdir "$WORKDIR"
+
+# 5. Fix-ups. --consume-intermediates is REQUIRED at this scale: the storage
+#    envelope's precondition (a) is deletion enabled, and without it the projected
+#    peak is ~8.65 TB, which does not fit the volume. IRREVERSIBLE: from here the
+#    workdir can only be resumed from the last surviving stage.
+mimic_venv/bin/python scripts/convert/convert_ctrees.py fixups --consume-intermediates \
+    --workdir "$WORKDIR" --a-list "$A_LIST" --simulation-info "$SIM_INFO"
+
+# 6. Links. Takes no --a-list. The stage that carries every snapshot to `linked`,
+#    which is what step 7 requires. Peak RSS is the ~235 GB moment of the conversion.
+mimic_venv/bin/python scripts/convert/convert_ctrees.py links --consume-intermediates \
+    --workdir "$WORKDIR"
+
+# 7. Write, straight to the permanent dataset path — do NOT move the files
+#    afterwards. --output-dir is a `write` flag and exists on no other subcommand.
+mimic_venv/bin/python scripts/convert/convert_ctrees.py write --consume-intermediates \
+    --workdir "$WORKDIR" --a-list "$A_LIST" --simulation-info "$SIM_INFO" \
+    --output-dir "$DATASET"
+
+# 8. Report. Runs the producer battery over the dataset (read from the manifest's
+#    outputs_dir, so no path argument) and writes conversion_report.{json,txt}.
+#    --multiplier MUST be given: the default 1e9 fails the production rank bound and
+#    exits 1. type=int, so pass the integer — 2e10 is rejected by argparse.
+mimic_venv/bin/python scripts/convert/convert_ctrees.py report \
+    --workdir "$WORKDIR" --a-list "$A_LIST" \
+    --multiplier 20000000000
+```
+
+Three of those flags are the ones an omission costs days for — `--pool-size 8` on **every** batch-mode `scatter` (step 1), `--consume-intermediates` on **all three** of `fixups`, `links` and `write` (steps 5–7), and `--multiplier 20000000000` on `report` (step 8). No cross-check step appears in this sequence: the cross-check is a micro-Uchuu-scale gate and no cross-check artifact belongs in the production storage envelope — see the Shin-Uchuu-scale notes below.
+
+### Scatter parallelism: `--pool-size`
+
+**`scatter` is the only subcommand that takes `--pool-size`, and it defaults to `1`** (`convert_ctrees.py:99`). At `1` — or whenever at most one source file is pending, whatever the flag says — `run_scatter` takes the **serial branch** and parses the inventory one file at a time in the parent process (`scatter.py:1075`: `if pool_size <= 1 or len(pending) <= 1:`). Only above `1` *and* with more than one file pending does it build a `multiprocessing.Pool` of `min(pool_size, len(pending))` workers (`scatter.py:1086`), each loading its own copy of the forest map once through the `_init_scatter_worker` initializer (`scatter.py:822`, wired at `scatter.py:1087`) rather than receiving it pickled per task.
+
+**A production scatter must pass `--pool-size` explicitly, and roughly 24 hours of the production conversion turn on it.** The default of `1` is right for micro-Uchuu, which is a single `tree_0_0_0.dat` and cannot use a pool at all, and it is what the micro-Uchuu examples above rely on by omission. It is the wrong default for a 2,744-file source: leaving it unset scatters the whole 11.61 TB production inventory serially and never enters the pooled path at all — the path the forest-map distribution (`36e17512`) and the batched manifest saves (`184424df`) were built to make usable. Both branches are now measured at the real 2,744-file production topology (single runs each; see "Scatter at the real production file topology" below): **46.8 MB/s serial against 71.9 MB/s at `--pool-size 8`**, which projects onto the 11.61 TB source as **≈68.9 h against ≈44.9 h**. The pre-pass pooled baseline of 39.0 MB/s projects to ≈82.7 h, so the pass roughly halves scatter wall clock — and delivers none of that saving if the flag is omitted. Choose the value against the host's core count and the volume's read bandwidth; the 8 above is the only value measured. The rehearsal's pooled run over the same 2,744-file topology recorded workers at 12–25% CPU, but that was measured *before* the two changes above landed and with the quadratic manifest rewrite still in the loop, so it describes the bottleneck that was removed and is not a target for the current code.
+
+The flag is per invocation and carries no manifest state, so a batch-mode cycle may use a different value on every batch, and a resumed run may use a different value from the one that was interrupted. It changes nothing that is emitted: the dataset and the manifest's per-source content fields are identical whichever branch runs.
 
 **Emitting to a final data location.** The commands above use `write`'s default output directory, `<workdir>/hdf5`. To place a dataset somewhere permanent instead, pass `write --output-dir <dir>` and emit there directly — do **not** move the files afterwards. The manifest records the emitted paths, and the battery's `manifest-binding` check compares the directory against them, so a post-hoc `mv` breaks validation. `report` reads the dataset location from `manifest["outputs_dir"]`, so it validates the real destination with no extra argument; `validate.py` and `crosscheck.py compare` take the dataset directory as their positional argument, so pass the destination in place of `<workdir>/hdf5` in those two commands. The 2026-08-03 micro-Uchuu regeneration used exactly this route, emitting straight to `/Volumes/Internal/data/uchuu/micro-uchuu/micro-uchuu-snapshot/`.
 
@@ -162,7 +240,7 @@ is deleted once sort verifies its successors, and the link stage removes
 `links_identity_*/` itself, on its success and its failure path alike. The second of
 those is *attempted* rather than guaranteed, exactly as the table below records: a
 removal that does not leave the directory absent keeps the stage's ownership, is
-retried and is warned about, never assumed (`links.py:644-685`).) `--consume-intermediates` deletes each one at the point its
+retried and is warned about, never assumed (`links.py:645-686`).) `--consume-intermediates` deletes each one at the point its
 **terminal** consumer is finished with it. It is **off by default and irreversible**:
 turning it on trades resumability for storage, and is only worth doing when the volume
 cannot hold the full set.
@@ -253,7 +331,7 @@ than that describes a premature deletion, and is refused rather than skipped.
 `scatter` → `release` → `finalize` → `sort` → `fixups` → `links` → `write` → `report` —
 and a re-run of any stage from `sort` onward at any point after it, with one exception
 the bullets above already state: with nothing consumed, `sort` and `fixups` refuse a
-snapshot `links` has carried to `linked` (`sort_index.py:45-52`, `fixups.py:577-583`).
+snapshot `links` has carried to `linked` (`sort_index.py:45-52`, `fixups.py:584-590`).
 That is the behaviour from before consumptive deletion landed (`b2ae9601`), deliberately preserved, so on a **flag-off** workdir
 those two stages are re-runnable only before `links` has run; `links` and `write` are
 re-runnable in either flag state. What is not supported is re-entering `finalize` or a non-batch `scatter` after
@@ -279,6 +357,7 @@ For a source too large to stage locally in one piece, `scatter --batch` supports
 
 Rules the cycle depends on:
 
+- **Pass `--pool-size` on every batch-mode `scatter`.** It defaults to `1` and the flag is per invocation with no manifest state, so an omission on any one batch scatters that batch serially and is not detectable afterwards from the manifest — the emitted intermediates are identical either way. Measured at the production file topology it is worth 46.8 → 71.9 MB/s, or ≈24 h across the whole 11.61 TB source. See "Scatter parallelism: `--pool-size`" above.
 - **The complete ordered inventory is frozen once, at first run, and every batch-mode invocation must supply all of it** through the positional `tree_files` argument. Passing only the subset currently on disk changes the frozen set and is refused. There is no new index artifact and no second copy of the list. "First run" includes a batch-mode scatter issued *before any bytes have arrived* — it scatters nothing, reports every entry as deferred, and still writes the frozen inventory and the metadata identities to the manifest, so the very next invocation is already guarded. That is one extra whole-manifest save per invocation, not per file.
 - **Batch mode never finalizes, and release must come before finalize.** `_finalize_scatter` deletes the worker intermediates a later `release` has to verify, so finalizing when the last batch completes would make that batch impossible to release — and that is enforced, not merely advised: `release` **refuses** a source whose intermediates finalization has already deleted. Once they are gone the rows live in the concatenated snapshot, which the sort stage deletes in turn, so there is no artifact the release path could verify instead; releasing anyway would authorize deleting irreplaceable source bytes with nothing checked. Finalization is reachable only through `finalize`, which refuses to run while any entry is deferred. Outside batch mode `scatter` still finalizes automatically, exactly as before.
 - **Consumption is an explicit operator action, never inferred from a missing file.** A `completed` entry whose bytes are gone but which was never released is an error naming the file: nothing verified that its intermediates survived. `release` is the way out (it verifies the intermediates, not the source bytes, so it still works once the bytes are gone).
@@ -292,8 +371,8 @@ The converter scale-engineering pass (joint review F-13/D4) rebuilt the machiner
 
 **Every figure here is labelled with the scale it was taken at, and none of the rehearsal figures is a production projection.** *Rehearsal scale* is the retained 406,668,896-halo Shin-Uchuu subset — 1.8% of the production dataset — and *micro-Uchuu scale* is 22,580,924 halos. The remaining scale term in the link stage, the battery and the cross-check alike is the **per-snapshot window**, which grows with the largest snapshot rather than with the total halo count; production figures come from the production conversion's own per-snapshot counts, not from scaling these.
 
-- **Scatter.** The Phase 0 forest map is no longer pickled into every pool task (`36e17512`): a `Pool` initializer (`_init_scatter_worker`, `scatter.py:818`) loads `forests.list` once per worker process and binds each worker's independent load to the parent's `ForestMap.md5`, so the ~5 GB production map is never a per-task argument. The manifest is persisted (`184424df`) on a bounded-interval policy (`save_every_n_files`, default 25 — `scatter.py:54-55`) rather than rewritten after every source file, which cost a measured 38.2 KB per file and reached 104.9 MB at 2,744 files, quadratic in file count. The frozen-source-set resume model is batch-aware (`9ad19662`; see "Batch mode" above), so the source can be consumed as it is scattered. Per-chunk per-snapshot scans and whole-file concat reads are unchanged.
-- **Fix-ups.** The satellite chain resolution is still a sequential per-satellite scan doing reference-order in-place rewrites, because exact `fix_upid` parity is load-bearing. It was measured rather than rewritten: ≈1.28 µs/satellite at rehearsal scale (1.37 s at snapshot 44, 2.49 s at snapshot 69), projecting to ≈1.2–1.6 h across all 70 snapshots at production on a one-time multi-day conversion. **Answered: retain.** `fix_flybys` is the larger per-snapshot term where demotions are heavy (7.92 s for 1,194,990 demotions at snapshot 69) and projects to only ~5 min at production.
+- **Scatter.** The Phase 0 forest map is no longer pickled into every pool task (`36e17512`): a `Pool` initializer (`_init_scatter_worker`, `scatter.py:822`) loads `forests.list` once per worker process and binds each worker's independent load to the parent's `ForestMap.md5`, so the ~5 GB production map is never a per-task argument. The manifest is persisted (`184424df`) on a bounded-interval policy (`save_every_n_files`, default 25 — `scatter.py:54-55`) rather than rewritten after every source file, which cost a measured 38.2 KB per file and reached 104.9 MB at 2,744 files, quadratic in file count. The frozen-source-set resume model is batch-aware (`9ad19662`; see "Batch mode" above), so the source can be consumed as it is scattered. Per-chunk per-snapshot scans and whole-file concat reads are unchanged.
+- **Fix-ups.** The satellite chain resolution is still a sequential per-satellite scan doing reference-order in-place rewrites, because exact `fix_upid` parity is load-bearing. It was measured rather than rewritten: ≈1.28 µs/satellite at rehearsal scale (1.37 s at snapshot 44, 2.49 s at snapshot 69), projecting to ≈1.2–1.6 h across all 70 snapshots at production on a one-time multi-day conversion. **Answered: retain.** `fix_flybys` is the larger per-snapshot term where demotions are heavy: 7.92 s for 1,194,990 demotions at snapshot 69, the **one** snapshot at which it was timed. Scaled naively by the 56.3× production/rehearsal halo ratio that single snapshot alone is **≈7.4 min**; the all-snapshot total was never measured and is necessarily larger, so read ≈7 min as a per-snapshot figure and a lower bound on the whole-run cost. (An earlier "~5 min at production" here stated no basis and is withdrawn.) It is minutes against a multi-day conversion either way.
 - **The rank pass (`links`)** is bounded (`3d52446c`, `c5573d0c`). It ranks through the external merge sort in `rank_sort.py` under `--memory-budget-mb`, derives `ForestIndex` per snapshot, keeps `(ForestIndex, HaloRankInForest)` in on-disk arrays, holds only the adjacent snapshot pair the link stage is working on, and verifies identity exactly with one bit per halo. Measured at rehearsal scale on 2026-08-28, three runs at the shipped 2 GiB default budget (one cold, two warm): **9.76 / 9.81 / 10.01 GB peak RSS = 24.00 / 24.11 / 24.62 B/halo**, against the in-memory baseline's **76.39 GB = 187.84 B/halo** — a 7.6–7.8× reduction — in 961 / 896 / 885 s, with 15 sorted runs, 0 merge passes, 19,520,107,008 B of transient spill and 6,506,702,336 B of identity arrays on disk. All 139 link-stage artifacts it produced were md5-identical to the retained rehearsal's, and the run-scoped identity values reproduced exactly (`n_forests_total` = 6,011,205, `max_halo_rank_in_forest` = 8,312,565).
 - **The producer validation battery** is bounded (`ce2a3cf2`). It streams the emitted dataset instead of loading it, holding one snapshot for the per-snapshot checks and the adjacent pair for progenitor closure, carrying scalars for count conservation and the run-scoped header comparison, and settling `check_identity` exactly with one bit per halo rather than with a global sort. ForestIndex values outside `[0, n_forests_total)` keep their own groups, as the whole-dataset lexsort gave them, through a transient external ordering on disk rather than a per-value table in memory, because a structurally conformant dataset may carry one distinct such value per halo. Every check still runs, in the same order, and reports the same outcomes and messages as the whole-dataset formulation it replaced, which measured 73.27 GB on the same 1.8% subset. Measured at rehearsal scale on 2026-08-28, three runs (one cold, two warm): **3.258 / 3.246 / 3.245 GB peak RSS** against that 73.27 GB baseline, in 166 / 102 / 102 s, holding a 50,833,612-byte identity bitset and spilling nothing to disk. At the production 22.9 × 10⁹ halos that bitset is 2.86 GB; the per-snapshot window is the term that has to be re-derived there.
 - **The topology cross-check** is bounded (`b3368a8d`). `compare` walks the snapshots in ascending order holding one snapshot's converter arrays and one snapshot's reference galaxies, keeps the cross-snapshot `UniqueGalaxyID` suppression set that `identity-creation` needs as a disk-backed sorted union merged one block at a time (exact, never a growing in-memory set and never a probabilistic filter), and partitions the reference-topology dump by snapshot on disk as it parses it instead of materialising the whole dump and a global sort permutation. All eight checks still run in the same order and report the same outcomes, messages and `crosscheck_report.json` content as the whole-dataset formulation, which measured 251.32 GB on the same 1.8% subset with a 229.5 GB transient inside `np.loadtxt`. Measured on the retained rehearsal artifacts on 2026-08-28 (a 109.7 GB, 13-chunk reference output and a 42.07 GB dump), three runs (one cold, two warm): **16.56 / 15.84 GB warm and 10.09 GB cold peak RSS** against that 251.32 GB baseline, in 660 / 650 s warm and 1,528 s cold, holding a 274,967,800-byte suppression set and a 29,280,160,512-byte dump partition on disk, both removed on the success and failure paths alike. **The 6.5 GB spread across those three runs is measured and unexplained, and no mechanism is offered for it here.** The cold run peaks **lowest** (10.09 GB), not highest. `docs/dev/POST-PHASE-5-WORK.md` §2.2 records a ~17.7 GB spread for Mimic itself at this scale, same binary and dataset — but in the **opposite direction**, 34.445 GB cold then 16.752 GB warm — and it is explicit that its own page-cache explanation is "a hypothesis, not a measurement". Two observations of opposite sign are not one mechanism. Follow that section's instruction instead: measure warm, repeat, and **plan against the highest observed figure** rather than assuming the excess is cache — **16.56 GB** for this comparator at rehearsal scale. Both on-disk structures live under `TMPDIR`; set it to a volume with room for roughly 72 bytes per dumped halo before passing `--reference-topology` on a large dataset.
@@ -328,7 +407,7 @@ The converter scale-engineering pass (joint review F-13/D4) rebuilt the machiner
 | write | fixed 120 + links 36 + one snapshot's emitted 1.4 = 157.4 | 3.61 TB |
 | report / validate | emitted 100.7 (+2.86 GB RAM bitset, 0 B disk) | 2.31 TB |
 
-**The binding stage is scatter, through the staged source batch.** With `S ≤ 4.4 TB` the production peak is `2.47 + 4.4 + 0.012 =` **6.89 TB**, inside the 7.0 TB ceiling and 0.48 TB under the 7.37 TB volume. Every other stage peaks at or below 5.33 TB. Three preconditions come with it: **(a) deletion enabled** — with the flag off the measured peak is 384.86 B/halo, or **377.7 with the production emitted figure substituted** for micro-Uchuu's (384.86 − 107.87 + 100.7), giving **≈8.65 TB** at production before the staged batch, which exceeds the volume outright (on the unsubstituted 384.86 it is 8.81 TB — either way it does not fit); **(b) a bounded staged source batch** — 4.4 TB is the maximum this envelope admits, so the 11.61 TB source needs at least three batches, and each released batch must be deleted before `sort` begins; **(c) cross-check artifacts excluded**, per the bullet above.
+**The binding stage is scatter, through the staged source batch.** With `S ≤ 4.4 TB` the production peak is `2.47 + 4.4 + 0.012 =` **6.89 TB**, inside the 7.0 TB ceiling and 0.48 TB under the 7.37 TB volume. **The 7.37 TB is `/Volumes/LaCie`'s free space when this envelope was derived, not a capacity**; `df -k` measures **7.71 TB** free on 2026-08-29, after the scale pass's own scratch workdirs were removed, so the headroom against the volume is 0.82 TB today. The envelope is unchanged either way — the binding number is the 7.0 TB policy ceiling. See `docs/dev/SHIN-UCHUU-CONVERSION-PLAN.md` → "Local storage". Every other stage peaks at or below 5.33 TB. Three preconditions come with it: **(a) deletion enabled** — with the flag off the measured peak is 384.86 B/halo, or **377.7 with the production emitted figure substituted** for micro-Uchuu's (384.86 − 107.87 + 100.7), giving **≈8.65 TB** at production before the staged batch, which exceeds the volume outright (on the unsubstituted 384.86 it is 8.81 TB — either way it does not fit); **(b) a bounded staged source batch** — 4.4 TB is the maximum this envelope admits, so the 11.61 TB source needs at least three batches, and each released batch must be deleted before `sort` begins; **(c) cross-check artifacts excluded**, per the bullet above.
 
 **Memory at production is now a per-snapshot term, not a per-dataset one, and that is measured rather than argued.** The link stage's peak RSS rose only 2.1–2.2× (4.55 → 9.76–10.01 GB) for 18.0× the halos between micro-Uchuu and the rehearsal subset, while B/halo fell 8.2–8.4× (201.5 → 24.0–24.6). **Do not scale 24 B/halo to production**: the term that scaled with total halo count is the one this pass moved to disk. Fitting the two measured points against the largest snapshot slab instead (621,360 halos at micro-Uchuu, 9,006,294 at the rehearsal) gives ≈620–650 B per largest-slab halo on top of a ≈4.2 GB floor, which at the joint review's projected production largest slab of ≈3.546 × 10⁸ halos puts the link stage at **≈225–235 GB** — inside the 512 GB machine, against the ≈4.30 TB the in-memory rank pass projected, but no longer negligible. **Plan against 235 GB, the top of that range**, per `docs/dev/POST-PHASE-5-WORK.md` §2.2's rule for unexplained run-to-run spread. It is a two-point extrapolation across two datasets that differ in more than slab size, and the micro-Uchuu anchor is a single run, so treat it as an order-of-magnitude bound and **re-derive it from the production conversion report's own per-snapshot counts before the production run**. It also supersedes the analytic ~140–170 GB estimate in `docs/dev/SHIN-UCHUU-CONVERSION-PLAN.md` → "Memory at peak", which is 55–95 GB lower.
 
@@ -338,8 +417,18 @@ The pass's acceptance gate is the full micro-Uchuu producer battery **and** the 
 
 - **A fresh end-to-end conversion in a new workdir** — `scatter` → `sort` → `fixups` → `links` → `write` → `report`, 119.65 / 15.35 / 13.37 / 38.69 / 10.09 / 6.36 s — reproduced the recorded totals exactly: **22,580,924 halos, 50 populated snapshots, 440,651 forests, `max_halo_rank_in_forest` = 350074**, 51 emitted files, report `validation PASS`.
 - **The producer battery on that fresh dataset: all 15 checks PASS**, three runs, byte-identical stdout, 0.374–0.399 GB peak RSS.
-- **The topology cross-check on that fresh dataset: all eight checks PASS** — `reference-sanity` plus the seven checks, including `topology-chains` against a 2.01 GB dump of all 22,580,924 halos — with zero mismatches, three runs, byte-identical stdout and `crosscheck_report.json`, 3.61–3.62 GB peak RSS.
-- **Scatter throughput, warm and repeated: 91.3–92.0 MB/s.** Four further runs of the 11,515,537,257-byte source into a fresh workdir each time gave 125.27 / 125.21 / 126.15 / 125.76 s = **91.93 / 91.97 / 91.28 / 91.57 MB/s**, a spread of 0.69 MB/s (0.8%). The gate conversion's own scatter run — the single figure first published here — was 119.65 s = **96.24 MB/s**, the fastest of all five and about 5% above every repeat, which is exactly why a single run is not evidence. **Plan against 91.3 MB/s**, the slowest observed, that being the conservative direction for a throughput figure as the highest is for a memory one. The set shows no cold/warm structure, consistent with an 11.5 GB source already resident in page cache on a 512 GB host, and the stage is CPU-bound rather than I/O-bound at this size (119–120 s of user time in a 125 s wall). It is **not** comparable to the rehearsal's pooled 39.0 MB/s: micro-Uchuu is a single source file, and one file takes the serial branch (`scatter.py:1071-1073`), so this measures the parse path rather than the pool. The pooled path's throughput is re-measured by the production transfer itself.
+- **The topology cross-check on that fresh dataset: all eight checks PASS** — the seven `crosscheck.py` always runs, `reference-sanity` among them (`CHECK_NAMES`, `crosscheck.py:1443-1451`), plus `topology-chains`, which is added only when `--reference-topology` is passed, here against a 2.01 GB dump of all 22,580,924 halos — with zero mismatches, three runs, byte-identical stdout and `crosscheck_report.json`, 3.61–3.62 GB peak RSS.
+- **Scatter throughput, warm and repeated: 91.3–92.0 MB/s.** Four further runs of the 11,515,537,257-byte source into a fresh workdir each time gave 125.27 / 125.21 / 126.15 / 125.76 s = **91.93 / 91.97 / 91.28 / 91.57 MB/s**, a spread of 0.69 MB/s (0.8%). The gate conversion's own scatter run — the single figure first published here — was 119.65 s = **96.24 MB/s**, the fastest of all five and about 5% above every repeat, which is exactly why a single run is not evidence. **Plan against 91.3 MB/s**, the slowest observed, that being the conservative direction for a throughput figure as the highest is for a memory one. The set shows no cold/warm structure, consistent with an 11.5 GB source already resident in page cache on a 512 GB host, and the stage is CPU-bound rather than I/O-bound at this size (119–120 s of user time in a 125 s wall). It is **not** comparable to the rehearsal's pooled 39.0 MB/s: micro-Uchuu is a single source file, and one file takes the serial branch (`scatter.py:1075-1077`), so this measures the parse path rather than the pool. The pooled path is measured separately, at the real production file topology, in the bullet below.
+- **Scatter at the real production file topology — serial and pooled, both measured.** The gate's own throughput figure is a one-file measurement, so it says nothing about how the stage behaves across 2,744 files. Two further runs were made over the retained `subset-ascii` — **2,744 `tree_*.dat` files, the exact production file count**, 210,572,730,148 B (210.57 GB) — on the Mac Studio, each into a fresh workdir, under `/usr/bin/time -l`. **Each is a single run at this scale**, not warm and repeated as the micro-Uchuu figures above are, and each is at rehearsal *data* volume with production *file* topology.
+
+  | Run | Flag | Wall | Throughput | Peak RSS | Final manifest |
+  |---|---|---:|---:|---:|---:|
+  | serial | `--pool-size 1` (the default) | 4,495 s | **46.8 MB/s** | 3,026,649,088 B | 105,050,511 B |
+  | pooled | `--pool-size 8` | 2,929 s | **71.9 MB/s** | 2,886,500,352 B | 103,305,447 B |
+
+  **The manifest size evidences the per-entry projection, not the save cadence.** 105,050,511 / 2,744 = **38.28 KB per source file**, which independently reproduces the **38.2 KB per source file** the pass recorded. The **total is 105.05 MB**, given as its own measurement rather than as a reproduction of the 104.9 MB recorded at the rehearsal, which it exceeds by 0.14%. It cannot distinguish the two save policies: `Manifest.save()` serialises the whole manifest on every call, and `test_scatter.py:895` (`test_manifest_byte_identical_regardless_of_save_policy`) asserts that the per-file and the batched cadence produce a **byte-identical** final manifest. The cadence is evidenced by the implementation and that test, never by a final size. **Nor is the 1,745,064 B gap between the two runs a content difference** — it is workdir path length. The manifest stores absolute paths, the two workdirs were `pm9-pooled-scatter` (18 characters) and `pm9-pool8` (9), and the pooled manifest carries 193,896 occurrences of its workdir name: 193,896 × 9 = 1,745,064 B, exactly the observed 105,050,511 − 103,305,447.
+
+  **What the flag is worth at production: about 24 hours.** Projected onto the 11.61 TB source, 39.0 MB/s — the pre-pass pooled baseline — gives **≈82.7 h**, which independently reproduces the "~83 h in scatter alone" this pass recorded; 46.8 MB/s (post-pass, serial) gives **≈68.9 h**; 71.9 MB/s (post-pass, `--pool-size 8`) gives **≈44.9 h**. The pass roughly halves scatter wall clock, **but only if the operator passes `--pool-size`**, which defaults to 1. See "Scatter parallelism: `--pool-size`" above.
 - The converter's own suite passes at that commit: **610 tests, exit 0** (`mimic_venv/bin/python -m unittest discover -s scripts/convert/tests`), up from 327 at the 2026-08-03 re-validation.
 - The rehearsal-scale memory profiles are the `links`, battery and cross-check figures quoted above.
 
@@ -400,7 +489,7 @@ artifact.
 
 ## Reference-topology proof
 
-The six-check cross-check (above) establishes identity, rank, and central resolution by matching galaxies to halos. It does not, by itself, directly compare the *order* of the converter's `FirstProgenitor`/`NextProgenitor`/`NextHaloInFOFgroup` chains against another implementation reading the same source data — rank equality constrains the underlying sort but does not prove chain construction.
+The seven always-run checks of the cross-check (above — `CHECK_NAMES`, `crosscheck.py:1443-1451`) establish identity, rank, and central resolution by matching galaxies to halos. It does not, by itself, directly compare the *order* of the converter's `FirstProgenitor`/`NextProgenitor`/`NextHaloInFOFgroup` chains against another implementation reading the same source data — rank equality constrains the underlying sort but does not prove chain construction.
 
 `tests/unit/tools/dump_ctrees_topology.c` closes that gap: a read-only harness that loads a Consistent-Trees-ASCII package through Mimic's own `consistent_trees_ascii` reader (the same reader code the converter's algorithm mirrors) and dumps every halo's link fields, by stable ctrees id, to a plain-text file. Build it with:
 
@@ -409,7 +498,7 @@ make MODEL=halos-only SIMULATION=micro-uchuu-ascii dump-ctrees-topology-tool
 tests/unit/tools/build/dump_ctrees_topology <run_param_file> <output_dump_path>
 ```
 
-**The run file must declare `output_format: binary`.** `build_topology_dump.sh` compiles `-DHDF5` into only three sources — `io/tree/registry.c`, `io/tree/hdf5.c`, and `io/tree/read_ctrees_hdf5.c` — so `src/core/read_parameter_file.c` is built without it and its `#ifndef HDF5` guard (`src/core/read_parameter_file.c:658-661`) rejects `output_format: hdf5` with `OutputFormat 'hdf5' requires HDF5 support`. The harness exits 1 before creating the dump file. This is purely a compile-flag consequence of the harness's deliberately minimal source set: the harness links no output writer and would never have written galaxies anyway. `crosscheck.py prepare` inherits whatever the source run file declares, and every committed `halos-only` run file uses `hdf5`, so the prepared `reference_run.yaml` cannot be passed to the harness directly. Copy it and override only the output format and directory. This cannot change the dumped topology: the harness reads only the `input`/`simulation` configuration, and emits every halo of every forest tagged with that halo's own `SnapNum` — it never consults the output snapshot list at all.
+**The run file must declare `output_format: binary`.** `build_topology_dump.sh` compiles `-DHDF5` into only three sources — `io/tree/registry.c`, `io/tree/hdf5.c`, and `io/tree/read_ctrees_hdf5.c` — so `src/core/read_parameter_file.c` is built without it and its `#ifndef HDF5` guard (`src/core/read_parameter_file.c:703-707`) rejects `output_format: hdf5` with `OutputFormat 'hdf5' requires HDF5 support`. The harness exits 1 before creating the dump file. This is purely a compile-flag consequence of the harness's deliberately minimal source set: the harness links no output writer and would never have written galaxies anyway. `crosscheck.py prepare` inherits whatever the source run file declares, and every committed `halos-only` run file uses `hdf5`, so the prepared `reference_run.yaml` cannot be passed to the harness directly. Copy it and override only the output format and directory. This cannot change the dumped topology: the harness reads only the `input`/`simulation` configuration, and emits every halo of every forest tagged with that halo's own `SnapNum` — it never consults the output snapshot list at all.
 
 ```bash
 mimic_venv/bin/python - <<'PY'
@@ -448,7 +537,7 @@ Failures are reported as one counted summary line per (snapshot, field) with exa
 | `validate.py`       | producer validation battery (standalone CLI): structural conformance, all six format invariants, progenitor round-trip closure, FoF chain walk, identity density, header bounds, count conservation vs the independent pre-counts |
 | `report.py`         | conversion report emission (`conversion_report.{json,txt}`) including battery outcomes and the recommended identity multiplier |
 | `subset.py`         | whole-forest subset selection and byte-exact extraction from a very large ctrees dataset, driven entirely from the index files: `plan-candidates` / `sample-roots` / `calibrate-proxy` / `finalize` / `extract` |
-| `crosscheck.py`     | six-check cross-check vs a halos-only reference run (matching by \|MostBoundID\|, identity decode, FoF central, flyby signs, bit-exact values, occupancy predicate), an optional seventh `topology-chains` check against a reference-topology dump (coverage, links, identity, sign), + reference-run plumbing |
+| `crosscheck.py`     | seven-check cross-check vs a halos-only reference run (`reference-sanity`, `identity-forest`, `identity-creation`, `fof-central`, `flyby-signs`, `values`, `occupancy` — matching by \|MostBoundID\|, identity decode, FoF central, flyby signs, bit-exact values, occupancy predicate), an optional eighth `topology-chains` check against a reference-topology dump (coverage, links, identity, sign), + reference-run plumbing |
 | `tests/`            | stdlib-unittest suite; synthetic fixture generator (`fixtures.py`); mock reference builder (`mock_reference.py`); committed golden fixtures under `tests/data/` |
 
 ## Tests

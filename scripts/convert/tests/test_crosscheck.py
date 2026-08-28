@@ -36,7 +36,12 @@ from crosscheck import (  # noqa: E402
 from fixtures import write_simulation_info  # noqa: E402
 from fixups import load_particle_mass  # noqa: E402
 from hdf5_writer import snapshot_h5_name, write_snapshot_file  # noqa: E402
-from mock_reference import GALAXY_DTYPE, build_mock_galaxies, write_mock_reference  # noqa: E402
+from mock_reference import (  # noqa: E402
+    GALAXY_DTYPE,
+    build_mock_galaxies,
+    load_dataset,
+    write_mock_reference,
+)
 from test_hdf5_writer import make_written_workdir  # noqa: E402
 from test_validate import write_synthetic_dataset  # noqa: E402
 
@@ -75,7 +80,7 @@ class TestCrosscheck(unittest.TestCase):
         root = Path(cls.tmp.name)
         cls.workdir, cls.a_list_path, cls.sim_info, cls.hdf5_dir = make_written_workdir(root)
         cls.n_snapshots = 6
-        _, cls.arrays = validate.load_dataset(cls.hdf5_dir, cls.n_snapshots)
+        _, cls.arrays = load_dataset(cls.hdf5_dir, cls.n_snapshots)
         cls.part_mass = load_particle_mass(cls.sim_info)
         cls.pristine = build_mock_galaxies(cls.hdf5_dir, cls.n_snapshots, cls.sim_info)
         cls.reference_dir = Path(tempfile.mkdtemp(dir=cls.tmp.name)) / "reference"
@@ -661,7 +666,7 @@ class TestTopologyChains(unittest.TestCase):
         root = Path(cls.tmp.name)
         cls.workdir, cls.a_list_path, cls.sim_info, cls.hdf5_dir = make_written_workdir(root)
         cls.n_snapshots = 6
-        _, cls.arrays = validate.load_dataset(cls.hdf5_dir, cls.n_snapshots)
+        _, cls.arrays = load_dataset(cls.hdf5_dir, cls.n_snapshots)
         pristine = build_mock_galaxies(cls.hdf5_dir, cls.n_snapshots, cls.sim_info)
         cls.reference_dir = Path(tempfile.mkdtemp(dir=cls.tmp.name)) / "reference"
         write_mock_reference(pristine, cls.reference_dir, n_snapshots=cls.n_snapshots)

@@ -543,7 +543,9 @@ class TestLinksPipeline(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Slice 5: the bounded rank/identity pass (CONVERTER-SCALE-PASS-PLAN.md)
+# The bounded rank/identity pass: the external merge-sort core landed in
+# 3d52446c and compute_identity was wired to it in c5573d0c, replacing the
+# whole-dataset np.lexsort transcribed as in_memory_identity below.
 # ---------------------------------------------------------------------------
 
 

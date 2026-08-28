@@ -372,29 +372,6 @@ def check_manifest_binding(directory: Path, a_list_md5: str, manifest_path: Path
 # ---------------------------------------------------------------------------
 
 
-def load_dataset(
-    directory: Path, n_snapshots: int
-) -> Tuple[List[dict], List[Dict[str, np.ndarray]]]:
-    """Load every snapshot file's header attributes and /halos arrays.
-
-    **The battery no longer uses this**, and nothing in this module calls it:
-    the checks stream through :class:`_Snapshots` instead. It is retained
-    because ``crosscheck.py`` still imports it, and the cross-check is bounded
-    by its own slice of the converter scale pass (plan Slice 7), which owns
-    both that consumer and this function's removal.
-    """
-    headers = []
-    arrays = []
-    for snap in range(n_snapshots):
-        path = directory / snapshot_h5_name(snap)
-        with h5py.File(path, "r") as handle:
-            headers.append(
-                {name: np.asarray(handle["header"].attrs[name])[()] for name in HEADER_ATTRS}
-            )
-            arrays.append({name: handle["halos"][name][...] for name in HALO_DATASETS})
-    return headers, arrays
-
-
 class _Snapshots:
     """Bounded access to the emitted snapshot files.
 

@@ -1,17 +1,18 @@
 """External merge-sort rank core for the ctrees -> snapshot-HDF5 converter
-(CONVERTER-SCALE-PASS-PLAN.md Slice 4).
+(landed in ``3d52446c``; ``links.compute_identity`` was wired to it in
+``c5573d0c``).
 
-The shipped rank pass (``links.compute_identity``) concatenates five int64 key
-columns over *all* snapshots, runs one global ``np.lexsort`` and ranks within
-forest groups. Measured 187.84 B/halo — 4.30 TB at the 22.9e9-halo Shin-Uchuu
-production scale, 8.4x installed RAM. This module produces the **identical
-global ordering** under an explicit memory budget: bounded chunks are sorted
-and spilled to disk as sorted runs, then k-way merged while
-``HaloRankInForest`` is assigned in one streaming pass over the merged key
-order.
+The rank pass used to concatenate five int64 key columns over *all* snapshots,
+run one global ``np.lexsort`` and rank within forest groups; that formulation
+measured 187.84 B/halo — 4.30 TB at the 22.9e9-halo Shin-Uchuu production
+scale, 8.4x installed RAM. ``links.compute_identity`` calls ``rank_forests()``
+instead. This module produces the **identical global ordering** under an
+explicit memory budget: bounded chunks are sorted and spilled to disk as sorted
+runs, then k-way merged while ``HaloRankInForest`` is assigned in one streaming
+pass over the merged key order.
 
 **Key order** (the reference tree-driver order, ``ctrees_utils.c:524-547``, and
-exactly the order ``links.compute_identity`` builds with
+exactly the order the removed in-memory pass built with
 ``np.lexsort((ids, pid, upid, neg_snap, forest))``)::
 
     forest_id ascending, snap DESCENDING, upid ascending, pid ascending,
