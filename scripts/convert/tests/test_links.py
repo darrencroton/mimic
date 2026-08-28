@@ -19,9 +19,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import convert_ctrees  # noqa: E402
 import fixtures  # noqa: E402
+import hdf5_writer  # noqa: E402
 import links  # noqa: E402
 from ctrees_parser import ConverterError  # noqa: E402
 from fixups import run_fixups  # noqa: E402
+from hdf5_writer import run_write  # noqa: E402
 from links import (  # noqa: E402
     LINKS_DTYPE_TAG,
     LINKS_RECORD_DTYPE,
@@ -37,7 +39,7 @@ from links import (  # noqa: E402
 from rank_sort import RankSortError  # noqa: E402
 from scatter import Manifest, file_md5, run_scatter  # noqa: E402
 from sort_index import run_sort  # noqa: E402
-from test_fixups import make_fixed  # noqa: E402
+from test_fixups import capture_stderr, make_fixed  # noqa: E402
 
 
 def make_linkable(rows):
@@ -1511,6 +1513,183 @@ class TestLinksConsumesIntermediates(unittest.TestCase):
         manifest.save()
         with self.assertRaisesRegex(ConverterError, "run-scoped identity values changed"):
             run_links(workdir)
+
+    def _pipeline_paths(self, workdir):
+        """Just the two entries this stage deletes, keyed for assertions."""
+        return {
+            name: path
+            for name, path in self._paths(workdir).items()
+            if name.startswith(("idx_", "pending_fp_"))
+        }
+
+    def test_short_circuit_still_drains_a_flag_off_links_run(self):
+        """The legal sequence links(off) -> write(on) -> links(on). The re-run
+        takes the short-circuit, and must still delete the indexes and pending
+        buffers the flag-off run left behind — an operator who opts in late
+        gets the whole deletion table, not a subset of it."""
+        root = self.root / "off-then-on"
+        root.mkdir()
+        workdir, a_list, sim_info = make_linked_workdir(root)
+        run_links(workdir)
+        expected = self._pipeline_paths(workdir)
+        self.assertTrue(expected)
+        for path in expected.values():
+            self.assertTrue(path.exists())
+
+        run_write(
+            workdir,
+            a_list_path=a_list,
+            simulation_info_path=sim_info,
+            consume_intermediates=True,
+        )
+        for path in expected.values():
+            self.assertTrue(path.exists(), "the writer must not delete these")
+
+        with capture_stderr() as captured:
+            run_links(workdir, consume_intermediates=True)
+        self.assertIn("skipping the rank pass", captured.text)
+        manifest = Manifest.load_or_create(workdir)
+        for name, path in expected.items():
+            self.assertFalse(path.exists(), "{} survived the short-circuit".format(name))
+            self.assertEqual(
+                "removed", manifest.data["intermediates"][str(path.resolve())]["status"], name
+            )
+
+    def test_short_circuit_drains_after_an_interrupted_writer(self):
+        """Same drain, reached the other way: a writer run that died part-way
+        still consumed some fixed files, so a links re-run short-circuits — and
+        must finish this stage's own deletions rather than return empty-handed.
+        """
+        root = self.root / "interrupted-writer"
+        root.mkdir()
+        workdir, a_list, sim_info = make_linked_workdir(root)
+        run_links(workdir)
+        expected = self._pipeline_paths(workdir)
+
+        real = hdf5_writer._consume_snapshot_scratch
+        calls = {"n": 0}
+
+        def die_after_two(manifest, snap, delete):
+            real(manifest, snap, delete)
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise RuntimeError("simulated writer crash")
+
+        with mock.patch.object(hdf5_writer, "_consume_snapshot_scratch", die_after_two):
+            with self.assertRaises(RuntimeError):
+                run_write(
+                    workdir,
+                    a_list_path=a_list,
+                    simulation_info_path=sim_info,
+                    consume_intermediates=True,
+                )
+        manifest = Manifest.load_or_create(workdir)
+        consumed = links._consumed_fixed_snapshots(
+            manifest, sorted(int(s) for s in manifest.data["snapshots"])
+        )
+        self.assertTrue(consumed, "the interrupted writer must have consumed at least one")
+        self.assertLess(len(consumed), len(manifest.data["snapshots"]), "and not all of them")
+
+        with capture_stderr() as captured:
+            run_links(workdir, consume_intermediates=True)
+        self.assertIn("skipping the rank pass", captured.text)
+        reloaded = Manifest.load_or_create(workdir)
+        for name, path in expected.items():
+            self.assertFalse(path.exists(), "{} survived the short-circuit".format(name))
+            self.assertEqual(
+                "removed", reloaded.data["intermediates"][str(path.resolve())]["status"], name
+            )
+
+    def test_short_circuit_deletes_nothing_with_the_flag_off(self):
+        """And the drain honours the flag, like every other deletion here."""
+        root = self.root / "short-circuit-off"
+        root.mkdir()
+        workdir, a_list, sim_info = make_linked_workdir(root)
+        run_links(workdir)
+        expected = self._pipeline_paths(workdir)
+        run_write(
+            workdir,
+            a_list_path=a_list,
+            simulation_info_path=sim_info,
+            consume_intermediates=True,
+        )
+        run_links(workdir)
+        for name, path in expected.items():
+            self.assertTrue(path.exists(), "{} was deleted with the flag off".format(name))
+
+    def test_mid_set_gap_in_the_recorded_snapshots(self):
+        """The no-consumer rule at the boundary the plan makes a point of.
+
+        The standard fixture only exercises a LEADING gap (snapshot 0 empty).
+        Here the recorded set is {1, 2, 4, 5} — forest 100 dies at snapshot 2,
+        forest 200 does not appear until snapshot 4 — so snapshot 3 is a gap in
+        the middle. ``idx_1`` and ``idx_4`` then both have no consumer, because
+        neither snapshot 0 nor snapshot 3 is linked, while ``idx_2`` and
+        ``idx_5`` are consumed normally by the links of 1 and 4.
+        """
+        root = self.root / "mid-gap"
+        root.mkdir()
+        early = fixtures.ForestSpec(
+            forest_id=100,
+            trees=[
+                fixtures.TreeSpec(
+                    root_id=101,
+                    halos=[
+                        fixtures.HaloSpec(halo_id=1010, snap=2, mvir=4.0e11, num_prog=1),
+                        fixtures.HaloSpec(halo_id=1011, snap=1, mvir=3.0e11, desc_id=1010),
+                    ],
+                )
+            ],
+        )
+        late = fixtures.ForestSpec(
+            forest_id=200,
+            trees=[
+                fixtures.TreeSpec(
+                    root_id=201,
+                    halos=[
+                        fixtures.HaloSpec(halo_id=2010, snap=5, mvir=9.0e11, num_prog=1),
+                        fixtures.HaloSpec(halo_id=2011, snap=4, mvir=7.0e11, desc_id=2010),
+                    ],
+                )
+            ],
+        )
+        workdir, _, _ = make_linked_workdir(root, forests=[early, late])
+        manifest = Manifest.load_or_create(workdir)
+        self.assertEqual([1, 2, 4, 5], sorted(int(s) for s in manifest.data["snapshots"]))
+
+        snaps = [1, 2, 4, 5]
+        self.assertEqual(
+            [manifest.data["snapshots"][str(s)]["index_file"] for s in (1, 4)],
+            links._no_consumer_indexes(manifest, snaps),
+        )
+
+        expected = self._paths(workdir)
+        seen = []
+        real = links.link_one_snapshot
+
+        def spy(manifest_arg, snap, identity):
+            seen.append((snap, expected["idx_1"].exists(), expected["idx_4"].exists()))
+            return real(manifest_arg, snap, identity)
+
+        with mock.patch.object(links, "link_one_snapshot", spy):
+            run_links(workdir, consume_intermediates=True)
+
+        # both no-consumer indexes are gone before the first link, not after
+        # some later one
+        self.assertEqual([(snap, False, False) for snap, _, _ in seen], seen)
+        reloaded = Manifest.load_or_create(workdir)
+        for name, path in expected.items():
+            entry = reloaded.data["intermediates"][str(path.resolve())]
+            if name.startswith("fixed_"):
+                self.assertTrue(path.exists(), name)
+            else:
+                self.assertFalse(path.exists(), "{} survived".format(name))
+                self.assertEqual("removed", entry["status"], name)
+        # the pending buffers that exist are exactly those across a non-gap
+        self.assertEqual(
+            ["pending_fp_2", "pending_fp_5"],
+            sorted(n for n in expected if n.startswith("pending_fp_")),
+        )
 
     def test_cli_flag_is_off_by_default(self):
         parser = convert_ctrees.build_arg_parser()

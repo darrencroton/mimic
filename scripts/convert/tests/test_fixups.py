@@ -31,6 +31,7 @@ from fixups import (  # noqa: E402
     run_fixups,
     validate_adjacency,
 )
+from links import run_links  # noqa: E402
 from scatter import Manifest, run_finalize, run_scatter  # noqa: E402
 from sort_index import run_sort, sorted_scratch_name  # noqa: E402
 
@@ -946,6 +947,61 @@ class TestFixupsConsumesSortedScratch(unittest.TestCase):
         next(iter(self._sorted_paths(workdir).values())).unlink()
         with self.assertRaisesRegex(ConverterError, "missing on disk"):
             run_finalize(workdir, forests_list)
+
+    def test_rerun_after_a_consuming_links_run_is_a_skip_not_a_status_error(self):
+        """Once ``links`` has run, every snapshot sits at ``linked``. That used
+        to abort with "unexpected status 'linked'; run sort first" — advice that
+        would itself have failed. It must be a skip, and once the writer has
+        taken the fixed and links files, a skip that names them."""
+        root = self.root / "linked-skip"
+        root.mkdir()
+        workdir, a_list, sim_info = make_sorted_workdir(root)
+        run_fixups(
+            workdir,
+            a_list_path=a_list,
+            simulation_info_path=sim_info,
+            consume_intermediates=True,
+        )
+        run_links(workdir, consume_intermediates=True)
+        manifest = Manifest.load_or_create(workdir)
+        for entry in manifest.data["snapshots"].values():
+            self.assertEqual("linked", entry["status"])
+
+        # still resumable while the writer has not run
+        run_fixups(
+            workdir,
+            a_list_path=a_list,
+            simulation_info_path=sim_info,
+            consume_intermediates=True,
+        )
+
+        # and once it has consumed them, the skip names both
+        entry = manifest.data["snapshots"]["5"]
+        manifest.consume_intermediates([entry["fixed_file"], entry["links_file"]], delete=True)
+        with capture_stderr() as captured:
+            run_fixups(
+                workdir,
+                a_list_path=a_list,
+                simulation_info_path=sim_info,
+                consume_intermediates=True,
+            )
+        self.assertIn("fixups: snapshot 5 is already linked", captured.text)
+        self.assertIn("fixed snapshot scratch was consumed", captured.text)
+        self.assertIn("snapshot links scratch was consumed", captured.text)
+
+    def test_a_missing_fixed_file_at_status_fixed_is_still_a_hard_error(self):
+        """The permissive treatment must not reach ``fixed``: the writer takes
+        the fixed file only once every snapshot is linked, so at this status it
+        must be present."""
+        root = self.root / "fixed-strict"
+        root.mkdir()
+        workdir, a_list, sim_info = make_sorted_workdir(root)
+        run_fixups(workdir, a_list_path=a_list, simulation_info_path=sim_info)
+        manifest = Manifest.load_or_create(workdir)
+        self.assertEqual("fixed", manifest.data["snapshots"]["5"]["status"])
+        manifest.consume_intermediates([manifest.data["snapshots"]["5"]["fixed_file"]], delete=True)
+        with self.assertRaisesRegex(ConverterError, "not a manifest-owned intermediate"):
+            run_fixups(workdir, a_list_path=a_list, simulation_info_path=sim_info)
 
     def test_cli_flag_is_off_by_default(self):
         parser = convert_ctrees.build_arg_parser()

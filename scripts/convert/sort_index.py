@@ -41,29 +41,42 @@ def sort_one_snapshot(manifest: Manifest, snap: int) -> None:
     entry = manifest.data["snapshots"].get(str(snap))
     if entry is None:
         raise ConverterError("snapshot {}: no manifest entry; run scatter first".format(snap))
-    if entry.get("status") in ("sorted", "fixed"):
-        # skip-trusting a prior sort (or a snapshot the Slice 5 fix-up stage
-        # already completed) requires verifying the artifacts and retrying
-        # any unsorted-file cleanup a crash may have interrupted
+    status = entry.get("status")
+    if status in ("sorted", "fixed", "linked"):
+        # Skip-trusting a snapshot a later stage already carried forward:
+        # verify every artifact that exists at this status, and retry any
+        # unsorted-file cleanup a crash may have interrupted.
+        #
+        # Which artifacts may legitimately be GONE depends on the status, and
+        # the distinction is load-bearing rather than tidy. This stage's own
+        # two outputs are consumable at any of these three: the fix-up stage
+        # takes ``sorted``, and the link stage takes ``index``. The fixed and
+        # links files are the writer's, and the writer runs only once EVERY
+        # snapshot is ``linked`` — so at ``fixed`` the fixed file must still be
+        # present and is verified outright, and it becomes consumable only at
+        # ``linked``. Loosening that would let the one deletion this slice must
+        # never make (a fixed file dropped before the writer has it) pass as a
+        # resumable skip.
         consumed: List[str] = []
         verify_or_consumed(manifest, entry["sorted_file"], "sorted snapshot scratch", consumed)
         verify_or_consumed(manifest, entry["index_file"], "snapshot id index", consumed)
-        if entry.get("status") == "fixed":
+        if status == "fixed":
+            manifest.verify_intermediate(entry["fixed_file"], "fixed snapshot scratch")
+        elif status == "linked":
             verify_or_consumed(manifest, entry["fixed_file"], "fixed snapshot scratch", consumed)
+            verify_or_consumed(manifest, entry["links_file"], "snapshot links scratch", consumed)
         _retry_unsorted_cleanup(manifest, entry)
         manifest.save()
         if consumed:
             _log(
-                "sort: snapshot {} is already sorted and {} — skipping".format(
-                    snap, "; ".join(consumed)
+                "sort: snapshot {} is already {} and {} — skipping".format(
+                    snap, status, "; ".join(consumed)
                 )
             )
         return
-    if entry.get("status") != "concatenated":
+    if status != "concatenated":
         raise ConverterError(
-            "snapshot {}: unexpected status {!r}; run scatter first".format(
-                snap, entry.get("status")
-            )
+            "snapshot {}: unexpected status {!r}; run scatter first".format(snap, status)
         )
 
     scratch_path = Path(entry["scratch_file"])

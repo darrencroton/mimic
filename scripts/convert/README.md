@@ -139,10 +139,12 @@ Canonical metadata comes from explicit `--simulation-info` and `--a-list` paths,
     links_identity_*/      transient per-invocation rank/identity scratch: the
                            external merge sort's spill runs plus two int64
                            arrays (ForestIndex, HaloRankInForest) indexed by
-                           global position, 8 B/halo each. Created and removed
-                           by the links stage itself, on success and on failure,
-                           so it is never a manifest intermediate and never
-                           outlives the run that made it
+                           global position, 8 B/halo each. Created by the links
+                           stage itself and removed by it on both the success
+                           and the failure path, so it is never a manifest
+                           intermediate. Removal is attempted, not guaranteed:
+                           if it fails the stage keeps ownership, retries, and
+                           warns naming the directory and its size
     roots_src_I.npy        observed #tree roots per source file
     forest_max_src_I.npy   per-file forest max-snapshot aggregates
 ```
@@ -172,7 +174,7 @@ bitwise identical either way.
 | `snap_NNN_pending_fp.bin` | `link_one_snapshot(N)` | `links` | once snapshot N is linked |
 | `snap_NNN_fixed.bin` | the **writer** | `write` | once snapshot N's emitted HDF5 is verified and recorded |
 | `snap_NNN_links.bin` | the **writer** | `write` | once snapshot N's emitted HDF5 is verified and recorded |
-| `links_identity_*/` | the link stage itself | `links` | always, on success and on failure; never a manifest intermediate |
+| `links_identity_*/` | the link stage itself | `links` | on both the success and the failure path, flag or no flag; never a manifest intermediate. A removal that fails is retried and warned about, not silently assumed |
 
 Two of those consumer relations are easy to get wrong, and both are load-bearing. The
 fixed file is read **twice** — by `links` through `_load_fixed` and by the writer
@@ -192,23 +194,47 @@ entry recorded `present` with no file on disk; the next run converges it to `rem
 and continues, in either flag state, because those bytes are already gone.
 
 **What consumption costs you.** Deletion is bounded by re-run reachability, not by last
-read, so every stage stays resumable across the intermediates it still needs:
+read. Which re-runs stay reachable depends on the snapshot's recorded status, so the
+promises below are stated per status rather than in general — a skip that is claimed
+more broadly than it holds is worse than no claim at all.
 
-- Re-running `sort` on a snapshot whose sorted file or index a later stage consumed is
-  a **skip** naming what was consumed, not a verification failure. An artifact that
-  merely went missing is still the hard error it has always been.
-- Re-running `finalize`, or a non-batch `scatter` (which finalizes at the end), is the
-  same skip for the same reason: `_finalize_scatter` skip-trusts a snapshot already past
-  `concatenated` by verifying its sorted and index artifacts, and both are in the table
-  above. It shares one helper with `sort`, so the two cannot drift apart.
-- Re-running `links` when every snapshot is linked and the writer has consumed the
-  fixed inputs is a **skip**: the rank pass streams every fixed file and cannot run
-  again. While those inputs are still present the pass runs as before, including its
-  refuse-not-repair comparison of the run-scoped identity values.
-- Re-running `write` on a snapshot whose emitted file is already recorded and unchanged
-  is the skip it always was, and needs no scratch.
-- A `links` run interrupted part-way still resumes: an index or pending buffer is
+- **`sort`** does the work at `concatenated`, and skips at `sorted`, `fixed` and
+  `linked`. Its own two outputs — the sorted file and the index — are accepted as
+  consumed at all three. The fixed file does not exist yet at `sorted`, must still be on
+  disk at `fixed` — where it is verified outright, because the writer that consumes it
+  runs only once *every* snapshot is linked — and is accepted as consumed only at
+  `linked`, where the links file joins it on the same terms. An
+  artifact that merely went missing, or whose checksum moved, is still the hard error it
+  has always been at every status.
+- **`fixups`** does the work at `sorted`, and skips at `fixed` and `linked`, on the same
+  split: strict verification of the fixed file at `fixed`, fixed and links accepted as
+  consumed at `linked`.
+- **`links`** requires every snapshot at `fixed` or `linked`. When they are all `linked`
+  and the writer has consumed the fixed inputs it skips, because the rank pass streams
+  every fixed file and cannot run again — and it still drains any deletion an earlier
+  flag-off run or an interrupted writer left undone, so turning the flag on late still
+  reclaims the indexes and pending buffers. While the fixed inputs are present the pass
+  runs as before, including its refuse-not-repair comparison of the run-scoped identity
+  values.
+- **`write`** skips a snapshot whose emitted file is already recorded and unchanged, and
+  needs no scratch to do it. That is the skip it always had.
+- **A `links` run interrupted part-way still resumes**: an index or pending buffer is
   deleted only after the snapshot that reads it has been linked.
+- **`finalize`, and a non-batch `scatter`** (which finalizes at the end), skip a
+  snapshot at `concatenated`, `sorted` or `fixed`, accepting a consumed sorted file or
+  index — the same helper `sort` uses, so the two cannot drift apart. **They do not
+  handle a snapshot at `linked`**: such a snapshot falls through to the concat path,
+  which needs the per-source worker scratch that finalization itself deleted, and the
+  run aborts naming that file. **This is not a consequence of consumptive deletion** —
+  it reproduces exactly with the flag off, and has always been so. The rule it implies
+  is simply: **once `links` has run, do not re-run `finalize` or a non-batch `scatter`
+  on that workdir.**
+
+**The supported sequences**, then, are the documented order —
+`scatter` → `release` → `finalize` → `sort` → `fixups` → `links` → `write` → `report` —
+and a re-run of any stage from `sort` onward at any point after it, with or without the
+flag. What is not supported is re-entering `finalize` or a non-batch `scatter` after
+`links`, for the pre-existing reason above.
 
 **What it forecloses.** Once a stage's inputs are gone that stage cannot be re-executed,
 only skipped — if an emitted file is later deleted or corrupted, the conversion must be

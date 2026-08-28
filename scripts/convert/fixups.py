@@ -39,7 +39,14 @@ import yaml
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from ctrees_parser import RECORD_DTYPE, ConverterError  # noqa: E402
-from scatter import A_LIST_ATOL, Manifest, file_md5, id_checksum, load_a_list  # noqa: E402
+from scatter import (  # noqa: E402
+    A_LIST_ATOL,
+    Manifest,
+    file_md5,
+    id_checksum,
+    load_a_list,
+    verify_or_consumed,
+)
 
 #: Fixed-record dtype: the frozen scratch fields plus the Slice 5 outputs.
 #: Little-endian, packed, itemsize 120. Jx/Jy/Jz hold normalised Spin after
@@ -560,13 +567,31 @@ def fix_one_snapshot(
     entry = manifest.data["snapshots"].get(str(snap))
     if entry is None:
         raise ConverterError("snapshot {}: no manifest entry; run scatter first".format(snap))
-    if entry.get("status") == "fixed":
-        manifest.verify_intermediate(entry["fixed_file"], "fixed snapshot scratch")
+    status = entry.get("status")
+    if status in ("fixed", "linked"):
+        # This stage's output is already on the record. At ``fixed`` it must
+        # still be on disk — the writer, its terminal consumer, runs only once
+        # EVERY snapshot is ``linked`` — so it is verified outright. At
+        # ``linked`` both it and the links file that superseded it may have
+        # been consumed by a verified emission, and a re-run then has to skip
+        # naming them rather than fail on a file the pipeline deleted.
+        consumed: List[str] = []
+        if status == "fixed":
+            manifest.verify_intermediate(entry["fixed_file"], "fixed snapshot scratch")
+        else:
+            verify_or_consumed(manifest, entry["fixed_file"], "fixed snapshot scratch", consumed)
+            verify_or_consumed(manifest, entry["links_file"], "snapshot links scratch", consumed)
         _consume_sorted(manifest, entry, snap, consume_intermediates)
+        if consumed:
+            _log(
+                "fixups: snapshot {} is already {} and {} — skipping".format(
+                    snap, status, "; ".join(consumed)
+                )
+            )
         return
-    if entry.get("status") != "sorted":
+    if status != "sorted":
         raise ConverterError(
-            "snapshot {}: unexpected status {!r}; run sort first".format(snap, entry.get("status"))
+            "snapshot {}: unexpected status {!r}; run sort first".format(snap, status)
         )
 
     sorted_path = Path(entry["sorted_file"])

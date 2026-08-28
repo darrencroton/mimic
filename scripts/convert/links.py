@@ -1221,6 +1221,25 @@ def _consumed_by_link(manifest: Manifest, snap: int, recorded) -> List[str]:
     return paths
 
 
+def _consume_unreachable_indexes(manifest: Manifest, snaps, delete: bool) -> None:
+    """Drain the indexes that have no consumer, reporting each removal."""
+    for path in manifest.consume_intermediates(
+        _no_consumer_indexes(manifest, snaps), delete=delete
+    ):
+        _log("links: consumed {} — no recorded snapshot below it reads it".format(path))
+
+
+def _consume_after_link(manifest: Manifest, snap: int, recorded, delete: bool) -> None:
+    """Drain what the link of ``snap`` was the terminal consumer of, reporting
+    each removal. Idempotent, so it is safe to call for a snapshot linked by an
+    earlier run — which is what lets the short-circuit below finish a
+    consumption that a flag-off link run, or an interrupted writer, deferred."""
+    for path in manifest.consume_intermediates(
+        _consumed_by_link(manifest, snap, recorded), delete=delete
+    ):
+        _log("links: snapshot {} — consumed {}".format(snap, path))
+
+
 def _consumed_fixed_snapshots(manifest: Manifest, snaps) -> List[int]:
     """Snapshots whose fixed scratch the writer has already consumed."""
     return [
@@ -1288,6 +1307,18 @@ def run_links(
                 manifest.data["snapshots"][str(consumed_fixed[0])]["fixed_file"],
             )
         )
+        # Returning here must not skip this stage's OWN deletions. Reaching
+        # this point means every snapshot is linked, so every consumption point
+        # in the table below is provably past — but they may never have run:
+        # `links` may have run with the flag off and the operator turned it on
+        # only now, or a writer run may have been interrupted after consuming
+        # some fixed files. Draining both sets is what keeps the deletion table
+        # whole rather than partial; ``consume_intermediates`` is idempotent, so
+        # a set already drained costs nothing.
+        _consume_unreachable_indexes(manifest, snaps, consume_intermediates)
+        recorded = set(snaps)
+        for snap in snaps:
+            _consume_after_link(manifest, snap, recorded, consume_intermediates)
         return manifest
 
     identity, n_forests_total, max_rank = compute_identity(manifest, budget_bytes=budget_bytes)
@@ -1306,17 +1337,11 @@ def run_links(
         manifest.save()
 
         recorded = set(snaps)
-        for path in manifest.consume_intermediates(
-            _no_consumer_indexes(manifest, snaps), delete=consume_intermediates
-        ):
-            _log("links: consumed {} — no recorded snapshot below it reads it".format(path))
+        _consume_unreachable_indexes(manifest, snaps, consume_intermediates)
 
         for snap in snaps:
             link_one_snapshot(manifest, snap, identity)
-            for path in manifest.consume_intermediates(
-                _consumed_by_link(manifest, snap, recorded), delete=consume_intermediates
-            ):
-                _log("links: snapshot {} — consumed {}".format(snap, path))
+            _consume_after_link(manifest, snap, recorded, consume_intermediates)
     _log(
         "links: {} snapshot(s) linked — n_forests_total={}, max_halo_rank_in_forest={}".format(
             len(snaps), n_forests_total, max_rank
