@@ -4,6 +4,7 @@ frozen. One shared pristine mock reference (built from the fixture pipeline)
 is reused; per-violation tests deep-copy the galaxies dict, mutate, and write a
 fresh reference directory."""
 
+import json
 import os
 import stat
 import sys
@@ -34,6 +35,7 @@ from crosscheck import (  # noqa: E402
 )
 from fixtures import write_simulation_info  # noqa: E402
 from fixups import load_particle_mass  # noqa: E402
+from hdf5_writer import snapshot_h5_name, write_snapshot_file  # noqa: E402
 from mock_reference import GALAXY_DTYPE, build_mock_galaxies, write_mock_reference  # noqa: E402
 from test_hdf5_writer import make_written_workdir  # noqa: E402
 from test_validate import write_synthetic_dataset  # noqa: E402
@@ -765,6 +767,66 @@ class TestTopologyChains(unittest.TestCase):
             outcomes["topology-chains"].status, "PASS", outcomes["topology-chains"].line()
         )
 
+    def test_report_schema_ordering_and_passed_semantics(self):
+        """`crosscheck_report.json` is a frozen artifact: its three keys, its
+        per-check schema, the ORDER of its checks array, its name -> status
+        mapping and its "passed" semantics. Outcome assembly was rewritten by
+        the streaming change, so this pins all of it, in both modes and for
+        both a passing and a failing run."""
+        seven = [
+            "reference-sanity",
+            "identity-forest",
+            "identity-creation",
+            "fof-central",
+            "flyby-signs",
+            "values",
+            "occupancy",
+        ]
+        rows = self._dump_rows()
+
+        def compare(dump_path, expected_names, expected_passed, expected_rc):
+            report_path = Path(tempfile.mkdtemp(dir=self.tmp.name)) / "crosscheck_report.json"
+            argv = [
+                "compare",
+                str(self.hdf5_dir),
+                str(self.reference_dir),
+                "--a-list",
+                str(self.a_list_path),
+                "--simulation-info",
+                str(self.sim_info),
+                "--multiplier",
+                str(M),
+                "--report",
+                str(report_path),
+            ]
+            if dump_path is not None:
+                argv += ["--reference-topology", str(dump_path)]
+            self.assertEqual(crosscheck.main(argv), expected_rc)
+            with open(report_path) as handle:
+                report = json.load(handle)
+            self.assertEqual(sorted(report), ["checks", "passed", "status"])
+            self.assertEqual([check["name"] for check in report["checks"]], expected_names)
+            for check in report["checks"]:
+                self.assertEqual(sorted(check), ["detail", "name", "status"])
+            self.assertEqual(
+                report["status"], {check["name"]: check["status"] for check in report["checks"]}
+            )
+            self.assertIs(report["passed"], expected_passed)
+            self.assertEqual(
+                report["passed"], all(check["status"] != "FAIL" for check in report["checks"])
+            )
+            return report
+
+        # no dump: the seven checks only, all passing
+        compare(None, seven, True, 0)
+        # with a dump: topology-chains appended, still passing
+        compare(self._dump_path(rows), seven + ["topology-chains"], True, 0)
+        # a truncated dump: same shape and order, "passed" false, exit 1
+        truncated = self._dump_path(rows[1:])
+        report = compare(truncated, seven + ["topology-chains"], False, 1)
+        self.assertEqual(report["status"]["topology-chains"], "FAIL")
+        self.assertEqual([check["status"] for check in report["checks"][:7]], ["PASS"] * 7)
+
     # -- injected violations --------------------------------------------------
 
     def _wrong_value_for(self, rows, row_index, column):
@@ -1024,6 +1086,75 @@ class TestTopologyChains(unittest.TestCase):
                 raise RuntimeError("injected")
         self.assertFalse(held["dir"].exists())
 
+    def test_partition_close_survives_a_failing_writer_close(self):
+        """One writer whose close() fails — a buffered write hitting a full
+        volume, which a 29 GB partition makes real — must neither skip the
+        other writers nor skip the removal, and must not raise out of a path
+        that may already carry an exception."""
+        rows = self._dump_rows()
+        partition = crosscheck.TopologyDumpPartition(self._dump_path(rows), self.n_snapshots)
+        first, second = _ExplodingHandle(), _ExplodingHandle()
+        partition._handles = {0: first, 1: second}
+        directory = partition._dir
+        partition.close()  # must not raise
+        self.assertTrue(first.closed and second.closed, "one failing close skipped the other")
+        self.assertIsNone(partition.unremoved)
+        self.assertFalse(directory.exists())
+
+    def test_partition_reports_a_removal_it_cannot_confirm(self):
+        """A removal that fails must leave ownership with the partition, warn
+        with the path and the bytes at stake, still not raise, and become a
+        real error at raise_if_unremoved."""
+        rows = self._dump_rows()
+        partition = crosscheck.TopologyDumpPartition(self._dump_path(rows), self.n_snapshots)
+        directory = partition._dir
+        with mock.patch.object(crosscheck, "_log") as logged:
+            with mock.patch.object(
+                crosscheck.shutil, "rmtree", side_effect=OSError(13, "Permission denied")
+            ):
+                partition.close()  # must not raise
+        self.assertEqual(partition.unremoved, directory)
+        self.assertTrue(directory.is_dir(), "the directory should still be there to retry")
+        warning = " ".join(str(call.args[0]) for call in logged.call_args_list)
+        self.assertIn(str(directory), warning)
+        self.assertIn("Permission denied", warning)
+        self.assertIn(str(partition._written), warning)
+        with self.assertRaisesRegex(ConverterError, "could not be removed"):
+            partition.raise_if_unremoved()
+        # ownership was kept, so a later call retries — and succeeds
+        partition.close()
+        self.assertIsNone(partition.unremoved)
+        self.assertFalse(directory.exists())
+        partition.close()  # safe to call twice
+
+    def test_run_crosscheck_raises_when_the_partition_cannot_be_removed(self):
+        """The wiring: close() records, and run_crosscheck turns the record
+        into an error where nothing else is in flight."""
+        rows = self._dump_rows()
+        dump_path = self._dump_path(rows)
+        real_rmtree = crosscheck.shutil.rmtree
+        leaked = []
+
+        def rmtree(path, *args, **kwargs):
+            if crosscheck.TOPOLOGY_DIR_PREFIX in str(path):
+                leaked.append(Path(str(path)))
+                raise OSError(13, "Permission denied")
+            return real_rmtree(path, *args, **kwargs)
+
+        with mock.patch.object(crosscheck.shutil, "rmtree", side_effect=rmtree):
+            with self.assertRaisesRegex(ConverterError, "could not be removed"):
+                run_crosscheck(
+                    self.hdf5_dir,
+                    self.reference_dir,
+                    self.a_list_path,
+                    self.sim_info,
+                    multiplier=M,
+                    topology_dump_path=dump_path,
+                )
+        for path in leaked:
+            if path.exists():
+                real_rmtree(str(path))
+
     def test_partition_directory_is_removed_when_the_parse_raises(self):
         """The constructor owns the directory until it returns, so a malformed
         dump must not leave one behind — there is no ``with`` to fall back on."""
@@ -1041,6 +1172,19 @@ class TestTopologyChains(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Bounded global state: the suppression set and the dump partition
 # ---------------------------------------------------------------------------
+
+
+class _ExplodingHandle:
+    """A partition writer whose close() fails, as a buffered write does when
+    the volume fills. It records that it was closed so a test can prove one
+    failure did not skip the other writers."""
+
+    def __init__(self):
+        self.closed = False
+
+    def close(self):
+        self.closed = True
+        raise OSError(28, "No space left on device")
 
 
 class TestSeenIdentities(unittest.TestCase):
@@ -1112,6 +1256,56 @@ class TestSeenIdentities(unittest.TestCase):
             seen.first_appearance(np.arange(4, dtype=np.int64))
             self.assertTrue(directory.is_dir())
         self.assertFalse(directory.exists())
+
+    def test_store_reports_a_removal_it_cannot_confirm(self):
+        """A removal that fails must leave ownership with the store, warn with
+        the path and the bytes at stake, not raise, and become a real error at
+        raise_if_unremoved."""
+        seen = crosscheck._SeenIdentities()
+        seen.first_appearance(np.arange(64, dtype=np.int64))
+        directory = seen._dir
+        with mock.patch.object(crosscheck, "_log") as logged:
+            with mock.patch.object(
+                crosscheck.shutil, "rmtree", side_effect=OSError(13, "Permission denied")
+            ):
+                seen.close()  # must not raise
+        self.assertEqual(seen.unremoved, directory)
+        self.assertTrue(directory.is_dir())
+        warning = " ".join(str(call.args[0]) for call in logged.call_args_list)
+        self.assertIn(str(directory), warning)
+        self.assertIn("Permission denied", warning)
+        self.assertIn("512 byte(s)", warning)  # 64 identities x 8 bytes, still on disk
+        with self.assertRaisesRegex(ConverterError, "could not be removed"):
+            seen.raise_if_unremoved()
+        seen.close()  # ownership was kept, so this retries — and succeeds
+        self.assertIsNone(seen.unremoved)
+        self.assertFalse(directory.exists())
+        seen.close()  # safe to call twice
+
+    def test_run_crosscheck_raises_when_the_store_cannot_be_removed(self):
+        seen_dirs = []
+        real_rmtree = crosscheck.shutil.rmtree
+
+        def rmtree(path, *args, **kwargs):
+            if crosscheck.SEEN_DIR_PREFIX in str(path):
+                seen_dirs.append(Path(str(path)))
+                raise OSError(13, "Permission denied")
+            return real_rmtree(path, *args, **kwargs)
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        workdir, a_list, sim_info, hdf5_dir = make_written_workdir(root)
+        reference_dir = root / "reference"
+        write_mock_reference(
+            build_mock_galaxies(hdf5_dir, 6, sim_info), reference_dir, n_snapshots=6
+        )
+        with mock.patch.object(crosscheck.shutil, "rmtree", side_effect=rmtree):
+            with self.assertRaisesRegex(ConverterError, "could not be removed"):
+                run_crosscheck(hdf5_dir, reference_dir, a_list, sim_info, multiplier=M)
+        for path in seen_dirs:
+            if path.exists():
+                real_rmtree(str(path))
 
     def test_store_is_removed_when_the_body_raises(self):
         held = {}
@@ -1424,6 +1618,258 @@ class TestBoundedMemory(unittest.TestCase):
         )
         self.assertEqual(outcomes["identity-forest"].status, "FAIL")
         self.assertEqual(outcomes["identity-creation"].status, "FAIL")
+
+
+# ---------------------------------------------------------------------------
+# Bounded memory against the DISTINCT-VALUE cardinality of the input
+# ---------------------------------------------------------------------------
+
+
+def write_fresh_identity_dataset(directory, n_snapshots: int, n_halos: int) -> Path:
+    """Emit a conformant dataset of ``n_halos`` halos per snapshot in which
+    NOTHING is linked: every halo is its own FoF central with no descendant and
+    no progenitor, and holds ``rank == snap`` within its own forest.
+
+    ``write_synthetic_dataset``'s halos descend into the next snapshot, so its
+    galaxies persist and its identity set has ``n_halos`` distinct members
+    however many snapshots it has. Here every halo seeds a NEW galaxy at every
+    snapshot, so the distinct-identity cardinality is ``n_snapshots * n_halos``
+    — which is what makes the suppression set's own size the thing that scales
+    between the two fixtures.
+    """
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    a_list = [round(0.1 + 0.8 * snap / max(n_snapshots - 1, 1), 12) for snap in range(n_snapshots)]
+    metadata = {
+        "box_size_mpc_h": 100.0,
+        "particle_mass_msun_h": 0.0325 * 1e10,
+        "omega_matter": 0.3089,
+        "omega_lambda": 0.6911,
+        "hubble_h": 0.6774,
+    }
+    null32 = np.full(n_halos, -1, dtype=np.int32)
+    for snap in range(n_snapshots):
+        arrays = {
+            "Descendant": null32,
+            "FirstProgenitor": null32,
+            "NextProgenitor": null32,
+            "FirstHaloInFOFgroup": np.arange(n_halos, dtype=np.int32),
+            "NextHaloInFOFgroup": null32,
+            "Len": np.full(n_halos, 100, dtype=np.int32),
+            "SnapNum": np.full(n_halos, snap, dtype=np.int32),
+            "M_Crit200": np.zeros(n_halos, dtype=np.float32),
+            "Pos": np.zeros((n_halos, 3), dtype=np.float32),
+            "Vel": np.zeros((n_halos, 3), dtype=np.float32),
+            "Spin": np.zeros((n_halos, 3), dtype=np.float32),
+            "VelDisp": np.zeros(n_halos, dtype=np.float32),
+            "Vmax": np.zeros(n_halos, dtype=np.float32),
+            "MostBoundID": np.arange(1, n_halos + 1, dtype=np.int64),
+            "ForestIndex": np.arange(n_halos, dtype=np.int64),
+            "HaloRankInForest": np.full(n_halos, snap, dtype=np.int64),
+        }
+        write_snapshot_file(
+            directory / snapshot_h5_name(snap),
+            snap,
+            arrays,
+            a_list[snap],
+            metadata,
+            n_halos,
+            n_snapshots - 1,
+        )
+    a_list_path = directory.parent / "{}.a_list".format(directory.name)
+    a_list_path.write_text("".join("{!r}\n".format(value) for value in a_list))
+    return a_list_path
+
+
+def build_fresh_identity_reference(n_snapshots: int, n_halos: int, multiplier: int = M):
+    """Reference galaxies for ``write_fresh_identity_dataset``: one Type 0
+    galaxy per halo, created there (nothing is linked, so nothing inherits),
+    carrying the encoding for its own (ForestIndex, rank == snap)."""
+    ids = np.arange(1, n_halos + 1, dtype=np.int64)
+    forests = np.arange(n_halos, dtype=np.int64)
+    galaxies = {}
+    for snap in range(n_snapshots):
+        rows = np.zeros(n_halos, dtype=GALAXY_DTYPE)
+        rows["SnapNum"] = snap
+        rows["Type"] = 0
+        rows["UniqueGalaxyID"] = snap + multiplier * (forests + 1)
+        rows["UniqueCentralGalaxyID"] = rows["UniqueGalaxyID"]
+        rows["Len"] = 100
+        rows["Mvir"] = 0.0
+        rows["MostBoundID"] = ids
+        galaxies[snap] = rows
+    return galaxies
+
+
+def write_fresh_identity_dump(path, n_snapshots: int, n_halos: int, out_of_range_rows: int) -> Path:
+    """The dump for ``write_fresh_identity_dataset``, plus ONE DISTINCT
+    out-of-range snapshot value per snapshot, each carrying
+    ``out_of_range_rows`` rows.
+
+    The out-of-range groups are what make the partition's per-value accounting
+    scale between the two fixtures: a formulation that retained those rows —
+    rather than only their counts — would grow with the number of distinct
+    out-of-range values the dump happens to carry.
+    """
+    path = Path(path)
+    na = crosscheck._INT64_MIN
+    ids = np.arange(1, n_halos + 1, dtype=np.int64)
+    block = np.zeros((n_halos, 9), dtype=np.int64)
+    block[:, 0] = np.arange(n_halos, dtype=np.int64)
+    block[:, 2] = ids
+    block[:, 4] = na
+    block[:, 5] = na
+    block[:, 6] = na
+    block[:, 7] = ids
+    block[:, 8] = na
+    spurious = np.zeros((out_of_range_rows, 9), dtype=np.int64)
+    spurious[:, 2] = np.arange(1, out_of_range_rows + 1, dtype=np.int64)
+    spurious[:, 4:] = na
+    with open(path, "w") as handle:
+        handle.write(crosscheck._TOPOLOGY_DUMP_HEADER + "\n")
+        handle.write(
+            "# forestnr rank id snapnum desc_id first_prog_id next_prog_id first_fof_id "
+            "next_fof_id\n"
+        )
+        handle.write("# NA sentinel = {} (no link)\n".format(na))
+        for snap in range(n_snapshots):
+            block[:, 1] = snap
+            block[:, 3] = snap
+            np.savetxt(handle, block, fmt="%d")
+            spurious[:, 3] = n_snapshots + snap  # one distinct out-of-range value per snapshot
+            np.savetxt(handle, spurious, fmt="%d")
+    return path
+
+
+class TestBoundedMemoryOnGrowingCardinality(unittest.TestCase):
+    """`TestBoundedMemory` scales the SIZE of the input; this scales the
+    DISTINCT-VALUE CARDINALITY of the two things keyed by values the data
+    chooses — the suppression set's identities and the partition's out-of-range
+    snapshot values. Without this, a regression of `_SeenIdentities` back to an
+    in-memory union, or of the partition to retaining its out-of-range rows,
+    would add nothing measurable to the other fixture's peak and pass its
+    allowance."""
+
+    HALOS_PER_SNAPSHOT = 2048
+    SMALL_SNAPSHOTS = 4
+    LARGE_SNAPSHOTS = 40
+    OUT_OF_RANGE_ROWS = 512
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        root = Path(cls.tmp.name)
+        cls.sim_info = write_simulation_info(root / "simulation_info.yaml")
+        cls.small = cls._build(root, "small", cls.SMALL_SNAPSHOTS)
+        cls.large = cls._build(root, "large", cls.LARGE_SNAPSHOTS)
+
+    @classmethod
+    def _build(cls, root, name, n_snapshots):
+        directory = root / name
+        a_list_path = write_fresh_identity_dataset(directory, n_snapshots, cls.HALOS_PER_SNAPSHOT)
+        reference_dir = root / "{}-reference".format(name)
+        write_mock_reference(
+            build_fresh_identity_reference(n_snapshots, cls.HALOS_PER_SNAPSHOT),
+            reference_dir,
+            n_snapshots=n_snapshots,
+        )
+        dump_path = write_fresh_identity_dump(
+            root / "{}.dump".format(name),
+            n_snapshots,
+            cls.HALOS_PER_SNAPSHOT,
+            cls.OUT_OF_RANGE_ROWS,
+        )
+        return {
+            "dir": directory,
+            "a_list": a_list_path,
+            "reference": reference_dir,
+            "dump": dump_path,
+            "n_snapshots": n_snapshots,
+        }
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def _run(self, fixture):
+        return run_crosscheck(
+            fixture["dir"],
+            fixture["reference"],
+            fixture["a_list"],
+            self.sim_info,
+            multiplier=M,
+            topology_dump_path=fixture["dump"],
+        )
+
+    def _peak_bytes(self, fixture):
+        tracemalloc.start()
+        try:
+            tracemalloc.reset_peak()
+            outcomes = self._run(fixture)
+            peak = tracemalloc.get_traced_memory()[1]
+        finally:
+            tracemalloc.stop()
+        return peak, outcomes
+
+    def test_the_fixtures_carry_the_cardinality_they_claim(self):
+        """The memory assertion below is only worth anything if the large
+        fixture really does carry ten times the distinct identities and ten
+        times the distinct out-of-range values of the small one."""
+        for fixture in (self.small, self.large):
+            n_snapshots = fixture["n_snapshots"]
+            reference = crosscheck.ReferenceGalaxies(fixture["reference"], "halos", n_snapshots)
+            identities = np.concatenate(
+                [reference.load(snap)["UniqueGalaxyID"] for snap in range(n_snapshots)]
+            )
+            self.assertEqual(
+                np.unique(identities).size,
+                n_snapshots * self.HALOS_PER_SNAPSHOT,
+                "every galaxy must be a NEW identity, or the suppression set does not scale",
+            )
+            with crosscheck.TopologyDumpPartition(fixture["dump"], n_snapshots) as partition:
+                self.assertEqual(len(partition.out_of_range), n_snapshots)
+                self.assertEqual(
+                    sorted(partition.out_of_range.values()),
+                    [self.OUT_OF_RANGE_ROWS] * n_snapshots,
+                )
+
+    def test_the_fixtures_report_the_outcomes_they_are_built_for(self):
+        # not a vacuous measurement: the seven checks pass, and topology-chains
+        # fails with exactly one line per distinct out-of-range value and no
+        # coverage failure (the out-of-range rows are extra, not missing)
+        for fixture in (self.small, self.large):
+            outcomes = outcome_map(self._run(fixture))
+            failed = [name for name, o in outcomes.items() if o.status != "PASS"]
+            self.assertEqual(failed, ["topology-chains"], str(fixture["dir"]))
+            detail = outcomes["topology-chains"].detail
+            self.assertNotIn("every converter halo exactly once", detail)
+            self.assertEqual(detail.count("outside the dataset's"), fixture["n_snapshots"])
+
+    def test_peak_allocation_does_not_scale_with_the_distinct_value_cardinality(self):
+        # as in TestBoundedMemory: both runs must fill the same fixed buffers,
+        # or the comparison measures a buffer's fill rather than what stayed
+        # resident
+        with mock.patch.object(crosscheck, "_DUMP_BLOCK_ROWS", 512), mock.patch.object(
+            crosscheck, "_SEEN_BLOCK_ROWS", 512
+        ):
+            self._peak_bytes(self.small)  # warm up
+            small_peak, _ = self._peak_bytes(self.small)
+            large_peak, _ = self._peak_bytes(self.large)
+
+        extra_snapshots = self.LARGE_SNAPSHOTS - self.SMALL_SNAPSHOTS
+        extra_identities = extra_snapshots * self.HALOS_PER_SNAPSHOT
+        extra_out_of_range_rows = extra_snapshots * self.OUT_OF_RANGE_ROWS
+        # what legitimately grows with the snapshot count: one out_of_range
+        # entry and one failure line per distinct out-of-range value, the
+        # cached halo counts, the per-snapshot row counts and path lists
+        allowance = extra_snapshots * 4096 + 64 * 1024
+        self.assertLess(large_peak - small_peak, allowance)
+        # ...and the allowance is below what either regression this fixture
+        # exists to catch would have cost: an in-memory identity union holding
+        # 8 bytes per extra distinct identity, or a partition retaining its
+        # out-of-range rows at 72 bytes each
+        self.assertLess(allowance, extra_identities * 8)
+        self.assertLess(allowance, extra_out_of_range_rows * 72)
 
 
 if __name__ == "__main__":

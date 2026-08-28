@@ -204,6 +204,42 @@ def _examples(values, limit: int = 5) -> str:
     return ", ".join(str(v) for v in list(values)[:limit])
 
 
+def _remove_spill_directory(directory: Path, label: str, held_bytes: int, error=None):
+    """Remove one of this module's private spill directories, CONFIRMING the
+    removal rather than assuming it.
+
+    Returns ``None`` when the directory is confirmed absent, and the directory
+    itself when it is not — the owner keeps its reference in that case, so a
+    later call retries and :meth:`raise_if_unremoved` can turn it into an
+    error.
+
+    **This never raises.** Both owners reach it from cleanup paths that may
+    already have an exception in flight (a failing check, a malformed dump),
+    and a cleanup problem must not replace the error that put us there. A
+    failure is logged instead, naming the path, the underlying error and the
+    bytes at stake. ``error`` carries a failure that happened before the
+    removal was attempted (a partition writer that could not be closed), so it
+    is reported alongside a removal that also failed.
+    """
+    for _attempt in (1, 2):
+        try:
+            shutil.rmtree(str(directory))
+        except OSError as exc:
+            error = exc
+        try:
+            present = directory.exists()
+        except OSError as exc:  # pragma: no cover - stat of a broken mount
+            error = exc
+            present = True
+        if not present:
+            return None
+    _log(
+        "crosscheck: WARNING — could not remove the {} directory {} ({}); about {} byte(s) "
+        "may remain. Remove it by hand.".format(label, directory, error, held_bytes)
+    )
+    return directory
+
+
 def decode_forest(ugid, multiplier: int):
     """Reference forest index encoded in a UniqueGalaxyID."""
     return ugid // multiplier - 1
@@ -506,6 +542,7 @@ class _SeenIdentities:
         self._path = self._dir / "seen.i8"
         self._next_path = self._dir / "seen.next.i8"
         self.peak_bytes = 0
+        self.unremoved = None
         try:
             self._path.write_bytes(b"")
         except BaseException:
@@ -522,12 +559,46 @@ class _SeenIdentities:
         return False
 
     def close(self) -> None:
-        """Remove the store. Three paths reach it: the constructor's own
-        failure above, ``__exit__`` on the success path, and ``__exit__`` when
-        a check — or anything else inside the ``with`` — raises.
-        ``ignore_errors`` keeps a cleanup problem from masking an error that is
-        already propagating."""
-        shutil.rmtree(self._dir, ignore_errors=True)
+        """Remove the store, reporting a removal it could not confirm instead
+        of swallowing it.
+
+        Three paths reach it: the constructor's own failure above, ``__exit__``
+        on the success path, and ``__exit__`` when a check — or anything else
+        inside the ``with`` — raises. Ownership is released only on CONFIRMED
+        absence: ``_dir`` is dropped when, and only when, the directory is
+        gone; otherwise ``unremoved`` is left set, a warning names the path and
+        the bytes at stake, and a later call retries.
+
+        **This never raises**, because two of those three paths already have an
+        exception in flight; :meth:`raise_if_unremoved` is how a cleanup
+        failure becomes an error where nothing else is. Safe to call twice.
+        """
+        directory = self._dir
+        if directory is None:
+            return
+        held = 0
+        for path in (self._path, self._next_path):
+            try:
+                held += path.stat().st_size
+            except OSError:
+                pass  # already gone, or unstattable; the warning is a hint, not a measurement
+        self.unremoved = _remove_spill_directory(directory, "identity suppression", held)
+        if self.unremoved is None:
+            self._dir = None
+
+    def raise_if_unremoved(self) -> None:
+        """Turn a cleanup failure into a real error, on the paths where no
+        other exception is in flight. Call it AFTER the ``with`` that closed
+        the store, never inside it.
+
+        The constructor's failure path is deliberately not one of those paths:
+        an exception is already propagating there, and it is the one worth
+        reporting."""
+        if self.unremoved is not None:
+            raise ConverterError(
+                "the identity suppression directory {} could not be removed; remove it by "
+                "hand before re-running".format(self.unremoved)
+            )
 
     def first_appearance(self, ugid: np.ndarray) -> np.ndarray:
         """Which of ``ugid``'s entries have NOT been seen at an earlier call,
@@ -885,6 +956,12 @@ class TopologyDumpPartition:
         self.peak_bytes = 0
         self._dir = Path(tempfile.mkdtemp(prefix=TOPOLOGY_DIR_PREFIX, dir=directory))
         self._handles: Dict[int, BinaryIO] = {}
+        #: Bytes written so far, charged incrementally as blocks are appended,
+        #: so a cleanup failure part-way through a multi-gigabyte parse can
+        #: still name what is at stake. ``peak_bytes`` is the measured on-disk
+        #: total once the parse completes.
+        self._written = 0
+        self.unremoved = None
         try:
             self._load()
         except BaseException:
@@ -902,15 +979,55 @@ class TopologyDumpPartition:
         return False
 
     def close(self) -> None:
-        """Close any open partition file and remove the partition directory.
-        Reached from the constructor's own failure path, from ``__exit__`` on
-        the success path, and from ``__exit__`` when the check or anything else
-        inside the ``with`` raises; ``ignore_errors`` keeps a cleanup problem
-        from masking an error already propagating."""
-        for handle in self._handles.values():
-            handle.close()
+        """Close any open partition writer and remove the partition directory,
+        reporting a removal it could not confirm instead of swallowing it.
+
+        Three paths reach it: the constructor's own failure path, ``__exit__``
+        on the success path, and ``__exit__`` when the check — or anything else
+        inside the ``with`` — raises. Every writer is closed under its own
+        guard so that one failing close (a buffered write hitting a full
+        volume, which a 29 GB partition makes real) can neither skip the rest
+        nor skip the removal; the removal is then attempted unconditionally and
+        CONFIRMED. Ownership is released only on confirmed absence: ``_dir`` is
+        dropped when, and only when, the directory is gone; otherwise
+        ``unremoved`` is left set, a warning names the path, the error and the
+        bytes at stake, and a later call retries.
+
+        **This never raises**, because two of those three paths already have an
+        exception in flight; :meth:`raise_if_unremoved` is how a cleanup
+        failure becomes an error where nothing else is. Safe to call twice.
+        """
+        error = None
+        for handle in list(self._handles.values()):
+            try:
+                handle.close()
+            except OSError as exc:
+                # recorded, never raised: the removal below must still run, and
+                # this path can already have an exception in flight
+                error = exc
         self._handles = {}
-        shutil.rmtree(self._dir, ignore_errors=True)
+        directory = self._dir
+        if directory is None:
+            return
+        self.unremoved = _remove_spill_directory(
+            directory, "topology partition", self._written, error=error
+        )
+        if self.unremoved is None:
+            self._dir = None
+
+    def raise_if_unremoved(self) -> None:
+        """Turn a cleanup failure into a real error, on the paths where no
+        other exception is in flight. Call it AFTER the ``with`` that closed
+        the partition, never inside it.
+
+        The constructor's failure path is deliberately not one of those paths:
+        an exception is already propagating there, and it is the one worth
+        reporting."""
+        if self.unremoved is not None:
+            raise ConverterError(
+                "the topology partition directory {} could not be removed; remove it by hand "
+                "before re-running".format(self.unremoved)
+            )
 
     def _partition_path(self, snap: int) -> Path:
         return self._dir / "snap_{:04d}.bin".format(snap)
@@ -1008,7 +1125,9 @@ class TopologyDumpPartition:
         values, starts = np.unique(rows["SnapNum"], return_index=True)
         ends = np.append(starts[1:], rows.size)
         for value, start, end in zip(values.tolist(), starts.tolist(), ends.tolist()):
-            self._handle(value).write(rows[start:end].tobytes())
+            payload = rows[start:end].tobytes()
+            self._handle(value).write(payload)
+            self._written += len(payload)
             self.counts[value] += end - start
 
     def snapshot_values(self) -> List[int]:
@@ -1297,6 +1416,28 @@ def check_topology_chains(snapshots: _Snapshots, partition: TopologyDumpPartitio
 # ---------------------------------------------------------------------------
 
 
+def _check_one_snapshot(match, multiplier, part_mass, seen, forwarded, failures):
+    """Run the seven checks against ONE snapshot's window, appending each
+    check's failures to its own list, and return the occupancy indices to
+    forward to the next snapshot.
+
+    The window dies with this call: the caller passes the SnapMatch straight in
+    without binding it, so the snapshot's converter arrays and reference
+    galaxies are released as soon as this returns. Each check's failures still
+    accumulate in ascending snapshot order, which is what keeps every Outcome's
+    detail identical to the whole-dataset formulation's.
+    """
+    failures["reference-sanity"].extend(check_reference_sanity(match))
+    failures["identity-forest"].extend(check_identity_forest(match, multiplier))
+    failures["identity-creation"].extend(check_identity_creation(match, multiplier, seen))
+    failures["fof-central"].extend(check_fof_central(match))
+    failures["flyby-signs"].extend(check_flyby_signs(match))
+    failures["values"].extend(check_values(match, part_mass))
+    occupancy_failures, forwarded = check_occupancy(match, forwarded)
+    failures["occupancy"].extend(occupancy_failures)
+    return forwarded
+
+
 #: The seven always-run checks, in report order. ``topology-chains`` is
 #: appended after them when a reference-topology dump is supplied.
 CHECK_NAMES = (
@@ -1363,20 +1504,25 @@ def run_crosscheck(
     with _SeenIdentities() as seen:
         forwarded = None
         for snap in range(n_snapshots):
-            match = build_match(snapshots.load(snap, _MATCH_FIELDS), reference.load(snap), snap)
-            failures["reference-sanity"].extend(check_reference_sanity(match))
-            failures["identity-forest"].extend(check_identity_forest(match, multiplier))
-            failures["identity-creation"].extend(check_identity_creation(match, multiplier, seen))
-            failures["fof-central"].extend(check_fof_central(match))
-            failures["flyby-signs"].extend(check_flyby_signs(match))
-            failures["values"].extend(check_values(match, part_mass))
-            occupancy_failures, forwarded = check_occupancy(match, forwarded)
-            failures["occupancy"].extend(occupancy_failures)
+            # the SnapMatch is passed straight in and never bound here, so the
+            # window it holds is released when the call returns rather than
+            # staying alive through the next snapshot's load — and, for the
+            # last snapshot, through the dump partitioning and topology pass
+            forwarded = _check_one_snapshot(
+                build_match(snapshots.load(snap, _MATCH_FIELDS), reference.load(snap), snap),
+                multiplier,
+                part_mass,
+                seen,
+                forwarded,
+                failures,
+            )
         _log(
             "crosscheck: identity suppression set peaked at {} byte(s) on disk".format(
                 seen.peak_bytes
             )
         )
+    # ...and here, where nothing else is in flight, a cleanup failure IS the error
+    seen.raise_if_unremoved()
 
     def outcome(name, check_failures):
         if check_failures:
@@ -1392,6 +1538,7 @@ def run_crosscheck(
                     partition.peak_bytes
                 )
             )
+        partition.raise_if_unremoved()
         outcomes.append(outcome("topology-chains", chain_failures))
     return outcomes
 
