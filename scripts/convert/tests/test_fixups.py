@@ -1,11 +1,14 @@
 """Slice 5 unit tests: adjacency validation, spin/Len conventions, fix_flybys,
 fix_upid, and the fix-up pipeline stage with a hand-computed golden fixture."""
 
+import contextlib
+import io
 import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 
@@ -33,6 +36,32 @@ from sort_index import run_sort, sorted_scratch_name  # noqa: E402
 
 #: fixture a_list as float64 (index = SnapNum)
 A_LIST = np.asarray(fixtures.A_LIST, dtype=np.float64)
+
+
+class _Captured:
+    """Everything written to stderr inside a :func:`capture_stderr` block, as
+    ``.text``; readable inside the block as well as after it."""
+
+    def __init__(self, buffer):
+        self._buffer = buffer
+
+    @property
+    def text(self) -> str:
+        return self._buffer.getvalue()
+
+
+@contextlib.contextmanager
+def capture_stderr():
+    """Capture the converter's stderr log lines for one block.
+
+    Every stage reports its consumptions and its consumed-input skips through
+    ``_log``, and the plan Slice 8 acceptance criteria are about those messages
+    as much as about the bytes, so the tests read them rather than inferring
+    them.
+    """
+    buffer = io.StringIO()
+    with contextlib.redirect_stderr(buffer):
+        yield _Captured(buffer)
 
 
 def make_fixed(rows):
@@ -700,6 +729,149 @@ class TestFixupsPipeline(unittest.TestCase):
             ]
         )
         self.assertEqual(rc, 1)
+
+
+class TestFixupsConsumesSortedScratch(unittest.TestCase):
+    """Plan Slice 8 deletion table: ``sorted_N`` goes once snapshot N's
+    ``fixed`` output is verified and registered — and only then, and only when
+    the operator asked for it."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.addCleanup(self.tmp.cleanup)
+
+    def _sorted_paths(self, workdir):
+        manifest = Manifest.load_or_create(workdir)
+        return {
+            int(snap): Path(entry["sorted_file"])
+            for snap, entry in manifest.data["snapshots"].items()
+        }
+
+    def test_flag_off_retains_every_sorted_file(self):
+        workdir, a_list, sim_info = make_sorted_workdir(self.root)
+        before = self._sorted_paths(workdir)
+        run_fixups(workdir, a_list_path=a_list, simulation_info_path=sim_info)
+        manifest = Manifest.load_or_create(workdir)
+        for snap, path in before.items():
+            self.assertTrue(path.exists(), "snapshot {} sorted file was deleted".format(snap))
+            self.assertEqual(
+                "present", manifest.data["intermediates"][str(path.resolve())]["status"]
+            )
+
+    def test_flag_on_consumes_every_sorted_file(self):
+        workdir, a_list, sim_info = make_sorted_workdir(self.root)
+        before = self._sorted_paths(workdir)
+        with capture_stderr() as captured:
+            run_fixups(
+                workdir,
+                a_list_path=a_list,
+                simulation_info_path=sim_info,
+                consume_intermediates=True,
+            )
+        manifest = Manifest.load_or_create(workdir)
+        for snap, path in before.items():
+            self.assertFalse(path.exists(), "snapshot {} sorted file survived".format(snap))
+            self.assertEqual(
+                "removed", manifest.data["intermediates"][str(path.resolve())]["status"]
+            )
+            self.assertIn("fixups: snapshot {} — consumed {}".format(snap, path), captured.text)
+
+    def test_fixed_output_is_registered_before_its_predecessor_goes(self):
+        """The protocol's ordering, asserted rather than assumed: at the
+        instant the sorted file is unlinked the fixed successor must already be
+        registered present in the manifest ON DISK."""
+        workdir, a_list, sim_info = make_sorted_workdir(self.root)
+        manifest_path = Path(workdir) / "manifest.json"
+        observed = {}
+        real_remove = Manifest.remove_intermediate
+
+        def spy(self, path):
+            import json
+
+            saved = json.loads(manifest_path.read_text())
+            snap = str(Path(path).name).split("_")[1]
+            entry = saved["snapshots"][str(int(snap))]
+            observed[int(snap)] = (
+                entry.get("status"),
+                saved["intermediates"].get(entry.get("fixed_file", ""), {}).get("status"),
+            )
+            return real_remove(self, path)
+
+        with mock.patch.object(Manifest, "remove_intermediate", spy):
+            run_fixups(
+                workdir,
+                a_list_path=a_list,
+                simulation_info_path=sim_info,
+                consume_intermediates=True,
+            )
+        self.assertTrue(observed)
+        for snap, (status, fixed_status) in observed.items():
+            self.assertEqual("fixed", status, "snapshot {}".format(snap))
+            self.assertEqual("present", fixed_status, "snapshot {}".format(snap))
+
+    def test_deletion_goes_through_remove_intermediate(self):
+        """Never a bare unlink: with the manifest's guarded removal disabled,
+        no sorted file may disappear."""
+        workdir, a_list, sim_info = make_sorted_workdir(self.root)
+        before = self._sorted_paths(workdir)
+        with mock.patch.object(Manifest, "remove_intermediate", lambda self, path: None):
+            run_fixups(
+                workdir,
+                a_list_path=a_list,
+                simulation_info_path=sim_info,
+                consume_intermediates=True,
+            )
+        for path in before.values():
+            self.assertTrue(path.exists())
+
+    def test_crash_between_unlink_and_save_converges_to_removed(self):
+        """A crash after the unlink and before the manifest save leaves the
+        entry recorded ``present`` with no file. The next run must converge on
+        ``removed`` — with the flag in EITHER state, because the bytes are
+        already gone — and must not raise."""
+        for delete in (False, True):
+            with self.subTest(consume_intermediates=delete):
+                root = self.root / "crash-{}".format(int(delete))
+                root.mkdir()
+                workdir, a_list, sim_info = make_sorted_workdir(root)
+                run_fixups(workdir, a_list_path=a_list, simulation_info_path=sim_info)
+                manifest = Manifest.load_or_create(workdir)
+                victim = Path(manifest.data["snapshots"]["5"]["sorted_file"])
+                victim.unlink()  # the unlink landed; the save did not
+                self.assertEqual(
+                    "present", manifest.data["intermediates"][str(victim.resolve())]["status"]
+                )
+                run_fixups(
+                    workdir,
+                    a_list_path=a_list,
+                    simulation_info_path=sim_info,
+                    consume_intermediates=delete,
+                )
+                reloaded = Manifest.load_or_create(workdir)
+                self.assertEqual(
+                    "removed", reloaded.data["intermediates"][str(victim.resolve())]["status"]
+                )
+
+    def test_cli_flag_is_off_by_default(self):
+        parser = convert_ctrees.build_arg_parser()
+        args = parser.parse_args(
+            ["fixups", "--workdir", "w", "--a-list", "a", "--simulation-info", "s"]
+        )
+        self.assertFalse(args.consume_intermediates)
+        args = parser.parse_args(
+            [
+                "fixups",
+                "--workdir",
+                "w",
+                "--a-list",
+                "a",
+                "--simulation-info",
+                "s",
+                "--consume-intermediates",
+            ]
+        )
+        self.assertTrue(args.consume_intermediates)
 
 
 if __name__ == "__main__":

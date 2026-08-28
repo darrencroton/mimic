@@ -65,7 +65,7 @@ import tempfile
 import weakref
 from collections import OrderedDict
 from pathlib import Path
-from typing import Dict, Iterator, Optional, Tuple
+from typing import Dict, Iterator, List, Optional, Tuple
 
 import numpy as np
 
@@ -1179,7 +1179,63 @@ def link_one_snapshot(
     )
 
 
-def run_links(workdir, *, budget_bytes: int = DEFAULT_RANK_BUDGET_BYTES) -> Manifest:
+def _no_consumer_indexes(manifest: Manifest, snaps) -> List[str]:
+    """The id index files no ``link_one_snapshot`` call will ever read.
+
+    ``link_one_snapshot(snap)`` resolves descendants against snapshot
+    ``snap + 1``'s ``index_file``, so ``snap_NNN.idx``'s consumer is the link of
+    the snapshot BELOW it — the relation runs the opposite way from the
+    intuition, and the highest snapshot's index is consumed perfectly normally.
+    What has no consumer is an index whose predecessor is not in the recorded
+    snapshot set, because linking iterates only recorded snapshots: ``idx_0``
+    always, and every index across a gap in that set. Those are deletable as
+    soon as linking starts (plan Slice 8 deletion table).
+    """
+    recorded = set(snaps)
+    return [
+        manifest.data["snapshots"][str(snap)]["index_file"]
+        for snap in snaps
+        if snap - 1 not in recorded
+    ]
+
+
+def _consumed_by_link(manifest: Manifest, snap: int, recorded) -> List[str]:
+    """The intermediates ``link_one_snapshot(snap)`` was the terminal consumer
+    of, named once that snapshot's links file is verified, registered and saved.
+
+    At most two, and deliberately never the fixed file: ``fixed`` is read again
+    by the writer (``_load_snapshot_scratch``), which is its terminal consumer,
+    so it must not be deleted here. What ends here is snapshot ``snap``'s
+    pending first-progenitor buffer, written by the link of ``snap - 1`` and
+    read once, and snapshot ``snap + 1``'s id index, read once to resolve
+    descendants. Either is absent when the neighbouring snapshot is not
+    recorded, which is why each is guarded separately rather than assumed.
+    """
+    entry = manifest.data["snapshots"][str(snap)]
+    scratch_dir = Path(entry["fixed_file"]).parent
+    paths: List[str] = []
+    if snap - 1 in recorded:
+        paths.append(str(scratch_dir / pending_fp_name(snap)))
+    if snap + 1 in recorded:
+        paths.append(manifest.data["snapshots"][str(snap + 1)]["index_file"])
+    return paths
+
+
+def _consumed_fixed_snapshots(manifest: Manifest, snaps) -> List[int]:
+    """Snapshots whose fixed scratch the writer has already consumed."""
+    return [
+        snap
+        for snap in snaps
+        if manifest.is_consumed(manifest.data["snapshots"][str(snap)]["fixed_file"])
+    ]
+
+
+def run_links(
+    workdir,
+    *,
+    budget_bytes: int = DEFAULT_RANK_BUDGET_BYTES,
+    consume_intermediates: bool = False,
+) -> Manifest:
     """Run the link stage over every fixed snapshot, in ascending order.
 
     Snapshot subsets are deliberately not supported: FirstProgenitor values
@@ -1191,6 +1247,12 @@ def run_links(workdir, *, budget_bytes: int = DEFAULT_RANK_BUDGET_BYTES) -> Mani
     ``budget_bytes`` is the rank/identity pass's working-memory budget (CLI:
     ``links --memory-budget-mb``). It changes how much of the pass is resident
     and nothing else: every value written is identical at any budget.
+
+    ``consume_intermediates`` (CLI: ``--consume-intermediates``) turns on the
+    plan Slice 8 deletion of each link's own consumed predecessors — the pending
+    first-progenitor buffers and the id indexes, never the fixed or links files,
+    whose terminal consumer is the writer. It is off by default and changes no
+    emitted byte.
     """
     manifest = Manifest.load_or_create(workdir)
     if not manifest.path.exists():
@@ -1204,6 +1266,29 @@ def run_links(workdir, *, budget_bytes: int = DEFAULT_RANK_BUDGET_BYTES) -> Mani
             raise ConverterError(
                 "snapshot {}: unexpected status {!r}; run fixups first".format(snap, status)
             )
+
+    # Once the writer has consumed the fixed inputs, the rank pass cannot run
+    # again: it streams every snapshot's fixed file. Re-running a fully linked
+    # stage in that state is a skip, not a verification failure — the outputs
+    # are complete and the inputs were deliberately released. This is
+    # conditioned on the inputs actually being recorded as consumed, NOT on
+    # every snapshot merely being linked: while those inputs are still present
+    # a links re-run remains reachable, and the refuse-not-repair comparison of
+    # the run-scoped identity values below has to keep running.
+    consumed_fixed = _consumed_fixed_snapshots(manifest, snaps)
+    if consumed_fixed and all(
+        manifest.data["snapshots"][str(snap)].get("status") == "linked" for snap in snaps
+    ):
+        _log(
+            "links: every snapshot is already linked and the fix-up scratch of {} of {} "
+            "snapshot(s) was consumed by the write stage (e.g. {}) — skipping the rank "
+            "pass".format(
+                len(consumed_fixed),
+                len(snaps),
+                manifest.data["snapshots"][str(consumed_fixed[0])]["fixed_file"],
+            )
+        )
+        return manifest
 
     identity, n_forests_total, max_rank = compute_identity(manifest, budget_bytes=budget_bytes)
     # ``with`` is the deterministic release, not the ownership: the accessor
@@ -1220,8 +1305,18 @@ def run_links(workdir, *, budget_bytes: int = DEFAULT_RANK_BUDGET_BYTES) -> Mani
         manifest.data["links"] = computed
         manifest.save()
 
+        recorded = set(snaps)
+        for path in manifest.consume_intermediates(
+            _no_consumer_indexes(manifest, snaps), delete=consume_intermediates
+        ):
+            _log("links: consumed {} — no recorded snapshot below it reads it".format(path))
+
         for snap in snaps:
             link_one_snapshot(manifest, snap, identity)
+            for path in manifest.consume_intermediates(
+                _consumed_by_link(manifest, snap, recorded), delete=consume_intermediates
+            ):
+                _log("links: snapshot {} — consumed {}".format(snap, path))
     _log(
         "links: {} snapshot(s) linked — n_forests_total={}, max_halo_rank_in_forest={}".format(
             len(snaps), n_forests_total, max_rank

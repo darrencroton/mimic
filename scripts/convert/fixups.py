@@ -462,6 +462,7 @@ def run_fixups(
     a_list_path,
     simulation_info_path,
     snapshots: Optional[Sequence[int]] = None,
+    consume_intermediates: bool = False,
 ) -> Manifest:
     """Apply the fix-up stage to every sorted snapshot (or the given subset).
 
@@ -469,6 +470,11 @@ def run_fixups(
     observed pairs against (manifest identity binding); simulation_info.yaml
     is bound the same way, recorded here if scatter did not record it.
     Re-running skips snapshots already fixed after verifying their artifacts.
+
+    ``consume_intermediates`` (CLI: ``--consume-intermediates``) turns on the
+    plan Slice 8 deletion of each snapshot's sorted scratch once its fixed
+    output is verified and registered. It is off by default and changes no
+    emitted byte; with it off this stage deletes nothing, exactly as before.
     """
     manifest = Manifest.load_or_create(workdir)
     if not manifest.path.exists():
@@ -508,8 +514,38 @@ def run_fixups(
     if snapshots is None:
         snapshots = sorted(int(s) for s in manifest.data["snapshots"])
     for snap in snapshots:
-        fix_one_snapshot(manifest, snap, a_list, particle_mass, forests_by_snap)
+        fix_one_snapshot(
+            manifest,
+            snap,
+            a_list,
+            particle_mass,
+            forests_by_snap,
+            consume_intermediates=consume_intermediates,
+        )
     return manifest
+
+
+def _consume_sorted(manifest: Manifest, entry: dict, snap: int, delete: bool) -> None:
+    """Delete-after-verify for ``snap_NNN_sorted.bin`` (plan Slice 8).
+
+    The fix-up stage is the sorted scratch's terminal consumer: no later stage
+    reads its contents, because ``links`` and the writer both work from the
+    fixed file. Two skip-trust paths still *verify* it on a re-run —
+    ``sort_one_snapshot``'s, which this slice teaches to accept a recorded
+    consumption, and ``_finalize_scatter``'s, which it does not, so `scatter`
+    and `finalize` must not be re-run after this deletion (see the README).
+
+    Callers reach this only once the fixed output has been re-read, verified
+    against the manifest totals, registered and saved, so the predecessor is
+    dropped strictly after its successor is durable.
+
+    ``delete`` is the run's opt-in flag. With it clear the sorted file is
+    retained; a removal a crash interrupted between the unlink and the manifest
+    save still converges here, in either state, because those bytes are already
+    gone.
+    """
+    for path in manifest.consume_intermediates([entry["sorted_file"]], delete=delete):
+        _log("fixups: snapshot {} — consumed {}".format(snap, path))
 
 
 def fix_one_snapshot(
@@ -518,6 +554,7 @@ def fix_one_snapshot(
     a_list: np.ndarray,
     particle_mass: float,
     forests_by_snap: Dict[int, np.ndarray],
+    consume_intermediates: bool = False,
 ) -> None:
     """Fix one snapshot: verify input, apply steps 1-5, write + verify output."""
     entry = manifest.data["snapshots"].get(str(snap))
@@ -525,6 +562,7 @@ def fix_one_snapshot(
         raise ConverterError("snapshot {}: no manifest entry; run scatter first".format(snap))
     if entry.get("status") == "fixed":
         manifest.verify_intermediate(entry["fixed_file"], "fixed snapshot scratch")
+        _consume_sorted(manifest, entry, snap, consume_intermediates)
         return
     if entry.get("status") != "sorted":
         raise ConverterError(
@@ -578,6 +616,7 @@ def fix_one_snapshot(
     entry["len_zero_count"] = stats["len_zero_count"]
     entry["status"] = "fixed"
     manifest.save()
+    _consume_sorted(manifest, entry, snap, consume_intermediates)
     _log(
         "fixups: snapshot {} — {} rows, {} flyby demotion(s), {} Len==0 halo(s)".format(
             snap, stats["rows"], stats["flyby_demotions"], stats["len_zero_count"]

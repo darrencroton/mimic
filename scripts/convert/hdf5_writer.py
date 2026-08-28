@@ -334,6 +334,29 @@ def _load_snapshot_scratch(manifest: Manifest, snap: int) -> Tuple[np.ndarray, n
     return fixed, links
 
 
+def _consume_snapshot_scratch(manifest: Manifest, snap: int, delete: bool) -> None:
+    """Delete-after-verify for one snapshot's fixed and links scratch files
+    (plan Slice 8 deletion table).
+
+    **The writer is the terminal consumer of both.** ``links`` reads the fixed
+    file through ``_load_fixed`` and the writer reads it again here through
+    ``_load_snapshot_scratch``, so neither file may be deleted inside the link
+    stage. Callers reach this only once snapshot ``snap``'s emitted HDF5 is on
+    the record: either just written, re-opened and verified dataset-by-dataset
+    against the source arrays, or skip-trusted, which re-checks its recorded
+    md5. The successor is durable before the predecessors go.
+
+    ``delete`` is the run's opt-in flag; with it clear both files are retained,
+    and only a removal a crash interrupted between the unlink and the manifest
+    save converges.
+    """
+    entry = manifest.data["snapshots"][str(snap)]
+    for path in manifest.consume_intermediates(
+        [entry["fixed_file"], entry["links_file"]], delete=delete
+    ):
+        _log("write: snapshot {} — consumed {}".format(snap, path))
+
+
 def write_forests_sidecar(manifest: Manifest, output_dir: Path, n_forests_total: int) -> None:
     """Emit forests.h5 (single dataset /ForestID) from the Phase 0 table."""
     table_path = Path(manifest.workdir) / "forest_index_table.npy"
@@ -363,12 +386,19 @@ def write_forests_sidecar(manifest: Manifest, output_dir: Path, n_forests_total:
     _log("write: forests.h5 — {} forest(s)".format(table.size))
 
 
-def run_write(workdir, a_list_path, simulation_info_path, output_dir=None) -> Manifest:
+def run_write(
+    workdir, a_list_path, simulation_info_path, output_dir=None, consume_intermediates=False
+) -> Manifest:
     """Emit the full snapshot-HDF5 dataset from the linked scratch files.
 
     Every a_list snapshot gets a file, including snapshots with zero halos.
     The a_list and simulation_info must be the manifest-recorded ones (same
     identity binding as the fix-up stage).
+
+    ``consume_intermediates`` (CLI: ``--consume-intermediates``) turns on the
+    plan Slice 8 deletion of each snapshot's fixed and links scratch once that
+    snapshot's emitted file is verified and recorded. It is off by default and
+    changes no emitted byte.
     """
     manifest = Manifest.load_or_create(workdir)
     if not manifest.path.exists():
@@ -419,10 +449,18 @@ def run_write(workdir, a_list_path, simulation_info_path, output_dir=None) -> Ma
     populated = set(snaps)
     n_written = 0
     n_skipped = 0
+    n_consumed_inputs = 0
     for snap in range(len(a_list)):
         path = output_dir / snapshot_h5_name(snap)
         if _skip_trust_output(manifest, path):
             n_skipped += 1
+            if snap in populated:
+                if manifest.is_consumed(manifest.data["snapshots"][str(snap)]["fixed_file"]):
+                    n_consumed_inputs += 1
+                # an emitted file that is already recorded and unchanged is
+                # this snapshot's terminal consumption, whether it happened on
+                # this run or an earlier one
+                _consume_snapshot_scratch(manifest, snap, consume_intermediates)
             continue
         if snap in populated:
             fixed, links = _load_snapshot_scratch(manifest, snap)
@@ -442,6 +480,8 @@ def run_write(workdir, a_list_path, simulation_info_path, output_dir=None) -> Ma
         verify_snapshot_file(path, snap, arrays, str(path))
         rows = arrays["MostBoundID"].size if arrays else 0
         _record_output(manifest, path, int(rows), "snapshot-hdf5")
+        if snap in populated:
+            _consume_snapshot_scratch(manifest, snap, consume_intermediates)
         n_written += 1
 
     write_forests_sidecar(manifest, output_dir, n_forests_total)
@@ -451,4 +491,9 @@ def run_write(workdir, a_list_path, simulation_info_path, output_dir=None) -> Ma
         "write: {} snapshot file(s) written, {} skipped (already recorded), {} empty, "
         "output dir {}".format(n_written, n_skipped, len(a_list) - len(populated), output_dir)
     )
+    if n_consumed_inputs:
+        _log(
+            "write: {} skipped snapshot(s) had their fixed and links scratch consumed by an "
+            "earlier verified emission — nothing to re-read".format(n_consumed_inputs)
+        )
     return manifest

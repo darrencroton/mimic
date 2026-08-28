@@ -65,6 +65,14 @@ mimic_venv/bin/python scripts/convert/convert_ctrees.py write \
     --a-list simulations/micro-uchuu-ascii/micro-uchuu.a_list \
     --simulation-info simulations/micro-uchuu-ascii/simulation_info.yaml
 
+# Consumptive deletion (off by default; see "Consumptive deletion of
+# intermediates" below). Add --consume-intermediates to fixups, links and write
+# when the workdir cannot hold every intermediate at once. IRREVERSIBLE.
+mimic_venv/bin/python scripts/convert/convert_ctrees.py fixups --consume-intermediates \
+    --workdir output/convert/micro-uchuu \
+    --a-list simulations/micro-uchuu-ascii/micro-uchuu.a_list \
+    --simulation-info simulations/micro-uchuu-ascii/simulation_info.yaml
+
 # Producer validation battery (standalone; non-zero exit on any failure;
 # --manifest is required — count conservation against the independent
 # pre-counts is a mandatory part of the battery)
@@ -117,7 +125,7 @@ Canonical metadata comes from explicit `--simulation-info` and `--a-list` paths,
                            snapshots included), per docs/dev/SNAPSHOT-HDF5-FORMAT.md
     forests.h5             /ForestID sidecar (dense ForestIndex -> ctrees forest id)
   scratch/
-    snap_NNN.bin           concatenated per-snapshot records (deleted after sort verifies)
+    snap_NNN.bin           concatenated per-snapshot records (always deleted after sort verifies)
     snap_NNN_sorted.bin    records sorted by ascending halo id
     snap_NNN.idx           sorted int64 id array for Phase 3 merge-joins
     snap_NNN_fixed.bin     fixed records (120-byte dtype: frozen fields + Len +
@@ -142,6 +150,75 @@ Canonical metadata comes from explicit `--simulation-info` and `--a-list` paths,
 Scratch records use the frozen 108-byte packed little-endian dtype defined in `ctrees_parser.py` (`RECORD_DTYPE`); the manifest records the dtype tag and refuses to resume across a dtype change.
 
 Re-running `scatter` skips source files whose manifest entry is complete and unchanged (size + mtime), so a crashed run resumes where it stopped. A source entry is `completed` or, in batch mode, `consumed`; `deferred` and `pending` are classified per run from the inventory plus what is on disk and are deliberately never written to the manifest, so a file that arrives later needs no state cleared. Per-file conservation — the pandas-independent row pre-count must equal the parsed and scattered row count exactly — is enforced before a file is recorded as complete. The manifest is bound to its input identities (a_list, forests.list, and the ordered source set are checksummed at first run); changing any of them, or changing a source file after snapshots were finalized, refuses to resume — use a fresh workdir. Every intermediate is verified against its registered content checksum before it is consumed, skip-trusted, or deleted, and non-finite input values (NaN/inf, or float64 values that overflow float32) abort the parse.
+
+### Consumptive deletion of intermediates
+
+Every intermediate above is retained by default, so the workdir holds the sorted,
+index, fixed, links and pending-buffer files for every snapshot at once — a measured
+277 bytes per halo. `--consume-intermediates` deletes each one at the point its
+**terminal** consumer is finished with it. It is **off by default and irreversible**:
+turning it on trades resumability for storage, and is only worth doing when the volume
+cannot hold the full set.
+
+The flag is per invocation and belongs on `fixups`, `links` and `write`. With it off,
+those stages delete nothing they do not already delete. The emitted dataset is
+bitwise identical either way.
+
+| Intermediate | Terminal consumer | Deleted by | Point of deletion |
+|---|---|---|---|
+| `snap_NNN.bin` (concatenated) | `sort` | `sort` | after the sorted file and index verify — **always**, flag or no flag |
+| `snap_NNN_sorted.bin` | `fixups` | `fixups` | once snapshot N's fixed output is verified and registered |
+| `snap_NNN.idx` | `link_one_snapshot(N-1)` | `links` | once snapshot **N−1** is linked; an index whose predecessor is not a recorded snapshot has no consumer at all and goes as soon as linking starts |
+| `snap_NNN_pending_fp.bin` | `link_one_snapshot(N)` | `links` | once snapshot N is linked |
+| `snap_NNN_fixed.bin` | the **writer** | `write` | once snapshot N's emitted HDF5 is verified and recorded |
+| `snap_NNN_links.bin` | the **writer** | `write` | once snapshot N's emitted HDF5 is verified and recorded |
+| `links_identity_*/` | the link stage itself | `links` | always, on success and on failure; never a manifest intermediate |
+
+Two of those consumer relations are easy to get wrong, and both are load-bearing. The
+fixed file is read **twice** — by `links` through `_load_fixed` and by the writer
+through `_load_snapshot_scratch` — so the writer, not `links`, is its terminal
+consumer; the same holds for the links file. And `snap_NNN.idx` is read by the link of
+the snapshot *below* it, to resolve descendants, so the highest snapshot's index is
+consumed perfectly normally while `snap_000.idx` is the one with no consumer.
+
+The mechanics follow the converter's delete-after-verify discipline throughout: the
+successor is re-read from disk and verified, registered in the manifest, and the
+manifest saved, *before* the predecessor is removed; the removal itself goes through
+`Manifest.remove_intermediate`, which re-checks ownership, workdir containment and the
+registered content checksum, and the manifest is saved again. `remove_intermediate` is
+the only place in the converter that unlinks a manifest-owned intermediate, so no
+deletion here can bypass that guard. A crash between the unlink and the second save leaves an
+entry recorded `present` with no file on disk; the next run converges it to `removed`
+and continues, in either flag state, because those bytes are already gone.
+
+**What consumption costs you.** Deletion is bounded by re-run reachability, not by last
+read, so every stage stays resumable across the intermediates it still needs:
+
+- Re-running `sort` on a snapshot whose sorted file or index a later stage consumed is
+  a **skip** naming what was consumed, not a verification failure. An artifact that
+  merely went missing is still the hard error it has always been.
+- Re-running `links` when every snapshot is linked and the writer has consumed the
+  fixed inputs is a **skip**: the rank pass streams every fixed file and cannot run
+  again. While those inputs are still present the pass runs as before, including its
+  refuse-not-repair comparison of the run-scoped identity values.
+- Re-running `write` on a snapshot whose emitted file is already recorded and unchanged
+  is the skip it always was, and needs no scratch.
+- A `links` run interrupted part-way still resumes: an index or pending buffer is
+  deleted only after the snapshot that reads it has been linked.
+
+**What it forecloses.** Once a stage's inputs are gone that stage cannot be re-executed,
+only skipped — if an emitted file is later deleted or corrupted, the conversion must be
+re-run from the last surviving stage. Two specific consequences:
+
+- Do **not** re-run `scatter` or `finalize` after `fixups` has consumed the sorted
+  files. `_finalize_scatter`'s skip branches verify the sorted and index artifacts of
+  snapshots already past `concatenated`, and will refuse on a file the pipeline
+  deliberately deleted. That path is unchanged by this flag and is unreachable in the
+  documented stage order (`scatter` → `release` → `finalize` → `sort` → `fixups` →
+  `links` → `write`).
+- `release` is unaffected: it verifies the per-source sidecars and worker scratch, none
+  of which are in the table above, and still refuses a source whose own intermediates
+  finalization has deleted.
 
 ### Batch mode: the interleaved consumptive transfer
 

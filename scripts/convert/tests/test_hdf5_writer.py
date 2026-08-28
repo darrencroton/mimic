@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import h5py
 import numpy as np
@@ -17,7 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import convert_ctrees  # noqa: E402
 import fixtures  # noqa: E402
 from ctrees_parser import ConverterError  # noqa: E402
-from fixups import FIXED_RECORD_DTYPE  # noqa: E402
+from fixups import FIXED_RECORD_DTYPE, run_fixups  # noqa: E402
 from hdf5_writer import (  # noqa: E402
     CHUNK_1D,
     CHUNK_VEC,
@@ -36,7 +37,9 @@ from report import (  # noqa: E402
     recommended_multiplier,
     run_report,
 )
-from scatter import Manifest  # noqa: E402
+from scatter import Manifest, run_scatter  # noqa: E402
+from sort_index import run_sort  # noqa: E402
+from test_fixups import capture_stderr  # noqa: E402
 from test_links import GOLDEN_LINKS, make_linked_workdir  # noqa: E402
 from validate import run_battery  # noqa: E402
 
@@ -446,6 +449,247 @@ class TestReport(unittest.TestCase):
         manifest = Manifest.load_or_create(workdir)
         with self.assertRaisesRegex(ConverterError, "run links first"):
             build_report(manifest, [], n_snapshots=6)
+
+
+class TestWriterConsumesScratch(unittest.TestCase):
+    """Plan Slice 8 deletion table, writer half: ``fixed_N`` and ``links_N`` go
+    once snapshot N's emitted HDF5 is verified and recorded.
+
+    The writer is their terminal consumer — ``links`` reads the fixed file too
+    (``_load_fixed``), which is why neither may be deleted there — so this is
+    the last stage that can drop them, and the point at which the workdir's
+    peak footprint is decided.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.addCleanup(self.tmp.cleanup)
+
+    @staticmethod
+    def _scratch(workdir):
+        manifest = Manifest.load_or_create(workdir)
+        paths = {}
+        for snap, entry in manifest.data["snapshots"].items():
+            paths["fixed_{}".format(snap)] = Path(entry["fixed_file"])
+            paths["links_{}".format(snap)] = Path(entry["links_file"])
+        return paths
+
+    def _linked(self, name):
+        root = self.root / name
+        root.mkdir()
+        workdir, a_list, sim_info = make_linked_workdir(root)
+        run_links(workdir)
+        return workdir, a_list, sim_info
+
+    def test_flag_off_retains_every_fixed_and_links_file(self):
+        workdir, a_list, sim_info = self._linked("off")
+        run_write(workdir, a_list_path=a_list, simulation_info_path=sim_info)
+        manifest = Manifest.load_or_create(workdir)
+        for name, path in self._scratch(workdir).items():
+            self.assertTrue(path.exists(), "{} was deleted with the flag off".format(name))
+            self.assertEqual(
+                "present", manifest.data["intermediates"][str(path.resolve())]["status"], name
+            )
+
+    def test_flag_on_consumes_every_fixed_and_links_file(self):
+        workdir, a_list, sim_info = self._linked("on")
+        expected = self._scratch(workdir)
+        with capture_stderr() as captured:
+            run_write(
+                workdir,
+                a_list_path=a_list,
+                simulation_info_path=sim_info,
+                consume_intermediates=True,
+            )
+        manifest = Manifest.load_or_create(workdir)
+        for name, path in expected.items():
+            self.assertFalse(path.exists(), "{} survived".format(name))
+            self.assertEqual(
+                "removed", manifest.data["intermediates"][str(path.resolve())]["status"], name
+            )
+            self.assertIn(str(path), captured.text)
+
+    def test_output_is_recorded_before_its_inputs_go(self):
+        """The protocol's ordering: at the instant a fixed or links file is
+        unlinked, that snapshot's emitted file must already be recorded in the
+        manifest ON DISK."""
+        workdir, a_list, sim_info = self._linked("order")
+        manifest_path = Path(workdir) / "manifest.json"
+        observed = []
+        real_remove = Manifest.remove_intermediate
+
+        def spy(self, path):
+            import json
+
+            snap = int(Path(path).name.split("_")[1])
+            saved = json.loads(manifest_path.read_text())
+            recorded = [
+                key for key in saved.get("outputs", {}) if key.endswith(snapshot_h5_name(snap))
+            ]
+            observed.append((snap, recorded))
+            return real_remove(self, path)
+
+        with mock.patch.object(Manifest, "remove_intermediate", spy):
+            run_write(
+                workdir,
+                a_list_path=a_list,
+                simulation_info_path=sim_info,
+                consume_intermediates=True,
+            )
+        self.assertTrue(observed)
+        for snap, recorded in observed:
+            self.assertEqual(1, len(recorded), "snapshot {} output not recorded yet".format(snap))
+
+    def test_emitted_dataset_is_bitwise_identical_with_the_flag_on_and_off(self):
+        off_workdir, off_a_list, off_info = self._linked("dataset-off")
+        on_workdir, on_a_list, on_info = self._linked("dataset-on")
+        off = run_write(off_workdir, a_list_path=off_a_list, simulation_info_path=off_info)
+        on = run_write(
+            on_workdir,
+            a_list_path=on_a_list,
+            simulation_info_path=on_info,
+            consume_intermediates=True,
+        )
+        off_dir = Path(off.data["outputs_dir"])
+        on_dir = Path(on.data["outputs_dir"])
+        off_files = sorted(path.name for path in off_dir.iterdir())
+        self.assertEqual(off_files, sorted(path.name for path in on_dir.iterdir()))
+        self.assertIn("forests.h5", off_files)
+        for name in off_files:
+            self.assertEqual(
+                (off_dir / name).read_bytes(),
+                (on_dir / name).read_bytes(),
+                "{} differs between the two flag states".format(name),
+            )
+
+    def test_rerunning_the_writer_after_consumption_is_a_skip(self):
+        workdir, a_list, sim_info = self._linked("rerun")
+        run_write(
+            workdir,
+            a_list_path=a_list,
+            simulation_info_path=sim_info,
+            consume_intermediates=True,
+        )
+        with capture_stderr() as captured:
+            manifest = run_write(
+                workdir,
+                a_list_path=a_list,
+                simulation_info_path=sim_info,
+                consume_intermediates=True,
+            )
+        self.assertIn("fixed and links scratch consumed", captured.text)
+        self.assertIn("0 snapshot file(s) written", captured.text)
+        self.assertEqual(6, len(manifest.data["outputs"]) - 1)
+
+    def test_rerunning_links_after_the_writer_consumed_its_inputs_is_a_skip(self):
+        """``run_links`` streams every snapshot's fixed file, so once the writer
+        has consumed them the rank pass cannot run again. A fully linked stage
+        in that state skips and names what was consumed."""
+        workdir, a_list, sim_info = self._linked("links-rerun")
+        run_write(
+            workdir,
+            a_list_path=a_list,
+            simulation_info_path=sim_info,
+            consume_intermediates=True,
+        )
+        with capture_stderr() as captured:
+            run_links(workdir)
+        self.assertIn("skipping the rank pass", captured.text)
+        self.assertIn("consumed by the write stage", captured.text)
+
+    def test_crash_between_unlink_and_save_converges_to_removed(self):
+        for delete in (False, True):
+            with self.subTest(consume_intermediates=delete):
+                workdir, a_list, sim_info = self._linked("writer-crash-{}".format(int(delete)))
+                run_write(workdir, a_list_path=a_list, simulation_info_path=sim_info)
+                victim = self._scratch(workdir)["links_5"]
+                victim.unlink()  # the unlink landed; the save did not
+                manifest = Manifest.load_or_create(workdir)
+                self.assertEqual(
+                    "present", manifest.data["intermediates"][str(victim.resolve())]["status"]
+                )
+                run_write(
+                    workdir,
+                    a_list_path=a_list,
+                    simulation_info_path=sim_info,
+                    consume_intermediates=delete,
+                )
+                reloaded = Manifest.load_or_create(workdir)
+                self.assertEqual(
+                    "removed", reloaded.data["intermediates"][str(victim.resolve())]["status"]
+                )
+
+    def test_full_pipeline_with_consumption_leaves_only_the_run_scoped_tables(self):
+        """The end state the storage envelope is measured against: with the
+        flag on through fixups, links and write, every per-snapshot
+        intermediate is gone and only the two run-scoped sidecar tables and the
+        emitted dataset remain."""
+        root = self.root / "envelope"
+        root.mkdir()
+        tree_file = fixtures.write_ctrees_file(
+            root / "tree_0.dat", fixtures.all_trees(fixtures.standard_forests())
+        )
+        forests_list = fixtures.write_forests_list(
+            root / "forests.list", fixtures.standard_forests()
+        )
+        a_list = fixtures.write_a_list(root / "test.a_list")
+        sim_info = fixtures.write_simulation_info(root / "simulation_info.yaml")
+        workdir = root / "workdir"
+        run_scatter(
+            tree_files=[tree_file],
+            forests_list_path=forests_list,
+            a_list_path=a_list,
+            workdir=workdir,
+            simulation_info_path=sim_info,
+        )
+        run_sort(workdir)
+        run_fixups(
+            workdir,
+            a_list_path=a_list,
+            simulation_info_path=sim_info,
+            consume_intermediates=True,
+        )
+        run_links(workdir, consume_intermediates=True)
+        manifest = run_write(
+            workdir,
+            a_list_path=a_list,
+            simulation_info_path=sim_info,
+            consume_intermediates=True,
+        )
+        present = sorted(
+            Path(key).name
+            for key, entry in manifest.data["intermediates"].items()
+            if entry["status"] == "present"
+        )
+        # what survives is the two run-scoped sidecar tables plus the two
+        # per-source sidecars the ``release`` verification path owns — which
+        # this slice deliberately does not touch, because release refuses a
+        # source whose own intermediates are recorded removed. Nothing
+        # per-snapshot is left.
+        self.assertEqual(
+            [
+                "forest_index_table.npy",
+                "forest_max_snap.npy",
+                "forest_max_src_0.npy",
+                "roots_src_0.npy",
+            ],
+            present,
+        )
+        for key, entry in manifest.data["intermediates"].items():
+            self.assertEqual(entry["status"] == "present", Path(key).exists(), key)
+        outcomes = run_battery(
+            Path(manifest.data["outputs_dir"]),
+            a_list,
+            manifest_path=manifest.path,
+        )
+        self.assertTrue(all(outcome.status == "PASS" for outcome in outcomes), outcomes)
+
+    def test_cli_flag_is_off_by_default(self):
+        parser = convert_ctrees.build_arg_parser()
+        base = ["write", "--workdir", "w", "--a-list", "a", "--simulation-info", "s"]
+        self.assertFalse(parser.parse_args(base).consume_intermediates)
+        self.assertTrue(parser.parse_args(base + ["--consume-intermediates"]).consume_intermediates)
 
 
 if __name__ == "__main__":

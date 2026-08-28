@@ -10,7 +10,9 @@ canonical a_list.
 
 Cleanup discipline (plan review finding 8): the converter never deletes source
 data. Deletion is restricted to manifest-owned intermediates located under the
-workdir; ``remove_intermediate`` refuses anything else.
+workdir; ``remove_intermediate`` refuses anything else. The downstream stages
+consume their predecessors through ``Manifest.consume_intermediates``, which is
+opt-in per run (plan Slice 8) and routes every deletion through that same guard.
 """
 
 import hashlib
@@ -365,6 +367,60 @@ class Manifest:
             )
         resolved.unlink()
         entry["status"] = "removed"
+
+    def is_consumed(self, path) -> bool:
+        """True when this path is a registered intermediate the manifest
+        records as already removed.
+
+        That is a deliberate consumption by a later stage, not a missing
+        artifact, and the difference is what lets a skip-trust path skip
+        instead of failing on a stat or a checksum (plan Slice 8)."""
+        entry = self.data["intermediates"].get(str(Path(path).resolve()))
+        return entry is not None and entry.get("status") == "removed"
+
+    def consume_intermediates(self, paths, *, delete: bool) -> List[Path]:
+        """Finish the delete-after-verify protocol for intermediates whose
+        terminal consumer is done with them (plan Slice 8 deletion table).
+
+        Callers reach this in one of exactly two states: with the successor
+        artifact already re-read, verified, registered and saved -- the
+        predecessor half of the protocol stated in the plan's *Conventions* --
+        or with an artifact that has no consumer at all, and so no successor to
+        wait for (``links``' unreachable id indexes). Each path is resolved to
+        exactly one of four outcomes:
+
+        * no manifest entry, or an entry already recorded ``removed`` -- nothing
+          to do, which is what makes a re-run idempotent;
+        * registered ``present`` but absent on disk -- a crash landed between
+          the unlink and the manifest save, so the record converges on
+          ``removed``. That happens whether or not ``delete`` is set: the bytes
+          are gone already and the only open question is whether the manifest
+          says so;
+        * registered ``present``, on disk, ``delete`` set -- deleted through
+          :meth:`remove_intermediate`, which is the only path to an unlink;
+        * registered ``present``, on disk, ``delete`` clear -- retained, so the
+          flag-off workdir keeps every intermediate it keeps today.
+
+        The manifest is saved once, at the end, iff anything changed. Returns
+        the paths whose bytes are gone as a result -- deleted here, or deleted
+        by an interrupted earlier call and only now recorded.
+        """
+        removed: List[Path] = []
+        for path in paths:
+            resolved = Path(path).resolve()
+            entry = self.data["intermediates"].get(str(resolved))
+            if entry is None or entry.get("status") != "present":
+                continue
+            if not resolved.exists():
+                entry["status"] = "removed"
+            elif delete:
+                self.remove_intermediate(resolved)
+            else:
+                continue
+            removed.append(resolved)
+        if removed:
+            self.save()
+        return removed
 
     def verify_intermediate(self, path, what: str) -> dict:
         """Verify a registered intermediate before consuming or skip-trusting

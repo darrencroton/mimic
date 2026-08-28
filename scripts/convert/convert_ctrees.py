@@ -61,6 +61,25 @@ def _add_workdir(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--workdir", required=True, help="scratch/output directory for this run")
 
 
+def _add_consume_flag(parser: argparse.ArgumentParser) -> None:
+    """The opt-in consumptive-deletion flag (plan Slice 8).
+
+    Off by default and deliberately per-invocation: destroying intermediates on
+    a multi-day conversion with no way back is an operator decision, not a
+    default. With it off the stage deletes nothing it does not delete today.
+    """
+    parser.add_argument(
+        "--consume-intermediates",
+        action="store_true",
+        help="delete each intermediate this stage consumes, once the successor artifact "
+        "has been verified and recorded in the manifest (fixups: the sorted scratch; "
+        "links: the pending first-progenitor buffers and id indexes; write: the fixed "
+        "and links scratch). IRREVERSIBLE: the workdir can then only be resumed from "
+        "the last surviving stage. Off by default; emitted output is identical either "
+        "way.",
+    )
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="convert_ctrees",
@@ -138,6 +157,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         help="fix only this snapshot (repeatable; default: all)",
     )
+    _add_consume_flag(fixups)
 
     links = sub.add_parser(
         "links",
@@ -154,6 +174,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "stream's read windows; the values written are identical at any budget, so "
         "this trades memory against spill I/O and nothing else",
     )
+    _add_consume_flag(links)
 
     write = sub.add_parser(
         "write",
@@ -170,6 +191,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         help="dataset output directory (default: <workdir>/hdf5)",
     )
+    _add_consume_flag(write)
 
     report = sub.add_parser(
         "report",
@@ -223,6 +245,7 @@ def main(argv=None) -> int:
                 a_list_path=args.a_list,
                 simulation_info_path=args.simulation_info,
                 snapshots=args.snapshot,
+                consume_intermediates=args.consume_intermediates,
             )
         elif args.command == "links":
             from links import DEFAULT_RANK_BUDGET_BYTES, run_links
@@ -232,7 +255,11 @@ def main(argv=None) -> int:
                 if args.memory_budget_mb is not None
                 else DEFAULT_RANK_BUDGET_BYTES
             )
-            run_links(args.workdir, budget_bytes=budget_bytes)
+            run_links(
+                args.workdir,
+                budget_bytes=budget_bytes,
+                consume_intermediates=args.consume_intermediates,
+            )
         elif args.command == "write":
             from hdf5_writer import run_write
 
@@ -241,6 +268,7 @@ def main(argv=None) -> int:
                 a_list_path=args.a_list,
                 simulation_info_path=args.simulation_info,
                 output_dir=args.output_dir,
+                consume_intermediates=args.consume_intermediates,
             )
         elif args.command == "report":
             from report import run_report

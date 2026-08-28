@@ -16,6 +16,7 @@ import fixtures  # noqa: E402
 from ctrees_parser import DTYPE_TAG, RECORD_DTYPE, ConverterError  # noqa: E402
 from scatter import Manifest, run_scatter, snapshot_scratch_name  # noqa: E402
 from sort_index import index_name, run_sort, sorted_scratch_name  # noqa: E402
+from test_fixups import capture_stderr  # noqa: E402
 
 
 def make_scattered_workdir(root: Path, forests=None):
@@ -184,6 +185,66 @@ class TestSortIndex(unittest.TestCase):
         workdir = self.root / "empty-workdir"
         workdir.mkdir()
         with self.assertRaisesRegex(ConverterError, "no manifest"):
+            run_sort(workdir)
+
+
+class TestSortSkipsConsumedArtifacts(unittest.TestCase):
+    """Plan Slice 8: deletion is bounded by re-run reachability. Once a later
+    stage has consumed an artifact this stage's skip-trust path verifies, that
+    path has to skip and name what was consumed — not fail on a stat or a
+    checksum on a file the pipeline deliberately deleted."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.addCleanup(self.tmp.cleanup)
+
+    def _sorted_workdir(self):
+        workdir = make_scattered_workdir(self.root)
+        run_sort(workdir)
+        return workdir
+
+    def _consume(self, workdir, key):
+        """Consume one snapshot-5 artifact exactly as a later stage would."""
+        manifest = Manifest.load_or_create(workdir)
+        path = manifest.data["snapshots"]["5"][key]
+        self.assertEqual([Path(path)], manifest.consume_intermediates([path], delete=True))
+        self.assertFalse(Path(path).exists())
+        return path
+
+    def test_consumed_sorted_file_is_a_skip_naming_it(self):
+        workdir = self._sorted_workdir()
+        path = self._consume(workdir, "sorted_file")
+        with capture_stderr() as captured:
+            run_sort(workdir)
+        self.assertIn("snapshot 5 is already sorted", captured.text)
+        self.assertIn("sorted snapshot scratch was consumed", captured.text)
+        self.assertIn(path, captured.text)
+
+    def test_consumed_index_file_is_a_skip_naming_it(self):
+        workdir = self._sorted_workdir()
+        path = self._consume(workdir, "index_file")
+        with capture_stderr() as captured:
+            run_sort(workdir)
+        self.assertIn("snapshot id index was consumed", captured.text)
+        self.assertIn(path, captured.text)
+
+    def test_a_merely_missing_artifact_is_still_a_hard_failure(self):
+        """The skip is granted only to a RECORDED consumption: a sorted file
+        that simply disappeared is the failure it has always been."""
+        workdir = self._sorted_workdir()
+        manifest = Manifest.load_or_create(workdir)
+        Path(manifest.data["snapshots"]["5"]["sorted_file"]).unlink()
+        with self.assertRaisesRegex(ConverterError, "missing on disk"):
+            run_sort(workdir)
+
+    def test_tampered_artifact_is_still_refused(self):
+        workdir = self._sorted_workdir()
+        manifest = Manifest.load_or_create(workdir)
+        path = Path(manifest.data["snapshots"]["5"]["sorted_file"])
+        with open(path, "r+b") as handle:
+            handle.write(b"\x00\x01\x02\x03")
+        with self.assertRaisesRegex(ConverterError, "content checksum"):
             run_sort(workdir)
 
 

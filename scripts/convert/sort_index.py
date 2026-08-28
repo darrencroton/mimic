@@ -14,7 +14,7 @@ production concern).
 import os
 import sys
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import List, Optional, Sequence
 
 import numpy as np
 
@@ -22,6 +22,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from ctrees_parser import DTYPE_TAG, RECORD_DTYPE, ConverterError  # noqa: E402
 from scatter import Manifest, id_checksum  # noqa: E402
+
+
+def _log(message: str) -> None:
+    print(message, file=sys.stderr)
 
 
 def sorted_scratch_name(snap: int) -> str:
@@ -41,12 +45,19 @@ def sort_one_snapshot(manifest: Manifest, snap: int) -> None:
         # skip-trusting a prior sort (or a snapshot the Slice 5 fix-up stage
         # already completed) requires verifying the artifacts and retrying
         # any unsorted-file cleanup a crash may have interrupted
-        manifest.verify_intermediate(entry["sorted_file"], "sorted snapshot scratch")
-        manifest.verify_intermediate(entry["index_file"], "snapshot id index")
+        consumed: List[str] = []
+        _verify_or_consumed(manifest, entry["sorted_file"], "sorted snapshot scratch", consumed)
+        _verify_or_consumed(manifest, entry["index_file"], "snapshot id index", consumed)
         if entry.get("status") == "fixed":
-            manifest.verify_intermediate(entry["fixed_file"], "fixed snapshot scratch")
+            _verify_or_consumed(manifest, entry["fixed_file"], "fixed snapshot scratch", consumed)
         _retry_unsorted_cleanup(manifest, entry)
         manifest.save()
+        if consumed:
+            _log(
+                "sort: snapshot {} is already sorted and {} — skipping".format(
+                    snap, "; ".join(consumed)
+                )
+            )
         return
     if entry.get("status") != "concatenated":
         raise ConverterError(
@@ -117,18 +128,33 @@ def sort_one_snapshot(manifest: Manifest, snap: int) -> None:
     manifest.save()
 
 
+def _verify_or_consumed(manifest: Manifest, path, what: str, consumed: List[str]) -> None:
+    """Verify one skip-trusted artifact unless the manifest records it as
+    deliberately consumed by a later stage.
+
+    A consumed artifact is the pipeline's own doing, not a missing file: with
+    consumption enabled the fix-up stage removes ``snap_NNN_sorted.bin`` once
+    the fixed output is registered, and the link stage removes ``snap_NNN.idx``
+    once the snapshot below it is linked (plan Slice 8 deletion table). Sorting
+    that snapshot again then has to be a skip naming what was consumed, not a
+    stat failure or a checksum error — deletion is bounded by re-run
+    reachability, and this is what keeps sort reachable. Anything the manifest
+    still records as present is verified exactly as before.
+    """
+    if manifest.is_consumed(path):
+        consumed.append("its {} was consumed by a later stage ({})".format(what, path))
+        return
+    manifest.verify_intermediate(path, what)
+
+
 def _retry_unsorted_cleanup(manifest: Manifest, entry: dict) -> None:
     """Finish unsorted-file deletion a crash may have interrupted. A registered
     entry whose file is already gone is the intended end state of a cleanup
-    that crashed between unlink and manifest save — record it as removed."""
-    unsorted_path = Path(entry["scratch_file"]).resolve()
-    unsorted_entry = manifest.data["intermediates"].get(str(unsorted_path))
-    if unsorted_entry is None or unsorted_entry.get("status") != "present":
-        return
-    if unsorted_path.exists():
-        manifest.remove_intermediate(unsorted_path)
-    else:
-        unsorted_entry["status"] = "removed"
+    that crashed between unlink and manifest save — record it as removed.
+
+    Sort's consumption of the unsorted scratch predates the opt-in deletion
+    flag and is unconditional, so ``delete`` is always set here."""
+    manifest.consume_intermediates([entry["scratch_file"]], delete=True)
 
 
 def run_sort(workdir, snapshots: Optional[Sequence[int]] = None) -> Manifest:
