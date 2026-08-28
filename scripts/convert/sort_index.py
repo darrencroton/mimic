@@ -21,7 +21,7 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from ctrees_parser import DTYPE_TAG, RECORD_DTYPE, ConverterError  # noqa: E402
-from scatter import Manifest, id_checksum  # noqa: E402
+from scatter import Manifest, id_checksum, verify_or_consumed  # noqa: E402
 
 
 def _log(message: str) -> None:
@@ -46,10 +46,10 @@ def sort_one_snapshot(manifest: Manifest, snap: int) -> None:
         # already completed) requires verifying the artifacts and retrying
         # any unsorted-file cleanup a crash may have interrupted
         consumed: List[str] = []
-        _verify_or_consumed(manifest, entry["sorted_file"], "sorted snapshot scratch", consumed)
-        _verify_or_consumed(manifest, entry["index_file"], "snapshot id index", consumed)
+        verify_or_consumed(manifest, entry["sorted_file"], "sorted snapshot scratch", consumed)
+        verify_or_consumed(manifest, entry["index_file"], "snapshot id index", consumed)
         if entry.get("status") == "fixed":
-            _verify_or_consumed(manifest, entry["fixed_file"], "fixed snapshot scratch", consumed)
+            verify_or_consumed(manifest, entry["fixed_file"], "fixed snapshot scratch", consumed)
         _retry_unsorted_cleanup(manifest, entry)
         manifest.save()
         if consumed:
@@ -126,25 +126,6 @@ def sort_one_snapshot(manifest: Manifest, snap: int) -> None:
 
     manifest.remove_intermediate(scratch_path)
     manifest.save()
-
-
-def _verify_or_consumed(manifest: Manifest, path, what: str, consumed: List[str]) -> None:
-    """Verify one skip-trusted artifact unless the manifest records it as
-    deliberately consumed by a later stage.
-
-    A consumed artifact is the pipeline's own doing, not a missing file: with
-    consumption enabled the fix-up stage removes ``snap_NNN_sorted.bin`` once
-    the fixed output is registered, and the link stage removes ``snap_NNN.idx``
-    once the snapshot below it is linked (plan Slice 8 deletion table). Sorting
-    that snapshot again then has to be a skip naming what was consumed, not a
-    stat failure or a checksum error — deletion is bounded by re-run
-    reachability, and this is what keeps sort reachable. Anything the manifest
-    still records as present is verified exactly as before.
-    """
-    if manifest.is_consumed(path):
-        consumed.append("its {} was consumed by a later stage ({})".format(what, path))
-        return
-    manifest.verify_intermediate(path, what)
 
 
 def _retry_unsorted_cleanup(manifest: Manifest, entry: dict) -> None:

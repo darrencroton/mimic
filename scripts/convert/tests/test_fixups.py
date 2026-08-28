@@ -31,7 +31,7 @@ from fixups import (  # noqa: E402
     run_fixups,
     validate_adjacency,
 )
-from scatter import Manifest, run_scatter  # noqa: E402
+from scatter import Manifest, run_finalize, run_scatter  # noqa: E402
 from sort_index import run_sort, sorted_scratch_name  # noqa: E402
 
 #: fixture a_list as float64 (index = SnapNum)
@@ -852,6 +852,100 @@ class TestFixupsConsumesSortedScratch(unittest.TestCase):
                 self.assertEqual(
                     "removed", reloaded.data["intermediates"][str(victim.resolve())]["status"]
                 )
+
+    def test_finalize_and_scatter_reruns_skip_a_consumed_sorted_file(self):
+        """Deletion is bounded by re-run reachability, and ``sort`` is not the
+        only path that skip-trusts the sorted file and the index.
+
+        ``_finalize_scatter`` verifies both when it meets a snapshot already
+        past ``concatenated``, so once ``fixups`` has consumed the sorted files
+        a re-run of ``finalize`` — or of a non-batch ``scatter``, which
+        finalizes at the end — must skip and name what was consumed, exactly as
+        sort does, rather than refuse on a file the pipeline deliberately
+        deleted. Both entry points are exercised because they reach the same
+        two branches by different routes.
+        """
+        root = self.root / "finalize-rerun"
+        root.mkdir()
+        forests = fixtures.standard_forests()
+        tree_file = fixtures.write_ctrees_file(root / "tree_0.dat", fixtures.all_trees(forests))
+        forests_list = fixtures.write_forests_list(root / "forests.list", forests)
+        a_list = fixtures.write_a_list(root / "test.a_list")
+        sim_info = fixtures.write_simulation_info(root / "simulation_info.yaml")
+        workdir = root / "workdir"
+        run_scatter(
+            tree_files=[tree_file],
+            forests_list_path=forests_list,
+            a_list_path=a_list,
+            workdir=workdir,
+            simulation_info_path=sim_info,
+        )
+        run_sort(workdir)
+        run_fixups(
+            workdir,
+            a_list_path=a_list,
+            simulation_info_path=sim_info,
+            consume_intermediates=True,
+        )
+        sorted_paths = self._sorted_paths(workdir)
+        self.assertTrue(sorted_paths)
+        for path in sorted_paths.values():
+            self.assertFalse(path.exists())
+
+        with capture_stderr() as captured:
+            run_finalize(workdir, forests_list)
+        for snap, path in sorted_paths.items():
+            self.assertIn(
+                "finalize: snapshot {} is already past concat".format(snap), captured.text
+            )
+            self.assertIn(str(path), captured.text)
+
+        # the same two branches through the other entry point: a non-batch
+        # scatter re-run finalizes at the end
+        with capture_stderr() as captured:
+            run_scatter(
+                tree_files=[tree_file],
+                forests_list_path=forests_list,
+                a_list_path=a_list,
+                workdir=workdir,
+                simulation_info_path=sim_info,
+            )
+        for snap in sorted_paths:
+            self.assertIn(
+                "finalize: snapshot {} is already past concat".format(snap), captured.text
+            )
+
+        # neither re-run resurrected or re-registered anything
+        manifest = Manifest.load_or_create(workdir)
+        for path in sorted_paths.values():
+            self.assertFalse(path.exists())
+            self.assertEqual(
+                "removed", manifest.data["intermediates"][str(path.resolve())]["status"]
+            )
+
+    def test_finalize_rerun_still_refuses_a_merely_missing_sorted_file(self):
+        """The skip is granted only to a RECORDED consumption here too: a
+        sorted file that simply vanished is still refused by finalize."""
+        root = self.root / "finalize-missing"
+        root.mkdir()
+        forests = fixtures.standard_forests()
+        tree_file = fixtures.write_ctrees_file(root / "tree_0.dat", fixtures.all_trees(forests))
+        forests_list = fixtures.write_forests_list(root / "forests.list", forests)
+        a_list = fixtures.write_a_list(root / "test.a_list")
+        sim_info = fixtures.write_simulation_info(root / "simulation_info.yaml")
+        workdir = root / "workdir"
+        run_scatter(
+            tree_files=[tree_file],
+            forests_list_path=forests_list,
+            a_list_path=a_list,
+            workdir=workdir,
+            simulation_info_path=sim_info,
+        )
+        run_sort(workdir)
+        run_fixups(workdir, a_list_path=a_list, simulation_info_path=sim_info)
+        next(iter(self._sorted_paths(workdir).values())).unlink()
+        with self.assertRaisesRegex(ConverterError, "missing on disk"):
+            run_finalize(workdir, forests_list)
 
     def test_cli_flag_is_off_by_default(self):
         parser = convert_ctrees.build_arg_parser()

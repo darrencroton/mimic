@@ -649,6 +649,32 @@ class Manifest:
         return entry
 
 
+def verify_or_consumed(manifest: Manifest, path, what: str, consumed: List[str]) -> None:
+    """Verify one skip-trusted artifact unless the manifest records it as
+    deliberately consumed by a later stage.
+
+    A consumed artifact is the pipeline's own doing, not a missing file: with
+    consumption enabled the fix-up stage removes ``snap_NNN_sorted.bin`` once
+    the fixed output is registered, and the link stage removes ``snap_NNN.idx``
+    once the snapshot below it is linked (plan Slice 8 deletion table). Any
+    skip-trust path that re-verifies one of those has to skip and name what was
+    consumed, not fail on a stat or a checksum — deletion is bounded by re-run
+    reachability, and this is what keeps those paths reachable. Anything the
+    manifest still records as present is verified exactly as before.
+
+    It lives here rather than in the stage that first needed it because three
+    modules now share it — ``sort_one_snapshot``'s skip-trust path and both of
+    ``_finalize_scatter``'s — and a second formulation of a rule this load
+    bearing is how the two would drift apart. ``consumed`` accumulates one
+    ready-to-log phrase per consumed artifact, so the caller decides how to
+    report the skip.
+    """
+    if manifest.is_consumed(path):
+        consumed.append("its {} was consumed by a later stage ({})".format(what, path))
+        return
+    manifest.verify_intermediate(path, what)
+
+
 # ---------------------------------------------------------------------------
 # Phase 1: scatter
 # ---------------------------------------------------------------------------
@@ -1104,6 +1130,18 @@ def run_scatter(
     return manifest
 
 
+def _log_consumed_skip(snap: int, consumed: List[str]) -> None:
+    """Report a finalize skip over a snapshot whose downstream artifacts a
+    later stage consumed, naming each one. Silent when nothing was consumed,
+    which is every run that did not enable consumptive deletion."""
+    if consumed:
+        _log(
+            "finalize: snapshot {} is already past concat and {} — skipping".format(
+                snap, "; ".join(consumed)
+            )
+        )
+
+
 def _finalize_scatter(
     manifest: Manifest, tree_files: Sequence[Path], forest_map: ForestMap, scratch_dir: Path
 ) -> None:
@@ -1186,21 +1224,33 @@ def _finalize_scatter(
         target = scratch_dir / snapshot_scratch_name(snap)
         if snap_entry and snap_entry.get("status") == "fixed":
             # a snapshot the Slice 5 fix-up stage already completed: verify
-            # all downstream artifacts and finish any interrupted cleanup
-            manifest.verify_intermediate(snap_entry["sorted_file"], "sorted snapshot scratch")
-            manifest.verify_intermediate(snap_entry["index_file"], "snapshot id index")
+            # all downstream artifacts and finish any interrupted cleanup.
+            # The sorted file and the index are both in the Slice 8 deletion
+            # table, so either may legitimately be gone by now; the fixed file
+            # is not consumable while this status holds (the writer takes it
+            # only once every snapshot is linked), so it is verified outright.
+            consumed: List[str] = []
+            verify_or_consumed(
+                manifest, snap_entry["sorted_file"], "sorted snapshot scratch", consumed
+            )
+            verify_or_consumed(manifest, snap_entry["index_file"], "snapshot id index", consumed)
             manifest.verify_intermediate(snap_entry["fixed_file"], "fixed snapshot scratch")
             _retry_worker_cleanup(manifest, scratch_dir, snap, parts)
             manifest.save()
+            _log_consumed_skip(snap, consumed)
             continue
         if snap_entry and snap_entry.get("status") == "sorted":
             # a crash between concat-status save and worker deletion can leave
             # a snapshot that was later sorted with workers still on disk —
             # verify the sorted artifacts and finish the interrupted cleanup
-            manifest.verify_intermediate(snap_entry["sorted_file"], "sorted snapshot scratch")
-            manifest.verify_intermediate(snap_entry["index_file"], "snapshot id index")
+            consumed = []
+            verify_or_consumed(
+                manifest, snap_entry["sorted_file"], "sorted snapshot scratch", consumed
+            )
+            verify_or_consumed(manifest, snap_entry["index_file"], "snapshot id index", consumed)
             _retry_worker_cleanup(manifest, scratch_dir, snap, parts)
             manifest.save()
+            _log_consumed_skip(snap, consumed)
             continue
         if snap_entry and snap_entry.get("status") == "concatenated":
             # skip-trusting a prior concat requires verifying it, then

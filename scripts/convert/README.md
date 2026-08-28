@@ -197,6 +197,10 @@ read, so every stage stays resumable across the intermediates it still needs:
 - Re-running `sort` on a snapshot whose sorted file or index a later stage consumed is
   a **skip** naming what was consumed, not a verification failure. An artifact that
   merely went missing is still the hard error it has always been.
+- Re-running `finalize`, or a non-batch `scatter` (which finalizes at the end), is the
+  same skip for the same reason: `_finalize_scatter` skip-trusts a snapshot already past
+  `concatenated` by verifying its sorted and index artifacts, and both are in the table
+  above. It shares one helper with `sort`, so the two cannot drift apart.
 - Re-running `links` when every snapshot is linked and the writer has consumed the
   fixed inputs is a **skip**: the rank pass streams every fixed file and cannot run
   again. While those inputs are still present the pass runs as before, including its
@@ -208,17 +212,12 @@ read, so every stage stays resumable across the intermediates it still needs:
 
 **What it forecloses.** Once a stage's inputs are gone that stage cannot be re-executed,
 only skipped — if an emitted file is later deleted or corrupted, the conversion must be
-re-run from the last surviving stage. Two specific consequences:
+re-run from the last surviving stage, and if nothing survives, from the source. That is
+the whole cost, and it is why the flag is opt-in.
 
-- Do **not** re-run `scatter` or `finalize` after `fixups` has consumed the sorted
-  files. `_finalize_scatter`'s skip branches verify the sorted and index artifacts of
-  snapshots already past `concatenated`, and will refuse on a file the pipeline
-  deliberately deleted. That path is unchanged by this flag and is unreachable in the
-  documented stage order (`scatter` → `release` → `finalize` → `sort` → `fixups` →
-  `links` → `write`).
-- `release` is unaffected: it verifies the per-source sidecars and worker scratch, none
-  of which are in the table above, and still refuses a source whose own intermediates
-  finalization has deleted.
+`release` is unaffected either way: it verifies the per-source sidecars and worker
+scratch, none of which are in the table above, and still refuses a source whose own
+intermediates finalization has deleted.
 
 ### Batch mode: the interleaved consumptive transfer
 

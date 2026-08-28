@@ -531,9 +531,9 @@ def _consume_sorted(manifest: Manifest, entry: dict, snap: int, delete: bool) ->
     The fix-up stage is the sorted scratch's terminal consumer: no later stage
     reads its contents, because ``links`` and the writer both work from the
     fixed file. Two skip-trust paths still *verify* it on a re-run —
-    ``sort_one_snapshot``'s, which this slice teaches to accept a recorded
-    consumption, and ``_finalize_scatter``'s, which it does not, so `scatter`
-    and `finalize` must not be re-run after this deletion (see the README).
+    ``sort_one_snapshot``'s and ``_finalize_scatter``'s — and both go through
+    ``scatter.verify_or_consumed``, so each skips on a recorded consumption
+    instead of failing on a file the pipeline deliberately deleted.
 
     Callers reach this only once the fixed output has been re-read, verified
     against the manifest totals, registered and saved, so the predecessor is
