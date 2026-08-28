@@ -155,9 +155,11 @@ Re-running `scatter` skips source files whose manifest entry is complete and unc
 
 ### Consumptive deletion of intermediates
 
-Every intermediate above is retained by default, so the workdir holds the sorted,
-index, fixed, links and pending-buffer files for every snapshot at once — a measured
-277 bytes per halo. `--consume-intermediates` deletes each one at the point its
+Five of the intermediates above are retained by default — the sorted, index, fixed,
+links and pending-buffer files — so the workdir holds all five for every snapshot at
+once, a measured 277 bytes per halo. (The other two are never retained and are not
+flag-gated: `snap_NNN.bin` is always deleted once sort verifies its successors, and
+`links_identity_*/` is always removed by the link stage itself.) `--consume-intermediates` deletes each one at the point its
 **terminal** consumer is finished with it. It is **off by default and irreversible**:
 turning it on trades resumability for storage, and is only worth doing when the volume
 cannot hold the full set.
@@ -198,24 +200,27 @@ read. Which re-runs stay reachable depends on the snapshot's recorded status, so
 promises below are stated per status rather than in general — a skip that is claimed
 more broadly than it holds is worse than no claim at all.
 
-- **`sort`** does the work at `concatenated`, and skips at `sorted`, `fixed` and
-  `linked`. Its own two outputs — the sorted file and the index — are accepted as
+- **`sort`** does the work at `concatenated`, skips at `sorted` and `fixed`, and skips
+  at `linked` **only when consumptive deletion has actually taken one of that
+  snapshot's artifacts** — with nothing consumed it refuses a `linked` snapshot exactly
+  as it always did, so a flag-off workdir behaves as before. Its own two outputs — the sorted file and the index — are accepted as
   consumed at all three. The fixed file does not exist yet at `sorted`, must still be on
   disk at `fixed` — where it is verified outright, because the writer that consumes it
   runs only once *every* snapshot is linked — and is accepted as consumed only at
   `linked`, where the links file joins it on the same terms. An
   artifact that merely went missing, or whose checksum moved, is still the hard error it
   has always been at every status.
-- **`fixups`** does the work at `sorted`, and skips at `fixed` and `linked`, on the same
-  split: strict verification of the fixed file at `fixed`, fixed and links accepted as
-  consumed at `linked`.
+- **`fixups`** does the work at `sorted`, skips at `fixed`, and skips at `linked` under
+  the same consumption gate, on the same split: strict verification of the fixed file at
+  `fixed`, fixed and links accepted as consumed at `linked`.
 - **`links`** requires every snapshot at `fixed` or `linked`. When they are all `linked`
-  and the writer has consumed the fixed inputs it skips, because the rank pass streams
-  every fixed file and cannot run again — and it still drains any deletion an earlier
-  flag-off run or an interrupted writer left undone, so turning the flag on late still
-  reclaims the indexes and pending buffers. While the fixed inputs are present the pass
-  runs as before, including its refuse-not-repair comparison of the run-scoped identity
-  values.
+  and **any** fixed input is recorded consumed it skips, because the rank pass streams
+  **every** fixed file and so cannot run again once even one is gone — an interrupted
+  writer is enough. Before skipping it verifies every links output still on disk, then
+  drains any deletion an earlier flag-off run or an interrupted writer left undone, so
+  turning the flag on late still reclaims the indexes and pending buffers. Only while
+  **every** fixed input is present does the pass run as before, including its
+  refuse-not-repair comparison of the run-scoped identity values.
 - **`write`** skips a snapshot whose emitted file is already recorded and unchanged, and
   needs no scratch to do it. That is the skip it always had.
 - **A `links` run interrupted part-way still resumes**: an index or pending buffer is
@@ -229,6 +234,14 @@ more broadly than it holds is worse than no claim at all.
   it reproduces exactly with the flag off, and has always been so. The rule it implies
   is simply: **once `links` has run, do not re-run `finalize` or a non-batch `scatter`
   on that workdir.**
+
+One rule decides every "accepted as consumed" above: **an artifact is accepted as
+consumed exactly at the statuses where its terminal consumer has provably run**, and is
+verified outright everywhere else. `sorted` is taken by `fixups`, which saves the
+`fixed` status before removing it; `idx` is taken by `links`, which will not start until
+every snapshot is at least `fixed`; `fixed` and `links` are taken by the writer, which
+runs only once every snapshot is `linked`. A manifest claiming a consumption earlier
+than that describes a premature deletion, and is refused rather than skipped.
 
 **The supported sequences**, then, are the documented order —
 `scatter` → `release` → `finalize` → `sort` → `fixups` → `links` → `write` → `report` —

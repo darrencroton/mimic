@@ -1003,6 +1003,37 @@ class TestFixupsConsumesSortedScratch(unittest.TestCase):
         with self.assertRaisesRegex(ConverterError, "not a manifest-owned intermediate"):
             run_fixups(workdir, a_list_path=a_list, simulation_info_path=sim_info)
 
+    def test_finalize_refuses_a_consumption_recorded_at_status_sorted(self):
+        """The same rule the sort stage applies, in the other call site of the
+        shared helper: at status ``sorted`` neither the sorted file nor the
+        index can legitimately have been consumed, so a manifest claiming one
+        was is a premature deletion and must be refused, not skipped."""
+        for key in ("sorted_file", "index_file"):
+            with self.subTest(key=key):
+                root = self.root / "finalize-sorted-{}".format(key)
+                root.mkdir()
+                forests = fixtures.standard_forests()
+                tree_file = fixtures.write_ctrees_file(
+                    root / "tree_0.dat", fixtures.all_trees(forests)
+                )
+                forests_list = fixtures.write_forests_list(root / "forests.list", forests)
+                a_list = fixtures.write_a_list(root / "test.a_list")
+                sim_info = fixtures.write_simulation_info(root / "simulation_info.yaml")
+                workdir = root / "workdir"
+                run_scatter(
+                    tree_files=[tree_file],
+                    forests_list_path=forests_list,
+                    a_list_path=a_list,
+                    workdir=workdir,
+                    simulation_info_path=sim_info,
+                )
+                run_sort(workdir)
+                manifest = Manifest.load_or_create(workdir)
+                self.assertEqual("sorted", manifest.data["snapshots"]["5"]["status"])
+                manifest.consume_intermediates([manifest.data["snapshots"]["5"][key]], delete=True)
+                with self.assertRaisesRegex(ConverterError, "not a manifest-owned intermediate"):
+                    run_finalize(workdir, forests_list)
+
     def test_cli_flag_is_off_by_default(self):
         parser = convert_ctrees.build_arg_parser()
         args = parser.parse_args(

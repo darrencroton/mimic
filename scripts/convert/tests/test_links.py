@@ -1600,6 +1600,79 @@ class TestLinksConsumesIntermediates(unittest.TestCase):
                 "removed", reloaded.data["intermediates"][str(path.resolve())]["status"], name
             )
 
+    def _interrupted_writer_workdir(self, name):
+        """links(off) -> a writer run that consumes some fixed files and dies.
+        Every snapshot is linked, some fixed files are consumed, and every idx
+        and pending buffer is still on disk — the state the short-circuit is
+        reached in."""
+        root = self.root / name
+        root.mkdir()
+        workdir, a_list, sim_info = make_linked_workdir(root)
+        run_links(workdir)
+        real = hdf5_writer._consume_snapshot_scratch
+        calls = {"n": 0}
+
+        def die_after_two(manifest, snap, delete):
+            real(manifest, snap, delete)
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise RuntimeError("simulated writer crash")
+
+        with mock.patch.object(hdf5_writer, "_consume_snapshot_scratch", die_after_two):
+            with self.assertRaises(RuntimeError):
+                run_write(
+                    workdir,
+                    a_list_path=a_list,
+                    simulation_info_path=sim_info,
+                    consume_intermediates=True,
+                )
+        return workdir
+
+    def _surviving_links_file(self, workdir):
+        """A links file the interrupted writer did NOT consume."""
+        manifest = Manifest.load_or_create(workdir)
+        for snap in sorted(int(x) for x in manifest.data["snapshots"]):
+            path = Path(manifest.data["snapshots"][str(snap)]["links_file"])
+            if not manifest.is_consumed(path):
+                return snap, path
+        self.fail("every links file was consumed")
+
+    def test_short_circuit_refuses_a_missing_links_successor_and_deletes_nothing(self):
+        """The short-circuit never calls ``link_one_snapshot``, so it has to do
+        that path's verification itself: delete-after-VERIFY, not
+        delete-after-status-check. A links file gone from disk must stop the
+        drain, leaving the index and pending buffer it stands behind intact."""
+        workdir = self._interrupted_writer_workdir("missing-successor")
+        expected = self._pipeline_paths(workdir)
+        snap, links_path = self._surviving_links_file(workdir)
+        links_path.unlink()
+        with self.assertRaisesRegex(ConverterError, "missing on disk"):
+            run_links(workdir, consume_intermediates=True)
+        manifest = Manifest.load_or_create(workdir)
+        for name, path in expected.items():
+            self.assertTrue(path.exists(), "{} was deleted behind an unverified successor")
+            self.assertEqual(
+                "present", manifest.data["intermediates"][str(path.resolve())]["status"], name
+            )
+
+    def test_short_circuit_refuses_a_tampered_links_successor_and_deletes_nothing(self):
+        """Same guarantee against silent corruption rather than absence."""
+        workdir = self._interrupted_writer_workdir("tampered-successor")
+        expected = self._pipeline_paths(workdir)
+        snap, links_path = self._surviving_links_file(workdir)
+        with open(links_path, "r+b") as handle:
+            handle.write(b"\x7f\x7f\x7f\x7f")
+        with self.assertRaisesRegex(ConverterError, "content checksum"):
+            run_links(workdir, consume_intermediates=True)
+        manifest = Manifest.load_or_create(workdir)
+        for name, path in expected.items():
+            self.assertTrue(
+                path.exists(), "{} was deleted behind a tampered successor".format(name)
+            )
+            self.assertEqual(
+                "present", manifest.data["intermediates"][str(path.resolve())]["status"], name
+            )
+
     def test_short_circuit_deletes_nothing_with_the_flag_off(self):
         """And the drain honours the flag, like every other deletion here."""
         root = self.root / "short-circuit-off"

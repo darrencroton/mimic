@@ -47,6 +47,7 @@ from scatter import (  # noqa: E402
     load_a_list,
     verify_or_consumed,
 )
+from sort_index import consumption_recorded  # noqa: E402
 
 #: Fixed-record dtype: the frozen scratch fields plus the Slice 5 outputs.
 #: Little-endian, packed, itemsize 120. Jx/Jy/Jz hold normalised Spin after
@@ -542,9 +543,14 @@ def _consume_sorted(manifest: Manifest, entry: dict, snap: int, delete: bool) ->
     ``scatter.verify_or_consumed``, so each skips on a recorded consumption
     instead of failing on a file the pipeline deliberately deleted.
 
-    Callers reach this only once the fixed output has been re-read, verified
-    against the manifest totals, registered and saved, so the predecessor is
-    dropped strictly after its successor is durable.
+    The successor is durable before the predecessor is dropped, but "durable"
+    is established differently on each of the three paths that reach here. On
+    the producing path the fixed output has just been re-read, verified against
+    the manifest totals, registered and saved. On the ``fixed`` skip path it is
+    verified against its registered checksum this run. On the ``linked`` skip
+    path it may itself already be recorded consumed by a verified emission, in
+    which case nothing is re-read — the emitted HDF5 that superseded it was
+    verified dataset-by-dataset when the writer took it.
 
     ``delete`` is the run's opt-in flag. With it clear the sorted file is
     retained; a removal a crash interrupted between the unlink and the manifest
@@ -568,6 +574,13 @@ def fix_one_snapshot(
     if entry is None:
         raise ConverterError("snapshot {}: no manifest entry; run scatter first".format(snap))
     status = entry.get("status")
+    if status == "linked" and not consumption_recorded(manifest, entry):
+        # As in ``sort_one_snapshot``: ``linked`` became a skip only to keep a
+        # CONSUMED snapshot resumable, so with nothing consumed this stage
+        # refuses exactly as it did before the slice.
+        raise ConverterError(
+            "snapshot {}: unexpected status {!r}; run sort first".format(snap, status)
+        )
     if status in ("fixed", "linked"):
         # This stage's output is already on the record. At ``fixed`` it must
         # still be on disk — the writer, its terminal consumer, runs only once

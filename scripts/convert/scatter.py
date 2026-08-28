@@ -1242,15 +1242,16 @@ def _finalize_scatter(
         if snap_entry and snap_entry.get("status") == "sorted":
             # a crash between concat-status save and worker deletion can leave
             # a snapshot that was later sorted with workers still on disk —
-            # verify the sorted artifacts and finish the interrupted cleanup
-            consumed = []
-            verify_or_consumed(
-                manifest, snap_entry["sorted_file"], "sorted snapshot scratch", consumed
-            )
-            verify_or_consumed(manifest, snap_entry["index_file"], "snapshot id index", consumed)
+            # verify the sorted artifacts and finish the interrupted cleanup.
+            # Both are verified OUTRIGHT here, on the same rule the sort stage
+            # applies at this status: neither can have been consumed yet, since
+            # fixups saves ``fixed`` before it removes the sorted file and links
+            # will not start until every snapshot is at least ``fixed``. A
+            # manifest claiming otherwise describes a premature deletion.
+            manifest.verify_intermediate(snap_entry["sorted_file"], "sorted snapshot scratch")
+            manifest.verify_intermediate(snap_entry["index_file"], "snapshot id index")
             _retry_worker_cleanup(manifest, scratch_dir, snap, parts)
             manifest.save()
-            _log_consumed_skip(snap, consumed)
             continue
         if snap_entry and snap_entry.get("status") == "concatenated":
             # skip-trusting a prior concat requires verifying it, then

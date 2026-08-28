@@ -1054,32 +1054,7 @@ def link_one_snapshot(
     the accessor's residency."""
     entry = manifest.data["snapshots"][str(snap)]
     if entry.get("status") == "linked":
-        meta = manifest.verify_intermediate(entry["links_file"], "snapshot links scratch")
-        if meta.get("dtype_tag") != LINKS_DTYPE_TAG:
-            raise ConverterError(
-                "{}: links-file dtype tag {!r} != current {!r} — refusing to skip-trust an "
-                "artifact from a different converter revision".format(
-                    entry["links_file"], meta.get("dtype_tag"), LINKS_DTYPE_TAG
-                )
-            )
-        if meta.get("rows") != entry["rows"]:
-            raise ConverterError(
-                "{}: links file records {} rows, snapshot manifest records {}".format(
-                    entry["links_file"], meta.get("rows"), entry["rows"]
-                )
-            )
-        expected_bytes = entry["rows"] * LINKS_RECORD_DTYPE.itemsize
-        actual_bytes = Path(entry["links_file"]).stat().st_size
-        if actual_bytes != expected_bytes:
-            raise ConverterError(
-                "{}: links file is {} bytes, expected {} ({} rows x {} bytes)".format(
-                    entry["links_file"],
-                    actual_bytes,
-                    expected_bytes,
-                    entry["rows"],
-                    LINKS_RECORD_DTYPE.itemsize,
-                )
-            )
+        verify_links_output(manifest, snap)
         return
 
     records = _load_fixed(manifest, snap)
@@ -1221,6 +1196,64 @@ def _consumed_by_link(manifest: Manifest, snap: int, recorded) -> List[str]:
     return paths
 
 
+def verify_links_output(manifest: Manifest, snap: int) -> None:
+    """Verify one snapshot's links file the way a skip-trust must: manifest
+    ownership and content checksum, the frozen dtype tag, the recorded row
+    count, and the on-disk size those rows imply.
+
+    This is the successor half of the delete-after-verify protocol for
+    everything the link stage consumes. Both places that trust an already-linked
+    snapshot call it — ``link_one_snapshot``'s skip path, and the short-circuit
+    in :func:`run_links`, which reaches the drains without going through
+    ``link_one_snapshot`` at all. A links file that is missing or tampered must
+    stop the drain there exactly as it stops the skip here, or the stage would
+    delete an index and a pending buffer whose successor it never checked.
+    """
+    entry = manifest.data["snapshots"][str(snap)]
+    meta = manifest.verify_intermediate(entry["links_file"], "snapshot links scratch")
+    if meta.get("dtype_tag") != LINKS_DTYPE_TAG:
+        raise ConverterError(
+            "{}: links-file dtype tag {!r} != current {!r} — refusing to skip-trust an "
+            "artifact from a different converter revision".format(
+                entry["links_file"], meta.get("dtype_tag"), LINKS_DTYPE_TAG
+            )
+        )
+    if meta.get("rows") != entry["rows"]:
+        raise ConverterError(
+            "{}: links file records {} rows, snapshot manifest records {}".format(
+                entry["links_file"], meta.get("rows"), entry["rows"]
+            )
+        )
+    expected_bytes = entry["rows"] * LINKS_RECORD_DTYPE.itemsize
+    actual_bytes = Path(entry["links_file"]).stat().st_size
+    if actual_bytes != expected_bytes:
+        raise ConverterError(
+            "{}: links file is {} bytes, expected {} ({} rows x {} bytes)".format(
+                entry["links_file"],
+                actual_bytes,
+                expected_bytes,
+                entry["rows"],
+                LINKS_RECORD_DTYPE.itemsize,
+            )
+        )
+
+
+def _verify_links_outputs_before_draining(manifest: Manifest, snaps) -> None:
+    """Verify every links output the short-circuit is about to delete behind.
+
+    A links file the writer has already consumed is accepted on the record
+    without being re-read — its own successor, the emitted HDF5, was verified
+    dataset-by-dataset when the writer took it, and re-reading a file that is
+    deliberately gone is not possible anyway. Every other snapshot's links file
+    is still supposed to be on disk, and is checked.
+    """
+    for snap in snaps:
+        entry = manifest.data["snapshots"][str(snap)]
+        if manifest.is_consumed(entry["links_file"]):
+            continue
+        verify_links_output(manifest, snap)
+
+
 def _consume_unreachable_indexes(manifest: Manifest, snaps, delete: bool) -> None:
     """Drain the indexes that have no consumer, reporting each removal."""
     for path in manifest.consume_intermediates(
@@ -1315,6 +1348,13 @@ def run_links(
         # some fixed files. Draining both sets is what keeps the deletion table
         # whole rather than partial; ``consume_intermediates`` is idempotent, so
         # a set already drained costs nothing.
+        #
+        # Verify first, delete second — the protocol, unchanged by the fact
+        # that this path never calls ``link_one_snapshot``. Without this the
+        # short-circuit would delete an index and a pending buffer whose
+        # successor it had not looked at, which is precisely what the normal
+        # path's skip-trust prevents.
+        _verify_links_outputs_before_draining(manifest, snaps)
         _consume_unreachable_indexes(manifest, snaps, consume_intermediates)
         recorded = set(snaps)
         for snap in snaps:
