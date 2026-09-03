@@ -24,16 +24,14 @@ input:
   snapshot_list_file: simulations/shin-uchuu/shin-uchuu.a_list
 
 simulation:
-  # REHEARSAL VALUE ONLY -- 10^10 is NOT valid for the production box. It is
-  # correct here (subset max HaloRankInForest 8,312,565) and is deliberately
-  # above the framework default so the rehearsal exercises the wide-multiplier
-  # path. At production the super-forest pushes max rank to ~1.2835e10, which
-  # violates halonr < multiplier: use a value in 12,834,657,130 <= M <=
-  # 55,379,738,354 (2e10 recommended), confirmed against the production
-  # conversion report first. Must match shin-uchuu-ascii, or the identity gate
-  # fails. See SHIN-UCHUU-CONVERSION-PLAN.md, 'Simulation package changes
-  # required'.
-  unique_galaxy_id_multiplier: 10000000000
+  # Production value, confirmed against the production conversion report
+  # (2026-09-03): max_halo_rank_in_forest = 12,646,607,900, so 2e10 satisfies
+  # halonr < multiplier (feasible window 12,834,657,130 <= M <= 55,379,738,354
+  # per the pre-measurement estimate; the measured rank came in slightly below
+  # that estimate, so this value clears it by a wider margin than planned).
+  # Must match shin-uchuu-ascii, or the identity gate fails. See
+  # SHIN-UCHUU-CONVERSION-PLAN.md, 'Simulation package changes required'.
+  unique_galaxy_id_multiplier: 20000000000
   cosmology:
     omega_matter: 0.3089
     omega_lambda: 0.6911
