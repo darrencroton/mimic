@@ -214,7 +214,7 @@ endif
 # -----------------------------------------------------------------------------
 # Default: enable HDF5 unless explicitly opted out
 ifndef USE-HDF5
-	USE-HDF5 := yes
+    USE-HDF5 := yes
 endif
 
 ifeq ($(USE-HDF5),yes)
@@ -260,13 +260,13 @@ ifeq ($(USE-HDF5),yes)
     endif
 
     # Validate HDF5 library was found
-	ifneq ($(HDF5_FOUND),yes)
-		$(error HDF5 not found! Install with: \
-			Ubuntu/Debian: sudo apt-get install libhdf5-dev | \
-			macOS: brew install hdf5 | \
-			Fedora/RHEL: sudo dnf install hdf5-devel | \
-			Or build without HDF5: make MODEL=$(MODEL) USE-HDF5=no)
-	endif
+    ifneq ($(HDF5_FOUND),yes)
+        $(error HDF5 not found! Install with: \
+            Ubuntu/Debian: sudo apt-get install libhdf5-dev | \
+            macOS: brew install hdf5 | \
+            Fedora/RHEL: sudo dnf install hdf5-devel | \
+            Or build without HDF5: make MODEL=$(MODEL) USE-HDF5=no)
+    endif
 else
     # If HDF5 is not enabled, exclude HDF5-specific source files
     SOURCES := $(filter-out %hdf5.c,$(SOURCES))

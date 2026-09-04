@@ -17,6 +17,10 @@ archive
 obsidian-inbox
 sage-code
 
+# Machine-local operational scripts (cluster-specific paths/accounts, not portable
+# project source - e.g. per-cluster SLURM job scripts)
+ops/
+
 # Build artifacts
 build/
 *.o
