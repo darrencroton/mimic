@@ -106,7 +106,7 @@ production dataset:  /Volumes/LaCie/data/shin-uchuu/production-snapshot   (write
 retained subset:     /Volumes/LaCie/data/shin-uchuu/subset-snapshot       (must survive)
 ```
 
-The **7.0 TB** figure is the policy ceiling the storage envelope below is derived against; the projected production peak is **6.89 TB**, binding at scatter through the staged source batch. Re-check `df -k` between batches — the envelope holds only while each released batch is deleted before `sort` begins.
+The **7.0 TB** figure is the policy ceiling the storage envelope below is derived against; the projected production peak is **6.89 TB**, binding at scatter through the staged source batch. **This is a cold-start preflight floor, not an invariant to re-enforce at every batch.** Worker scratch accumulates across all batches and is only deleted once, by `sort`, after `finalize` — measured on the production run (2026-08-29 to 2026-09-03): free space legitimately trended down through the whole batch loop and was observed as low as ~5.2 TB between batches with no problem, well under 7.0 TB but nowhere near actually dangerous. Use a **1.0 TB true-danger floor** for the between-batch `df -k` re-check instead (what the production run used), and reserve 7.0 TB for the one-time cold-start check only. See `docs/dev/SHIN-UCHUU-CONVERSION-PLAN.md` → P2 "Step 1 — preflight the volume" for the full record.
 
 ### The production sequence, end to end
 
