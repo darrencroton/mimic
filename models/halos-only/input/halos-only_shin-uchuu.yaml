@@ -12,10 +12,11 @@ output:
   output_format: hdf5
   # Identical across all four shin-uchuu run files: the cross-format identity gate
   # compares them snapshot for snapshot and requires every compared snapshot to be
-  # non-empty on BOTH sides. All eight are measured non-empty on the ASCII side
-  # (snapshot 0 is the sparsest and is still populated); confirm the converted side
-  # against the conversion report's per-snapshot counts before running the gate.
-  snapshot_list: [69, 40, 20, 10, 5, 2, 1, 0]
+  # non-empty on BOTH sides. 52 and 43 (nearest-redshift pair for z=1/z=2, z=1.032
+  # and z=2.028) added per the P8 operator decision; confirmed non-empty on both
+  # the production conversion report (409,112,176 / 476,477,446 rows) and the
+  # retained rehearsal subset (8,764,912 / 9,003,179 rows).
+  snapshot_list: [69, 52, 43, 40, 20, 10, 5, 2, 1, 0]
 
 SubSteps: 1
 
