@@ -16,6 +16,17 @@
 #include "module_registry.h"
 #include "types.h"
 
+/**
+ * Upper bound accepted for either emit-count parameter.
+ *
+ * Deliberately above the 4096-event fixed cap the phase event buffer used to
+ * carry, so a test can drive that buffer past the old ceiling and prove it now
+ * grows (tests/unit/test_event_buffer_growth.c). It stays a bound rather than
+ * being removed so a mistyped parameter still fails in init() instead of
+ * emitting for a very long time.
+ */
+#define TEST_EVENT_PRODUCER_MAX_EMIT_COUNT 65536
+
 /** Number of test_event events to emit per process() call (0 = none, N = at most N per group) */
 static int EMIT_COUNT;
 
@@ -31,16 +42,18 @@ int test_event_producer_init(void) {
     ERROR_LOG("Failed to read TestEventProducerEmitCount from model_parameters");
     return -1;
   }
-  if (EMIT_COUNT < 0 || EMIT_COUNT > 64) {
-    ERROR_LOG("TestEventProducerEmitCount must be in [0, 64], got %d", EMIT_COUNT);
+  if (EMIT_COUNT < 0 || EMIT_COUNT > TEST_EVENT_PRODUCER_MAX_EMIT_COUNT) {
+    ERROR_LOG("TestEventProducerEmitCount must be in [0, %d], got %d",
+              TEST_EVENT_PRODUCER_MAX_EMIT_COUNT, EMIT_COUNT);
     return -1;
   }
   if (model_get_int("TestEventProducerEmitAltCount", &EMIT_ALT_COUNT) != 0) {
     ERROR_LOG("Failed to read TestEventProducerEmitAltCount from model_parameters");
     return -1;
   }
-  if (EMIT_ALT_COUNT < 0 || EMIT_ALT_COUNT > 64) {
-    ERROR_LOG("TestEventProducerEmitAltCount must be in [0, 64], got %d", EMIT_ALT_COUNT);
+  if (EMIT_ALT_COUNT < 0 || EMIT_ALT_COUNT > TEST_EVENT_PRODUCER_MAX_EMIT_COUNT) {
+    ERROR_LOG("TestEventProducerEmitAltCount must be in [0, %d], got %d",
+              TEST_EVENT_PRODUCER_MAX_EMIT_COUNT, EMIT_ALT_COUNT);
     return -1;
   }
   INFO_LOG("test_event_producer initialized (emit_count=%d, emit_alt_count=%d)", EMIT_COUNT,

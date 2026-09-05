@@ -24,6 +24,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "constants.h"
 #include "error.h"
 #include "globals.h"
 #include "memory.h"
@@ -33,9 +34,6 @@
 
 /** Maximum number of modules that can be registered */
 #define MAX_MODULES 32
-
-/** Maximum number of phase-local events buffered before hard failure */
-#define MAX_PHASE_EVENTS 4096
 
 /** Array of all registered modules (available for use) */
 static struct Module *registered_modules[MAX_MODULES];
@@ -54,9 +52,16 @@ static int num_pipeline_modules = 0;
  *
  * Active only during execute_phase(). Enables module_emit_event() to append
  * events and dispatch them to subscribed PROCESSING_MODE_PER_EVENT consumers.
+ *
+ * `events` is a run-persistent grow-to-high-water buffer, not a per-phase
+ * allocation: `event_count` resets at the top of every execute_phase() call
+ * while `event_capacity` only ever grows, so the dispatch hot path never
+ * allocates once the busiest FoF group has been seen. Ownership is the module
+ * system's; module_system_cleanup() releases it (VISION.md Principle 5).
  */
 struct PhaseEventDispatchState {
-  struct ModuleEvent events[MAX_PHASE_EVENTS];
+  struct ModuleEvent *events; /**< Heap buffer of `event_capacity` slots (may be NULL) */
+  int event_capacity;         /**< Slots allocated in `events`; high-water, never shrinks */
   int event_count;
   int last_dispatched_event;
   struct PhaseModuleConfig *phase_config;
@@ -69,7 +74,9 @@ struct PhaseEventDispatchState {
   int current_producer_module_id; /**< module_id of the currently executing producer */
 };
 
-static struct PhaseEventDispatchState phase_event_state = {.event_count = 0,
+static struct PhaseEventDispatchState phase_event_state = {.events = NULL,
+                                                           .event_capacity = 0,
+                                                           .event_count = 0,
                                                            .last_dispatched_event = 0,
                                                            .phase_config = NULL,
                                                            .num_modules = 0,
@@ -592,6 +599,57 @@ int module_system_init(void) {
 }
 
 /**
+ * @brief   Ensure the phase event buffer can hold at least `required` events
+ *
+ * Growth arithmetic mirrors ensure_fof_workspace_capacity() in build_model.c
+ * (same factor, same minimum increment, same ceiling, same fatal), which is the
+ * established pattern for buffers whose size follows the FoF workspace being
+ * processed. Nothing in the module contract limits a producer to one event per
+ * halo, so capacity is grown lazily on demand rather than presized from ngal.
+ *
+ * MAX_HALO_ARRAY_SIZE stays as a fail-fast backstop against runaway or
+ * malformed emission (VISION.md Principle 7). It is a structural safety limit,
+ * not a scale-dependent cap: no simulation's legitimate event count should
+ * approach it.
+ */
+static void ensure_phase_event_capacity(int required) {
+  while (required > phase_event_state.event_capacity) {
+    int new_capacity = (int)(phase_event_state.event_capacity * HALO_ARRAY_GROWTH_FACTOR);
+
+    if (new_capacity - phase_event_state.event_capacity < MIN_HALO_ARRAY_GROWTH)
+      new_capacity = phase_event_state.event_capacity + MIN_HALO_ARRAY_GROWTH;
+
+    if (new_capacity > MAX_HALO_ARRAY_SIZE)
+      new_capacity = MAX_HALO_ARRAY_SIZE;
+
+    if (new_capacity <= phase_event_state.event_capacity) {
+      FATAL_ERROR("Phase event buffer requires %d events but maximum allowed size is %d", required,
+                  MAX_HALO_ARRAY_SIZE);
+    }
+
+    INFO_LOG("Growing phase event buffer from %d to %d elements", phase_event_state.event_capacity,
+             new_capacity);
+
+    const size_t bytes = (size_t)new_capacity * sizeof(struct ModuleEvent);
+    phase_event_state.events = myrealloc_cat(phase_event_state.events, bytes, MEM_UTILITY);
+    phase_event_state.event_capacity = new_capacity;
+  }
+}
+
+/**
+ * @brief   Release the run-persistent phase event buffer
+ */
+static void free_phase_event_buffer(void) {
+  if (phase_event_state.events == NULL) {
+    return;
+  }
+
+  myfree(phase_event_state.events);
+  phase_event_state.events = NULL;
+  phase_event_state.event_capacity = 0;
+}
+
+/**
  * @brief   Initialize per-phase event dispatch state
  */
 static void begin_phase_event_dispatch(struct PhaseModuleConfig *phase_config, int num_modules,
@@ -786,11 +844,10 @@ int module_emit_event(struct ModuleContext *ctx, int event_id, int source_index,
     return -1;
   }
 
-  if (phase_event_state.event_count >= MAX_PHASE_EVENTS) {
-    ERROR_LOG("Phase event buffer overflow: emitted %d events (max %d)",
-              phase_event_state.event_count, MAX_PHASE_EVENTS);
-    return -1;
-  }
+  /* Grow before taking a slot pointer: a realloc here can move the buffer, and
+   * only this path may grow it (emission is disabled while consumers run), so
+   * event pointers handed to consumers below stay valid for their dispatch. */
+  ensure_phase_event_capacity(phase_event_state.event_count + 1);
 
   int event_index = phase_event_state.event_count;
   struct ModuleEvent *event = &phase_event_state.events[event_index];
@@ -996,6 +1053,11 @@ int module_system_pipeline_count(void) { return num_pipeline_modules; }
 
 int module_system_cleanup(void) {
   int result = 0;
+
+  /* Released here, not at phase end: the event buffer is shared by every
+   * execute_phase() call, so freeing it per phase would reintroduce the
+   * hot-path allocation churn the grow-to-high-water design exists to avoid. */
+  free_phase_event_buffer();
 
   if (num_pipeline_modules == 0) {
     free_phase_configuration();

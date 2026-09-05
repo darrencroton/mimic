@@ -271,8 +271,12 @@ struct ModuleContext {
  * @param value1        Secondary scalar payload
  * @return 0 on success, non-zero on failure
  *
- * Failure cases: invalid context, invalid halo indices, buffer overflow,
- * or calling outside PROCESSING_MODE_FULL_HALO dispatch.
+ * Failure cases: invalid context, invalid halo indices, or calling outside
+ * PROCESSING_MODE_FULL_HALO dispatch. The phase event buffer grows to fit
+ * whatever is emitted (module_registry.c); only its structural ceiling
+ * (MAX_HALO_ARRAY_SIZE) is unrecoverable, and that aborts via FATAL_ERROR
+ * rather than returning non-zero, since it is not something a caller can
+ * meaningfully handle.
  *
  * Special case for direct module unit tests: when no phase dispatch context is
  * active, the event is dropped and 0 is returned.
