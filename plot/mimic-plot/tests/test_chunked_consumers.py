@@ -103,6 +103,22 @@ def _plot_params(tree_type, first_file=0, last_file=0, total_files=1):
     }
 
 
+def _write_hdf5_master(path, snapshot_num, records_per_group):
+    """Write a master-format HDF5 file with one File subgroup per record value."""
+    dtype = _halo_dtype()
+    with h5py.File(path, "w") as handle:
+        snap = handle.create_group(f"Snap{snapshot_num:03d}")
+        for index, value in enumerate(records_per_group):
+            data = np.array([(0, value, float(value))], dtype=dtype)
+            snap.create_group(f"File{index}").create_dataset("Galaxies", data=data)
+
+
+def _write_a_list(path, num_snapshots):
+    """Write a strictly increasing expansion-factor list covering num_snapshots entries."""
+    factors = [(index + 1) / float(num_snapshots) for index in range(num_snapshots)]
+    Path(path).write_text("\n".join(f"{a:.6f}" for a in factors) + "\n", encoding="utf-8")
+
+
 def test_binary_ctrees_discovers_chunk_ids_numerically():
     mimic_plot = _load_mimic_plot_module()
     with tempfile.TemporaryDirectory() as tmp:
@@ -178,6 +194,145 @@ def test_hdf5_master_file_groups_sort_numerically():
         np.testing.assert_array_equal(halos["Len"], np.array([2, 10, 1000], dtype=np.int32))
 
 
+def test_hdf5_reader_reads_only_requested_fields():
+    """Evolution plots read a field subset; the reader must return just those fields."""
+    if not HAVE_H5PY:
+        raise TestSkipped("h5py not installed")
+
+    import hdf5_reader
+
+    with tempfile.TemporaryDirectory() as tmp:
+        master_path = Path(tmp) / "model.hdf5"
+        _write_hdf5_master(master_path, 63, (7, 9))
+
+        subset = hdf5_reader.read_hdf5_snapshot(master_path, 63, fields=["Mvir"])
+        full = hdf5_reader.read_hdf5_snapshot(master_path, 63)
+
+        assert subset.dtype.names == ("Mvir",)
+        assert subset.itemsize < full.itemsize
+        np.testing.assert_array_equal(subset["Mvir"], np.array([7.0, 9.0], dtype=np.float32))
+        np.testing.assert_array_equal(subset["Mvir"], full["Mvir"])
+        assert full.dtype.names == ("Type", "Len", "Mvir")
+
+
+def test_hdf5_reader_falls_back_to_full_record_for_unknown_field():
+    """A field the output does not carry must degrade to a full read, not an empty one."""
+    if not HAVE_H5PY:
+        raise TestSkipped("h5py not installed")
+
+    import hdf5_reader
+
+    with tempfile.TemporaryDirectory() as tmp:
+        master_path = Path(tmp) / "model.hdf5"
+        _write_hdf5_master(master_path, 63, (7,))
+
+        halos = hdf5_reader.read_hdf5_snapshot(master_path, 63, fields=["Mvir", "StellarMass"])
+
+        assert halos.dtype.names == ("Type", "Len", "Mvir")
+
+
+def test_hdf5_reader_reads_only_requested_fields_direct_format():
+    """The non-master (individual-file) branch must also honour a field subset."""
+    if not HAVE_H5PY:
+        raise TestSkipped("h5py not installed")
+
+    import hdf5_reader
+
+    dtype = _halo_dtype()
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "model_000.hdf5"
+        with h5py.File(path, "w") as handle:
+            snap = handle.create_group("Snap063")
+            data = np.array([(0, 7, 7.0), (0, 9, 9.0)], dtype=dtype)
+            snap.create_dataset("Galaxies", data=data)
+
+        subset = hdf5_reader.read_hdf5_snapshot(path, 63, fields=["Mvir"])
+        full = hdf5_reader.read_hdf5_snapshot(path, 63)
+
+        assert subset.dtype.names == ("Mvir",)
+        assert subset.itemsize < full.itemsize
+        np.testing.assert_array_equal(subset["Mvir"], np.array([7.0, 9.0], dtype=np.float32))
+
+
+def test_resolve_evolution_read_fields_narrows_by_selected_plots():
+    """--plots= narrows the candidate set before the field union is computed."""
+    mimic_plot = _load_mimic_plot_module()
+
+    plot_modules = {"hmf_evolution": None, "smf_evolution": None}
+    registry = {
+        "hmf_evolution": ["Type", "Mvir"],
+        "smf_evolution": ["StellarMass"],
+    }
+
+    # No --plots= restriction: union of every candidate plot's fields.
+    fields = mimic_plot.resolve_evolution_read_fields(plot_modules, None, registry)
+    assert fields == ["Mvir", "StellarMass", "Type"]
+
+    # --plots=hmf_evolution: only that plot's fields.
+    fields = mimic_plot.resolve_evolution_read_fields(plot_modules, {"hmf_evolution"}, registry)
+    assert fields == ["Mvir", "Type"]
+
+
+def test_resolve_evolution_read_fields_falls_back_when_registry_incomplete():
+    """A candidate plot missing from the registry must force a full read (None)."""
+    mimic_plot = _load_mimic_plot_module()
+
+    plot_modules = {"hmf_evolution": None, "smf_evolution": None}
+    incomplete_registry = {"hmf_evolution": ["Type", "Mvir"]}  # smf_evolution missing
+
+    fields = mimic_plot.resolve_evolution_read_fields(plot_modules, None, incomplete_registry)
+    assert fields is None
+
+    # An empty registry (e.g. a model package with no EVOLUTION_PLOT_FIELDS at all)
+    # must fall back the same way.
+    fields = mimic_plot.resolve_evolution_read_fields(plot_modules, None, {})
+    assert fields is None
+
+    # No candidate plots at all (--plots= names only snapshot plots) also falls back.
+    complete_registry = {"hmf_evolution": ["Type", "Mvir"], "smf_evolution": ["StellarMass"]}
+    fields = mimic_plot.resolve_evolution_read_fields(
+        plot_modules, {"halo_mass_function"}, complete_registry
+    )
+    assert fields is None
+
+
+def test_read_data_hdf5_threads_field_subset():
+    """read_data() must pass its field subset through to the HDF5 reader."""
+    if not HAVE_H5PY:
+        raise TestSkipped("h5py not installed")
+
+    mimic_plot = _load_mimic_plot_module()
+    with tempfile.TemporaryDirectory() as tmp:
+        _write_schema(tmp)
+        _write_hdf5_master(Path(tmp) / "model.hdf5", 1, (3, 5))
+        a_list = Path(tmp) / "test.a_list"
+        _write_a_list(a_list, 2)
+
+        params = _plot_params("lhalo_binary")
+        params.update(
+            {
+                "OutputFormat": "hdf5",
+                "OutputFileBaseName": "model",
+                "FileWithSnapList": str(a_list),
+                "OutputSnapshots": [1],
+            }
+        )
+
+        galaxies, _, metadata = mimic_plot.read_data(
+            os.path.join(tmp, "model"), 0, 0, params=params, quiet=True, fields=["Mvir"]
+        )
+
+        assert galaxies.dtype.names == ("Mvir",)
+        assert metadata["ngals"] == 2
+        np.testing.assert_array_equal(galaxies.Mvir, np.array([3.0, 5.0], dtype=np.float32))
+
+        full, _, _ = mimic_plot.read_data(
+            os.path.join(tmp, "model"), 0, 0, params=params, quiet=True
+        )
+
+        assert full.dtype.names == ("Type", "Len", "Mvir")
+
+
 def test_generated_example_partition_sort_handles_binary_redshift_names():
     template = (REPO_ROOT / "src/io/output/python_example.c").read_text(encoding="utf-8")
     assert "name = Path(path).name" in template
@@ -201,6 +356,12 @@ def main():
             test_binary_lhalo_preserves_input_file_range,
             test_binary_ctrees_volume_uses_input_range_not_chunk_count,
             test_hdf5_master_file_groups_sort_numerically,
+            test_hdf5_reader_reads_only_requested_fields,
+            test_hdf5_reader_falls_back_to_full_record_for_unknown_field,
+            test_hdf5_reader_reads_only_requested_fields_direct_format,
+            test_resolve_evolution_read_fields_narrows_by_selected_plots,
+            test_resolve_evolution_read_fields_falls_back_when_registry_incomplete,
+            test_read_data_hdf5_threads_field_subset,
             test_generated_example_partition_sort_handles_binary_redshift_names,
         ],
         "Chunked Output Consumers (test_chunked_consumers.py)",

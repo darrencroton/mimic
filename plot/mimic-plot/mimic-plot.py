@@ -72,6 +72,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SNAPSHOT_PLOTS = []
 EVOLUTION_PLOTS = []
 PLOT_REQUIREMENTS = {}
+EVOLUTION_PLOT_FIELDS = {}
 PLOT_FUNCS = {}
 PLOT_PROFILE = {}
 PROFILE_PLOTS = {"snapshot": None, "evolution": None}
@@ -234,6 +235,7 @@ def validate_required_params(params, required_params, context=""):
 def configure_figure_package(params, param_file, verbose=False):
     """Load the active model's figure package and registry."""
     global SNAPSHOT_PLOTS, EVOLUTION_PLOTS, PLOT_REQUIREMENTS, PLOT_FUNCS
+    global EVOLUTION_PLOT_FIELDS
     global check_required_properties
 
     model_path = params.get("ModelPath")
@@ -250,6 +252,7 @@ def configure_figure_package(params, param_file, verbose=False):
     SNAPSHOT_PLOTS = list(getattr(figures, "SNAPSHOT_PLOTS", []))
     EVOLUTION_PLOTS = list(getattr(figures, "EVOLUTION_PLOTS", []))
     PLOT_REQUIREMENTS = dict(getattr(figures, "PLOT_REQUIREMENTS", {}))
+    EVOLUTION_PLOT_FIELDS = dict(getattr(figures, "EVOLUTION_PLOT_FIELDS", {}))
     PLOT_FUNCS = dict(getattr(figures, "PLOT_FUNCS", {}))
     check_required_properties = figures.check_required_properties
 
@@ -674,7 +677,9 @@ def build_metadata(hubble_h, box_size, volume, ngals, good_files, ntrees=0, sche
     }
 
 
-def read_data(model_path, first_file, last_file, params=None, verbose=False, quiet=False):
+def read_data(
+    model_path, first_file, last_file, params=None, verbose=False, quiet=False, fields=None
+):
     """
     Read galaxy data from Mimic output files.
 
@@ -685,6 +690,9 @@ def read_data(model_path, first_file, last_file, params=None, verbose=False, qui
         params: Dictionary with Mimic parameters
         verbose: Enable verbose output
         quiet: Suppress all output
+        fields: Galaxy fields to read, or None (default) for the full record.
+            Honoured by the HDF5 reader only; the binary and SAGE-native readers
+            always return complete records.
 
     Returns:
         Tuple containing:
@@ -734,7 +742,7 @@ def read_data(model_path, first_file, last_file, params=None, verbose=False, qui
 
         if verbose:
             print("Using HDF5 format reader")
-        return read_data_hdf5(model_path, first_file, last_file, params, verbose, quiet)
+        return read_data_hdf5(model_path, first_file, last_file, params, verbose, quiet, fields)
 
     if verbose:
         print("Using binary format reader")
@@ -846,7 +854,9 @@ def read_data(model_path, first_file, last_file, params=None, verbose=False, qui
     return galaxies, volume, metadata
 
 
-def read_data_hdf5(model_path, first_file, last_file, params, verbose=False, quiet=False):
+def read_data_hdf5(
+    model_path, first_file, last_file, params, verbose=False, quiet=False, fields=None
+):
     """
     Read halo data from Mimic HDF5 output files.
 
@@ -857,6 +867,7 @@ def read_data_hdf5(model_path, first_file, last_file, params, verbose=False, qui
         params: Dictionary with Mimic parameters
         verbose: Enable verbose output
         quiet: Suppress all output
+        fields: Galaxy fields to read, or None (default) for the full record
 
     Returns:
         Tuple containing:
@@ -925,7 +936,7 @@ def read_data_hdf5(model_path, first_file, last_file, params, verbose=False, qui
     if os.path.exists(master_file):
         if verbose:
             print(f"Found master file: {master_file}")
-        halos = hdf5_reader.read_hdf5_snapshot(master_file, snapshot_num)
+        halos = hdf5_reader.read_hdf5_snapshot(master_file, snapshot_num, fields)
         if halos is not None:
             tot_ngals = len(halos)
             galaxies_list.append(halos)
@@ -949,7 +960,7 @@ def read_data_hdf5(model_path, first_file, last_file, params, verbose=False, qui
         )
 
         for fname in file_iterator:
-            halos = hdf5_reader.read_hdf5_snapshot(fname, snapshot_num)
+            halos = hdf5_reader.read_hdf5_snapshot(fname, snapshot_num, fields)
             if halos is not None:
                 galaxies_list.append(halos)
                 tot_ngals += len(halos)
@@ -1395,6 +1406,31 @@ def generate_snapshot_plots(params, args, output_dir, selected_plots):
     return created, skipped_validation, True
 
 
+def resolve_evolution_read_fields(plot_modules, selected_plots, evolution_plot_fields):
+    """Resolve the galaxy field subset evolution plots need, or None for a full read.
+
+    Args:
+        plot_modules: Dict of plot name -> plot function for the active profile
+        selected_plots: Optional set/list restricting which plots will run (--plots=),
+            or None/empty to mean every plot in plot_modules
+        evolution_plot_fields: Dict of plot name -> required galaxy field names
+            (e.g. the model's EVOLUTION_PLOT_FIELDS registry)
+
+    Returns:
+        Sorted list of field names to read, or None if the registry does not cover
+        every candidate plot (the conservative fallback: read every field).
+    """
+    candidate_plots = [
+        name for name in plot_modules if not selected_plots or name in selected_plots
+    ]
+    if not candidate_plots or not all(name in evolution_plot_fields for name in candidate_plots):
+        return None
+    needed = set()
+    for name in candidate_plots:
+        needed.update(evolution_plot_fields[name])
+    return sorted(needed)
+
+
 def generate_evolution_plots(params, args, output_dir, selected_plots):
     """Read every evolution snapshot and generate the evolution plots.
 
@@ -1446,6 +1482,16 @@ def generate_evolution_plots(params, args, output_dir, selected_plots):
             f"{[mapper.get_redshift(snap) if snap >= 0 else 0.0 for snap in snapshots]}"
         )
 
+    # Every requested snapshot is held in memory at once (see snapshot_data below), so the
+    # working set scales with the number of snapshots times the full galaxy record. Evolution
+    # figures only read a few named fields, so resolve the union needed by the plots that will
+    # actually run and let the HDF5 reader skip the rest of the record. Any gap in the model's
+    # registry resolves to None (read everything, today's behaviour): under-reading a field a
+    # figure needs would be a correctness bug, not just a slow plot.
+    read_fields = resolve_evolution_read_fields(plot_modules, selected_plots, EVOLUTION_PLOT_FIELDS)
+    if args.verbose:
+        print(f"Galaxy fields to read: {', '.join(read_fields) if read_fields else 'all'}")
+
     # Read galaxy data for each snapshot
     snapshot_data = {}
     snapshot_iterator = (
@@ -1478,6 +1524,7 @@ def generate_evolution_plots(params, args, output_dir, selected_plots):
                 params=params.params,
                 verbose=args.verbose,
                 quiet=args.quiet,
+                fields=read_fields,
             )
             metadata["redshift"] = redshift
             snapshot_data[snap] = (galaxies, volume, metadata)

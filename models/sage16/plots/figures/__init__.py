@@ -199,6 +199,19 @@ PLOT_REQUIREMENTS = {
     "stellar_mass_density_evolution": ["StellarMass"],
 }
 
+# Galaxy fields each evolution figure actually reads. Evolution plots hold every requested
+# snapshot in memory simultaneously, so the plotting engine reads only the union of these
+# fields from HDF5 output instead of the whole record. Keep an entry for every plot in
+# EVOLUTION_PLOTS and keep it a superset of that plot's PLOT_REQUIREMENTS: a name missing
+# here makes the engine fall back to reading every field, and a field missing from a listed
+# entry would leave the figure without data it needs.
+EVOLUTION_PLOT_FIELDS = {
+    "hmf_evolution": ["Type", "Mvir"],
+    "smf_evolution": ["StellarMass"],
+    "sfr_density_evolution": ["StarFormationRate", "StellarMass"],
+    "stellar_mass_density_evolution": ["StellarMass"],
+}
+
 PLOT_FUNCS = {
     "halo_mass_function": halo_mass_function.plot,
     "halo_occupation": halo_occupation.plot,
