@@ -21,6 +21,12 @@ sage-code
 # project source - e.g. per-cluster SLURM job scripts)
 ops/
 
+# Slurm job logs (%x-%j.out/.err land in the submission directory, i.e. repo root -
+# untracked, so a cleanliness guard like ops/nt/sage16_shin-uchuu.sbatch's own
+# "working tree is not clean" check doesn't trip on a job's own just-created logs)
+/*.out
+/*.err
+
 # Build artifacts
 build/
 *.o
