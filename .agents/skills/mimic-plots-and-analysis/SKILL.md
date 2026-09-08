@@ -57,7 +57,7 @@ Profiles merge in this order, later wins (verified in `configure_plot_profile`):
 
 `inherits:` entries inside a profile resolve relative to the declaring file's directory (so package profiles inherit `default.yaml` by local name); inheritance cycles raise an error; diamonds are allowed. The active profile's `plots.snapshot`/`plots.evolution` lists intersect with the registry — a registered figure absent from the profile doesn't run unless named via `--plots`.
 
-**KNOWN TRAP — axis keys**: `get_profile_axes()` (`plot/mimic-plot/output_utils.py`) reads scalar keys `xmin`/`xmax`/`ymin`/`ymax` under `axes.<plot>` (with `ymin`/`ymax` interpreted as log10 values when the figure passes `log_y=True`). Several shipped profiles instead carry list-form `xlim: [a, b]` / `ylim: [a, b]` keys, which the code NEVER reads — those overrides are silently ignored and figures fall back to their hard-coded defaults. When an axis override "doesn't work", check the key spelling first. Use `xmin`/`xmax`/`ymin`/`ymax` in new profile entries; treat the shipped `xlim`/`ylim` entries as a known repo inconsistency (report it, don't copy it).
+**Axis keys — one convention, one exception.** `get_profile_axes()` (`plot/mimic-plot/output_utils.py`) reads scalar keys `xmin`/`xmax`/`ymin`/`ymax` under `axes.<plot>` (with `ymin`/`ymax` interpreted as log10 values when the figure passes `log_y=True`). Use these for every figure except one: `spatial_distribution.py` does not call `get_profile_axes()` — it reads `axes.spatial_distribution.xlim`/`.ylim` (list form) directly inline, and that is the only plot key where `xlim`/`ylim` has any effect. Writing `xlim`/`ylim` under any other plot key is silently ignored — the figure falls back to its hard-coded default window with no error.
 
 ## 4. The figure contract
 
@@ -110,8 +110,8 @@ grep -n '"--' plot/mimic-plot/mimic-plot.py | head -20                    # CLI 
 grep -n "SNAPSHOT_PLOTS\s*=\|EVOLUTION_PLOTS\s*=" models/sage16/plots/figures/__init__.py
 sed -n '305,352p' plot/mimic-plot/mimic-plot.py                            # profile stack order
 sed -n '308,341p' plot/mimic-plot/output_utils.py                          # axis keys (xmin/xmax/ymin/ymax)
-grep -rn "xlim:\|ylim:" models/*/plots/profiles/*.yaml simulations/*/plot_profile.yaml | head -5   # trap still present?
+grep -rn "xlim:\|ylim:" models/*/plots/profiles/*.yaml simulations/*/plot_profile.yaml | head -5   # every hit should be under spatial_distribution
 ls plot/mimic-plot/tests/
 ```
 
-The registry export names and figure contract are engine architecture (drift only with `mimic-plot.py`); the profile-stack order and the axis-key trap should be re-checked if `plot/mimic-plot/output_utils.py` or the shipped profiles change — if the `xlim`/`ylim` grep comes back empty, the inconsistency has been fixed and section 3's trap note should be updated.
+The registry export names and figure contract are engine architecture (drift only with `mimic-plot.py`); the profile-stack order and the axis-key convention should be re-checked if `plot/mimic-plot/output_utils.py` or the shipped profiles change — the `xlim`/`ylim` grep above should only ever match `spatial_distribution` entries; a match against any other plot key means a new profile copied the wrong convention.

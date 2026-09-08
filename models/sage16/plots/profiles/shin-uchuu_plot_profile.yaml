@@ -1,0 +1,49 @@
+inherits:
+  - default.yaml
+
+mode: validation
+
+simulation: shin-uchuu
+
+# Shin-Uchuu's particle mass is 8.97e5 Msun/h against mini-millennium/millennium's
+# 8.60657e8 Msun/h -- 959.5x finer mass resolution, ~3.0 dex. The sage16 default
+# axes (hard-coded per-figure fallbacks, effectively tuned to mini-millennium/
+# millennium since no simulation profile previously existed here) would silently
+# clip roughly the bottom 3 dex of Shin-Uchuu's resolved halo population.
+#
+# Halo-mass axes (Mvir) shift their low edge down the full ~3.0 dex. Stellar/gas/
+# baryonic mass axes shift by a more conservative ~2.0 dex: the stellar-halo mass
+# relation steepens at low halo mass, so 3.0 dex of extra halo resolution does not
+# buy 3.0 dex of extra resolved stellar mass. Upper bounds are left at the sage16
+# defaults -- Shin-Uchuu's 140 Mpc/h box is smaller than full Millennium's 500
+# Mpc/h, so the high-mass tail is not better sampled here, and millennium and
+# mini-millennium already share the same ceiling despite an 512x volume gap
+# between them. These are resolution-derived estimates, not measurements --
+# revisit against the first plots this profile actually produces.
+axes:
+  halo_mass_function:
+    xmin: 7.0
+  halo_occupation:
+    xmin: 7.0
+  baryon_fraction:
+    xmin: 7.8
+  stellar_mass_function:
+    xmin: 6.0
+  baryonic_mass_function:
+    xmin: 6.0
+  cold_gas_function:
+    xmin: 6.0
+  gas_mass_function:
+    xmin: 6.0
+  gas_fraction:
+    xmin: 6.0
+  metallicity:
+    xmin: 6.0
+  quiescent_fraction:
+    xmin: 7.5
+  specific_sfr:
+    xmin: 6.0
+  black_hole_bulge_relation:
+    xmin: 6.0
+  baryonic_tully_fisher:
+    xmin: 1.0

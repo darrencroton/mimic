@@ -7,7 +7,9 @@ simulation: mini-millennium
 
 axes:
   stellar_mass_function:
-    xlim: [7.0, 12.5]
+    xmin: 7.0
+    xmax: 12.5
   halo_mass_function:
-    xlim: [9.0, 15.5]
+    xmin: 9.0
+    xmax: 15.5
 

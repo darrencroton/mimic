@@ -1,0 +1,37 @@
+inherits:
+  - default.yaml
+
+mode: validation
+
+simulation: shin-uchuu-ascii
+
+# Same physical simulation as the shin-uchuu (snapshot-HDF5) package -- identical
+# particle mass and box size -- so the same resolution-derived axis overrides
+# apply. See shin-uchuu_plot_profile.yaml for the derivation and reasoning.
+axes:
+  halo_mass_function:
+    xmin: 7.0
+  halo_occupation:
+    xmin: 7.0
+  baryon_fraction:
+    xmin: 7.8
+  stellar_mass_function:
+    xmin: 6.0
+  baryonic_mass_function:
+    xmin: 6.0
+  cold_gas_function:
+    xmin: 6.0
+  gas_mass_function:
+    xmin: 6.0
+  gas_fraction:
+    xmin: 6.0
+  metallicity:
+    xmin: 6.0
+  quiescent_fraction:
+    xmin: 7.5
+  specific_sfr:
+    xmin: 6.0
+  black_hole_bulge_relation:
+    xmin: 6.0
+  baryonic_tully_fisher:
+    xmin: 1.0
