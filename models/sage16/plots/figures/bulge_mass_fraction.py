@@ -56,6 +56,10 @@ def plot(
     # Extract necessary metadata
     hubble_h = metadata["hubble_h"]
 
+    x_min, x_max, y_min, y_max = get_profile_axes(
+        params, "bulge_mass_fraction", (8.5, 12.0), (0.0, 1.05)
+    )
+
     # Calculate bulge and disk fractions
     # Handle division by zero safely
     valid_galaxies = np.where(galaxies.StellarMass > 0.0)[0]
@@ -75,10 +79,11 @@ def plot(
     # Convert stellar mass to log scale
     mass = np.log10(galaxies.StellarMass[valid_galaxies] * 1.0e10 / hubble_h)
 
-    # Set up mass bins for the averaging
+    # Bin over the same range as the display axis so a profile override reaches
+    # the plotted lines, not just the canvas.
     binwidth = 0.2
     shift = binwidth / 2.0
-    mass_range = np.arange(8.5 - shift, 12.0 + shift, binwidth)
+    mass_range = np.arange(x_min - shift, x_max + shift, binwidth)
     bins = len(mass_range)
 
     # Initialize arrays for average values and variances
@@ -131,9 +136,6 @@ def plot(
     ax.set_ylabel(r"Stellar Mass Fraction", fontsize=AXIS_LABEL_SIZE)
 
     # Set axis limits
-    x_min, x_max, y_min, y_max = get_profile_axes(
-        params, "bulge_mass_fraction", (mass_range[0], mass_range[bins - 1]), (0.0, 1.05)
-    )
     ax.set_xlim(x_min, x_max)
     ax.set_ylim(y_min, y_max)
 

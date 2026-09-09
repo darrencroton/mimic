@@ -95,9 +95,9 @@ def plot(
         if verbose:
             warn(msg)
         return None, msg
-    # Set up halo mass bins
-    min_halo = 11.0
-    max_halo = 16.0
+    # Bin over the same x range as the display axis so a profile override
+    # reaches the plotted lines. y stays data-driven below, so only x is used here.
+    min_halo, max_halo, _, _ = get_profile_axes(params, "baryon_fraction", (10.8, 15.0), (0.0, 1.0))
     interval = 0.1
     nbins = int((max_halo - min_halo) / interval)
     halo_bins = np.arange(min_halo, max_halo, interval)

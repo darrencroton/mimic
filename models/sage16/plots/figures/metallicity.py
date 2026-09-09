@@ -70,9 +70,11 @@ def plot(
     if not has_gas:
         return None, f"Field validation failed: {msg}"
 
-    # Field-level validation: Check if StellarMass has any non-zero values
+    # Field-level validation: Check if StellarMass has any non-zero values.
+    # threshold=0.0 (not a resolution-tied literal) since the real mass floor is the
+    # profile's x_min, applied below.
     has_mass, count, msg = check_field_has_values(
-        galaxies.StellarMass, "StellarMass", threshold=0.01
+        galaxies.StellarMass, "StellarMass", threshold=0.0
     )
     if not has_mass:
         return None, f"Field validation failed: {msg}"
@@ -96,7 +98,7 @@ def plot(
     # First filter for valid mass values - avoid division by zero
     valid_mass = (
         (galaxies.Type == 0)
-        & (galaxies.StellarMass > 0.01)
+        & (galaxies.StellarMass > 0.0)
         & (galaxies.ColdGas > 0.0)
         & (galaxies.MetalsColdGas > 0.0)
     )
@@ -107,8 +109,14 @@ def plot(
         galaxies.StellarMass[valid_mass] + galaxies.ColdGas[valid_mass]
     )
 
-    # Now apply all filters
-    w = np.where(valid_mass & (gas_fraction > 0.1))[0]
+    # Stellar mass in log scale, computed once so the floor below can be applied
+    # in log space.
+    log_stellar_mass = np.full(len(galaxies), -np.inf)
+    log_stellar_mass[valid_mass] = np.log10(galaxies.StellarMass[valid_mass] * 1.0e10 / hubble_h)
+
+    # Floor at the display axis's x_min, not an absolute-mass literal, so a
+    # profile override reaches the plotted points, not just the canvas.
+    w = np.where(valid_mass & (gas_fraction > 0.1) & (log_stellar_mass >= x_min))[0]
 
     # Filter-level validation: Check if filtering produced results
     is_valid, skip_msg = validate_filtered_data(w, "Metallicity", verbose)
@@ -122,8 +130,8 @@ def plot(
     if len(w) > dilute:
         w = random.sample(list(w), dilute)
 
-    # Calculate metallicity (12 + log10[O/H]) and convert stellar mass to log scale
-    stellar_mass = np.log10(galaxies.StellarMass[w] * 1.0e10 / hubble_h)
+    # Calculate metallicity (12 + log10[O/H])
+    stellar_mass = log_stellar_mass[w]
     # Metallicity in units of solar (Z_solar = 0.02)
     metallicity = np.log10((galaxies.MetalsColdGas[w] / galaxies.ColdGas[w]) / 0.02) + 9.0
 
@@ -149,7 +157,9 @@ def plot(
     # Add Tremonti et al. 2003 observational relation
     # Relation: 12 + log(O/H) = -1.492 + 1.847*log(M*) - 0.08026*log(M*)^2
     # Original relation is for Kroupa IMF, need to convert
-    mass_range = np.arange(7.0, 13.0, 0.1)
+    # Span 1 dex beyond the display axis so the curve still covers it after the
+    # IMF shift.
+    mass_range = np.arange(x_min - 1.0, x_max + 1.0, 0.1)
     tremonti_Z = -1.492 + 1.847 * mass_range - 0.08026 * mass_range * mass_range
 
     if whichimf == 0:

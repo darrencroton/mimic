@@ -23,27 +23,44 @@ simulation: shin-uchuu
 axes:
   halo_mass_function:
     xmin: 7.0
+    ymax: 2.0
   halo_occupation:
     xmin: 7.0
+    ymax: 4.0
   baryon_fraction:
-    xmin: 7.8
+    xmin: 7.0
   stellar_mass_function:
-    xmin: 6.0
+    xmin: 4.0
+    ymax: 0.5
+  bulge_mass_fraction:
+    xmin: 4.0
   baryonic_mass_function:
-    xmin: 6.0
+    xmin: 4.0
+    ymax: 0.5
   cold_gas_function:
-    xmin: 6.0
+    xmin: 4.0
+    ymax: 0.5
   gas_mass_function:
-    xmin: 6.0
+    xmin: 4.0
+    ymax: 0.5
   gas_fraction:
-    xmin: 6.0
+    xmin: 4.0
   metallicity:
-    xmin: 6.0
+    xmin: 4.0
+    ymin: 7.0
   quiescent_fraction:
-    xmin: 7.5
+    xmin: 4.0
   specific_sfr:
-    xmin: 6.0
+    xmin: 4.0
   black_hole_bulge_relation:
     xmin: 6.0
+    ymin: 4.0
   baryonic_tully_fisher:
     xmin: 1.0
+    ymin: 4.0
+  mass_reservoir_scatter:
+    xmin: 7.0
+  velocity_distribution:
+    xmin: -50.0
+    xmax: 50.0
+    ymin: -6.0

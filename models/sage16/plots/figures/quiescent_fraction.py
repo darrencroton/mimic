@@ -103,9 +103,10 @@ def plot(
         sfr = galaxies.StarFormationRate[w][nonzero_mass]
         sSFR[nonzero_mass] = sfr / stellar_mass_phys[nonzero_mass]
 
-    # Define mass bins
-    min_range = 9.5
-    max_range = 12.0
+    # Bin over the same range as the display axis so a profile override reaches
+    # the plotted lines, not just the canvas.
+    min_range = x_min
+    max_range = x_max
     interval = 0.1
     nbins = int((max_range - min_range) / interval)
     mass_bins = np.arange(min_range, max_range, interval)

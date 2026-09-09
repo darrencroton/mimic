@@ -17,6 +17,8 @@ axes:
     xmin: 7.8
   stellar_mass_function:
     xmin: 6.0
+  bulge_mass_fraction:
+    xmin: 6.0
   baryonic_mass_function:
     xmin: 6.0
   cold_gas_function:

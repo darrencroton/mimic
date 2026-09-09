@@ -71,8 +71,15 @@ def plot(
     # Maximum number of points to plot (for better performance and readability)
     dilute = 7500
 
-    # Filter for valid galaxies with both bulge and black hole mass
-    w = np.where((galaxies.BulgeMass > 0.01) & (galaxies.BlackHoleMass > 0.00001))[0]
+    # Floor at the display axis's x_min/y_min, not absolute-mass literals, so a
+    # profile override reaches the plotted points, not just the canvas.
+    has_bulge = galaxies.BulgeMass > 0.0
+    has_bh = galaxies.BlackHoleMass > 0.0
+    log_bulge_mass = np.full(len(galaxies), -np.inf)
+    log_bulge_mass[has_bulge] = np.log10(galaxies.BulgeMass[has_bulge] * 1.0e10 / hubble_h)
+    log_bh_mass = np.full(len(galaxies), -np.inf)
+    log_bh_mass[has_bh] = np.log10(galaxies.BlackHoleMass[has_bh] * 1.0e10 / hubble_h)
+    w = np.where((log_bulge_mass >= x_min) & (log_bh_mass >= y_min))[0]
 
     # Validate filtered data
     is_valid, skip_msg = validate_filtered_data(w, "Black Hole-Bulge Relation", verbose)
@@ -86,9 +93,9 @@ def plot(
     if len(w) > dilute:
         w = random.sample(list(w), dilute)
 
-    # Convert to physical units (Msun)
-    bh_mass = np.log10(galaxies.BlackHoleMass[w] * 1.0e10 / hubble_h)
-    bulge_mass = np.log10(galaxies.BulgeMass[w] * 1.0e10 / hubble_h)
+    # Already in physical log10(Msun) units
+    bh_mass = log_bh_mass[w]
+    bulge_mass = log_bulge_mass[w]
 
     # Print some debug information if verbose mode is enabled
     if verbose:
@@ -102,7 +109,8 @@ def plot(
 
     # Add Häring & Rix 2004 observational relation
     # M_BH = 10^(8.2) * (M_bulge/10^11)^1.12
-    x_hr = np.logspace(8, 12, 100)
+    # Drawn across the display axis so it doesn't stop short of an override.
+    x_hr = np.logspace(x_min, x_max, 100)
     y_hr = 10 ** (8.2) * (x_hr / 1.0e11) ** 1.12
 
     ax.plot(np.log10(x_hr), np.log10(y_hr), "b-", label="Häring & Rix 2004", lw=2)

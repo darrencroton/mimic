@@ -65,9 +65,11 @@ def plot(
     if not success:
         return None, f"Required fields missing: {msg}"
 
-    # Field-level validation: Check if StellarMass and StarFormationRate have non-zero values
+    # Field-level validation: Check if StellarMass and StarFormationRate have non-zero values.
+    # threshold=0.0 (not a resolution-tied literal) since the real mass floor is the
+    # profile's x_min, applied below.
     has_mass, count, msg = check_field_has_values(
-        galaxies.StellarMass, "StellarMass", threshold=0.01
+        galaxies.StellarMass, "StellarMass", threshold=0.0
     )
     if not has_mass:
         return None, f"Field validation failed: {msg}"
@@ -88,8 +90,14 @@ def plot(
         params, "specific_sfr", (8.0, 12.0), (-14.0, -8.0)
     )
 
-    # Select galaxies with sufficient stellar mass
-    w = np.where(galaxies.StellarMass > 0.01)[0]
+    # Floor at the display axis's x_min, not an absolute-mass literal, so a
+    # profile override reaches the plotted points, not just the canvas.
+    has_stellar_mass = galaxies.StellarMass > 0.0
+    log_stellar_mass = np.full(len(galaxies), -np.inf)
+    log_stellar_mass[has_stellar_mass] = np.log10(
+        galaxies.StellarMass[has_stellar_mass] * 1.0e10 / hubble_h
+    )
+    w = np.where(has_stellar_mass & (log_stellar_mass >= x_min))[0]
 
     # Filter-level validation: Check if filtering produced results
     is_valid, skip_msg = validate_filtered_data(w, "Specific SFR", verbose)
@@ -104,7 +112,7 @@ def plot(
         w = sample(list(w), dilute)
 
     # Calculate stellar mass and specific SFR
-    mass = np.log10(galaxies.StellarMass[w] * 1.0e10 / hubble_h)
+    mass = log_stellar_mass[w]
     sfr = galaxies.StarFormationRate[w]
 
     # Avoid log10(0) and division by zero

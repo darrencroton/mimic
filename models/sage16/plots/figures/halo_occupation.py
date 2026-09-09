@@ -60,7 +60,7 @@ def plot(
     hubble_h = metadata["hubble_h"]
 
     x_min, x_max, y_min, y_max = get_profile_axes(
-        params, "halo_occupation", (10.0, 15.0), (0.1, 100.0)
+        params, "halo_occupation", (10.0, 15.0), (0.1, 100.0), log_y=True
     )
 
     # Only use galaxies with non-zero Mvir
@@ -131,9 +131,10 @@ def plot(
         )
         print(f"  Occupation number range: {min(occupation_all)} to {max(occupation_all)}")
 
-    # Bin the data by halo mass for the mean occupation
+    # Bin over the same range as the display axis so a profile override reaches
+    # the plotted line, not just the canvas.
     bin_width = 0.2  # dex
-    mass_bins = np.arange(10.0, 15.0, bin_width)
+    mass_bins = np.arange(x_min, x_max, bin_width)
     mean_occupation_all = np.zeros(len(mass_bins) - 1)
     mean_occupation_central = np.zeros(len(mass_bins) - 1)
     mean_occupation_satellite = np.zeros(len(mass_bins) - 1)

@@ -66,11 +66,26 @@ def plot(
     hubble_h = metadata["hubble_h"]
     schema_units = metadata.get("schema_units", {})
 
+    x_min, x_max, y_min, y_max = get_profile_axes(
+        params, "mass_reservoir_scatter", (10.0, 14.0), (7.5, 12.5)
+    )
+
     # Maximum number of points to plot (for better performance and readability)
     dilute = 7500
 
-    # Filter for type 0 (central) galaxies with non-zero Mvir
-    w = np.where((galaxies.Type == 0) & (galaxies.Mvir > 1.0) & (galaxies.StellarMass > 0.0))[0]
+    def mass_msun(field_name, idx):
+        units = schema_units.get(field_name, "1e10 Msun/h")
+        return mass_to_msun(getattr(galaxies, field_name)[idx], units, hubble_h)
+
+    # Floor at the display axis's x_min, not an absolute-mass literal, so a
+    # profile override reaches the plotted points, not just the canvas.
+    candidates = np.where(
+        (galaxies.Type == 0) & (galaxies.Mvir > 0.0) & (galaxies.StellarMass > 0.0)
+    )[0]
+    log_mvir_candidates = np.log10(mass_msun("Mvir", candidates))
+    keep = log_mvir_candidates >= x_min
+    w = candidates[keep]
+    mvir = log_mvir_candidates[keep]
 
     # Validate filtered data
     is_valid, skip_msg = validate_filtered_data(w, "Mass Reservoir Scatter", verbose)
@@ -82,19 +97,16 @@ def plot(
 
     # If we have too many galaxies, randomly sample a subset
     if len(w) > dilute:
-        w = random.sample(list(w), dilute)
+        sample_idx = random.sample(range(len(w)), dilute)
+        w = w[sample_idx]
+        mvir = mvir[sample_idx]
 
-    def mass_msun(field_name):
-        units = schema_units.get(field_name, "1e10 Msun/h")
-        return mass_to_msun(getattr(galaxies, field_name)[w], units, hubble_h)
-
-    # Get masses in log10 physical Msun units
-    mvir = np.log10(mass_msun("Mvir"))
-    stellar_mass = np.log10(mass_msun("StellarMass"))
-    cold_gas = np.log10(np.maximum(mass_msun("ColdGas"), 1.0))  # Avoid log(0)
-    hot_gas = np.log10(np.maximum(mass_msun("HotGas"), 1.0))
-    ejected_gas = np.log10(np.maximum(mass_msun("EjectedGas"), 1.0))
-    ics = np.log10(np.maximum(mass_msun("ICS"), 1.0))
+    # Get remaining masses in log10 physical Msun units
+    stellar_mass = np.log10(mass_msun("StellarMass", w))
+    cold_gas = np.log10(np.maximum(mass_msun("ColdGas", w), 1.0))  # Avoid log(0)
+    hot_gas = np.log10(np.maximum(mass_msun("HotGas", w), 1.0))
+    ejected_gas = np.log10(np.maximum(mass_msun("EjectedGas", w), 1.0))
+    ics = np.log10(np.maximum(mass_msun("ICS", w), 1.0))
 
     # Print some debug information
     # Print some debug information if verbose mode is enabled
@@ -119,13 +131,6 @@ def plot(
     ax.yaxis.set_minor_locator(MultipleLocator(0.5))
 
     # Set axis limits
-    x_min_data = max(10.0, min(mvir) - 0.5)
-    x_max_data = min(14.0, max(mvir) + 0.5)
-    y_min_data = max(7.5, min(min(stellar_mass), min(cold_gas), min(hot_gas)) - 0.5)
-    y_max_data = min(12.5, max(max(stellar_mass), max(cold_gas), max(hot_gas)) + 0.5)
-    x_min, x_max, y_min, y_max = get_profile_axes(
-        params, "mass_reservoir_scatter", (x_min_data, x_max_data), (y_min_data, y_max_data)
-    )
     ax.set_xlim(x_min, x_max)
     ax.set_ylim(y_min, y_max)
 
