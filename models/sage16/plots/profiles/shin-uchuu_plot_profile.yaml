@@ -5,30 +5,15 @@ mode: validation
 
 simulation: shin-uchuu
 
-# Shin-Uchuu's particle mass is 8.97e5 Msun/h against mini-millennium/millennium's
-# 8.60657e8 Msun/h -- 959.5x finer mass resolution, ~3.0 dex. The sage16 default
-# axes (hard-coded per-figure fallbacks, effectively tuned to mini-millennium/
-# millennium since no simulation profile previously existed here) would silently
-# clip roughly the bottom 3 dex of Shin-Uchuu's resolved halo population.
-#
-# Halo-mass axes (Mvir) shift their low edge down the full ~3.0 dex. Stellar/gas/
-# baryonic mass axes shift by a more conservative ~2.0 dex: the stellar-halo mass
-# relation steepens at low halo mass, so 3.0 dex of extra halo resolution does not
-# buy 3.0 dex of extra resolved stellar mass. Upper bounds are left at the sage16
-# defaults -- Shin-Uchuu's 140 Mpc/h box is smaller than full Millennium's 500
-# Mpc/h, so the high-mass tail is not better sampled here, and millennium and
-# mini-millennium already share the same ceiling despite an 512x volume gap
-# between them. These are resolution-derived estimates, not measurements --
-# revisit against the first plots this profile actually produces.
 axes:
   halo_mass_function:
     xmin: 7.0
     ymax: 2.0
   halo_occupation:
     xmin: 7.0
-    ymax: 4.0
+    ymax: 5.0
   baryon_fraction:
-    xmin: 7.0
+    xmin: 11.0
   stellar_mass_function:
     xmin: 4.0
     ymax: 0.5
@@ -60,6 +45,8 @@ axes:
     ymin: 4.0
   mass_reservoir_scatter:
     xmin: 7.0
+    ymax: 11.0
+    ymin: 4.0
   velocity_distribution:
     xmin: -50.0
     xmax: 50.0

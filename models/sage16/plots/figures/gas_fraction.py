@@ -15,6 +15,7 @@ from output_utils import (
     check_required_fields,
     get_profile_axes,
     save_and_close_figure,
+    select_scatter_sample,
     setup_figure,
     validate_filtered_data,
 )
@@ -86,21 +87,29 @@ def plot(
     if not is_valid:
         return None, skip_msg
 
-    # NOW create the figure (only if validation passed)
-    fig, ax = setup_figure()
-
-    # If we have too many galaxies, randomly sample a subset
-    if len(w) > dilute:
-        w = random.sample(list(w), dilute)
-
-    # Calculate gas fraction and convert stellar mass to log scale
+    # Calculate gas fraction and stellar mass for every candidate before
+    # restricting to the display box and diluting -- both axes must be known
+    # to tell which points are actually inside the box.
     stellar_mass = np.log10(galaxies.StellarMass[w] * 1.0e10 / hubble_h)
     gas_fraction = galaxies.ColdGas[w] / (galaxies.StellarMass[w] + galaxies.ColdGas[w])
+
+    # Restrict to the display box before diluting, so the dilution budget is
+    # spent on points that will actually be visible.
+    keep = select_scatter_sample(stellar_mass, gas_fraction, x_min, x_max, y_min, y_max, dilute)
+    stellar_mass = stellar_mass[keep]
+    gas_fraction = gas_fraction[keep]
+
+    is_valid, skip_msg = validate_filtered_data(stellar_mass, "Gas Fraction", verbose)
+    if not is_valid:
+        return None, skip_msg
+
+    # NOW create the figure (only if validation passed)
+    fig, ax = setup_figure()
 
     # Print some debug information if verbose mode is enabled
     if verbose:
         print(f"Gas Fraction plot debug:")
-        print(f"  Number of galaxies plotted: {len(w)}")
+        print(f"  Number of galaxies plotted: {len(stellar_mass)}")
         print(f"  Stellar mass range: {min(stellar_mass):.2f} to {max(stellar_mass):.2f}")
         print(f"  Gas fraction range: {min(gas_fraction):.3f} to {max(gas_fraction):.3f}")
 

@@ -6,7 +6,7 @@ SAGE Baryonic Tully-Fisher Relationship Plot
 This module generates a baryonic Tully-Fisher plot from SAGE galaxy data.
 """
 
-from random import sample, seed
+from random import seed
 
 import numpy as np
 from figures import AXIS_LABEL_SIZE, get_baryonic_mass_label, get_vmax_label, setup_legend
@@ -15,7 +15,9 @@ from output_utils import (
     check_required_fields,
     get_profile_axes,
     save_and_close_figure,
+    select_scatter_sample,
     setup_figure,
+    validate_filtered_data,
 )
 
 
@@ -85,20 +87,28 @@ def plot(
     w = np.where(valid_mass & (bulge_to_stellar > 0.1) & (bulge_to_stellar < 0.5))[0]
 
     # Check if we have any galaxies to plot
-    if len(w) == 0:
-        msg = "No suitable galaxies found for Tully-Fisher plot"
-        return None, msg
+    is_valid, skip_msg = validate_filtered_data(w, "Baryonic Tully-Fisher", verbose)
+    if not is_valid:
+        return None, skip_msg
+
+    # Calculate baryonic mass and max velocity for every candidate before
+    # restricting to the display box and diluting -- both axes must be known
+    # to tell which points are actually inside the box.
+    mass = np.log10((galaxies.StellarMass[w] + galaxies.ColdGas[w]) * 1.0e10 / hubble_h)
+    vel = np.log10(galaxies.Vmax[w])
+
+    # Restrict to the display box before diluting, so the dilution budget is
+    # spent on points that will actually be visible.
+    keep = select_scatter_sample(vel, mass, x_min, x_max, y_min, y_max, dilute)
+    vel = vel[keep]
+    mass = mass[keep]
+
+    is_valid, skip_msg = validate_filtered_data(vel, "Baryonic Tully-Fisher", verbose)
+    if not is_valid:
+        return None, skip_msg
 
     # NOW create the figure (only if validation passed)
     fig, ax = setup_figure()
-
-    # Dilute the sample if needed
-    if len(w) > dilute:
-        w = sample(list(w), dilute)
-
-    # Calculate baryonic mass and max velocity
-    mass = np.log10((galaxies.StellarMass[w] + galaxies.ColdGas[w]) * 1.0e10 / hubble_h)
-    vel = np.log10(galaxies.Vmax[w])
 
     # Plot the model galaxies
     ax.scatter(vel, mass, marker="o", s=1, c="k", alpha=0.5, label="Model Sb/c galaxies")

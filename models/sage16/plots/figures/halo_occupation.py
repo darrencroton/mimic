@@ -12,6 +12,7 @@ from matplotlib.ticker import MultipleLocator
 from output_utils import (
     check_required_fields,
     get_profile_axes,
+    make_bin_edges,
     save_and_close_figure,
     setup_figure,
     validate_filtered_data,
@@ -134,7 +135,7 @@ def plot(
     # Bin over the same range as the display axis so a profile override reaches
     # the plotted line, not just the canvas.
     bin_width = 0.2  # dex
-    mass_bins = np.arange(x_min, x_max, bin_width)
+    mass_bins = make_bin_edges(x_min, x_max, bin_width)
     mean_occupation_all = np.zeros(len(mass_bins) - 1)
     mean_occupation_central = np.zeros(len(mass_bins) - 1)
     mean_occupation_satellite = np.zeros(len(mass_bins) - 1)

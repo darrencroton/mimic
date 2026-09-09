@@ -15,6 +15,7 @@ from output_utils import (
     check_required_fields,
     get_profile_axes,
     save_and_close_figure,
+    select_scatter_sample,
     setup_figure,
     validate_filtered_data,
 )
@@ -71,36 +72,38 @@ def plot(
     # Maximum number of points to plot (for better performance and readability)
     dilute = 7500
 
-    # Floor at the display axis's x_min/y_min, not absolute-mass literals, so a
-    # profile override reaches the plotted points, not just the canvas.
-    has_bulge = galaxies.BulgeMass > 0.0
-    has_bh = galaxies.BlackHoleMass > 0.0
-    log_bulge_mass = np.full(len(galaxies), -np.inf)
-    log_bulge_mass[has_bulge] = np.log10(galaxies.BulgeMass[has_bulge] * 1.0e10 / hubble_h)
-    log_bh_mass = np.full(len(galaxies), -np.inf)
-    log_bh_mass[has_bh] = np.log10(galaxies.BlackHoleMass[has_bh] * 1.0e10 / hubble_h)
-    w = np.where((log_bulge_mass >= x_min) & (log_bh_mass >= y_min))[0]
+    # Restrict to galaxies with a resolved bulge and black hole, then compute
+    # both axes for every candidate before restricting to the display box and
+    # diluting -- both must be known to tell which points are actually inside
+    # the box. Indexing into this reduced candidate set (rather than a
+    # full-population sentinel array) also keeps the temporary log arrays
+    # small.
+    candidates = np.where((galaxies.BulgeMass > 0.0) & (galaxies.BlackHoleMass > 0.0))[0]
+    log_bulge_mass = np.log10(galaxies.BulgeMass[candidates] * 1.0e10 / hubble_h)
+    log_bh_mass = np.log10(galaxies.BlackHoleMass[candidates] * 1.0e10 / hubble_h)
 
     # Validate filtered data
-    is_valid, skip_msg = validate_filtered_data(w, "Black Hole-Bulge Relation", verbose)
+    is_valid, skip_msg = validate_filtered_data(candidates, "Black Hole-Bulge Relation", verbose)
+    if not is_valid:
+        return None, skip_msg
+
+    # Restrict to the display box before diluting, so the dilution budget is
+    # spent on points that will actually be visible.
+    keep = select_scatter_sample(log_bulge_mass, log_bh_mass, x_min, x_max, y_min, y_max, dilute)
+    bulge_mass = log_bulge_mass[keep]
+    bh_mass = log_bh_mass[keep]
+
+    is_valid, skip_msg = validate_filtered_data(bulge_mass, "Black Hole-Bulge Relation", verbose)
     if not is_valid:
         return None, skip_msg
 
     # NOW create the figure (only if validation passed)
     fig, ax = setup_figure()
 
-    # If we have too many galaxies, randomly sample a subset
-    if len(w) > dilute:
-        w = random.sample(list(w), dilute)
-
-    # Already in physical log10(Msun) units
-    bh_mass = log_bh_mass[w]
-    bulge_mass = log_bulge_mass[w]
-
     # Print some debug information if verbose mode is enabled
     if verbose:
         print(f"Black Hole-Bulge Relation plot debug:")
-        print(f"  Number of galaxies plotted: {len(w)}")
+        print(f"  Number of galaxies plotted: {len(bulge_mass)}")
         print(f"  Bulge mass range: {min(bulge_mass):.2f} to {max(bulge_mass):.2f}")
         print(f"  Black hole mass range: {min(bh_mass):.2f} to {max(bh_mass):.2f}")
 

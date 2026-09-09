@@ -12,6 +12,7 @@ from matplotlib.ticker import MultipleLocator
 from output_utils import (
     check_required_fields,
     get_profile_axes,
+    make_bin_edges,
     save_and_close_figure,
     setup_figure,
     validate_filtered_data,
@@ -108,8 +109,8 @@ def plot(
     min_range = x_min
     max_range = x_max
     interval = 0.1
-    nbins = int((max_range - min_range) / interval)
-    mass_bins = np.arange(min_range, max_range, interval)
+    mass_bins = make_bin_edges(min_range, max_range, interval)
+    nbins = len(mass_bins) - 1
 
     # Arrays to store results
     mass = []  # Bin centers
@@ -120,7 +121,7 @@ def plot(
     satellite_fraction_hi = []  # Satellites in high-mass halos
 
     # Calculate fractions for each mass bin
-    for i in range(nbins - 1):
+    for i in range(nbins):
         # All galaxies in this mass bin
         this_bin_mask = (StellarMass >= mass_bins[i]) & (StellarMass < mass_bins[i + 1])
         this_bin_count = np.sum(this_bin_mask)

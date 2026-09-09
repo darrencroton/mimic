@@ -11,6 +11,7 @@ from figures import AXIS_LABEL_SIZE, get_stellar_mass_label, setup_legend
 from output_utils import (
     check_required_fields,
     get_profile_axes,
+    make_bin_edges,
     save_and_close_figure,
     setup_figure,
     validate_filtered_data,
@@ -83,7 +84,7 @@ def plot(
     # the plotted lines, not just the canvas.
     binwidth = 0.2
     shift = binwidth / 2.0
-    mass_range = np.arange(x_min - shift, x_max + shift, binwidth)
+    mass_range = make_bin_edges(x_min - shift, x_max + shift, binwidth)
     bins = len(mass_range)
 
     # Initialize arrays for average values and variances

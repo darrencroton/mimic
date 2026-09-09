@@ -16,6 +16,7 @@ from matplotlib.ticker import MaxNLocator, MultipleLocator
 from output_utils import (
     check_required_fields,
     get_profile_axes,
+    make_bin_edges,
     save_and_close_figure,
     setup_figure,
     warn,
@@ -99,8 +100,8 @@ def plot(
     # reaches the plotted lines. y stays data-driven below, so only x is used here.
     min_halo, max_halo, _, _ = get_profile_axes(params, "baryon_fraction", (10.8, 15.0), (0.0, 1.0))
     interval = 0.1
-    nbins = int((max_halo - min_halo) / interval)
-    halo_bins = np.arange(min_halo, max_halo, interval)
+    halo_bins = make_bin_edges(min_halo, max_halo, interval)
+    nbins = len(halo_bins) - 1
 
     # Arrays to store results
     central_halo_mass = []  # Central halo mass
@@ -124,7 +125,7 @@ def plot(
     halo_mass[valid_mvir] = np.log10(galaxies.Mvir[valid_mvir] * 1.0e10 / hubble_h)
 
     # Loop through halo mass bins
-    for i in range(nbins - 1):
+    for i in range(nbins):
         # Get central galaxies in this mass bin
         bin_mask = central_mask & (halo_mass >= halo_bins[i]) & (halo_mass < halo_bins[i + 1])
         centrals_in_bin = np.where(bin_mask)[0]

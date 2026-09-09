@@ -16,6 +16,7 @@ from output_utils import (
     check_required_fields,
     get_profile_axes,
     save_and_close_figure,
+    select_scatter_sample,
     setup_figure,
     validate_filtered_data,
 )
@@ -95,50 +96,53 @@ def plot(
     # Maximum number of points to plot (for better performance and readability)
     dilute = 7500
 
-    # First filter for valid mass values - avoid division by zero
+    # First filter for valid mass values - avoid division by zero. Index into
+    # the reduced candidate set from here on, not the full galaxy population.
     valid_mass = (
         (galaxies.Type == 0)
         & (galaxies.StellarMass > 0.0)
         & (galaxies.ColdGas > 0.0)
         & (galaxies.MetalsColdGas > 0.0)
     )
+    candidates = np.where(valid_mass)[0]
+    cold_gas = galaxies.ColdGas[candidates]
+    stellar = galaxies.StellarMass[candidates]
+    metals = galaxies.MetalsColdGas[candidates]
 
-    # Calculate gas fraction safely for valid galaxies
-    gas_fraction = np.zeros_like(galaxies.StellarMass)
-    gas_fraction[valid_mass] = galaxies.ColdGas[valid_mass] / (
-        galaxies.StellarMass[valid_mass] + galaxies.ColdGas[valid_mass]
-    )
-
-    # Stellar mass in log scale, computed once so the floor below can be applied
-    # in log space.
-    log_stellar_mass = np.full(len(galaxies), -np.inf)
-    log_stellar_mass[valid_mass] = np.log10(galaxies.StellarMass[valid_mass] * 1.0e10 / hubble_h)
+    gas_fraction = cold_gas / (stellar + cold_gas)
+    log_stellar_mass = np.log10(stellar * 1.0e10 / hubble_h)
 
     # Floor at the display axis's x_min, not an absolute-mass literal, so a
     # profile override reaches the plotted points, not just the canvas.
-    w = np.where(valid_mass & (gas_fraction > 0.1) & (log_stellar_mass >= x_min))[0]
+    keep_mask = (gas_fraction > 0.1) & (log_stellar_mass >= x_min)
+    stellar_mass = log_stellar_mass[keep_mask]
+    # Metallicity in units of solar (Z_solar = 0.02), computed for every
+    # candidate before restricting to the display box and diluting -- it must
+    # be known to tell which points are actually inside the box.
+    metallicity = np.log10((metals[keep_mask] / cold_gas[keep_mask]) / 0.02) + 9.0
 
     # Filter-level validation: Check if filtering produced results
-    is_valid, skip_msg = validate_filtered_data(w, "Metallicity", verbose)
+    is_valid, skip_msg = validate_filtered_data(stellar_mass, "Metallicity", verbose)
+    if not is_valid:
+        return None, skip_msg
+
+    # Restrict to the display box before diluting, so the dilution budget is
+    # spent on points that will actually be visible.
+    keep = select_scatter_sample(stellar_mass, metallicity, x_min, x_max, y_min, y_max, dilute)
+    stellar_mass = stellar_mass[keep]
+    metallicity = metallicity[keep]
+
+    is_valid, skip_msg = validate_filtered_data(stellar_mass, "Metallicity", verbose)
     if not is_valid:
         return None, skip_msg
 
     # NOW create the figure (only if validation passed)
     fig, ax = setup_figure()
 
-    # If we have too many galaxies, randomly sample a subset
-    if len(w) > dilute:
-        w = random.sample(list(w), dilute)
-
-    # Calculate metallicity (12 + log10[O/H])
-    stellar_mass = log_stellar_mass[w]
-    # Metallicity in units of solar (Z_solar = 0.02)
-    metallicity = np.log10((galaxies.MetalsColdGas[w] / galaxies.ColdGas[w]) / 0.02) + 9.0
-
     # Print some debug information if verbose mode is enabled
     if verbose:
         print(f"Metallicity plot debug:")
-        print(f"  Number of galaxies plotted: {len(w)}")
+        print(f"  Number of galaxies plotted: {len(stellar_mass)}")
         print(f"  Stellar mass range: {min(stellar_mass):.2f} to {max(stellar_mass):.2f}")
         print(f"  Metallicity range: {min(metallicity):.3f} to {max(metallicity):.3f}")
         print(f"  WhichIMF: {whichimf}")

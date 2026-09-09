@@ -16,6 +16,7 @@ from output_utils import (
     check_required_fields,
     get_profile_axes,
     save_and_close_figure,
+    select_scatter_sample,
     setup_figure,
     validate_filtered_data,
 )
@@ -82,36 +83,56 @@ def plot(
     candidates = np.where(
         (galaxies.Type == 0) & (galaxies.Mvir > 0.0) & (galaxies.StellarMass > 0.0)
     )[0]
-    log_mvir_candidates = np.log10(mass_msun("Mvir", candidates))
-    keep = log_mvir_candidates >= x_min
-    w = candidates[keep]
-    mvir = log_mvir_candidates[keep]
+    mvir = np.log10(mass_msun("Mvir", candidates))
+    keep_x = mvir >= x_min
+    candidates = candidates[keep_x]
+    mvir = mvir[keep_x]
 
     # Validate filtered data
-    is_valid, skip_msg = validate_filtered_data(w, "Mass Reservoir Scatter", verbose)
+    is_valid, skip_msg = validate_filtered_data(candidates, "Mass Reservoir Scatter", verbose)
+    if not is_valid:
+        return None, skip_msg
+
+    # Compute every mass component for every candidate before restricting to
+    # the display box and diluting -- each series needs to be known to tell
+    # which points are actually inside the box.
+    stellar_mass = np.log10(mass_msun("StellarMass", candidates))
+    cold_gas = np.log10(np.maximum(mass_msun("ColdGas", candidates), 1.0))  # Avoid log(0)
+    hot_gas = np.log10(np.maximum(mass_msun("HotGas", candidates), 1.0))
+    ejected_gas = np.log10(np.maximum(mass_msun("EjectedGas", candidates), 1.0))
+    ics = np.log10(np.maximum(mass_msun("ICS", candidates), 1.0))
+
+    # Restrict to the display box before diluting, so the dilution budget is
+    # spent on points that will actually be visible: a point counts as
+    # visible if its halo mass is in range and at least one of its five
+    # components is too.
+    keep = select_scatter_sample(
+        mvir,
+        [stellar_mass, cold_gas, hot_gas, ejected_gas, ics],
+        x_min,
+        x_max,
+        y_min,
+        y_max,
+        dilute,
+    )
+    mvir = mvir[keep]
+    stellar_mass = stellar_mass[keep]
+    cold_gas = cold_gas[keep]
+    hot_gas = hot_gas[keep]
+    ejected_gas = ejected_gas[keep]
+    ics = ics[keep]
+
+    is_valid, skip_msg = validate_filtered_data(mvir, "Mass Reservoir Scatter", verbose)
     if not is_valid:
         return None, skip_msg
 
     # NOW create the figure (only if validation passed)
     fig, ax = setup_figure()
 
-    # If we have too many galaxies, randomly sample a subset
-    if len(w) > dilute:
-        sample_idx = random.sample(range(len(w)), dilute)
-        w = w[sample_idx]
-        mvir = mvir[sample_idx]
-
-    # Get remaining masses in log10 physical Msun units
-    stellar_mass = np.log10(mass_msun("StellarMass", w))
-    cold_gas = np.log10(np.maximum(mass_msun("ColdGas", w), 1.0))  # Avoid log(0)
-    hot_gas = np.log10(np.maximum(mass_msun("HotGas", w), 1.0))
-    ejected_gas = np.log10(np.maximum(mass_msun("EjectedGas", w), 1.0))
-    ics = np.log10(np.maximum(mass_msun("ICS", w), 1.0))
-
     # Print some debug information
     # Print some debug information if verbose mode is enabled
     if verbose:
-        print(f"  Number of galaxies plotted: {len(w)}")
+        print(f"  Number of galaxies plotted: {len(mvir)}")
         print(f"  Halo mass range: {min(mvir):.2f} to {max(mvir):.2f}")
         print(f"  Stellar mass range: {min(stellar_mass):.2f} to {max(stellar_mass):.2f}")
 

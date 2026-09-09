@@ -104,6 +104,9 @@ python3 "$SCRIPT_DIR/test_validation_helpers.py"
 echo "Test 10: Chunked output consumer unit tests"
 python3 "$SCRIPT_DIR/test_chunked_consumers.py"
 
+echo "Test 11: Scatter sampling and binning helper unit tests"
+python3 "$SCRIPT_DIR/test_scatter_and_binning_helpers.py"
+
 echo ""
 echo "=========================================="
 echo "All tests passed successfully!"

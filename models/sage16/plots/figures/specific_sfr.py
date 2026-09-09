@@ -6,7 +6,7 @@ SAGE Specific Star Formation Rate Plot
 This module generates a specific star formation rate plot from SAGE galaxy data.
 """
 
-from random import sample, seed
+from random import seed
 
 import numpy as np
 from figures import (
@@ -22,6 +22,7 @@ from output_utils import (
     check_required_fields,
     get_profile_axes,
     save_and_close_figure,
+    select_scatter_sample,
     setup_figure,
     validate_filtered_data,
 )
@@ -104,14 +105,9 @@ def plot(
     if not is_valid:
         return None, skip_msg
 
-    # NOW create the figure (only if validation passed)
-    fig, ax = setup_figure()
-
-    # Dilute the sample if needed
-    if len(w) > dilute:
-        w = sample(list(w), dilute)
-
-    # Calculate stellar mass and specific SFR
+    # Calculate stellar mass and specific SFR for every candidate, before
+    # restricting to the display box and diluting -- sSFR must be known to
+    # tell which points are actually inside the box.
     mass = log_stellar_mass[w]
     sfr = galaxies.StarFormationRate[w]
 
@@ -125,6 +121,19 @@ def plot(
         # Calculate SSFR only for galaxies with non-zero SFR
         stellar_mass_phys = galaxies.StellarMass[w][valid_sfr] * 1.0e10 / hubble_h
         ssfr[valid_sfr] = np.log10(sfr[valid_sfr] / stellar_mass_phys)
+
+    # Restrict to the display box before diluting, so the dilution budget is
+    # spent on points that will actually be visible.
+    keep = select_scatter_sample(mass, ssfr, x_min, x_max, y_min, y_max, dilute)
+    mass = mass[keep]
+    ssfr = ssfr[keep]
+
+    is_valid, skip_msg = validate_filtered_data(mass, "Specific SFR", verbose)
+    if not is_valid:
+        return None, skip_msg
+
+    # NOW create the figure (only if validation passed)
+    fig, ax = setup_figure()
 
     # Plot the model galaxies
     ax.scatter(mass, ssfr, marker="o", s=1, c="k", alpha=0.5, label="Model galaxies")

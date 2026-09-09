@@ -8,6 +8,7 @@ and all figure modules. Provides colored warnings and errors when writing
 to a TTY, and centralized field checking for adaptive plotting.
 """
 
+import random
 import sys
 
 import numpy as np
@@ -339,3 +340,65 @@ def get_profile_axes(params, plot_key, xlim_default, ylim_default, log_y=False):
         y_min = axes.get("ymin", ylim_default[0])
         y_max = axes.get("ymax", ylim_default[1])
     return x_min, x_max, y_min, y_max
+
+
+def make_bin_edges(min_val, max_val, width):
+    """
+    Build evenly spaced bin edges from min_val to max_val inclusive.
+
+    Prefer this over np.arange(min_val, max_val, width): arange excludes the
+    stop value, silently dropping up to one bin width of data at the top of
+    the requested range (e.g. a histogram never reaches its own axis max).
+
+    Args:
+        min_val: Lower edge of the first bin.
+        max_val: Upper edge of the last bin.
+        width: Requested bin width in dex (or other unit); the actual width is
+            adjusted slightly so an integer number of equal bins exactly spans
+            [min_val, max_val].
+
+    Returns:
+        Array of nbins+1 edges spanning [min_val, max_val] inclusive.
+    """
+    nbins = max(1, round((max_val - min_val) / width))
+    return np.linspace(min_val, max_val, nbins + 1)
+
+
+def select_scatter_sample(x, y_arrays, x_min, x_max, y_min, y_max, dilute, rng=None):
+    """
+    Restrict scatter-plot points to the display axis box, then randomly dilute.
+
+    Filtering to the box before dilution matters whenever there are more
+    candidates than the dilution budget: sampling from the full candidate
+    range first can spend nearly the whole budget on points that fall outside
+    a display window narrower than the candidate population, leaving the
+    visible plot almost empty even though plenty of in-range data exists.
+
+    Args:
+        x: 1D array of x-axis values for each candidate point.
+        y_arrays: A single 1D array, or a list of 1D arrays, of y-axis values
+            for each candidate point -- pass a list when several series share
+            one x axis and one display box (e.g. stellar/cold/hot/ejected/ICS
+            mass all plotted against halo mass). A point is kept if x is in
+            range and at least one y series is in range.
+        x_min, x_max, y_min, y_max: The plot's display axis (get_profile_axes()).
+        dilute: Maximum number of points to keep.
+        rng: Object exposing .sample(population, k), for reproducible sampling.
+            Defaults to the random module, matching the random.seed(2222)
+            convention every scatter figure already uses.
+
+    Returns:
+        Array of indices into x (and each array in y_arrays), sized
+        min(dilute, number of in-box candidates).
+    """
+    if rng is None:
+        rng = random
+    y_list = [y_arrays] if isinstance(y_arrays, np.ndarray) else list(y_arrays)
+    in_x = (x >= x_min) & (x <= x_max)
+    in_box = np.zeros_like(in_x)
+    for y in y_list:
+        in_box |= in_x & (y >= y_min) & (y <= y_max)
+    indices = np.where(in_box)[0]
+    if len(indices) > dilute:
+        indices = np.array(rng.sample(list(indices), dilute))
+    return indices

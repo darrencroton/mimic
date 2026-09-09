@@ -77,6 +77,10 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
 
 Validation-first pattern (the house style — see `stellar_mass_function.py`): `check_required_fields` → `check_field_has_values` → filter → `validate_filtered_data` (or `validate_evolution_snapshot` per snapshot) → only then `setup_figure()` → draw → `save_and_close_figure()`. Helpers live in `plot/mimic-plot/output_utils.py` (including `calculate_mass_function` for the standard φ = N/V/Δlog M) and the model `figures` package (fonts, legends, labels). Observational overlays are inline NumPy arrays inside the figure modules (Baldry 2008 SMF, etc.) with the run's `hubble_h` and `WhichIMF` corrections applied at plot time — there are no separate data files.
 
+**Binned figures**: derive the bin range from the same `get_profile_axes()` values used for the display axis (not a second hardcoded literal), so a profile override actually reaches the computed line, not just the canvas — see `halo_occupation.py`. Build the bin edges with `make_bin_edges(min, max, width)`, not `np.arange(min, max, width)`: `arange` silently excludes the stop value, dropping up to one bin width of data at the top of the range.
+
+**Scatter figures** (`ax.scatter` + a `dilute` cap): compute every plotted axis (x and any y series) for the full resolution-filtered candidate set first, then call `select_scatter_sample(x, y_or_y_list, x_min, x_max, y_min, y_max, dilute)` to restrict to the display box *before* random-sampling down to `dilute`. Diluting first can spend nearly the whole sampling budget on points that fall outside a display window narrower than the candidate population, leaving the plot almost empty even with plenty of in-range data — see `specific_sfr.py`. Pass a list of y-arrays (not a single array) when several series share one x axis and one box (e.g. `mass_reservoir_scatter.py`'s stellar/cold/hot/ejected/ICS mass against halo mass) — a point is kept if x is in range and at least one series is.
+
 ## 5. Skip diagnostics
 
 Two distinct skip paths (both summarized at the end of a run; per-plot reasons only with `--verbose`):
@@ -95,7 +99,7 @@ A third failure mode: an exception inside a figure is caught and reported as `Er
 
 ## 7. Plot tests
 
-`plot/mimic-plot/tests/test_plotting.sh` (needs venv + real run output; uses the Makefile defaults via `scripts/lib/defaults.sh`; `$PARAM_FILE` overridable) drives five CLI invocations plus the Python unit tests: `test_validation_helpers.py`, `test_profile_inheritance.py`, `test_sage_native_hdf5.py`, `test_snapshot_redshift_mapper.py`, `test_chunked_consumers.py` — each runnable directly with `python3 plot/mimic-plot/tests/test_<name>.py`.
+`plot/mimic-plot/tests/test_plotting.sh` (needs venv + real run output; uses the Makefile defaults via `scripts/lib/defaults.sh`; `$PARAM_FILE` overridable) drives five CLI invocations plus the Python unit tests: `test_validation_helpers.py`, `test_profile_inheritance.py`, `test_sage_native_hdf5.py`, `test_snapshot_redshift_mapper.py`, `test_chunked_consumers.py`, `test_scatter_and_binning_helpers.py` — each runnable directly with `python3 plot/mimic-plot/tests/test_<name>.py`.
 
 ## 8. Programmatic analysis (outside the plot engine)
 
