@@ -152,7 +152,7 @@
         },
         "format_version": {
           "dtype": "int32",
-          "value": 1
+          "value": 2
         },
         "hubble_h": {
           "dtype": "float64",
@@ -321,7 +321,7 @@
         },
         "format_version": {
           "dtype": "int32",
-          "value": 1
+          "value": 2
         },
         "hubble_h": {
           "dtype": "float64",
@@ -490,7 +490,7 @@
         },
         "format_version": {
           "dtype": "int32",
-          "value": 1
+          "value": 2
         },
         "hubble_h": {
           "dtype": "float64",
@@ -659,7 +659,7 @@
         },
         "format_version": {
           "dtype": "int32",
-          "value": 1
+          "value": 2
         },
         "hubble_h": {
           "dtype": "float64",
@@ -828,7 +828,7 @@
         },
         "format_version": {
           "dtype": "int32",
-          "value": 1
+          "value": 2
         },
         "hubble_h": {
           "dtype": "float64",
@@ -883,7 +883,7 @@
         },
         "FirstHaloInFOFgroup": {
           "dtype": "int32",
-          "md5": "1f924368348508b398f6215ba4e9f3e6",
+          "md5": "9857b6928208534480c868cac0041dab",
           "shape": [
             4
           ]
@@ -925,14 +925,14 @@
         },
         "MostBoundID": {
           "dtype": "int64",
-          "md5": "13262254abe2967ef93e57ca2ed81fdb",
+          "md5": "ea23f4021f662bf2a4a383f98af6fb5f",
           "shape": [
             4
           ]
         },
         "NextHaloInFOFgroup": {
           "dtype": "int32",
-          "md5": "d195193f809b6da431e1365ca934d49d",
+          "md5": "a1b5c0140145a8d4720363307c155193",
           "shape": [
             4
           ]
@@ -997,7 +997,7 @@
         },
         "format_version": {
           "dtype": "int32",
-          "value": 1
+          "value": 2
         },
         "hubble_h": {
           "dtype": "float64",
@@ -1043,7 +1043,7 @@
     }
   },
   "format_specification": "docs/dev/SNAPSHOT-HDF5-FORMAT.md",
-  "format_version": 1,
+  "format_version": 2,
   "generator": "simulations/micro-uchuu-snapshot/_tests/input/create_snapshot_fixture.py",
   "n_snapshots": 6
 }

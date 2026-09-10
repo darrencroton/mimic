@@ -26,8 +26,8 @@ import validate  # noqa: E402
 from crosscheck import (  # noqa: E402
     ConverterError,
     SnapMatch,
-    check_flyby_signs,
     check_identity_creation,
+    check_mostboundid_positive,
     check_values,
     run_crosscheck,
     run_reference,
@@ -165,7 +165,7 @@ class TestCrosscheck(unittest.TestCase):
                 },
                 5: {
                     1010: (5 + M, 0),
-                    1020: (4 + M, 1),
+                    1020: (4 + M, 0),
                     2010: (2 + 2 * M, 0),
                     5010: (4 * M, 0),
                     6010: (5 * M, 0),
@@ -173,11 +173,17 @@ class TestCrosscheck(unittest.TestCase):
             },
         )
 
-    def test_golden_flyby_satellite_details(self):
+    def test_golden_second_fof_central_survives(self):
+        """1020 is the second independent FoF group at snapshot 5, forest 100's
+        maximum. fix_flybys used to demote it under 1010 as a Type 1 satellite
+        with MostBoundID -1020; with that removed (decision D1) it is its own
+        Type 0 central, its own group, and its MostBoundID is positive."""
         snap5 = self.pristine[5]
-        i = find_row(snap5, 1020, types=(1,))
-        self.assertEqual(int(snap5[i]["MostBoundID"]), -1020)
-        self.assertEqual(int(snap5[i]["UniqueCentralGalaxyID"]), 5 + M)
+        i = find_row(snap5, 1020, types=(0,))
+        self.assertEqual(int(snap5[i]["Type"]), 0)
+        self.assertEqual(int(snap5[i]["MostBoundID"]), 1020)
+        self.assertEqual(int(snap5[i]["UniqueCentralGalaxyID"]), 4 + M)
+        self.assertNotEqual(int(snap5[i]["UniqueCentralGalaxyID"]), 5 + M)
 
     def test_orphan_row_present_and_ignored(self):
         snap5 = self.pristine[5]
@@ -245,27 +251,48 @@ class TestCrosscheck(unittest.TestCase):
         g[5]["UniqueCentralGalaxyID"][i] = 2 + 2 * M  # 2010's ugid, not 1010's
         self.assert_fails(self._run_mutated(g), "fof-central")
 
-    # -- 4. flyby-signs ------------------------------------------------------
+    # -- 4. mostboundid-positive ---------------------------------------------
 
-    def test_flyby_signs_violation(self):
+    def test_mostboundid_positive_violation_in_reference(self):
+        """A non-positive MostBoundID on a reference galaxy fails the check —
+        including the negated value fix_flybys used to write for a demoted
+        central (decision D1)."""
         g = self._copy()
         i = find_row(g[5], 1020)
-        g[5]["MostBoundID"][i] = 1020  # drop the negative flyby marker
-        self.assert_fails(self._run_mutated(g), "flyby-signs")
+        g[5]["MostBoundID"][i] = -1020
+        self.assert_fails(self._run_mutated(g), "mostboundid-positive")
 
-    def test_flyby_signs_ignores_unmatched_negated_halo(self):
-        # A correctly flyby-demoted converter halo that seeds no galaxy has no
-        # reference counterpart; the check compares only the matched population,
-        # so its negated sign must NOT register as a mismatch.
+    def test_mostboundid_positive_checks_both_sides(self):
+        """The check reads the WHOLE converter halo array and the matched
+        reference Type 0/1 galaxies; only non-positive values fail, however
+        large the positive ones are."""
         conv = np.zeros(3, dtype=[("MostBoundID", np.int64)])
-        conv["MostBoundID"] = [10, -20, 30]  # halo 1 is flyby-negated and unmatched
         ref = np.zeros(2, dtype=[("MostBoundID", np.int64), ("Type", np.int32)])
+        t01_idx = np.array([0, 1])
+        matched = np.array([0, 2])
+
+        conv["MostBoundID"] = [10, 2**62, 30]
         ref["MostBoundID"] = [10, 30]
-        match = SnapMatch(0, ref, np.array([0, 1]), conv, np.array([0, 2]))
-        self.assertEqual(check_flyby_signs(match), [])
-        # but a sign disagreement on a matched halo still fails
-        conv["MostBoundID"] = [-10, -20, 30]  # matched halo 0 negated, reference positive
-        self.assertTrue(check_flyby_signs(match))
+        match = SnapMatch(0, ref, t01_idx, conv, matched)
+        self.assertEqual(check_mostboundid_positive(match), [])
+
+        # a non-positive converter value fails even on a row no galaxy matched
+        conv["MostBoundID"] = [10, -20, 30]
+        failures = check_mostboundid_positive(SnapMatch(0, ref, t01_idx, conv, matched))
+        self.assertEqual(len(failures), 1)
+        self.assertIn("converter halo(s) with non-positive MostBoundID", failures[0])
+
+        # zero is non-positive too, and the reference side is checked separately
+        conv["MostBoundID"] = [10, 20, 30]
+        ref["MostBoundID"] = [0, 30]
+        failures = check_mostboundid_positive(SnapMatch(0, ref, t01_idx, conv, matched))
+        self.assertEqual(len(failures), 1)
+        self.assertIn("reference Type 0/1 galaxy(ies) with non-positive MostBoundID", failures[0])
+
+        # both sides at once report both failures
+        conv["MostBoundID"] = [-10, 20, 30]
+        failures = check_mostboundid_positive(SnapMatch(0, ref, t01_idx, conv, matched))
+        self.assertEqual(len(failures), 2)
 
     # -- 5. values -----------------------------------------------------------
 
@@ -414,10 +441,14 @@ class TestCrosscheck(unittest.TestCase):
     def test_reference_sanity_duplicate_type1_ugid(self):
         # a Type 1 galaxy reusing another live galaxy's persistent identity
         # must be rejected: identity-creation alone would skip an already-seen
-        # id, so uniqueness is enforced over ALL Type 0/1 galaxies
+        # id, so uniqueness is enforced over ALL Type 0/1 galaxies. The pristine
+        # reference has no Type 1 row at snapshot 5 any more (1020 is its own
+        # Type 0 central since fix_flybys was removed), so one is injected on
+        # converter halo 2011 — a real satellite of 2010 — carrying 2010's
+        # live identity.
         g = self._copy()
-        i = find_row(g[5], 1020, types=(1,))
-        g[5]["UniqueGalaxyID"][i] = 2 + 2 * M  # 2010's live identity
+        row = self._new_row(5, 3, gtype=1, ugid=2 + 2 * M, central_ugid=2 + 2 * M, mostboundid=2011)
+        self._append(g, 5, row)
         self.assert_fails(self._run_mutated(g), "reference-sanity")
 
     def test_reference_int64_min_mostboundid_aborts(self):
@@ -783,7 +814,7 @@ class TestTopologyChains(unittest.TestCase):
             "identity-forest",
             "identity-creation",
             "fof-central",
-            "flyby-signs",
+            "mostboundid-positive",
             "values",
             "occupancy",
         ]
@@ -962,9 +993,10 @@ class TestTopologyChains(unittest.TestCase):
         self.assertTrue(any("mismatched HaloRankInForest" in f for f in failures), failures)
 
     def test_own_mostboundid_sign_mismatch_fails(self):
-        """The halo's own signed id must agree, not just its magnitude: the
-        flyby-signs check only compares signs over the matched Type 0/1
-        population, so galaxy-less demoted halos rely on this comparison."""
+        """The halo's own signed id must agree, not just its magnitude:
+        mostboundid-positive asserts positivity, not the exact value, so a halo
+        whose id is corrupted while staying matchable relies on this
+        comparison."""
         rows = self._dump_rows()
         self.assertNotEqual(rows[0][2], 0, "negating a zero id would not be a mismatch")
         rows[0][2] = -rows[0][2]

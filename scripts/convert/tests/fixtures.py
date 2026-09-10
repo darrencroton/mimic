@@ -1,10 +1,10 @@
 """Synthetic ctrees ASCII fixture generator for converter tests.
 
 Hand-specified tiny forests with known topology (plan Slice 2): multi-tree
-forests, multi-progenitor halos, mass ties, flyby configurations,
-zero-central-at-max-scale forests, early-dying forests, zero-mass halos, and
-sub-subhalos whose pid differs from their ultimate host. Slices 5-6 reuse
-these topologies for fix-up and link tests.
+forests, multi-progenitor halos, mass ties, multiple independent FoF groups at
+a forest's maximum snapshot, unresolvable-satellite forests, early-dying
+forests, zero-mass halos, and sub-subhalos whose pid differs from their
+ultimate host. Slices 5-6 reuse these topologies for fix-up and link tests.
 
 Snapshot numbering follows the a_list convention: SnapNum indexes A_LIST.
 """
@@ -215,7 +215,16 @@ def write_simulation_info(path) -> Path:
 
 def multi_tree_forest() -> ForestSpec:
     """Forest 100: two trees; multi-progenitor halo with a mass tie; two
-    pid==-1 centrals at the forest max snapshot (flyby-demotion input)."""
+    independent pid==-1 centrals (1010, 1020) at the forest max snapshot 5.
+
+    Both centrals must SURVIVE as self-central (``pid == -1``, ``upid == id``,
+    positive ``MostBoundID``): ``fix_flybys``, which used to demote all but the
+    most massive of them, was removed as scientifically wrong
+    (docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md, decision D1). Neither
+    central has a subhalo at snapshot 5, so this forest alone does not cover
+    the per-group membership half of that property —
+    :func:`multi_fof_survivor_forest` does.
+    """
     tree_a = TreeSpec(
         root_id=101,
         halos=[
@@ -252,8 +261,18 @@ def satellite_forest() -> ForestSpec:
 
 
 def zero_central_forest() -> ForestSpec:
-    """Forest 300: zero pid==-1 centrals at the forest max snapshot (corrupt
-    input; the Slice 5 fix_flybys equivalent must abort on it)."""
+    """Forest 300: zero pid==-1 centrals at the forest max snapshot.
+
+    Corrupt input: 3010 is the forest's only halo at snapshot 5 and claims to
+    be a satellite of 3011, which lives at snapshot 4. This is exactly the
+    case :func:`fixups.verify_fof_centrals_present` (D9(c),
+    SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md) rejects directly, before
+    :func:`fixups.fix_upid_snapshot` ever runs. (Before decision D1 this was
+    the fixture for ``fix_flybys``'s own zero-central abort; that function is
+    gone, and the input stays corrupt, but the corrupt-input guard it happened
+    to carry was restored standalone rather than left to fix_upid's own
+    unrelated chain-resolution failure.)
+    """
     tree = TreeSpec(
         root_id=301,
         halos=[
@@ -277,9 +296,14 @@ def early_dying_forest() -> ForestSpec:
 
 
 def early_dying_flyby_forest() -> ForestSpec:
-    """Forest 700: dies at snapshot 2 with TWO pid==-1 centrals there — the
-    Slice 5 fix_flybys equivalent must demote at the FOREST'S max snapshot,
-    not only at the global final snapshot (7010 survives: 4e11 > 3e11)."""
+    """Forest 700: dies at snapshot 2 with TWO pid==-1 centrals there.
+
+    A forest whose maximum snapshot (2) is well before the global final one
+    (5). Both 7010 and 7011 must survive as self-central there: nothing demotes
+    an independent FoF group at a forest's max snapshot any more (decision D1).
+    Complements :func:`multi_fof_survivor_forest`, which covers the same
+    property at the global final snapshot and with subhalos attached.
+    """
     tree_a = TreeSpec(
         root_id=701,
         halos=[
@@ -292,6 +316,34 @@ def early_dying_flyby_forest() -> ForestSpec:
         halos=[HaloSpec(halo_id=7011, snap=2, mvir=3.0e11)],
     )
     return ForestSpec(forest_id=700, trees=[tree_a, tree_b])
+
+
+def multi_fof_survivor_forest() -> ForestSpec:
+    """Forest 800: two independent FoF groups at the forest max snapshot 5,
+    EACH with its own subhalo there.
+
+    The regression fixture for decision D1: 8010 (1e12) and 8020 (8e11) are
+    both ``pid == -1`` at snapshot 5, and 8011 / 8021 are their respective
+    subhalos. After the fix-ups both centrals must still be self-central and
+    each subhalo must still resolve to ITS OWN central. ``fix_flybys`` would
+    have demoted 8020 under 8010 and pulled 8021 into 8010's group with it,
+    so any reintroduction of that collapse fails this fixture's test.
+    """
+    tree_a = TreeSpec(
+        root_id=801,
+        halos=[
+            HaloSpec(halo_id=8010, snap=5, mvir=1.0e12),
+            HaloSpec(halo_id=8011, snap=5, mvir=2.0e11, pid=8010, upid=8010),
+        ],
+    )
+    tree_b = TreeSpec(
+        root_id=802,
+        halos=[
+            HaloSpec(halo_id=8020, snap=5, mvir=8.0e11),
+            HaloSpec(halo_id=8021, snap=5, mvir=1.5e11, pid=8020, upid=8020),
+        ],
+    )
+    return ForestSpec(forest_id=800, trees=[tree_a, tree_b])
 
 
 def zero_mass_forest() -> ForestSpec:
@@ -322,7 +374,7 @@ def sub_subhalo_forest() -> ForestSpec:
 
 def standard_forests() -> List[ForestSpec]:
     """The benign canned forests (parse/scatter/sort-safe). The zero-central
-    forest is deliberately excluded: it exists to test the Slice 5 abort."""
+    forest is deliberately excluded: it exists to test the fix-up abort."""
     return [
         multi_tree_forest(),
         satellite_forest(),

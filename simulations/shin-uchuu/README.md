@@ -16,7 +16,7 @@ This package declares the snapshot-ordered HDF5 on-disk record for the Shin-Uchu
 
 Source: `/fred/oz214/simulations/uchuu/shinuchuu/mergertrees` on OzSTAR (login node `tooarrana`) — 2744 `tree_*.dat` files, 11.61 TB, Consistent-Trees ASCII format, 70 snapshots, 315,004,242 total halos (z=0), 166,547,771 total forests. Cosmology (Ωm 0.3089, ΩΛ 0.6911, h 0.6774) is the shared Uchuu/Planck-2015 family; the particle mass (8.97×10⁵ Msun/h, 362× smaller than micro-Uchuu's) and box size (140 Mpc/h) are confirmed for Shin-Uchuu specifically, not carried over.
 
-This package's own dataset is not primary data: it is produced offline by the converter under `scripts/convert/` from `simulations/shin-uchuu-ascii/`'s subset, applying the reference reader's value conventions (spin normalisation, `Len` derivation, `fix_flybys`/`fix_upid`) and rewriting global-id links as snapshot-local indices — the same pipeline used for `micro-uchuu-snapshot`, run against Shin-Uchuu inputs instead.
+This package's own dataset is not primary data: it is produced offline by the converter under `scripts/convert/` from `simulations/shin-uchuu-ascii/`'s subset, applying the reference reader's value conventions (spin normalisation, `Len` derivation, `fix_upid`) and rewriting global-id links as snapshot-local indices — the same pipeline used for `micro-uchuu-snapshot`, run against Shin-Uchuu inputs instead. `fix_flybys` was removed (`docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md`): the converter no longer demotes independent FoF centrals at a forest's maximum scale, and `MostBoundID` is always positive.
 
 ## Setting up the snapshots symlink
 

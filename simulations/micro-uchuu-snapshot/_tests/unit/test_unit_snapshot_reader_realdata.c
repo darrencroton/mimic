@@ -53,7 +53,7 @@ extern struct MimicConfig MimicConfig;
 #define REALDATA_TOTAL_HALOS INT64_C(22580924)
 #define REALDATA_N_FORESTS_TOTAL INT64_C(440651)
 #define REALDATA_MAX_RANK INT64_C(350074)
-#define REALDATA_FORMAT_VERSION 1
+#define REALDATA_FORMAT_VERSION 2
 
 /* simulations/micro-uchuu-snapshot/simulation_info.yaml's physical values. The
    real dataset's headers were stamped from these same values (Slice 3), so

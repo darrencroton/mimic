@@ -2,7 +2,9 @@
 
 **Purpose**: Define the frozen on-disk contract for snapshot-ordered HDF5 merger-tree input — the format produced by external converters and consumed by Mimic's `snapshot_hdf5` reader and snapshot-ordered driver.
 
-**Status**: Frozen at `format_version = 1`. Every normative statement in this document is part of the contract. Any change that alters the meaning, layout, ordering, or validation rules of files on disk requires incrementing `format_version` and updating this specification; readers must reject files whose `format_version` they do not support. Corrections that bring the wording into line with the semantics `format_version = 1` always denoted are recorded under [Errata](#errata) instead of bumping the version — see that section for the rule and the full list.
+**Status**: Frozen at `format_version = 2`. Every normative statement in this document is part of the contract. Any change that alters the meaning, layout, ordering, or validation rules of files on disk requires incrementing `format_version` and updating this specification; readers must reject files whose `format_version` they do not support. Corrections that bring the wording into line with the semantics a version's `format_version` always denoted are recorded under [Errata](#errata) instead of bumping the version — see that section for the rule and the full list.
+
+**Version 2 supersedes version 1 outright; there is no legacy-read path.** Version 1 was produced and consumed with `fix_flybys()` still live in the reference Consistent-Trees reader (`src/io/tree/ctrees/ctrees_utils.c`): at each forest's final snapshot it collapsed every independent FoF group but the most massive into satellites of that survivor, marking the demotion by negating the demoted centrals' `MostBoundID`. This was found to be scientifically wrong — not a tolerable approximation — when it collapsed 33% of the Shin-Uchuu z=0 population into one bogus FoF group and truncated the z=0 halo mass function by ~2 dex (`docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md`). `fix_flybys()` was deleted from the reader and the converter; `MostBoundID` is therefore always positive in version 2, and every version 1 dataset is rejected outright by a version-2 reader (`SNAPSHOT_HDF5_FORMAT_VERSION` in `src/io/snapshot/read_snapshot_hdf5.c`), naming the file and the version found rather than silently reinterpreting it.
 
 ---
 
@@ -48,7 +50,7 @@ All scalar metadata lives as HDF5 attributes on the `/header` group:
 
 | Attribute | Type | Semantics |
 |---|---|---|
-| `format_version` | int32 | Contract version of this file; this specification defines version 1 |
+| `format_version` | int32 | Contract version of this file; this specification defines version 2 |
 | `links_adjacent` | int32 | Always 1. Declares the adjacency invariant (see [Format Invariants](#format-invariants)); asserted by producer and reader |
 | `scale_factor` | float64 | Scale factor *a* of this snapshot |
 | `snapshot_number` | int32 | Snapshot index; must equal the `NNN` in the filename |
@@ -82,7 +84,7 @@ All datasets live under `/halos`, each of length `n_halos` (vectors are `[n_halo
 | `Spin` | float32[N,3] | Specific angular momentum J/Mvir, `Mpc/h km/s` (normalisation applied by the producer; components of zero-mass halos are carried unnormalised) |
 | `VelDisp` | float32[N] | Velocity dispersion, km/s |
 | `Vmax` | float32[N] | Maximum circular velocity, km/s |
-| `MostBoundID` | int64[N] | Source-catalog halo id (Consistent-Trees `id`), negated for flyby-demoted centrals per the reference reader semantics (see [Ordering Contracts](#ordering-contracts)) |
+| `MostBoundID` | int64[N] | Source-catalog halo id (Consistent-Trees `id`). Always strictly positive: version 1's flyby-demotion sign convention (see [Versioning Policy](#versioning-policy)) is gone |
 | `ForestIndex` | int64[N] | Dense run-scoped forest number in `[0, n_forests_total)`; identity component consumed directly by `UniqueGalaxyID` |
 | `HaloRankInForest` | int64[N] | Within-forest halo index in reference tree-driver order; identity component for `UniqueGalaxyID`. int64 because percolation super-forest ranks exceed int32 |
 
@@ -104,9 +106,9 @@ Every link field is a **snapshot-local integer index**; no dataset stores global
 
 Violating any invariant makes a file invalid. Producers and consumers **abort on violation; nothing repairs**.
 
-1. **Adjacency.** Every non-null `Descendant` link points exactly one snapshot forward, and therefore every progenitor of a snapshot-N halo lives at snapshot N−1. All halos in the final snapshot have `Descendant = −1`. `links_adjacent = 1` declares this in every file. Sources with snapshot gaps (e.g. L-Halo trees) cannot be represented in format version 1; Consistent-Trees sources are adjacent by construction because ctrees writes its own interpolated phantom halos. There is no phantom or bridge insertion anywhere in this pipeline.
+1. **Adjacency.** Every non-null `Descendant` link points exactly one snapshot forward, and therefore every progenitor of a snapshot-N halo lives at snapshot N−1. All halos in the final snapshot have `Descendant = −1`. `links_adjacent = 1` declares this in every file. Sources with snapshot gaps (e.g. L-Halo trees) cannot be represented in this format; Consistent-Trees sources are adjacent by construction because ctrees writes its own interpolated phantom halos. There is no phantom or bridge insertion anywhere in this pipeline.
 2. **int32 topology bounds.** Link fields are int32; no snapshot may contain more than 2,147,483,647 halos. Producers assert this. Consumers nevertheless use 64-bit indices and counts internally.
-3. **Slab ordering.** Within a file, halos appear in ascending order of the magnitude of `MostBoundID` (the original source-catalog id, whose sign may have been flipped by the flyby convention), and those magnitudes are unique within the snapshot. This makes files deterministic, reproducible, and binary-searchable by id.
+3. **Slab ordering.** Within a file, halos appear in ascending order of `MostBoundID` (the original source-catalog id, always positive — see [Versioning Policy](#versioning-policy)), and those values are unique within the snapshot. This makes files deterministic, reproducible, and binary-searchable by id.
 4. **Identity uniqueness and density.** `(ForestIndex, HaloRankInForest)` pairs are unique across the entire dataset. `ForestIndex` values are dense over `[0, n_forests_total)` across the dataset. Within each forest, `HaloRankInForest` values are dense over `[0, forest halo count)` across all snapshots.
 5. **Header consistency.** `n_halos` equals every dataset's length; `snapshot_number` matches the filename; all `SnapNum` values equal `snapshot_number`; `n_forests_total` and `max_halo_rank_in_forest` are identical across all files and match the measured data.
 6. **Link validity.** Every non-null link value is a valid index in its target file (see [Link Scope](#link-scope)). FoF chains are cycle-free, terminate at −1, and every `FirstHaloInFOFgroup` names a halo whose own `FirstHaloInFOFgroup` is itself. Every non-null `FirstProgenitor` has a `Descendant` pointing back at its owner.
@@ -118,10 +120,11 @@ Cross-format identity — a snapshot-ordered run reproducing a tree-ordered run'
 1. **Progenitor chain order.** For each descendant, `FirstProgenitor` is the most massive progenitor (reference tie-break: first encountered in reference order wins). The `NextProgenitor` chain is built by the reference reader's literal incremental-insertion loop (`ctrees_utils.c` `assign_mergertree_indices`): progenitors are visited in reference encounter order, and each one either replaces the current chain head when its Mvir is *strictly* greater (demoting the old head to second place) or is appended at the tail. When a mid-chain head replacement occurs (three or more progenitors), the resulting order is therefore *not* the remaining progenitors in plain encounter order — it is exactly what that loop produces. Chain order fixes workspace layout and merger processing order, so a conforming producer must replicate the loop, not a paraphrase of it.
 2. **FoF chain order.** `FirstHaloInFOFgroup`/`NextHaloInFOFgroup` chains replicate the reference FoF member ordering, which fixes subhalo slice order and central selection.
 3. **Forest enumeration.** Dense `ForestIndex` assignment replicates the reference run-scoped forest enumeration order (for Consistent-Trees sources: ascending forest id).
-4. **Within-forest rank.** `HaloRankInForest` is the halo's index in reference tree-driver traversal order of its forest, computed after all host/flyby fix-ups.
-5. **Flyby convention.** Flyby-demoted centrals carry a negated `MostBoundID`, replicating the reference reader's marker.
+4. **Within-forest rank.** `HaloRankInForest` is the halo's index in reference tree-driver traversal order of its forest, computed after all host fix-ups.
 
-"Reference" throughout means the semantics of Mimic's tree-ordered Consistent-Trees ASCII reader (`src/io/tree/read_ctrees_ascii.c` and `src/io/tree/ctrees_utils.c`: `fix_flybys()`, `fix_upid()`, `assign_mergertree_indices()` and the associated sort orders). A conforming producer replicates those semantics exactly and proves it by cross-checking its output topology against that reader on a common dataset (by stable halo id, not by array index).
+Version 1 additionally required a fifth item — a flyby convention under which flyby-demoted centrals carried a negated `MostBoundID` — that item is deleted as of version 2; see [Versioning Policy](#versioning-policy).
+
+"Reference" throughout means the semantics of Mimic's tree-ordered Consistent-Trees ASCII reader (`src/io/tree/read_ctrees_ascii.c` and `src/io/tree/ctrees_utils.c`: `fix_upid()`, `assign_mergertree_indices()` and the associated sort orders — explicitly excluding `fix_flybys()`, which no longer exists). A conforming producer replicates those semantics exactly and proves it by cross-checking its output topology against that reader on a common dataset (by stable halo id, not by array index).
 
 ## Galaxy Identity Encoding
 
@@ -154,14 +157,29 @@ Field names and types in `halo_properties.yaml` must match this specification ex
 
 Converters live outside Mimic's run path (converter tooling is maintained under `scripts/convert/` in this repository) and perform the forest-ordered → snapshot-ordered reorganisation offline, once per source dataset. A conforming converter:
 
-1. Reads a source whose links are adjacent by construction (Consistent-Trees output; gap-ful sources are out of scope for format version 1).
-2. Applies the reference value conventions (spin normalisation, `Len` derivation, flyby/host fix-ups) exactly as the reference reader does.
+1. Reads a source whose links are adjacent by construction (Consistent-Trees output; gap-ful sources are out of scope for this format).
+2. Applies the reference value conventions (spin normalisation, `Len` derivation, host fix-ups) exactly as the reference reader does.
 3. Rewrites global-id links as snapshot-local indices with the chain orderings of the [Ordering Contracts](#ordering-contracts).
 4. Runs the full producer [validation battery](#validation-requirements) and emits a conversion report (counts, measured identity bounds, validation outcomes) from which the simulation package's identity multiplier is set.
 
 ## Versioning Policy
 
-`format_version` is a single int32 ratchet. Version 1 is this document. Readers reject files with an unrecognised version; producers stamp the version they implement. Additive changes (new optional datasets or attributes) also require a version bump — version 1 consumers are entitled to assume the exact object set specified here.
+`format_version` is a single int32 ratchet. Readers reject files with an unrecognised version; producers stamp the version they implement. Additive changes (new optional datasets or attributes) also require a version bump — consumers of a given version are entitled to assume the exact object set that version specifies.
+
+### Version 2 (2026-09-10)
+
+This document now specifies version 2. Version 1 is superseded outright, not extended: there is no legacy-read path, and a version 1 file is rejected by a version-2 reader with an error naming the file and the version found (`SNAPSHOT_HDF5_FORMAT_VERSION` in `src/io/snapshot/read_snapshot_hdf5.c`).
+
+**What changed.** Version 1's Ordering Contracts item 5 required the reference reader's `fix_flybys()` convention: at each forest's final snapshot, every FoF central but the most massive was demoted to a satellite of the survivor, marked by negating the demoted centrals' `MostBoundID`. This was found to be scientifically wrong, not merely a tolerable approximation: on the Shin-Uchuu production catalog it collapsed 33% of the z=0 population into one bogus FoF group and truncated the z=0 halo mass function by ~2 dex. Full diagnosis and decision record: `docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md`.
+
+`fix_flybys()` was deleted from the reference Consistent-Trees ASCII reader (`src/io/tree/ctrees/ctrees_utils.c`) and from the converter (`scripts/convert/fixups.py`). Concretely, relative to version 1:
+
+- Ordering Contracts item 5 (the flyby convention) is deleted outright; there were only ever five items, now four.
+- `MostBoundID` is always strictly positive — see the [Halo Datasets](#halo-datasets) and [Format Invariants](#format-invariants) (invariant 3) entries above.
+- The "reference semantics" definition below names `fix_upid()` and `assign_mergertree_indices()` and explicitly excludes `fix_flybys()`, which no longer exists.
+- No dataset was added, removed, or retyped, and no other ordering, invariant, or validation rule changed (`docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md`, decision D6: no new columns this round).
+
+Every version 1 dataset — including the pre-remediation Shin-Uchuu production dataset — carries the defect this version removes and cannot be reinterpreted as version 2 data; it must be reconverted from source.
 
 ## Errata
 

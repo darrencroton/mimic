@@ -6,8 +6,15 @@ halos-only *reference run* galaxy output. The reference run is the ground
 truth: Mimic reads the same trees through its own inheritance service
 (src/core/inheritance.c) and emits one galaxy per occupied (sub)halo carrying
 the frozen ``UniqueGalaxyID`` encoding. If the converter's links, identity
-fields, flyby signs, and copied values are correct, the reference run's
+fields, MostBoundID, and copied values are correct, the reference run's
 galaxies must reproduce exactly from the converter's own halo arrays.
+
+``fix_flybys`` was removed from the reader and the converter
+(docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md, decision D1): it collapsed
+every independent FoF group at a forest's final snapshot into one, which was
+scientifically wrong. ``MostBoundID`` is therefore always positive now, and
+the ``mostboundid-positive`` check below (decision D9(a)) asserts exactly
+that in place of the old ``flyby-signs`` check it replaced.
 
 Reference identity encoding (frozen — src/include/galaxy_id.h:31,
 TREE_MUL_FAC = 10**9)::
@@ -33,8 +40,8 @@ widened tolerance):
   2. identity-creation  first-appearance galaxies decode to (ForestIndex, rank)
   3. fof-central        the ``UniqueCentralGalaxyID`` galaxy's |MostBoundID|
                         equals the converter FirstHaloInFOFgroup target's id
-  4. flyby-signs        over matched Type 0/1 halos, the negative-MostBoundID
-                        sets match both directions
+  4. mostboundid-positive  every converter halo and matched reference Type 0/1
+                        galaxy has ``MostBoundID > 0``
   5. values             Pos/Vel/Spin/VelDisp/Vmax bit-exact, Len exact, Mvir
                         reconstructed via the reference get_virial_mass rule
                         (central+valid catalog mass -> float64(M_Crit200)*1e-10,
@@ -726,32 +733,34 @@ def check_fof_central(match) -> List[str]:
     return failures
 
 
-def check_flyby_signs(match) -> List[str]:
-    """Over the matched Type 0/1 population, the set of negative MostBoundID
-    values from the reference galaxies must equal the set from their matched
-    converter halos (both ways). Only matched halos are compared: a correctly
-    flyby-demoted halo that seeds no galaxy — a would-be FoF central demoted to
-    a satellite whose lineage was never occupied, so the reference model never
-    creates a galaxy for it — has no reference counterpart to compare against.
-    Such a halo's flyby sign is instead re-covered by the topology-chains check
-    (which resolves signed link targets against the reference dump) when a
-    reference-topology dump is supplied; without that dump an unmatched halo's
-    sign is not independently re-verified here (occupancy matches on
-    ``|MostBoundID|`` and does not inspect sign)."""
+def check_mostboundid_positive(match) -> List[str]:
+    """Every record's ``MostBoundID`` must be strictly positive.
+
+    Replaces the ``flyby-signs`` check (decision D9(a),
+    docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md): ``fix_flybys`` used to
+    negate a demoted central's ``MostBoundID`` as a marker, and that check
+    asserted the negated sets matched between reference and converter.
+    ``fix_flybys`` is gone, so the marker no longer exists and the only
+    invariant left to assert is that it never comes back: checked over the
+    full converter halo array for this snapshot and the matched reference
+    Type 0/1 galaxies' ``MostBoundID``."""
     failures = []
-    gal_idx, conv_idx = _matched_pairs(match)
-    ref_neg = {int(v) for v in match.ref["MostBoundID"][gal_idx] if v < 0}
-    conv_neg = {int(v) for v in match.conv["MostBoundID"][conv_idx] if v < 0}
-    only_ref = ref_neg - conv_neg
-    only_conv = conv_neg - ref_neg
-    if only_ref or only_conv:
+    conv_mb = match.conv["MostBoundID"]
+    conv_bad = conv_mb <= 0
+    if conv_bad.any():
         failures.append(
-            "snapshot {}: negative-MostBoundID set mismatch ({} only in reference, {} "
-            "only in converter); examples: {}".format(
-                match.snap,
-                len(only_ref),
-                len(only_conv),
-                _examples(sorted(only_ref | only_conv)),
+            "snapshot {}: {} converter halo(s) with non-positive MostBoundID; example "
+            "values: {}".format(
+                match.snap, int(conv_bad.sum()), _examples(conv_mb[conv_bad].tolist())
+            )
+        )
+    ref_mb = match.ref["MostBoundID"][match.t01_idx]
+    ref_bad = ref_mb <= 0
+    if ref_bad.any():
+        failures.append(
+            "snapshot {}: {} reference Type 0/1 galaxy(ies) with non-positive MostBoundID; "
+            "example values: {}".format(
+                match.snap, int(ref_bad.sum()), _examples(ref_mb[ref_bad].tolist())
             )
         )
     return failures
@@ -1296,12 +1305,12 @@ def check_topology_chains(snapshots: _Snapshots, partition: TopologyDumpPartitio
             continue
         m_ids = dump_ids[matched]
 
-        # The halo's own signed id, not just its magnitude. Matching is by
-        # |MostBoundID|, so a wrong flyby sign on the halo itself would
-        # otherwise only be caught indirectly, via some other halo's link
-        # resolving to it — and check_flyby_signs compares signs only over the
-        # matched Type 0/1 population, so galaxy-less demoted halos depend on
-        # this comparison being direct.
+        # The halo's own id, not just its magnitude. Matching is by
+        # |MostBoundID|, so a corrupted id on the halo itself would otherwise
+        # only be caught indirectly, via some other halo's link resolving to
+        # it — this direct comparison catches it regardless of whether the
+        # halo seeds a reference galaxy. (check_mostboundid_positive checks
+        # positivity, not exact value, over the matched Type 0/1 population.)
         conv_signed = arrays["MostBoundID"][conv_rows].astype(np.int64)
         sign_bad = conv_signed != m_ids
         if sign_bad.any():
@@ -1431,7 +1440,7 @@ def _check_one_snapshot(match, multiplier, part_mass, seen, forwarded, failures)
     failures["identity-forest"].extend(check_identity_forest(match, multiplier))
     failures["identity-creation"].extend(check_identity_creation(match, multiplier, seen))
     failures["fof-central"].extend(check_fof_central(match))
-    failures["flyby-signs"].extend(check_flyby_signs(match))
+    failures["mostboundid-positive"].extend(check_mostboundid_positive(match))
     failures["values"].extend(check_values(match, part_mass))
     occupancy_failures, forwarded = check_occupancy(match, forwarded)
     failures["occupancy"].extend(occupancy_failures)
@@ -1445,7 +1454,7 @@ CHECK_NAMES = (
     "identity-forest",
     "identity-creation",
     "fof-central",
-    "flyby-signs",
+    "mostboundid-positive",
     "values",
     "occupancy",
 )

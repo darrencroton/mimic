@@ -417,8 +417,8 @@ class RootSamplingTests(SubsetTestCase):
 
 class SelectionTests(SubsetTestCase):
     def test_forests_are_selected_whole_even_across_files(self):
-        """Selecting part of a forest changes fix_flybys/fix_upid semantics for
-        it, so a forest spanning two files must arrive complete or not at all."""
+        """Selecting part of a forest changes fix_upid semantics for it, so a
+        forest spanning two files must arrive complete or not at all."""
         self.plan()
         self.sample()
         out = self.tmp / "selection"

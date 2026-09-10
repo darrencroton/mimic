@@ -53,7 +53,7 @@ Required files: `simulation_info.yaml` (paths, cosmology, units, chunking defaul
 
 `micro-uchuu`, `micro-uchuu-hdf5`, `micro-uchuu-ascii` are the SAME catalog in three formats, and the test system deliberately runs full model validation on all three (see `mimic-validation-and-qa`) so the L-Halo binary, ctrees-HDF5, and ctrees-ASCII read paths validate against each other. Use the triplet whenever you need to discriminate "reader effect" from "physics effect".
 
-**Known defect, scheduled for removal — `fix_flybys()`.** The ASCII reader calls it (`src/io/tree/ctrees/ctrees_utils.c:318`) during topology reconstruction, and the converter replicates it (`scripts/convert/fixups.py`), so it reaches `micro-uchuu-ascii`, `shin-uchuu-ascii`, `micro-uchuu-snapshot` and `shin-uchuu`. At each forest's final snapshot it demotes every FoF central except the most massive to a satellite of that survivor, negating their `MostBoundID`. It was recorded as an accepted ~10–25% Type-0 divergence until Shin-Uchuu showed what it does to a percolating forest: 33% of the z=0 population in one bogus FoF group and the Type-0 halo mass function truncated ~2 dex. **It is being deleted and the snapshot format bumped to `format_version = 2`** — read `docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md` before touching anything in this area.
+**Removed defect — `fix_flybys()`.** The ASCII reader used to call it (`src/io/tree/ctrees/ctrees_utils.c`) during topology reconstruction, and the converter replicated it (`scripts/convert/fixups.py`), reaching `micro-uchuu-ascii`, `shin-uchuu-ascii`, `micro-uchuu-snapshot` and `shin-uchuu`. At each forest's final snapshot it demoted every FoF central except the most massive to a satellite of that survivor, negating their `MostBoundID`. It was recorded as an accepted ~10–25% Type-0 divergence until Shin-Uchuu showed what it does to a percolating forest: 33% of the z=0 population in one bogus FoF group and the Type-0 halo mass function truncated ~2 dex. **It has been deleted from the C reader and the converter, and the snapshot format bumped to `format_version = 2`** (v1 rejected outright, no legacy-read path). A restored standalone guard, `verify_fof_centrals_present()`, now FATALs if a forest's maximum-scale/max-snapshot block has zero `pid == -1` centrals — that is corrupt input, not the old convention. `micro-uchuu-ascii` and `micro-uchuu-snapshot` were re-measured after the fix and now agree with the lhalo/ctrees-HDF5 readers on Type-0 classification (`shin-uchuu-ascii`'s own subset was not separately re-measured, since the same reader code is what was verified). The Shin-Uchuu production dataset built under `format_version = 1` is void; its re-conversion has not yet run. Full record and remaining steps: `docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md`.
 
 ## 3. halo_properties.yaml — the on-disk contract
 
@@ -140,7 +140,7 @@ grep -n "CTREES_READ_WINDOW_BYTES" src/io/tree/read_ctrees_hdf5.c        # 128 M
 grep -n "forests_per_file > 0" src/io/tree/read_ctrees_ascii.c           # ASCII requirement
 grep -n "bridge_halo_data_to_rawhalo" src/io/tree/read_ctrees_*.c        # shared bridge
 for s in simulations/*/simulation_info.yaml; do grep -H "tree_type" "$s"; done   # package table
-grep -n -i "fix_flybys" simulations/micro-uchuu-ascii/README.md          # accepted divergence doc
+grep -n -i "fix_flybys" simulations/micro-uchuu-ascii/README.md          # historical: divergence removed, README should say so
 sed -n '/^required_inputs/,/^halo_properties/p' src/core/core_properties.yaml   # core roles
 ```
 

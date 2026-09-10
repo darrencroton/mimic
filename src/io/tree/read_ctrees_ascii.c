@@ -21,9 +21,10 @@
  * package + validation checklist.
  *
  * Split of responsibilities:
- *   - topology: read_forests/read_locations/assign_forest_ids/sort + fix_flybys/
- *     fix_upid/assign_mergertree_indices reconstruct the L-Halo merger pointers
- *     from the ctrees id/pid/upid/desc_id columns;
+ *   - topology: read_forests/read_locations/assign_forest_ids/sort +
+ *     verify_fof_centrals_present/fix_upid/assign_mergertree_indices
+ *     reconstruct the L-Halo merger pointers from the ctrees
+ *     id/pid/upid/desc_id columns, after asserting the forest is not corrupt;
  *   - reader conventions (order-dependent on the NATIVE Mvir): spin normalisation
  *     (J / Mvir) and the particle-count estimate (round(Mvir / particle_mass));
  *   - unit conversions (mass * 1e-10 into 1e10 Msun/h, positions in Mpc/h): handled
@@ -689,16 +690,14 @@ static void load_unit_ctrees_ascii(int unit) {
                 unit, totnhalos, MimicConfig.UniqueGalaxyIDMultiplier);
   }
 
-  /* Reconstruct the L-Halo merger pointers across the whole forest. */
-  if (fix_flybys(totnhalos, halos, info, 0) != EXIT_SUCCESS) {
-    FATAL_ERROR("fix_flybys failed for Consistent-Trees forest %d", unit);
-  }
-  const int max_snapnum = fix_upid(totnhalos, halos, info, 0);
+  /* Corrupt-input guard, upid resolution, then FoF/mergertree index
+     assignment — the shared pipeline also exercised directly by
+     tests/unit/test_ctrees_support.c (see ctrees_apply_topology's doc). */
+  const int max_snapnum = ctrees_apply_topology(totnhalos, halos, info, unit);
   if (max_snapnum < 0) {
-    FATAL_ERROR("fix_upid failed for Consistent-Trees forest %d", unit);
-  }
-  if (assign_mergertree_indices(totnhalos, halos, info, max_snapnum) != EXIT_SUCCESS) {
-    FATAL_ERROR("assign_mergertree_indices failed for Consistent-Trees forest %d", unit);
+    FATAL_ERROR("Consistent-Trees topology reconstruction failed for forest %d; see the error "
+                "logged above",
+                unit);
   }
   if (validate_ctrees_snapshot_range(halos, totnhalos, "Consistent-Trees ASCII") != EXIT_SUCCESS) {
     FATAL_ERROR("Consistent-Trees forest %d has a snapshot outside the configured snapshot list",

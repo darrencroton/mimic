@@ -107,9 +107,24 @@ def build_report(manifest: Manifest, outcomes: List[Outcome], n_snapshots: int) 
     per_snapshot = {}
     for snap in range(n_snapshots):
         entry = snapshots.get(str(snap), {})
+        rows = entry.get("rows", 0)
+        # D9(b): flyby_demotions is a required, measured field for any snapshot
+        # that actually has records — defaulting a missing field to 0 would
+        # manufacture the very evidence this field exists to provide. An
+        # unpopulated snapshot never went through fixups, so it legitimately
+        # has no such field recorded.
+        if rows > 0:
+            if "flyby_demotions" not in entry:
+                raise ConverterError(
+                    "manifest snapshot {} entry has {} row(s) but no flyby_demotions field "
+                    "recorded — D9(b) requires it to be measured, not defaulted".format(snap, rows)
+                )
+            flyby_demotions = entry["flyby_demotions"]
+        else:
+            flyby_demotions = entry.get("flyby_demotions", 0)
         per_snapshot[str(snap)] = {
-            "rows": entry.get("rows", 0),
-            "flyby_demotions": entry.get("flyby_demotions", 0),
+            "rows": rows,
+            "flyby_demotions": flyby_demotions,
             "len_zero_count": entry.get("len_zero_count", 0),
         }
 
@@ -120,6 +135,18 @@ def build_report(manifest: Manifest, outcomes: List[Outcome], n_snapshots: int) 
             "parsed_count": entry["parsed_count"],
             "md5": entry["md5"],
         }
+
+    # fix_flybys was removed (docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md, D9(b)):
+    # flyby_demotions is retained as a required, always-zero field rather than
+    # dropped, so a reappearance of the demotion fails loudly here rather than
+    # silently reaching a dataset.
+    total_demotions = sum(e["flyby_demotions"] for e in per_snapshot.values())
+    if total_demotions != 0:
+        raise ConverterError(
+            "flyby_demotions is {} across the dataset, expected 0 — fix_flybys was removed and "
+            "MostBoundID must always be positive; a non-zero count means a demotion was recorded "
+            "by a stage that should no longer be able to produce one".format(total_demotions)
+        )
 
     return {
         "workdir": str(manifest.workdir),

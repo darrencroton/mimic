@@ -3,9 +3,11 @@
  * @brief   snapshot_hdf5 reader: run lifecycle, validation, and count table.
  *
  * Reads the frozen snapshot-ordered HDF5 contract described in
- * docs/dev/SNAPSHOT-HDF5-FORMAT.md (format_version = 1): one
+ * docs/dev/SNAPSHOT-HDF5-FORMAT.md (format_version = 2): one
  * `snapshot_NNN.h5` file per snapshot under MimicConfig.SimulationDir, each
- * holding exactly the `/header` and `/halos` groups.
+ * holding exactly the `/header` and `/halos` groups. Version 1 data (from
+ * before `fix_flybys` was removed; docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md)
+ * is rejected outright — there is no legacy-read path.
  *
  * open_run validates the whole dataset and publishes run-scoped metadata plus a
  * per-snapshot halo-count table, snapshot_halo_count serves that table, and
@@ -58,8 +60,11 @@
 #include "snapshot/reader.h"
 #include "types.h"
 
-/* Supported on-disk contract version (docs/dev/SNAPSHOT-HDF5-FORMAT.md). */
-#define SNAPSHOT_HDF5_FORMAT_VERSION 1
+/* Supported on-disk contract version (docs/dev/SNAPSHOT-HDF5-FORMAT.md).
+   Bumped 1 -> 2 when fix_flybys was removed (MostBoundID is always positive
+   now; docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md, decision D3). There is
+   no legacy-read path: a version 1 file is rejected outright. */
+#define SNAPSHOT_HDF5_FORMAT_VERSION 2
 
 /* Halos read per hyperslab during the data scans. Fixed by construction so scan
    memory is bounded independently of snapshot size. */
@@ -78,7 +83,7 @@
 /* ---------------------------------------------------------------------------
  * Contract tables
  *
- * The names, dtypes and shapes below are the normative format_version = 1
+ * The names, dtypes and shapes below are the normative format_version = 2
  * record. They are stated here rather than derived from the compiled-in
  * simulation package on purpose: the reader validates a file against the
  * format, not against whatever a package happens to declare.
@@ -745,7 +750,7 @@ static void snapshot_h5_fill_halos(hid_t file, const char *path, int64_t n_halos
  * literals at the call site. The caller (snapshot_h5_fill_identity() below)
  * still hard-types its destination buffers as int64_t and passes a literal
  * column count of 1; that is not derived from this lookup, and is safe only
- * because format_version 1 fixes ForestIndex and HaloRankInForest as scalar
+ * because format_version 2 fixes ForestIndex and HaloRankInForest as scalar
  * (ncols 0) int64 columns -- this function does not itself enforce that.
  */
 static const struct snapshot_h5_dataset_spec *snapshot_h5_dataset_spec_by_name(const char *name) {

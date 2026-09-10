@@ -22,7 +22,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import validate  # noqa: E402
 from ctrees_parser import ConverterError  # noqa: E402
-from hdf5_writer import CHUNK_1D, snapshot_h5_name, write_snapshot_file  # noqa: E402
+from hdf5_writer import (  # noqa: E402
+    CHUNK_1D,
+    FORMAT_VERSION,
+    snapshot_h5_name,
+    write_snapshot_file,
+)
 from test_hdf5_writer import make_written_workdir  # noqa: E402
 from validate import DEFAULT_MULTIPLIER, run_battery  # noqa: E402
 
@@ -221,8 +226,25 @@ class TestBattery(unittest.TestCase):
         return corrupted
 
     def test_wrong_format_version(self):
-        outcomes = self._run(self._corrupt_attr("format_version", 2))
+        # any value other than the writer's own version; derived from
+        # FORMAT_VERSION so the test survives the next ratchet bump
+        outcomes = self._run(self._corrupt_attr("format_version", FORMAT_VERSION + 1))
         self.assert_fails(outcomes, "header-values", "format_version")
+
+    def test_format_version_1_rejected(self):
+        # Dedicated regression for the pre-flyby-removal v1 contract
+        # (docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md, D3): there is no
+        # legacy-read path, so version 1 must be rejected outright, by name
+        # rather than only as "any value other than the current one". A future
+        # legacy-read branch that special-cased version 1 as acceptable would
+        # pass test_wrong_format_version (which never tries 1) but must fail
+        # this one.
+        name = snapshot_h5_name(3)
+        outcomes = self._run(self._corrupt_attr("format_version", 1))
+        outcome = outcomes["header-values"]
+        self.assertEqual(outcome.status, "FAIL", outcome.line())
+        self.assertIn(name, outcome.detail)
+        self.assertIn("format_version 1 != {}".format(FORMAT_VERSION), outcome.detail)
 
     def test_wrong_links_adjacent(self):
         outcomes = self._run(self._corrupt_attr("links_adjacent", 0))
@@ -352,9 +374,11 @@ class TestBattery(unittest.TestCase):
         return corrupted
 
     def test_fof_member_wrong_central(self):
-        # snap 5 slab: first_fof [0,0,2,2,4,4,6,6,6]; halo 1 claiming central 2
-        # is a chain member whose FirstHaloInFOFgroup is not its chain's central
-        outcomes = self._run(self._corrupt_links(5, "FirstHaloInFOFgroup", 1, 2))
+        # snap 5 slab: first_fof [0,1,2,2,4,4,6,6,6] (1010 and 1020 are both
+        # self-central since fix_flybys was removed); halo 3 sits in halo 2's
+        # chain, so claiming central 4 makes it a chain member whose
+        # FirstHaloInFOFgroup is not its chain's central
+        outcomes = self._run(self._corrupt_links(5, "FirstHaloInFOFgroup", 3, 4))
         self.assert_fails(outcomes, "fof-chains")
 
     def test_fof_cycle(self):
@@ -362,7 +386,9 @@ class TestBattery(unittest.TestCase):
         self.assert_fails(outcomes, "fof-chains")
 
     def test_fof_orphaned_member(self):
-        outcomes = self._run(self._corrupt_links(5, "NextHaloInFOFgroup", 0, -1))
+        # halo 2 is the central of the chain {2, 3}; cutting its next-link
+        # leaves member 3 unreachable from its own central
+        outcomes = self._run(self._corrupt_links(5, "NextHaloInFOFgroup", 2, -1))
         self.assert_fails(outcomes, "fof-chains", "not reachable")
 
     def test_fof_target_not_central(self):
@@ -666,7 +692,12 @@ RECORDED = {
     "header_format_version": {
         "no_manifest": True,
         "outcomes": {
-            "header-values": ("FAIL", "snapshot_003.h5: format_version 2 != 1"),
+            "header-values": (
+                "FAIL",
+                "snapshot_003.h5: format_version {} != {}".format(
+                    FORMAT_VERSION + 1, FORMAT_VERSION
+                ),
+            ),
         },
     },
     "header_links_adjacent": {
@@ -788,7 +819,7 @@ RECORDED = {
             "fof-chains": (
                 "FAIL",
                 "snapshot_005.h5: 1 chain member(s) whose FirstHaloInFOFgroup is "
-                "not the chain's central; example rows: 1",
+                "not the chain's central; example rows: 3",
             ),
         },
     },
@@ -807,7 +838,7 @@ RECORDED = {
             "fof-chains": (
                 "FAIL",
                 "snapshot_005.h5: 1 halo(s) not reachable from any FoF central "
-                "(orphaned or cyclic chain); example rows: 1",
+                "(orphaned or cyclic chain); example rows: 3",
             ),
         },
     },
@@ -1129,7 +1160,7 @@ class TestStreamingEquivalence(unittest.TestCase):
         elif case == "sidecar_wrong_length":
             directory = self._replace_dataset(None, "ForestID", lambda v: v[:-1])
         elif case == "header_format_version":
-            directory = self._attr("format_version", 2)
+            directory = self._attr("format_version", FORMAT_VERSION + 1)
         elif case == "header_links_adjacent":
             directory = self._attr("links_adjacent", 0)
         elif case == "header_snapshot_number":
@@ -1163,11 +1194,11 @@ class TestStreamingEquivalence(unittest.TestCase):
         elif case == "null_first_fof":
             directory = self._field(5, "FirstHaloInFOFgroup", 1, -1)
         elif case == "fof_member_wrong_central":
-            directory = self._field(5, "FirstHaloInFOFgroup", 1, 2)
+            directory = self._field(5, "FirstHaloInFOFgroup", 3, 4)
         elif case == "fof_cycle":
             directory = self._field(5, "NextHaloInFOFgroup", 1, 0)
         elif case == "fof_orphaned_member":
-            directory = self._field(5, "NextHaloInFOFgroup", 0, -1)
+            directory = self._field(5, "NextHaloInFOFgroup", 2, -1)
         elif case == "fof_target_not_central":
             directory = self._field(5, "FirstHaloInFOFgroup", 8, 7)
         elif case == "stray_next_progenitor":

@@ -42,9 +42,10 @@ do not cover the candidates) is a 2, not a 1: nothing was selected to assert ove
 Constraints this implementation is built around, each verified against the
 reference sources rather than assumed:
 
-- **Whole forests only.** ``fix_flybys``/``fix_upid`` use per-forest max-snapshot
-  scope, so a partial forest converts differently from the same forest in a full
-  run. Coverage holes are closed with complete forests, never with lone trees.
+- **Whole forests only.** ``fix_upid`` and the chain/rank reconstruction that
+  follows it use per-forest scope, so a partial forest converts differently
+  from the same forest in a full run. Coverage holes are closed with complete
+  forests, never with lone trees.
 - **One-to-one root coverage.** ``scatter.validate_root_coverage()`` aborts on a
   surplus listed root just as loudly as on a missing one, so the subset needs its
   own ``forests.list``.

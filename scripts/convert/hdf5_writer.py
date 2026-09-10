@@ -1,7 +1,7 @@
 """Snapshot-HDF5 emission for the ctrees -> snapshot-HDF5 converter (plan Slice 7).
 
 Emits ``snapshot_NNN.h5`` files and the ``forests.h5`` sidecar exactly per the
-frozen contract in docs/dev/SNAPSHOT-HDF5-FORMAT.md (format_version = 1). The
+frozen contract in docs/dev/SNAPSHOT-HDF5-FORMAT.md (format_version = 2). The
 contract is consumed, never modified — any mismatch discovered here is a
 converter bug or a spec erratum to raise to the user.
 
@@ -53,7 +53,11 @@ from links import LINKS_DTYPE_TAG, LINKS_RECORD_DTYPE  # noqa: E402
 from scatter import Manifest, file_md5, load_a_list  # noqa: E402
 
 #: format_version this writer implements (the frozen contract's ratchet).
-FORMAT_VERSION = 1
+#: Bumped 1 -> 2 when fix_flybys was removed (MostBoundID is always positive
+#: now; docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md, decision D3). Version 1
+#: data is no longer conforming and must be rejected by the reader, not
+#: silently re-read.
+FORMAT_VERSION = 2
 
 #: Contract chunk shapes (docs/dev/SNAPSHOT-HDF5-FORMAT.md Storage Layout).
 CHUNK_1D = (65536,)
@@ -169,9 +173,53 @@ def build_halo_arrays(
         rows = np.nonzero(sentinel)[0][:5]
         raise ConverterError(
             "{}: {} MostBoundID value(s) equal INT64_MIN, whose magnitude overflows signed "
-            "int64 — no valid negated source-catalog id can take this value; example rows: "
+            "int64 — no valid source-catalog id can take this value; example rows: "
             "{}".format(context, int(sentinel.sum()), ", ".join(str(int(r)) for r in rows))
         )
+    # Last line of defence before a format_version = 2 stamp goes on disk: a
+    # workdir resumed from before fix_flybys was removed could carry
+    # fixed/linked snapshots with negated MostBoundID (its demotion marker)
+    # without ever being re-verified (fix_one_snapshot trusts recorded
+    # checksums on resume, not content semantics). MANIFEST_VERSION now
+    # refuses that resume outright, but assert the invariant here too rather
+    # than rely on that alone.
+    non_positive = fixed["MostBoundID"] <= 0
+    if non_positive.any():
+        rows = np.nonzero(non_positive)[0][:5]
+        raise ConverterError(
+            "{}: snapshot {} has {} record(s) with non-positive MostBoundID — the "
+            "fix_flybys demotion marker must not survive to emission; example rows: "
+            "{}".format(
+                context,
+                snap,
+                int(non_positive.sum()),
+                ", ".join(
+                    "(row={}, MostBoundID={})".format(int(r), int(fixed["MostBoundID"][r]))
+                    for r in rows
+                ),
+            )
+        )
+    id_mismatch = fixed["MostBoundID"] != fixed["id"]
+    if id_mismatch.any():
+        rows = np.nonzero(id_mismatch)[0][:5]
+        raise ConverterError(
+            "{}: snapshot {} has {} record(s) where MostBoundID != id; example rows: "
+            "{}".format(
+                context,
+                snap,
+                int(id_mismatch.sum()),
+                ", ".join(
+                    "(row={}, id={}, MostBoundID={})".format(
+                        int(r), int(fixed["id"][r]), int(fixed["MostBoundID"][r])
+                    )
+                    for r in rows
+                ),
+            )
+        )
+    # MostBoundID is always positive now (fix_flybys, which used to negate it
+    # as a demotion marker, was removed), so |MostBoundID| == MostBoundID; the
+    # abs() is retained only because it is what the contract's ordering
+    # invariant is stated in terms of.
     mb_abs = np.abs(fixed["MostBoundID"])
     if fixed.size > 1 and not (mb_abs[1:] > mb_abs[:-1]).all():
         rows = np.nonzero(mb_abs[1:] <= mb_abs[:-1])[0][:5]

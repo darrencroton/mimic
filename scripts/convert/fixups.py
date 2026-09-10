@@ -2,26 +2,26 @@
 
 Implements the conversion plan's Phase 3 steps 1-5 on the sorted per-snapshot
 arrays: a_list adjacency validation, spin normalisation, Len derivation, and
-the ``fix_flybys``/``fix_upid`` equivalents. Reference semantics replicated
-exactly (resolved decision D12):
+the ``fix_upid`` equivalent. Reference semantics replicated exactly (resolved
+decision D12):
 
 - spin: ``J[k] * (1.0 / (double)Mvir)`` in float64, cast to float32, only where
   ``Mvir != 0`` — multiply-by-reciprocal, matching apply_ctrees_value_conventions
   (src/io/tree/read_ctrees_ascii.c:96-122) bit for bit;
 - Len: C ``round()`` half-away-from-zero of ``Mvir_native * 1e-10 / PartMass``
   with the reference finiteness/negativity/INT_MAX aborts (same file);
-- fix_flybys: per forest at that FOREST'S max snapshot — zero ``pid == -1``
-  centrals aborts, one returns unchanged, multiple demote to a sole survivor
-  chosen by strict-greater Mvir in ascending-id scan order
-  (src/io/tree/ctrees/ctrees_utils.c:318-412);
 - fix_upid: centrals get ``upid = id``; satellite upid chains are followed to
   depth 30 with the reference pid fallback, and every resolved satellite gets
   BOTH ``upid`` and ``pid`` set to the ultimate central's id
   (src/io/tree/ctrees/ctrees_utils.c:414-509 and find_fof_halo at 722-787).
 
-fix_flybys runs strictly before fix_upid (reference execution order,
-read_ctrees_ascii.c:692-700). Chain construction, ranks, and identity fields
-are Slice 6. All aborts carry counts and concrete examples — never repair.
+``fix_flybys`` was removed from both the C reader and this converter
+(docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md, decision D1): it collapsed
+every independent FoF group at a forest's final snapshot into one, which is
+scientifically wrong at fine mass resolution. ``MostBoundID`` is therefore
+always positive now — the demotion marker it used to carry no longer exists.
+Chain construction, ranks, and identity fields are Slice 6. All aborts carry
+counts and concrete examples — never repair.
 
 After this stage the ``Jx``/``Jy``/``Jz`` fields of the fixed records carry the
 normalised Spin components (raw J only where ``Mvir == 0``, per the reference
@@ -90,6 +90,36 @@ NATIVE_TO_REF_MASS = 1e-10
 REF_TO_NATIVE_MASS = 1e10
 
 _INT32_MAX = float(np.iinfo(np.int32).max)
+
+#: Shared empty sentinel for "no forest peaks at this snapshot" — passed to
+#: verify_fof_centrals_present, whose no-op path checks .size == 0.
+_EMPTY_FOREST_IDS = np.empty((0,), dtype=np.int64)
+
+
+def load_forests_at_max_by_snap(manifest: Manifest) -> Dict[int, np.ndarray]:
+    """Load ``forest_max_snap.npy`` (Phase 1's per-forest max-snapshot
+    aggregate, produced by scatter's finalize pass) and group forest ids by
+    their maximum snapshot.
+
+    Returns ``{snap: sorted unique forest ids whose maximum snapshot is
+    exactly snap}``. Verified via the manifest against tampering, like every
+    other intermediate this stage reads. This is the sidecar the corrupt-input
+    guard (D9(c)) consumes; see ``verify_fof_centrals_present``.
+    """
+    path = Path(manifest.workdir) / "forest_max_snap.npy"
+    manifest.verify_intermediate(path, "forest-max-snap sidecar")
+    table = np.load(path)
+    if table.size == 0:
+        return {}
+    order = np.argsort(table[:, 1], kind="stable")
+    forests = table[order, 0]
+    snaps = table[order, 1]
+    starts = np.nonzero(np.r_[True, snaps[1:] != snaps[:-1]])[0]
+    ends = np.r_[starts[1:], snaps.size]
+    result: Dict[int, np.ndarray] = {}
+    for start, end in zip(starts.tolist(), ends.tolist()):
+        result[int(snaps[start])] = np.sort(forests[start:end])
+    return result
 
 
 def fixed_scratch_name(snap: int) -> str:
@@ -259,64 +289,35 @@ def validate_adjacency(records: np.ndarray, snap: int, a_list: np.ndarray, conte
         )
 
 
-def fix_flybys_snapshot(records: np.ndarray, snap: int, forests_at_max: np.ndarray) -> int:
-    """fix_flybys equivalent for the forests whose max snapshot is ``snap``.
+def verify_fof_centrals_present(
+    records: np.ndarray, snap: int, forests_at_max: np.ndarray, context: str
+) -> None:
+    """Corrupt-input guard restored for D9(c) (SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md).
 
-    Per forest over its halos at this snapshot (ctrees_utils.c:318-412): zero
-    ``pid == -1`` centrals aborts (the reference errors on corrupt input);
-    exactly one returns unchanged; multiple demote — the sole survivor is the
-    strict-greater-Mvir central in ascending-id scan order (records are
-    id-sorted, matching the reference's within-snapshot scan), every other
-    forest member at this snapshot gets ``upid`` rewritten to the survivor,
-    and demoted centrals additionally get ``pid`` rewritten and MostBoundID
-    negated. Returns the number of demoted centrals.
+    ``fix_flybys`` used to abort, as a side effect of its own topology scan,
+    when a forest had zero ``pid == -1`` (FoF central) halos at its maximum
+    scale ("NO FOFs at max scale ... Will crash") — structurally impossible
+    for a valid Consistent-Trees forest. That guard died with the function;
+    nothing else asserted the property it happened to check. This restores it
+    standalone, independent of any demotion or topology-rewriting logic: for
+    every forest whose maximum snapshot is ``snap``, at least one of its
+    records here must have ``pid == -1``.
+
+    ``forests_at_max`` is the sorted, unique array of forest ids whose
+    maximum snapshot (from Phase 1's ``forest_max_snap.npy`` aggregate)
+    equals ``snap``; an empty array is a no-op (no forest peaks here).
     """
-    forests_at_max = np.asarray(forests_at_max, dtype=np.int64)
     if forests_at_max.size == 0:
-        return 0
-    member_rows = np.nonzero(np.isin(records["forest_id"], forests_at_max))[0]
-    present = np.unique(records["forest_id"][member_rows])
-    absent = np.setdiff1d(forests_at_max, present, assume_unique=False)
-    if absent.size:
+        return
+    central_forests = np.unique(records["forest_id"][records["pid"] == -1])
+    missing = np.setdiff1d(forests_at_max, central_forests, assume_unique=True)
+    if missing.size:
+        examples = missing[:5].tolist()
         raise ConverterError(
-            "snapshot {}: {} forest(s) recorded with max snapshot {} have no halos here; "
-            "examples: {}".format(snap, absent.size, snap, absent[:5].tolist())
+            "{}: snapshot {}: {} forest(s) whose maximum snapshot is this one have zero "
+            "pid == -1 (FoF central) record(s) here; corrupt input (reference fix_flybys "
+            "errors); example forest id(s): {}".format(context, snap, int(missing.size), examples)
         )
-
-    # group member rows by forest; within a group, row order is ascending id
-    order = np.argsort(records["forest_id"][member_rows], kind="stable")
-    member_rows = member_rows[order]
-    group_forests = records["forest_id"][member_rows]
-    starts = np.nonzero(np.r_[True, group_forests[1:] != group_forests[:-1]])[0]
-    is_central = records["pid"][member_rows] == -1
-    # reduceat on a bool array would stay bool (logical OR); count in int64
-    central_counts = np.add.reduceat(is_central.astype(np.int64), starts)
-
-    zero = central_counts == 0
-    if zero.any():
-        bad_forests = group_forests[starts][zero][:5].tolist()
-        raise ConverterError(
-            "snapshot {}: {} forest(s) have zero pid == -1 centrals at their max snapshot "
-            "(corrupt input, reference fix_flybys errors); forest id examples: {}".format(
-                snap, int(zero.sum()), bad_forests
-            )
-        )
-
-    demoted_total = 0
-    bounds = np.r_[starts, member_rows.size]
-    for g in np.nonzero(central_counts > 1)[0]:
-        members = member_rows[bounds[g] : bounds[g + 1]]
-        central_rows = members[records["pid"][members] == -1]
-        # ascending-id scan with strict > == first occurrence of the maximum
-        survivor = central_rows[np.argmax(records["Mvir"][central_rows])]
-        fof_id = records["id"][survivor]
-        others = members[members != survivor]
-        records["upid"][others] = fof_id
-        demoted = central_rows[central_rows != survivor]
-        records["pid"][demoted] = fof_id
-        records["MostBoundID"][demoted] = -records["MostBoundID"][demoted]
-        demoted_total += demoted.size
-    return demoted_total
 
 
 def fix_upid_snapshot(records: np.ndarray, snap: int) -> None:
@@ -408,13 +409,19 @@ def apply_fixups_snapshot(
     snap: int,
     a_list: np.ndarray,
     particle_mass: float,
-    forests_at_max: np.ndarray,
+    forests_at_max: Optional[np.ndarray] = None,
     context: str = "fixups",
 ) -> Tuple[np.ndarray, Dict[str, int]]:
-    """Run Phase 3 steps 1-5 on one snapshot's sorted records.
+    """Run Phase 3 steps 1-4 on one snapshot's sorted records.
+
+    ``forests_at_max`` is the sorted array of forest ids whose maximum
+    snapshot (per ``forest_max_snap.npy``) equals ``snap``; ``None`` (the
+    default, used by direct unit-level calls that do not have that sidecar)
+    skips the corrupt-input guard rather than treating it as "no forest
+    peaks here" the way an explicit empty array does.
 
     Returns the fixed-record array (FIXED_RECORD_DTYPE) and the per-snapshot
-    stats. fix_flybys runs strictly before fix_upid (reference order).
+    stats.
     """
     fixed = np.zeros(records.size, dtype=FIXED_RECORD_DTYPE)
     for name in RECORD_DTYPE.names:
@@ -423,18 +430,21 @@ def apply_fixups_snapshot(
     validate_adjacency(fixed, snap, a_list, context)
     normalise_spin(fixed)
     fixed["Len"], len_zero = derive_len(fixed["Mvir"], particle_mass, context)
-    # MostBoundID carries the ctrees id (convert_ctrees_to_lht); fix_flybys
-    # negates it for demoted centrals
+    # MostBoundID carries the ctrees id (convert_ctrees_to_lht) and is always
+    # positive — the flyby demotion marker that used to negate it is gone.
     fixed["MostBoundID"] = fixed["id"]
-    demoted = fix_flybys_snapshot(fixed, snap, forests_at_max)
+    # Corrupt-input guard (D9(c)), independent of fix_upid below: every forest
+    # peaking at this snapshot must have at least one pid == -1 record here.
+    if forests_at_max is not None:
+        verify_fof_centrals_present(fixed, snap, forests_at_max, context)
     fix_upid_snapshot(fixed, snap)
-    return fixed, {"rows": int(fixed.size), "flyby_demotions": demoted, "len_zero_count": len_zero}
+    return fixed, {"rows": int(fixed.size), "len_zero_count": len_zero}
 
 
 def verify_mostboundid_invariant(records: np.ndarray, context: str) -> None:
-    """Ids are never modified by the fix-up stage, so |MostBoundID| == id must
-    hold for every fixed record; abort with count and examples otherwise."""
-    bad = np.abs(records["MostBoundID"]) != records["id"]
+    """Ids are never modified by the fix-up stage, so ``MostBoundID`` must equal
+    ``id`` for every fixed record; abort with count and examples otherwise."""
+    bad = records["MostBoundID"] != records["id"]
     if bad.any():
         rows = np.nonzero(bad)[0][:5]
         examples = [
@@ -444,25 +454,9 @@ def verify_mostboundid_invariant(records: np.ndarray, context: str) -> None:
             for r in rows
         ]
         raise ConverterError(
-            "{}: {} halo(s) violate |MostBoundID| == id after fix-ups — sign corrections "
-            "must preserve the ctrees id; examples: {}".format(
-                context, int(bad.sum()), ", ".join(examples)
-            )
+            "{}: {} halo(s) violate MostBoundID == id after fix-ups; "
+            "examples: {}".format(context, int(bad.sum()), ", ".join(examples))
         )
-
-
-def _forests_at_max_by_snap(forest_max_table: np.ndarray) -> Dict[int, np.ndarray]:
-    """Invert the per-forest max-snapshot table into snap -> forest ids."""
-    if forest_max_table.ndim != 2 or forest_max_table.shape[1] != 2:
-        raise ConverterError(
-            "forest max-snapshot table has shape {}, expected (n, 2)".format(forest_max_table.shape)
-        )
-    by_snap: Dict[int, np.ndarray] = {}
-    forests = forest_max_table[:, 0]
-    max_snaps = forest_max_table[:, 1]
-    for snap in np.unique(max_snaps).tolist():
-        by_snap[int(snap)] = forests[max_snaps == snap]
-    return by_snap
 
 
 def run_fixups(
@@ -514,10 +508,7 @@ def run_fixups(
             )
         )
     particle_mass = load_particle_mass(simulation_info_path)
-
-    forest_max_path = Path(manifest.workdir) / "forest_max_snap.npy"
-    manifest.verify_intermediate(forest_max_path, "forest max-snapshot table")
-    forests_by_snap = _forests_at_max_by_snap(np.load(forest_max_path))
+    forests_at_max_by_snap = load_forests_at_max_by_snap(manifest)
 
     if snapshots is None:
         snapshots = sorted(int(s) for s in manifest.data["snapshots"])
@@ -527,7 +518,7 @@ def run_fixups(
             snap,
             a_list,
             particle_mass,
-            forests_by_snap,
+            forests_at_max_by_snap.get(snap, _EMPTY_FOREST_IDS),
             consume_intermediates=consume_intermediates,
         )
     return manifest
@@ -573,10 +564,10 @@ def fix_one_snapshot(
     snap: int,
     a_list: np.ndarray,
     particle_mass: float,
-    forests_by_snap: Dict[int, np.ndarray],
+    forests_at_max: np.ndarray = _EMPTY_FOREST_IDS,
     consume_intermediates: bool = False,
 ) -> None:
-    """Fix one snapshot: verify input, apply steps 1-5, write + verify output."""
+    """Fix one snapshot: verify input, apply steps 1-4, write + verify output."""
     entry = manifest.data["snapshots"].get(str(snap))
     if entry is None:
         raise ConverterError("snapshot {}: no manifest entry; run scatter first".format(snap))
@@ -627,7 +618,7 @@ def fix_one_snapshot(
         snap,
         a_list,
         particle_mass,
-        forests_by_snap.get(snap, np.empty(0, dtype=np.int64)),
+        forests_at_max=forests_at_max,
         context=str(sorted_path),
     )
 
@@ -657,13 +648,17 @@ def fix_one_snapshot(
         fixed_path, "snapshot-fixed", rows=int(len(reread)), dtype_tag=FIXED_DTYPE_TAG
     )
     entry["fixed_file"] = str(fixed_path.resolve())
-    entry["flyby_demotions"] = stats["flyby_demotions"]
+    # Retained as a required field that must always read zero (D9(b)). fix_flybys
+    # is gone, so no stage can demote a flyby — but the count is measured from the
+    # records as persisted rather than written as a literal, so a zero here is
+    # positive evidence from the data. report.py fails loudly on a non-zero total.
+    entry["flyby_demotions"] = int(np.count_nonzero(reread["MostBoundID"] < 0))
     entry["len_zero_count"] = stats["len_zero_count"]
     entry["status"] = "fixed"
     manifest.save()
     _consume_sorted(manifest, entry, snap, consume_intermediates)
     _log(
-        "fixups: snapshot {} — {} rows, {} flyby demotion(s), {} Len==0 halo(s)".format(
-            snap, stats["rows"], stats["flyby_demotions"], stats["len_zero_count"]
+        "fixups: snapshot {} — {} rows, {} Len==0 halo(s)".format(
+            snap, stats["rows"], stats["len_zero_count"]
         )
     )

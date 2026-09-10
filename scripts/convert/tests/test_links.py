@@ -297,8 +297,10 @@ def make_linked_workdir(root: Path, forests=None, a_list_values=None):
 #: snap 5 [1010, 1020, 2010, 2011, 5010, 5011, 6010, 6011, 6012].
 #: ForestIndex (ascending forest id 100,200,400,500,600 -> 0,1,2,3,4).
 #: Covers: the 1011/1012 mass tie (first encountered stays FirstProgenitor),
-#: the flyby-demoted 1020 chained behind 1010, and the pending buffer flowing
-#: across three consecutive snapshots (1013@3 -> 1011@4 -> 1010@5).
+#: 1010 and 1020 as two independent single-member FoF chains at snapshot 5
+#: (fix_flybys, which chained 1020 behind 1010, was removed — decision D1), and
+#: the pending buffer flowing across three consecutive snapshots
+#: (1013@3 -> 1011@4 -> 1010@5).
 GOLDEN_LINKS = {
     1: {
         "Descendant": [0],
@@ -340,8 +342,8 @@ GOLDEN_LINKS = {
         "Descendant": [-1] * 9,
         "FirstProgenitor": [0, 2, 3, 4, -1, -1, -1, -1, -1],
         "NextProgenitor": [-1] * 9,
-        "FirstHaloInFOFgroup": [0, 0, 2, 2, 4, 4, 6, 6, 6],
-        "NextHaloInFOFgroup": [1, -1, 3, -1, 5, -1, 7, 8, -1],
+        "FirstHaloInFOFgroup": [0, 1, 2, 2, 4, 4, 6, 6, 6],
+        "NextHaloInFOFgroup": [-1, -1, 3, -1, 5, -1, 7, 8, -1],
         "ForestIndex": [0, 0, 1, 1, 3, 3, 4, 4, 4],
         "HaloRankInForest": [0, 1, 0, 1, 0, 1, 0, 1, 2],
     },

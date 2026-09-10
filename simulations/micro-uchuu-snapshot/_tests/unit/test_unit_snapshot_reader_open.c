@@ -62,7 +62,7 @@ extern struct MimicConfig MimicConfig;
 #define FIXTURE_SNAPSHOTS 6
 #define FIXTURE_N_FORESTS_TOTAL 3
 #define FIXTURE_MAX_RANK 6
-#define FIXTURE_FORMAT_VERSION 1
+#define FIXTURE_FORMAT_VERSION 2
 #define FIXTURE_A_LIST "micro-uchuu-fixture.a_list"
 
 /* Largest halo count in the fixture; sizes the comparison buffers below. */

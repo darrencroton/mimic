@@ -45,7 +45,7 @@ SIMULATION_INFO = PACKAGE_DIR / "simulation_info.yaml"
 A_LIST_NAME = "micro-uchuu-fixture.a_list"
 
 #: format_version this fixture set implements
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
 
 #: header attributes: name -> numpy dtype (frozen spec, Header Attributes)
 HEADER_ATTRS = {

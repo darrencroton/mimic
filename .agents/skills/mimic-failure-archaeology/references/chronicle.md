@@ -107,15 +107,17 @@ Tags marking era boundaries: `v0.1-beta`, `v0.5`, `v0.9-pre-release`, `v1.0` (da
 
 **Status.** Closed (fixed). Conservation-check methodology: see the `mimic-scientific-method` skill.
 
-## Incident 9 — fix_flybys z=0 topology divergence (`b727fd36`, accepted)
+## Incident 9 — fix_flybys z=0 topology divergence (`b727fd36`, accepted then reversed)
 
-**Symptom.** The three micro-uchuu packages (binary, HDF5, ASCII) produce byte-identical output at every snapshot EXCEPT the final one.
+**Symptom.** The three micro-uchuu packages (binary, HDF5, ASCII) were believed to produce byte-identical output at every snapshot EXCEPT the final one. **That belief was itself never fully checked and was found to be false at the `sage16` galaxy-output level** (a separate, pre-existing float32-ULP `Mvir` divergence between readers, present at every snapshot and unrelated to `fix_flybys` — addendum §3.4); it may have held for raw halo output, which was never separately confirmed either.
 
-**Root cause.** The Consistent-Trees ASCII reader's `fix_flybys` step collapses multiple z=0 FoF groups (flyby halos, negated MostBoundID) into one; the L-Halo binary and HDF5 readers do not.
+**Root cause.** The Consistent-Trees ASCII reader's `fix_flybys` step collapsed multiple z=0 FoF groups (flyby halos, negated MostBoundID) into one; the L-Halo binary and HDF5 readers never did.
 
-**Evidence.** Commit `b727fd36` documents the divergence and the acceptance rationale.
+**Evidence.** Commit `b727fd36` documented the divergence and the original acceptance rationale, as a ~10–25% Type-0 divergence measured on micro-Uchuu.
 
-**Status.** Accepted divergence, NOT a bug. Do not "fix" one reader to match another without a plan-level decision; see the `mimic-simulations-and-readers` skill.
+**Reversal.** Refuted 2026-09-09: Shin-Uchuu's percolating forests put 33.0% of the z=0 galaxy population into one bogus FoF group, truncating the Type-0 halo mass function by ~2 dex and corrupting the final timestep's physics. "Accepted at the scale we tested" was not "accepted" — see `docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md` for the full diagnosis.
+
+**Status.** `fix_flybys()` has been deleted from the C reader and the Python converter (no runtime switch); the snapshot format bumped to `format_version = 2` with v1 rejected outright. A standalone corrupt-input guard, `verify_fof_centrals_present()`, replaces the one genuine contract `fix_flybys` also carried (a forest's final snapshot must have at least one FoF central). The affected production dataset (Shin-Uchuu v1) is void and is being re-converted. Do not reintroduce the demotion, with or without a switch, without a fresh plan-level decision; see the `mimic-simulations-and-readers` skill.
 
 ## Incident 10 — Deliberate retirements (not failures)
 

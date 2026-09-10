@@ -1,5 +1,12 @@
-"""Slice 5 unit tests: adjacency validation, spin/Len conventions, fix_flybys,
-fix_upid, and the fix-up pipeline stage with a hand-computed golden fixture."""
+"""Slice 5 unit tests: adjacency validation, spin/Len conventions, fix_upid,
+and the fix-up pipeline stage with a golden fixture.
+
+``fix_flybys`` was removed (docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md,
+decision D1), so the tests here assert the property its removal restores:
+every independent FoF group at a forest's maximum snapshot survives as
+self-central, keeping its own subhalos, and ``MostBoundID`` is always
+positive.
+"""
 
 import contextlib
 import io
@@ -22,7 +29,6 @@ from fixups import (  # noqa: E402
     FIXED_DTYPE_TAG,
     FIXED_RECORD_DTYPE,
     derive_len,
-    fix_flybys_snapshot,
     fix_upid_snapshot,
     fixed_scratch_name,
     load_particle_mass,
@@ -30,6 +36,7 @@ from fixups import (  # noqa: E402
     round_half_away_from_zero,
     run_fixups,
     validate_adjacency,
+    verify_fof_centrals_present,
 )
 from links import run_links  # noqa: E402
 from scatter import Manifest, run_finalize, run_scatter  # noqa: E402
@@ -246,80 +253,6 @@ class TestValidateAdjacency(unittest.TestCase):
         validate_adjacency(make_fixed([{"id": 1, "snap": final}]), final, A_LIST, "test")
 
 
-class TestFixFlybys(unittest.TestCase):
-    def test_multiple_centrals_demote_to_strict_max(self):
-        records = make_fixed(
-            [
-                {"id": 10, "Mvir": 1.0e12, "forest_id": 7, "snap": 5},
-                {"id": 11, "Mvir": 8.0e11, "forest_id": 7, "snap": 5},
-                {"id": 12, "Mvir": 2.0e11, "forest_id": 7, "snap": 5, "pid": 11, "upid": 11},
-            ]
-        )
-        demoted = fix_flybys_snapshot(records, 5, np.asarray([7]))
-        self.assertEqual(demoted, 1)
-        # survivor untouched
-        self.assertEqual(records["pid"][0], -1)
-        self.assertEqual(records["MostBoundID"][0], 10)
-        # demoted central: upid and pid rewritten, MostBoundID negated
-        self.assertEqual(records["upid"][1], 10)
-        self.assertEqual(records["pid"][1], 10)
-        self.assertEqual(records["MostBoundID"][1], -11)
-        # satellite member: upid rewritten, pid and MostBoundID untouched
-        self.assertEqual(records["upid"][2], 10)
-        self.assertEqual(records["pid"][2], 11)
-        self.assertEqual(records["MostBoundID"][2], 12)
-
-    def test_mass_tie_first_ascending_id_wins(self):
-        # strict > semantics: the later equal-mass central does NOT displace
-        records = make_fixed(
-            [
-                {"id": 20, "Mvir": 5.0e11, "forest_id": 8, "snap": 5},
-                {"id": 21, "Mvir": 5.0e11, "forest_id": 8, "snap": 5},
-            ]
-        )
-        fix_flybys_snapshot(records, 5, np.asarray([8]))
-        self.assertEqual(records["pid"][0], -1)  # id 20 survives
-        self.assertEqual(records["MostBoundID"][1], -21)
-
-    def test_single_central_unchanged(self):
-        records = make_fixed(
-            [
-                {"id": 30, "Mvir": 5.0e11, "forest_id": 9, "snap": 5},
-                {"id": 31, "Mvir": 1.0e11, "forest_id": 9, "snap": 5, "pid": 30, "upid": 30},
-            ]
-        )
-        before = records.copy()
-        self.assertEqual(fix_flybys_snapshot(records, 5, np.asarray([9])), 0)
-        self.assertEqual(records.tobytes(), before.tobytes())
-
-    def test_zero_centrals_abort(self):
-        records = make_fixed(
-            [{"id": 40, "Mvir": 2.0e11, "forest_id": 3, "snap": 5, "pid": 41, "upid": 41}]
-        )
-        with self.assertRaisesRegex(ConverterError, "zero pid == -1 centrals.*\\[3\\]"):
-            fix_flybys_snapshot(records, 5, np.asarray([3]))
-
-    def test_forest_absent_from_snapshot_aborts(self):
-        records = make_fixed([{"id": 50, "Mvir": 2.0e11, "forest_id": 1, "snap": 5}])
-        with self.assertRaisesRegex(ConverterError, "no halos here"):
-            fix_flybys_snapshot(records, 5, np.asarray([1, 2]))
-
-    def test_other_forests_untouched(self):
-        records = make_fixed(
-            [
-                {"id": 60, "Mvir": 1.0e12, "forest_id": 4, "snap": 5},
-                {"id": 61, "Mvir": 9.0e11, "forest_id": 4, "snap": 5},
-                {"id": 62, "Mvir": 8.0e11, "forest_id": 5, "snap": 5},
-                {"id": 63, "Mvir": 7.0e11, "forest_id": 5, "snap": 5},
-            ]
-        )
-        fix_flybys_snapshot(records, 5, np.asarray([4]))  # forest 5 maxes elsewhere
-        self.assertEqual(records["MostBoundID"][1], -61)
-        self.assertEqual(records["pid"][2], -1)
-        self.assertEqual(records["pid"][3], -1)
-        self.assertEqual(records["MostBoundID"][3], 63)
-
-
 class TestFixUpid(unittest.TestCase):
     def test_centrals_get_upid_id_and_keep_pid(self):
         records = make_fixed([{"id": 1, "snap": 4}, {"id": 2, "snap": 4}])
@@ -467,6 +400,52 @@ class TestFixUpid(unittest.TestCase):
             fix_upid_snapshot(records, 5)
 
 
+class TestVerifyFofCentralsPresent(unittest.TestCase):
+    """Unit-level regression for the corrupt-input guard restored for D9(c)
+    (SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md), independent of the full pipeline
+    fixture in TestFixupsPipeline.test_zero_central_forest_aborts."""
+
+    def test_rejects_zero_centrals_at_a_peaking_forest(self):
+        # forest 1 has no pid == -1 record at snapshot 5, and its max snapshot
+        # (per forests_at_max) is 5
+        records = make_fixed(
+            [
+                {"id": 10, "snap": 5, "pid": 999, "upid": 999, "forest_id": 1},
+                {"id": 11, "snap": 5, "pid": 999, "upid": 999, "forest_id": 1},
+            ]
+        )
+        forests_at_max = np.array([1], dtype=np.int64)
+        with self.assertRaisesRegex(
+            ConverterError,
+            "zero pid == -1 \\(FoF central\\) record\\(s\\) here.*example forest id\\(s\\): \\[1\\]",
+        ):
+            verify_fof_centrals_present(records, 5, forests_at_max, "test")
+
+    def test_accepts_many_centrals_at_a_peaking_forest(self):
+        # the case fix_flybys used to collapse: many independent centrals at
+        # the same forest's max scale must still pass
+        records = make_fixed(
+            [
+                {"id": 10, "snap": 5, "forest_id": 1},
+                {"id": 11, "snap": 5, "pid": 10, "upid": 10, "forest_id": 1},
+                {"id": 20, "snap": 5, "forest_id": 1},
+                {"id": 21, "snap": 5, "pid": 20, "upid": 20, "forest_id": 1},
+            ]
+        )
+        forests_at_max = np.array([1], dtype=np.int64)
+        verify_fof_centrals_present(records, 5, forests_at_max, "test")  # must not raise
+
+    def test_forest_not_peaking_here_is_not_checked(self):
+        # forest 1's max snapshot is NOT 5 (not in forests_at_max), so a
+        # zero-central snapshot-5 slice for it must not be flagged
+        records = make_fixed(
+            [
+                {"id": 10, "snap": 5, "pid": 999, "upid": 999, "forest_id": 1},
+            ]
+        )
+        verify_fof_centrals_present(records, 5, np.empty((0,), dtype=np.int64), "test")
+
+
 def make_sorted_workdir(root: Path, forests=None):
     """scatter + sort on the synthetic fixtures; returns (workdir, paths)."""
     forests = forests if forests is not None else fixtures.standard_forests()
@@ -490,10 +469,12 @@ def make_sorted_workdir(root: Path, forests=None):
 #: id -> (snap, upid, pid, MostBoundID, Len). Len literals were derived
 #: independently ("%.5e" text -> float64 -> float32, then Decimal arithmetic
 #: for round-half-away of Mvir*1e-10/0.0325). Forest 100 has two pid==-1
-#: centrals at its max snapshot 5: survivor 1010 (1e12 > 8e11), demoted 1020.
+#: centrals at its max snapshot 5, 1010 and 1020, and BOTH survive as
+#: self-central: fix_flybys, which used to demote 1020 (8e11 < 1e12) under 1010
+#: and negate its MostBoundID, was removed (decision D1).
 GOLDEN = {
     1010: (5, 1010, -1, 1010, 3077),
-    1020: (5, 1010, 1010, -1020, 2462),
+    1020: (5, 1020, -1, 1020, 2462),
     2010: (5, 2010, -1, 2010, 1538),
     2011: (5, 2010, 2010, 2011, 308),
     5010: (5, 5010, -1, 5010, 769),
@@ -556,9 +537,11 @@ class TestFixupsPipeline(unittest.TestCase):
                 np.testing.assert_array_equal(fixed[k][nonzero], expected)
                 np.testing.assert_array_equal(fixed[k][~nonzero], raw_snap[k][~nonzero])
         self.assertEqual(seen, GOLDEN)
-        self.assertEqual(manifest.data["snapshots"]["5"]["flyby_demotions"], 1)
         self.assertEqual(manifest.data["snapshots"]["5"]["len_zero_count"], 1)
-        self.assertEqual(manifest.data["snapshots"]["4"]["flyby_demotions"], 0)
+        # flyby_demotions is a required, always-zero field (decision D9(b)):
+        # measured as count_nonzero(MostBoundID < 0) over the persisted records
+        for snap_str in manifest.data["snapshots"]:
+            self.assertEqual(manifest.data["snapshots"][snap_str]["flyby_demotions"], 0)
 
     def test_fixed_dtype_is_frozen_superset(self):
         self.assertEqual(FIXED_RECORD_DTYPE.itemsize, 120)
@@ -566,27 +549,75 @@ class TestFixupsPipeline(unittest.TestCase):
         for name in RECORD_DTYPE.names:
             self.assertEqual(FIXED_RECORD_DTYPE.fields[name][0], RECORD_DTYPE.fields[name][0])
 
-    def test_early_dying_flyby_demoted_at_forest_max(self):
-        # forest 700 dies at snapshot 2 with two centrals there: fix_flybys
-        # must demote at the FOREST'S max snapshot, not the global final one
+    def _fixed_by_id(self, manifest, snap):
+        fixed = np.fromfile(
+            manifest.data["snapshots"][str(snap)]["fixed_file"], dtype=FIXED_RECORD_DTYPE
+        )
+        return fixed, {int(fixed["id"][i]): i for i in range(len(fixed))}
+
+    def _assert_survives_self_central(self, fixed, row, halo_id):
+        """The property fix_flybys used to destroy: an independent FoF group at
+        a forest's maximum snapshot stays its own central, unmarked."""
+        self.assertEqual(int(fixed["pid"][row]), -1, "{} must stay pid == -1".format(halo_id))
+        self.assertEqual(
+            int(fixed["upid"][row]), halo_id, "{} must be its own host".format(halo_id)
+        )
+        self.assertEqual(int(fixed["MostBoundID"][row]), halo_id)
+        self.assertGreater(int(fixed["MostBoundID"][row]), 0)
+
+    def test_multi_fof_groups_survive_at_forest_max_with_their_own_subhalos(self):
+        """R5 regression (docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md, D1).
+
+        Forest 800 has two independent FoF groups at its maximum snapshot 5,
+        each with its own subhalo. Both centrals must stay self-central and
+        each subhalo must resolve to ITS OWN central. fix_flybys demoted 8020
+        (8e11) under 8010 (1e12) and dragged 8021 into 8010's group with it, so
+        reintroducing that collapse fails here.
+        """
+        forests = fixtures.standard_forests() + [fixtures.multi_fof_survivor_forest()]
+        workdir, a_list, sim_info = make_sorted_workdir(self.root, forests=forests)
+        manifest = run_fixups(workdir, a_list_path=a_list, simulation_info_path=sim_info)
+        fixed, by_id = self._fixed_by_id(manifest, 5)
+
+        # (i) two independent centrals survive as self-central
+        self._assert_survives_self_central(fixed, by_id[8010], 8010)
+        self._assert_survives_self_central(fixed, by_id[8020], 8020)
+
+        # (ii) each keeps its OWN subhalo — no cross-group membership
+        for sub, host, other in ((8011, 8010, 8020), (8021, 8020, 8010)):
+            row = by_id[sub]
+            self.assertEqual(int(fixed["upid"][row]), host)
+            self.assertEqual(int(fixed["pid"][row]), host)
+            self.assertNotEqual(int(fixed["upid"][row]), other)
+            self.assertEqual(int(fixed["MostBoundID"][row]), sub)
+
+        self.assertEqual(manifest.data["snapshots"]["5"]["flyby_demotions"], 0)
+
+    def test_multi_fof_groups_survive_at_a_forest_local_max(self):
+        """The same property where the forest's maximum snapshot (2) is not the
+        global final one (5): forest 700's 7010 and 7011 both survive."""
         forests = fixtures.standard_forests() + [fixtures.early_dying_flyby_forest()]
         workdir, a_list, sim_info = make_sorted_workdir(self.root, forests=forests)
         manifest = run_fixups(workdir, a_list_path=a_list, simulation_info_path=sim_info)
-        self.assertEqual(manifest.data["snapshots"]["2"]["flyby_demotions"], 1)
-        fixed = np.fromfile(manifest.data["snapshots"]["2"]["fixed_file"], dtype=FIXED_RECORD_DTYPE)
-        by_id = {int(fixed["id"][i]): i for i in range(len(fixed))}
-        survivor, demoted = by_id[7010], by_id[7011]
-        self.assertEqual(fixed["pid"][survivor], -1)
-        self.assertEqual(fixed["upid"][survivor], 7010)
-        self.assertEqual(fixed["MostBoundID"][survivor], 7010)
-        self.assertEqual(fixed["upid"][demoted], 7010)
-        self.assertEqual(fixed["pid"][demoted], 7010)
-        self.assertEqual(fixed["MostBoundID"][demoted], -7011)
+        fixed, by_id = self._fixed_by_id(manifest, 2)
+        self._assert_survives_self_central(fixed, by_id[7010], 7010)
+        self._assert_survives_self_central(fixed, by_id[7011], 7011)
+        self.assertEqual(manifest.data["snapshots"]["2"]["flyby_demotions"], 0)
 
     def test_zero_central_forest_aborts(self):
+        """Forest 300 has no pid == -1 halo at its max snapshot 5 (its only halo
+        there, 3010, claims 3011 as host, and 3011 lives at snapshot 4) — the
+        corrupt-input guard restored for D9(c) (SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md)
+        rejects it directly, naming the offending forest id, before fix_upid ever
+        runs. (Before that guard was restored, the abort came from fix_upid's own
+        unresolved-chain failure instead — a real abort, but not an explicit
+        assertion of the property that was actually violated.)"""
         forests = fixtures.standard_forests() + [fixtures.zero_central_forest()]
         workdir, a_list, sim_info = make_sorted_workdir(self.root, forests=forests)
-        with self.assertRaisesRegex(ConverterError, "zero pid == -1 centrals"):
+        with self.assertRaisesRegex(
+            ConverterError,
+            "zero pid == -1 \\(FoF central\\) record\\(s\\) here.*example forest id\\(s\\): \\[300\\]",
+        ):
             run_fixups(workdir, a_list_path=a_list, simulation_info_path=sim_info)
 
     def test_rerun_is_idempotent(self):
@@ -690,7 +721,13 @@ class TestFixupsPipeline(unittest.TestCase):
         )
         from fixups import verify_mostboundid_invariant
 
-        verify_mostboundid_invariant(make_fixed([{"id": 7, "snap": 5, "MostBoundID": -7}]), "ok")
+        # MostBoundID == id passes; the negated id fix_flybys used to write is
+        # now a violation like any other (decision D1), not a tolerated marker
+        verify_mostboundid_invariant(make_fixed([{"id": 7, "snap": 5, "MostBoundID": 7}]), "ok")
+        with self.assertRaisesRegex(ConverterError, r"1 halo\(s\) violate.*id=7, MostBoundID=-7"):
+            verify_mostboundid_invariant(
+                make_fixed([{"id": 7, "snap": 5, "MostBoundID": -7}]), "negated"
+            )
         with self.assertRaisesRegex(
             ConverterError, r"2 halo\(s\) violate.*id=2, MostBoundID=99.*id=3, MostBoundID=-98"
         ):

@@ -10,7 +10,7 @@
  * stable ctrees id (MostBoundID), plus the forest's global forest number and
  * the halo's within-forest rank (its position in the per-forest
  * InputTreeHalos array, which the reader already returns in final reference
- * order after fix_flybys/fix_upid/assign_mergertree_indices have run).
+ * order after fix_upid/assign_mergertree_indices have run).
  *
  * This is direct reference evidence for chain-order conformance: an external
  * consumer can compare it against another implementation's own chain

@@ -4,6 +4,8 @@
 **Date:** 2026-07-02 · **substantially revised 2026-08-25** — source data re-measured at the operative path (total size, row width and halo count all corrected), the conversion machine and storage layout decided and recorded, and the previously unspecified rehearsal subset selection designed. See "Source Data Summary" → measurement note, "Where The Work Runs", "Feasibility" and "Subset Selection and Extraction". **Extended 2026-08-29** with "The Production Execution Sequence" — the operational steps P1–P9, moved here from the retired root `HANDOFF.md`, with their constraints, acceptance rules and code evidence. This document now owns both the design and its execution. **Updated 2026-09-05** with P6 attempt 1's crash and fix. **Updated 2026-09-08** with P6's successful retry, P7's result, and P8's status — see "P6 attempt 2 succeeded" and "P8 — the science checks" below.
 **Context:** This plan is one sequence with `MIMIC-DUAL-DRIVER-PLAN.md`. The converter is **not** blocked on the snapshot driver: it is blocked only on the frozen format contract, and it is built and validated first, against micro-Uchuu ASCII, using the existing tree-ordered `read_ctrees_ascii.c` reader as the reference — zero new Mimic code required. The full 11.61 TB Shin-Uchuu conversion runs exactly once, after the dual-driver Phase 5 identity gate is green (**green 2026-08-12**). Mimic itself performs no internal conversion.
 
+**Re-conversion notice (2026-09-10).** This plan's P-sequence (P1–P9) was executed once, in full, producing the v1 Shin-Uchuu dataset — and that dataset was then found scientifically defective at z=0 (the `fix_flybys` topology defect). `fix_flybys` has since been deleted from Mimic and the snapshot format bumped to `format_version = 2`. The re-conversion follows [`SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md`](SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md)'s R1–R15 sequence, not a re-run of P1–P9. This document remains authoritative for the measured source data, the conversion algorithm, the storage/memory envelopes, flag semantics and footguns, and the operational detail of every stage — the addendum's route is deliberately the same route described here — but its own P-sequence outcome status (including the Definition of Done below) is v1-historical, not current completion. Read the addendum first; see also the "P8 FAILED THE SCIENCE CHECK" record further down for the full defect account.
+
 ---
 
 ## Problem Statement
@@ -47,7 +49,7 @@ Both problems are structural consequences of forest-ordered processing and both 
 
 ## Target Format: Snapshot-Ordered HDF5
 
-One HDF5 file per snapshot, named `snapshot_000.h5` through `snapshot_069.h5` (per-snapshot files are decided, not open: partial recovery, per-snapshot parallelism, and the driver's access pattern all favour them). All topology links are snapshot-local integer indices (no global IDs). Scalar metadata lives in HDF5 **attributes** on the `/header` group. **Field names and types on disk must match what `simulations/shin-uchuu/halo_properties.yaml` declares** — except `ForestIndex` and `HaloRankInForest`, which are exempt (see the package section below and `SNAPSHOT-HDF5-FORMAT.md` errata 2026-08-11) — so the generated `RawHalo`/accessors consume the file directly; the names below already match the existing `micro-uchuu-ascii` bridge contract (`M_Crit200`→`HaloMass`, `Len`, `SnapNum`, `MostBoundID`, spin conventions). The contract is **frozen** at [`docs/dev/SNAPSHOT-HDF5-FORMAT.md`](SNAPSHOT-HDF5-FORMAT.md) (`format_version = 1`, 2026-07-18), which is now authoritative; this section remains as the working draft it was promoted from — if they ever disagree, the spec wins.
+One HDF5 file per snapshot, named `snapshot_000.h5` through `snapshot_069.h5` (per-snapshot files are decided, not open: partial recovery, per-snapshot parallelism, and the driver's access pattern all favour them). All topology links are snapshot-local integer indices (no global IDs). Scalar metadata lives in HDF5 **attributes** on the `/header` group. **Field names and types on disk must match what `simulations/shin-uchuu/halo_properties.yaml` declares** — except `ForestIndex` and `HaloRankInForest`, which are exempt (see the package section below and `SNAPSHOT-HDF5-FORMAT.md` errata 2026-08-11) — so the generated `RawHalo`/accessors consume the file directly; the names below already match the existing `micro-uchuu-ascii` bridge contract (`M_Crit200`→`HaloMass`, `Len`, `SnapNum`, `MostBoundID`, spin conventions). The contract is **frozen** at [`docs/dev/SNAPSHOT-HDF5-FORMAT.md`](SNAPSHOT-HDF5-FORMAT.md) (originally `format_version = 1`, 2026-07-18; now **`format_version = 2`**, 2026-09-10, per [`SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md`](SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md) — v1 is rejected outright), which is now authoritative; this section remains as the working draft it was promoted from — if they ever disagree, the spec wins.
 
 ```text
 snapshot_NNN.h5
@@ -87,8 +89,9 @@ snapshot_NNN.h5
     Spin                  float32[N,3] Mpc/h km/s; J/Mvir (applied during conversion)
     VelDisp               float32[N]  km/s
     Vmax                  float32[N]  km/s
-    MostBoundID           int64[N]    ctrees halo ID; negated for flyby-demoted halos
-                                      (reference semantics are replicated — see Phase 3)
+    MostBoundID           int64[N]    ctrees halo ID; always positive — the flyby-demotion
+                                      negation was removed with `fix_flybys` (see
+                                      SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md D1/D3/D9(a))
     ForestIndex           int64[N]    dense run-scoped forest number; identity component
                                       consumed directly by UniqueGalaxyID (no runtime
                                       id→index mapping in Mimic). Must replicate the ASCII
@@ -176,7 +179,7 @@ Fallback if throughput degrades: run Phase 1 scatter on the source side and tran
 
 ## Algorithm
 
-The conversion is an external sort over the snapshot dimension: forest-ordered ASCII → snapshot-ordered HDF5. Pipeline: **scatter → sort/index → remap → write**. (Directly streaming trees into final snapshot files cannot work alone: every link field is a snapshot-local index that does not exist until the destination slab's order is fixed, and FoF/flyby fixes need the whole forest-at-snapshot population visible. Scatter-then-finalize is the robust realization of the streaming idea.)
+The conversion is an external sort over the snapshot dimension: forest-ordered ASCII → snapshot-ordered HDF5. Pipeline: **scatter → sort/index → remap → write**. (Directly streaming trees into final snapshot files cannot work alone: every link field is a snapshot-local index that does not exist until the destination slab's order is fixed, and the FoF fix-up (`fix_upid`) needs the whole forest-at-snapshot population visible. Scatter-then-finalize is the robust realization of the streaming idea.)
 
 ### Phase 0: Provenance pre-pass
 
@@ -260,15 +263,21 @@ Len = round(Mvir_native * 1e-10 / PartMass)   (PartMass is in 1e10 Msun/h)
 Halos where Len == 0: log count; preserve zero rather than asserting > 0
 (reference reader allows zero; core treats zero as orphan sentinel).
 
-=== 4. fix_flybys equivalent (reference: ctrees_utils.c:335-409) ===
-RESOLVED (D12): reference semantics are replicated exactly. Ordering is
-verified against the code: the reference runs fix_flybys FIRST, then
-fix_upid, then assign_mergertree_indices (read_ctrees_ascii.c:692-700), so
-this step runs before the upid resolution below. Scope is per forest at
-that FOREST'S maximum scale factor — snap 69 for almost all forests, but
-NOT for forests whose branches all die early. The reference algorithm
-(verified at ctrees_utils.c:376-409) makes ONE central per forest at max
-scale, not one per flyby group:
+=== 4. fix_flybys — REMOVED (SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md D1, 2026-09-10) ===
+This step is v1-historical. `fix_flybys` demoted every FoF central except
+the most massive to a satellite of that survivor at each forest's maximum
+scale factor — the mechanism is unchanged from the description archived
+below, and it is what produced the z=0 topology defect documented in the
+addendum. It has been deleted from Mimic entirely (D1): no runtime switch,
+no legacy path. `fix_upid` (step 5 below) is now first-and-only, and
+`MostBoundID` is never negated — every value on disk is always positive.
+What this step also guarded — a forest with zero pid==-1 halos at its own
+maximum scale, which is structurally impossible for valid input — is now
+checked directly by a standalone `verify_fof_centrals_present()` on both
+the C reader and the converter (addendum D9(c)), running where this step
+used to sit, immediately before fix_upid.
+
+Archived description of the removed algorithm, kept for provenance:
 
 For each forest F whose max snapshot == N (per-forest max-snapshot table
 from Phase 1), over F's halos at snap N:
@@ -286,7 +295,7 @@ from Phase 1), over F's halos at snap N:
   Log flyby halo counts per snapshot.
 
 === 5. fix_upid equivalent (reference: ctrees_utils.c:419-482) ===
-Runs AFTER fix_flybys, matching the reference order.
+First and only fix-up stage now that fix_flybys is gone (D1, D9(c)).
   a. For halos with pid == -1: set upid = id (these are FoF centrals).
   b. For halos with pid != -1: follow upid chain (depth limit 30, matching
      the reference hard limit). At each step look up the current upid target
@@ -362,7 +371,8 @@ ForestIndex[i]: dense run-scoped index, carried from scatter (Phase 0/1 join).
 HaloRankInForest[i]: the within-forest index in REFERENCE tree-driver order —
 the assign_mergertree_indices sort (descending scale, upid, pid, ascending
 id) applied per forest, using the POST-fix upid/pid values (the reference
-sorts after fix_flybys/fix_upid have rewritten them). This order is
+sorts after fix_upid has rewritten them — fix_flybys no longer runs, see
+Phase 3 step 4). This order is
 well-defined for every forest, including the super-forest the tree driver
 can never load. Computed in a dedicated pass (see below), not per-snapshot.
 Assert (ForestIndex, HaloRankInForest) pairs are globally unique after the join.
@@ -395,7 +405,7 @@ Release snap_N arrays; retain snap_N.idx until snap_N+1 completes.
 7. **Len**: zero count logged; no negative values
 8. **Topology cross-check on micro-Uchuu**: apply the converter to `micro-uchuu-ascii` (local, 11 GB, existing package). Compare FoF central assignments, progenitor structure, and value conventions against the existing `read_ctrees_ascii.c` reader output, by stable halo identity (ctrees id), not raw local index. This is the converter's acceptance gate and runs **before** any Mimic snapshot code exists.
 
-**Conversion report (durable artifact):** total halos, per-snapshot counts, forest count, measured max `HaloRankInForest`, flyby counts, Len-zero counts, validation outcomes, and the recommended identity multiplier. The `simulations/shin-uchuu/` package sets its `UniqueGalaxyID` multiplier (dual-driver decision D9: per-simulation metadata; expected 10¹⁰) from this report, never from an assumption.
+**Conversion report (durable artifact):** total halos, per-snapshot counts, forest count, measured max `HaloRankInForest`, `flyby_demotions` (retained per addendum D9(b) as a required field that must measure zero now that `fix_flybys` is gone — a standing regression assertion, not a live count), Len-zero counts, validation outcomes, and the recommended identity multiplier. The `simulations/shin-uchuu/` package sets its `UniqueGalaxyID` multiplier (dual-driver decision D9: per-simulation metadata; expected 10¹⁰) from this report, never from an assumption.
 
 ---
 
@@ -483,7 +493,7 @@ for k in range(3):
 
 ### MostBoundID convention
 
-`MostBoundID` is set from the ctrees `id` field (`convert_ctrees_to_lht` in `read_ctrees_ascii.c:145-150`), with the fix_flybys negation applied per reference semantics (Phase 3 step 4).
+`MostBoundID` is set from the ctrees `id` field (`convert_ctrees_to_lht` in `read_ctrees_ascii.c:145-150`) and is always positive — the fix_flybys negation described here was removed; see Phase 3 step 4 and SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md D1/D3.
 
 ### a_list extraction
 
@@ -533,7 +543,7 @@ Property ranges requiring calibration from a test run: `deltaMvir`, `Len` (floor
 
 Six facts, all verified against the code and the data, constrain any solution:
 
-1. **A subset of *files* is not a subset of *forests*.** `locations.dat` places each tree by file and byte offset and forests may span files, so picking whole files yields partial forests — and `fix_flybys`/`fix_upid` operate with per-forest max-snapshot scope (D12), so a partial forest converts differently from the same forest in the full run. **Select whole forests.**
+1. **A subset of *files* is not a subset of *forests*.** `locations.dat` places each tree by file and byte offset and forests may span files, so picking whole files yields partial forests — and `fix_upid` (and, per addendum D9(c), the `verify_fof_centrals_present` guard that replaced `fix_flybys`) operate with per-forest max-snapshot scope (D12), so a partial forest converts differently from the same forest in the full run. **Select whole forests.**
 2. **The converter refuses a mismatched index.** `validate_root_coverage()` (`scatter.py:192-216`) enforces **one-to-one** coverage between observed `#tree` roots and `forests.list` — surplus listed roots abort just as loudly as missing ones. A subset therefore needs its **own** `forests.list`, and the tree-ordered reference run needs its own `locations.dat` to match.
 3. **The per-file tree-count header line is checked.** `scatter.py:423-428` aborts when the count line disagrees with the number of `#tree` markers. It is fixed-width space-padded (`45002` followed by blanks, at byte 3,659 of `tree_0_0_0.dat`), so the extractor must rewrite it in place at the same width.
 4. **`locations.dat` offsets point at the first *data row*, not at the `#tree` line.** Verified byte-exact: in `tree_0_0_0.dat` the marker `#tree 26551522494` starts at 3,678 and ends at 3,695; the recorded offset is 3,696. The extractor must therefore re-emit the `#tree <root>\n` line itself and copy the body from the recorded offset.
@@ -591,7 +601,7 @@ Report the distribution, then apply **two** gates. Both are binding; the first i
 
 At a 5 × 10⁶-tree target spread over 2,744 files this is satisfied ~1,800× over *on average* — but average is not proof, and a coverage hole would surface only at Task 6's tree-ordered reference run, after extraction and transfer are paid for. **Make it an explicit acceptance assertion.**
 
-**Closing a hole must not break the whole-forest invariant.** An earlier draft said to "force-add the smallest tree" from a missed file. That is wrong: adding one tree creates a *partial* forest, which is exactly what constraint 1 forbids, and it would change `fix_flybys`/`fix_upid` semantics for that forest. The correct rule:
+**Closing a hole must not break the whole-forest invariant.** An earlier draft said to "force-add the smallest tree" from a missed file. That is wrong: adding one tree creates a *partial* forest, which is exactly what constraint 1 forbids, and it would change `fix_upid` (and the D9(c) corrupt-input guard) semantics for that forest. The correct rule:
 
 > For each missed file, add the **smallest complete forest that touches it and passes both gates**. Adding a forest adds all of its trees, which may themselves close other files, so **iterate to closure** — the process is monotone in coverage and converges quickly. Re-run Gate A, Gate B and the balance rule after closure, because the added forests change the totals.
 

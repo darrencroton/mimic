@@ -37,7 +37,15 @@ from ctrees_parser import (  # noqa: E402
 )
 
 MANIFEST_NAME = "manifest.json"
-MANIFEST_VERSION = 1
+#: Bumped 1 -> 2 when fix_flybys was removed: the frozen record dtypes are
+#: unchanged (D6: no new columns), so DTYPE_TAG/FIXED_DTYPE_TAG cannot detect
+#: this change on their own. A workdir manifested under version 1 may hold
+#: fixed/linked snapshots with the pre-removal MostBoundID sign convention;
+#: resuming into it would skip re-verifying those snapshots (fix_one_snapshot
+#: trusts recorded checksums, not content semantics) and let a legacy
+#: intermediate reach a format_version = 2 emission. Refusing the resume
+#: outright forces a fresh workdir instead.
+MANIFEST_VERSION = 2
 #: absolute tolerance for observed scale vs canonical a_list entry
 A_LIST_ATOL = 1e-4
 #: default scatter manifest save policy (item 7): bounds the worst-case

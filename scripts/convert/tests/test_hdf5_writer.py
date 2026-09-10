@@ -122,11 +122,15 @@ class TestBuildHaloArrays(unittest.TestCase):
         with self.assertRaisesRegex(ConverterError, "ascending in \\|MostBoundID\\|"):
             build_halo_arrays(fixed, links, 5, "test")
 
-    def test_negated_ids_keep_slab_order(self):
+    def test_negative_mostboundid_aborts(self):
+        """fix_flybys used to negate MostBoundID as a demotion marker; a
+        negative value reaching emission must now abort rather than pass
+        through, even though it would still satisfy the ascending-|value|
+        slab-order check on its own."""
         fixed = self._fixed([10, -20, 30])
         links = np.zeros(3, dtype=LINKS_RECORD_DTYPE)
-        arrays = build_halo_arrays(fixed, links, 5, "test")
-        self.assertEqual(arrays["MostBoundID"].tolist(), [10, -20, 30])
+        with self.assertRaisesRegex(ConverterError, "non-positive MostBoundID"):
+            build_halo_arrays(fixed, links, 5, "test")
 
     def test_int64_min_mostboundid_aborts(self):
         fixed = np.zeros(1, dtype=FIXED_RECORD_DTYPE)
@@ -243,10 +247,14 @@ class TestEmission(unittest.TestCase):
                 )
                 self.assertTrue((halos["SnapNum"][...] == int(snap_str)).all())
 
-    def test_flyby_sign_emitted(self):
+    def test_mostboundid_emitted_positive(self):
+        """fix_flybys used to emit a negated MostBoundID for every demoted
+        central (1020 here); with it removed (decision D1) every emitted value
+        must be strictly positive."""
         with h5py.File(self.hdf5_dir / snapshot_h5_name(5), "r") as handle:
             mostbound = handle["halos"]["MostBoundID"][...]
-        self.assertIn(-1020, mostbound.tolist())
+        self.assertTrue((mostbound > 0).all(), mostbound.tolist())
+        self.assertIn(1020, mostbound.tolist())
 
     def test_forests_sidecar(self):
         with h5py.File(self.hdf5_dir / "forests.h5", "r") as handle:
@@ -406,7 +414,8 @@ class TestReport(unittest.TestCase):
         window_min, window_max = report["identity_multiplier_window"]
         self.assertLessEqual(window_min, report["recommended_identity_multiplier"])
         self.assertLessEqual(report["recommended_identity_multiplier"], window_max)
-        self.assertEqual(report["totals"]["flyby_demotions"], 1)
+        # required, always-zero field (decision D9(b)): no stage can demote
+        self.assertEqual(report["totals"]["flyby_demotions"], 0)
         self.assertEqual(report["totals"]["snapshots_with_halos"], 5)
         # every a_list snapshot appears, with explicit zeros for empty ones
         self.assertEqual(sorted(report["per_snapshot"], key=int), [str(s) for s in range(6)])

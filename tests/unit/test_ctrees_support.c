@@ -10,8 +10,11 @@
  *   - read_forests / read_locations / assign_forest_ids /
  *     sort_locations_on_fid_file_offset on a tiny synthetic forests.list +
  *     locations.dat + tree file (ctrees_utils.c).
- *   - fix_flybys / fix_upid / assign_mergertree_indices reconstructing L-Halo
- *     merger pointers for a small hand-built forest (ctrees_utils.c).
+ *   - fix_upid / assign_mergertree_indices reconstructing L-Halo merger
+ *     pointers for a small hand-built forest, and the multi-FoF regression
+ *     (driven through ctrees_apply_topology, the reader's own topology call
+ *     sequence) that guards fix_flybys' removal (ctrees_utils.c; see
+ *     docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md, decision D1).
  *   - forest distribution across MPI tasks, including the surplus-task and
  *     weighted-no-negative edges fixed when wiring the reader (forest_utils.c).
  *   - the ASCII reader's Consistent-Trees -> L-Halo conventions and the
@@ -194,7 +197,9 @@ int test_read_forests_and_locations(void) {
  * @test    test_forest_topology_reconstruction
  * @brief   Hand-builds a 3-halo forest (a z=0 central with one satellite and one earlier
  * progenitor of the central) and checks fix_upid + assign_mergertree_indices
- * reconstruct the FOF grouping and Descendant/FirstProgenitor pointers.
+ * reconstruct the FOF grouping and Descendant/FirstProgenitor pointers. The
+ * multi-FoF case fix_flybys used to collapse is covered separately by
+ * test_multi_fof_groups_survive_at_forest_max.
  */
 int test_forest_topology_reconstruction(void) {
   init_memory_system(0);
@@ -235,9 +240,6 @@ int test_forest_topology_reconstruction(void) {
   info[2] = (struct additional_info){
       .id = 1, .pid = -1, .upid = -1, .descid = 2, .desc_scale = 1.0, .scale = 0.5};
 
-  int fb = fix_flybys(n, forest, info, 0);
-  TEST_ASSERT(fb == EXIT_SUCCESS, "fix_flybys should succeed (single FOF at max scale)");
-
   int max_snapnum = fix_upid(n, forest, info, 0);
   TEST_ASSERT(max_snapnum == 1, "fix_upid should return the max snapshot number (1)");
 
@@ -260,6 +262,223 @@ int test_forest_topology_reconstruction(void) {
   TEST_ASSERT(forest[i_sat].Descendant == -1, "the satellite has no descendant in this forest");
   TEST_ASSERT(forest[i_prog].Descendant == i_root, "prog should descend into root");
   TEST_ASSERT(forest[i_root].FirstProgenitor == i_prog, "root's first progenitor should be prog");
+
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_multi_fof_groups_survive_at_forest_max
+ * @brief   Regression for decision D1 (docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md): a
+ * forest with TWO independent FoF groups at its maximum scale, each carrying its own
+ * subhalo, must keep both groups intact.
+ *
+ * `fix_flybys` used to demote every `pid == -1` halo but the most massive one at a
+ * forest's final scale into a satellite of that survivor, dragging the demoted group's
+ * own subhalos across with it and negating the demoted halo's MostBoundID. That is
+ * scientifically wrong, so it was deleted; nothing asserted the property it destroyed,
+ * which is why the defect reached a production dataset. This test asserts it directly:
+ * both centrals stay self-central (`pid == -1`, `upid == id`,
+ * `FirstHaloInFOFgroup` self-referencing), each subhalo stays in ITS OWN central's FoF
+ * chain, and no MostBoundID is negated. Reintroducing any flyby-style collapse fails it.
+ *
+ * This drives `ctrees_apply_topology()` — the exact call sequence
+ * `read_ctrees_ascii.c` uses (verify_fof_centrals_present, then fix_upid, then
+ * assign_mergertree_indices) — rather than calling `fix_upid`/
+ * `assign_mergertree_indices` directly, so a regression that reintroduces a
+ * flyby-style step into that shared sequence (e.g. a `fix_flybys()` call
+ * spliced back into the pipeline) is caught here too, not only by tests that
+ * call the reader's topology functions in isolation.
+ */
+int test_multi_fof_groups_survive_at_forest_max(void) {
+  init_memory_system(0);
+
+  const int64_t n = 5;
+  struct halo_data forest[5];
+  struct additional_info info[5];
+  memset(forest, 0, sizeof(forest));
+  memset(info, 0, sizeof(info));
+
+  for (int64_t i = 0; i < n; i++) {
+    forest[i].Descendant = -1;
+    forest[i].FirstProgenitor = -1;
+    forest[i].NextProgenitor = -1;
+    forest[i].FirstHaloInFOFgroup = -1;
+    forest[i].NextHaloInFOFgroup = -1;
+  }
+
+  /* group A central at the forest's max scale (the more massive of the two) */
+  forest[0].SnapNum = 1;
+  forest[0].Mvir = 200.0f;
+  forest[0].MostBoundID = 10;
+  info[0] = (struct additional_info){
+      .id = 10, .pid = -1, .upid = -1, .descid = -1, .desc_scale = -1.0, .scale = 1.0};
+
+  /* group A's own subhalo */
+  forest[1].SnapNum = 1;
+  forest[1].Mvir = 50.0f;
+  forest[1].MostBoundID = 11;
+  info[1] = (struct additional_info){
+      .id = 11, .pid = 10, .upid = 10, .descid = -1, .desc_scale = -1.0, .scale = 1.0};
+
+  /* group B central at the SAME max scale: an independent FoF group, not a flyby */
+  forest[2].SnapNum = 1;
+  forest[2].Mvir = 150.0f;
+  forest[2].MostBoundID = 20;
+  info[2] = (struct additional_info){
+      .id = 20, .pid = -1, .upid = -1, .descid = -1, .desc_scale = -1.0, .scale = 1.0};
+
+  /* group B's own subhalo */
+  forest[3].SnapNum = 1;
+  forest[3].Mvir = 40.0f;
+  forest[3].MostBoundID = 21;
+  info[3] = (struct additional_info){
+      .id = 21, .pid = 20, .upid = 20, .descid = -1, .desc_scale = -1.0, .scale = 1.0};
+
+  /* an earlier progenitor of group A, so the forest spans two scales */
+  forest[4].SnapNum = 0;
+  forest[4].Mvir = 100.0f;
+  forest[4].MostBoundID = 1;
+  info[4] = (struct additional_info){
+      .id = 1, .pid = -1, .upid = -1, .descid = 10, .desc_scale = 1.0, .scale = 0.5};
+
+  int max_snapnum = ctrees_apply_topology(n, forest, info, /*unit=*/0);
+  TEST_ASSERT(max_snapnum == 1, "ctrees_apply_topology should return the max snapshot number (1)");
+
+  const int64_t i_a = index_of_id(info, n, 10);
+  const int64_t i_sub_a = index_of_id(info, n, 11);
+  const int64_t i_b = index_of_id(info, n, 20);
+  const int64_t i_sub_b = index_of_id(info, n, 21);
+  TEST_ASSERT(i_a >= 0 && i_sub_a >= 0 && i_b >= 0 && i_sub_b >= 0,
+              "all four max-scale halos should be present");
+
+  /* Both centrals survive as self-central: nothing demoted either of them. */
+  TEST_ASSERT(info[i_a].pid == -1, "central 10 should still have pid == -1");
+  TEST_ASSERT(info[i_b].pid == -1, "central 20 should still have pid == -1");
+  TEST_ASSERT(info[i_a].upid == 10, "central 10 should be its own host");
+  TEST_ASSERT(info[i_b].upid == 20, "central 20 should be its own host");
+  TEST_ASSERT(forest[i_a].FirstHaloInFOFgroup == i_a, "central 10 should be its own FOF central");
+  TEST_ASSERT(forest[i_b].FirstHaloInFOFgroup == i_b, "central 20 should be its own FOF central");
+
+  /* Each subhalo stays in its OWN central's group, not merged into the other. */
+  TEST_ASSERT(info[i_sub_a].upid == 10 && info[i_sub_a].pid == 10,
+              "subhalo 11 should still resolve to central 10");
+  TEST_ASSERT(info[i_sub_b].upid == 20 && info[i_sub_b].pid == 20,
+              "subhalo 21 should still resolve to central 20");
+  TEST_ASSERT(forest[i_sub_a].FirstHaloInFOFgroup == i_a, "subhalo 11 belongs to central 10");
+  TEST_ASSERT(forest[i_sub_b].FirstHaloInFOFgroup == i_b, "subhalo 21 belongs to central 20");
+  TEST_ASSERT(forest[i_sub_a].FirstHaloInFOFgroup != forest[i_sub_b].FirstHaloInFOFgroup,
+              "the two subhalos must not share a FOF central");
+
+  /* Each central's chain contains exactly its own subhalo. */
+  TEST_ASSERT(forest[i_a].NextHaloInFOFgroup == i_sub_a, "central 10 should link to subhalo 11");
+  TEST_ASSERT(forest[i_b].NextHaloInFOFgroup == i_sub_b, "central 20 should link to subhalo 21");
+  TEST_ASSERT(forest[i_sub_a].NextHaloInFOFgroup == -1, "subhalo 11 should end its chain");
+  TEST_ASSERT(forest[i_sub_b].NextHaloInFOFgroup == -1, "subhalo 21 should end its chain");
+
+  /* MostBoundID is never negated: the demotion marker no longer exists. */
+  for (int64_t i = 0; i < n; i++) {
+    TEST_ASSERT(forest[i].MostBoundID > 0, "no halo should carry a negated MostBoundID");
+  }
+
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_verify_fof_centrals_present_rejects_zero_centrals
+ * @brief   Regression for the corrupt-input guard restored in D9(c)
+ * (docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md): a forest with ZERO `pid == -1`
+ * halos at its maximum scale is structurally impossible for a valid Consistent-Trees
+ * forest.
+ *
+ * `fix_flybys` used to abort on this case as a side effect of its own topology
+ * scan ("NO FOFs at max scale ... Will crash"), and the Python converter raised
+ * `ConverterError` for the same reason. Both guards were lost when `fix_flybys`
+ * was deleted, because nothing else asserted the property it happened to check.
+ * `verify_fof_centrals_present` restores the guard standalone, independent of any
+ * demotion/topology-rewriting logic. This test builds a forest whose max-scale
+ * halos are ALL satellites (no `pid == -1` anywhere at that scale) and asserts the
+ * guard rejects it.
+ */
+int test_verify_fof_centrals_present_rejects_zero_centrals(void) {
+  init_memory_system(0);
+
+  const int64_t n = 2;
+  struct halo_data forest[2];
+  struct additional_info info[2];
+  memset(forest, 0, sizeof(forest));
+  memset(info, 0, sizeof(info));
+
+  /* Both halos at the forest's max scale claim a subhalo pid, pointing at an id
+     that does not exist in the forest at all -- corrupt input, not a real chain. */
+  forest[0].SnapNum = 1;
+  forest[0].Mvir = 200.0f;
+  forest[0].MostBoundID = 10;
+  info[0] = (struct additional_info){
+      .id = 10, .pid = 999, .upid = 999, .descid = -1, .desc_scale = -1.0, .scale = 1.0};
+
+  forest[1].SnapNum = 1;
+  forest[1].Mvir = 50.0f;
+  forest[1].MostBoundID = 11;
+  info[1] = (struct additional_info){
+      .id = 11, .pid = 999, .upid = 999, .descid = -1, .desc_scale = -1.0, .scale = 1.0};
+
+  int rc = verify_fof_centrals_present(n, info, /*unit=*/0);
+  TEST_ASSERT(rc != EXIT_SUCCESS,
+              "a forest with zero pid == -1 halos at its max scale must be rejected");
+
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_verify_fof_centrals_present_accepts_multi_fof
+ * @brief   Companion to test_verify_fof_centrals_present_rejects_zero_centrals: a valid
+ * forest with MANY independent FoF centrals at its maximum scale (the case
+ * `fix_flybys` used to collapse) must still pass, since the guard checks only for
+ * zero centrals, never for exactly one.
+ */
+int test_verify_fof_centrals_present_accepts_multi_fof(void) {
+  init_memory_system(0);
+
+  const int64_t n = 4;
+  struct halo_data forest[4];
+  struct additional_info info[4];
+  memset(forest, 0, sizeof(forest));
+  memset(info, 0, sizeof(info));
+
+  /* group A central at the forest's max scale */
+  forest[0].SnapNum = 1;
+  forest[0].Mvir = 200.0f;
+  forest[0].MostBoundID = 10;
+  info[0] = (struct additional_info){
+      .id = 10, .pid = -1, .upid = -1, .descid = -1, .desc_scale = -1.0, .scale = 1.0};
+
+  /* group A's own subhalo */
+  forest[1].SnapNum = 1;
+  forest[1].Mvir = 50.0f;
+  forest[1].MostBoundID = 11;
+  info[1] = (struct additional_info){
+      .id = 11, .pid = 10, .upid = 10, .descid = -1, .desc_scale = -1.0, .scale = 1.0};
+
+  /* group B central at the SAME max scale: an independent FoF group */
+  forest[2].SnapNum = 1;
+  forest[2].Mvir = 150.0f;
+  forest[2].MostBoundID = 20;
+  info[2] = (struct additional_info){
+      .id = 20, .pid = -1, .upid = -1, .descid = -1, .desc_scale = -1.0, .scale = 1.0};
+
+  /* group B's own subhalo */
+  forest[3].SnapNum = 1;
+  forest[3].Mvir = 40.0f;
+  forest[3].MostBoundID = 21;
+  info[3] = (struct additional_info){
+      .id = 21, .pid = 20, .upid = 20, .descid = -1, .desc_scale = -1.0, .scale = 1.0};
+
+  int rc = verify_fof_centrals_present(n, info, /*unit=*/0);
+  TEST_ASSERT(rc == EXIT_SUCCESS, "a forest with many pid == -1 centrals at its max scale "
+                                  "must be accepted, not just one");
 
   check_memory_leaks();
   return TEST_PASS;
@@ -786,6 +1005,9 @@ int main(void) {
   TEST_RUN(test_read_single_tree_rows);
   TEST_RUN(test_parse_rejects_malformed_numeric_tokens);
   TEST_RUN(test_forest_topology_reconstruction);
+  TEST_RUN(test_multi_fof_groups_survive_at_forest_max);
+  TEST_RUN(test_verify_fof_centrals_present_rejects_zero_centrals);
+  TEST_RUN(test_verify_fof_centrals_present_accepts_multi_fof);
   TEST_RUN(test_find_start_and_end_filenum);
   TEST_RUN(test_weighted_forest_distribution);
   TEST_RUN(test_distribute_forests_surplus_tasks);

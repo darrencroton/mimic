@@ -168,8 +168,11 @@ def fixture_forests():
     - halo 1010 has three progenitors, so the NextProgenitor chain exercises
       the reference incremental-insertion loop's mid-chain head replacement;
     - forest 20 carries a two-member FoF group (2010 central, 2011 satellite);
-    - forest 10 spans two trees both alive at its max snapshot, so fix_flybys
-      demotes tree 102's root and negates its MostBoundID;
+    - forest 10 spans two trees both alive at its max snapshot (1010 and 1020
+      are independent ``pid == -1`` centrals there): both survive as
+      self-central (``fix_flybys`` was removed, decision D1,
+      docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md) — this is the multi-FoF
+      regression case, and ``MostBoundID`` is always positive now;
     - forest 30 dies at snapshot 2, well before the final snapshot.
 
     Returns (forests, trees) where forests maps forest id -> [tree root ids]
@@ -517,7 +520,7 @@ def build_manifest(data_dir):
     manifest = {
         "generator": "simulations/micro-uchuu-snapshot/_tests/input/create_snapshot_fixture.py",
         "format_specification": "docs/dev/SNAPSHOT-HDF5-FORMAT.md",
-        "format_version": 1,
+        "format_version": 2,
         "a_list": list(A_LIST),
         "a_list_file": A_LIST_NAME,
         "chunk_shape_1d": list(CHUNK_1D_SMALL),
@@ -557,7 +560,8 @@ def assert_fixture_features(data_dir):
     populated = 0
     max_progenitors = 0
     max_fof_members = 0
-    negative_ids = 0
+    non_positive_ids = 0
+    max_centrals_in_one_forest = 0
     # FirstProgenitor indexes snapshot N-1 and the NextProgenitor chain lives
     # in that same earlier file, so the walk needs the previous file's arrays
     previous_next_prog = np.zeros(0, dtype=np.int32)
@@ -580,7 +584,7 @@ def assert_fixture_features(data_dir):
                 empty += 1
                 continue
             populated += 1
-            negative_ids += int((halos["MostBoundID"][...] < 0).sum())
+            non_positive_ids += int((halos["MostBoundID"][...] <= 0).sum())
             first_fof = halos["FirstHaloInFOFgroup"][...]
             next_fof = halos["NextHaloInFOFgroup"][...]
             for index in range(n_halos):
@@ -594,6 +598,17 @@ def assert_fixture_features(data_dir):
                         break
                     length += 1
                 max_fof_members = max(max_fof_members, length)
+            # Multi-FoF-survival regression (D1/D9, SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md):
+            # at least one forest must carry more than one independent self-central
+            # halo (FirstHaloInFOFgroup == own index) within the same snapshot. This
+            # is exactly the topology fix_flybys used to collapse into one group; the
+            # fixture must keep exercising it so the reader is never validated only
+            # against the single-FoF-per-forest case.
+            forest_index = halos["ForestIndex"][...]
+            centrals = np.nonzero(first_fof == np.arange(n_halos))[0]
+            if centrals.size:
+                _, counts = np.unique(forest_index[centrals], return_counts=True)
+                max_centrals_in_one_forest = max(max_centrals_in_one_forest, int(counts.max()))
     failures = []
     if empty < 1:
         failures.append("no snapshot with zero halos")
@@ -609,14 +624,31 @@ def assert_fixture_features(data_dir):
         failures.append(
             "largest FoF group has {} member(s), need 2 or more".format(max_fof_members)
         )
-    if negative_ids < 1:
-        failures.append("no halo with a negative MostBoundID")
+    if non_positive_ids:
+        failures.append(
+            "{} halo(s) with non-positive MostBoundID; MostBoundID must always be "
+            "positive now that fix_flybys is removed".format(non_positive_ids)
+        )
+    if max_centrals_in_one_forest < 2:
+        failures.append(
+            "no forest has more than one surviving self-central halo in the same "
+            "snapshot (max {}); the fixture must exercise multi-FoF survival".format(
+                max_centrals_in_one_forest
+            )
+        )
     if failures:
         raise FixtureError("fixture content requirements unmet: {}".format("; ".join(failures)))
     log(
         "fixture content: {} snapshot(s) ({} empty, {} populated), longest progenitor chain {}, "
-        "largest FoF group {}, {} negative MostBoundID".format(
-            len(names), empty, populated, max_progenitors, max_fof_members, negative_ids
+        "largest FoF group {}, max {} self-centrals in one forest, {} non-positive "
+        "MostBoundID".format(
+            len(names),
+            empty,
+            populated,
+            max_progenitors,
+            max_fof_members,
+            max_centrals_in_one_forest,
+            non_positive_ids,
         )
     )
 

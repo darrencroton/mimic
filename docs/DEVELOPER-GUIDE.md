@@ -974,7 +974,7 @@ The Consistent-Trees readers (`src/io/tree/read_ctrees_ascii.c`, `read_ctrees_hd
 
 ### Snapshot-ordered readers
 
-Snapshot-ordered input is a second reader family, not a variant of the tree readers. A tree reader hands the core one forest at a time; a snapshot reader hands it one snapshot's whole halo population — a *slab* — so global, snapshot-synchronous operations become expressible. The on-disk contract these readers consume is frozen in [dev/SNAPSHOT-HDF5-FORMAT.md](dev/SNAPSHOT-HDF5-FORMAT.md) (`format_version = 1`). One snapshot reader ships: `snapshot_hdf5` (`src/io/snapshot/read_snapshot_hdf5.c`), exercised by the `micro-uchuu-snapshot` simulation package.
+Snapshot-ordered input is a second reader family, not a variant of the tree readers. A tree reader hands the core one forest at a time; a snapshot reader hands it one snapshot's whole halo population — a *slab* — so global, snapshot-synchronous operations become expressible. The on-disk contract these readers consume is frozen in [dev/SNAPSHOT-HDF5-FORMAT.md](dev/SNAPSHOT-HDF5-FORMAT.md) (`format_version = 2`; version 1 is rejected outright, no legacy-read path). One snapshot reader ships: `snapshot_hdf5` (`src/io/snapshot/read_snapshot_hdf5.c`), exercised by the `micro-uchuu-snapshot` simulation package.
 
 The snapshot **driver** (`run_snapshot_driver()`, `src/core/snapshot_driver.c`) now exists, so every level of reader checking is on the run path:
 

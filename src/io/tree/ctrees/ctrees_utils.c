@@ -29,6 +29,7 @@
 
 #include "memory.h"
 #include "third_party/sglib.h"
+#include "util/error.h"
 
 #include "tree/ctrees/ctrees_utils.h"
 #include "tree/ctrees/parse_ctrees.h"
@@ -315,97 +316,36 @@ int assign_forest_ids(const int64_t ntrees, struct locations_with_forests *locat
   return EXIT_SUCCESS;
 }
 
-int fix_flybys(const int64_t totnhalos, struct halo_data *forest, struct additional_info *info,
-               int verbose) {
-#define ID_COMPARATOR(x, y) ((x.id > y.id ? 1 : (x.id < y.id ? -1 : 0)))
-#define SCALE_ID_COMPARATOR(x, y)                                                                  \
-  ((x.scale > y.scale ? -1 : (x.scale < y.scale ? 1 : ID_COMPARATOR(x, y))))
-#define MULTIPLE_ARRAY_EXCHANGER(type, a, i, j)                                                    \
-  {                                                                                                \
-    SGLIB_ARRAY_ELEMENTS_EXCHANGER(struct halo_data, forest, i, j);                                \
-    SGLIB_ARRAY_ELEMENTS_EXCHANGER(struct additional_info, info, i, j)                             \
-  }
-  SGLIB_ARRAY_HEAP_SORT(struct additional_info, info, totnhalos, SCALE_ID_COMPARATOR,
-                        MULTIPLE_ARRAY_EXCHANGER);
-
-#undef ID_COMPARATOR
-#undef SCALE_ID_COMPARATOR
-#undef MULTIPLE_ARRAY_EXCHANGER
-
-  double max_scale = info[0].scale;
-  int64_t last_halo_with_max_scale = 1;
-  int64_t num_fofs_last_scale = info[0].pid == -1 ? 1 : 0;
-  for (int64_t i = 1; i < totnhalos; i++) {
-    if (info[i].scale < max_scale) {
-      break;
-    }
-    num_fofs_last_scale += (info[i].pid == -1) ? 1 : 0;
-    last_halo_with_max_scale = i;
-  }
-  if (num_fofs_last_scale == 0) {
-    fprintf(stderr,
-            "ERROR: NO FOFs at max scale = %lf Will crash - here's some info that might help "
-            "debug\n",
-            max_scale);
-    fprintf(stderr, "Last scale halo id (likely tree root id ) = %" PRId64 " at a = %lf\n",
-            info[0].id, info[0].scale);
-    fprintf(stderr, "########################################################\n");
-    fprintf(stderr, "# snap     id      pid      upid    mass     scale      \n");
-    fprintf(stderr, "########################################################\n");
-    for (int64_t i = 0; i <= last_halo_with_max_scale; i++) {
-      fprintf(stderr, "%d  %10" PRId64 "  %10" PRId64 " %10" PRId64 " %12.6e  %20.8e\n",
-              forest[i].SnapNum, info[i].id, info[i].pid, info[i].upid, forest[i].Mvir,
-              info[i].scale);
-    }
-    fprintf(stderr, "All halos now:\n\n");
-    for (int64_t i = 0; i < totnhalos; i++) {
-      fprintf(stderr, "%d  %10" PRId64 "  %10" PRId64 " %10" PRId64 " %12.6e %20.8e\n",
-              forest[i].SnapNum, info[i].id, info[i].pid, info[i].upid, forest[i].Mvir,
-              info[i].scale);
-    }
+int verify_fof_centrals_present(const int64_t totnhalos, const struct additional_info *info,
+                                const int unit) {
+  if (totnhalos <= 0) {
+    ERROR_LOG("Consistent-Trees forest/unit %d has %" PRId64
+              " halos; a valid forest always has at least one pid == -1 (FoF central) halo at "
+              "its maximum scale, so an empty forest is corrupt input",
+              unit, totnhalos);
     return -1;
   }
 
-  /* Is there anything to do? If there is only one FOF at z=0, then simply return */
-  if (num_fofs_last_scale == 1) {
-    return EXIT_SUCCESS;
-  }
-
-  int64_t max_mass_fof_loc = -1;
-  float max_mass_fof = -1.0f;
-  int64_t fof_id = -1;
-  for (int64_t i = 0; i <= last_halo_with_max_scale; i++) {
-    if (forest[i].Mvir > max_mass_fof && info[i].pid == -1) {
-      max_mass_fof_loc = i;
-      max_mass_fof = forest[max_mass_fof_loc].Mvir;
-      fof_id = info[max_mass_fof_loc].id;
+  double max_scale = info[0].scale;
+  for (int64_t i = 1; i < totnhalos; i++) {
+    if (info[i].scale > max_scale) {
+      max_scale = info[i].scale;
     }
   }
 
-  XRETURN(fof_id != -1, -EXIT_FAILURE, "There must be at least one FOF halo.");
-  XRETURN(max_mass_fof_loc < INT_MAX, -EXIT_FAILURE,
-          "Most massive FOF location=%" PRId64 " must be representable within INT_MAX=%d",
-          max_mass_fof_loc, INT_MAX);
+  int64_t num_fofs_at_max_scale = 0;
+  for (int64_t i = 0; i < totnhalos; i++) {
+    if (info[i].scale == max_scale && info[i].pid == -1) {
+      num_fofs_at_max_scale++;
+    }
+  }
 
-  int FirstHaloInFOFgroup = (int)max_mass_fof_loc;
-  for (int64_t i = 0; i <= last_halo_with_max_scale; i++) {
-    if (i == FirstHaloInFOFgroup) {
-      continue;
-    }
-    if (info[i].pid == -1) {
-      // Show that this halo was switched from being a central
-      // just flip the sign. (MostBoundID should not have negative
-      // values -> this would signify a flyby)
-      forest[i].MostBoundID = -forest[i].MostBoundID;
-      info[i].pid = fof_id;
-      if (verbose == 1) {
-        fprintf(stderr,
-                "id = %" PRId64 " changed pid = -1 to pid = %" PRId64 " for i=%" PRId64
-                " FirstHaloInFOFgroup =%d last_halo_max_scale=%" PRId64 "\n",
-                info[i].id, fof_id, i, FirstHaloInFOFgroup, last_halo_with_max_scale);
-      }
-    }
-    info[i].upid = fof_id;
+  if (num_fofs_at_max_scale == 0) {
+    ERROR_LOG("Consistent-Trees forest/unit %d has zero pid == -1 (FoF central) halos at its "
+              "maximum scale = %lf, out of %" PRId64 " halos total; this is structurally "
+              "impossible for a valid Consistent-Trees forest, so the input is corrupt",
+              unit, max_scale, totnhalos);
+    return -1;
   }
 
   return EXIT_SUCCESS;
@@ -717,6 +657,21 @@ int assign_mergertree_indices(const int64_t totnhalos, struct halo_data *forest,
 #undef ID_COMPARATOR
 
   return EXIT_SUCCESS;
+}
+
+int ctrees_apply_topology(const int64_t totnhalos, struct halo_data *forest,
+                          struct additional_info *info, const int unit) {
+  if (verify_fof_centrals_present(totnhalos, info, unit) != EXIT_SUCCESS) {
+    return -1;
+  }
+  const int max_snapnum = fix_upid(totnhalos, forest, info, 0);
+  if (max_snapnum < 0) {
+    return -1;
+  }
+  if (assign_mergertree_indices(totnhalos, forest, info, max_snapnum) != EXIT_SUCCESS) {
+    return -1;
+  }
+  return max_snapnum;
 }
 
 static int64_t find_fof_halo(const int64_t totnhalos, const struct additional_info *info,
