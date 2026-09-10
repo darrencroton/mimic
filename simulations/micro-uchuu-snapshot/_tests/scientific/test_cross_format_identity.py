@@ -42,10 +42,11 @@ Stages, in order (one MIMIC_RESULT marker each):
    ``scripts/compare_cross_format_identity.py``, which aggregates every partition
    of each run (the tree side writes five; comparing one file would silently
    compare a fifth of the run).
-8. Tree-path preservation -- the same tree-ordered run built from the pre-Phase-5
-   baseline commit, whose galaxy records must be byte-identical to HEAD's and
-   whose HDF5 metadata must differ in exactly the permitted deltas beyond
-   five provenance attributes that carry no scientific content.
+8. Tree-path preservation -- the same tree-ordered run built from the
+   BASELINE_COMMIT reference commit, whose galaxy records must be byte-identical
+   to HEAD's and whose HDF5 metadata must differ in exactly the permitted
+   deltas (empty at the current anchor) beyond five provenance attributes that
+   carry no scientific content.
 
 Worktrees and scratch outputs are removed on every exit path.
 """
@@ -104,10 +105,11 @@ SCHEMES = ("fixed", "dynamic")
 #: Files the Consistent-Trees ASCII reader needs from its dataset directory.
 ASCII_DATASET_FILES = ("forests.list", "locations.dat", "tree_0_0_0.dat")
 
-#: The pre-Phase-5 baseline: the commit this phase's plan was frozen against,
-#: before any snapshot-driver work. The preservation stage builds it to show the
-#: tree-ordered path still produces the same galaxy records.
-BASELINE_COMMIT = "ae22d278"
+#: The tree-path-preservation reference commit: periodically advanced, not a
+#: permanent invariant. Moved `ae22d278` -> `a654c228` (2026-09-10) after the
+#: validated `fix_flybys` removal (docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md);
+#: see PERMITTED_DELTAS below for what a re-anchor must reset.
+BASELINE_COMMIT = "a654c228"
 
 #: HDF5 attributes that legitimately differ between two builds/runs of the same
 #: code and carry no scientific content, mapped to the object paths where they
@@ -123,16 +125,14 @@ PROVENANCE_ATTR_PATHS = {
     "RunEndTime": ("/RunProperties",),
 }
 
-#: The four permitted HDF5 metadata deltas between the pre-Phase-5 baseline and
-#: HEAD. Every one of them must be observed; anything else is a failure.
-PERMITTED_DELTAS = (
-    "UniqueGalaxyIDMultiplier attribute",
-    "TotHalosPerSnap int64",
-    "UniqueGalaxyID description",
-    "hdf5_format_version 1.2",
-    "Spin units",
-    "Spin description",
-)
+#: HDF5 metadata deltas permitted between BASELINE_COMMIT and HEAD, beyond the
+#: provenance attributes in PROVENANCE_ATTR_PATHS. Empty at a fresh anchor --
+#: every entry needs a matching classify() case pinning its exact object path
+#: and before/after transition. Add an entry only when a new, deliberate schema
+#: change needs pinning; when BASELINE_COMMIT next advances, reset this tuple,
+#: classify()'s special cases and assert_output_schema_delta's `expected` set
+#: back to empty -- a fresh anchor starts with nothing yet to permit.
+PERMITTED_DELTAS = ()
 
 #: Attributes required to be exactly equal between the two runs of a pair before
 #: their records are compared. A pair that disagrees here is not two views of one
@@ -151,33 +151,6 @@ REQUIRED_FREE_BYTES = 20 * 1024**3
 
 SNAP_GROUP_RE = re.compile(r"^Snap(\d+)$")
 FILE_GROUP_RE = re.compile(r"^File(\d+)$")
-
-#: Object paths a permitted delta is allowed to occur at. `TotHalosPerSnap`
-#: lives on the master's per-partition groups and on each partition's own
-#: Galaxies dataset; the other three live at one fixed path each. Binding the
-#: classification to the path (and, below, to the exact before/after transition)
-#: is what keeps "exactly four permitted deltas" meaning four *specific*
-#: changes rather than four attribute names that may change in any way anywhere.
-VERSION_GROUP_PATH = "/RunProperties/Version"
-RUN_PROPERTIES_PATH = "/RunProperties"
-FIELD_METADATA_PATH = "/RunProperties/FieldMetadata"
-MASTER_SNAP_FILE_RE = re.compile(r"^/Snap\d+/File\d+$")
-PARTITION_SNAP_GALAXIES_RE = re.compile(r"^/Snap\d+/Galaxies$")
-
-#: The exact transitions the permitted deltas must show. A widening that lands
-#: on a different width, or a version that moves anywhere other than 1.1 -> 1.2,
-#: is an unclassified difference and fails the stage.
-TOTHALOS_DTYPE_TRANSITION_RE = re.compile(r"^dtype int32(\(.*?\)) -> int64(\(.*?\))$")
-FORMAT_VERSION_TRANSITION_RE = re.compile(r"^value \[b'1\.1'\] -> \[b'1\.2'\]$")
-
-#: D8 relabelled Spin from a dimensionless quantity to the specific angular
-#: momentum J/Mvir it always held. Values were proved byte-identical and only
-#: the label moved, so the two metadata columns it touches are pinned by their
-#: exact before/after strings rather than merely by having changed.
-SPIN_UNITS_BEFORE = b"dimensionless"
-SPIN_UNITS_AFTER = b"Mpc/h km/s"
-SPIN_DESCRIPTION_BEFORE = b"Dimensionless spin"
-SPIN_DESCRIPTION_AFTER = b"Specific angular momentum"
 
 COMPARATOR_PASS_RE = re.compile(
     r"^PASSED: (\d+) galaxies over (\d+) output snapshot\(s\) are bitwise identical "
@@ -1232,7 +1205,7 @@ def stage_sage16_dynamic():
 
 
 # --------------------------------------------------------------------------
-# Tree-path preservation against the pre-Phase-5 baseline
+# Tree-path preservation against the BASELINE_COMMIT reference
 # --------------------------------------------------------------------------
 
 
@@ -1391,52 +1364,23 @@ def field_metadata_delta(where, objpath, baseline: Path, head: Path) -> list[Del
 
 
 def classify(delta: Delta) -> str | None:
-    """Map one difference to a permitted delta, to provenance, or to None.
+    """Map one difference to provenance, to a permitted delta, or to None.
 
-    Every acceptance below is bound to three things at once: the attribute (or
-    metadata column), the object path it occurred at, and the exact before/after
-    transition. Matching on the name alone would accept a version string moving
-    to any value, a counter widening to any width, or a provenance name changing
-    at a path where it does not belong -- all of which are real metadata changes
-    that the Definition of Done's "exactly the permitted deltas" excludes.
-    Anything unmatched returns None and fails the stage as unclassified.
+    Provenance attributes are anchor-independent and always excluded from the
+    unclassified count. A permitted-delta case belongs here only while
+    PERMITTED_DELTAS names it; each such case must bind the attribute (or
+    metadata column), its exact object path, and its exact before/after
+    transition -- matching on name alone would accept a version string moving
+    to any value, or a counter widening to any width. PERMITTED_DELTAS is empty
+    at the current anchor, so nothing below matches a permitted delta yet.
     """
     item = delta.item
     if item.startswith("attr "):
         name = item.split(" ", 1)[1]
-
         provenance_paths = PROVENANCE_ATTR_PATHS.get(name)
         if provenance_paths is not None:
             return "provenance" if delta.objpath in provenance_paths else None
 
-        if name == "UniqueGalaxyIDMultiplier":
-            if delta.objpath == RUN_PROPERTIES_PATH and delta.detail == "added":
-                return "UniqueGalaxyIDMultiplier attribute"
-            return None
-
-        if name == "TotHalosPerSnap":
-            at_expected_path = MASTER_SNAP_FILE_RE.match(delta.objpath) or (
-                PARTITION_SNAP_GALAXIES_RE.match(delta.objpath)
-            )
-            transition = TOTHALOS_DTYPE_TRANSITION_RE.match(delta.detail)
-            # Same shape on both sides: this delta is a widening, not a reshape.
-            if at_expected_path and transition and transition.group(1) == transition.group(2):
-                return "TotHalosPerSnap int64"
-            return None
-
-        if name == "hdf5_format_version":
-            if delta.objpath == VERSION_GROUP_PATH and FORMAT_VERSION_TRANSITION_RE.match(
-                delta.detail
-            ):
-                return "hdf5_format_version 1.2"
-            return None
-
-    if item == "FieldMetadata UniqueGalaxyID.description":
-        return "UniqueGalaxyID description" if delta.objpath == FIELD_METADATA_PATH else None
-    if item == "FieldMetadata Spin.units":
-        return "Spin units" if delta.objpath == FIELD_METADATA_PATH else None
-    if item == "FieldMetadata Spin.description":
-        return "Spin description" if delta.objpath == FIELD_METADATA_PATH else None
     return None
 
 
@@ -1489,7 +1433,7 @@ def assert_records_byte_identical(baseline: RunOutput, head: RunOutput) -> int:
                         differing = int((left_bytes != right_bytes).any(axis=1).sum())
                         raise AssertionError(
                             f"{before_path.name}/{name}: field {field} differs from the "
-                            f"pre-Phase-5 baseline in {differing} of {left.shape[0]} records"
+                            f"{BASELINE_COMMIT} baseline in {differing} of {left.shape[0]} records"
                         )
                 total += int(left.shape[0])
                 del left_records, right_records
@@ -1510,9 +1454,9 @@ def assert_records_byte_identical(baseline: RunOutput, head: RunOutput) -> int:
 def assert_output_schema_delta(baseline: RunOutput, head: RunOutput) -> None:
     """The run-local output schema differs in exactly the permitted field changes.
 
-    The same D8 relabel that moves Spin's HDF5 FieldMetadata also moves it here,
-    so the two lists are kept in step: a change that appears in one and not the
-    other means the schema writer and the HDF5 writer have diverged.
+    Kept in step with PERMITTED_DELTAS: a change that appears in one and not the
+    other means the schema writer and the HDF5 writer have diverged. Empty at
+    the current anchor; grows only alongside a new PERMITTED_DELTAS entry.
     """
     before = json.loads(baseline.schema_path().read_text())
     after = json.loads(head.schema_path().read_text())
@@ -1538,22 +1482,17 @@ def assert_output_schema_delta(baseline: RunOutput, head: RunOutput) -> None:
 
     compare(before, after, "")
 
-    expected = {
-        ".source_md5",
-        ".fields[UniqueGalaxyID].description",
-        ".fields[Spin].description",
-        ".fields[Spin].units",
-    }
+    expected: set[str] = set()
     if set(differences) != expected:
         raise AssertionError(
-            f"{head.schema_path()} differs from the pre-Phase-5 baseline in "
+            f"{head.schema_path()} differs from the {BASELINE_COMMIT} baseline in "
             f"{sorted(differences)}, expected exactly {sorted(expected)}"
         )
     log(f"  output_schema.json differs in exactly {sorted(expected)}")
 
 
 def stage_tree_path_preservation():
-    """The tree-ordered path still produces the pre-Phase-5 baseline's galaxies."""
+    """The tree-ordered path still produces the BASELINE_COMMIT baseline's galaxies."""
     banner(f"Stage 8: tree-path preservation against {BASELINE_COMMIT}")
     GATE.require("identity:halos-only:fixed", "no HEAD tree-ordered run to compare against")
 
@@ -1643,77 +1582,8 @@ def stage_tree_path_preservation():
             f"schema change actually reaching the output"
         )
 
-    assert_permitted_delta_values(baseline_run, head_run)
     assert_output_schema_delta(baseline_run, head_run)
     GATE.done.add("preservation")
-
-
-def assert_permitted_delta_values(baseline: RunOutput, head: RunOutput) -> None:
-    """Pin what each permitted delta changed from and to, not merely that it moved."""
-    with h5py.File(baseline.master, "r") as before, h5py.File(head.master, "r") as after:
-        old_version = numpy.asarray(before["RunProperties/Version"].attrs["hdf5_format_version"])
-        new_version = numpy.asarray(after["RunProperties/Version"].attrs["hdf5_format_version"])
-        if old_version.ravel()[0] != b"1.1" or new_version.ravel()[0] != b"1.2":
-            raise AssertionError(
-                f"hdf5_format_version moved {old_version.ravel()[0]!r} -> "
-                f"{new_version.ravel()[0]!r}, expected b'1.1' -> b'1.2'"
-            )
-        if "UniqueGalaxyIDMultiplier" in before["RunProperties"].attrs:
-            raise AssertionError("the pre-Phase-5 baseline already records a multiplier attribute")
-        multiplier = int(numpy.asarray(after["RunProperties"].attrs["UniqueGalaxyIDMultiplier"])[0])
-        if multiplier <= 0:
-            raise AssertionError(f"UniqueGalaxyIDMultiplier is {multiplier}")
-
-        snap = sorted(name for name in before if SNAP_GROUP_RE.match(name))[0]
-        old_total = before[f"{snap}/File000"].attrs["TotHalosPerSnap"]
-        new_total = after[f"{snap}/File000"].attrs["TotHalosPerSnap"]
-        if numpy.asarray(old_total).dtype != numpy.dtype("int32"):
-            raise AssertionError(
-                f"baseline TotHalosPerSnap dtype is {numpy.asarray(old_total).dtype}"
-            )
-        if numpy.asarray(new_total).dtype != numpy.dtype("int64"):
-            raise AssertionError(f"HEAD TotHalosPerSnap dtype is {numpy.asarray(new_total).dtype}")
-        if int(numpy.asarray(old_total)[0]) != int(numpy.asarray(new_total)[0]):
-            raise AssertionError("TotHalosPerSnap changed value, not only width")
-
-        old_rows = numpy.array(before["RunProperties/FieldMetadata"][()])
-        new_rows = numpy.array(after["RunProperties/FieldMetadata"][()])
-        row = [index for index, r in enumerate(old_rows) if r["field_name"] == b"UniqueGalaxyID"]
-        if not row:
-            raise AssertionError("no UniqueGalaxyID row in FieldMetadata")
-        old_description = old_rows[row[0]]["description"]
-        new_description = new_rows[row[0]]["description"]
-        if old_description == new_description:
-            raise AssertionError("the UniqueGalaxyID description did not change")
-        if b"UniqueGalaxyIDMultiplier" not in new_description:
-            raise AssertionError(
-                f"the new UniqueGalaxyID description does not name the provenance attribute: "
-                f"{new_description!r}"
-            )
-
-        spin = [index for index, r in enumerate(old_rows) if r["field_name"] == b"Spin"]
-        if not spin:
-            raise AssertionError("no Spin row in FieldMetadata")
-        old_spin, new_spin = old_rows[spin[0]], new_rows[spin[0]]
-        if old_spin["units"] != SPIN_UNITS_BEFORE or new_spin["units"] != SPIN_UNITS_AFTER:
-            raise AssertionError(
-                f"Spin units moved {old_spin['units']!r} -> {new_spin['units']!r}, expected "
-                f"{SPIN_UNITS_BEFORE!r} -> {SPIN_UNITS_AFTER!r}"
-            )
-        if SPIN_DESCRIPTION_BEFORE not in old_spin["description"]:
-            raise AssertionError(
-                f"baseline Spin description {old_spin['description']!r} does not contain "
-                f"{SPIN_DESCRIPTION_BEFORE!r}"
-            )
-        if SPIN_DESCRIPTION_AFTER not in new_spin["description"]:
-            raise AssertionError(
-                f"HEAD Spin description {new_spin['description']!r} does not contain "
-                f"{SPIN_DESCRIPTION_AFTER!r}"
-            )
-    log(
-        f"  all {len(PERMITTED_DELTAS)} permitted deltas observed with their expected "
-        "before/after values"
-    )
 
 
 # --------------------------------------------------------------------------
