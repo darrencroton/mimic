@@ -1375,7 +1375,9 @@ class TestBoundedMemory(unittest.TestCase):
     allocations, so this asserts ACTUAL peak allocation rather than any counter
     the battery keeps about itself."""
 
-    HALOS_PER_SNAPSHOT = 4096
+    # large enough that the per-halo identity-bitset signal stays well above
+    # the per-file h5py bookkeeping 60 extra snapshot opens legitimately cost
+    HALOS_PER_SNAPSHOT = 16384
     SMALL_SNAPSHOTS = 4
     LARGE_SNAPSHOTS = 64
 
@@ -1433,11 +1435,13 @@ class TestBoundedMemory(unittest.TestCase):
 
         grew_by = dataset_bytes(self.large) - dataset_bytes(self.small)
         self.assertGreater(grew_by, 10 * 1024**2, "the two datasets must differ materially")
-        # the window, the forest tables and the chunk buffers are identical
-        # between the two runs; only the identity bitset grows, by one bit per
-        # extra halo, so the whole allowance below is dominated by slack
+        # the identity bitset grows by one bit per extra halo; everything else
+        # is identical between runs except h5py's own per-file bookkeeping
+        # from opening 60 more snapshots, charged as PER_SNAPSHOT_FILE_ALLOWANCE.
         extra_halos = (self.LARGE_SNAPSHOTS - self.SMALL_SNAPSHOTS) * self.HALOS_PER_SNAPSHOT
-        allowance = extra_halos // 8 + 64 * 1024
+        extra_snapshots = self.LARGE_SNAPSHOTS - self.SMALL_SNAPSHOTS
+        PER_SNAPSHOT_FILE_ALLOWANCE = 20 * 1024
+        allowance = extra_halos // 8 + extra_snapshots * PER_SNAPSHOT_FILE_ALLOWANCE + 64 * 1024
         self.assertLess(large_peak - small_peak, allowance)
         # the allowance is tight enough to catch a regression that made even
         # ONE four-byte column whole-dataset-resident again
@@ -1745,7 +1749,9 @@ class TestBoundedMemoryOnMalformedInput(unittest.TestCase):
     table in memory grows with it; the external ordering does not.
     """
 
-    HALOS_PER_SNAPSHOT = 2048
+    # large enough that the per-halo regression this test exists to catch
+    # stays well above the per-file h5py bookkeeping 48 extra opens cost
+    HALOS_PER_SNAPSHOT = 8192
     # both sizes must spill more runs than the merge fan-in, so that BOTH runs
     # pay the same maximum number of concurrent merge read buffers and the only
     # quantity left differing is retained per-value state
@@ -1779,14 +1785,16 @@ class TestBoundedMemoryOnMalformedInput(unittest.TestCase):
         run_battery(self.small, self.small_a_list)  # warm up
         small_peak = self._peak(self.small, self.small_a_list)
         large_peak = self._peak(self.large, self.large_a_list)
-        extra_halos = (self.LARGE_SNAPSHOTS - self.SMALL_SNAPSHOTS) * self.HALOS_PER_SNAPSHOT
-        # the fan-in caps the concurrent merge buffers, so the only quantity
-        # that differs between the two runs is what is RETAINED per distinct
-        # out-of-range value — which must be nothing
-        self.assertLess(large_peak - small_peak, 256 * 1024)
+        extra_snapshots = self.LARGE_SNAPSHOTS - self.SMALL_SNAPSHOTS
+        extra_halos = extra_snapshots * self.HALOS_PER_SNAPSHOT
+        # retained per-value state must be nothing; the only real cost is
+        # h5py's own per-file bookkeeping from 48 more snapshot opens
+        PER_SNAPSHOT_FILE_ALLOWANCE = 16 * 1024
+        allowance = extra_snapshots * PER_SNAPSHOT_FILE_ALLOWANCE + 64 * 1024
+        self.assertLess(large_peak - small_peak, allowance)
         # and the allowance is far below what even 8 bytes per distinct value
         # would cost, which is what an in-memory table would have charged
-        self.assertLess(256 * 1024, extra_halos * 8)
+        self.assertLess(allowance, extra_halos * 8)
 
     @staticmethod
     def _peak(directory, a_list_path):

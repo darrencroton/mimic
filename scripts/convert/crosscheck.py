@@ -1046,7 +1046,9 @@ class TopologyDumpPartition:
         in-dataset snapshot is open, so this is bounded by the snapshot count
         and not by the dump."""
         if snap not in self._handles:
-            self._handles[snap] = open(self._partition_path(snap), "wb")
+            # explicit buffering: a large st_blksize (Lustre, some APFS
+            # volumes) would otherwise inflate the per-handle buffer
+            self._handles[snap] = open(self._partition_path(snap), "wb", buffering=8192)
         return self._handles[snap]
 
     def _load(self) -> None:

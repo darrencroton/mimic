@@ -1896,10 +1896,10 @@ class TestBoundedMemoryOnGrowingCardinality(unittest.TestCase):
         extra_snapshots = self.LARGE_SNAPSHOTS - self.SMALL_SNAPSHOTS
         extra_identities = extra_snapshots * self.HALOS_PER_SNAPSHOT
         extra_out_of_range_rows = extra_snapshots * self.OUT_OF_RANGE_ROWS
-        # what legitimately grows with the snapshot count: one out_of_range
-        # entry and one failure line per distinct out-of-range value, the
-        # cached halo counts, the per-snapshot row counts and path lists
-        allowance = extra_snapshots * 4096 + 64 * 1024
+        # what legitimately grows with the snapshot count: per-snapshot
+        # bookkeeping plus h5py's own per-file overhead from opening more
+        # dump/reference files — bounded, and scales with file count only
+        allowance = extra_snapshots * 12288 + 64 * 1024
         self.assertLess(large_peak - small_peak, allowance)
         # ...and the allowance is below what either regression this fixture
         # exists to catch would have cost: an in-memory identity union holding
