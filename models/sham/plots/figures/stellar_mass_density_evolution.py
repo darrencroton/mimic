@@ -10,7 +10,7 @@ import numpy as np
 from figures import AXIS_LABEL_SIZE, get_redshift_label, setup_legend
 from matplotlib.ticker import MultipleLocator
 from output_utils import (
-    check_field_has_values,
+    check_field_has_values_any_snapshot,
     check_required_fields,
     get_profile_axes,
     save_and_close_figure,
@@ -50,9 +50,10 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     if not success:
         return None, f"Required fields missing: {msg}"
 
-    # Field-level validation: Check if StellarMass has any non-zero values
-    has_stellar_mass, count, msg = check_field_has_values(
-        galaxies_sample.StellarMass, "StellarMass", threshold=0.0
+    # Field-level validation: Check if StellarMass has any non-zero values in any snapshot
+    # (not just the first - an early epoch may legitimately predate star formation)
+    has_stellar_mass, msg = check_field_has_values_any_snapshot(
+        snapshots, "StellarMass", threshold=0.0
     )
     if not has_stellar_mass:
         return None, f"Field validation failed: {msg}"

@@ -189,6 +189,39 @@ def check_field_has_values(data_array, field_name, threshold=0.0):
     return has_values, count_valid, msg
 
 
+def check_field_has_values_any_snapshot(snapshots, field_name, threshold=0.0):
+    """
+    Check if a field has meaningful non-zero values in ANY snapshot (evolution-plot gate).
+
+    Evolution plots hold multiple snapshots spanning very different epochs. A field can be
+    legitimately all-zero at one epoch (e.g. StellarMass before the first star has formed)
+    while genuinely populated at others. Checking a single sample snapshot - as
+    check_field_has_values() does for single-snapshot plots - produces a false negative if
+    that sample happens to be the empty epoch. Use this instead to gate an evolution plot on
+    whether the field is populated anywhere across the full snapshot set.
+
+    Args:
+        snapshots: Dict mapping snapshot number -> (galaxies, volume, metadata)
+        field_name: Name of the field to check (attribute of the galaxies recarray)
+        threshold: Minimum value to consider meaningful (default: 0.0)
+
+    Returns:
+        Tuple of (has_values, message):
+            - has_values (bool): True if any snapshot has values > threshold
+            - message (str): Error message if no snapshot has values, empty string otherwise
+
+    Example:
+        >>> has_mass, msg = check_field_has_values_any_snapshot(snapshots, 'StellarMass')
+        >>> if not has_mass:
+        >>>     return None, f"Field validation failed: {msg}"
+    """
+    for galaxies, _volume, _metadata in snapshots.values():
+        if np.sum(getattr(galaxies, field_name) > threshold) > 0:
+            return True, ""
+
+    return False, f"All values in '{field_name}' are <= {threshold} in every snapshot"
+
+
 def setup_figure(figsize=(8, 6)):
     """
     Create and set up a matplotlib figure with consistent styling.

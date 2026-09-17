@@ -6,6 +6,7 @@ Covers validate_filtered_data(), validate_evolution_snapshot(), and check_field_
 
 import os
 import sys
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -17,6 +18,7 @@ sys.path.insert(0, os.path.join(repo_root, "tests"))
 from framework import run_test_suite
 from output_utils import (
     check_field_has_values,
+    check_field_has_values_any_snapshot,
     validate_evolution_snapshot,
     validate_filtered_data,
 )
@@ -150,6 +152,48 @@ def test_check_field_has_values_negative_values():
     assert count == 1, f"Should count 1 value > 0, got {count}"
 
 
+def _fake_galaxies(**fields):
+    """Build a minimal object exposing fields as attributes, like a galaxy recarray."""
+    return SimpleNamespace(**fields)
+
+
+def test_check_field_has_values_any_snapshot_first_zero_later_nonzero():
+    """Reproduces the SMF/SMD evolution bug: field is zero at the first snapshot only."""
+    snapshots = {
+        0: (_fake_galaxies(StellarMass=np.array([0.0, 0.0])), 1.0, {}),
+        69: (_fake_galaxies(StellarMass=np.array([0.0, 5.0])), 1.0, {}),
+    }
+    has_values, msg = check_field_has_values_any_snapshot(snapshots, "StellarMass")
+
+    assert has_values, "Should find nonzero values in a later snapshot"
+    assert msg == "", "Message should be empty when valid"
+
+
+def test_check_field_has_values_any_snapshot_all_zero():
+    """All snapshots genuinely have no nonzero values - should fail."""
+    snapshots = {
+        0: (_fake_galaxies(StellarMass=np.array([0.0, 0.0])), 1.0, {}),
+        69: (_fake_galaxies(StellarMass=np.array([0.0, 0.0])), 1.0, {}),
+    }
+    has_values, msg = check_field_has_values_any_snapshot(snapshots, "StellarMass")
+
+    assert not has_values, "Should not have values when every snapshot is zero"
+    assert "StellarMass" in msg, "Message should mention field name"
+    assert "every snapshot" in msg, "Message should indicate all snapshots were checked"
+
+
+def test_check_field_has_values_any_snapshot_custom_threshold():
+    """Custom threshold should apply per-snapshot, same as the single-snapshot check."""
+    snapshots = {
+        0: (_fake_galaxies(StellarMass=np.array([0.5, 0.5])), 1.0, {}),
+        69: (_fake_galaxies(StellarMass=np.array([2.0, 0.5])), 1.0, {}),
+    }
+    has_values, msg = check_field_has_values_any_snapshot(snapshots, "StellarMass", threshold=1.0)
+
+    assert has_values, "Should find a value above threshold in the second snapshot"
+    assert msg == "", "Message should be empty when valid"
+
+
 def main():
     """Run this file's tests via the shared framework runner."""
     return run_test_suite(
@@ -167,6 +211,9 @@ def main():
             test_check_field_has_values_below_threshold,
             test_check_field_has_values_large_array,
             test_check_field_has_values_negative_values,
+            test_check_field_has_values_any_snapshot_first_zero_later_nonzero,
+            test_check_field_has_values_any_snapshot_all_zero,
+            test_check_field_has_values_any_snapshot_custom_threshold,
         ],
         "Plot Validation Helpers (test_validation_helpers.py)",
     )

@@ -11,7 +11,7 @@ import numpy as np
 from figures import AXIS_LABEL_SIZE, get_redshift_label, get_sfr_density_label, setup_legend
 from matplotlib.ticker import MultipleLocator
 from output_utils import (
-    check_field_has_values,
+    check_field_has_values_any_snapshot,
     check_required_fields,
     get_profile_axes,
     save_and_close_figure,
@@ -55,14 +55,14 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     if not success:
         return None, f"Required fields missing: {msg}"
 
-    # Field-level validation: Check if StarFormationRate has any non-zero values
-    # Note: We don't fail if SFR is all zeros - just warn and continue
-    has_sfr, count, msg = check_field_has_values(
-        galaxies_sample.StarFormationRate, "StarFormationRate", threshold=0.0
+    # Field-level validation: Check if StarFormationRate has any non-zero values anywhere
+    # Note: We don't fail if SFR is all zeros everywhere - just warn and continue
+    has_sfr, msg = check_field_has_values_any_snapshot(
+        snapshots, "StarFormationRate", threshold=0.0
     )
     if not has_sfr and verbose:
         warn(
-            f"StarFormationRate field has no non-zero values in sample snapshot - plot may be empty: {msg}"
+            f"StarFormationRate field has no non-zero values in any snapshot - plot may be empty: {msg}"
         )
 
     x_min, x_max, y_min, y_max = get_profile_axes(

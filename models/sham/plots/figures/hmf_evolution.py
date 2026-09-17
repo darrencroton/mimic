@@ -16,7 +16,7 @@ from figures import (
 from matplotlib.ticker import MultipleLocator
 from output_utils import (
     calculate_mass_function,
-    check_field_has_values,
+    check_field_has_values_any_snapshot,
     check_required_fields,
     get_profile_axes,
     save_and_close_figure,
@@ -70,8 +70,8 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     if not success:
         return None, f"Required fields missing: {msg}"
 
-    # Field-level validation: Check if Mvir has any non-zero values
-    has_mvir, count, msg = check_field_has_values(galaxies_sample.Mvir, "Mvir", threshold=0.0)
+    # Field-level validation: Check if Mvir has any non-zero values in any snapshot
+    has_mvir, msg = check_field_has_values_any_snapshot(snapshots, "Mvir", threshold=0.0)
     if not has_mvir:
         return None, f"Field validation failed: {msg}"
 
