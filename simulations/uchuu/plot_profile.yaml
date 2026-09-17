@@ -1,7 +1,7 @@
 simulation:
   name: uchuu
   box_size: 2000.0
-  particle_mass: 0.0325
+  particle_mass: 0.0327
 
 axes:
   spatial_distribution:

@@ -19,6 +19,6 @@ simulation:
     units: Mpc/h
     h_convention: carried
   particle_mass:
-    value: 0.0325
+    value: 0.0327
     units: 1e10 Msun/h
     h_convention: carried

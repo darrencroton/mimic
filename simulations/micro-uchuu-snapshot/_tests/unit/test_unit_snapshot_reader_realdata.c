@@ -64,7 +64,7 @@ extern struct MimicConfig MimicConfig;
 #define REALDATA_OMEGA_MATTER 0.3089
 #define REALDATA_OMEGA_LAMBDA 0.6911
 #define REALDATA_HUBBLE_H 0.6774
-#define REALDATA_PART_MASS 0.0325
+#define REALDATA_PART_MASS 0.0327
 
 static const char *package_path(const char *leaf) {
   static char path[MAX_STRING_LEN];

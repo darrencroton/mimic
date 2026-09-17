@@ -292,7 +292,7 @@ The gate's correctness rests on the snapshot reader's `forest_index` / `halo_ran
 
 **Run the identity gate on a Shin-Uchuu subset before trusting a full production run.** That is the cheapest possible check against a conversion-side indexing error.
 
-### 2.7 The Uchuu-family packages declare a particle mass that is 0.6% low — NEW 2026-08-14
+### 2.7 The Uchuu-family packages declare a particle mass that is 0.6% low — CLOSED 2026-09-17
 
 **All six Uchuu-family packages declare `particle_mass: 0.0325` (1e10 Msun/h) = 3.25 × 10⁸ Msun/h. The physically consistent value is 3.27 × 10⁸ Msun/h.** Found while confirming the *Shin*-Uchuu mass for §2.4; that item is closed and correct, this is a separate, newly-discovered defect in the shipped packages.
 
@@ -308,7 +308,9 @@ Affected: `uchuu`, `mini-uchuu`, `micro-uchuu`, `micro-uchuu-ascii`, `micro-uchu
 
 **Not a Shin-Uchuu blocker** — the Shin-Uchuu package will be created with the confirmed 8.97 × 10⁵ — but it is a correctness defect in six shipped packages and should be scheduled deliberately. This item carried one prerequisite, **confirm the micro-Uchuu and mini-Uchuu particle counts from Skies & Universes before implementing**, because the 640³ and 2560³ figures above were inferred from the box size and the suite's shared mass resolution rather than read from a source. **That prerequisite is discharged — see below.**
 
-**Scheduled 2026-08-19, discharged 2026-08-20.** The count sourcing needed nothing but a literature check and was done as remote-safe work; the result is recorded immediately below. **The fix itself stays last**, for the reason above: re-stamping the fixture and the 50-file dataset takes the identity gate offline until both sides agree again.
+**Scheduled 2026-08-19, discharged 2026-08-20.** The count sourcing needed nothing but a literature check and was done as remote-safe work; the result is recorded immediately below.
+
+**Fixed 2026-09-17, as F1 (`MIMIC-DEVELOPMENT-PATHWAY.md`).** All six `simulation_info.yaml` files corrected to `particle_mass: 0.0327`, with the mirrored value fixed in each package's `_tests/input/test_simulation.yaml` and `plot_profile.yaml`. The committed `micro-uchuu-snapshot` fixture was regenerated end to end via its own generator (`_tests/input/create_snapshot_fixture.py`), and the real local 50-file micro-Uchuu snapshot dataset was re-converted from the real ASCII source with the corrected mass, producer-validated (15/15), cross-checked against a fresh `halos-only` reference run, and swapped in (the pre-fix dataset preserved, not deleted). Totals matched the pre-fix reference exactly — 22,580,924 halos, 440,651 forests, `max_halo_rank_in_forest = 350074` — confirming the fix moves only mass-derived fields (`Len`, and `virial.c:51`'s subhalo mass fallback), not topology. The two hardcoded particle-mass literals in `micro-uchuu-snapshot`'s unit tests (`test_unit_snapshot_reader_open.c`, `test_unit_snapshot_reader_realdata.c`) were updated to match. All six packages rebuilt and tested clean (`micro-uchuu`, `micro-uchuu-ascii`, `micro-uchuu-hdf5`, `micro-uchuu-snapshot`, `mini-uchuu`, `uchuu`). One unrelated latent test bug was found and fixed along the way: `micro-uchuu`'s `test_lhalo_reader_halo_count` hardcoded an expectation of 4 halos left over from before the package was added to `PRODUCTION_TEST_CONFIG_SIMULATIONS` (`scripts/discovery.py`), which forces it onto the real production catalog; confirmed via `git stash` that it failed identically on unmodified HEAD, so it was converted to the same `MIN_EXPECTED_Z0_HALOS` lower-bound pattern its `micro-uchuu-hdf5`/`micro-uchuu-ascii` siblings already use.
 
 #### Counts sourced 2026-08-20 — prerequisite discharged, and it confirms the defect
 
@@ -327,7 +329,7 @@ Affected: `uchuu`, `mini-uchuu`, `micro-uchuu`, `micro-uchuu-ascii`, `micro-uchu
 
 **Shin-Uchuu's 6400³ is reconfirmed in passing, and item 8 now has a third independent source.** The same portal gives Shin-Uchuu as 262 billion (6400³) particles at 8.97 × 10⁵ Msun/h. Separately, the simulation's own parameter file on the conversion host declares `PartMass 0.0000897` (×10¹⁰ Msun/h) — see §2.4.
 
-**No package or code change follows, deliberately.** This closes the *prerequisite*, not the item: §6 item 10 stays last for the reason stated above, and the fix is still the full sequence in "What a correct fix requires".
+**No package or code change followed immediately.** This closed the *prerequisite*, not the item — §6 item 10 itself was fixed later, 2026-09-17, per the closure record above.
 
 
 ---

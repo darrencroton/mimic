@@ -35,6 +35,8 @@ simulation:
     units: Mpc/h
     h_convention: carried
   particle_mass:
-    value: 0.0325
+    # 3.27e8 Msun/h (Ishiyama et al. 2021, arXiv:2007.14720): 12800^3 particles
+    # in a 2 Gpc/h box, sharing the suite's mass resolution with micro/mini-Uchuu.
+    value: 0.0327
     units: 1e10 Msun/h
     h_convention: carried

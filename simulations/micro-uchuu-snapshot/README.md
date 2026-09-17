@@ -13,7 +13,7 @@ This package declares the snapshot-ordered HDF5 on-disk record for the micro-Uch
 
 The dataset is not primary data. It is produced offline by the converter under `scripts/convert/` from the same micro-Uchuu Consistent-Trees ASCII trees that `simulations/micro-uchuu-ascii/` reads, applying the reference reader's value conventions (spin normalisation, `Len` derivation, `fix_upid`) and rewriting global-id links as snapshot-local indices. `fix_flybys` was removed (docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md); the converter no longer demotes independent FoF centrals at a forest's maximum scale, and `MostBoundID` is always positive. The converted micro-Uchuu dataset is 22,580,924 halos across 50 snapshots and 440,651 forests (~2.3 GB).
 
-Cosmology, box size and particle mass therefore match `simulations/micro-uchuu-ascii/simulation_info.yaml` exactly: Ωm 0.3089, ΩΛ 0.6911, h 0.6774, box 100 Mpc/h, particle mass 0.0325 × 10¹⁰ Msun/h.
+Cosmology, box size and particle mass therefore match `simulations/micro-uchuu-ascii/simulation_info.yaml` exactly: Ωm 0.3089, ΩΛ 0.6911, h 0.6774, box 100 Mpc/h, particle mass 0.0327 × 10¹⁰ Msun/h.
 
 ## Regenerating the full dataset
 

@@ -123,9 +123,9 @@ Verified from `simulations/<name>/simulation_info.yaml` (2026-07-04):
 |---|---|---|---|---|
 | mini-millennium | 62.5 | 0.0860657 | 0.25 / 0.75 / 0.73 | Default; only trees `first_run.sh` downloads |
 | millennium | 500.0 | 0.0860657 | 0.25 / 0.75 / 0.73 | Metadata only; symlink your own trees |
-| micro-uchuu / -hdf5 / -ascii | 100.0 | 0.0325 | 0.3089 / 0.6911 / 0.6774 | Same data in L-Halo binary / CTrees-HDF5 / CTrees-ASCII |
-| mini-uchuu | 400.0 | 0.0325 | 0.3089 / 0.6911 / 0.6774 | |
-| uchuu | 2000.0 | 0.0325 | 0.3089 / 0.6911 / 0.6774 | Full Uchuu, CTrees-HDF5 |
+| micro-uchuu / -hdf5 / -ascii | 100.0 | 0.0327 | 0.3089 / 0.6911 / 0.6774 | Same data in L-Halo binary / CTrees-HDF5 / CTrees-ASCII |
+| mini-uchuu | 400.0 | 0.0327 | 0.3089 / 0.6911 / 0.6774 | |
+| uchuu | 2000.0 | 0.0327 | 0.3089 / 0.6911 / 0.6774 | Full Uchuu, CTrees-HDF5 |
 
 The Uchuu family uses the Planck-2015 cosmology. **Rule of thumb (community convention, not a repo-enforced fact)**: a halo needs ≳20 particles to be minimally credible, so trust nothing below ~20 × particle_mass (≈1.7 code units for Millennium, ≈0.65 for Uchuu); statistical properties (mass functions) need more like 100+ particles. Running the *same* physics on Millennium and Uchuu boxes is a first-class robustness workflow: different cosmology, resolution, volume, and tree format expose resolution artefacts, cosmology hard-coding bugs, and reader bugs that a single simulation hides.
 

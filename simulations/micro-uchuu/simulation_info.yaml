@@ -24,6 +24,9 @@ simulation:
     units: Mpc/h
     h_convention: carried
   particle_mass:
-    value: 0.0325
+    # 3.27e8 Msun/h (Ishiyama et al. 2021, arXiv:2007.14720), confirmed by the
+    # box's own arithmetic: Omega_m * rho_crit * L^3 / N = 3.2704e8 Msun/h at
+    # 640^3 particles in a 100 Mpc/h box.
+    value: 0.0327
     units: 1e10 Msun/h
     h_convention: carried

@@ -2,8 +2,11 @@
 """
 micro-Uchuu L-Halo Binary Reader Smoke Test
 
-Validates: lhalo_binary reader can load the micro-Uchuu L-Halo binary test
-fixture and produce sensible halo output.
+Validates: lhalo_binary reader can load the micro-Uchuu L-Halo binary
+production data and produce sensible halo output. micro-uchuu is one of the
+full-validation packages in scripts/discovery.py's
+PRODUCTION_TEST_CONFIG_SIMULATIONS, so this test compiles against the real
+catalog (simulation_info.yaml), not a package-local fixture.
 
 Skips automatically when:
   - SIMULATION != micro-uchuu (wrong compiled package)
@@ -29,6 +32,11 @@ def find_repo_root(start):
 REPO_ROOT = find_repo_root(Path(__file__).resolve())
 OUTPUT_FILE = REPO_ROOT / "tests" / "data" / "output" / "hdf5" / "model_000.hdf5"
 Z0_SNAPSHOT_GROUP = "Snap049"
+# Production micro-Uchuu L-Halo binary has ~3x10^5 halos at Snap049; the smoke
+# test checks for a meaningful lower bound rather than an exact count, since
+# the count varies with the selected model's physics (mirrors the
+# micro-uchuu-hdf5/-ascii sibling smoke tests).
+MIN_EXPECTED_Z0_HALOS = 10_000
 
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 
@@ -54,7 +62,7 @@ def _require_exe():
 
 
 def test_lhalo_reader_loads():
-    """Run halos-only on the tiny L-Halo fixture; expect exit 0."""
+    """Run against micro-Uchuu L-Halo binary production data; expect exit 0."""
     _require_simulation()
     _require_exe()
 
@@ -62,7 +70,7 @@ def test_lhalo_reader_loads():
 
 
 def test_lhalo_reader_halo_count():
-    """Output must contain the expected tiny-fixture halos at z=0."""
+    """Output must contain a meaningful number of halos at z=0."""
     _require_simulation()
     _require_exe()
 
@@ -73,7 +81,9 @@ def test_lhalo_reader_halo_count():
         assert Z0_SNAPSHOT_GROUP in hf, f"{Z0_SNAPSHOT_GROUP} missing from {OUTPUT_FILE}"
         galaxies = hf[Z0_SNAPSHOT_GROUP].get("Galaxies")
         assert galaxies is not None, f"{Z0_SNAPSHOT_GROUP}/Galaxies missing from {OUTPUT_FILE}"
-        assert galaxies.shape[0] == 4, f"Expected 4 output halos, found {galaxies.shape[0]}"
+        assert (
+            galaxies.shape[0] >= MIN_EXPECTED_Z0_HALOS
+        ), f"Expected at least {MIN_EXPECTED_Z0_HALOS} output halos, found {galaxies.shape[0]}"
 
 
 if __name__ == "__main__":

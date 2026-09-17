@@ -1,7 +1,7 @@
 simulation:
   name: micro-uchuu
   box_size: 100.0
-  particle_mass: 0.0325
+  particle_mass: 0.0327
 
 axes:
   spatial_distribution:

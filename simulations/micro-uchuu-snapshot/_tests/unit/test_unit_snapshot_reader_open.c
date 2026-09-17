@@ -170,7 +170,7 @@ static int stage_fixture(char *dir, size_t dir_size) {
 #define FIXTURE_OMEGA_MATTER 0.3089
 #define FIXTURE_OMEGA_LAMBDA 0.6911
 #define FIXTURE_HUBBLE_H 0.6774
-#define FIXTURE_PART_MASS 0.0325
+#define FIXTURE_PART_MASS 0.0327
 
 /**
  * @brief   Point MimicConfig at a staged fixture directory.
@@ -944,8 +944,8 @@ static int corrupt_particle_mass(const char *dir) {
  *
  * A reader that compared the header directly against MimicConfig.PartMass
  * (instead of MimicConfig.PartMass * 1e10) would accept this file. The
- * correct comparison must reject it: 0.0325 is nowhere near
- * 325000000.0 under a rounding tolerance.
+ * correct comparison must reject it: 0.0327 is nowhere near
+ * 327000000.0 under a rounding tolerance.
  */
 static int corrupt_particle_mass_missing_unit_factor(const char *dir) {
   char path[MAX_STRING_LEN];
@@ -1100,10 +1100,10 @@ static const struct corrupt_case CORRUPT_CASES[] = {
      "'hubble_h' is", "is 0.5 but the configured simulation value is 0.6774"},
     {"particle_mass_msun_h disagrees with the configured PartMass * 1e10", corrupt_particle_mass,
      "snapshot_002.h5", "'particle_mass_msun_h' is",
-     "is 400000000 but the configured simulation value is 325000000"},
+     "is 400000000 but the configured simulation value is 327000000"},
     {"particle_mass_msun_h equals PartMass without the 1e10 factor (naive-comparison trap)",
      corrupt_particle_mass_missing_unit_factor, "snapshot_003.h5", "'particle_mass_msun_h' is",
-     "is 0.032500000000000001 but the configured simulation value is 325000000"},
+     "is 0.0327 but the configured simulation value is 327000000"},
     /* The non-finite token itself ("nan"/"inf", possibly "-nan" or with a
        payload suffix) is libc-rendering-defined, so these two needle_extra
        strings deliberately omit it and pin only the mismatch phrasing and the
