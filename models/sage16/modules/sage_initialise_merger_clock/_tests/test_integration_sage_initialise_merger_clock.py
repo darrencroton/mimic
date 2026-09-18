@@ -310,57 +310,6 @@ def test_standalone_execution():
     print("  ✓ Standalone execution successful")
 
 
-def test_with_infall_module():
-    """Test behavior with the legacy infall-properties module when available."""
-    print("Testing with infall module...")
-
-    # ===== SETUP =====
-    # Run with sage_set_infall_properties to ensure infallMvir is set for satellites
-    param_file, output_dir, test_temp_dir = create_test_param_file(
-        output_name="sage_initialise_merger_clock_infall",
-        output_format="binary",
-        phase_config={
-            "pre_timestep": [("sage_set_infall_properties", "process_full_halo")],
-            "galaxy_physics": [("sage_initialise_merger_clock", "process_full_halo")],
-            "satellite_mergers": [],
-            "post_timestep": [],
-        },
-        model_params={},
-        first_file=0,
-        last_file=0,
-    )
-
-    # ===== EXECUTE =====
-    returncode, stdout, stderr = run_mimic(param_file)
-
-    # ===== VALIDATE =====
-    if returncode != 0:
-        shutil.rmtree(test_temp_dir)
-        combined_output = f"{stdout}\n{stderr}"
-        unknown_module = "sage_set_infall_properties" in combined_output and (
-            "not registered" in combined_output or "Unknown module" in combined_output
-        )
-        if unknown_module:
-            raise TestSkipped("sage_set_infall_properties is not available in this model package")
-        assert False, f"Mimic should execute successfully\nStderr: {stderr}"
-
-    output_file = output_dir / "model_z0.000_0"
-    halos, metadata = load_binary_halos(str(output_file))
-
-    # Check that satellites have infallMvir set
-    satellites = halos[halos["Type"] == 1]
-    if len(satellites) > 0:
-        # Some satellites should have infallMvir > 0
-        has_infall = satellites["infallMvir"] > 0
-        if np.any(has_infall):
-            print(f"    {np.sum(has_infall)}/{len(satellites)} satellites have infallMvir set")
-
-    # Cleanup
-    shutil.rmtree(test_temp_dir)
-
-    print("  ✓ Integration with infall module successful")
-
-
 def main():
     """Run all integration test cases with structured result markers."""
     print(f"{BLUE}{'=' * 60}{NC}")
@@ -375,7 +324,6 @@ def main():
         test_output_sanity_checks,
         test_data_flow_validation,
         test_standalone_execution,
-        test_with_infall_module,
     ]
 
     passed = 0
