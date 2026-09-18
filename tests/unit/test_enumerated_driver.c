@@ -1,16 +1,16 @@
 /**
  * @file    test_enumerated_driver.c
- * @brief   Unit tests for the reader-enumerated tree driver path.
+ * @brief   Unit tests for the reader-enumerated vertical driver path.
  */
 
 #include "../framework/test_framework.h"
 
-#include "core/tree_driver.h"
+#include "core/vertical_driver.h"
 #include "error.h"
 #include "globals.h"
 #include "memory.h"
 #include "output/util.h"
-#include "tree/reader.h"
+#include "vertical/reader.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -106,11 +106,11 @@ static void synthetic_load_unit(int unit) {
 
 static void synthetic_close_partition(void) { close_calls++; }
 
-static const struct TreeReader SyntheticEnumeratedReader = {
+static const struct VerticalReader SyntheticEnumeratedReader = {
     .name = "synthetic_enumerated",
     .file_extension = "",
     .partition_model = PARTITION_ENUMERATED,
-    .processing_order = INPUT_PROCESSING_ORDER_TREE,
+    .processing_order = INPUT_PROCESSING_ORDER_VERTICAL,
     .prepare_run = synthetic_prepare_run,
     .teardown_run = synthetic_teardown_run,
     .num_partitions = synthetic_num_partitions,
@@ -127,8 +127,8 @@ static const struct TreeReader SyntheticEnumeratedReader = {
 
 static void configure_driver_defaults(void) {
   memset(&MimicConfig, 0, sizeof(MimicConfig));
-  MimicConfig.reader = &SyntheticEnumeratedReader;
-  MimicConfig.ProcessingOrder = INPUT_PROCESSING_ORDER_TREE;
+  MimicConfig.vertical_reader = &SyntheticEnumeratedReader;
+  MimicConfig.ProcessingOrder = INPUT_PROCESSING_ORDER_VERTICAL;
   MimicConfig.OverwriteOutputFiles = 1;
   MimicConfig.OutputFormat = output_binary;
   snprintf(MimicConfig.OutputFileBaseName, sizeof(MimicConfig.OutputFileBaseName), "%s",
@@ -136,8 +136,8 @@ static void configure_driver_defaults(void) {
   ThisTask = 0;
   NTask = 1;
   GlobalForestOffset = 0;
-  TreeDriverGotXCPU = 0;
-  tree_driver_clear_current_output_paths();
+  VerticalDriverGotXCPU = 0;
+  vertical_driver_clear_current_output_paths();
 }
 
 static void set_partition(int partition, int units, double cost, int64_t offset) {
@@ -187,14 +187,14 @@ static int test_output_claim_forward_path_creates_and_clears_file(void) {
   output_path_binary(output_path, sizeof(output_path), 0, 0);
   TEST_ASSERT(access(output_path, F_OK) != 0, "output file should not exist before processing");
 
-  run_tree_driver();
+  run_vertical_driver();
 
   TEST_ASSERT_EQUAL(prepare_calls, 1, "forward run should prepare reader state once");
   TEST_ASSERT_EQUAL(teardown_calls, 1, "forward run should tear reader state down once");
   TEST_ASSERT_EQUAL(open_calls, 1, "forward run should open the partition");
   TEST_ASSERT_EQUAL(close_calls, 1, "forward run should close the partition");
   TEST_ASSERT(access(output_path, F_OK) == 0, "forward run should create the output file");
-  tree_driver_remove_incomplete_outputs();
+  vertical_driver_remove_incomplete_outputs();
   TEST_ASSERT(access(output_path, F_OK) == 0,
               "completed output should not remain registered for failure cleanup");
 
@@ -220,7 +220,7 @@ static int test_lpt_assignment_processes_current_task_in_ascending_order(void) {
   ThisTask = 1;
   NTask = 2;
 
-  run_tree_driver();
+  run_vertical_driver();
 
   TEST_ASSERT_EQUAL(prepare_calls, 1, "prepare_run should be called once");
   TEST_ASSERT_EQUAL(teardown_calls, 1, "teardown_run should be called once");
@@ -250,7 +250,7 @@ static int test_driver_opens_reader_output_ids(void) {
   set_partition(1, 1, 4.0, 151);
   set_partition_output_id(1, 12);
 
-  run_tree_driver();
+  run_vertical_driver();
 
   TEST_ASSERT_EQUAL(open_calls, 2, "driver should open both existing partitions");
   TEST_ASSERT_EQUAL(opened_partitions[0], 10, "driver should open partition 0's output id");
@@ -279,7 +279,7 @@ static int test_missing_partition_has_zero_lpt_cost(void) {
   ThisTask = 1;
   NTask = 2;
 
-  run_tree_driver();
+  run_vertical_driver();
 
   TEST_ASSERT_EQUAL(open_calls, 1, "missing partition cost should not skew assignment onto task 1");
   TEST_ASSERT_EQUAL(opened_partitions[0], 2,
@@ -304,7 +304,7 @@ static int test_idle_rank_runs_lifecycle_without_opening_partition(void) {
   ThisTask = 3;
   NTask = 4;
 
-  run_tree_driver();
+  run_vertical_driver();
 
   TEST_ASSERT_EQUAL(prepare_calls, 1, "idle task should still prepare reader run state once");
   TEST_ASSERT_EQUAL(teardown_calls, 1, "idle task should still tear reader run state down once");
@@ -339,7 +339,7 @@ static int test_skip_existing_output_preserves_lifecycle(void) {
   TEST_ASSERT(fd != NULL, "pre-existing output file should be creatable");
   fclose(fd);
 
-  run_tree_driver();
+  run_vertical_driver();
 
   TEST_ASSERT_EQUAL(prepare_calls, 1, "skip run should prepare reader state once");
   TEST_ASSERT_EQUAL(teardown_calls, 1, "skip run should tear reader state down once");
@@ -357,7 +357,7 @@ int main(void) {
 
   printf("%s", BLUE);
   printf("============================================================\n");
-  printf("Test Suite: Enumerated Tree Driver\n");
+  printf("Test Suite: Enumerated Vertical Driver\n");
   printf("============================================================\n");
   printf("%s\n", NC);
 

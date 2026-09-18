@@ -1,4 +1,4 @@
-# Mimic SAGE on Shin-Uchuu Run Configuration - snapshot-ordered HDF5
+# Mimic SAGE on Shin-Uchuu Run Configuration - horizontal HDF5
 
 model:
   name: sage16

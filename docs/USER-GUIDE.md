@@ -161,7 +161,7 @@ Run memory profile (GB = 1e9 B):
 | --- | --- |
 | Peak process RSS | The largest resident memory the process reached, from the operating system. This is the number to plan a large run against — it includes everything, whereas the lines below cover only the two structures whose size cannot be derived from the input count |
 | Output buffer capacity `C` | Records the output buffer was sized to hold. It is allocated ahead of need and grows geometrically, so it normally exceeds `P` by a wide margin |
-| Output population `P` | The largest population any one live buffer reached: galaxies emitted plus orphans carried forward. Scoped to whatever the driver keeps live — one snapshot for snapshot-ordered input, one tree for tree-ordered — not a run-wide total |
+| Output population `P` | The largest population any one live buffer reached: galaxies emitted plus orphans carried forward. Scoped to whatever the driver keeps live — one snapshot for horizontal input, one tree for vertical — not a run-wide total |
 | Galaxy pool high-water `G` | The most galaxies live at once. It can exceed `P`, because galaxies consumed by mergers are allocated but never written |
 | Galaxy pool allocated | What the pool holds resident, and how much of that is unused slack in its last chunk |
 
@@ -361,7 +361,7 @@ For balanced work, choose a rank count that divides `last_file - first_file + 1`
 
 Both halves of a Mimic run are interchangeable packages. **Model packages** live under `models/`, and each one is self-documenting: its README describes the scientific scope, module pipeline, parameters, and references, and its `input/` directory holds ready-to-run configurations. **Simulation packages** live under `simulations/` and wrap a merger-tree catalogue with its cosmology, units, and snapshot list. The workflow in this guide applies to every *runnable* combination equally — including packages you build yourself.
 
-`micro-uchuu-snapshot` is the shipped snapshot-ordered package — the same micro-Uchuu catalogue as `micro-uchuu-ascii`, converted to snapshot-ordered HDF5 and read by the snapshot driver. It is runnable like any other package, with its own shipped run files (`models/halos-only/input/halos-only_micro-uchuu-snapshot.yaml`, `models/sage16/input/sage16_micro-uchuu-snapshot.yaml`); see [Running Snapshot-Ordered Input](#running-snapshot-ordered-input) for what is different about it. A package is runnable when a run file pairs it with a model under `models/<model>/input/`.
+`micro-uchuu-horizontal` is the shipped horizontal package — the same micro-Uchuu catalogue as `micro-uchuu-ascii`, converted to horizontal HDF5 and read by the horizontal driver. It is runnable like any other package, with its own shipped run files (`models/halos-only/input/halos-only_micro-uchuu-horizontal.yaml`, `models/sage16/input/sage16_micro-uchuu-horizontal.yaml`); see [Running Horizontal Input](#running-horizontal-input) for what is different about it. A package is runnable when a run file pairs it with a model under `models/<model>/input/`.
 
 To run any runnable pairing, build for it and use the matching run file:
 
@@ -388,51 +388,51 @@ Mimic separates the on-disk reader format from the processing driver. The input 
 | `lhalo_hdf5` | LHaloTree HDF5 (per-tree `tree_NNN/<field>` groups) | HDF5 build |
 | `consistent_trees_ascii` | Consistent-Trees / Rockstar ASCII (`forests.list` + `locations.dat` + `tree_i_j_k.dat`) | any |
 | `consistent_trees_hdf5` | Consistent-Trees forests-HDF5 (uchuutools) | HDF5 build |
-| `snapshot_hdf5` | Snapshot-ordered HDF5, one `snapshot_NNN.h5` file per snapshot | HDF5 build |
+| `horizontal_hdf5` | Horizontal HDF5, one `snapshot_NNN.h5` file per snapshot | HDF5 build |
 
 The HDF5-based readers are only available when Mimic is built with HDF5 (the default; see [Build Options](#build-options)). Selecting one in a `USE-HDF5=no` build stops with a clear configuration error.
 
-The first four formats are forest-ordered and feed the tree-ordered driver. `snapshot_hdf5` is the one snapshot-ordered format, read by a separate reader family; its on-disk contract is `docs/dev/SNAPSHOT-HDF5-FORMAT.md`, and the `micro-uchuu-snapshot` package is the shipped example. Its driver opens and validates the whole dataset before processing any halo data (see `input.processing_order` below and [Running Snapshot-Ordered Input](#running-snapshot-ordered-input)).
+The first four formats are forest-ordered and feed the vertical driver. `horizontal_hdf5` is the one horizontal format, read by a separate reader family; its on-disk contract is `docs/dev/HORIZONTAL-HDF5-FORMAT.md`, and the `micro-uchuu-horizontal` package is the shipped example. Its driver opens and validates the whole dataset before processing any halo data (see `input.processing_order` below and [Running Horizontal Input](#running-horizontal-input)).
 
-`input.tree_name` is reader-specific — each reader decides what the value means, so it is not a general filename pattern. `lhalo_binary` is the prefix before the numbered file suffix (`tree_name.<file_number>`). `consistent_trees_ascii` and `consistent_trees_hdf5` are literal filenames under `input.simulation_dir`, including any extension. `lhalo_hdf5` uses explicit HDF5 filenames: for one file, set `tree_name` to that filename; for multiple files, include a `%d` file-number placeholder, for example `trees_063.%d.hdf5`. `snapshot_hdf5` fixes its filename convention in the format itself and therefore accepts exactly the literal `snapshot_%03d.h5` — any other value, including `snapshot_%d.h5`, is rejected at startup with a message naming the accepted literal.
+`input.tree_name` is reader-specific — each reader decides what the value means, so it is not a general filename pattern. `lhalo_binary` is the prefix before the numbered file suffix (`tree_name.<file_number>`). `consistent_trees_ascii` and `consistent_trees_hdf5` are literal filenames under `input.simulation_dir`, including any extension. `lhalo_hdf5` uses explicit HDF5 filenames: for one file, set `tree_name` to that filename; for multiple files, include a `%d` file-number placeholder, for example `trees_063.%d.hdf5`. `horizontal_hdf5` fixes its filename convention in the format itself and therefore accepts exactly the literal `snapshot_%03d.h5` — any other value, including `snapshot_%d.h5`, is rejected at startup with a message naming the accepted literal.
 
 The `consistent_trees_hdf5` reader keeps memory bounded while reducing HDF5 call overhead: it caches chunk-range `ForestInfo`, keeps per-file field handles open for the partition lifetime, and reads normal forests through a fixed 128 MiB per-rank slab window. This is an internal reader detail, not a run-YAML option.
 
-The processing driver is selected separately with `input.processing_order`. It defaults to `tree_ordered`, so existing run files and simulation packages do not need to set it. The other accepted value is `snapshot_ordered`. Startup validation checks the two keys against each other: every reader declares the one driver it feeds, and a mismatched pair — say `snapshot_hdf5` with `tree_ordered`, or `consistent_trees_ascii` with `snapshot_ordered` — is a configuration error naming both. A correctly paired `snapshot_ordered` run gets through configuration — reader resolution, the reader/order check, the `tree_name` literal, the identity-multiplier rules, and the three snapshot-specific rejections below — and then the snapshot driver opens and fully validates its dataset before processing anything, exactly as the tree driver opens and reads its tree files.
+The processing driver is selected separately with `input.processing_order`. It defaults to `vertical`, so existing run files and simulation packages do not need to set it. The other accepted value is `horizontal`. Startup validation checks the two keys against each other: every reader declares the one driver it feeds, and a mismatched pair — say `horizontal_hdf5` with `vertical`, or `consistent_trees_ascii` with `horizontal` — is a configuration error naming both. A correctly paired `horizontal` run gets through configuration — reader resolution, the reader/order check, the `tree_name` literal, the identity-multiplier rules, and the three horizontal-specific rejections below — and then the horizontal driver opens and fully validates its dataset before processing anything, exactly as the vertical driver opens and reads its tree files.
 
 ```yaml
 input:
   tree_type: lhalo_binary          # reader format
-  processing_order: tree_ordered   # processing driver; optional default
+  processing_order: vertical       # processing driver; optional default
 ```
 
-### Running Snapshot-Ordered Input
+### Running Horizontal Input
 
-A `snapshot_ordered` run works like any other run — build for the package, point `./mimic` at its run file — with three deliberate restrictions enforced at startup, before any snapshot file is opened:
+A `horizontal` run works like any other run — build for the package, point `./mimic` at its run file — with three deliberate restrictions enforced at startup, before any snapshot file is opened:
 
-- **HDF5-only output.** `output.output_format: binary` is rejected with a message stating snapshot-ordered runs are HDF5-only; the binary writer's per-tree header has no meaning for snapshot-major output.
-- **No `--skip`.** Resume is not supported for snapshot-ordered runs in this phase; `--skip` is rejected at configuration rather than silently ignored.
-- **Serial only.** A snapshot-ordered configuration requires `NTask == 1` and is rejected with a message naming `docs/dev/MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md`. Multi-rank snapshot execution belongs to that plan, not to the current driver.
+- **HDF5-only output.** `output.output_format: binary` is rejected with a message stating horizontal runs are HDF5-only; the binary writer's per-tree header has no meaning for snapshot-major output.
+- **No `--skip`.** Resume is not supported for horizontal runs in this phase; `--skip` is rejected at configuration rather than silently ignored.
+- **Serial only.** A horizontal configuration requires `NTask == 1` and is rejected with a message naming `docs/dev/MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md`. Multi-rank horizontal execution belongs to that plan, not to the current driver.
 
 ```bash
-make MODEL=halos-only SIMULATION=micro-uchuu-snapshot
-./mimic models/halos-only/input/halos-only_micro-uchuu-snapshot.yaml
+make MODEL=halos-only SIMULATION=micro-uchuu-horizontal
+./mimic models/halos-only/input/halos-only_micro-uchuu-horizontal.yaml
 ```
 
-**Reading snapshot-run output.** A snapshot-ordered run's HDF5 output differs from a tree-ordered run's in a few specific, deliberate ways:
+**Reading horizontal-run output.** A horizontal run's HDF5 output differs from a vertical run's in a few specific, deliberate ways:
 
-- Each `Snap%03d/Galaxies` group carries no `Ntrees` attribute and no `TreeHalosPerSnap` dataset — they are omitted entirely (absent, not zero or empty), because a snapshot run has no per-tree structure to report.
-- `TotHalosPerSnap` is still the per-snapshot galaxy-count attribute, but stored as `int64` rather than `int` — the same widened type a tree-ordered run's output now carries too.
-- A snapshot-ordered run writes one HDF5 partition file per requested output snapshot, named by that snapshot's number zero-padded to at least three digits (`model_<snapnum>.hdf5`, `%03d`-formatted — e.g. snapshot 5 is `model_005.hdf5` — filenames stay self-describing even for an unsorted `output.snapshot_list`), plus the master `<basename>.hdf5`. Each partition file holds exactly one `Snap%03d` group: its own. The master creates one `Snap%03d` group per requested output snapshot, each holding a single `File%03d` subgroup whose external link resolves into that snapshot's own partition file, and no per-tree table.
+- Each `Snap%03d/Galaxies` group carries no `Ntrees` attribute and no `TreeHalosPerSnap` dataset — they are omitted entirely (absent, not zero or empty), because a horizontal run has no per-tree structure to report.
+- `TotHalosPerSnap` is still the per-snapshot galaxy-count attribute, but stored as `int64` rather than `int` — the same widened type a vertical run's output now carries too.
+- A horizontal run writes one HDF5 partition file per requested output snapshot, named by that snapshot's number zero-padded to at least three digits (`model_<snapnum>.hdf5`, `%03d`-formatted — e.g. snapshot 5 is `model_005.hdf5` — filenames stay self-describing even for an unsorted `output.snapshot_list`), plus the master `<basename>.hdf5`. Each partition file holds exactly one `Snap%03d` group: its own. The master creates one `Snap%03d` group per requested output snapshot, each holding a single `File%03d` subgroup whose external link resolves into that snapshot's own partition file, and no per-tree table.
 - `RunProperties/Version/hdf5_format_version` reads `1.2`.
 
 Everything else in [Reading HDF5 Output](#reading-hdf5-output) below applies unchanged.
 
-**`simulation.unique_galaxy_id_multiplier`** sets the forest multiplier in the galaxy identity encoding `UniqueGalaxyID = halonr + multiplier × (forestnr_global + 1)`. It is optional, must be positive, and defaults to the compile-time `TREE_MUL_FAC` (10⁹, in `src/include/constants.h`). It belongs with the catalogue in `simulations/<name>/simulation_info.yaml` and may be overridden in a run file; a value declared in the package survives a run file that omits the key. Raising it is how a catalogue whose largest forest holds ≥10⁹ halos stays encodable. **Both processing orders honour the configured value.** Every identity helper takes the multiplier explicitly, and the Consistent-Trees readers guard their forest sizes against the same value, so raising it really does raise the forest size a run accepts. Every HDF5 output file records the value it used as the `RunProperties/UniqueGalaxyIDMultiplier` attribute — in per-file outputs and in the master file — so ids can always be decomposed back into `(halonr, forestnr_global)`. For snapshot-ordered configurations the reader also bounds-checks the value against the dataset's own recorded forest count and maximum halo rank, as part of `open_run`'s dataset validation on every snapshot-ordered run. What a run enforces at startup for the value itself, on either processing order, is only that it is positive.
+**`simulation.unique_galaxy_id_multiplier`** sets the forest multiplier in the galaxy identity encoding `UniqueGalaxyID = halonr + multiplier × (forestnr_global + 1)`. It is optional, must be positive, and defaults to the compile-time `TREE_MUL_FAC` (10⁹, in `src/include/constants.h`). It belongs with the catalogue in `simulations/<name>/simulation_info.yaml` and may be overridden in a run file; a value declared in the package survives a run file that omits the key. Raising it is how a catalogue whose largest forest holds ≥10⁹ halos stays encodable. **Both processing orders honour the configured value.** Every identity helper takes the multiplier explicitly, and the Consistent-Trees readers guard their forest sizes against the same value, so raising it really does raise the forest size a run accepts. Every HDF5 output file records the value it used as the `RunProperties/UniqueGalaxyIDMultiplier` attribute — in per-file outputs and in the master file — so ids can always be decomposed back into `(halonr, forestnr_global)`. For horizontal configurations the reader also bounds-checks the value against the dataset's own recorded forest count and maximum halo rank, as part of `open_run`'s dataset validation on every horizontal run. What a run enforces at startup for the value itself, on either processing order, is only that it is positive.
 
 ```yaml
 simulation:
-  name: micro-uchuu-snapshot
+  name: micro-uchuu-horizontal
   unique_galaxy_id_multiplier: 1000000000   # optional; default TREE_MUL_FAC (10^9)
 ```
 
@@ -535,7 +535,7 @@ The master HDF5 file, `model.hdf5`, contains run metadata plus external links to
   File000/TreeHalosPerSnap -> model_000.hdf5:/Snap063/TreeHalosPerSnap
 ```
 
-A snapshot-ordered run's master links one partition file per requested output snapshot instead — each named for the snapshot it holds, not a chunk number — and no `TreeHalosPerSnap` link exists because snapshot-run output never carries per-tree structure. This is real output from an unsorted `output.snapshot_list: [5, 1, 0]`; every link still resolves to the partition file named for its own snapshot number:
+A horizontal run's master links one partition file per requested output snapshot instead — each named for the snapshot it holds, not a chunk number — and no `TreeHalosPerSnap` link exists because horizontal-run output never carries per-tree structure. This is real output from an unsorted `output.snapshot_list: [5, 1, 0]`; every link still resolves to the partition file named for its own snapshot number:
 
 ```text
 /RunProperties/

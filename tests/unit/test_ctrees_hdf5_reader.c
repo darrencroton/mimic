@@ -13,7 +13,7 @@
 #include "error.h"
 #include "globals.h"
 #include "memory.h"
-#include "tree/read_ctrees_hdf5.h"
+#include "vertical/read_ctrees_hdf5.h"
 
 #include <hdf5.h>
 

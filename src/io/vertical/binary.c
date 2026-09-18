@@ -1,0 +1,148 @@
+/**
+ * @file    vertical/binary.c
+ * @brief   Functions for reading binary merger tree files
+ *
+ * This file implements functionality for loading merger trees from
+ * binary format files. It handles the reading of tree metadata and
+ * halo data for individual trees, providing an interface to the core
+ * Mimic code that is independent of the specific file format.
+ *
+ * Binary format trees are the traditional binary input format, consisting
+ * of a simple structure with tree counts, halo counts, and arrays of
+ * halo data. This format is efficient to read but less flexible than
+ * newer formats like HDF5.
+ *
+ * Key functions:
+ * - open_partition_binary(): Reads tree metadata from a binary file
+ * - load_unit_binary(): Loads a specific tree's halo data
+ * - close_partition_binary(): Closes the binary file
+ */
+
+#include <assert.h>
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <time.h>
+#include <unistd.h>
+
+#include "config.h"
+#include "proto.h"
+#include "globals.h"
+#include "vertical/interface.h"
+#include "vertical/binary.h"
+#include "vertical/reader.h"
+#include "types.h"
+#include "error.h"
+
+static FILE *load_fd;
+
+#ifndef MAX_BUF_SIZE
+#define MAX_BUF_SIZE (3 * MAX_STRING_LEN + 40)
+#endif
+
+static int64_t count_partition_units_binary(int partition) {
+  int ntrees;
+  char buf[MAX_BUF_SIZE + 1];
+  const int output_id = tree_partition_per_file_output_id(partition);
+
+  snprintf(buf, MAX_BUF_SIZE, "%s/%s.%d%s", MimicConfig.SimulationDir, MimicConfig.TreeName,
+           output_id, MimicConfig.TreeExtension);
+
+  FILE *fd = fopen(buf, "r");
+  if (fd == NULL) {
+    FATAL_ERROR("Failed to open binary tree file '%s' (filenr %d)", buf, output_id);
+  }
+  if (fread(&ntrees, sizeof(int), 1, fd) != 1) {
+    fclose(fd);
+    FATAL_ERROR("Failed to read Ntrees from file '%s'", buf);
+  }
+  fclose(fd);
+
+  if (ntrees < 0) {
+    FATAL_ERROR("Binary tree file '%s' reports negative Ntrees=%d", buf, ntrees);
+  }
+  return (int64_t)ntrees;
+}
+
+/**
+ * @brief   Open binary partition file and read its tree-count header.
+ * @param   output_id   Output id of the partition (the L-Halo filenr).
+ *
+ * Reads the legacy headerless format (host endianness): Ntrees, totNHalos,
+ * then InputTreeNHalos[Ntrees]. Leaves the file open for subsequent load_unit_binary calls.
+ */
+void open_partition_binary(int output_id) {
+  int i, totNHalos;
+  char buf[MAX_BUF_SIZE + 1];
+
+  snprintf(buf, MAX_BUF_SIZE, "%s/%s.%d%s", MimicConfig.SimulationDir, MimicConfig.TreeName,
+           output_id, MimicConfig.TreeExtension);
+  if (!(load_fd = fopen(buf, "r"))) {
+    FATAL_ERROR("Failed to open binary tree file '%s' (filenr %d)", buf, output_id);
+  }
+
+  if (fread(&Ntrees, sizeof(int), 1, load_fd) != 1) {
+    FATAL_ERROR("Failed to read Ntrees from file '%s'", buf);
+  }
+
+  if (fread(&totNHalos, sizeof(int), 1, load_fd) != 1) {
+    FATAL_ERROR("Failed to read totNHalos from file '%s'", buf);
+  }
+
+  DEBUG_LOG("Reading %d trees with %d total halos", Ntrees, totNHalos);
+
+  InputTreeNHalos = mymalloc_cat(sizeof(int) * Ntrees, MEM_TREES);
+  InputTreeFirstHalo = mymalloc_cat(sizeof(int) * Ntrees, MEM_TREES);
+  if (fread(InputTreeNHalos, sizeof(int), Ntrees, load_fd) != (size_t)Ntrees) {
+    FATAL_ERROR("Failed to read tree halo counts from file '%s'", buf);
+  }
+
+  if (Ntrees > 0) {
+    InputTreeFirstHalo[0] = 0;
+    for (i = 1; i < Ntrees; i++)
+      InputTreeFirstHalo[i] = InputTreeFirstHalo[i - 1] + InputTreeNHalos[i - 1];
+  }
+}
+
+/**
+ * @brief   Load one tree's halo data from the open binary file.
+ * @param   unit   Tree index within the open partition.
+ */
+void load_unit_binary(int unit) {
+
+  assert(load_fd);
+
+  InputTreeHalos = mymalloc_cat(sizeof(struct RawHalo) * InputTreeNHalos[unit], MEM_TREES);
+  if (fread(InputTreeHalos, sizeof(struct RawHalo), InputTreeNHalos[unit], load_fd) !=
+      (size_t)InputTreeNHalos[unit]) {
+    FATAL_ERROR("Failed to read halo data for tree %d", unit);
+  }
+}
+
+/** @brief Close the open binary partition file. */
+void close_partition_binary(void) {
+  if (load_fd) {
+    fclose(load_fd);
+    load_fd = NULL;
+  }
+}
+
+/* L-Halo binary merger trees: the traditional headerless binary catalog. One
+   partition per input file, one unit per tree; see vertical/registry.c. */
+const struct VerticalReader LHaloBinaryReader = {
+    .name = "lhalo_binary",
+    .file_extension = "",
+    .partition_model = PARTITION_PER_FILE,
+    .processing_order = INPUT_PROCESSING_ORDER_VERTICAL,
+    .num_partitions = tree_partition_per_file_count,
+    .partition_output_id = tree_partition_per_file_output_id,
+    .partition_exists = tree_partition_per_file_exists,
+    .format_partition_path = NULL,
+    .count_partition_units = count_partition_units_binary,
+    .open_partition = open_partition_binary,
+    .load_unit = load_unit_binary,
+    .close_partition = close_partition_binary,
+};

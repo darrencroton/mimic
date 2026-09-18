@@ -1,6 +1,6 @@
-"""Consumer cross-check for the ctrees -> snapshot-HDF5 converter.
+"""Consumer cross-check for the ctrees -> horizontal-HDF5 converter.
 
-Cross-checks a converted snapshot-HDF5 dataset (a directory of
+Cross-checks a converted horizontal-HDF5 dataset (a directory of
 ``snapshot_NNN.h5`` files produced by the converter) against a Mimic
 halos-only *reference run* galaxy output. The reference run is the ground
 truth: Mimic reads the same trees through its own inheritance service
@@ -69,9 +69,9 @@ the emitted dataset, the whole reference output and the whole dump at once and
 measured 251.32 GB on a 1.8% subset of Shin-Uchuu.
 
 **This is a micro-Uchuu-scale gate, not a production-scale instrument.** The
-reference side is a tree-ordered ``halos-only`` run over the same data, and the
+reference side is a vertical ``halos-only`` run over the same data, and the
 ctrees reader preallocates per tree for a whole forest before reading a halo
-(``src/io/tree/read_ctrees_ascii.c``), so the reference artifact cannot be
+(``src/io/vertical/read_ctrees_ascii.c``), so the reference artifact cannot be
 produced at Shin-Uchuu scale however bounded this comparator is. The binding
 cross-check gate is micro-Uchuu, with the subset rehearsal as the largest scale
 it is ever run at; no cross-check artifact belongs in a production conversion's
@@ -1647,7 +1647,7 @@ def _cmd_run_reference(args) -> int:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         prog="crosscheck",
-        description="Cross-check a converted snapshot-HDF5 dataset against a Mimic halos-only "
+        description="Cross-check a converted horizontal-HDF5 dataset against a Mimic halos-only "
         "reference-run galaxy output",
     )
     sub = parser.add_subparsers(dest="command", required=True)

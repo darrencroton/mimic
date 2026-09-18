@@ -1,11 +1,11 @@
 ---
 name: mimic-simulations-and-readers
-description: Mimic simulation packages and merger-tree readers - the input side of the pipeline. Load when a task involves anything under simulations/ (simulation_info.yaml, halo_properties.yaml, a_list snapshot lists, snapshots/ data symlinks), tree formats and readers (lhalo_binary, lhalo_hdf5, consistent_trees_ascii, consistent_trees_hdf5, tree_type, tree_name, processing_order), src/io/tree/, struct RawHalo or TreeReader, partition models, forest distribution and chunked output planning (target_file_size_mb, forests_per_file), adding a new simulation package, adding a new tree reader/format, cosmology or particle-mass metadata, micro-Uchuu cross-format validation, or fix_flybys / flyby topology questions.
+description: Mimic simulation packages and merger-tree readers - the input side of the pipeline. Load when a task involves anything under simulations/ (simulation_info.yaml, halo_properties.yaml, a_list snapshot lists, snapshots/ data symlinks), tree formats and readers (lhalo_binary, lhalo_hdf5, consistent_trees_ascii, consistent_trees_hdf5, tree_type, tree_name, processing_order), src/io/vertical/, struct RawHalo or VerticalReader, partition models, forest distribution and chunked output planning (target_file_size_mb, forests_per_file), adding a new simulation package, adding a new vertical reader/format, cosmology or particle-mass metadata, micro-Uchuu cross-format validation, or fix_flybys / flyby topology questions.
 ---
 
 # Mimic Simulations and Readers
 
-A simulation package (`simulations/<name>/`) wraps one merger-tree catalog with its cosmology, units, snapshot list, and on-disk field description. A tree reader (`src/io/tree/`) teaches Mimic to parse one *format* — one reader serves every catalog written in that format. This skill covers both sides of the input boundary and how to extend each.
+A simulation package (`simulations/<name>/`) wraps one merger-tree catalog with its cosmology, units, snapshot list, and on-disk field description. A vertical reader (`src/io/vertical/`) teaches Mimic to parse one *format* — one reader serves every catalog written in that format. This skill covers both sides of the input boundary and how to extend each.
 
 ## When to use / when NOT to use
 
@@ -22,7 +22,7 @@ Do NOT use for:
 1. Read the target package's `README.md` and `simulation_info.yaml` — packages document their own data provenance and maintenance obligations.
 2. Check the data actually exists: `ls -lL simulations/<name>/snapshots/` — every package's `snapshots/` is a machine-local, gitignored symlink except mini-millennium (downloadable via `./scripts/first_run.sh`). Tests that need absent production data must skip cleanly.
 3. Always pass both selectors for the run you intend to test. Creating or editing a package does nothing until the executable is regenerated with that selector pair, e.g. `make MODEL=halos-only SIMULATION=<name> generate && make MODEL=halos-only SIMULATION=<name>`.
-4. Smoke-test cheaply before physics: run the `halos-only` model on the package first (`make MODEL=halos-only SIMULATION=<name>` + the matching run file) — the package READMEs prescribe this. `micro-uchuu-snapshot` follows the same pattern now that the snapshot driver exists (`models/halos-only/input/halos-only_micro-uchuu-snapshot.yaml`); its fixture unit tier remains the cheapest reader-only check, `MODEL=halos-only SIMULATION=micro-uchuu-snapshot tests/unit/run_tests.sh` (see section 1).
+4. Smoke-test cheaply before physics: run the `halos-only` model on the package first (`make MODEL=halos-only SIMULATION=<name>` + the matching run file) — the package READMEs prescribe this. `micro-uchuu-horizontal` follows the same pattern now that the horizontal driver exists (`models/halos-only/input/halos-only_micro-uchuu-horizontal.yaml`); its fixture unit tier remains the cheapest reader-only check, `MODEL=halos-only SIMULATION=micro-uchuu-horizontal tests/unit/run_tests.sh` (see section 1).
 
 ## 1. Package anatomy and the shipped ten
 
@@ -37,15 +37,15 @@ Required files: `simulation_info.yaml` (paths, cosmology, units, chunking defaul
 | micro-uchuu-ascii | consistent_trees_ascii | 0–0 | `tree_0_0_0.dat` | 100.0 | Uchuu |
 | mini-uchuu | lhalo_binary | 0–127 | `Uchuu400_Planck_lhalo_binary` | 400.0 | Uchuu |
 | uchuu | consistent_trees_hdf5 | 0–1999 | `mergertree_info.h5` | 2000.0 | Uchuu |
-| micro-uchuu-snapshot | snapshot_hdf5 | 0–0 | `snapshot_%03d.h5` | 100.0 | Uchuu |
+| micro-uchuu-horizontal | horizontal_hdf5 | 0–0 | `snapshot_%03d.h5` | 100.0 | Uchuu |
 | shin-uchuu-ascii | consistent_trees_ascii | 0–2743 | `tree_0_0_0.dat` | 140.0 | Uchuu/Planck-2015, mp 0.0000897 |
-| shin-uchuu | snapshot_hdf5 | 0–0 | `snapshot_%03d.h5` | 140.0 | Uchuu/Planck-2015, mp 0.0000897 |
+| shin-uchuu | horizontal_hdf5 | 0–0 | `snapshot_%03d.h5` | 140.0 | Uchuu/Planck-2015, mp 0.0000897 |
 
 (Units: mp in 1e10 Msun/h. For ASCII, first/last_file are metadata-only; the reader follows `forests.list`/`locations.dat`.)
 
-**`shin-uchuu-ascii` + `shin-uchuu` are a second cross-format pair**, added 2026-08-25 for the Shin-Uchuu conversion rehearsal and mirroring the micro-Uchuu ASCII/snapshot pair. Two things make them unlike every other package. First, **both currently point at a *subset*** — 8,000,198 tree roots in 6,011,205 whole forests, ≈416 million halos — not the full 315,004,242-root box; `simulations/shin-uchuu/snapshots` is re-pointed at the production dataset after the production conversion, while `shin-uchuu-ascii` stays subset-only by design because the full box cannot be processed tree-ordered at all. Second, **both declare `unique_galaxy_id_multiplier: 10000000000`** (10¹⁰ rather than the 10⁹ default), and they must stay equal or `UniqueGalaxyID` diverges and the cross-format identity gate fails. Their particle mass, 8.97 × 10⁵ Msun/h, is **≈365× smaller** than micro-Uchuu's 3.27 × 10⁸ despite sharing the Uchuu/Planck-2015 cosmology — do not carry one across from the other. Neither ships `_tests/`, and `shin-uchuu-ascii` deliberately ships no `plot_profile.yaml`: axis limits should be set from a real run rather than guessed. Design and provenance: `docs/dev/SHIN-UCHUU-CONVERSION-PLAN.md`.
+**`shin-uchuu-ascii` + `shin-uchuu` are a second cross-format pair**, added 2026-08-25 for the Shin-Uchuu conversion rehearsal and mirroring the micro-Uchuu ASCII/snapshot pair. Two things make them unlike every other package. First, **both currently point at a *subset*** — 8,000,198 tree roots in 6,011,205 whole forests, ≈416 million halos — not the full 315,004,242-root box; `simulations/shin-uchuu/snapshots` is re-pointed at the production dataset after the production conversion, while `shin-uchuu-ascii` stays subset-only by design because the full box cannot be processed vertical at all. Second, **both declare `unique_galaxy_id_multiplier: 10000000000`** (10¹⁰ rather than the 10⁹ default), and they must stay equal or `UniqueGalaxyID` diverges and the cross-format identity gate fails. Their particle mass, 8.97 × 10⁵ Msun/h, is **≈365× smaller** than micro-Uchuu's 3.27 × 10⁸ despite sharing the Uchuu/Planck-2015 cosmology — do not carry one across from the other. Neither ships `_tests/`, and `shin-uchuu-ascii` deliberately ships no `plot_profile.yaml`: axis limits should be set from a real run rather than guessed. Design and provenance: `docs/dev/SHIN-UCHUU-CONVERSION-PLAN.md`.
 
-`micro-uchuu-snapshot` is the odd one out: the same micro-Uchuu catalog converted to the snapshot-ordered HDF5 format (`docs/dev/SNAPSHOT-HDF5-FORMAT.md`), so it is the only package declaring `input.processing_order: snapshot_ordered` and the only one whose `tree_name` is a format-fixed literal rather than a name the user chooses. Its first/last_file are metadata only — the reader derives its file set from the snapshot list. It ships small re-chunked fixtures under `_tests/data/` plus a committed generator and conformance checker under `_tests/input/`; the full 50-snapshot dataset is a machine-local gitignored `snapshots` symlink. It is runnable end to end now that the snapshot driver exists, with shipped run files `models/halos-only/input/halos-only_micro-uchuu-snapshot.yaml` and `models/sage16/input/sage16_micro-uchuu-snapshot.yaml`; it also declares `simulation.unique_galaxy_id_multiplier` — see the `mimic-config-and-flags` skill. It is still deliberately absent from `scripts/discovery.py`'s `FULL_MODEL_TEST_SIMULATIONS` and `PRODUCTION_TEST_CONFIG_SIMULATIONS` (nothing in the scientific tier consumes those lists, so that membership gap is cosmetic, not functional) — the package's own cross-format identity gate (section 2) is the real end-to-end validation, run manually with `make MODEL=halos-only SIMULATION=micro-uchuu-snapshot tests-scientific`; see `docs/DEVELOPER-GUIDE.md` → "The cross-format identity gate".
+`micro-uchuu-horizontal` is the odd one out: the same micro-Uchuu catalog converted to the horizontal HDF5 format (`docs/dev/HORIZONTAL-HDF5-FORMAT.md`), so it is the only package declaring `input.processing_order: horizontal` and the only one whose `tree_name` is a format-fixed literal rather than a name the user chooses. Its first/last_file are metadata only — the reader derives its file set from the snapshot list. It ships small re-chunked fixtures under `_tests/data/` plus a committed generator and conformance checker under `_tests/input/`; the full 50-snapshot dataset is a machine-local gitignored `snapshots` symlink. It is runnable end to end now that the horizontal driver exists, with shipped run files `models/halos-only/input/halos-only_micro-uchuu-horizontal.yaml` and `models/sage16/input/sage16_micro-uchuu-horizontal.yaml`; it also declares `simulation.unique_galaxy_id_multiplier` — see the `mimic-config-and-flags` skill. It is still deliberately absent from `scripts/discovery.py`'s `FULL_MODEL_TEST_SIMULATIONS` and `PRODUCTION_TEST_CONFIG_SIMULATIONS` (nothing in the scientific tier consumes those lists, so that membership gap is cosmetic, not functional) — the package's own cross-format identity gate (section 2) is the real end-to-end validation, run manually with `make MODEL=halos-only SIMULATION=micro-uchuu-horizontal tests-scientific`; see `docs/DEVELOPER-GUIDE.md` → "The cross-format identity gate".
 
 **The a_list contract**: one scale factor per line, earliest→latest (increasing a, decreasing z); the line count defines snapshot indices 0..N-1; the last line is normally a=1.0 (z=0). All redshift and timestep math derives from this file — ordering is critical.
 
@@ -53,7 +53,7 @@ Required files: `simulation_info.yaml` (paths, cosmology, units, chunking defaul
 
 `micro-uchuu`, `micro-uchuu-hdf5`, `micro-uchuu-ascii` are the SAME catalog in three formats, and the test system deliberately runs full model validation on all three (see `mimic-validation-and-qa`) so the L-Halo binary, ctrees-HDF5, and ctrees-ASCII read paths validate against each other. Use the triplet whenever you need to discriminate "reader effect" from "physics effect".
 
-**Removed defect — `fix_flybys()`.** The ASCII reader used to call it (`src/io/tree/ctrees/ctrees_utils.c`) during topology reconstruction, and the converter replicated it (`scripts/convert/fixups.py`), reaching `micro-uchuu-ascii`, `shin-uchuu-ascii`, `micro-uchuu-snapshot` and `shin-uchuu`. At each forest's final snapshot it demoted every FoF central except the most massive to a satellite of that survivor, negating their `MostBoundID`. It was recorded as an accepted ~10–25% Type-0 divergence until Shin-Uchuu showed what it does to a percolating forest: 33% of the z=0 population in one bogus FoF group and the Type-0 halo mass function truncated ~2 dex. **It has been deleted from the C reader and the converter, and the snapshot format bumped to `format_version = 2`** (v1 rejected outright, no legacy-read path). A restored standalone guard, `verify_fof_centrals_present()`, now FATALs if a forest's maximum-scale/max-snapshot block has zero `pid == -1` centrals — that is corrupt input, not the old convention. `micro-uchuu-ascii` and `micro-uchuu-snapshot` were re-measured after the fix and now agree with the lhalo/ctrees-HDF5 readers on Type-0 classification (`shin-uchuu-ascii`'s own subset was not separately re-measured, since the same reader code is what was verified). The Shin-Uchuu production dataset built under `format_version = 1` is void; its re-conversion has not yet run. Full record and remaining steps: `docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md`.
+**Removed defect — `fix_flybys()`.** The ASCII reader used to call it (`src/io/vertical/ctrees/ctrees_utils.c`) during topology reconstruction, and the converter replicated it (`scripts/convert/fixups.py`), reaching `micro-uchuu-ascii`, `shin-uchuu-ascii`, `micro-uchuu-horizontal` and `shin-uchuu`. At each forest's final snapshot it demoted every FoF central except the most massive to a satellite of that survivor, negating their `MostBoundID`. It was recorded as an accepted ~10–25% Type-0 divergence until Shin-Uchuu showed what it does to a percolating forest: 33% of the z=0 population in one bogus FoF group and the Type-0 halo mass function truncated ~2 dex. **It has been deleted from the C reader and the converter, and the horizontal format bumped to `format_version = 2`** (v1 rejected outright, no legacy-read path). A restored standalone guard, `verify_fof_centrals_present()`, now FATALs if a forest's maximum-scale/max-snapshot block has zero `pid == -1` centrals — that is corrupt input, not the old convention. `micro-uchuu-ascii` and `micro-uchuu-horizontal` were re-measured after the fix and now agree with the lhalo/ctrees-HDF5 readers on Type-0 classification (`shin-uchuu-ascii`'s own subset was not separately re-measured, since the same reader code is what was verified). The Shin-Uchuu production dataset built under `format_version = 1` is void; its re-conversion has not yet run. Full record and remaining steps: `docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md`.
 
 ## 3. halo_properties.yaml — the on-disk contract
 
@@ -66,26 +66,26 @@ Core-role binding: fields that satisfy core required inputs declare `provides_co
 
 ## 4. Readers, formats, and partition models
 
-Registered readers (`reader_table[]` in `src/io/tree/registry.c`; case-insensitive lookup by `tree_type`):
+Registered readers (`reader_table[]` in `src/io/vertical/registry.c`; case-insensitive lookup by `tree_type`):
 
 | tree_type | File | Partition model | Build |
 |---|---|---|---|
-| `lhalo_binary` | `src/io/tree/binary.c` | PARTITION_PER_FILE | any |
-| `consistent_trees_ascii` | `src/io/tree/read_ctrees_ascii.c` | PARTITION_ENUMERATED | any |
-| `lhalo_hdf5` | `src/io/tree/hdf5.c` | PARTITION_PER_FILE | HDF5 only (`#ifdef HDF5` guards) |
-| `consistent_trees_hdf5` | `src/io/tree/read_ctrees_hdf5.c` | PARTITION_ENUMERATED | HDF5 only |
+| `lhalo_binary` | `src/io/vertical/binary.c` | PARTITION_PER_FILE | any |
+| `consistent_trees_ascii` | `src/io/vertical/read_ctrees_ascii.c` | PARTITION_ENUMERATED | any |
+| `lhalo_hdf5` | `src/io/vertical/hdf5.c` | PARTITION_PER_FILE | HDF5 only (`#ifdef HDF5` guards) |
+| `consistent_trees_hdf5` | `src/io/vertical/read_ctrees_hdf5.c` | PARTITION_ENUMERATED | HDF5 only |
 
 Note: `lhalo_hdf5` is registered and documented but no shipped package currently uses it.
 
-There is a **second registry** for snapshot-ordered readers (`snapshot_reader_table[]` in `src/io/snapshot/registry.c`, same case-insensitive lookup by `tree_type`, names disjoint from the tree registry):
+There is a **second registry** for horizontal readers (`horizontal_reader_table[]` in `src/io/horizontal/registry.c`, same case-insensitive lookup by `tree_type`, names disjoint from the vertical registry):
 
 | tree_type | File | Shape | Build |
 |---|---|---|---|
-| `snapshot_hdf5` | `src/io/snapshot/read_snapshot_hdf5.c` | run open/close + per-snapshot slabs (no partitions) | HDF5 only |
+| `horizontal_hdf5` | `src/io/horizontal/read_horizontal_hdf5.c` | run open/close + per-snapshot slabs (no partitions) | HDF5 only |
 
-`tree_name` interpretation is reader-specific: prefix before the file number for `lhalo_binary` (`trees_063.0`); literal filename for both ctrees readers; explicit filename or `%d` pattern for `lhalo_hdf5`; and for `snapshot_hdf5` exactly the literal `snapshot_%03d.h5` — the format fixes the convention, so any other value is a startup error.
+`tree_name` interpretation is reader-specific: prefix before the file number for `lhalo_binary` (`trees_063.0`); literal filename for both ctrees readers; explicit filename or `%d` pattern for `lhalo_hdf5`; and for `horizontal_hdf5` exactly the literal `snapshot_%03d.h5` — the format fixes the convention, so any other value is a startup error.
 
-`input.tree_type` selects the FORMAT; `input.processing_order` selects the DRIVER (default `tree_ordered`) — never overload one with the other. Both registries are consulted for one `tree_type`, and every reader declares the single driver it feeds, so startup validation rejects a mismatched pair in either direction. A `snapshot_hdf5` + `snapshot_ordered` run that clears configuration validation now reaches a live driver, `run_snapshot_driver()` (`src/core/snapshot_driver.c`): it calls the reader's `open_run` before processing anything, so the dataset is fully validated — structure, header values, `scale_factor` agreement, physical-header agreement with the configured simulation, and measured identity bounds — and a missing or corrupt `snapshot_NNN.h5` aborts naming the file, object, and value, not with a generic not-implemented message. Three additional config-time rejections apply only to snapshot-ordered runs: `output_format: binary` (HDF5-only), `--skip` (no resume), and `NTask > 1` (serial only; see `docs/dev/MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md`) — see the `mimic-config-and-flags` skill.
+`input.tree_type` selects the FORMAT; `input.processing_order` selects the DRIVER (default `vertical`) — never overload one with the other. Both registries are consulted for one `tree_type`, and every reader declares the single driver it feeds, so startup validation rejects a mismatched pair in either direction. A `horizontal_hdf5` + `horizontal` run that clears configuration validation now reaches a live driver, `run_horizontal_driver()` (`src/core/horizontal_driver.c`): it calls the reader's `open_run` before processing anything, so the dataset is fully validated — structure, header values, `scale_factor` agreement, physical-header agreement with the configured simulation, and measured identity bounds — and a missing or corrupt `snapshot_NNN.h5` aborts naming the file, object, and value, not with a generic not-implemented message. Three additional config-time rejections apply only to horizontal runs: `output_format: binary` (HDF5-only), `--skip` (no resume), and `NTask > 1` (serial only; see `docs/dev/MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md`) — see the `mimic-config-and-flags` skill.
 
 **Partition models**: a partition is the unit of output (one output file set per partition, named by its output id); a unit is one independently processed tree/forest. `PARTITION_PER_FILE` = one partition per input file, output id = file number (L-Halo readers). `PARTITION_ENUMERATED` = the reader publishes a deterministic chunk list with costs; the driver assigns chunks to MPI ranks but output ids stay the reader's chunk ids, independent of task count (ctrees readers). Where the model is observed outside readers (unique-ID offsets, offset scan, HDF5 master file): `mimic-architecture-contract`.
 
@@ -107,41 +107,41 @@ Two keys, legal in both `simulation_info.yaml` (as catalog-scale defaults) and t
 6. Regenerate and build WITH THE SELECTOR — the executable embeds the catalog: `make MODEL=<model> SIMULATION=<name> generate && make MODEL=<model> SIMULATION=<name>`.
 7. Smoke-test halos-only first, then physics; then `make MODEL=<model> SIMULATION=<name> tests summary` (captured, exit code checked).
 
-## 7. Adding a new tree reader (format)
+## 7. Adding a new vertical reader (format)
 
-1. Create `src/io/tree/read_<format>.c` implementing one `const struct TreeReader` (vtable in `src/io/tree/reader.h`). Fields exist only because a wired reader uses them — no speculative callbacks; fold setup/teardown into `open_partition`/`close_partition`. Set `.processing_order = INPUT_PROCESSING_ORDER_TREE` for the current driver.
+1. Create `src/io/vertical/read_<format>.c` implementing one `const struct VerticalReader` (vtable in `src/io/vertical/reader.h`). Fields exist only because a wired reader uses them — no speculative callbacks; fold setup/teardown into `open_partition`/`close_partition`. Set `.processing_order = INPUT_PROCESSING_ORDER_VERTICAL` for the current driver.
 2. Bridge the format's records into the generated `struct RawHalo` **by field name**, declaring native units in the simulation package YAML — never hardcode unit conversions in reader C (the generated accessors convert at the boundary).
-3. Add one row to `reader_table[]` in `src/io/tree/registry.c`; guard both the `extern` and the row with `#ifdef HDF5` if HDF5-dependent (lookup then returns NULL in non-HDF5 builds → clean fail-fast).
+3. Add one row to `reader_table[]` in `src/io/vertical/registry.c`; guard both the `extern` and the row with `#ifdef HDF5` if HDF5-dependent (lookup then returns NULL in non-HDF5 builds → clean fail-fast).
 4. Pick the partition model that matches the format's on-disk organization; the ctrees readers are the worked `PARTITION_ENUMERATED` reference (chunk planning, costs, `GlobalForestOffset`).
 5. Keep it warning-clean under the project flags and exercise it from `tests/unit/` (HDF5 reader sources compile in the unit harness when dev libs exist); validate end-to-end against a fixture package.
-6. No run-YAML changes are needed beyond `tree_type` for a tree-ordered format.
+6. No run-YAML changes are needed beyond `tree_type` for a vertical format.
 
-## 8. Adding a snapshot reader (different family, different vtable)
+## 8. Adding a horizontal reader (different family, different vtable)
 
-Snapshot-ordered readers are a separate family with their own small vtable — `struct SnapshotReader` in `src/io/snapshot/reader.h`: `name`, `processing_order`, and the hooks `open_run`, `close_run`, `snapshot_halo_count`, `load_slab`, `release_slab`. There are no partitions and no units; the working set is one snapshot's halo population (a *slab* of `struct RawHalo`, `int64_t` counts throughout). Do NOT widen `struct TreeReader` — its 12 hooks are partition/unit-shaped and its `REQUIRE_READER_HOOK` fail-fast would be defeated by two disjoint hook sets.
+Horizontal readers are a separate family with their own small vtable — `struct HorizontalReader` in `src/io/horizontal/reader.h`: `name`, `processing_order`, and the hooks `open_run`, `close_run`, `snapshot_halo_count`, `load_slab`, `release_slab`. There are no partitions and no units; the working set is one snapshot's halo population (a *slab* of `struct RawHalo`, `int64_t` counts throughout). Do NOT widen `struct VerticalReader` — its 12 hooks are partition/unit-shaped and its `REQUIRE_READER_HOOK` fail-fast would be defeated by two disjoint hook sets.
 
-1. Implement one `const struct SnapshotReader` in `src/io/snapshot/read_<format>.c`. **Filename rule (footgun):** an HDF5-dependent reader file *must* end in `hdf5.c` (`Makefile` drops that pattern from `USE-HDF5=no` builds), while `registry.c` and `interface.c` must *not*, because the configuration path calls `snapshot_reader_lookup()` in every build.
-2. Append one row to `snapshot_reader_table[]` in `src/io/snapshot/registry.c`, `#ifdef HDF5`-guarding both the `extern` and the row when needed; a non-HDF5 build then registers nothing and the lookup returns `NULL`. Keep the name disjoint from the tree registry.
+1. Implement one `const struct HorizontalReader` in `src/io/horizontal/read_<format>.c`. **Filename rule (footgun):** an HDF5-dependent reader file *must* end in `hdf5.c` (`Makefile` drops that pattern from `USE-HDF5=no` builds), while `registry.c` and `interface.c` must *not*, because the configuration path calls `horizontal_reader_lookup()` in every build.
+2. Append one row to `horizontal_reader_table[]` in `src/io/horizontal/registry.c`, `#ifdef HDF5`-guarding both the `extern` and the row when needed; a non-HDF5 build then registers nothing and the lookup returns `NULL`. Keep the name disjoint from the vertical registry.
 3. Validate the whole dataset at `open_run` — structure first, then header values, then agreement with the a_list, then measured identity bounds via bounded hyperslab scans — and abort with path, object, and value rather than repairing. Fill slabs by including the generated `read_tree_hdf5_properties.inc` under your own macros; no generator change is needed.
 4. Honour the slab lifecycle: `load_slab` requires an empty destination handle, `release_slab` returns it to empty and is a no-op when already empty, `close_run` aborts if a slab is still loaded.
-5. Ship a fixture package with committed small fixtures and C unit tests under `simulations/<name>/_tests/unit/` (`micro-uchuu-snapshot` is the worked reference), and register new sources in the hand-maintained lists in `tests/unit/run_tests.sh` — the unconditional `IO_SRCS` (`:158`), the HDF5-only group appended to it (`:160`), the per-source `-DHDF5` `case` list (`:199-200`), and the HDF5-availability skip-name check (`:302-303`). Anything HDF5-independent must go in the *unconditional* group, or a non-HDF5 build fails to link regardless of which tests are skipped.
+5. Ship a fixture package with committed small fixtures and C unit tests under `simulations/<name>/_tests/unit/` (`micro-uchuu-horizontal` is the worked reference), and register new sources in the hand-maintained lists in `tests/unit/run_tests.sh` — the unconditional `IO_SRCS` (`:158`), the HDF5-only group appended to it (`:160`), the per-source `-DHDF5` `case` list (`:199-200`), and the HDF5-availability skip-name check (`:302-303`). Anything HDF5-independent must go in the *unconditional* group, or a non-HDF5 build fails to link regardless of which tests are skipped.
 
-Full walkthrough, including what `open_run` checks and the identity multiplier: `docs/DEVELOPER-GUIDE.md` → "Snapshot-ordered readers". For the driver that consumes the reader (loop, two-generation rotation, output schema, the identity gate): `docs/DEVELOPER-GUIDE.md` → "The Snapshot Driver".
+Full walkthrough, including what `open_run` checks and the identity multiplier: `docs/DEVELOPER-GUIDE.md` → "Horizontal readers". For the driver that consumes the reader (loop, two-generation rotation, output schema, the identity gate): `docs/DEVELOPER-GUIDE.md` → "The Horizontal Driver".
 
 ## Provenance and maintenance
 
-Verified against the live repo 2026-07-04; the snapshot-reader material added 2026-08-04; the snapshot driver and cross-format identity gate material added 2026-08-12. Re-verify drift-prone specifics:
+Verified against the live repo 2026-07-04; the horizontal-reader material added 2026-08-04; the horizontal driver and cross-format identity gate material added 2026-08-12. Re-verify drift-prone specifics:
 
 ```bash
-sed -n '16,31p' src/io/tree/registry.c                                  # registered tree readers
-grep -n "snapshot_reader_table\|\.name = " src/io/snapshot/registry.c src/io/snapshot/read_snapshot_hdf5.c   # snapshot registry
-sed -n '/^struct SnapshotReader {/,/^};/p' src/io/snapshot/reader.h      # the snapshot vtable
-grep -n "CTREES_READ_WINDOW_BYTES" src/io/tree/read_ctrees_hdf5.c        # 128 MiB window
-grep -n "forests_per_file > 0" src/io/tree/read_ctrees_ascii.c           # ASCII requirement
-grep -n "bridge_halo_data_to_rawhalo" src/io/tree/read_ctrees_*.c        # shared bridge
+sed -n '16,31p' src/io/vertical/registry.c                                  # registered vertical readers
+grep -n "horizontal_reader_table\|\.name = " src/io/horizontal/registry.c src/io/horizontal/read_horizontal_hdf5.c   # horizontal registry
+sed -n '/^struct HorizontalReader {/,/^};/p' src/io/horizontal/reader.h      # the snapshot vtable
+grep -n "CTREES_READ_WINDOW_BYTES" src/io/vertical/read_ctrees_hdf5.c        # 128 MiB window
+grep -n "forests_per_file > 0" src/io/vertical/read_ctrees_ascii.c           # ASCII requirement
+grep -n "bridge_halo_data_to_rawhalo" src/io/vertical/read_ctrees_*.c        # shared bridge
 for s in simulations/*/simulation_info.yaml; do grep -H "tree_type" "$s"; done   # package table
 grep -n -i "fix_flybys" simulations/micro-uchuu-ascii/README.md          # historical: divergence removed, README should say so
 sed -n '/^required_inputs/,/^halo_properties/p' src/core/core_properties.yaml   # core roles
 ```
 
-The package table (boxes, file ranges) drifts when packages are added; reader internals drift only with `src/io/tree/`; the format-vs-driver separation and partition-model semantics are architectural and durable.
+The package table (boxes, file ranges) drifts when packages are added; reader internals drift only with `src/io/vertical/`; the format-vs-driver separation and partition-model semantics are architectural and durable.

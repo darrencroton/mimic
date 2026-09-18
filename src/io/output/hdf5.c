@@ -30,7 +30,7 @@
 #include "error.h"
 #include "module_system/output_helpers.h"
 #include "module_registry.h" /* For PhaseModuleConfig */
-#include "tree/reader.h"     /* enum InputProcessingOrder (MimicConfig.ProcessingOrder) */
+#include "vertical/reader.h" /* enum InputProcessingOrder (MimicConfig.ProcessingOrder) */
 
 #include "hdf5_internal.h"
 
@@ -189,10 +189,10 @@ void write_hdf5_halo_batch(struct HaloOutput *halo_batch, int num_halos, int n, 
  * @param   filenr   File number (for error messages).
  *
  * Writes TotHalosPerSnap[n] as a scalar attribute on Snap{NNN}/Galaxies.
- * Tree-ordered runs additionally write Ntrees and the
- * TreeHalosPerSnap[0..Ntrees-1] dataset; snapshot-ordered runs have no tree
+ * Vertical runs additionally write Ntrees and the
+ * TreeHalosPerSnap[0..Ntrees-1] dataset; horizontal runs have no tree
  * structure, so both are omitted entirely (absent, not zero/empty) rather
- * than reading the tree-only InputHalosPerSnap. Per-file RunProperties
+ * than reading the vertical-only InputHalosPerSnap. Per-file RunProperties
  * metadata is written once, at file open (open_hdf5_output_file()), not here.
  */
 void write_hdf5_attrs(int n, int filenr) {
@@ -201,8 +201,8 @@ void write_hdf5_attrs(int n, int filenr) {
   hid_t dataset_id, attribute_id, dataspace_id, group_id;
   hsize_t dims;
   char target_group[100];
-  const int snapshot_run =
-      (enum InputProcessingOrder)MimicConfig.ProcessingOrder == INPUT_PROCESSING_ORDER_SNAPSHOT;
+  const int horizontal_run =
+      (enum InputProcessingOrder)MimicConfig.ProcessingOrder == INPUT_PROCESSING_ORDER_HORIZONTAL;
 
   if (HDF5_current_file_id < 0) {
     FATAL_ERROR("HDF5 file not open for writing attributes (file_id = %lld)",
@@ -226,7 +226,7 @@ void write_hdf5_attrs(int n, int filenr) {
     FATAL_ERROR("Failed to create dataspace for attributes in HDF5 file (filenr %d)", filenr);
   }
 
-  if (!snapshot_run) {
+  if (!horizontal_run) {
     attribute_id =
         H5Acreate(dataset_id, "Ntrees", H5T_NATIVE_INT, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
     if (attribute_id < 0) {
@@ -257,7 +257,7 @@ void write_hdf5_attrs(int n, int filenr) {
    * file under RunProperties (see write_perfile_metadata) rather than being
    * duplicated in each snapshot group. */
 
-  if (!snapshot_run) {
+  if (!horizontal_run) {
     // Create an array dataset to hold the number of objects per tree and write
     // it.
     dims = Ntrees;

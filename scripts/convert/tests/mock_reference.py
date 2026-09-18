@@ -1,7 +1,7 @@
 """Mock halos-only reference output builder for the Slice 8 cross-check tests.
 
 Builds a semantically correct reference galaxy output directly from a converted
-snapshot-HDF5 dataset, replicating the reference inheritance semantics
+horizontal-HDF5 dataset, replicating the reference inheritance semantics
 (src/core/inheritance.c) without running Mimic:
 
 - occupancy by forward induction (``occupied(H) = FoF-central(H) OR any

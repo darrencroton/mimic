@@ -1,4 +1,4 @@
-"""Phase 2 per-snapshot sort and id index for the ctrees -> snapshot-HDF5 converter.
+"""Phase 2 per-snapshot sort and id index for the ctrees -> horizontal-HDF5 converter.
 
 Per snapshot: load the concatenated scratch binary, assert within-snapshot id
 uniqueness (abort with examples), sort by ascending id, write

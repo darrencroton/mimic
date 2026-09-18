@@ -76,7 +76,7 @@ These principles guide design decisions and implementation choices in Mimic.
 - Galaxy inheritance, orphan handling, and property reset rules are centralized and documented.
 - Physics dispatched through this model must be deterministic given a halo's own data: stochastic modules seed from stable per-halo or per-FoF keys, never from a global RNG stream consumed in traversal order, so identical input data produces identical output regardless of which driver or traversal order processed it.
 
-**In practice**: A full-halo module receives the whole FoF workspace. A by-galaxy module receives one galaxy at a time from that same workspace. Event consumers receive one event target after a full-halo producer emits a subscribed event. Mimic ships two drivers over this one processing model — a tree-ordered driver (per-forest, depth-first) and a snapshot-ordered driver (per-snapshot, increasing time order) — sharing the same inheritance, physics-execution, and output-marshalling services; see `docs/dev/MIMIC-DUAL-DRIVER-PLAN.md` for the implemented dual-driver architecture.
+**In practice**: A full-halo module receives the whole FoF workspace. A by-galaxy module receives one galaxy at a time from that same workspace. Event consumers receive one event target after a full-halo producer emits a subscribed event. Mimic ships two drivers over this one processing model — a vertical driver (per-forest, depth-first) and a horizontal driver (per-snapshot, increasing time order) — sharing the same inheritance, physics-execution, and output-marshalling services; see `docs/dev/MIMIC-DUAL-DRIVER-PLAN.md` for the implemented dual-driver architecture.
 
 ### 5. Bounded Memory and Explicit Ownership
 
@@ -87,7 +87,7 @@ These principles guide design decisions and implementation choices in Mimic.
 - Per-tree or per-forest working memory is cleaned up after processing.
 - Long runs should not accumulate memory with the number of forests processed.
 - Module-owned allocations must be released by module cleanup.
-- Each driver's working-set bound matches its own processing scope: the tree-ordered driver bounds memory to one forest at a time; the snapshot-ordered driver bounds memory to two live snapshot generations (the current slab and processed state, plus the retained previous generation), regardless of simulation depth or total halo count.
+- Each driver's working-set bound matches its own processing scope: the vertical driver bounds memory to one forest at a time; the horizontal driver bounds memory to two live snapshot generations (the current slab and processed state, plus the retained previous generation), regardless of simulation depth or total halo count.
 
 **In practice**: The allocator tracks memory categories and can report leaks during debug runs.
 
@@ -96,7 +96,7 @@ These principles guide design decisions and implementation choices in Mimic.
 **Principle**: Input and output formats should be handled through common interfaces, and outputs should carry enough metadata to interpret a run.
 
 **Requirements**:
-- Tree readers and output writers are isolated behind format-specific implementations.
+- Vertical readers and output writers are isolated behind format-specific implementations.
 - Output schema follows property metadata rather than hand-written duplicate structs.
 - HDF5 output records field metadata, enabled modules, model parameters, redshift mapping, version information, and event contracts when present.
 - Binary output remains compact and is interpreted through the run-local `metadata/output_schema.json` written by the executable that produced it.

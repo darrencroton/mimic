@@ -144,7 +144,7 @@ int test_empty_segment_records_zero_count(void) {
  * @test    test_multiple_segments_accumulate_into_one_buffer
  * @brief   Multiple segments append into one buffer; output_first tracks the running count
  *
- * The tree driver fills one shared buffer from several segments in sequence.
+ * The vertical driver fills one shared buffer from several segments in sequence.
  * Each segment's output_first must pick up the running buffer count, including
  * across a Type-3 skip, so progenitor lookup (HaloAux ranges) stays correct.
  */

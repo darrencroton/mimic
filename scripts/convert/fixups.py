@@ -1,4 +1,4 @@
-"""Phase 3 fix-ups for the ctrees -> snapshot-HDF5 converter (plan Slice 5).
+"""Phase 3 fix-ups for the ctrees -> horizontal-HDF5 converter (plan Slice 5).
 
 Implements the conversion plan's Phase 3 steps 1-5 on the sorted per-snapshot
 arrays: a_list adjacency validation, spin normalisation, Len derivation, and
@@ -7,13 +7,13 @@ decision D12):
 
 - spin: ``J[k] * (1.0 / (double)Mvir)`` in float64, cast to float32, only where
   ``Mvir != 0`` — multiply-by-reciprocal, matching apply_ctrees_value_conventions
-  (src/io/tree/read_ctrees_ascii.c:96-122) bit for bit;
+  (src/io/vertical/read_ctrees_ascii.c:96-122) bit for bit;
 - Len: C ``round()`` half-away-from-zero of ``Mvir_native * 1e-10 / PartMass``
   with the reference finiteness/negativity/INT_MAX aborts (same file);
 - fix_upid: centrals get ``upid = id``; satellite upid chains are followed to
   depth 30 with the reference pid fallback, and every resolved satellite gets
   BOTH ``upid`` and ``pid`` set to the ultimate central's id
-  (src/io/tree/ctrees/ctrees_utils.c:414-509 and find_fof_halo at 722-787).
+  (src/io/vertical/ctrees/ctrees_utils.c:414-509 and find_fof_halo at 722-787).
 
 ``fix_flybys`` was removed from both the C reader and this converter
 (docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md, decision D1): it collapsed

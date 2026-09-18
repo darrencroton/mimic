@@ -2,8 +2,8 @@
 """
 Compare two Mimic HDF5 runs for cross-format galaxy identity.
 
-This is the executable form of the snapshot-driver phase's gate: running the same
-simulation data through the tree-ordered driver and through the snapshot-ordered
+This is the executable form of the horizontal-driver phase's gate: running the same
+simulation data through the vertical driver and through the horizontal
 driver must produce, for every output snapshot, the same set of ``UniqueGalaxyID``
 values, and for each of those ids every output field identical **as raw bytes**.
 
@@ -210,7 +210,7 @@ def read_snapshot(index, snap, field=None):
     recorded, and whole records are read straight into their slice of it with
     read_direct, so no partition array outlives the read that produced it and no
     concatenated second copy of the snapshot ever exists. That matters most
-    where it is largest: a snapshot-ordered run holds one snapshot's whole
+    where it is largest: a horizontal run holds one snapshot's whole
     record set in a single partition file, and would otherwise hold that
     snapshot twice at the moment it is read. (Since D5(a) such a run writes one
     partition file per requested output snapshot rather than one for the whole

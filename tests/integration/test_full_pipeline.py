@@ -196,7 +196,7 @@ def test_stdout_content():
 
     Expected: startup, processing, and completion milestones in output
     Validates: the run-lifecycle messages emitted in src/core/main.c and
-               src/core/tree_driver.c stay present and stable
+               src/core/vertical_driver.c stay present and stable
 
     Only milestones that appear in both default and verbose modes are checked,
     because run_mimic() runs with --verbose (which replaces the default
@@ -211,7 +211,7 @@ def test_stdout_content():
     output_combined = stdout + stderr
     for milestone in (
         "Mimic Galaxy Evolution Framework",  # startup banner
-        "Processing 1 input file",  # tree driver begins
+        "Processing 1 input file",  # vertical driver begins
         "Mimic completed successfully",  # clean completion
     ):
         assert milestone in output_combined, f"{RED}Missing run milestone: '{milestone}'{NC}"
@@ -227,7 +227,7 @@ def test_memory_profile_survives_quiet_mode():
     Validates: print_run_memory_profile() (src/util/run_profile.c) reports
                regardless of the log threshold
 
-    The profile records peak RSS and the C/P/G terms the snapshot driver's memory
+    The profile records peak RSS and the C/P/G terms the horizontal driver's memory
     projection is parametric in. Those measurements cannot be recovered without
     repeating the run, and --quiet is the documented mode for batch and
     production runs -- exactly the runs whose memory is worth measuring. Because

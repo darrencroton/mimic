@@ -4,7 +4,7 @@
 #
 # Compiles tests/unit/tools/dump_ctrees_topology.c against the minimal
 # production sources needed to read merger trees (util, parameter parsing,
-# io/tree), and links a standalone executable. Does not modify run_tests.sh
+# io/vertical), and links a standalone executable. Does not modify run_tests.sh
 # or any other existing test file; this is a new, independent build path for
 # a new, independent tool.
 #
@@ -95,20 +95,20 @@ fi
 # Keep in sync with run_tests.sh by hand: only its copy is exercised by the
 # default-pair suite, so a file added there alone fails to link only here.
 UTIL_SRCS="${SRC_DIR}/util/memory.c ${SRC_DIR}/util/error.c ${SRC_DIR}/util/numeric.c ${SRC_DIR}/util/version.c ${SRC_DIR}/util/integration.c ${SRC_DIR}/util/io.c ${SRC_DIR}/util/run_log.c ${SRC_DIR}/util/progress.c ${SRC_DIR}/util/run_profile.c"
-# Deliberately excludes core/tree_driver.c, core/build_model.c, core/virial.c,
+# Deliberately excludes core/vertical_driver.c, core/build_model.c, core/virial.c,
 # core/timestep.c, core/inheritance.c, core/output_buffer.c, io/output/*, and
 # the module system: this harness reimplements only the small partition/unit
-# loop (reader hooks + tree/interface.c), never calls build_halo_tree() or any
+# loop (reader hooks + vertical/interface.c), never calls build_halo_tree() or any
 # output writer, and registers no physics modules. Excluding them keeps the
 # harness's dependency surface exactly as small as what it actually calls.
 CORE_SRCS="${SRC_DIR}/core/allvars.c ${SRC_DIR}/core/read_parameter_file.c ${SRC_DIR}/core/init.c ${SRC_DIR}/core/galaxy_pool.c"
-# io/snapshot/registry.c is built without -DHDF5: read_parameter_file.c calls
-# snapshot_reader_lookup() when resolving tree_type against both registries, but
-# this harness reads tree-ordered input only, so an empty snapshot table is
-# correct and avoids pulling in the snapshot reader.
-IO_SRCS="${SRC_DIR}/io/tree/interface.c ${SRC_DIR}/io/tree/binary.c ${SRC_DIR}/io/tree/registry.c ${SRC_DIR}/io/tree/chunk_plan.c ${SRC_DIR}/io/tree/read_ctrees_ascii.c ${SRC_DIR}/io/tree/ctrees/ctrees_utils.c ${SRC_DIR}/io/tree/ctrees/forest_utils.c ${SRC_DIR}/io/snapshot/registry.c"
+# io/horizontal/registry.c is built without -DHDF5: read_parameter_file.c calls
+# horizontal_reader_lookup() when resolving tree_type against both registries, but
+# this harness reads vertical input only, so an empty snapshot table is
+# correct and avoids pulling in the horizontal reader.
+IO_SRCS="${SRC_DIR}/io/vertical/interface.c ${SRC_DIR}/io/vertical/binary.c ${SRC_DIR}/io/vertical/registry.c ${SRC_DIR}/io/vertical/chunk_plan.c ${SRC_DIR}/io/vertical/read_ctrees_ascii.c ${SRC_DIR}/io/vertical/ctrees/ctrees_utils.c ${SRC_DIR}/io/vertical/ctrees/forest_utils.c ${SRC_DIR}/io/horizontal/registry.c"
 if [ "$HDF5_AVAILABLE" = "1" ]; then
-    IO_SRCS="${IO_SRCS} ${SRC_DIR}/io/tree/hdf5.c ${SRC_DIR}/io/tree/read_ctrees_hdf5.c"
+    IO_SRCS="${IO_SRCS} ${SRC_DIR}/io/vertical/hdf5.c ${SRC_DIR}/io/vertical/read_ctrees_hdf5.c"
 fi
 
 ALL_SRCS="${UTIL_SRCS} ${CORE_SRCS} ${IO_SRCS} ${TOOL_DIR}/dump_ctrees_topology.c"
@@ -123,7 +123,7 @@ for src in $ALL_SRCS; do
     src_cflags="$CFLAGS"
     if [ "$HDF5_AVAILABLE" = "1" ]; then
         case "$src" in
-            "${SRC_DIR}/io/tree/registry.c"|"${SRC_DIR}/io/tree/hdf5.c"|"${SRC_DIR}/io/tree/read_ctrees_hdf5.c")
+            "${SRC_DIR}/io/vertical/registry.c"|"${SRC_DIR}/io/vertical/hdf5.c"|"${SRC_DIR}/io/vertical/read_ctrees_hdf5.c")
                 src_cflags="${src_cflags} -DHDF5 ${HDF5_CFLAGS}"
                 ;;
         esac

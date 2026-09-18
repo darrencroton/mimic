@@ -21,7 +21,7 @@
 #endif
 #include "module_system/output_helpers.h"
 #include "module_system/physical_constants.h" /* For SEC_PER_MEGAYEAR */
-#include "tree/reader.h" /* enum InputProcessingOrder only (the ProcessingOrder field), never the active reader pointer */
+#include "vertical/reader.h" /* enum InputProcessingOrder only (the ProcessingOrder field), never the active reader pointer */
 
 void output_path_binary(char *buf, size_t size, int filenr, int snap_index) {
   int written =
@@ -47,20 +47,20 @@ void prepare_output_files(int filenr, struct OutputSnapshotSelection selection) 
     return;
   }
 #endif
-  /* Binary output is tree-ordered-only (rejected at configuration time for
-   * snapshot runs), so it always carries every requested snapshot; the
+  /* Binary output is vertical-only (rejected at configuration time for
+   * horizontal runs), so it always carries every requested snapshot; the
    * selection is not consulted here. */
   (void)selection;
   create_binary_output_files(filenr);
 }
 
 void output_increment_halo_counters_checked(int filenr, int snap_index, int snap_num, int tree) {
-  const int snapshot_run =
-      (enum InputProcessingOrder)MimicConfig.ProcessingOrder == INPUT_PROCESSING_ORDER_SNAPSHOT;
+  const int horizontal_run =
+      (enum InputProcessingOrder)MimicConfig.ProcessingOrder == INPUT_PROCESSING_ORDER_HORIZONTAL;
 
-  if (snapshot_run) {
-    /* Snapshot-ordered runs never allocate InputHalosPerSnap (only the tree
-     * reader does, src/io/tree/interface.c), so only the snapshot total is
+  if (horizontal_run) {
+    /* Horizontal runs never allocate InputHalosPerSnap (only the vertical
+     * reader does, src/io/vertical/interface.c), so only the snapshot total is
      * tracked here; touching InputHalosPerSnap would dereference NULL. */
     if (TotHalosPerSnap[snap_index] == INT_MAX) {
       FATAL_ERROR("Halo counter overflow for output chunk %d at snapshot %d (tree %d)", filenr,

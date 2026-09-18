@@ -62,8 +62,8 @@ INCLUSIVE_LIMIT = 60
 UNMAPPED_EXAMPLE_LIMIT = 5
 
 CORE_SUBPART = {
-    "tree_driver.c": "core: tree_driver",
-    "snapshot_driver.c": "core: snapshot_driver",
+    "vertical_driver.c": "core: vertical_driver",
+    "horizontal_driver.c": "core: horizontal_driver",
     "build_model.c": "core: build_model",
     "inheritance.c": "core: inheritance",
     "galaxy_pool.c": "core: galaxy_pool",
@@ -122,7 +122,7 @@ RUNTIME_BINARIES = frozenset(
 # Runtime details worth a secondary "who pays" table: bulk memory work and allocation.
 RUNTIME_PAYER_MARKERS = ("platform", "bzero", "memmove", "memset", "malloc")
 # Components that own file I/O, and so keep ownership of libhdf5 work done for them.
-IO_COMPONENTS = frozenset({"Output I/O", "Tree input I/O", "Snapshot input I/O"})
+IO_COMPONENTS = frozenset({"Output I/O", "Vertical input I/O", "Horizontal input I/O"})
 
 
 @lru_cache(maxsize=None)
@@ -159,10 +159,10 @@ def component_from_source(src):
         return ("Model shared helpers", base)
     if path.startswith("src/module_system/"):
         return ("Module system framework", base)
-    if path.startswith("src/io/tree/"):
-        return ("Tree input I/O", base)
-    if path.startswith("src/io/snapshot/"):
-        return ("Snapshot input I/O", base)
+    if path.startswith("src/io/vertical/"):
+        return ("Vertical input I/O", base)
+    if path.startswith("src/io/horizontal/"):
+        return ("Horizontal input I/O", base)
     if path.startswith("src/io/output/"):
         return ("Output I/O", base)
     if path.startswith("src/util/"):
@@ -226,7 +226,7 @@ def classify(node, nm_index):
             intervening.append(parent.binary)
             parent = parent.parent
         if any(b.startswith("libhdf5") for b in intervening):
-            # An HDF5 read on behalf of a tree or snapshot reader is input, not output.
+            # An HDF5 read on behalf of a vertical or horizontal reader is input, not output.
             owner = ancestor[0] if ancestor and ancestor[0] in IO_COMPONENTS else "Output I/O"
             return owner, f"kernel via libhdf5: {symbol}", None, None
         if "libsystem_malloc.dylib" in intervening:

@@ -490,7 +490,7 @@ int test_alloc_across_multiple_grown_chunks_stable_and_reusable(void) {
  * @test    test_stats_report_peak_concurrent_and_resident_capacity
  * @brief   Pool statistics report the peak concurrent galaxy count and what stays resident
  *
- * The high-water figure feeds the snapshot driver's memory projection as its
+ * The high-water figure feeds the horizontal driver's memory projection as its
  * `G` term, so what it counts matters: galaxies are never individually freed,
  * so every slot handed out since the last reset is concurrently live, and the
  * peak of that -- not a lifetime total -- is the memory the run required. This

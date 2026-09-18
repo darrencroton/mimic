@@ -103,9 +103,9 @@ Summary table; full per-key semantics, parse behavior, and the simulation_info-v
 | `simulation.unique_galaxy_id_multiplier` | int64 > 0 | `TREE_MUL_FAC` (10⁹) | Forest multiplier for `UniqueGalaxyID`. Sim-legal and the canonical home; a package value survives a run file that omits the key. **Honoured by both processing orders** — every `src/include/galaxy_id.h` helper takes the multiplier as an explicit parameter, the Consistent-Trees forest-size guards check against the same value, and HDF5 output records it as the `RunProperties/UniqueGalaxyIDMultiplier` attribute. Startup requires only that it be positive |
 | `input.first_file` | int | sim pkg | First tree-file number to process |
 | `input.last_file` | int | sim pkg | Last tree-file number |
-| `input.tree_name` | string | sim pkg | Reader-specific meaning, not a general pattern: filename base for `lhalo_binary`, a literal filename for the ctrees readers, an explicit name or `%d` pattern for `lhalo_hdf5`, and for `snapshot_hdf5` exactly the literal `snapshot_%03d.h5` (anything else rejected at startup) |
-| `input.tree_type` | string | sim pkg | On-disk reader format, resolved against two registries — forest-ordered (`src/io/tree/registry.c`): `lhalo_binary`, `lhalo_hdf5`, `consistent_trees_ascii`, `consistent_trees_hdf5`; snapshot-ordered (`src/io/snapshot/registry.c`): `snapshot_hdf5`. Names are disjoint across the two |
-| `input.processing_order` | string | `tree_ordered` | `tree_ordered` or `snapshot_ordered`, validated against the resolved reader's declared order. A correctly paired `snapshot_ordered` run also clears three snapshot-only rejections at config time — `output_format: binary`, `--skip`, and `NTask > 1` — then reaches the live snapshot driver, which opens and fully validates its dataset before processing anything. Never overload `tree_type` with ordering meaning |
+| `input.tree_name` | string | sim pkg | Reader-specific meaning, not a general pattern: filename base for `lhalo_binary`, a literal filename for the ctrees readers, an explicit name or `%d` pattern for `lhalo_hdf5`, and for `horizontal_hdf5` exactly the literal `snapshot_%03d.h5` (anything else rejected at startup) |
+| `input.tree_type` | string | sim pkg | On-disk reader format, resolved against two registries — forest-ordered (`src/io/vertical/registry.c`): `lhalo_binary`, `lhalo_hdf5`, `consistent_trees_ascii`, `consistent_trees_hdf5`; horizontal (`src/io/horizontal/registry.c`): `horizontal_hdf5`. Names are disjoint across the two |
+| `input.processing_order` | string | `vertical` | `vertical` or `horizontal`, validated against the resolved reader's declared order. A correctly paired `horizontal` run also clears three horizontal-only rejections at config time — `output_format: binary`, `--skip`, and `NTask > 1` — then reaches the live horizontal driver, which opens and fully validates its dataset before processing anything. Never overload `tree_type` with ordering meaning |
 | `input.simulation_dir` | string | sim pkg | Directory holding the tree files |
 | `input.snapshot_list_file` | string | sim pkg | Path to the `.a_list` scale-factor file |
 | `input.max_tree_depth` | int | 500 | Recursion guard for `build_halo_tree` |
@@ -188,8 +188,8 @@ ls models/*/parameter_units.yaml
 # Environment variables
 grep -rn "MIMIC_BASELINE_RTOL" tests/framework/harness.py; grep -n "NO_COLOR" scripts/console.py scripts/lib/colors.sh
 # Registered reader names (the valid input.tree_type values), both registries
-grep -n "\.name = " src/io/tree/*.c src/io/snapshot/*.c
-# The identity multiplier: whitelist entry, parse, default seeding, tree-ordered rejection
+grep -n "\.name = " src/io/vertical/*.c src/io/horizontal/*.c
+# The identity multiplier: whitelist entry, parse, default seeding, vertical rejection
 grep -n "unique_galaxy_id_multiplier\|UniqueGalaxyIDMultiplier" src/core/read_parameter_file.c src/include/types.h
 ```
 

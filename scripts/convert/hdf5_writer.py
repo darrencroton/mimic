@@ -1,7 +1,7 @@
-"""Snapshot-HDF5 emission for the ctrees -> snapshot-HDF5 converter (plan Slice 7).
+"""Horizontal-HDF5 emission for the ctrees -> horizontal-HDF5 converter (plan Slice 7).
 
 Emits ``snapshot_NNN.h5`` files and the ``forests.h5`` sidecar exactly per the
-frozen contract in docs/dev/SNAPSHOT-HDF5-FORMAT.md (format_version = 2). The
+frozen contract in docs/dev/HORIZONTAL-HDF5-FORMAT.md (format_version = 2). The
 contract is consumed, never modified — any mismatch discovered here is a
 converter bug or a spec erratum to raise to the user.
 
@@ -59,7 +59,7 @@ from scatter import Manifest, file_md5, load_a_list  # noqa: E402
 #: silently re-read.
 FORMAT_VERSION = 2
 
-#: Contract chunk shapes (docs/dev/SNAPSHOT-HDF5-FORMAT.md Storage Layout).
+#: Contract chunk shapes (docs/dev/HORIZONTAL-HDF5-FORMAT.md Storage Layout).
 CHUNK_1D = (65536,)
 CHUNK_VEC = (65536, 3)
 
@@ -67,7 +67,7 @@ CHUNK_VEC = (65536, 3)
 #: box_size_mpc_h is Mpc/h comoving; any other units would corrupt it).
 BOX_SIZE_UNITS = "Mpc/h"
 
-#: Header attributes: name -> numpy dtype (docs/dev/SNAPSHOT-HDF5-FORMAT.md
+#: Header attributes: name -> numpy dtype (docs/dev/HORIZONTAL-HDF5-FORMAT.md
 #: Header Attributes table; names and types are normative).
 HEADER_ATTRS = {
     "format_version": np.int32,
@@ -84,7 +84,7 @@ HEADER_ATTRS = {
     "hubble_h": np.float64,
 }
 
-#: /halos datasets: name -> (dtype, is_vec3) (docs/dev/SNAPSHOT-HDF5-FORMAT.md
+#: /halos datasets: name -> (dtype, is_vec3) (docs/dev/HORIZONTAL-HDF5-FORMAT.md
 #: Halo Datasets table; names and types are normative).
 HALO_DATASETS = {
     "Descendant": (np.int32, False),
@@ -437,7 +437,7 @@ def write_forests_sidecar(manifest: Manifest, output_dir: Path, n_forests_total:
 def run_write(
     workdir, a_list_path, simulation_info_path, output_dir=None, consume_intermediates=False
 ) -> Manifest:
-    """Emit the full snapshot-HDF5 dataset from the linked scratch files.
+    """Emit the full horizontal-HDF5 dataset from the linked scratch files.
 
     Every a_list snapshot gets a file, including snapshots with zero halos.
     The a_list and simulation_info must be the manifest-recorded ones (same
@@ -527,7 +527,7 @@ def run_write(
         )
         verify_snapshot_file(path, snap, arrays, str(path))
         rows = arrays["MostBoundID"].size if arrays else 0
-        _record_output(manifest, path, int(rows), "snapshot-hdf5")
+        _record_output(manifest, path, int(rows), "horizontal-hdf5")
         if snap in populated:
             _consume_snapshot_scratch(manifest, snap, consume_intermediates)
         n_written += 1

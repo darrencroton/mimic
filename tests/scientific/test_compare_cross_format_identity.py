@@ -12,7 +12,7 @@ behind the cross-format identity gate. The gate's verdict is only as trustworthy
 as the comparator's ability to fail, and the gate itself cannot demonstrate that:
 a passing gate proves the two runs agreed, not that a disagreement would have
 been noticed. Most of the failure modes below were demonstrated once as run
-evidence during the snapshot-driver work by hand-perturbing real output, then
+evidence during the horizontal-driver work by hand-perturbing real output, then
 discarded; this file commits that evidence. The rest were added afterwards, when
 mutation testing showed the committed set could not see them -- see the coverage
 note on
@@ -109,8 +109,8 @@ def write_run(directory, basename, partitions):
 
     `partitions` is a list of dicts, one per numbered partition file, mapping a
     snapshot number to that partition's records -- which is the layout the
-    comparator indexes: a tree-ordered run spreads every snapshot across many
-    partitions, a snapshot-ordered run writes one snapshot per partition.
+    comparator indexes: a vertical run spreads every snapshot across many
+    partitions, a horizontal run writes one snapshot per partition.
     """
     directory.mkdir(parents=True, exist_ok=True)
     for index, snapshots in enumerate(partitions):
@@ -174,8 +174,8 @@ def test_identical_runs_compare_equal():
 def test_records_are_aggregated_across_partitions():
     """The same galaxies compare equal however they are split across partitions.
 
-    This is the arrangement the gate actually compares -- a tree-ordered run
-    spreads each snapshot over several partition files while a snapshot-ordered
+    This is the arrangement the gate actually compares -- a vertical run
+    spreads each snapshot over several partition files while a horizontal
     run writes one file per snapshot -- so a comparator that compared partitions
     pairwise instead of aggregating by snapshot would report a false difference
     on every real gate run.
@@ -185,8 +185,8 @@ def test_records_are_aggregated_across_partitions():
         snap0 = make_records([1_000_000_001, 1_000_000_002, 1_000_000_003])
         snap1 = make_records([2_000_000_001, 2_000_000_002])
 
-        # Left models the tree-ordered layout: each partition carries a slice of
-        # EVERY snapshot. Right models the snapshot-ordered layout: one partition
+        # Left models the vertical layout: each partition carries a slice of
+        # EVERY snapshot. Right models the horizontal layout: one partition
         # per snapshot, whole.
         left = write_run(
             root / "left",

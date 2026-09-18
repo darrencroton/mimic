@@ -18,7 +18,7 @@
 #include "hdf5_internal.h"
 #include "output/hdf5.h"
 #include "output/util.h"
-#include "tree/reader.h" /* enum InputProcessingOrder only (the ProcessingOrder field), never the active reader pointer */
+#include "vertical/reader.h" /* enum InputProcessingOrder only (the ProcessingOrder field), never the active reader pointer */
 
 void write_master_file(void) {
   int filenr, n;
@@ -30,8 +30,8 @@ void write_master_file(void) {
   hsize_t dims;
   float redshift;
   int ret;
-  const int snapshot_run =
-      (enum InputProcessingOrder)MimicConfig.ProcessingOrder == INPUT_PROCESSING_ORDER_SNAPSHOT;
+  const int horizontal_run =
+      (enum InputProcessingOrder)MimicConfig.ProcessingOrder == INPUT_PROCESSING_ORDER_HORIZONTAL;
 
   ret = snprintf(master_file, sizeof(master_file), "%s/%s.hdf5", MimicConfig.OutputDir,
                  MimicConfig.OutputFileBaseName);
@@ -138,7 +138,7 @@ void write_master_file(void) {
         FATAL_ERROR("Failed to create external link for Galaxies in master file");
       }
 
-      if (!snapshot_run) {
+      if (!horizontal_run) {
         sprintf(target_group, "Snap%03d/File%03d/TreeHalosPerSnap", MimicConfig.ListOutputSnaps[n],
                 filenr);
         sprintf(source_ds, "Snap%03d/TreeHalosPerSnap", MimicConfig.ListOutputSnaps[n]);

@@ -14,8 +14,8 @@
 
 #include "../../src/include/proto.h"
 #include "../../src/include/types.h"
-#include "../../src/io/snapshot/reader.h"
-#include "../../src/io/tree/reader.h"
+#include "../../src/io/horizontal/reader.h"
+#include "../../src/io/vertical/reader.h"
 #include "../../src/util/error.h"
 #include "../../src/util/memory.h"
 #include "../framework/test_framework.h"
@@ -145,7 +145,7 @@ static int write_null_phase_fixture(char *path, size_t path_size, const char *la
  * inherited from the compiled simulation package, so its tree_type declares
  * whatever order that package uses. Forcing processing_order alone would produce
  * a reader/order mismatch for any package whose declared order differs, so the
- * fixture also overrides tree_type (and, for the snapshot reader, the exact
+ * fixture also overrides tree_type (and, for the horizontal reader, the exact
  * tree_name the format fixes) to match the order it forces. Any inherited
  * tree_type/tree_name line is dropped rather than duplicated.
  */
@@ -155,7 +155,7 @@ static int write_processing_order_fixture(char *path, size_t path_size,
   FILE *dst;
   char line[1024];
   int wrote_processing_order = 0;
-  const int snapshot_ordered = (strcmp(processing_order, "snapshot_ordered") == 0);
+  const int horizontal = (strcmp(processing_order, "horizontal") == 0);
 
   if (mkdir("archive", 0777) != 0 && errno != EEXIST) {
     return -1;
@@ -189,10 +189,10 @@ static int write_processing_order_fixture(char *path, size_t path_size,
     fputs(line, dst);
     if (!wrote_processing_order && is_input_section_header(line)) {
       fprintf(dst, "  processing_order: %s\n", processing_order);
-      if (snapshot_ordered) {
-        /* The snapshot format fixes this filename convention; configuration
+      if (horizontal) {
+        /* The horizontal format fixes this filename convention; configuration
            accepts no other value. It is data here, never a printf format. */
-        fprintf(dst, "  tree_type: snapshot_hdf5\n  tree_name: %s\n", "snapshot_%03d.h5");
+        fprintf(dst, "  tree_type: horizontal_hdf5\n  tree_name: %s\n", "snapshot_%03d.h5");
       } else {
         fprintf(dst, "  tree_type: lhalo_binary\n  tree_name: trees_063\n");
       }
@@ -201,8 +201,8 @@ static int write_processing_order_fixture(char *path, size_t path_size,
   }
   if (!wrote_processing_order) {
     fprintf(dst, "\ninput:\n  processing_order: %s\n", processing_order);
-    if (snapshot_ordered) {
-      fprintf(dst, "  tree_type: snapshot_hdf5\n  tree_name: %s\n", "snapshot_%03d.h5");
+    if (horizontal) {
+      fprintf(dst, "  tree_type: horizontal_hdf5\n  tree_name: %s\n", "snapshot_%03d.h5");
     } else {
       fprintf(dst, "  tree_type: lhalo_binary\n  tree_name: trees_063\n");
     }
@@ -331,7 +331,7 @@ static int write_output_chunking_fixture(char *path, size_t path_size, const cha
  * a_list (valid output.snapshot_list range [0, 63]), regardless of which package
  * is selected. The source run file is the generated core test input, whose
  * output.snapshot_list is inherited from the selected package's own a_list count
- * (e.g. `[49]` for a 50-snapshot package, `[63]` for a 64-snapshot one) — kept
+ * (e.g. `[49]` for a 50-horizontal package, `[63]` for a 64-snapshot one) — kept
  * as-is it can exceed the substituted config's valid range and hit the
  * output.snapshot_list FATAL. The copy therefore drops the inherited
  * snapshot_list and writes an explicit one within range; it also drops any
@@ -636,18 +636,18 @@ int test_basic_parsing(void) {
 /**
  * @test    test_default_processing_order
  * @brief   Test that the parsed input.processing_order is the one the compiled
- *          configuration declares, defaulting to tree_ordered when none is declared
+ *          configuration declares, defaulting to vertical when none is declared
  *
  * The generated core test run file inherits its input section from the compiled
- * simulation package, so a hard-coded tree_ordered expectation would silently
+ * simulation package, so a hard-coded vertical expectation would silently
  * assert that package's choice while looking package-independent. The expectation
  * is instead read out of the configuration itself: an explicit
  * input.processing_order in the run file, else one in the simulation config the
  * run file points at, else the framework default.
  *
- * Skips for a snapshot-ordered package: the generated core run file this test
+ * Skips for a horizontal package: the generated core run file this test
  * reads is output_format: binary, which Slice 4's config-time gating now
- * rejects for a snapshot-ordered configuration (output_format: hdf5 is not a
+ * rejects for a horizontal configuration (output_format: hdf5 is not a
  * substitute -- see test_cosmology_param_file() in core_test_fixtures.h), so
  * no generated core run file both declares that package's real processing
  * order AND parses successfully in this harness.
@@ -658,9 +658,9 @@ int test_default_processing_order(void) {
   char line[1024];
   FILE *fp;
 
-  if (compiled_simulation_is_snapshot_ordered()) {
+  if (compiled_simulation_is_horizontal()) {
     return TEST_SKIP_WITH(
-        "no generated core run file both declares a snapshot-ordered package's real "
+        "no generated core run file both declares a horizontal package's real "
         "processing_order and parses in this harness (output_format: binary is rejected; "
         "output_format: hdf5 hits read_parameter_file.c's #ifndef HDF5 guard here)");
   }
@@ -689,7 +689,7 @@ int test_default_processing_order(void) {
     fclose(fp);
   }
   if (declared[0] == '\0') {
-    snprintf(declared, sizeof(declared), "tree_ordered");
+    snprintf(declared, sizeof(declared), "vertical");
   }
 
   /* ===== EXECUTE ===== */
@@ -703,8 +703,9 @@ int test_default_processing_order(void) {
 
   /* Whichever order the package declares, tree_type resolves in exactly one of
      the two registries. Across the two build pairs this covers both kinds. */
-  TEST_ASSERT((MimicConfig.reader == NULL) != (MimicConfig.snapshot_reader == NULL),
-              "Exactly one of MimicConfig.reader and MimicConfig.snapshot_reader should be set");
+  TEST_ASSERT(
+      (MimicConfig.vertical_reader == NULL) != (MimicConfig.horizontal_reader == NULL),
+      "Exactly one of MimicConfig.vertical_reader and MimicConfig.horizontal_reader should be set");
 
   printf("  processing_order: %s\n",
          input_processing_order_name((enum InputProcessingOrder)MimicConfig.ProcessingOrder));
@@ -716,27 +717,26 @@ int test_default_processing_order(void) {
 }
 
 /**
- * @test    test_explicit_tree_ordered_processing_order
- * @brief   Test that explicit input.processing_order=tree_ordered parses successfully
+ * @test    test_explicit_vertical_processing_order
+ * @brief   Test that explicit input.processing_order=vertical parses successfully
  */
-int test_explicit_tree_ordered_processing_order(void) {
+int test_explicit_vertical_processing_order(void) {
   char fixture_path[MAX_STRING_LEN];
 
   /* ===== SETUP ===== */
   setup_test();
 
-  TEST_ASSERT(write_processing_order_fixture(fixture_path, sizeof(fixture_path), "tree_ordered") ==
-                  0,
-              "Should create explicit tree_ordered fixture");
+  TEST_ASSERT(write_processing_order_fixture(fixture_path, sizeof(fixture_path), "vertical") == 0,
+              "Should create explicit vertical fixture");
 
   /* ===== EXECUTE ===== */
   read_parameter_file(fixture_path);
 
   /* ===== VALIDATE ===== */
-  TEST_ASSERT(MimicConfig.ProcessingOrder == INPUT_PROCESSING_ORDER_TREE,
-              "Explicit processing_order should be tree_ordered");
-  TEST_ASSERT(MimicConfig.reader != NULL && MimicConfig.snapshot_reader == NULL,
-              "A tree-ordered configuration should resolve a tree reader and no snapshot reader");
+  TEST_ASSERT(MimicConfig.ProcessingOrder == INPUT_PROCESSING_ORDER_VERTICAL,
+              "Explicit processing_order should be vertical");
+  TEST_ASSERT(MimicConfig.vertical_reader != NULL && MimicConfig.horizontal_reader == NULL,
+              "A vertical configuration should resolve a vertical reader and no horizontal reader");
 
   printf("  explicit processing_order: %s\n",
          input_processing_order_name((enum InputProcessingOrder)MimicConfig.ProcessingOrder));
@@ -748,67 +748,64 @@ int test_explicit_tree_ordered_processing_order(void) {
 }
 
 /**
- * @test    test_ntask_multi_rejects_snapshot_ordered_processing_order
- * @brief   Test that NTask > 1 rejects a snapshot-ordered configuration at config time.
+ * @test    test_ntask_multi_rejects_horizontal_processing_order
+ * @brief   Test that NTask > 1 rejects a horizontal configuration at config time.
  *
  * Expected: FATAL with the serial-only message naming the distributed plan.
- * Validates: snapshot-ordered runs are serial in this phase (Slice 4 acceptance
- *            criterion c); a tree-ordered configuration is unaffected (see the
+ * Validates: horizontal runs are serial in this phase (Slice 4 acceptance
+ *            criterion c); a vertical configuration is unaffected (see the
  *            paired test below).
  *
- * Skips when no snapshot reader is registered: the fixture below declares
- * tree_type: snapshot_hdf5, and snapshot_reader_lookup() (like every snapshot
+ * Skips when no horizontal reader is registered: the fixture below declares
+ * tree_type: horizontal_hdf5, and horizontal_reader_lookup() (like every horizontal
  * reader) is only compiled in under -DHDF5. Without it the lookup returns
  * NULL and read_parameter_file() FATALs with "Unknown tree_type" before ever
  * reaching the NTask check this test pins -- this file must still run without
  * HDF5, so it follows the runner's own skip-when-unavailable convention
  * rather than joining run_tests.sh's HDF5-only test list.
  */
-int test_ntask_multi_rejects_snapshot_ordered_processing_order(void) {
+int test_ntask_multi_rejects_horizontal_processing_order(void) {
   /* ===== SETUP ===== */
   char fixture_path[MAX_STRING_LEN];
 
-  if (snapshot_reader_count() == 0) {
-    return TEST_SKIP_WITH("no snapshot reader registered (HDF5 development library not "
-                          "available); tree_type: snapshot_hdf5 cannot resolve");
+  if (horizontal_reader_count() == 0) {
+    return TEST_SKIP_WITH("no horizontal reader registered (HDF5 development library not "
+                          "available); tree_type: horizontal_hdf5 cannot resolve");
   }
 
-  TEST_ASSERT(
-      write_processing_order_fixture(fixture_path, sizeof(fixture_path), "snapshot_ordered") == 0,
-      "Should create explicit snapshot_ordered fixture");
+  TEST_ASSERT(write_processing_order_fixture(fixture_path, sizeof(fixture_path), "horizontal") == 0,
+              "Should create explicit horizontal fixture");
 
   /* ===== EXECUTE / VALIDATE ===== */
   int result = read_parameter_file_fatal_message_contains_with_ntask(
       fixture_path, 2,
-      "snapshot-ordered runs are serial in this phase; multi-rank execution belongs to the "
+      "horizontal runs are serial in this phase; multi-rank execution belongs to the "
       "distributed plan, docs/dev/MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md");
-  TEST_ASSERT(
-      result == 1,
-      "NTask=2 with a snapshot-ordered configuration should FATAL with the serial-only message");
+  TEST_ASSERT(result == 1,
+              "NTask=2 with a horizontal configuration should FATAL with the serial-only message");
 
-  printf("  NTask=2 + snapshot_ordered -> serial-only rejection confirmed\n");
+  printf("  NTask=2 + horizontal -> serial-only rejection confirmed\n");
 
   return TEST_PASS;
 }
 
 /**
- * @test    test_ntask_multi_allows_tree_ordered_processing_order
- * @brief   Test that NTask > 1 leaves a tree-ordered configuration's validation unchanged.
+ * @test    test_ntask_multi_allows_vertical_processing_order
+ * @brief   Test that NTask > 1 leaves a vertical configuration's validation unchanged.
  *
  * Expected: validation passes exactly as it did before this slice's NTask gating.
  * Validates: the NTask > 1 rejection added in this slice applies only to
- *            snapshot-ordered configurations.
+ *            horizontal configurations.
  */
-int test_ntask_multi_allows_tree_ordered_processing_order(void) {
+int test_ntask_multi_allows_vertical_processing_order(void) {
   /* ===== SETUP ===== */
   char fixture_path[MAX_STRING_LEN];
   int saved_ntask;
 
   setup_test();
 
-  TEST_ASSERT(write_processing_order_fixture(fixture_path, sizeof(fixture_path), "tree_ordered") ==
-                  0,
-              "Should create explicit tree_ordered fixture");
+  TEST_ASSERT(write_processing_order_fixture(fixture_path, sizeof(fixture_path), "vertical") == 0,
+              "Should create explicit vertical fixture");
 
   saved_ntask = NTask;
   NTask = 2;
@@ -817,12 +814,12 @@ int test_ntask_multi_allows_tree_ordered_processing_order(void) {
   read_parameter_file(fixture_path);
 
   /* ===== VALIDATE ===== */
-  TEST_ASSERT(MimicConfig.ProcessingOrder == INPUT_PROCESSING_ORDER_TREE,
-              "Tree-ordered processing_order should still parse under NTask=2");
-  TEST_ASSERT(MimicConfig.reader != NULL && MimicConfig.snapshot_reader == NULL,
-              "A tree-ordered configuration should still resolve a tree reader under NTask=2");
+  TEST_ASSERT(MimicConfig.ProcessingOrder == INPUT_PROCESSING_ORDER_VERTICAL,
+              "Vertical processing_order should still parse under NTask=2");
+  TEST_ASSERT(MimicConfig.vertical_reader != NULL && MimicConfig.horizontal_reader == NULL,
+              "A vertical configuration should still resolve a vertical reader under NTask=2");
 
-  printf("  NTask=2 + tree_ordered -> validation still passes\n");
+  printf("  NTask=2 + vertical -> validation still passes\n");
 
   /* ===== CLEANUP ===== */
   NTask = saved_ntask;
@@ -1245,8 +1242,8 @@ int test_output_chunking_defaults(void) {
   /* ===== VALIDATE ===== */
   TEST_ASSERT(MimicConfig.TargetFileSize > 0, "Effective target_file_size should be positive");
   TEST_ASSERT(MimicConfig.ForestsPerFile >= 0, "Effective forests_per_file should be non-negative");
-  if (MimicConfig.reader != NULL &&
-      strcmp(MimicConfig.reader->name, "consistent_trees_ascii") == 0) {
+  if (MimicConfig.vertical_reader != NULL &&
+      strcmp(MimicConfig.vertical_reader->name, "consistent_trees_ascii") == 0) {
     TEST_ASSERT(MimicConfig.ForestsPerFile > 0,
                 "ASCII tests should inherit a positive forests_per_file default");
   } else if (MimicConfig.ForestsPerFile == MIMIC_DEFAULT_FORESTS_PER_FILE) {
@@ -1632,9 +1629,9 @@ int main(int argc, char **argv) {
   /* Run all test cases */
   TEST_RUN(test_basic_parsing);
   TEST_RUN(test_default_processing_order);
-  TEST_RUN(test_explicit_tree_ordered_processing_order);
-  TEST_RUN(test_ntask_multi_rejects_snapshot_ordered_processing_order);
-  TEST_RUN(test_ntask_multi_allows_tree_ordered_processing_order);
+  TEST_RUN(test_explicit_vertical_processing_order);
+  TEST_RUN(test_ntask_multi_rejects_horizontal_processing_order);
+  TEST_RUN(test_ntask_multi_allows_vertical_processing_order);
   TEST_RUN(test_default_timestep_scheme);
   TEST_RUN(test_explicit_timestep_scheme);
   TEST_RUN(test_timestep_scheme_rejects_invalid_value);

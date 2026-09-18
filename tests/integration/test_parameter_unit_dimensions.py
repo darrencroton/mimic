@@ -91,7 +91,7 @@ def test_box_size_with_correct_dimension_still_runs():
     This test runs under every MODEL/SIMULATION pair the core integration tier is
     invoked with (scripts/generate_test_registry.py globs every test_*.py file into
     every pair), so the injected box_size cannot be a literal tied to one package's
-    fixture: a tree reader may cross-check the declared box_size against its own
+    fixture: a vertical reader may cross-check the declared box_size against its own
     file's box size (e.g. read_ctrees_hdf5.c against uchuu's committed fixture), so
     a literal borrowed from mini-millennium (62.5 Mpc/h) would collide with a
     different package's real box size and fail for the wrong reason, or -- for a

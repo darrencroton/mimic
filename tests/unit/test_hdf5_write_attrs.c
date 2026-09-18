@@ -10,7 +10,7 @@
 #include "output/hdf5.h"
 #include "output/hdf5_internal.h"
 #include "output/util.h"
-#include "tree/reader.h"
+#include "vertical/reader.h"
 
 #include <hdf5.h>
 #include <inttypes.h>
@@ -108,7 +108,7 @@ static int read_int64_attr(hid_t obj_id, const char *name, int64_t *out) {
 
 /**
  * @test    test_tree_run_attrs_include_ntrees_and_tree_halos_per_snap
- * @brief   A tree-ordered run's attrs path writes Ntrees, TreeHalosPerSnap, and int64
+ * @brief   A vertical run's attrs path writes Ntrees, TreeHalosPerSnap, and int64
  *          TotHalosPerSnap
  */
 static int test_tree_run_attrs_include_ntrees_and_tree_halos_per_snap(void) {
@@ -120,7 +120,7 @@ static int test_tree_run_attrs_include_ntrees_and_tree_halos_per_snap(void) {
   TEST_ASSERT(create_minimal_snap_fixture(path) == TEST_PASS, "fixture should be created");
 
   memset(&MimicConfig, 0, sizeof(MimicConfig));
-  MimicConfig.ProcessingOrder = (int)INPUT_PROCESSING_ORDER_TREE;
+  MimicConfig.ProcessingOrder = (int)INPUT_PROCESSING_ORDER_VERTICAL;
   MimicConfig.ListOutputSnaps[0] = 0;
 
   Ntrees = 3;
@@ -141,7 +141,7 @@ static int test_tree_run_attrs_include_ntrees_and_tree_halos_per_snap(void) {
   hid_t group_id = H5Gopen(HDF5_current_file_id, "Snap000", H5P_DEFAULT);
   hid_t dataset_id = H5Dopen(group_id, "Galaxies", H5P_DEFAULT);
 
-  TEST_ASSERT(attr_exists(dataset_id, "Ntrees"), "tree run should write Ntrees");
+  TEST_ASSERT(attr_exists(dataset_id, "Ntrees"), "vertical run should write Ntrees");
   int64_t ntrees_value = -1;
   TEST_ASSERT(read_int64_attr(dataset_id, "TotHalosPerSnap", &ntrees_value) == TEST_PASS,
               "TotHalosPerSnap attribute should read");
@@ -149,7 +149,7 @@ static int test_tree_run_attrs_include_ntrees_and_tree_halos_per_snap(void) {
                     "TotHalosPerSnap attribute should carry the full int64 value");
 
   TEST_ASSERT(link_exists(group_id, "TreeHalosPerSnap"),
-              "tree run should write the TreeHalosPerSnap dataset");
+              "vertical run should write the TreeHalosPerSnap dataset");
   hid_t tree_ds = H5Dopen(group_id, "TreeHalosPerSnap", H5P_DEFAULT);
   TEST_ASSERT(tree_ds >= 0, "TreeHalosPerSnap dataset should open");
   int read_back[3] = {0};
@@ -170,11 +170,11 @@ static int test_tree_run_attrs_include_ntrees_and_tree_halos_per_snap(void) {
 }
 
 /**
- * @test    test_snapshot_run_attrs_omit_ntrees_and_tree_halos_per_snap
- * @brief   A snapshot-ordered run's attrs path never writes Ntrees or TreeHalosPerSnap, and
- *          never reads the tree-only InputHalosPerSnap
+ * @test    test_horizontal_run_attrs_omit_ntrees_and_tree_halos_per_snap
+ * @brief   A horizontal run's attrs path never writes Ntrees or TreeHalosPerSnap, and
+ *          never reads the vertical-only InputHalosPerSnap
  */
-static int test_snapshot_run_attrs_omit_ntrees_and_tree_halos_per_snap(void) {
+static int test_horizontal_run_attrs_omit_ntrees_and_tree_halos_per_snap(void) {
   char dir_template[] = "/tmp/mimic_hdf5_attrs_snap_XXXXXX";
   char path[512];
 
@@ -183,10 +183,10 @@ static int test_snapshot_run_attrs_omit_ntrees_and_tree_halos_per_snap(void) {
   TEST_ASSERT(create_minimal_snap_fixture(path) == TEST_PASS, "fixture should be created");
 
   memset(&MimicConfig, 0, sizeof(MimicConfig));
-  MimicConfig.ProcessingOrder = (int)INPUT_PROCESSING_ORDER_SNAPSHOT;
+  MimicConfig.ProcessingOrder = (int)INPUT_PROCESSING_ORDER_HORIZONTAL;
   MimicConfig.ListOutputSnaps[0] = 0;
 
-  /* Left at the never-allocated shape a real snapshot-ordered run has: NULL
+  /* Left at the never-allocated shape a real horizontal run has: NULL
    * InputHalosPerSnap and a poison Ntrees. If the mode gate regressed and
    * either were read, this would either crash (NULL deref) or write the
    * poison value -- both are things the assertions below would catch. */
@@ -203,12 +203,12 @@ static int test_snapshot_run_attrs_omit_ntrees_and_tree_halos_per_snap(void) {
   hid_t group_id = H5Gopen(HDF5_current_file_id, "Snap000", H5P_DEFAULT);
   hid_t dataset_id = H5Dopen(group_id, "Galaxies", H5P_DEFAULT);
 
-  TEST_ASSERT(!attr_exists(dataset_id, "Ntrees"), "snapshot run must not write Ntrees");
+  TEST_ASSERT(!attr_exists(dataset_id, "Ntrees"), "horizontal run must not write Ntrees");
   TEST_ASSERT(!link_exists(group_id, "TreeHalosPerSnap"),
-              "snapshot run must not write TreeHalosPerSnap");
+              "horizontal run must not write TreeHalosPerSnap");
 
   TEST_ASSERT(attr_exists(dataset_id, "TotHalosPerSnap"),
-              "snapshot run should still write TotHalosPerSnap");
+              "horizontal run should still write TotHalosPerSnap");
   int64_t tot_value = -1;
   TEST_ASSERT(read_int64_attr(dataset_id, "TotHalosPerSnap", &tot_value) == TEST_PASS,
               "TotHalosPerSnap attribute should read");
@@ -236,7 +236,7 @@ int main(void) {
   printf("%s\n", NC);
 
   TEST_RUN(test_tree_run_attrs_include_ntrees_and_tree_halos_per_snap);
-  TEST_RUN(test_snapshot_run_attrs_omit_ntrees_and_tree_halos_per_snap);
+  TEST_RUN(test_horizontal_run_attrs_omit_ntrees_and_tree_halos_per_snap);
 
   TEST_SUMMARY();
   return TEST_RESULT();

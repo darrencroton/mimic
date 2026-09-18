@@ -44,7 +44,7 @@ void run_profile_note_galaxy_pool(int64_t galaxies_high_water, int64_t slots_all
                                   int chunk_count, size_t galaxy_bytes) {
   /* Each term keeps its own maximum, which is the per-generation upper bound the
    * projection wants -- not a sum -- however many pools a driver owns. Note the
-   * snapshot driver's two pools alternate on snapshot parity, so they do NOT
+   * horizontal driver's two pools alternate on snapshot parity, so they do NOT
    * both see the largest slab: only the pool whose parity matches it does. The
    * maximum across pools is therefore a conservative bound on any one
    * generation, which is what the projection multiplies. */

@@ -3,9 +3,9 @@
 Integration tests for startup validation of the reader/processing-order seam.
 
 Covers input.processing_order, the two-registry input.tree_type resolution, the
-snapshot reader's exact tree_name contract, and the
+horizontal reader's exact tree_name contract, and the
 simulation.unique_galaxy_id_multiplier key (parse, default, precedence across
-both parser passes, and a tree-ordered run honouring a non-default value).
+both parser passes, and a vertical run honouring a non-default value).
 """
 
 import os
@@ -34,14 +34,14 @@ TEMP_DIR = None
 #: Default forest multiplier (TREE_MUL_FAC in src/include/constants.h).
 DEFAULT_MULTIPLIER = 1000000000
 
-#: The only input.tree_name the snapshot_hdf5 reader accepts.
-SNAPSHOT_TREE_NAME = "snapshot_%03d.h5"
+#: The only input.tree_name the horizontal_hdf5 reader accepts.
+HORIZONTAL_TREE_NAME = "snapshot_%03d.h5"
 
-#: Committed snapshot-package fixture (small, deterministic, always present in a
+#: Committed horizontal-package fixture (small, deterministic, always present in a
 #: full checkout) -- used instead of the machine-local production dataset so the
 #: driver test below is reproducible on any checkout and reads kilobytes, not
 #: the multi-gigabyte real conversion.
-SNAPSHOT_FIXTURE_DIR = REPO_ROOT / "simulations" / "micro-uchuu-snapshot" / "_tests" / "data"
+SNAPSHOT_FIXTURE_DIR = REPO_ROOT / "simulations" / "micro-uchuu-horizontal" / "_tests" / "data"
 SNAPSHOT_FIXTURE_A_LIST = SNAPSHOT_FIXTURE_DIR / "micro-uchuu-fixture.a_list"
 
 
@@ -62,7 +62,7 @@ def snapshot_fixture_snapshot_files():
 
 
 def snapshot_fixture_present():
-    """Is the committed snapshot-package fixture's full payload present?
+    """Is the committed horizontal-package fixture's full payload present?
 
     The guard is derived from the a_list, because the a_list is what bounds the
     run: the driver loads every snapshot the scale-factor list declares, and
@@ -98,7 +98,7 @@ def snapshot_fixture_input_overrides(simulation_dir=None):
 
 
 def snapshot_partition_files(output_dir):
-    """The numbered partition files a snapshot-ordered run left in output_dir.
+    """The numbered partition files a horizontal run left in output_dir.
 
     Named by glob rather than by expectation so a run that wrote a file nobody
     asked for shows up as an extra entry instead of going unnoticed.
@@ -107,7 +107,7 @@ def snapshot_partition_files(output_dir):
 
 
 def snapshot_partition_path(output_dir, snapnum):
-    """Where a snapshot-ordered run puts snapshot `snapnum`'s partition file."""
+    """Where a horizontal run puts snapshot `snapnum`'s partition file."""
     return Path(output_dir) / f"model_{snapnum:03d}.hdf5"
 
 
@@ -115,9 +115,9 @@ def fixture_copy_with_broken_fof_link(destination, snapnum):
     """Copy the fixture to `destination` and break one FoF link in one snapshot.
 
     FirstHaloInFOFgroup is bounded by its OWN snapshot's halo count
-    (src/io/snapshot/read_snapshot_hdf5.c:849, :884-886), so setting it to that
+    (src/io/horizontal/read_horizontal_hdf5.c:849, :884-886), so setting it to that
     count is guaranteed out of range rather than accidentally valid. The
-    validator that rejects it runs only from load_slab_snapshot_hdf5() (:1297),
+    validator that rejects it runs only from load_slab_horizontal_hdf5() (:1297),
     never from open_run, so the abort lands mid-sweep — after earlier requested
     snapshots have already been written and closed — rather than at startup.
     """
@@ -232,7 +232,7 @@ def test_unknown_processing_order_fails_fast():
     """
     Test that an unrecognised input.processing_order value fails at startup.
 
-    Expected: Non-zero exit; output includes the bad value name and "Valid values are tree_ordered, snapshot_ordered".
+    Expected: Non-zero exit; output includes the bad value name and "Valid values are vertical, horizontal".
     Validates: startup validation rejects unknown ordering strings with an actionable message.
     """
     returncode, output = run_config(
@@ -241,12 +241,12 @@ def test_unknown_processing_order_fails_fast():
 
     assert returncode != 0, "Unknown processing_order should fail startup validation"
     assert "Unknown input.processing_order 'not_a_real_ordering'" in output
-    assert "Valid values are tree_ordered, snapshot_ordered" in output
+    assert "Valid values are vertical, horizontal" in output
 
 
-def test_snapshot_run_completes_and_writes_output_over_the_fixture():
+def test_horizontal_run_completes_and_writes_output_over_the_fixture():
     """
-    Test that a valid snapshot-ordered configuration runs end to end and writes output.
+    Test that a valid horizontal configuration runs end to end and writes output.
 
     Expected: exit 0; output does NOT include "Parameter validation failed" or either of
               the two messages earlier slices retired; the per-snapshot lifecycle lines
@@ -256,31 +256,31 @@ def test_snapshot_run_completes_and_writes_output_over_the_fixture():
               snapshot, each named for and holding only that snapshot, plus a master
               linking each snapshot to its own file, with TotHalosPerSnap totals equal
               to the rows actually written, no Ntrees attribute, no TreeHalosPerSnap
-              dataset or link, TreeType "snapshot_hdf5", and UniqueGalaxyIDMultiplier in
+              dataset or link, TreeType "horizontal_hdf5", and UniqueGalaxyIDMultiplier in
               both per-file and master RunProperties.
-    Validates: the snapshot-ordered driver produces output through the driver-neutral
+    Validates: the horizontal driver produces output through the driver-neutral
                output partition seam, and does so under the state rotation the phase
                specifies rather than by holding every slab live.
 
-    Runs against the committed snapshot-package fixture (simulations/micro-uchuu-snapshot/
+    Runs against the committed horizontal-package fixture (simulations/micro-uchuu-horizontal/
     _tests/data/), not the machine-local production dataset: the latter is multi-gigabyte,
     gitignored, and absent on a fresh checkout, which would make this proof unreproducible
     outside one workstation. input.simulation_dir and input.snapshot_list_file are
     overridden to point at the fixture; output.snapshot_list is overridden to indices the
     fixture's own a_list actually contains, since the generated core run file's default
     (49) is only valid for the real package's 50-snapshot production list.
-    simulations/micro-uchuu-snapshot/_tests/unit/test_unit_snapshot_reader_open.c already
+    simulations/micro-uchuu-horizontal/_tests/unit/test_unit_horizontal_reader_open.c already
     proves open_run succeeds against exactly this fixture with these same two fields set.
 
-    The test still only runs when the selected package is itself snapshot-ordered (its own
+    The test still only runs when the selected package is itself horizontal (its own
     configuration is the only source of input.tree_type/tree_name/processing_order here);
-    forcing tree_type: snapshot_hdf5 onto a tree-ordered package would abort for an
+    forcing tree_type: horizontal_hdf5 onto a vertical package would abort for an
     unrelated config-mismatch reason. Guarded separately against the fixture being absent,
     so a sparse or partial checkout skips rather than fails.
 
     output_format is forced to hdf5 because the generated core test input this run file is
-    based on is output_format: binary, which a snapshot-ordered configuration rejects at
-    config time (see test_snapshot_binary_output_rejected_at_config_time).
+    based on is output_format: binary, which a horizontal configuration rejects at
+    config time (see test_horizontal_binary_output_rejected_at_config_time).
 
     -v is passed so the driver's per-snapshot lifecycle lines (silent at the default log
     level) are captured. They are VERBOSE_LOG rather than DEBUG_LOG deliberately: the
@@ -289,9 +289,9 @@ def test_snapshot_run_completes_and_writes_output_over_the_fixture():
     """
     import h5py
 
-    if effective_input_setting("valid_snapshot_probe", "processing_order") != "snapshot_ordered":
+    if effective_input_setting("valid_horizontal_probe", "processing_order") != "horizontal":
         raise TestSkipped(
-            "selected package is not snapshot-ordered; its own configuration is the only "
+            "selected package is not horizontal; its own configuration is the only "
             "source of input.tree_type/tree_name/processing_order this test relies on"
         )
     if not snapshot_fixture_present():
@@ -318,12 +318,12 @@ def test_snapshot_run_completes_and_writes_output_over_the_fixture():
         extra_args=["-v"],
     )
 
-    assert returncode == 0, f"a valid snapshot-ordered run should complete:\n{output}"
+    assert returncode == 0, f"a valid horizontal run should complete:\n{output}"
     assert (
         "Parameter validation failed" not in output
-    ), "a valid snapshot-ordered configuration must pass config validation"
+    ), "a valid horizontal configuration must pass config validation"
     assert (
-        "The snapshot-ordered driver is not implemented yet" not in output
+        "The horizontal driver is not implemented yet" not in output
     ), "the dispatch-time FATAL an earlier slice retired must not reappear"
     assert (
         "cannot yet produce output" not in output
@@ -353,7 +353,7 @@ def test_snapshot_run_completes_and_writes_output_over_the_fixture():
 
     partitions = snapshot_partition_files(output_dir)
     assert [p.name for p in partitions] == sorted(f"model_{snap:03d}.hdf5" for snap in requested), (
-        f"a snapshot-ordered run writes one partition per requested output snapshot named by "
+        f"a horizontal run writes one partition per requested output snapshot named by "
         f"that snapshot's number, found {[p.name for p in partitions]}"
     )
     master = output_dir / "model.hdf5"
@@ -379,10 +379,10 @@ def test_snapshot_run_completes_and_writes_output_over_the_fixture():
             )
             assert (
                 "Ntrees" not in dataset.attrs
-            ), f"Snap{snap:03d}: a snapshot-ordered run has no trees to count"
+            ), f"Snap{snap:03d}: a horizontal run has no trees to count"
             assert (
                 "TreeHalosPerSnap" not in group
-            ), f"Snap{snap:03d}: a snapshot-ordered run has no per-tree counts"
+            ), f"Snap{snap:03d}: a horizontal run has no per-tree counts"
             assert "UniqueGalaxyIDMultiplier" in handle["RunProperties"].attrs, (
                 f"model_{snap:03d}.hdf5: per-file RunProperties should record the identity "
                 f"multiplier"
@@ -437,30 +437,30 @@ def test_snapshot_run_completes_and_writes_output_over_the_fixture():
         tree_type = properties["TreeType"].ravel()[0]
         if isinstance(tree_type, bytes):
             tree_type = tree_type.decode()
-        assert tree_type == "snapshot_hdf5", f"master TreeType is {tree_type!r}"
+        assert tree_type == "horizontal_hdf5", f"master TreeType is {tree_type!r}"
         assert (
             "UniqueGalaxyIDMultiplier" in properties
         ), "master RunProperties should record the identity multiplier"
 
 
-def skip_unless_snapshot_driver_is_runnable(probe_name):
-    """Skip unless the selected package is snapshot-ordered and the fixture is present.
+def skip_unless_horizontal_driver_is_runnable(probe_name):
+    """Skip unless the selected package is horizontal and the fixture is present.
 
     Same two guards the completing-run test above carries, for the same reasons:
     the package's own configuration is the only source of
     input.tree_type/tree_name/processing_order here, and a sparse checkout has no
     fixture payload to run against.
     """
-    if effective_input_setting(probe_name, "processing_order") != "snapshot_ordered":
+    if effective_input_setting(probe_name, "processing_order") != "horizontal":
         raise TestSkipped(
-            "selected package is not snapshot-ordered; its own configuration is the only "
+            "selected package is not horizontal; its own configuration is the only "
             "source of input.tree_type/tree_name/processing_order this test relies on"
         )
     if not snapshot_fixture_present():
         raise TestSkipped(f"committed snapshot fixture not found at {SNAPSHOT_FIXTURE_DIR}")
 
 
-def test_snapshot_failure_keeps_partition_files_that_already_closed():
+def test_horizontal_failure_keeps_partition_files_that_already_closed():
     """
     Test that a mid-run abort leaves completed partition files alone and writes no master.
 
@@ -480,7 +480,7 @@ def test_snapshot_failure_keeps_partition_files_that_already_closed():
     closed. Nothing here can exercise the in-flight half of the registry -- the failing
     snapshot's own output file does not exist yet -- which is why the next test exists.
     """
-    skip_unless_snapshot_driver_is_runnable("retention_probe")
+    skip_unless_horizontal_driver_is_runnable("retention_probe")
 
     broken_snapshot = 3
     requested = [1, snapshot_fixture_snapshot_count() - 1]
@@ -517,7 +517,7 @@ def test_snapshot_failure_keeps_partition_files_that_already_closed():
     ).exists(), "a failed run must not leave a master file claiming complete output"
 
 
-def test_snapshot_failure_removes_the_in_flight_partition_file():
+def test_horizontal_failure_removes_the_in_flight_partition_file():
     """
     Test that a failure while a partition file is in flight removes that file.
 
@@ -534,7 +534,7 @@ def test_snapshot_failure_removes_the_in_flight_partition_file():
     permission on the directory rather than on the file, so cleanup can still remove it --
     and the marker byte is what proves the file that disappeared was this one.
     """
-    skip_unless_snapshot_driver_is_runnable("inflight_probe")
+    skip_unless_horizontal_driver_is_runnable("inflight_probe")
     skip_unless_mode_bits_deny_access()
 
     requested = [1, snapshot_fixture_snapshot_count() - 1]
@@ -571,12 +571,12 @@ def test_snapshot_failure_removes_the_in_flight_partition_file():
     ).exists(), "a failed run must not leave a master file claiming complete output"
 
 
-def test_snapshot_unwritable_output_directory_fails_before_the_dataset_opens():
+def test_horizontal_unwritable_output_directory_fails_before_the_dataset_opens():
     """
     Test that an unwritable output directory aborts the run before the dataset is opened.
 
     Expected: non-zero exit; output names the output directory as not writable; and the
-              driver's "Opened snapshot-ordered run" line -- emitted once the reader has
+              driver's "Opened horizontal run" line -- emitted once the reader has
               validated the whole dataset -- is absent, so the failure preceded it.
     Validates: the up-front writability probe. main.c proves the output directory can be
                created, not written to, and now that a partition file appears only when its
@@ -584,7 +584,7 @@ def test_snapshot_unwritable_output_directory_fails_before_the_dataset_opens():
                first requested output snapshot -- the end of a multi-week run for a z=0-only
                request.
     """
-    skip_unless_snapshot_driver_is_runnable("writability_probe")
+    skip_unless_horizontal_driver_is_runnable("writability_probe")
     skip_unless_mode_bits_deny_access()
 
     output_dir = Path(TEMP_DIR) / "unwritable_output"
@@ -608,91 +608,91 @@ def test_snapshot_unwritable_output_directory_fails_before_the_dataset_opens():
     assert (
         f"Output directory '{output_dir}' is not writable" in output
     ), f"the abort should name the unwritable output directory:\n{output}"
-    assert "Opened snapshot-ordered run" not in output, (
+    assert "Opened horizontal run" not in output, (
         "the writability probe must fail before the dataset is opened and validated, "
         f"which is not instant at production scale:\n{output}"
     )
 
 
-def test_snapshot_binary_output_rejected_at_config_time():
+def test_horizontal_binary_output_rejected_at_config_time():
     """
-    Test that a snapshot-ordered configuration with output_format binary is rejected.
+    Test that a horizontal configuration with output_format binary is rejected.
 
     Expected: Non-zero exit; output includes the HDF5-only message and
               "Parameter validation failed". The rejection fires purely from parsed
               configuration, before any reader is opened, so it applies regardless of
               which package is selected.
     Validates: acceptance criterion (a) -- output_format: binary is HDF5-only for a
-               snapshot-ordered configuration.
+               horizontal configuration.
     """
     returncode, output = run_config(
         "snapshot_binary_output",
         input_overrides={
-            "tree_type": "snapshot_hdf5",
-            "processing_order": "snapshot_ordered",
-            "tree_name": SNAPSHOT_TREE_NAME,
+            "tree_type": "horizontal_hdf5",
+            "processing_order": "horizontal",
+            "tree_name": HORIZONTAL_TREE_NAME,
         },
         output_overrides={"output_format": "binary"},
     )
 
-    assert returncode != 0, "binary output_format must be rejected for a snapshot-ordered config"
-    assert "output_format is 'binary', but snapshot-ordered runs are HDF5-only" in output
+    assert returncode != 0, "binary output_format must be rejected for a horizontal config"
+    assert "output_format is 'binary', but horizontal runs are HDF5-only" in output
     assert "Parameter validation failed" in output
 
 
-def test_snapshot_skip_rejected_at_config_time():
+def test_horizontal_skip_rejected_at_config_time():
     """
-    Test that --skip is rejected for a snapshot-ordered configuration.
+    Test that --skip is rejected for a horizontal configuration.
 
     Expected: Non-zero exit; output includes the no-resume message and
               "Parameter validation failed". The rejection fires purely from parsed
               configuration, before any reader is opened, so it applies regardless of
               which package is selected.
-    Validates: acceptance criterion (b) -- resume is not supported for snapshot-ordered
+    Validates: acceptance criterion (b) -- resume is not supported for horizontal
                runs.
     """
     returncode, output = run_config(
         "snapshot_skip",
         input_overrides={
-            "tree_type": "snapshot_hdf5",
-            "processing_order": "snapshot_ordered",
-            "tree_name": SNAPSHOT_TREE_NAME,
+            "tree_type": "horizontal_hdf5",
+            "processing_order": "horizontal",
+            "tree_name": HORIZONTAL_TREE_NAME,
         },
         extra_args=["--skip"],
     )
 
-    assert returncode != 0, "--skip must be rejected for a snapshot-ordered config"
-    assert "--skip was given, but resume is not supported for snapshot-ordered runs" in output
+    assert returncode != 0, "--skip must be rejected for a horizontal config"
+    assert "--skip was given, but resume is not supported for horizontal runs" in output
     assert "Parameter validation failed" in output
 
 
-def test_snapshot_reader_rejects_tree_ordered():
+def test_horizontal_reader_rejects_vertical_order():
     """
-    Test that a snapshot reader with processing_order tree_ordered is rejected.
+    Test that a horizontal reader with processing_order vertical is rejected.
 
     Expected: Non-zero exit; output includes the reader/order compatibility message.
-    Validates: the compatibility check now covers snapshot readers too.
+    Validates: the compatibility check now covers horizontal readers too.
     """
     returncode, output = run_config(
-        "snapshot_tree_ordered",
+        "horizontal_reader_vertical_order",
         input_overrides={
-            "tree_type": "snapshot_hdf5",
-            "processing_order": "tree_ordered",
-            "tree_name": SNAPSHOT_TREE_NAME,
+            "tree_type": "horizontal_hdf5",
+            "processing_order": "vertical",
+            "tree_name": HORIZONTAL_TREE_NAME,
         },
     )
 
-    assert returncode != 0, "snapshot_hdf5 with tree_ordered should fail config validation"
+    assert returncode != 0, "horizontal_hdf5 with vertical should fail config validation"
     assert (
-        "Reader 'snapshot_hdf5' is compatible with processing_order 'snapshot_ordered', "
-        "but input.processing_order is 'tree_ordered'" in output
+        "Reader 'horizontal_hdf5' is compatible with processing_order 'horizontal', "
+        "but input.processing_order is 'vertical'" in output
     )
     assert "Parameter validation failed" in output
 
 
-def test_snapshot_reader_unset_processing_order_names_the_default():
+def test_horizontal_reader_unset_processing_order_names_the_default():
     """
-    Test that a snapshot reader with processing_order entirely unset blames the default.
+    Test that a horizontal reader with processing_order entirely unset blames the default.
 
     Expected: Non-zero exit; output includes the reader/order compatibility message with
               the "(the default; input.processing_order was not set)" fragment, and
@@ -700,12 +700,12 @@ def test_snapshot_reader_unset_processing_order_names_the_default():
               driver message).
     Validates: Part 1 finding 3 — when input.processing_order appears in neither the run
                file nor the simulation config it points at, the mismatch message names the
-               internal tree_ordered seed as a default rather than attributing it to the
+               internal vertical seed as a default rather than attributing it to the
                user, since the user never wrote it.
 
     The unset-default case only exists when neither the run file nor the simulation config
     it points at declares input.processing_order; a package whose own configuration declares
-    the key (e.g. micro-uchuu-snapshot's snapshot_ordered) makes it configured, so the test
+    the key (e.g. micro-uchuu-horizontal's horizontal) makes it configured, so the test
     skips there rather than asserting a condition the package contradicts.
     """
     if effective_input_setting("unset_order_probe", "processing_order") is not None:
@@ -717,40 +717,40 @@ def test_snapshot_reader_unset_processing_order_names_the_default():
     returncode, output = run_config(
         "snapshot_processing_order_unset",
         input_overrides={
-            "tree_type": "snapshot_hdf5",
-            "tree_name": SNAPSHOT_TREE_NAME,
+            "tree_type": "horizontal_hdf5",
+            "tree_name": HORIZONTAL_TREE_NAME,
         },
     )
 
     assert returncode != 0, "an unset processing_order should still fail the compatibility check"
     assert (
-        "Reader 'snapshot_hdf5' is compatible with processing_order 'snapshot_ordered', "
-        "but input.processing_order is 'tree_ordered' "
+        "Reader 'horizontal_hdf5' is compatible with processing_order 'horizontal', "
+        "but input.processing_order is 'vertical' "
         "(the default; input.processing_order was not set)" in output
     )
     assert "Parameter validation failed" in output
 
 
-def test_tree_reader_rejects_snapshot_ordered():
+def test_vertical_reader_rejects_horizontal_order():
     """
-    Test that a tree reader with processing_order snapshot_ordered is rejected.
+    Test that a vertical reader with processing_order horizontal is rejected.
 
     Expected: Non-zero exit; output includes the reader/order compatibility message.
-    Validates: the compatibility check is reached for tree readers under
-               snapshot_ordered, which the removed blanket rejection used to mask.
+    Validates: the compatibility check is reached for vertical readers under
+               horizontal, which the removed blanket rejection used to mask.
     """
     returncode, output = run_config(
-        "ascii_snapshot_ordered",
+        "ascii_horizontal_order",
         input_overrides={
             "tree_type": "consistent_trees_ascii",
-            "processing_order": "snapshot_ordered",
+            "processing_order": "horizontal",
         },
     )
 
-    assert returncode != 0, "consistent_trees_ascii with snapshot_ordered should fail"
+    assert returncode != 0, "consistent_trees_ascii with horizontal should fail"
     assert (
-        "Reader 'consistent_trees_ascii' is compatible with processing_order 'tree_ordered', "
-        "but input.processing_order is 'snapshot_ordered'" in output
+        "Reader 'consistent_trees_ascii' is compatible with processing_order 'vertical', "
+        "but input.processing_order is 'horizontal'" in output
     )
     assert "Parameter validation failed" in output
 
@@ -760,7 +760,7 @@ def test_unknown_tree_type_names_both_registries():
     Test that an unknown input.tree_type fails with one message naming both registries.
 
     Expected: Non-zero exit; exactly one "Unknown tree_type" message, naming both
-              src/io/tree/registry.c and src/io/snapshot/registry.c.
+              src/io/vertical/registry.c and src/io/horizontal/registry.c.
     Validates: the two-registry lookup reports a single actionable failure rather
                than one per registry.
     """
@@ -771,18 +771,18 @@ def test_unknown_tree_type_names_both_registries():
     assert returncode != 0, "an unknown tree_type should fail at startup"
     assert output.count("Unknown tree_type") == 1, "the failure should be reported exactly once"
     assert "Unknown tree_type 'not_a_real_reader'" in output
-    assert "src/io/tree/registry.c" in output
-    assert "src/io/snapshot/registry.c" in output
+    assert "src/io/vertical/registry.c" in output
+    assert "src/io/horizontal/registry.c" in output
 
 
-def test_snapshot_tree_name_must_be_exact_literal():
+def test_horizontal_tree_name_must_be_exact_literal():
     """
-    Test that a snapshot configuration accepts only the exact tree_name literal.
+    Test that a horizontal configuration accepts only the exact tree_name literal.
 
     Expected: Non-zero exit for every other value, with a message naming the accepted literal.
               The accepted-literal control additionally asserts "Unknown tree_type" is absent
               (see the comment above it) -- reaching and exercising the real driver is a
-              separate concern, owned by test_snapshot_run_completes_and_writes_output_over_the_fixture.
+              separate concern, owned by test_horizontal_run_completes_and_writes_output_over_the_fixture.
     Validates: configured text never becomes a printf format or a silent filename mismatch.
     """
     rejected = ["snapshot_%d.h5", "snapshot_%s.h5", "", "trees_063"]
@@ -790,8 +790,8 @@ def test_snapshot_tree_name_must_be_exact_literal():
         returncode, output = run_config(
             f"tree_name_{index}",
             input_overrides={
-                "tree_type": "snapshot_hdf5",
-                "processing_order": "snapshot_ordered",
+                "tree_type": "horizontal_hdf5",
+                "processing_order": "horizontal",
                 "tree_name": tree_name,
             },
         )
@@ -800,7 +800,7 @@ def test_snapshot_tree_name_must_be_exact_literal():
         assert "Parameter validation failed" in output
         if tree_name:
             assert (
-                f"accepts input.tree_name only as the exact literal '{SNAPSHOT_TREE_NAME}'"
+                f"accepts input.tree_name only as the exact literal '{HORIZONTAL_TREE_NAME}'"
                 in output
             )
 
@@ -810,12 +810,12 @@ def test_snapshot_tree_name_must_be_exact_literal():
     # the specific alternative explanation that the literal silently failed reader
     # lookup instead of being genuinely accepted. output_format is forced to hdf5 for
     # the same reason the completing-run test does: the generated reference run file is
-    # output_format: binary, which a snapshot-ordered configuration rejects at config
+    # output_format: binary, which a horizontal configuration rejects at config
     # time, independent of tree_name.
     #
     # simulation_dir/snapshot_list_file are repointed at the committed fixture so this
     # control cannot start a full production run: now that the driver produces output,
-    # leaving them at a snapshot-ordered package's own machine-local dataset would make
+    # leaving them at a horizontal package's own machine-local dataset would make
     # this config-time control read gigabytes and write a complete run. Whether the
     # driver then aborts (any package whose catalog does not match the fixture) or
     # completes is outside this control's contract -- it asserts config-time acceptance
@@ -823,9 +823,9 @@ def test_snapshot_tree_name_must_be_exact_literal():
     returncode, output = run_config(
         "tree_name_accepted",
         input_overrides={
-            "tree_type": "snapshot_hdf5",
-            "processing_order": "snapshot_ordered",
-            "tree_name": SNAPSHOT_TREE_NAME,
+            "tree_type": "horizontal_hdf5",
+            "processing_order": "horizontal",
+            "tree_name": HORIZONTAL_TREE_NAME,
             **snapshot_fixture_input_overrides(),
         },
         # snapshot_list must name an index the fixture's own 6-entry scale-factor
@@ -843,29 +843,29 @@ def test_multiplier_default_and_non_positive_rejection():
     """
     Test the identity multiplier's default and its non-positive rejection.
 
-    Expected: the default value runs a tree-ordered configuration to completion;
+    Expected: the default value runs a vertical configuration to completion;
               0 and a negative value fail at config time with a "must be positive" message.
     Validates: simulation.unique_galaxy_id_multiplier parses, defaults to TREE_MUL_FAC,
                and rejects non-positive values.
 
     The returncode == 0 assertions below run the selected package's own committed
     configuration to completion, and the multiplier is then read back out of BINARY
-    galaxy output (_run_and_read_unique_ids). A snapshot-ordered package rejects
+    galaxy output (_run_and_read_unique_ids). A horizontal package rejects
     output_format: binary at config time, and its own dataset is the machine-local
     production conversion rather than the committed fixture, so neither the run nor
-    the read-back applies there and the test skips. The snapshot-ordered driver's own
+    the read-back applies there and the test skips. The horizontal driver's own
     end-to-end behaviour is covered by
-    test_snapshot_run_completes_and_writes_output_over_the_fixture.
+    test_horizontal_run_completes_and_writes_output_over_the_fixture.
     """
-    if effective_input_setting("multiplier_probe", "processing_order") == "snapshot_ordered":
+    if effective_input_setting("multiplier_probe", "processing_order") == "horizontal":
         raise TestSkipped(
-            "selected package is snapshot-ordered; these assertions read binary galaxy "
-            "output, which a snapshot-ordered configuration rejects at config time"
+            "selected package is horizontal; these assertions read binary galaxy "
+            "output, which a horizontal configuration rejects at config time"
         )
-    # Absent key: the seeded default is TREE_MUL_FAC, so a tree-ordered run is
+    # Absent key: the seeded default is TREE_MUL_FAC, so a vertical run is
     # accepted by the non-default guard and completes normally.
     returncode, output = run_config("multiplier_absent")
-    assert returncode == 0, f"a default tree-ordered run should succeed:\n{output}"
+    assert returncode == 0, f"a default vertical run should succeed:\n{output}"
     assert "unique_galaxy_id_multiplier" not in output
 
     # Explicitly declaring the default is equally accepted.
@@ -884,20 +884,20 @@ def test_multiplier_default_and_non_positive_rejection():
         assert "must be positive" in output
 
 
-def _skip_unless_selected_package_is_tree_ordered(probe_name):
+def _skip_unless_selected_package_is_vertical(probe_name):
     """Skip tests that read binary galaxy output when the selected package forbids it."""
     if not MIMIC_EXE.exists():
         raise TestSkipped("Mimic not built")
-    if effective_input_setting(probe_name, "processing_order") == "snapshot_ordered":
+    if effective_input_setting(probe_name, "processing_order") == "horizontal":
         raise TestSkipped(
-            "selected package is snapshot-ordered; these assertions read binary galaxy "
-            "output, which a snapshot-ordered configuration rejects at config time"
+            "selected package is horizontal; these assertions read binary galaxy "
+            "output, which a horizontal configuration rejects at config time"
         )
 
 
 def _run_and_read_unique_ids(name, **kwargs):
     """
-    Run a tree-ordered configuration to completion and return its UniqueGalaxyID list.
+    Run a vertical configuration to completion and return its UniqueGalaxyID list.
 
     The effective identity multiplier is only observable in what the encoder actually
     wrote, so the multiplier tests below read the ids back out of the binary galaxy
@@ -906,7 +906,7 @@ def _run_and_read_unique_ids(name, **kwargs):
     param_file = make_param_file(name, output_overrides={"output_format": "binary"}, **kwargs)
     returncode, stdout, stderr = run_mimic(param_file)
     assert returncode == 0, (
-        f"tree-ordered run '{name}' should succeed (rc={returncode})\n"
+        f"vertical run '{name}' should succeed (rc={returncode})\n"
         f"STDOUT:\n{stdout}\nSTDERR:\n{stderr}"
     )
 
@@ -923,21 +923,21 @@ def _run_and_read_unique_ids(name, **kwargs):
     return ids
 
 
-def test_tree_ordered_accepts_non_default_multiplier():
+def test_vertical_accepts_non_default_multiplier():
     """
-    Test that a tree-ordered run honours a non-default identity multiplier end to end.
+    Test that a vertical run honours a non-default identity multiplier end to end.
 
     Expected: exit 0, and the run's ids decompose under 10^10 into exactly the
               (halonr, forestnr_global) component pairs the same run produces under the
               default 10^9 multiplier.
-    Validates: a tree-ordered configuration declaring 10^10 passes config validation, runs,
+    Validates: a vertical configuration declaring 10^10 passes config validation, runs,
                and produces ids encoded with 10^10. Comparing decomposed COMPONENTS rather
                than raw ids is what makes this falsifiable: an encoder still hard-coded to
                TREE_MUL_FAC would emit the default run's ids, which decompose under 10^10
                to forest index -1 and cannot match. The min-id assertion catches the same
                failure independently.
     """
-    _skip_unless_selected_package_is_tree_ordered("multiplier_accept_probe")
+    _skip_unless_selected_package_is_vertical("multiplier_accept_probe")
 
     ten_billion = 10 * DEFAULT_MULTIPLIER
 
@@ -977,7 +977,7 @@ def test_multiplier_precedence_across_both_parser_passes():
                values are spread more than two-fold apart precisely so the test cannot pass
                under the wrong one.
     """
-    _skip_unless_selected_package_is_tree_ordered("multiplier_precedence_probe")
+    _skip_unless_selected_package_is_vertical("multiplier_precedence_probe")
 
     package_value = 2 * DEFAULT_MULTIPLIER
     run_file_value = 9 * DEFAULT_MULTIPLIER
@@ -1008,19 +1008,19 @@ def main():
     try:
         tests = [
             test_unknown_processing_order_fails_fast,
-            test_snapshot_run_completes_and_writes_output_over_the_fixture,
-            test_snapshot_failure_keeps_partition_files_that_already_closed,
-            test_snapshot_failure_removes_the_in_flight_partition_file,
-            test_snapshot_unwritable_output_directory_fails_before_the_dataset_opens,
-            test_snapshot_binary_output_rejected_at_config_time,
-            test_snapshot_skip_rejected_at_config_time,
-            test_snapshot_reader_rejects_tree_ordered,
-            test_snapshot_reader_unset_processing_order_names_the_default,
-            test_tree_reader_rejects_snapshot_ordered,
+            test_horizontal_run_completes_and_writes_output_over_the_fixture,
+            test_horizontal_failure_keeps_partition_files_that_already_closed,
+            test_horizontal_failure_removes_the_in_flight_partition_file,
+            test_horizontal_unwritable_output_directory_fails_before_the_dataset_opens,
+            test_horizontal_binary_output_rejected_at_config_time,
+            test_horizontal_skip_rejected_at_config_time,
+            test_horizontal_reader_rejects_vertical_order,
+            test_horizontal_reader_unset_processing_order_names_the_default,
+            test_vertical_reader_rejects_horizontal_order,
             test_unknown_tree_type_names_both_registries,
-            test_snapshot_tree_name_must_be_exact_literal,
+            test_horizontal_tree_name_must_be_exact_literal,
             test_multiplier_default_and_non_positive_rejection,
-            test_tree_ordered_accepts_non_default_multiplier,
+            test_vertical_accepts_non_default_multiplier,
             test_multiplier_precedence_across_both_parser_passes,
         ]
         return run_test_suite(tests, "Processing Order Validation")

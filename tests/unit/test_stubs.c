@@ -21,7 +21,7 @@
 
 /** @brief Stub: mark halo as processed without recursing into real tree-build logic.
  *
- * The unit harness links tree_driver.c (which references build_halo_tree) but
+ * The unit harness links vertical_driver.c (which references build_halo_tree) but
  * deliberately not build_model.c: driver plumbing tests (e.g.
  * test_enumerated_driver) exercise unit ordering over synthetic readers and
  * must not run the real recursive tree build. The shared FoF evolution

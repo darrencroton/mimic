@@ -10,8 +10,8 @@
 #include "output/hdf5.h"
 #include "output/hdf5_internal.h"
 #include "output/util.h"
-#include "snapshot/reader.h"
-#include "tree/reader.h"
+#include "horizontal/reader.h"
+#include "vertical/reader.h"
 
 #include <hdf5.h>
 #include <stdio.h>
@@ -61,11 +61,11 @@ static int master_partition_exists(int partition) {
   return master_reader_ready() && master_exists[partition];
 }
 
-static const struct TreeReader EnumeratedMasterReader = {
+static const struct VerticalReader EnumeratedMasterReader = {
     .name = "master_enumerated",
     .file_extension = "",
     .partition_model = PARTITION_ENUMERATED,
-    .processing_order = INPUT_PROCESSING_ORDER_TREE,
+    .processing_order = INPUT_PROCESSING_ORDER_VERTICAL,
     .prepare_run = master_prepare_run,
     .teardown_run = master_teardown_run,
     .num_partitions = master_num_partitions,
@@ -80,11 +80,11 @@ static const struct TreeReader EnumeratedMasterReader = {
     .close_partition = NULL,
 };
 
-static const struct TreeReader PerFileMasterReader = {
+static const struct VerticalReader PerFileMasterReader = {
     .name = "master_lhalo_style",
     .file_extension = "",
     .partition_model = PARTITION_PER_FILE,
-    .processing_order = INPUT_PROCESSING_ORDER_TREE,
+    .processing_order = INPUT_PROCESSING_ORDER_VERTICAL,
     .prepare_run = NULL,
     .teardown_run = NULL,
     .num_partitions = master_num_partitions,
@@ -110,9 +110,9 @@ static void reset_master_partitions(void) {
 }
 
 static void configure_master_output(const char *dir, const char *base, int nout,
-                                    const struct TreeReader *reader) {
+                                    const struct VerticalReader *reader) {
   memset(&MimicConfig, 0, sizeof(MimicConfig));
-  MimicConfig.reader = reader;
+  MimicConfig.vertical_reader = reader;
   MimicConfig.NOUT = nout;
   snprintf(MimicConfig.OutputDir, sizeof(MimicConfig.OutputDir), "%s", dir);
   snprintf(MimicConfig.OutputFileBaseName, sizeof(MimicConfig.OutputFileBaseName), "%s", base);
@@ -170,7 +170,7 @@ static int write_galaxies_dataset(hid_t group_id, int64_t total) {
   return TEST_PASS;
 }
 
-/* One snapshot-ordered partition file: exactly its own Snap%03d group, with no
+/* One horizontal partition file: exactly its own Snap%03d group, with no
  * TreeHalosPerSnap dataset, which is what the snapshot writers produce. */
 static int create_snapshot_partition_file(int snapnum, int64_t total) {
   char path[512];
@@ -423,18 +423,18 @@ static int test_per_file_master_links_match_lhalo_layout(void) {
   return TEST_PASS;
 }
 
-/* Minimal resolved snapshot reader for the partition-source test: only .name is
- * consulted by snapshot_output_partition_source(), which takes the format name
+/* Minimal resolved horizontal reader for the partition-source test: only .name is
+ * consulted by horizontal_output_partition_source(), which takes the format name
  * from the resolved reader (as config validation guarantees one exists for a
- * snapshot-ordered run). */
-static const struct SnapshotReader SnapshotSourceReader = {
-    .name = "snapshot_hdf5",
-    .processing_order = INPUT_PROCESSING_ORDER_SNAPSHOT,
+ * horizontal run). */
+static const struct HorizontalReader HorizontalSourceReader = {
+    .name = "horizontal_hdf5",
+    .processing_order = INPUT_PROCESSING_ORDER_HORIZONTAL,
 };
 
 /**
- * @test    test_snapshot_output_partition_source_is_one_partition_per_output_snapshot
- * @brief   The snapshot-ordered source publishes one partition per requested output snapshot
+ * @test    test_horizontal_output_partition_source_is_one_partition_per_output_snapshot
+ * @brief   The horizontal source publishes one partition per requested output snapshot
  *
  * The requested list here is deliberately UNSORTED, which is what
  * output.snapshot_list validation admits (range and uniqueness only). Each
@@ -442,15 +442,15 @@ static const struct SnapshotReader SnapshotSourceReader = {
  * so a dense-numbering regression cannot pass: under dense ids partition 0
  * would report 0 while carrying snapshot 5.
  */
-static int test_snapshot_output_partition_source_is_one_partition_per_output_snapshot(void) {
+static int test_horizontal_output_partition_source_is_one_partition_per_output_snapshot(void) {
   const int requested[] = {5, 1, 0};
   const int nout = (int)(sizeof(requested) / sizeof(requested[0]));
 
   memset(&MimicConfig, 0, sizeof(MimicConfig));
-  MimicConfig.ProcessingOrder = (int)INPUT_PROCESSING_ORDER_SNAPSHOT;
-  /* A snapshot-ordered configuration always carries a resolved snapshot reader
+  MimicConfig.ProcessingOrder = (int)INPUT_PROCESSING_ORDER_HORIZONTAL;
+  /* A horizontal configuration always carries a resolved horizontal reader
    * (config validation rejects it otherwise); the source reads its name. */
-  MimicConfig.snapshot_reader = &SnapshotSourceReader;
+  MimicConfig.horizontal_reader = &HorizontalSourceReader;
   MimicConfig.NOUT = nout;
   for (int n = 0; n < nout; n++) {
     MimicConfig.ListOutputSnaps[n] = requested[n];
@@ -481,8 +481,8 @@ static int test_snapshot_output_partition_source_is_one_partition_per_output_sna
                       "a snapshot partition carries the requested snapshot at its own index");
   }
 
-  TEST_ASSERT(source.format_name != NULL && strcmp(source.format_name, "snapshot_hdf5") == 0,
-              "snapshot source records format name snapshot_hdf5");
+  TEST_ASSERT(source.format_name != NULL && strcmp(source.format_name, "horizontal_hdf5") == 0,
+              "snapshot source records format name horizontal_hdf5");
   TEST_ASSERT(source.prepare_run == NULL, "snapshot source keeps no run-scoped prepare hook");
   TEST_ASSERT(source.teardown_run == NULL, "snapshot source keeps no run-scoped teardown hook");
 
@@ -510,8 +510,8 @@ static int test_snapshot_master_links_each_snapshot_to_its_own_partition(void) {
               "temporary output directory should be available");
 
   memset(&MimicConfig, 0, sizeof(MimicConfig));
-  MimicConfig.ProcessingOrder = (int)INPUT_PROCESSING_ORDER_SNAPSHOT;
-  MimicConfig.snapshot_reader = &SnapshotSourceReader;
+  MimicConfig.ProcessingOrder = (int)INPUT_PROCESSING_ORDER_HORIZONTAL;
+  MimicConfig.horizontal_reader = &HorizontalSourceReader;
   MimicConfig.NOUT = nout;
   snprintf(MimicConfig.OutputDir, sizeof(MimicConfig.OutputDir), "%s", dir_template);
   snprintf(MimicConfig.OutputFileBaseName, sizeof(MimicConfig.OutputFileBaseName), "%s", "model");
@@ -542,11 +542,11 @@ static int test_snapshot_master_links_each_snapshot_to_its_own_partition(void) {
     TEST_ASSERT(assert_total_attr(master_file_id, group_path, totals[n]) == TEST_PASS,
                 "each master link should carry its own partition's TotHalosPerSnap");
 
-    /* A snapshot-ordered run has no trees, so the master links no per-tree
+    /* A horizontal run has no trees, so the master links no per-tree
      * counts, and no other snapshot's File group appears under this snapshot. */
     snprintf(link_path, sizeof(link_path), "%s/TreeHalosPerSnap", group_path);
     TEST_ASSERT(assert_link_exists(master_file_id, link_path, 0) == TEST_PASS,
-                "a snapshot-ordered master links no TreeHalosPerSnap");
+                "a horizontal master links no TreeHalosPerSnap");
 
     hid_t snap_group_id = H5Gopen(master_file_id, group_path, H5P_DEFAULT);
     TEST_ASSERT(snap_group_id >= 0, "master snapshot File group should open");
@@ -570,13 +570,13 @@ static int test_snapshot_master_links_each_snapshot_to_its_own_partition(void) {
 
 /**
  * @test    test_tree_output_partition_source_wraps_configured_reader
- * @brief   The tree-ordered output partition source wraps the configured reader's hooks
+ * @brief   The vertical output partition source wraps the configured reader's hooks
  */
 static int test_tree_output_partition_source_wraps_configured_reader(void) {
   reset_master_partitions();
   memset(&MimicConfig, 0, sizeof(MimicConfig));
-  MimicConfig.ProcessingOrder = (int)INPUT_PROCESSING_ORDER_TREE;
-  MimicConfig.reader = &EnumeratedMasterReader;
+  MimicConfig.ProcessingOrder = (int)INPUT_PROCESSING_ORDER_VERTICAL;
+  MimicConfig.vertical_reader = &EnumeratedMasterReader;
   MimicConfig.NOUT = 2;
 
   master_npartitions = 2;
@@ -606,7 +606,7 @@ static int test_tree_output_partition_source_wraps_configured_reader(void) {
    * downstream is what gates them), so this must read as always-existing
    * even though the fake hook below says otherwise. */
   reset_master_partitions();
-  MimicConfig.reader = &PerFileMasterReader;
+  MimicConfig.vertical_reader = &PerFileMasterReader;
   master_npartitions = 1;
   master_output_ids[0] = 9;
   master_exists[0] = 0;
@@ -630,7 +630,7 @@ int main(void) {
 
   TEST_RUN(test_enumerated_master_links_existing_partitions_only);
   TEST_RUN(test_per_file_master_links_match_lhalo_layout);
-  TEST_RUN(test_snapshot_output_partition_source_is_one_partition_per_output_snapshot);
+  TEST_RUN(test_horizontal_output_partition_source_is_one_partition_per_output_snapshot);
   TEST_RUN(test_snapshot_master_links_each_snapshot_to_its_own_partition);
   TEST_RUN(test_tree_output_partition_source_wraps_configured_reader);
 

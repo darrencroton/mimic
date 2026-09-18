@@ -1,5 +1,5 @@
-"""Slice 7 unit tests: snapshot-HDF5 emission against the frozen contract
-(docs/dev/SNAPSHOT-HDF5-FORMAT.md), the forests.h5 sidecar, writer resume/refuse
+"""Slice 7 unit tests: horizontal-HDF5 emission against the frozen contract
+(docs/dev/HORIZONTAL-HDF5-FORMAT.md), the forests.h5 sidecar, writer resume/refuse
 semantics, and the conversion report."""
 
 import os
@@ -352,8 +352,8 @@ class TestReport(unittest.TestCase):
             recommended_multiplier(10**17, 10**3)
 
     def test_identity_multiplier_window_matches_the_reader_bounds(self):
-        # Cross-check against the two conditions snapshot_identity_bounds_valid()
-        # applies at run time (src/io/snapshot/interface.c), re-derived here
+        # Cross-check against the two conditions horizontal_identity_bounds_valid()
+        # applies at run time (src/io/horizontal/interface.c), re-derived here
         # rather than reusing the implementation under test. Figures are the
         # projected Shin-Uchuu production dataset.
         max_rank, n_forests_total = 12_834_657_129, 166_547_771

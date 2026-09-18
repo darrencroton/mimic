@@ -1,4 +1,4 @@
-"""Phase 1 ctrees ASCII parsing for the ctrees -> snapshot-HDF5 converter.
+"""Phase 1 ctrees ASCII parsing for the ctrees -> horizontal-HDF5 converter.
 
 Owns the frozen scratch-record dtype, both Consistent-Trees header dialects
 (indexed ``#scale(0) id(1) ...`` primary, ``#fields:`` secondary), ``#tree``
@@ -7,8 +7,8 @@ block-marker tracking, chunked pandas reads, and the independent row pre-count.
 Reference semantics mirrored here (the converter implementation plan is archived
 under archive/dev-plans/; the reference sources cited below are authoritative):
 - column names are truncated at the first ``(`` and matched case-insensitively
-  (src/io/tree/ctrees/parse_ctrees.h); ``snap_idx``/``snap_num`` are equivalent
-  spellings of the snapshot column (src/io/tree/read_ctrees_ascii.c
+  (src/io/vertical/ctrees/parse_ctrees.h); ``snap_idx``/``snap_num`` are equivalent
+  spellings of the snapshot column (src/io/vertical/read_ctrees_ascii.c
   setup_column_info);
 - floats are parsed as float64 and cast to float32 at record assembly, matching
   the reference strtod-then-cast parse path;

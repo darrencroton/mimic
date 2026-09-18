@@ -1,13 +1,13 @@
 /**
  * @file    halo_evolution.c
  *
- * Driver-neutral FoF evolution adapters shared by the tree and snapshot
+ * Driver-neutral FoF evolution adapters shared by the vertical and horizontal
  * drivers. Both drivers assemble a FoF workspace their own way (tree traversal
  * over the FoFWorkspace global; snapshot sweep over a per-run buffer) and then
  * hand it to the functions here, which own the module-context setup, the
  * physics-execution dispatch, the FoF chain count, and the halo-init payload.
  *
- * These live in their own file so build_model.c stays tree-driver-specific and
+ * These live in their own file so build_model.c stays vertical-driver-specific and
  * so the unit-test harness can link the shared adapters without pulling in the
  * tree traversal it deliberately stubs (tests/unit/test_stubs.c).
  *
@@ -33,7 +33,7 @@
  * properties are added. This is the only place index coupling touches halo
  * init; the consumer (init_halo_from_payload) is format-neutral.
  *
- * Shared by the tree and snapshot drivers; this is the only instantiation of
+ * Shared by the vertical and horizontal drivers; this is the only instantiation of
  * the generated populator.
  */
 struct HaloInitPayload make_halo_init_payload(struct HaloInputView view, int halonr) {
@@ -44,7 +44,7 @@ struct HaloInitPayload make_halo_init_payload(struct HaloInputView view, int hal
   return payload;
 }
 
-/* Shared by the tree and snapshot drivers. */
+/* Shared by the vertical and horizontal drivers. */
 int count_fof_subhalos(struct HaloInputView view, int first_fof_halo) {
   int count = 0;
   int fofhalo = first_fof_halo;
@@ -78,8 +78,8 @@ int count_fof_subhalos(struct HaloInputView view, int first_fof_halo) {
  * @param   halonr       Index of main halo in the input view
  * @param   centralgal   Index of central galaxy in the workspace
  *
- * Shared by the tree and snapshot drivers, which own different workspaces (the
- * FoFWorkspace global and the snapshot driver's per-run buffer respectively).
+ * Shared by the vertical and horizontal drivers, which own different workspaces (the
+ * FoFWorkspace global and the horizontal driver's per-run buffer respectively).
  */
 static void setup_module_context(struct ModuleContext *ctx, struct HaloInputView view,
                                  struct Halo *workspace, int halonr, int centralgal) {
@@ -141,7 +141,7 @@ static void setup_module_context(struct ModuleContext *ctx, struct HaloInputView
  * marshalling is a separate, driver-owned step performed by the caller through
  * the shared output-buffer marshaller.
  *
- * Shared by the tree and snapshot drivers, which pass their own workspaces.
+ * Shared by the vertical and horizontal drivers, which pass their own workspaces.
  *
  * Phase assignments and loop modes are configured in the input YAML file.
  * TimestepScheme and SubSteps together determine the active substep count.

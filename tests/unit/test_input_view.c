@@ -5,7 +5,7 @@
  * Validates: accessors, virial helpers, the generated payload populator, and
  * output conversion all read the raw halos they are *handed*, not a global.
  *
- * A bitwise run comparison cannot see this: on the tree path the view always
+ * A bitwise run comparison cannot see this: on the vertical path the view always
  * points at the same array the global does, so a helper that quietly kept
  * reading the global would produce identical output. These tests therefore
  * build **two** RawHalo arrays with deliberately different values at the same
@@ -39,7 +39,7 @@
 static int passed = 0;
 static int failed = 0;
 
-/* The tree driver's input storage. These tests deliberately point it at the
+/* The vertical driver's input storage. These tests deliberately point it at the
  * *wrong* array so that any layer still reading it fails loudly. */
 extern struct RawHalo *InputTreeHalos;
 extern double *Age_base; /* For cleanup of init() allocation */
@@ -62,7 +62,7 @@ static int values_are_distinct(double a, double b) {
 }
 
 /*
- * Mirror of the tree driver's make_halo_init_payload() (build_model.c). The
+ * Mirror of the vertical driver's make_halo_init_payload() (build_model.c). The
  * generated populator is an .inc included into a function body that declares
  * `payload` and has `view` in scope, so reproducing that shape here is the only
  * way to exercise the generated emission directly.

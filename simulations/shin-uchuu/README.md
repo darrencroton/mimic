@@ -1,9 +1,9 @@
-# Shin-Uchuu Simulation Package — Snapshot-Ordered HDF5
+# Shin-Uchuu Simulation Package — Horizontal HDF5
 
-This package declares the snapshot-ordered HDF5 on-disk record for the Shin-Uchuu halo catalog: one `snapshot_NNN.h5` file per snapshot holding that snapshot's whole halo population as a struct-of-arrays, plus the `forests.h5` provenance sidecar. The on-disk contract is frozen in [`docs/dev/SNAPSHOT-HDF5-FORMAT.md`](../../docs/dev/SNAPSHOT-HDF5-FORMAT.md); this package conforms to that specification, never the other way around.
+This package declares the horizontal HDF5 on-disk record for the Shin-Uchuu halo catalog: one `snapshot_NNN.h5` file per snapshot holding that snapshot's whole halo population as a struct-of-arrays, plus the `forests.h5` provenance sidecar. The on-disk contract is frozen in [`docs/dev/HORIZONTAL-HDF5-FORMAT.md`](../../docs/dev/HORIZONTAL-HDF5-FORMAT.md); this package conforms to that specification, never the other way around.
 
 - `simulation_info.yaml`: input paths, snapshot list path, cosmology, units, box size, and particle mass
-- `halo_properties.yaml`: the RawHalo field contract — every `/halos` dataset of the frozen format, with names and types matching the specification exactly. Deliberately omits `ForestIndex` and `HaloRankInForest` (see file header), mirroring `micro-uchuu-snapshot`.
+- `halo_properties.yaml`: the RawHalo field contract — every `/halos` dataset of the frozen format, with names and types matching the specification exactly. Deliberately omits `ForestIndex` and `HaloRankInForest` (see file header), mirroring `micro-uchuu-horizontal`.
 - `shin-uchuu.a_list`: 70 snapshot scale factors (a=0.04773 to a=0.99998)
 - `snapshots/`: symlink to the converted dataset directory (machine-local, not tracked)
 - `_tests/`: not present (see "Maintenance notes")
@@ -20,23 +20,23 @@ ln -s /path/to/shin-uchuu-snapshot simulations/shin-uchuu/snapshots
 
 ## Running this package
 
-Runnable end to end through the snapshot-ordered driver (`run_snapshot_driver()`), with shipped run files pairing it with both `halos-only` and `sage16`:
+Runnable end to end through the horizontal driver (`run_horizontal_driver()`), with shipped run files pairing it with both `halos-only` and `sage16`:
 
 ```bash
 make MODEL=halos-only SIMULATION=shin-uchuu
 ./mimic models/halos-only/input/halos-only_shin-uchuu.yaml
 ```
 
-Snapshot-ordered runs are HDF5-only, serial-only (`NTask == 1`; see [`MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md`](../../docs/dev/MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md) for multi-rank execution), and do not support `--skip` — all three are rejected at configuration time. See [`docs/USER-GUIDE.md`](../../docs/USER-GUIDE.md) → "Running Snapshot-Ordered Input" and [`docs/DEVELOPER-GUIDE.md`](../../docs/DEVELOPER-GUIDE.md) → "The Snapshot Driver".
+Horizontal runs are HDF5-only, serial-only (`NTask == 1`; see [`MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md`](../../docs/dev/MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md) for multi-rank execution), and do not support `--skip` — all three are rejected at configuration time. See [`docs/USER-GUIDE.md`](../../docs/USER-GUIDE.md) → "Running Horizontal Input" and [`docs/DEVELOPER-GUIDE.md`](../../docs/DEVELOPER-GUIDE.md) → "The Horizontal Driver".
 
 ## Maintenance notes
 
 - **`unique_galaxy_id_multiplier: 20000000000` (2×10¹⁰)** must match `simulations/shin-uchuu-ascii/`, or `UniqueGalaxyID` diverges between the two packages. Confirmed against this catalog's measured `max_halo_rank_in_forest` ≈ 1.265×10¹⁰.
 - **`Spin` range `[-1000, 1000]`.** Measured over the full production dataset: max `|Spin|` = 416.69, zero non-finite.
 - **`deltaMvir` range `[-20000, 20000]`** (declared in `src/core/core_properties.yaml`, not this package). Measured over the `sage16` production run: max `|deltaMvir|` = 12,432.
-- **`_tests/` is not shipped.** No committed contract fixtures, fixture generator, or conformance checker yet; `micro-uchuu-snapshot/_tests/` is the reference layout to follow.
+- **`_tests/` is not shipped.** No committed contract fixtures, fixture generator, or conformance checker yet; `micro-uchuu-horizontal/_tests/` is the reference layout to follow.
 
 ## Related packages
 
-- `simulations/shin-uchuu-ascii/` — a subset of the same catalog in Consistent-Trees ASCII, read by the tree-ordered driver
-- `simulations/micro-uchuu-snapshot/` — the worked exemplar this package's structure and conventions mirror
+- `simulations/shin-uchuu-ascii/` — a subset of the same catalog in Consistent-Trees ASCII, read by the vertical driver
+- `simulations/micro-uchuu-horizontal/` — the worked exemplar this package's structure and conventions mirror

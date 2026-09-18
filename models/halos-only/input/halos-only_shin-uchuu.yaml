@@ -1,4 +1,4 @@
-# Mimic halos-only Shin-Uchuu (snapshot-ordered HDF5) Run Configuration
+# Mimic halos-only Shin-Uchuu (horizontal HDF5) Run Configuration
 
 model:
   name: halos-only

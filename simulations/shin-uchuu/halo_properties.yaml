@@ -1,7 +1,7 @@
-# Shin-Uchuu Halo Catalog Properties — snapshot-ordered HDF5 format
+# Shin-Uchuu Halo Catalog Properties — horizontal HDF5 format
 #
-# Defines the RawHalo contract for the snapshot_hdf5 reader. Every entry below
-# is a `/halos` dataset of docs/dev/SNAPSHOT-HDF5-FORMAT.md (format_version 2),
+# Defines the RawHalo contract for the horizontal_hdf5 reader. Every entry below
+# is a `/halos` dataset of docs/dev/HORIZONTAL-HDF5-FORMAT.md (format_version 2),
 # whose Halo Datasets table makes dataset names and types normative: the
 # generated reader-side code consumes the datasets by name, so property names
 # and the on-disk names are the same strings and no `source:` mapping is needed.
@@ -18,12 +18,12 @@
 #
 # ForestIndex and HaloRankInForest, the producer-owned UniqueGalaxyID identity
 # components the on-disk format carries explicitly, are deliberately NOT
-# declared here: they are snapshot-format identity metadata governed by
-# docs/dev/SNAPSHOT-HDF5-FORMAT.md, not catalog halo properties, so they are
-# read directly by src/io/snapshot/read_snapshot_hdf5.c into
+# declared here: they are horizontal-format identity metadata governed by
+# docs/dev/HORIZONTAL-HDF5-FORMAT.md, not catalog halo properties, so they are
+# read directly by src/io/horizontal/read_horizontal_hdf5.c into
 # struct SnapshotSlab's reader-owned forest_index/halo_rank_in_forest arrays,
 # never through this file or the generated RawHalo struct. This mirrors
-# simulations/micro-uchuu-snapshot/halo_properties.yaml, which omits both for
+# simulations/micro-uchuu-horizontal/halo_properties.yaml, which omits both for
 # the same reason.
 #
 # Required core roles (src/core/core_properties.yaml required_inputs):

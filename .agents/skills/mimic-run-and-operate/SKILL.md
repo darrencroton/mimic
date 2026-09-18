@@ -95,24 +95,24 @@ Deleting one line from `modules.phases:` is only safe for a self-contained modul
 
 Rule: to disable a physics process, remove the whole coupled chain, and check each module's `module_info.yaml` `dependencies:` block first. Some modules also enforce ordering at init and will FATAL if their partner is missing or misordered — that failure is your friend; do not work around it. Missing parameters for enabled modules fail during module `init()`; extra entries in `modules.parameters:` are currently tolerated, recorded in metadata, and not caught by `scripts/lint_parameter_usage.py` (that linter compares C parameter loads against `module_info.yaml`, not run YAML).
 
-## Snapshot-ordered runs
+## Horizontal runs
 
-`input.processing_order: snapshot_ordered` selects the second live driver, `run_snapshot_driver()` (`src/core/snapshot_driver.c`), reached through the same `./mimic <run.yaml>` invocation as any other run. `micro-uchuu-snapshot` is the shipped example package, with its own run files:
+`input.processing_order: horizontal` selects the second live driver, `run_horizontal_driver()` (`src/core/horizontal_driver.c`), reached through the same `./mimic <run.yaml>` invocation as any other run. `micro-uchuu-horizontal` is the shipped example package, with its own run files:
 
 ```bash
-make MODEL=halos-only SIMULATION=micro-uchuu-snapshot
-./mimic models/halos-only/input/halos-only_micro-uchuu-snapshot.yaml; echo "rc=$?"
+make MODEL=halos-only SIMULATION=micro-uchuu-horizontal
+./mimic models/halos-only/input/halos-only_micro-uchuu-horizontal.yaml; echo "rc=$?"
 ```
 
 Three restrictions are enforced at config time, before any snapshot file is opened (`validate_and_postprocess()`, `src/core/read_parameter_file.c`):
 
-- **HDF5-only** — `output.output_format: binary` is rejected ("snapshot-ordered runs are HDF5-only").
-- **No `--skip`** — resume is not supported for snapshot-ordered runs in this phase; the flag is rejected rather than silently ignored.
+- **HDF5-only** — `output.output_format: binary` is rejected ("horizontal runs are HDF5-only").
+- **No `--skip`** — resume is not supported for horizontal runs in this phase; the flag is rejected rather than silently ignored.
 - **Serial only** — `NTask > 1` is rejected, naming `docs/dev/MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md` as where multi-rank execution belongs.
 
-The driver calls the reader's `open_run` before processing anything, so the dataset is fully validated up front, then sweeps snapshots in increasing time order holding exactly two live generations (the current slab/processed state and the retained previous one). Output differences from a tree-ordered run, all deliberate: no `Ntrees` attribute and no `TreeHalosPerSnap` dataset on any `Snap%03d/Galaxies` group (omitted entirely, not zero or empty); `TotHalosPerSnap` is `int64` rather than `int` (the same widened type a tree-ordered run's output now also carries); a snapshot run writes one HDF5 partition file per requested output snapshot (named by that snapshot's number) plus the master, with per-partition cleanup — a closed partition file survives a later failure; `RunProperties/Version/hdf5_format_version` reads `1.2`. Full driver mechanics (the two-generation rotation, the two ping-ponged galaxy pools, the parity checklist, the output-partition seam): `docs/DEVELOPER-GUIDE.md` → "The Snapshot Driver".
+The driver calls the reader's `open_run` before processing anything, so the dataset is fully validated up front, then sweeps snapshots in increasing time order holding exactly two live generations (the current slab/processed state and the retained previous one). Output differences from a vertical run, all deliberate: no `Ntrees` attribute and no `TreeHalosPerSnap` dataset on any `Snap%03d/Galaxies` group (omitted entirely, not zero or empty); `TotHalosPerSnap` is `int64` rather than `int` (the same widened type a vertical run's output now also carries); a horizontal run writes one HDF5 partition file per requested output snapshot (named by that snapshot's number) plus the master, with per-partition cleanup — a closed partition file survives a later failure; `RunProperties/Version/hdf5_format_version` reads `1.2`. Full driver mechanics (the two-generation rotation, the two ping-ponged galaxy pools, the parity checklist, the output-partition seam): `docs/DEVELOPER-GUIDE.md` → "The Horizontal Driver".
 
-**The cross-format identity gate** is how the snapshot driver is validated against the tree driver end to end: same `UniqueGalaxyID` set per output snapshot, per-ID bitwise-identical fields, no tolerance. It is a **manual, dataset-present operation** — `make MODEL=halos-only SIMULATION=micro-uchuu-snapshot tests-scientific` on a machine holding both the `micro-uchuu-ascii` and `micro-uchuu-snapshot` datasets — not part of the default-pair suite, CI, or any automated tier; it fails loudly rather than skipping when a dataset is absent. See `docs/DEVELOPER-GUIDE.md` → "The cross-format identity gate" and the `mimic-validation-and-qa` skill.
+**The cross-format identity gate** is how the horizontal driver is validated against the vertical driver end to end: same `UniqueGalaxyID` set per output snapshot, per-ID bitwise-identical fields, no tolerance. It is a **manual, dataset-present operation** — `make MODEL=halos-only SIMULATION=micro-uchuu-horizontal tests-scientific` on a machine holding both the `micro-uchuu-ascii` and `micro-uchuu-horizontal` datasets — not part of the default-pair suite, CI, or any automated tier; it fails loudly rather than skipping when a dataset is absent. See `docs/DEVELOPER-GUIDE.md` → "The cross-format identity gate" and the `mimic-validation-and-qa` skill.
 
 ## What a run produces
 
@@ -120,7 +120,7 @@ Everything goes into `output.output_directory`. Both formats ALWAYS get a `metad
 
 **HDF5 format** (`output_format: hdf5`):
 
-- Per-file outputs `<base>_NNN.hdf5` (`%03d` numbering), one per output partition. **Tree-ordered:** numbered by input chunk/file number (e.g. `model_000.hdf5`); each holds `Snap<NNN>/Galaxies` (structured galaxy dataset) and `Snap<NNN>/TreeHalosPerSnap` for every requested output snapshot. **Snapshot-ordered:** numbered by the snapshot number it holds (e.g. `model_049.hdf5`, one file per requested output snapshot); each holds exactly one `Snap<NNN>/Galaxies` group — its own — with no `Ntrees` attribute and no `TreeHalosPerSnap` dataset, ever.
+- Per-file outputs `<base>_NNN.hdf5` (`%03d` numbering), one per output partition. **Vertical:** numbered by input chunk/file number (e.g. `model_000.hdf5`); each holds `Snap<NNN>/Galaxies` (structured galaxy dataset) and `Snap<NNN>/TreeHalosPerSnap` for every requested output snapshot. **Horizontal:** numbered by the snapshot number it holds (e.g. `model_049.hdf5`, one file per requested output snapshot); each holds exactly one `Snap<NNN>/Galaxies` group — its own — with no `Ntrees` attribute and no `TreeHalosPerSnap` dataset, ever.
 - A master file `<base>.hdf5` containing external links to the per-file outputs plus its own `RunProperties`. Open the master for whole-run access; keep it in the same directory as the per-file outputs or the links break.
 - `RunProperties/` (in the master AND every per-file output, `src/io/output/metadata_hdf5.c`): `Version` group (git branch/commit, build date), `EnabledModules`, `EventContracts`, `Parameters` (compound datasets — omitted when empty, e.g. an empty pipeline writes no `EnabledModules`), `Redshifts`, and per-file `FieldMetadata` (compound dataset of field_name/units/description rows). **This is the reproducibility record**: months later, the HDF5 file alone recovers exactly which pipeline (modules, order, event wiring) and which parameter values produced it, without the original YAML.
 
@@ -249,10 +249,10 @@ python plot/mimic-plot/mimic-plot.py --param-file=models/sage16/input/sage16_min
 
 ## Provenance and maintenance
 
-Facts verified against the repo on 2026-07-04; the snapshot-ordered run mechanics added 2026-08-12 once `run_snapshot_driver()` landed. Re-verify before trusting anything volatile:
+Facts verified against the repo on 2026-07-04; the horizontal run mechanics added 2026-08-12 once `run_horizontal_driver()` landed. Re-verify before trusting anything volatile:
 
-- Snapshot-ordered config-time rejections: `grep -n "snapshot-ordered runs are HDF5-only\|resume is not supported for snapshot-ordered\|snapshot-ordered runs are serial" src/core/read_parameter_file.c`
-- Snapshot output schema differences: `grep -n "snapshot_run\|Ntrees\|TotHalosPerSnap" src/io/output/hdf5.c | head`
+- Horizontal config-time rejections: `grep -n "horizontal runs are HDF5-only\|resume is not supported for horizontal\|horizontal runs are serial" src/core/read_parameter_file.c`
+- Snapshot output schema differences: `grep -n "horizontal_run\|Ntrees\|TotHalosPerSnap" src/io/output/hdf5.c | head`
 
 - CLI flags and usage text: `grep -n "usage\|--skip\|--compress\|--quiet" src/core/main.c`
 - Mismatch FATAL and unknown-key rejection: `grep -n "FATAL\|model.name\|Unknown" src/core/read_parameter_file.c | head`
@@ -260,7 +260,7 @@ Facts verified against the repo on 2026-07-04; the snapshot-ordered run mechanic
 - Output naming and metadata contents: `ls tests/data/output/baseline/binary tests/data/output/baseline/hdf5{,/metadata}`
 - Binary header/record layout: `grep -n "ntrees\|fwrite" src/io/output/binary.c | head`
 - Schema reader API: `grep -n "^def " plot/mimic-plot/output_schema.py`
-- Skip/partial-chunk behavior: `grep -rn "skip" src/core/tree_driver.c | head`
+- Skip/partial-chunk behavior: `grep -rn "skip" src/core/vertical_driver.c | head`
 - Compression flag plumbing: `grep -rn "compress" src/core/main.c src/io/output/hdf5.c | head`
 - Chunking knobs: `grep -n "forests_per_file\|target_file_size_mb" src/core/read_parameter_file.c`
 - Progress fallback: `grep -rn "5\|isatty" src/util/progress*.c 2>/dev/null || grep -rln "progress" src/util/`

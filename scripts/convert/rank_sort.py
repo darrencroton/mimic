@@ -1,4 +1,4 @@
-"""External merge-sort rank core for the ctrees -> snapshot-HDF5 converter
+"""External merge-sort rank core for the ctrees -> horizontal-HDF5 converter
 (landed in ``3d52446c``; ``links.compute_identity`` was wired to it in
 ``c5573d0c``).
 
@@ -11,7 +11,7 @@ explicit memory budget: bounded chunks are sorted and spilled to disk as sorted
 runs, then k-way merged while ``HaloRankInForest`` is assigned in one streaming
 pass over the merged key order.
 
-**Key order** (the reference tree-driver order, ``ctrees_utils.c:524-547``, and
+**Key order** (the reference vertical-driver order, ``ctrees_utils.c:524-547``, and
 exactly the order the removed in-memory pass built with
 ``np.lexsort((ids, pid, upid, neg_snap, forest))``)::
 
@@ -288,7 +288,7 @@ def rank_forests(
     budget_bytes: int,
     spill_dir=None,
 ) -> RankSortResult:
-    """Rank every record within its forest in reference tree-driver order,
+    """Rank every record within its forest in reference vertical-driver order,
     under an explicit memory budget.
 
     ``blocks`` is an iterable of ``(snap, records)`` — see the module docstring

@@ -15,7 +15,7 @@ Do NOT use it for:
 - Plot registry/profile/figure-contract mechanics → see the `mimic-plots-and-analysis` skill (interpretation of what plots *show* is here, in `references/diagnostics-interpretation.md`).
 - Property YAML schema, generated code, precision policy mechanics → see the `mimic-properties` skill.
 - Writing or modifying physics modules → see the `mimic-modules` skill.
-- Tree readers, simulation packages, catalog fields → see the `mimic-simulations-and-readers` skill.
+- Vertical readers, simulation packages, catalog fields → see the `mimic-simulations-and-readers` skill.
 - Proving a scientific claim with numbers and tolerances → see the `mimic-scientific-method` skill.
 - Why past physics decisions were made (parity quirks, precision history) → see the `mimic-failure-archaeology` skill.
 

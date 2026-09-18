@@ -31,7 +31,7 @@ Do NOT use for:
 | `docs/USER-GUIDE.md` | Workflow-oriented: generate/configure/analyse catalogues; troubleshooting | "How do I use it successfully?" |
 | `docs/DEVELOPER-GUIDE.md` | Extension workflows, APIs, metadata, testing; the Reference section is the one place for reference-manual prose | "How do I modify it?" |
 | `docs/STYLE-GUIDE.md` | Naming, comments, metadata style, test style, review conventions | "What should contributions look like?" |
-| `docs/dev/SNAPSHOT-HDF5-FORMAT.md` | Frozen on-disk contract for snapshot-ordered HDF5 input (`format_version` ratchet); an edit that changes which files conform needs a version bump, an edit that only corrects inaccurate wording goes in that doc's dated Errata table | "What must a snapshot-HDF5 input file contain?" |
+| `docs/dev/HORIZONTAL-HDF5-FORMAT.md` | Frozen on-disk contract for horizontal HDF5 input (`format_version` ratchet); an edit that changes which files conform needs a version bump, an edit that only corrects inaccurate wording goes in that doc's dated Errata table | "What must a horizontal-HDF5 input file contain?" |
 | `tests/README.md`, `plot/mimic-plot/README.md` | Quick references for their subsystems, deferring depth to the guides | — |
 | `models/<m>/README.md` | That package's science scope, pipeline, parameters, plots, references, citations | — |
 | `simulations/<s>/README.md` | Data provenance, units, snapshot lists, fixtures, maintenance obligations | — |
@@ -68,7 +68,7 @@ The evidence bar applies to prose: every claim states what was measured, and unm
 - **sage16 reproduces published SAGE** — supported, with the precise phrasing: near-bit-parity against Croton et al. (2016) SAGE on mini-Millennium, ≥98% of matched galaxies bit-identical per property at z=0, residuals at float-ULP level plus ~0.1% chaotic threshold flips (chronicle: `mimic-failure-archaeology`). Do not round this up to "identical".
 - **Model and simulation interchangeability** — supported to the extent shipped: three model packages and seven simulation packages run through one framework; cross-format consistency is validated on the micro-Uchuu triplet. The one divergence this used to carry (`fix_flybys` at the final snapshot) has been removed — see `mimic-failure-archaeology` incident 9 — so the triplet now agrees at every snapshot, modulo the separate, unrelated, pre-existing float32-ULP reader divergence documented in `docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md` §3.4.
 - **Reproducible output provenance** — supported: every run self-records pipeline, parameters, event contracts, versions, and schema (HDF5 `RunProperties`; run-local `metadata/`).
-- Anything about snapshot-ordered processing, distributed operation, embedded engines, or assisted model building is **planned/open** (status lives in `docs/dev/MIMIC-DEVELOPMENT-PATHWAY.md`) — label it so.
+- Anything about horizontal processing, distributed operation, embedded engines, or assisted model building is **planned/open** (status lives in `docs/dev/MIMIC-DEVELOPMENT-PATHWAY.md`) — label it so.
 
 When writing citations, follow each package README's list (sage16: Croton et al. 2016, ApJS 222, 22 and Croton et al. 2006).
 

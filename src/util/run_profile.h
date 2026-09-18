@@ -5,7 +5,7 @@
  * @file    run_profile.h
  * @brief   Run-scope memory profile: peak RSS and the driver's sizing terms
  *
- * The snapshot driver's memory footprint is projected per live generation as a
+ * The horizontal driver's memory footprint is projected per live generation as a
  * fixed per-halo cost plus terms that are NOT fixed by the slab count. This unit
  * measures three of them, because none can be derived from the input:
  *
@@ -18,13 +18,13 @@
  *       against -- that ceiling is enforced on the live buffer during growth, so
  *       checking it against a slab count or against C misstates the headroom. P
  *       is scoped to whatever buffer the driver keeps live: one snapshot for the
- *       snapshot-ordered driver, one tree for the tree-ordered driver, which
+ *       horizontal driver, one tree for the vertical driver, which
  *       resets the buffer per tree.
  *
  *       The separate per-snapshot counter guard is NOT bounded by P under the
- *       tree-ordered driver: TotHalosPerSnap accumulates over every tree in an
+ *       vertical driver: TotHalosPerSnap accumulates over every tree in an
  *       output partition (src/io/output/util.c), so a per-tree P says nothing
- *       about its headroom. Under the snapshot-ordered driver the two scopes
+ *       about its headroom. Under the horizontal driver the two scopes
  *       coincide and P does bound it.
  *   G - the galaxy pool's allocation high-water, in galaxies. The pool serves
  *       every inherited progenitor galaxy and every newly initialised halo,
@@ -57,8 +57,8 @@
  * it.
  *
  * MPI: RSS is per process. The report is emitted by rank 0 only, so under a
- * multi-rank tree-ordered run it describes that rank and not the node total; a
- * node peak would need a max-reduce across ranks. Snapshot-ordered runs are
+ * multi-rank vertical run it describes that rank and not the node total; a
+ * node peak would need a max-reduce across ranks. Horizontal runs are
  * serial by configuration, so rank 0 is the whole run wherever these terms
  * matter most.
  *

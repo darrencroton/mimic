@@ -87,7 +87,7 @@ def selected_package_writes_binary():
     """
     Whether the selected simulation package can produce binary output.
 
-    A snapshot-ordered package cannot: the driver rejects any output format but
+    A horizontal package cannot: the driver rejects any output format but
     HDF5 at configuration time, so the generated ``test_binary.yaml`` is invalid
     by construction for it and every check below would fail on a run that never
     happened. The effective processing order is read exactly as the parser
@@ -106,13 +106,13 @@ def selected_package_writes_binary():
             sim_config = yaml.safe_load(handle)
         order = ((sim_config or {}).get("input") or {}).get("processing_order")
 
-    return order != "snapshot_ordered"
+    return order != "horizontal"
 
 
 def first_requested_output_snapshot(param_file):
     """The first snapshot ``output.snapshot_list`` in ``param_file`` asks for.
 
-    A snapshot-ordered run writes one partition file per requested output
+    A horizontal run writes one partition file per requested output
     snapshot, named by that snapshot's number, so the filename cannot be derived
     from a fixed partition index. Reading the request from the run file keeps this
     correct for any list configuration validation admits, including an unsorted
@@ -138,7 +138,7 @@ def regenerate_output():
 
     Binary output is used wherever the selected package can produce it, which
     keeps the default pair on the format it has always validated. For a package
-    that cannot (snapshot-ordered: HDF5-only), the HDF5 configuration is run and
+    that cannot (horizontal: HDF5-only), the HDF5 configuration is run and
     read instead. Only the vehicle changes -- the checks below are
     format-agnostic and are applied to the same records either way.
 
@@ -153,7 +153,7 @@ def regenerate_output():
             output_format = "binary"
         else:
             param_file = core_input_file("test_hdf5.yaml")
-            # A snapshot-ordered run names each partition file after the output
+            # A horizontal run names each partition file after the output
             # snapshot it holds, so the file to read comes from the run file's own
             # request rather than from a partition index.
             snapnum = first_requested_output_snapshot(param_file)

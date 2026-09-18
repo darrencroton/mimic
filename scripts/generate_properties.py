@@ -1060,7 +1060,7 @@ def generate_populate_halo_payload(halo_props: List[Dict], yaml_hash: str) -> st
     """Generate populate_halo_payload.inc.
 
     Fills a local `struct HaloInitPayload payload` for descendant `halonr` from
-    the raw input halos in `view`. Included inside the tree driver's
+    the raw input halos in `view`. Included inside the vertical driver's
     make_halo_init_payload() (build_model.c).
 
     There is one shared populator, not a per-driver family: because it reads

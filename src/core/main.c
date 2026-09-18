@@ -35,9 +35,9 @@
 #include "galaxy_pool.h"
 #include "globals.h"
 #include "memory.h"
-#include "core/tree_driver.h"
-#include "tree/interface.h"
-#include "tree/reader.h"
+#include "core/vertical_driver.h"
+#include "vertical/interface.h"
+#include "vertical/reader.h"
 #include "run_log.h"
 #include "run_profile.h"
 #include "progress.h"
@@ -68,7 +68,7 @@ static struct sigaction saveaction_XCPU; /* Saved signal action for SIGXCPU */
  */
 
 void termination_handler(int signum) {
-  TreeDriverGotXCPU = 1;
+  VerticalDriverGotXCPU = 1;
   /* Call the previous handler first while our handler is still active */
   if (saveaction_XCPU.sa_handler != NULL)
     (*saveaction_XCPU.sa_handler)(signum);
@@ -131,14 +131,14 @@ void bye() {
   if (exitfail) {
     /* Remove in-progress output files so a failed run leaves no partial output.
      * Each driver owns its own registry and the inactive one has nothing
-     * registered, so both are called unconditionally. The snapshot registry
+     * registered, so both are called unconditionally. The horizontal registry
      * additionally covers the master file, which is written below after the
      * driver has already returned. */
-    tree_driver_remove_incomplete_outputs();
-    snapshot_driver_remove_incomplete_outputs();
+    vertical_driver_remove_incomplete_outputs();
+    horizontal_driver_remove_incomplete_outputs();
 
 #ifdef MPI
-    if (ThisTask == 0 && TreeDriverGotXCPU == 1)
+    if (ThisTask == 0 && VerticalDriverGotXCPU == 1)
       printf("Received XCPU, exiting. But we'll be back.\n");
 #endif
   }
@@ -361,8 +361,8 @@ int main(int argc, char **argv) {
   /* Initialize memory management system (will log at correct level) */
   init_memory_system(0); /* Use default block limit */
 
-  /* Prepare the tree driver's galaxy storage pool (grows to the largest tree). */
-  TreeGalaxyPool = galaxy_pool_create(0);
+  /* Prepare the vertical driver's galaxy storage pool (grows to the largest tree). */
+  VerticalGalaxyPool = galaxy_pool_create(0);
 
   /* Log startup information */
   DEBUG_LOG("Starting Mimic with verbosity level: %s", get_log_level_name(log_level));
@@ -436,10 +436,10 @@ int main(int argc, char **argv) {
     if (ThisTask == 0) {
       VERBOSE_LOG("Creating master HDF5 file");
       write_master_file();
-      /* A snapshot-ordered run is only complete once its master exists, so the
-       * snapshot driver's output-cleanup registration is disarmed here rather
-       * than when the driver returned. No-op for a tree-ordered run. */
-      snapshot_driver_clear_output_paths();
+      /* A horizontal run is only complete once its master exists, so the
+       * horizontal driver's output-cleanup registration is disarmed here rather
+       * than when the driver returned. No-op for a vertical run. */
+      horizontal_driver_clear_output_paths();
     }
     free_hdf5_ids();
   } else
@@ -465,21 +465,21 @@ int main(int argc, char **argv) {
   module_system_cleanup();
 
   /* Release the run-persistent inheritance gather scratch buffer */
-  free_tree_driver_scratch();
+  free_vertical_driver_scratch();
 
-  /* Harvest the tree driver's pool cost before the pool goes away. A
-   * snapshot-ordered run leaves this pool untouched and reports its own two
+  /* Harvest the vertical driver's pool cost before the pool goes away. A
+   * horizontal run leaves this pool untouched and reports its own two
    * pools from inside the driver, so the profile's maxima come from whichever
    * driver actually ran. */
   struct GalaxyPoolStats tree_pool_stats;
-  galaxy_pool_stats(TreeGalaxyPool, &tree_pool_stats);
+  galaxy_pool_stats(VerticalGalaxyPool, &tree_pool_stats);
   run_profile_note_galaxy_pool(tree_pool_stats.galaxies_high_water, tree_pool_stats.slots_allocated,
                                tree_pool_stats.chunk_count, sizeof(struct GalaxyData));
 
   /* Release the galaxy pool before the leak check so its chunks are accounted
    * for and not reported as leaks. */
-  galaxy_pool_destroy(TreeGalaxyPool);
-  TreeGalaxyPool = NULL;
+  galaxy_pool_destroy(VerticalGalaxyPool);
+  VerticalGalaxyPool = NULL;
 
   /* Report the run's memory profile unconditionally, not under --verbose: a
    * long production run whose peak RSS went unrecorded cannot be re-measured

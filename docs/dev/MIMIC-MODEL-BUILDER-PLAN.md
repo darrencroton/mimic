@@ -2,7 +2,7 @@
 
 **Status:** Long-term planning brief, not an implementation plan.
 **Date:** 2026-06-05
-**Context:** This work is downstream of Mimic v1.0 and a working science-gate prototype. The current brief is conservative about waiting for the dual-driver migration; after v1.0 is tagged, re-review whether the model builder should wait for the snapshot driver or proceed from the stable v1.0 module, metadata, and validation seams. **That re-review is now due (2026-08-12):** both triggers have fired — v1.0 is tagged and the snapshot driver landed with its identity gate green — so the brief should be refreshed against the tagged baseline rather than left waiting.
+**Context:** This work is downstream of Mimic v1.0 and a working science-gate prototype. The current brief is conservative about waiting for the dual-driver migration; after v1.0 is tagged, re-review whether the model builder should wait for the horizontal driver or proceed from the stable v1.0 module, metadata, and validation seams. **That re-review is now due (2026-08-12):** both triggers have fired — v1.0 is tagged and the horizontal driver landed with its identity gate green — so the brief should be refreshed against the tagged baseline rather than left waiting.
 
 ---
 
@@ -19,7 +19,7 @@ The model builder should not drive current Mimic architecture except where it re
 The model builder is not ready to implement. It becomes actionable only after:
 
 - Mimic v1.0 is tagged and the v1.0 baseline is refreshed.
-- ~~The dual-driver architecture is implemented and the snapshot driver passes cross-format identity.~~ **Met 2026-08-12.**
+- ~~The dual-driver architecture is implemented and the horizontal driver passes cross-format identity.~~ **Met 2026-08-12.**
 - A science-gate prototype exists and has been validated on at least one trusted model or module. **A candidate mechanism is now on record: [`MIMIC-EMULATOR-PLAN.md`](MIMIC-EMULATOR-PLAN.md) (2026-08-20).** It is a brief, not a prototype, and it is gated on its own measurement spike — so this precondition is still unmet, but it is no longer unaddressed.
 - The team has reviewed which orchestration and model-serving tools are appropriate at that time.
 

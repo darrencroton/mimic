@@ -16,9 +16,9 @@
  *
  * Passed by value from the driver down through the generated tree accessors,
  * the virial helpers, the halo-init payload populator, and output conversion,
- * so none of those layers has to reach for a file-scope input array. The tree
+ * so none of those layers has to reach for a file-scope input array. The vertical
  * driver builds one view per loaded unit over its own halo storage; a
- * snapshot-ordered driver will build one per slab. It borrows that storage, and
+ * horizontal driver will build one per slab. It borrows that storage, and
  * carries no bounds enforcement: `halonr` indices are trusted exactly as they
  * were when the accessors read a global array. */
 struct HaloInputView {
@@ -41,12 +41,12 @@ struct PhaseModuleConfig;
 struct ModulePhaseConfig;
 
 /* Active input reader, resolved from tree_type at config time. Exactly one of
- * the two is non-NULL after a successful configuration: struct TreeReader
- * (tree/reader.h, registered in tree/registry.c) for forest-ordered input, or
- * struct SnapshotReader (snapshot/reader.h, registered in snapshot/registry.c)
- * for snapshot-ordered input. */
-struct TreeReader;
-struct SnapshotReader;
+ * the two is non-NULL after a successful configuration: struct VerticalReader
+ * (vertical/reader.h, registered in vertical/registry.c) for forest-ordered input, or
+ * struct HorizontalReader (horizontal/reader.h, registered in horizontal/registry.c)
+ * for horizontal input. */
+struct VerticalReader;
+struct HorizontalReader;
 
 /* Configuration structure to hold global parameters */
 struct MimicConfig {
@@ -86,10 +86,10 @@ struct MimicConfig {
 
   /* tree traversal */
   int MaxTreeDepth;    // Maximum recursion depth (default: 500)
-  int ProcessingOrder; // enum InputProcessingOrder from tree/reader.h
+  int ProcessingOrder; // enum InputProcessingOrder from vertical/reader.h
 
   /* Forest -> MPI-task load balancing for forest-oriented readers. Values are
-   * enum ForestDistributionScheme (tree/forest_distribution.h), stored as int so
+   * enum ForestDistributionScheme (vertical/forest_distribution.h), stored as int so
    * this core header only carries the serialized configuration shape. */
   int ForestDistributionScheme;       // default: 0 (uniform_in_forests)
   double Exponent_Forest_Dist_Scheme; // power-law index for the power schemes
@@ -121,8 +121,8 @@ struct MimicConfig {
   double Hubble;
 
   /* Active input reader (resolved from tree_type). Exactly one is non-NULL. */
-  const struct TreeReader *reader;
-  const struct SnapshotReader *snapshot_reader;
+  const struct VerticalReader *vertical_reader;
+  const struct HorizontalReader *horizontal_reader;
 
   /* Forest multiplier used to encode UniqueGalaxyID
    * (simulation.unique_galaxy_id_multiplier, default 10^9 from constants.h).
@@ -190,23 +190,23 @@ struct HaloAuxData {
   int FirstHalo;
 };
 
-/* Snapshot-driver counterpart of struct HaloAuxData's FirstHalo/NHalos pair:
+/* Horizontal-driver counterpart of struct HaloAuxData's FirstHalo/NHalos pair:
  * where one snapshot's processed halos landed in that snapshot's output buffer,
- * indexed by slab halo index. The snapshot driver keeps one of these arrays per
+ * indexed by slab halo index. The horizontal driver keeps one of these arrays per
  * live slab generation and reads the previous generation's when it gathers
  * progenitor galaxies.
  *
  * The traversal flags (DoneFlag/HaloFlag) have no counterpart here: they exist
- * to sequence the tree driver's depth-first recursion, and a snapshot slab is
+ * to sequence the vertical driver's depth-first recursion, and a snapshot slab is
  * walked once in slab order instead. The range fields are int64_t because a
  * production slab's output can exceed a tree's (Slice 6 widened the output
  * buffer's own counts to int64_t for the same reason). */
-struct SnapshotHaloAux {
+struct HorizontalHaloAux {
   int64_t FirstHalo; /* first output index for this halo, or -1 when it has none */
   int64_t NHalos;    /* output halos produced for this halo */
 };
 
-/* The previous slab generation, as the snapshot driver's gather step sees it.
+/* The previous slab generation, as the horizontal driver's gather step sees it.
  *
  * Bundled into one struct so a gather cannot be handed the current slab's view
  * with the previous slab's aux array (or vice versa): the three members are
@@ -215,10 +215,10 @@ struct SnapshotHaloAux {
  * `view.halos` is NULL and `aux`/`processed` are NULL at snapshot 0, where no
  * previous generation exists; every progenitor chain is then empty because a
  * snapshot-0 halo can carry no FirstProgenitor. */
-struct SnapshotGatherContext {
-  struct HaloInputView view;         /* raw halos of snapshot N-1 */
-  const struct SnapshotHaloAux *aux; /* [view.count], snapshot N-1 output ranges */
-  const struct Halo *processed;      /* snapshot N-1 output buffer */
+struct HorizontalGatherContext {
+  struct HaloInputView view;           /* raw halos of snapshot N-1 */
+  const struct HorizontalHaloAux *aux; /* [view.count], snapshot N-1 output ranges */
+  const struct Halo *processed;        /* snapshot N-1 output buffer */
 };
 
 #endif /* #ifndef TYPES_H */

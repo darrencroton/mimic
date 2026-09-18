@@ -1,0 +1,205 @@
+# Mimic Horizontal-HDF5 Format Specification
+
+**Purpose**: Define the frozen on-disk contract for horizontal HDF5 merger-tree input — the format produced by external converters and consumed by Mimic's `horizontal_hdf5` reader and horizontal driver.
+
+**Status**: Frozen at `format_version = 2`. Every normative statement in this document is part of the contract. Any change that alters the meaning, layout, ordering, or validation rules of files on disk requires incrementing `format_version` and updating this specification; readers must reject files whose `format_version` they do not support. Corrections that bring the wording into line with the semantics a version's `format_version` always denoted are recorded under [Errata](#errata) instead of bumping the version — see that section for the rule and the full list.
+
+**Version 2 supersedes version 1 outright; there is no legacy-read path.** Version 1 was produced and consumed with `fix_flybys()` still live in the reference Consistent-Trees reader (`src/io/vertical/ctrees/ctrees_utils.c`): at each forest's final snapshot it collapsed every independent FoF group but the most massive into satellites of that survivor, marking the demotion by negating the demoted centrals' `MostBoundID`. This was found to be scientifically wrong — not a tolerable approximation — when it collapsed 33% of the Shin-Uchuu z=0 population into one bogus FoF group and truncated the z=0 halo mass function by ~2 dex (`docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md`). `fix_flybys()` was deleted from the reader and the converter; `MostBoundID` is therefore always positive in version 2, and every version 1 dataset is rejected outright by a version-2 reader (`HORIZONTAL_HDF5_FORMAT_VERSION` in `src/io/horizontal/read_horizontal_hdf5.c`), naming the file and the version found rather than silently reinterpreting it.
+
+---
+
+## Table of Contents
+
+1. [Role and Scope](#role-and-scope)
+2. [File Set and Naming](#file-set-and-naming)
+3. [Header Attributes](#header-attributes)
+4. [Halo Datasets](#halo-datasets)
+5. [Link Scope](#link-scope)
+6. [Format Invariants](#format-invariants)
+7. [Ordering Contracts](#ordering-contracts)
+8. [Galaxy Identity Encoding](#galaxy-identity-encoding)
+9. [Validation Requirements](#validation-requirements)
+10. [Storage Layout](#storage-layout)
+11. [Simulation Package Integration](#simulation-package-integration)
+12. [Producing Horizontal-HDF5 Data](#producing-horizontal-hdf5-data)
+13. [Versioning Policy](#versioning-policy)
+14. [Errata](#errata)
+
+---
+
+## Role and Scope
+
+Horizontal input groups halos by snapshot rather than by forest, so the working set of a run is one snapshot's halo population instead of one forest's history. This is the input format for runs declaring `input.processing_order: horizontal` with `input.tree_type: horizontal_hdf5`.
+
+Mimic never converts between orderings internally. Horizontal-HDF5 data is produced offline by an external converter (see [Producing Horizontal-HDF5 Data](#producing-horizontal-hdf5-data)) and validated both at conversion time and again by the reader at load time. The format carries everything the horizontal driver needs to reproduce vertical results exactly — topology links, chain orderings, and galaxy-identity components are converter-owned facts recorded in the file, never reconstructed heuristically by Mimic.
+
+This document owns the format. The reader and driver that consume it, and any converter that produces it, conform to this specification — not the other way around.
+
+## File Set and Naming
+
+A horizontal-HDF5 dataset consists of:
+
+- **One HDF5 file per snapshot**: `snapshot_NNN.h5`, where `NNN` is the zero-padded snapshot index from `000` to the final snapshot, in ascending scale-factor order. Every snapshot in the run's snapshot list must have a file, including snapshots containing zero halos.
+- **One run-level sidecar**: `forests.h5`, written once per dataset. Provenance only; Mimic never reads it.
+
+Each `snapshot_NNN.h5` contains exactly two HDF5 objects: the group `/header` (scalar metadata as HDF5 attributes) and the group `/halos` (one dataset per halo field, all of length `n_halos`, stored as a struct-of-arrays).
+
+## Header Attributes
+
+All scalar metadata lives as HDF5 attributes on the `/header` group:
+
+| Attribute | Type | Semantics |
+|---|---|---|
+| `format_version` | int32 | Contract version of this file; this specification defines version 2 |
+| `links_adjacent` | int32 | Always 1. Declares the adjacency invariant (see [Format Invariants](#format-invariants)); asserted by producer and reader |
+| `scale_factor` | float64 | Scale factor *a* of this snapshot |
+| `snapshot_number` | int32 | Snapshot index; must equal the `NNN` in the filename |
+| `n_halos` | int64 | Number of halos in this file; must equal the length of every `/halos` dataset |
+| `n_forests_total` | int64 | Run-scoped total forest count; identical in every file of the dataset (identity bound check) |
+| `max_halo_rank_in_forest` | int64 | Run-scoped maximum `HaloRankInForest`; identical in every file of the dataset (identity bound check) |
+| `box_size_mpc_h` | float64 | Simulation box size, Mpc/h comoving |
+| `particle_mass_msun_h` | float64 | Simulation particle mass, Msun/h |
+| `omega_matter` | float64 | Ωm |
+| `omega_lambda` | float64 | ΩΛ |
+| `hubble_h` | float64 | Dimensionless Hubble parameter h |
+
+`n_forests_total` and `max_halo_rank_in_forest` are properties of the whole dataset, not of one snapshot; producers stamp the same run-scoped values into every file so any single file suffices for identity bounds validation at startup.
+
+## Halo Datasets
+
+All datasets live under `/halos`, each of length `n_halos` (vectors are `[n_halos, 3]`). **Dataset names and types are normative**: for every dataset except `ForestIndex` and `HaloRankInForest`, they must match what the consuming simulation package's `halo_properties.yaml` declares, so the generated `RawHalo` struct and accessors consume the file directly. `ForestIndex` and `HaloRankInForest` are horizontal-format identity metadata, not catalog halo properties (see [Simulation Package Integration](#simulation-package-integration)): the reader consumes them directly by dataset name into `struct SnapshotSlab`'s own `forest_index`/`halo_rank_in_forest` arrays, so they are exempt from the `halo_properties.yaml` declaration rule. The names below follow the established Consistent-Trees bridge contract (as in `simulations/micro-uchuu-ascii/halo_properties.yaml`).
+
+| Dataset | Type | Semantics |
+|---|---|---|
+| `Descendant` | int32[N] | Index in the snapshot N+1 file of this halo's descendant; −1 if none. Not consumed by the driver (progenitor gathering uses `FirstProgenitor`/`NextProgenitor`); kept as the round-trip validation key |
+| `FirstProgenitor` | int32[N] | Index in the snapshot N−1 file of the main progenitor; −1 if none |
+| `NextProgenitor` | int32[N] | Index in **this** snapshot's file of the next sibling progenitor (a halo sharing this halo's descendant); −1 if no next sibling |
+| `FirstHaloInFOFgroup` | int32[N] | Index in this snapshot of the FoF central; self-index for the central itself |
+| `NextHaloInFOFgroup` | int32[N] | Index in this snapshot of the next FoF-group member; −1 if last |
+| `Len` | int32[N] | Particle count: `round(Mvir_native × 1e-10 / particle_mass)` with `particle_mass` in 1e10 Msun/h. Zero is legal (treated downstream as the orphan sentinel); negative is not |
+| `SnapNum` | int32[N] | Snapshot index; every value must equal the header `snapshot_number` |
+| `M_Crit200` | float32[N] | Halo mass in **native Msun/h** (the generated accessor converts to Mimic's 1e10 Msun/h reference basis) |
+| `Pos` | float32[N,3] | Position, Mpc/h comoving |
+| `Vel` | float32[N,3] | Peculiar velocity, km/s |
+| `Spin` | float32[N,3] | Specific angular momentum J/Mvir, `Mpc/h km/s` (normalisation applied by the producer; components of zero-mass halos are carried unnormalised) |
+| `VelDisp` | float32[N] | Velocity dispersion, km/s |
+| `Vmax` | float32[N] | Maximum circular velocity, km/s |
+| `MostBoundID` | int64[N] | Source-catalog halo id (Consistent-Trees `id`). Always strictly positive: version 1's flyby-demotion sign convention (see [Versioning Policy](#versioning-policy)) is gone |
+| `ForestIndex` | int64[N] | Dense run-scoped forest number in `[0, n_forests_total)`; identity component consumed directly by `UniqueGalaxyID` |
+| `HaloRankInForest` | int64[N] | Within-forest halo index in reference vertical-driver order; identity component for `UniqueGalaxyID`. int64 because percolation super-forest ranks exceed int32 |
+
+The `forests.h5` sidecar contains one dataset, `/ForestID` (int64, length `n_forests_total`), mapping each dense `ForestIndex` to the original source-catalog forest id. Provenance and debugging only.
+
+## Link Scope
+
+Every link field is a **snapshot-local integer index**; no dataset stores global ids as links. The consumer must resolve each link type against the correct file:
+
+| Link field | Points into |
+|---|---|
+| `Descendant` | snapshot N+1 file (validation only) |
+| `FirstProgenitor` | snapshot N−1 file |
+| `NextProgenitor` | snapshot N file (same file) |
+| `FirstHaloInFOFgroup` | snapshot N file (same file) |
+| `NextHaloInFOFgroup` | snapshot N file (same file) |
+
+## Format Invariants
+
+Violating any invariant makes a file invalid. Producers and consumers **abort on violation; nothing repairs**.
+
+1. **Adjacency.** Every non-null `Descendant` link points exactly one snapshot forward, and therefore every progenitor of a snapshot-N halo lives at snapshot N−1. All halos in the final snapshot have `Descendant = −1`. `links_adjacent = 1` declares this in every file. Sources with snapshot gaps (e.g. L-Halo trees) cannot be represented in this format; Consistent-Trees sources are adjacent by construction because ctrees writes its own interpolated phantom halos. There is no phantom or bridge insertion anywhere in this pipeline.
+2. **int32 topology bounds.** Link fields are int32; no snapshot may contain more than 2,147,483,647 halos. Producers assert this. Consumers nevertheless use 64-bit indices and counts internally.
+3. **Slab ordering.** Within a file, halos appear in ascending order of `MostBoundID` (the original source-catalog id, always positive — see [Versioning Policy](#versioning-policy)), and those values are unique within the snapshot. This makes files deterministic, reproducible, and binary-searchable by id.
+4. **Identity uniqueness and density.** `(ForestIndex, HaloRankInForest)` pairs are unique across the entire dataset. `ForestIndex` values are dense over `[0, n_forests_total)` across the dataset. Within each forest, `HaloRankInForest` values are dense over `[0, forest halo count)` across all snapshots.
+5. **Header consistency.** `n_halos` equals every dataset's length; `snapshot_number` matches the filename; all `SnapNum` values equal `snapshot_number`; `n_forests_total` and `max_halo_rank_in_forest` are identical across all files and match the measured data.
+6. **Link validity.** Every non-null link value is a valid index in its target file (see [Link Scope](#link-scope)). FoF chains are cycle-free, terminate at −1, and every `FirstHaloInFOFgroup` names a halo whose own `FirstHaloInFOFgroup` is itself. Every non-null `FirstProgenitor` has a `Descendant` pointing back at its owner.
+
+## Ordering Contracts
+
+Cross-format identity — a horizontal run reproducing a vertical run's galaxies exactly — depends on orderings the driver cannot derive at runtime. They are producer-owned facts carried by the format:
+
+1. **Progenitor chain order.** For each descendant, `FirstProgenitor` is the most massive progenitor (reference tie-break: first encountered in reference order wins). The `NextProgenitor` chain is built by the reference reader's literal incremental-insertion loop (`ctrees_utils.c` `assign_mergertree_indices`): progenitors are visited in reference encounter order, and each one either replaces the current chain head when its Mvir is *strictly* greater (demoting the old head to second place) or is appended at the tail. When a mid-chain head replacement occurs (three or more progenitors), the resulting order is therefore *not* the remaining progenitors in plain encounter order — it is exactly what that loop produces. Chain order fixes workspace layout and merger processing order, so a conforming producer must replicate the loop, not a paraphrase of it.
+2. **FoF chain order.** `FirstHaloInFOFgroup`/`NextHaloInFOFgroup` chains replicate the reference FoF member ordering, which fixes subhalo slice order and central selection.
+3. **Forest enumeration.** Dense `ForestIndex` assignment replicates the reference run-scoped forest enumeration order (for Consistent-Trees sources: ascending forest id).
+4. **Within-forest rank.** `HaloRankInForest` is the halo's index in reference vertical-driver traversal order of its forest, computed after all host fix-ups.
+
+Version 1 additionally required a fifth item — a flyby convention under which flyby-demoted centrals carried a negated `MostBoundID` — that item is deleted as of version 2; see [Versioning Policy](#versioning-policy).
+
+"Reference" throughout means the semantics of Mimic's vertical Consistent-Trees ASCII reader (`src/io/vertical/read_ctrees_ascii.c` and `src/io/vertical/ctrees/ctrees_utils.c`: `fix_upid()`, `assign_mergertree_indices()` and the associated sort orders — explicitly excluding `fix_flybys()`, which no longer exists). A conforming producer replicates those semantics exactly and proves it by cross-checking its output topology against that reader on a common dataset (by stable halo id, not by array index).
+
+## Galaxy Identity Encoding
+
+`UniqueGalaxyID = HaloRankInForest + multiplier × (ForestIndex + 1)`
+
+The multiplier is per-simulation metadata declared in the simulation package (`simulation_info.yaml`; default 10⁹) and recorded in output provenance. It must exceed the dataset's `max_halo_rank_in_forest`, and `multiplier × (n_forests_total + 1)` must fit in int64 — both checked at startup against this format's header attributes. Because `ForestIndex` and `HaloRankInForest` are carried explicitly in reference order, horizontal and vertical runs compute identical `UniqueGalaxyID`s from identical components with no runtime id mapping.
+
+## Validation Requirements
+
+**Producers** must verify before declaring a dataset valid: total halo count conservation against the source; every [format invariant](#format-invariants); progenitor round-trip closure (`FirstProgenitor`/`Descendant` mutual consistency); `NextProgenitor` same-file scope; FoF chain integrity; identity uniqueness/density and header bounds; `Len ≥ 0` with zero-count logged.
+
+**The reader** must validate at open: `format_version` is supported, `links_adjacent = 1`, header consistency (invariant 5), exact `scale_factor` agreement with the package's `a_list`, the identity-multiplier bounds against the measured `n_forests_total` and `max_halo_rank_in_forest`, and — for every snapshot file — agreement of the five physical header values (`box_size_mpc_h`, `particle_mass_msun_h`, `omega_matter`, `omega_lambda`, `hubble_h`) with the configured simulation package, aborting on mismatch. At slab load it must validate link ranges against the target file's `n_halos` (invariant 6's range component). Full chain-topology re-validation is a producer obligation, not a per-run cost.
+
+## Storage Layout
+
+- Datasets are chunked, **uncompressed**, struct-of-arrays: chunk shape `(65536,)` for 1D datasets and `(65536, 3)` for vectors. Chunked uncompressed layout is required for production data — slab reads are the hot path and compression measurably hurts them.
+- Producers should write with the HDF5 latest-version file format bounds available to them; consumers must not depend on chunk boundaries, only on dataset shape and type.
+
+## Simulation Package Integration
+
+A simulation package shipping horizontal-HDF5 data declares:
+
+- `simulation_info.yaml` — box size, particle mass, cosmology (matching the header attributes), the `UniqueGalaxyID` multiplier, and the snapshot list; run files select `input.tree_type: horizontal_hdf5` and `input.processing_order: horizontal`.
+- `halo_properties.yaml` — the on-disk record for every catalog halo dataset (the two identity datasets optionally — see below), with `provides_core_role` mappings (`M_Crit200` → HaloMass, plus Descendant, FirstProgenitor, NextProgenitor, FirstHaloInFOFgroup, NextHaloInFOFgroup, SnapNum, Len). `ForestIndex` and `HaloRankInForest` are horizontal-format identity metadata, not catalog halo properties, so declaring them here is unnecessary rather than forbidden: the reader consumes them directly by dataset name (`src/io/horizontal/read_horizontal_hdf5.c`) into `struct SnapshotSlab`'s own `forest_index`/`halo_rank_in_forest` arrays regardless of whether `halo_properties.yaml` also declares them. `simulations/micro-uchuu-horizontal/halo_properties.yaml` exercises the exemption and omits both.
+- An `a_list` snapshot file whose entries match the per-file `scale_factor` attributes, and a `snapshots/` link to the HDF5 files.
+
+Field names and types in `halo_properties.yaml` must match this specification exactly; the generated reader-side code consumes those datasets by name. `ForestIndex` and `HaloRankInForest` are consumed by name directly by the reader's own schema table regardless, so a package need not declare them in `halo_properties.yaml` for the reader to read them correctly.
+
+## Producing Horizontal-HDF5 Data
+
+Converters live outside Mimic's run path (converter tooling is maintained under `scripts/convert/` in this repository) and perform the forest-ordered → horizontal reorganisation offline, once per source dataset. A conforming converter:
+
+1. Reads a source whose links are adjacent by construction (Consistent-Trees output; gap-ful sources are out of scope for this format).
+2. Applies the reference value conventions (spin normalisation, `Len` derivation, host fix-ups) exactly as the reference reader does.
+3. Rewrites global-id links as snapshot-local indices with the chain orderings of the [Ordering Contracts](#ordering-contracts).
+4. Runs the full producer [validation battery](#validation-requirements) and emits a conversion report (counts, measured identity bounds, validation outcomes) from which the simulation package's identity multiplier is set.
+
+## Versioning Policy
+
+`format_version` is a single int32 ratchet. Readers reject files with an unrecognised version; producers stamp the version they implement. Additive changes (new optional datasets or attributes) also require a version bump — consumers of a given version are entitled to assume the exact object set that version specifies.
+
+### Version 2 (2026-09-10)
+
+This document now specifies version 2. Version 1 is superseded outright, not extended: there is no legacy-read path, and a version 1 file is rejected by a version-2 reader with an error naming the file and the version found (`HORIZONTAL_HDF5_FORMAT_VERSION` in `src/io/horizontal/read_horizontal_hdf5.c`).
+
+**What changed.** Version 1's Ordering Contracts item 5 required the reference reader's `fix_flybys()` convention: at each forest's final snapshot, every FoF central but the most massive was demoted to a satellite of the survivor, marked by negating the demoted centrals' `MostBoundID`. This was found to be scientifically wrong, not merely a tolerable approximation: on the Shin-Uchuu production catalog it collapsed 33% of the z=0 population into one bogus FoF group and truncated the z=0 halo mass function by ~2 dex. Full diagnosis and decision record: `docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md`.
+
+`fix_flybys()` was deleted from the reference Consistent-Trees ASCII reader (`src/io/vertical/ctrees/ctrees_utils.c`) and from the converter (`scripts/convert/fixups.py`). Concretely, relative to version 1:
+
+- Ordering Contracts item 5 (the flyby convention) is deleted outright; there were only ever five items, now four.
+- `MostBoundID` is always strictly positive — see the [Halo Datasets](#halo-datasets) and [Format Invariants](#format-invariants) (invariant 3) entries above.
+- The "reference semantics" definition below names `fix_upid()` and `assign_mergertree_indices()` and explicitly excludes `fix_flybys()`, which no longer exists.
+- No dataset was added, removed, or retyped, and no other ordering, invariant, or validation rule changed (`docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md`, decision D6: no new columns this round).
+
+Every version 1 dataset — including the pre-remediation Shin-Uchuu production dataset — carries the defect this version removes and cannot be reinterpreted as version 2 data; it must be reconverted from source.
+
+## Errata
+
+A **correction** is an edit that changes what this document *says* without changing which files on disk conform: the reference semantics it describes were always the contract, and the previous wording described them inaccurately. Corrections do not bump `format_version` — a bump would tell every existing reader and producer that the bytes changed, which would be false, and would strand conforming version 1 data. They are recorded here instead, dated, so that anyone who implemented against the earlier wording can see exactly what moved and when. An edit that changes which files conform is not a correction: it bumps the version.
+
+| Date | Section | Correction |
+|---|---|---|
+| 2026-07-24 | [Ordering Contracts](#ordering-contracts) item 1 | The `NextProgenitor` chain order was described as "the remaining progenitors in reference encounter order". That paraphrase is wrong whenever a descendant has three or more progenitors and a mid-chain head replacement occurs. The text now states the reference reader's literal incremental-insertion loop (`assign_mergertree_indices`), which is what `format_version = 1` always denoted and what both the reader and `scripts/convert/links.py` have always implemented. A producer that had implemented the paraphrase literally would have emitted non-conforming chain order; the converter's `topology-chains` cross-check compares this order directly against the reference reader. |
+| 2026-08-11 | [Halo Datasets](#halo-datasets), [Simulation Package Integration](#simulation-package-integration) | `ForestIndex` and `HaloRankInForest` were described as datasets a consuming simulation package's `halo_properties.yaml` must declare, like every other `/halos` dataset. That declaration requirement was real (`simulations/micro-uchuu-horizontal/halo_properties.yaml` did declare both, and the generated `struct RawHalo` did carry them as members, prior to 2026-08-11) but was never necessary to the format: the reader's *validation* path — the dataset-set/dtype checks and the `open_run` identity scans — has always consumed both datasets by name (`src/io/horizontal/read_horizontal_hdf5.c`) — the dataset-set/dtype checks through its own schema table, the identity scans by literal dataset name — independent of `halo_properties.yaml`. Only the *load* path depended on the declaration, materialising both values into `struct RawHalo` from the generated property list; it now reads them directly into `struct SnapshotSlab`'s own `forest_index`/`halo_rank_in_forest` arrays instead, so the declaration is no longer needed there either. The wording now states that these two identity datasets are exempt from the `halo_properties.yaml` declaration rule, consistent with `simulations/micro-uchuu-horizontal/halo_properties.yaml` no longer declaring them. Nothing on disk changed: both datasets remain required, read, and validated exactly as before, and `format_version` stays 1. |
+| 2026-08-12 | [Validation Requirements](#validation-requirements) | The reader's open-time validation list named only `format_version`, `links_adjacent = 1`, and header consistency (invariant 5). That understated the shipped and now load-bearing consumer contract: the reader also requires exact `scale_factor` agreement with the package's `a_list`, the identity-multiplier bounds against the measured `n_forests_total`/`max_halo_rank_in_forest`, and — added in dual-driver Phase 5 — agreement of the five physical header values (`box_size_mpc_h`, `particle_mass_msun_h`, `omega_matter`, `omega_lambda`, `hubble_h`) with the configured simulation package, checked in **every** snapshot file and fatal on mismatch (`src/io/horizontal/read_horizontal_hdf5.c`, particle mass compared as `MimicConfig.PartMass × 1e10`). A producer or package author reading only the old list would not have known that a package disagreeing with the file headers aborts the run. This is a consumer-integration statement: nothing on disk changed and `format_version` stays 1. |
+| 2026-08-14 | [Halo Datasets](#halo-datasets) | `Spin` was described as "Dimensionless spin J/Mvir", which is self-contradictory: a quantity named by its units (`J/Mvir`, i.e. `(Mpc/h)(km/s)`) cannot also be dimensionless. The wording now names it correctly as specific angular momentum with units `Mpc/h km/s`, matching the `Mpc/h km/s` unit label every simulation package's `halo_properties.yaml` now declares for `Spin`. Nothing on disk changed: every producer already emitted (and every reader already consumed) the same `J/Mvir` values this document always specified; only the label describing them was wrong. `format_version` stays 1. |
+| 2026-09-18 | Whole document | The processing order this format feeds was renamed from "snapshot-ordered" to **horizontal**, and its counterpart from "tree-ordered" to **vertical**, so that the name states the structure: a vertical run walks one forest's history downwards, a horizontal run walks one snapshot's whole population across. The format is now the **horizontal-HDF5** format, this document was renamed from `SNAPSHOT-HDF5-FORMAT.md`, the reader selector `input.tree_type` changed from `snapshot_hdf5` to `horizontal_hdf5`, and `input.processing_order` values changed from `snapshot_ordered`/`tree_ordered` to `horizontal`/`vertical`. **Nothing on disk changed.** Every file name (`snapshot_NNN.h5`, `forests.h5`), every `/header` attribute name, every `/halos` dataset name, every type, every ordering contract, and every validation rule is byte-for-byte as before — per-snapshot file naming remains correct because each file still holds exactly one snapshot. Existing version 2 datasets are read unchanged and `format_version` stays 2; only the configuration spelling that selects this format moved. |
+
+---
+
+## Documentation Directory
+
+- [README.md](../../README.md): project overview and shortest path to a first result
+- [VISION.md](../VISION.md): architectural principles and design boundaries
+- [USER-GUIDE.md](../USER-GUIDE.md): installation, run configuration, output analysis, plotting, and troubleshooting
+- [DEVELOPER-GUIDE.md](../DEVELOPER-GUIDE.md): extending models, modules, simulations, properties, tests, and generated metadata
+- [STYLE-GUIDE.md](../STYLE-GUIDE.md): naming, comments, documentation, metadata, tests, and review conventions
+- `simulations/<simulation>/README.md`: simulation-package data, units, snapshot lists, and maintenance notes

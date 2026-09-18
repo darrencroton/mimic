@@ -1,6 +1,6 @@
 # Mimic Embedded Engine Plan (Physics-Only API)
 
-**Status:** Requirements brief. Split out of `MIMIC-DUAL-DRIVER-PLAN.md` (its former Phase 6) in the 2026-07-02 joint review because it shares only the v1.0 Phase 1–2 seams and nothing snapshot-specific. Not scheduled; promote to an active plan when scientific need arises.
+**Status:** Requirements brief. Split out of `MIMIC-DUAL-DRIVER-PLAN.md` (its former Phase 6) in the 2026-07-02 joint review because it shares only the v1.0 Phase 1–2 seams and nothing horizontal-specific. Not scheduled; promote to an active plan when scientific need arises.
 **Date:** 2026-07-02
 
 ---

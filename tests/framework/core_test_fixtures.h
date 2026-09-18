@@ -38,23 +38,23 @@ static inline void ensure_modules_registered(void) {
 }
 
 /**
- * @brief   Does `line` declare `input.processing_order: snapshot_ordered`?
+ * @brief   Does `line` declare `input.processing_order: horizontal`?
  *
  * Anchored, not a substring search: skips leading whitespace, rejects a
  * comment line outright, then requires the literal key immediately at that
- * position and the captured value to equal "snapshot_ordered" exactly. A
- * prose comment such as "# processing_order: snapshot_ordered is not
+ * position and the captured value to equal "horizontal" exactly. A
+ * prose comment such as "# processing_order: horizontal is not
  * supported here" -- plausible in a package's simulation_info.yaml banner --
  * must not match.
  *
  * The captured token has at most one matching pair of leading/trailing quotes
  * stripped before comparison, so the equally legal quoted YAML forms
- * (`processing_order: "snapshot_ordered"` or `'snapshot_ordered'`) still
+ * (`processing_order: "horizontal"` or `'horizontal'`) still
  * match -- otherwise a future package writing either would be silently
- * classified tree-ordered and handed the snapshot-ordered-plus-binary file
+ * classified vertical and handed the horizontal-plus-binary file
  * this whole fixture exists to avoid.
  */
-static inline int yaml_line_declares_snapshot_ordered(const char *line) {
+static inline int yaml_line_declares_horizontal(const char *line) {
   const char *cursor = line;
   char value[64];
   size_t len;
@@ -73,20 +73,20 @@ static inline int yaml_line_declares_snapshot_ordered(const char *line) {
     memmove(value, value + 1, len - 2);
     value[len - 2] = '\0';
   }
-  return strcmp(value, "snapshot_ordered") == 0;
+  return strcmp(value, "horizontal") == 0;
 }
 
 /**
  * @brief   Does the compiled SIMULATION package declare processing_order:
- *          snapshot_ordered?
+ *          horizontal?
  *
  * Reads simulations/<SIMULATION>/simulation_info.yaml directly rather than
- * hardcoding package names, so a future snapshot-ordered package is detected
+ * hardcoding package names, so a future horizontal package is detected
  * without a fixture edit here. Detection alone does not make
  * test_cosmology_param_file() safe for such a package -- see its own doc
  * comment for the rest of what that requires.
  */
-static inline int compiled_simulation_is_snapshot_ordered(void) {
+static inline int compiled_simulation_is_horizontal(void) {
   char path[MAX_STRING_LEN];
   char line[512];
   FILE *fp;
@@ -98,7 +98,7 @@ static inline int compiled_simulation_is_snapshot_ordered(void) {
     return 0;
   }
   while (fgets(line, sizeof(line), fp) != NULL) {
-    if (yaml_line_declares_snapshot_ordered(line)) {
+    if (yaml_line_declares_horizontal(line)) {
       result = 1;
       break;
     }
@@ -122,7 +122,7 @@ static inline const char *test_binary_param_file(void) {
  * is the only thing that clears it. No C unit test drives that CLI path, so a
  * test that calls read_parameter_file() directly leaves the field at its
  * memset/BSS zero -- bit-for-bit indistinguishable from "--skip was given" --
- * which the snapshot-configuration gating in validate_and_postprocess()
+ * which the horizontal-configuration gating in validate_and_postprocess()
  * rejects. Call this before parsing any configuration a test expects to pass
  * validation.
  */
@@ -193,8 +193,8 @@ static inline int yaml_line_starts_with_key(const char *line, const char *key) {
  *          pair, for tests that need cosmology only -- not the pair's true
  *          processing order, reader family, or identity multiplier.
  *
- * output_format: binary is rejected at config time for a snapshot-ordered
- * package (validate_and_postprocess()'s snapshot-configuration gating), so
+ * output_format: binary is rejected at config time for a horizontal
+ * package (validate_and_postprocess()'s horizontal-configuration gating), so
  * test_binary_param_file() is invalid by construction for such a package.
  * output_format: hdf5 is not a usable substitute here: tests/unit/run_tests.sh
  * compiles the shared CORE_SRCS object (including read_parameter_file.c) once
@@ -202,13 +202,13 @@ static inline int yaml_line_starts_with_key(const char *line, const char *key) {
  * gets that flag -- so 'hdf5' hits read_parameter_file.c's own #ifndef HDF5
  * guard and FATALs there regardless of whether HDF5 is actually available on
  * the machine. No generated core run file is parseable by this shared object
- * for a snapshot-ordered package.
+ * for a horizontal package.
  *
  * For such a package this instead returns a scratch copy of
  * test_binary_param_file() (which still carries the package's real
  * cosmology) with:
- *   - input.processing_order forced to tree_ordered and input.tree_type/
- *     tree_name forced to a registered tree reader -- never opened, since
+ *   - input.processing_order forced to vertical and input.tree_type/
+ *     tree_name forced to a registered vertical reader -- never opened, since
  *     these tests only reach the config-time reader lookup, not the driver;
  *   - simulation.unique_galaxy_id_multiplier forced to TREE_MUL_FAC, the
  *     default these config-time tests expect. The encoder takes the configured
@@ -229,7 +229,7 @@ static inline const char *test_cosmology_param_file(void) {
   int in_input_section = 0;
   int in_simulation_section = 0;
 
-  if (!compiled_simulation_is_snapshot_ordered()) {
+  if (!compiled_simulation_is_horizontal()) {
     return test_binary_param_file();
   }
 
@@ -261,7 +261,7 @@ static inline const char *test_cosmology_param_file(void) {
       in_input_section = 1;
       in_simulation_section = 0;
       fputs(line, dst);
-      fputs("  processing_order: tree_ordered\n  tree_type: lhalo_binary\n  tree_name: "
+      fputs("  processing_order: vertical\n  tree_type: lhalo_binary\n  tree_name: "
             "trees_063\n",
             dst);
       wrote_input = 1;
@@ -293,7 +293,7 @@ static inline const char *test_cosmology_param_file(void) {
     fputs(line, dst);
   }
   if (!wrote_input) {
-    fputs("\ninput:\n  processing_order: tree_ordered\n  tree_type: lhalo_binary\n"
+    fputs("\ninput:\n  processing_order: vertical\n  tree_type: lhalo_binary\n"
           "  tree_name: trees_063\n",
           dst);
   }

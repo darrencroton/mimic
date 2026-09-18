@@ -1,4 +1,4 @@
-"""Conversion report emission for the ctrees -> snapshot-HDF5 converter
+"""Conversion report emission for the ctrees -> horizontal-HDF5 converter
 (plan Slice 7).
 
 Builds the durable conversion report from the manifest, the emitted dataset,
@@ -34,8 +34,8 @@ REPORT_TXT = "conversion_report.txt"
 
 def identity_multiplier_window(max_rank: int, n_forests_total: int) -> Tuple[int, int]:
     """Inclusive (min, max) range of UniqueGalaxyID multipliers this dataset
-    admits, exactly as snapshot_identity_bounds_valid() decides it at run time
-    (src/io/snapshot/interface.c): ``multiplier > max_halo_rank_in_forest`` sets
+    admits, exactly as horizontal_identity_bounds_valid() decides it at run time
+    (src/io/horizontal/interface.c): ``multiplier > max_halo_rank_in_forest`` sets
     the floor and ``n_forests_total <= INT64_MAX / multiplier - 1`` sets the
     ceiling. min > max means no multiplier can encode the dataset.
 
@@ -46,7 +46,7 @@ def identity_multiplier_window(max_rank: int, n_forests_total: int) -> Tuple[int
 
     The floor is held at 1 because the reader also requires a positive
     multiplier: an all-empty dataset carries the documented sentinel pair
-    (n_forests_total 0, max_halo_rank_in_forest -1, src/io/snapshot/reader.h),
+    (n_forests_total 0, max_halo_rank_in_forest -1, src/io/horizontal/reader.h),
     for which max_rank + 1 alone would report that 0 encodes the dataset."""
     return max(max_rank + 1, 1), _INT64_MAX // (n_forests_total + 1)
 

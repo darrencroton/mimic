@@ -3,7 +3,7 @@
  * @brief   Read-only reference-topology dump for a Consistent-Trees-ASCII package
  *
  * Loads every forest of a Consistent-Trees-ASCII simulation package through
- * Mimic's existing, unmodified consistent_trees_ascii reader (tree/interface.c
+ * Mimic's existing, unmodified consistent_trees_ascii reader (vertical/interface.c
  * + read_ctrees_ascii.c) and dumps, per halo, the literal RawHalo link fields
  * (Descendant, FirstProgenitor, NextProgenitor, FirstHaloInFOFgroup,
  * NextHaloInFOFgroup), translated from local per-forest array indices to the
@@ -16,9 +16,9 @@
  * consumer can compare it against another implementation's own chain
  * construction over the same source data. It performs no processing beyond
  * what the production reader already does while loading a forest: no FoF
- * grouping, no inheritance, no output. It never modifies tree_driver.c,
+ * grouping, no inheritance, no output. It never modifies vertical_driver.c,
  * read_ctrees_ascii.c, or any other production file — every function called
- * here is an existing, unmodified public entry point (tree/interface.h,
+ * here is an existing, unmodified public entry point (vertical/interface.h,
  * core/proto.h).
  *
  * Usage: dump_ctrees_topology <run_param_file> <output_dump_path>
@@ -34,8 +34,8 @@
 #include "globals.h"
 #include "memory.h"
 #include "proto.h"
-#include "tree/interface.h"
-#include "tree/reader.h"
+#include "vertical/interface.h"
+#include "vertical/reader.h"
 
 /**
  * @brief   Exit handler required by src/util/memory.c's fatal-allocation path.
@@ -49,13 +49,13 @@ void myexit(int signum) {
   exit(signum);
 }
 
-/* tree_driver.c gates every reader hook the same way before calling it; this
+/* vertical_driver.c gates every reader hook the same way before calling it; this
  * harness calls the same hooks directly (it has no driver to call through),
  * so it needs the same guard rather than trusting the reader table blindly. */
 #define REQUIRE_READER_HOOK(reader, member)                                                        \
   do {                                                                                             \
     if ((reader)->member == NULL) {                                                                \
-      FATAL_ERROR("Tree reader '%s' is missing required partition hook '%s'", (reader)->name,      \
+      FATAL_ERROR("Vertical reader '%s' is missing required partition hook '%s'", (reader)->name,  \
                   #member);                                                                        \
     }                                                                                              \
   } while (0)
@@ -106,7 +106,7 @@ int main(int argc, char **argv) {
   const char *dump_path = argv[2];
 
   /* Minimal, faithful subset of main()'s startup sequence: only what
-   * read_parameter_file()/init() and the tree reader require. Deliberately
+   * read_parameter_file()/init() and the vertical reader require. Deliberately
    * skips module registration, HDF5 output setup, and run_processing_driver()
    * — none of those are needed to read raw forests, and skipping them keeps
    * this harness read-only with no output side effects beyond the dump. */
@@ -116,9 +116,9 @@ int main(int argc, char **argv) {
   read_parameter_file(param_file);
   init();
 
-  const struct TreeReader *reader = MimicConfig.reader;
+  const struct VerticalReader *reader = MimicConfig.vertical_reader;
   if (reader == NULL) {
-    fprintf(stderr, "%s: no tree reader selected\n", param_file);
+    fprintf(stderr, "%s: no vertical reader selected\n", param_file);
     return 1;
   }
 

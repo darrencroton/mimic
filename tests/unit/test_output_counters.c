@@ -12,7 +12,7 @@
 #include "tests/framework/test_framework.h"
 #include "globals.h"
 #include "output/util.h"
-#include "tree/reader.h" /* enum InputProcessingOrder */
+#include "vertical/reader.h" /* enum InputProcessingOrder */
 #include "util/error.h"
 
 static int passed = 0;
@@ -100,10 +100,10 @@ static int test_counter_increment_fatals_at_tree_int_limit(void) {
 }
 
 /**
- * @brief   Run the snapshot-mode counter increment in a forked child.
+ * @brief   Run the horizontal-mode counter increment in a forked child.
  *
- * Snapshot-ordered runs never allocate InputHalosPerSnap (only the tree
- * reader does, src/io/tree/interface.c); if the tree-only split regressed,
+ * Horizontal runs never allocate InputHalosPerSnap (only the vertical
+ * reader does, src/io/vertical/interface.c); if the vertical-only split regressed,
  * the increment would dereference the NULL InputHalosPerSnap[0] set up here
  * and crash. Forking isolates that crash so it shows up as a failed
  * assertion rather than taking down the whole suite, mirroring
@@ -130,8 +130,8 @@ static int run_snapshot_mode_counter_in_child(void) {
     memset(TotHalosPerSnap, 0, sizeof(TotHalosPerSnap));
     memset(InputHalosPerSnap, 0, sizeof(InputHalosPerSnap));
     TotHalosPerSnap[0] = 41;
-    InputHalosPerSnap[0] = NULL; /* never allocated: only the tree reader does this */
-    MimicConfig.ProcessingOrder = (int)INPUT_PROCESSING_ORDER_SNAPSHOT;
+    InputHalosPerSnap[0] = NULL; /* never allocated: only the vertical reader does this */
+    MimicConfig.ProcessingOrder = (int)INPUT_PROCESSING_ORDER_HORIZONTAL;
 
     output_increment_halo_counters_checked(9, 0, 49, 0);
 
@@ -157,15 +157,15 @@ static int run_snapshot_mode_counter_in_child(void) {
 
 /**
  * @test    test_counter_increment_snapshot_mode_skips_tree_side
- * @brief   Snapshot-ordered increments update only the snapshot total, never InputHalosPerSnap
+ * @brief   Horizontal increments update only the snapshot total, never InputHalosPerSnap
  */
 static int test_counter_increment_snapshot_mode_skips_tree_side(void) {
   int result = run_snapshot_mode_counter_in_child();
 
   TEST_ASSERT(result != -1,
-              "snapshot-mode counter increment must not dereference NULL InputHalosPerSnap");
+              "horizontal-mode counter increment must not dereference NULL InputHalosPerSnap");
   TEST_ASSERT_EQUAL(result, 0,
-                    "snapshot-mode counter increment should update only the snapshot total");
+                    "horizontal-mode counter increment should update only the snapshot total");
 
   return TEST_PASS;
 }

@@ -1,6 +1,6 @@
 # Shin-Uchuu Simulation Package — Consistent-Trees ASCII (subset)
 
-This package runs Mimic against a subset of the Shin-Uchuu merger trees in Consistent-Trees ASCII format (`consistent_trees_ascii` reader). It is permanently subset-only: the full box contains one percolating "super-forest" of 104.8 million tree roots (33% of all trees) that the tree-ordered driver cannot hold in memory as a single unit, so the full box can never run tree-ordered. This package's subset excludes that forest.
+This package runs Mimic against a subset of the Shin-Uchuu merger trees in Consistent-Trees ASCII format (`consistent_trees_ascii` reader). It is permanently subset-only: the full box contains one percolating "super-forest" of 104.8 million tree roots (33% of all trees) that the vertical driver cannot hold in memory as a single unit, so the full box can never run vertical. This package's subset excludes that forest.
 
 - `simulation_info.yaml`: tree input paths, snapshot list path, cosmology, units, box size, and particle mass
 - `halo_properties.yaml`: RawHalo field contract for the ctrees readers (mirrors `micro-uchuu-ascii`'s ctrees bridge contract; see file header for the key unit difference from L-Halo binary — M_Crit200 in native Msun/h)
@@ -30,7 +30,7 @@ Source: `/fred/oz214/simulations/uchuu/shinuchuu/mergertrees` on OzSTAR — 2744
 
 ## Cross-format sibling
 
-- `simulations/shin-uchuu/` — the snapshot-ordered HDF5 conversion of the full production catalog, produced by `scripts/convert/` using this reader's value conventions as the reference.
+- `simulations/shin-uchuu/` — the horizontal HDF5 conversion of the full production catalog, produced by `scripts/convert/` using this reader's value conventions as the reference.
 
 **Mirror maintenance:** `halo_properties.yaml` is an intentional mirror of `simulations/shin-uchuu/halo_properties.yaml` (both use the ctrees RawHalo contract, adjusted only for the 140 Mpc/h box's `Pos` range). Keep them in sync.
 

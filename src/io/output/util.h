@@ -57,9 +57,9 @@ void prepare_output_files(int filenr, struct OutputSnapshotSelection selection);
 /**
  * @brief   Increment per-file halo counters with the 32-bit output guard
  *
- * Always increments the snapshot total (TotHalosPerSnap). Tree-ordered runs
+ * Always increments the snapshot total (TotHalosPerSnap). Vertical runs
  * additionally increment the per-tree count (InputHalosPerSnap), which only
- * the tree reader allocates; snapshot-ordered runs never touch it. Fatal
+ * the vertical reader allocates; horizontal runs never touch it. Fatal
  * before incrementing a counter that would overflow its 32-bit output
  * contract.
  */
@@ -70,19 +70,19 @@ void output_increment_halo_counters_checked(int filenr, int snap_index, int snap
  *
  * Output writers under src/io/output/ enumerate, check existence of, and
  * name the format of output partitions through this source instead of
- * reading the active tree reader pointer directly, so the same writer code
- * serves both the tree-ordered and snapshot-ordered drivers. Populated by
- * get_output_partition_source() (src/core/tree_driver.c), which resolves the
- * active processing order and constructs the matching source: the tree-side
- * construction wraps the configured tree reader's partition hooks (including
- * a prepare_run/teardown_run pass-through); the snapshot side constructs its
- * own hooks directly, taking the format name from the resolved snapshot
+ * reading the active vertical reader pointer directly, so the same writer code
+ * serves both the vertical and horizontal drivers. Populated by
+ * get_output_partition_source() (src/core/vertical_driver.c), which resolves the
+ * active processing order and constructs the matching source: the vertical-side
+ * construction wraps the configured vertical reader's partition hooks (including
+ * a prepare_run/teardown_run pass-through); the horizontal side constructs its
+ * own hooks directly, taking the format name from the resolved horizontal
  * reader so a second registered reader records its own name in provenance.
  * Each partition also names the requested output snapshots it carries via
- * partition_snapshots(), and the two sides differ there: a tree-ordered
+ * partition_snapshots(), and the two sides differ there: a vertical
  * partition is one input chunk and carries every requested snapshot, while a
- * snapshot-ordered partition is one requested output snapshot and carries only
- * that one. A snapshot-ordered run therefore has MimicConfig.NOUT partitions,
+ * horizontal partition is one requested output snapshot and carries only
+ * that one. A horizontal run therefore has MimicConfig.NOUT partitions,
  * each identified by its own snapshot number rather than by a dense index, so
  * every output filename names the snapshot it holds.
  */
@@ -105,7 +105,7 @@ struct OutputPartitionSource {
 /**
  * @brief   Resolve this run's output partition source from the active processing order.
  *
- * Defined beside the driver dispatch in src/core/tree_driver.c.
+ * Defined beside the driver dispatch in src/core/vertical_driver.c.
  */
 struct OutputPartitionSource get_output_partition_source(void);
 

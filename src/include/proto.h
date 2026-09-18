@@ -13,11 +13,11 @@ void process_halo_evolution(struct HaloInputView view, struct Halo *workspace, i
 int count_fof_subhalos(struct HaloInputView view, int first_fof_halo);
 struct HaloInitPayload make_halo_init_payload(struct HaloInputView view, int halonr);
 
-/* Tree driver (src/core/build_model.c) */
+/* Vertical driver (src/core/build_model.c) */
 void build_halo_tree(int halonr, int unit, int depth);
 int join_progenitor_halos(struct HaloInputView view, int halonr, int nstart, int unit);
 int find_most_massive_progenitor(struct HaloInputView view, int halonr);
-void free_tree_driver_scratch(void);
+void free_vertical_driver_scratch(void);
 
 /* Initialization (src/core/init.c) */
 void init(void);
@@ -44,38 +44,39 @@ double get_virial_velocity(struct HaloInputView view, int halonr);
 double get_virial_radius(struct HaloInputView view, int halonr);
 double get_virial_mass(struct HaloInputView view, int halonr);
 
-/* Snapshot driver (src/core/snapshot_driver.c) */
+/* Horizontal driver (src/core/horizontal_driver.c) */
 struct InheritanceProgenitorGalaxy; /* core/inheritance.h */
 
-void run_snapshot_driver(void);
+void run_horizontal_driver(void);
 
-/* Incomplete-output cleanup for snapshot-ordered runs. The snapshot driver keeps
+/* Incomplete-output cleanup for horizontal runs. The horizontal driver keeps
  * two registrations with independent lifetimes: the partition file currently
  * being written, armed just before that file is created and released as soon as
- * it closes cleanly (the tree driver's own per-partition discipline), and the
+ * it closes cleanly (the vertical driver's own per-partition discipline), and the
  * master file, armed at run start. main.c writes the master only after
- * run_snapshot_driver() returns, so the master registration outlives the driver
- * and is disarmed by snapshot_driver_clear_output_paths() once
+ * run_horizontal_driver() returns, so the master registration outlives the driver
+ * and is disarmed by horizontal_driver_clear_output_paths() once
  * write_master_file() has succeeded; any failure before that point runs
- * snapshot_driver_remove_incomplete_outputs() from bye(), which removes whatever
+ * horizontal_driver_remove_incomplete_outputs() from bye(), which removes whatever
  * is still armed — the in-flight partition and the master — while every partition
  * file that already closed survives as final output. Both are no-ops for a
- * tree-ordered run, which registers nothing. */
-void snapshot_driver_remove_incomplete_outputs(void);
-void snapshot_driver_clear_output_paths(void);
+ * vertical run, which registers nothing. */
+void horizontal_driver_remove_incomplete_outputs(void);
+void horizontal_driver_clear_output_paths(void);
 
-/* Snapshot-side counterparts of the tree driver's progenitor lookup
+/* Horizontal-side counterparts of the vertical driver's progenitor lookup
  * (build_model.c). They take the previous generation as one bundle so the
  * current and previous slabs cannot be transposed, and are declared here — as
- * the tree-side pair is — so the fixture package's unit tests can drive them
+ * the vertical-side pair is — so the fixture package's unit tests can drive them
  * directly with two synthetic slabs. */
-int snapshot_find_most_massive_progenitor(struct HaloInputView view,
-                                          const struct SnapshotGatherContext *prev, int halonr);
-int64_t snapshot_count_progenitor_galaxies(struct HaloInputView view,
-                                           const struct SnapshotGatherContext *prev, int halonr);
-void snapshot_gather_progenitor_galaxies(struct HaloInputView view,
-                                         const struct SnapshotGatherContext *prev, int halonr,
-                                         int first_occupied,
-                                         struct InheritanceProgenitorGalaxy *progenitors);
+int horizontal_find_most_massive_progenitor(struct HaloInputView view,
+                                            const struct HorizontalGatherContext *prev, int halonr);
+int64_t horizontal_count_progenitor_galaxies(struct HaloInputView view,
+                                             const struct HorizontalGatherContext *prev,
+                                             int halonr);
+void horizontal_gather_progenitor_galaxies(struct HaloInputView view,
+                                           const struct HorizontalGatherContext *prev, int halonr,
+                                           int first_occupied,
+                                           struct InheritanceProgenitorGalaxy *progenitors);
 
 #endif /* #ifndef CORE_PROTO_H */

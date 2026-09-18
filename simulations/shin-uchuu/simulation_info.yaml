@@ -1,22 +1,22 @@
-# Shin-Uchuu Simulation Metadata — snapshot-ordered HDF5 format
+# Shin-Uchuu Simulation Metadata — horizontal HDF5 format
 #
 # `snapshots/` is a symlink to your local copy of the converted dataset
 # directory: 70 `snapshot_NNN.h5` files plus the `forests.h5` sidecar, produced
-# by scripts/convert/ per docs/dev/SNAPSHOT-HDF5-FORMAT.md from the full
+# by scripts/convert/ per docs/dev/HORIZONTAL-HDF5-FORMAT.md from the full
 # Shin-Uchuu Consistent-Trees catalog.
 #
 # `tree_name` is the snapshot filename convention, not a general pattern: the
 # format fixes it at `snapshot_%03d.h5` and the reader accepts no other value.
 # It is declared because the configuration layer requires `input.tree_name`
-# unconditionally. first_file/last_file are metadata only; the snapshot reader
+# unconditionally. first_file/last_file are metadata only; the horizontal reader
 # derives its file set from the snapshot list.
 
 input:
   first_file: 0
   last_file: 0
   tree_name: snapshot_%03d.h5
-  tree_type: snapshot_hdf5
-  processing_order: snapshot_ordered
+  tree_type: horizontal_hdf5
+  processing_order: horizontal
   simulation_dir: simulations/shin-uchuu/snapshots
   snapshot_list_file: simulations/shin-uchuu/shin-uchuu.a_list
 

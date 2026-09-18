@@ -919,7 +919,7 @@ class TestBoundedIdentityPass(Slice5Case):
         directory.mkdir()
         np.asarray([0], dtype=np.int64).tofile(directory / links.FOREST_INDEX_STORE_NAME)
         np.asarray([0], dtype=np.int64).tofile(directory / links.RANKS_STORE_NAME)
-        identity = links.SnapshotIdentity(
+        identity = links.HorizontalIdentity(
             directory, {3: (0, 1)}, peak_spill_bytes=0, store_bytes=16
         )
         with mock.patch.object(links.shutil, "rmtree") as rmtree:
@@ -940,7 +940,7 @@ class TestBoundedIdentityPass(Slice5Case):
         directory = self.root / "retry"
         directory.mkdir()
         np.asarray([0], dtype=np.int64).tofile(directory / links.FOREST_INDEX_STORE_NAME)
-        identity = links.SnapshotIdentity(
+        identity = links.HorizontalIdentity(
             directory, {3: (0, 1)}, peak_spill_bytes=0, store_bytes=16
         )
         with mock.patch.object(links.shutil, "rmtree"):  # removal does nothing
@@ -965,7 +965,7 @@ class TestBoundedIdentityPass(Slice5Case):
         # released first the store would be stranded in SILENCE
         directory = self.root / "interrupted"
         directory.mkdir()
-        identity = links.SnapshotIdentity(directory, {}, peak_spill_bytes=0, store_bytes=0)
+        identity = links.HorizontalIdentity(directory, {}, peak_spill_bytes=0, store_bytes=0)
         with mock.patch.object(links.shutil, "rmtree", side_effect=KeyboardInterrupt):
             with self.assertRaises(KeyboardInterrupt):
                 identity.close()
@@ -993,7 +993,7 @@ class TestBoundedIdentityPass(Slice5Case):
     def test_close_is_silent_and_raises_nothing_when_removal_works(self):
         directory = self.root / "clean"
         directory.mkdir()
-        identity = links.SnapshotIdentity(directory, {}, peak_spill_bytes=0, store_bytes=0)
+        identity = links.HorizontalIdentity(directory, {}, peak_spill_bytes=0, store_bytes=0)
         with mock.patch.object(links, "_log") as log:
             identity.close()
             identity.close()  # idempotent: the second call has nothing to remove
@@ -1007,7 +1007,7 @@ class TestBoundedIdentityPass(Slice5Case):
         directory.mkdir()
         np.asarray([0, 0], dtype=np.int64).tofile(directory / links.FOREST_INDEX_STORE_NAME)
         np.asarray([0, 1], dtype=np.int64).tofile(directory / links.RANKS_STORE_NAME)
-        identity = links.SnapshotIdentity(
+        identity = links.HorizontalIdentity(
             directory, {3: (0, 2), 4: (2, 0)}, peak_spill_bytes=0, store_bytes=32
         )
         with identity:
@@ -1022,7 +1022,7 @@ class TestBoundedIdentityPass(Slice5Case):
         directory.mkdir()
         np.asarray([0], dtype=np.int64).tofile(directory / links.FOREST_INDEX_STORE_NAME)
         np.asarray([0], dtype=np.int64).tofile(directory / links.RANKS_STORE_NAME)
-        identity = links.SnapshotIdentity(
+        identity = links.HorizontalIdentity(
             directory, {3: (0, 4)}, peak_spill_bytes=0, store_bytes=16
         )
         with identity:

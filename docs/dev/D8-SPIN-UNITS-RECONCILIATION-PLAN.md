@@ -31,7 +31,7 @@ The recorded risk (`POST-PHASE-5-WORK.md`) was that the L-Halo-binary Uchuu pack
 1. **Read the raw ctrees ASCII catalog** (`simulations/micro-uchuu-ascii/snapshots/tree_0_0_0.dat`). Its header (line 23) documents `Jx/Jy/Jz` verbatim as "Halo angular momenta ((Msun/h) * (Mpc/h) * km/s (physical))." — raw angular momentum, magnitude ~1e16 for a massive halo. Mimic's reader (`read_ctrees_ascii.c:96-106`, shared with the HDF5 reader) parses exactly these three columns into `Spin[3]` and then divides by native `Mvir` (`apply_ctrees_value_conventions()`). A *separate*, unrelated scalar column literally named `Spin` in the ASCII file (a Peebles/Bullock-like value, e.g. `0.06066` in the sampled row) is not read by Mimic at all.
 2. **Read the raw L-Halo binary catalog** (`simulations/micro-uchuu/snapshots/Uchuu100_Planck_lhalo_binary.*`, produced by the external `sage-model` converter from the same ctrees source, per `simulations/micro-uchuu/README.md`) directly via a byte-level struct unpack (104-byte `RawHalo` record, no reader code path involved). `Spin` magnitudes there are order 0.001–84 for a 200-halo sample of the file's most massive objects — the same order of magnitude as specific angular momentum, not raw `J` (~1e16).
 3. **Matched the same physical halo across both formats** (identical `Mvir` and `Pos` to float precision — `Mvir = 30940.0` in `1e10 Msun/h`, `Pos = (84.1496, 6.3263, 67.6953)` Mpc/h, unique to 5 decimal places): the ASCII file's raw `Jx/Jy/Jz = (2.968e16, -2.605e16, -1.454e16)` divided by its raw `Mvir = 3.094e14 Msun/h` gives `(95.928, -84.195, -46.994)`. The L-Halo binary file's stored `Spin` for the identical halo is `(95.928, -84.195, -46.994)` — a match to 6 significant figures.
-4. **Confirmed the offline converter matches too**: `scripts/convert/fixups.py:normalise_spin()` performs the identical `J[k] * (1.0/Mvir)` reciprocal-multiply in float64 before narrowing to float32, explicitly documented as matching `apply_ctrees_value_conventions` bit-for-bit. This is the path used for `micro-uchuu-snapshot` and will be used for `shin-uchuu`.
+4. **Confirmed the offline converter matches too**: `scripts/convert/fixups.py:normalise_spin()` performs the identical `J[k] * (1.0/Mvir)` reciprocal-multiply in float64 before narrowing to float32, explicitly documented as matching `apply_ctrees_value_conventions` bit-for-bit. This is the path used for `micro-uchuu-horizontal` and will be used for `shin-uchuu`.
 
 **Conclusion: all eight packages consistently store the same physical quantity — `J/Mvir` in `(Mpc/h)(km/s)` — under the same wrong `dimensionless` label.** There is no format-dependent inconsistency. The fix is a metadata/generator correction, not a data-correctness fix, and this plan proceeds on that basis.
 
@@ -80,13 +80,13 @@ For all eight packages, change `Spin`'s `units: dimensionless` to `units: Mpc/h 
 
 - `mini-millennium`, `millennium`, `micro-uchuu`, `mini-uchuu`: `Specific angular momentum (J/Mvir)`
 - `micro-uchuu-ascii`, `micro-uchuu-hdf5`, `uchuu`: `Specific angular momentum (J/Mvir, normalised by the reader before bridging)`
-- `micro-uchuu-snapshot`: `Specific angular momentum (J/Mvir, normalised by the producer before emission)`
+- `micro-uchuu-horizontal`: `Specific angular momentum (J/Mvir, normalised by the producer before emission)`
 
 Additionally, widen `micro-uchuu`'s (L-Halo binary) `Spin` range from `[-200.0, 200.0]` to `[-1000.0, 1000.0]` to match its three ctrees siblings, which cover the identical underlying catalog and already measure a maximum of 270.3 (`POST-PHASE-5-WORK.md` §2.1). No other package's range changes in this slice — `millennium`/`mini-millennium`/`mini-uchuu` staying at `[-20, 20]` and `uchuu` at `[-5000, 5000]` are separate, already-tracked decisions (§6 items 2 and 9), not this one.
 
 ### 2.3 Documentation touch-ups (mechanical, tied to this exact change)
 
-- `docs/dev/SNAPSHOT-HDF5-FORMAT.md:82` currently reads `Dimensionless spin J/Mvir (normalisation applied by the producer; ...)` — self-contradictory prose (calls it dimensionless while naming the quantity as J/Mvir). Drop "Dimensionless"; this is a prose correction, not a structural/byte-layout change, so it does **not** require a `format_version` bump (the ratchet in `src/io/output/metadata_hdf5.c:110-115` and its snapshot-format analogue gate structural changes, not wording). This document freezes its own convention for exactly this situation (`docs/dev/SNAPSHOT-HDF5-FORMAT.md:5`, the `Errata` section at line 166): a wording correction that does not change which files on disk conform is recorded as a dated row in the `## Errata` table, not silently edited in place. Add both — fix the table's prose at line 82 AND append a new dated `Errata` row describing the correction, following the exact format of the three existing rows.
+- `docs/dev/HORIZONTAL-HDF5-FORMAT.md:82` currently reads `Dimensionless spin J/Mvir (normalisation applied by the producer; ...)` — self-contradictory prose (calls it dimensionless while naming the quantity as J/Mvir). Drop "Dimensionless"; this is a prose correction, not a structural/byte-layout change, so it does **not** require a `format_version` bump (the ratchet in `src/io/output/metadata_hdf5.c:110-115` and its horizontal-format analogue gate structural changes, not wording). This document freezes its own convention for exactly this situation (`docs/dev/HORIZONTAL-HDF5-FORMAT.md:5`, the `Errata` section at line 166): a wording correction that does not change which files on disk conform is recorded as a dated row in the `## Errata` table, not silently edited in place. Add both — fix the table's prose at line 82 AND append a new dated `Errata` row describing the correction, following the exact format of the three existing rows.
 - `.agents/skills/mimic-properties/SKILL.md:80` (the tracked file — `.claude/skills` is a gitignored local symlink to this same path, not a separate tracked copy; do not edit through the `.claude/` path) lists every registered unit label; append `Mpc/h km/s` to keep the skill's own "first actions" reference accurate.
 - `docs/dev/POST-PHASE-5-WORK.md` §2.1: correct "three" to "four" wrong descriptions (this plan's preparation found the doc missed `mini-uchuu`); mark the D8 row and the checklist entry (§6, table under "Shin-Uchuu readiness") as closed with a one-line pointer to this plan and the commit that implements it.
 - `docs/dev/MIMIC-DEVELOPMENT-PATHWAY.md`: update the §6 table row for item 5 to closed, and move the "Next step" pointer to item 6 (the rehearsal), per the pathway's own stated ordering.
@@ -203,7 +203,7 @@ Additionally, widen `micro-uchuu`'s (L-Halo binary) `Spin` range from `[-200.0, 
 - In each of the eight `simulations/*/halo_properties.yaml` files, change `Spin`'s `units: dimensionless` to `units: Mpc/h km/s`.
 - Fix the wrong description in `mini-millennium`, `millennium`, `micro-uchuu`, `mini-uchuu` (drop "Dimensionless spin parameter (Bullock definition)"); drop the stray "Dimensionless" prefix in the four ctrees-family packages' existing descriptions. Use the wording in §2.2 above, adapted to match each file's existing style.
 - Widen `micro-uchuu`'s `Spin` `range:` from `[-200.0, 200.0]` to `[-1000.0, 1000.0]`.
-- Fix `docs/dev/SNAPSHOT-HDF5-FORMAT.md:82`'s prose (drop "Dimensionless") and append the dated `Errata` row (§2.3).
+- Fix `docs/dev/HORIZONTAL-HDF5-FORMAT.md:82`'s prose (drop "Dimensionless") and append the dated `Errata` row (§2.3).
 - Regenerate for the default pair (`MODEL=sage16 SIMULATION=mini-millennium`) and refresh the six tracked baseline files (across five listed locations below — the last covers two files) that embed the old label/description. Two separate committed baseline families are affected — do not treat them as one (`tests/data/README.md` documents only the first; `models/sage16/modules/_tests/test_scientific_sage_physics_baseline.py:21-28` documents the second):
   - `tests/data/output/baseline/binary/metadata/output_schema.json`
   - `tests/data/output/baseline/hdf5/metadata/output_schema.json`
@@ -219,7 +219,7 @@ Additionally, widen `micro-uchuu`'s (L-Halo binary) `Spin` range from `[-200.0, 
 - [ ] All eight packages' `Spin` entries declare `units: Mpc/h km/s` and carry a description naming specific angular momentum, not the Bullock parameter.
 - [ ] `micro-uchuu`'s `Spin` `range:` is `[-1000.0, 1000.0]`.
 - [ ] No other package's `Spin` `range:` changed.
-- [ ] For `MODEL=sage16 SIMULATION=mini-millennium`: a worktree-based bitwise tree-path check (the Phase 4b/Phase 5 procedure, repeated verbatim — see Validation Plan) shows **zero** byte differences in every `output/bitwise-after/model_*` file compared to `output/bitwise-before/`.
+- [ ] For `MODEL=sage16 SIMULATION=mini-millennium`: a worktree-based bitwise vertical-path check (the Phase 4b/Phase 5 procedure, repeated verbatim — see Validation Plan) shows **zero** byte differences in every `output/bitwise-after/model_*` file compared to `output/bitwise-before/`.
 - [ ] For `MODEL=halos-only SIMULATION=micro-uchuu-ascii` (or `-hdf5`): the same before/after bitwise procedure against that package's committed fixture shows zero byte differences in `Spin` fields (this exercises the ctrees `apply_ctrees_value_conventions()` path, structurally distinct from the L-Halo `fread` path Slice 2's mini-millennium check exercises).
 - [ ] The refreshed `tests/data/output/baseline/hdf5/model.hdf5` and `model_000.hdf5` files' `RunProperties/FieldMetadata` table show `Spin`'s `units` and `description` updated; the `Snap063` halo/galaxy datasets in those files are byte-identical to the pre-change committed versions (verify with `h5diff` or an explicit dataset-level `cmp` of the extracted arrays, not just "the test suite passed").
 - [ ] `tests/data/output/baseline/binary/model_z0.000_0`, `model_uniquegalid_z0.000_0`, `model_uniquegalid_z0.020_0`, and `models/sage16/modules/_tests/baseline/physics-binary/model_z0.000_0` are byte-identical to their pre-change committed versions (confirm via `git diff --stat` showing no change to these four paths).
@@ -227,7 +227,7 @@ Additionally, widen `micro-uchuu`'s (L-Halo binary) `Spin` range from `[-200.0, 
 - [ ] `make MODEL=sage16 SIMULATION=mini-millennium tests summary` passes with no new failures/warnings.
 - [ ] `make MODEL=halos-only SIMULATION=micro-uchuu-ascii tests summary` (or the package's standard fixture-tier command) passes with no new failures/warnings.
 - [ ] The full-physics baseline test (`models/sage16/modules/_tests/test_scientific_sage_physics_baseline.py`) passes.
-- [ ] `docs/dev/SNAPSHOT-HDF5-FORMAT.md`'s `Errata` table has a new dated row for this correction, in addition to the corrected prose at line 82.
+- [ ] `docs/dev/HORIZONTAL-HDF5-FORMAT.md`'s `Errata` table has a new dated row for this correction, in addition to the corrected prose at line 82.
 - [ ] `docs/dev/POST-PHASE-5-JOINT-REVIEW.md` §6 item 5, its §4 `D8` row, and `docs/dev/POST-PHASE-5-WORK.md`'s equivalent entries are all marked closed, consistently, with no remaining document implying D8 is still open.
 - Behaviour that must not change: everything in §3 above.
 
@@ -239,9 +239,9 @@ Additionally, widen `micro-uchuu`'s (L-Halo binary) `Spin` range from `[-200.0, 
   - `simulations/mini-uchuu/halo_properties.yaml`
   - `simulations/micro-uchuu-ascii/halo_properties.yaml`
   - `simulations/micro-uchuu-hdf5/halo_properties.yaml`
-  - `simulations/micro-uchuu-snapshot/halo_properties.yaml`
+  - `simulations/micro-uchuu-horizontal/halo_properties.yaml`
   - `simulations/uchuu/halo_properties.yaml`
-  - `docs/dev/SNAPSHOT-HDF5-FORMAT.md`
+  - `docs/dev/HORIZONTAL-HDF5-FORMAT.md`
   - `docs/dev/POST-PHASE-5-WORK.md`
   - `docs/dev/MIMIC-DEVELOPMENT-PATHWAY.md`
   - `docs/dev/POST-PHASE-5-JOINT-REVIEW.md`
@@ -260,11 +260,11 @@ Additionally, widen `micro-uchuu`'s (L-Halo binary) `Spin` range from `[-200.0, 
 - Do not touch any generated file under `src/include/generated/` by hand — only `make generate` may produce them.
 - Do not modify `apply_ctrees_value_conventions()`, `bridge_halo_data_to_rawhalo()`, or `scripts/convert/fixups.py`'s `normalise_spin()` — the numeric computation is correct and untouched; only its label is wrong.
 - `tests/data/output/physics-binary/` (gitignored scratch, distinct from the tracked `models/sage16/modules/_tests/baseline/physics-binary/` above — do not confuse the two) is regenerated as a normal, expected side effect of running `models/sage16/modules/_tests/test_scientific_sage_physics_baseline.py`, which this slice's Validation Plan requires in order to refresh the tracked baseline. Do not hand-edit anything in it, do not add or commit anything from it beyond the two files the documented copy procedure names, and do not treat its regeneration as authorization to touch any other scratch output directory.
-- Do not bump `hdf5_format_version` or the snapshot format's `format_version` — no structural change occurs.
+- Do not bump `hdf5_format_version` or the horizontal format's `format_version` — no structural change occurs.
 - Do not edit `docs/dev/SHIN-UCHUU-CONVERSION-PLAN.md` beyond the `Spin`-units wording identified in §2.3 — no other content in that plan is in scope here.
 
 ### Risk Flags
-- Risky surfaces touched: eight simulation packages' on-disk catalog contracts (property metadata — a "highest bar" surface per `mimic-properties`); six tracked baseline files across two independent baseline families (binary and HDF5 golden files, plus the model-owned physics-binary sidecar and its data file); a frozen format-contract document (`SNAPSHOT-HDF5-FORMAT.md`, prose-only touch plus its own `Errata` ledger, not a structural one).
+- Risky surfaces touched: eight simulation packages' on-disk catalog contracts (property metadata — a "highest bar" surface per `mimic-properties`); six tracked baseline files across two independent baseline families (binary and HDF5 golden files, plus the model-owned physics-binary sidecar and its data file); a frozen format-contract document (`HORIZONTAL-HDF5-FORMAT.md`, prose-only touch plus its own `Errata` ledger, not a structural one).
 - Approval needed before implementation: yes
 - Independent audit required: yes
 
@@ -272,7 +272,7 @@ Additionally, widen `micro-uchuu`'s (L-Halo binary) `Spin` range from `[-200.0, 
 - Tests to add/update: none new; existing tiers must stay green.
 - Commands to run:
   ```bash
-  # Bitwise tree-path check, L-Halo family (Phase 4b Slice 4 / Phase 5 procedure, verbatim
+  # Bitwise vertical-path check, L-Halo family (Phase 4b Slice 4 / Phase 5 procedure, verbatim
   # for the run/compare mechanics; the loop below is strengthened to fail closed rather than
   # rely on a human reading empty output -- an external review of this plan found the
   # original `cmp ... || echo DIFF` form exits 0 even when a diff is printed):
@@ -373,8 +373,8 @@ Additionally, widen `micro-uchuu`'s (L-Halo binary) `Spin` range from `[-200.0, 
   rm -rf /tmp/d8-slice2-pre-refresh
 
   # Per-package generate + check-generated for the remaining six packages
-  # (micro-uchuu, mini-uchuu, micro-uchuu-hdf5, micro-uchuu-snapshot, uchuu, millennium):
-  for sim in micro-uchuu mini-uchuu micro-uchuu-hdf5 micro-uchuu-snapshot uchuu millennium; do
+  # (micro-uchuu, mini-uchuu, micro-uchuu-hdf5, micro-uchuu-horizontal, uchuu, millennium):
+  for sim in micro-uchuu mini-uchuu micro-uchuu-hdf5 micro-uchuu-horizontal uchuu millennium; do
     make MODEL=halos-only SIMULATION=$sim generate
     make MODEL=halos-only SIMULATION=$sim check-generated
   done

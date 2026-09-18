@@ -26,7 +26,7 @@
  *
  * `INT64_MAX / multiplier - 1` reserves the encoder's `+ 1` forest offset and
  * cannot itself overflow. This is the same bound the snapshot input's open-time
- * header check applies; snapshot_identity_bounds_valid() delegates here so the
+ * header check applies; horizontal_identity_bounds_valid() delegates here so the
  * codebase carries one bound expression rather than two.
  */
 static inline int64_t mimic_unique_galaxy_id_max_forests(int64_t multiplier) {

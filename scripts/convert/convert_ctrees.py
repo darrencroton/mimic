@@ -1,4 +1,4 @@
-"""CLI for the ctrees ASCII -> snapshot-HDF5 converter.
+"""CLI for the ctrees ASCII -> horizontal-HDF5 converter.
 
 Per-phase subcommands over a user-supplied ``--workdir``; canonical metadata
 comes from explicit ``--simulation-info`` and ``--a-list`` paths so the
@@ -83,7 +83,7 @@ def _add_consume_flag(parser: argparse.ArgumentParser) -> None:
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="convert_ctrees",
-        description="Convert Consistent-Trees ASCII output to Mimic snapshot-ordered HDF5",
+        description="Convert Consistent-Trees ASCII output to Mimic horizontal HDF5",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -178,7 +178,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     write = sub.add_parser(
         "write",
-        help="emit snapshot_NNN.h5 + forests.h5 per docs/dev/SNAPSHOT-HDF5-FORMAT.md "
+        help="emit snapshot_NNN.h5 + forests.h5 per docs/dev/HORIZONTAL-HDF5-FORMAT.md "
         "(one file per a_list snapshot, including empty ones)",
     )
     _add_workdir(write)

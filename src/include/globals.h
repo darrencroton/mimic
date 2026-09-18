@@ -24,7 +24,7 @@ extern char *ThisNode;
  * ============================================
  *
  * Mimic uses a three-tier architecture for halo tracking through merger trees.
- * The tree driver gathers already-processed progenitor galaxies, the shared
+ * The vertical driver gathers already-processed progenitor galaxies, the shared
  * inheritance service deep-copies them into FoFWorkspace, physics mutates the
  * workspace in place, and output marshalling transfers surviving workspace
  * entries into a driver-owned output buffer.
@@ -48,11 +48,11 @@ extern char *ThisNode;
  *    - Purpose: Accumulates halos during recursive tree building
  *    - Memory: Allocated via mymalloc_cat(..., MEM_HALOS)
  *
- * 3. ProcessedHalos (struct Halo*) - TREE-DRIVER OUTPUT BUFFER
+ * 3. ProcessedHalos (struct Halo*) - VERTICAL-DRIVER OUTPUT BUFFER
  *    - Source: Final halos copied from FoFWorkspace after physics execution
  *    - Lifetime: Per-tree (allocated in load_unit(), freed in
  * free_unit_halos())
- *    - Ownership: Tree-driver output buffer, indexed by NumProcessedHalos
+ *    - Ownership: Vertical-driver output buffer, indexed by NumProcessedHalos
  *    - Size: MaxProcessedHalos elements (initial estimate; grows via myrealloc_cat
  *      if orphan halos cause output count to exceed the initial allocation)
  *    - Purpose: Stores all processed halos for current tree until output
@@ -89,8 +89,8 @@ extern char *ThisNode;
  *     myfree(InputTreeHalos)
  *
  * IMPORTANT: GalaxyData is owned by an explicit galaxy pool instance (see
- * galaxy_pool.h), not by individual halos. The tree driver holds one such
- * instance (TreeGalaxyPool, below) for the run's lifetime. Inheritance
+ * galaxy_pool.h), not by individual halos. The vertical driver holds one such
+ * instance (VerticalGalaxyPool, below) for the run's lifetime. Inheritance
  * allocates each workspace galaxy from the pool passed to it; the
  * output-buffer marshaller transfers surviving halos (and their galaxy
  * pointers) into ProcessedHalos by struct copy; the pool's slots stay valid
@@ -104,11 +104,11 @@ extern struct Halo *FoFWorkspace, *ProcessedHalos;
 extern struct RawHalo *InputTreeHalos;
 extern struct HaloAuxData *HaloAux;
 
-/* The tree driver's single galaxy pool instance (see galaxy_pool.h): created
+/* The vertical driver's single galaxy pool instance (see galaxy_pool.h): created
    once at startup, reset per tree via free_unit_halos(), destroyed once at
    shutdown. */
 struct GalaxyPool; /* opaque; defined in galaxy_pool.c */
-extern struct GalaxyPool *TreeGalaxyPool;
+extern struct GalaxyPool *VerticalGalaxyPool;
 
 /* runtime file information */
 extern int Ntrees;                /* number of trees in current file  */

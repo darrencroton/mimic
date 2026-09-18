@@ -1,4 +1,4 @@
-"""Phase 0 pre-pass and Phase 1 scatter for the ctrees -> snapshot-HDF5 converter.
+"""Phase 0 pre-pass and Phase 1 scatter for the ctrees -> horizontal-HDF5 converter.
 
 Phase 0 streams ``forests.list`` into a sorted tree-root-id -> forest-id map and
 assigns the dense run-scoped ForestIndex by ascending ctrees forest id (the

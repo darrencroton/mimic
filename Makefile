@@ -312,7 +312,7 @@ GIT_DIR := $(shell git rev-parse --git-dir 2>/dev/null)
 # -----------------------------------------------------------------------------
 # Build Targets
 # -----------------------------------------------------------------------------
-.PHONY: all clean tidy help info generate generate-modules generate-test-inputs check-generated check-docs check-format check-snapshot-fixture tests tests-unit tests-integration tests-scientific tests-converter test-clean validate-modules lint-parameters validate-build summary dump-ctrees-topology-tool
+.PHONY: all clean tidy help info generate generate-modules generate-test-inputs check-generated check-docs check-format check-horizontal-fixture tests tests-unit tests-integration tests-scientific tests-converter test-clean validate-modules lint-parameters validate-build summary dump-ctrees-topology-tool
 
 all: validate-build $(EXEC)
 
@@ -497,8 +497,8 @@ help:
 	@echo "  make tests-unit         - Run unit tests only"
 	@echo "  make tests-integration  - Run integration tests only"
 	@echo "  make tests-scientific   - Run scientific tests only"
-	@echo "  make tests-converter    - Run the ctrees->snapshot-HDF5 converter self-tests"
-	@echo "  make check-snapshot-fixture - Check the committed snapshot fixture against the format spec"
+	@echo "  make tests-converter    - Run the ctrees->horizontal-HDF5 converter self-tests"
+	@echo "  make check-horizontal-fixture - Check the committed horizontal fixture against the format spec"
 	@echo "  make tests summary     - Run all tests with concise warning/failure/skip output"
 	@echo "  make test-clean                   - Clean test artifacts"
 	@echo "  make generate-test-registry - Discover selected tests"
@@ -746,7 +746,7 @@ tests:
 	@if [ "$(TEST_SUMMARY)" != "1" ]; then echo ""; fi
 	$(call RUN_SUMMARY_AWARE_RECORD,$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) validate-modules,validate-modules)
 	@if [ "$(TEST_SUMMARY)" != "1" ]; then echo ""; fi
-	$(call RUN_SUMMARY_AWARE_RECORD,$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) check-snapshot-fixture,check-snapshot-fixture)
+	$(call RUN_SUMMARY_AWARE_RECORD,$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) check-horizontal-fixture,check-horizontal-fixture)
 	@if [ "$(TEST_SUMMARY)" != "1" ]; then echo ""; fi
 	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) tests-converter || { grep -qx converter build/.test_failures 2>/dev/null || echo "converter" >> build/.test_failures; true; }
 	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) tests-unit || { grep -q '^unit:' build/.test_failures 2>/dev/null || grep -qx unit build/.test_failures 2>/dev/null || echo "unit" >> build/.test_failures; true; }
@@ -773,7 +773,7 @@ tests:
 	fi
 
 # Converter self-tests: stdlib-unittest suite for scripts/convert/ (the
-# external ctrees -> snapshot-HDF5 converter). Independent of MODEL/SIMULATION
+# external ctrees -> horizontal-HDF5 converter). Independent of MODEL/SIMULATION
 # and of the C build. Unlike $(PYTHON), this always prefers mimic_venv when it
 # exists: the suite needs the venv stack (pandas, h5py) even when the venv is
 # not activated in the calling shell.
@@ -786,12 +786,12 @@ tests-converter:
 	printf "$${BLUE}============================================================$${NC}\n"
 	$(call RUN_SUMMARY_AWARE,$(CONVERTER_PYTHON) -m unittest discover -s scripts/convert/tests,converter tests)
 
-# Structural conformance of the committed snapshot-HDF5 contract fixture
-# (simulations/micro-uchuu-snapshot/_tests/data/) against the frozen format
+# Structural conformance of the committed horizontal-HDF5 contract fixture
+# (simulations/micro-uchuu-horizontal/_tests/data/) against the frozen format
 # spec. Package-independent and fast; keeps the fixture from drifting between
 # the manual regeneration runs that produce it.
-check-snapshot-fixture:
-	$(call RUN_SUMMARY_AWARE,$(CONVERTER_PYTHON) simulations/micro-uchuu-snapshot/_tests/input/check_fixture_conformance.py simulations/micro-uchuu-snapshot/_tests/data,snapshot fixture conformance)
+check-horizontal-fixture:
+	$(call RUN_SUMMARY_AWARE,$(CONVERTER_PYTHON) simulations/micro-uchuu-horizontal/_tests/input/check_fixture_conformance.py simulations/micro-uchuu-horizontal/_tests/data,horizontal fixture conformance)
 
 tests-unit:
 	@if [ "$(TEST_SUMMARY)" != "1" ]; then echo ""; fi

@@ -1,9 +1,9 @@
-"""Phase 3 links, ranks, and identity fields for the ctrees -> snapshot-HDF5
+"""Phase 3 links, ranks, and identity fields for the ctrees -> horizontal-HDF5
 converter (plan Slice 6).
 
 Implements the conversion plan's Phase 3 steps 6-9 on the fixed per-snapshot
 arrays produced by the Slice 5 fix-up stage. Reference semantics replicated
-exactly against ``assign_mergertree_indices`` (src/io/tree/ctrees/ctrees_utils.c):
+exactly against ``assign_mergertree_indices`` (src/io/vertical/ctrees/ctrees_utils.c):
 
 - **Reference order** (ctrees_utils.c:524-547): the reference sorts each forest
   by descending scale, then ascending upid, pid, id, over POST-fix values.
@@ -28,7 +28,7 @@ exactly against ``assign_mergertree_indices`` (src/io/tree/ctrees/ctrees_utils.c
   progenitor and yields a fully reversed chain. The literal insertion loop is
   the parity-bearing semantics; see ``build_progenitor_links``.
 - **Identity** (conversion plan Phase 3 step 9): ``HaloRankInForest`` is the
-  within-forest index in reference tree-driver order — (snapshot descending,
+  within-forest index in reference vertical-driver order — (snapshot descending,
   upid, pid, id ascending) over post-fix values, equivalent to the reference's
   scale-descending sort because the a_list is strictly increasing (asserted
   from the manifest's observed pairs). ``ForestIndex`` is the dense run-scoped
@@ -50,7 +50,7 @@ production scale. ``HaloRankInForest`` now comes from the external merge-sort
 core in ``rank_sort.py`` under an explicit memory budget, ``ForestIndex`` is
 derived per snapshot from the Phase 0 forest table (no global pass is needed for
 it), and both columns are written to on-disk arrays indexed by global position:
-``compute_identity`` returns a :class:`SnapshotIdentity` accessor that keeps
+``compute_identity`` returns a :class:`HorizontalIdentity` accessor that keeps
 only the adjacent snapshot pair the link stage is working on resident. Identity
 verification is bounded the same way and is exact — see :func:`verify_identity`.
 The ordering, the ranks and every emitted byte are unchanged; only the memory
@@ -648,10 +648,10 @@ def _remove_identity_store(directory: Path, store_bytes: Optional[int] = None) -
 
     Returns True only when the directory is CONFIRMED gone. That return value is
     what lets ownership be released exactly when the bytes are, rather than when
-    an attempt was made — see :meth:`SnapshotIdentity.close`.
+    an attempt was made — see :meth:`HorizontalIdentity.close`.
 
     Every phase of the store's ownership routes through here — the identity
-    pass's own failure handler, :meth:`SnapshotIdentity.close`, and the
+    pass's own failure handler, :meth:`HorizontalIdentity.close`, and the
     lifetime finalizer that backs both — so the two halves of the guarantee
     cannot drift apart: the bytes are removed if they can be, and if they
     cannot, that fact is on the record.
@@ -693,7 +693,7 @@ def _remove_identity_store(directory: Path, store_bytes: Optional[int] = None) -
 RESIDENT_SNAPSHOTS = 2
 
 
-class SnapshotIdentity:
+class HorizontalIdentity:
     """Per-snapshot ``(ForestIndex, HaloRankInForest)`` accessor backed by two
     on-disk int64 arrays indexed by global position.
 
@@ -810,7 +810,7 @@ class SnapshotIdentity:
             # printing twice rather than losing.
             self._finalizer.detach()
 
-    def __enter__(self) -> "SnapshotIdentity":
+    def __enter__(self) -> "HorizontalIdentity":
         return self
 
     def __exit__(self, *exc_info) -> None:
@@ -900,9 +900,9 @@ def _max_rank(rank_column, budget_bytes: int) -> int:
 
 def compute_identity(
     manifest: Manifest, *, budget_bytes: int = DEFAULT_RANK_BUDGET_BYTES
-) -> Tuple[SnapshotIdentity, int, int]:
+) -> Tuple[HorizontalIdentity, int, int]:
     """Rank pass (conversion plan Phase 3 step 9) under an explicit memory
-    budget: HaloRankInForest per forest in reference tree-driver order over all
+    budget: HaloRankInForest per forest in reference vertical-driver order over all
     snapshots — (snapshot descending, upid, pid, id ascending) on post-fix
     values — plus the dense ForestIndex from the Phase 0 table.
 
@@ -1001,7 +1001,7 @@ def compute_identity(
             fi_column, rank_column, n_forests_total, "identity pass", budget_bytes=budget_bytes
         )
         max_rank = _max_rank(rank_column, budget_bytes)
-        identity = SnapshotIdentity(
+        identity = HorizontalIdentity(
             directory,
             layout,
             peak_spill_bytes=peak_spill_bytes,
@@ -1045,7 +1045,7 @@ def compute_identity(
 def link_one_snapshot(
     manifest: Manifest,
     snap: int,
-    identity: SnapshotIdentity,
+    identity: HorizontalIdentity,
 ) -> None:
     """Link one snapshot: FoF chains, descendant merge-join, progenitor
     chains, pending FirstProgenitor hand-off, and identity carry-through.
@@ -1364,7 +1364,7 @@ def run_links(
 
     identity, n_forests_total, max_rank = compute_identity(manifest, budget_bytes=budget_bytes)
     # ``with`` is the deterministic release, not the ownership: the accessor
-    # owns its store from construction (see SnapshotIdentity), so an exception
+    # owns its store from construction (see HorizontalIdentity), so an exception
     # landing between the call above and this line cannot strand it
     with identity:
         recorded = manifest.data.get("links")

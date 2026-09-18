@@ -1,6 +1,6 @@
 ---
 name: mimic-debugging-playbook
-description: Symptom-to-triage playbook for every Mimic failure mode. Load when something is broken, failing, crashing, or behaving unexpectedly - build errors (Unknown MODEL, libyaml/HDF5/mpicc not found), stale generated code, module startup FATALs, YAML config rejections, model/simulation mismatch, tree reader errors (cannot open input files, unknown tree_type), output/schema mismatches, plotting import errors or skipped plots, scientific baseline regressions, memory leak reports, or "why did my run/test/plot fail". Also load before starting any debugging session to follow the first-response protocol.
+description: Symptom-to-triage playbook for every Mimic failure mode. Load when something is broken, failing, crashing, or behaving unexpectedly - build errors (Unknown MODEL, libyaml/HDF5/mpicc not found), stale generated code, module startup FATALs, YAML config rejections, model/simulation mismatch, vertical reader errors (cannot open input files, unknown tree_type), output/schema mismatches, plotting import errors or skipped plots, scientific baseline regressions, memory leak reports, or "why did my run/test/plot fail". Also load before starting any debugging session to follow the first-response protocol.
 ---
 
 # Mimic Debugging Playbook
@@ -79,13 +79,13 @@ All of these fail fast at startup, before any tree is processed — that is by d
 | `Unknown key '<section>.<key>'` | Typo, or key belongs to a different section | check the key against a shipped run file, e.g. `models/sage16/input/sage16_mini-millennium.yaml` |
 | Startup rejection: run file model/simulation vs compiled binary | Binary compiled with one `MODEL`/`SIMULATION`, run YAML declares another (`model.name`, `simulation.name`) | rebuild with the matching pair, or fix the run file |
 
-### Tree reader failures
+### Vertical reader failures
 
 | Symptom | Likely cause | First command |
 |---|---|---|
 | Cannot open input tree files | Wrong `input.simulation_dir` / `tree_name` / `first_file`/`last_file`, or `snapshots/` symlink missing on this machine | `ls <simulation_dir>` with the exact path from the debug log |
-| Unknown/unregistered `tree_type` | Typo, or format not in the reader registry | check `src/io/tree/registry.c` for registered names |
-| FATAL: `The snapshot-ordered driver is not implemented yet` | `input.processing_order: snapshot_ordered` parses but fails fast (v1.0 has only `tree_ordered`) | use `tree_ordered`; see `docs/dev/MIMIC-DEVELOPMENT-PATHWAY.md` for driver status |
+| Unknown/unregistered `tree_type` | Typo, or format not in the reader registry | check `src/io/vertical/registry.c` for registered names |
+| `Reader '<name>' is compatible with processing_order '<x>', but input.processing_order is '<y>'` | `tree_type` and `processing_order` disagree — a vertical reader under `horizontal`, or `horizontal_hdf5` under `vertical` | pair them: `horizontal_hdf5` ↔ `horizontal`, the four forest-ordered readers ↔ `vertical` |
 | HDF5 reader requested in a `USE-HDF5=no` build | `lhalo_hdf5` / `consistent_trees_hdf5` need HDF5 compiled in | rebuild without `USE-HDF5=no` |
 | Relative paths in run file resolve "wrong" | Run-file relative paths resolve from the invocation CWD, not the run-file's directory | rerun from repo root or use absolute paths |
 
@@ -94,7 +94,7 @@ All of these fail fast at startup, before any tree is processed — that is by d
 | Symptom | Likely cause | First command |
 |---|---|---|
 | Binary output "corrupt" / fields misaligned when read | Reading with the wrong schema — read ONLY via that run's own `metadata/output_schema.json`, never the current checkout's metadata | inspect `<output_dir>/metadata/output_schema.json` |
-| `--skip` run dies: `Partial output exists for partition <N> (<n> of <m> files)...` | `--skip` skips only when ALL files of a partition exist; partial → FATAL by design (`src/core/tree_driver.c`) | remove the partial partition's output files (archive, don't delete, per repo rules), rerun |
+| `--skip` run dies: `Partial output exists for partition <N> (<n> of <m> files)...` | `--skip` skips only when ALL files of a partition exist; partial → FATAL by design (`src/core/vertical_driver.c`) | remove the partial partition's output files (archive, don't delete, per repo rules), rerun |
 
 See the `mimic-run-and-operate` skill for output layout and reading recipes.
 
@@ -159,7 +159,7 @@ Discriminator experiment: run a small input (e.g. one file of mini-millennium) a
 - **(f) Stale `__pycache__` / orphaned `.pyc` can mislead.** A `.pyc` without its source (e.g. after a figure module rename) can keep old behavior alive or mask an ImportError. `find . -name __pycache__ -exec rm -rf {} +` before trusting weird Python behavior.
 - **(g) Some "stale" generated files are not drift.** `tests/generated/module_sources.mk` exists on disk but NO current generator writes it (legacy leftover; the Makefile does not name it). `make check-generated` passing while it looks old is NOT a bug. `init_halo_properties.inc` and `init_galaxy_properties.inc` were the same class and were removed from `GENERATED_HEADERS` and archived on 2026-08-13; `reset_galaxy_properties.inc` was archived on 2026-08-14. Since `src/include/generated/` is gitignored, an older worktree may still show any of these.
 - **(h) Run-file relative paths resolve from the invocation CWD**, not from the run file's location. Same run file, different directory → different behavior.
-- **(i) `fix_flybys` has been deleted — this symptom can now only come from a build predating the fix, or a stale converted dataset.** It used to collapse every z=0 FoF group into one (negated `MostBoundID`) on `consistent_trees_ascii` and `snapshot_hdf5` data; the lhalo/ctrees-HDF5 readers never had it. If a z=0 diagnostic still looks wrong this way — baryon fraction above cosmic, a truncated Type-0 halo mass function, absurd halo occupation, or any negated `MostBoundID` — check two things: (1) is the executable built from before the fix landed; (2) for a `snapshot_hdf5` dataset specifically, is it stamped `format_version = 1` — such a dataset is rejected outright by the reader, naming the file and version found, so it cannot silently produce this symptom; there is no equivalent stamp on the `consistent_trees_ascii` path, so an ASCII-derived run showing this symptom means an old build, not an old file. A restored corrupt-input guard, `verify_fof_centrals_present()` (both the C reader and the converter), now FATALs instead if a forest's final snapshot has zero FoF centrals — don't confuse that abort with the old defect. `docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md` owns the record.
+- **(i) `fix_flybys` has been deleted — this symptom can now only come from a build predating the fix, or a stale converted dataset.** It used to collapse every z=0 FoF group into one (negated `MostBoundID`) on `consistent_trees_ascii` and `horizontal_hdf5` data; the lhalo/ctrees-HDF5 readers never had it. If a z=0 diagnostic still looks wrong this way — baryon fraction above cosmic, a truncated Type-0 halo mass function, absurd halo occupation, or any negated `MostBoundID` — check two things: (1) is the executable built from before the fix landed; (2) for a `horizontal_hdf5` dataset specifically, is it stamped `format_version = 1` — such a dataset is rejected outright by the reader, naming the file and version found, so it cannot silently produce this symptom; there is no equivalent stamp on the `consistent_trees_ascii` path, so an ASCII-derived run showing this symptom means an old build, not an old file. A restored corrupt-input guard, `verify_fof_centrals_present()` (both the C reader and the converter), now FATALs instead if a forest's final snapshot has zero FoF centrals — don't confuse that abort with the old defect. `docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md` owns the record.
 
 ## Discriminating experiments
 
@@ -183,7 +183,7 @@ grep -rn "Unknown MODEL" Makefile                            # build selector gu
 grep -n "def get_profile_axes" plot/mimic-plot/output_utils.py  # axis key trap (e)
 grep -n "DEBUG_LOG_MAX_CALLS" src/util/error.h               # DEBUG_LOG rate limit (5/site)
 grep -rn "check_memory_leaks" src/util/                      # leak report entry point
-grep -rn "not implemented" src/core/ | grep -i snapshot      # snapshot_ordered fail-fast
+grep -n "compatible with processing_order" src/core/read_parameter_file.c  # reader/order mismatch
 git log --oneline 6cbeafe4 -1                                # trap (a) story
 ls models/halos-only/                                        # empty-pipeline model exists
 ```

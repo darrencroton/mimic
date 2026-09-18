@@ -71,7 +71,7 @@ def load_binary_tree(file_path):
 
     This function reads raw simulation merger tree data in the lhalo_binary
     format used by Mimic. The file format matches the C implementation in
-    src/io/tree/binary.c.
+    src/io/vertical/binary.c.
 
     File format:
         Header:

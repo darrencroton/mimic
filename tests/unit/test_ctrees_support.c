@@ -32,11 +32,11 @@
 #include "error.h"
 #include "globals.h"
 #include "memory.h"
-#include "tree/ctrees/ctrees_compat.h"
-#include "tree/ctrees/ctrees_utils.h"
-#include "tree/ctrees/forest_utils.h"
-#include "tree/ctrees/parse_ctrees.h"
-#include "tree/read_ctrees_ascii.h"
+#include "vertical/ctrees/ctrees_compat.h"
+#include "vertical/ctrees/ctrees_utils.h"
+#include "vertical/ctrees/forest_utils.h"
+#include "vertical/ctrees/parse_ctrees.h"
+#include "vertical/read_ctrees_ascii.h"
 
 #include <limits.h>
 #include <math.h>

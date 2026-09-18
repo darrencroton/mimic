@@ -1,7 +1,7 @@
 # Millennium Halo Catalog Properties
 #
 # Complete on-disk halo catalog record, in file order. This list generates
-# `struct RawHalo` and the HDF5 tree reader.
+# `struct RawHalo` and the HDF5 vertical reader.
 #
 # Entry keys: name, source (if on-disk name differs), type, units,
 # h_convention, provides_core_role, notes, description,

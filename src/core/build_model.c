@@ -6,13 +6,13 @@
  *
  * Key functions:
  * - build_halo_tree(): Recursive function to build halo tracking structures
- * - join_progenitor_halos(): Tree-driver gather step that prepares inheritance
+ * - join_progenitor_halos(): Vertical-driver gather step that prepares inheritance
  *   payloads and calls the shared inheritance service
  * - marshal_workspace_to_output_buffer(): Shared output-buffer marshalling
  *
  * The driver-neutral FoF evolution adapters this file's traversal calls
  * (process_halo_evolution and friends) live in halo_evolution.c, shared with
- * the snapshot driver.
+ * the horizontal driver.
  *
  * This file owns tree traversal, tree-indexed progenitor lookup, and tree-owned
  * buffer management. Format-neutral inheritance science lives in inheritance.c.
@@ -41,7 +41,7 @@
 #include "numeric.h"
 #include "output_buffer.h"
 #include "proto.h"
-#include "tree/reader.h"
+#include "vertical/reader.h"
 #include "types.h"
 #include "generated/tree_property_accessors.h"
 
@@ -49,17 +49,17 @@ static struct OutputBufferSegment *ensure_output_segment_scratch(int required);
 static void build_halo_tree_from_view(struct HaloInputView view, int halonr, int unit, int depth);
 
 /**
- * @brief   Build the tree driver's input view over one loaded unit
+ * @brief   Build the vertical driver's input view over one loaded unit
  *
  * @param   unit   Index of the loaded unit (merger tree)
- * @return  View over the tree driver's halo storage for that unit
+ * @return  View over the vertical driver's halo storage for that unit
  *
- * The input array remains the tree driver's own per-unit storage; this is where
+ * The input array remains the vertical driver's own per-unit storage; this is where
  * it becomes the explicit view that the accessors, the virial helpers, the
  * payload populator, and output conversion all read through. Nothing below the
  * driver reaches for the global.
  */
-static struct HaloInputView tree_driver_input_view(int unit) {
+static struct HaloInputView vertical_driver_input_view(int unit) {
   struct HaloInputView view;
 
   view.halos = InputTreeHalos;
@@ -89,7 +89,7 @@ static struct HaloInputView tree_driver_input_view(int unit) {
  * high redshift to low redshift.
  */
 void build_halo_tree(int halonr, int unit, int depth) {
-  build_halo_tree_from_view(tree_driver_input_view(unit), halonr, unit, depth);
+  build_halo_tree_from_view(vertical_driver_input_view(unit), halonr, unit, depth);
 }
 
 /* Recursive body of build_halo_tree(), carrying the unit's input view so every
@@ -174,7 +174,7 @@ static void build_halo_tree_from_view(struct HaloInputView view, int halonr, int
       fofhalo = mimic_tree_get_NextHaloInFOFgroup(view, fofhalo);
     }
 
-    /* Tree driver: run physics, then marshal the workspace to output. */
+    /* Vertical driver: run physics, then marshal the workspace to output. */
     process_halo_evolution(view, FoFWorkspace, mimic_tree_get_FirstHaloInFOFgroup(view, halonr),
                            ngal);
 
@@ -320,7 +320,7 @@ static int64_t make_unique_galaxy_id(int halonr, int unit) {
  * Reusable scratch for the gather step: the progenitor-galaxy list for one
  * descendant subhalo. Grown monotonically and kept for the whole run so the
  * depth-first tree hot path does not allocate per subhalo. Freed at shutdown by
- * free_tree_driver_scratch(). The non-LIFO allocator (see memory.c) makes
+ * free_vertical_driver_scratch(). The non-LIFO allocator (see memory.c) makes
  * whole-run persistence safe alongside the per-tree FoFWorkspace.
  */
 static struct InheritanceProgenitorGalaxy *ProgenitorScratch = NULL;
@@ -346,7 +346,7 @@ static struct OutputBufferSegment *ensure_output_segment_scratch(int required) {
   return OutputSegmentScratch;
 }
 
-void free_tree_driver_scratch(void) {
+void free_vertical_driver_scratch(void) {
   if (ProgenitorScratch != NULL) {
     myfree(ProgenitorScratch);
     ProgenitorScratch = NULL;
@@ -431,7 +431,7 @@ int join_progenitor_halos(struct HaloInputView view, int halonr, int ngalstart, 
   descendant.unique_galaxy_id = make_unique_galaxy_id(halonr, unit);
   descendant.halo_payload = make_halo_init_payload(view, halonr);
 
-  ngal = inherit_descendant_halos(TreeGalaxyPool, FoFWorkspace, ngalstart, MaxFoFWorkspace,
+  ngal = inherit_descendant_halos(VerticalGalaxyPool, FoFWorkspace, ngalstart, MaxFoFWorkspace,
                                   &descendant, progenitors, nprogenitors);
 
   return ngal;

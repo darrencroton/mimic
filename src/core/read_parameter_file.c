@@ -27,9 +27,9 @@
 #include "memory.h"          /* For mymalloc_cat, myfree */
 #include "module_registry.h" /* For PhaseModuleConfig and LoopMode */
 #include "proto.h"
-#include "snapshot/reader.h"          /* snapshot_reader_lookup, struct SnapshotReader */
-#include "tree/forest_distribution.h" /* forest_distribution_scheme_from_string */
-#include "tree/reader.h"              /* tree_reader_lookup, struct TreeReader */
+#include "horizontal/reader.h"            /* horizontal_reader_lookup, struct HorizontalReader */
+#include "vertical/forest_distribution.h" /* forest_distribution_scheme_from_string */
+#include "vertical/reader.h"              /* vertical_reader_lookup, struct VerticalReader */
 #include "types.h"
 #include "generated/unit_registry.h" /* mimic_unit_label_cgs / mimic_unit_label_h_convention */
 
@@ -126,7 +126,7 @@ static void yaml_file_close(struct YamlFile *yf) {
    config or the run file (parse_input_section() below). Reset alongside
    MimicConfig.ProcessingOrder's own seed, once per read_parameter_file() call,
    so the reader/order compatibility message can tell an explicitly configured
-   value from the internal tree_ordered seed. */
+   value from the internal vertical seed. */
 static int ProcessingOrderConfigured = 0;
 
 /**
@@ -159,9 +159,9 @@ void read_parameter_file(const char *fname) {
      behind. A production run parses once into a zero-initialised MimicConfig, so
      this changes nothing there; it makes a second parse in the same process
      (every core unit test) independent of the first. */
-  MimicConfig.ProcessingOrder = (int)INPUT_PROCESSING_ORDER_TREE;
-  MimicConfig.reader = NULL;
-  MimicConfig.snapshot_reader = NULL;
+  MimicConfig.ProcessingOrder = (int)INPUT_PROCESSING_ORDER_VERTICAL;
+  MimicConfig.vertical_reader = NULL;
+  MimicConfig.horizontal_reader = NULL;
   ProcessingOrderConfigured = 0;
 
   /*
@@ -344,17 +344,17 @@ static int file_exists_readable(const char *path) {
 }
 
 static enum InputProcessingOrder parse_processing_order(const char *value) {
-  if (strcasecmp(value, "tree_ordered") == 0) {
-    return INPUT_PROCESSING_ORDER_TREE;
+  if (strcasecmp(value, "vertical") == 0) {
+    return INPUT_PROCESSING_ORDER_VERTICAL;
   }
-  if (strcasecmp(value, "snapshot_ordered") == 0) {
-    return INPUT_PROCESSING_ORDER_SNAPSHOT;
+  if (strcasecmp(value, "horizontal") == 0) {
+    return INPUT_PROCESSING_ORDER_HORIZONTAL;
   }
 
-  FATAL_ERROR("Unknown input.processing_order '%s'. Valid values are tree_ordered, "
-              "snapshot_ordered.",
+  FATAL_ERROR("Unknown input.processing_order '%s'. Valid values are vertical, "
+              "horizontal.",
               value);
-  return INPUT_PROCESSING_ORDER_TREE; /* unreachable */
+  return INPUT_PROCESSING_ORDER_VERTICAL; /* unreachable */
 }
 
 const char *timestep_scheme_name(enum TimestepScheme scheme) {
@@ -832,25 +832,25 @@ static void parse_input_section(yaml_document_t *doc, yaml_node_t *section) {
   node = get_mapping_value(doc, section, "tree_type");
   if (node && (str = get_scalar_value(node))) {
     /* One key, two registries: forest-ordered readers first, then
-       snapshot-ordered ones. The name sets are disjoint, so the order only fixes
+       horizontal ones. The name sets are disjoint, so the order only fixes
        which registry answers first, never which reader a name resolves to.
        Exactly one of the two config fields is left non-NULL. */
-    const struct TreeReader *reader = tree_reader_lookup(str);
-    const struct SnapshotReader *snapshot_reader =
-        (reader == NULL) ? snapshot_reader_lookup(str) : NULL;
+    const struct VerticalReader *reader = vertical_reader_lookup(str);
+    const struct HorizontalReader *horizontal_reader =
+        (reader == NULL) ? horizontal_reader_lookup(str) : NULL;
 
-    if (reader == NULL && snapshot_reader == NULL) {
+    if (reader == NULL && horizontal_reader == NULL) {
       FATAL_ERROR("Unknown tree_type '%s'. Valid types are registered in "
-                  "src/io/tree/registry.c (forest-ordered) and "
-                  "src/io/snapshot/registry.c (snapshot-ordered); HDF5-based "
+                  "src/io/vertical/registry.c (forest-ordered) and "
+                  "src/io/horizontal/registry.c (horizontal); HDF5-based "
                   "types also require an HDF5-enabled build (do not pass "
                   "USE-HDF5=no).",
                   str);
     }
 
-    MimicConfig.reader = reader;
-    MimicConfig.snapshot_reader = snapshot_reader;
-    /* Snapshot readers derive their filenames from tree_name, so they carry no
+    MimicConfig.vertical_reader = reader;
+    MimicConfig.horizontal_reader = horizontal_reader;
+    /* Horizontal readers derive their filenames from tree_name, so they carry no
        reader-owned extension. */
     strncpy(MimicConfig.TreeExtension, reader != NULL ? reader->file_extension : "",
             MAX_STRING_LEN - 1);
@@ -1429,26 +1429,25 @@ static void validate_and_postprocess(void) {
     ERROR_LOG("Required parameter 'input.tree_name' missing");
     errors++;
   }
-  if (MimicConfig.reader == NULL && MimicConfig.snapshot_reader == NULL) {
+  if (MimicConfig.vertical_reader == NULL && MimicConfig.horizontal_reader == NULL) {
     ERROR_LOG("Required parameter 'input.tree_type' missing or unrecognised");
     errors++;
   } else {
     /* Whichever registry answered, the resolved reader declares the processing
-       order it feeds. A snapshot-ordered configuration that gets past here and
-       past the three rejections below reaches run_snapshot_driver(), which
-       opens and validates the dataset, loads and releases every snapshot, and
-       then fails honestly at output: no physics, gather, or writer exists yet
-       (src/core/snapshot_driver.c). */
-    const int is_tree_reader = (MimicConfig.reader != NULL);
-    const char *reader_name =
-        is_tree_reader ? MimicConfig.reader->name : MimicConfig.snapshot_reader->name;
+       order it feeds. A horizontal configuration that gets past here and past
+       the three rejections below reaches run_horizontal_driver(), which opens
+       and validates the dataset before processing anything
+       (src/core/horizontal_driver.c). */
+    const int is_vertical_reader = (MimicConfig.vertical_reader != NULL);
+    const char *reader_name = is_vertical_reader ? MimicConfig.vertical_reader->name
+                                                 : MimicConfig.horizontal_reader->name;
     const enum InputProcessingOrder reader_order =
-        is_tree_reader ? MimicConfig.reader->processing_order
-                       : MimicConfig.snapshot_reader->processing_order;
+        is_vertical_reader ? MimicConfig.vertical_reader->processing_order
+                           : MimicConfig.horizontal_reader->processing_order;
 
     if (reader_order != (enum InputProcessingOrder)MimicConfig.ProcessingOrder) {
       /* Failing closed is correct either way, but a value the user never wrote
-         (the internal tree_ordered seed) should not be reported as if they had. */
+         (the internal vertical seed) should not be reported as if they had. */
       ERROR_LOG("Reader '%s' is compatible with processing_order '%s', but "
                 "input.processing_order is '%s'%s",
                 reader_name, input_processing_order_name(reader_order),
@@ -1458,30 +1457,29 @@ static void validate_and_postprocess(void) {
       errors++;
     }
 
-    /* Snapshot readers own a filename convention fixed by the on-disk format
+    /* Horizontal readers own a filename convention fixed by the on-disk format
        rather than a user-chosen base name; configured text is never used as a
        printf format, so the only safe contract is exact equality. */
-    if (!is_tree_reader && strcmp(MimicConfig.TreeName, SNAPSHOT_READER_TREE_NAME) != 0) {
+    if (!is_vertical_reader && strcmp(MimicConfig.TreeName, HORIZONTAL_READER_TREE_NAME) != 0) {
       ERROR_LOG("Reader '%s' accepts input.tree_name only as the exact literal '%s', but it is "
                 "'%s'",
-                reader_name, SNAPSHOT_READER_TREE_NAME, MimicConfig.TreeName);
+                reader_name, HORIZONTAL_READER_TREE_NAME, MimicConfig.TreeName);
       errors++;
     }
 
-    /* The skeleton driver (and everything after it in this phase) has no
-       resume, binary-writer, or multi-rank support yet; reject at config time
-       rather than let a snapshot-ordered run reach the driver only to FATAL
-       there for a reason unrelated to the driver's own missing output path. */
-    if (!is_tree_reader && MimicConfig.OutputFormat == output_binary) {
-      ERROR_LOG("output_format is 'binary', but snapshot-ordered runs are HDF5-only");
+    /* The horizontal driver supports neither resume, nor the binary writer, nor
+       multiple ranks; reject each at config time rather than let a horizontal
+       run reach the driver and fail there, after the dataset has been opened. */
+    if (!is_vertical_reader && MimicConfig.OutputFormat == output_binary) {
+      ERROR_LOG("output_format is 'binary', but horizontal runs are HDF5-only");
       errors++;
     }
-    if (!is_tree_reader && MimicConfig.OverwriteOutputFiles == 0) {
-      ERROR_LOG("--skip was given, but resume is not supported for snapshot-ordered runs");
+    if (!is_vertical_reader && MimicConfig.OverwriteOutputFiles == 0) {
+      ERROR_LOG("--skip was given, but resume is not supported for horizontal runs");
       errors++;
     }
-    if (!is_tree_reader && NTask > 1) {
-      ERROR_LOG("NTask is %d, but snapshot-ordered runs are serial in this phase; multi-rank "
+    if (!is_vertical_reader && NTask > 1) {
+      ERROR_LOG("NTask is %d, but horizontal runs are serial in this phase; multi-rank "
                 "execution belongs to the distributed plan, "
                 "docs/dev/MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md",
                 NTask);

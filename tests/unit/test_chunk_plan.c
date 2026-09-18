@@ -4,7 +4,7 @@
  */
 
 #include "../framework/test_framework.h"
-#include "../../src/io/tree/chunk_plan.h"
+#include "../../src/io/vertical/chunk_plan.h"
 #include "../../src/util/error.h"
 
 #include <float.h>

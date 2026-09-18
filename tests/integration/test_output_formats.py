@@ -104,7 +104,7 @@ def selected_package_writes_binary():
     """
     Whether the selected simulation package can produce binary output.
 
-    A snapshot-ordered package cannot: the driver rejects any output format but
+    A horizontal package cannot: the driver rejects any output format but
     HDF5 at configuration time, so the generated ``test_binary.yaml`` is invalid
     by construction for it and every check below would fail on a run that never
     happened. The effective processing order is read exactly as the parser
@@ -123,13 +123,13 @@ def selected_package_writes_binary():
             sim_config = yaml.safe_load(handle)
         order = ((sim_config or {}).get("input") or {}).get("processing_order")
 
-    return order != "snapshot_ordered"
+    return order != "horizontal"
 
 
 def first_requested_output_snapshot(param_file):
     """The first snapshot ``output.snapshot_list`` in ``param_file`` asks for.
 
-    A snapshot-ordered run writes one partition file per requested output
+    A horizontal run writes one partition file per requested output
     snapshot, named by that snapshot's number, so the filename cannot be derived
     from a fixed partition index. Reading the request from the run file keeps this
     correct for any list configuration validation admits, including an unsorted
@@ -366,8 +366,8 @@ def test_hdf5_format_loading():
     Test that HDF5 output file can be loaded and parsed
 
     What: Loads the selected package's HDF5 output partition file (filenr 0 on
-          a tree-ordered package, the first requested output snapshot on a
-          snapshot-ordered one) using load_hdf5_halos() function
+          a vertical package, the first requested output snapshot on a
+          horizontal one) using load_hdf5_halos() function
     Expected: File exists, halos array is populated, metadata is valid
     Validates: HDF5 format structure is readable by analysis tools
     Requires: h5py library (skips if not available)
@@ -385,12 +385,12 @@ def test_hdf5_format_loading():
     param_file = core_input_file("test_hdf5.yaml")
     output_dir = TEST_DATA_DIR / "output" / "hdf5"
     if selected_package_writes_binary():
-        # Tree-ordered partition files are named by filenr (forests_per_file
+        # Vertical partition files are named by filenr (forests_per_file
         # chunking), independent of which output snapshots are requested;
         # filenr 0 is always the first partition.
         output_file = output_dir / "model_000.hdf5"
     else:
-        # A snapshot-ordered run names each partition file after the output
+        # A horizontal run names each partition file after the output
         # snapshot it holds, so the file to read comes from the run file's own
         # request rather than from a fixed partition index.
         snapnum = first_requested_output_snapshot(param_file)
@@ -496,12 +496,12 @@ def test_hdf5_compression_equivalence():
     param_file = core_input_file("test_hdf5.yaml")
     output_dir = TEST_DATA_DIR / "output" / "hdf5"
     if selected_package_writes_binary():
-        # Tree-ordered partition files are named by filenr (forests_per_file
+        # Vertical partition files are named by filenr (forests_per_file
         # chunking), independent of which output snapshots are requested;
         # filenr 0 is always the first partition.
         output_file = output_dir / "model_000.hdf5"
     else:
-        # A snapshot-ordered run names each partition file after the output
+        # A horizontal run names each partition file after the output
         # snapshot it holds, so the file to read comes from the run file's own
         # request rather than from a fixed partition index.
         snapnum = first_requested_output_snapshot(param_file)
@@ -677,12 +677,12 @@ def test_unique_id_contract():
     param_file = core_input_file("test_hdf5.yaml")
     output_dir = TEST_DATA_DIR / "output" / "hdf5"
     if selected_package_writes_binary():
-        # Tree-ordered partition files are named by filenr (forests_per_file
+        # Vertical partition files are named by filenr (forests_per_file
         # chunking), independent of which output snapshots are requested;
         # filenr 0 is always the first partition.
         output_file = output_dir / "model_000.hdf5"
     else:
-        # A snapshot-ordered run names each partition file after the output
+        # A horizontal run names each partition file after the output
         # snapshot it holds, so the file to read comes from the run file's own
         # request rather than from a fixed partition index.
         snapnum = first_requested_output_snapshot(param_file)
@@ -840,10 +840,10 @@ def test_hdf5_unique_galaxy_id_multiplier_provenance():
     output_dir = TEST_DATA_DIR / "output" / "hdf5"
     master_file = output_dir / "model.hdf5"
     if selected_package_writes_binary():
-        # Tree-ordered partition files are named by filenr; filenr 0 always exists.
+        # Vertical partition files are named by filenr; filenr 0 always exists.
         partition_file = output_dir / "model_000.hdf5"
     else:
-        # A snapshot-ordered run names each partition file after the snapshot it
+        # A horizontal run names each partition file after the snapshot it
         # holds, so the name comes from the run file's own request.
         partition_file = (
             output_dir / f"model_{first_requested_output_snapshot(param_file):03d}.hdf5"
@@ -909,7 +909,7 @@ def test_format_equivalence():
     Note: This test compares ALL properties because both files are generated
           in the same run, so they should have identical property sets
 
-    Note: Skips on a snapshot-ordered package. Such a package cannot produce
+    Note: Skips on a horizontal package. Such a package cannot produce
           binary output at all -- the run is rejected at configuration time --
           so there is no binary output for this test to compare against HDF5.
     """
@@ -920,7 +920,7 @@ def test_format_equivalence():
 
     if not selected_package_writes_binary():
         raise TestSkipped(
-            "Snapshot-ordered packages reject binary output at configuration "
+            "Horizontal packages reject binary output at configuration "
             "time, so binary vs HDF5 format equivalence cannot be compared"
         )
 

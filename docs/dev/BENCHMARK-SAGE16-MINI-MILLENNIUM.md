@@ -78,7 +78,7 @@ Grouped by the ownership boundaries in VISION.md. Uncertainty is ±1σ Poisson o
 | **Math library** — `libsystem_m` (paid for by callers, see below) | **4.74%** | 0.09 | 158 |
 | **Runtime/system** — platform, allocator, dyld, other kernel | **4.55%** | 0.09 | 151 |
 | **Output I/O** — `src/io/output/**` + libhdf5 + write syscalls | **3.87%** | 0.08 | 128 |
-| **Tree input I/O** — `src/io/tree/**` + its read/open syscalls | **1.01%** | 0.04 | 33 |
+| **Tree input I/O** — `src/io/vertical/**` + its read/open syscalls | **1.01%** | 0.04 | 33 |
 | **Model shared helpers** — `models/sage16/shared/**` | **0.17%** | 0.02 | 5.6 |
 | **Module system framework** — `src/module_system/**` | **0.00%** | — | 0 |
 | **Unattributed** | 0.004% | — | 0.1 |
@@ -94,7 +94,7 @@ Grouped by the ownership boundaries in VISION.md. Uncertainty is ±1σ Poisson o
 | `output_buffer.c` / marshalling | 0.44% | 15 | workspace → output record |
 | `halo_evolution.c` | 0.29% | 9.5 | per-halo evolution driving |
 | `galaxy_pool.c` | 0.20% | 6.6 | galaxy slot allocation |
-| `tree_driver.c` | 0.10% | 3.4 | partition claiming and traversal |
+| `vertical_driver.c` | 0.10% | 3.4 | partition claiming and traversal |
 | `main.c`, `init.c`, config parsing | <0.02% | <0.6 | startup |
 
 ### Utilities, broken out
@@ -110,7 +110,7 @@ Grouped by the ownership boundaries in VISION.md. Uncertainty is ±1σ Poisson o
 
 | Sub-part | % of CPU | ms | Principal payer |
 |---|---|---|---|
-| `__bzero` | 3.15% | 105 | `src/io/tree/interface.c` (3.14 points) — load-buffer zero-fill |
+| `__bzero` | 3.15% | 105 | `src/io/vertical/interface.c` (3.14 points) — load-buffer zero-fill |
 | Allocator internals | 0.86% | 29 | `src/util/memory.c` |
 | `memmove` / `memset` / `strcmp` | 0.51% | 17 | mixed |
 
@@ -140,7 +140,7 @@ By function: `log10` 1.88%, `__exp10` 0.76%, `cbrt` 0.42%, `exp` 0.42%, `pow` 0.
 
 ### Inclusive sanity frame
 
-`main` 100% → `tree_driver` 97.9% → `build_model` 88.8% → `halo_evolution` 83.8% → `module_registry` 83.6%. Tree reader `interface.c` 4.8% inclusive; output `hdf5.c` 4.0% inclusive.
+`main` 100% → `vertical_driver` 97.9% → `build_model` 88.8% → `halo_evolution` 83.8% → `module_registry` 83.6%. Vertical reader `interface.c` 4.8% inclusive; output `hdf5.c` 4.0% inclusive.
 
 ---
 
@@ -257,7 +257,7 @@ Reported as evidence, with no recommendation attached.
 1. **Module dispatch is the single most expensive translation unit in the build.** `src/core/module_registry.c` is 27.12% ± 0.22 of all CPU (901 ms), essentially all of it self-time in `execute_phase` spread across lines 831–895 — the full-halo pass, and the by-galaxy pass whose inner loop re-scans all configured modules for every galaxy and filters on `processing_mode`. That is 2.7× the cost of the most expensive physics prescription.
 2. **A logging predicate runs in the hot path even under `-q`.** `src/util/error.c:211 is_debug_log_rate_limiting_enabled` is 4.15% ± 0.09 (138 ms). `DEBUG_LOG` (`src/util/error.h:78-80`) calls it *before* any log-level test, and of `execute_phase`'s two `DEBUG_LOG` sites, the PASS-2 one (`:882`) fires once per by-galaxy module × galaxy × substep while the PASS-1 one (`:846`) fires once per full-halo module × substep × FoF group. It lives in a different translation unit and the build has no LTO, so `-O2` can neither inline nor elide it. Its caller-side argument setup is folded into `execute_phase`'s 27%.
 3. **Startup spawns two subprocesses.** `src/util/version.c` costs 1.35% (45 ms) via `popen`/`fgets`/`posix_spawn`/`wait4`: `sw_vers -productVersion` (`:135`) and `md5 -q` on the run YAML (`:234`). **Not git** — git provenance comes from build-time `git_version.h` by design, so it describes the compiled binary rather than the working directory. A fixed per-run cost, negligible for long runs but dominant in the 80 ms floor.
-4. **Zero-filling load buffers costs more than the tree reader itself.** `__bzero` is 3.15% (105 ms), of which 3.14 points is paid by `src/io/tree/interface.c` — three times the reader's own 1.01%.
+4. **Zero-filling load buffers costs more than the vertical reader itself.** `__bzero` is 3.15% (105 ms), of which 3.14 points is paid by `src/io/vertical/interface.c` — three times the reader's own 1.01%.
 5. **HDF5 output is cheap, and most of what it costs is syscalls rather than code.** Of the 3.87% Output I/O, 2.21 points are `open`/`close`/`pwrite` issued from inside libhdf5 (61 ms in `__open` alone) against only 0.51 points of `src/io/output/*.c`. C2 confirms the writer is not a bottleneck: the binary writer saves 47 ms (1.4%).
 6. **`src/module_system/**` contributes 0.00% at runtime.** The framework infrastructure is genuinely build-time and registration-only; all runtime dispatch cost sits in `src/core/module_registry.c`.
 
