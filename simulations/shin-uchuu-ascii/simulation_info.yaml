@@ -1,9 +1,9 @@
-# Shin-Uchuu Simulation Metadata — Consistent-Trees ASCII format (rehearsal subset)
+# Shin-Uchuu Simulation Metadata — Consistent-Trees ASCII format (subset)
 #
-# `snapshots/` is a machine-local symlink to the SUBSET ASCII tree data, not the
-# full production box (docs/dev/SHIN-UCHUU-CONVERSION-PLAN.md). The reader uses
-# forests.list, locations.dat and the tree_X_Y_Z.dat files there;
-# first_file/last_file are metadata only for ASCII.
+# `snapshots/` is a machine-local symlink to a subset of the full Shin-Uchuu
+# box (see the package README for why this package is permanently
+# subset-only). The reader uses forests.list, locations.dat and the
+# tree_X_Y_Z.dat files there; first_file/last_file are metadata only for ASCII.
 #
 # The subset preserves the production layout of 2744 files (14^3, ids 0..2743),
 # and every file contributes at least one selected tree, so tree_0_0_0.dat is
@@ -19,17 +19,14 @@ input:
 
 output:
   # Required > 0: the ASCII reader cannot estimate chunk sizes from its input.
-  # The rehearsal subset holds 6,011,205 forests, so this gives 13 output chunks.
+  # The subset holds 6,011,205 forests, so this gives 13 output chunks.
   forests_per_file: 500000
 
 simulation:
-  # Production value, matching simulations/shin-uchuu/ (must be identical or
-  # UniqueGalaxyID differs between the two and the identity gate fails). This
-  # package's own data stays on the rehearsal subset (max rank 8,312,565), but
-  # the multiplier tracks the production value regardless: confirmed against
-  # the production conversion report (2026-09-03), max_halo_rank_in_forest =
-  # 12,646,607,900, so 2e10 satisfies halonr < multiplier. See
-  # SHIN-UCHUU-CONVERSION-PLAN.md, 'Simulation package changes required'.
+  # Matches simulations/shin-uchuu/ exactly, or UniqueGalaxyID diverges
+  # between the two packages. This package's own subset only reaches a max
+  # rank of 8,312,565; the multiplier is set for the full catalog's
+  # max_halo_rank_in_forest = 12,646,607,900, which 2e10 satisfies.
   unique_galaxy_id_multiplier: 20000000000
   cosmology:
     omega_matter: 0.3089

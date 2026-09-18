@@ -1,12 +1,9 @@
-# Shin-Uchuu Simulation Metadata — snapshot-ordered HDF5 format (rehearsal subset)
+# Shin-Uchuu Simulation Metadata — snapshot-ordered HDF5 format
 #
 # `snapshots/` is a symlink to your local copy of the converted dataset
 # directory: 70 `snapshot_NNN.h5` files plus the `forests.h5` sidecar, produced
-# by scripts/convert/ per docs/dev/SNAPSHOT-HDF5-FORMAT.md from the SUBSET
-# built for the Shin-Uchuu conversion rehearsal
-# (docs/dev/SHIN-UCHUU-CONVERSION-PLAN.md), not yet the full production box.
-# After the production conversion this symlink is re-pointed at the production
-# dataset; nothing else in this package is expected to change.
+# by scripts/convert/ per docs/dev/SNAPSHOT-HDF5-FORMAT.md from the full
+# Shin-Uchuu Consistent-Trees catalog.
 #
 # `tree_name` is the snapshot filename convention, not a general pattern: the
 # format fixes it at `snapshot_%03d.h5` and the reader accepts no other value.
@@ -24,13 +21,9 @@ input:
   snapshot_list_file: simulations/shin-uchuu/shin-uchuu.a_list
 
 simulation:
-  # Production value, confirmed against the production conversion report
-  # (2026-09-03): max_halo_rank_in_forest = 12,646,607,900, so 2e10 satisfies
-  # halonr < multiplier (feasible window 12,834,657,130 <= M <= 55,379,738,354
-  # per the pre-measurement estimate; the measured rank came in slightly below
-  # that estimate, so this value clears it by a wider margin than planned).
-  # Must match shin-uchuu-ascii, or the identity gate fails. See
-  # SHIN-UCHUU-CONVERSION-PLAN.md, 'Simulation package changes required'.
+  # max_halo_rank_in_forest = 12,646,607,900 for this catalog, so 2e10
+  # satisfies halonr < multiplier. Must match shin-uchuu-ascii's value
+  # exactly, or UniqueGalaxyID diverges between the two packages.
   unique_galaxy_id_multiplier: 20000000000
   cosmology:
     omega_matter: 0.3089

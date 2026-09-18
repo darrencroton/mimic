@@ -1,20 +1,20 @@
-# Shin-Uchuu Simulation Package — Consistent-Trees ASCII (rehearsal subset)
+# Shin-Uchuu Simulation Package — Consistent-Trees ASCII (subset)
 
-This package runs Mimic against a **subset** of the Shin-Uchuu merger trees in Consistent-Trees ASCII format (`consistent_trees_ascii` reader). It exists to rehearse the Shin-Uchuu conversion end to end — including the tree-ordered vs. snapshot-ordered cross-format identity gate — before the full production box is converted. See [`docs/dev/SHIN-UCHUU-CONVERSION-PLAN.md`](../../docs/dev/SHIN-UCHUU-CONVERSION-PLAN.md) for the full rehearsal design.
+This package runs Mimic against a subset of the Shin-Uchuu merger trees in Consistent-Trees ASCII format (`consistent_trees_ascii` reader). It is permanently subset-only: the full box contains one percolating "super-forest" of 104.8 million tree roots (33% of all trees) that the tree-ordered driver cannot hold in memory as a single unit, so the full box can never run tree-ordered. This package's subset excludes that forest.
 
 - `simulation_info.yaml`: tree input paths, snapshot list path, cosmology, units, box size, and particle mass
 - `halo_properties.yaml`: RawHalo field contract for the ctrees readers (mirrors `micro-uchuu-ascii`'s ctrees bridge contract; see file header for the key unit difference from L-Halo binary — M_Crit200 in native Msun/h)
-- `shin-uchuu.a_list`: 70 snapshot scale factors (a=0.04773 to a=0.99998), extracted from the actual halo data rather than ctrees file headers (see the conversion plan, "a_list extraction")
+- `shin-uchuu.a_list`: 70 snapshot scale factors (a=0.04773 to a=0.99998), extracted from the halo data rather than ctrees file headers
 - `snapshots/`: symlink to the subset ASCII tree data directory
-- `_tests/`: not present (see "Maintenance notes" below)
+- `_tests/`: not present (see "Maintenance notes")
 
-**This package currently points at a SUBSET, not the full box.** The subset holds 8,000,198 tree roots in 6,011,205 whole forests (2.54% of the box's 315,004,242 z=0 halos; **406,668,896 halos measured over the converted dataset**, 1.8% of the box's ≈22.9 billion; ≈210 GB of ASCII), selected as a fixed-seed random sample of tractable forests, whose forest-size distribution is validated against the whole population, plus the top 20 forests by measured root `Mvir` within the byte-selected candidate pool. Both claims are bounded: the supplement is the most massive systems *in that pool*, not provably the global top 20 outside the excluded super-forest, and forest-size representativeness is a proxy for, not a direct test of, low halo mass. See `docs/dev/SHIN-UCHUU-CONVERSION-PLAN.md`, "Subset Selection and Extraction". `simulations/shin-uchuu/` (the snapshot-ordered sibling) is converted from this same subset for the rehearsal. **This ASCII package is only ever usable on a subset**: the full 315,004,242-halo, 2744-file production box cannot be processed tree-ordered at all (see the conversion plan's memory analysis) — that limitation is this whole conversion effort's premise, not a rehearsal artifact to be later fixed.
+The subset holds 8,000,198 tree roots in 6,011,205 whole forests (2.54% of the full box's 315,004,242 z=0 halos; 406,668,896 halos measured over the converted dataset) — a fixed-seed random sample of tractable forests plus the top 20 forests by measured root `Mvir` within the sampled pool.
 
 **Data files required in `snapshots/`:**
 
 - `forests.list` — subset forest/tree-root ids (one line per selected tree root)
 - `locations.dat` — file id, byte offset, and filename for each selected tree root
-- `tree_0_0_0.dat` … the full production file set, `tree_X_Y_Z.dat` for `X,Y,Z` in `0..13` (2744 = 14³ files) — the subset extraction preserves the production per-file layout and file count; every file contributes at least one selected tree, so `tree_0_0_0.dat` (declared as `input.tree_name`, used only to read the shared Consistent-Trees column header) is guaranteed present
+- `tree_0_0_0.dat` … `tree_13_13_13.dat` — the full 2744-file production layout is preserved; every file contributes at least one selected tree, so `tree_0_0_0.dat` (declared as `input.tree_name`, used only for the shared Consistent-Trees column header) is guaranteed present
 
 **Setting up the snapshots symlink:**
 
@@ -22,25 +22,22 @@ This package runs Mimic against a **subset** of the Shin-Uchuu merger trees in C
 ln -s /path/to/shin-uchuu-subset-ascii simulations/shin-uchuu-ascii/snapshots
 ```
 
-`snapshots/` is machine-local and gitignored (`.gitignore` matches `simulations/*/snapshots`), so no symlink is committed with this package; create it locally after the subset has been extracted and transferred.
+`snapshots/` is machine-local and gitignored (`.gitignore` matches `simulations/*/snapshots`).
 
 ## Data provenance
 
-Source: `/fred/oz214/simulations/uchuu/shinuchuu/mergertrees` on OzSTAR (login node `tooarrana`) — 2744 `tree_*.dat` files, 11.61 TB, Consistent-Trees ASCII format, 70 snapshots. Cosmology (Ωm 0.3089, ΩΛ 0.6911, h 0.6774) is the Uchuu/Planck-2015 family shared with `micro-uchuu-ascii`. The particle mass is **not** shared: Shin-Uchuu's 8.97×10⁵ Msun/h is 362× smaller than micro-Uchuu's 3.25×10⁸ Msun/h, and was confirmed for Shin-Uchuu specifically rather than carried over. Box size 140 Mpc/h.
+Source: `/fred/oz214/simulations/uchuu/shinuchuu/mergertrees` on OzSTAR — 2744 `tree_*.dat` files, 11.61 TB, Consistent-Trees ASCII format, 70 snapshots. Cosmology (Ωm 0.3089, ΩΛ 0.6911, h 0.6774) is the Uchuu/Planck-2015 family shared with `micro-uchuu-ascii`; particle mass (8.97×10⁵ Msun/h) and box size (140 Mpc/h) are specific to Shin-Uchuu. The subset was extracted with `scripts/convert/subset.py`, which selects whole forests without reading the bulk tree data, then copies only the selected byte ranges.
 
-The subset used here is extracted from that source with `scripts/convert/subset.py` (`plan-candidates` → `sample-roots` → `finalize` → `extract`), which selects whole forests without ever reading the bulk tree data, then copies only the selected byte ranges. See `docs/dev/SHIN-UCHUU-CONVERSION-PLAN.md`, "Subset Selection and Extraction", for the full design and the round-trip verification already performed on real data (60,000 trees extracted and verified as a dry run of the mechanism this package's subset uses at larger scale).
+## Cross-format sibling
 
-## Cross-validation sibling
-
-- `simulations/shin-uchuu/` — the snapshot-ordered HDF5 conversion of this same subset, produced by `scripts/convert/` (mirrors the `micro-uchuu-ascii` / `micro-uchuu-snapshot` pair). The cross-format identity gate (`test_cross_format_identity.py`, see the `micro-uchuu-snapshot` package for the worked reference) compares runs over these two packages snapshot for snapshot, which is why the shipped run files use the identical `output.snapshot_list` on both sides.
+- `simulations/shin-uchuu/` — the snapshot-ordered HDF5 conversion of the full production catalog, produced by `scripts/convert/` using this reader's value conventions as the reference.
 
 **Mirror maintenance:** `halo_properties.yaml` is an intentional mirror of `simulations/shin-uchuu/halo_properties.yaml` (both use the ctrees RawHalo contract, adjusted only for the 140 Mpc/h box's `Pos` range). Keep them in sync.
 
 ## Maintenance notes
 
-- **`fix_flybys()` was removed from the `consistent_trees_ascii` reader (2026-09-10).** This package uses that reader, so it was directly exposed: until the removal, every forest's final snapshot (69, z=0 for this catalog) had every FoF central but the most massive demoted to a satellite of the survivor, with `MostBoundID` negated as a marker. That behaviour is gone — `MostBoundID` is always positive, and a forest's final snapshot can legitimately hold many independent FoF centrals, exactly as the `consistent_trees_hdf5` and `lhalo_binary` readers already showed. A restored guard, `verify_fof_centrals_present()`, now aborts if a forest's final snapshot has *zero* FoF centrals (corrupt input), which is a distinct condition from the removed demotion. Full diagnosis, evidence and the decision record: `docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md`. This package's own subset was not separately re-measured post-fix — `micro-uchuu-ascii`, which uses the same reader, is the package where the fix was verified end to end (addendum §R6); the full Shin-Uchuu re-conversion (which reads through this package's production sibling family) is what actually re-derives this catalog's z=0 population.
-- **Production re-point, not yet done.** After the full production conversion, `simulations/shin-uchuu/snapshots` is re-pointed at the production dataset (see that package's README). This ASCII package is not re-pointed the same way — it remains subset-only by design, since it cannot address the full box.
-- **`Spin` range `[-1000, 1000]` (decision D7 in the conversion plan) was not refuted by the rehearsal, and the production scan is still binding.** Rehearsal calibration **closed 2026-08-26**: measured `[-11.673591, +17.797567]` with zero non-finite over all 406,668,896 halos. That ~56× margin is **an artefact of the subset**, which excludes the percolation super-forest; the mass-matched anchor puts the production maximum nearer **680**, a ~1.5× margin. Nothing before the production scan bounds the z=0 spin maximum from above — that scan is step **P4** of the execution sequence, and it is where this bound is settled.
-- **`unique_galaxy_id_multiplier: 10000000000` (10¹⁰)** is set from the start in both this package and `simulations/shin-uchuu/`, ahead of when the production scale strictly requires it, so the rehearsal exercises the production identity multiplier end to end. The forest-count bound is confirmed (`mimic_unique_galaxy_id_max_forests(10^10) = 922,337,202` against the measured 166,547,771 forests), but the **rank** bound is **resolved and failing**: production `max_halo_rank_in_forest` ≈ 1.2834657129 × 10¹⁰ exceeds 10¹⁰, so **the production value is 2 × 10¹⁰ and raising it in both packages is a mandatory pre-run step** (constraint C15 / step P3 of `docs/dev/SHIN-UCHUU-CONVERSION-PLAN.md` → "The Production Execution Sequence"), not a check that might pass. The feasible window is 12,834,657,130 ≤ M ≤ 55,379,738,354.
-- **No `plot_profile.yaml`.** Unlike `micro-uchuu-ascii`, this package ships no plot profile: axis limits belong to a real run's dynamic range, and guessing them for a 140 Mpc/h box ahead of the rehearsal would bake in numbers nobody has checked. Add one from measured output when plotting this package matters.
-- **`_tests/` is not shipped.** Unlike the micro-Uchuu exemplars, this package has no committed fixture-sized test data or integration scaffolding yet — the rehearsal subset itself is the first real exercise of this reader against Shin-Uchuu data, and fixture design should follow once the rehearsal's actual data shape is known.
+- **`MostBoundID` is always positive.** A forest's final snapshot can legitimately hold many independent FoF centrals; `verify_fof_centrals_present()` aborts if it has zero.
+- **`Spin` range `[-1000, 1000]`.** Measured over this subset's 406,668,896 halos: `[-11.673591, +17.797567]`, zero non-finite.
+- **`unique_galaxy_id_multiplier: 20000000000` (2×10¹⁰)** must match `simulations/shin-uchuu/`, or `UniqueGalaxyID` diverges between the two packages.
+- **No `plot_profile.yaml`.** Axis limits belong to a real run's dynamic range; add one from measured output when plotting this package matters.
+- **No `_tests/`.** No committed fixture-sized test data or integration scaffolding yet.
