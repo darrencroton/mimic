@@ -4,11 +4,9 @@
 
 **Purpose**: Trace every field, unit, ordering and snapshot-qualified link proposed by [`HORIZONTAL-HDF5-FORMAT-V3-DRAFT.md`](HORIZONTAL-HDF5-FORMAT-V3-DRAFT.md) through the consumer side — the generated input view, gap-state ownership and bounded slab access — and establish whether that draft can be frozen as a producer contract without stranding the consumer that must eventually read it.
 
-> **Status: UNAPPROVED.**
+> **Status: APPROVED** — see the dated line above.
 >
-> This document is the artifact of **Gate G1** in [`MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md`](MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md). It was authored as a Slice 2 deliverable. Authoring it is not approving it.
->
-> **The owner, and only the owner, approves it**, by adding a dated `**APPROVED <date> by owner**` line at the top of this file and committing it. Nothing else counts — not a chat message, not a project-manager judgement, and not the existence of this document. Until that line is committed, the v3 draft is not normative and no slice may build against it as though it were.
+> This document is the artifact of **Gate G1** in [`MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md`](MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md). It was authored as a Slice 2 deliverable; authoring it was not approving it. The owner approved it by adding the dated `**APPROVED <date> by owner**` line at the top of this file and committing it — nothing else counted, not a chat message, not a project-manager judgement, and not the existence of this document on its own. With that line committed, the v3 draft is normative for the purposes this gate covers, and later slices may build against it.
 
 **Scope**: this is a design review, not an implementation. It changes no runtime code and proposes none. Where it identifies work the consumer will need, that work belongs to the separate reader/driver project the plan already names, not to the converter slices.
 
