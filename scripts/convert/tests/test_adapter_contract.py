@@ -494,6 +494,106 @@ class SourceAdapterTests(unittest.TestCase):
             PartialAdapter()
 
 
+class NonFinitePayloadTests(unittest.TestCase):
+    """C2: "Float parsing/casts reject non-finite input and overflow; preserve
+    signed zero." Rejecting NaN/infinity and *keeping* signed zero are two
+    halves of one rule, so both are tested here."""
+
+    def setUp(self):
+        self.schema = ascii_schema(
+            [
+                {
+                    "name": "Rvir",
+                    "sources": [{"field": "Rvir"}],
+                    "type": "float",
+                    "units": "kpc/h",
+                    "h_convention": "carried",
+                    "description": "test",
+                }
+            ]
+        )
+
+    def test_non_finite_scalar_payload_is_rejected(self):
+        for label, value in (("nan", np.nan), ("+inf", np.inf), ("-inf", -np.inf)):
+            with self.subTest(value=label):
+                batch = make_batch(self.schema)
+                batch.payload["Vmax"][1] = value
+                with self.assertRaisesRegex(ConverterError, "non-finite value"):
+                    batch.validate()
+
+    def test_non_finite_vector_payload_is_rejected_and_the_index_is_named(self):
+        batch = make_batch(self.schema)
+        batch.payload["Pos"][2][1] = np.nan
+        with self.assertRaisesRegex(ConverterError, r"non-finite value nan at index \(2, 1\)"):
+            batch.validate()
+
+    def test_non_finite_extra_is_rejected(self):
+        batch = make_batch(self.schema)
+        batch.extras["Rvir"][0] = np.inf
+        with self.assertRaisesRegex(ConverterError, "non-finite value"):
+            batch.validate()
+
+    def test_signed_zero_passes_and_is_preserved(self):
+        """A negative zero is finite. The rule is to preserve it, not reject
+        it, and validation must not normalise it away either."""
+        batch = make_batch(self.schema)
+        batch.payload["Vmax"][0] = -0.0
+        batch.payload["Pos"][1][2] = -0.0
+        batch.extras["Rvir"][0] = -0.0
+        batch.validate()
+        self.assertTrue(np.signbit(batch.payload["Vmax"][0]))
+        self.assertTrue(np.signbit(batch.payload["Pos"][1][2]))
+        self.assertTrue(np.signbit(batch.extras["Rvir"][0]))
+        self.assertEqual(batch.payload["Vmax"][0], 0.0)
+
+    def test_finite_extremes_still_pass(self):
+        """The check is finiteness, not magnitude: the largest representable
+        float32 is valid data."""
+        batch = make_batch(self.schema)
+        largest = np.finfo(np.float32).max
+        batch.payload["Vmax"][0] = largest
+        batch.payload["Vmax"][1] = -largest
+        batch.validate()
+
+    def test_integer_columns_are_unaffected(self):
+        """Only floating dtypes are checked; an int column has no non-finite
+        values to look for."""
+        batch = make_batch(self.schema)
+        batch.payload["Len"][0] = np.iinfo(np.int32).max
+        batch.links["Descendant"][0] = 2**62
+        batch.validate()
+
+
+class UncoercedInputTests(unittest.TestCase):
+    """An adapter handing a plain list must get this module's named error, not
+    a raw AttributeError from a `.shape` dereference. Reachable only by an
+    adapter bug, never by user input."""
+
+    def setUp(self):
+        self.schema = ascii_schema()
+
+    def test_a_list_identity_column_is_coerced_not_crashed_on(self):
+        batch = make_batch(self.schema)
+        batch.identity["SourceHaloID"] = [1, 2, 3]
+        batch.links["FirstHaloInFOFgroup"] = np.array([1, 2, 3], dtype=np.int64)
+        batch.validate()
+        self.assertEqual(batch.n_rows, 3)
+
+    def test_a_wrongly_typed_list_identity_reports_a_converter_error(self):
+        batch = make_batch(self.schema)
+        batch.identity["SourceHaloID"] = [1.0, 2.0, 3.0]
+        with self.assertRaisesRegex(ConverterError, "expected dtype int64"):
+            batch.validate()
+
+    def test_an_out_of_order_list_identity_is_still_checked(self):
+        """Coercion must not skip the semantic checks that follow it."""
+        batch = make_batch(self.schema)
+        batch.identity["SourceHaloID"] = [3, 2, 1]
+        batch.links["FirstHaloInFOFgroup"] = np.array([3, 2, 1], dtype=np.int64)
+        with self.assertRaisesRegex(ConverterError, "strictly increasing"):
+            batch.validate()
+
+
 class SourceHaloIdDerivationTests(unittest.TestCase):
     """A batch's ids must be the ones its own coordinates imply.
 

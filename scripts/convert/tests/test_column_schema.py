@@ -378,7 +378,18 @@ class ExtraFieldTests(unittest.TestCase):
                     schema_for(profile)
 
     def test_invalid_output_names_are_rejected(self):
-        for name in ("0Extra", "extra-field", "extra field", "_Extra", "Exträ"):
+        # "Rvir\n" is the one that matters: `$` also matches immediately
+        # before a trailing newline, so an unanchored `re.match` accepts it.
+        for name in (
+            "0Extra",
+            "extra-field",
+            "extra field",
+            "_Extra",
+            "Exträ",
+            "Rvir\n",
+            "Rvir\n\n",
+            "Rvir\r\n",
+        ):
             with self.subTest(name=name):
                 profile = valid_profile("consistent_trees_ascii", [scalar_extra(name=name)])
                 with self.assertRaisesRegex(ConverterError, "not ASCII"):
@@ -502,6 +513,9 @@ class BinaryLayoutTests(unittest.TestCase):
             "lhalo_missing_offset.yaml": "does not cover source field",
             "lhalo_unknown_offset_field.yaml": "source properties do not",
             "lhalo_unresolvable_alias.yaml": "none of the aliases",
+            "lhalo_role_type_mismatch.yaml": "which is float, but the role is int",
+            "lhalo_role_arity_mismatch.yaml": "which is vec3_float, but the role is float",
+            "lhalo_extra_type_mismatch.yaml": "stores int .int32., but the extra is declared float",
         }
         for name, pattern in cases.items():
             with self.subTest(fixture=name):
@@ -598,6 +612,73 @@ class BinaryLayoutTests(unittest.TestCase):
         with self.assertRaisesRegex(ConverterError, "needs an explicit 'component"):
             schema_for(profile, self.source_properties)
 
+    def test_required_role_from_a_wrong_typed_source_field_fails(self):
+        """An int role filled from a float32 source field (C2: integers never
+        pass through floating point)."""
+        profile = valid_profile("lhalo_binary")
+        profile["required_columns"]["Len"] = ["M_Mean200"]
+        with self.assertRaisesRegex(ConverterError, "which is float, but the role is int"):
+            schema_for(profile, self.source_properties)
+
+    def test_required_role_from_a_vector_source_field_fails(self):
+        """A scalar role filled from a stored 3-vector.
+
+        Their *element* types are both float32, so only comparing the whole
+        type -- arity included -- catches this.
+        """
+        profile = valid_profile("lhalo_binary")
+        profile["required_columns"]["M_Crit200"] = ["Pos"]
+        with self.assertRaisesRegex(ConverterError, "which is vec3_float, but the role is float"):
+            schema_for(profile, self.source_properties)
+
+    def test_extra_declaring_a_type_the_source_does_not_store_fails(self):
+        profile = valid_profile(
+            "lhalo_binary",
+            [scalar_extra(field="FileNr", type_name="float", units="dimensionless")],
+        )
+        with self.assertRaisesRegex(ConverterError, "stores int"):
+            schema_for(profile, self.source_properties)
+
+    def test_extra_narrowing_an_integer_source_fails(self):
+        """`long long` selected as `int` would narrow silently."""
+        profile = valid_profile(
+            "lhalo_binary",
+            [scalar_extra(field="MostBoundID", type_name="int", units="dimensionless")],
+        )
+        with self.assertRaisesRegex(ConverterError, "stores long long"):
+            schema_for(profile, self.source_properties)
+
+    def test_a_vector_component_may_fill_a_scalar_extra(self):
+        """The arity freedom that the element-type comparison must preserve."""
+        profile = valid_profile("lhalo_binary")
+        profile["extra_fields"] = [
+            {
+                "name": "PosX",
+                "sources": [{"field": "Pos", "component": 0}],
+                "type": "float",
+                "units": "Mpc/h",
+                "h_convention": "carried",
+                "description": "test",
+            }
+        ]
+        schema = schema_for(profile, self.source_properties)
+        self.assertEqual(schema.extra_fields[0].sources[0].component, 0)
+
+    def test_role_source_types_agree_with_the_payload_declarations(self):
+        """The role type table and PAYLOAD_FIELDS must not drift apart."""
+        payload = {field.name: field.type for field in cs.PAYLOAD_FIELDS["lhalo_binary"]}
+        role_types = cs.ROLE_SOURCE_TYPES["lhalo_binary"]
+        self.assertEqual(set(role_types), set(cs.REQUIRED_ROLES["lhalo_binary"]))
+        for name, type_name in payload.items():
+            # L-Halo applies no conversion, so a payload field's emitted type
+            # is its source type.
+            self.assertEqual(role_types[name], type_name, "role type differs for " + name)
+        for field in cs.TOPOLOGY_FIELDS:
+            if field.type != "long long":
+                continue
+            # int32 on disk; widened to int64 only in v3's output.
+            self.assertEqual(role_types[field.name], "int", "link type differs for " + field.name)
+
     def test_layout_dtype_matches_the_slice_1_lhalo_record_dtype(self):
         """Two descriptions of the same 104-byte record must not drift apart.
 
@@ -634,6 +715,57 @@ class YamlLoadingTests(unittest.TestCase):
     def test_non_mapping_profile_fails(self):
         with self.assertRaisesRegex(ConverterError, "must be a YAML mapping"):
             cs.load_column_map(DATA_DIR / "not_a_mapping.yaml")
+
+    def test_non_string_type_and_byte_order_fail_as_converter_errors(self):
+        """`in` against a dict hashes the key, so an unhashable value would
+        otherwise raise a bare TypeError from the membership test."""
+        profile = valid_profile("consistent_trees_ascii")
+        profile["extra_fields"] = [dict(scalar_extra(), type=["float"])]
+        with self.assertRaisesRegex(ConverterError, "unsupported type"):
+            schema_for(profile)
+
+        profile = valid_profile("consistent_trees_ascii")
+        profile["extra_fields"] = [dict(scalar_extra(), type={"float": 1})]
+        with self.assertRaisesRegex(ConverterError, "unsupported type"):
+            schema_for(profile)
+
+        properties = cs.load_source_properties(LHALO_PROPERTIES)
+        profile = valid_profile("lhalo_binary")
+        profile["binary_layout"]["byte_order"] = ["little"]
+        with self.assertRaisesRegex(ConverterError, "byte_order"):
+            schema_for(profile, properties)
+
+    def test_mixed_offset_key_types_fail_as_a_converter_error(self):
+        """`sorted()` over a mixed string/int key set raises a bare TypeError
+        from the comparison, before any per-key check inside the loop."""
+        properties = cs.load_source_properties(LHALO_PROPERTIES)
+        profile = valid_profile("lhalo_binary")
+        profile["binary_layout"]["offsets"][7] = 0
+        with self.assertRaisesRegex(ConverterError, "non-string key"):
+            schema_for(profile, properties)
+
+    def test_invalid_utf8_profile_fails_as_a_converter_error(self):
+        """Written as raw bytes in a temp file rather than committed: a
+        deliberately undecodable fixture is awkward to carry in the repo and
+        confuses editors and diff tools."""
+        with tempfile.TemporaryDirectory() as workdir:
+            path = Path(workdir) / "bad_encoding.yaml"
+            path.write_bytes(b"schema_version: 1\nsource_format: \xff\xfe not utf-8\n")
+            with self.assertRaisesRegex(ConverterError, "not valid UTF-8"):
+                cs.load_column_map(path)
+
+    def test_a_valid_utf8_profile_with_non_ascii_prose_still_loads(self):
+        """The encoding is pinned to UTF-8, not narrowed to ASCII: a
+        description may legitimately carry non-ASCII text."""
+        with tempfile.TemporaryDirectory() as workdir:
+            path = Path(workdir) / "unicode_ok.yaml"
+            profile = valid_profile(
+                "consistent_trees_ascii",
+                [dict(scalar_extra(), description="virial radius, \u00c5ngstr\u00f6m-free")],
+            )
+            path.write_text(yaml.safe_dump(profile, allow_unicode=True), encoding="utf-8")
+            schema = cs.build_schema(cs.load_column_map(path))
+            self.assertIn("\u00c5", schema.extra_fields[0].description)
 
     def test_missing_profile_file_fails(self):
         with tempfile.TemporaryDirectory() as workdir:

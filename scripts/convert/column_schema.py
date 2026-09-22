@@ -53,6 +53,7 @@ __all__ = [
     "FOREST_SIDECAR_FIELDS",
     "RESERVED_OUTPUT_NAMES",
     "REQUIRED_ROLES",
+    "ROLE_SOURCE_TYPES",
     "PAYLOAD_FIELDS",
     "SOURCE_IDENTITY_CONVENTIONS",
     "MAX_OUTPUT_NAME_BYTES",
@@ -143,7 +144,11 @@ H_CONVENTIONS = ("carried", "free", "none")
 BYTE_ORDERS = {"little": "<", "big": ">"}
 
 #: Output names are ASCII ``[A-Za-z][A-Za-z0-9_]*``, at most 63 bytes (C2).
-_OUTPUT_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
+#: Matched with ``fullmatch``: ``$`` also matches immediately *before* a
+#: trailing newline, so ``re.match(r"^...$", "Rvir\n")`` succeeds and a quoted
+#: YAML scalar like ``name: "Rvir\n"`` would pass a grammar it plainly
+#: violates -- and then become an HDF5 object name.
+_OUTPUT_NAME_RE = re.compile(r"[A-Za-z][A-Za-z0-9_]*")
 MAX_OUTPUT_NAME_BYTES = 63
 
 
@@ -348,6 +353,36 @@ REQUIRED_ROLES: Dict[str, Tuple[str, ...]] = {
     "lhalo_binary": _LHALO_ROLES,
 }
 
+#: The type each ``lhalo_binary`` role's source field must actually have, as
+#: the shipped record stores it (struct RawHalo). This is the *source* side,
+#: not the emitted side: the five links are int32 on disk and are widened to
+#: int64 only in v3's output.
+#:
+#: There is no equivalent table for the two named-object formats. A
+#: Consistent-Trees ASCII column has no declared type at all until it is
+#: parsed, and a forests-HDF5 dataset's dtype is a property of the file rather
+#: than of any profile, so for those two the check is an adapter-read-time
+#: obligation (see ``adapters/base.py``) and cannot be made at freeze time.
+_LHALO_ROLE_SOURCE_TYPES: Dict[str, str] = {
+    "Descendant": "int",
+    "FirstHaloInFOFgroup": "int",
+    "FirstProgenitor": "int",
+    "Len": "int",
+    "M_Crit200": "float",
+    "MostBoundID": "long long",
+    "NextHaloInFOFgroup": "int",
+    "NextProgenitor": "int",
+    "Pos": "vec3_float",
+    "SnapNum": "int",
+    "Spin": "vec3_float",
+    "Vel": "vec3_float",
+    "VelDisp": "float",
+    "Vmax": "float",
+}
+
+#: source format -> role type table, where one can exist at freeze time.
+ROLE_SOURCE_TYPES: Dict[str, Dict[str, str]] = {"lhalo_binary": _LHALO_ROLE_SOURCE_TYPES}
+
 
 # ==========================================================================
 # Per-format payload declarations
@@ -485,7 +520,7 @@ SOURCE_IDENTITY_CONVENTIONS: Dict[str, Dict[str, str]] = {
 def _check_output_name(name: str, what: str) -> None:
     if not isinstance(name, str):
         raise ConverterError("{}: name must be a string, got {!r}".format(what, name))
-    if not _OUTPUT_NAME_RE.match(name):
+    if not _OUTPUT_NAME_RE.fullmatch(name):
         raise ConverterError("{}: name {!r} is not ASCII [A-Za-z][A-Za-z0-9_]*".format(what, name))
     if len(name.encode("ascii")) > MAX_OUTPUT_NAME_BYTES:
         raise ConverterError(
@@ -754,8 +789,13 @@ _StrictLoader.add_constructor(
 
 def _load_yaml_mapping(path: Path, what: str) -> Dict:
     try:
-        with open(path, "r") as handle:
+        # Explicit UTF-8, not the platform default: a profile is repository
+        # content read on every platform, and a locale-dependent decode would
+        # make the same bytes valid on one machine and not another.
+        with open(path, "r", encoding="utf-8") as handle:
             data = yaml.load(handle, Loader=_StrictLoader)
+    except UnicodeDecodeError as exc:
+        raise ConverterError("{}: {} is not valid UTF-8: {}".format(path, what, exc)) from exc
     except OSError as exc:
         raise ConverterError("{}: cannot read {}: {}".format(path, what, exc)) from exc
     except yaml.YAMLError as exc:
@@ -881,8 +921,11 @@ def _parse_extra_field(raw, source_format: str, origin: str, index: int) -> Extr
             "{}: name {!r} collides with a reserved topology/identity/core name".format(what, name)
         )
 
+    # `in` against a dict hashes the key, so a list/dict value would raise a
+    # bare TypeError instead of this module's named error. Checked as a string
+    # first, here and at every other dict-membership test below.
     type_name = raw["type"]
-    if type_name not in EXTRA_TYPES:
+    if not isinstance(type_name, str) or type_name not in EXTRA_TYPES:
         raise ConverterError(
             "{}: unsupported type {!r} (supported: {})".format(what, type_name, sorted(EXTRA_TYPES))
         )
@@ -962,7 +1005,7 @@ def _parse_binary_layout(raw, origin: str) -> BinaryLayout:
     _check_key_set(raw, _BINARY_LAYOUT_KEYS, "{}: binary_layout".format(origin))
 
     byte_order = raw["byte_order"]
-    if byte_order not in BYTE_ORDERS:
+    if not isinstance(byte_order, str) or byte_order not in BYTE_ORDERS:
         raise ConverterError(
             "{}: binary_layout.byte_order must be one of {}, got {!r}".format(
                 origin, sorted(BYTE_ORDERS), byte_order
@@ -979,12 +1022,16 @@ def _parse_binary_layout(raw, origin: str) -> BinaryLayout:
         raise ConverterError("{}: binary_layout.offsets must be a mapping".format(origin))
     if not offsets_raw:
         raise ConverterError("{}: binary_layout.offsets is empty".format(origin))
+    # Every key is checked before anything sorts them: `sorted()` over a mixed
+    # string/int key set raises a bare TypeError from the comparison, which
+    # would run before a per-key check placed inside the loop.
+    non_string = [key for key in offsets_raw if not isinstance(key, str)]
+    if non_string:
+        raise ConverterError(
+            "{}: binary_layout.offsets has non-string key(s) {!r}".format(origin, non_string)
+        )
     offsets: List[Tuple[str, int]] = []
     for field_name in sorted(offsets_raw):
-        if not isinstance(field_name, str):
-            raise ConverterError(
-                "{}: binary_layout.offsets key {!r} is not a string".format(origin, field_name)
-            )
         offset = _require_int(
             offsets_raw[field_name], "{}: binary_layout.offsets.{}".format(origin, field_name)
         )
@@ -1070,7 +1117,7 @@ def load_source_properties(path) -> Tuple[SourceProperty, ...]:
             raise ConverterError("{}: duplicate property name {!r}".format(what, name))
         seen.add(name)
         type_name = entry.get("type")
-        if type_name not in EXTRA_TYPES:
+        if not isinstance(type_name, str) or type_name not in EXTRA_TYPES:
             raise ConverterError(
                 "{}: unsupported type {!r} (supported: {})".format(
                     what, type_name, sorted(EXTRA_TYPES)
@@ -1353,7 +1400,13 @@ def build_schema(
         resolved_extras = _resolve_extras(
             column_map.source_format, column_map.extra_fields, property_names, column_map.origin
         )
+        _check_role_types(
+            resolved_roles, source_properties, column_map.source_format, column_map.origin
+        )
         _check_component_arity(
+            column_map.extra_fields, resolved_extras, source_properties, column_map.origin
+        )
+        _check_extra_types(
             column_map.extra_fields, resolved_extras, source_properties, column_map.origin
         )
         selected = set(resolved_roles.values())
@@ -1377,6 +1430,74 @@ def build_schema(
         payload_fields=PAYLOAD_FIELDS[column_map.source_format],
         source_layout=source_layout,
     )
+
+
+def _check_role_types(
+    resolved_roles: Mapping[str, str],
+    source_properties: Sequence[SourceProperty],
+    source_format: str,
+    origin: str,
+) -> None:
+    """Check each resolved required role against its source field's real type.
+
+    Compared as the **whole** type, arity included, not merely the element
+    dtype: a scalar role filled from a stored vector (``M_Crit200: [Pos]``)
+    would pass an element-only comparison, because a ``vec3_float``'s elements
+    are ``float32`` exactly like a ``float``'s. It is still wrong -- the role
+    wants one value and the source offers three.
+
+    A mismatch here is not a tolerance to widen. Freezing it would mint a
+    ``column_mapping_sha256`` -- durable on-disk provenance -- for a mapping no
+    adapter can honestly satisfy, and would have to be resolved later by either
+    a silent fill or a silent cast, both of which C2 forbids.
+    """
+    expected_by_role = ROLE_SOURCE_TYPES[source_format]
+    by_name = {prop.name: prop for prop in source_properties}
+    for role, spelling in sorted(resolved_roles.items()):
+        expected = expected_by_role[role]
+        actual = by_name[spelling].type
+        if actual != expected:
+            raise ConverterError(
+                "{}: required column {!r} resolves to source field {!r}, which is {}, but the "
+                "role is {}".format(origin, role, spelling, actual, expected)
+            )
+
+
+def _check_extra_types(
+    extra_fields: Sequence[ExtraField],
+    resolved: Mapping[str, Tuple[Tuple[str, Optional[int]], ...]],
+    source_properties: Sequence[SourceProperty],
+    origin: str,
+) -> None:
+    """Check each extra's declared type against its source field's real type.
+
+    Compared as the **element** dtype, because arity is legitimately free here
+    and is already checked separately: one component of a stored vector may
+    fill a scalar output (``PosX <- Pos component 0``), and three scalar
+    sources may fill a vector output. What may not differ is the stored
+    element type -- selecting the int32 ``FileNr`` as a ``float`` would push an
+    integer through floating point, which C2 forbids outright, and selecting a
+    ``long long`` as an ``int`` would narrow it silently.
+    """
+    by_name = {prop.name: prop for prop in source_properties}
+    for extra in extra_fields:
+        declared_element = EXTRA_TYPES[extra.type].numpy_dtype
+        for position, (spelling, _component) in enumerate(resolved[extra.name]):
+            source_element = EXTRA_TYPES[by_name[spelling].type].numpy_dtype
+            if source_element != declared_element:
+                raise ConverterError(
+                    "{}: extra field {!r} source[{}]: source field {!r} stores {} ({}), but the "
+                    "extra is declared {} ({})".format(
+                        origin,
+                        extra.name,
+                        position,
+                        spelling,
+                        by_name[spelling].type,
+                        source_element,
+                        extra.type,
+                        declared_element,
+                    )
+                )
 
 
 def _check_component_arity(

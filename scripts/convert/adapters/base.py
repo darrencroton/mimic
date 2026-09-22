@@ -27,14 +27,27 @@ the whole relationship spoolable, and keeps the source coordinate recoverable
   into a write path. Reporting a failed *read* as data is safe; swallowing a
   failed *write* can leave a partial artifact that looks complete.
 - **Check each selected extra's source component against the source field's
-  real shape, at read time.** A profile's ``{field}`` means a stored scalar and
-  ``{field, component}`` means one element of a stored vector, and the two are
-  not interchangeable. ``column_schema.build_schema`` enforces this for
-  ``lhalo_binary``, because a fixed-record profile declares its shapes; it
-  *cannot* for ``consistent_trees_ascii`` or ``consistent_trees_hdf5``, where
-  no shape is knowable from the profile alone. Those two adapters own the
-  check against the shape the source actually presents, and must fail rather
-  than guess which of three values a component-less vector reference meant.
+  real shape *and type*, at read time.** A profile's ``{field}`` means a stored
+  scalar and ``{field, component}`` means one element of a stored vector, and
+  the two are not interchangeable; likewise an extra declared ``float`` may not
+  be filled from an int32 source field, and a required role may not be filled
+  from a field of the wrong type or arity.
+  ``column_schema.build_schema`` enforces all of this at freeze time for
+  ``lhalo_binary``, because a fixed-record profile declares its shapes and
+  types; it *cannot* for ``consistent_trees_ascii`` or
+  ``consistent_trees_hdf5``. An ASCII column has no declared type until it is
+  parsed, and a forests-HDF5 dataset's dtype is a property of the file rather
+  than of any profile, so **those two adapters own both checks at read time**
+  and must fail rather than guess which of three values a component-less
+  vector reference meant, or silently cast an integer column into a float
+  output.
+- **Byte-swap into native order before building a batch.**
+  ``CanonicalBatch``'s dtype checks compare against native-endian dtypes, while
+  ``SourceLayout.numpy_dtype_spec()`` deliberately carries the *source's*
+  declared byte order. Reading a big-endian source therefore yields
+  big-endian arrays that ``validate()`` rejects on dtype. That fails safe --
+  a mismatched dtype is refused, never silently misread -- but it is a step a
+  big-endian adapter has to take, not a bug to report.
 """
 
 import abc
@@ -254,6 +267,20 @@ def _expect_array(values, name: str, dtype: str, n_rows: int, n_components: int)
         raise ConverterError(
             "{}: expected shape {}, got {}".format(name, expected_shape, array.shape)
         )
+    # C2: "Float parsing/casts reject non-finite input and overflow; preserve
+    # signed zero." An adapter should ideally catch a non-finite value at its
+    # own cast boundary, where it can name the source row -- but this is the
+    # one place every batch passes through whatever produced it, so it is the
+    # contract's last guard. Signed zero is finite and passes untouched: the
+    # rule is to preserve it, not to reject it.
+    if array.dtype.kind == "f" and array.size and not bool(np.all(np.isfinite(array))):
+        bad = np.asarray(~np.isfinite(array)).nonzero()
+        first = tuple(int(axis[0]) for axis in bad)
+        raise ConverterError(
+            "{}: non-finite value {} at index {}; NaN and infinity are not valid payload".format(
+                name, array[first], first
+            )
+        )
     return array
 
 
@@ -282,7 +309,12 @@ class CanonicalBatch:
 
     @property
     def n_rows(self) -> int:
-        return int(self.identity["SourceHaloID"].shape[0])
+        # Coerced, because this runs before _expect_array has seen anything: an
+        # adapter handing a plain list would otherwise crash with a raw
+        # AttributeError instead of this module's named error. Reachable only
+        # by an adapter bug, never by user input, but the contract should
+        # report it the same way it reports everything else.
+        return int(np.asarray(self.identity["SourceHaloID"]).shape[0])
 
     def validate(self) -> None:
         """Structural validation of one batch against its schema.
@@ -313,10 +345,18 @@ class CanonicalBatch:
         unknown = sorted(set(self.identity) - set(_IDENTITY_FIELD_NAMES))
         if unknown:
             raise ConverterError("batch declares unknown identity column(s) {}".format(unknown))
-        for name in _IDENTITY_FIELD_NAMES:
-            _expect_array(self.identity[name], "identity {!r}".format(name), "int64", n_rows, 1)
+        # The coerced arrays are kept and used below, rather than re-reading
+        # self.identity: _expect_array is what turns whatever an adapter handed
+        # over into an ndarray, and reaching past it would reintroduce the raw
+        # AttributeError it exists to prevent.
+        checked = {
+            name: _expect_array(
+                self.identity[name], "identity {!r}".format(name), "int64", n_rows, 1
+            )
+            for name in _IDENTITY_FIELD_NAMES
+        }
 
-        ids = self.identity["SourceHaloID"]
+        ids = checked["SourceHaloID"]
         if n_rows and int(ids.min()) <= 0:
             raise ConverterError("SourceHaloID must be positive; found {}".format(int(ids.min())))
         if n_rows > 1 and not bool(np.all(np.diff(ids) > 0)):
@@ -325,7 +365,7 @@ class CanonicalBatch:
                 "source order); found a duplicate or an out-of-order row"
             )
         for name in ("ForestIndex", "HaloRankInForest"):
-            values = self.identity[name]
+            values = checked[name]
             if n_rows and int(values.min()) < 0:
                 raise ConverterError("{} must be non-negative".format(name))
 
