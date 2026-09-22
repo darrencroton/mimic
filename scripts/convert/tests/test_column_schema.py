@@ -131,6 +131,21 @@ class ShippedProfileTests(unittest.TestCase):
             digests[path.name] = cs.build_schema(column_map, properties).digest
         self.assertEqual(len(set(digests.values())), len(digests), digests)
 
+    def test_no_shipped_extra_collides_with_a_core_property_name(self):
+        """The reserved-name check covers what the *format* reserves, not the
+        consuming package's vocabulary -- so a shipped example that collided
+        with a Mimic core property would fail at package-generation time, not
+        at conversion time. `Rvir` did; it is now `CatalogRvir`.
+        """
+        core = yaml.safe_load((REPO_ROOT / "src" / "core" / "core_properties.yaml").read_text())
+        core_names = {entry["name"] for entry in core["halo_properties"]}
+        self.assertIn("Rvir", core_names, "guard assumes core_properties.yaml declares Rvir")
+        for path in sorted(PROFILE_DIR.glob("*.yaml")):
+            column_map = cs.load_column_map(path)
+            for extra in column_map.extra_fields:
+                with self.subTest(profile=path.name, extra=extra.name):
+                    self.assertNotIn(extra.name, core_names)
+
     def test_shipped_binary_layout_matches_the_shipped_104_byte_record(self):
         schema = cs.build_schema(
             cs.load_column_map(PROFILE_DIR / "lhalo_binary.yaml"), self.source_properties
@@ -516,6 +531,8 @@ class BinaryLayoutTests(unittest.TestCase):
             "lhalo_role_type_mismatch.yaml": "which is float, but the role is int",
             "lhalo_role_arity_mismatch.yaml": "which is vec3_float, but the role is float",
             "lhalo_extra_type_mismatch.yaml": "stores int .int32., but the extra is declared float",
+            "lhalo_offset_order_swap.yaml": "offsets must follow the declaration order",
+            "lhalo_role_collision.yaml": "both resolve to the same source field",
         }
         for name, pattern in cases.items():
             with self.subTest(fixture=name):
@@ -679,6 +696,76 @@ class BinaryLayoutTests(unittest.TestCase):
             # int32 on disk; widened to int64 only in v3's output.
             self.assertEqual(role_types[field.name], "int", "link type differs for " + field.name)
 
+    def test_same_width_offset_swap_fails(self):
+        """Coverage, extent and overlap all pass when two same-width
+        neighbours are swapped -- every byte is still claimed exactly once.
+        Only the declaration-order check catches it."""
+        profile = valid_profile("lhalo_binary")
+        offsets = profile["binary_layout"]["offsets"]
+        offsets["M_Mean200"], offsets["M_TopHat"] = offsets["M_TopHat"], offsets["M_Mean200"]
+        with self.assertRaisesRegex(ConverterError, "declaration order"):
+            schema_for(profile, self.source_properties)
+
+    def test_different_width_offset_reorder_fails(self):
+        # Spin (12 B) is declared before MostBoundID (8 B); exchanging their
+        # positions keeps every byte in [68, 88) claimed exactly once, so
+        # coverage, extent and overlap all still pass.
+        profile = valid_profile("lhalo_binary")
+        offsets = profile["binary_layout"]["offsets"]
+        offsets["MostBoundID"], offsets["Spin"] = 68, 76
+        with self.assertRaisesRegex(ConverterError, "declaration order"):
+            schema_for(profile, self.source_properties)
+
+    def test_padding_does_not_violate_declaration_order(self):
+        """Ordering is the rule, not contiguity: a gap between two fields is
+        still in order."""
+        profile = valid_profile("lhalo_binary")
+        profile["binary_layout"]["itemsize"] = 120
+        profile["binary_layout"]["offsets"]["SubHalfMass"] = 116
+        schema = schema_for(profile, self.source_properties)
+        offsets = [entry.offset for entry in schema.source_layout.entries]
+        self.assertEqual(offsets, sorted(offsets))
+
+    def test_two_roles_claiming_one_source_field_fails(self):
+        """`Len: [SnapNum]` passes every per-role check -- both are int -- and
+        would emit snapshot numbers as particle counts."""
+        profile = valid_profile("lhalo_binary")
+        profile["required_columns"]["Len"] = ["SnapNum"]
+        with self.assertRaisesRegex(ConverterError, "both resolve to the same source field"):
+            schema_for(profile, self.source_properties)
+
+    def test_a_role_and_an_extra_may_share_a_source_field(self):
+        """Role-to-extra reuse is explicitly legal (C2), and only role-to-role
+        collisions are rejected."""
+        profile = valid_profile(
+            "lhalo_binary",
+            [scalar_extra(name="NativeMass", field="M_Crit200", units="1e10 Msun/h")],
+        )
+        schema = schema_for(profile, self.source_properties)
+        self.assertEqual(schema.extra_fields[0].sources[0].field, "M_Crit200")
+
+    def test_two_extras_may_share_a_source_field(self):
+        profile = valid_profile(
+            "lhalo_binary",
+            [
+                scalar_extra(name="MassA", field="M_Mean200", units="1e10 Msun/h"),
+                scalar_extra(name="MassB", field="M_Mean200", units="1e10 Msun/h"),
+            ],
+        )
+        schema = schema_for(profile, self.source_properties)
+        self.assertEqual(len(schema.extra_fields), 2)
+
+    def test_absurd_itemsize_and_offsets_are_bounded(self):
+        for mutate in (
+            lambda layout: layout.__setitem__("itemsize", 2**70),
+            lambda layout: layout["offsets"].__setitem__("Descendant", 2**70),
+        ):
+            with self.subTest(mutate=mutate):
+                profile = valid_profile("lhalo_binary")
+                mutate(profile["binary_layout"])
+                with self.assertRaisesRegex(ConverterError, "must be in"):
+                    schema_for(profile, self.source_properties)
+
     def test_layout_dtype_matches_the_slice_1_lhalo_record_dtype(self):
         """Two descriptions of the same 104-byte record must not drift apart.
 
@@ -766,6 +853,42 @@ class YamlLoadingTests(unittest.TestCase):
             path.write_text(yaml.safe_dump(profile, allow_unicode=True), encoding="utf-8")
             schema = cs.build_schema(cs.load_column_map(path))
             self.assertIn("\u00c5", schema.extra_fields[0].description)
+
+    def test_a_lone_surrogate_string_fails_as_a_converter_error(self):
+        """Valid YAML that PyYAML parses happily, but which cannot be encoded.
+
+        Without a check where strings are validated, this surfaces as a raw
+        UnicodeEncodeError from `canonical_json().encode("utf-8")` -- at digest
+        time, from a call site that has no idea which field was at fault.
+        """
+        for key in ("units", "description"):
+            with self.subTest(key=key):
+                profile = valid_profile(
+                    "consistent_trees_ascii", [dict(scalar_extra(), **{key: "\udcff"})]
+                )
+                with self.assertRaisesRegex(ConverterError, "not encodable as UTF-8"):
+                    schema_for(profile)
+
+    def test_a_lone_surrogate_alias_fails_as_a_converter_error(self):
+        profile = valid_profile("consistent_trees_ascii")
+        profile["required_columns"]["mvir"] = ["\udcff"]
+        with self.assertRaisesRegex(ConverterError, "not encodable as UTF-8"):
+            schema_for(profile)
+
+    def test_an_integer_literal_pyyaml_cannot_construct_fails(self):
+        """CPython caps string-to-int conversion (4300 digits by default), so
+        PyYAML's own int constructor raises a raw ValueError from inside the
+        loader, before any check in this module runs.
+
+        The literal is built here rather than committed: a 5,000-digit number
+        in a fixture file is noise in every diff that touches the directory.
+        """
+        with tempfile.TemporaryDirectory() as workdir:
+            path = Path(workdir) / "huge_itemsize.yaml"
+            source = (PROFILE_DIR / "lhalo_binary.yaml").read_text()
+            path.write_text(source.replace("  itemsize: 104", "  itemsize: " + "9" * 5000))
+            with self.assertRaisesRegex(ConverterError, "unreadable scalar value"):
+                cs.load_column_map(path)
 
     def test_missing_profile_file_fails(self):
         with tempfile.TemporaryDirectory() as workdir:
@@ -1030,7 +1153,7 @@ class AliasResolutionTests(unittest.TestCase):
             cs.load_column_map(PROFILE_DIR / "consistent_trees_ascii_extras_example.yaml")
         )
         resolved = cs.resolve_extra_sources(schema, self.ASCII_COLUMNS)
-        self.assertEqual(resolved["Rvir"], (("Rvir(11)", None),))
+        self.assertEqual(resolved["CatalogRvir"], (("Rvir(11)", None),))
         self.assertEqual(
             resolved["AngularMomentum"],
             (("Jx(23)", None), ("Jy(24)", None), ("Jz(25)", None)),

@@ -5,6 +5,10 @@
 # micro-Uchuu dataset exposes 69 fields; see
 # docs/dev/MIMIC-CONVERTER-SOURCE-INVENTORY.md section 4).
 #
+# CatalogRvir is renamed off the source's own `Rvir` for the reason given in
+# profiles/README.md: Mimic's src/core/core_properties.yaml already declares
+# a `Rvir` property, and a package declaring both would fail to generate.
+#
 # SpinParameter is the instructive one: the source carries a `Spin` dataset
 # holding the dimensionless Consistent-Trees spin parameter, which is a
 # different quantity from the v3 payload field also called `Spin` (the
@@ -38,7 +42,7 @@ required_columns:
   snap: [Snap_num, Snap_idx]
 
 extra_fields:
-  - name: Rvir
+  - name: CatalogRvir
     sources:
       - field: Rvir
     type: float

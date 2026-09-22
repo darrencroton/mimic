@@ -2,7 +2,10 @@
 #
 # Same required roles as consistent_trees_ascii.yaml, plus three selected
 # extras that between them exercise the whole grammar:
-#   * Rvir  -- a plain scalar column the reference path does not retain;
+#   * CatalogRvir -- a plain scalar column the reference path does not
+#     retain, renamed off the source's own `Rvir` because Mimic's
+#     src/core/core_properties.yaml already declares a property of that
+#     name (see profiles/README.md);
 #   * NumProg -- an integer column, renamed on output, which never passes
 #     through floating point;
 #   * AngularMomentum -- a vec3_float assembled from three independent scalar
@@ -45,7 +48,7 @@ required_columns:
   jz: [Jz]
 
 extra_fields:
-  - name: Rvir
+  - name: CatalogRvir
     sources:
       - field: Rvir
     type: float

@@ -143,6 +143,13 @@ H_CONVENTIONS = ("carried", "free", "none")
 #: is a property of the file, never of the machine reading it.
 BYTE_ORDERS = {"little": "<", "big": ">"}
 
+#: Upper bound on a binary record's itemsize and on any field offset within
+#: it. A record extent is a byte count that a reader must be able to seek to,
+#: so int64 is the ceiling that matters; nothing here describes a real record
+#: anywhere near it, and refusing a value beyond it keeps an absurd literal
+#: from reaching arithmetic that assumes a machine word.
+_MAX_RECORD_EXTENT = 2**63 - 1
+
 #: Output names are ASCII ``[A-Za-z][A-Za-z0-9_]*``, at most 63 bytes (C2).
 #: Matched with ``fullmatch``: ``$`` also matches immediately *before* a
 #: trailing newline, so ``re.match(r"^...$", "Rvir\n")`` succeeds and a quoted
@@ -549,7 +556,7 @@ def normalize_alias(source_format: str, alias: str) -> str:
         canonical = alias
     if not canonical:
         raise ConverterError("alias {!r} normalizes to an empty name".format(alias))
-    return canonical
+    return _require_utf8_encodable(canonical, "alias {!r}".format(alias))
 
 
 # ==========================================================================
@@ -802,6 +809,13 @@ def _load_yaml_mapping(path: Path, what: str) -> Dict:
         raise ConverterError("{}: invalid YAML: {}".format(path, exc)) from exc
     except ConverterError as exc:
         raise ConverterError("{}: {}".format(path, exc)) from exc
+    except ValueError as exc:
+        # PyYAML constructs scalars itself, and some scalars it cannot: an
+        # integer literal above CPython's string-to-int digit limit raises a
+        # raw ValueError from inside the loader, before any check in this
+        # module runs. UnicodeDecodeError is a ValueError subclass and is
+        # caught above, so it keeps its own more specific message.
+        raise ConverterError("{}: unreadable scalar value: {}".format(path, exc)) from exc
     if not isinstance(data, dict):
         raise ConverterError("{}: {} must be a YAML mapping, got {}".format(path, what, type(data)))
     return data
@@ -827,6 +841,25 @@ def _require_int(value, what: str) -> int:
 def _require_nonempty_str(value, what: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ConverterError("{}: must be a nonempty string, got {!r}".format(what, value))
+    return _require_utf8_encodable(value, what)
+
+
+def _require_utf8_encodable(value: str, what: str) -> str:
+    """Reject a string that cannot be encoded as UTF-8.
+
+    A lone surrogate is a perfectly valid YAML scalar that PyYAML parses
+    happily, but it cannot be encoded -- so without this the failure surfaces
+    as a raw ``UnicodeEncodeError`` from ``canonical_json().encode("utf-8")``,
+    at digest time rather than at parse time, and from a call site that has no
+    idea which field was at fault. Caught here, where the field is still
+    named.
+    """
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise ConverterError(
+            "{}: is not encodable as UTF-8 (a lone surrogate or similar): {}".format(what, exc)
+        ) from exc
     return value
 
 
@@ -1012,9 +1045,11 @@ def _parse_binary_layout(raw, origin: str) -> BinaryLayout:
             )
         )
     itemsize = _require_int(raw["itemsize"], "{}: binary_layout.itemsize".format(origin))
-    if itemsize <= 0:
+    if not 0 < itemsize <= _MAX_RECORD_EXTENT:
         raise ConverterError(
-            "{}: binary_layout.itemsize must be positive, got {}".format(origin, itemsize)
+            "{}: binary_layout.itemsize must be in [1, {}], got {}".format(
+                origin, _MAX_RECORD_EXTENT, itemsize
+            )
         )
 
     offsets_raw = raw["offsets"]
@@ -1035,9 +1070,11 @@ def _parse_binary_layout(raw, origin: str) -> BinaryLayout:
         offset = _require_int(
             offsets_raw[field_name], "{}: binary_layout.offsets.{}".format(origin, field_name)
         )
-        if offset < 0:
+        if not 0 <= offset <= _MAX_RECORD_EXTENT:
             raise ConverterError(
-                "{}: binary_layout.offsets.{} is negative ({})".format(origin, field_name, offset)
+                "{}: binary_layout.offsets.{} must be in [0, {}], got {}".format(
+                    origin, field_name, _MAX_RECORD_EXTENT, offset
+                )
             )
         offsets.append((field_name, offset))
     return BinaryLayout(byte_order=byte_order, itemsize=itemsize, offsets=tuple(offsets))
@@ -1201,9 +1238,59 @@ def _build_source_layout(
                 second.offset + second.itemsize,
             )
         )
+    _check_declaration_order(entries, origin)
     return SourceLayout(
         byte_order=layout.byte_order, itemsize=layout.itemsize, entries=tuple(entries)
     )
+
+
+def _check_declaration_order(entries: Sequence[LayoutEntry], origin: str) -> None:
+    """Offsets must ascend in the source's declaration order.
+
+    The on-disk record is generated *in* that order, so a profile whose
+    offsets disagree with it describes a different record. Coverage, extent
+    and overlap all pass when two same-width neighbours are swapped -- the
+    bytes are all claimed exactly once -- and an adapter reading through such
+    a layout would silently file each field's bytes under the other's name.
+    Padding between fields is fine; ordering is not negotiable.
+    """
+    previous: Optional[LayoutEntry] = None
+    for entry in entries:
+        if previous is not None and entry.offset < previous.offset:
+            raise ConverterError(
+                "{}: source field {!r} is declared after {!r} but lies earlier in the record "
+                "(offset {} < {}); offsets must follow the declaration order the record is "
+                "generated in".format(
+                    origin, entry.name, previous.name, entry.offset, previous.offset
+                )
+            )
+        previous = entry
+
+
+def _check_role_collisions(resolved_roles: Mapping[str, str], origin: str) -> None:
+    """No two required roles may claim the same source field.
+
+    Roles resolve independently, so a copy-paste typo such as
+    ``Len: [SnapNum]`` passes every per-role check -- both are ``int``, so the
+    type and arity comparison sees nothing wrong -- and would emit snapshot
+    numbers as particle counts under a perfectly valid digest.
+
+    Role-to-*extra* reuse is a different thing and stays legal: C2 allows it
+    explicitly, and ``consistent_trees_ascii_extras_example.yaml`` depends on
+    it to carry the raw catalog J alongside the normalised Spin. Only
+    role-to-role collisions are rejected here.
+    """
+    claimed: Dict[str, str] = {}
+    for role in sorted(resolved_roles):
+        spelling = resolved_roles[role]
+        if spelling in claimed:
+            raise ConverterError(
+                "{}: required columns {!r} and {!r} both resolve to the same source field "
+                "{!r}; each role needs its own field".format(
+                    origin, claimed[spelling], role, spelling
+                )
+            )
+        claimed[spelling] = role
 
 
 def _first_overlap(
@@ -1280,7 +1367,17 @@ class CanonicalSchema:
 
     @property
     def digest(self) -> str:
-        return hashlib.sha256(self.canonical_json().encode("utf-8")).hexdigest()
+        try:
+            encoded = self.canonical_json().encode("utf-8")
+        except UnicodeEncodeError as exc:  # pragma: no cover - validation catches this first
+            # Every string is checked for encodability where it is validated,
+            # so reaching here means a schema was constructed without going
+            # through the parser. Still named rather than raw: the digest is
+            # what a v3 file records, and it may not fail anonymously.
+            raise ConverterError(
+                "schema contains a string that is not encodable as UTF-8: {}".format(exc)
+            ) from exc
+        return hashlib.sha256(encoded).hexdigest()
 
     # ---- derived views -------------------------------------------------
 
@@ -1400,9 +1497,14 @@ def build_schema(
         resolved_extras = _resolve_extras(
             column_map.source_format, column_map.extra_fields, property_names, column_map.origin
         )
+        # Type before collision, deliberately: a role pointed at a field of
+        # the wrong type is the more specific defect, and reporting "two roles
+        # share a field" for `M_Crit200: [Pos]` would send an author looking
+        # for the wrong mistake.
         _check_role_types(
             resolved_roles, source_properties, column_map.source_format, column_map.origin
         )
+        _check_role_collisions(resolved_roles, column_map.origin)
         _check_component_arity(
             column_map.extra_fields, resolved_extras, source_properties, column_map.origin
         )

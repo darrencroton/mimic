@@ -41,6 +41,14 @@ the whole relationship spoolable, and keeps the source coordinate recoverable
   and must fail rather than guess which of three values a component-less
   vector reference meant, or silently cast an integer column into a float
   output.
+- **Reject two required roles that resolve to the same source field.**
+  ``Len: [SnapNum]`` passes every per-role check -- both are integers -- and
+  would emit snapshot numbers as particle counts. ``build_schema`` rejects it
+  at freeze time for ``lhalo_binary``; the other two adapters own the same
+  check at read time, once their columns are resolved. Role-to-*extra* reuse
+  is a different thing and stays legal (C2 allows it explicitly, and the
+  shipped ASCII example depends on it), so only role-to-role collisions are
+  errors.
 - **Byte-swap into native order before building a batch.**
   ``CanonicalBatch``'s dtype checks compare against native-endian dtypes, while
   ``SourceLayout.numpy_dtype_spec()`` deliberately carries the *source's*

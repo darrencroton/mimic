@@ -51,6 +51,8 @@ Each entry has exactly `name`, `sources`, `type`, `units`, `h_convention` and `d
 
 Reusing a source field that also fills a required role is allowed, and the extra carries that field's **pre-convention** value. `consistent_trees_ascii_extras_example.yaml` shows the case that matters: the payload `Spin` is the producer's normalised J/Mvir, while the `AngularMomentum` extra carries the raw catalog J.
 
+**Avoid names the target package already uses.** An extra's `name` is checked against the names the *format* reserves — topology, identity and core payload — but not against the consuming simulation package's own property vocabulary. Mimic's [`src/core/core_properties.yaml`](../../../src/core/core_properties.yaml) declares `Rvir`, `Mvir`, `Type` and others, and a package that declared an extra of the same name would fail at **package-generation** time (`generate_properties.py` rejects an incompatible duplicate property), not at conversion time. The shipped examples rename the Consistent-Trees `Rvir` column to `CatalogRvir` for exactly this reason.
+
 **One caveat worth stating plainly.** An extra's `units` is any nonempty string, by contract. A unit outside the registry in [`scripts/generate_properties.py`](../../generate_properties.py) — `Msun/h Mpc/h km/s` is one such today — converts and validates fine, but a consuming Mimic simulation package cannot declare it until that unit is added there. The converter does not silently substitute a known unit in its place.
 
 ### `binary_layout`
