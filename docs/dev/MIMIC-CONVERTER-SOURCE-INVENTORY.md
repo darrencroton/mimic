@@ -354,11 +354,15 @@ O(n_forests), not the O(n_halos) work that flag is meant to skip), a missing
 handling, rather than a bare `KeyError`), a non-integral `Snap_idx` value
 (checked by an exact `floor(v) == v`, not a tolerant `np.allclose` that would
 accept non-integral values at large magnitudes), and an out-of-range
-snapshot value on **either** the integer or the float path (`< 0` or
-`> INT_MAX`, matching `read_ctrees_hdf5.c`'s `CT_ASSIGN_SNAP_INT`/
-`CT_ASSIGN_SNAP_DOUBLE` exactly, narrowed only by dropping that macro's
-additional `<= LastSnapshotNr` term, which comes from the a_list this tool
-does not load) -- all raise `ConverterError` and abort. Also covered: a
+snapshot value on **either** the integer or the float path -- both CLI paths
+(`inspect` and `survey`, via `inspect_one`) already load the a_list and pass
+`len(a_list) - 1` as the bound, matching `read_ctrees_hdf5.c`'s
+`CT_ASSIGN_SNAP_INT`/`CT_ASSIGN_SNAP_DOUBLE`'s `LastSnapshotNr` term exactly
+whenever the a_list enumerates every snapshot (the underlying
+`scan_lhalo_file`/`inspect_ctrees_hdf5_source` library functions fall back to
+`[0, INT_MAX]` only when called directly, bypassing both CLI paths, with no
+`max_snapshot` argument) -- all raise `ConverterError` and abort. Also
+covered: a
 syntax-broken `simulation_info.yaml` (`yaml.YAMLError` wrapped into
 `ConverterError` at the single `load_simulation_info` call site all three
 CLI paths share, rather than propagating a raw `yaml.scanner.ScannerError`

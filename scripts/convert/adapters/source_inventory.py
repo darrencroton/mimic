@@ -384,7 +384,12 @@ def inspect_ctrees_hdf5_source(
                 group = f[key]
                 forest_info = group["ForestInfo"][:]
                 forests_group = group["Forests"]
-            except (KeyError, OSError) as exc:
+            except Exception as exc:
+                # Bare Exception, not an enumerated tuple: this is untrusted
+                # per-file HDF5 structure (this slice's own declared risky
+                # surface), and no exception type here should abort every
+                # other FileN group's already-gathered results just because
+                # one file is malformed.
                 files.append(
                     HDF5FileLinkage(name=key, link_type=link_type, reachable=False, error=str(exc))
                 )
@@ -396,14 +401,26 @@ def inspect_ctrees_hdf5_source(
             snap_field = _resolve_snap_field(forests_group, context)
             _require_dataset(forests_group, snap_field, context)
 
-            fields = {
-                fname: {
-                    "dtype": str(forests_group[fname].dtype),
-                    "shape": list(forests_group[fname].shape),
-                    "is_virtual": bool(forests_group[fname].is_virtual),
+            try:
+                fields = {
+                    fname: {
+                        "dtype": str(forests_group[fname].dtype),
+                        "shape": list(forests_group[fname].shape),
+                        "is_virtual": bool(forests_group[fname].is_virtual),
+                    }
+                    for fname in forests_group.keys()
                 }
-                for fname in forests_group.keys()
-            }
+            except Exception as exc:
+                # A dangling soft link or malformed subgroup inside Forests/
+                # surfaces here as whatever HDF5/h5py itself raises (e.g. a
+                # bare KeyError with no file/field context) once dereferenced
+                # by .dtype/.shape/.is_virtual -- treat it the same as the
+                # group-access failure above: this file is unreachable, the
+                # others are not affected.
+                files.append(
+                    HDF5FileLinkage(name=key, link_type=link_type, reachable=False, error=str(exc))
+                )
+                continue
             n_forests = int(forest_info.shape[0])
             n_halos = int(forest_info["ForestNhalos"].sum()) if n_forests else 0
             max_forest_nhalos = int(forest_info["ForestNhalos"].max()) if n_forests else None

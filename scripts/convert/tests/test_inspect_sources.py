@@ -507,6 +507,35 @@ class CtreesHDF5InspectionTests(unittest.TestCase):
             with self.assertRaises(ConverterError):
                 si.inspect_ctrees_hdf5_source(path)
 
+    def test_dangling_soft_link_in_forests_group_reported_not_raised(self):
+        # steer-attempt-5 item 1: a dangling soft link inside Forests/
+        # previously raised a bare KeyError with no file context once
+        # dereferenced during the field-map enumeration, aborting the whole
+        # inspection rather than marking just this FileN group unreachable.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "info.h5"
+            forest_info_dtype = np.dtype(
+                [
+                    ("ForestID", "<i8"),
+                    ("ForestHalosOffset", "<i8"),
+                    ("ForestNhalos", "<i8"),
+                    ("ForestNtrees", "<i8"),
+                ]
+            )
+            info = np.zeros(1, dtype=forest_info_dtype)
+            info["ForestNhalos"] = 1
+            with h5py.File(path, "w") as f:
+                f.attrs["Nfiles"] = 1
+                group = f.create_group("File0")
+                group.create_dataset("ForestInfo", data=info)
+                fg = group.create_group("Forests")
+                fg.create_dataset("Descendant", data=np.array([-1], dtype="<i8"))
+                fg.create_dataset("Snap_num", data=np.array([0], dtype="<i8"))
+                fg["dangling"] = h5py.SoftLink("/does/not/exist")
+            root_attrs, files = si.inspect_ctrees_hdf5_source(path)  # must not raise
+            self.assertFalse(files[0].reachable)
+            self.assertIsNotNone(files[0].error)
+
     def test_malformed_rank_descendant_fails_cleanly(self):
         # A 0-d (scalar) Descendant dataset previously raised an uncaught
         # IndexError once indexed as if it were the expected 1-D array.
@@ -931,6 +960,119 @@ class JsonOutputSafetyTests(unittest.TestCase):
             self.assertEqual(rc, 0)
             self.assertTrue(target.exists())
 
+    def test_json_at_external_link_target_outside_simulation_dir_refused(self):
+        # steer-attempt-5 item 0: HDF5 ExternalLinks may legally point
+        # outside simulation_dir, so simulation_dir alone is not a complete
+        # protected set for the forests-HDF5 route. PM independently
+        # reproduced this against a real destructive overwrite; this fixture
+        # mirrors that reproduction exactly (an ExternalLink resolving to a
+        # sibling-of-tmp directory, not under simulation_dir).
+        with tempfile.TemporaryDirectory() as tmp_str, tempfile.TemporaryDirectory() as outside_str:
+            tmp = Path(tmp_str)
+            outside = Path(outside_str)
+            snap_dir = tmp / "snapshots"
+            snap_dir.mkdir()
+
+            target_path = outside / "external_data.h5"
+            with h5py.File(target_path, "w") as tf:
+                tf.attrs["marker"] = "REAL_SOURCE_DATA"
+                fg = tf.create_group("Forests")
+                fg.create_dataset("Descendant", data=np.array([-1], dtype="<i8"))
+                fg.create_dataset("Snap_num", data=np.array([0], dtype="<i8"))
+                info_dtype = np.dtype(
+                    [
+                        ("ForestID", "<i8"),
+                        ("ForestHalosOffset", "<i8"),
+                        ("ForestNhalos", "<i8"),
+                        ("ForestNtrees", "<i8"),
+                    ]
+                )
+                info = np.zeros(1, dtype=info_dtype)
+                info["ForestNhalos"] = 1
+                tf.create_dataset("ForestInfo", data=info)
+            original_bytes = target_path.read_bytes()
+
+            info_path = snap_dir / "info.h5"
+            with h5py.File(info_path, "w") as f:
+                f.attrs["Nfiles"] = 1
+                rel = os.path.relpath(str(target_path), str(snap_dir))
+                f["File0"] = h5py.ExternalLink(rel, "/")
+
+            sim_info_path = tmp / "simulation_info.yaml"
+            with open(sim_info_path, "w") as f:
+                yaml.safe_dump(
+                    {
+                        "input": {
+                            "first_file": 0,
+                            "last_file": 0,
+                            "tree_name": "info.h5",
+                            "tree_type": "consistent_trees_hdf5",
+                            "simulation_dir": str(snap_dir),
+                            "snapshot_list_file": str(tmp / "a_list"),
+                        }
+                    },
+                    f,
+                )
+            (tmp / "a_list").write_text("1.0\n")
+
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = inspect_sources.main(
+                    [
+                        "inspect",
+                        "--source-format",
+                        "consistent_trees_hdf5",
+                        "--simulation-info",
+                        str(sim_info_path),
+                        "--a-list",
+                        str(tmp / "a_list"),
+                        "--json",
+                        str(target_path),
+                    ]
+                )
+            self.assertEqual(rc, 1)
+            self.assertEqual(target_path.read_bytes(), original_bytes)
+
+    def test_survey_non_numeric_first_file_under_json_does_not_crash(self):
+        # steer-attempt-5 item 1: a non-numeric first_file in one named
+        # package's YAML, encountered while building survey's --json
+        # protected-paths set, must not crash the safety check itself (and
+        # therefore the whole --json write) with an uncaught ValueError.
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = Path(tmp_str)
+            snap_dir = tmp / "snapshots"
+            snap_dir.mkdir()
+            sim_info_path = tmp / "simulation_info.yaml"
+            with open(sim_info_path, "w") as f:
+                yaml.safe_dump(
+                    {
+                        "input": {
+                            "first_file": "not-a-number",
+                            "last_file": 1,
+                            "tree_name": "trees_test",
+                            "tree_type": "lhalo_binary",
+                            "simulation_dir": str(snap_dir),
+                            "snapshot_list_file": str(tmp / "a_list"),
+                        }
+                    },
+                    f,
+                )
+            (tmp / "a_list").write_text("1.0\n")
+            target = tmp / "out.json"
+
+            buf = io.StringIO()
+            with mock.patch.dict(
+                inspect_sources.NAMED_PACKAGES, {"bad-pkg": str(sim_info_path)}, clear=True
+            ):
+                with redirect_stdout(buf):
+                    rc = inspect_sources.main(
+                        ["survey", "--reachability-only", "--json", str(target)]
+                    )
+            results = json.loads(buf.getvalue())
+            self.assertEqual(rc, 1)
+            self.assertIn("error", results["bad-pkg"])
+            self.assertTrue(target.exists())  # the safety check itself did not crash
+
     def test_survey_json_at_named_package_simulation_dir_refused(self):
         # survey's protected set covers all five named packages, not just
         # whatever --simulation-info/--a-list were passed (survey takes
@@ -1063,9 +1205,10 @@ class InspectSourcesCLITests(unittest.TestCase):
         # A syntax-broken simulation_info.yaml for one named package must
         # not abort the whole survey with a raw traceback, discarding every
         # other package's already-gathered results -- the same failure mode
-        # items 2 and 8 from the last two rounds were fixed to prevent, via
-        # yaml.YAMLError specifically (not one of PER_PACKAGE_EXCEPTIONS
-        # until load_simulation_info wraps it into ConverterError itself).
+        # items 2 and 8 from earlier rounds were fixed to prevent, via
+        # yaml.YAMLError specifically (load_simulation_info now wraps it into
+        # ConverterError itself; the per-package boundaries also now catch
+        # bare Exception, so this is doubly covered).
         with tempfile.TemporaryDirectory() as tmp_str:
             tmp = Path(tmp_str)
             broken_path = tmp / "broken_simulation_info.yaml"

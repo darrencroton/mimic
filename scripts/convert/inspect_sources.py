@@ -80,6 +80,23 @@ def _is_within_or_equal(candidate: Path, container: Path) -> bool:
         return False
 
 
+def _protected_paths_for_hdf5(sim_info: si.SimulationInfo):
+    """External-link targets a forests-HDF5 info file resolves to. HDF5
+    ExternalLinks permit arbitrary relative/absolute targets, so a link can
+    legally point outside `simulation_dir` -- `simulation_dir` alone is not
+    a complete protected set for this route. `check_hdf5_reachability`
+    already enumerates every resolvable ExternalLink target into
+    `present_files` (alongside the info file itself), so this reuses that
+    rather than re-walking the HDF5 file. Any failure while checking is
+    itself a per-package-shaped failure, not a reason to under-protect."""
+    if sim_info.tree_type != "consistent_trees_hdf5":
+        return []
+    try:
+        return si.check_hdf5_reachability(sim_info).present_files
+    except Exception:
+        return []
+
+
 def _check_json_output_safe(json_path, protected_paths) -> None:
     """Refuse to let --json overwrite a source file or write inside a source
     directory. `protected_paths` is an iterable of file/directory paths
@@ -311,10 +328,9 @@ def cmd_inspect(args):
     if args.json:
         sim_info = si.load_simulation_info(args.simulation_info)
         _anchor_simulation_dir(sim_info)
-        _check_json_output_safe(
-            args.json,
-            (args.simulation_info, args.a_list, sim_info.simulation_dir),
-        )
+        protected = [args.simulation_info, args.a_list, sim_info.simulation_dir]
+        protected.extend(_protected_paths_for_hdf5(sim_info))
+        _check_json_output_safe(args.json, protected)
     report = inspect_one(
         args.source_format,
         args.simulation_info,
@@ -329,27 +345,32 @@ def cmd_inspect(args):
     return 0
 
 
-#: Exceptions a single package's inspection may realistically raise without
-#: aborting the whole survey and discarding every other package's
-#: already-gathered results: the tool's own declared failure types, plus the
-#: realistic corrupted-data exceptions numpy/h5py raise directly (untrusted
-#: binary/HDF5 input is this slice's own declared risky surface).
-PER_PACKAGE_EXCEPTIONS = (
-    ConverterError,
-    si.MissingDependencyError,
-    FileNotFoundError,
-    ValueError,
-    IndexError,
-    KeyError,
-    OSError,
-    TypeError,
-)
+# Per-package isolation boundaries (cmd_survey's three try blocks below, and
+# _named_package_protected_paths above) each catch bare `Exception`, not an
+# enumerated tuple. Rounds 2-5 each separately discovered one more specific
+# exception type escaping a fixed tuple here (KeyError/IndexError from a
+# malformed dataset, a transient OSError during reachability, yaml.YAMLError
+# from broken YAML, ValueError/TypeError from a malformed first_file) --
+# every one of those library calls sits on untrusted per-package binary/HDF5/
+# YAML input, this tool's own declared risky surface, and there is no
+# exception type for which "crash and discard every other package's results"
+# is the right behavior here. A fifth distinct exception type reaching one of
+# these boundaries from a later slice's descendant code should not need its
+# own future correction round.
 
 
 def _named_package_protected_paths(root: Path):
     """Every path `survey` might read from, across all five named packages:
     each simulation_info.yaml, and (best-effort, since a package's YAML may
-    itself be malformed) its simulation_dir and snapshot_list_file."""
+    itself be malformed) its simulation_dir, snapshot_list_file, and (for the
+    forests-HDF5 route) every external-link target its info file resolves
+    to -- those can legally point outside simulation_dir. Catches bare
+    `Exception`, not an enumerated tuple: this helper runs before any per-
+    package try/except loop even starts, on the same untrusted per-package
+    YAML/HDF5 input as the rest of this tool, so a malformed package here
+    must degrade to "that package contributes no protected paths", never
+    abort the safety check (and therefore the whole --json write) for every
+    other package."""
     protected = []
     for rel_path in NAMED_PACKAGES.values():
         sim_info_path = root / rel_path
@@ -357,10 +378,11 @@ def _named_package_protected_paths(root: Path):
         try:
             sim_info = si.load_simulation_info(sim_info_path)
             _anchor_simulation_dir(sim_info)
-        except (ConverterError, FileNotFoundError, OSError):
+            protected.append(sim_info.simulation_dir)
+            protected.append(root / sim_info.snapshot_list_file)
+            protected.extend(_protected_paths_for_hdf5(sim_info))
+        except Exception:
             continue
-        protected.append(sim_info.simulation_dir)
-        protected.append(root / sim_info.snapshot_list_file)
     return protected
 
 
@@ -376,7 +398,7 @@ def cmd_survey(args):
         try:
             sim_info = si.load_simulation_info(sim_info_path)
             _anchor_simulation_dir(sim_info)
-        except PER_PACKAGE_EXCEPTIONS as exc:
+        except Exception as exc:
             entry["error"] = str(exc)
             any_error = True
             results[name] = entry
@@ -414,7 +436,7 @@ def cmd_survey(args):
                         "not first_file/last_file"
                     ],
                 )
-        except PER_PACKAGE_EXCEPTIONS as exc:
+        except Exception as exc:
             # A transient filesystem error here (e.g. a path vanishing
             # between exists() and stat()) must not abort the whole survey
             # and discard every other package's already-gathered results.
@@ -432,7 +454,7 @@ def cmd_survey(args):
                     args.byte_order,
                     not args.no_link_scan,
                 )
-            except PER_PACKAGE_EXCEPTIONS as exc:
+            except Exception as exc:
                 entry["inspection_error"] = str(exc)
                 any_error = True
         results[name] = entry
