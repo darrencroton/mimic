@@ -132,7 +132,7 @@ Direction and scope:
 
 - `Descendant` points **forward** in time: `DescendantSnapshot > SnapNum`.
 - `FirstProgenitor` points **backward**: `FirstProgenitorSnapshot < SnapNum`.
-- `NextProgenitor` points backward or sideways relative to the halo that owns it, and **may target a different earlier snapshot than its sibling does**. Siblings in one progenitor chain need not share a snapshot; what they must share is their descendant — every halo in a `NextProgenitor` chain names the same `Descendant`, in the same `DescendantSnapshot`.
+- `NextProgenitor` is **descendant-relative, not owner-relative**. It targets another progenitor of the owner's own descendant, and **may target a different earlier snapshot than its sibling does**. Its target's snapshot is unconstrained relative to the *owner* — it may be earlier, the same, or later — because siblings in one progenitor chain need not share a snapshot. What every chain member must share is the descendant: every halo in a `NextProgenitor` chain names the same `Descendant`, in the same `DescendantSnapshot`, and therefore every one of them (the owner included) lies strictly before that shared `DescendantSnapshot`.
 - FoF links stay **within the current snapshot**. `FirstHaloInFOFgroup` is never null and self-references for a central.
 
 Only −1 is null. Any other negative value is structurally invalid, not "no link".
@@ -205,15 +205,16 @@ A consumer resolves every non-FoF link through its companion snapshot column. As
 
 Violating any invariant makes a file invalid. Producers and consumers **abort on violation; nothing repairs**.
 
-1. **Forward descendants, backward progenitors.** Every non-null `Descendant` targets a strictly later snapshot; every non-null `FirstProgenitor` and `NextProgenitor` targets a strictly earlier one. A valid forward gap is **not** malformed.
-2. **Snapshot-column biconditional.** Each of the three target-snapshot columns is −1 if and only if its companion index is −1, and otherwise names a snapshot that exists in the dataset.
-3. **int64 topology bounds.** Link fields are int64. A snapshot may contain more than `INT32_MAX` halos. Producers must not narrow indices to int32 anywhere in the pipeline.
-4. **Slab ordering.** Within a file, rows are in ascending `SourceHaloID`. Those values are unique across the entire dataset, not merely within a snapshot.
-5. **Identity uniqueness and density.** `SourceHaloID` is positive and globally unique. `(ForestIndex, HaloRankInForest)` pairs are unique and dense by the adapter's declared source order.
-6. **Header consistency.** `n_halos` equals every dataset's length; `snapshot_number` matches the filename; every `SnapNum` equals `snapshot_number`; `n_forests_total`, `max_halo_rank_in_forest`, `links_adjacent`, `source_format` and `column_mapping_sha256` are identical across all files and match the measured data.
-7. **Link validity.** Every non-null link is a valid row index in its resolved target file. FoF chains are cycle-free, terminate at −1, and every `FirstHaloInFOFgroup` names a halo whose own `FirstHaloInFOFgroup` is itself. Every non-null `FirstProgenitor` has a `Descendant` pointing back at its owner, and every member of a `NextProgenitor` chain names that same descendant.
-8. **No negative `Len`.** Zero is legal.
-9. **Object set.** Exactly `/header`, `/halos`, `/schema`; exactly the declared datasets; no external or soft links.
+1. **Forward descendants, backward progenitors.** Every non-null `Descendant` targets a strictly later snapshot, and every non-null `FirstProgenitor` targets a strictly earlier one. A valid forward gap is **not** malformed.
+2. **`NextProgenitor` is constrained relative to the shared descendant, not to its owner.** Every non-null `NextProgenitor` targets another progenitor of the owner's own `Descendant`/`DescendantSnapshot`. That target's snapshot is unconstrained relative to the owner — earlier, the same, or later are all valid — but, like every member of the chain including the owner, it is strictly earlier than the shared `DescendantSnapshot`, which invariant 1 already guarantees. **A rule stated relative to the owner would be wrong**: a read-only scan of all eight real mini-Millennium L-Halo files measured 51,270 non-null `NextProgenitor` links, of which 2,980 (5.8%) target an earlier snapshot than their owner, 47,291 (92.2%) the same snapshot, and 999 (1.9%) a *later* one. The same-snapshot majority is the ordinary adjacent case that version 2 already carried, so an owner-relative constraint would reject conforming input rather than catch an edge case. All 51,270 satisfy this descendant-relative rule, and all 51,270 name the same descendant as their owner.
+3. **Snapshot-column biconditional.** Each of the three target-snapshot columns is −1 if and only if its companion index is −1, and otherwise names a snapshot that exists in the dataset.
+4. **int64 topology bounds.** Link fields are int64. A snapshot may contain more than `INT32_MAX` halos. Producers must not narrow indices to int32 anywhere in the pipeline.
+5. **Slab ordering.** Within a file, rows are in ascending `SourceHaloID`. Those values are unique across the entire dataset, not merely within a snapshot.
+6. **Identity uniqueness and density.** `SourceHaloID` is positive and globally unique. `(ForestIndex, HaloRankInForest)` pairs are unique and dense by the adapter's declared source order.
+7. **Header consistency.** `n_halos` equals every dataset's length; `snapshot_number` matches the filename; every `SnapNum` equals `snapshot_number`; `n_forests_total`, `max_halo_rank_in_forest`, `links_adjacent`, `source_format` and `column_mapping_sha256` are identical across all files and match the measured data.
+8. **Link validity.** Every non-null link is a valid row index in its resolved target file. FoF chains are cycle-free, terminate at −1, and every `FirstHaloInFOFgroup` names a halo whose own `FirstHaloInFOFgroup` is itself. Every non-null `FirstProgenitor` has a `Descendant` pointing back at its owner, and every member of a `NextProgenitor` chain names that same descendant.
+9. **No negative `Len`.** Zero is legal.
+10. **Object set.** Exactly `/header`, `/halos`, `/schema`; exactly the declared datasets; no external or soft links.
 
 Note what is **not** an invariant in version 3: adjacency, `MostBoundID` uniqueness, `MostBoundID` positivity, and fixed payload units. All four remain invariants of version 2.
 
@@ -258,13 +259,15 @@ The multiplier is per-simulation metadata declared in the simulation package and
 
 ## Forest Sidecar
 
-`forests.h5` carries source provenance for every forest, as three int64 datasets each of length `n_forests_total`:
+`forests.h5` carries source provenance for every forest, as three int64 datasets each of length `n_forests_total`, **all three at the file root**, with no enclosing group:
 
 | Dataset | Type | Semantics |
 |---|---|---|
 | `ForestID` | int64[n_forests_total] | The source forest identifier, per the table in [Source Identity](#source-identity) |
 | `SourceFileOrdinal` | int64[n_forests_total] | Inventory file ordinal owning the forest |
 | `SourceUnitOrdinal` | int64[n_forests_total] | Within-file unit ordinal of the forest |
+
+The object paths are exactly `/ForestID`, `/SourceFileOrdinal` and `/SourceUnitOrdinal`. `forests.h5` contains those three objects and nothing else — no `/header`, no group, no attributes. This keeps `/ForestID` at the same path version 2 puts it, so a tool that reads a version 2 sidecar's `/ForestID` reads a version 3 one's unchanged; version 3 only adds two datasets beside it.
 
 For a Consistent-Trees ASCII forest that **spans files**, both ordinals are −1 and `ForestID` carries the original forest id; the conversion manifest retains the full source membership, which a three-column sidecar cannot express. For `lhalo_binary`, `ForestID` is the dense run forest number and the two ordinals disambiguate it. For `consistent_trees_hdf5`, the source `ForestID` is retained even where it is only unique within a file — the ordinals make the pair unique.
 
@@ -277,7 +280,7 @@ Mimic never reads this sidecar. It exists for provenance, debugging and independ
 - total halo count conservation against the source inventory;
 - every [format invariant](#format-invariants);
 - progenitor round-trip closure across snapshots, resolved through the target-snapshot columns rather than assumed adjacent;
-- `NextProgenitor` chain membership: every member names the same descendant;
+- `NextProgenitor` chain membership: every member names the same `Descendant`/`DescendantSnapshot` as its owner, and every member's own snapshot is strictly earlier than that shared `DescendantSnapshot`. Checking the target's snapshot against the *owner's* snapshot instead is the mistake to avoid: on real data the target is most often at the same snapshot as its owner and is sometimes later, and both are valid;
 - FoF chain integrity within each snapshot;
 - `SourceHaloID` positivity, global uniqueness and ascending row order;
 - identity uniqueness and density, and the header bounds;

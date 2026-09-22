@@ -1,0 +1,52 @@
+# Invalid: M_Crit200 is mapped to the alias 'Mvir'. That is the spelling of
+# the property's `source:` key in simulations/mini-millennium/halo_properties.yaml,
+# not its `name:` -- the layout is keyed by `name:`, so no source can ever
+# resolve this role. A plausible typo that must fail at freeze time rather
+# than mint a column_mapping_sha256 for a conversion that can never run.
+schema_version: 1
+source_format: lhalo_binary
+
+required_columns:
+  Descendant: [Descendant]
+  FirstProgenitor: [FirstProgenitor]
+  NextProgenitor: [NextProgenitor]
+  FirstHaloInFOFgroup: [FirstHaloInFOFgroup]
+  NextHaloInFOFgroup: [NextHaloInFOFgroup]
+  Len: [Len]
+  M_Crit200: [Mvir]
+  Pos: [Pos]
+  Vel: [Vel]
+  Spin: [Spin]
+  VelDisp: [VelDisp]
+  Vmax: [Vmax]
+  MostBoundID: [MostBoundID]
+  SnapNum: [SnapNum]
+
+extra_fields: []
+
+# Every field of the record, selected or not: an unselected field still
+# occupies its bytes, and the stride a reader steps is a property of the
+# source, not of the selection.
+binary_layout:
+  byte_order: little
+  itemsize: 104
+  offsets:
+    Descendant: 0
+    FirstProgenitor: 4
+    NextProgenitor: 8
+    FirstHaloInFOFgroup: 12
+    NextHaloInFOFgroup: 16
+    Len: 20
+    M_Mean200: 24
+    M_Crit200: 28
+    M_TopHat: 32
+    Pos: 36
+    Vel: 48
+    VelDisp: 60
+    Vmax: 64
+    Spin: 68
+    MostBoundID: 80
+    SnapNum: 88
+    FileNr: 92
+    SubhaloIndex: 96
+    SubHalfMass: 100

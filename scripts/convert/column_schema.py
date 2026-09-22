@@ -296,7 +296,7 @@ _ASCII_ROLES = (
 
 #: Consistent-Trees forests-HDF5 roles (C2): the five stored link names plus
 #: the value columns, with exact spellings taken from the C reader's own field
-#: table (src/io/vertical/read_ctrees_hdf5.c ``ctrees_h5_field_names``).
+#: table (src/io/vertical/read_ctrees_hdf5.c ``CTREES_H5_FIXED_FIELD_NAMES``).
 _CTREES_HDF5_ROLES = (
     "Descendant",
     "FirstHaloInFOFgroup",
@@ -727,7 +727,19 @@ def _construct_mapping_no_duplicates(loader, node, deep=False):
     mapping: Dict = {}
     for key_node, value_node in node.value:
         key = loader.construct_object(key_node, deep=True)
-        if key in mapping:
+        try:
+            duplicate = key in mapping
+        except TypeError as exc:
+            # A YAML mapping may legally use a sequence or a mapping as a key.
+            # Python cannot hash one, and letting that escape as a raw
+            # TypeError would be the one malformed-profile path that does not
+            # produce this module's named error.
+            raise ConverterError(
+                "unhashable mapping key at line {}: a profile key must be a scalar ({})".format(
+                    key_node.start_mark.line + 1, exc
+                )
+            ) from exc
+        if duplicate:
             raise ConverterError(
                 "duplicate key {!r} at line {}".format(key, key_node.start_mark.line + 1)
             )
@@ -1172,6 +1184,12 @@ class CanonicalSchema:
     comments, YAML key order, alias order and extra-definition order do not.
     """
 
+    #: The profile's *own* parsed version, not the module constant. The digest
+    #: is durable on-disk provenance: if a version 2 profile grammar is ever
+    #: accepted, a previously frozen version 1 mapping must still re-hash to
+    #: the value stamped in the files it already produced, which serializing
+    #: the constant instead of the parsed value would silently break.
+    schema_version: int
     source_format: str
     required_columns: Tuple[Tuple[str, Tuple[str, ...]], ...]
     extra_fields: Tuple[ExtraField, ...]
@@ -1196,7 +1214,7 @@ class CanonicalSchema:
                 for field in self.payload_fields
             ],
             "required_columns": {role: list(aliases) for role, aliases in self.required_columns},
-            "schema_version": PROFILE_SCHEMA_VERSION,
+            "schema_version": self.schema_version,
             "source_format": self.source_format,
         }
         if self.source_layout is not None:
@@ -1314,17 +1332,33 @@ def build_schema(
                 "{}: a lhalo_binary profile needs the ordered source halo_properties.yaml "
                 "to validate its binary_layout".format(column_map.origin)
             )
-        assert column_map.binary_layout is not None  # guaranteed by parse_column_map
-        # A layout entry counts as selected when the source field it names is
-        # a candidate for any required role or any extra. Aliases, not role
-        # names, are the source's own spellings, so the union is taken over
-        # aliases -- exactly one of them resolves in a given file, and the
-        # others simply never match a declared field.
-        selected = set()
-        for _role, aliases in column_map.required_columns:
-            selected.update(aliases)
-        for extra in column_map.extra_fields:
-            selected.update(component.field for component in extra.sources)
+        if column_map.binary_layout is None:  # pragma: no cover - parse_column_map guarantees it
+            raise ConverterError(
+                "{}: a lhalo_binary profile has no binary_layout".format(column_map.origin)
+            )
+        # A fixed-record binary source is the one case where the complete set
+        # of source field names is known at freeze time, so resolution happens
+        # here rather than being deferred to the adapter. Freezing a mapping
+        # whose aliases no source can resolve would mint a
+        # column_mapping_sha256 that is durable provenance for a conversion
+        # that can never run -- and would silently mark the unresolvable role's
+        # layout entry unselected instead of failing.
+        property_names = [prop.name for prop in source_properties]
+        resolved_roles = _resolve_roles(
+            column_map.source_format,
+            column_map.required_columns,
+            property_names,
+            column_map.origin,
+        )
+        resolved_extras = _resolve_extras(
+            column_map.source_format, column_map.extra_fields, property_names, column_map.origin
+        )
+        _check_component_arity(
+            column_map.extra_fields, resolved_extras, source_properties, column_map.origin
+        )
+        selected = set(resolved_roles.values())
+        for components in resolved_extras.values():
+            selected.update(spelling for spelling, _component in components)
         source_layout = _build_source_layout(
             column_map.binary_layout, source_properties, selected, column_map.origin
         )
@@ -1336,12 +1370,47 @@ def build_schema(
         )
 
     return CanonicalSchema(
+        schema_version=column_map.schema_version,
         source_format=column_map.source_format,
         required_columns=column_map.required_columns,
         extra_fields=column_map.extra_fields,
         payload_fields=PAYLOAD_FIELDS[column_map.source_format],
         source_layout=source_layout,
     )
+
+
+def _check_component_arity(
+    extra_fields: Sequence[ExtraField],
+    resolved: Mapping[str, Tuple[Tuple[str, Optional[int]], ...]],
+    source_properties: Sequence[SourceProperty],
+    origin: str,
+) -> None:
+    """Check each source component against the declared property's real shape.
+
+    C2's grammar is ``{field}`` for a stored scalar and ``{field, component}``
+    for one element of a stored vector, so the two are not interchangeable: a
+    ``component`` on a scalar names an element that does not exist, and a
+    missing ``component`` on a vector does not say which of three values to
+    read. Only a fixed-record binary source declares its shapes in a profile;
+    for the two named-object formats the equivalent check is an
+    adapter-read-time obligation (see ``adapters/base.py``).
+    """
+    by_name = {prop.name: prop for prop in source_properties}
+    for extra in extra_fields:
+        for position, (spelling, component) in enumerate(resolved[extra.name]):
+            prop = by_name[spelling]
+            what = "{}: extra field {!r} source[{}]".format(origin, extra.name, position)
+            is_vector = EXTRA_TYPES[prop.type].n_components == 3
+            if is_vector and component is None:
+                raise ConverterError(
+                    "{}: source field {!r} is {}, a 3-component vector, so it needs an explicit "
+                    "'component: 0|1|2'".format(what, spelling, prop.type)
+                )
+            if not is_vector and component is not None:
+                raise ConverterError(
+                    "{}: source field {!r} is the scalar type {}, so it must not carry a "
+                    "'component'".format(what, spelling, prop.type)
+                )
 
 
 # ==========================================================================
@@ -1383,6 +1452,44 @@ def _resolve_one(aliases: Sequence[str], lookup: Mapping[str, str], what: str) -
     return matches[0]
 
 
+def _context(origin: Optional[str], what: str) -> str:
+    return what if origin is None else "{}: {}".format(origin, what)
+
+
+def _resolve_roles(
+    source_format: str,
+    required_columns: Sequence[Tuple[str, Tuple[str, ...]]],
+    available: Iterable[str],
+    origin: Optional[str] = None,
+) -> Dict[str, str]:
+    lookup = _normalized_available(source_format, available)
+    return {
+        role: _resolve_one(aliases, lookup, _context(origin, "required column {!r}".format(role)))
+        for role, aliases in required_columns
+    }
+
+
+def _resolve_extras(
+    source_format: str,
+    extra_fields: Sequence[ExtraField],
+    available: Iterable[str],
+    origin: Optional[str] = None,
+) -> Dict[str, Tuple[Tuple[str, Optional[int]], ...]]:
+    lookup = _normalized_available(source_format, available)
+    resolved: Dict[str, Tuple[Tuple[str, Optional[int]], ...]] = {}
+    for extra in extra_fields:
+        components: List[Tuple[str, Optional[int]]] = []
+        for position, component in enumerate(extra.sources):
+            what = _context(origin, "extra field {!r} source[{}]".format(extra.name, position))
+            if component.field not in lookup:
+                raise ConverterError(
+                    "{}: the source does not carry field {!r}".format(what, component.field)
+                )
+            components.append((lookup[component.field], component.component))
+        resolved[extra.name] = tuple(components)
+    return resolved
+
+
 def resolve_required_columns(schema: CanonicalSchema, available: Iterable[str]) -> Dict[str, str]:
     """Resolve every required role against one concrete source's column names.
 
@@ -1390,32 +1497,22 @@ def resolve_required_columns(schema: CanonicalSchema, available: Iterable[str]) 
     for each role in each file (C2); zero matches and two matches are both
     fatal, and nothing is defaulted or filled.
     """
-    lookup = _normalized_available(schema.source_format, available)
-    return {
-        role: _resolve_one(aliases, lookup, "required column {!r}".format(role))
-        for role, aliases in schema.required_columns
-    }
+    return _resolve_roles(schema.source_format, schema.required_columns, available)
 
 
 def resolve_extra_sources(
     schema: CanonicalSchema, available: Iterable[str]
-) -> Dict[str, Tuple[str, ...]]:
+) -> Dict[str, Tuple[Tuple[str, Optional[int]], ...]]:
     """Resolve every extra field's source components against one source.
 
-    Returns output name -> the source's own spelling per component, in the
-    declared component order. A selected field that the source does not carry
-    is fatal: there is no guessed default and no silent fill (C2).
+    Returns output name -> one ``(source spelling, component)`` pair per
+    component, in the declared order, where ``component`` is ``None`` for a
+    stored scalar and 0/1/2 for an element of a stored vector. The component
+    index is part of the resolution, not a detail to be recovered separately:
+    ``PosX <- Pos component 0`` and "read the whole Pos vector" resolve to the
+    same spelling and must stay distinguishable from this return value alone.
+
+    A selected field that the source does not carry is fatal: there is no
+    guessed default and no silent fill (C2).
     """
-    lookup = _normalized_available(schema.source_format, available)
-    resolved: Dict[str, Tuple[str, ...]] = {}
-    for extra in schema.extra_fields:
-        names: List[str] = []
-        for position, component in enumerate(extra.sources):
-            what = "extra field {!r} source[{}]".format(extra.name, position)
-            if component.field not in lookup:
-                raise ConverterError(
-                    "{}: the source does not carry field {!r}".format(what, component.field)
-                )
-            names.append(lookup[component.field])
-        resolved[extra.name] = tuple(names)
-    return resolved
+    return _resolve_extras(schema.source_format, schema.extra_fields, available)

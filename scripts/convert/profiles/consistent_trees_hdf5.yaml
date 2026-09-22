@@ -1,7 +1,7 @@
 # Consistent-Trees forests-HDF5 mapping profile -- default (no extras).
 #
 # Role names are the `Forests/` dataset names the reference C reader itself
-# consumes (src/io/vertical/read_ctrees_hdf5.c, `ctrees_h5_field_names`).
+# consumes (src/io/vertical/read_ctrees_hdf5.c, `CTREES_H5_FIXED_FIELD_NAMES`).
 # HDF5 aliases are matched exactly: a dataset name is a stored object name,
 # and a case-insensitive match there would invent an equivalence the file does
 # not have. The snapshot role lists both spellings because a package carries

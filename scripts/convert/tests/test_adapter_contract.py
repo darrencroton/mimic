@@ -424,17 +424,46 @@ class SourceAdapterTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             base.SourceAdapter()
 
-    def test_a_subclass_with_an_unknown_source_format_fails_at_definition(self):
+    def test_a_subclass_with_an_unknown_source_format_fails_at_instantiation(self):
+        class BadAdapter(base.SourceAdapter):
+            source_format = "lhalo_hdf5"
+
+            def inventory(self):
+                raise NotImplementedError
+
+            def iter_batches(self, max_rows):
+                raise NotImplementedError
+
         with self.assertRaisesRegex(ConverterError, "not one of"):
+            BadAdapter()
 
-            class BadAdapter(base.SourceAdapter):
-                source_format = "lhalo_hdf5"
+    def test_an_abstract_intermediate_base_is_allowed(self):
+        """A shared base that is itself abstract must not be forced to invent a
+        format key it does not answer to -- only its concrete subclasses have
+        one."""
 
-                def inventory(self):
-                    raise NotImplementedError
+        class SharedBinaryBase(base.SourceAdapter):
+            """Abstract intermediate: implements one of the two abstracts."""
 
-                def iter_batches(self, max_rows):
-                    raise NotImplementedError
+            def inventory(self):
+                return base.SourceInventory([base.SourceUnit(0, 0, 1)])
+
+        # Defining it must not raise, and it must still be uninstantiable
+        # because iter_batches is abstract -- with the standard TypeError, not
+        # a complaint about its empty format key.
+        with self.assertRaises(TypeError):
+            SharedBinaryBase()
+
+        schema = ascii_schema()
+
+        class ConcreteFromShared(SharedBinaryBase):
+            source_format = "consistent_trees_ascii"
+
+            def iter_batches(self, max_rows):
+                yield make_batch(schema, n_rows=1)
+
+        adapter = ConcreteFromShared()
+        self.assertEqual(adapter.inventory().total_halos, 1)
 
     def test_a_conforming_subclass_defines_and_instantiates(self):
         schema = ascii_schema()
@@ -463,6 +492,119 @@ class SourceAdapterTests(unittest.TestCase):
 
         with self.assertRaises(TypeError):
             PartialAdapter()
+
+
+class SourceHaloIdDerivationTests(unittest.TestCase):
+    """A batch's ids must be the ones its own coordinates imply.
+
+    `CanonicalBatch` carries `coordinates` precisely so identity is
+    recoverable, and `SourceInventory.source_halo_id()` is what defines the id.
+    Nothing in `CanonicalBatch.validate()` can check the two against each other
+    -- it holds no inventory, and giving it one would put a whole-inventory
+    lookup on every batch. The guarantee therefore lives here, at the contract
+    level, where an adapter that invents its own id rule is caught.
+    """
+
+    #: Two files, so a per-file restart is visibly wrong at the second one.
+    UNITS = (base.SourceUnit(0, 0, 3), base.SourceUnit(0, 1, 2), base.SourceUnit(1, 0, 4))
+
+    def setUp(self):
+        self.schema = ascii_schema()
+        self.inventory = base.SourceInventory(self.UNITS)
+
+    @staticmethod
+    def _batch_for(schema, coordinates, ids):
+        n = len(ids)
+        batch = make_batch(schema, n_rows=n)
+        batch.identity["SourceHaloID"][:] = np.array(ids, dtype=np.int64)
+        batch.links["FirstHaloInFOFgroup"][:] = np.array(ids, dtype=np.int64)
+        batch.coordinates["source_file_ordinal"][:] = np.array(
+            [c.source_file_ordinal for c in coordinates], dtype=np.int64
+        )
+        batch.coordinates["unit_ordinal"][:] = np.array(
+            [c.unit_ordinal for c in coordinates], dtype=np.int64
+        )
+        batch.coordinates["row_ordinal"][:] = np.array(
+            [c.row_ordinal for c in coordinates], dtype=np.int64
+        )
+        return batch
+
+    def _coordinates_of(self, unit):
+        return [
+            base.SourceCoordinate(unit.source_file_ordinal, unit.unit_ordinal, row)
+            for row in range(unit.n_halos)
+        ]
+
+    @staticmethod
+    def _mismatches(inventory, batch):
+        """Rows whose id disagrees with the id their coordinate implies."""
+        bad = []
+        for row in range(batch.n_rows):
+            coordinate = base.SourceCoordinate(
+                int(batch.coordinates["source_file_ordinal"][row]),
+                int(batch.coordinates["unit_ordinal"][row]),
+                int(batch.coordinates["row_ordinal"][row]),
+            )
+            expected = inventory.source_halo_id(coordinate)
+            actual = int(batch.identity["SourceHaloID"][row])
+            if expected != actual:
+                bad.append((coordinate, expected, actual))
+        return bad
+
+    def test_ids_derived_through_the_inventory_validate_and_agree(self):
+        for unit in self.UNITS:
+            with self.subTest(unit=(unit.source_file_ordinal, unit.unit_ordinal)):
+                coordinates = self._coordinates_of(unit)
+                ids = [self.inventory.source_halo_id(c) for c in coordinates]
+                batch = self._batch_for(self.schema, coordinates, ids)
+                batch.validate()
+                self.assertEqual(self._mismatches(self.inventory, batch), [])
+
+    def test_ids_assigned_by_a_per_file_rule_are_caught(self):
+        """The counterexample: an adapter restarting ids at 1 in each file.
+
+        Structurally the batch is fine -- ids are positive and strictly
+        increasing -- so `validate()` accepts it, which is the point: the error
+        is only visible against the inventory.
+        """
+        unit = self.UNITS[2]  # file 1, whose real ids start at 6, not 1
+        coordinates = self._coordinates_of(unit)
+        wrong_ids = [1 + row for row in range(unit.n_halos)]
+        batch = self._batch_for(self.schema, coordinates, wrong_ids)
+
+        batch.validate()  # structurally valid, and still wrong
+
+        mismatches = self._mismatches(self.inventory, batch)
+        self.assertEqual(len(mismatches), unit.n_halos)
+        first_coordinate, expected, actual = mismatches[0]
+        self.assertEqual(first_coordinate, base.SourceCoordinate(1, 0, 0))
+        self.assertEqual(expected, self.inventory.base_id(1, 0))
+        self.assertEqual(actual, 1)
+
+    def test_ids_from_a_compacted_sample_inventory_are_caught(self):
+        """Sampling must not compact identity (C1).
+
+        An adapter that rebuilt its inventory from only the units it converts
+        produces ids that no longer match the parent inventory's, which is what
+        makes a sampled run incomparable to an unsampled reference.
+        """
+        unit = self.UNITS[2]
+        compacted = base.SourceInventory([base.SourceUnit(1, 0, unit.n_halos)])
+        coordinates = self._coordinates_of(unit)
+        ids = [compacted.source_halo_id(c) for c in coordinates]
+        batch = self._batch_for(self.schema, coordinates, ids)
+
+        batch.validate()
+        self.assertNotEqual(self._mismatches(self.inventory, batch), [])
+
+        # Whereas the correctly sampled inventory -- parent units, narrowed
+        # selection -- produces ids that do agree.
+        sampled = base.SourceInventory(self.UNITS, selected=[(1, 0)])
+        good = self._batch_for(
+            self.schema, coordinates, [sampled.source_halo_id(c) for c in coordinates]
+        )
+        good.validate()
+        self.assertEqual(self._mismatches(self.inventory, good), [])
 
 
 if __name__ == "__main__":

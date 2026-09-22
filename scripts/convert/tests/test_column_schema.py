@@ -37,6 +37,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import column_schema as cs  # noqa: E402
+from adapters import source_inventory as si  # noqa: E402
 from ctrees_parser import ConverterError  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -500,6 +501,7 @@ class BinaryLayoutTests(unittest.TestCase):
             "lhalo_offset_out_of_record.yaml": "record is only",
             "lhalo_missing_offset.yaml": "does not cover source field",
             "lhalo_unknown_offset_field.yaml": "source properties do not",
+            "lhalo_unresolvable_alias.yaml": "none of the aliases",
         }
         for name, pattern in cases.items():
             with self.subTest(fixture=name):
@@ -533,6 +535,89 @@ class BinaryLayoutTests(unittest.TestCase):
         dtype = np.dtype(schema.source_layout.numpy_dtype_spec())
         self.assertEqual(dtype["Descendant"].str, ">i4")
         self.assertEqual(dtype["MostBoundID"].str, ">i8")
+
+    def test_unresolvable_required_alias_fails_at_freeze_time(self):
+        """A binary profile's aliases must name a property's `name:`, not its
+        `source:`. `M_Crit200: [Mvir]` is the plausible typo, since
+        mini-millennium declares M_Crit200 with `source: Mvir`."""
+        profile = valid_profile("lhalo_binary")
+        profile["required_columns"]["M_Crit200"] = ["Mvir"]
+        with self.assertRaisesRegex(ConverterError, "none of the aliases"):
+            schema_for(profile, self.source_properties)
+
+    def test_unresolvable_required_alias_never_produces_a_digest(self):
+        """The failure must happen before a schema exists: a frozen mapping no
+        source can resolve would mint durable on-disk provenance for a
+        conversion that can never run, and would silently leave the role's
+        layout entry unselected."""
+        profile = valid_profile("lhalo_binary")
+        profile["required_columns"]["M_Crit200"] = ["Mvir"]
+        try:
+            schema = schema_for(profile, self.source_properties)
+        except ConverterError:
+            return
+        entry = next(e for e in schema.source_layout.entries if e.name == "M_Crit200")
+        self.fail(
+            "froze an unresolvable mapping: digest {}, M_Crit200 selected={}".format(
+                schema.digest, entry.selected
+            )
+        )
+
+    def test_unresolvable_extra_source_fails_at_freeze_time(self):
+        profile = valid_profile("lhalo_binary", [scalar_extra(field="NotAField")])
+        with self.assertRaisesRegex(ConverterError, "does not carry field"):
+            schema_for(profile, self.source_properties)
+
+    def test_component_index_on_a_scalar_source_fails(self):
+        profile = valid_profile("lhalo_binary")
+        profile["extra_fields"] = [
+            {
+                "name": "Selected",
+                "sources": [{"field": "M_Mean200", "component": 1}],
+                "type": "float",
+                "units": "1e10 Msun/h",
+                "h_convention": "carried",
+                "description": "test",
+            }
+        ]
+        with self.assertRaisesRegex(ConverterError, "must not carry a 'component'"):
+            schema_for(profile, self.source_properties)
+
+    def test_missing_component_index_on_a_vector_source_fails(self):
+        profile = valid_profile("lhalo_binary")
+        profile["extra_fields"] = [
+            {
+                "name": "Selected",
+                "sources": [{"field": "Pos"}],
+                "type": "float",
+                "units": "Mpc/h",
+                "h_convention": "carried",
+                "description": "test",
+            }
+        ]
+        with self.assertRaisesRegex(ConverterError, "needs an explicit 'component"):
+            schema_for(profile, self.source_properties)
+
+    def test_layout_dtype_matches_the_slice_1_lhalo_record_dtype(self):
+        """Two descriptions of the same 104-byte record must not drift apart.
+
+        `adapters/source_inventory.py` hard-codes LHALO_FIELDS; this slice
+        derives the layout from halo_properties.yaml plus a profile. They agree
+        today, and this assertion is what keeps a future property addition from
+        being picked up by one and not the other.
+        """
+        schema = schema_for(valid_profile("lhalo_binary"), self.source_properties)
+        derived = np.dtype(schema.source_layout.numpy_dtype_spec())
+        hard_coded = si.lhalo_record_dtype("<")
+        self.assertEqual(derived.itemsize, hard_coded.itemsize)
+        self.assertEqual(list(derived.names), list(hard_coded.names))
+        for name in hard_coded.names:
+            self.assertEqual(
+                derived.fields[name][0], hard_coded.fields[name][0], "dtype differs for " + name
+            )
+            self.assertEqual(
+                derived.fields[name][1], hard_coded.fields[name][1], "offset differs for " + name
+            )
 
 
 class YamlLoadingTests(unittest.TestCase):
@@ -655,12 +740,64 @@ class SchemaIdentityTests(unittest.TestCase):
         profile["binary_layout"]["offsets"]["SubHalfMass"] = 104
         self.assertNotEqual(base, schema_for(profile, properties).digest)
 
+    def test_schema_version_is_the_profile_s_own_parsed_value(self):
+        """The digest is durable on-disk provenance, so it must serialize the
+        profile's parsed version, never the module constant.
+
+        Today they are always equal, which is exactly why this needs a test:
+        the day a version 2 grammar is accepted, serializing the constant
+        would silently re-hash every previously frozen version 1 mapping away
+        from the value stamped in the files it already produced.
+        """
+        schema = schema_for(valid_profile("consistent_trees_ascii"))
+        self.assertEqual(schema.schema_version, cs.PROFILE_SCHEMA_VERSION)
+        self.assertEqual(json.loads(schema.canonical_json())["schema_version"], 1)
+
+        # Constructed directly, bypassing the parser's version check, to prove
+        # the serialized value tracks the object rather than the constant.
+        hypothetical = dataclasses.replace(schema, schema_version=2)
+        self.assertEqual(json.loads(hypothetical.canonical_json())["schema_version"], 2)
+        self.assertNotEqual(hypothetical.digest, schema.digest)
+
 
 class WideIntegerTests(unittest.TestCase):
     """Integers never pass through floating point (C2)."""
 
-    def _wide_layout_schema(self, itemsize, offset):
-        properties = (cs.SourceProperty("Only", "long long", "dimensionless"),)
+    #: A synthetic binary source whose properties are exactly the required
+    #: roles, so the profile resolves. Every field but the last is packed
+    #: contiguously; the last is pushed out to a very large offset.
+    WIDE_PROPERTIES = (
+        ("Descendant", "int"),
+        ("FirstProgenitor", "int"),
+        ("NextProgenitor", "int"),
+        ("FirstHaloInFOFgroup", "int"),
+        ("NextHaloInFOFgroup", "int"),
+        ("Len", "int"),
+        ("SnapNum", "int"),
+        ("M_Crit200", "float"),
+        ("VelDisp", "float"),
+        ("Vmax", "float"),
+        ("MostBoundID", "long long"),
+        ("Pos", "vec3_float"),
+        ("Vel", "vec3_float"),
+        ("Spin", "vec3_float"),
+    )
+
+    def _wide_layout_schema(self, far_offset):
+        """Schema whose trailing `Spin` field sits at `far_offset`."""
+        properties = tuple(
+            cs.SourceProperty(name, type_name, "dimensionless")
+            for name, type_name in self.WIDE_PROPERTIES
+        )
+        offsets = {}
+        cursor = 0
+        for name, type_name in self.WIDE_PROPERTIES[:-1]:
+            offsets[name] = cursor
+            cursor += cs.EXTRA_TYPES[type_name].itemsize
+        last_name, last_type = self.WIDE_PROPERTIES[-1]
+        last_width = cs.EXTRA_TYPES[last_type].itemsize
+        self.assertGreater(far_offset, cursor, "the far offset must clear the packed prefix")
+        offsets[last_name] = far_offset
         profile = {
             "schema_version": 1,
             "source_format": "lhalo_binary",
@@ -668,30 +805,34 @@ class WideIntegerTests(unittest.TestCase):
             "extra_fields": [],
             "binary_layout": {
                 "byte_order": "little",
-                "itemsize": itemsize,
-                "offsets": {"Only": offset},
+                "itemsize": far_offset + last_width,
+                "offsets": offsets,
             },
         }
         return schema_for(profile, properties)
 
+    def _far_entry(self, schema):
+        document = json.loads(schema.canonical_json())
+        entries = document["source_layout"]["entries"]
+        return document, next(e for e in entries if e["name"] == "Spin")
+
     def test_offsets_above_2_31_and_2_53_survive_serialization_exactly(self):
         for offset in (2**31, 2**31 + 1, 2**53, 2**53 + 1, 2**62):
             with self.subTest(offset=offset):
-                schema = self._wide_layout_schema(offset + 8, offset)
-                document = json.loads(schema.canonical_json())
-                entry = document["source_layout"]["entries"][0]
+                schema = self._wide_layout_schema(offset)
+                document, entry = self._far_entry(schema)
                 self.assertEqual(entry["offset"], offset)
                 self.assertIsInstance(entry["offset"], int)
-                self.assertEqual(document["source_layout"]["itemsize"], offset + 8)
+                self.assertEqual(document["source_layout"]["itemsize"], offset + 12)
 
     def test_values_one_apart_above_2_53_are_distinguishable(self):
         """float64 cannot represent 2**53 + 1; the digest must still differ."""
-        low = self._wide_layout_schema(2**53 + 8, 2**53)
-        high = self._wide_layout_schema(2**53 + 9, 2**53 + 1)
+        low = self._wide_layout_schema(2**53)
+        high = self._wide_layout_schema(2**53 + 1)
         self.assertNotEqual(low.digest, high.digest)
 
     def test_canonical_json_text_carries_the_exact_digits(self):
-        schema = self._wide_layout_schema(2**53 + 9, 2**53 + 1)
+        schema = self._wide_layout_schema(2**53 + 1)
         self.assertIn(str(2**53 + 1), schema.canonical_json())
 
 
@@ -757,11 +898,25 @@ class AliasResolutionTests(unittest.TestCase):
             cs.load_column_map(PROFILE_DIR / "consistent_trees_ascii_extras_example.yaml")
         )
         resolved = cs.resolve_extra_sources(schema, self.ASCII_COLUMNS)
-        self.assertEqual(resolved["Rvir"], ("Rvir(11)",))
-        self.assertEqual(resolved["AngularMomentum"], ("Jx(23)", "Jy(24)", "Jz(25)"))
+        self.assertEqual(resolved["Rvir"], (("Rvir(11)", None),))
+        self.assertEqual(
+            resolved["AngularMomentum"],
+            (("Jx(23)", None), ("Jy(24)", None), ("Jz(25)", None)),
+        )
         without_rvir = [c for c in self.ASCII_COLUMNS if not c.startswith("Rvir")]
         with self.assertRaisesRegex(ConverterError, "does not carry field"):
             cs.resolve_extra_sources(schema, without_rvir)
+
+    def test_vector_component_survives_extra_resolution(self):
+        """`PosX <- Pos component 0` must stay distinguishable from "read the
+        whole Pos vector" from the resolver's return value alone."""
+        properties = cs.load_source_properties(LHALO_PROPERTIES)
+        schema = cs.build_schema(
+            cs.load_column_map(PROFILE_DIR / "lhalo_binary_extras_example.yaml"), properties
+        )
+        resolved = cs.resolve_extra_sources(schema, [prop.name for prop in properties])
+        self.assertEqual(resolved["PosX"], (("Pos", 0),))
+        self.assertEqual(resolved["M_Mean200"], (("M_Mean200", None),))
 
 
 class V3FieldTableTests(unittest.TestCase):

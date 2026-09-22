@@ -43,6 +43,7 @@ Every claim below about current consumer behaviour was read out of the shipped s
 | Slabs above `INT_MAX` are refused | `horizontal_driver.c` — explicit check on `gen->slab.nhalos` |
 | Declared units drive a generated conversion to the reference basis | `scripts/generate_properties.py` — `_input_convert` / `_linear_conversion_expr` |
 | Link fields materialise as C `int` | `src/include/generated/raw_halo_defs.h` — `int Descendant; int FirstProgenitor; ...` |
+| `NextProgenitor` direction on real data | read-only scan of all eight `simulations/mini-millennium/snapshots/trees_063.*` files: 51,270 non-null links — 2,980 earlier than the owner, 47,291 the same snapshot, 999 later; all 51,270 strictly earlier than the shared `DescendantSnapshot`, all 51,270 naming the owner's own descendant |
 
 The worked graph below is constructed independently for this review. It is *mini-Millennium-like* — it has the same maximum forward-gap span of 2 that a scan of all eight local mini-Millennium files measured — but it is not extracted from that data, so it exercises the format's rules rather than reproducing one dataset's accidents.
 
@@ -104,7 +105,7 @@ The emitted dataset, in full:
 Three properties of the format are visible here and are worth naming, because each is a place a version 2 reading would go wrong:
 
 1. **D's progenitor chain spans two snapshots.** `FirstProgenitor(D) = A` at snapshot **0**, and the chain continues to B and C at snapshot **1**. A consumer that assumes a progenitor chain lives in one slab loses B and C, or loses A.
-2. **`NextProgenitor` crosses a snapshot boundary.** `NextProgenitor(A) = B` — A is at snapshot 0 and B at snapshot 1, so the link's `NextProgenitorSnapshot` (1) differs from the owner's `SnapNum` (0). This is exactly C3's "`NextProgenitor` can target a different earlier snapshot than its sibling".
+2. **`NextProgenitor` crosses a snapshot boundary, and points *forward* relative to its owner.** `NextProgenitor(A) = B` — A is at snapshot 0 and B at snapshot 1, so the link's `NextProgenitorSnapshot` (1) is *later* than the owner's `SnapNum` (0). That is legal and ordinary: the constraint on `NextProgenitor` is relative to the **shared descendant**, not to the owner. This is C3's "`NextProgenitor` can target a different earlier snapshot than its sibling" — "earlier" meaning earlier than the descendant every sibling shares. A draft invariant written owner-relative is what finding 11 below records and the draft now corrects.
 3. **Every sibling names the same descendant.** A, B and C all carry `Descendant = 0, DescendantSnapshot = 2`. That is the invariant a consumer can check cheaply and the one that makes a mixed-snapshot chain well-defined at all.
 
 ## Mixed-snapshot chains
@@ -265,12 +266,21 @@ Three things about this fragment are deliberate:
 | 8 | A v3 dataset needs one simulation package per (simulation, source format) because payload units differ by source; `/schema` makes the mismatch checkable | Packaging consequence | Documented here and in the draft |
 | 9 | An extra declaring a unit outside `UNIT_REGISTRY` converts but cannot be declared by a package until that unit is added | Known limitation | Stated in the profile README |
 | 10 | Slabs above `INT_MAX` remain refused by the driver; chunked slab streaming and gap retention interact and should be designed together | Runtime prerequisite | Reader/driver project |
+| 11 | **The draft's Invariant 1 originally constrained `NextProgenitor` relative to its *owner* ("strictly earlier"), which contradicted this review's own worked graph and rejects 94.2% of real links.** Drafting error in the invariant's prose, found during Slice 2's review and corrected in the draft | **Corrected in the draft** | — |
 
-**No finding requires a semantic change to the v3 draft.** Findings 1, 3, 4, 5, 6 and 10 are consumer-side work that the plan already places outside the converter scope and that the draft's [Runtime support status](HORIZONTAL-HDF5-FORMAT-V3-DRAFT.md#runtime-support-status) section already declines to claim. Findings 8 and 9 are consequences to document, and both are documented. Findings 2 and 7 close.
+**No finding requires a change to the v3 *data model*, and one required a correction to the draft's *prose*.** Findings 1, 3, 4, 5, 6 and 10 are consumer-side work that the plan already places outside the converter scope and that the draft's [Runtime support status](HORIZONTAL-HDF5-FORMAT-V3-DRAFT.md#runtime-support-status) section already declines to claim. Findings 8 and 9 are consequences to document, and both are documented. Findings 2 and 7 close.
+
+**Finding 11 is the exception, and it is worth being exact about what it was.** The draft's Invariant 1 originally read "every non-null `FirstProgenitor` and `NextProgenitor` targets a strictly earlier [snapshot]", constraining `NextProgenitor` relative to the halo that owns it. That is false. It contradicted this review's own worked graph — `NextProgenitor(A) = B` points *forward* from snapshot 0 to snapshot 1 — and a read-only scan of all eight real mini-Millennium L-Halo files measured **51,270** non-null `NextProgenitor` links, of which only **2,980 (5.8%)** target a strictly earlier snapshot than their owner; **47,291 (92.2%)** target the *same* snapshot and **999 (1.9%)** a *later* one. An owner-relative invariant would therefore have rejected **94.2%** of conforming real input, including the ordinary same-snapshot case version 2 already carried.
+
+The correct constraint, which the draft now states, is relative to the shared descendant: a `NextProgenitor` target is another progenitor of the owner's own `Descendant`/`DescendantSnapshot`, unconstrained relative to the owner, and strictly earlier than that shared `DescendantSnapshot`. The same scan confirms this reading against the same data: **all 51,270 links satisfy it, with zero violations, and all 51,270 name the same descendant as their owner.**
+
+**This was a drafting error in one invariant's prose, not a change to the v3 field or type contract.** The data model is unchanged — the same five int64 links, the same three int32 target-snapshot columns, the same identity arrays, the same payload rules. Only a stated constraint on one of those columns was wrong, and it was wrong in a direction that no producer could ever have satisfied. It was found and fixed inside Slice 2, before the draft went to the owner, which is what this review exists to do.
 
 ## Recommendation to the owner
 
 **Recommended: approve the v3 draft as a producer contract, with the conversion-first boundary the plan already states.**
+
+**Finding 11 does not change this recommendation.** It was a wrong sentence in the draft, corrected before the draft reached the owner, and it moved no field, type or ordering. If anything it is evidence that the gate is doing its job: an invariant that no real producer could satisfy was caught by walking a worked example and a real catalog against the text, which is exactly the trace this review was asked to perform.
 
 The reasoning in one paragraph: the draft is losslessly sufficient for the sources in scope, every field it adds is one a consumer demonstrably needs, the hardest consumer question — how to bound retained state without reading the future — is answerable from the file as drafted, and nothing in it claims a runtime capability Mimic has. The cost of approving is that a format exists which nothing can yet execute; the cost of not approving is that the adapters in Slices 3–5 have no target, since every one of them must emit *something*, and the only alternatives are a format that drops mini-Millennium's 29,291 gapped links or one that invents phantom halos to close them. Both are scientific changes disguised as format choices, and the plan forbids both.
 

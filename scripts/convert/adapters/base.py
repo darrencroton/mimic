@@ -26,6 +26,15 @@ the whole relationship spoolable, and keeps the source coordinate recoverable
 - Do not copy Slice 1's deliberate bare-``Exception`` isolation boundaries
   into a write path. Reporting a failed *read* as data is safe; swallowing a
   failed *write* can leave a partial artifact that looks complete.
+- **Check each selected extra's source component against the source field's
+  real shape, at read time.** A profile's ``{field}`` means a stored scalar and
+  ``{field, component}`` means one element of a stored vector, and the two are
+  not interchangeable. ``column_schema.build_schema`` enforces this for
+  ``lhalo_binary``, because a fixed-record profile declares its shapes; it
+  *cannot* for ``consistent_trees_ascii`` or ``consistent_trees_hdf5``, where
+  no shape is knowable from the profile alone. Those two adapters own the
+  check against the shape the source actually presents, and must fail rather
+  than guess which of three values a component-less vector reference meant.
 """
 
 import abc
@@ -420,16 +429,26 @@ class SourceAdapter(abc.ABC):
     #: The ``source_format`` key this adapter answers to; set by a subclass.
     source_format: str = ""
 
-    def __init_subclass__(cls, **kwargs):
-        super().__init_subclass__(**kwargs)
-        # Checked at class definition, so a typo in a new adapter's format key
-        # fails on import rather than on the first conversion.
-        if abc.ABC not in cls.__bases__ and cls.source_format not in SOURCE_FORMATS:
+    def __new__(cls, *args, **kwargs):
+        """Reject an unknown ``source_format`` when an adapter is instantiated.
+
+        Checked here rather than at class definition: at ``__init_subclass__``
+        time ABCMeta has not yet computed ``__abstractmethods__``, so an
+        abstract *intermediate* base -- a shared binary base that a concrete
+        adapter subclasses again -- is indistinguishable from a concrete leaf
+        and would be forced to invent a format key it does not answer to.
+        ``object.__new__`` runs first so an incomplete adapter still reports
+        the standard abstract-method ``TypeError``, which is the more useful
+        error for a class nobody could instantiate anyway.
+        """
+        instance = super().__new__(cls)
+        if cls.source_format not in SOURCE_FORMATS:
             raise ConverterError(
                 "adapter {} declares source_format {!r}, which is not one of {}".format(
                     cls.__name__, cls.source_format, sorted(SOURCE_FORMATS)
                 )
             )
+        return instance
 
     @abc.abstractmethod
     def inventory(self) -> SourceInventory:

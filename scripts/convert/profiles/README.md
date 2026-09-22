@@ -61,6 +61,8 @@ Reusing a source field that also fills a required role is allowed, and the extra
 - no field may extend past `itemsize`, and no two fields may overlap;
 - padding between fields is allowed — a record may carry bytes this converter never reads — but a double-claimed or out-of-record byte range is not.
 
+A binary profile's aliases must match a property's **`name:`** spelling in that `halo_properties.yaml`, never its `source:` spelling. The two often differ — `simulations/mini-millennium/halo_properties.yaml` declares `M_Crit200` with `source: Mvir` — and only `name:` is what the layout is keyed by, so `M_Crit200: [Mvir]` is a mapping no source can resolve. It is rejected when the schema is built, not left to fail at conversion time.
+
 Byte order is a property of the file, not of the machine reading it. Numpy's native `=` is not accepted, so reading a big-endian source on a little-endian host cannot silently succeed. The shipped L-Halo layout is the observed little-endian 104-byte record; a big-endian source needs its own profile with the same offsets and `byte_order: big`.
 
 Selecting extras never changes the on-disk stride, and an unselected field is still covered by `offsets` — the full ordered layout is preserved either way.
