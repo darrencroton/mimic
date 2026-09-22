@@ -536,6 +536,62 @@ class CtreesHDF5InspectionTests(unittest.TestCase):
             self.assertFalse(files[0].reachable)
             self.assertIsNotNone(files[0].error)
 
+    def test_dangling_soft_link_named_descendant_fails_cleanly(self):
+        # steer-attempt-6 item 1: unlike an incidentally-named dangling link
+        # (test above), a dangling link named exactly "Descendant" passes
+        # `name in forests_group` (the name exists) but previously raised an
+        # uncaught KeyError on dereference, outside any per-file guard.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "info.h5"
+            forest_info_dtype = np.dtype(
+                [
+                    ("ForestID", "<i8"),
+                    ("ForestHalosOffset", "<i8"),
+                    ("ForestNhalos", "<i8"),
+                    ("ForestNtrees", "<i8"),
+                ]
+            )
+            info = np.zeros(1, dtype=forest_info_dtype)
+            info["ForestNhalos"] = 1
+            with h5py.File(path, "w") as f:
+                f.attrs["Nfiles"] = 1
+                group = f.create_group("File0")
+                group.create_dataset("ForestInfo", data=info)
+                fg = group.create_group("Forests")
+                fg["Descendant"] = h5py.SoftLink("/does/not/exist")
+                fg.create_dataset("Snap_num", data=np.array([0], dtype="<i8"))
+            with self.assertRaises(ConverterError):
+                si.inspect_ctrees_hdf5_source(path)
+
+    def test_external_link_named_descendant_resolving_to_group_fails_cleanly(self):
+        # steer-attempt-6 item 1: an ExternalLink named "Descendant" that
+        # resolves to a group rather than a dataset previously raised an
+        # uncaught AttributeError ('Group' object has no attribute 'ndim').
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "info.h5"
+            target = Path(tmp) / "target.h5"
+            with h5py.File(target, "w") as tf:
+                tf.create_group("SomeGroup")
+            forest_info_dtype = np.dtype(
+                [
+                    ("ForestID", "<i8"),
+                    ("ForestHalosOffset", "<i8"),
+                    ("ForestNhalos", "<i8"),
+                    ("ForestNtrees", "<i8"),
+                ]
+            )
+            info = np.zeros(1, dtype=forest_info_dtype)
+            info["ForestNhalos"] = 1
+            with h5py.File(path, "w") as f:
+                f.attrs["Nfiles"] = 1
+                group = f.create_group("File0")
+                group.create_dataset("ForestInfo", data=info)
+                fg = group.create_group("Forests")
+                fg["Descendant"] = h5py.ExternalLink("target.h5", "/SomeGroup")
+                fg.create_dataset("Snap_num", data=np.array([0], dtype="<i8"))
+            with self.assertRaises(ConverterError):
+                si.inspect_ctrees_hdf5_source(path)
+
     def test_malformed_rank_descendant_fails_cleanly(self):
         # A 0-d (scalar) Descendant dataset previously raised an uncaught
         # IndexError once indexed as if it were the expected 1-D array.
@@ -1028,6 +1084,132 @@ class JsonOutputSafetyTests(unittest.TestCase):
                         str(tmp / "a_list"),
                         "--json",
                         str(target_path),
+                    ]
+                )
+            self.assertEqual(rc, 1)
+            self.assertEqual(target_path.read_bytes(), original_bytes)
+
+    def test_json_at_symlinked_lhalo_tree_file_refused(self):
+        # steer-attempt-6 item 0: a tree file inside simulation_dir can
+        # itself be a filesystem symlink whose target resolves outside
+        # simulation_dir. --json pointed at the in-directory symlink path
+        # (the path a user would naturally type) must not resolve through
+        # to the real external file and destroy it. PM independently
+        # reproduced this against a real fixture; this mirrors that
+        # reproduction exactly.
+        with tempfile.TemporaryDirectory() as tmp_str, tempfile.TemporaryDirectory() as outside_str:
+            tmp = Path(tmp_str)
+            outside = Path(outside_str)
+            snap_dir = tmp / "snapshots"
+            snap_dir.mkdir()
+
+            target_path = outside / "real_tree_data.0"
+            self._write_minimal_lhalo_file(target_path)
+            original_bytes = target_path.read_bytes()
+
+            symlink_path = snap_dir / "trees_test.0"
+            symlink_path.symlink_to(target_path)
+
+            sim_info_path = self._write_lhalo_sim_info(tmp, snap_dir)
+
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = inspect_sources.main(
+                    [
+                        "inspect",
+                        "--source-format",
+                        "lhalo_binary",
+                        "--simulation-info",
+                        str(sim_info_path),
+                        "--a-list",
+                        str(tmp / "a_list"),
+                        "--json",
+                        str(symlink_path),  # the in-directory path, not the real target
+                    ]
+                )
+            self.assertEqual(rc, 1)
+            self.assertEqual(target_path.read_bytes(), original_bytes)
+
+    def test_survey_json_at_symlinked_lhalo_tree_file_refused(self):
+        # Same scenario as above, via survey's protected-paths set instead
+        # of cmd_inspect's.
+        with tempfile.TemporaryDirectory() as tmp_str, tempfile.TemporaryDirectory() as outside_str:
+            tmp = Path(tmp_str)
+            outside = Path(outside_str)
+            snap_dir = tmp / "snapshots"
+            snap_dir.mkdir()
+
+            target_path = outside / "real_tree_data.0"
+            self._write_minimal_lhalo_file(target_path)
+            original_bytes = target_path.read_bytes()
+
+            symlink_path = snap_dir / "trees_test.0"
+            symlink_path.symlink_to(target_path)
+
+            sim_info_path = self._write_lhalo_sim_info(tmp, snap_dir)
+
+            buf = io.StringIO()
+            with mock.patch.dict(
+                inspect_sources.NAMED_PACKAGES, {"test-pkg": str(sim_info_path)}, clear=True
+            ):
+                with redirect_stdout(buf):
+                    rc = inspect_sources.main(
+                        ["survey", "--reachability-only", "--json", str(symlink_path)]
+                    )
+            self.assertEqual(rc, 1)
+            self.assertEqual(target_path.read_bytes(), original_bytes)
+
+    def test_json_at_symlinked_ascii_tree_file_refused(self):
+        # steer-attempt-6 item 0: inspect_ascii_source discovers tree files
+        # via sim_dir.glob("tree_*.dat"), the same class of risk as the
+        # L-Halo route's tree files -- a discovered tree_*.dat can itself be
+        # a symlink resolving outside simulation_dir. No named package uses
+        # this route today, but `inspect --source-format
+        # consistent_trees_ascii` can be pointed at any package directly.
+        with tempfile.TemporaryDirectory() as tmp_str, tempfile.TemporaryDirectory() as outside_str:
+            tmp = Path(tmp_str)
+            outside = Path(outside_str)
+            snap_dir = tmp / "snapshots"
+            snap_dir.mkdir()
+
+            fixture = Path(__file__).parent / "data" / "indexed_header.dat"
+            target_path = outside / "tree_0_0_0.dat"
+            target_path.write_bytes(fixture.read_bytes())
+            original_bytes = target_path.read_bytes()
+
+            symlink_path = snap_dir / "tree_0_0_0.dat"
+            symlink_path.symlink_to(target_path)
+
+            sim_info_path = tmp / "simulation_info.yaml"
+            with open(sim_info_path, "w") as f:
+                yaml.safe_dump(
+                    {
+                        "input": {
+                            "first_file": 0,
+                            "last_file": 0,
+                            "tree_name": "tree_0_0_0.dat",
+                            "tree_type": "consistent_trees_ascii",
+                            "simulation_dir": str(snap_dir),
+                            "snapshot_list_file": str(tmp / "a_list"),
+                        }
+                    },
+                    f,
+                )
+            (tmp / "a_list").write_text("1.0\n")
+
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = inspect_sources.main(
+                    [
+                        "inspect",
+                        "--source-format",
+                        "consistent_trees_ascii",
+                        "--simulation-info",
+                        str(sim_info_path),
+                        "--a-list",
+                        str(tmp / "a_list"),
+                        "--json",
+                        str(symlink_path),
                     ]
                 )
             self.assertEqual(rc, 1)

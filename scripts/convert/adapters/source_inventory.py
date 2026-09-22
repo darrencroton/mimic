@@ -501,17 +501,28 @@ def _require_forest_info_fields(forest_info: np.ndarray, context: str) -> None:
 
 def _require_dataset(forests_group, name: str, context: str) -> None:
     """Raise ConverterError with file/field context instead of letting a
-    missing required dataset, or one with the wrong rank, surface as a bare
-    KeyError/IndexError -- mirrors _resolve_snap_field's existing treatment
-    of the (also required, just ambiguously-named) snapshot column. A 0-d
-    (scalar) or multi-dimensional Descendant/snapshot dataset is reachable
-    from a malformed real file and previously raised an uncaught IndexError
-    once indexed as if it were the expected one-row-per-halo array."""
+    missing required dataset, one with the wrong rank, or one that exists by
+    name but cannot actually be dereferenced surface as a bare
+    KeyError/IndexError/AttributeError -- mirrors _resolve_snap_field's
+    existing treatment of the (also required, just ambiguously-named)
+    snapshot column. `name in forests_group` only checks membership, not
+    dereferenceability: a dangling h5py.SoftLink passes that check but
+    raises KeyError on `forests_group[name]`, and an ExternalLink resolving
+    to a group rather than a dataset raises AttributeError on `.ndim` --
+    both reachable from a malformed real file and previously escaped as raw
+    exceptions instead of a per-file ConverterError."""
     if name not in forests_group:
         raise ConverterError(
             "{}: Forests/ is missing the required dataset '{}'".format(context, name)
         )
-    ndim = forests_group[name].ndim
+    try:
+        ndim = forests_group[name].ndim
+    except Exception as exc:
+        raise ConverterError(
+            "{}: Forests/{} exists by name but cannot be opened as a dataset: {}".format(
+                context, name, exc
+            )
+        ) from exc
     if ndim != 1:
         raise ConverterError(
             "{}: Forests/{} has rank {} -- expected a 1-D, one-row-per-halo array".format(

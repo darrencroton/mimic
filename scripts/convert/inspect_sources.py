@@ -97,6 +97,56 @@ def _protected_paths_for_hdf5(sim_info: si.SimulationInfo):
         return []
 
 
+def _protected_paths_for_lhalo(sim_info: si.SimulationInfo):
+    """The individual L-Halo tree files this run actually reads. A tree
+    file inside `simulation_dir` can itself be a filesystem symlink whose
+    target resolves outside `simulation_dir` -- the in-directory path is
+    what a user would naturally point --json at, and `simulation_dir`
+    protection alone does not cover the real file a symlink resolves
+    through. `check_lhalo_reachability` already enumerates these into
+    `present_files`, mirroring `_protected_paths_for_hdf5` exactly."""
+    if sim_info.tree_type != "lhalo_binary":
+        return []
+    try:
+        return si.check_lhalo_reachability(sim_info).present_files
+    except Exception:
+        return []
+
+
+def _protected_paths_for_ascii(sim_info: si.SimulationInfo):
+    """Every file the ASCII route actually reads: the index files
+    (forests.list, locations.dat) plus every discovered tree_*.dat file
+    (the same glob `inspect_ascii_source` uses). Any of these could
+    themselves be symlinks resolving outside `simulation_dir` -- the same
+    class of risk as the L-Halo route's tree files. No named package
+    currently uses this route (NAMED_PACKAGES has none with
+    tree_type == consistent_trees_ascii), but `inspect --source-format
+    consistent_trees_ascii` can be invoked directly against any package, so
+    this is not merely hypothetical for `cmd_inspect`."""
+    if sim_info.tree_type != "consistent_trees_ascii":
+        return []
+    sim_dir = Path(sim_info.simulation_dir)
+    candidates = [sim_dir / "forests.list", sim_dir / "locations.dat"]
+    candidates.extend(sim_dir.glob("tree_*.dat"))
+    return [str(p) for p in candidates if p.exists()]
+
+
+def _protected_source_paths(sim_info: si.SimulationInfo):
+    """Every file this run's declared route might actually read, beyond
+    `simulation_dir` itself -- HDF5 external-link targets, L-Halo binary
+    tree files, and ASCII index/tree files can each resolve through a
+    symlink to somewhere outside `simulation_dir` (the same underlying gap,
+    closed once per route: metadata/a_list/simulation_dir in round 3, HDF5
+    external links in round 5, L-Halo/ASCII files here). Each helper is
+    gated on `tree_type` and no-ops for the other two routes, so calling
+    all three unconditionally is safe."""
+    protected = []
+    protected.extend(_protected_paths_for_hdf5(sim_info))
+    protected.extend(_protected_paths_for_lhalo(sim_info))
+    protected.extend(_protected_paths_for_ascii(sim_info))
+    return protected
+
+
 def _check_json_output_safe(json_path, protected_paths) -> None:
     """Refuse to let --json overwrite a source file or write inside a source
     directory. `protected_paths` is an iterable of file/directory paths
@@ -329,7 +379,7 @@ def cmd_inspect(args):
         sim_info = si.load_simulation_info(args.simulation_info)
         _anchor_simulation_dir(sim_info)
         protected = [args.simulation_info, args.a_list, sim_info.simulation_dir]
-        protected.extend(_protected_paths_for_hdf5(sim_info))
+        protected.extend(_protected_source_paths(sim_info))
         _check_json_output_safe(args.json, protected)
     report = inspect_one(
         args.source_format,
@@ -362,15 +412,17 @@ def cmd_inspect(args):
 def _named_package_protected_paths(root: Path):
     """Every path `survey` might read from, across all five named packages:
     each simulation_info.yaml, and (best-effort, since a package's YAML may
-    itself be malformed) its simulation_dir, snapshot_list_file, and (for the
-    forests-HDF5 route) every external-link target its info file resolves
-    to -- those can legally point outside simulation_dir. Catches bare
-    `Exception`, not an enumerated tuple: this helper runs before any per-
-    package try/except loop even starts, on the same untrusted per-package
-    YAML/HDF5 input as the rest of this tool, so a malformed package here
-    must degrade to "that package contributes no protected paths", never
-    abort the safety check (and therefore the whole --json write) for every
-    other package."""
+    itself be malformed) its simulation_dir, snapshot_list_file, and every
+    file its declared route's own `_protected_source_paths` enumerates
+    (external-link targets for forests-HDF5, tree files for
+    L-Halo, index/tree files for ASCII) -- any of those can legally or
+    accidentally resolve outside simulation_dir via an HDF5 ExternalLink or
+    a filesystem symlink. Catches bare `Exception`, not an enumerated tuple:
+    this helper runs before any per-package try/except loop even starts, on
+    the same untrusted per-package YAML/HDF5 input as the rest of this
+    tool, so a malformed package here must degrade to "that package
+    contributes no protected paths", never abort the safety check (and
+    therefore the whole --json write) for every other package."""
     protected = []
     for rel_path in NAMED_PACKAGES.values():
         sim_info_path = root / rel_path
@@ -380,7 +432,7 @@ def _named_package_protected_paths(root: Path):
             _anchor_simulation_dir(sim_info)
             protected.append(sim_info.simulation_dir)
             protected.append(root / sim_info.snapshot_list_file)
-            protected.extend(_protected_paths_for_hdf5(sim_info))
+            protected.extend(_protected_source_paths(sim_info))
         except Exception:
             continue
     return protected
