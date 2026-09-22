@@ -168,11 +168,14 @@ def inspect_hdf5_source(sim_info: si.SimulationInfo, scan_links: bool):
     return result
 
 
-def inspect_ascii_source(sim_info: si.SimulationInfo):
-    """Lightweight ASCII reachability/field report. Full inspection (counts,
-    forest identity, snapshot population) reuses the existing converter
-    pipeline directly -- see docs/dev/MIMIC-CONVERTER-BASELINE-REFERENCE.md,
-    which captures it as this slice's required pre-change ASCII reference."""
+def inspect_ascii_source(sim_info: si.SimulationInfo, scan_links: bool = True):
+    """ASCII reachability/field report, plus (unless scan_links=False) cheap
+    real counts via the parser's own existing independent pre-count helper
+    (ctrees_parser.prescan_file -- a single stream pass, no pandas, no
+    topology reconstruction). Full link-span/topology/forest identity for
+    ASCII remains out of this slice's scope (that duplicates Slice 5's job);
+    see docs/dev/MIMIC-CONVERTER-BASELINE-REFERENCE.md for the full pipeline
+    counts on the one dataset this slice captured end to end."""
     sim_dir = Path(sim_info.simulation_dir)
     forests_list = sim_dir / "forests.list"
     locations = sim_dir / "locations.dat"
@@ -183,6 +186,30 @@ def inspect_ascii_source(sim_info: si.SimulationInfo):
             "bytes": path.stat().st_size if path.exists() else None,
         }
     tree_files = sorted(str(p) for p in sim_dir.glob("tree_*.dat"))
+
+    prescan = None
+    if scan_links and tree_files:
+        per_file = []
+        total_rows = 0
+        total_tree_markers = 0
+        for tf in tree_files:
+            scan = ctrees_parser.prescan_file(tf)
+            per_file.append(
+                {
+                    "file": tf,
+                    "n_rows": scan.n_rows,
+                    "n_tree_markers": len(scan.tree_start_rows),
+                    "md5": scan.md5,
+                }
+            )
+            total_rows += scan.n_rows
+            total_tree_markers += len(scan.tree_start_rows)
+        prescan = {
+            "total_rows": total_rows,
+            "total_tree_markers": total_tree_markers,
+            "files": per_file,
+        }
+
     return {
         "adapter": "ctrees_ascii",
         "simulation_dir": str(sim_dir),
@@ -191,6 +218,7 @@ def inspect_ascii_source(sim_info: si.SimulationInfo):
         "free_bytes_on_volume": si.free_space_bytes(sim_dir),
         "index_files": present,
         "tree_files_present": tree_files,
+        "prescan": prescan,
         "required_int_columns": list(ctrees_parser._INT_COLUMNS),
         "required_float_columns": list(ctrees_parser._FLOAT_COLUMNS),
         "snapshot_column_spellings": list(ctrees_parser.SNAPSHOT_SPELLINGS),
@@ -214,7 +242,7 @@ def inspect_one(
     elif source_format == "consistent_trees_hdf5":
         report = inspect_hdf5_source(sim_info, scan_links)
     elif source_format == "consistent_trees_ascii":
-        report = inspect_ascii_source(sim_info)
+        report = inspect_ascii_source(sim_info, scan_links)
     else:
         raise ConverterError("unknown --source-format {!r}".format(source_format))
     report["source_format"] = source_format
@@ -251,6 +279,7 @@ PER_PACKAGE_EXCEPTIONS = (
     IndexError,
     KeyError,
     OSError,
+    TypeError,
 )
 
 
@@ -359,7 +388,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         return args.func(args)
-    except (ConverterError, si.MissingDependencyError, OSError, ValueError) as exc:
+    except (ConverterError, si.MissingDependencyError, OSError, ValueError, TypeError) as exc:
         print("error: {}".format(exc), file=sys.stderr)
         return 1
 

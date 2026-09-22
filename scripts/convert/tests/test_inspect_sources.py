@@ -68,6 +68,12 @@ class LHaloHeaderTests(unittest.TestCase):
         with self.assertRaises(ConverterError):
             si.read_lhalo_header(DATA_DIR / "bad_count_total.bin")
 
+    def test_negative_per_tree_count_fails(self):
+        # 5 + (-2) == 3 sums correctly against the header's declared total,
+        # so only a per-tree check (not the header-total check) catches this.
+        with self.assertRaises(ConverterError):
+            si.read_lhalo_header(DATA_DIR / "negative_tree_count.bin")
+
     def test_truncated_payload_fails_at_header_stage(self):
         # File length disagrees with header-implied size even before any
         # payload record is read.
@@ -77,6 +83,14 @@ class LHaloHeaderTests(unittest.TestCase):
     def test_invalid_byte_order_argument_rejected(self):
         with self.assertRaises(ConverterError):
             si.lhalo_record_dtype("=")
+
+    def test_lhalo_link_fields_are_a_subset_of_lhalo_fields(self):
+        # The module-level self-check (source_inventory.py import time) already
+        # enforces this on every test run; asserted directly here too so the
+        # invariant has an explicit, readable test rather than only an
+        # incidental side effect of importing the module.
+        field_names = {name for name, _kind, _shape in si.LHALO_FIELDS}
+        self.assertTrue(set(si.LHALO_LINK_FIELDS) <= field_names)
 
     def test_huge_ntrees_rejected_before_allocating_read(self):
         # A corrupted/opposite-endian header claiming far more trees than the
@@ -104,6 +118,14 @@ class LHaloLinkScanTests(unittest.TestCase):
         self.assertEqual(summary.max_span, 2)
         self.assertEqual(summary.non_forward_or_zero_span, 0)
         self.assertEqual(summary.snapshot_halo_counts, {0: 1, 1: 2, 2: 1, 3: 1})
+
+    def test_non_forward_link_is_counted_not_rejected(self):
+        header = si.read_lhalo_header(DATA_DIR / "non_forward_link.bin")
+        summary = si.scan_lhalo_file(header)  # must not raise
+        self.assertEqual(summary.non_null_descendant_links, 1)
+        self.assertEqual(summary.non_forward_or_zero_span, 1)
+        self.assertEqual(summary.forward_adjacent_links, 0)
+        self.assertEqual(summary.forward_gap_links, 0)
 
     def test_big_endian_scan_matches_little_endian_content(self):
         header = si.read_lhalo_header(DATA_DIR / "valid_big_endian.bin", byte_order=">")
@@ -244,6 +266,18 @@ class CtreesHDF5InspectionTests(unittest.TestCase):
             self.assertEqual(f0.link_summary.forward_gap_links, 1)
             self.assertEqual(f0.link_summary.max_span, 2)
 
+    def test_non_forward_link_is_counted_not_rejected(self):
+        # halo0(snap2) -> halo1(snap1): one snapshot earlier, span <= 0.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "info.h5"
+            _write_ctrees_hdf5_fixture(path, forests=[[(1, 2), (-1, 1)]], snap_field="Snap_num")
+            _root_attrs, files = si.inspect_ctrees_hdf5_source(path)  # must not raise
+            summary = files[0].link_summary
+            self.assertEqual(summary.non_null_descendant_links, 1)
+            self.assertEqual(summary.non_forward_or_zero_span, 1)
+            self.assertEqual(summary.forward_adjacent_links, 0)
+            self.assertEqual(summary.forward_gap_links, 0)
+
     def test_valid_fixture_snap_idx_float(self):
         # Newer forests-HDF5 packages spell the snapshot column Snap_idx and
         # store it as float64 (src/io/vertical/read_ctrees_hdf5.c:178-179).
@@ -271,6 +305,26 @@ class CtreesHDF5InspectionTests(unittest.TestCase):
             with self.assertRaises(ConverterError):
                 si.inspect_ctrees_hdf5_source(path)
 
+    def test_negative_snap_value_fails_integer_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "info.h5"
+            _write_ctrees_hdf5_fixture(path, forests=[[(-1, 0)]], snap_field="Snap_num")
+            with h5py.File(path, "r+") as f:
+                f["File0/Forests/Snap_num"][0] = -5
+            with self.assertRaises(ConverterError):
+                si.inspect_ctrees_hdf5_source(path)
+
+    def test_out_of_range_snap_value_fails_float_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "info.h5"
+            _write_ctrees_hdf5_fixture(
+                path, forests=[[(-1, 0)]], snap_field="Snap_idx", snap_dtype="<f8"
+            )
+            with h5py.File(path, "r+") as f:
+                f["File0/Forests/Snap_idx"][0] = float(2**31)  # > INT_MAX, still integral
+            with self.assertRaises(ConverterError):
+                si.inspect_ctrees_hdf5_source(path)
+
     def test_missing_snap_field_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "info.h5"
@@ -291,6 +345,19 @@ class CtreesHDF5InspectionTests(unittest.TestCase):
                 group.create_dataset("ForestInfo", data=info)
                 fg = group.create_group("Forests")
                 fg.create_dataset("Descendant", data=np.array([-1], dtype="<i8"))
+            with self.assertRaises(ConverterError):
+                si.inspect_ctrees_hdf5_source(path)
+
+    def test_missing_descendant_dataset_fails_cleanly(self):
+        # Previously a bare KeyError from forests_group["Descendant"], only
+        # caught by survey's broadened exception tuple, not by main()'s
+        # (ConverterError, MissingDependencyError, OSError, ValueError) for
+        # `inspect`. Now validated explicitly, mirroring _resolve_snap_field.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "info.h5"
+            _write_ctrees_hdf5_fixture(path, forests=[[(-1, 0)]], snap_field="Snap_num")
+            with h5py.File(path, "r+") as f:
+                del f["File0/Forests/Descendant"]
             with self.assertRaises(ConverterError):
                 si.inspect_ctrees_hdf5_source(path)
 
@@ -327,6 +394,23 @@ class CtreesHDF5InspectionTests(unittest.TestCase):
                 f["File0"].create_dataset("ForestInfo", data=info)
             with self.assertRaises(ConverterError):
                 si.inspect_ctrees_hdf5_source(path)
+
+    def test_overlapping_forest_offsets_fails_even_with_scan_links_false(self):
+        # ForestInfo structural validation is O(n_forests) and must run
+        # unconditionally -- --no-link-scan only skips the payload-intensive
+        # O(n_halos) span computation, not this.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "info.h5"
+            _write_ctrees_hdf5_fixture(
+                path, forests=[[(-1, 0), (-1, 1)], [(-1, 0), (-1, 1)]], snap_field="Snap_num"
+            )
+            with h5py.File(path, "r+") as f:
+                info = f["File0/ForestInfo"][:]
+                info["ForestHalosOffset"][1] = 1
+                del f["File0/ForestInfo"]
+                f["File0"].create_dataset("ForestInfo", data=info)
+            with self.assertRaises(ConverterError):
+                si.inspect_ctrees_hdf5_source(path, scan_links=False)
 
     def test_identity_bounds_max_forest_nhalos(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -488,6 +572,44 @@ class ReachabilityTests(unittest.TestCase):
         if reach.exists:
             self.skipTest("simulations/uchuu/snapshots now exists on this host")
         self.assertIn("simulation_dir does not exist", reach.notes)
+
+
+class AsciiInspectionTests(unittest.TestCase):
+    def test_prescan_reports_real_counts(self):
+        # Reuses the existing, unmodified ASCII fixture other test modules
+        # already read (scripts/convert/tests/data/indexed_header.dat: 3 data
+        # rows across 2 '#tree' blocks, per ctrees_parser.prescan_file) --
+        # copied (not modified) into a tree_0_0_0.dat-named temp file, since
+        # inspect_ascii_source globs tree_*.dat.
+        fixture = Path(__file__).parent / "data" / "indexed_header.dat"
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = Path(tmp_str)
+            snap_dir = tmp / "snapshots"
+            snap_dir.mkdir()
+            (snap_dir / "tree_0_0_0.dat").write_bytes(fixture.read_bytes())
+            sim_info_path = tmp / "simulation_info.yaml"
+            with open(sim_info_path, "w") as f:
+                yaml.safe_dump(
+                    {
+                        "input": {
+                            "first_file": 0,
+                            "last_file": 0,
+                            "tree_name": "tree_0_0_0.dat",
+                            "tree_type": "consistent_trees_ascii",
+                            "simulation_dir": str(snap_dir),
+                            "snapshot_list_file": str(tmp / "a_list"),
+                        }
+                    },
+                    f,
+                )
+            sim_info = si.load_simulation_info(sim_info_path)
+            report = inspect_sources.inspect_ascii_source(sim_info, scan_links=True)
+            self.assertIsNotNone(report["prescan"])
+            self.assertEqual(report["prescan"]["total_rows"], 3)
+            self.assertEqual(report["prescan"]["total_tree_markers"], 2)
+
+            report_no_scan = inspect_sources.inspect_ascii_source(sim_info, scan_links=False)
+            self.assertIsNone(report_no_scan["prescan"])
 
 
 class InspectSourcesCLITests(unittest.TestCase):

@@ -132,6 +132,25 @@ def main():
     with open(OUT_DIR / "negative_counts.bin", "wb") as f:
         f.write(struct.pack("<ii", -1, 5))
 
+    # A per-tree count can be negative while the header total still sums
+    # correctly against a compensating positive entry elsewhere
+    # (5 + (-2) == 3): the header-total check alone would accept this.
+    with open(OUT_DIR / "negative_tree_count.bin", "wb") as f:
+        f.write(struct.pack("<ii", 2, 3))
+        f.write(struct.pack("<ii", 5, -2))
+        for r in tree0:  # 3 records, matching the (incoherent) declared total
+            f.write(r)
+
+    # A single tree with a non-forward Descendant (span <= 0): halo0(snap2)
+    # points to halo1(snap1), one snapshot *earlier*. Counted as an anomaly
+    # (non_forward_or_zero_span), not rejected -- see the settled
+    # adjudication in docs/dev/MIMIC-CONVERTER-SOURCE-INVENTORY.md.
+    non_forward_tree = [
+        record({"Descendant": 1, "SnapNum": 2, "MostBoundID": 300}),
+        record({"Descendant": -1, "SnapNum": 1, "MostBoundID": 301}),
+    ]
+    write_file(OUT_DIR / "non_forward_link.bin", 1, [2], non_forward_tree)
+
     print("wrote fixtures:", sorted(p.name for p in OUT_DIR.glob("*.bin")))
 
 

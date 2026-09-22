@@ -96,6 +96,14 @@ LHALO_LINK_FIELDS = (
     "NextHaloInFOFgroup",
 )
 
+_LHALO_FIELD_NAMES = frozenset(name for name, _kind, _shape in LHALO_FIELDS)
+if not set(LHALO_LINK_FIELDS) <= _LHALO_FIELD_NAMES:  # pragma: no cover - defends future edits
+    raise AssertionError(
+        "LHALO_LINK_FIELDS names not present in LHALO_FIELDS: {}".format(
+            set(LHALO_LINK_FIELDS) - _LHALO_FIELD_NAMES
+        )
+    )
+
 LHALO_RECORD_BYTES = 104
 
 
@@ -177,6 +185,15 @@ def read_lhalo_header(path, byte_order: str = "<") -> LHaloHeader:
                 )
             )
         tree_halo_counts = np.frombuffer(counts_bytes, dtype=int_dtype).astype(np.int64)
+    if np.any(tree_halo_counts < 0):
+        bad_index = int(np.argmax(tree_halo_counts < 0))
+        raise ConverterError(
+            "{}: tree {} has a negative halo count ({}) -- the total can still sum "
+            "correctly against a compensating positive entry elsewhere, so this must be "
+            "checked per-tree, not just against the header total".format(
+                path, bad_index, int(tree_halo_counts[bad_index])
+            )
+        )
     counted_total = int(tree_halo_counts.sum())
     if counted_total != total_halos:
         raise ConverterError(
@@ -211,6 +228,10 @@ class LinkSpanSummary:
 
     A valid forward gap (span > 1) is counted, not rejected -- only
     out-of-tree indices and non-forward links are flagged as anomalies.
+    `max_span` is the maximum *forward-gap* span specifically (the largest
+    value among spans > 1, i.e. `gaps.max()` in the scan); it is 0 for a
+    gap-free source with millions of adjacent (span == 1) links, not the
+    maximum span among all links.
     `mostboundid_min`/`mostboundid_max` are identity bounds across every halo
     scanned, not just linked ones (L-Halo route only; unset for forests-HDF5,
     which carries no MostBoundID-equivalent single field)."""
@@ -218,7 +239,7 @@ class LinkSpanSummary:
     non_null_descendant_links: int = 0
     forward_adjacent_links: int = 0
     forward_gap_links: int = 0
-    max_span: int = 0
+    max_span: int = 0  # maximum forward-gap span (see docstring); 0 if gap-free
     non_forward_or_zero_span: int = 0
     snapshot_halo_counts: Dict[int, int] = field(default_factory=dict)
     mostboundid_min: Optional[int] = None
@@ -353,6 +374,10 @@ def inspect_ctrees_hdf5_source(info_path, scan_links: bool = True, chunk_rows: i
                 )
                 continue
 
+            context = "{} File {}".format(info_path, key)
+            _require_dataset(forests_group, "Descendant", context)
+            snap_field = _resolve_snap_field(forests_group, context)
+
             fields = {
                 fname: {
                     "dtype": str(forests_group[fname].dtype),
@@ -365,9 +390,22 @@ def inspect_ctrees_hdf5_source(info_path, scan_links: bool = True, chunk_rows: i
             n_halos = int(forest_info["ForestNhalos"].sum()) if n_forests else 0
             max_forest_nhalos = int(forest_info["ForestNhalos"].max()) if n_forests else None
 
+            # Structural ForestInfo validation is O(n_forests), not
+            # O(n_halos), so it always runs -- unlike the payload-intensive
+            # span computation below, it is not something --no-link-scan
+            # should be able to skip past on a real, supported path.
+            if n_forests:
+                _validate_forest_info_offsets(
+                    forest_info["ForestHalosOffset"],
+                    forest_info["ForestNhalos"],
+                    forests_group["Descendant"].shape[0],
+                )
+
             link_summary = None
             if scan_links and n_halos:
-                link_summary = _scan_ctrees_hdf5_links(forest_info, forests_group, chunk_rows)
+                link_summary = _scan_ctrees_hdf5_links(
+                    forest_info, forests_group, chunk_rows, snap_field
+                )
 
             files.append(
                 HDF5FileLinkage(
@@ -391,15 +429,26 @@ def inspect_ctrees_hdf5_source(info_path, scan_links: bool = True, chunk_rows: i
 _SNAP_FIELD_SPELLINGS = ("Snap_num", "Snap_idx")
 
 
-def _resolve_snap_field(forests_group) -> str:
+def _resolve_snap_field(forests_group, context: str = "Forests/") -> str:
     for name in _SNAP_FIELD_SPELLINGS:
         if name in forests_group:
             return name
     raise ConverterError(
-        "Forests/ group has neither {} -- cannot resolve the snapshot column".format(
-            " nor ".join(_SNAP_FIELD_SPELLINGS)
+        "{}: has neither {} -- cannot resolve the snapshot column".format(
+            context, " nor ".join(_SNAP_FIELD_SPELLINGS)
         )
     )
+
+
+def _require_dataset(forests_group, name: str, context: str) -> None:
+    """Raise ConverterError with file/field context instead of letting a
+    missing required dataset surface as a bare KeyError -- mirrors
+    _resolve_snap_field's existing treatment of the (also required, just
+    ambiguously-named) snapshot column."""
+    if name not in forests_group:
+        raise ConverterError(
+            "{}: Forests/ is missing the required dataset '{}'".format(context, name)
+        )
 
 
 def _validate_forest_info_offsets(
@@ -430,20 +479,21 @@ def _validate_forest_info_offsets(
             )
 
 
-def _scan_ctrees_hdf5_links(forest_info, forests_group, chunk_rows: int) -> LinkSpanSummary:
+def _scan_ctrees_hdf5_links(
+    forest_info, forests_group, chunk_rows: int, snap_field: str
+) -> LinkSpanSummary:
     """Resolve forest-local Descendant indices to a global row via each
     forest's ForestHalosOffset, then compare snapshot numbers like the binary
-    scan."""
+    scan. `snap_field` is resolved once by the caller (inspect_ctrees_hdf5_source),
+    which also runs _validate_forest_info_offsets unconditionally -- this
+    function's own work is exactly the part --no-link-scan is meant to skip."""
     offsets = forest_info["ForestHalosOffset"]
     counts = forest_info["ForestNhalos"]
     total = int(counts.sum())
-    desc_ds_len = forests_group["Descendant"].shape[0]
-    _validate_forest_info_offsets(offsets, counts, desc_ds_len)
     row_offset = np.repeat(offsets, counts)
     if row_offset.shape[0] != total:
         raise ConverterError("ForestInfo offsets/counts do not sum to the declared halo total")
 
-    snap_field = _resolve_snap_field(forests_group)
     snap_ds = forests_group[snap_field]
     desc_ds = forests_group["Descendant"]
     if snap_ds.shape[0] != total or desc_ds.shape[0] != total:
@@ -469,6 +519,15 @@ def _scan_ctrees_hdf5_links(forest_info, forests_group, chunk_rows: int) -> Link
         all_snap = raw_snap.astype(np.int64)
     else:
         all_snap = raw_snap.astype(np.int64)
+    # Range check on both paths, matching the C reader's CT_ASSIGN_SNAP_INT/
+    # CT_ASSIGN_SNAP_DOUBLE (read_ctrees_hdf5.c:486-511): v >= 0 and
+    # v <= INT_MAX. Narrowed from the C reader: that macro also checks
+    # v <= MimicConfig.LastSnapshotNr, which comes from the a_list this tool
+    # does not load; omitted here, not silently dropped.
+    if np.any(all_snap < 0) or np.any(all_snap > np.iinfo(np.int32).max):
+        raise ConverterError(
+            "Forests/{} has a snapshot value outside [0, INT_MAX]".format(snap_field)
+        )
     forest_count_for_row = np.repeat(counts, counts)
 
     summary = LinkSpanSummary()

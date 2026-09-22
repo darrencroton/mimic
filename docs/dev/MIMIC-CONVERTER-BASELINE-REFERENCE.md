@@ -20,10 +20,17 @@ without needing a separate `git checkout`.
 
 ## Command sequence
 
-Exactly the "micro-Uchuu development examples" documented in
-`scripts/convert/README.md`, run end to end with no flags beyond what that
-README specifies, wrapped in `/usr/bin/time -l` per phase (macOS; reports
-wall-clock and `maximum resident set size` in bytes). Workdir:
+The six-phase `convert_ctrees.py` sequence -- `scatter`, `sort`, `fixups`,
+`links`, `write`, `report` -- from `scripts/convert/README.md`'s "micro-Uchuu
+development examples", run with no flags beyond what that README specifies,
+wrapped in `/usr/bin/time -l` per phase (macOS; reports wall-clock and
+`maximum resident set size` in bytes). **Not captured**: the standalone
+`validate.py` producer-battery invocation and the `crosscheck.py`
+prepare/run-reference/compare block that README section also documents for
+the same sequence -- neither is needed to reproduce any figure quoted below
+(the `report` phase already runs the validation battery internally, which is
+where "validation PASS" below comes from), so this is the six conversion
+phases only, not literally every command in that README section. Workdir:
 `output/convert/slice1-baseline-capture` (a symlink to
 `/Volumes/Internal/results/mimic/convert/slice1-baseline-capture`), deleted
 after capture.

@@ -184,9 +184,20 @@ Fixed 104-byte record, field order/widths taken directly from
 | SnapNum, FileNr, SubhaloIndex | int32 | scalar |
 | SubHalfMass | float32 | scalar |
 
-Units per `simulation_info.yaml`: masses in `1e10 Msun/h`, positions in
-`Mpc/h`, velocities in `km/s`, box size `Mpc/h`, all `h_convention: carried`.
-Byte order: little-endian on this host; `read_lhalo_header`/
+Per-field record units come from `simulations/<package>/halo_properties.yaml`
+(verified by reading `simulations/mini-millennium/halo_properties.yaml`
+directly), not `simulation_info.yaml`: `M_Mean200`/`M_Crit200`/`M_TopHat`/
+`SubHalfMass` in `1e10 Msun/h` (`h_convention: carried`); `Pos` in `Mpc/h`
+(`carried`); `Vel`/`VelDisp`/`Vmax` in `km/s` (`h_convention: none` --
+peculiar velocities, not comoving-scaled); `Spin` in `Mpc/h km/s` (no
+`h_convention` entry in the YAML, i.e. the raw specific-angular-momentum
+product, not independently h-scaled); `Len` in `particles`; the five link
+fields, `SnapNum`, `FileNr` and `SubhaloIndex` are `dimensionless`.
+`simulation_info.yaml` carries only two of the figures the earlier draft of
+this section attributed to it: `particle_mass` (`1e10 Msun/h`, `carried`)
+and `box_size` (`Mpc/h`, `carried`) -- global simulation metadata, not
+per-record field units. Byte order: little-endian on this host;
+`read_lhalo_header`/
 `lhalo_record_dtype` take byte order as an explicit argument (`'<'`/`'>'`),
 never numpy's native (`'='`) packing that would silently follow host
 architecture instead of the file's actual encoding.
@@ -214,7 +225,25 @@ required int columns `id, desc_id, pid, upid`; required float columns
 snapshot column spelled `snap_idx` or `snap_num`. Full per-forest/per-
 snapshot counts for this source come from the pre-change ASCII pipeline run
 captured in `MIMIC-CONVERTER-BASELINE-REFERENCE.md`, which exercises the
-same parser exhaustively rather than duplicating it here.
+same parser exhaustively rather than duplicating it here -- full link-span/
+topology/gap reconstruction for ASCII stays out of this slice's scope (that
+duplicates Slice 5's job).
+
+`inspect_ascii_source` does add one cheap real count, via the parser's own
+existing independent pre-count helper (`ctrees_parser.prescan_file`: one
+stream pass, no pandas, no topology work -- the same helper the scatter
+stage already uses for its own pre-count) rather than reporting nothing
+between "file exists" and "the baseline capture's totals": a total row count
+and `#tree`-marker count per tree file, unless `--no-link-scan` skips it (a
+single pass over 22.6M lines takes real time -- see §5). Measured on real
+micro-uchuu-ascii data: `total_rows=22,580,924`, `total_tree_markers=561,266`
+(`tree_0_0_0.dat`, md5 `45b72a4f910831482a7bf3e9d2163ab3`) -- exact matches
+to the ASCII pipeline's own halo total and the forests-HDF5 dataset's
+`TotNtrees`, and the same md5 the baseline capture's own
+`conversion_report.txt` records for its source file. Three independent
+tools (this prescan, the full pipeline, and the forests-HDF5 inspection)
+agreeing is itself evidence these are the same underlying dataset correctly
+identified across formats.
 
 ## 5. Source dependencies and resource estimates
 
@@ -235,7 +264,9 @@ same parser exhaustively rather than duplicating it here.
   this host: mini-Millennium (8 files, 152 MB) < 1 s; micro-Uchuu binary (4
   files, 2.2 GB) ~8 s; Millennium (16 files, 2.3 GB, partial) ~8 s; mini-
   Uchuu (16 files, 17.6 GB, partial) ~53 s; micro-Uchuu forests-HDF5 (22.6 M
-  halos) ~1 s. Memory: the L-Halo scan is bounded by the largest tree in a
+  halos) ~1 s; micro-Uchuu ASCII prescan (22.6 M lines, one stream pass,
+  no pandas) ~49 s -- this is the one `--no-link-scan` gates for the ASCII
+  route. Memory: the L-Halo scan is bounded by the largest tree in a
   file (not the whole file); the forests-HDF5 scan loads the snapshot column
   and forest-offset arrays in full (three int64/float64 arrays sized to the
   file's halo count -- about 540 MB for micro-Uchuu's 22.6 M halos), which is
@@ -271,26 +302,45 @@ Exercised in `scripts/convert/tests/test_inspect_sources.py` against
 synthetic fixtures (not real data): truncated header, truncated tree-count
 table, a header claiming far more trees than the file could hold (rejected
 against the already-known file size *before* attempting the multi-GiB read
-that count would imply), negative `Ntrees`, per-tree counts summing to
-something other than the header's `totNHalos`, truncated payload, an
-out-of-tree `Descendant` index (binary), an out-of-forest `Descendant` index
+that count would imply), negative `Ntrees`, **a negative individual per-tree
+halo count that still sums correctly against the header's declared total**
+(`5 + (-2) == 3` -- the header-total check alone would accept this; only an
+explicit per-tree check catches it), truncated payload, an out-of-tree
+`Descendant` index (binary), an out-of-forest `Descendant` index
 (forests-HDF5), a `Descendant` value below the `-1` null sentinel (e.g. `-2`,
 both routes -- matches `read_ctrees_hdf5.c`'s `CT_ASSIGN_LINK`, which accepts
-exactly `[-1, nhalos)`), overlapping/out-of-order `ForestInfo` offset rows, a
-missing `Snap_num`/`Snap_idx` column, and a non-integral `Snap_idx` value
+exactly `[-1, nhalos)`), overlapping/out-of-order `ForestInfo` offset rows
+(**validated unconditionally, even with `--no-link-scan`** -- it is
+O(n_forests), not the O(n_halos) work that flag is meant to skip), a missing
+`Snap_num`/`Snap_idx` column, a missing `Descendant` dataset (raised as
+`ConverterError` with file/field context, mirroring the snap-column
+handling, rather than a bare `KeyError`), a non-integral `Snap_idx` value
 (checked by an exact `floor(v) == v`, not a tolerant `np.allclose` that would
-accept non-integral values at large magnitudes) -- all raise `ConverterError`
-and abort. A missing `h5py` is reported as `MissingDependencyError` and
-propagates to a nonzero process exit for `inspect`; for `survey`, a
-per-package exception (broadened to cover the realistic numpy/h5py failure
-modes on untrusted input, not just this tool's own declared error types) is
-recorded as that package's `inspection_error` without discarding the other
-packages' already-gathered results, and the overall process still exits
-nonzero if any package hit one. A valid forward gap (mini-Millennium's
-29,291 of them) is counted, not rejected, confirmed by the exact-reproduction
-test above.
+accept non-integral values at large magnitudes), and an out-of-range
+snapshot value on **either** the integer or the float path (`< 0` or
+`> INT_MAX`, matching `read_ctrees_hdf5.c`'s `CT_ASSIGN_SNAP_INT`/
+`CT_ASSIGN_SNAP_DOUBLE` exactly, narrowed only by dropping that macro's
+additional `<= LastSnapshotNr` term, which comes from the a_list this tool
+does not load) -- all raise `ConverterError` and abort. A missing `h5py` is
+reported as `MissingDependencyError` and propagates to a nonzero process
+exit for `inspect`; for `survey`, a per-package exception (broadened to
+cover the realistic numpy/h5py failure modes on untrusted input, not just
+this tool's own declared error types) is recorded as that package's
+`inspection_error` without discarding the other packages' already-gathered
+results, and the overall process still exits nonzero if any package hit
+one. A valid forward gap (mini-Millennium's 29,291 of them) is counted, not
+rejected, confirmed by the exact-reproduction test above; likewise a
+non-forward link (`Descendant` pointing to the same or an earlier snapshot)
+is counted into `non_forward_or_zero_span`, not rejected -- exercised
+directly on both routes this round, not just asserted as zero on
+gap-containing real data.
+
+`max_span` specifically means the maximum *forward-gap* span (the largest
+value among spans > 1); it reads as 0 for a gap-free source with millions of
+adjacent links, which is correct, not "no links were scanned."
 
 A mistyped `--simulation-info`/`--a-list` path or a `--json` path into a
 missing directory now also surfaces as the tool's own `error: ...` message
 and a nonzero exit, not a raw Python traceback (`main()` catches
-`ConverterError`, `MissingDependencyError`, `OSError` and `ValueError`).
+`ConverterError`, `MissingDependencyError`, `OSError`, `ValueError` and
+`TypeError`).
