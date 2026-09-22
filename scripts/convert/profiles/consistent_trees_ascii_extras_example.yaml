@@ -1,0 +1,72 @@
+# Consistent-Trees ASCII mapping profile -- worked example with extras.
+#
+# Same required roles as consistent_trees_ascii.yaml, plus three selected
+# extras that between them exercise the whole grammar:
+#   * Rvir  -- a plain scalar column the reference path does not retain;
+#   * NumProg -- an integer column, renamed on output, which never passes
+#     through floating point;
+#   * AngularMomentum -- a vec3_float assembled from three independent scalar
+#     columns, reusing the Jx/Jy/Jz fields that also fill a required role.
+#
+# AngularMomentum is the worked case of C2's "reusing a source field for an
+# extra is allowed and must preserve its pre-convention value": the payload
+# Spin is the producer's J/Mvir specific angular momentum, while this extra
+# carries the raw catalog J, unnormalised.
+#
+# Caveat, stated rather than hidden: an extra's `units` is any nonempty string,
+# so a unit outside scripts/generate_properties.py's UNIT_REGISTRY (as
+# `Msun/h Mpc/h km/s` is today) converts and validates fine but cannot be
+# declared by a consuming Mimic simulation package until that unit is added
+# there. See scripts/convert/profiles/README.md.
+
+
+schema_version: 1
+source_format: consistent_trees_ascii
+
+required_columns:
+  scale: [scale]
+  id: [id]
+  desc_scale: [desc_scale]
+  desc_id: [desc_id]
+  pid: [pid]
+  upid: [upid]
+  snap: [snap_idx, snap_num]
+  mvir: [Mvir]
+  vrms: [vrms]
+  vmax: [vmax]
+  x: [x]
+  y: [y]
+  z: [z]
+  vx: [vx]
+  vy: [vy]
+  vz: [vz]
+  jx: [Jx]
+  jy: [Jy]
+  jz: [Jz]
+
+extra_fields:
+  - name: Rvir
+    sources:
+      - field: Rvir
+    type: float
+    units: kpc/h
+    h_convention: carried
+    description: Virial radius as written by Consistent-Trees
+
+  - name: NumProg
+    sources:
+      - field: num_prog
+    type: int
+    units: dimensionless
+    h_convention: none
+    description: Number of progenitors recorded by Consistent-Trees for this halo
+
+  - name: AngularMomentum
+    sources:
+      - field: Jx
+      - field: Jy
+      - field: Jz
+    type: vec3_float
+    units: Msun/h Mpc/h km/s
+    h_convention: carried
+    description: Raw catalog angular momentum J, before the producer's J/Mvir normalisation

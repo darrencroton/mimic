@@ -1,0 +1,1421 @@
+"""Canonical source schema, mapping profiles and schema identity (Slice 2 of
+the converter generalisation plan,
+docs/dev/MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md, contracts
+C1-C3).
+
+Pure and side-effect free. This module parses a declarative mapping profile,
+validates it, freezes it into an immutable :class:`CanonicalSchema`, and
+derives that schema's deterministic SHA-256 identity. It reads a YAML profile
+(and, for binary sources, an ordered ``halo_properties.yaml``) when asked to;
+it never writes, never opens a source catalog and never converts data. The
+adapters (Slices 3-5), the transpose (Slice 6), the manifest (Slice 7) and the
+v3 writer (Slice 8) all consume what this module produces.
+
+Three identities must not be confused, and this module keeps them apart by
+construction:
+
+- ``SourceHaloID`` is the converter's own positive, globally unique int64 row
+  key, assigned by prefix-summing source halo counts over the adapter's
+  declared total order (see ``adapters/base.py``). It is the only valid
+  remapping key.
+- ``MostBoundID`` is the *source catalog's* particle/halo identifier. It is
+  carried through as signed int64 data with no uniqueness or positivity
+  requirement, and is never a remapping key in the general format (C3).
+- ``(ForestIndex, HaloRankInForest)`` is the source-relative forest/rank
+  identity pair, whose meaning is defined by the selected source
+  representation (C1) and recorded in :data:`SOURCE_IDENTITY_CONVENTIONS`.
+
+The canonical serialization rules (C2) are the reason this module exists:
+comments, mapping key order, alias order and extra-definition order are
+presentation and must not change the digest; field types, source components,
+units and h conventions are semantics and must.
+"""
+
+import hashlib
+import json
+import re
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+
+import yaml
+from ctrees_parser import ConverterError
+
+__all__ = [
+    "ConverterError",
+    "PROFILE_SCHEMA_VERSION",
+    "SOURCE_FORMATS",
+    "EXTRA_TYPES",
+    "H_CONVENTIONS",
+    "BYTE_ORDERS",
+    "TOPOLOGY_FIELDS",
+    "IDENTITY_FIELDS",
+    "FOREST_SIDECAR_FIELDS",
+    "RESERVED_OUTPUT_NAMES",
+    "REQUIRED_ROLES",
+    "PAYLOAD_FIELDS",
+    "SOURCE_IDENTITY_CONVENTIONS",
+    "MAX_OUTPUT_NAME_BYTES",
+    "SourceComponent",
+    "ExtraField",
+    "BinaryLayout",
+    "SourceProperty",
+    "LayoutEntry",
+    "SourceLayout",
+    "PayloadField",
+    "ColumnMap",
+    "CanonicalSchema",
+    "normalize_alias",
+    "load_column_map",
+    "parse_column_map",
+    "load_source_properties",
+    "build_schema",
+    "resolve_required_columns",
+    "resolve_extra_sources",
+]
+
+
+# ==========================================================================
+# Profile vocabulary
+# ==========================================================================
+
+#: The only accepted profile ``schema_version`` (C2). A profile is not
+#: version-tolerant: an unknown version fails rather than being read on a
+#: best-effort basis.
+PROFILE_SCHEMA_VERSION = 1
+
+#: Selected source formats (C1). L-Halo HDF5 is deliberately absent: no named
+#: package uses it, so it is new scope, not an omission.
+SOURCE_FORMATS = ("consistent_trees_ascii", "consistent_trees_hdf5", "lhalo_binary")
+
+#: Profile top-level keys. ``binary_layout`` is required for ``lhalo_binary``
+#: and forbidden otherwise; the rest are required for every format. "Exactly"
+#: in C2 is read as a closed key set in both directions -- an unknown key is
+#: rejected, and a missing key is not defaulted.
+_COMMON_PROFILE_KEYS = ("schema_version", "source_format", "required_columns", "extra_fields")
+_BINARY_PROFILE_KEY = "binary_layout"
+
+#: The exact extra-entry keys (C2). All six are required; there are no
+#: optional keys and no inferred values.
+_EXTRA_ENTRY_KEYS = ("name", "sources", "type", "units", "h_convention", "description")
+
+_SOURCE_COMPONENT_KEYS = ("field", "component")
+
+_BINARY_LAYOUT_KEYS = ("byte_order", "itemsize", "offsets")
+
+
+@dataclass(frozen=True)
+class _TypeSpec:
+    """Storage facts for one declarable numeric type.
+
+    ``numpy_dtype`` is written without a byte-order prefix here; the emitted
+    v3 datasets are explicit little-endian (C3) and the source side takes its
+    byte order from the binary layout, so neither is a property of the type
+    itself.
+    """
+
+    numpy_dtype: str
+    n_components: int
+    itemsize: int
+    is_integer: bool
+
+
+#: Declarable extra/payload types (C2), matching the property generator's
+#: numeric ``TYPE_MAP`` entries in scripts/generate_properties.py exactly --
+#: any type this converter can emit must be a type the consuming property
+#: system can declare. There is no expression language and no other type.
+EXTRA_TYPES: Dict[str, _TypeSpec] = {
+    "int": _TypeSpec("int32", 1, 4, True),
+    "long long": _TypeSpec("int64", 1, 8, True),
+    "float": _TypeSpec("float32", 1, 4, False),
+    "double": _TypeSpec("float64", 1, 8, False),
+    "vec3_int": _TypeSpec("int32", 3, 12, True),
+    "vec3_float": _TypeSpec("float32", 3, 12, False),
+}
+
+#: Accepted ``h_convention`` values (C2), matching generate_properties.py's
+#: ``H_CONVENTIONS``.
+H_CONVENTIONS = ("carried", "free", "none")
+
+#: Accepted ``binary_layout.byte_order`` values (C2), and their numpy prefix.
+#: Host-native ('=') is deliberately not accepted: a source file's endianness
+#: is a property of the file, never of the machine reading it.
+BYTE_ORDERS = {"little": "<", "big": ">"}
+
+#: Output names are ASCII ``[A-Za-z][A-Za-z0-9_]*``, at most 63 bytes (C2).
+_OUTPUT_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
+MAX_OUTPUT_NAME_BYTES = 63
+
+
+# ==========================================================================
+# Reserved v3 names
+# ==========================================================================
+
+
+@dataclass(frozen=True)
+class _FixedField:
+    """A v3 field whose name, type and meaning are fixed by the format table
+    rather than declared by a profile."""
+
+    name: str
+    type: str
+    description: str
+
+
+#: The five int64 snapshot-local link columns plus the three int32
+#: target-snapshot columns (C3). The snapshot columns are -1 if and only if
+#: the corresponding row index is -1; that biconditional is a v3 validator
+#: obligation (Slice 8), stated here so the name table and the rule live
+#: together.
+TOPOLOGY_FIELDS: Tuple[_FixedField, ...] = (
+    _FixedField(
+        "Descendant", "long long", "Snapshot-local row index of the descendant, -1 if none"
+    ),
+    _FixedField(
+        "FirstProgenitor",
+        "long long",
+        "Snapshot-local row index of the main progenitor, -1 if none",
+    ),
+    _FixedField(
+        "NextProgenitor",
+        "long long",
+        "Snapshot-local row index of the next sibling progenitor, -1 if none",
+    ),
+    _FixedField(
+        "FirstHaloInFOFgroup",
+        "long long",
+        "Snapshot-local row index of the FoF central; self-index for a central, never -1",
+    ),
+    _FixedField(
+        "NextHaloInFOFgroup",
+        "long long",
+        "Snapshot-local row index of the next FoF member, -1 if last",
+    ),
+    _FixedField(
+        "DescendantSnapshot", "int", "Snapshot of the Descendant target, -1 iff Descendant is -1"
+    ),
+    _FixedField(
+        "FirstProgenitorSnapshot",
+        "int",
+        "Snapshot of the FirstProgenitor target, -1 iff FirstProgenitor is -1",
+    ),
+    _FixedField(
+        "NextProgenitorSnapshot",
+        "int",
+        "Snapshot of the NextProgenitor target, -1 iff NextProgenitor is -1",
+    ),
+)
+
+#: The three int64 identity arrays (C3). Governed by the fixed format table,
+#: never redeclared in ``/schema``.
+IDENTITY_FIELDS: Tuple[_FixedField, ...] = (
+    _FixedField(
+        "SourceHaloID",
+        "long long",
+        "Positive, globally unique converter row key from the adapter's declared source order",
+    ),
+    _FixedField(
+        "ForestIndex",
+        "long long",
+        "Source-relative forest identity (see SOURCE_IDENTITY_CONVENTIONS)",
+    ),
+    _FixedField(
+        "HaloRankInForest",
+        "long long",
+        "Source-relative within-forest row identity (see SOURCE_IDENTITY_CONVENTIONS)",
+    ),
+)
+
+#: ``forests.h5`` sidecar arrays (C3), all int64 and all length
+#: ``n_forests_total``.
+FOREST_SIDECAR_FIELDS: Tuple[_FixedField, ...] = (
+    _FixedField("ForestID", "long long", "Source forest id (see SOURCE_IDENTITY_CONVENTIONS)"),
+    _FixedField(
+        "SourceFileOrdinal", "long long", "Inventory file ordinal owning the forest, -1 if it spans"
+    ),
+    _FixedField(
+        "SourceUnitOrdinal", "long long", "Within-file unit ordinal of the forest, -1 if it spans"
+    ),
+)
+
+#: Core physical/catalog payload names. Same nine names for every source
+#: format; only their declared types and units differ (see PAYLOAD_FIELDS).
+_CORE_PAYLOAD_NAMES = (
+    "Len",
+    "SnapNum",
+    "M_Crit200",
+    "Pos",
+    "Vel",
+    "Spin",
+    "VelDisp",
+    "Vmax",
+    "MostBoundID",
+)
+
+#: Every name an extra may not take (C2: "reject ... collisions with reserved
+#: topology/identity/core names"). The sidecar names are included because a
+#: v3 dataset carries them as identity provenance.
+RESERVED_OUTPUT_NAMES = frozenset(
+    [f.name for f in TOPOLOGY_FIELDS]
+    + [f.name for f in IDENTITY_FIELDS]
+    + [f.name for f in FOREST_SIDECAR_FIELDS]
+    + list(_CORE_PAYLOAD_NAMES)
+)
+
+
+# ==========================================================================
+# Per-format required roles
+# ==========================================================================
+
+#: Consistent-Trees ASCII roles: the current parser's required column names
+#: (scripts/convert/ctrees_parser.py ``_INT_COLUMNS``/``_FLOAT_COLUMNS``) with
+#: ``snap`` as the snapshot role (C2). ``scale`` is parsed but not retained in
+#: the scratch record, and is a required role all the same -- the reference
+#: parse path reads it.
+_ASCII_ROLES = (
+    "desc_id",
+    "desc_scale",
+    "id",
+    "jx",
+    "jy",
+    "jz",
+    "mvir",
+    "pid",
+    "scale",
+    "snap",
+    "upid",
+    "vmax",
+    "vrms",
+    "vx",
+    "vy",
+    "vz",
+    "x",
+    "y",
+    "z",
+)
+
+#: Consistent-Trees forests-HDF5 roles (C2): the five stored link names plus
+#: the value columns, with exact spellings taken from the C reader's own field
+#: table (src/io/vertical/read_ctrees_hdf5.c ``ctrees_h5_field_names``).
+_CTREES_HDF5_ROLES = (
+    "Descendant",
+    "FirstHaloInFOFgroup",
+    "FirstProgenitor",
+    "Jx",
+    "Jy",
+    "Jz",
+    "Mvir",
+    "NextHaloInFOFgroup",
+    "NextProgenitor",
+    "id",
+    "snap",
+    "vmax",
+    "vrms",
+    "vx",
+    "vy",
+    "vz",
+    "x",
+    "y",
+    "z",
+)
+
+#: L-Halo binary roles (C2): the five stored link names plus the stored value
+#: columns, with spellings from the shipped record
+#: (src/include/generated/raw_halo_defs.h / struct RawHalo).
+_LHALO_ROLES = (
+    "Descendant",
+    "FirstHaloInFOFgroup",
+    "FirstProgenitor",
+    "Len",
+    "M_Crit200",
+    "MostBoundID",
+    "NextHaloInFOFgroup",
+    "NextProgenitor",
+    "Pos",
+    "SnapNum",
+    "Spin",
+    "Vel",
+    "VelDisp",
+    "Vmax",
+)
+
+#: source format -> the exact role set its profile must map. Structural
+#: metadata (tree headers, ForestInfo) is adapter-owned and deliberately
+#: absent: it cannot be remapped or omitted (C2).
+REQUIRED_ROLES: Dict[str, Tuple[str, ...]] = {
+    "consistent_trees_ascii": _ASCII_ROLES,
+    "consistent_trees_hdf5": _CTREES_HDF5_ROLES,
+    "lhalo_binary": _LHALO_ROLES,
+}
+
+
+# ==========================================================================
+# Per-format payload declarations
+# ==========================================================================
+
+
+@dataclass(frozen=True)
+class PayloadField:
+    """One physical/catalog payload field as the emitted file declares it.
+
+    These are the adapter's *native* storage precision and units (C3): the
+    converter records what the source actually carries and never converts a
+    value into a different basis to make two formats look alike. Each field
+    becomes one ``/schema`` subgroup in a v3 file.
+    """
+
+    name: str
+    type: str
+    units: str
+    h_convention: str
+    description: str
+
+
+#: Consistent-Trees payload (ASCII and forests-HDF5 share the ctrees value
+#: conventions, C1): mass is the native ctrees ``Mvir`` in Msun/h, Spin is the
+#: producer-applied J/Mvir specific angular momentum, and Len is derived as
+#: round(Mvir * 1e-10 / particle_mass).
+_CTREES_PAYLOAD: Tuple[PayloadField, ...] = (
+    PayloadField(
+        "Len",
+        "int",
+        "particles",
+        "none",
+        "Particle count derived as round(Mvir * 1e-10 / particle_mass); never negative",
+    ),
+    PayloadField("SnapNum", "int", "dimensionless", "none", "Snapshot index of this halo"),
+    PayloadField(
+        "M_Crit200", "float", "Msun/h", "carried", "Consistent-Trees Mvir in native Msun/h"
+    ),
+    PayloadField("Pos", "vec3_float", "Mpc/h", "carried", "Comoving position"),
+    PayloadField("Vel", "vec3_float", "km/s", "none", "Peculiar velocity"),
+    PayloadField(
+        "Spin",
+        "vec3_float",
+        "Mpc/h km/s",
+        "carried",
+        "Specific angular momentum J/Mvir; zero-mass halos carry unnormalised J",
+    ),
+    PayloadField("VelDisp", "float", "km/s", "none", "Velocity dispersion"),
+    PayloadField("Vmax", "float", "km/s", "none", "Maximum circular velocity"),
+    PayloadField(
+        "MostBoundID",
+        "long long",
+        "dimensionless",
+        "none",
+        "Source catalog identifier carried as signed data; not unique in the general format",
+    ),
+)
+
+#: L-Halo binary payload (C1/C3): Len is supplied by the source rather than
+#: derived, mass stays float32 in 1e10 Msun/h (a round trip through Msun/h
+#: would destroy bit parity), Spin is already specific angular momentum, and
+#: MostBoundID is the signed particle identifier.
+_LHALO_PAYLOAD: Tuple[PayloadField, ...] = (
+    PayloadField(
+        "Len", "int", "particles", "none", "Particle count supplied by the source; never negative"
+    ),
+    PayloadField("SnapNum", "int", "dimensionless", "none", "Snapshot index of this halo"),
+    PayloadField(
+        "M_Crit200",
+        "float",
+        "1e10 Msun/h",
+        "carried",
+        "Native L-Halo M_Crit200; kept float32 in 1e10 Msun/h with no unit round trip",
+    ),
+    PayloadField("Pos", "vec3_float", "Mpc/h", "carried", "Comoving position"),
+    PayloadField("Vel", "vec3_float", "km/s", "none", "Peculiar velocity"),
+    PayloadField(
+        "Spin",
+        "vec3_float",
+        "Mpc/h km/s",
+        "carried",
+        "Specific angular momentum as already stored by the source; not renormalised",
+    ),
+    PayloadField("VelDisp", "float", "km/s", "none", "Velocity dispersion"),
+    PayloadField("Vmax", "float", "km/s", "none", "Maximum circular velocity"),
+    PayloadField(
+        "MostBoundID",
+        "long long",
+        "dimensionless",
+        "none",
+        "Signed most-bound particle identifier carried as data; duplicates are legal",
+    ),
+)
+
+#: source format -> its native payload declarations.
+PAYLOAD_FIELDS: Dict[str, Tuple[PayloadField, ...]] = {
+    "consistent_trees_ascii": _CTREES_PAYLOAD,
+    "consistent_trees_hdf5": _CTREES_PAYLOAD,
+    "lhalo_binary": _LHALO_PAYLOAD,
+}
+
+#: How ``ForestIndex``, ``HaloRankInForest`` and the sidecar ``ForestID`` are
+#: defined for each source format (C1). Identity is relative to the selected
+#: source representation: L-Halo and forests-HDF5 packagings of the same
+#: simulation can enumerate different forest sets, so equal identities across
+#: formats are never promised.
+SOURCE_IDENTITY_CONVENTIONS: Dict[str, Dict[str, str]] = {
+    "consistent_trees_ascii": {
+        "forest_index": "dense forest-id enumeration in ascending source forest id",
+        "halo_rank_in_forest": "post-fixup reference vertical traversal order",
+        "forest_id": "original source forest id",
+        "ordinals": "-1/-1 for a forest spanning files; the manifest retains full membership",
+    },
+    "consistent_trees_hdf5": {
+        "forest_index": "file-prefix ForestInfo row number",
+        "halo_rank_in_forest": "original within-forest row index",
+        "forest_id": "source ForestID, retained even when only file-local unique",
+        "ordinals": "file ordinal and ForestInfo row ordinal",
+    },
+    "lhalo_binary": {
+        "forest_index": "file-prefix tree number",
+        "halo_rank_in_forest": "original within-tree row index",
+        "forest_id": "dense run forest number, disambiguated by the two ordinals",
+        "ordinals": "file ordinal and within-file tree ordinal",
+    },
+}
+
+
+# ==========================================================================
+# Name and alias helpers
+# ==========================================================================
+
+
+def _check_output_name(name: str, what: str) -> None:
+    if not isinstance(name, str):
+        raise ConverterError("{}: name must be a string, got {!r}".format(what, name))
+    if not _OUTPUT_NAME_RE.match(name):
+        raise ConverterError("{}: name {!r} is not ASCII [A-Za-z][A-Za-z0-9_]*".format(what, name))
+    if len(name.encode("ascii")) > MAX_OUTPUT_NAME_BYTES:
+        raise ConverterError(
+            "{}: name {!r} is {} bytes, above the {}-byte limit".format(
+                what, name, len(name.encode("ascii")), MAX_OUTPUT_NAME_BYTES
+            )
+        )
+
+
+def normalize_alias(source_format: str, alias: str) -> str:
+    """Canonical form of one source column alias.
+
+    Consistent-Trees ASCII headers are matched suffix-stripped (truncated at
+    the first ``(``) and case-insensitively, exactly as the reference parser
+    does (``parse_ctrees.h``; ``ctrees_parser.normalize_column_name``). HDF5
+    dataset names and binary record field names are matched exactly -- they
+    are stored object names, not a printed header dialect, and a
+    case-insensitive match there would invent an equivalence the source does
+    not have.
+    """
+    if not isinstance(alias, str):
+        raise ConverterError("alias must be a string, got {!r}".format(alias))
+    if source_format == "consistent_trees_ascii":
+        canonical = alias.split("(", 1)[0].strip().lower()
+    else:
+        canonical = alias
+    if not canonical:
+        raise ConverterError("alias {!r} normalizes to an empty name".format(alias))
+    return canonical
+
+
+# ==========================================================================
+# Profile data model
+# ==========================================================================
+
+
+@dataclass(frozen=True, order=True)
+class SourceComponent:
+    """One source component of an extra field.
+
+    ``component`` is ``None`` for a scalar stored field and 0/1/2 for an
+    element of a stored vector. That distinction is what lets a native binary
+    vector (``Pos``) be selected without pretending its elements are
+    independent columns (C2).
+    """
+
+    field: str
+    component: Optional[int] = None
+
+    def as_canonical(self) -> Dict[str, object]:
+        entry: Dict[str, object] = {"field": self.field}
+        if self.component is not None:
+            entry["component"] = self.component
+        return entry
+
+
+@dataclass(frozen=True)
+class ExtraField:
+    """One declaratively selected extra output field."""
+
+    name: str
+    sources: Tuple[SourceComponent, ...]
+    type: str
+    units: str
+    h_convention: str
+    description: str
+
+    @property
+    def spec(self) -> _TypeSpec:
+        return EXTRA_TYPES[self.type]
+
+    def as_canonical(self) -> Dict[str, object]:
+        return {
+            "description": self.description,
+            "h_convention": self.h_convention,
+            "name": self.name,
+            "sources": [component.as_canonical() for component in self.sources],
+            "type": self.type,
+            "units": self.units,
+        }
+
+
+@dataclass(frozen=True)
+class BinaryLayout:
+    """Declared on-disk layout of a fixed-record binary source (C2)."""
+
+    byte_order: str
+    itemsize: int
+    offsets: Tuple[Tuple[str, int], ...]
+
+    @property
+    def numpy_byte_order(self) -> str:
+        return BYTE_ORDERS[self.byte_order]
+
+
+@dataclass(frozen=True)
+class SourceProperty:
+    """One entry of an ordered source ``halo_properties.yaml``."""
+
+    name: str
+    type: str
+    units: str
+
+
+@dataclass(frozen=True)
+class LayoutEntry:
+    """One field of a frozen binary source layout, in declaration order."""
+
+    name: str
+    type: str
+    units: str
+    offset: int
+    itemsize: int
+    n_components: int
+    numpy_dtype: str
+    selected: bool
+
+    def as_canonical(self) -> Dict[str, object]:
+        return {
+            "itemsize": self.itemsize,
+            "n_components": self.n_components,
+            "name": self.name,
+            "numpy_dtype": self.numpy_dtype,
+            "offset": self.offset,
+            "selected": self.selected,
+            "type": self.type,
+            "units": self.units,
+        }
+
+
+@dataclass(frozen=True)
+class SourceLayout:
+    """The complete ordered binary source record.
+
+    Every declared source field appears here with its offset and width,
+    whether or not the profile selects it: an unselected field still occupies
+    its bytes, and the stride a reader must step is a property of the source,
+    not of the selection (C2, "Extra selection does not alter the on-disk
+    source stride").
+    """
+
+    byte_order: str
+    itemsize: int
+    entries: Tuple[LayoutEntry, ...]
+
+    @property
+    def numpy_byte_order(self) -> str:
+        return BYTE_ORDERS[self.byte_order]
+
+    def numpy_dtype_spec(self) -> Dict[str, object]:
+        """Structured-dtype specification ready for ``np.dtype(...)``.
+
+        Returned in the names/formats/offsets/itemsize form, which is the only
+        one that carries explicit offsets and a total itemsize -- a record with
+        padding cannot be expressed as a plain list of (name, format) tuples,
+        and a reader that stepped a packed stride over a padded record would
+        silently misread every row after the first.
+
+        Byte order is always the declared one; numpy's native '=' is never
+        used, so reading a big-endian source on a little-endian host cannot
+        silently succeed.
+        """
+        prefix = self.numpy_byte_order
+        formats: List[object] = []
+        for entry in self.entries:
+            code = prefix + _numpy_short_code(entry.numpy_dtype)
+            formats.append(code if entry.n_components == 1 else (code, (entry.n_components,)))
+        return {
+            "names": [entry.name for entry in self.entries],
+            "formats": formats,
+            "offsets": [entry.offset for entry in self.entries],
+            "itemsize": self.itemsize,
+        }
+
+    def as_canonical(self) -> Dict[str, object]:
+        return {
+            "byte_order": self.byte_order,
+            "entries": [entry.as_canonical() for entry in self.entries],
+            "itemsize": self.itemsize,
+        }
+
+
+_NUMPY_SHORT_CODES = {
+    "int32": "i4",
+    "int64": "i8",
+    "float32": "f4",
+    "float64": "f8",
+}
+
+
+def _numpy_short_code(numpy_dtype: str) -> str:
+    return _NUMPY_SHORT_CODES[numpy_dtype]
+
+
+@dataclass(frozen=True)
+class ColumnMap:
+    """A parsed, validated mapping profile.
+
+    Immutable by construction: ``required_columns`` is a tuple of
+    (role, alias tuple) pairs rather than a dict so the whole object can be
+    frozen and hashed without a caller being able to mutate it afterwards.
+    """
+
+    schema_version: int
+    source_format: str
+    required_columns: Tuple[Tuple[str, Tuple[str, ...]], ...]
+    extra_fields: Tuple[ExtraField, ...]
+    binary_layout: Optional[BinaryLayout]
+    origin: str
+
+    @property
+    def roles(self) -> Tuple[str, ...]:
+        return tuple(role for role, _aliases in self.required_columns)
+
+    def aliases_for(self, role: str) -> Tuple[str, ...]:
+        for name, aliases in self.required_columns:
+            if name == role:
+                return aliases
+        raise ConverterError("{}: no required column role {!r}".format(self.origin, role))
+
+
+# ==========================================================================
+# Strict YAML loading
+# ==========================================================================
+
+
+class _StrictLoader(yaml.SafeLoader):
+    """SafeLoader that rejects duplicate mapping keys.
+
+    PyYAML's default behaviour is last-wins, which would let a profile that
+    declares ``type: float`` twice with different values load silently and
+    produce a schema nobody wrote. A converter that must fail rather than
+    repair (VISION.md) cannot accept that.
+    """
+
+
+def _construct_mapping_no_duplicates(loader, node, deep=False):
+    loader.flatten_mapping(node)
+    mapping: Dict = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=True)
+        if key in mapping:
+            raise ConverterError(
+                "duplicate key {!r} at line {}".format(key, key_node.start_mark.line + 1)
+            )
+        mapping[key] = loader.construct_object(value_node, deep=True)
+    return mapping
+
+
+_StrictLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _construct_mapping_no_duplicates
+)
+
+
+def _load_yaml_mapping(path: Path, what: str) -> Dict:
+    try:
+        with open(path, "r") as handle:
+            data = yaml.load(handle, Loader=_StrictLoader)
+    except OSError as exc:
+        raise ConverterError("{}: cannot read {}: {}".format(path, what, exc)) from exc
+    except yaml.YAMLError as exc:
+        raise ConverterError("{}: invalid YAML: {}".format(path, exc)) from exc
+    except ConverterError as exc:
+        raise ConverterError("{}: {}".format(path, exc)) from exc
+    if not isinstance(data, dict):
+        raise ConverterError("{}: {} must be a YAML mapping, got {}".format(path, what, type(data)))
+    return data
+
+
+# ==========================================================================
+# Profile parsing
+# ==========================================================================
+
+
+def _require_int(value, what: str) -> int:
+    """Accept a YAML integer only.
+
+    ``bool`` is excluded explicitly because it is an ``int`` subclass in
+    Python, and a float is excluded because an integer must never arrive
+    through floating point (C2).
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ConverterError("{}: must be an integer, got {!r}".format(what, value))
+    return value
+
+
+def _require_nonempty_str(value, what: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ConverterError("{}: must be a nonempty string, got {!r}".format(what, value))
+    return value
+
+
+def _check_key_set(mapping: Mapping, allowed: Sequence[str], what: str) -> None:
+    keys = set(mapping.keys())
+    unknown = sorted(str(k) for k in keys - set(allowed))
+    if unknown:
+        raise ConverterError(
+            "{}: unknown key(s) {} (allowed: {})".format(what, unknown, sorted(allowed))
+        )
+    missing = sorted(set(allowed) - keys)
+    if missing:
+        raise ConverterError("{}: missing required key(s) {}".format(what, missing))
+
+
+def _parse_required_columns(
+    raw, source_format: str, origin: str
+) -> Tuple[Tuple[str, Tuple[str, ...]], ...]:
+    if not isinstance(raw, dict):
+        raise ConverterError("{}: required_columns must be a mapping".format(origin))
+    expected = REQUIRED_ROLES[source_format]
+    _check_key_set(raw, expected, "{}: required_columns".format(origin))
+
+    parsed: List[Tuple[str, Tuple[str, ...]]] = []
+    for role in expected:
+        aliases = raw[role]
+        if isinstance(aliases, str) or not isinstance(aliases, (list, tuple)):
+            raise ConverterError(
+                "{}: required_columns.{} must be a list of aliases, got {!r}".format(
+                    origin, role, aliases
+                )
+            )
+        if not aliases:
+            raise ConverterError(
+                "{}: required_columns.{} has an empty alias list".format(origin, role)
+            )
+        normalized: List[str] = []
+        for alias in aliases:
+            try:
+                canonical = normalize_alias(source_format, alias)
+            except ConverterError as exc:
+                raise ConverterError(
+                    "{}: required_columns.{}: {}".format(origin, role, exc)
+                ) from exc
+            if canonical in normalized:
+                raise ConverterError(
+                    "{}: required_columns.{} lists {!r} twice after normalization".format(
+                        origin, role, canonical
+                    )
+                )
+            normalized.append(canonical)
+        # Aliases are sorted in canonical form: exactly one must resolve per
+        # file, so their order carries no meaning and reordering them is a
+        # presentation change that must not move the digest.
+        parsed.append((role, tuple(sorted(normalized))))
+    return tuple(parsed)
+
+
+def _parse_source_component(raw, source_format: str, what: str) -> SourceComponent:
+    if not isinstance(raw, dict):
+        raise ConverterError("{}: each source must be a mapping, got {!r}".format(what, raw))
+    unknown = sorted(str(k) for k in set(raw.keys()) - set(_SOURCE_COMPONENT_KEYS))
+    if unknown:
+        raise ConverterError(
+            "{}: unknown source key(s) {} (allowed: {})".format(
+                what, unknown, list(_SOURCE_COMPONENT_KEYS)
+            )
+        )
+    if "field" not in raw:
+        raise ConverterError("{}: source is missing 'field'".format(what))
+    field_name = normalize_alias(
+        source_format, _require_nonempty_str(raw["field"], what + ".field")
+    )
+    component: Optional[int] = None
+    if "component" in raw:
+        component = _require_int(raw["component"], what + ".component")
+        if component not in (0, 1, 2):
+            raise ConverterError("{}.component must be 0, 1 or 2, got {}".format(what, component))
+    return SourceComponent(field=field_name, component=component)
+
+
+def _parse_extra_field(raw, source_format: str, origin: str, index: int) -> ExtraField:
+    what = "{}: extra_fields[{}]".format(origin, index)
+    if not isinstance(raw, dict):
+        raise ConverterError("{}: must be a mapping, got {!r}".format(what, raw))
+    _check_key_set(raw, _EXTRA_ENTRY_KEYS, what)
+
+    name = raw["name"]
+    _check_output_name(name, what)
+    if name in RESERVED_OUTPUT_NAMES:
+        raise ConverterError(
+            "{}: name {!r} collides with a reserved topology/identity/core name".format(what, name)
+        )
+
+    type_name = raw["type"]
+    if type_name not in EXTRA_TYPES:
+        raise ConverterError(
+            "{}: unsupported type {!r} (supported: {})".format(what, type_name, sorted(EXTRA_TYPES))
+        )
+    spec = EXTRA_TYPES[type_name]
+
+    sources_raw = raw["sources"]
+    if isinstance(sources_raw, (str, dict)) or not isinstance(sources_raw, (list, tuple)):
+        raise ConverterError("{}: sources must be a list, got {!r}".format(what, sources_raw))
+    if len(sources_raw) != spec.n_components:
+        raise ConverterError(
+            "{}: type {!r} needs exactly {} source component(s), got {}".format(
+                what, type_name, spec.n_components, len(sources_raw)
+            )
+        )
+    components: List[SourceComponent] = []
+    for position, entry in enumerate(sources_raw):
+        component = _parse_source_component(
+            entry, source_format, "{}.sources[{}]".format(what, position)
+        )
+        if component in components:
+            # A repeated (field, component) pair inside one output field can
+            # only be a typo: it would emit the same source value into two or
+            # three elements of a vector. Rejected under C2's "malformed
+            # definitions" rather than silently emitted.
+            raise ConverterError(
+                "{}: source component {!r} appears more than once in one field".format(
+                    what, component
+                )
+            )
+        components.append(component)
+
+    h_convention = raw["h_convention"]
+    if h_convention not in H_CONVENTIONS:
+        raise ConverterError(
+            "{}: h_convention must be one of {}, got {!r}".format(
+                what, list(H_CONVENTIONS), h_convention
+            )
+        )
+
+    return ExtraField(
+        name=name,
+        sources=tuple(components),
+        type=type_name,
+        units=_require_nonempty_str(raw["units"], what + ".units"),
+        h_convention=h_convention,
+        description=_require_nonempty_str(raw["description"], what + ".description"),
+    )
+
+
+def _parse_extra_fields(raw, source_format: str, origin: str) -> Tuple[ExtraField, ...]:
+    if raw is None:
+        raise ConverterError(
+            "{}: extra_fields must be a list (use [] for none), not null".format(origin)
+        )
+    if isinstance(raw, (str, dict)) or not isinstance(raw, (list, tuple)):
+        raise ConverterError("{}: extra_fields must be a list, got {!r}".format(origin, raw))
+    fields: List[ExtraField] = []
+    seen: Dict[str, int] = {}
+    for index, entry in enumerate(raw):
+        extra = _parse_extra_field(entry, source_format, origin, index)
+        if extra.name in seen:
+            raise ConverterError(
+                "{}: extra_fields[{}] duplicates the output name {!r} of extra_fields[{}]".format(
+                    origin, index, extra.name, seen[extra.name]
+                )
+            )
+        seen[extra.name] = index
+        fields.append(extra)
+    # Sorted by output name: C2 makes extra-definition ordering presentation,
+    # not semantics.
+    return tuple(sorted(fields, key=lambda f: f.name))
+
+
+def _parse_binary_layout(raw, origin: str) -> BinaryLayout:
+    if not isinstance(raw, dict):
+        raise ConverterError("{}: binary_layout must be a mapping".format(origin))
+    _check_key_set(raw, _BINARY_LAYOUT_KEYS, "{}: binary_layout".format(origin))
+
+    byte_order = raw["byte_order"]
+    if byte_order not in BYTE_ORDERS:
+        raise ConverterError(
+            "{}: binary_layout.byte_order must be one of {}, got {!r}".format(
+                origin, sorted(BYTE_ORDERS), byte_order
+            )
+        )
+    itemsize = _require_int(raw["itemsize"], "{}: binary_layout.itemsize".format(origin))
+    if itemsize <= 0:
+        raise ConverterError(
+            "{}: binary_layout.itemsize must be positive, got {}".format(origin, itemsize)
+        )
+
+    offsets_raw = raw["offsets"]
+    if not isinstance(offsets_raw, dict):
+        raise ConverterError("{}: binary_layout.offsets must be a mapping".format(origin))
+    if not offsets_raw:
+        raise ConverterError("{}: binary_layout.offsets is empty".format(origin))
+    offsets: List[Tuple[str, int]] = []
+    for field_name in sorted(offsets_raw):
+        if not isinstance(field_name, str):
+            raise ConverterError(
+                "{}: binary_layout.offsets key {!r} is not a string".format(origin, field_name)
+            )
+        offset = _require_int(
+            offsets_raw[field_name], "{}: binary_layout.offsets.{}".format(origin, field_name)
+        )
+        if offset < 0:
+            raise ConverterError(
+                "{}: binary_layout.offsets.{} is negative ({})".format(origin, field_name, offset)
+            )
+        offsets.append((field_name, offset))
+    return BinaryLayout(byte_order=byte_order, itemsize=itemsize, offsets=tuple(offsets))
+
+
+def parse_column_map(data: Mapping, origin: str = "<profile>") -> ColumnMap:
+    """Validate an already-loaded profile mapping into a frozen ``ColumnMap``.
+
+    Every rejection is fatal: there is no lenient mode, no defaulting of a
+    missing key and no guessing of an unknown one.
+    """
+    if not isinstance(data, Mapping):
+        raise ConverterError("{}: profile must be a mapping, got {!r}".format(origin, type(data)))
+
+    source_format = data.get("source_format")
+    if source_format not in SOURCE_FORMATS:
+        raise ConverterError(
+            "{}: source_format must be one of {}, got {!r}".format(
+                origin, list(SOURCE_FORMATS), source_format
+            )
+        )
+
+    allowed = list(_COMMON_PROFILE_KEYS)
+    if source_format == "lhalo_binary":
+        allowed.append(_BINARY_PROFILE_KEY)
+    _check_key_set(data, allowed, origin)
+
+    schema_version = _require_int(data["schema_version"], "{}: schema_version".format(origin))
+    if schema_version != PROFILE_SCHEMA_VERSION:
+        raise ConverterError(
+            "{}: schema_version must be {}, got {}".format(
+                origin, PROFILE_SCHEMA_VERSION, schema_version
+            )
+        )
+
+    binary_layout = None
+    if source_format == "lhalo_binary":
+        binary_layout = _parse_binary_layout(data[_BINARY_PROFILE_KEY], origin)
+
+    return ColumnMap(
+        schema_version=schema_version,
+        source_format=source_format,
+        required_columns=_parse_required_columns(data["required_columns"], source_format, origin),
+        extra_fields=_parse_extra_fields(data["extra_fields"], source_format, origin),
+        binary_layout=binary_layout,
+        origin=origin,
+    )
+
+
+def load_column_map(path) -> ColumnMap:
+    """Load and validate a mapping profile from a YAML file."""
+    path = Path(path)
+    return parse_column_map(_load_yaml_mapping(path, "mapping profile"), origin=str(path))
+
+
+def load_source_properties(path) -> Tuple[SourceProperty, ...]:
+    """Load an ordered source ``halo_properties.yaml`` declaration list.
+
+    Order is the file's declaration order and is load-bearing: it is the
+    record's field order for a fixed-record binary source (C2). Only the
+    subset of keys this converter needs is read; unknown property keys are the
+    property system's business, not this module's.
+    """
+    path = Path(path)
+    data = _load_yaml_mapping(path, "halo properties")
+    raw = data.get("halo_properties")
+    if not isinstance(raw, list) or not raw:
+        raise ConverterError("{}: halo_properties must be a nonempty list".format(path))
+    properties: List[SourceProperty] = []
+    seen = set()
+    for index, entry in enumerate(raw):
+        what = "{}: halo_properties[{}]".format(path, index)
+        if not isinstance(entry, dict):
+            raise ConverterError("{}: must be a mapping".format(what))
+        name = _require_nonempty_str(entry.get("name"), what + ".name")
+        if name in seen:
+            raise ConverterError("{}: duplicate property name {!r}".format(what, name))
+        seen.add(name)
+        type_name = entry.get("type")
+        if type_name not in EXTRA_TYPES:
+            raise ConverterError(
+                "{}: unsupported type {!r} (supported: {})".format(
+                    what, type_name, sorted(EXTRA_TYPES)
+                )
+            )
+        properties.append(
+            SourceProperty(
+                name=name,
+                type=type_name,
+                units=_require_nonempty_str(entry.get("units"), what + ".units"),
+            )
+        )
+    return tuple(properties)
+
+
+# ==========================================================================
+# Canonical schema
+# ==========================================================================
+
+
+def _build_source_layout(
+    layout: BinaryLayout, properties: Sequence[SourceProperty], selected: Iterable[str], origin: str
+) -> SourceLayout:
+    """Freeze the complete ordered binary record, selected or not.
+
+    Validates that every declared property has an offset, that no offset
+    names a property the source does not declare, that no field extends past
+    ``itemsize`` and that no two fields overlap. Padding between fields is
+    permitted -- a record may legitimately contain bytes this converter never
+    reads -- but an unreadable or double-claimed byte range is not.
+    """
+    offsets = dict(layout.offsets)
+    declared = [prop.name for prop in properties]
+    missing = sorted(set(declared) - set(offsets))
+    if missing:
+        raise ConverterError(
+            "{}: binary_layout.offsets does not cover source field(s) {}".format(origin, missing)
+        )
+    unknown = sorted(set(offsets) - set(declared))
+    if unknown:
+        raise ConverterError(
+            "{}: binary_layout.offsets names field(s) {} that the source properties do not "
+            "declare".format(origin, unknown)
+        )
+
+    selected_names = set(selected)
+    entries: List[LayoutEntry] = []
+    for prop in properties:
+        spec = EXTRA_TYPES[prop.type]
+        offset = offsets[prop.name]
+        if offset + spec.itemsize > layout.itemsize:
+            raise ConverterError(
+                "{}: source field {!r} spans bytes [{}, {}) but the record is only {} bytes".format(
+                    origin, prop.name, offset, offset + spec.itemsize, layout.itemsize
+                )
+            )
+        entries.append(
+            LayoutEntry(
+                name=prop.name,
+                type=prop.type,
+                units=prop.units,
+                offset=offset,
+                itemsize=spec.itemsize,
+                n_components=spec.n_components,
+                numpy_dtype=spec.numpy_dtype,
+                selected=prop.name in selected_names,
+            )
+        )
+
+    overlap = _first_overlap(entries)
+    if overlap is not None:
+        first, second = overlap
+        raise ConverterError(
+            "{}: source fields {!r} [{}, {}) and {!r} [{}, {}) overlap".format(
+                origin,
+                first.name,
+                first.offset,
+                first.offset + first.itemsize,
+                second.name,
+                second.offset,
+                second.offset + second.itemsize,
+            )
+        )
+    return SourceLayout(
+        byte_order=layout.byte_order, itemsize=layout.itemsize, entries=tuple(entries)
+    )
+
+
+def _first_overlap(
+    entries: Sequence[LayoutEntry],
+) -> Optional[Tuple[LayoutEntry, LayoutEntry]]:
+    """The first overlapping pair in ascending offset order, or None.
+
+    Comparing each field only against its immediate successor is sufficient:
+    in offset order, any overlap at all forces one adjacent pair to overlap.
+    """
+    ordered = sorted(entries, key=lambda e: (e.offset, e.name))
+    for previous, current in zip(ordered, ordered[1:]):
+        if previous.offset + previous.itemsize > current.offset:
+            return previous, current
+    return None
+
+
+@dataclass(frozen=True)
+class CanonicalSchema:
+    """The immutable, hashable identity of one conversion's field mapping.
+
+    ``digest`` is the ``column_mapping_sha256`` a v3 file records (C3): 64
+    lowercase hex characters over the canonical JSON below. Anything that
+    changes how a value is read, typed, named or labelled changes the digest;
+    comments, YAML key order, alias order and extra-definition order do not.
+    """
+
+    source_format: str
+    required_columns: Tuple[Tuple[str, Tuple[str, ...]], ...]
+    extra_fields: Tuple[ExtraField, ...]
+    payload_fields: Tuple[PayloadField, ...]
+    source_layout: Optional[SourceLayout]
+
+    # ---- serialization -------------------------------------------------
+
+    def as_canonical(self) -> Dict[str, object]:
+        """Canonical, JSON-ready form. Key order here is irrelevant: the
+        serializer sorts keys."""
+        document: Dict[str, object] = {
+            "extra_fields": [extra.as_canonical() for extra in self.extra_fields],
+            "payload_fields": [
+                {
+                    "description": field.description,
+                    "h_convention": field.h_convention,
+                    "name": field.name,
+                    "type": field.type,
+                    "units": field.units,
+                }
+                for field in self.payload_fields
+            ],
+            "required_columns": {role: list(aliases) for role, aliases in self.required_columns},
+            "schema_version": PROFILE_SCHEMA_VERSION,
+            "source_format": self.source_format,
+        }
+        if self.source_layout is not None:
+            document["source_layout"] = self.source_layout.as_canonical()
+        return document
+
+    def canonical_json(self) -> str:
+        """Sorted-key, compact, UTF-8-encodable JSON with no NaN (C2)."""
+        return json.dumps(
+            self.as_canonical(),
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        )
+
+    @property
+    def digest(self) -> str:
+        return hashlib.sha256(self.canonical_json().encode("utf-8")).hexdigest()
+
+    # ---- derived views -------------------------------------------------
+
+    @property
+    def roles(self) -> Tuple[str, ...]:
+        return tuple(role for role, _aliases in self.required_columns)
+
+    def output_field_declarations(self) -> Tuple[PayloadField, ...]:
+        """The ``/schema`` subgroups a v3 file declares (C3).
+
+        One entry per physical/catalog payload field, including ``Len``,
+        ``SnapNum`` and ``MostBoundID``, plus every selected extra. Topology
+        and the three identity arrays are governed by the fixed format table
+        and are deliberately absent -- redeclaring them would create two
+        sources of truth for the same contract.
+        """
+        declared = list(self.payload_fields)
+        declared.extend(
+            PayloadField(
+                name=extra.name,
+                type=extra.type,
+                units=extra.units,
+                h_convention=extra.h_convention,
+                description=extra.description,
+            )
+            for extra in self.extra_fields
+        )
+        return tuple(declared)
+
+    def consumer_metadata_fragment(self) -> Dict[str, object]:
+        """Payload types/units/core-role bindings a future consumer needs.
+
+        Deliberately incomplete, and says so: it covers the payload a
+        ``halo_properties.yaml`` would declare, and does *not* describe the
+        runtime topology support v3 needs (retained gap state, wide slab
+        access), which is an architectural prerequisite outside this
+        converter (plan "Conversion versus execution is an explicit
+        boundary").
+        """
+        return {
+            "source_format": self.source_format,
+            "column_mapping_sha256": self.digest,
+            "complete": False,
+            "incomplete_because": (
+                "runtime topology support for gapped links and int64 slab indices is not "
+                "described here; see docs/dev/MIMIC-V3-CONSUMER-DESIGN-REVIEW.md"
+            ),
+            "identity_conventions": dict(SOURCE_IDENTITY_CONVENTIONS[self.source_format]),
+            "halo_properties": [
+                {
+                    "name": field.name,
+                    "type": field.type,
+                    "units": field.units,
+                    "h_convention": field.h_convention,
+                    "description": field.description,
+                    "provides_core_role": _CORE_ROLE_BINDINGS.get(field.name),
+                }
+                for field in self.output_field_declarations()
+            ],
+            "format_table_fields": [
+                {"name": field.name, "type": field.type, "description": field.description}
+                for field in TOPOLOGY_FIELDS + IDENTITY_FIELDS
+            ],
+        }
+
+
+#: Core-role bindings a consuming ``halo_properties.yaml`` needs for the
+#: required inputs in src/core/core_properties.yaml. Extras never bind a core
+#: role: a declaratively selected field is payload, not a pipeline input.
+_CORE_ROLE_BINDINGS = {
+    "Descendant": "Descendant",
+    "FirstProgenitor": "FirstProgenitor",
+    "NextProgenitor": "NextProgenitor",
+    "FirstHaloInFOFgroup": "FirstHaloInFOFgroup",
+    "NextHaloInFOFgroup": "NextHaloInFOFgroup",
+    "SnapNum": "SnapNum",
+    "Len": "Len",
+    "M_Crit200": "HaloMass",
+}
+
+
+def build_schema(
+    column_map: ColumnMap, source_properties: Optional[Sequence[SourceProperty]] = None
+) -> CanonicalSchema:
+    """Freeze a validated profile into its canonical schema.
+
+    ``source_properties`` is the ordered source ``halo_properties.yaml``
+    declaration list and is required for (and only accepted for) a
+    ``lhalo_binary`` profile: a fixed-record binary source has an on-disk
+    layout to validate, and the other two formats read named objects.
+    """
+    source_layout = None
+    if column_map.source_format == "lhalo_binary":
+        if source_properties is None:
+            raise ConverterError(
+                "{}: a lhalo_binary profile needs the ordered source halo_properties.yaml "
+                "to validate its binary_layout".format(column_map.origin)
+            )
+        assert column_map.binary_layout is not None  # guaranteed by parse_column_map
+        # A layout entry counts as selected when the source field it names is
+        # a candidate for any required role or any extra. Aliases, not role
+        # names, are the source's own spellings, so the union is taken over
+        # aliases -- exactly one of them resolves in a given file, and the
+        # others simply never match a declared field.
+        selected = set()
+        for _role, aliases in column_map.required_columns:
+            selected.update(aliases)
+        for extra in column_map.extra_fields:
+            selected.update(component.field for component in extra.sources)
+        source_layout = _build_source_layout(
+            column_map.binary_layout, source_properties, selected, column_map.origin
+        )
+    elif source_properties is not None:
+        raise ConverterError(
+            "{}: source_properties apply to lhalo_binary profiles only, not {}".format(
+                column_map.origin, column_map.source_format
+            )
+        )
+
+    return CanonicalSchema(
+        source_format=column_map.source_format,
+        required_columns=column_map.required_columns,
+        extra_fields=column_map.extra_fields,
+        payload_fields=PAYLOAD_FIELDS[column_map.source_format],
+        source_layout=source_layout,
+    )
+
+
+# ==========================================================================
+# Alias resolution against a concrete source
+# ==========================================================================
+
+
+def _normalized_available(source_format: str, available: Iterable[str]) -> Dict[str, str]:
+    """Map normalized source column name -> the source's own spelling.
+
+    A source whose two distinct columns normalize to the same name is
+    rejected: that is the reference parser's duplicate-column abort, and
+    picking either one would be a silent guess.
+    """
+    resolved: Dict[str, str] = {}
+    for name in available:
+        canonical = normalize_alias(source_format, name)
+        if canonical in resolved and resolved[canonical] != name:
+            raise ConverterError(
+                "source declares both {!r} and {!r}, which normalize to the same column "
+                "{!r}".format(resolved[canonical], name, canonical)
+            )
+        resolved[canonical] = name
+    return resolved
+
+
+def _resolve_one(aliases: Sequence[str], lookup: Mapping[str, str], what: str) -> str:
+    matches = [lookup[alias] for alias in aliases if alias in lookup]
+    if not matches:
+        raise ConverterError(
+            "{}: none of the aliases {} is present in the source".format(what, list(aliases))
+        )
+    if len(matches) > 1:
+        raise ConverterError(
+            "{}: aliases {} resolve ambiguously to {} -- exactly one must match".format(
+                what, list(aliases), sorted(matches)
+            )
+        )
+    return matches[0]
+
+
+def resolve_required_columns(schema: CanonicalSchema, available: Iterable[str]) -> Dict[str, str]:
+    """Resolve every required role against one concrete source's column names.
+
+    Returns role -> the source's own spelling. Exactly one alias must resolve
+    for each role in each file (C2); zero matches and two matches are both
+    fatal, and nothing is defaulted or filled.
+    """
+    lookup = _normalized_available(schema.source_format, available)
+    return {
+        role: _resolve_one(aliases, lookup, "required column {!r}".format(role))
+        for role, aliases in schema.required_columns
+    }
+
+
+def resolve_extra_sources(
+    schema: CanonicalSchema, available: Iterable[str]
+) -> Dict[str, Tuple[str, ...]]:
+    """Resolve every extra field's source components against one source.
+
+    Returns output name -> the source's own spelling per component, in the
+    declared component order. A selected field that the source does not carry
+    is fatal: there is no guessed default and no silent fill (C2).
+    """
+    lookup = _normalized_available(schema.source_format, available)
+    resolved: Dict[str, Tuple[str, ...]] = {}
+    for extra in schema.extra_fields:
+        names: List[str] = []
+        for position, component in enumerate(extra.sources):
+            what = "extra field {!r} source[{}]".format(extra.name, position)
+            if component.field not in lookup:
+                raise ConverterError(
+                    "{}: the source does not carry field {!r}".format(what, component.field)
+                )
+            names.append(lookup[component.field])
+        resolved[extra.name] = tuple(names)
+    return resolved

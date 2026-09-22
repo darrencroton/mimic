@@ -1,0 +1,43 @@
+# Presentation variant A: the reference spelling.
+#
+# A and B declare the same mapping and must produce the same canonical schema
+# digest. They differ only in comments, top-level key order, required-columns
+# key order, alias order within a role, extra-definition order, and quoting
+# style -- all presentation, none of it semantics.
+schema_version: 1
+source_format: consistent_trees_ascii
+required_columns:
+  scale: [scale]
+  id: [id]
+  desc_scale: [desc_scale]
+  desc_id: [desc_id]
+  pid: [pid]
+  upid: [upid]
+  snap: [snap_idx, snap_num]
+  mvir: [Mvir]
+  vrms: [vrms]
+  vmax: [vmax]
+  x: [x]
+  y: [y]
+  z: [z]
+  vx: [vx]
+  vy: [vy]
+  vz: [vz]
+  jx: [Jx]
+  jy: [Jy]
+  jz: [Jz]
+extra_fields:
+  - name: Rvir
+    sources:
+      - field: Rvir
+    type: float
+    units: kpc/h
+    h_convention: carried
+    description: Virial radius as written by Consistent-Trees
+  - name: NumProg
+    sources:
+      - field: num_prog
+    type: int
+    units: dimensionless
+    h_convention: none
+    description: Number of progenitors recorded by Consistent-Trees for this halo

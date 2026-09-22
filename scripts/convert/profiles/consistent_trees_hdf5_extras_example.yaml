@@ -1,0 +1,63 @@
+# Consistent-Trees forests-HDF5 mapping profile -- worked example with extras.
+#
+# Same required roles as consistent_trees_hdf5.yaml, plus three extras drawn
+# from the wider `Forests/` field set the C reader does not consume (the real
+# micro-Uchuu dataset exposes 69 fields; see
+# docs/dev/MIMIC-CONVERTER-SOURCE-INVENTORY.md section 4).
+#
+# SpinParameter is the instructive one: the source carries a `Spin` dataset
+# holding the dimensionless Consistent-Trees spin parameter, which is a
+# different quantity from the v3 payload field also called `Spin` (the
+# producer's J/Mvir specific angular momentum). The output name must not
+# collide with a reserved v3 name; the source field name is unconstrained. The
+# rename is what keeps the two quantities distinguishable in the emitted file.
+
+
+schema_version: 1
+source_format: consistent_trees_hdf5
+
+required_columns:
+  Descendant: [Descendant]
+  FirstProgenitor: [FirstProgenitor]
+  NextProgenitor: [NextProgenitor]
+  FirstHaloInFOFgroup: [FirstHaloInFOFgroup]
+  NextHaloInFOFgroup: [NextHaloInFOFgroup]
+  Mvir: [Mvir]
+  x: [x]
+  y: [y]
+  z: [z]
+  vx: [vx]
+  vy: [vy]
+  vz: [vz]
+  Jx: [Jx]
+  Jy: [Jy]
+  Jz: [Jz]
+  vrms: [vrms]
+  vmax: [vmax]
+  id: [id]
+  snap: [Snap_num, Snap_idx]
+
+extra_fields:
+  - name: Rvir
+    sources:
+      - field: Rvir
+    type: float
+    units: kpc/h
+    h_convention: carried
+    description: Virial radius as written by Consistent-Trees
+
+  - name: SpinParameter
+    sources:
+      - field: Spin
+    type: float
+    units: dimensionless
+    h_convention: none
+    description: Dimensionless Consistent-Trees spin parameter, not the J/Mvir payload Spin
+
+  - name: ParentID
+    sources:
+      - field: pid
+    type: long long
+    units: dimensionless
+    h_convention: none
+    description: Consistent-Trees immediate-parent halo id, carried through exactly

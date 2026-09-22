@@ -1,0 +1,6 @@
+# Invalid: unterminated flow sequence -- a YAML syntax error, which must
+# surface as a ConverterError naming the file, not a raw yaml.YAMLError.
+schema_version: 1
+source_format: consistent_trees_ascii
+required_columns:
+  scale: [scale

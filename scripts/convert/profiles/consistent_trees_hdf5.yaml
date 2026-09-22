@@ -1,0 +1,38 @@
+# Consistent-Trees forests-HDF5 mapping profile -- default (no extras).
+#
+# Role names are the `Forests/` dataset names the reference C reader itself
+# consumes (src/io/vertical/read_ctrees_hdf5.c, `ctrees_h5_field_names`).
+# HDF5 aliases are matched exactly: a dataset name is a stored object name,
+# and a case-insensitive match there would invent an equivalence the file does
+# not have. The snapshot role lists both spellings because a package carries
+# `Snap_num` (integer) or `Snap_idx` (integral float), never both -- resolved
+# per file, exactly as the C reader resolves it.
+#
+# Structural metadata (`ForestInfo`, the per-file group layout, external
+# links) is adapter-owned and cannot be remapped or omitted.
+
+schema_version: 1
+source_format: consistent_trees_hdf5
+
+required_columns:
+  Descendant: [Descendant]
+  FirstProgenitor: [FirstProgenitor]
+  NextProgenitor: [NextProgenitor]
+  FirstHaloInFOFgroup: [FirstHaloInFOFgroup]
+  NextHaloInFOFgroup: [NextHaloInFOFgroup]
+  Mvir: [Mvir]
+  x: [x]
+  y: [y]
+  z: [z]
+  vx: [vx]
+  vy: [vy]
+  vz: [vz]
+  Jx: [Jx]
+  Jy: [Jy]
+  Jz: [Jz]
+  vrms: [vrms]
+  vmax: [vmax]
+  id: [id]
+  snap: [Snap_num, Snap_idx]
+
+extra_fields: []

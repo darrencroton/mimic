@@ -1,0 +1,32 @@
+# Invalid: the Rvir entry declares `type` twice, with different widths.
+schema_version: 1
+source_format: consistent_trees_ascii
+required_columns:
+  scale: [scale]
+  id: [id]
+  desc_scale: [desc_scale]
+  desc_id: [desc_id]
+  pid: [pid]
+  upid: [upid]
+  snap: [snap_idx, snap_num]
+  mvir: [Mvir]
+  vrms: [vrms]
+  vmax: [vmax]
+  x: [x]
+  y: [y]
+  z: [z]
+  vx: [vx]
+  vy: [vy]
+  vz: [vz]
+  jx: [Jx]
+  jy: [Jy]
+  jz: [Jz]
+extra_fields:
+  - name: Rvir
+    sources:
+      - field: Rvir
+    type: float
+    units: kpc/h
+    h_convention: carried
+    description: Virial radius
+    type: double

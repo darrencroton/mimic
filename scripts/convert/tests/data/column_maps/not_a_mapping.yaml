@@ -1,0 +1,3 @@
+# Invalid: a profile is a mapping, not a sequence.
+- schema_version: 1
+- source_format: consistent_trees_ascii

@@ -1,0 +1,52 @@
+# Presentation variant B: same mapping, deliberately reformatted.
+#
+#   * top-level keys in a different order
+#   * required_columns keys in a different order
+#   * the snap role's two aliases swapped
+#   * aliases written with a suffix and different casing, which the ASCII
+#     matcher strips and folds
+#   * the two extras declared in the opposite order
+#   * quoted scalars and a flow-style source mapping
+#
+# The canonical digest must be identical to presentation_a.yaml's.
+source_format: "consistent_trees_ascii"
+
+extra_fields:
+
+  - description: "Number of progenitors recorded by Consistent-Trees for this halo"
+    h_convention: none
+    name: NumProg
+    sources: [{field: "NUM_PROG"}]
+    type: int
+    units: dimensionless
+
+  - name: "Rvir"
+    type: float
+    h_convention: carried
+    units: "kpc/h"
+    description: Virial radius as written by Consistent-Trees
+    sources:
+      - {field: "Rvir(11)"}
+
+required_columns:
+  jz: [JZ]
+  jy: [Jy]
+  jx: [jx]
+  vz: [vz]
+  vy: [vy]
+  vx: [vx]
+  z: [Z]
+  y: [y]
+  x: [x]
+  vmax: ["vmax(17)"]
+  vrms: [vrms]
+  mvir: ["Mvir(10)"]
+  snap: [snap_num, snap_idx]
+  upid: [upid]
+  pid: [pid]
+  desc_id: [desc_id]
+  desc_scale: [desc_scale]
+  id: ["id(1)"]
+  scale: ["scale(0)"]
+
+schema_version: 1

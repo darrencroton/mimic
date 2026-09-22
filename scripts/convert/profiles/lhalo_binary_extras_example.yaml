@@ -1,0 +1,114 @@
+# L-Halo binary mapping profile -- worked example with extra fields selected.
+#
+# Same required roles and same on-disk layout as lhalo_binary.yaml; the only
+# difference is that this profile declaratively selects the record's remaining
+# numeric fields as extras. It exists so the extra-field grammar has a complete,
+# runnable example: every entry below loads through
+# scripts/convert/column_schema.py unchanged.
+#
+# Three things it demonstrates:
+#   * a scalar extra taken whole from a stored scalar field (M_Mean200);
+#   * an output name that differs from the source field name (SourceFileNr
+#     <- FileNr), which is why `name` and `sources[].field` are separate keys;
+#   * a scalar extra taken from one component of a stored vector
+#     (PosX <- Pos component 0), which is how native binary vectors are
+#     addressed without pretending their elements are independent columns.
+#
+# Selecting extras does not change the on-disk stride, and an unselected field
+# is still covered by binary_layout.offsets.
+
+schema_version: 1
+source_format: lhalo_binary
+
+required_columns:
+  Descendant: [Descendant]
+  FirstProgenitor: [FirstProgenitor]
+  NextProgenitor: [NextProgenitor]
+  FirstHaloInFOFgroup: [FirstHaloInFOFgroup]
+  NextHaloInFOFgroup: [NextHaloInFOFgroup]
+  Len: [Len]
+  M_Crit200: [M_Crit200]
+  Pos: [Pos]
+  Vel: [Vel]
+  Spin: [Spin]
+  VelDisp: [VelDisp]
+  Vmax: [Vmax]
+  MostBoundID: [MostBoundID]
+  SnapNum: [SnapNum]
+
+extra_fields:
+  - name: M_Mean200
+    sources:
+      - field: M_Mean200
+    type: float
+    units: 1e10 Msun/h
+    h_convention: carried
+    description: Mass within the radius enclosing 200x the mean matter density
+
+  - name: M_TopHat
+    sources:
+      - field: M_TopHat
+    type: float
+    units: 1e10 Msun/h
+    h_convention: carried
+    description: Mass within the radius enclosing the spherical-collapse overdensity
+
+  - name: SubHalfMass
+    sources:
+      - field: SubHalfMass
+    type: float
+    units: 1e10 Msun/h
+    h_convention: carried
+    description: Mass within the subhalo half-mass radius
+
+  - name: SourceFileNr
+    sources:
+      - field: FileNr
+    type: int
+    units: dimensionless
+    h_convention: none
+    description: File number recorded in the source record, renamed to mark it as provenance
+
+  - name: SubhaloIndex
+    sources:
+      - field: SubhaloIndex
+    type: int
+    units: dimensionless
+    h_convention: none
+    description: Index of this subhalo within its source group, carried through unchanged
+
+  - name: PosX
+    sources:
+      - field: Pos
+        component: 0
+    type: float
+    units: Mpc/h
+    h_convention: carried
+    description: First component of the stored position vector, selected on its own
+
+# Every field of the record, selected or not: an unselected field still
+# occupies its bytes, and the stride a reader steps is a property of the
+# source, not of the selection.
+binary_layout:
+  byte_order: little
+  itemsize: 104
+  offsets:
+    Descendant: 0
+    FirstProgenitor: 4
+    NextProgenitor: 8
+    FirstHaloInFOFgroup: 12
+    NextHaloInFOFgroup: 16
+    Len: 20
+    M_Mean200: 24
+    M_Crit200: 28
+    M_TopHat: 32
+    Pos: 36
+    Vel: 48
+    VelDisp: 60
+    Vmax: 64
+    Spin: 68
+    MostBoundID: 80
+    SnapNum: 88
+    FileNr: 92
+    SubhaloIndex: 96
+    SubHalfMass: 100
