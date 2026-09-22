@@ -246,12 +246,14 @@ class LinkSpanSummary:
     mostboundid_max: Optional[int] = None
 
 
-def scan_lhalo_file(header: LHaloHeader) -> LinkSpanSummary:
+def scan_lhalo_file(header: LHaloHeader, max_snapshot: Optional[int] = None) -> LinkSpanSummary:
     """Tree-by-tree scan of one already-header-validated L-Halo file.
 
     Reads one tree's contiguous record block at a time (bounded by the
     largest tree in the file, not the whole file) and vectorises the
-    Descendant/SnapNum comparison with numpy."""
+    Descendant/SnapNum comparison with numpy. `max_snapshot`, when supplied
+    (from the caller's --a-list, i.e. len(a_list) - 1), bounds valid SnapNum
+    values to [0, max_snapshot]; without it, no upper bound is enforced."""
     summary = LinkSpanSummary()
     dtype = lhalo_record_dtype(header.byte_order)
     with open(header.path, "rb") as handle:
@@ -271,6 +273,12 @@ def scan_lhalo_file(header: LHaloHeader) -> LinkSpanSummary:
             desc = records["Descendant"]
             snap = records["SnapNum"].astype(np.int64)
             most_bound_id = records["MostBoundID"]
+
+            if max_snapshot is not None and (np.any(snap < 0) or np.any(snap > max_snapshot)):
+                raise ConverterError(
+                    "{}: tree {} has a SnapNum outside [0, {}] (the a_list's snapshot "
+                    "range)".format(header.path, tree_index, max_snapshot)
+                )
 
             for s, c in zip(*np.unique(records["SnapNum"], return_counts=True)):
                 key = int(s)
@@ -341,10 +349,18 @@ def _attr_to_python(value):
     return value.item() if hasattr(value, "item") else value
 
 
-def inspect_ctrees_hdf5_source(info_path, scan_links: bool = True, chunk_rows: int = 4_000_000):
+def inspect_ctrees_hdf5_source(
+    info_path,
+    scan_links: bool = True,
+    chunk_rows: int = 4_000_000,
+    max_snapshot: Optional[int] = None,
+):
     """Inspect a Consistent-Trees forests-HDF5 info file: root attrs, every
     FileN group's ForestInfo/Forests contents, and (optionally) a full
     link-span scan resolved through each forest's ForestHalosOffset.
+    `max_snapshot`, when supplied (from the caller's --a-list, i.e.
+    len(a_list) - 1), bounds the snapshot column's valid values to
+    [0, max_snapshot] in place of [0, INT_MAX].
 
     Raises MissingDependencyError if h5py is not installed, and ConverterError
     if the info file cannot be opened at all."""
@@ -377,6 +393,7 @@ def inspect_ctrees_hdf5_source(info_path, scan_links: bool = True, chunk_rows: i
             context = "{} File {}".format(info_path, key)
             _require_dataset(forests_group, "Descendant", context)
             snap_field = _resolve_snap_field(forests_group, context)
+            _require_dataset(forests_group, snap_field, context)
 
             fields = {
                 fname: {
@@ -399,12 +416,13 @@ def inspect_ctrees_hdf5_source(info_path, scan_links: bool = True, chunk_rows: i
                     forest_info["ForestHalosOffset"],
                     forest_info["ForestNhalos"],
                     forests_group["Descendant"].shape[0],
+                    forests_group[snap_field].shape[0],
                 )
 
             link_summary = None
             if scan_links and n_halos:
                 link_summary = _scan_ctrees_hdf5_links(
-                    forest_info, forests_group, chunk_rows, snap_field
+                    forest_info, forests_group, chunk_rows, snap_field, max_snapshot
                 )
 
             files.append(
@@ -442,28 +460,62 @@ def _resolve_snap_field(forests_group, context: str = "Forests/") -> str:
 
 def _require_dataset(forests_group, name: str, context: str) -> None:
     """Raise ConverterError with file/field context instead of letting a
-    missing required dataset surface as a bare KeyError -- mirrors
-    _resolve_snap_field's existing treatment of the (also required, just
-    ambiguously-named) snapshot column."""
+    missing required dataset, or one with the wrong rank, surface as a bare
+    KeyError/IndexError -- mirrors _resolve_snap_field's existing treatment
+    of the (also required, just ambiguously-named) snapshot column. A 0-d
+    (scalar) or multi-dimensional Descendant/snapshot dataset is reachable
+    from a malformed real file and previously raised an uncaught IndexError
+    once indexed as if it were the expected one-row-per-halo array."""
     if name not in forests_group:
         raise ConverterError(
             "{}: Forests/ is missing the required dataset '{}'".format(context, name)
         )
+    ndim = forests_group[name].ndim
+    if ndim != 1:
+        raise ConverterError(
+            "{}: Forests/{} has rank {} -- expected a 1-D, one-row-per-halo array".format(
+                context, name, ndim
+            )
+        )
 
 
 def _validate_forest_info_offsets(
-    offsets: np.ndarray, counts: np.ndarray, dataset_len: int
+    offsets: np.ndarray, counts: np.ndarray, dataset_len: int, snap_len: Optional[int] = None
 ) -> None:
-    """Structural sanity check on ForestInfo's offset/count table: offsets
-    non-negative, forests non-overlapping and in ascending row order, and the
-    last forest's range fits inside the dataset's actual extent. Not full
-    parity with the C reader's validation -- just enough that corrupted
-    ForestInfo metadata cannot silently mis-resolve link targets."""
+    """Structural sanity check on ForestInfo's offset/count table: counts and
+    offsets non-negative, counts below the int32 index limit (matches the
+    real C reader's validate_forestinfo_cache_row_ctrees_hdf5:
+    forestnhalos >= 0, < INT_MAX, foresthalosoffset >= 0), forests
+    non-overlapping and in ascending row order, and the ForestNhalos sum
+    agreeing exactly with the Forests dataset length(s) actually present
+    (previously only checked inside the link-scan path, which --no-link-scan
+    could skip past entirely -- see steer-attempt-3 item 1's
+    ForestNhalos=[-1, 1] regression). Not full parity with the C reader's
+    per-forest-read validation (that also checks a UniqueGalaxyIDMultiplier
+    bound this read-only tool has no reason to know) -- just enough that
+    corrupted ForestInfo metadata cannot silently mis-resolve link targets or
+    report misleading counts."""
+    if counts.size and np.any(counts < 0):
+        bad_index = int(np.argmax(counts < 0))
+        raise ConverterError(
+            "ForestInfo row {} has a negative ForestNhalos ({}) -- the total can still sum "
+            "to something plausible against a compensating positive entry elsewhere".format(
+                bad_index, int(counts[bad_index])
+            )
+        )
+    if counts.size and np.any(counts >= np.iinfo(np.int32).max):
+        raise ConverterError(
+            "ForestInfo has a ForestNhalos at or above the int32 index limit ({})".format(
+                np.iinfo(np.int32).max
+            )
+        )
     if offsets.size and np.any(offsets < 0):
         raise ConverterError("ForestInfo has a negative ForestHalosOffset")
     if offsets.size > 1:
         # Forest i's range must end at or before forest i+1's start; this
-        # catches both overlap and out-of-order rows in one check.
+        # catches both overlap and out-of-order rows in one check. Safe now
+        # that counts are known non-negative (offsets are then implied
+        # non-decreasing by this same inequality, by induction).
         ends = offsets[:-1] + counts[:-1]
         if np.any(ends > offsets[1:]):
             raise ConverterError(
@@ -477,16 +529,33 @@ def _validate_forest_info_offsets(
                     last_end, dataset_len
                 )
             )
+    total = int(counts.sum())
+    if total != dataset_len:
+        raise ConverterError(
+            "ForestInfo's ForestNhalos sum ({}) disagrees with the Forests/Descendant "
+            "dataset length ({})".format(total, dataset_len)
+        )
+    if snap_len is not None and total != snap_len:
+        raise ConverterError(
+            "ForestInfo's ForestNhalos sum ({}) disagrees with the resolved snapshot "
+            "column's dataset length ({})".format(total, snap_len)
+        )
 
 
 def _scan_ctrees_hdf5_links(
-    forest_info, forests_group, chunk_rows: int, snap_field: str
+    forest_info,
+    forests_group,
+    chunk_rows: int,
+    snap_field: str,
+    max_snapshot: Optional[int] = None,
 ) -> LinkSpanSummary:
     """Resolve forest-local Descendant indices to a global row via each
     forest's ForestHalosOffset, then compare snapshot numbers like the binary
     scan. `snap_field` is resolved once by the caller (inspect_ctrees_hdf5_source),
     which also runs _validate_forest_info_offsets unconditionally -- this
-    function's own work is exactly the part --no-link-scan is meant to skip."""
+    function's own work is exactly the part --no-link-scan is meant to skip.
+    `max_snapshot`, when supplied, bounds the snapshot range to
+    [0, max_snapshot] in place of [0, INT_MAX]."""
     offsets = forest_info["ForestHalosOffset"]
     counts = forest_info["ForestNhalos"]
     total = int(counts.sum())
@@ -521,12 +590,13 @@ def _scan_ctrees_hdf5_links(
         all_snap = raw_snap.astype(np.int64)
     # Range check on both paths, matching the C reader's CT_ASSIGN_SNAP_INT/
     # CT_ASSIGN_SNAP_DOUBLE (read_ctrees_hdf5.c:486-511): v >= 0 and
-    # v <= INT_MAX. Narrowed from the C reader: that macro also checks
-    # v <= MimicConfig.LastSnapshotNr, which comes from the a_list this tool
-    # does not load; omitted here, not silently dropped.
-    if np.any(all_snap < 0) or np.any(all_snap > np.iinfo(np.int32).max):
+    # v <= LastSnapshotNr (here, max_snapshot derived from the caller's
+    # --a-list: len(a_list) - 1). Falls back to INT_MAX only when no a_list
+    # bound was supplied.
+    upper_bound = max_snapshot if max_snapshot is not None else np.iinfo(np.int32).max
+    if np.any(all_snap < 0) or np.any(all_snap > upper_bound):
         raise ConverterError(
-            "Forests/{} has a snapshot value outside [0, INT_MAX]".format(snap_field)
+            "Forests/{} has a snapshot value outside [0, {}]".format(snap_field, upper_bound)
         )
     forest_count_for_row = np.repeat(counts, counts)
 

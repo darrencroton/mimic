@@ -93,8 +93,16 @@ regression anchors:
 
 | Package | Path | Present | Bytes | Declared / present (ctrees_hdf5 units) |
 |---|---|---|---|---|
-| micro-Uchuu ASCII | `simulations/micro-uchuu-ascii/snapshots/{forests.list,locations.dat,tree_0_0_0.dat}` | all 3 | 10,102,809 + 20,966,804 + (tree file symlinked via `locations.dat`) | n/a (ASCII route) |
+| micro-Uchuu ASCII | `simulations/micro-uchuu-ascii/snapshots/{forests.list,locations.dat,tree_0_0_0.dat}` | all 3 | 10,102,809 + 20,966,804 + 11,515,537,257 = 11,546,606,870 (~10.75 GiB total) | n/a (ASCII route) |
 | micro-Uchuu forests-HDF5 | `simulations/micro-uchuu-hdf5/snapshots/{MicroUchuu_mergertree_info.h5,MicroUchuu_mergertree.h5}` | both | 13,085,010,936 (info file is 1.2 KB of the total; the 13 GB is the real backing data file) | 2 / 2 |
+
+`tree_0_0_0.dat` is the ASCII route's largest file by far (11,515,537,257
+bytes, `ls -la`) -- a real regular file, not a symlink. An earlier draft of
+this table both omitted its size and mischaracterised it as "symlinked via
+`locations.dat`"; `locations.dat`'s `Filename` column *references*
+`tree_0_0_0.dat` by name (`#TreeRootID FileID Offset Filename` /
+`28456576 0 3663 tree_0_0_0.dat`, confirmed by reading the file directly) --
+that is an index entry pointing at a real file, not a filesystem symlink.
 
 `MicroUchuu_mergertree_info.h5`'s `File0` is **not** embedded data -- it is
 an `h5py.ExternalLink` to the sibling `MicroUchuu_mergertree.h5` (confirmed
@@ -217,12 +225,34 @@ checked, both in the fixture and the real dataset) -- confirms the plan's
 "No VDS requirement" finding (C1) against the real dataset, not just the
 fixture.
 
+**Units for the core fields the C reader consumes**, per
+`simulations/uchuu/halo_properties.yaml` and
+`simulations/micro-uchuu-hdf5/halo_properties.yaml` (structurally identical
+to each other; verified by reading both directly -- neither is
+`simulation_info.yaml`, matching the L-Halo units correction above):
+
+| Source field(s) | RawHalo field | Units | `h_convention` |
+|---|---|---|---|
+| `Mvir` | `M_Crit200` | native `Msun/h` (**not** `1e10 Msun/h` -- the generated accessor applies the x1e-10 conversion) | carried |
+| `x, y, z` | `Pos` | `Mpc/h` (comoving) | carried |
+| `vx, vy, vz` | `Vel` | `km/s` (peculiar velocity) | none |
+| `Jx, Jy, Jz` | `Spin` | `Mpc/h km/s` -- specific angular momentum `J/Mvir` after `apply_ctrees_value_conventions()` for non-zero Mvir; zero-mass halos retain raw `J` | (not h-scaled independently) |
+| `vrms` | `VelDisp` | `km/s` | none |
+| `vmax` | `Vmax` | `km/s` | none |
+| `id` | `MostBoundID` | dimensionless (carried-through catalog/particle identifier) | n/a |
+| `Snap_num`/`Snap_idx` | `SnapNum` | dimensionless | n/a |
+| -- (derived) | `Len` | `particles`, `round(Mvir x 1e-10 / particle_mass)` | n/a |
+
 ### Consistent-Trees ASCII (`micro-uchuu-ascii`)
 
 Reused directly from `ctrees_parser.py` (not modified by this slice):
 required int columns `id, desc_id, pid, upid`; required float columns
 `scale, desc_scale, mvir, vrms, vmax, x, y, z, vx, vy, vz, jx, jy, jz`;
-snapshot column spelled `snap_idx` or `snap_num`. Full per-forest/per-
+snapshot column spelled `snap_idx` or `snap_num`. Units are identical to the
+forests-HDF5 table just above -- `simulations/micro-uchuu-ascii/halo_properties.yaml`
+is, by its own header comment, "structurally identical to
+micro-uchuu-hdf5/halo_properties.yaml" (verified by reading it directly),
+since both readers share the same bridge and RawHalo contract. Full per-forest/per-
 snapshot counts for this source come from the pre-change ASCII pipeline run
 captured in `MIMIC-CONVERTER-BASELINE-REFERENCE.md`, which exercises the
 same parser exhaustively rather than duplicating it here -- full link-span/
@@ -267,11 +297,18 @@ identified across formats.
   halos) ~1 s; micro-Uchuu ASCII prescan (22.6 M lines, one stream pass,
   no pandas) ~49 s -- this is the one `--no-link-scan` gates for the ASCII
   route. Memory: the L-Halo scan is bounded by the largest tree in a
-  file (not the whole file); the forests-HDF5 scan loads the snapshot column
-  and forest-offset arrays in full (three int64/float64 arrays sized to the
-  file's halo count -- about 540 MB for micro-Uchuu's 22.6 M halos), which is
-  acceptable for one-off inspection but is explicitly **not** the bounded
-  streaming discipline C4 requires of the production adapters (Slices 3-6).
+  file (not the whole file); the forests-HDF5 scan loads **four** int64/
+  float64 arrays sized to the file's halo count in full (`raw_snap`, its
+  `all_snap` int64 copy, `row_offset`, `forest_count_for_row` -- an earlier
+  draft of this section said "three... about 540 MB", undercounting by one
+  array), roughly 722 MB by arithmetic (4 x 8 bytes x 22.6 M) for
+  micro-Uchuu's 22.6 M halos, **measured at 962.6 MB peak** via
+  `tracemalloc` around the same `inspect_ctrees_hdf5_source` call (the
+  measured figure is higher than the four-array arithmetic because it also
+  captures `forest_info`'s structured array, `np.unique`'s output, and other
+  transient allocations the simple count misses). Acceptable for one-off
+  inspection but explicitly **not** the bounded streaming discipline C4
+  requires of the production adapters (Slices 3-6).
 
 ## 6. Sources unreachable for a later slice's acceptance
 

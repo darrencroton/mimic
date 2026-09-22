@@ -57,6 +57,56 @@ def _repo_root() -> Path:
     return Path(os.path.dirname(os.path.abspath(__file__))).parent.parent
 
 
+def _anchor_simulation_dir(sim_info: si.SimulationInfo) -> None:
+    """simulation_info.yaml's `input.simulation_dir` is written repo-relative
+    (every existing converter command, and every symlink under simulations/,
+    assumes CWD == repo root); anchor it against _repo_root() explicitly
+    rather than leaving it to resolve against whatever the process's actual
+    CWD happens to be. Without this, running from any directory other than
+    the repo root makes every package silently report exists=False with
+    exit 0 -- honest-looking but wrong evidence."""
+    p = Path(sim_info.simulation_dir)
+    if not p.is_absolute():
+        sim_info.simulation_dir = str(_repo_root() / p)
+
+
+def _is_within_or_equal(candidate: Path, container: Path) -> bool:
+    if candidate == container:
+        return True
+    try:
+        candidate.relative_to(container)
+        return True
+    except ValueError:
+        return False
+
+
+def _check_json_output_safe(json_path, protected_paths) -> None:
+    """Refuse to let --json overwrite a source file or write inside a source
+    directory. `protected_paths` is an iterable of file/directory paths
+    (source paths this run read from) that must not equal, or contain, the
+    resolved --json path. Both sides are resolved (symlinks followed) before
+    comparing, so a symlinked source directory is still protected.
+
+    Without this, --json is a normal documented flag that can silently
+    destroy a real source file: pointing it at a source path overwrites that
+    path in place with the JSON report, which is exactly what "inspection
+    never writes into source directories" (this slice's own acceptance
+    criterion) forbids."""
+    resolved = Path(json_path).resolve()
+    for protected in protected_paths:
+        if protected is None:
+            continue
+        try:
+            protected_resolved = Path(protected).resolve()
+        except OSError:
+            continue
+        if _is_within_or_equal(resolved, protected_resolved):
+            raise ConverterError(
+                "--json {} resolves to {}, which is or is inside a source path ({}) -- "
+                "refusing to overwrite source data".format(json_path, resolved, protected_resolved)
+            )
+
+
 def _link_summary_to_dict(summary):
     if summary is None:
         return None
@@ -72,7 +122,9 @@ def _link_summary_to_dict(summary):
     }
 
 
-def inspect_lhalo_source(sim_info: si.SimulationInfo, byte_order: str, scan_links: bool):
+def inspect_lhalo_source(
+    sim_info: si.SimulationInfo, byte_order: str, scan_links: bool, max_snapshot=None
+):
     reach = si.check_lhalo_reachability(sim_info)
     files_report = []
     total_trees = 0
@@ -96,7 +148,7 @@ def inspect_lhalo_source(sim_info: si.SimulationInfo, byte_order: str, scan_link
         total_halos += header.total_halos
         max_tree_halo_count = max(max_tree_halo_count, file_max_tree)
         if scan_links:
-            summary = si.scan_lhalo_file(header)
+            summary = si.scan_lhalo_file(header, max_snapshot=max_snapshot)
             entry["link_summary"] = _link_summary_to_dict(summary)
             combined.non_null_descendant_links += summary.non_null_descendant_links
             combined.forward_adjacent_links += summary.forward_adjacent_links
@@ -134,7 +186,7 @@ def inspect_lhalo_source(sim_info: si.SimulationInfo, byte_order: str, scan_link
     }
 
 
-def inspect_hdf5_source(sim_info: si.SimulationInfo, scan_links: bool):
+def inspect_hdf5_source(sim_info: si.SimulationInfo, scan_links: bool, max_snapshot=None):
     """Raises MissingDependencyError (uncaught) if h5py is not installed --
     the acceptance criterion is that a missing HDF5 dependency fails, so this
     propagates rather than being swallowed into an 'error' field with a
@@ -149,7 +201,9 @@ def inspect_hdf5_source(sim_info: si.SimulationInfo, scan_links: bool):
     info_path = Path(sim_info.simulation_dir) / sim_info.tree_name
     if not reach.exists or not info_path.exists():
         return result
-    root_attrs, files = si.inspect_ctrees_hdf5_source(info_path, scan_links=scan_links)
+    root_attrs, files = si.inspect_ctrees_hdf5_source(
+        info_path, scan_links=scan_links, max_snapshot=max_snapshot
+    )
     result["root_attrs"] = root_attrs
     result["files"] = [
         {
@@ -229,6 +283,7 @@ def inspect_one(
     source_format: str, sim_info_path: str, a_list_path: str, byte_order: str, scan_links: bool
 ):
     sim_info = si.load_simulation_info(sim_info_path)
+    _anchor_simulation_dir(sim_info)
     if sim_info.tree_type != source_format:
         raise ConverterError(
             "{}: input.tree_type={!r} does not match --source-format {!r}".format(
@@ -236,11 +291,12 @@ def inspect_one(
             )
         )
     a_list, a_list_md5 = load_a_list(a_list_path)
+    max_snapshot = len(a_list) - 1 if len(a_list) else None
     order = "<" if byte_order == "little" else ">"
     if source_format == "lhalo_binary":
-        report = inspect_lhalo_source(sim_info, order, scan_links)
+        report = inspect_lhalo_source(sim_info, order, scan_links, max_snapshot)
     elif source_format == "consistent_trees_hdf5":
-        report = inspect_hdf5_source(sim_info, scan_links)
+        report = inspect_hdf5_source(sim_info, scan_links, max_snapshot)
     elif source_format == "consistent_trees_ascii":
         report = inspect_ascii_source(sim_info, scan_links)
     else:
@@ -252,6 +308,13 @@ def inspect_one(
 
 
 def cmd_inspect(args):
+    if args.json:
+        sim_info = si.load_simulation_info(args.simulation_info)
+        _anchor_simulation_dir(sim_info)
+        _check_json_output_safe(
+            args.json,
+            (args.simulation_info, args.a_list, sim_info.simulation_dir),
+        )
     report = inspect_one(
         args.source_format,
         args.simulation_info,
@@ -283,8 +346,28 @@ PER_PACKAGE_EXCEPTIONS = (
 )
 
 
+def _named_package_protected_paths(root: Path):
+    """Every path `survey` might read from, across all five named packages:
+    each simulation_info.yaml, and (best-effort, since a package's YAML may
+    itself be malformed) its simulation_dir and snapshot_list_file."""
+    protected = []
+    for rel_path in NAMED_PACKAGES.values():
+        sim_info_path = root / rel_path
+        protected.append(sim_info_path)
+        try:
+            sim_info = si.load_simulation_info(sim_info_path)
+            _anchor_simulation_dir(sim_info)
+        except (ConverterError, FileNotFoundError, OSError):
+            continue
+        protected.append(sim_info.simulation_dir)
+        protected.append(root / sim_info.snapshot_list_file)
+    return protected
+
+
 def cmd_survey(args):
     root = _repo_root()
+    if args.json:
+        _check_json_output_safe(args.json, _named_package_protected_paths(root))
     results = {}
     any_error = False
     for name, rel_path in NAMED_PACKAGES.items():
@@ -292,6 +375,7 @@ def cmd_survey(args):
         entry = {"simulation_info": str(sim_info_path)}
         try:
             sim_info = si.load_simulation_info(sim_info_path)
+            _anchor_simulation_dir(sim_info)
         except PER_PACKAGE_EXCEPTIONS as exc:
             entry["error"] = str(exc)
             any_error = True
@@ -307,27 +391,37 @@ def cmd_survey(args):
             any_error = True
             results[name] = entry
             continue
-        if adapter == "lhalo_binary":
-            reach = si.check_lhalo_reachability(sim_info)
-        elif adapter == "ctrees_hdf5":
-            reach = si.check_hdf5_reachability(sim_info)
-        else:
-            sim_dir = Path(sim_info.simulation_dir)
-            reach = si.SourceReachability(
-                simulation_dir=str(sim_dir),
-                exists=sim_dir.exists(),
-                host=si.host_identity(),
-                declared_first_file=sim_info.first_file,
-                declared_last_file=sim_info.last_file,
-                declared_file_count=0,
-                present_files=[],
-                present_file_count=0,
-                total_bytes=0,
-                free_bytes_on_volume=si.free_space_bytes(sim_dir),
-                notes=[
-                    "ASCII reachability uses forests.list/locations.dat, not first_file/last_file"
-                ],
-            )
+        try:
+            if adapter == "lhalo_binary":
+                reach = si.check_lhalo_reachability(sim_info)
+            elif adapter == "ctrees_hdf5":
+                reach = si.check_hdf5_reachability(sim_info)
+            else:
+                sim_dir = Path(sim_info.simulation_dir)
+                reach = si.SourceReachability(
+                    simulation_dir=str(sim_dir),
+                    exists=sim_dir.exists(),
+                    host=si.host_identity(),
+                    declared_first_file=sim_info.first_file,
+                    declared_last_file=sim_info.last_file,
+                    declared_file_count=0,
+                    present_files=[],
+                    present_file_count=0,
+                    total_bytes=0,
+                    free_bytes_on_volume=si.free_space_bytes(sim_dir),
+                    notes=[
+                        "ASCII reachability uses forests.list/locations.dat, "
+                        "not first_file/last_file"
+                    ],
+                )
+        except PER_PACKAGE_EXCEPTIONS as exc:
+            # A transient filesystem error here (e.g. a path vanishing
+            # between exists() and stat()) must not abort the whole survey
+            # and discard every other package's already-gathered results.
+            entry["reachability_error"] = str(exc)
+            any_error = True
+            results[name] = entry
+            continue
         entry["reachability"] = reach.__dict__
         if reach.exists and reach.present_file_count > 0 and not args.reachability_only:
             try:
@@ -388,7 +482,14 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         return args.func(args)
-    except (ConverterError, si.MissingDependencyError, OSError, ValueError, TypeError) as exc:
+    except (
+        ConverterError,
+        si.MissingDependencyError,
+        OSError,
+        ValueError,
+        TypeError,
+        IndexError,
+    ) as exc:
         print("error: {}".format(exc), file=sys.stderr)
         return 1
 
