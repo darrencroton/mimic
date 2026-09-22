@@ -1,0 +1,585 @@
+"""Read-only source inspection helpers (Slice 1 of the converter generalisation
+plan, docs/dev/MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md).
+
+Pure inspection: every function here opens sources for reading only, and none
+writes into a source directory. Used by scripts/convert/inspect_sources.py.
+
+L-Halo binary layout is the shipped 104-byte record (src/include/generated/
+raw_halo_defs.h -> struct RawHalo), with an explicit caller-supplied byte
+order -- never numpy's native ('=') packing, which would silently follow host
+architecture instead of the file's actual endianness.
+
+Consistent-Trees forests-HDF5 links are forest-local row indices (verified
+against src/io/vertical/read_ctrees_hdf5.c's CT_ASSIGN_LINK bounds check:
+-1 <= link < nhalos, where nhalos is the per-forest halo count), so link-span
+scanning resolves them through each forest's ForestHalosOffset before
+comparing snapshot numbers.
+"""
+
+import shutil
+import socket
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
+import numpy as np
+import yaml
+
+try:
+    import h5py
+except ImportError:  # pragma: no cover - exercised via MissingDependencyError path
+    h5py = None
+
+from ctrees_parser import ConverterError
+
+__all__ = [
+    "ConverterError",
+    "MissingDependencyError",
+    "LHALO_FIELDS",
+    "LHALO_RECORD_BYTES",
+    "lhalo_record_dtype",
+    "LHaloHeader",
+    "read_lhalo_header",
+    "LinkSpanSummary",
+    "scan_lhalo_file",
+    "HDF5FileLinkage",
+    "inspect_ctrees_hdf5_source",
+    "SimulationInfo",
+    "load_simulation_info",
+    "SourceReachability",
+    "check_lhalo_reachability",
+    "check_hdf5_reachability",
+    "host_identity",
+    "free_space_bytes",
+]
+
+
+class MissingDependencyError(RuntimeError):
+    """A required optional dependency (h5py) is not installed."""
+
+
+# --------------------------------------------------------------------------
+# L-Halo binary
+# --------------------------------------------------------------------------
+
+#: (field name, numpy kind, shape) in on-disk order, matching struct RawHalo
+#: exactly (src/include/generated/raw_halo_defs.h). Scalar fields carry shape
+#: ().
+LHALO_FIELDS: Tuple[Tuple[str, str, Tuple[int, ...]], ...] = (
+    ("Descendant", "i4", ()),
+    ("FirstProgenitor", "i4", ()),
+    ("NextProgenitor", "i4", ()),
+    ("FirstHaloInFOFgroup", "i4", ()),
+    ("NextHaloInFOFgroup", "i4", ()),
+    ("Len", "i4", ()),
+    ("M_Mean200", "f4", ()),
+    ("M_Crit200", "f4", ()),
+    ("M_TopHat", "f4", ()),
+    ("Pos", "f4", (3,)),
+    ("Vel", "f4", (3,)),
+    ("VelDisp", "f4", ()),
+    ("Vmax", "f4", ()),
+    ("Spin", "f4", (3,)),
+    ("MostBoundID", "i8", ()),
+    ("SnapNum", "i4", ()),
+    ("FileNr", "i4", ()),
+    ("SubhaloIndex", "i4", ()),
+    ("SubHalfMass", "f4", ()),
+)
+
+#: The five stored local links C1/C2 require the binary adapter to preserve.
+LHALO_LINK_FIELDS = (
+    "Descendant",
+    "FirstProgenitor",
+    "NextProgenitor",
+    "FirstHaloInFOFgroup",
+    "NextHaloInFOFgroup",
+)
+
+LHALO_RECORD_BYTES = 104
+
+
+def lhalo_record_dtype(byte_order: str) -> np.dtype:
+    """Explicit structured dtype for the shipped L-Halo record.
+
+    `byte_order` is '<' (little) or '>' (big) and is always supplied by the
+    caller; it is never inferred from host architecture."""
+    if byte_order not in ("<", ">"):
+        raise ConverterError("byte_order must be '<' or '>', got {!r}".format(byte_order))
+    descr = []
+    for name, kind, shape in LHALO_FIELDS:
+        fmt = byte_order + kind
+        descr.append((name, fmt, shape) if shape else (name, fmt))
+    dtype = np.dtype(descr)
+    if dtype.itemsize != LHALO_RECORD_BYTES:
+        raise ConverterError(
+            "LHALO_FIELDS itemsize {} does not match the shipped {}-byte record".format(
+                dtype.itemsize, LHALO_RECORD_BYTES
+            )
+        )
+    return dtype
+
+
+@dataclass
+class LHaloHeader:
+    path: Path
+    byte_order: str
+    ntrees: int
+    tree_halo_counts: np.ndarray
+    total_halos: int
+    header_bytes: int
+    file_size: int
+    expected_size: int
+
+
+def read_lhalo_header(path, byte_order: str = "<") -> LHaloHeader:
+    """Read and validate the Ntrees/totNHalos/per-tree-count header.
+
+    Validates the count table sums to totNHalos and that the file's actual
+    byte length matches the header-implied size exactly (header + totNHalos *
+    104 bytes). Raises ConverterError on any truncation or count mismatch."""
+    path = Path(path)
+    int_dtype = np.dtype(byte_order + "i4")
+    file_size = path.stat().st_size
+    with open(path, "rb") as handle:
+        head = handle.read(8)
+        if len(head) != 8:
+            raise ConverterError(
+                "{}: truncated header (need 8 bytes for Ntrees/totNHalos, got {})".format(
+                    path, len(head)
+                )
+            )
+        ntrees_arr = np.frombuffer(head, dtype=int_dtype, count=2)
+        ntrees = int(ntrees_arr[0])
+        total_halos = int(ntrees_arr[1])
+        if ntrees < 0 or total_halos < 0:
+            raise ConverterError(
+                "{}: negative header counts (Ntrees={}, totNHalos={})".format(
+                    path, ntrees, total_halos
+                )
+            )
+        counts_bytes = handle.read(4 * ntrees)
+        if len(counts_bytes) != 4 * ntrees:
+            raise ConverterError(
+                "{}: truncated tree-count table (need {} bytes for {} trees, got {})".format(
+                    path, 4 * ntrees, ntrees, len(counts_bytes)
+                )
+            )
+        tree_halo_counts = np.frombuffer(counts_bytes, dtype=int_dtype).astype(np.int64)
+    counted_total = int(tree_halo_counts.sum())
+    if counted_total != total_halos:
+        raise ConverterError(
+            "{}: per-tree counts sum to {}, header totNHalos={} -- bad count total".format(
+                path, counted_total, total_halos
+            )
+        )
+    header_bytes = 8 + 4 * ntrees
+    expected_size = header_bytes + total_halos * LHALO_RECORD_BYTES
+    if file_size != expected_size:
+        raise ConverterError(
+            "{}: file is {} bytes, header implies {} bytes ({} header + {} halos x {} bytes) "
+            "-- truncated or trailing data".format(
+                path, file_size, expected_size, header_bytes, total_halos, LHALO_RECORD_BYTES
+            )
+        )
+    return LHaloHeader(
+        path=path,
+        byte_order=byte_order,
+        ntrees=ntrees,
+        tree_halo_counts=tree_halo_counts,
+        total_halos=total_halos,
+        header_bytes=header_bytes,
+        file_size=file_size,
+        expected_size=expected_size,
+    )
+
+
+@dataclass
+class LinkSpanSummary:
+    """Descendant link-span evidence: span = SnapNum[target] - SnapNum[source].
+
+    A valid forward gap (span > 1) is counted, not rejected -- only
+    out-of-tree indices and non-forward links are flagged as anomalies."""
+
+    non_null_descendant_links: int = 0
+    forward_adjacent_links: int = 0
+    forward_gap_links: int = 0
+    max_span: int = 0
+    non_forward_or_zero_span: int = 0
+    snapshot_halo_counts: Dict[int, int] = field(default_factory=dict)
+
+
+def scan_lhalo_file(header: LHaloHeader) -> LinkSpanSummary:
+    """Tree-by-tree scan of one already-header-validated L-Halo file.
+
+    Reads one tree's contiguous record block at a time (bounded by the
+    largest tree in the file, not the whole file) and vectorises the
+    Descendant/SnapNum comparison with numpy."""
+    summary = LinkSpanSummary()
+    dtype = lhalo_record_dtype(header.byte_order)
+    with open(header.path, "rb") as handle:
+        handle.seek(header.header_bytes)
+        for tree_index in range(header.ntrees):
+            n = int(header.tree_halo_counts[tree_index])
+            if n == 0:
+                continue
+            raw = handle.read(n * LHALO_RECORD_BYTES)
+            if len(raw) != n * LHALO_RECORD_BYTES:
+                raise ConverterError(
+                    "{}: truncated halo payload in tree {} (need {} bytes, got {})".format(
+                        header.path, tree_index, n * LHALO_RECORD_BYTES, len(raw)
+                    )
+                )
+            records = np.frombuffer(raw, dtype=dtype)
+            desc = records["Descendant"]
+            snap = records["SnapNum"].astype(np.int64)
+
+            for s, c in zip(*np.unique(records["SnapNum"], return_counts=True)):
+                key = int(s)
+                summary.snapshot_halo_counts[key] = summary.snapshot_halo_counts.get(key, 0) + int(
+                    c
+                )
+
+            valid = desc >= 0
+            if valid.any():
+                targets = desc[valid]
+                if np.any(targets >= n):
+                    raise ConverterError(
+                        "{}: tree {} has an out-of-tree Descendant index".format(
+                            header.path, tree_index
+                        )
+                    )
+                span = snap[targets] - snap[valid]
+                summary.non_null_descendant_links += int(valid.sum())
+                summary.non_forward_or_zero_span += int(np.count_nonzero(span < 1))
+                summary.forward_adjacent_links += int(np.count_nonzero(span == 1))
+                gaps = span[span > 1]
+                summary.forward_gap_links += int(gaps.size)
+                if gaps.size:
+                    summary.max_span = max(summary.max_span, int(gaps.max()))
+    return summary
+
+
+# --------------------------------------------------------------------------
+# Consistent-Trees forests-HDF5
+# --------------------------------------------------------------------------
+
+
+@dataclass
+class HDF5FileLinkage:
+    name: str
+    link_type: str
+    reachable: bool
+    error: Optional[str] = None
+    n_forests: Optional[int] = None
+    n_halos: Optional[int] = None
+    fields: Optional[Dict[str, Dict]] = None
+    link_summary: Optional[LinkSpanSummary] = None
+
+
+def _attr_to_python(value):
+    return value.item() if hasattr(value, "item") else value
+
+
+def inspect_ctrees_hdf5_source(info_path, scan_links: bool = True, chunk_rows: int = 4_000_000):
+    """Inspect a Consistent-Trees forests-HDF5 info file: root attrs, every
+    FileN group's ForestInfo/Forests contents, and (optionally) a full
+    link-span scan resolved through each forest's ForestHalosOffset.
+
+    Raises MissingDependencyError if h5py is not installed, and ConverterError
+    if the info file cannot be opened at all."""
+    if h5py is None:
+        raise MissingDependencyError("h5py is required to inspect consistent_trees_hdf5 sources")
+    info_path = Path(info_path)
+    if not info_path.exists():
+        raise ConverterError("{}: forests-HDF5 info file does not exist".format(info_path))
+    try:
+        handle = h5py.File(info_path, "r")
+    except OSError as exc:
+        raise ConverterError("{}: failed to open as HDF5: {}".format(info_path, exc)) from exc
+
+    files: List[HDF5FileLinkage] = []
+    with handle as f:
+        root_attrs = {k: _attr_to_python(v) for k, v in f.attrs.items()}
+        for key in sorted(f.keys()):
+            link = f.get(key, getlink=True)
+            link_type = type(link).__name__
+            try:
+                group = f[key]
+                forest_info = group["ForestInfo"][:]
+                forests_group = group["Forests"]
+            except (KeyError, OSError) as exc:
+                files.append(
+                    HDF5FileLinkage(name=key, link_type=link_type, reachable=False, error=str(exc))
+                )
+                continue
+
+            fields = {
+                fname: {
+                    "dtype": str(forests_group[fname].dtype),
+                    "shape": list(forests_group[fname].shape),
+                    "is_virtual": bool(forests_group[fname].is_virtual),
+                }
+                for fname in forests_group.keys()
+            }
+            n_forests = int(forest_info.shape[0])
+            n_halos = int(forest_info["ForestNhalos"].sum()) if n_forests else 0
+
+            link_summary = None
+            if scan_links and n_halos:
+                link_summary = _scan_ctrees_hdf5_links(forest_info, forests_group, chunk_rows)
+
+            files.append(
+                HDF5FileLinkage(
+                    name=key,
+                    link_type=link_type,
+                    reachable=True,
+                    n_forests=n_forests,
+                    n_halos=n_halos,
+                    fields=fields,
+                    link_summary=link_summary,
+                )
+            )
+    return root_attrs, files
+
+
+#: The snapshot column carries either spelling and either an integer or an
+#: integral-float dtype (src/io/vertical/read_ctrees_hdf5.c:178-179 --
+#: "Snap_num" (older) or "Snap_idx" (newer), snap_field_is_double). Resolved
+#: dynamically per file, exactly as the C reader does, rather than assumed.
+_SNAP_FIELD_SPELLINGS = ("Snap_num", "Snap_idx")
+
+
+def _resolve_snap_field(forests_group) -> str:
+    for name in _SNAP_FIELD_SPELLINGS:
+        if name in forests_group:
+            return name
+    raise ConverterError(
+        "Forests/ group has neither {} -- cannot resolve the snapshot column".format(
+            " nor ".join(_SNAP_FIELD_SPELLINGS)
+        )
+    )
+
+
+def _scan_ctrees_hdf5_links(forest_info, forests_group, chunk_rows: int) -> LinkSpanSummary:
+    """Resolve forest-local Descendant indices to a global row via each
+    forest's ForestHalosOffset, then compare snapshot numbers like the binary
+    scan."""
+    offsets = forest_info["ForestHalosOffset"]
+    counts = forest_info["ForestNhalos"]
+    total = int(counts.sum())
+    row_offset = np.repeat(offsets, counts)
+    if row_offset.shape[0] != total:
+        raise ConverterError("ForestInfo offsets/counts do not sum to the declared halo total")
+
+    snap_field = _resolve_snap_field(forests_group)
+    snap_ds = forests_group[snap_field]
+    desc_ds = forests_group["Descendant"]
+    if snap_ds.shape[0] != total or desc_ds.shape[0] != total:
+        raise ConverterError(
+            "Forests/{} or Forests/Descendant length disagrees with ForestInfo's "
+            "declared halo total".format(snap_field)
+        )
+
+    # The snapshot column is read whole (one value per halo) so target-snapshot
+    # lookups can use arbitrary-order fancy indexing; h5py datasets require
+    # increasing-order indices, plain numpy arrays do not.
+    raw_snap = snap_ds[:]
+    if np.issubdtype(raw_snap.dtype, np.floating):
+        rounded = np.round(raw_snap)
+        if not np.allclose(raw_snap, rounded, atol=1e-6):
+            raise ConverterError(
+                "Forests/{} carries non-integral values -- not a valid integral-float "
+                "snapshot column".format(snap_field)
+            )
+        all_snap = rounded.astype(np.int64)
+    else:
+        all_snap = raw_snap.astype(np.int64)
+    forest_count_for_row = np.repeat(counts, counts)
+
+    summary = LinkSpanSummary()
+    for s, c in zip(*np.unique(all_snap, return_counts=True)):
+        summary.snapshot_halo_counts[int(s)] = int(c)
+
+    for start in range(0, total, chunk_rows):
+        end = min(start + chunk_rows, total)
+        desc = desc_ds[start:end]
+        snap = all_snap[start:end]
+        local_offset = row_offset[start:end]
+
+        valid = desc >= 0
+        if not valid.any():
+            continue
+        local_targets = desc[valid]
+        if np.any(local_targets >= forest_count_for_row[start:end][valid]):
+            raise ConverterError("forests-HDF5 chunk has an out-of-forest Descendant index")
+        global_targets = local_offset[valid] + local_targets
+        target_snap = all_snap[global_targets]
+        span = target_snap - snap[valid]
+        summary.non_null_descendant_links += int(valid.sum())
+        summary.non_forward_or_zero_span += int(np.count_nonzero(span < 1))
+        summary.forward_adjacent_links += int(np.count_nonzero(span == 1))
+        gaps = span[span > 1]
+        summary.forward_gap_links += int(gaps.size)
+        if gaps.size:
+            summary.max_span = max(summary.max_span, int(gaps.max()))
+    return summary
+
+
+# --------------------------------------------------------------------------
+# Simulation metadata / reachability
+# --------------------------------------------------------------------------
+
+
+@dataclass
+class SimulationInfo:
+    path: Path
+    first_file: int
+    last_file: int
+    tree_name: str
+    tree_type: str
+    simulation_dir: str
+    snapshot_list_file: str
+    raw: Dict
+
+
+def load_simulation_info(path) -> SimulationInfo:
+    path = Path(path)
+    with open(path, "r") as handle:
+        data = yaml.safe_load(handle)
+    try:
+        input_section = data["input"]
+        return SimulationInfo(
+            path=path,
+            first_file=int(input_section["first_file"]),
+            last_file=int(input_section["last_file"]),
+            tree_name=input_section["tree_name"],
+            tree_type=input_section["tree_type"],
+            simulation_dir=input_section["simulation_dir"],
+            snapshot_list_file=input_section["snapshot_list_file"],
+            raw=data,
+        )
+    except (KeyError, TypeError) as exc:
+        raise ConverterError("{}: missing required input.* key: {}".format(path, exc)) from exc
+
+
+@dataclass
+class SourceReachability:
+    simulation_dir: str
+    exists: bool
+    host: str
+    declared_first_file: int
+    declared_last_file: int
+    declared_file_count: int
+    present_files: List[str]
+    present_file_count: int
+    total_bytes: int
+    free_bytes_on_volume: Optional[int]
+    notes: List[str] = field(default_factory=list)
+
+
+def host_identity() -> str:
+    return socket.gethostname()
+
+
+def free_space_bytes(path) -> Optional[int]:
+    """Free space on the volume containing `path`, walking up to the nearest
+    existing ancestor when `path` itself is absent."""
+    candidate = Path(path)
+    while not candidate.exists():
+        parent = candidate.parent
+        if parent == candidate:
+            return None
+        candidate = parent
+    return shutil.disk_usage(candidate).free
+
+
+def _resolve_binary_paths(sim_info: SimulationInfo) -> List[Path]:
+    base = Path(sim_info.simulation_dir)
+    return [
+        base / "{}.{}".format(sim_info.tree_name, n)
+        for n in range(sim_info.first_file, sim_info.last_file + 1)
+    ]
+
+
+def check_lhalo_reachability(sim_info: SimulationInfo) -> SourceReachability:
+    base = Path(sim_info.simulation_dir)
+    exists = base.exists()
+    declared_count = sim_info.last_file - sim_info.first_file + 1
+    present: List[Path] = []
+    total_bytes = 0
+    if exists:
+        for candidate in _resolve_binary_paths(sim_info):
+            if candidate.exists():
+                present.append(candidate)
+                total_bytes += candidate.stat().st_size
+    notes = []
+    if exists and len(present) != declared_count:
+        notes.append(
+            "{} of {} declared files present (first_file={}, last_file={})".format(
+                len(present), declared_count, sim_info.first_file, sim_info.last_file
+            )
+        )
+    if not exists:
+        notes.append("simulation_dir does not exist")
+    return SourceReachability(
+        simulation_dir=str(base),
+        exists=exists,
+        host=host_identity(),
+        declared_first_file=sim_info.first_file,
+        declared_last_file=sim_info.last_file,
+        declared_file_count=declared_count,
+        present_files=[str(p) for p in present],
+        present_file_count=len(present),
+        total_bytes=total_bytes,
+        free_bytes_on_volume=free_space_bytes(base),
+        notes=notes,
+    )
+
+
+def check_hdf5_reachability(sim_info: SimulationInfo) -> SourceReachability:
+    base = Path(sim_info.simulation_dir)
+    exists = base.exists()
+    info_path = base / sim_info.tree_name
+    notes = []
+    total_bytes = 0
+    present: List[Path] = []
+    if exists and info_path.exists():
+        present.append(info_path)
+        total_bytes += info_path.stat().st_size
+        if h5py is not None:
+            try:
+                with h5py.File(info_path, "r") as f:
+                    for key in f.keys():
+                        link = f.get(key, getlink=True)
+                        if isinstance(link, h5py.ExternalLink):
+                            target = (info_path.parent / link.filename).resolve()
+                            if target.exists():
+                                present.append(target)
+                                total_bytes += target.stat().st_size
+                            else:
+                                notes.append(
+                                    "{}: external link target {} is absent".format(key, target)
+                                )
+            except OSError as exc:
+                notes.append("failed to enumerate external links: {}".format(exc))
+        else:
+            notes.append("h5py not installed: external-link targets not enumerated")
+    elif exists:
+        notes.append("info file {} does not exist under simulation_dir".format(sim_info.tree_name))
+    else:
+        notes.append("simulation_dir does not exist")
+    declared_count = sim_info.last_file - sim_info.first_file + 1
+    return SourceReachability(
+        simulation_dir=str(base),
+        exists=exists,
+        host=host_identity(),
+        declared_first_file=sim_info.first_file,
+        declared_last_file=sim_info.last_file,
+        declared_file_count=declared_count,
+        present_files=[str(p) for p in present],
+        present_file_count=len(present),
+        total_bytes=total_bytes,
+        free_bytes_on_volume=free_space_bytes(base),
+        notes=notes,
+    )
