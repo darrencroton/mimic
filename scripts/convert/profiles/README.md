@@ -71,7 +71,9 @@ Selecting extras never changes the on-disk stride, and an unselected field is st
 
 ## Schema identity
 
-A validated profile is frozen into a canonical schema whose SHA-256 digest is the `column_mapping_sha256` a horizontal-HDF5 v3 file records. The digest covers the adapter, the complete resolved mapping, the source layout, the declared payload types and units, and every extra's type, sources, units and h convention.
+A validated profile is frozen into a canonical schema whose SHA-256 digest is the `column_mapping_sha256` a horizontal-HDF5 v3 file records. The digest covers the **declared profile**: the adapter, the normalised alias list declared for every required role, the source layout, the declared payload types and units, and every extra's type, sources, units and h convention.
+
+It identifies the profile, **not a particular file's resolution**. Which alias actually matched — `snap_num` in one file, `snap_idx` in another — is outside the digest by design, so a single frozen profile keeps one identity across sources that legitimately resolve differently.
 
 It deliberately does **not** cover presentation: comments, YAML key order, alias order within a role and extra-definition order are all normalised away, so reformatting a profile does not invalidate a dataset produced from it. Anything that changes how a value is read, typed, named or labelled does move the digest — including two types that happen to share a width, such as `int` and `float`.
 

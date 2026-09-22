@@ -146,6 +146,23 @@ class ShippedProfileTests(unittest.TestCase):
                 with self.subTest(profile=path.name, extra=extra.name):
                     self.assertNotIn(extra.name, core_names)
 
+    def test_shipped_hdf5_example_types_match_the_real_source_dtypes(self):
+        """The real micro-Uchuu source stores Forests/Rvir and Forests/Spin as
+        float64 and pid as int64, so the example must declare double and
+        long long. Declaring float32 would narrow every value silently.
+
+        Asserted against the shipped profile rather than by opening the 13 GB
+        dataset: the dtypes were verified directly against
+        simulations/micro-uchuu-hdf5/snapshots/MicroUchuu_mergertree_info.h5
+        when this expectation was written, and pinning them here keeps the
+        example honest without making the unit suite depend on real data.
+        """
+        column_map = cs.load_column_map(PROFILE_DIR / "consistent_trees_hdf5_extras_example.yaml")
+        declared = {extra.name: extra.type for extra in column_map.extra_fields}
+        self.assertEqual(declared["CatalogRvir"], "double")
+        self.assertEqual(declared["SpinParameter"], "double")
+        self.assertEqual(declared["ParentID"], "long long")
+
     def test_shipped_binary_layout_matches_the_shipped_104_byte_record(self):
         schema = cs.build_schema(
             cs.load_column_map(PROFILE_DIR / "lhalo_binary.yaml"), self.source_properties
@@ -1147,6 +1164,46 @@ class AliasResolutionTests(unittest.TestCase):
         wrong_case = [name.lower() if name == "Mvir" else name for name in exact]
         with self.assertRaisesRegex(ConverterError, "none of the aliases"):
             cs.resolve_required_columns(schema, wrong_case)
+
+    def test_two_ascii_roles_resolving_to_one_column_fail(self):
+        """The collision check has to bite in the *shared resolver*.
+
+        `build_schema` can only enforce it for `lhalo_binary`; ASCII and
+        forests-HDF5 adapters resolve through `resolve_required_columns`, so an
+        adapter following the documented obligation must get the protection
+        without having to remember a second call.
+        """
+        profile = valid_profile("consistent_trees_ascii")
+        profile["required_columns"]["desc_id"] = ["id"]
+        profile["required_columns"]["snap"] = ["snap_num"]
+        schema = schema_for(profile)
+        with self.assertRaisesRegex(ConverterError, "both resolve to the same source field"):
+            cs.resolve_required_columns(schema, self.ASCII_COLUMNS)
+
+    def test_two_hdf5_roles_resolving_to_one_dataset_fail(self):
+        profile = valid_profile("consistent_trees_hdf5")
+        profile["required_columns"]["Mvir"] = ["vmax"]
+        profile["required_columns"]["snap"] = ["Snap_num"]
+        schema = schema_for(profile)
+        available = [
+            role for role in cs.REQUIRED_ROLES["consistent_trees_hdf5"] if role != "snap"
+        ] + ["Snap_num"]
+        with self.assertRaisesRegex(ConverterError, "both resolve to the same source field"):
+            cs.resolve_required_columns(schema, available)
+
+    def test_a_valid_profile_still_resolves_through_the_shared_resolver(self):
+        """The collision check must not reject a legitimate resolution."""
+        schema = cs.build_schema(cs.load_column_map(PROFILE_DIR / "consistent_trees_ascii.yaml"))
+        resolved = cs.resolve_required_columns(schema, self.ASCII_COLUMNS)
+        self.assertEqual(len(set(resolved.values())), len(resolved))
+
+    def test_a_repeated_identical_column_name_is_left_to_the_adapter(self):
+        """`available` is a caller-supplied iterable; a repeated entry in it is
+        not evidence that the file carries the column twice. Detecting a
+        genuinely duplicated column belongs to the reading adapter."""
+        schema = cs.build_schema(cs.load_column_map(PROFILE_DIR / "consistent_trees_ascii.yaml"))
+        resolved = cs.resolve_required_columns(schema, self.ASCII_COLUMNS + ["Mvir(10)"])
+        self.assertEqual(resolved["mvir"], "Mvir(10)")
 
     def test_extra_sources_resolve_or_fail_loudly(self):
         schema = cs.build_schema(

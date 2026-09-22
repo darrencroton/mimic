@@ -88,7 +88,7 @@ All scalar metadata lives as attributes on the `/header` group. The version 2 at
 | Attribute | Type | Semantics |
 |---|---|---|
 | `format_version` | int32 | Contract version; this document defines version 3 |
-| `links_adjacent` | int32 | `0` or `1`, **measured across the entire dataset** and identical in every file. `1` asserts that every non-null link in the whole dataset is adjacent |
+| `links_adjacent` | int32 | `0` or `1`, **measured across the entire dataset over `Descendant` links only**, and identical in every file. `1` asserts that every non-null `Descendant` link in the whole dataset targets the very next snapshot |
 | `scale_factor` | float64 | Scale factor *a* of this snapshot |
 | `snapshot_number` | int32 | Snapshot index; must equal the `NNN` in the filename |
 | `n_halos` | int64 | Number of halos in this file; equals the length of every `/halos` dataset |
@@ -107,9 +107,11 @@ Version 3 adds exactly two:
 | `source_format` | fixed-length ASCII, 32 bytes | The adapter that produced this dataset: `consistent_trees_ascii`, `consistent_trees_hdf5` or `lhalo_binary` |
 | `column_mapping_sha256` | fixed-length ASCII, 64 bytes | Lowercase hex SHA-256 of the canonical mapping schema (see below), identical in every file |
 
-`links_adjacent` is a **measurement of the whole dataset**, not of one file. A dataset whose every link happens to be adjacent may declare `1`; a dataset with a single gap anywhere declares `0` in every one of its files. It is not a request, a hint or a per-file property, and a producer may not stamp `1` on a file whose dataset contains a gap elsewhere.
+`links_adjacent` is a **measurement of the whole dataset**, not of one file. A dataset whose every `Descendant` link happens to be adjacent may declare `1`; a dataset with a single gap anywhere declares `0` in every one of its files. It is not a request, a hint or a per-file property, and a producer may not stamp `1` on a file whose dataset contains a gap elsewhere.
 
-`column_mapping_sha256` is the digest computed by `scripts/convert/column_schema.py` over the canonical serialization of the adapter identity, the complete resolved column mapping, the source layout, the declared payload types and units, and every selected extra's name, sources, type, units and h convention. Presentation — comments, YAML key order, alias order, extra-definition order — is normalised away and does not move the digest; anything that changes how a value is read, typed, named or labelled does, **including two types that share a width**. Details: [`scripts/convert/profiles/README.md`](../../scripts/convert/profiles/README.md).
+**It ranges over `Descendant` links only** — and therefore over `FirstProgenitor`, which is their inverse. This is version 2's own scope carried forward unchanged, not a new rule: v2 defines adjacency over `Descendant` links, and "gap" throughout this format's history means a gapped descendant edge (mini-Millennium's measured 29,291 of them). A producer must **not** read it as "all five link types differ by exactly one snapshot", which would stamp `0` on essentially every real dataset: `NextProgenitor` is descendant-relative and carries no direction constraint against its owner at all (see invariant 2), and on real mini-Millennium data 92.2% of its links sit at the *same* snapshot as their owner — the ordinary case, not an edge case. The FoF links are same-snapshot by definition and say nothing about adjacency either.
+
+`column_mapping_sha256` is the digest computed by `scripts/convert/column_schema.py` over the canonical serialization of the **declared mapping profile**: the adapter identity, the normalised alias list declared for every required role, the source layout, the declared payload types and units, and every selected extra's name, sources, type, units and h convention. It identifies the profile, **not any one file's concrete resolution** — which alias actually matched in a given file is deliberately outside it, so that one frozen profile yields one digest across files that legitimately resolve differently (a package carrying `Snap_num` and one carrying `Snap_idx` share a digest, as they must). Presentation — comments, YAML key order, alias order, extra-definition order — is normalised away and does not move the digest; anything that changes how a value is read, typed, named or labelled does, **including two types that share a width**. Details: [`scripts/convert/profiles/README.md`](../../scripts/convert/profiles/README.md).
 
 ## Halo Datasets
 
@@ -181,7 +183,18 @@ L-Halo mass in particular **stays float32 in `1e10 Msun/h`**. Converting it into
 
 - One subgroup per physical/catalog payload field — **including `Len`, `SnapNum` and `MostBoundID`** — plus one per selected extra.
 - Each subgroup carries **exactly** four scalar variable-length UTF-8 string attributes: `type`, `units`, `h_convention`, `description`. No others, and **no children**.
-- `type` is one of `int`, `long long`, `float`, `double`, `vec3_int`, `vec3_float`; `h_convention` is `carried`, `free` or `none`. These are the property generator's own vocabularies (`scripts/generate_properties.py`), so anything declarable here is declarable by a simulation package.
+- `type` is one of six values and `h_convention` is `carried`, `free` or `none`. These are the property generator's own vocabularies (`scripts/generate_properties.py`), so anything declarable here is declarable by a simulation package. Each `type` fixes the dataset's storage exactly:
+
+  | `type` | Dataset dtype | Dataset shape | Bytes per row |
+  |---|---|---|---|
+  | `int` | int32 | `[N]` | 4 |
+  | `long long` | int64 | `[N]` | 8 |
+  | `float` | float32 | `[N]` | 4 |
+  | `double` | float64 | `[N]` | 8 |
+  | `vec3_int` | int32 | `[N, 3]` | 12 |
+  | `vec3_float` | float32 | `[N, 3]` | 12 |
+
+  All are explicit little-endian (see [Storage Layout](#storage-layout)). A declaration whose `type` disagrees with the dataset's actual dtype or shape makes the file invalid.
 - **Topology and the three identity arrays are not redeclared.** They are governed by the fixed format tables above. Declaring them in `/schema` would create two sources of truth for one contract.
 - A missing declaration, an extra declaration, or a declaration whose `type` disagrees with the dataset's actual dtype or shape makes the file invalid.
 - `/schema`, `source_format` and `column_mapping_sha256` are **identical across every snapshot file** of a dataset.

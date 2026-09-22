@@ -1267,7 +1267,7 @@ def _check_declaration_order(entries: Sequence[LayoutEntry], origin: str) -> Non
         previous = entry
 
 
-def _check_role_collisions(resolved_roles: Mapping[str, str], origin: str) -> None:
+def _check_role_collisions(resolved_roles: Mapping[str, str], origin: Optional[str] = None) -> None:
     """No two required roles may claim the same source field.
 
     Roles resolve independently, so a copy-paste typo such as
@@ -1285,9 +1285,10 @@ def _check_role_collisions(resolved_roles: Mapping[str, str], origin: str) -> No
         spelling = resolved_roles[role]
         if spelling in claimed:
             raise ConverterError(
-                "{}: required columns {!r} and {!r} both resolve to the same source field "
-                "{!r}; each role needs its own field".format(
-                    origin, claimed[spelling], role, spelling
+                _context(
+                    origin,
+                    "required columns {!r} and {!r} both resolve to the same source field "
+                    "{!r}; each role needs its own field".format(claimed[spelling], role, spelling),
                 )
             )
         claimed[spelling] = role
@@ -1493,6 +1494,8 @@ def build_schema(
             column_map.required_columns,
             property_names,
             column_map.origin,
+            # Deferred, not skipped: see the ordering note at the call below.
+            check_collisions=False,
         )
         resolved_extras = _resolve_extras(
             column_map.source_format, column_map.extra_fields, property_names, column_map.origin
@@ -1644,9 +1647,13 @@ def _check_component_arity(
 def _normalized_available(source_format: str, available: Iterable[str]) -> Dict[str, str]:
     """Map normalized source column name -> the source's own spelling.
 
-    A source whose two distinct columns normalize to the same name is
-    rejected: that is the reference parser's duplicate-column abort, and
-    picking either one would be a silent guess.
+    Two *distinct* source columns that normalize to the same name are
+    rejected, because picking either one would be a silent guess. An exact
+    repeat of the same spelling is not: ``available`` is a caller-supplied
+    iterable, and a repeated entry in it says nothing about whether the file
+    really carries the column twice. Detecting a genuinely duplicated column
+    is the reading adapter's job, at the point it enumerates the file's own
+    header or dataset list -- this function never sees the file.
     """
     resolved: Dict[str, str] = {}
     for name in available:
@@ -1684,12 +1691,25 @@ def _resolve_roles(
     required_columns: Sequence[Tuple[str, Tuple[str, ...]]],
     available: Iterable[str],
     origin: Optional[str] = None,
+    check_collisions: bool = True,
 ) -> Dict[str, str]:
+    """Resolve every role, rejecting a role-to-role collision by default.
+
+    The default is on so that a caller gets the protection without having to
+    remember a second call -- the ASCII and forests-HDF5 adapters resolve
+    through :func:`resolve_required_columns`, and that is where the check has
+    to bite for them. ``build_schema`` opts out and runs the check itself a
+    little later, purely to keep a more specific error ahead of a more general
+    one; see its call site.
+    """
     lookup = _normalized_available(source_format, available)
-    return {
+    resolved = {
         role: _resolve_one(aliases, lookup, _context(origin, "required column {!r}".format(role)))
         for role, aliases in required_columns
     }
+    if check_collisions:
+        _check_role_collisions(resolved, origin)
+    return resolved
 
 
 def _resolve_extras(

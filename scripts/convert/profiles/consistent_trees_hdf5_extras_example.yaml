@@ -9,6 +9,13 @@
 # profiles/README.md: Mimic's src/core/core_properties.yaml already declares
 # a `Rvir` property, and a package declaring both would fail to generate.
 #
+# Both float extras below are `double`, not `float`: the real micro-Uchuu
+# source stores `Forests/Rvir` and `Forests/Spin` as float64 (verified
+# directly against simulations/micro-uchuu-hdf5/snapshots/
+# MicroUchuu_mergertree_info.h5). Declaring float32 would narrow every
+# value silently. `ParentID` is `long long` for the same reason -- the
+# source's `pid` is int64.
+#
 # SpinParameter is the instructive one: the source carries a `Spin` dataset
 # holding the dimensionless Consistent-Trees spin parameter, which is a
 # different quantity from the v3 payload field also called `Spin` (the
@@ -45,7 +52,7 @@ extra_fields:
   - name: CatalogRvir
     sources:
       - field: Rvir
-    type: float
+    type: double
     units: kpc/h
     h_convention: carried
     description: Virial radius as written by Consistent-Trees
@@ -53,7 +60,7 @@ extra_fields:
   - name: SpinParameter
     sources:
       - field: Spin
-    type: float
+    type: double
     units: dimensionless
     h_convention: none
     description: Dimensionless Consistent-Trees spin parameter, not the J/Mvir payload Spin

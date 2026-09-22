@@ -306,6 +306,12 @@ class CanonicalBatch:
     Batch size is the adapter's business; the contract only requires that a
     batch fits the configured bound, so a forest larger than one chunk is
     emitted across several batches rather than materialised whole (C4).
+
+    ``frozen=True`` here prevents *rebinding the five fields*, nothing more.
+    The mappings and the arrays they hold stay mutable, deliberately -- an
+    adapter fills them, and this module's own tests construct invalid cases by
+    editing a valid batch. Do not read the freeze as a guarantee that a batch's
+    contents cannot change after ``validate()`` has passed.
     """
 
     schema: CanonicalSchema
