@@ -453,6 +453,60 @@ class CtreesHDF5InspectionTests(unittest.TestCase):
             with self.assertRaises(ConverterError):
                 si.inspect_ctrees_hdf5_source(path, scan_links=False)
 
+    def test_empty_forest_info_with_mismatched_extents_fails(self):
+        # steer-attempt-3 item 2: zero declared forests but mismatched
+        # Descendant/snapshot-column dataset lengths previously bypassed
+        # _validate_forest_info_offsets entirely (only called `if
+        # n_forests:`), reporting reachable=True, n_halos=0 with no check.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "info.h5"
+            forest_info_dtype = np.dtype(
+                [
+                    ("ForestID", "<i8"),
+                    ("ForestHalosOffset", "<i8"),
+                    ("ForestNhalos", "<i8"),
+                    ("ForestNtrees", "<i8"),
+                ]
+            )
+            info = np.zeros(0, dtype=forest_info_dtype)  # zero declared forests
+            with h5py.File(path, "w") as f:
+                f.attrs["Nfiles"] = 1
+                f.attrs["TotNforests"] = 0
+                group = f.create_group("File0")
+                group.create_dataset("ForestInfo", data=info)
+                fg = group.create_group("Forests")
+                fg.create_dataset("Descendant", data=np.array([-1] * 5, dtype="<i8"))
+                fg.create_dataset("Snap_num", data=np.array([0] * 3, dtype="<i8"))
+            with self.assertRaises(ConverterError):
+                si.inspect_ctrees_hdf5_source(path)
+            with self.assertRaises(ConverterError):
+                si.inspect_ctrees_hdf5_source(path, scan_links=False)
+
+    def test_forest_info_missing_column_fails_cleanly(self):
+        # steer-attempt-3 item 3: a ForestInfo compound array missing
+        # ForestNhalos previously raised a bare
+        # "ValueError: no field of name ForestNhalos" with no file context.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "info.h5"
+            forest_info_dtype = np.dtype(
+                [
+                    ("ForestID", "<i8"),
+                    ("ForestHalosOffset", "<i8"),
+                    ("ForestNtrees", "<i8"),
+                    # ForestNhalos deliberately omitted
+                ]
+            )
+            info = np.zeros(1, dtype=forest_info_dtype)
+            with h5py.File(path, "w") as f:
+                f.attrs["Nfiles"] = 1
+                group = f.create_group("File0")
+                group.create_dataset("ForestInfo", data=info)
+                fg = group.create_group("Forests")
+                fg.create_dataset("Descendant", data=np.array([-1], dtype="<i8"))
+                fg.create_dataset("Snap_num", data=np.array([0], dtype="<i8"))
+            with self.assertRaises(ConverterError):
+                si.inspect_ctrees_hdf5_source(path)
+
     def test_malformed_rank_descendant_fails_cleanly(self):
         # A 0-d (scalar) Descendant dataset previously raised an uncaught
         # IndexError once indexed as if it were the expected 1-D array.
@@ -626,6 +680,16 @@ class ReachabilityTests(unittest.TestCase):
             path = tmp / "simulation_info.yaml"
             with open(path, "w") as f:
                 yaml.safe_dump({"input": {"first_file": 0}}, f)
+            with self.assertRaises(ConverterError):
+                si.load_simulation_info(path)
+
+    def test_load_simulation_info_syntax_error_wrapped(self):
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = Path(tmp_str)
+            path = tmp / "simulation_info.yaml"
+            # Unbalanced flow-mapping brace: a genuine YAML syntax error,
+            # not just a missing key.
+            path.write_text("input: {first_file: 0, last_file: 1\n")
             with self.assertRaises(ConverterError):
                 si.load_simulation_info(path)
 
@@ -870,17 +934,29 @@ class JsonOutputSafetyTests(unittest.TestCase):
     def test_survey_json_at_named_package_simulation_dir_refused(self):
         # survey's protected set covers all five named packages, not just
         # whatever --simulation-info/--a-list were passed (survey takes
-        # neither). Use a real named package's simulation_dir.
-        repo_root = inspect_sources._repo_root()
-        real_snap_dir = si.load_simulation_info(
-            repo_root / inspect_sources.NAMED_PACKAGES["mini-millennium"]
-        ).simulation_dir
-        target = str(Path(real_snap_dir) / "pwned_by_test.json")
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            rc = inspect_sources.main(["survey", "--reachability-only", "--json", target])
-        self.assertEqual(rc, 1)
-        self.assertFalse(Path(target).exists())
+        # neither). A test protecting against source-data corruption must
+        # not itself risk causing it: this uses a temporary, mocked package
+        # (mock.patch.dict over NAMED_PACKAGES, the same pattern the other
+        # reachability tests already use) rather than a real named package's
+        # simulation_dir -- if _check_json_output_safe ever regresses, this
+        # test must fail loudly, not write a stray file into real source data
+        # under /Volumes/Internal/data/millennium/.
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = Path(tmp_str)
+            snap_dir = tmp / "snapshots"
+            snap_dir.mkdir()
+            self._write_minimal_lhalo_file(snap_dir / "trees_test.0")
+            sim_info_path = self._write_lhalo_sim_info(tmp, snap_dir)
+            target = str(snap_dir / "pwned_by_test.json")
+
+            buf = io.StringIO()
+            with mock.patch.dict(
+                inspect_sources.NAMED_PACKAGES, {"test-pkg": str(sim_info_path)}, clear=True
+            ):
+                with redirect_stdout(buf):
+                    rc = inspect_sources.main(["survey", "--reachability-only", "--json", target])
+            self.assertEqual(rc, 1)
+            self.assertFalse(Path(target).exists())
 
 
 class InspectSourcesCLITests(unittest.TestCase):
@@ -982,6 +1058,53 @@ class InspectSourcesCLITests(unittest.TestCase):
                 ),
                 adapter,
             )
+
+    def test_survey_malformed_yaml_does_not_discard_other_packages(self):
+        # A syntax-broken simulation_info.yaml for one named package must
+        # not abort the whole survey with a raw traceback, discarding every
+        # other package's already-gathered results -- the same failure mode
+        # items 2 and 8 from the last two rounds were fixed to prevent, via
+        # yaml.YAMLError specifically (not one of PER_PACKAGE_EXCEPTIONS
+        # until load_simulation_info wraps it into ConverterError itself).
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = Path(tmp_str)
+            broken_path = tmp / "broken_simulation_info.yaml"
+            broken_path.write_text("input: {first_file: 0, last_file: 1\n")
+
+            good_snap_dir = tmp / "good_snapshots"
+            good_snap_dir.mkdir()
+            with open(good_snap_dir / "trees_test.0", "wb") as f:
+                f.write(struct.pack("<ii", 0, 0))  # Ntrees=0, totNHalos=0
+            good_sim_info_path = tmp / "good_simulation_info.yaml"
+            with open(good_sim_info_path, "w") as f:
+                yaml.safe_dump(
+                    {
+                        "input": {
+                            "first_file": 0,
+                            "last_file": 0,
+                            "tree_name": "trees_test",
+                            "tree_type": "lhalo_binary",
+                            "simulation_dir": str(good_snap_dir),
+                            "snapshot_list_file": str(tmp / "a_list"),
+                        }
+                    },
+                    f,
+                )
+            (tmp / "a_list").write_text("1.0\n")
+
+            buf = io.StringIO()
+            with mock.patch.dict(
+                inspect_sources.NAMED_PACKAGES,
+                {"broken-pkg": str(broken_path), "good-pkg": str(good_sim_info_path)},
+                clear=True,
+            ):
+                with redirect_stdout(buf):
+                    rc = inspect_sources.main(["survey", "--reachability-only"])
+            results = json.loads(buf.getvalue())
+            self.assertEqual(rc, 1)
+            self.assertIn("error", results["broken-pkg"])
+            self.assertIn("reachability", results["good-pkg"])
+            self.assertTrue(results["good-pkg"]["reachability"]["exists"])
 
     def test_survey_reachability_failure_does_not_discard_other_packages(self):
         # A transient filesystem error during reachability checking for one

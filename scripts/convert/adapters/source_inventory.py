@@ -391,6 +391,7 @@ def inspect_ctrees_hdf5_source(
                 continue
 
             context = "{} File {}".format(info_path, key)
+            _require_forest_info_fields(forest_info, context)
             _require_dataset(forests_group, "Descendant", context)
             snap_field = _resolve_snap_field(forests_group, context)
             _require_dataset(forests_group, snap_field, context)
@@ -411,13 +412,19 @@ def inspect_ctrees_hdf5_source(
             # O(n_halos), so it always runs -- unlike the payload-intensive
             # span computation below, it is not something --no-link-scan
             # should be able to skip past on a real, supported path.
-            if n_forests:
-                _validate_forest_info_offsets(
-                    forest_info["ForestHalosOffset"],
-                    forest_info["ForestNhalos"],
-                    forests_group["Descendant"].shape[0],
-                    forests_group[snap_field].shape[0],
-                )
+            # Unconditional even when n_forests == 0: every internal check is
+            # itself sized-guarded and reduces to comparing the two dataset
+            # extents (0 declared halos means both must actually be empty) --
+            # previously gating this whole call on `if n_forests:` let a
+            # zero-forest ForestInfo bypass the extent-agreement check
+            # entirely, silently accepting mismatched Descendant/snapshot
+            # dataset lengths.
+            _validate_forest_info_offsets(
+                forest_info["ForestHalosOffset"],
+                forest_info["ForestNhalos"],
+                forests_group["Descendant"].shape[0],
+                forests_group[snap_field].shape[0],
+            )
 
             link_summary = None
             if scan_links and n_halos:
@@ -456,6 +463,23 @@ def _resolve_snap_field(forests_group, context: str = "Forests/") -> str:
             context, " nor ".join(_SNAP_FIELD_SPELLINGS)
         )
     )
+
+
+#: ForestInfo compound-dtype fields this tool reads directly.
+_FOREST_INFO_REQUIRED_FIELDS = ("ForestHalosOffset", "ForestNhalos")
+
+
+def _require_forest_info_fields(forest_info: np.ndarray, context: str) -> None:
+    """Raise ConverterError with file context instead of letting a malformed
+    ForestInfo compound dtype missing a required field surface as a bare
+    ValueError ("no field of name ...") once indexed by name -- mirrors
+    _require_dataset's existing pattern for the Forests/ group."""
+    names = forest_info.dtype.names or ()
+    missing = [name for name in _FOREST_INFO_REQUIRED_FIELDS if name not in names]
+    if missing:
+        raise ConverterError(
+            "{}: ForestInfo is missing required column(s) {}".format(context, missing)
+        )
 
 
 def _require_dataset(forests_group, name: str, context: str) -> None:
@@ -655,7 +679,10 @@ class SimulationInfo:
 def load_simulation_info(path) -> SimulationInfo:
     path = Path(path)
     with open(path, "r") as handle:
-        data = yaml.safe_load(handle)
+        try:
+            data = yaml.safe_load(handle)
+        except yaml.YAMLError as exc:
+            raise ConverterError("{}: invalid YAML: {}".format(path, exc)) from exc
     try:
         input_section = data["input"]
         return SimulationInfo(
@@ -674,6 +701,14 @@ def load_simulation_info(path) -> SimulationInfo:
 
 @dataclass
 class SourceReachability:
+    """`free_bytes_on_volume` is always the **source** volume's free space
+    (the volume `simulation_dir` lives on) -- never the volume any later
+    conversion would write to, which may be a different mount entirely (see
+    docs/dev/MIMIC-CONVERTER-SOURCE-INVENTORY.md's Section 2 for the
+    output-volume figure and why the two are reported separately). A
+    consumer of this JSON field alone, without that doc's prose, should not
+    read it as write-target capacity."""
+
     simulation_dir: str
     exists: bool
     host: str

@@ -358,7 +358,23 @@ snapshot value on **either** the integer or the float path (`< 0` or
 `> INT_MAX`, matching `read_ctrees_hdf5.c`'s `CT_ASSIGN_SNAP_INT`/
 `CT_ASSIGN_SNAP_DOUBLE` exactly, narrowed only by dropping that macro's
 additional `<= LastSnapshotNr` term, which comes from the a_list this tool
-does not load) -- all raise `ConverterError` and abort. A missing `h5py` is
+does not load) -- all raise `ConverterError` and abort. Also covered: a
+syntax-broken `simulation_info.yaml` (`yaml.YAMLError` wrapped into
+`ConverterError` at the single `load_simulation_info` call site all three
+CLI paths share, rather than propagating a raw `yaml.scanner.ScannerError`
+that would defeat `survey`'s per-package isolation); a negative
+`ForestNhalos` or one at/above the int32 index limit (matching the real C
+reader's `validate_forestinfo_cache_row_ctrees_hdf5`); an all-zero-forest
+`ForestInfo` whose `Descendant`/snapshot-column dataset lengths still
+disagree with each other (the extent-agreement check now runs
+unconditionally, not gated on `n_forests` truthy -- a zero-forest file no
+longer bypasses it); and a `ForestInfo` compound array missing the
+`ForestHalosOffset`/`ForestNhalos` field it needs (previously a bare
+`ValueError: no field of name ...` with no file context; now
+`ConverterError` naming the file and the missing column(s), mirroring
+`_require_dataset`'s existing treatment of the `Forests/` group -- an
+earlier draft of this section's "all raise `ConverterError`" claim was not
+yet true for this specific family; it is now). A missing `h5py` is
 reported as `MissingDependencyError` and propagates to a nonzero process
 exit for `inspect`; for `survey`, a per-package exception (broadened to
 cover the realistic numpy/h5py failure modes on untrusted input, not just
