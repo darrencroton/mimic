@@ -83,6 +83,8 @@ cd "$REPO_ROOT" || exit 1
 . "${REPO_ROOT}/scripts/lib/defaults.sh"
 # shellcheck source=scripts/lib/colors.sh
 . "${REPO_ROOT}/scripts/lib/colors.sh"
+# shellcheck source=scripts/lib/python.sh
+. "${REPO_ROOT}/scripts/lib/python.sh"
 
 # Paths
 MIMIC_EXE="$REPO_ROOT/mimic"
@@ -157,7 +159,7 @@ echo ""
 
 # Step 3: Validate parameter file exists
 echo -e "${BLUE}Step 3: Validating parameter file...${NC}"
-python3 scripts/generate_test_inputs.py >/dev/null || {
+${MIMIC_PYTHON} scripts/generate_test_inputs.py >/dev/null || {
     echo -e "${RED}ERROR: Failed to generate test input files${NC}"
     exit 1
 }
@@ -168,7 +170,7 @@ if [ ! -f "$PARAM_FILE" ]; then
 fi
 
 # Check that module lists are empty (physics-free mode).
-if ! python3 - "$PARAM_FILE" <<'PY'
+if ! ${MIMIC_PYTHON} - "$PARAM_FILE" <<'PY'
 import sys
 import yaml
 from pathlib import Path
@@ -318,7 +320,7 @@ echo "Running baseline comparison test..."
 echo ""
 
 cd "$REPO_ROOT/tests/integration" || exit 1
-if python3 -c "
+if ${MIMIC_PYTHON} -c "
 import sys
 sys.path.insert(0, '..')
 from test_output_formats import test_hdf5_baseline_comparison

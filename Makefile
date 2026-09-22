@@ -294,7 +294,9 @@ endif
 # -----------------------------------------------------------------------------
 # Python Configuration (for tests and code generation)
 # -----------------------------------------------------------------------------
-PYTHON := $(shell if [ -f mimic_venv/bin/python3 ] && echo "$${VIRTUAL_ENV:-}" | grep -q "mimic_venv"; then echo mimic_venv/bin/python3; else echo python3; fi)
+# Precedence: activated virtualenv, then mimic_venv (which holds the pinned
+# black/isort/PyYAML), then system python3.
+PYTHON := $(shell if [ -n "$${VIRTUAL_ENV:-}" ] && [ -x "$${VIRTUAL_ENV}/bin/python3" ]; then echo "$${VIRTUAL_ENV}/bin/python3"; elif [ -f mimic_venv/bin/python3 ]; then echo mimic_venv/bin/python3; else echo python3; fi)
 CLANG_FORMAT := $(shell if [ -f mimic_venv/bin/clang-format ]; then echo mimic_venv/bin/clang-format; else echo clang-format; fi)
 TEST_SUMMARY ?= $(if $(filter summary,$(MAKECMDGOALS)),1,0)
 export TEST_SUMMARY
@@ -414,7 +416,7 @@ PROP_STAMP := $(BUILD_DIR)/generated/property_generation.stamp
 # cannot reuse a stale generated schema.
 $(PROP_STAMP): $(PROP_YAML) scripts/generate_properties.py FORCE
 	@echo "Generating property code from metadata..."
-	@python3 scripts/generate_properties.py
+	@$(PYTHON) scripts/generate_properties.py
 	@mkdir -p $(BUILD_DIR)/generated
 	@touch $@
 
@@ -449,7 +451,7 @@ $(OBJECTS): | $(GENERATED_HEADERS) $(MODULE_STAMP)
 $(MODULE_STAMP): $(MODULE_YAML) scripts/generate_module_registry.py FORCE
 	@echo ""
 	@echo "Generating module registration code from metadata (auto)..."
-	@python3 scripts/generate_module_registry.py
+	@$(PYTHON) scripts/generate_module_registry.py
 	@echo "Generated files for $(words $(MODULE_YAML)) module(s)"
 	@mkdir -p $(BUILD_DIR)/generated
 	@touch $@
@@ -587,30 +589,30 @@ endif
 
 # Code generation from metadata (smart - only regenerates what changed)
 generate:
-	@python3 scripts/generate_properties.py
-	@python3 scripts/generate_module_registry.py
-	@python3 scripts/generate_test_inputs.py
+	@$(PYTHON) scripts/generate_properties.py
+	@$(PYTHON) scripts/generate_module_registry.py
+	@$(PYTHON) scripts/generate_test_inputs.py
 
 generate-modules:
-	@python3 scripts/generate_module_registry.py
+	@$(PYTHON) scripts/generate_module_registry.py
 
 generate-test-inputs:
-	@python3 scripts/generate_test_inputs.py
+	@$(PYTHON) scripts/generate_test_inputs.py
 
 validate-modules:
 	@echo "Validating module metadata..."
-	@python3 scripts/validate_modules.py
+	@$(PYTHON) scripts/validate_modules.py
 
 lint-parameters:
 	@echo "Linting parameter usage..."
 	@echo ""
-	@python3 scripts/lint_parameter_usage.py
+	@$(PYTHON) scripts/lint_parameter_usage.py
 
 check-generated:
-	@python3 scripts/check_generated.py
+	@$(PYTHON) scripts/check_generated.py
 
 check-docs:
-	@python3 scripts/check_docs.py
+	@$(PYTHON) scripts/check_docs.py
 
 check-format:
 	@echo "Checking C formatting..."
@@ -618,14 +620,19 @@ check-format:
 	    -o \( -name "*.c" -o -name "*.h" \) -print \
 	    | xargs $(CLANG_FORMAT) --dry-run --Werror
 	@echo "Checking Python formatting..."
+	@$(PYTHON) -c 'import black, isort' 2>/dev/null || { \
+	    echo "ERROR: black/isort not importable by $(PYTHON)."; \
+	    echo "  Install the pinned versions: ./scripts/first_run.sh, or"; \
+	    echo "  mimic_venv/bin/pip install -r requirements.txt"; \
+	    exit 1; }
 	@$(PYTHON) -m black --check .
 	@$(PYTHON) -m isort --check-only .
 	@echo "Format checks passed"
 
 # Test registry generation (auto-discovers core, selected-simulation, and selected-model tests)
 generate-test-registry:
-	@python3 scripts/generate_test_registry.py
-	@python3 scripts/generate_test_inputs.py
+	@$(PYTHON) scripts/generate_test_registry.py
+	@$(PYTHON) scripts/generate_test_inputs.py
 
 # -----------------------------------------------------------------------------
 # Test Targets

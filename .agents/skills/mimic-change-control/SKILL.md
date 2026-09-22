@@ -104,7 +104,7 @@ The 2026-06-11 parity campaign brought sage16 to near-bit-parity with original S
 
 Complete all three steps for every commit and report the outcome:
 
-1. **Format** — run `./scripts/beautify.sh` (clang-format for C, black + isort for Python, both at 100 columns). Run it in full even for single-language changes; `make check-format` in CI covers both.
+1. **Format** — run `./scripts/beautify.sh` (clang-format for C, black + isort for Python, both at 100 columns). Run it in full even for single-language changes; `make check-format` in CI covers both. It uses the pinned `mimic_venv` tools without needing the venv activated, and **exits non-zero if a formatter is missing or errors** — check the exit code rather than the banner.
 2. **Style sweep** — re-read your diff against `docs/STYLE-GUIDE.md`. Fix sub-par local style in the files you touched even where it predates your change, but do not expand into whole-repo cleanup. State that the sweep was done.
 3. **Skill sweep** — if the change touched modules, tests, properties, simulations, plots, or core architecture, review the relevant `.agents/skills/mimic-*` skill files and update anything now stale or missing. State that the sweep was done, or flag a skill needing a larger update.
 

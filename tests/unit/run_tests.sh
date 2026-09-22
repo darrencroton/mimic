@@ -41,6 +41,8 @@ TEST_FAILURES_FILE="${REPO_ROOT}/build/.test_failures"
 # the generation scripts below see the same selection.
 . "${REPO_ROOT}/scripts/lib/defaults.sh"
 . "${REPO_ROOT}/scripts/lib/colors.sh"
+# shellcheck source=scripts/lib/python.sh
+. "${REPO_ROOT}/scripts/lib/python.sh"
 . "${REPO_ROOT}/scripts/lib/hdf5.sh"
 MODEL="${MODEL:-$DEFAULT_MODEL}"
 SIMULATION="${SIMULATION:-$DEFAULT_SIMULATION}"
@@ -79,22 +81,22 @@ record_failed_test() {
 export MIMIC_TEST_BUILD=1
 
 # Refresh generated metadata so direct single-test runs use current model properties/modules/tests
-if ! python3 scripts/generate_properties.py > /dev/null; then
+if ! ${MIMIC_PYTHON} scripts/generate_properties.py > /dev/null; then
     echo -e "${RED}ERROR: Failed to refresh property code. Run 'make MODEL=<name> generate'${NC}"
     exit 2
 fi
 
-if ! python3 scripts/generate_module_registry.py > /dev/null; then
+if ! ${MIMIC_PYTHON} scripts/generate_module_registry.py > /dev/null; then
     echo -e "${RED}ERROR: Failed to refresh module registry. Run 'make generate'${NC}"
     exit 2
 fi
 
-if ! python3 scripts/generate_test_registry.py --strict > /dev/null; then
+if ! ${MIMIC_PYTHON} scripts/generate_test_registry.py --strict > /dev/null; then
     echo -e "${RED}ERROR: Failed to refresh test registry. Run 'make generate'${NC}"
     exit 2
 fi
 
-if ! python3 scripts/generate_test_inputs.py > /dev/null; then
+if ! ${MIMIC_PYTHON} scripts/generate_test_inputs.py > /dev/null; then
     echo -e "${RED}ERROR: Failed to refresh generated test inputs. Run 'make generate-test-inputs'${NC}"
     exit 2
 fi
@@ -396,8 +398,8 @@ done
 # shared generated files in that state would make a later production
 # `make check-generated` report a false mismatch. Regenerate without the flag.
 unset MIMIC_TEST_BUILD
-python3 scripts/generate_properties.py > /dev/null 2>&1 || true
-python3 scripts/generate_module_registry.py > /dev/null 2>&1 || true
+${MIMIC_PYTHON} scripts/generate_properties.py > /dev/null 2>&1 || true
+${MIMIC_PYTHON} scripts/generate_module_registry.py > /dev/null 2>&1 || true
 
 # Print summary
 if summary_enabled; then

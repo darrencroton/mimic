@@ -88,6 +88,9 @@ ROOT_DIR="$(dirname "$SCRIPT_PATH")"
 # Load shared project defaults (DEFAULT_MODEL, DEFAULT_SIMULATION, make_default)
 # shellcheck source=scripts/lib/defaults.sh
 . "${SCRIPT_PATH}/lib/defaults.sh"
+REPO_ROOT="${ROOT_DIR}"
+# shellcheck source=scripts/lib/python.sh
+. "${SCRIPT_PATH}/lib/python.sh"
 
 # Function to display error and exit
 error_exit() {
@@ -257,7 +260,7 @@ verbose_log "Using parameter file: ${PARAM_FILE}"
 # Parse benchmark-relevant settings from the run YAML using the same precedence
 # as read_parameter_file.c: simulation config defaults first, then run-file
 # sections override them.
-CONFIG_VALUES=$(PARAM_FILE="${PARAM_FILE}" ROOT_DIR="${ROOT_DIR}" python3 - << 'PY'
+CONFIG_VALUES=$(PARAM_FILE="${PARAM_FILE}" ROOT_DIR="${ROOT_DIR}" ${MIMIC_PYTHON} - << 'PY'
 import os
 import sys
 import yaml

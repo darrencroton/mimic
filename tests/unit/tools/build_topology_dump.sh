@@ -28,6 +28,8 @@ cd "$REPO_ROOT" || exit 1
 . "${REPO_ROOT}/scripts/lib/defaults.sh"
 . "${REPO_ROOT}/scripts/lib/colors.sh"
 . "${REPO_ROOT}/scripts/lib/hdf5.sh"
+# shellcheck source=scripts/lib/python.sh
+. "${REPO_ROOT}/scripts/lib/python.sh"
 MODEL="${MODEL:-$DEFAULT_MODEL}"
 SIMULATION="${SIMULATION:-$DEFAULT_SIMULATION}"
 export MODEL SIMULATION
@@ -43,11 +45,11 @@ mkdir -p "$OBJ_DIR"
 
 # Refresh generated metadata so the tool is built against current model
 # properties/modules, matching run_tests.sh's precondition.
-if ! python3 scripts/generate_properties.py > /dev/null; then
+if ! ${MIMIC_PYTHON} scripts/generate_properties.py > /dev/null; then
     echo -e "${RED}ERROR: Failed to refresh property code. Run 'make MODEL=<name> generate'${NC}"
     exit 2
 fi
-if ! python3 scripts/generate_module_registry.py > /dev/null; then
+if ! ${MIMIC_PYTHON} scripts/generate_module_registry.py > /dev/null; then
     echo -e "${RED}ERROR: Failed to refresh module registry. Run 'make generate'${NC}"
     exit 2
 fi
