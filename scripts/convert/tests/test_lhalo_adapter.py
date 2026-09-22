@@ -42,6 +42,7 @@ from adapters import lhalo_binary as lb  # noqa: E402
 from adapters import source_inventory as si  # noqa: E402
 from adapters.base import NULL_LINK  # noqa: E402
 from adapters.lhalo_binary import (  # noqa: E402
+    DEFAULT_MEMORY_BUDGET_BYTES,
     INVENTORY_BYTES_PER_UNIT,
     TOPOLOGY_COLUMN_BYTES_PER_HALO,
     VALIDATION_BYTES_PER_HALO,
@@ -586,7 +587,7 @@ class InventoryTests(FixtureCase):
         with self.assertRaises(ConverterError) as caught:
             self.adapter([(0, self.path("trees.0")), (1, self.path("trees.0"))])
         message = str(caught.exception)
-        self.assertIn("is requested twice", message)
+        self.assertIn("same filesystem object", message)
         self.assertIn("ordinal 0", message)
         self.assertIn("ordinal 1", message)
 
@@ -597,7 +598,40 @@ class InventoryTests(FixtureCase):
         os.mkdir(os.path.join(self.tmpdir, "sub"))
         with self.assertRaises(ConverterError) as caught:
             self.adapter([(0, self.path("trees.0")), (1, alias)])
-        self.assertIn("is requested twice", str(caught.exception))
+        self.assertIn("same filesystem object", str(caught.exception))
+
+    def test_a_case_variant_of_an_already_requested_file_is_rejected(self):
+        """The case a path-string comparison cannot catch.
+
+        On a case-insensitive volume -- APFS, which this repository lives on
+        -- ``trees_063.0`` and ``TREES_063.0`` are one inode with two
+        spellings, and ``Path.resolve()`` reports them as different paths.
+        Round 2's guard compared resolved paths and accepted both, doubling a
+        real dataset's inventory. Identity is now ``(st_dev, st_ino)``.
+
+        Case-insensitivity is *detected*, not assumed: on a case-sensitive
+        filesystem the two names are genuinely different files and there is
+        nothing to reject.
+        """
+        self.write("trees_063.0", [TREE_B])
+        variant = self.path("TREES_063.0")
+        if not os.path.exists(variant) or not os.path.samefile(self.path("trees_063.0"), variant):
+            self.skipTest("this filesystem is case-sensitive; the two names are distinct files")
+        with self.assertRaises(ConverterError) as caught:
+            self.adapter([(0, self.path("trees_063.0")), (1, variant)])
+        self.assertIn("same filesystem object", str(caught.exception))
+
+    def test_a_hard_link_to_an_already_requested_file_is_rejected(self):
+        """Different name, same inode -- the other case `resolve()` misses."""
+        self.write("trees.0", [TREE_B])
+        link = self.path("trees.1")
+        try:
+            os.link(self.path("trees.0"), link)
+        except (OSError, NotImplementedError) as exc:  # pragma: no cover - platform dependent
+            self.skipTest("hard links unavailable here: {}".format(exc))
+        with self.assertRaises(ConverterError) as caught:
+            self.adapter([(0, self.path("trees.0")), (1, link)])
+        self.assertIn("same filesystem object", str(caught.exception))
 
     def test_a_symlink_to_an_already_requested_file_is_rejected(self):
         self.write("trees.0", [TREE_B])
@@ -605,7 +639,7 @@ class InventoryTests(FixtureCase):
         os.symlink(self.path("trees.0"), link)
         with self.assertRaises(ConverterError) as caught:
             self.adapter([(0, self.path("trees.0")), (1, link)])
-        self.assertIn("is requested twice", str(caught.exception))
+        self.assertIn("same filesystem object", str(caught.exception))
 
     def test_distinct_files_with_identical_contents_are_still_accepted(self):
         """Only the *same file* is refused, not two files that happen to match.
@@ -649,6 +683,24 @@ class InventoryTests(FixtureCase):
                     self.adapter([(bad, self.path("trees.0"))])
                 self.assertIn("must be an integer", str(caught.exception))
 
+    def test_an_ordinal_above_int64_is_rejected_at_its_boundary(self):
+        """The ordinal lands in an int64 coordinate column, so it is bounded.
+
+        Without this, an over-large ordinal surfaced as a raw numpy overflow
+        at emission rather than as this module's named error at the point the
+        caller could still see which entry caused it.
+        """
+        self.write("trees.0", [TREE_B])
+        with self.assertRaises(ConverterError) as caught:
+            self.adapter([(2**63, self.path("trees.0"))])
+        self.assertIn("must be between 0 and", str(caught.exception))
+
+    def test_the_largest_int64_ordinal_is_accepted(self):
+        """The other side of the boundary: INT64_MAX itself still converts."""
+        self.write("trees.0", [TREE_B])
+        columns, _sizes = collect(self.adapter([(2**63 - 1, self.path("trees.0"))]), 8)
+        self.assertEqual(columns["coordinates"]["source_file_ordinal"].tolist(), [2**63 - 1] * 2)
+
     def test_a_numpy_integer_ordinal_is_accepted(self):
         """Rejecting non-integers must not reject a numpy int from a caller."""
         self.write("trees.0", [TREE_B])
@@ -662,6 +714,25 @@ class InventoryTests(FixtureCase):
                 with self.assertRaises(ConverterError) as caught:
                     self.adapter([(0, bad)])
                 self.assertIn("is not a filesystem path", str(caught.exception))
+
+    def test_a_file_that_vanishes_before_the_header_read_is_named(self):
+        """A raw OSError would not say which source entry failed."""
+        self.write("trees.0", [TREE_B])
+        adapter = self.adapter([(0, self.path("trees.0"))])
+        os.remove(self.path("trees.0"))
+        with self.assertRaises(ConverterError) as caught:
+            adapter.inventory()
+        self.assertIn("cannot read source file", str(caught.exception))
+
+    def test_a_file_that_vanishes_before_conversion_is_named(self):
+        """The same, at the second read site: iter_batches' own open()."""
+        self.write("trees.0", [TREE_B])
+        adapter = self.adapter([(0, self.path("trees.0"))])
+        adapter.inventory()  # headers cached while the file still exists
+        os.remove(self.path("trees.0"))
+        with self.assertRaises(ConverterError) as caught:
+            list(adapter.iter_batches(8))
+        self.assertIn("cannot open source file", str(caught.exception))
 
     def test_zero_tree_file_yields_an_empty_inventory_and_no_batches(self):
         self.write("trees.0", [])
@@ -759,6 +830,29 @@ class HeaderAndLayoutTests(FixtureCase):
         self.write("trees.0", [TREE_A])
         with self.assertRaises(ConverterError):
             self.adapter([(0, self.path("trees.0"))], schema=big_endian_schema()).inventory()
+
+    def test_a_wrong_endian_header_names_the_header_not_the_budget(self):
+        """Diagnosis, not correctness: both paths reject, only one is useful.
+
+        A byte-swapped ``Ntrees`` is an enormous number, so the inventory
+        budget preflight saw it first and told the operator to raise
+        ``memory_budget_bytes`` -- a real mini-Millennium file read big-endian
+        asks for 810 GB -- sending them to change the wrong thing. The
+        preflight now applies the same ``8 + 4 * ntrees > file_size`` sanity
+        check the header reader uses, and stands aside so the real defect is
+        named.
+        """
+        self.write("trees.0", [TREE_A])
+        adapter = self.adapter(
+            [(0, self.path("trees.0"))],
+            schema=big_endian_schema(),
+            memory_budget_bytes=DEFAULT_MEMORY_BUDGET_BYTES,
+        )
+        with self.assertRaises(ConverterError) as caught:
+            adapter.inventory()
+        message = str(caught.exception)
+        self.assertIn("corrupt or opposite-endian header", message)
+        self.assertNotIn("memory budget", message)
 
     def test_big_endian_source_produces_identical_native_output(self):
         self.write("little.0", [TREE_A])

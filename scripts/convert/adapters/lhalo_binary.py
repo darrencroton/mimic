@@ -92,6 +92,7 @@ survives as an exact source-key edge (C1); mini-Millennium's 29,291 of them are
 the acceptance case.
 """
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Sequence, Tuple
@@ -199,13 +200,25 @@ def _peek_ntrees(path: Path, byte_order: str) -> Optional[int]:
 
     Exists so the inventory budget can be checked *before*
     ``read_lhalo_header`` performs its own O(ntrees) count-table read and
-    int64 cast. It deliberately diagnoses nothing: a short, unreadable or
-    negative header returns ``None`` and the caller proceeds to
-    ``read_lhalo_header``, which owns every header error message and must
-    stay the single place they are produced. Duplicating validation here
-    would mean two sources of truth for the same malformed file.
+    int64 cast. It deliberately diagnoses nothing: a short, unreadable,
+    negative or **implausible** header returns ``None`` and the caller
+    proceeds to ``read_lhalo_header``, which owns every header error message
+    and must stay the single place they are produced. Duplicating validation
+    here would mean two sources of truth for the same malformed file.
+
+    "Implausible" carries real weight, and is why the file's size is checked
+    here as well as the count. Without it, a corrupt or opposite-endian
+    header's absurd ``Ntrees`` reaches the budget check first and the operator
+    is told to raise ``memory_budget_bytes`` -- a real mini-Millennium file
+    read big-endian asks for 810 GB -- instead of being told the header is
+    corrupt or the byte order is wrong. Both paths reject the file, so this is
+    diagnosis quality rather than correctness, but a misdirected error message
+    sends someone to change the wrong thing. Mirrors ``read_lhalo_header``'s
+    own ``8 + 4 * ntrees > file_size`` guard, from a ``stat()`` that allocates
+    nothing, so the real defect is named before any count table is read.
     """
     try:
+        file_size = path.stat().st_size
         # Unbuffered: a buffered handle would allocate the filesystem's block
         # size up front -- 128 KiB on this host -- which is absurd overhead
         # for a 4-byte probe whose whole purpose is to allocate nothing before
@@ -217,7 +230,9 @@ def _peek_ntrees(path: Path, byte_order: str) -> Optional[int]:
     if len(head) != 4:
         return None
     ntrees = int(np.frombuffer(head, dtype=np.dtype(byte_order + "i4"), count=1)[0])
-    return ntrees if ntrees >= 0 else None
+    if ntrees < 0 or 8 + 4 * ntrees > file_size:
+        return None
+    return ntrees
 
 
 @dataclass(frozen=True)
@@ -311,8 +326,17 @@ class LHaloBinaryAdapter(SourceAdapter):
         doubling the catalog. That is the exact dual of the missing-file case
         this method already refuses: one silently narrows a conversion, the
         other silently widens it, and neither leaves a trace in the output.
-        Comparison is by ``Path.resolve()``, so two spellings of one file
-        (a relative path, a ``./`` prefix, a symlink) are still caught.
+
+        Sameness is decided by **filesystem identity** -- ``(st_dev, st_ino)``
+        -- not by comparing path strings. ``Path.resolve()`` unifies a ``..``
+        detour and a symlink, but it cannot unify two spellings that differ
+        only in case on a case-insensitive volume (APFS, this repository's
+        own), where ``trees_063.0`` and ``TREES_063.0`` resolve to different
+        strings and the same inode; nor can it unify hard links, which have
+        genuinely different names. The inode pair subsumes all four cases at
+        once. Two *distinct* files with identical contents still have distinct
+        inodes and remain legal: a package may hold byte-identical partitions,
+        and refusing those would invent a rule the source does not have.
 
         Every malformed shape leaves here as this module's named
         ``ConverterError``, never as a raw ``TypeError``/``ValueError``. The
@@ -324,7 +348,7 @@ class LHaloBinaryAdapter(SourceAdapter):
         """
         resolved: List[Tuple[int, Path]] = []
         previous: Optional[int] = None
-        claimed: Dict[Path, int] = {}
+        claimed: Dict[Tuple[int, int], Tuple[int, Path]] = {}
         for position, entry in enumerate(sources):
             try:
                 ordinal, path = entry
@@ -340,10 +364,15 @@ class LHaloBinaryAdapter(SourceAdapter):
                     "recorded identity and is never coerced".format(position, ordinal)
                 )
             ordinal = int(ordinal)
-            if ordinal < 0:
+            if not 0 <= ordinal <= INT64_MAX:
+                # Bounded at both ends: the ordinal is written into an int64
+                # coordinate column, so one above INT64_MAX would surface as a
+                # raw numpy overflow at emission -- long after the caller could
+                # tell which source entry caused it -- instead of the named
+                # error every other malformed ordinal shape already gets.
                 raise ConverterError(
-                    "sources[{}]: source_file_ordinal must be non-negative, got {}".format(
-                        position, ordinal
+                    "sources[{}]: source_file_ordinal must be between 0 and {}, got {}".format(
+                        position, INT64_MAX, ordinal
                     )
                 )
             if previous is not None and ordinal <= previous:
@@ -363,20 +392,31 @@ class LHaloBinaryAdapter(SourceAdapter):
                     "requested source file {} (ordinal {}) is missing; a conversion fails rather "
                     "than narrowing to the files that are present".format(path, ordinal)
                 )
-            canonical = path.resolve()
-            if canonical in claimed:
-                raise ConverterError(
-                    "source file {} is requested twice, as ordinal {} and ordinal {}; converting "
-                    "it once per ordinal would emit every one of its trees twice under different "
-                    "SourceHaloID ranges".format(canonical, claimed[canonical], ordinal)
-                )
-            claimed[canonical] = ordinal
             if not path.is_file():
                 raise ConverterError(
                     "requested source file {} (ordinal {}) is not a regular file".format(
                         path, ordinal
                     )
                 )
+            try:
+                status = os.stat(path)
+            except OSError as exc:
+                raise ConverterError(
+                    "requested source file {} (ordinal {}) cannot be inspected: {}".format(
+                        path, ordinal, exc
+                    )
+                ) from exc
+            identity = (status.st_dev, status.st_ino)
+            if identity in claimed:
+                first_ordinal, first_path = claimed[identity]
+                raise ConverterError(
+                    "source file {} (ordinal {}) is the same filesystem object as {} (ordinal "
+                    "{}); converting it once per ordinal would emit every one of its trees twice "
+                    "under different SourceHaloID ranges".format(
+                        path, ordinal, first_path, first_ordinal
+                    )
+                )
+            claimed[identity] = (ordinal, path)
             resolved.append((ordinal, path))
         if not resolved:
             raise ConverterError(
@@ -417,9 +457,17 @@ class LHaloBinaryAdapter(SourceAdapter):
                     "inventory of {} trees".format(len(units) + declared_trees),
                     "raise memory_budget_bytes, or convert a narrower file range",
                 )
-            header = read_lhalo_header(
-                path, byte_order=byte_order, record_bytes=self.layout.itemsize
-            )
+            try:
+                header = read_lhalo_header(
+                    path, byte_order=byte_order, record_bytes=self.layout.itemsize
+                )
+            except OSError as exc:
+                # A source that vanished or became unreadable between
+                # _resolve_sources' existence check and this read is a source
+                # problem, and leaves here named like every other one.
+                raise ConverterError(
+                    "cannot read source file {} (ordinal {}): {}".format(path, ordinal, exc)
+                ) from exc
             files.append(
                 _SourceFile(ordinal=ordinal, path=path, header=header, forest_base=forest_base)
             )
@@ -471,7 +519,15 @@ class LHaloBinaryAdapter(SourceAdapter):
 
         for source in self._files:
             header = source.header
-            with open(source.path, "rb") as handle:
+            try:
+                handle = open(source.path, "rb")
+            except OSError as exc:
+                raise ConverterError(
+                    "cannot open source file {} (ordinal {}) for conversion: {}".format(
+                        source.path, source.ordinal, exc
+                    )
+                ) from exc
+            with handle:
                 offset = header.header_bytes
                 for tree_ordinal in range(header.ntrees):
                     n_halos = int(header.tree_halo_counts[tree_ordinal])
