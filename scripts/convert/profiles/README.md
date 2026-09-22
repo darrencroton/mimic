@@ -71,7 +71,15 @@ Selecting extras never changes the on-disk stride, and an unselected field is st
 
 ## Schema identity
 
-A validated profile is frozen into a canonical schema whose SHA-256 digest is the `column_mapping_sha256` a horizontal-HDF5 v3 file records. The digest covers the **declared profile**: the adapter, the normalised alias list declared for every required role, the source layout, the declared payload types and units, and every extra's type, sources, units and h convention.
+A validated profile is frozen into a canonical schema whose SHA-256 digest is the `column_mapping_sha256` a horizontal-HDF5 v3 file records. The digest covers the **declared profile**, exactly and only:
+
+- `schema_version` and `source_format`;
+- the normalised alias list declared for every required role;
+- every payload field's `name`, `type`, `units`, `h_convention` and `description`;
+- every extra's `name`, `sources` (field and component index), `type`, `units`, `h_convention` and `description`;
+- for a binary source, the whole layout — `byte_order`, `itemsize`, and each entry's `name`, `type`, `units`, `offset`, `itemsize`, `n_components`, `numpy_dtype` and selected flag.
+
+`description` counts, for both payload fields and extras. It is the only record of what a column means, so editing one is a schema change rather than a comment — worth knowing before reflowing a description and wondering why the digest moved.
 
 It identifies the profile, **not a particular file's resolution**. Which alias actually matched — `snap_num` in one file, `snap_idx` in another — is outside the digest by design, so a single frozen profile keeps one identity across sources that legitimately resolve differently.
 

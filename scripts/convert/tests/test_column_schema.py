@@ -913,6 +913,122 @@ class YamlLoadingTests(unittest.TestCase):
                 cs.load_column_map(Path(workdir) / "absent.yaml")
 
 
+class SourcePropertyLoadingTests(unittest.TestCase):
+    """Rejection branches of `load_source_properties`.
+
+    Written tempdir-based rather than as committed fixtures: these are
+    one-line malformed shapes with no reuse value, and a directory of
+    deliberately broken `halo_properties.yaml` files invites someone to mistake
+    one for a real package declaration.
+    """
+
+    #: (label, file body, expected message fragment)
+    REJECTIONS = (
+        ("absent key", "other_key: []\n", "must be a nonempty list"),
+        ("null value", "halo_properties:\n", "must be a nonempty list"),
+        ("empty list", "halo_properties: []\n", "must be a nonempty list"),
+        ("mapping not list", "halo_properties:\n  name: Descendant\n", "must be a nonempty list"),
+        (
+            "entry is not a mapping",
+            "halo_properties:\n  - Descendant\n",
+            "must be a mapping",
+        ),
+        (
+            "duplicate name",
+            "halo_properties:\n"
+            "  - {name: Descendant, type: int, units: dimensionless}\n"
+            "  - {name: Descendant, type: int, units: dimensionless}\n",
+            "duplicate property name",
+        ),
+        (
+            "missing name",
+            "halo_properties:\n  - {type: int, units: dimensionless}\n",
+            "must be a nonempty string",
+        ),
+        (
+            "unsupported type",
+            "halo_properties:\n  - {name: Descendant, type: int16, units: dimensionless}\n",
+            "unsupported type",
+        ),
+        (
+            "non-string type",
+            "halo_properties:\n  - {name: Descendant, type: [int], units: dimensionless}\n",
+            "unsupported type",
+        ),
+        (
+            "empty units",
+            'halo_properties:\n  - {name: Descendant, type: int, units: "  "}\n',
+            "must be a nonempty string",
+        ),
+        (
+            "missing units",
+            "halo_properties:\n  - {name: Descendant, type: int}\n",
+            "must be a nonempty string",
+        ),
+    )
+
+    def _write(self, workdir, body):
+        path = Path(workdir) / "halo_properties.yaml"
+        path.write_text(body, encoding="utf-8")
+        return path
+
+    def test_malformed_declarations_are_rejected(self):
+        for label, body, pattern in self.REJECTIONS:
+            with self.subTest(case=label):
+                with tempfile.TemporaryDirectory() as workdir:
+                    path = self._write(workdir, body)
+                    with self.assertRaisesRegex(ConverterError, pattern):
+                        cs.load_source_properties(path)
+
+    def test_a_missing_file_is_rejected(self):
+        with tempfile.TemporaryDirectory() as workdir:
+            with self.assertRaisesRegex(ConverterError, "cannot read"):
+                cs.load_source_properties(Path(workdir) / "absent.yaml")
+
+    def test_a_non_mapping_document_is_rejected(self):
+        with tempfile.TemporaryDirectory() as workdir:
+            path = self._write(workdir, "- Descendant\n- FirstProgenitor\n")
+            with self.assertRaisesRegex(ConverterError, "must be a YAML mapping"):
+                cs.load_source_properties(path)
+
+    def test_a_valid_declaration_loads_in_declaration_order(self):
+        """The positive control. Order is load-bearing -- it is the record's
+        field order for a fixed-record binary source -- so it is asserted, not
+        assumed."""
+        with tempfile.TemporaryDirectory() as workdir:
+            path = self._write(
+                workdir,
+                "halo_properties:\n"
+                "  - {name: Descendant, type: int, units: dimensionless}\n"
+                "  - {name: Pos, type: vec3_float, units: Mpc/h}\n"
+                "  - {name: MostBoundID, type: long long, units: dimensionless}\n",
+            )
+            properties = cs.load_source_properties(path)
+        self.assertEqual([p.name for p in properties], ["Descendant", "Pos", "MostBoundID"])
+        self.assertEqual([p.type for p in properties], ["int", "vec3_float", "long long"])
+        self.assertEqual(properties[1].units, "Mpc/h")
+
+    def test_unknown_property_keys_are_the_property_system_s_business(self):
+        """Only the subset this converter needs is read; a real
+        halo_properties.yaml carries `output`, `range`, `provides_core_role`
+        and more, and rejecting those would make every shipped package
+        unloadable here."""
+        with tempfile.TemporaryDirectory() as workdir:
+            path = self._write(
+                workdir,
+                "halo_properties:\n"
+                "  - name: M_Crit200\n"
+                "    type: float\n"
+                "    units: 1e10 Msun/h\n"
+                "    h_convention: carried\n"
+                "    output: true\n"
+                "    range: [0.0, 1.0e6]\n"
+                "    provides_core_role: HaloMass\n",
+            )
+            properties = cs.load_source_properties(path)
+        self.assertEqual(properties[0].name, "M_Crit200")
+
+
 class SchemaIdentityTests(unittest.TestCase):
     def test_presentation_variants_share_one_identity(self):
         a = cs.build_schema(cs.load_column_map(DATA_DIR / "presentation_a.yaml"))

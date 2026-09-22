@@ -111,7 +111,17 @@ Version 3 adds exactly two:
 
 **It ranges over `Descendant` links only** — and therefore over `FirstProgenitor`, which is their inverse. This is version 2's own scope carried forward unchanged, not a new rule: v2 defines adjacency over `Descendant` links, and "gap" throughout this format's history means a gapped descendant edge (mini-Millennium's measured 29,291 of them). A producer must **not** read it as "all five link types differ by exactly one snapshot", which would stamp `0` on essentially every real dataset: `NextProgenitor` is descendant-relative and carries no direction constraint against its owner at all (see invariant 2), and on real mini-Millennium data 92.2% of its links sit at the *same* snapshot as their owner — the ordinary case, not an edge case. The FoF links are same-snapshot by definition and say nothing about adjacency either.
 
-`column_mapping_sha256` is the digest computed by `scripts/convert/column_schema.py` over the canonical serialization of the **declared mapping profile**: the adapter identity, the normalised alias list declared for every required role, the source layout, the declared payload types and units, and every selected extra's name, sources, type, units and h convention. It identifies the profile, **not any one file's concrete resolution** — which alias actually matched in a given file is deliberately outside it, so that one frozen profile yields one digest across files that legitimately resolve differently (a package carrying `Snap_num` and one carrying `Snap_idx` share a digest, as they must). Presentation — comments, YAML key order, alias order, extra-definition order — is normalised away and does not move the digest; anything that changes how a value is read, typed, named or labelled does, **including two types that share a width**. Details: [`scripts/convert/profiles/README.md`](../../scripts/convert/profiles/README.md).
+`column_mapping_sha256` is the digest computed by `scripts/convert/column_schema.py` over the canonical serialization of the **declared mapping profile**. It covers exactly these, and nothing else:
+
+- the profile's `schema_version` and `source_format`;
+- the normalised alias list declared for every required role;
+- for every payload field: `name`, `type`, `units`, `h_convention` and `description`;
+- for every selected extra: `name`, `sources` (each source's field and, where present, its component index), `type`, `units`, `h_convention` and `description`;
+- for a binary source, the whole layout: `byte_order`, `itemsize`, and for each entry its `name`, `type`, `units`, `offset`, `itemsize`, `n_components`, `numpy_dtype` and whether it is selected.
+
+`description` is in the digest deliberately, for both payload fields and extras: it is the only record of what a column *means*, and two datasets whose columns mean different things should not share an identity. The corollary is that editing a description is a schema change, not a comment.
+
+The digest identifies the profile, **not any one file's concrete resolution** — which alias actually matched in a given file is deliberately outside it, so that one frozen profile yields one digest across files that legitimately resolve differently (a package carrying `Snap_num` and one carrying `Snap_idx` share a digest, as they must). Presentation — comments, YAML key order, alias order, extra-definition order — is normalised away and does not move the digest; anything that changes how a value is read, typed, named or labelled does, **including two types that share a width**. Details: [`scripts/convert/profiles/README.md`](../../scripts/convert/profiles/README.md).
 
 ## Halo Datasets
 
