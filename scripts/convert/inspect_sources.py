@@ -67,6 +67,8 @@ def _link_summary_to_dict(summary):
         "max_span": summary.max_span,
         "non_forward_or_zero_span": summary.non_forward_or_zero_span,
         "snapshot_halo_counts": dict(sorted(summary.snapshot_halo_counts.items())),
+        "mostboundid_min": summary.mostboundid_min,
+        "mostboundid_max": summary.mostboundid_max,
     }
 
 
@@ -75,10 +77,12 @@ def inspect_lhalo_source(sim_info: si.SimulationInfo, byte_order: str, scan_link
     files_report = []
     total_trees = 0
     total_halos = 0
+    max_tree_halo_count = 0
     combined = si.LinkSpanSummary()
     for path_str in reach.present_files:
         path = Path(path_str)
         header = si.read_lhalo_header(path, byte_order=byte_order)
+        file_max_tree = int(header.tree_halo_counts.max()) if header.ntrees else 0
         entry = {
             "file": str(path),
             "byte_order": byte_order,
@@ -86,9 +90,11 @@ def inspect_lhalo_source(sim_info: si.SimulationInfo, byte_order: str, scan_link
             "ntrees": header.ntrees,
             "total_halos": header.total_halos,
             "file_size": header.file_size,
+            "max_tree_halo_count": file_max_tree,
         }
         total_trees += header.ntrees
         total_halos += header.total_halos
+        max_tree_halo_count = max(max_tree_halo_count, file_max_tree)
         if scan_links:
             summary = si.scan_lhalo_file(header)
             entry["link_summary"] = _link_summary_to_dict(summary)
@@ -97,6 +103,18 @@ def inspect_lhalo_source(sim_info: si.SimulationInfo, byte_order: str, scan_link
             combined.forward_gap_links += summary.forward_gap_links
             combined.non_forward_or_zero_span += summary.non_forward_or_zero_span
             combined.max_span = max(combined.max_span, summary.max_span)
+            if summary.mostboundid_min is not None:
+                combined.mostboundid_min = (
+                    summary.mostboundid_min
+                    if combined.mostboundid_min is None
+                    else min(combined.mostboundid_min, summary.mostboundid_min)
+                )
+            if summary.mostboundid_max is not None:
+                combined.mostboundid_max = (
+                    summary.mostboundid_max
+                    if combined.mostboundid_max is None
+                    else max(combined.mostboundid_max, summary.mostboundid_max)
+                )
             for snap, count in summary.snapshot_halo_counts.items():
                 combined.snapshot_halo_counts[snap] = (
                     combined.snapshot_halo_counts.get(snap, 0) + count
@@ -108,6 +126,7 @@ def inspect_lhalo_source(sim_info: si.SimulationInfo, byte_order: str, scan_link
         "files": files_report,
         "total_trees": total_trees,
         "total_halos": total_halos,
+        "max_tree_halo_count": max_tree_halo_count,
         "combined_link_summary": _link_summary_to_dict(combined) if scan_links else None,
         "fields": {
             name: {"kind": kind, "shape": list(shape)} for name, kind, shape in si.LHALO_FIELDS
@@ -116,6 +135,10 @@ def inspect_lhalo_source(sim_info: si.SimulationInfo, byte_order: str, scan_link
 
 
 def inspect_hdf5_source(sim_info: si.SimulationInfo, scan_links: bool):
+    """Raises MissingDependencyError (uncaught) if h5py is not installed --
+    the acceptance criterion is that a missing HDF5 dependency fails, so this
+    propagates rather than being swallowed into an 'error' field with a
+    process exit of 0 (see inspect_one's callers)."""
     reach = si.check_hdf5_reachability(sim_info)
     result = {
         "adapter": "ctrees_hdf5",
@@ -126,11 +149,7 @@ def inspect_hdf5_source(sim_info: si.SimulationInfo, scan_links: bool):
     info_path = Path(sim_info.simulation_dir) / sim_info.tree_name
     if not reach.exists or not info_path.exists():
         return result
-    try:
-        root_attrs, files = si.inspect_ctrees_hdf5_source(info_path, scan_links=scan_links)
-    except si.MissingDependencyError as exc:
-        result["error"] = str(exc)
-        return result
+    root_attrs, files = si.inspect_ctrees_hdf5_source(info_path, scan_links=scan_links)
     result["root_attrs"] = root_attrs
     result["files"] = [
         {
@@ -140,6 +159,7 @@ def inspect_hdf5_source(sim_info: si.SimulationInfo, scan_links: bool):
             "error": f.error,
             "n_forests": f.n_forests,
             "n_halos": f.n_halos,
+            "max_forest_nhalos": f.max_forest_nhalos,
             "fields": f.fields,
             "link_summary": _link_summary_to_dict(f.link_summary),
         }
@@ -218,16 +238,34 @@ def cmd_inspect(args):
     return 0
 
 
+#: Exceptions a single package's inspection may realistically raise without
+#: aborting the whole survey and discarding every other package's
+#: already-gathered results: the tool's own declared failure types, plus the
+#: realistic corrupted-data exceptions numpy/h5py raise directly (untrusted
+#: binary/HDF5 input is this slice's own declared risky surface).
+PER_PACKAGE_EXCEPTIONS = (
+    ConverterError,
+    si.MissingDependencyError,
+    FileNotFoundError,
+    ValueError,
+    IndexError,
+    KeyError,
+    OSError,
+)
+
+
 def cmd_survey(args):
     root = _repo_root()
     results = {}
+    any_error = False
     for name, rel_path in NAMED_PACKAGES.items():
         sim_info_path = root / rel_path
         entry = {"simulation_info": str(sim_info_path)}
         try:
             sim_info = si.load_simulation_info(sim_info_path)
-        except (ConverterError, FileNotFoundError) as exc:
+        except PER_PACKAGE_EXCEPTIONS as exc:
             entry["error"] = str(exc)
+            any_error = True
             results[name] = entry
             continue
         adapter = ADAPTER_ROUTES.get(sim_info.tree_type)
@@ -237,6 +275,7 @@ def cmd_survey(args):
             entry["error"] = "no declared adapter route for tree_type {!r}".format(
                 sim_info.tree_type
             )
+            any_error = True
             results[name] = entry
             continue
         if adapter == "lhalo_binary":
@@ -270,15 +309,16 @@ def cmd_survey(args):
                     args.byte_order,
                     not args.no_link_scan,
                 )
-            except (ConverterError, si.MissingDependencyError) as exc:
+            except PER_PACKAGE_EXCEPTIONS as exc:
                 entry["inspection_error"] = str(exc)
+                any_error = True
         results[name] = entry
 
     text = json.dumps(results, indent=2, sort_keys=True, default=str)
     if args.json:
         Path(args.json).write_text(text + "\n")
     print(text)
-    return 0
+    return 1 if any_error else 0
 
 
 def build_parser():
@@ -319,7 +359,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         return args.func(args)
-    except ConverterError as exc:
+    except (ConverterError, si.MissingDependencyError, OSError, ValueError) as exc:
         print("error: {}".format(exc), file=sys.stderr)
         return 1
 

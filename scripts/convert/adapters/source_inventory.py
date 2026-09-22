@@ -158,6 +158,17 @@ def read_lhalo_header(path, byte_order: str = "<") -> LHaloHeader:
                     path, ntrees, total_halos
                 )
             )
+        # Sanity-check the count-table size against the already-measured file
+        # size before reading it: an opposite-endian or corrupted header can
+        # otherwise request a multi-GiB read (reproducible today by reading a
+        # real little-endian file as big-endian) before any size check exists.
+        if 8 + 4 * ntrees > file_size:
+            raise ConverterError(
+                "{}: header claims {} trees (count table alone would need {} bytes), "
+                "but the file is only {} bytes -- corrupt or opposite-endian header".format(
+                    path, ntrees, 4 * ntrees, file_size
+                )
+            )
         counts_bytes = handle.read(4 * ntrees)
         if len(counts_bytes) != 4 * ntrees:
             raise ConverterError(
@@ -199,7 +210,10 @@ class LinkSpanSummary:
     """Descendant link-span evidence: span = SnapNum[target] - SnapNum[source].
 
     A valid forward gap (span > 1) is counted, not rejected -- only
-    out-of-tree indices and non-forward links are flagged as anomalies."""
+    out-of-tree indices and non-forward links are flagged as anomalies.
+    `mostboundid_min`/`mostboundid_max` are identity bounds across every halo
+    scanned, not just linked ones (L-Halo route only; unset for forests-HDF5,
+    which carries no MostBoundID-equivalent single field)."""
 
     non_null_descendant_links: int = 0
     forward_adjacent_links: int = 0
@@ -207,6 +221,8 @@ class LinkSpanSummary:
     max_span: int = 0
     non_forward_or_zero_span: int = 0
     snapshot_halo_counts: Dict[int, int] = field(default_factory=dict)
+    mostboundid_min: Optional[int] = None
+    mostboundid_max: Optional[int] = None
 
 
 def scan_lhalo_file(header: LHaloHeader) -> LinkSpanSummary:
@@ -233,13 +249,35 @@ def scan_lhalo_file(header: LHaloHeader) -> LinkSpanSummary:
             records = np.frombuffer(raw, dtype=dtype)
             desc = records["Descendant"]
             snap = records["SnapNum"].astype(np.int64)
+            most_bound_id = records["MostBoundID"]
 
             for s, c in zip(*np.unique(records["SnapNum"], return_counts=True)):
                 key = int(s)
                 summary.snapshot_halo_counts[key] = summary.snapshot_halo_counts.get(key, 0) + int(
                     c
                 )
+            tree_min = int(most_bound_id.min())
+            tree_max = int(most_bound_id.max())
+            summary.mostboundid_min = (
+                tree_min
+                if summary.mostboundid_min is None
+                else min(summary.mostboundid_min, tree_min)
+            )
+            summary.mostboundid_max = (
+                tree_max
+                if summary.mostboundid_max is None
+                else max(summary.mostboundid_max, tree_max)
+            )
 
+            # Only -1 is the null sentinel (matches the C reader's
+            # CT_ASSIGN_LINK, which accepts exactly [-1, nhalos)); anything
+            # more negative is structurally invalid, not "no link".
+            if np.any(desc < -1):
+                raise ConverterError(
+                    "{}: tree {} has a Descendant value below -1 (not the -1 null sentinel)".format(
+                        header.path, tree_index
+                    )
+                )
             valid = desc >= 0
             if valid.any():
                 targets = desc[valid]
@@ -273,6 +311,7 @@ class HDF5FileLinkage:
     error: Optional[str] = None
     n_forests: Optional[int] = None
     n_halos: Optional[int] = None
+    max_forest_nhalos: Optional[int] = None
     fields: Optional[Dict[str, Dict]] = None
     link_summary: Optional[LinkSpanSummary] = None
 
@@ -324,6 +363,7 @@ def inspect_ctrees_hdf5_source(info_path, scan_links: bool = True, chunk_rows: i
             }
             n_forests = int(forest_info.shape[0])
             n_halos = int(forest_info["ForestNhalos"].sum()) if n_forests else 0
+            max_forest_nhalos = int(forest_info["ForestNhalos"].max()) if n_forests else None
 
             link_summary = None
             if scan_links and n_halos:
@@ -336,6 +376,7 @@ def inspect_ctrees_hdf5_source(info_path, scan_links: bool = True, chunk_rows: i
                     reachable=True,
                     n_forests=n_forests,
                     n_halos=n_halos,
+                    max_forest_nhalos=max_forest_nhalos,
                     fields=fields,
                     link_summary=link_summary,
                 )
@@ -361,6 +402,34 @@ def _resolve_snap_field(forests_group) -> str:
     )
 
 
+def _validate_forest_info_offsets(
+    offsets: np.ndarray, counts: np.ndarray, dataset_len: int
+) -> None:
+    """Structural sanity check on ForestInfo's offset/count table: offsets
+    non-negative, forests non-overlapping and in ascending row order, and the
+    last forest's range fits inside the dataset's actual extent. Not full
+    parity with the C reader's validation -- just enough that corrupted
+    ForestInfo metadata cannot silently mis-resolve link targets."""
+    if offsets.size and np.any(offsets < 0):
+        raise ConverterError("ForestInfo has a negative ForestHalosOffset")
+    if offsets.size > 1:
+        # Forest i's range must end at or before forest i+1's start; this
+        # catches both overlap and out-of-order rows in one check.
+        ends = offsets[:-1] + counts[:-1]
+        if np.any(ends > offsets[1:]):
+            raise ConverterError(
+                "ForestInfo has overlapping or out-of-order ForestHalosOffset/ForestNhalos rows"
+            )
+    if offsets.size:
+        last_end = int(offsets[-1]) + int(counts[-1])
+        if last_end > dataset_len:
+            raise ConverterError(
+                "ForestInfo's last forest range ({}) exceeds the Forests dataset length ({})".format(
+                    last_end, dataset_len
+                )
+            )
+
+
 def _scan_ctrees_hdf5_links(forest_info, forests_group, chunk_rows: int) -> LinkSpanSummary:
     """Resolve forest-local Descendant indices to a global row via each
     forest's ForestHalosOffset, then compare snapshot numbers like the binary
@@ -368,6 +437,8 @@ def _scan_ctrees_hdf5_links(forest_info, forests_group, chunk_rows: int) -> Link
     offsets = forest_info["ForestHalosOffset"]
     counts = forest_info["ForestNhalos"]
     total = int(counts.sum())
+    desc_ds_len = forests_group["Descendant"].shape[0]
+    _validate_forest_info_offsets(offsets, counts, desc_ds_len)
     row_offset = np.repeat(offsets, counts)
     if row_offset.shape[0] != total:
         raise ConverterError("ForestInfo offsets/counts do not sum to the declared halo total")
@@ -386,13 +457,16 @@ def _scan_ctrees_hdf5_links(forest_info, forests_group, chunk_rows: int) -> Link
     # increasing-order indices, plain numpy arrays do not.
     raw_snap = snap_ds[:]
     if np.issubdtype(raw_snap.dtype, np.floating):
-        rounded = np.round(raw_snap)
-        if not np.allclose(raw_snap, rounded, atol=1e-6):
+        # Exact floor(v) == v, matching the C reader's own integral-float
+        # snapshot check (CT_ASSIGN_SNAP_DOUBLE) -- not a tolerant
+        # np.allclose, which would accept non-integral values once |v| gets
+        # into the tens of thousands under numpy's default rtol=1e-5.
+        if not np.all(np.floor(raw_snap) == raw_snap):
             raise ConverterError(
                 "Forests/{} carries non-integral values -- not a valid integral-float "
                 "snapshot column".format(snap_field)
             )
-        all_snap = rounded.astype(np.int64)
+        all_snap = raw_snap.astype(np.int64)
     else:
         all_snap = raw_snap.astype(np.int64)
     forest_count_for_row = np.repeat(counts, counts)
@@ -407,6 +481,12 @@ def _scan_ctrees_hdf5_links(forest_info, forests_group, chunk_rows: int) -> Link
         snap = all_snap[start:end]
         local_offset = row_offset[start:end]
 
+        # Only -1 is the null sentinel (matches read_ctrees_hdf5.c's
+        # CT_ASSIGN_LINK, which accepts exactly [-1, nhalos)).
+        if np.any(desc < -1):
+            raise ConverterError(
+                "forests-HDF5 chunk has a Descendant value below -1 (not the -1 null sentinel)"
+            )
         valid = desc >= 0
         if not valid.any():
             continue
@@ -483,15 +563,15 @@ def host_identity() -> str:
 
 
 def free_space_bytes(path) -> Optional[int]:
-    """Free space on the volume containing `path`, walking up to the nearest
-    existing ancestor when `path` itself is absent."""
-    candidate = Path(path)
-    while not candidate.exists():
-        parent = candidate.parent
-        if parent == candidate:
-            return None
-        candidate = parent
-    return shutil.disk_usage(candidate).free
+    """Free space on the volume containing `path`, or `None` if `path` itself
+    does not exist. Deliberately does not walk up to a parent directory: a
+    reachability report's "free space" figure is about the requested source
+    path, and silently substituting an ancestor's volume would report a real
+    number for a path that is not actually there -- not reproducible once the
+    absent path's ancestor chain differs between runs/hosts."""
+    if not Path(path).exists():
+        return None
+    return shutil.disk_usage(path).free
 
 
 def _resolve_binary_paths(sim_info: SimulationInfo) -> List[Path]:
@@ -544,12 +624,22 @@ def check_hdf5_reachability(sim_info: SimulationInfo) -> SourceReachability:
     notes = []
     total_bytes = 0
     present: List[Path] = []
+    # declared_count counts the same units as present_file_count (info file +
+    # external-link data files), derived from the info file's own `Nfiles`
+    # attribute when readable. first_file/last_file are a *different* count
+    # for this route (L-Halo partition numbering, not forests-HDF5 file
+    # groups) and are kept only as a documented fallback with a note, so the
+    # two figures are never silently compared as if they were the same unit.
+    declared_count = None
     if exists and info_path.exists():
         present.append(info_path)
         total_bytes += info_path.stat().st_size
         if h5py is not None:
             try:
                 with h5py.File(info_path, "r") as f:
+                    n_files_attr = f.attrs.get("Nfiles")
+                    if n_files_attr is not None:
+                        declared_count = 1 + int(n_files_attr)
                     for key in f.keys():
                         link = f.get(key, getlink=True)
                         if isinstance(link, h5py.ExternalLink):
@@ -569,7 +659,13 @@ def check_hdf5_reachability(sim_info: SimulationInfo) -> SourceReachability:
         notes.append("info file {} does not exist under simulation_dir".format(sim_info.tree_name))
     else:
         notes.append("simulation_dir does not exist")
-    declared_count = sim_info.last_file - sim_info.first_file + 1
+    if declared_count is None:
+        declared_count = sim_info.last_file - sim_info.first_file + 1
+        notes.append(
+            "declared_file_count derived from first_file/last_file ({}), not the info file's "
+            "Nfiles attribute -- not directly comparable to present_file_count (info file + "
+            "external-link targets) for this route".format(declared_count)
+        )
     return SourceReachability(
         simulation_dir=str(base),
         exists=exists,
