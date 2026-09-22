@@ -30,6 +30,7 @@ import sys
 import tempfile
 import tracemalloc
 import unittest
+import weakref
 
 import numpy as np
 
@@ -370,6 +371,19 @@ def linear_tree(n_halos):
     ]
 
 
+def validation_budget_bytes(n_halos):
+    """What the adapter's validation budget check requires for one tree.
+
+    Restated from the declared public constants rather than imported from the
+    implementation, so the budget tests compare against the documented
+    contract instead of against whatever the code happens to compute. The read
+    buffer is a constant, not a per-halo term, which is why it cannot be
+    folded into ``VALIDATION_BYTES_PER_HALO``.
+    """
+    read_buffer = min(lb.TOPOLOGY_READ_CHUNK_ROWS, n_halos) * ORACLE_RECORD_BYTES
+    return n_halos * VALIDATION_BYTES_PER_HALO + read_buffer
+
+
 def default_schema():
     """The shipped default profile, frozen against mini-Millennium's record."""
     column_map = cs.load_column_map(os.path.join(PROFILE_DIR, "lhalo_binary.yaml"))
@@ -560,6 +574,51 @@ class InventoryTests(FixtureCase):
                     ]
                 )
             self.assertIn("ascending", str(caught.exception))
+
+    def test_the_same_file_under_two_ordinals_is_rejected(self):
+        """The dual of the missing-file case, and just as silent.
+
+        Before this check, ``[(0, p), (1, p)]`` converted cleanly and emitted
+        every tree in ``p`` twice under two different SourceHaloID ranges --
+        a doubled catalog with no error and no trace in the output.
+        """
+        self.write("trees.0", [TREE_B])
+        with self.assertRaises(ConverterError) as caught:
+            self.adapter([(0, self.path("trees.0")), (1, self.path("trees.0"))])
+        message = str(caught.exception)
+        self.assertIn("is requested twice", message)
+        self.assertIn("ordinal 0", message)
+        self.assertIn("ordinal 1", message)
+
+    def test_two_spellings_of_the_same_file_are_rejected(self):
+        """Comparison is by resolved path, so an alias does not slip through."""
+        self.write("trees.0", [TREE_B])
+        alias = os.path.join(self.tmpdir, "sub", "..", "trees.0")
+        os.mkdir(os.path.join(self.tmpdir, "sub"))
+        with self.assertRaises(ConverterError) as caught:
+            self.adapter([(0, self.path("trees.0")), (1, alias)])
+        self.assertIn("is requested twice", str(caught.exception))
+
+    def test_a_symlink_to_an_already_requested_file_is_rejected(self):
+        self.write("trees.0", [TREE_B])
+        link = self.path("trees.1")
+        os.symlink(self.path("trees.0"), link)
+        with self.assertRaises(ConverterError) as caught:
+            self.adapter([(0, self.path("trees.0")), (1, link)])
+        self.assertIn("is requested twice", str(caught.exception))
+
+    def test_distinct_files_with_identical_contents_are_still_accepted(self):
+        """Only the *same file* is refused, not two files that happen to match.
+
+        A package legitimately may hold byte-identical partitions; rejecting
+        those would be the converter inventing a rule the source does not have.
+        """
+        self.write("trees.0", [TREE_B])
+        self.write("trees.1", [TREE_B])
+        columns, _sizes = collect(
+            self.adapter([(0, self.path("trees.0")), (1, self.path("trees.1"))]), 16
+        )
+        self.assertEqual(columns["identity"]["SourceHaloID"].tolist(), [1, 2, 3, 4])
 
     def test_negative_ordinal_fails(self):
         self.write("trees.0", [TREE_B])
@@ -1061,19 +1120,78 @@ class BudgetTests(FixtureCase):
 
         A budget sized from the declared constants must convert a tree of
         that size without raising -- a ceiling that refuses work it should
-        admit is as wrong as one that admits work it cannot hold.
+        admit is as wrong as one that admits work it cannot hold. The budget
+        is the complete formula the adapter checks: the per-halo validation
+        term plus the one bounded read buffer.
         """
         n_halos = 400
         self.write("trees.0", [linear_tree(n_halos)])
-        budget = INVENTORY_BYTES_PER_UNIT + n_halos * VALIDATION_BYTES_PER_HALO
+        budget = INVENTORY_BYTES_PER_UNIT + validation_budget_bytes(n_halos)
         adapter = self.adapter([(0, self.path("trees.0"))], memory_budget_bytes=budget)
         columns, _sizes = collect(adapter, 64)
         self.assertEqual(columns["identity"]["SourceHaloID"].tolist(), list(range(1, n_halos + 1)))
+
+    def test_a_budget_one_byte_short_of_the_formula_is_refused(self):
+        """Pins the boundary, so the formula above is not merely generous.
+
+        The budget is one byte below the *validation* term specifically, not
+        below the sum of both terms: each named term is checked independently
+        against the whole ceiling rather than against a running total, so a
+        byte off the sum would cross neither threshold.
+        """
+        n_halos = 400
+        self.write("trees.0", [linear_tree(n_halos)])
+        budget = validation_budget_bytes(n_halos) - 1
+        self.assertGreater(budget, INVENTORY_BYTES_PER_UNIT)  # isolate the validation check
+        adapter = self.adapter([(0, self.path("trees.0"))], memory_budget_bytes=budget)
+        with self.assertRaises(ConverterError) as caught:
+            list(adapter.iter_batches(64))
+        self.assertIn("structural validation of 400 halos", str(caught.exception))
 
     def test_a_non_positive_budget_is_rejected(self):
         self.write("trees.0", [TREE_B])
         with self.assertRaises(ConverterError):
             self.adapter([(0, self.path("trees.0"))], memory_budget_bytes=0)
+
+    def test_an_over_budget_header_is_rejected_before_the_count_table_is_read(self):
+        """The inventory check must gate ``read_lhalo_header``, not follow it.
+
+        ``read_lhalo_header`` reads the whole per-tree count table and casts
+        it to int64 unconditionally -- an O(ntrees) allocation of its own. A
+        budget checked afterwards would let exactly the allocation it exists
+        to prevent happen first, so the check is preflighted from the header's
+        leading 4 bytes instead.
+
+        Measured, not asserted structurally: the traced peak must stay well
+        below the count table this file would otherwise have allocated.
+        """
+        n_trees = 20000
+        self.write("trees.0", [[dict(row)] for row in [TREE_B[1]] * n_trees])
+        adapter = self.adapter([(0, self.path("trees.0"))], memory_budget_bytes=1)
+        count_table_bytes = 4 * n_trees  # what read_lhalo_header would read
+        tracemalloc.start()
+        try:
+            baseline = tracemalloc.get_traced_memory()[0]
+            with self.assertRaises(ConverterError) as caught:
+                adapter.inventory()
+            peak = tracemalloc.get_traced_memory()[1] - baseline
+        finally:
+            tracemalloc.stop()
+        self.assertIn("memory budget", str(caught.exception))
+        self.assertIn("inventory of {} trees".format(n_trees), str(caught.exception))
+        self.assertLess(
+            peak,
+            count_table_bytes // 4,
+            "rejection allocated {} bytes; the {}-byte count table was not avoided".format(
+                peak, count_table_bytes
+            ),
+        )
+
+    def test_a_within_budget_header_still_reads_normally(self):
+        """The preflight must not change what a legal header does."""
+        self.write("trees.0", [TREE_A, TREE_B])
+        inventory = self.adapter([(0, self.path("trees.0"))]).inventory()
+        self.assertEqual([unit.n_halos for unit in inventory.units], [7, 2])
 
 
 def _linear_columns(n_halos):
@@ -1177,7 +1295,7 @@ VALIDATION_SHAPES = (
 )
 
 
-class BudgetAccountingTests(unittest.TestCase):
+class BudgetAccountingTests(FixtureCase):
     """``VALIDATION_BYTES_PER_HALO`` must really bound the validation path.
 
     Round 1 review found the budget check counting only the six retained
@@ -1228,6 +1346,79 @@ class BudgetAccountingTests(unittest.TestCase):
                             label, n_halos, peak / n_halos, VALIDATION_BYTES_PER_HALO
                         ),
                     )
+
+    def test_the_real_read_path_also_stays_within_the_declared_budget(self):
+        """Measure through ``_read_tree_topology``, not just ``_validate_tree``.
+
+        Round 2 review noted the self-policing claim was narrower than what it
+        needed to police: tracing pre-built columns skips the read buffer that
+        ``_read_tree_topology`` actually allocates. This drives the real path
+        with a real file handle, which is the window the constant claims to
+        cover.
+
+        The read buffer is ``TOPOLOGY_READ_CHUNK_ROWS`` records regardless of
+        the caller's ``max_rows``, so it does not scale with the tree; a
+        caller batching a whole tree at once previously added ``itemsize``
+        (104 B/halo) here.
+        """
+        n_halos = 20000
+        path = os.path.join(self.tmpdir, "trees.0")
+        write_lhalo_file(path, [linear_tree(n_halos)])
+        adapter = LHaloBinaryAdapter(default_schema(), [(0, path)])
+        header_bytes = 8 + 4 * 1
+        with open(path, "rb") as handle:
+            tracemalloc.start()
+            try:
+                baseline = tracemalloc.get_traced_memory()[0]
+                columns = adapter._read_tree_topology(
+                    handle, header_bytes, n_halos, "budget measurement"
+                )
+                lb._validate_tree(columns, n_halos, "budget measurement", None)
+                peak = tracemalloc.get_traced_memory()[1] - baseline
+            finally:
+                tracemalloc.stop()
+                columns = None
+        budget = validation_budget_bytes(n_halos)
+        self.assertLessEqual(
+            peak,
+            budget,
+            "the real read+validate path peaked at {} bytes ({:.1f} B/halo), above the "
+            "{} bytes the declared constants allow".format(peak, peak / n_halos, budget),
+        )
+
+    def test_the_topology_is_released_before_emission_begins(self):
+        """The 48 B/halo term must not overlap the output buffers.
+
+        Asserted by lifetime, not by a memory figure: a weak reference to one
+        of the six columns, captured as validation runs, must already be dead
+        by the time the first batch is yielded -- which happens inside the
+        emission loop for that same tree.
+        """
+        n_halos = 40
+        path = os.path.join(self.tmpdir, "trees.0")
+        write_lhalo_file(path, [linear_tree(n_halos)])
+        adapter = LHaloBinaryAdapter(default_schema(), [(0, path)])
+
+        captured = []
+        real_validate = lb._validate_tree
+
+        def spy(columns, *args, **kwargs):
+            captured.append(weakref.ref(columns["Descendant"]))
+            return real_validate(columns, *args, **kwargs)
+
+        lb._validate_tree = spy
+        self.addCleanup(setattr, lb, "_validate_tree", real_validate)
+
+        batches = adapter.iter_batches(8)
+        first = next(batches)
+        self.assertEqual(first.n_rows, 8)
+        self.assertEqual(len(captured), 1)
+        self.assertIsNone(
+            captured[0](),
+            "the topology columns were still alive during emission; `del topology` "
+            "is not releasing them",
+        )
+        batches.close()
 
     def test_the_retained_columns_alone_would_understate_the_peak(self):
         """The defect this constant was corrected for, pinned as a test.

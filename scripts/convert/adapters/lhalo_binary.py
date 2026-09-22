@@ -50,9 +50,15 @@ read off the C driver rather than assumed:
 **Bounds (C4).** Three terms scale with something other than a constant, and
 all three are named rather than left implicit:
 
-1. *Record reads* are bounded by the caller's ``max_rows``. A tree larger than
-   one batch is read and emitted across several batches; a tree is never
-   materialised whole as records.
+1. *Record reads* are bounded. Emission reads at most the caller's
+   ``max_rows`` records at a time, and the validation pass reads at most
+   :data:`TOPOLOGY_READ_CHUNK_ROWS`, independent of ``max_rows``, so neither
+   buffer scales with the tree. A tree larger than one batch is read and
+   emitted across several batches; a tree is never materialised whole as
+   records. Each tree's bytes are therefore read **twice** -- once to gather
+   the topology and once to emit -- which is a deliberate trade: validating
+   before emitting means a structurally invalid tree can never reach a batch,
+   and the second pass hits the page cache the first one just warmed.
 2. *Per-tree validation* -- the five links plus ``SnapNum`` as int64, **plus
    the transient scratch the structural checks allocate while those columns
    are still live** -- peaks at :data:`VALIDATION_BYTES_PER_HALO` bytes per
@@ -61,7 +67,10 @@ all three are named rather than left implicit:
    chunk-locally, so this term is deliberate, budgeted, and checked *before*
    allocation. The retained columns are only 48 of those bytes; counting just
    them would understate the real peak by more than half, so the budget uses
-   the measured whole-path figure instead.
+   the measured whole-path figure instead, **plus** the one bounded read
+   buffer of item 1 -- a constant, and the one term a per-halo figure cannot
+   express. The columns are **released as soon as validation returns**,
+   before emission begins, so this term never overlaps the output buffers.
 3. *The inventory* is O(tree count), which C4 permits as an explicitly
    budgeted term. It is the contract's own mandated structure: C1 defines
    ``SourceHaloID`` as a prefix sum over the complete ordered inventory, so it
@@ -110,6 +119,7 @@ from .source_inventory import LHaloHeader, read_lhalo_header
 __all__ = [
     "ConverterError",
     "TOPOLOGY_COLUMNS",
+    "TOPOLOGY_READ_CHUNK_ROWS",
     "TOPOLOGY_COLUMN_BYTES_PER_HALO",
     "VALIDATION_BYTES_PER_HALO",
     "INVENTORY_BYTES_PER_UNIT",
@@ -121,6 +131,14 @@ __all__ = [
 #: The columns whole-tree structural validation needs: the five stored links
 #: plus the snapshot they are interpreted against.
 TOPOLOGY_COLUMNS: Tuple[str, ...] = LINK_FIELDS + ("SnapNum",)
+
+#: Records per read while gathering those columns. Fixed rather than taken
+#: from the caller's ``max_rows`` so the raw read buffer stays O(1) in the
+#: tree size: this pass fills six int64 columns and gains nothing from a
+#: larger buffer, while a caller batching a whole tree at once would
+#: otherwise add ``itemsize`` bytes per halo (104 on the shipped record) to
+#: the validation peak. 65536 records is 6.8 MB on that record.
+TOPOLOGY_READ_CHUNK_ROWS = 65536
 
 #: Bytes the six retained topology columns occupy per halo. Held as int64
 #: rather than the source's int32 so that index arithmetic, ``bincount`` and
@@ -174,6 +192,32 @@ INVENTORY_BYTES_PER_UNIT = 464
 #: 440,651 trees need ~204 MB, mini-Millennium's 29,585 need ~14 MB -- while
 #: refusing a full 512-file Millennium (~6.6 GB) loudly instead of paging.
 DEFAULT_MEMORY_BUDGET_BYTES = 2 * 1024**3
+
+
+def _peek_ntrees(path: Path, byte_order: str) -> Optional[int]:
+    """Read just the leading ``Ntrees`` field, allocating nothing else.
+
+    Exists so the inventory budget can be checked *before*
+    ``read_lhalo_header`` performs its own O(ntrees) count-table read and
+    int64 cast. It deliberately diagnoses nothing: a short, unreadable or
+    negative header returns ``None`` and the caller proceeds to
+    ``read_lhalo_header``, which owns every header error message and must
+    stay the single place they are produced. Duplicating validation here
+    would mean two sources of truth for the same malformed file.
+    """
+    try:
+        # Unbuffered: a buffered handle would allocate the filesystem's block
+        # size up front -- 128 KiB on this host -- which is absurd overhead
+        # for a 4-byte probe whose whole purpose is to allocate nothing before
+        # the budget has been consulted.
+        with open(path, "rb", buffering=0) as handle:
+            head = handle.read(4)
+    except OSError:  # pragma: no cover - read_lhalo_header reports it properly
+        return None
+    if len(head) != 4:
+        return None
+    ntrees = int(np.frombuffer(head, dtype=np.dtype(byte_order + "i4"), count=1)[0])
+    return ntrees if ntrees >= 0 else None
 
 
 @dataclass(frozen=True)
@@ -261,6 +305,15 @@ class LHaloBinaryAdapter(SourceAdapter):
         conversion to the files that happen to be present is the failure mode
         the plan's data-availability section names explicitly.
 
+        **A file may appear only once.** Distinct ordinals pointing at the
+        same physical file would convert cleanly and emit every one of its
+        trees twice, under two different ``SourceHaloID`` ranges -- silently
+        doubling the catalog. That is the exact dual of the missing-file case
+        this method already refuses: one silently narrows a conversion, the
+        other silently widens it, and neither leaves a trace in the output.
+        Comparison is by ``Path.resolve()``, so two spellings of one file
+        (a relative path, a ``./`` prefix, a symlink) are still caught.
+
         Every malformed shape leaves here as this module's named
         ``ConverterError``, never as a raw ``TypeError``/``ValueError``. The
         ordinal is *type*-checked rather than coerced: ``int(4.9)`` would
@@ -271,6 +324,7 @@ class LHaloBinaryAdapter(SourceAdapter):
         """
         resolved: List[Tuple[int, Path]] = []
         previous: Optional[int] = None
+        claimed: Dict[Path, int] = {}
         for position, entry in enumerate(sources):
             try:
                 ordinal, path = entry
@@ -309,6 +363,14 @@ class LHaloBinaryAdapter(SourceAdapter):
                     "requested source file {} (ordinal {}) is missing; a conversion fails rather "
                     "than narrowing to the files that are present".format(path, ordinal)
                 )
+            canonical = path.resolve()
+            if canonical in claimed:
+                raise ConverterError(
+                    "source file {} is requested twice, as ordinal {} and ordinal {}; converting "
+                    "it once per ordinal would emit every one of its trees twice under different "
+                    "SourceHaloID ranges".format(canonical, claimed[canonical], ordinal)
+                )
+            claimed[canonical] = ordinal
             if not path.is_file():
                 raise ConverterError(
                     "requested source file {} (ordinal {}) is not a regular file".format(
@@ -342,13 +404,21 @@ class LHaloBinaryAdapter(SourceAdapter):
         units: List[SourceUnit] = []
         forest_base = 0
         for ordinal, path in self._sources:
+            # Budget-check against the tree count *before* read_lhalo_header
+            # runs, not after. That function reads the whole count table and
+            # casts it to int64 unconditionally -- an O(ntrees) allocation of
+            # its own -- so checking afterwards would let the allocation the
+            # budget exists to gate happen first. The leading 8 bytes already
+            # carry Ntrees, which is all the check needs.
+            declared_trees = _peek_ntrees(path, byte_order)
+            if declared_trees is not None:
+                self._check_budget(
+                    (len(units) + declared_trees) * INVENTORY_BYTES_PER_UNIT,
+                    "inventory of {} trees".format(len(units) + declared_trees),
+                    "raise memory_budget_bytes, or convert a narrower file range",
+                )
             header = read_lhalo_header(
                 path, byte_order=byte_order, record_bytes=self.layout.itemsize
-            )
-            self._check_budget(
-                (len(units) + header.ntrees) * INVENTORY_BYTES_PER_UNIT,
-                "inventory of {} trees".format(len(units) + header.ntrees),
-                "raise memory_budget_bytes, or convert a narrower file range",
             )
             files.append(
                 _SourceFile(ordinal=ordinal, path=path, header=header, forest_base=forest_base)
@@ -411,8 +481,15 @@ class LHaloBinaryAdapter(SourceAdapter):
                         # rows. It consumes a SourceHaloID range of length
                         # zero, which the prefix sums already handle.
                         continue
-                    topology = self._read_tree_topology(handle, offset, n_halos, max_rows, context)
+                    topology = self._read_tree_topology(handle, offset, n_halos, context)
                     _validate_tree(topology, n_halos, context, self.max_snapshot)
+                    # Released before emission begins, not merely rebound on
+                    # the next iteration. Nothing below reads it, and holding
+                    # it would keep 48 B/halo of the tree resident through the
+                    # whole chunked emission phase -- turning a term that is
+                    # supposed to live only for the tree under validation into
+                    # one that overlaps the output buffers as well.
+                    del topology
 
                     base_id = inventory.base_id(source.ordinal, tree_ordinal)
                     forest_index = source.forest_base + tree_ordinal
@@ -426,6 +503,9 @@ class LHaloBinaryAdapter(SourceAdapter):
                                 records, source, tree_ordinal, base_id, forest_index, start, context
                             )
                         )
+                        # The chunk's values have been copied out; drop it
+                        # before the next read allocates its replacement.
+                        records = None
                         start += count
                         if builder.n_rows == max_rows:
                             yield builder.take()
@@ -446,7 +526,7 @@ class LHaloBinaryAdapter(SourceAdapter):
         return np.frombuffer(raw, dtype=self._record_dtype, count=count)
 
     def _read_tree_topology(
-        self, handle, offset: int, n_halos: int, max_rows: int, context: str
+        self, handle, offset: int, n_halos: int, context: str
     ) -> Dict[str, np.ndarray]:
         """Gather one tree's link and snapshot columns, reading in chunks.
 
@@ -459,21 +539,38 @@ class LHaloBinaryAdapter(SourceAdapter):
         and allocates more whole-tree scratch of its own, so budgeting the
         columns alone would let an operator's configured ceiling be exceeded
         by more than 2x a few lines later.
+
+        The read chunk is :data:`TOPOLOGY_READ_CHUNK_ROWS`, deliberately not
+        the caller's ``max_rows``. This pass only fills six columns and gains
+        nothing from a larger buffer, whereas taking ``max_rows`` would make
+        the raw read ``itemsize`` bytes per halo -- 104 on the shipped record,
+        more than double the columns themselves -- whenever a caller sized its
+        batches at or above the tree. That would put an O(n_halos) term in the
+        peak that this constant is not meant to cover.
         """
+        read_buffer_bytes = min(TOPOLOGY_READ_CHUNK_ROWS, n_halos) * self.layout.itemsize
         self._check_budget(
-            n_halos * VALIDATION_BYTES_PER_HALO,
-            "{}: structural validation of {} halos".format(context, n_halos),
+            n_halos * VALIDATION_BYTES_PER_HALO + read_buffer_bytes,
+            "{}: structural validation of {} halos ({} B/halo plus a {}-byte read buffer)".format(
+                context, n_halos, VALIDATION_BYTES_PER_HALO, read_buffer_bytes
+            ),
             "raise memory_budget_bytes",
         )
         columns = {name: np.empty(n_halos, dtype=np.int64) for name in TOPOLOGY_COLUMNS}
         handle.seek(offset)
         start = 0
+        records = None
         while start < n_halos:
-            count = min(max_rows, n_halos - start)
+            count = min(TOPOLOGY_READ_CHUNK_ROWS, n_halos - start)
+            # Released before the next read allocates, not after: rebinding
+            # alone would hold two chunk buffers at once, which measured as a
+            # 13.6 MB constant rather than the intended 6.8 MB.
+            records = None
             records = self._read_records(handle, count, context)
             for name in TOPOLOGY_COLUMNS:
                 columns[name][start : start + count] = records[self._roles[name]]
             start += count
+        del records
         return columns
 
     # ---- column construction --------------------------------------------
