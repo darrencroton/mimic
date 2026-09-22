@@ -46,6 +46,7 @@ __all__ = [
     "inspect_ctrees_hdf5_source",
     "SimulationInfo",
     "load_simulation_info",
+    "lhalo_file_paths",
     "SourceReachability",
     "check_lhalo_reachability",
     "check_hdf5_reachability",
@@ -140,13 +141,24 @@ class LHaloHeader:
     expected_size: int
 
 
-def read_lhalo_header(path, byte_order: str = "<") -> LHaloHeader:
+def read_lhalo_header(
+    path, byte_order: str = "<", record_bytes: int = LHALO_RECORD_BYTES
+) -> LHaloHeader:
     """Read and validate the Ntrees/totNHalos/per-tree-count header.
 
     Validates the count table sums to totNHalos and that the file's actual
     byte length matches the header-implied size exactly (header + totNHalos *
-    104 bytes). Raises ConverterError on any truncation or count mismatch."""
+    `record_bytes`). Raises ConverterError on any truncation or count mismatch.
+
+    `record_bytes` defaults to the shipped 104-byte record for the inspection
+    route, which reads through `LHALO_FIELDS` directly. The conversion adapter
+    passes its profile's declared `binary_layout.itemsize` instead, so the
+    whole-file length check is made against the layout the conversion will
+    actually step -- a profile whose stride disagrees with the file must fail
+    here, not silently misread every record after the first."""
     path = Path(path)
+    if record_bytes <= 0:
+        raise ConverterError("record_bytes must be positive, got {}".format(record_bytes))
     int_dtype = np.dtype(byte_order + "i4")
     file_size = path.stat().st_size
     with open(path, "rb") as handle:
@@ -202,12 +214,12 @@ def read_lhalo_header(path, byte_order: str = "<") -> LHaloHeader:
             )
         )
     header_bytes = 8 + 4 * ntrees
-    expected_size = header_bytes + total_halos * LHALO_RECORD_BYTES
+    expected_size = header_bytes + total_halos * record_bytes
     if file_size != expected_size:
         raise ConverterError(
             "{}: file is {} bytes, header implies {} bytes ({} header + {} halos x {} bytes) "
             "-- truncated or trailing data".format(
-                path, file_size, expected_size, header_bytes, total_halos, LHALO_RECORD_BYTES
+                path, file_size, expected_size, header_bytes, total_halos, record_bytes
             )
         )
     return LHaloHeader(
@@ -766,12 +778,27 @@ def free_space_bytes(path) -> Optional[int]:
     return shutil.disk_usage(path).free
 
 
-def _resolve_binary_paths(sim_info: SimulationInfo) -> List[Path]:
+def lhalo_file_paths(sim_info: SimulationInfo) -> List[Tuple[int, Path]]:
+    """The declared L-Halo file range as ordered `(file number, path)` pairs.
+
+    The file number is the source's own `tree_name.N` suffix, not the pair's
+    position: a conversion of files 4-7 records the ordinals 4, 5, 6, 7 rather
+    than compacting them to 0-3, so the `SourceFileOrdinal` a converted dataset
+    carries inverts back to a real path.
+
+    Read-only and non-validating -- it neither stats nor opens anything. The
+    conversion adapter rejects a missing member of this list (C1: never narrow
+    silently to the files that happen to be present); the inspection route
+    reports absent members as reachability data instead."""
     base = Path(sim_info.simulation_dir)
     return [
-        base / "{}.{}".format(sim_info.tree_name, n)
+        (n, base / "{}.{}".format(sim_info.tree_name, n))
         for n in range(sim_info.first_file, sim_info.last_file + 1)
     ]
+
+
+def _resolve_binary_paths(sim_info: SimulationInfo) -> List[Path]:
+    return [path for _number, path in lhalo_file_paths(sim_info)]
 
 
 def check_lhalo_reachability(sim_info: SimulationInfo) -> SourceReachability:
