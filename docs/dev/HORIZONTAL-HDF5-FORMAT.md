@@ -166,6 +166,8 @@ Converters live outside Mimic's run path (converter tooling is maintained under 
 
 `format_version` is a single int32 ratchet. Readers reject files with an unrecognised version; producers stamp the version they implement. Additive changes (new optional datasets or attributes) also require a version bump — consumers of a given version are entitled to assume the exact object set that version specifies.
 
+**Non-normative pointer.** A `format_version = 3` contract — lossless skipped-snapshot links, int64 snapshot-local indices, source-qualified row identity and an embedded payload schema — is *proposed* in [`MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md`](MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md) and is not approved, implemented or specified here. This document continues to specify version 2 in full, and nothing in that proposal alters version 2's bytes, validation rules or the ratchet above. Do not implement against v3 from this document; if that plan is executed, it carries its own specification and this sentence is replaced by a version 3 section.
+
 ### Version 2 (2026-09-10)
 
 This document now specifies version 2. Version 1 is superseded outright, not extended: there is no legacy-read path, and a version 1 file is rejected by a version-2 reader with an error naming the file and the version found (`HORIZONTAL_HDF5_FORMAT_VERSION` in `src/io/horizontal/read_horizontal_hdf5.c`).

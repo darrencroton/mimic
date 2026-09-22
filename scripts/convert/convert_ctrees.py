@@ -142,8 +142,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     fixups = sub.add_parser(
         "fixups",
-        help="Phase 3 steps 1-4: adjacency validation, spin/Len conventions, "
-        "fix_upid equivalent",
+        help="Phase 3 steps 1-3 and 5 (step 4, fix_flybys, removed in v2): adjacency "
+        "validation, spin/Len conventions, fix_upid equivalent",
     )
     _add_workdir(fixups)
     fixups.add_argument("--a-list", required=True, help="canonical a_list (one scale per line)")

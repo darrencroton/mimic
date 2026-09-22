@@ -769,12 +769,12 @@ def scatter_one_file(
             for snap in np.unique(records["snap"]).tolist():
                 part = records[records["snap"] == snap]
                 if snap not in handles:
-                    # TODO(MIMIC-CONVERTER-GENERALISATION-PLAN.md): default buffering here
-                    # scales with the filesystem's st_blksize (Lustre, some APFS volumes),
-                    # so up to n_snapshots concurrent handles can cost far more than intended
-                    # — see crosscheck.py's TopologyDumpPartition._handle() for the same
-                    # defect fixed with an explicit buffering= size. Fix here when
-                    # generalising the converter.
+                    # TODO(MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md): default
+                    # buffering here scales with the filesystem's st_blksize (Lustre, some
+                    # APFS volumes), so up to n_snapshots concurrent handles can cost far
+                    # more than intended — see crosscheck.py's TopologyDumpPartition._handle()
+                    # for the same defect fixed with an explicit buffering= size. That plan
+                    # requires buffering=8192 here, including under pooled execution.
                     handles[snap] = open(scratch_dir / worker_scratch_name(snap, src_index), "wb")
                 handles[snap].write(part.tobytes())
                 counts[snap] = counts.get(snap, 0) + len(part)
