@@ -195,6 +195,21 @@ INVENTORY_BYTES_PER_UNIT = 464
 DEFAULT_MEMORY_BUDGET_BYTES = 2 * 1024**3
 
 
+def _require_integer(value, what: str, because: str) -> int:
+    """Type-check an integral scalar instead of coercing it.
+
+    ``int()`` would quietly truncate ``1.5`` and quietly accept ``True`` as 1,
+    and every scalar this module takes is one a later stage depends on -- a
+    recorded identity, a memory ceiling, a snapshot bound. ``bool`` is excluded
+    explicitly because it is a subclass of ``int``. ``numpy`` integers are
+    accepted: a caller computing a value from array data should not have to
+    convert it back first.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
+        raise ConverterError("{} must be an integer, got {!r}; {}".format(what, value, because))
+    return int(value)
+
+
 def _peek_ntrees(path: Path, byte_order: str) -> Optional[int]:
     """Read just the leading ``Ntrees`` field, allocating nothing else.
 
@@ -225,7 +240,9 @@ def _peek_ntrees(path: Path, byte_order: str) -> Optional[int]:
         # the budget has been consulted.
         with open(path, "rb", buffering=0) as handle:
             head = handle.read(4)
-    except OSError:  # pragma: no cover - read_lhalo_header reports it properly
+    except OSError:
+        # Driven by the vanishing-file tests. Standing aside rather than
+        # diagnosing: read_lhalo_header reports it properly a moment later.
         return None
     if len(head) != 4:
         return None
@@ -279,12 +296,27 @@ class LHaloBinaryAdapter(SourceAdapter):
             )
         if schema.source_layout is None:  # pragma: no cover - build_schema guarantees it
             raise ConverterError("a lhalo_binary schema always carries a frozen source layout")
+        memory_budget_bytes = _require_integer(
+            memory_budget_bytes,
+            "memory_budget_bytes",
+            "a fractional ceiling would be truncated into a different budget than the caller "
+            "asked for",
+        )
         if memory_budget_bytes <= 0:
             raise ConverterError(
                 "memory_budget_bytes must be positive, got {}".format(memory_budget_bytes)
             )
-        if max_snapshot is not None and max_snapshot < 0:
-            raise ConverterError("max_snapshot must be non-negative, got {}".format(max_snapshot))
+        if max_snapshot is not None:
+            max_snapshot = _require_integer(
+                max_snapshot,
+                "max_snapshot",
+                "a fractional snapshot bound would be truncated into a different bound than the "
+                "a_list declares",
+            )
+            if max_snapshot < 0:
+                raise ConverterError(
+                    "max_snapshot must be non-negative, got {}".format(max_snapshot)
+                )
 
         self.schema = schema
         self.layout = schema.source_layout
@@ -358,12 +390,11 @@ class LHaloBinaryAdapter(SourceAdapter):
                         position, entry
                     )
                 ) from None
-            if isinstance(ordinal, bool) or not isinstance(ordinal, (int, np.integer)):
-                raise ConverterError(
-                    "sources[{}]: source_file_ordinal must be an integer, got {!r}; it is "
-                    "recorded identity and is never coerced".format(position, ordinal)
-                )
-            ordinal = int(ordinal)
+            ordinal = _require_integer(
+                ordinal,
+                "sources[{}]: source_file_ordinal".format(position),
+                "it is recorded identity and is never coerced",
+            )
             if not 0 <= ordinal <= INT64_MAX:
                 # Bounded at both ends: the ordinal is written into an int64
                 # coordinate column, so one above INT64_MAX would surface as a
@@ -549,7 +580,7 @@ class LHaloBinaryAdapter(SourceAdapter):
 
                     base_id = inventory.base_id(source.ordinal, tree_ordinal)
                     forest_index = source.forest_base + tree_ordinal
-                    handle.seek(offset)
+                    self._seek(handle, offset, context)
                     start = 0
                     while start < n_halos:
                         count = min(max_rows - builder.n_rows, n_halos - start)
@@ -569,10 +600,31 @@ class LHaloBinaryAdapter(SourceAdapter):
         if builder.n_rows:
             yield builder.take()
 
+    @staticmethod
+    def _seek(handle, offset: int, context: str) -> None:
+        """Seek, reporting a device failure the way every other one is reported.
+
+        A conversion runs for a long time over sources that may live on
+        external or network storage, so the handle can fail long after it
+        opened successfully. That is still a source problem and leaves here
+        named, with the tree that was being read.
+        """
+        try:
+            handle.seek(offset)
+        except OSError as exc:
+            raise ConverterError(
+                "{}: cannot seek to byte {} of the source: {}".format(context, offset, exc)
+            ) from exc
+
     def _read_records(self, handle, count: int, context: str) -> np.ndarray:
         """Read exactly ``count`` records from the current file position."""
         want = count * self.layout.itemsize
-        raw = handle.read(want)
+        try:
+            raw = handle.read(want)
+        except OSError as exc:
+            raise ConverterError(
+                "{}: reading {} bytes from the source failed: {}".format(context, want, exc)
+            ) from exc
         if len(raw) != want:
             raise ConverterError(
                 "{}: truncated halo payload (need {} bytes for {} records, got {})".format(
@@ -613,7 +665,7 @@ class LHaloBinaryAdapter(SourceAdapter):
             "raise memory_budget_bytes",
         )
         columns = {name: np.empty(n_halos, dtype=np.int64) for name in TOPOLOGY_COLUMNS}
-        handle.seek(offset)
+        self._seek(handle, offset, context)
         start = 0
         records = None
         while start < n_halos:

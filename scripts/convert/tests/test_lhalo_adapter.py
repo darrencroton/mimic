@@ -23,6 +23,7 @@ each of Millennium and mini-Uchuu, 75.4 M halos -- with zero violations before
 they were made gates, so none of them rejects valid source data.
 """
 
+import errno
 import os
 import shutil
 import struct
@@ -31,6 +32,7 @@ import tempfile
 import tracemalloc
 import unittest
 import weakref
+from unittest import mock
 
 import numpy as np
 
@@ -445,6 +447,45 @@ def collect(adapter, max_rows):
     )
 
 
+class FailingHandle:
+    """A real file handle that fails on the nth ``read`` or ``seek``.
+
+    Stands in for storage that dies mid-conversion -- a plausible event for
+    the external and network volumes the multi-gigabyte sources live on, and
+    the one class of failure that happens *after* ``open()`` has already
+    succeeded, so the constructor-time guards cannot catch it.
+    """
+
+    def __init__(self, handle, fail_on_read=None, fail_on_seek=None):
+        self._handle = handle
+        self._reads = 0
+        self._seeks = 0
+        self._fail_on_read = fail_on_read
+        self._fail_on_seek = fail_on_seek
+
+    def read(self, size=-1):
+        self._reads += 1
+        if self._reads == self._fail_on_read:
+            raise OSError(errno.EIO, "simulated device failure")
+        return self._handle.read(size)
+
+    def seek(self, offset, whence=0):
+        self._seeks += 1
+        if self._seeks == self._fail_on_seek:
+            raise OSError(errno.EIO, "simulated device failure")
+        return self._handle.seek(offset, whence)
+
+    def close(self):
+        self._handle.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        self._handle.close()
+        return False
+
+
 class FixtureCase(unittest.TestCase):
     """Base class owning a temporary source directory."""
 
@@ -701,6 +742,38 @@ class InventoryTests(FixtureCase):
         columns, _sizes = collect(self.adapter([(2**63 - 1, self.path("trees.0"))]), 8)
         self.assertEqual(columns["coordinates"]["source_file_ordinal"].tolist(), [2**63 - 1] * 2)
 
+    def test_a_non_integer_memory_budget_is_rejected_rather_than_coerced(self):
+        """The ordinal rule, applied to its sibling constructor scalars.
+
+        ``int(1.5)`` would quietly hand the caller a different ceiling than
+        they asked for, and a string budget raised a raw ``TypeError`` before
+        any named error could be produced.
+        """
+        self.write("trees.0", [TREE_B])
+        for bad in ("2048", 1.5, 2048.0, True, None):
+            with self.subTest(memory_budget_bytes=bad):
+                with self.assertRaises(ConverterError) as caught:
+                    self.adapter([(0, self.path("trees.0"))], memory_budget_bytes=bad)
+                self.assertIn("memory_budget_bytes must be an integer", str(caught.exception))
+
+    def test_a_non_integer_max_snapshot_is_rejected_rather_than_coerced(self):
+        self.write("trees.0", [TREE_B])
+        for bad in ("63", 63.5, 63.0, True):
+            with self.subTest(max_snapshot=bad):
+                with self.assertRaises(ConverterError) as caught:
+                    self.adapter([(0, self.path("trees.0"))], max_snapshot=bad)
+                self.assertIn("max_snapshot must be an integer", str(caught.exception))
+
+    def test_numpy_integer_budget_and_snapshot_are_accepted(self):
+        """Rejecting non-integers must not reject numpy integers."""
+        self.write("trees.0", [TREE_B])
+        adapter = self.adapter(
+            [(0, self.path("trees.0"))],
+            max_snapshot=np.int64(63),
+            memory_budget_bytes=np.int64(DEFAULT_MEMORY_BUDGET_BYTES),
+        )
+        self.assertEqual(adapter.inventory().total_halos, 2)
+
     def test_a_numpy_integer_ordinal_is_accepted(self):
         """Rejecting non-integers must not reject a numpy int from a caller."""
         self.write("trees.0", [TREE_B])
@@ -723,6 +796,45 @@ class InventoryTests(FixtureCase):
         with self.assertRaises(ConverterError) as caught:
             adapter.inventory()
         self.assertIn("cannot read source file", str(caught.exception))
+
+    def _convert_with_failing_handle(self, **failure):
+        """Run a conversion whose source handle fails partway through.
+
+        ``open()`` is patched only for the duration of the conversion: the
+        inventory is built first, against the real file, so the only handle
+        the patch intercepts is the one ``iter_batches`` opens.
+        """
+        self.write("trees.0", [linear_tree(8)])
+        adapter = self.adapter([(0, self.path("trees.0"))])
+        adapter.inventory()
+        real_open = open
+
+        def fake_open(*args, **kwargs):
+            return FailingHandle(real_open(*args, **kwargs), **failure)
+
+        with mock.patch("builtins.open", fake_open):
+            with self.assertRaises(ConverterError) as caught:
+                list(adapter.iter_batches(4))
+        return str(caught.exception)
+
+    def test_a_read_failure_during_the_topology_pass_is_named(self):
+        """The first read of a tree is the validation pass's."""
+        message = self._convert_with_failing_handle(fail_on_read=1)
+        self.assertIn("reading", message)
+        self.assertIn("from the source failed", message)
+        self.assertIn("tree 0", message)
+
+    def test_a_read_failure_during_the_emission_pass_is_named(self):
+        """Reads 2 and 3 are emission's, after validation has already passed."""
+        message = self._convert_with_failing_handle(fail_on_read=2)
+        self.assertIn("from the source failed", message)
+        self.assertIn("tree 0", message)
+
+    def test_a_seek_failure_mid_conversion_is_named(self):
+        """The emission pass re-seeks to the tree it just validated."""
+        message = self._convert_with_failing_handle(fail_on_seek=2)
+        self.assertIn("cannot seek to byte", message)
+        self.assertIn("tree 0", message)
 
     def test_a_file_that_vanishes_before_conversion_is_named(self):
         """The same, at the second read site: iter_batches' own open()."""
@@ -1736,7 +1848,7 @@ class RealMiniMillenniumTests(unittest.TestCase):
         cls.schema = default_schema()
         cls.adapter = LHaloBinaryAdapter(cls.schema, [(0, REAL_FILE)], max_snapshot=63)
         cls.inventory = cls.adapter.inventory()
-        cls.source = read_file_directly(REAL_FILE)[: cls.TREES_COMPARED]
+        cls.source = read_file_directly(REAL_FILE, limit=cls.TREES_COMPARED)
         cls.n_rows = sum(len(tree) for tree in cls.source)
         columns = {}
         emitted = 0
