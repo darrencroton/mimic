@@ -1,5 +1,7 @@
 # Mimic v3 Consumer-Design Review
 
+**APPROVED 23-09-2026 by Darren Croton**
+
 **Purpose**: Trace every field, unit, ordering and snapshot-qualified link proposed by [`HORIZONTAL-HDF5-FORMAT-V3-DRAFT.md`](HORIZONTAL-HDF5-FORMAT-V3-DRAFT.md) through the consumer side — the generated input view, gap-state ownership and bounded slab access — and establish whether that draft can be frozen as a producer contract without stranding the consumer that must eventually read it.
 
 > **Status: UNAPPROVED.**
