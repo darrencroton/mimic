@@ -22,7 +22,7 @@ mergertree_1999.h5
 
 All files must remain co-located. Each `File<n>` group in `mergertree_info.h5` is an HDF5 ExternalLink to the root of `mergertree_N.h5`; the HDF5 library resolves the link transparently using relative paths.
 
-**HDF5 external link architecture:** This dataset uses ExternalLinks (not VDS virtual datasets as in `simulations/micro-uchuu-hdf5/`). The package-local fixture exercises this layout: `mergertree_info.h5` links `File0` to `/` of `mergertree_0.h5`, with contiguous halo properties under `Forests/` and `Snap_idx` stored as `float64`. Run an explicit halos-only smoke test before any production use so the mounted 37 TB catalog is checked in place.
+**HDF5 external link architecture:** This dataset uses ExternalLinks. (A previous version of this line said `simulations/micro-uchuu-hdf5/` uses VDS virtual datasets; it does not — neither its fixture nor the real `MicroUchuu_mergertree.h5` contains a virtual dataset. No Mimic simulation package uses VDS.) The package-local fixture exercises this layout: `mergertree_info.h5` links `File0` to `/` of `mergertree_0.h5`, with contiguous halo properties under `Forests/` and `Snap_idx` stored as `float64`. Run an explicit halos-only smoke test before any production use so the mounted 37 TB catalog is checked in place.
 
 **MPI requirements:** Choose MPI size for memory, walltime, filesystem throughput, and load balance across the approximately 3.22 billion-forest input set. The `forest_distribution_scheme: linear` setting weights forests by halo count for better balance across the highly unequal forest sizes.
 

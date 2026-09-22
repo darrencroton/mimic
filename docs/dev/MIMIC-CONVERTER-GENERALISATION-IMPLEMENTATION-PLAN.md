@@ -4,6 +4,8 @@
 
 **Status:** Proposed implementation contract, 2026-09-22, inspected at `20a0db125725a1c7bc6a4324d27dfccf26b871c9`. No implementation has started. The owner's explicit scope expansion supersedes the earlier Consistent-Trees-ASCII-only proposal. Mode B is recommended; every slice below has an effort label.
 
+**Revised 2026-09-22 after an independent PM-readiness review.** Twelve slices, not eleven: the old Slice 10 carried both the comparison tooling and the evidence produced with it, so it is split (10 = tooling, 11 = evidence) and the documentation slice is now 12. The v3 consumer-design approval moved out of Slice 2's acceptance list into **Gate G1**, a boundary gate with a named author, approver and on-disk artifact — as an acceptance criterion it had no lawful path, since a Developer cannot obtain owner approval. The VDS requirement is withdrawn: no reachable dataset uses virtual datasets. Added: a data-availability and slice-start prerequisite section, a resource envelope, a pre-change ASCII reference in Slice 1, `crosscheck.py` in Slice 5's surface, the real micro-Uchuu forests-HDF5 dataset in Slice 11's evidence, and a PM-latitude section. `pm.py check-plan` exits 0 at twelve slices.
+
 **Decision required before execution:** This draft delivers new conversion capability, not new runnable horizontal simulations: the current C reader rejects v3 and the driver cannot retain state across skipped snapshots or load slabs above `INT_MAX` (`src/io/horizontal/read_horizontal_hdf5.c`, `src/core/horizontal_driver.c`). Independent review recommends a runnable, gapped mini-Millennium pilot before broad conversion rollout. The owner must choose that expanded runtime scope or approve conversion-first with the consumer-design gate below. Until then, this is a reviewable draft, not an unattended-launch instruction. A runtime pilot requires a revised slice sequence; PM must not infer permission to add one.
 
 ## Current repository state
@@ -64,13 +66,15 @@ Losslessness is not free, and the plan should say what it costs before a PM star
 |---|---|---|---|
 | mini-Millennium | 1,533,122 (measured, all 8 local files) | ≈0.21 GB | fits trivially |
 | micro-Uchuu | 22,580,924 (measured, ASCII default) | ≈3.2 GB | fits trivially |
-| Millennium | unmeasured; 16 of 512 files local | fill from Slice 1 | partial source only |
-| mini-Uchuu | unmeasured; 16 of 128 files local | fill from Slice 1 | partial source only |
-| full Uchuu | ≈181.5 × 10⁹ (package README) | **≈25.4 TB** | see below |
+| Millennium | unmeasured; 16 of 512 files local | fill from Slice 1 | owner supplies remaining files for whole-simulation evidence |
+| mini-Uchuu | unmeasured; 16 of 128 files local | fill from Slice 1 | owner supplies remaining files for whole-simulation evidence |
+| full Uchuu | ≈181.5 × 10⁹ (package README) | **≈25.4 TB** | needs a mount and a host; see below |
 
-**Full Uchuu is storage-bound, not merely unmounted.** At ≈140 B/halo its emitted dataset is ≈25.4 TB, and at the converter's measured peak-workdir envelope of 192.99 B/halo with consumptive deletion enabled (`scripts/convert/README.md` → storage envelope) its peak working set is ≥35 TB — v3's wider scratch and link records push that higher still. Local capacity of record is **7.71 + 3.00 = 10.71 TB** with a 7.0 TB working ceiling (`SHIN-UCHUU-CONVERSION-PLAN.md`). A full-Uchuu conversion is therefore short by roughly 3.5× on output alone, on hardware, independently of whether the production `snapshots/` mount ever appears. This does not change any slice: Slice 10's full-Uchuu evidence is fixture-based by design and says so. What it changes is the reading of "done" — **completing all eleven slices delivers a full-Uchuu conversion *route*, not a converted full Uchuu**, and no later slice or runtime follow-on should be read as bringing one within reach without a storage plan that does not exist today.
+**Full Uchuu needs a conversion host this machine cannot be.** At ≈140 B/halo its emitted dataset is ≈25.4 TB, and at the converter's measured peak-workdir envelope of 192.99 B/halo with consumptive deletion enabled (`scripts/convert/README.md` → storage envelope) its peak working set is ≥35 TB — v3's wider scratch and link records push that higher still. Free space measured here on 2026-09-22 is LaCie 4.33 TB + Scratch 3.00 TB + internal 1.11 TB ≈ **8.4 TB**, against the 10.71 TB "capacity of record" from 2026-08-29 that an earlier draft of this section quoted; that figure had already gone stale, which is the category-3 error the next section warns about. Either way a full-Uchuu conversion is short by roughly 4×, so it is a **provisioning question for the owner** — a large-volume host such as NT, or dedicated storage here — and not something any slice can resolve. Raise it at the start of the slice that would need it rather than discovering it mid-conversion.
 
-**Obligation on the PM.** Slice 1 already produces per-source halo counts; fill the two unmeasured rows above from its report rather than leaving them blank, and re-derive the whole table from the *measured* v3 B/halo once Slice 8 or Slice 10 emits real files. Per [Adjusting the plan as facts change](#adjusting-the-plan-as-facts-change) category 3, that replacement is expected work, not a deviation.
+This changes no slice: full-Uchuu acceptance evidence is fixture-based by design and says so. What it changes is the reading of "done" — **completing every slice delivers a full-Uchuu conversion *route*, not a converted full Uchuu.**
+
+**Obligation on the PM.** These figures are estimates and must be replaced by measurement — but **not by editing this table**, which sits in a plan that is frozen during the run. Record the measured values where the run can write them: the two unmeasured rows from Slice 1's source-inventory report, and the whole table re-derived from the *measured* v3 B/halo in `MIMIC-CONVERTER-GENERALISATION-ACCEPTANCE.md` once Slice 8 or Slice 11 emits real files. Per [Adjusting the plan as facts change](#adjusting-the-plan-as-facts-change) category 3, that replacement is expected work; carrying it into this file is a post-run amendment for the owner.
 
 ## Goals and completion boundary
 
@@ -83,7 +87,7 @@ Losslessness is not free, and the plan should say what it costs before a PM star
 
 **Conversion versus execution is an explicit boundary.** This plan freezes the converter work, including lossless files for gapped and wide inputs. The current runtime cannot execute those files unchanged. Reader/driver support for cross-snapshot pending state and wide indices is a separate architectural prerequisite for running them, not a hidden small change to the converter. The final slice produces a concrete runtime follow-on plan from the implemented format. Do not call the result “runnable for all five simulations” until that follow-on is implemented and its parity gates pass. This conversion-first boundary is the proposed sequencing; if the owner selects combined conversion/runtime implementation, amend and approve the plan before Mode B starts, rather than letting PM invent runtime scope.
 
-No production-output replacement/reconversion campaign, remote transfer, source deletion, production symlink replacement, top-up of existing outputs, physics change, synthetic halo insertion, new dependency, or baseline regeneration is authorised. Fresh acceptance conversions from read-only real sources into isolated disposable workdirs are authorised at the populations specified in Slice 10; they never replace production outputs. A missing full-Uchuu production mount limits production evidence, not fixture-tested adapter capability; report those separately.
+No production-output replacement/reconversion campaign, remote transfer, source deletion, production symlink replacement, top-up of existing outputs, physics change, synthetic halo insertion, new dependency, or baseline regeneration is authorised. Fresh acceptance conversions from read-only real sources into isolated disposable workdirs are authorised at the populations specified in Slice 11; they never replace production outputs. A missing full-Uchuu production mount limits production evidence, not fixture-tested adapter capability; report those separately.
 
 ## Frozen architecture and contracts
 
@@ -99,7 +103,7 @@ Inventory scope is explicit: preserve numeric source-file ordering and record th
 
 - **ASCII:** retain current marker attribution, header dialects, adjacency validation, host fixups, float64-to-float32 parse boundaries, spin J/Mvir normalization, Len rounding, and exact reference chain order. No resurrection of fix_flybys.
 - **L-Halo binary:** preserve all five stored local links and their order, supplied Len, native float32 mass in `1e10 Msun/h`, Spin already expressed as specific angular momentum, and signed int64 MostBoundID as data. Do not derive Len, renormalise Spin, apply ctrees host fixups, assume particle identifiers unique, or sort the source tree to derive identity. Negative mass sentinels remain data under the existing core policy, not parse errors.
-- **Forests-HDF5:** follow current C reader's file/ForestInfo enumeration, forest-local link interpretation, numeric cast order, integer or integral-float snapshot handling, and shared value conventions. Support the full-Uchuu external-link organisation and the micro-Uchuu FileN layout, including VDS-backed datasets. Verify referenced source availability rather than allowing missing virtual sources to become plausible zero-filled data.
+- **Forests-HDF5:** follow current C reader's file/ForestInfo enumeration, forest-local link interpretation, numeric cast order, integer or integral-float snapshot handling, and shared value conventions. Support the full-Uchuu external-link organisation and the micro-Uchuu FileN layout. Verify referenced source availability rather than allowing an unresolved link to become plausible zero-filled data. **No VDS requirement:** an earlier draft required virtual-dataset support on the strength of `simulations/uchuu/README.md`, but no reachable dataset uses VDS — neither fixture and not the real 13 GB `MicroUchuu_mergertree.h5` (all report `is_virtual == False`); Uchuu uses ExternalLinks. If a source that does use VDS appears later, treat it as new scope.
 
 Reject invalid headers, extent/count disagreement, out-of-unit links, cross-forest topology, non-forward descendants, inconsistent progenitor round trips, cycles and invalid FoF membership. **A valid forward gap is not malformed.** FoF links remain same-snapshot. Preserve actual chains instead of regenerating them by mass for already-linked inputs.
 
@@ -176,18 +180,39 @@ Mode B runs the following slices in order, fresh session per slice. No batches a
 | 7 | Generic manifests and restart | high |
 | 8 | V3 writer, validator and reports | high |
 | 9 | Generic CLI and simulation profiles | medium |
-| 10 | Independent real-data acceptance | high |
-| 11 | Operating documentation and runtime follow-on plan | medium |
+| 10 | Independent comparison tooling | high |
+| 11 | Acceptance evidence on real data | high |
+| 12 | Operating documentation and runtime follow-on plan | medium |
 
 There is no wholly low-effort slice in this expanded scope: the final documentation slice also includes architectural planning. PM may delegate its routine prose portion cheaply, but should retain a stronger Developer for the runtime handoff.
 
 Approval to execute this frozen plan includes its specified converter/format changes, not runtime changes or remote side effects. Commit the planning documents with explicit owner permission before PM starts clean. Stay on the current branch unless told otherwise. Do not amend or bypass hooks. Mode B's launcher provides prospective permission for slice commits when the owner submits it.
 
-All code slices run targeted tests, differential lint, `make tests-converter`, `make check-horizontal-fixture`, `make check-docs`, `make check-format`, and `git diff --check`. Use mimic_venv, capture exit codes, delegate suites longer than a minute, and never run suites concurrently. Before every commit run beautify, reread the diff against STYLE-GUIDE and sweep relevant Mimic skills; record all three results. Do not carry unrelated formatter edits. Generated files are never hand-edited, and no failing test is weakened.
+All code slices run targeted tests, differential lint, `make tests-converter`, `make check-horizontal-fixture`, `make check-docs`, `make check-format`, and `git diff --check`. Slices that build or run Mimic itself — 10, 11 and any slice invoking `build_topology_dump.sh` — additionally need a working C toolchain (libyaml + HDF5); budget for that, since the gates above are Python-only. Use mimic_venv, capture exit codes, delegate suites longer than a minute, and never run suites concurrently. Before every commit run beautify, reread the diff against STYLE-GUIDE and sweep relevant Mimic skills; record all three results. Do not carry unrelated formatter edits. Generated files are never hand-edited, and no failing test is weakened.
 
 The contracts C1–C5 are binding references, but each slice's acceptance list below also states its essential requirements so a pinned receipt stands alone. The plan is immutable during PM execution in the sense defined by [Adjusting the plan as facts change](#adjusting-the-plan-as-facts-change) below: the PM may not rewrite it, but bounded adjustment inside a slice is expected and must be recorded. New semantic scope or an unresolved contract conflict stops execution; PM cannot author a runtime design or silently change preservation rules.
 
-Slice 2 is an explicit human gate for consumer-design approval; Slice 11 gates changes to agent skill instructions. All other `no` flags assume the owner has already approved the overall plan and conversion-first boundary. A parser success is structural validation, not approval of those decisions.
+Gate G1 after Slice 2 is an explicit human gate for v3 consumer-design approval; Slice 12 gates changes to agent skill instructions. All other `no` flags assume the owner has already approved the overall plan and conversion-first boundary. A parser success is structural validation, not approval of those decisions.
+
+## Data availability and slice-start prerequisites
+
+**Assume a referenced dataset exists until a check proves otherwise, and treat absence as the owner's to resolve — never the PM's to design around.** The sources this plan names live in three places: locally on this machine, on Ngarrgu Tindebeek (`ssh dcroton@nt.swin.edu.au`, where the Shin-Uchuu source and other catalogs are held), or nowhere yet. A missing local copy usually means "not transferred", not "does not exist". Silently substituting a fixture for real data, narrowing a conversion to the files that happen to be on disk, or marking a criterion satisfied by a subset without saying so are all failures, however green they look.
+
+**Every slice opens with a prerequisite check, before any implementation work.** Enumerate what that slice needs — datasets and their expected file counts, mounts, scratch capacity, the `mimic_venv`, and a working C toolchain (libyaml + HDF5) for any slice that builds or runs Mimic — and verify each one is reachable. Record in the receipt what was found: exact path, host, file count, byte size, and free space on the target volume.
+
+**If anything critical to that slice's acceptance is missing, stop there and ask the owner.** Ask at the *start* of the slice, not after building work that must then be redone or re-evidenced. The owner can mount a volume, transfer from NT, point at a different copy, or authorise a reduced-evidence route — that last option is the owner's alone; a PM who takes it unilaterally has waived a real-data gate, which the launcher forbids. Say plainly what is needed, what it is needed for, and what the slice can and cannot demonstrate without it.
+
+**Known gaps at the time of writing**, all resolvable by the owner rather than by the plan:
+
+| Source | Local state | What the owner would need to provide |
+|---|---|---|
+| mini-Millennium (L-Halo) | complete, 8/8 files | nothing |
+| micro-Uchuu (L-Halo, ASCII, forests-HDF5) | complete, including the real 13 GB `MicroUchuu_mergertree.h5` | nothing |
+| Millennium (L-Halo) | 16 of 512 files; `halos-only_millennium.yaml` pins 0–15 to match | the remaining files, if whole-simulation evidence is wanted |
+| mini-Uchuu (L-Halo) | 16 of 128 files on disk, but `halos-only_mini-uchuu.yaml` pins only 0–3 | the remaining files, if whole-simulation evidence is wanted; note the run file exercises fewer files than are present |
+| full Uchuu (forests-HDF5) | fixtures only; `simulations/uchuu/snapshots` does not exist | a mount of the ~37 TB catalog, plus a conversion host — see the resource envelope |
+
+**A partial inventory is a trap worth naming.** `simulation_info.yaml` declares `last_file: 511` for Millennium and `127` for mini-Uchuu, while the run files pin far smaller ranges — Millennium `0–15`, matching what is on disk; mini-Uchuu `0–3`, which is *narrower* than the 16 files present. C1 requires missing requested files to fail, so a Developer that reads `simulation_info.yaml` rather than the run file gets a hard failure it will misread as its own bug, and one that assumes the run file bounds the available data will under-use mini-Uchuu. State in the receipt which range was used and why.
 
 ## Adjusting the plan as facts change
 
@@ -202,7 +227,9 @@ No plan written before the work survives contact with the data unchanged, and th
 5. **Reordering slices whose stated dependencies allow it** when a blocked slice would otherwise idle, provided no gate is crossed early and no later slice's evidence is assumed.
 6. **Fixing an incidental defect inside the authorized surface** when it genuinely blocks that slice's own acceptance — that defect only, recorded as such, never as a foothold for adjacent cleanup.
 
-**These always stop execution and go to the owner, regardless of how small the change looks:** new semantic scope; any runtime, reader or driver change; anything touching preservation, losslessness or format semantics; a C1–C5 conflict that cannot be resolved by reading the contracts; anything on a slice's Explicit Non-Goals list; remote side effects, production-output replacement or source deletion; baseline regeneration; a new dependency; and the Slice 2 and Slice 11 human gates.
+**A blocking defect *outside* the authorized surface is not covered by category 6.** Request a surface grant naming the file and the defect. A grant widens *where* work may happen; it never adds new *what*. If the fix would change behaviour rather than repair it, that is new scope and stops for the owner.
+
+**These always stop execution and go to the owner, regardless of how small the change looks:** new semantic scope; any runtime, reader or driver change; **changing a frozen C1–C3 rule** on preservation, losslessness or format semantics (implementing those rules is the work of Slices 2–8 and is not a stop — only altering them is); a C1–C5 conflict that cannot be resolved by reading the contracts; anything on a slice's Explicit Non-Goals list; remote side effects, production-output replacement or source deletion; baseline regeneration; a new dependency; a missing dataset or capacity shortfall per the section above; and the two human gates.
 
 **Amend rather than drift.** If the plan itself is wrong — a contract that cannot be satisfied, an acceptance criterion that the evidence has invalidated, a slice boundary that does not survive the code — stop the slice, state the problem with its evidence in the receipt, and propose the amendment. The owner amends this document; the PM restarts the slice from the amended text. The plan is immutable *to the PM*, not immutable to evidence.
 
@@ -224,7 +251,9 @@ No plan written before the work survives contact with the data unchanged, and th
 - [ ] Inputs: explicit source format, simulation metadata, a_list and inventory; binary layout is the shipped 104-byte record with explicit endianness, not a guessed NumPy packing.
 - [ ] Outputs: per-source/per-snapshot counts, link-span summary, identity bounds, available fields/types/units, source dependencies and resource estimates; inspection never writes into source directories.
 - [ ] Reproduce mini-Millennium's 1,533,122 halos and 29,291 forward gaps across eight files, maximum span 2, or report a source-identity discrepancy rather than change expectations.
-- [ ] All five requested packages have a declared adapter route; absent full-Uchuu production data is reported separately from its available external-link fixture.
+- [ ] All five requested packages have a declared adapter route, and each source's **reachability** is reported per the data-availability section: path, host, file count against the package's declared `last_file`, byte size, and free space on the volume any later conversion would write to. `simulations/uchuu/snapshots` does not exist at all — handle "absent", not "dead symlink".
+- [ ] **Capture the pre-change ASCII reference** that later acceptance compares against: run the existing ASCII default path on micro-Uchuu at the plan's base commit and record its wall-clock, peak RSS and the totals 22,580,924 halos / 50 snapshots / 440,651 forests / max forest rank 350074. Without this, the ">20% regression" gate later in the plan has nothing to compare against and would require checking out the base commit mid-run.
+- [ ] Any source this slice finds unreachable that a later slice's acceptance requires is raised with the owner now, naming what is needed and what cannot be demonstrated without it — not deferred to the slice that trips over it.
 - [ ] Invalid/truncated headers, bad count totals and missing HDF5 dependencies fail; a valid skipped-snapshot link is counted, not rejected.
 - [ ] Existing ASCII behaviour and all runtime code remain unchanged.
 
@@ -236,12 +265,13 @@ No plan written before the work survives contact with the data unchanged, and th
   - `scripts/convert/tests/test_inspect_sources.py`
   - `scripts/convert/tests/data/source_formats/`
   - `docs/dev/MIMIC-CONVERTER-SOURCE-INVENTORY.md`
+  - `docs/dev/MIMIC-CONVERTER-BASELINE-REFERENCE.md`
 - Functions/classes/components allowed to change: read-only inventory/layout/capability helpers.
 - Tests allowed or expected to change: malformed-file and count/gap reporting tests.
 
 ### Explicit Non-Goals
 
-- No conversion, runtime design changes, remote access or production file rewrite.
+- No *new* conversion capability, runtime design changes, remote access or production file rewrite. **Exception, and the only one:** running the existing shipped ASCII path unmodified on micro-Uchuu to capture the pre-change reference is required by this slice's acceptance. That is a measurement of current behaviour into a disposable workdir, not new conversion work, and it changes no code. Without this exception the reference criterion and this non-goal contradict each other, and the contradiction would stop the run on its first slice.
 
 ### Risk Flags
 
@@ -276,8 +306,19 @@ No plan written before the work survives contact with the data unchanged, and th
 - [ ] Specify all five int64 links, three target-snapshot columns, source-relative forest/rank identity, and native payload units exactly as C1–C3.
 - [ ] Binary source schema preserves full ordered layout even when fields are not selected; supported endianness/offset/itemsize is explicit.
 - [ ] V3 specification keeps v2 rules exact and v1 rejected; it neither claims current runtime support nor permits phantom insertion or gap removal.
-- [ ] Before publishing v3 as normative, record owner approval of a consumer-design review covering mixed-snapshot chains, SourceHaloID ordering, native payload units/metadata, generated input views, retained gap-state ownership and wide/chunked access. Include a worked mixed-gap graph and consumer metadata fragment; any required semantic change stops for a plan amendment, not a silent spec edit.
+- [ ] **Author** `docs/dev/MIMIC-V3-CONSUMER-DESIGN-REVIEW.md`, covering mixed-snapshot chains, SourceHaloID ordering, native payload units/metadata, generated input views, retained gap-state ownership and wide/chunked access, with a worked mixed-gap graph and a consumer metadata fragment. Authoring it is this slice's deliverable; **approving it is not, and this slice ends with it unapproved** — see the gate below.
+- [ ] The v3 specification is published as a **draft**, in its own file `docs/dev/HORIZONTAL-HDF5-FORMAT-V3-DRAFT.md`. It is not normative, and no later slice may treat it as normative, until the gate below is cleared. **Do not write it into `HORIZONTAL-HDF5-FORMAT.md`**, whose status line makes every statement in it part of the frozen v2 contract; that file is not in this slice's surface and is promoted to carry v3 only after the format actually ships.
 - [ ] No existing pipeline changes its results in this slice.
+
+### Gate G1 — v3 consumer-design approval (owner, between Slices 2 and 3)
+
+This is a **boundary gate, not an acceptance criterion**. A Developer session cannot obtain owner approval and the PM cannot grant one, so the earlier wording — which asked the Developer to "record owner approval" inside its own acceptance list — had no lawful path and invited the failure it was written to prevent: a Developer treating the review document's existence as the approval and freezing v3 unreviewed.
+
+- **Author:** the Slice 2 Developer produces the review document as a Slice 2 deliverable.
+- **Approver:** the owner, and only the owner.
+- **Artifact:** the owner records approval by adding a dated `**APPROVED <date> by owner**` line at the top of `MIMIC-V3-CONSUMER-DESIGN-REVIEW.md` and committing it. Nothing else counts — not a chat message, not the PM's judgement, not the document merely existing.
+- **PM action:** after Slice 2 is accepted, stop the run and present the review to the owner. Do not start Slice 3 until the approval line is in the committed file; verify it by reading the file, and quote it in the Slice 3 receipt.
+- **If the review demands a semantic change:** stop for a plan amendment. Do not edit the spec in place.
 
 ### Authorized Surface
 
@@ -288,7 +329,8 @@ No plan written before the work survives contact with the data unchanged, and th
   - `scripts/convert/tests/test_column_schema.py`
   - `scripts/convert/tests/test_adapter_contract.py`
   - `scripts/convert/tests/data/column_maps/`
-  - `docs/dev/HORIZONTAL-HDF5-FORMAT.md`
+  - `docs/dev/HORIZONTAL-HDF5-FORMAT-V3-DRAFT.md` (new; the v3 draft lives here, **not** in the frozen v2 contract)
+  - `docs/dev/MIMIC-V3-CONSUMER-DESIGN-REVIEW.md` (new)
   - `docs/dev/MIMIC-V3-CONSUMER-DESIGN-REVIEW.md`
 - Functions/classes/components allowed to change: pure schemas, serializers, profile loader, canonical batch/link contracts.
 - Tests allowed or expected to change: schema, bounds and source identity tests.
@@ -300,7 +342,7 @@ No plan written before the work survives contact with the data unchanged, and th
 ### Risk Flags
 
 - Risky surfaces touched: public format/schema and scientific preservation contract.
-- Approval needed before implementation: yes
+- Approval needed before implementation: no
 - Independent audit required: yes
 
 ### Validation Plan
@@ -349,8 +391,10 @@ No plan written before the work survives contact with the data unchanged, and th
 
 ### Risk Flags
 
+**The approval flag below is Gate G1, and it is deliberately on Slice 3 rather than Slice 2.** The toolkit gates `start-slice` on this flag (`pm_lib/slice_ops.py` eligibility), so putting it on Slice 2 would block the slice that *authors* the consumer-design review, for an approval that cannot exist yet, while leaving Slice 3 — the first slice to build against v3 — mechanically unguarded. Record `pm.py approve` for Slice 3 only once the owner's `**APPROVED**` line is committed in `MIMIC-V3-CONSUMER-DESIGN-REVIEW.md`.
+
 - Risky surfaces touched: binary layout, scientific values and source identity.
-- Approval needed before implementation: no
+- Approval needed before implementation: yes
 - Independent audit required: yes
 
 ### Validation Plan
@@ -376,7 +420,7 @@ No plan written before the work survives contact with the data unchanged, and th
 ### Acceptance Criteria
 
 - [ ] Read and satisfy this plan's C1–C5 contracts and execution policy, including the common validation gates; these are incorporated into this pinned receipt by reference to `docs/dev/MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md`. If a referenced requirement conflicts with this slice's surface/non-goals, stop for a plan correction rather than inventing a rule.
-- [ ] Inputs: FileN/ForestInfo/Forests data, external-link or VDS-backed fields, integer or integral float snapshot columns; missing referenced sources fail before accepting rows.
+- [ ] Inputs: FileN/ForestInfo/Forests data, external-link-backed fields, integer or integral float snapshot columns; unresolved referenced sources fail before accepting rows.
 - [ ] Outputs preserve file-prefix ForestInfo enumeration, original forest row ranks and stored link/chain order, using forest-local references exactly as the C reader.
 - [ ] Apply ctrees mass/spin/Len cast and arithmetic conventions in the same order as the current vertical HDF5 path, not the L-Halo convention.
 - [ ] Keep all offsets/counts/remapping keys int64 and reads bounded; a super-forest does not force a whole-forest allocation.
@@ -392,7 +436,7 @@ No plan written before the work survives contact with the data unchanged, and th
   - `scripts/convert/tests/test_ctrees_hdf5_adapter.py`
   - `scripts/convert/tests/data/source_formats/`
 - Functions/classes/components allowed to change: HDF5 adapter and source-dependency inspection.
-- Tests allowed or expected to change: forest-offset, VDS/external-link, dtype/cast and invalid-reference fixtures.
+- Tests allowed or expected to change: forest-offset, external-link, dtype/cast and invalid-reference fixtures.
 
 ### Explicit Non-Goals
 
@@ -455,7 +499,10 @@ No plan written before the work survives contact with the data unchanged, and th
   - `scripts/convert/tests/test_ascii_adapter.py`
   - `scripts/convert/tests/fixtures.py`
   - `scripts/convert/tests/data/column_maps/`
-- Functions/classes/components allowed to change: parser selection/dtypes, extra propagation and canonical bridge; writer only to reject incompatible extensions until v3 emission exists.
+  - `scripts/convert/crosscheck.py`
+  - `scripts/convert/tests/test_crosscheck.py`
+  - `scripts/convert/tests/mock_reference.py`
+- Functions/classes/components allowed to change: parser selection/dtypes, extra propagation and canonical bridge; writer only to reject incompatible extensions until v3 emission exists. `crosscheck.py` and its test are in scope **only** to keep the existing eight-check gate passing against a changed dtype — this slice mutates the pipeline that produced the live Shin-Uchuu production dataset, and the crosscheck's own `REQUIRED_FIELDS`/dump layout can ripple. Any change to what the crosscheck *checks*, rather than to how it reads the changed records, is new scope and stops.
 - Tests allowed or expected to change: parser, stage and adapter regressions.
 
 ### Explicit Non-Goals
@@ -618,6 +665,7 @@ No plan written before the work survives contact with the data unchanged, and th
   - `scripts/convert/tests/test_validate.py`
   - `scripts/convert/tests/test_report.py`
   - `scripts/convert/tests/test_pipeline.py`
+  - `scripts/convert/tests/mock_reference.py` (imports `HALO_DATASETS`/`HEADER_ATTRS` from `hdf5_writer`, so it ripples when the writer changes)
 - Functions/classes/components allowed to change: version-specific emission/verification/battery/report and final stage wiring.
 - Tests allowed or expected to change: exact-object, schema drift, cross-snapshot link, dtype and corruption cases.
 
@@ -674,6 +722,8 @@ No plan written before the work survives contact with the data unchanged, and th
   - `simulations/mini-uchuu/converter_columns.yaml`
   - `simulations/uchuu/converter_columns.yaml`
   - `simulations/micro-uchuu-ascii/converter_columns.yaml`
+  - `simulations/micro-uchuu-hdf5/converter_columns.yaml`
+  - `scripts/convert/pipeline.py`
 - Functions/classes/components allowed to change: CLI argument dispatch, profile examples and subprocess integration tests.
 - Tests allowed or expected to change: full small-fixture CLI paths, defaults and failures.
 
@@ -691,35 +741,31 @@ No plan written before the work survives contact with the data unchanged, and th
 
 - Run every new CLI stage on fixtures for all three adapters, from a non-repository working directory as well; run common gates.
 - Lint (differential, via the `lint` skill): required.
-- Manual checks: inspect help and all six profile files against source metadata.
+- Manual checks: inspect help and all seven profile files against source metadata.
 
 ### Rollback Path
 
 - Revert CLI/profile addition in a new authorised commit; retain outputs and default-v2 usability.
 
-## Slice 10: Independent acceptance on real data and source fixtures
+## Slice 10: Independent comparison tooling
 
-**Effort: high.** Dependency: 9. Long-running gates require delegated execution.
+**Effort: high.** Dependency: 9. **Prerequisites:** a working C toolchain (libyaml + HDF5) — `build_topology_dump.sh` regenerates property code and links real reader sources. Confirm before starting; the common-gates line names no C gate.
+
+**Why this is its own slice.** Building the comparison instrument and producing the evidence with it were one slice in an earlier draft. That slice carried a C dump-tool extension to two new reader families, a new comparator, five real-data conversions, a large ASCII regression, 64-bit synthetic joins and a full `make tests summary` under a single attempt budget — enough that its likeliest outcome was stopping half-done, with the instrument and the evidence entangled in one receipt. Tooling lands and self-proves here; evidence is produced in Slice 11.
 
 ### Intended Change
 
-- Build a repeatable acceptance harness and record evidence for the named source formats, including real gapped input and default-path preservation.
+- Extend the independent dump harness and build a repeatable acceptance comparator, self-proven against synthetic defects. No real-data evidence is produced or claimed in this slice.
 
 ### Acceptance Criteria
 
 - [ ] Read and satisfy this plan's C1–C5 contracts and execution policy, including the common validation gates; these are incorporated into this pinned receipt by reference to `docs/dev/MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md`. If a referenced requirement conflicts with this slice's surface/non-goals, stop for a plan correction rather than inventing a rule.
-- [ ] Fresh complete mini-Millennium conversion conserves 1,533,122 halos and all 29,291 skipped descendant links; no extra rows are inserted.
-- [ ] Every source link/chain, source-relative identity and selected payload field agrees by source coordinates with independent binary extraction and the vertical reader's interpretation.
-- [ ] Fresh micro-Uchuu L-Halo conversion passes equivalent checks; fresh ASCII default-v2 conversion passes the existing 15-check producer battery and eight-check topology crosscheck.
-- [ ] ASCII default totals remain 22,580,924 halos, 50 snapshots, 440,651 forests and maximum forest rank 350074, or acceptance stops to investigate.
-- [ ] Deterministic complete-tree samples from local mini-Uchuu and Millennium pass; record exact sample inventory and make no full-production claim.
-- [ ] Reference and converted identities use identical source inventory/ranges and original source unit ordinals; sampled trees retain parent prefix identities. Missing requested files fail, while deliberately selected available subsets are labelled as subsets.
 - [ ] Extend the existing dump harness/build script rather than copying their startup and reader loop. Preserve its default v1 ctrees dump and legacy crosscheck; add a separately versioned source-coordinate/payload mode. Handle per-file readers with count-prefix offsets (L-Halo has no `global_forest_offset` hook) and enumerated readers with their existing hook.
-- [ ] Full-Uchuu external-link and micro-Uchuu HDF5 fixtures pass independent C-reader/value/topology comparisons; absent full-Uchuu production data remains an explicit validation limitation, not a fake skip-pass.
+- [ ] The comparator self-tests green against injected defects: dropped and duplicated rows, wrong target snapshots, reordered chains, changed field values, and extra columns that must be ignored. A comparator that cannot detect a planted defect is not evidence.
 - [ ] Generic 64-bit join/validation tests exercise indices above 2^31 and keys above 2^53 with bounded resources.
-- [ ] Extras are checked by independent source extraction, not by round-tripping converter helper output. Signed/duplicate particle identifiers and negative mass sentinels are covered synthetically.
-- [ ] Record times, peak RSS, spill/storage widths, code/source identities, commands and exit codes; compare default ASCII against the pre-change same-host reference and investigate repeatable regressions over 20%.
-- [ ] All production sources, symlinks and baselines remain unchanged. No v3 runtime-parity claim is made before the runtime follow-on.
+- [ ] Extras are compared by independent source extraction, not by round-tripping converter helper output. Signed/duplicate particle identifiers and negative mass sentinels are covered synthetically.
+- [ ] The harness records, for every run it performs, times, peak RSS, spill/storage widths, code/source identities, commands and exit codes — the measurement path exists and is exercised here even though the real-data runs happen in Slice 11.
+- [ ] No real-data acceptance claim is made in this slice, and no production source, symlink or baseline is touched.
 
 ### Authorized Surface
 
@@ -728,13 +774,12 @@ No plan written before the work survives contact with the data unchanged, and th
   - `scripts/convert/tests/test_generalisation_acceptance.py`
   - `tests/unit/tools/dump_ctrees_topology.c`
   - `tests/unit/tools/build_topology_dump.sh`
-  - `docs/dev/MIMIC-CONVERTER-GENERALISATION-ACCEPTANCE.md`
 - Functions/classes/components allowed to change: acceptance harness/comparator and the existing independent vertical dump tool/build script. Reuse the existing `dump-ctrees-topology-tool` target; no Makefile edit is needed. The new acceptance harness consumes the new dump mode; existing crosscheck consumes unchanged v1 output.
 - Tests allowed or expected to change: comparator/harness failure cases; existing source reader and science predicates remain unchanged.
 
 ### Explicit Non-Goals
 
-- No production algorithm fixes hidden in acceptance, tolerance relaxation, baseline refresh or remote conversion.
+- No real-data evidence, no production algorithm fixes hidden in tooling, no tolerance relaxation, no baseline refresh, no remote conversion.
 
 ### Risk Flags
 
@@ -744,19 +789,69 @@ No plan written before the work survives contact with the data unchanged, and th
 
 ### Validation Plan
 
-- Self-test the comparator against dropped/duplicated rows, wrong target snapshots, reordered chains, changed fields and ignored extra columns.
-- Execute acceptance in isolated workdirs; build references with the corresponding MODEL=halos-only/SIMULATION pair, consistently. Use the pre-change commit for default ASCII regression and current vertical readers for source interpretation.
+- Comparator self-tests as above, plus the common gates. Build the dump tool from a clean state to prove the toolchain path.
+- Lint (differential, via the `lint` skill): required.
+- Manual checks: confirm the tool's default v1 dump output is byte-unchanged, so the existing crosscheck is unaffected.
+
+### Rollback Path
+
+- Revert the tooling; the existing dump tool and crosscheck must remain exactly as they were.
+
+## Slice 11: Acceptance evidence on real data and source fixtures
+
+**Effort: high.** Dependency: 10. Long-running gates require delegated execution. **Prerequisites:** run the data-availability check first and resolve any shortfall with the owner *before* starting — this slice's value is entirely in which real populations it can actually exercise.
+
+### Intended Change
+
+- Produce and record the acceptance evidence using Slice 10's tooling, naming exactly which populations were real, which were sampled, and which were unavailable.
+
+### Acceptance Criteria
+
+- [ ] Read and satisfy this plan's C1–C5 contracts and execution policy, including the common validation gates; these are incorporated into this pinned receipt by reference to `docs/dev/MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md`. If a referenced requirement conflicts with this slice's surface/non-goals, stop for a plan correction rather than inventing a rule.
+- [ ] Fresh complete mini-Millennium conversion conserves 1,533,122 halos and all 29,291 skipped descendant links; no extra rows are inserted.
+- [ ] Every source link/chain, source-relative identity and selected payload field agrees by source coordinates with independent binary extraction and the vertical reader's interpretation.
+- [ ] Fresh micro-Uchuu L-Halo conversion passes equivalent checks; fresh ASCII default-v2 conversion passes the existing 15-check producer battery and eight-check topology crosscheck.
+- [ ] **Fresh conversion of the real micro-Uchuu forests-HDF5 dataset** (`simulations/micro-uchuu-hdf5/snapshots/MicroUchuu_mergertree.h5`, 13 GB, 22,580,924 halos) passes the same comparisons. This is the only forests-HDF5 adapter evidence available on real data; without it that adapter — full Uchuu's only route — ships on fixtures alone.
+- [ ] ASCII default totals remain 22,580,924 halos, 50 snapshots, 440,651 forests and maximum forest rank 350074. If any of them moves, **stop and report the discrepancy rather than adjusting the expectation** — and separate the two possible causes explicitly: a regression introduced by the ASCII changes, or a different source inventory from the one the 2026-08-28 record used. Slice 1's captured reference is what distinguishes them; name which inventory each side used.
+- [ ] Deterministic complete-tree samples from local mini-Uchuu and Millennium pass; record exact sample inventory and make no full-production claim. If the owner has supplied the full file sets, convert them instead and say so.
+- [ ] Reference and converted identities use identical source inventory/ranges and original source unit ordinals; sampled trees retain parent prefix identities. Missing requested files fail, while deliberately selected available subsets are labelled as subsets.
+- [ ] Full-Uchuu external-link fixture passes independent C-reader/value/topology comparison; absent full-Uchuu production data remains an explicit validation limitation, not a fake skip-pass.
+- [ ] Record times, peak RSS, spill/storage widths, code/source identities, commands and exit codes; compare default ASCII against Slice 1's captured pre-change reference and investigate repeatable regressions over 20%.
+- [ ] Measure the **actual emitted B/halo for v3** and record the re-derived resource-envelope table in `MIMIC-CONVERTER-GENERALISATION-ACCEPTANCE.md`, so the ≈140 B/halo estimate is superseded by measurement. Do not edit the plan's own table; it is frozen for the run.
+- [ ] All production sources, symlinks and baselines remain unchanged. No v3 runtime-parity claim is made before the runtime follow-on.
+
+### Authorized Surface
+
+- Files allowed to change:
+  - `docs/dev/MIMIC-CONVERTER-GENERALISATION-ACCEPTANCE.md`
+  - `scripts/convert/tests/run_generalisation_acceptance.py` (invocation/profile wiring only; comparator logic is Slice 10's)
+- Functions/classes/components allowed to change: acceptance profiles and reporting only.
+- Tests allowed or expected to change: none expected; a comparator defect found here returns to Slice 10's surface.
+
+### Explicit Non-Goals
+
+- No production algorithm fixes hidden in acceptance, no tolerance relaxation, no baseline refresh, no remote conversion, no comparator changes.
+
+### Risk Flags
+
+- Risky surfaces touched: scientific evidence and its interpretation. A data shortfall found by the prerequisite check stops for the owner before any work starts.
+- Approval needed before implementation: no
+- Independent audit required: yes
+
+### Validation Plan
+
+- Execute acceptance in isolated workdirs on a volume with confirmed free space; build references with the corresponding MODEL=halos-only/SIMULATION pair, consistently. Use Slice 1's captured reference for the default ASCII regression and current vertical readers for source interpretation.
 - Delegate long suites, capture logs and inspect all skips; run common gates and a final default `make MODEL=sage16 SIMULATION=mini-millennium tests summary`. Restore default generated state.
 - Lint (differential, via the `lint` skill): required.
-- Manual checks: report states precisely which real populations and fixtures were tested, and which production data were unavailable.
+- Manual checks: the report states precisely which real populations and fixtures were tested, which were sampled subsets, and which production data were unavailable.
 
 ### Rollback Path
 
 - Preserve failed evidence; return defects to their owning slice/surface. A failed acceptance is not permission to modify source data or relax preservation.
 
-## Slice 11: Document operation and prepare the runtime follow-on
+## Slice 12: Document operation and prepare the runtime follow-on
 
-**Effort: medium.** Dependency: 10. Operational documentation is low effort; the runtime requirements handoff needs architectural care.
+**Effort: medium.** Dependency: 11. Operational documentation is low effort; the runtime requirements handoff needs architectural care.
 
 ### Intended Change
 
@@ -844,7 +939,7 @@ Confirm plan, branch, slice and Reviewer, then begin.
 
 ### Mode B — recommended conversion-first run
 
-The owner must choose and approve the conversion-first/runtime-follow-on boundary and commit the planning changes before using this launcher. If a runnable pilot is selected, replace the slice sequence before starting. Slices 2 and 11 have additional explicit approval gates; the launcher does not waive them. The prompt below supplies prospective commit permission only when actually submitted by the owner.
+The owner must choose and approve the conversion-first/runtime-follow-on boundary and commit the planning changes before using this launcher. If a runnable pilot is selected, replace the slice sequence before starting. Gate G1 (v3 consumer-design approval, between Slices 2 and 3) and Slice 12 have explicit approval gates; the launcher does not waive them. The prompt below supplies prospective commit permission only when actually submitted by the owner.
 
 ```text
 Plan: docs/dev/MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md
@@ -865,6 +960,9 @@ Use one long asynchronous observe --wait, remaining available for progress updat
 Assess actual committed diffs and validation, run differential lint, investigate
 structural code-health, and commission independent drift-audit before code-review.
 Both reviews must be fresh for every slice. Report authorization before quality.
+Stop at Gate G1 after Slice 2 and present the v3 consumer-design review to the owner;
+do not start Slice 3 until the approval line is in the committed file.
+Run each slice's data-availability check first and raise any shortfall before work starts.
 Accept, steer or stop on evidence; never waive missing required real-data gates,
 edit the frozen plan, or interpret converter completion as runtime completion.
 Delegate long test suites with captured logs and never run suites concurrently.
