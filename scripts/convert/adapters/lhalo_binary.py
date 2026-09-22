@@ -53,11 +53,15 @@ all three are named rather than left implicit:
 1. *Record reads* are bounded by the caller's ``max_rows``. A tree larger than
    one batch is read and emitted across several batches; a tree is never
    materialised whole as records.
-2. *Per-tree topology* -- the five links plus ``SnapNum``, as int64 -- is held
-   for the tree currently being validated, at
-   :data:`TOPOLOGY_BYTES_PER_HALO` bytes per halo. Structural validation
-   (reciprocal chains, cycles, FoF membership) is not expressible chunk-locally,
-   so this term is deliberate, budgeted, and checked *before* allocation.
+2. *Per-tree validation* -- the five links plus ``SnapNum`` as int64, **plus
+   the transient scratch the structural checks allocate while those columns
+   are still live** -- peaks at :data:`VALIDATION_BYTES_PER_HALO` bytes per
+   halo for the tree currently being validated. Structural validation
+   (reciprocal chains, cycles, FoF membership) is not expressible
+   chunk-locally, so this term is deliberate, budgeted, and checked *before*
+   allocation. The retained columns are only 48 of those bytes; counting just
+   them would understate the real peak by more than half, so the budget uses
+   the measured whole-path figure instead.
 3. *The inventory* is O(tree count), which C4 permits as an explicitly
    budgeted term. It is the contract's own mandated structure: C1 defines
    ``SourceHaloID`` as a prefix sum over the complete ordered inventory, so it
@@ -106,7 +110,8 @@ from .source_inventory import LHaloHeader, read_lhalo_header
 __all__ = [
     "ConverterError",
     "TOPOLOGY_COLUMNS",
-    "TOPOLOGY_BYTES_PER_HALO",
+    "TOPOLOGY_COLUMN_BYTES_PER_HALO",
+    "VALIDATION_BYTES_PER_HALO",
     "INVENTORY_BYTES_PER_UNIT",
     "DEFAULT_MEMORY_BUDGET_BYTES",
     "LHaloBinaryAdapter",
@@ -117,10 +122,46 @@ __all__ = [
 #: plus the snapshot they are interpreted against.
 TOPOLOGY_COLUMNS: Tuple[str, ...] = LINK_FIELDS + ("SnapNum",)
 
-#: Bytes of per-tree topology residency per halo. Held as int64 rather than
-#: the source's int32 so that index arithmetic, ``bincount`` and the chain
-#: walks below cannot overflow or silently re-cast mid-expression.
-TOPOLOGY_BYTES_PER_HALO = 8 * len(TOPOLOGY_COLUMNS)
+#: Bytes the six retained topology columns occupy per halo. Held as int64
+#: rather than the source's int32 so that index arithmetic, ``bincount`` and
+#: the chain walks below cannot overflow or silently re-cast mid-expression.
+#: This is **not** the budget figure: see :data:`VALIDATION_BYTES_PER_HALO`.
+TOPOLOGY_COLUMN_BYTES_PER_HALO = 8 * len(TOPOLOGY_COLUMNS)
+
+#: Peak bytes per halo of the whole per-tree validation path, which is what
+#: the budget check must bound. The six retained columns above are only 48 of
+#: these; ``_validate_tree`` and its helpers then allocate whole-tree scratch
+#: -- the ``rows`` index array, the boolean masks, their fancy-indexed int64
+#: copies (``heads``, ``owners``, ``descendant[heads]`` and their FoF
+#: counterparts) and several ``bincount`` results -- while those columns are
+#: still live.
+#:
+#: Measured with ``tracemalloc`` around **the retained columns plus**
+#: ``_validate_tree`` -- both, because the columns stay live across the
+#: validation and measuring only the scratch is the same half-accounting that
+#: made the previous figure wrong. Taken at n = 20k, 40k, 100k and 400k halos
+#: over three deliberately different tree shapes; the per-halo figure was flat
+#: in n to within 0.6% in every case, so this is a slope, not a two-point
+#: extrapolation:
+#:
+#:     linear chain (every halo has both a descendant and a
+#:                   FirstProgenitor)                        119.0 B/halo
+#:     wide (one progenitor each, large FoF groups)            98.0 B/halo
+#:     dense sibling chains (64-member progenitor/FoF chains) 109.3 B/halo
+#:
+#: The linear shape is the worst because it is the one that makes
+#: ``has_first`` and ``has_descendant`` dense *simultaneously*, so the
+#: FirstProgenitor block's three int64 copies are all full length. 160 is that
+#: 119.1 worst case plus a 1.34x margin, because a budget that refuses work is
+#: safe and one that accepts work it cannot hold is the defect this figure
+#: exists to prevent. The margin costs nothing real: the largest tree in any
+#: shipped package (397,280 halos, mini-Uchuu) needs 63.6 MB of the 2 GiB
+#: default.
+#:
+#: ``BudgetAccountingTests`` in the test module re-measures all three shapes
+#: and fails if any exceeds this constant, so the figure is self-policing
+#: rather than a number that silently rots as numpy's temporaries change.
+VALIDATION_BYTES_PER_HALO = 160
 
 #: Peak bytes per inventory unit during ``SourceInventory`` construction,
 #: measured with ``tracemalloc`` at 50k and 200k units (463.7 and 462.5
@@ -219,6 +260,14 @@ class LHaloBinaryAdapter(SourceAdapter):
         A missing requested file is fatal (C1): silently narrowing a
         conversion to the files that happen to be present is the failure mode
         the plan's data-availability section names explicitly.
+
+        Every malformed shape leaves here as this module's named
+        ``ConverterError``, never as a raw ``TypeError``/``ValueError``. The
+        ordinal is *type*-checked rather than coerced: ``int(4.9)`` would
+        silently convert a caller's mistake into file 4, and durable identity
+        is the last thing that should be quietly rounded. ``bool`` is
+        excluded explicitly because it is a subclass of ``int``, so ``True``
+        would otherwise pass as ordinal 1.
         """
         resolved: List[Tuple[int, Path]] = []
         previous: Optional[int] = None
@@ -231,6 +280,11 @@ class LHaloBinaryAdapter(SourceAdapter):
                         position, entry
                     )
                 ) from None
+            if isinstance(ordinal, bool) or not isinstance(ordinal, (int, np.integer)):
+                raise ConverterError(
+                    "sources[{}]: source_file_ordinal must be an integer, got {!r}; it is "
+                    "recorded identity and is never coerced".format(position, ordinal)
+                )
             ordinal = int(ordinal)
             if ordinal < 0:
                 raise ConverterError(
@@ -244,7 +298,12 @@ class LHaloBinaryAdapter(SourceAdapter):
                     "position {}".format(ordinal, previous, position)
                 )
             previous = ordinal
-            path = Path(path)
+            try:
+                path = Path(path)
+            except TypeError as exc:
+                raise ConverterError(
+                    "sources[{}]: {!r} is not a filesystem path ({})".format(position, path, exc)
+                ) from exc
             if not path.exists():
                 raise ConverterError(
                     "requested source file {} (ordinal {}) is missing; a conversion fails rather "
@@ -394,10 +453,16 @@ class LHaloBinaryAdapter(SourceAdapter):
         The columns are whole-tree; the *reads* are not. This is the one
         deliberate whole-tree term, and it is budget-checked before the
         allocation rather than after it.
+
+        The check covers the *whole* validation path, not just the six
+        columns allocated here: ``_validate_tree`` runs while they are live
+        and allocates more whole-tree scratch of its own, so budgeting the
+        columns alone would let an operator's configured ceiling be exceeded
+        by more than 2x a few lines later.
         """
         self._check_budget(
-            n_halos * TOPOLOGY_BYTES_PER_HALO,
-            "{}: topology validation for {} halos".format(context, n_halos),
+            n_halos * VALIDATION_BYTES_PER_HALO,
+            "{}: structural validation of {} halos".format(context, n_halos),
             "raise memory_budget_bytes",
         )
         columns = {name: np.empty(n_halos, dtype=np.int64) for name in TOPOLOGY_COLUMNS}

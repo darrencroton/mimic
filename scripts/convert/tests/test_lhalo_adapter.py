@@ -28,6 +28,7 @@ import shutil
 import struct
 import sys
 import tempfile
+import tracemalloc
 import unittest
 
 import numpy as np
@@ -36,11 +37,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import column_schema as cs  # noqa: E402
+from adapters import lhalo_binary as lb  # noqa: E402
 from adapters import source_inventory as si  # noqa: E402
 from adapters.base import NULL_LINK  # noqa: E402
 from adapters.lhalo_binary import (  # noqa: E402
     INVENTORY_BYTES_PER_UNIT,
-    TOPOLOGY_BYTES_PER_HALO,
+    TOPOLOGY_COLUMN_BYTES_PER_HALO,
+    VALIDATION_BYTES_PER_HALO,
     ConverterError,
     LHaloBinaryAdapter,
 )
@@ -573,6 +576,34 @@ class InventoryTests(FixtureCase):
             self.adapter([self.path("trees.0")])
         self.assertIn("(source_file_ordinal, path) pair", str(caught.exception))
 
+    def test_a_non_integer_ordinal_is_rejected_rather_than_coerced(self):
+        """``int(4.9)`` would silently convert a caller's mistake into file 4.
+
+        The ordinal is durable identity, so it is type-checked instead of
+        coerced. ``True`` is rejected explicitly: ``bool`` subclasses ``int``,
+        so it would otherwise pass as ordinal 1.
+        """
+        self.write("trees.0", [TREE_B])
+        for bad in ("4", 4.9, 4.0, True, None):
+            with self.subTest(ordinal=bad):
+                with self.assertRaises(ConverterError) as caught:
+                    self.adapter([(bad, self.path("trees.0"))])
+                self.assertIn("must be an integer", str(caught.exception))
+
+    def test_a_numpy_integer_ordinal_is_accepted(self):
+        """Rejecting non-integers must not reject a numpy int from a caller."""
+        self.write("trees.0", [TREE_B])
+        columns, _sizes = collect(self.adapter([(np.int64(3), self.path("trees.0"))]), 8)
+        self.assertEqual(columns["coordinates"]["source_file_ordinal"].tolist(), [3, 3])
+
+    def test_a_non_pathlike_path_raises_the_modules_own_error(self):
+        """Not a raw TypeError: every malformed shape on this path is named."""
+        for bad in (42, None, object()):
+            with self.subTest(path=bad):
+                with self.assertRaises(ConverterError) as caught:
+                    self.adapter([(0, bad)])
+                self.assertIn("is not a filesystem path", str(caught.exception))
+
     def test_zero_tree_file_yields_an_empty_inventory_and_no_batches(self):
         self.write("trees.0", [])
         adapter = self.adapter([(0, self.path("trees.0"))])
@@ -1009,25 +1040,206 @@ class BudgetTests(FixtureCase):
             ).inventory()
         self.assertIn("memory budget", str(caught.exception))
 
-    def test_an_over_budget_tree_topology_fails_before_allocation(self):
-        """A budget that admits the inventory but not the tree's topology.
+    def test_an_over_budget_tree_validation_fails_before_allocation(self):
+        """A budget that admits the inventory but not the tree's validation.
 
-        One unit costs ``INVENTORY_BYTES_PER_UNIT``; a 20-halo tree's topology
-        costs ``20 * TOPOLOGY_BYTES_PER_HALO``, which is the larger of the two,
-        so a budget between them isolates the topology check.
+        One unit costs ``INVENTORY_BYTES_PER_UNIT``; a 20-halo tree's
+        validation costs ``20 * VALIDATION_BYTES_PER_HALO``, which is the
+        larger of the two, so a budget between them isolates the validation
+        check.
         """
         self.write("trees.0", [linear_tree(20)])
-        budget = 10 * TOPOLOGY_BYTES_PER_HALO
+        budget = 10 * VALIDATION_BYTES_PER_HALO
         self.assertGreater(budget, INVENTORY_BYTES_PER_UNIT)
         adapter = self.adapter([(0, self.path("trees.0"))], memory_budget_bytes=budget)
         with self.assertRaises(ConverterError) as caught:
             list(adapter.iter_batches(2))
-        self.assertIn("topology validation for 20 halos", str(caught.exception))
+        self.assertIn("structural validation of 20 halos", str(caught.exception))
+
+    def test_work_the_budget_accepts_actually_completes(self):
+        """The acceptance side, which the rejection tests above do not cover.
+
+        A budget sized from the declared constants must convert a tree of
+        that size without raising -- a ceiling that refuses work it should
+        admit is as wrong as one that admits work it cannot hold.
+        """
+        n_halos = 400
+        self.write("trees.0", [linear_tree(n_halos)])
+        budget = INVENTORY_BYTES_PER_UNIT + n_halos * VALIDATION_BYTES_PER_HALO
+        adapter = self.adapter([(0, self.path("trees.0"))], memory_budget_bytes=budget)
+        columns, _sizes = collect(adapter, 64)
+        self.assertEqual(columns["identity"]["SourceHaloID"].tolist(), list(range(1, n_halos + 1)))
 
     def test_a_non_positive_budget_is_rejected(self):
         self.write("trees.0", [TREE_B])
         with self.assertRaises(ConverterError):
             self.adapter([(0, self.path("trees.0"))], memory_budget_bytes=0)
+
+
+def _linear_columns(n_halos):
+    """One halo per snapshot in a single unbranched line.
+
+    The worst measured shape: every halo has both a ``Descendant`` and a
+    ``FirstProgenitor``, so the FirstProgenitor block's three int64 copies are
+    all full length at the same moment.
+    """
+    rows = np.arange(n_halos, dtype=np.int64)
+    return {
+        "Descendant": np.where(rows > 0, rows - 1, -1).astype(np.int64),
+        "FirstProgenitor": np.where(rows + 1 < n_halos, rows + 1, -1).astype(np.int64),
+        "NextProgenitor": np.full(n_halos, -1, dtype=np.int64),
+        "FirstHaloInFOFgroup": rows.copy(),
+        "NextHaloInFOFgroup": np.full(n_halos, -1, dtype=np.int64),
+        "SnapNum": (n_halos - 1 - rows).astype(np.int64),
+    }
+
+
+def _chain_fof(fof_central, next_in_fof, members, block):
+    """Pack ``members`` into FoF groups of at most ``block`` rows."""
+    for start in range(0, members.size, block):
+        group = members[start : start + block]
+        fof_central[group] = group[0]
+        next_in_fof[group[:-1]] = group[1:]
+        next_in_fof[group[-1]] = -1
+
+
+def _wide_columns(n_halos, block=64):
+    """Two snapshots, one progenitor each, and large FoF groups.
+
+    Makes the FoF ``has_next`` dense at the same time as ``has_first``.
+    """
+    half = n_halos // 2
+    rows = np.arange(n_halos, dtype=np.int64)
+    descendant = np.full(n_halos, -1, dtype=np.int64)
+    first_progenitor = np.full(n_halos, -1, dtype=np.int64)
+    fof_central = rows.copy()
+    next_in_fof = np.full(n_halos, -1, dtype=np.int64)
+    snapshot = np.zeros(n_halos, dtype=np.int64)
+    snapshot[:half] = 1
+    progenitors = np.arange(half, n_halos, dtype=np.int64)
+    owners = progenitors - half
+    descendant[progenitors] = owners
+    first_progenitor[owners] = progenitors
+    _chain_fof(fof_central, next_in_fof, np.arange(0, half, dtype=np.int64), block)
+    _chain_fof(fof_central, next_in_fof, progenitors, block)
+    return {
+        "Descendant": descendant,
+        "FirstProgenitor": first_progenitor,
+        "NextProgenitor": np.full(n_halos, -1, dtype=np.int64),
+        "FirstHaloInFOFgroup": fof_central,
+        "NextHaloInFOFgroup": next_in_fof,
+        "SnapNum": snapshot,
+    }
+
+
+def _dense_sibling_columns(n_halos, block=64):
+    """Long NextProgenitor sibling chains and long FoF chains."""
+    owners_count = max(1, n_halos // block)
+    rows = np.arange(n_halos, dtype=np.int64)
+    descendant = np.full(n_halos, -1, dtype=np.int64)
+    first_progenitor = np.full(n_halos, -1, dtype=np.int64)
+    next_progenitor = np.full(n_halos, -1, dtype=np.int64)
+    fof_central = rows.copy()
+    next_in_fof = np.full(n_halos, -1, dtype=np.int64)
+    snapshot = np.zeros(n_halos, dtype=np.int64)
+    snapshot[:owners_count] = 1
+
+    progenitors = np.arange(owners_count, n_halos, dtype=np.int64)
+    owners = progenitors % owners_count
+    descendant[progenitors] = owners
+    order = np.lexsort((progenitors, owners))
+    ordered_progenitors = progenitors[order]
+    ordered_owners = owners[order]
+    is_head = np.ones(ordered_progenitors.size, dtype=bool)
+    is_head[1:] = ordered_owners[1:] != ordered_owners[:-1]
+    first_progenitor[ordered_owners[is_head]] = ordered_progenitors[is_head]
+    continues = ~is_head
+    next_progenitor[ordered_progenitors[:-1][continues[1:]]] = ordered_progenitors[1:][
+        continues[1:]
+    ]
+
+    _chain_fof(fof_central, next_in_fof, np.arange(0, owners_count, dtype=np.int64), block)
+    _chain_fof(fof_central, next_in_fof, progenitors, block)
+    return {
+        "Descendant": descendant,
+        "FirstProgenitor": first_progenitor,
+        "NextProgenitor": next_progenitor,
+        "FirstHaloInFOFgroup": fof_central,
+        "NextHaloInFOFgroup": next_in_fof,
+        "SnapNum": snapshot,
+    }
+
+
+VALIDATION_SHAPES = (
+    ("linear", _linear_columns),
+    ("wide", _wide_columns),
+    ("dense siblings", _dense_sibling_columns),
+)
+
+
+class BudgetAccountingTests(unittest.TestCase):
+    """``VALIDATION_BYTES_PER_HALO`` must really bound the validation path.
+
+    Round 1 review found the budget check counting only the six retained
+    topology columns (48 B/halo) while ``_validate_tree`` went on to allocate
+    its own whole-tree scratch with those columns still live -- so an operator
+    sizing ``memory_budget_bytes`` from the documented figure could be
+    exceeded by more than 2x. The constant is now the measured whole-path
+    peak, and this class re-measures it so the figure cannot silently rot as
+    numpy's temporaries change.
+
+    It calls the private validator deliberately: the constant is an internal
+    accounting invariant, and measuring it through ``iter_batches`` would fold
+    in the inventory, the record chunks and the emitted batch, none of which
+    this particular figure is about.
+    """
+
+    @staticmethod
+    def measure_peak(columns, n_halos):
+        """Peak bytes of the retained columns **plus** the validation scratch.
+
+        The six columns are copied *inside* the traced window on purpose.
+        ``_read_tree_topology`` allocates them and they stay live across
+        ``_validate_tree``, so a measurement that excluded them would report
+        only the scratch -- which is exactly the half-accounting that made the
+        original constant wrong, and would let this test pass against a
+        constant that is still too low.
+        """
+        tracemalloc.start()
+        try:
+            baseline = tracemalloc.get_traced_memory()[0]
+            held = {name: values.copy() for name, values in columns.items()}
+            lb._validate_tree(held, n_halos, "budget measurement", None)
+            peak = tracemalloc.get_traced_memory()[1]
+        finally:
+            tracemalloc.stop()
+            held = None
+        return peak - baseline
+
+    def test_measured_peak_stays_within_the_declared_per_halo_budget(self):
+        for label, maker in VALIDATION_SHAPES:
+            for n_halos in (20000, 40000):
+                with self.subTest(shape=label, n_halos=n_halos):
+                    peak = self.measure_peak(maker(n_halos), n_halos)
+                    self.assertLessEqual(
+                        peak,
+                        n_halos * VALIDATION_BYTES_PER_HALO,
+                        "{} at {} halos peaked at {:.1f} B/halo, above the declared {}".format(
+                            label, n_halos, peak / n_halos, VALIDATION_BYTES_PER_HALO
+                        ),
+                    )
+
+    def test_the_retained_columns_alone_would_understate_the_peak(self):
+        """The defect this constant was corrected for, pinned as a test.
+
+        If a future change made the columns-only figure sufficient, this test
+        fails and the constant should be lowered deliberately rather than the
+        two being allowed to drift back together by accident.
+        """
+        n_halos = 40000
+        peak = self.measure_peak(_linear_columns(n_halos), n_halos)
+        self.assertGreater(peak, n_halos * TOPOLOGY_COLUMN_BYTES_PER_HALO)
+        self.assertLess(TOPOLOGY_COLUMN_BYTES_PER_HALO, VALIDATION_BYTES_PER_HALO)
 
 
 # ==========================================================================
