@@ -124,6 +124,7 @@ __all__ = [
     "TOPOLOGY_COLUMN_BYTES_PER_HALO",
     "VALIDATION_BYTES_PER_HALO",
     "INVENTORY_BYTES_PER_UNIT",
+    "INVENTORY_BASE_BYTES",
     "DEFAULT_MEMORY_BUDGET_BYTES",
     "LHaloBinaryAdapter",
 ]
@@ -182,16 +183,58 @@ TOPOLOGY_COLUMN_BYTES_PER_HALO = 8 * len(TOPOLOGY_COLUMNS)
 #: rather than a number that silently rots as numpy's temporaries change.
 VALIDATION_BYTES_PER_HALO = 160
 
-#: Peak bytes per inventory unit during ``SourceInventory`` construction,
-#: measured with ``tracemalloc`` at 50k and 200k units (463.7 and 462.5
-#: bytes/unit respectively; the resident figure afterwards is ~341). The peak
-#: is the figure the budget check must use: it is what actually has to fit.
-INVENTORY_BYTES_PER_UNIT = 464
+#: Peak bytes per inventory unit of the **complete** ``_build_inventory()``
+#: path, which is what the budget check must bound.
+#:
+#: The previous figure, 464, was measured around ``SourceInventory(units)``
+#: alone. That is not the path: ``_build_inventory`` also accumulates a
+#: ``_SourceFile`` per file -- each retaining an ``LHaloHeader`` whose
+#: ``tree_halo_counts`` is a real int64 array, 8 bytes per tree -- and a
+#: ``SourceUnit`` per tree, and holds all of it while ``SourceInventory``
+#: builds its own tuple, prefix-sum tuple and index dict on top. Measured
+#: against the real 8-file mini-Millennium dataset the old figure was **5.6%**
+#: short (14,500,184 bytes actual against 13,727,440 declared). This is the
+#: third time in this module that a budget constant measured against a
+#: narrower scope than the path it guards has turned out to understate it;
+#: measure the whole path.
+#:
+#: Measured with ``tracemalloc`` around the real ``inventory()`` call, over
+#: synthetic catalogs from 1 to 200,000 trees and on real mini-Millennium.
+#: Net of the base term below, the per-unit figure oscillates between roughly
+#: 470 and 506 -- it is not smooth in ``n``, because a Python list holds both
+#: its old and new storage during a resize, so where ``n`` falls relative to a
+#: growth boundary moves the peak by up to 8%. Representative points:
+#:
+#:     n =   5,000 synthetic                454 B/unit
+#:     n =  24,000 synthetic                506 B/unit   <- worst observed
+#:     n =  29,585 real mini-Millennium     486 B/unit
+#:     n = 200,000 synthetic                470 B/unit
+#:
+#: 640 is that 506 worst case plus a 1.26x margin, for the same reason
+#: :data:`VALIDATION_BYTES_PER_HALO` carries one: a budget that refuses work
+#: is safe, and one that accepts work it cannot hold is the defect the figure
+#: exists to prevent. ``BudgetAccountingTests`` re-measures the real path and
+#: fails if it exceeds this constant, so it cannot drift back open silently.
+INVENTORY_BYTES_PER_UNIT = 640
 
-#: Default ceiling for the two budgeted terms above. Chosen to hold every
+#: The constant part of that peak, which no per-unit figure can express.
+#:
+#: ``read_lhalo_header`` opens the file with default buffering, so CPython
+#: allocates the filesystem's block size -- 128 KiB on this host -- for the
+#: duration of the read. At one tree that single buffer *is* the whole peak
+#: (132,967 bytes measured), which is why folding it into the per-unit
+#: constant would need an absurd 133,000 B/unit to stay honest for a small
+#: catalog while overstating a large one by 200x. Budgeted as its own named
+#: addend instead, exactly as the topology read buffer is. 256 KiB covers the
+#: measured 133 KB with room for a host whose block size is larger.
+INVENTORY_BASE_BYTES = 256 * 1024
+
+#: Default ceiling for the budgeted terms above. Chosen to hold every
 #: inventory this plan's L-Halo sources actually present -- micro-Uchuu's
-#: 440,651 trees need ~204 MB, mini-Millennium's 29,585 need ~14 MB -- while
-#: refusing a full 512-file Millennium (~6.6 GB) loudly instead of paging.
+#: 440,651 trees need ~282 MB, mini-Millennium's 29,585 need ~19 MB -- while
+#: refusing a full 512-file Millennium (~9.1 GB, extrapolated from the 27,747
+#: trees per file measured across its 16 local files) loudly instead of
+#: paging.
 DEFAULT_MEMORY_BUDGET_BYTES = 2 * 1024**3
 
 
@@ -484,8 +527,12 @@ class LHaloBinaryAdapter(SourceAdapter):
             declared_trees = _peek_ntrees(path, byte_order)
             if declared_trees is not None:
                 self._check_budget(
-                    (len(units) + declared_trees) * INVENTORY_BYTES_PER_UNIT,
-                    "inventory of {} trees".format(len(units) + declared_trees),
+                    (len(units) + declared_trees) * INVENTORY_BYTES_PER_UNIT + INVENTORY_BASE_BYTES,
+                    "inventory of {} trees ({} B/unit plus a {}-byte base)".format(
+                        len(units) + declared_trees,
+                        INVENTORY_BYTES_PER_UNIT,
+                        INVENTORY_BASE_BYTES,
+                    ),
                     "raise memory_budget_bytes, or convert a narrower file range",
                 )
             try:
@@ -543,6 +590,11 @@ class LHaloBinaryAdapter(SourceAdapter):
         increasing, and packing them keeps a catalog of 29,585 small trees from
         producing 29,585 tiny batches.
         """
+        max_rows = _require_integer(
+            max_rows,
+            "max_rows",
+            "a fractional batch size would be truncated, and True would silently mean 1",
+        )
         if max_rows < 1:
             raise ConverterError("max_rows must be at least 1, got {}".format(max_rows))
         inventory = self.inventory()

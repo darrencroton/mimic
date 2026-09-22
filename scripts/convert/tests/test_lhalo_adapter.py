@@ -45,6 +45,7 @@ from adapters import source_inventory as si  # noqa: E402
 from adapters.base import NULL_LINK  # noqa: E402
 from adapters.lhalo_binary import (  # noqa: E402
     DEFAULT_MEMORY_BUDGET_BYTES,
+    INVENTORY_BASE_BYTES,
     INVENTORY_BYTES_PER_UNIT,
     TOPOLOGY_COLUMN_BYTES_PER_HALO,
     VALIDATION_BYTES_PER_HALO,
@@ -387,6 +388,16 @@ def validation_budget_bytes(n_halos):
     return n_halos * VALIDATION_BYTES_PER_HALO + read_buffer
 
 
+def inventory_budget_bytes(n_units):
+    """What the adapter's inventory budget check requires for ``n_units``.
+
+    Restated from the declared public constants, like its validation sibling.
+    The base term is a constant no per-unit figure can express -- at one tree
+    it is the entire peak -- so it is budgeted as its own addend.
+    """
+    return n_units * INVENTORY_BYTES_PER_UNIT + INVENTORY_BASE_BYTES
+
+
 def default_schema():
     """The shipped default profile, frozen against mini-Millennium's record."""
     column_map = cs.load_column_map(os.path.join(PROFILE_DIR, "lhalo_binary.yaml"))
@@ -633,7 +644,7 @@ class InventoryTests(FixtureCase):
         self.assertIn("ordinal 1", message)
 
     def test_two_spellings_of_the_same_file_are_rejected(self):
-        """Comparison is by resolved path, so an alias does not slip through."""
+        """Identity is the inode pair, so an alias does not slip through."""
         self.write("trees.0", [TREE_B])
         alias = os.path.join(self.tmpdir, "sub", "..", "trees.0")
         os.mkdir(os.path.join(self.tmpdir, "sub"))
@@ -773,6 +784,28 @@ class InventoryTests(FixtureCase):
             memory_budget_bytes=np.int64(DEFAULT_MEMORY_BUDGET_BYTES),
         )
         self.assertEqual(adapter.inventory().total_halos, 2)
+
+    def test_a_non_integer_max_rows_is_rejected_rather_than_coerced(self):
+        """The last public scalar, brought under the same rule as the rest.
+
+        ``iter_batches(2.5)`` used to raise a raw ``TypeError`` from inside
+        ``handle.read()``, and ``iter_batches(True)`` silently behaved as a
+        batch size of 1 -- the two failure modes this module's own docstring
+        says are impossible.
+        """
+        self.write("trees.0", [TREE_B])
+        adapter = self.adapter([(0, self.path("trees.0"))])
+        for bad in ("4", 2.5, 4.0, True, None):
+            with self.subTest(max_rows=bad):
+                with self.assertRaises(ConverterError) as caught:
+                    list(adapter.iter_batches(bad))
+                self.assertIn("max_rows must be an integer", str(caught.exception))
+
+    def test_a_numpy_integer_max_rows_is_accepted(self):
+        self.write("trees.0", [TREE_B])
+        adapter = self.adapter([(0, self.path("trees.0"))])
+        batches = list(adapter.iter_batches(np.int64(4)))
+        self.assertEqual(sum(batch.n_rows for batch in batches), 2)
 
     def test_a_numpy_integer_ordinal_is_accepted(self):
         """Rejecting non-integers must not reject a numpy int from a caller."""
@@ -1301,25 +1334,28 @@ class BudgetTests(FixtureCase):
         self.write("trees.0", [TREE_B, TREE_B, TREE_B])
         with self.assertRaises(ConverterError) as caught:
             self.adapter(
-                [(0, self.path("trees.0"))], memory_budget_bytes=INVENTORY_BYTES_PER_UNIT
+                [(0, self.path("trees.0"))], memory_budget_bytes=inventory_budget_bytes(3) - 1
             ).inventory()
         self.assertIn("memory budget", str(caught.exception))
 
     def test_an_over_budget_tree_validation_fails_before_allocation(self):
         """A budget that admits the inventory but not the tree's validation.
 
-        One unit costs ``INVENTORY_BYTES_PER_UNIT``; a 20-halo tree's
-        validation costs ``20 * VALIDATION_BYTES_PER_HALO``, which is the
-        larger of the two, so a budget between them isolates the validation
-        check.
+        The tree has to be big enough for its validation term to exceed the
+        inventory term, or a budget that clears the inventory check clears
+        validation too and the test proves nothing. One unit costs
+        ``inventory_budget_bytes(1)``; a 4,000-halo tree's validation costs
+        four times that, so half of it isolates the validation check.
         """
-        self.write("trees.0", [linear_tree(20)])
-        budget = 10 * VALIDATION_BYTES_PER_HALO
-        self.assertGreater(budget, INVENTORY_BYTES_PER_UNIT)
+        n_halos = 4000
+        self.write("trees.0", [linear_tree(n_halos)])
+        budget = validation_budget_bytes(n_halos // 2)
+        self.assertGreater(budget, inventory_budget_bytes(1))
+        self.assertLess(budget, validation_budget_bytes(n_halos))
         adapter = self.adapter([(0, self.path("trees.0"))], memory_budget_bytes=budget)
         with self.assertRaises(ConverterError) as caught:
-            list(adapter.iter_batches(2))
-        self.assertIn("structural validation of 20 halos", str(caught.exception))
+            list(adapter.iter_batches(256))
+        self.assertIn("structural validation of 4000 halos", str(caught.exception))
 
     def test_work_the_budget_accepts_actually_completes(self):
         """The acceptance side, which the rejection tests above do not cover.
@@ -1332,7 +1368,7 @@ class BudgetTests(FixtureCase):
         """
         n_halos = 400
         self.write("trees.0", [linear_tree(n_halos)])
-        budget = INVENTORY_BYTES_PER_UNIT + validation_budget_bytes(n_halos)
+        budget = max(inventory_budget_bytes(1), validation_budget_bytes(n_halos))
         adapter = self.adapter([(0, self.path("trees.0"))], memory_budget_bytes=budget)
         columns, _sizes = collect(adapter, 64)
         self.assertEqual(columns["identity"]["SourceHaloID"].tolist(), list(range(1, n_halos + 1)))
@@ -1345,14 +1381,15 @@ class BudgetTests(FixtureCase):
         against the whole ceiling rather than against a running total, so a
         byte off the sum would cross neither threshold.
         """
-        n_halos = 400
+        n_halos = 4000
         self.write("trees.0", [linear_tree(n_halos)])
         budget = validation_budget_bytes(n_halos) - 1
-        self.assertGreater(budget, INVENTORY_BYTES_PER_UNIT)  # isolate the validation check
+        # Isolate the validation check: the inventory term must still fit.
+        self.assertGreater(budget, inventory_budget_bytes(1))
         adapter = self.adapter([(0, self.path("trees.0"))], memory_budget_bytes=budget)
         with self.assertRaises(ConverterError) as caught:
-            list(adapter.iter_batches(64))
-        self.assertIn("structural validation of 400 halos", str(caught.exception))
+            list(adapter.iter_batches(256))
+        self.assertIn("structural validation of 4000 halos", str(caught.exception))
 
     def test_a_non_positive_budget_is_rejected(self):
         self.write("trees.0", [TREE_B])
@@ -1375,6 +1412,7 @@ class BudgetTests(FixtureCase):
         self.write("trees.0", [[dict(row)] for row in [TREE_B[1]] * n_trees])
         adapter = self.adapter([(0, self.path("trees.0"))], memory_budget_bytes=1)
         count_table_bytes = 4 * n_trees  # what read_lhalo_header would read
+        self.assertLess(1, inventory_budget_bytes(n_trees))
         tracemalloc.start()
         try:
             baseline = tracemalloc.get_traced_memory()[0]
@@ -1625,6 +1663,45 @@ class BudgetAccountingTests(FixtureCase):
             "is not releasing them",
         )
         batches.close()
+
+    def test_the_inventory_path_stays_within_its_declared_budget(self):
+        """Measure ``inventory()``, not ``SourceInventory(units)`` in isolation.
+
+        Round 5 review found ``INVENTORY_BYTES_PER_UNIT`` measured against the
+        narrower scope: the real ``_build_inventory()`` also retains a
+        ``_SourceFile`` per file -- each holding an ``LHaloHeader`` whose
+        ``tree_halo_counts`` is an int64 array -- and every ``SourceUnit``,
+        while ``SourceInventory`` builds its tuple, prefix sums and index dict
+        on top. Against real mini-Millennium the old figure was 5.6% short.
+
+        Sizes are chosen to straddle Python's list-growth boundaries, since
+        the per-unit peak is not smooth in ``n``: a list holds both its old and
+        new storage during a resize.
+        """
+        row = dict(TREE_B[1])
+        for n_trees in (1, 5000, 24000):
+            with self.subTest(n_trees=n_trees):
+                path = os.path.join(self.tmpdir, "inv{}.0".format(n_trees))
+                write_lhalo_file(path, [[dict(row)] for _ in range(n_trees)])
+                adapter = LHaloBinaryAdapter(default_schema(), [(0, path)])
+                tracemalloc.start()
+                try:
+                    baseline = tracemalloc.get_traced_memory()[0]
+                    inventory = adapter.inventory()
+                    peak = tracemalloc.get_traced_memory()[1] - baseline
+                finally:
+                    tracemalloc.stop()
+                self.assertEqual(len(inventory.units), n_trees)
+                budget = inventory_budget_bytes(n_trees)
+                self.assertLessEqual(
+                    peak,
+                    budget,
+                    "building a {}-tree inventory peaked at {} bytes ({:.1f} B/unit), above "
+                    "the {} bytes the declared constants allow".format(
+                        n_trees, peak, peak / n_trees, budget
+                    ),
+                )
+                os.remove(path)
 
     def test_the_retained_columns_alone_would_understate_the_peak(self):
         """The defect this constant was corrected for, pinned as a test.
