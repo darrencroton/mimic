@@ -74,15 +74,29 @@ all three are named rather than left implicit:
 3. *The inventory* is O(tree count), which C4 permits as an explicitly
    budgeted term. It is the contract's own mandated structure: C1 defines
    ``SourceHaloID`` as a prefix sum over the complete ordered inventory, so it
-   cannot be streamed away. Measured at ~464 bytes per unit peak during
-   construction (``tracemalloc`` around ``SourceInventory``), which is the
-   figure :data:`INVENTORY_BYTES_PER_UNIT` carries and the budget check uses.
+   cannot be streamed away. Budgeted at :data:`INVENTORY_BYTES_PER_UNIT`
+   (640) per tree plus a :data:`INVENTORY_BASE_BYTES` (256 KiB) constant,
+   measured around the whole ``_build_inventory()`` path rather than around
+   ``SourceInventory`` alone -- the path also retains a per-file header whose
+   count table is a real int64 array, and at one tree the constant *is* the
+   entire peak.
 
-Both budgeted terms fail loudly against ``memory_budget_bytes`` before the
-allocation rather than after it. A full 512-file Millennium inventory needs
-roughly 6.6 GB by that measure and will refuse to build under the default
-budget: that refusal is the honest answer, and the operator raises the budget
-deliberately.
+**What the budget does and does not bound.** Each named term above is checked
+against the whole configured ``memory_budget_bytes`` ceiling **before its own
+allocation**. The ceiling is deliberately *not* a running total: it does not
+bound the sum of terms that happen to be resident at the same moment, and it
+says nothing about interpreter RSS. That is C4's own framing -- "the generic
+``--memory-budget-mb`` bounds merge/chunk working buffers, not the entire
+Python interpreter RSS" -- and it is what makes the check answerable before an
+allocation rather than after it. A caller who needs a hard ceiling on total
+process memory needs a different mechanism than this one.
+
+Sized against the shipped packages, an inventory needs roughly 19 MB for
+mini-Millennium's 29,585 trees and 282 MB for micro-Uchuu's 440,651. A full
+512-file Millennium comes to about 9.1 GB (extrapolated from the 27,747 trees
+per file measured across its 16 local files) and will refuse to build under
+the default budget: that refusal is the honest answer, and the operator raises
+the budget deliberately.
 
 **Validation is rejection, never repair.** Every structural rule enforced here
 was first checked against all four shipped datasets by an independent
@@ -274,25 +288,45 @@ def _peek_ntrees(path: Path, byte_order: str) -> Optional[int]:
     sends someone to change the wrong thing. Mirrors ``read_lhalo_header``'s
     own ``8 + 4 * ntrees > file_size`` guard, from a ``stat()`` that allocates
     nothing, so the real defect is named before any count table is read.
+
+    **A failed probe is not the same as an implausible one.** Standing aside
+    is right when the header is readable and wrong; it is not right when the
+    probe itself could not run, because this function is the only thing that
+    budget-checks the file and ``read_lhalo_header`` would then read the whole
+    count table unbudgeted -- precisely what this mechanism exists to prevent,
+    on precisely the flaky network and FUSE storage where a transient error is
+    plausible. So an I/O error is retried once, and a second failure is left
+    to propagate: the caller wraps this call and ``read_lhalo_header``
+    together, so the error still arrives named with its path and ordinal
+    rather than becoming a silent bypass here.
     """
     try:
-        file_size = path.stat().st_size
-        # Unbuffered: a buffered handle would allocate the filesystem's block
-        # size up front -- 128 KiB on this host -- which is absurd overhead
-        # for a 4-byte probe whose whole purpose is to allocate nothing before
-        # the budget has been consulted.
-        with open(path, "rb", buffering=0) as handle:
-            head = handle.read(4)
+        file_size, head = _read_header_probe(path)
     except OSError:
-        # Driven by the vanishing-file tests. Standing aside rather than
-        # diagnosing: read_lhalo_header reports it properly a moment later.
-        return None
+        # One retry, for the transient case that has already cleared. A second
+        # failure propagates to the caller's wrapper, which names it.
+        file_size, head = _read_header_probe(path)
     if len(head) != 4:
         return None
     ntrees = int(np.frombuffer(head, dtype=np.dtype(byte_order + "i4"), count=1)[0])
     if ntrees < 0 or 8 + 4 * ntrees > file_size:
         return None
     return ntrees
+
+
+def _read_header_probe(path: Path) -> Tuple[int, bytes]:
+    """The file's size and its leading 4 bytes, allocating nothing else.
+
+    Unbuffered: a buffered handle would allocate the filesystem's block size
+    up front -- 128 KiB on this host -- which is absurd overhead for a 4-byte
+    probe whose whole purpose is to allocate nothing before the budget has
+    been consulted. A short read is safe here: the caller treats fewer than
+    four bytes as "not readable as a header" and defers, rather than
+    diagnosing it.
+    """
+    file_size = path.stat().st_size
+    with open(path, "rb", buffering=0) as handle:
+        return file_size, handle.read(4)
 
 
 @dataclass(frozen=True)
@@ -524,18 +558,19 @@ class LHaloBinaryAdapter(SourceAdapter):
             # its own -- so checking afterwards would let the allocation the
             # budget exists to gate happen first. The leading 8 bytes already
             # carry Ntrees, which is all the check needs.
-            declared_trees = _peek_ntrees(path, byte_order)
-            if declared_trees is not None:
-                self._check_budget(
-                    (len(units) + declared_trees) * INVENTORY_BYTES_PER_UNIT + INVENTORY_BASE_BYTES,
-                    "inventory of {} trees ({} B/unit plus a {}-byte base)".format(
-                        len(units) + declared_trees,
-                        INVENTORY_BYTES_PER_UNIT,
-                        INVENTORY_BASE_BYTES,
-                    ),
-                    "raise memory_budget_bytes, or convert a narrower file range",
-                )
             try:
+                declared_trees = _peek_ntrees(path, byte_order)
+                if declared_trees is not None:
+                    self._check_budget(
+                        (len(units) + declared_trees) * INVENTORY_BYTES_PER_UNIT
+                        + INVENTORY_BASE_BYTES,
+                        "inventory of {} trees ({} B/unit plus a {}-byte base)".format(
+                            len(units) + declared_trees,
+                            INVENTORY_BYTES_PER_UNIT,
+                            INVENTORY_BASE_BYTES,
+                        ),
+                        "raise memory_budget_bytes, or convert a narrower file range",
+                    )
                 header = read_lhalo_header(
                     path, byte_order=byte_order, record_bytes=self.layout.itemsize
                 )

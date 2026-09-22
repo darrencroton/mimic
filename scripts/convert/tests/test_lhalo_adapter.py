@@ -1431,6 +1431,49 @@ class BudgetTests(FixtureCase):
             ),
         )
 
+    def test_a_transient_probe_failure_retries_and_still_budget_checks(self):
+        """A probe that fails once must not become a silent budget bypass.
+
+        ``_peek_ntrees`` is the only thing that budget-checks a file. If a
+        transient I/O error -- plausible on the network and FUSE storage the
+        large sources live on -- made it stand aside, ``read_lhalo_header``
+        would go on to read the whole count table unbudgeted, which is exactly
+        what the mechanism exists to prevent. The probe is retried once, so a
+        failure that has already cleared still gets checked.
+        """
+        n_trees = 20000
+        self.write("trees.0", [[dict(TREE_B[1])] for _ in range(n_trees)])
+        adapter = self.adapter([(0, self.path("trees.0"))], memory_budget_bytes=1)
+        real_open = open
+        opens = []
+
+        def flaky_open(*args, **kwargs):
+            opens.append(args)
+            if len(opens) == 1:
+                raise OSError(errno.EIO, "transient failure that clears immediately")
+            return real_open(*args, **kwargs)
+
+        with mock.patch("builtins.open", flaky_open):
+            with self.assertRaises(ConverterError) as caught:
+                adapter.inventory()
+        self.assertIn("memory budget", str(caught.exception))
+        self.assertGreaterEqual(len(opens), 2, "the probe was not retried")
+
+    def test_a_persistent_probe_failure_is_named_not_swallowed(self):
+        """A second failure propagates and is named by the caller's wrapper."""
+        self.write("trees.0", [TREE_B])
+        adapter = self.adapter([(0, self.path("trees.0"))])
+        real_open = open
+
+        def dead_open(*args, **kwargs):
+            raise OSError(errno.EIO, "device is gone")
+
+        with mock.patch("builtins.open", dead_open):
+            with self.assertRaises(ConverterError) as caught:
+                adapter.inventory()
+        self.assertIn("cannot read source file", str(caught.exception))
+        self.assertIs(real_open, open)
+
     def test_a_within_budget_header_still_reads_normally(self):
         """The preflight must not change what a legal header does."""
         self.write("trees.0", [TREE_A, TREE_B])
@@ -1604,30 +1647,83 @@ class BudgetAccountingTests(FixtureCase):
         the caller's ``max_rows``, so it does not scale with the tree; a
         caller batching a whole tree at once previously added ``itemsize``
         (104 B/halo) here.
+
+        **The second size is above ``TOPOLOGY_READ_CHUNK_ROWS`` on purpose.**
+        Below it the read loop runs once and never reaches the ``records =
+        None`` release that round 2 added to stop two chunk buffers coexisting
+        -- so a future edit deleting that line as apparently-redundant would
+        reintroduce the double-buffer defect with nothing to catch it. The
+        larger case makes the loop iterate and the release observable.
         """
-        n_halos = 20000
-        path = os.path.join(self.tmpdir, "trees.0")
+        for n_halos in (20000, lb.TOPOLOGY_READ_CHUNK_ROWS + 4464):
+            with self.subTest(n_halos=n_halos, chunks=-(-n_halos // lb.TOPOLOGY_READ_CHUNK_ROWS)):
+                path = os.path.join(self.tmpdir, "trees{}.0".format(n_halos))
+                write_lhalo_file(path, [linear_tree(n_halos)])
+                adapter = LHaloBinaryAdapter(default_schema(), [(0, path)])
+                header_bytes = 8 + 4 * 1
+                with open(path, "rb") as handle:
+                    tracemalloc.start()
+                    try:
+                        baseline = tracemalloc.get_traced_memory()[0]
+                        columns = adapter._read_tree_topology(
+                            handle, header_bytes, n_halos, "budget measurement"
+                        )
+                        lb._validate_tree(columns, n_halos, "budget measurement", None)
+                        peak = tracemalloc.get_traced_memory()[1] - baseline
+                    finally:
+                        tracemalloc.stop()
+                        columns = None
+                budget = validation_budget_bytes(n_halos)
+                self.assertLessEqual(
+                    peak,
+                    budget,
+                    "the real read+validate path peaked at {} bytes ({:.1f} B/halo), above "
+                    "the {} bytes the declared constants allow".format(
+                        peak, peak / n_halos, budget
+                    ),
+                )
+                os.remove(path)
+
+    def test_the_previous_chunk_is_released_before_the_next_read(self):
+        """Pinned by lifetime, because a budget assertion cannot see this.
+
+        Round 2 added a ``records = None`` release so two chunk buffers never
+        coexist -- 6.8 MB each on the shipped record. A test that merely runs
+        a multi-chunk tree and checks the peak against the declared budget
+        does **not** catch its removal: ``VALIDATION_BYTES_PER_HALO``'s own
+        margin is wider than the extra buffer, so the mutated code stays under
+        budget. Verified by deleting the release and watching such a test pass.
+
+        So this asserts the thing directly: at the moment the second chunk is
+        read, the first chunk's array must already be dead.
+        """
+        n_halos = lb.TOPOLOGY_READ_CHUNK_ROWS + 4464
+        self.assertGreater(n_halos, lb.TOPOLOGY_READ_CHUNK_ROWS, "must span two chunks")
+        path = os.path.join(self.tmpdir, "chunks.0")
         write_lhalo_file(path, [linear_tree(n_halos)])
         adapter = LHaloBinaryAdapter(default_schema(), [(0, path)])
-        header_bytes = 8 + 4 * 1
+
+        real_read_records = LHaloBinaryAdapter._read_records
+        previous = []
+        alive_at_next_read = []
+
+        def spy(adapter_self, handle, count, context):
+            if previous:
+                alive_at_next_read.append(previous[-1]() is not None)
+            records = real_read_records(adapter_self, handle, count, context)
+            previous.append(weakref.ref(records))
+            return records
+
+        LHaloBinaryAdapter._read_records = spy
+        self.addCleanup(setattr, LHaloBinaryAdapter, "_read_records", real_read_records)
         with open(path, "rb") as handle:
-            tracemalloc.start()
-            try:
-                baseline = tracemalloc.get_traced_memory()[0]
-                columns = adapter._read_tree_topology(
-                    handle, header_bytes, n_halos, "budget measurement"
-                )
-                lb._validate_tree(columns, n_halos, "budget measurement", None)
-                peak = tracemalloc.get_traced_memory()[1] - baseline
-            finally:
-                tracemalloc.stop()
-                columns = None
-        budget = validation_budget_bytes(n_halos)
-        self.assertLessEqual(
-            peak,
-            budget,
-            "the real read+validate path peaked at {} bytes ({:.1f} B/halo), above the "
-            "{} bytes the declared constants allow".format(peak, peak / n_halos, budget),
+            columns = adapter._read_tree_topology(handle, 12, n_halos, "chunk lifetime")
+        self.assertEqual(len(columns["SnapNum"]), n_halos)
+        self.assertGreaterEqual(len(alive_at_next_read), 1, "the read loop did not iterate")
+        self.assertFalse(
+            any(alive_at_next_read),
+            "a chunk buffer was still alive when the next read allocated its replacement; "
+            "the `records = None` release is not doing its job",
         )
 
     def test_the_topology_is_released_before_emission_begins(self):
