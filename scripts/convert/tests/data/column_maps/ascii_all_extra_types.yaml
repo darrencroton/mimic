@@ -1,0 +1,97 @@
+# Consistent-Trees ASCII test profile: the default required roles plus one
+# extra of every declarable type, drawn from the synthetic fixture's columns
+# (scripts/convert/tests/fixtures.py COLUMNS). Used by the Slice 5 parser,
+# stage and adapter tests; valid by construction.
+#
+#   NumProg     int         a column no role reads (num_prog), parsed as text
+#   HaloID      long long   the `id` role column, reused
+#   TreeRoot    long long   a column no role reads (Tree_root_ID)
+#   CatalogRvir float       a column no role reads (Rvir)
+#   RvirDouble  double      the same column again, at full float64
+#   RawJ        vec3_float  the Jx/Jy/Jz role columns: raw J, never normalised
+#   Counters    vec3_int    num_prog, phantom and the snapshot role column
+
+schema_version: 1
+source_format: consistent_trees_ascii
+
+required_columns:
+  scale: [scale]
+  id: [id]
+  desc_scale: [desc_scale]
+  desc_id: [desc_id]
+  pid: [pid]
+  upid: [upid]
+  snap: [snap_idx, snap_num]
+  mvir: [Mvir]
+  vrms: [vrms]
+  vmax: [vmax]
+  x: [x]
+  y: [y]
+  z: [z]
+  vx: [vx]
+  vy: [vy]
+  vz: [vz]
+  jx: [Jx]
+  jy: [Jy]
+  jz: [Jz]
+
+extra_fields:
+  - name: NumProg
+    sources:
+      - field: num_prog
+    type: int
+    units: dimensionless
+    h_convention: none
+    description: Number of progenitors recorded by Consistent-Trees
+
+  - name: HaloID
+    sources:
+      - field: id
+    type: long long
+    units: dimensionless
+    h_convention: none
+    description: Consistent-Trees halo id, reused from the id role column
+
+  - name: TreeRoot
+    sources:
+      - field: Tree_root_ID
+    type: long long
+    units: dimensionless
+    h_convention: none
+    description: Root id of the tree this halo belongs to
+
+  - name: CatalogRvir
+    sources:
+      - field: Rvir
+    type: float
+    units: kpc/h
+    h_convention: carried
+    description: Virial radius as written by Consistent-Trees
+
+  - name: RvirDouble
+    sources:
+      - field: Rvir
+    type: double
+    units: kpc/h
+    h_convention: carried
+    description: Virial radius at float64 precision
+
+  - name: RawJ
+    sources:
+      - field: Jx
+      - field: Jy
+      - field: Jz
+    type: vec3_float
+    units: Msun/h Mpc/h km/s
+    h_convention: carried
+    description: Raw catalog angular momentum J, before the J/Mvir normalisation
+
+  - name: Counters
+    sources:
+      - field: num_prog
+      - field: phantom
+      - field: Snap_num
+    type: vec3_int
+    units: dimensionless
+    h_convention: none
+    description: Progenitor count, phantom flag and snapshot number

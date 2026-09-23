@@ -1,4 +1,8 @@
-"""Slice 4 unit tests: sort determinism, duplicate-id abort, verify-then-delete."""
+"""Slice 4 unit tests: sort determinism, duplicate-id abort, verify-then-delete.
+
+Converter generalisation Slice 5 adds ``TestExtendedSort``: extended records
+(source coordinates and declared extras) travel with their id through the
+sort, and a scratch file of a different layout is refused."""
 
 import hashlib
 import os
@@ -523,6 +527,59 @@ class TestSortSkipsConsumedArtifacts(unittest.TestCase):
             handle.write(b"\x00\x01\x02\x03")
         with self.assertRaisesRegex(ConverterError, "content checksum"):
             run_sort(workdir)
+
+
+class TestExtendedSort(unittest.TestCase):
+    def setUp(self):
+        from column_schema import build_schema, load_column_map
+
+        profile = Path(__file__).parent / "data" / "column_maps" / "ascii_all_extra_types.yaml"
+        self.schema = build_schema(load_column_map(profile))
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        forests = fixtures.standard_forests()
+        self.tree = fixtures.write_ctrees_file(root / "t.dat", fixtures.all_trees(forests))
+        self.forests_list = fixtures.write_forests_list(root / "forests.list", forests)
+        self.a_list = fixtures.write_a_list(root / "a")
+        self.workdir = root / "w"
+        with capture_stderr():
+            self.manifest = run_scatter(
+                [self.tree],
+                self.forests_list,
+                self.a_list,
+                self.workdir,
+                chunksize=2,
+                schema=self.schema,
+            )
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_extras_and_coordinates_travel_with_their_id(self):
+        layout = self.manifest.layout
+        before = {}
+        for entry in self.manifest.data["snapshots"].values():
+            for row in np.fromfile(entry["scratch_file"], dtype=layout.dtype):
+                before[int(row["id"])] = row.tobytes()
+        with capture_stderr():
+            manifest = run_sort(self.workdir)
+        after = {}
+        for entry in manifest.data["snapshots"].values():
+            meta = manifest.data["intermediates"][entry["sorted_file"]]
+            self.assertEqual(meta["dtype_tag"], layout.dtype_tag)
+            records = np.fromfile(entry["sorted_file"], dtype=layout.dtype)
+            self.assertTrue(np.all(np.diff(records["id"]) > 0))
+            for row in records:
+                after[int(row["id"])] = row.tobytes()
+        self.assertEqual(after, before)
+
+    def test_scratch_of_another_layout_is_refused(self):
+        entry = self.manifest.data["snapshots"]["5"]
+        self.manifest.data["intermediates"][entry["scratch_file"]]["dtype_tag"] = DTYPE_TAG
+        self.manifest.save()
+        with self.assertRaisesRegex(ConverterError, "refusing to sort"):
+            with capture_stderr():
+                run_sort(self.workdir, snapshots=[5])
 
 
 if __name__ == "__main__":

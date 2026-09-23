@@ -1778,5 +1778,72 @@ class TestLinksConsumesIntermediates(unittest.TestCase):
         )
 
 
+class TestExtendedLinks(unittest.TestCase):
+    """Converter generalisation Slice 5: the link stage over extended records."""
+
+    def setUp(self):
+        from column_schema import build_schema, load_column_map
+        from test_fixups import ALL_TYPES_PROFILE, run_both_layouts
+
+        self.tmp = tempfile.TemporaryDirectory()
+        self.schema = build_schema(load_column_map(ALL_TYPES_PROFILE))
+        self.legacy, self.extended = run_both_layouts(Path(self.tmp.name), self.schema)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_links_record_does_not_widen(self):
+        self.assertEqual(LINKS_RECORD_DTYPE.itemsize, 36)
+        for entry in self.extended.data["snapshots"].values():
+            meta = self.extended.data["intermediates"][entry["links_file"]]
+            self.assertEqual(meta["dtype_tag"], links.LINKS_DTYPE_TAG)
+
+    def test_links_are_byte_identical_to_the_legacy_route(self):
+        self.assertEqual(self.extended.data["links"], self.legacy.data["links"])
+        for snap, entry in self.legacy.data["snapshots"].items():
+            self.assertEqual(
+                Path(self.extended.data["snapshots"][snap]["links_file"]).read_bytes(),
+                Path(entry["links_file"]).read_bytes(),
+                snap,
+            )
+
+    def test_identity_stream_uses_the_actual_itemsize(self):
+        from fixups import fixed_layout
+
+        self.assertEqual(
+            links.identity_stream_bytes_per_row(links.FIXED_RECORD_DTYPE),
+            links.IDENTITY_STREAM_BYTES_PER_ROW,
+        )
+        dtype, _tag = fixed_layout(self.extended.layout)
+        wide = links.identity_stream_bytes_per_row(dtype)
+        self.assertEqual(wide, 2 * dtype.itemsize + 16)
+        self.assertGreater(wide, links.IDENTITY_STREAM_BYTES_PER_ROW)
+        # a stream share that holds one legacy row but not one extended row
+        budget = links.STREAM_BUDGET_SHARE * (links.IDENTITY_STREAM_BYTES_PER_ROW + 44)
+        self.assertLess(budget // links.STREAM_BUDGET_SHARE, wide)
+        with self.assertRaisesRegex(ConverterError, "at least {} byte".format(wide)):
+            links.compute_identity(self.extended, budget_bytes=budget)
+        identity, _n, _max = links.compute_identity(self.legacy, budget_bytes=budget)
+        identity.close()
+
+    def test_extended_rank_pass_matches_at_a_tiny_budget(self):
+        from fixups import fixed_layout
+
+        # the smallest budget whose stream share still holds one extended row:
+        # the identity stream then reads the wide records one row per block
+        tiny = links.STREAM_BUDGET_SHARE * links.identity_stream_bytes_per_row(
+            fixed_layout(self.extended.layout)[0]
+        )
+        identity, n_forests, max_rank = links.compute_identity(self.extended, budget_bytes=tiny)
+        with identity:
+            reference, _n, _m = links.compute_identity(self.legacy)
+            with reference:
+                self.assertEqual(n_forests, self.legacy.data["links"]["n_forests_total"])
+                self.assertEqual(max_rank, self.legacy.data["links"]["max_halo_rank_in_forest"])
+                for snap in (int(s) for s in self.legacy.data["snapshots"]):
+                    for got, want in zip(identity[snap], reference[snap]):
+                        self.assertEqual(got.tobytes(), want.tobytes())
+
+
 if __name__ == "__main__":
     unittest.main()

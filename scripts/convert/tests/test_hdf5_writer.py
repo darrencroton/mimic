@@ -701,5 +701,54 @@ class TestWriterConsumesScratch(unittest.TestCase):
         self.assertTrue(parser.parse_args(base + ["--consume-intermediates"]).consume_intermediates)
 
 
+class TestExtendedLayoutRefusal(unittest.TestCase):
+    """Converter generalisation Slice 5: extended scratch is never written as v2."""
+
+    def test_extended_workdir_is_refused_before_any_file_is_written(self):
+        from column_schema import build_schema, load_column_map
+        from test_fixups import ALL_TYPES_PROFILE, run_both_layouts
+
+        for profile in (
+            ALL_TYPES_PROFILE,
+            Path(__file__).resolve().parents[1] / "profiles" / "consistent_trees_ascii.yaml",
+        ):
+            with self.subTest(profile=profile.name), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                schema = build_schema(load_column_map(profile))
+                legacy, extended = run_both_layouts(root, schema)
+                with self.assertRaisesRegex(ConverterError, "format_version 2 cannot carry"):
+                    run_write(extended.workdir, root / "test.a_list", root / "simulation_info.yaml")
+                self.assertFalse((extended.workdir / "hdf5").exists())
+                self.assertNotIn("outputs", Manifest.load_or_create(extended.workdir).data)
+                with capture_stderr():
+                    run_write(legacy.workdir, root / "test.a_list", root / "simulation_info.yaml")
+                self.assertTrue((legacy.workdir / "hdf5" / "forests.h5").exists())
+
+    def test_legacy_cli_write_refuses_an_extended_workdir(self):
+        from column_schema import build_schema, load_column_map
+        from test_fixups import ALL_TYPES_PROFILE, run_both_layouts
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _legacy, extended = run_both_layouts(
+                root, build_schema(load_column_map(ALL_TYPES_PROFILE))
+            )
+            with capture_stderr() as err:
+                code = convert_ctrees.main(
+                    [
+                        "write",
+                        "--workdir",
+                        str(extended.workdir),
+                        "--a-list",
+                        str(root / "test.a_list"),
+                        "--simulation-info",
+                        str(root / "simulation_info.yaml"),
+                    ]
+                )
+            self.assertEqual(code, 1)
+            self.assertIn("cannot carry", err.text)
+            self.assertFalse((extended.workdir / "hdf5").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

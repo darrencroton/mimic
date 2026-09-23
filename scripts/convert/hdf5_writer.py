@@ -29,6 +29,13 @@ Every emitted file is re-opened and verified bit-for-bit against the source
 arrays before being recorded in the manifest's ``outputs`` map (md5 +
 row count). Re-running skips files whose recorded md5 still matches
 (refuse-not-repair: a recorded file with different content aborts).
+
+**Only the legacy scratch layout is emitted.** A workdir whose scratch records
+use the extended layout of the canonical ASCII bridge (source coordinates and
+declared extras, converter generalisation Slice 5) is refused before any file
+is written: format v2 has no place for either, and dropping them to emit v2
+anyway would silently lose data a caller asked to keep. That data leaves
+through the v3 writer once it exists, never through this one.
 """
 
 import os
@@ -155,6 +162,26 @@ def load_header_metadata(path) -> Dict[str, float]:
         if not np.isfinite(value):
             raise ConverterError("{}: {} is not finite ({})".format(path, name, value))
     return values
+
+
+def reject_extended_layout(manifest: Manifest) -> None:
+    """Refuse a workdir holding extended scratch records (module docstring):
+    format v2 cannot carry source coordinates or declared extras, and this
+    writer emits nothing rather than emit a v2 file that silently drops them."""
+    layout = manifest.layout
+    if layout.is_extended:
+        raise ConverterError(
+            "{}: this workdir holds extended scratch records (tag {!r}; schema {}; extras {}) "
+            "— horizontal-HDF5 format_version {} cannot carry source coordinates or declared "
+            "extra fields, and this writer will not drop them to emit v2; they are written "
+            "only by the v3 writer".format(
+                manifest.path,
+                layout.dtype_tag,
+                layout.schema_digest,
+                [name for name, _type in layout.extras] or "none",
+                FORMAT_VERSION,
+            )
+        )
 
 
 def build_halo_arrays(
@@ -451,6 +478,7 @@ def run_write(
     manifest = Manifest.load_or_create(workdir)
     if not manifest.path.exists():
         raise ConverterError("{}: no manifest found; run scatter first".format(workdir))
+    reject_extended_layout(manifest)
 
     a_list, a_list_md5 = load_a_list(a_list_path)
     provenance = manifest.data["provenance"]

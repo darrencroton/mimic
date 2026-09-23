@@ -24,7 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import convert_ctrees  # noqa: E402
 import fixtures  # noqa: E402
-from ctrees_parser import RECORD_DTYPE, ConverterError  # noqa: E402
+from ctrees_parser import DTYPE_TAG, RECORD_DTYPE, ConverterError  # noqa: E402
 from fixups import (  # noqa: E402
     FIXED_DTYPE_TAG,
     FIXED_RECORD_DTYPE,
@@ -1090,6 +1090,143 @@ class TestFixupsConsumesSortedScratch(unittest.TestCase):
             ]
         )
         self.assertTrue(args.consume_intermediates)
+
+
+# ---------------------------------------------------------------------------
+# Converter generalisation Slice 5: extended scratch layouts
+# ---------------------------------------------------------------------------
+
+ALL_TYPES_PROFILE = Path(__file__).parent / "data" / "column_maps" / "ascii_all_extra_types.yaml"
+
+
+def run_both_layouts(root: Path, schema, chunksize: int = 2):
+    """Prepare the standard fixture forests twice, through the legacy route and
+    in ``schema``'s extended layout, up to and including links. Returns the two
+    manifests (legacy, extended)."""
+    from adapters.ctrees_ascii import prepare_workdir
+
+    forests = fixtures.standard_forests()
+    files = [
+        fixtures.write_ctrees_file(root / "tree_0.dat", fixtures.all_trees(forests[:3])),
+        fixtures.write_ctrees_file(root / "tree_1.dat", fixtures.all_trees(forests[3:])),
+    ]
+    forests_list = fixtures.write_forests_list(root / "forests.list", forests)
+    a_list = fixtures.write_a_list(root / "test.a_list")
+    sim_info = fixtures.write_simulation_info(root / "simulation_info.yaml")
+    legacy_dir = root / "legacy"
+    with capture_stderr():
+        run_scatter(
+            files,
+            forests_list,
+            a_list,
+            legacy_dir,
+            chunksize=chunksize,
+            simulation_info_path=sim_info,
+        )
+        run_sort(legacy_dir)
+        run_fixups(legacy_dir, a_list, sim_info)
+        legacy = run_links(legacy_dir)
+        extended = prepare_workdir(
+            schema, files, forests_list, a_list, sim_info, root / "extended", chunksize=chunksize
+        )
+    return legacy, extended
+
+
+class TestExtendedFixups(unittest.TestCase):
+    def setUp(self):
+        from column_schema import build_schema, load_column_map
+
+        self.tmp = tempfile.TemporaryDirectory()
+        self.schema = build_schema(load_column_map(ALL_TYPES_PROFILE))
+        self.legacy, self.extended = run_both_layouts(Path(self.tmp.name), self.schema)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_legacy_fixed_layout_is_frozen(self):
+        from ctrees_parser import LEGACY_LAYOUT
+        from fixups import FIXED_DTYPE_TAG, fixed_layout
+
+        self.assertEqual(fixed_layout(LEGACY_LAYOUT), (FIXED_RECORD_DTYPE, FIXED_DTYPE_TAG))
+        self.assertEqual(FIXED_RECORD_DTYPE.itemsize, 120)
+
+    def test_extended_fixed_record_is_scratch_plus_len_and_mostboundid(self):
+        from fixups import fixed_layout
+
+        dtype, tag = fixed_layout(self.extended.layout)
+        self.assertEqual(dtype.names, self.extended.layout.dtype.names + ("Len", "MostBoundID"))
+        self.assertEqual(dtype.itemsize, self.extended.layout.dtype.itemsize + 12)
+        self.assertTrue(tag.startswith("ctrees-fixed-v2/itemsize={}/".format(dtype.itemsize)))
+        for entry in self.extended.data["snapshots"].values():
+            meta = self.extended.data["intermediates"][entry["fixed_file"]]
+            self.assertEqual(meta["dtype_tag"], tag)
+
+    def test_legacy_fields_are_bit_identical_to_the_legacy_route(self):
+        from fixups import fixed_layout
+
+        dtype, _tag = fixed_layout(self.extended.layout)
+        for snap, entry in self.legacy.data["snapshots"].items():
+            legacy = np.fromfile(entry["fixed_file"], dtype=FIXED_RECORD_DTYPE)
+            extended = np.fromfile(self.extended.data["snapshots"][snap]["fixed_file"], dtype=dtype)
+            for name in FIXED_RECORD_DTYPE.names:
+                self.assertEqual(extended[name].tobytes(), legacy[name].tobytes(), name)
+
+    def test_raw_j_extra_is_not_normalised_with_core_spin(self):
+        from fixups import fixed_layout
+
+        dtype, _tag = fixed_layout(self.extended.layout)
+        halos = {
+            h.halo_id: h
+            for tree in fixtures.all_trees(fixtures.standard_forests())
+            for h in tree.halos
+        }
+        checked_normalised = checked_zero_mass = 0
+        for entry in self.extended.data["snapshots"].values():
+            for row in np.fromfile(entry["fixed_file"], dtype=dtype):
+                halo = halos[int(row["id"])]
+                raw = [
+                    np.float64("{:.5e}".format(v)).astype(np.float32)
+                    for v in (halo.jx, halo.jy, halo.jz)
+                ]
+                self.assertEqual(row["extra_RawJ"].tobytes(), np.array(raw).tobytes())
+                mvir = np.float64("{:.5e}".format(halo.mvir)).astype(np.float32)
+                if mvir == 0:
+                    checked_zero_mass += 1
+                    self.assertEqual(row["Jx"], raw[0])
+                else:
+                    checked_normalised += 1
+                    expected = np.float32(np.float64(raw[0]) * (1.0 / np.float64(mvir)))
+                    self.assertEqual(row["Jx"].tobytes(), expected.tobytes())
+                    self.assertNotEqual(row["Jx"], row["extra_RawJ"][0])
+        self.assertGreater(checked_normalised, 0)
+        self.assertEqual(checked_zero_mass, 1)
+
+    def test_sorted_scratch_with_a_foreign_tag_is_refused(self):
+        root = Path(self.tmp.name) / "tag"
+        root.mkdir()
+        forests = fixtures.standard_forests()
+        tree = fixtures.write_ctrees_file(root / "t.dat", fixtures.all_trees(forests))
+        forests_list = fixtures.write_forests_list(root / "forests.list", forests)
+        a_list = fixtures.write_a_list(root / "a")
+        sim_info = fixtures.write_simulation_info(root / "s.yaml")
+        with capture_stderr():
+            manifest = run_scatter(
+                [tree],
+                forests_list,
+                a_list,
+                root / "w",
+                schema=self.schema,
+                simulation_info_path=sim_info,
+            )
+            run_sort(root / "w")
+        manifest = Manifest.load_or_create(root / "w")
+        entry = manifest.data["snapshots"]["5"]
+        # a well-formed tag, but the legacy layout's rather than this workdir's
+        manifest.data["intermediates"][entry["sorted_file"]]["dtype_tag"] = DTYPE_TAG
+        manifest.save()
+        with self.assertRaisesRegex(ConverterError, "refusing to fix"):
+            with capture_stderr():
+                run_fixups(root / "w", a_list, sim_info, snapshots=[5])
 
 
 if __name__ == "__main__":

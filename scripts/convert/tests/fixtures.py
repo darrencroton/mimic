@@ -13,7 +13,7 @@ import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Sequence
+from typing import Callable, List, Optional, Sequence, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -110,7 +110,16 @@ class ForestSpec:
     trees: List[TreeSpec] = field(default_factory=list)
 
 
-def _row_text(halo: HaloSpec, tree: TreeSpec, a_list: Sequence[float]) -> str:
+#: An appended fixture column: header name, and the token each halo row carries.
+ExtraColumn = Tuple[str, Callable[["HaloSpec"], str]]
+
+
+def _row_text(
+    halo: HaloSpec,
+    tree: TreeSpec,
+    a_list: Sequence[float],
+    extra_columns: Sequence[ExtraColumn] = (),
+) -> str:
     scale = a_list[halo.snap]
     if halo.desc_id == -1:
         desc_scale = -1.0
@@ -141,11 +150,17 @@ def _row_text(halo: HaloSpec, tree: TreeSpec, a_list: Sequence[float]) -> str:
         "Snap_num": str(halo.snap),
         "Tree_root_ID": str(tree.root_id),
     }
-    return " ".join(values[c] for c in COLUMNS)
+    tokens = [values[c] for c in COLUMNS]
+    tokens.extend(render(halo) for _name, render in extra_columns)
+    return " ".join(tokens)
 
 
-def header_line(dialect: str = "indexed", snapshot_column: str = "Snap_num") -> str:
-    names = [snapshot_column if c == "Snap_num" else c for c in COLUMNS]
+def header_line(
+    dialect: str = "indexed",
+    snapshot_column: str = "Snap_num",
+    extra_names: Sequence[str] = (),
+) -> str:
+    names = [snapshot_column if c == "Snap_num" else c for c in COLUMNS] + list(extra_names)
     if dialect == "indexed":
         return "#" + " ".join("{}({})".format(name, i) for i, name in enumerate(names))
     if dialect == "fields":
@@ -162,13 +177,22 @@ def write_ctrees_file(
     header_override: Optional[str] = None,
     tree_count: Optional[int] = None,
     include_tree_count: bool = True,
+    extra_columns: Sequence[ExtraColumn] = (),
 ) -> Path:
     """Write a synthetic ctrees file. Real files carry a bare tree-count line
     before the first '#tree' marker, so the generator writes one by default;
-    pass ``tree_count`` to write a deliberately wrong value."""
+    pass ``tree_count`` to write a deliberately wrong value.
+
+    ``extra_columns`` appends columns after the standard set, each a header
+    name and a function rendering one halo's token -- the source text a
+    declared extra field is then parsed from, verbatim."""
     path = Path(path)
     lines = [
-        header_override if header_override is not None else header_line(dialect, snapshot_column)
+        (
+            header_override
+            if header_override is not None
+            else header_line(dialect, snapshot_column, [name for name, _render in extra_columns])
+        )
     ]
     lines.append("#Synthetic converter test fixture")
     if include_tree_count:
@@ -176,7 +200,7 @@ def write_ctrees_file(
     for tree in trees:
         lines.append("#tree {}".format(tree.root_id))
         for halo in tree.halos:
-            lines.append(_row_text(halo, tree, a_list))
+            lines.append(_row_text(halo, tree, a_list, extra_columns))
     path.write_text("\n".join(lines) + "\n")
     return path
 

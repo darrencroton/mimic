@@ -57,6 +57,14 @@ The ordering, the ranks and every emitted byte are unchanged; only the memory
 profile is.
 
 Out of scope (plan Slice 6 non-goals): HDF5 emission (Slice 7).
+
+**Extended scratch layouts** (converter generalisation Slice 5). Fixed records
+are read in the workdir's own layout (``fixups.fixed_layout``), so a record
+carrying source coordinates and declared extras is linked exactly like a
+legacy one; the identity stream's per-row byte arithmetic uses that layout's
+actual itemsize (:func:`identity_stream_bytes_per_row`). The links record
+itself never widens: ``LINKS_RECORD_DTYPE`` stays the frozen 36-byte topology
+and identity record, and the rank core reads only its key fields.
 """
 
 import os
@@ -73,7 +81,7 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from ctrees_parser import ConverterError  # noqa: E402
-from fixups import FIXED_DTYPE_TAG, FIXED_RECORD_DTYPE  # noqa: E402
+from fixups import FIXED_RECORD_DTYPE, fixed_layout  # noqa: E402
 from rank_sort import (  # noqa: E402
     MIN_BUDGET_BYTES,
     RANK_DTYPE,
@@ -130,6 +138,14 @@ STREAM_BUDGET_SHARE = 4
 #: numpy's own contiguous copy of the strided ``forest_id`` column that
 #: ``np.searchsorted`` makes (8).
 IDENTITY_STREAM_BYTES_PER_ROW = 2 * FIXED_RECORD_DTYPE.itemsize + 2 * RANK_DTYPE.itemsize
+
+
+def identity_stream_bytes_per_row(fixed_dtype: np.dtype) -> int:
+    """:data:`IDENTITY_STREAM_BYTES_PER_ROW` for a fixed record of any width:
+    two blocks of the ACTUAL record plus the same two int64 columns. A wider
+    extended record therefore streams fewer rows per block under one budget."""
+    return 2 * np.dtype(fixed_dtype).itemsize + 2 * RANK_DTYPE.itemsize
+
 
 #: Bytes the verification stream holds per row, enumerated rather than
 #: estimated. Eleven int64-wide arrays: the ForestIndex and rank blocks read
@@ -632,7 +648,7 @@ def _load_fixed(manifest: Manifest, snap: int) -> np.ndarray:
     entry = manifest.data["snapshots"][str(snap)]
     _check_fixed_dtype_tag(manifest, entry["fixed_file"])
     manifest.verify_intermediate(entry["fixed_file"], "fixed snapshot scratch")
-    records = np.fromfile(entry["fixed_file"], dtype=FIXED_RECORD_DTYPE)
+    records = np.fromfile(entry["fixed_file"], dtype=fixed_layout(manifest.layout)[0])
     if len(records) != entry["rows"]:
         raise ConverterError(
             "{}: has {} rows, manifest records {}".format(
@@ -832,12 +848,14 @@ class HorizontalIdentity:
 
 def _check_fixed_dtype_tag(manifest: Manifest, path: str) -> None:
     """The fixed-file dtype tag is part of the deal: a scratch file written by a
-    different converter revision must not be ranked or linked."""
+    different converter revision, or in a different layout from the workdir's,
+    must not be ranked or linked."""
+    expected = fixed_layout(manifest.layout)[1]
     tag = manifest.data["intermediates"][path].get("dtype_tag")
-    if tag != FIXED_DTYPE_TAG:
+    if tag != expected:
         raise ConverterError(
             "{}: fixed-file dtype tag {!r} != expected {!r} — refusing to link".format(
-                path, tag, FIXED_DTYPE_TAG
+                path, tag, expected
             )
         )
 
@@ -861,6 +879,7 @@ def _iter_identity_blocks(
     checksum-verified before a byte of it is read.
     """
     position = 0
+    fixed_dtype = fixed_layout(manifest.layout)[0]
     for snap in snaps:
         entry = manifest.data["snapshots"][str(snap)]
         path = entry["fixed_file"]
@@ -869,7 +888,7 @@ def _iter_identity_blocks(
         rows = 0
         with open(path, "rb") as handle:
             while True:
-                records = np.fromfile(handle, dtype=FIXED_RECORD_DTYPE, count=chunk_rows)
+                records = np.fromfile(handle, dtype=fixed_dtype, count=chunk_rows)
                 if records.size == 0:
                     break
                 forest_index = np.searchsorted(forest_table, records["forest_id"])
@@ -922,11 +941,12 @@ def compute_identity(
     _validate_monotonic_pairs(manifest)
     stream_bytes = max(1, budget_bytes // STREAM_BUDGET_SHARE)
     core_bytes = budget_bytes - stream_bytes
-    if core_bytes < MIN_BUDGET_BYTES or stream_bytes < IDENTITY_STREAM_BYTES_PER_ROW:
+    row_bytes = identity_stream_bytes_per_row(fixed_layout(manifest.layout)[0])
+    if core_bytes < MIN_BUDGET_BYTES or stream_bytes < row_bytes:
         raise ConverterError(
             "rank-pass memory budget of {} byte(s) is too small: the external merge core needs "
             "at least {} byte(s) and the identity stream at least {} byte(s) for one row".format(
-                budget_bytes, MIN_BUDGET_BYTES, IDENTITY_STREAM_BYTES_PER_ROW
+                budget_bytes, MIN_BUDGET_BYTES, row_bytes
             )
         )
     table_path = Path(manifest.workdir) / "forest_index_table.npy"
@@ -942,7 +962,7 @@ def compute_identity(
     try:
         forest_index_path = directory / FOREST_INDEX_STORE_NAME
         ranks_path = directory / RANKS_STORE_NAME
-        chunk_rows = max(1, stream_bytes // IDENTITY_STREAM_BYTES_PER_ROW)
+        chunk_rows = max(1, stream_bytes // row_bytes)
         layout: Dict[int, Tuple[int, int]] = {}
         with open(forest_index_path, "wb") as fi_handle:
             blocks = _iter_identity_blocks(

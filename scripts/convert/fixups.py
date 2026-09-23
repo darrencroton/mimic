@@ -26,6 +26,12 @@ counts and concrete examples — never repair.
 After this stage the ``Jx``/``Jy``/``Jz`` fields of the fixed records carry the
 normalised Spin components (raw J only where ``Mvir == 0``, per the reference
 carve-out).
+
+An extended scratch layout (converter generalisation Slice 5) passes through
+unchanged apart from the two appended fields: its source coordinates and
+declared extras are copied field for field into the fixed record, and no
+convention touches them -- an extra that selects the raw ``Jx``/``Jy``/``Jz``
+columns keeps the catalog J while the core ``Jx``/``Jy``/``Jz`` are normalised.
 """
 
 import os
@@ -38,7 +44,13 @@ import yaml
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from ctrees_parser import RECORD_DTYPE, ConverterError  # noqa: E402
+from ctrees_parser import (  # noqa: E402
+    EXTENDED_DTYPE_TAG_PREFIX,
+    RECORD_DTYPE,
+    ConverterError,
+    ScratchLayout,
+    describe_dtype,
+)
 from scatter import (  # noqa: E402
     A_LIST_ATOL,
     Manifest,
@@ -63,6 +75,31 @@ FIXED_DTYPE_TAG = "ctrees-fixed-v1/itemsize=120/" + ",".join(
     "{}:{}".format(name, FIXED_RECORD_DTYPE.fields[name][0].str)
     for name in FIXED_RECORD_DTYPE.names
 )
+
+#: Version prefix of an extended fixed-record tag (see fixed_layout).
+EXTENDED_FIXED_DTYPE_TAG_PREFIX = EXTENDED_DTYPE_TAG_PREFIX.replace("scratch", "fixed")
+
+
+def fixed_record_dtype(scratch_dtype: np.dtype) -> np.dtype:
+    """The fixed record for one scratch record: every scratch field, in order,
+    then ``Len`` and ``MostBoundID``. For ``RECORD_DTYPE`` it is exactly the
+    frozen 120-byte ``FIXED_RECORD_DTYPE``."""
+    if scratch_dtype == RECORD_DTYPE:
+        return FIXED_RECORD_DTYPE
+    return np.dtype(
+        scratch_dtype.descr + [("Len", "<i4"), ("MostBoundID", "<i8")],
+        align=False,
+    )
+
+
+def fixed_layout(layout: ScratchLayout) -> Tuple[np.dtype, str]:
+    """``(fixed dtype, fixed dtype tag)`` for a workdir's scratch layout: the
+    frozen pair for the legacy layout, a ``ctrees-fixed-v2`` pair otherwise."""
+    if not layout.is_extended:
+        return FIXED_RECORD_DTYPE, FIXED_DTYPE_TAG
+    dtype = fixed_record_dtype(layout.dtype)
+    return dtype, describe_dtype(EXTENDED_FIXED_DTYPE_TAG_PREFIX, dtype)
+
 
 #: Reference upid-chain depth limit (ctrees_utils.c find_fof_halo).
 MAX_UPID_CHAIN_DEPTH = 30
@@ -420,11 +457,13 @@ def apply_fixups_snapshot(
     skips the corrupt-input guard rather than treating it as "no forest
     peaks here" the way an explicit empty array does.
 
-    Returns the fixed-record array (FIXED_RECORD_DTYPE) and the per-snapshot
-    stats.
+    Returns the fixed-record array (``fixed_record_dtype(records.dtype)``:
+    FIXED_RECORD_DTYPE for legacy records) and the per-snapshot stats. Every
+    field of ``records`` is copied, so an extended record's source coordinates
+    and extras arrive in the fixed record untouched by any convention below.
     """
-    fixed = np.zeros(records.size, dtype=FIXED_RECORD_DTYPE)
-    for name in RECORD_DTYPE.names:
+    fixed = np.zeros(records.size, dtype=fixed_record_dtype(records.dtype))
+    for name in records.dtype.names:
         fixed[name] = records[name]
 
     validate_adjacency(fixed, snap, a_list, context)
@@ -606,8 +645,14 @@ def fix_one_snapshot(
         )
 
     sorted_path = Path(entry["sorted_file"])
-    manifest.verify_intermediate(sorted_path, "sorted snapshot scratch")
-    records = np.fromfile(sorted_path, dtype=RECORD_DTYPE)
+    registered = manifest.verify_intermediate(sorted_path, "sorted snapshot scratch")
+    if registered.get("dtype_tag") != manifest.layout.dtype_tag:
+        raise ConverterError(
+            "{}: sorted scratch dtype tag {!r} != this workdir's {!r} — refusing to fix".format(
+                sorted_path, registered.get("dtype_tag"), manifest.layout.dtype_tag
+            )
+        )
+    records = np.fromfile(sorted_path, dtype=manifest.layout.dtype)
     if len(records) != entry["rows"]:
         raise ConverterError(
             "{}: has {} rows, manifest records {}".format(sorted_path, len(records), entry["rows"])
@@ -628,7 +673,10 @@ def fix_one_snapshot(
     # verify the fixed file against the manifest totals before recording it;
     # ids are never modified by the fix-up stage, so the id checksum and the
     # |MostBoundID| == id invariant must both hold
-    reread = np.fromfile(fixed_path, dtype=FIXED_RECORD_DTYPE)
+    fixed_dtype, fixed_tag = fixed_layout(manifest.layout)
+    if fixed.dtype != fixed_dtype:  # pragma: no cover - fixed_record_dtype guarantees it
+        raise ConverterError("{}: fixed records are not in the workdir layout".format(fixed_path))
+    reread = np.fromfile(fixed_path, dtype=fixed_dtype)
     if len(reread) != entry["rows"]:
         raise ConverterError(
             "{}: fixed file has {} rows, manifest records {}".format(
@@ -645,7 +693,7 @@ def fix_one_snapshot(
     verify_mostboundid_invariant(reread, str(fixed_path))
 
     manifest.register_intermediate(
-        fixed_path, "snapshot-fixed", rows=int(len(reread)), dtype_tag=FIXED_DTYPE_TAG
+        fixed_path, "snapshot-fixed", rows=int(len(reread)), dtype_tag=fixed_tag
     )
     entry["fixed_file"] = str(fixed_path.resolve())
     # Retained as a required field that must always read zero (D9(b)). fix_flybys

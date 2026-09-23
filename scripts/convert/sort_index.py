@@ -9,6 +9,10 @@ the unsorted file under the Slice 3 cleanup discipline.
 Snapshots are independent jobs; this implementation processes them serially,
 which is sufficient at micro-Uchuu scale (parallelisation is a Shin-Uchuu
 production concern).
+
+Records are read in the workdir's own scratch layout (``Manifest.layout``): the
+frozen 108-byte record, or the extended one whose source coordinates and
+declared extras ride along with each row through the sort unchanged.
 """
 
 import os
@@ -20,7 +24,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from ctrees_parser import DTYPE_TAG, RECORD_DTYPE, ConverterError  # noqa: E402
+from ctrees_parser import ConverterError  # noqa: E402
 from scatter import Manifest, id_checksum, verify_or_consumed  # noqa: E402
 
 
@@ -101,8 +105,15 @@ def sort_one_snapshot(manifest: Manifest, snap: int) -> None:
     scratch_path = Path(entry["scratch_file"])
     # verify the input's registered content checksum before consuming it —
     # the id checksum alone would miss corruption in non-id fields
-    manifest.verify_intermediate(scratch_path, "unsorted snapshot scratch")
-    records = np.fromfile(scratch_path, dtype=RECORD_DTYPE)
+    registered = manifest.verify_intermediate(scratch_path, "unsorted snapshot scratch")
+    layout = manifest.layout
+    if registered.get("dtype_tag") != layout.dtype_tag:
+        raise ConverterError(
+            "{}: scratch dtype tag {!r} != this workdir's {!r} — refusing to sort".format(
+                scratch_path, registered.get("dtype_tag"), layout.dtype_tag
+            )
+        )
+    records = np.fromfile(scratch_path, dtype=layout.dtype)
     if len(records) != entry["rows"]:
         raise ConverterError(
             "{}: has {} rows, manifest records {}".format(scratch_path, len(records), entry["rows"])
@@ -127,7 +138,7 @@ def sort_one_snapshot(manifest: Manifest, snap: int) -> None:
     records["id"].astype(np.int64, copy=False).tofile(idx_path)
 
     # verify the sorted file against the manifest totals before any deletion
-    reread = np.fromfile(sorted_path, dtype=RECORD_DTYPE)
+    reread = np.fromfile(sorted_path, dtype=layout.dtype)
     if len(reread) != entry["rows"]:
         raise ConverterError(
             "{}: sorted file has {} rows, manifest records {}".format(
@@ -146,7 +157,7 @@ def sort_one_snapshot(manifest: Manifest, snap: int) -> None:
         raise ConverterError("{}: index file does not match sorted ids".format(idx_path))
 
     manifest.register_intermediate(
-        sorted_path, "snapshot-sorted", rows=int(len(reread)), dtype_tag=DTYPE_TAG
+        sorted_path, "snapshot-sorted", rows=int(len(reread)), dtype_tag=layout.dtype_tag
     )
     manifest.register_intermediate(
         idx_path, "snapshot-index", rows=int(len(index_ids)), dtype_tag="<i8"
