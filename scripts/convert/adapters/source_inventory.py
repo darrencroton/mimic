@@ -16,8 +16,10 @@ scanning resolves them through each forest's ForestHalosOffset before
 comparing snapshot numbers.
 """
 
+import os
 import shutil
 import socket
+import stat
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -52,6 +54,8 @@ __all__ = [
     "check_hdf5_reachability",
     "host_identity",
     "free_space_bytes",
+    "SourceFileIdentity",
+    "pin_source_file",
 ]
 
 
@@ -776,6 +780,54 @@ def free_space_bytes(path) -> Optional[int]:
     if not Path(path).exists():
         return None
     return shutil.disk_usage(path).free
+
+
+@dataclass(frozen=True)
+class SourceFileIdentity:
+    """The physical identity of one source file at the moment it was pinned.
+
+    ``path`` is the resolved real path, with symlinks and ``..`` removed.
+    That does not unify every spelling -- a case variant on a
+    case-insensitive volume or a hard link survives resolution -- so
+    ``device``/``inode`` are recorded as the physical identity, as the L-Halo
+    adapter uses them. ``size_bytes``/``mtime_ns`` are the cheap evidence that
+    the file has not been replaced or rewritten since. Two records compare
+    equal only if all five fields do. Content hashing is deliberately not done
+    here: a full-Uchuu data file is ~44 GB, and hashing belongs to the
+    manifest stage that owns content evidence (C4), not to inventory.
+    """
+
+    path: str
+    size_bytes: int
+    mtime_ns: int
+    device: int
+    inode: int
+
+
+def pin_source_file(path) -> SourceFileIdentity:
+    """Stat one source file into a :class:`SourceFileIdentity`.
+
+    Read-only: it stats, it never opens. Raises ``ConverterError`` naming the
+    path when the file is absent or cannot be inspected, because an unpinned
+    dependency is exactly the unresolved source C1 requires to fail before
+    any row is accepted.
+    """
+    resolved = Path(os.path.realpath(path))
+    try:
+        status = os.stat(resolved)
+    except OSError as exc:
+        raise ConverterError(
+            "source dependency {} cannot be pinned: {}".format(resolved, exc)
+        ) from exc
+    if not stat.S_ISREG(status.st_mode):
+        raise ConverterError("source dependency {} is not a regular file".format(resolved))
+    return SourceFileIdentity(
+        path=str(resolved),
+        size_bytes=int(status.st_size),
+        mtime_ns=int(status.st_mtime_ns),
+        device=int(status.st_dev),
+        inode=int(status.st_ino),
+    )
 
 
 def lhalo_file_paths(sim_info: SimulationInfo) -> List[Tuple[int, Path]]:
