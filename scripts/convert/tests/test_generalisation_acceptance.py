@@ -34,6 +34,7 @@ No test here reads real (non-fixture) simulation data.
 import contextlib
 import io
 import json
+import os
 import shutil
 import struct
 import subprocess
@@ -1035,6 +1036,19 @@ def extra(name, sources, type_name, units="dimensionless"):
     }
 
 
+def rows_in(path):
+    with h5py.File(path, "r") as handle:
+        return handle["halos"]["SourceHaloID"].shape[0]
+
+
+def edit_ids(path, edit):
+    """Apply ``edit`` in place to one snapshot file's SourceHaloID array."""
+    with h5py.File(path, "r+") as handle:
+        ids = handle["halos"]["SourceHaloID"][...]
+        edit(ids)
+        handle["halos"]["SourceHaloID"][...] = ids
+
+
 def flip_extra(dataset, name):
     """Change the first converted value of ``name`` by one unit in its last place."""
     path = sorted(Path(dataset).glob("snapshot_*.h5"))[-1]
@@ -1233,11 +1247,175 @@ class ExtrasTests(unittest.TestCase):
             package / "simulation_info.yaml",
         )
 
-    def test_a_profile_without_extras_is_refused(self):
-        with self.assertRaises(acc.AcceptanceError):
-            acc.load_extra_declarations(
-                REPO_ROOT / "scripts" / "convert" / "profiles" / "lhalo_binary.yaml"
-            )
+    def test_profile_loader_accepts_no_extras_and_refuses_malformed_profiles(self):
+        shipped = REPO_ROOT / "scripts" / "convert" / "profiles" / "lhalo_binary.yaml"
+        self.assertEqual(
+            acc.load_profile_declarations(shipped, "lhalo_binary"), ([], ["MostBoundID"])
+        )
+        ascii_profile = SIMULATIONS / "micro-uchuu-ascii" / "converter_columns.yaml"
+        self.assertEqual(
+            acc.load_profile_declarations(ascii_profile, "consistent_trees_ascii"), ([], ["id"])
+        )
+        base = yaml.safe_load(shipped.read_text())
+        malformed = {
+            "not a mapping": "- extra_fields\n",
+            "invalid YAML": "extra_fields: [\n",
+            "no extra_fields": yaml.safe_dump(
+                {k: v for k, v in base.items() if k != "extra_fields"}
+            ),
+            "extra_fields not a list": yaml.safe_dump(dict(base, extra_fields={})),
+            "extra not a mapping": yaml.safe_dump(dict(base, extra_fields=["Len"])),
+            "source without field": yaml.safe_dump(
+                dict(base, extra_fields=[extra("X", [{"name": "Len"}], "int")])
+            ),
+            "bad component": yaml.safe_dump(
+                dict(base, extra_fields=[extra("X", [{"field": "Pos", "component": 5}], "float")])
+            ),
+            "no identity role": yaml.safe_dump(dict(base, required_columns={"Len": ["Len"]})),
+        }
+        for label, text in malformed.items():
+            with self.subTest(label):
+                path = self.tmp / "malformed.yaml"
+                path.write_text(text)
+                with self.assertRaises(acc.AcceptanceError):
+                    acc.load_profile_declarations(path, "lhalo_binary")
+
+    # -- SourceHaloID identity without any declared extra ----------------------
+
+    def check_identity_only(self, dataset, source_format, profile, inventory):
+        """PASS on the clean dataset; a wrong id and a swapped pair each fail."""
+        code, report, text = self.extras_cli(dataset, source_format, profile, inventory)
+        self.assertEqual(code, 0, text + json.dumps(report and report["checks"], indent=1))
+        self.assertEqual(report["extras"], [])
+        self.assertGreater(report["checks"]["source_identity"]["compared"], 0)
+        self.assertGreater(report["checks"]["row_coverage"]["compared"], 0)
+        paths = [p for p in sorted(Path(dataset).glob("snapshot_*.h5")) if rows_in(p) > 1]
+        self.assertTrue(paths, "need a snapshot with two halos to swap")
+
+        wrong = self.tmp / "wrong_id"
+        shutil.copytree(dataset, wrong)
+        edit_ids(wrong / paths[0].name, lambda ids: ids.__setitem__(0, 10**12))
+        code, report, text = self.extras_cli(wrong, source_format, profile, inventory)
+        self.assertEqual(code, acc.EXIT_FAIL, text)
+        self.assertEqual(report["failed_checks"], ["row_coverage"])
+        self.assertEqual(report["checks"]["row_coverage"]["failures"], 2)
+
+        swapped = self.tmp / "swapped_id"
+        shutil.copytree(dataset, swapped)
+        edit_ids(swapped / paths[0].name, lambda ids: ids.__setitem__(slice(0, 2), ids[1::-1]))
+        code, report, text = self.extras_cli(swapped, source_format, profile, inventory)
+        self.assertEqual(code, acc.EXIT_FAIL, text)
+        self.assertEqual(report["failed_checks"], ["source_identity"])
+        self.assertEqual(report["checks"]["source_identity"]["failures"], 2)
+
+    def test_ascii_identity_with_the_shipped_zero_extras_profile(self):
+        package = SIMULATIONS / "micro-uchuu-ascii"
+        data = package / "_tests" / "data"
+        profile = package / "converter_columns.yaml"
+        ingest = [
+            "--source-format",
+            "consistent_trees_ascii",
+            "--simulation-info",
+            package / "simulation_info.yaml",
+            "--a-list",
+            package / "micro-uchuu.a_list",
+            "--column-map",
+            profile,
+            "--forests-list",
+            data / "forests.list",
+            "--tree-file",
+            data / "tree_0_0_0.dat",
+            "--ingest-max-rows",
+            "4096",
+        ]
+        dataset = convert_with_harness(
+            self.tmp, [str(a) for a in ingest], self.record, package / "simulation_info.yaml"
+        )
+        self.check_identity_only(
+            dataset,
+            "consistent_trees_ascii",
+            profile,
+            ["--forests-list", data / "forests.list", "--tree-file", data / "tree_0_0_0.dat"],
+        )
+
+    def test_lhalo_and_hdf5_identity_with_the_shipped_zero_extras_profiles(self):
+        source = SyntheticLHalo().write_source(self.tmp / "source")
+        profile = REPO_ROOT / "scripts" / "convert" / "profiles" / "lhalo_binary.yaml"
+        dataset = convert_with_harness(self.tmp / "lhalo", lhalo_ingest_args(source), self.record)
+        self.check_identity_only(
+            dataset,
+            "lhalo_binary",
+            profile,
+            [
+                "--source-dir",
+                source,
+                "--tree-name",
+                SyntheticLHalo.TREE_NAME,
+                "--first-file",
+                "0",
+                "--last-file",
+                "1",
+                "--halo-properties",
+                MICRO / "halo_properties.yaml",
+            ],
+        )
+        package = SIMULATIONS / "micro-uchuu-hdf5"
+        fixture = package / "_tests" / "data" / "MicroUchuu_test_mergertree_info.h5"
+        profile = package / "converter_columns.yaml"
+        ingest = [
+            "--source-format",
+            "consistent_trees_hdf5",
+            "--simulation-info",
+            package / "simulation_info.yaml",
+            "--a-list",
+            package / "micro-uchuu.a_list",
+            "--column-map",
+            profile,
+            "--info-file",
+            fixture,
+            "--first-file",
+            "0",
+            "--last-file",
+            "0",
+        ]
+        dataset = convert_with_harness(
+            self.tmp / "hdf5",
+            [str(a) for a in ingest],
+            self.record,
+            package / "simulation_info.yaml",
+        )
+        shutil.rmtree(self.tmp / "wrong_id")
+        shutil.rmtree(self.tmp / "swapped_id")
+        self.check_identity_only(
+            dataset,
+            "consistent_trees_hdf5",
+            profile,
+            ["--info-file", fixture, "--first-file", "0", "--last-file", "0"],
+        )
+
+    def test_malformed_profile_is_a_recorded_usage_error(self):
+        profile = self.tmp / "broken.yaml"
+        profile.write_text("extra_fields: [\n")
+        code, _report, text = self.extras_cli(
+            self.tmp,
+            "lhalo_binary",
+            profile,
+            [
+                "--source-dir",
+                self.tmp,
+                "--tree-name",
+                "x",
+                "--first-file",
+                "0",
+                "--last-file",
+                "0",
+                "--halo-properties",
+                MICRO / "halo_properties.yaml",
+            ],
+        )
+        self.assertEqual(code, acc.EXIT_ERROR, text)
+        entry = json.loads(self.record.read_text())["runs"][-1]
+        self.assertEqual(entry["kind"], "error")
 
     def test_opposite_endian_extraction_reads_the_declared_values(self):
         synthetic = SyntheticLHalo([[[halo(5, mbid=-(1 << 40), m_crit=-1.0)]]])
@@ -1268,6 +1446,224 @@ class ExtrasTests(unittest.TestCase):
             list(acc.iter_lhalo_source(source, "synthetic_trees", 0, 1, layout, "little", 10))
         with self.assertRaises(acc.AcceptanceError):
             list(acc.iter_lhalo_source(source, "synthetic_trees", 0, 2, layout, "little", 10))
+
+
+# ==========================================================================
+# The C reference dump itself, built and run
+# ==========================================================================
+
+#: The sources the dump build reads, copied so the build's code generation
+#: rewrites the copy's generated headers and never this checkout's.
+BUILD_TREE = (
+    "Makefile",
+    "src",
+    "scripts",
+    "models/halos-only",
+    "simulations/micro-uchuu",
+    "simulations/micro-uchuu-ascii",
+    "tests/unit/tools",
+)
+
+#: ``mimic-topology-dump v1`` of the committed micro-uchuu-ascii fixture, as
+#: written by the tool before this slice (SHA-256 55bd72a1...), so the default
+#: mode cannot drift. The two trailing backslashes are line continuations, not
+#: characters of the dump.
+ASCII_FIXTURE_V1_DUMP = """# mimic-topology-dump v1
+# forestnr rank id snapnum desc_id first_prog_id next_prog_id first_fof_id next_fof_id
+# NA sentinel = -9223372036854775808 (no link)
+0 0 1000001 49 -9223372036854775808 1000011 -9223372036854775808 1000001 -9223372036854775808
+0 1 1000011 48 1000001 -9223372036854775808 -9223372036854775808 1000011 -9223372036854775808
+1 0 1000002 49 -9223372036854775808 -9223372036854775808 -9223372036854775808 1000002 \
+-9223372036854775808
+2 0 1000003 49 -9223372036854775808 -9223372036854775808 -9223372036854775808 1000003 \
+-9223372036854775808
+"""
+V1_HEADER = "\n".join(ASCII_FIXTURE_V1_DUMP.splitlines()[:3]) + "\n"
+
+
+def _toolchain_missing():
+    """Why the C dump cannot be built here, or None when it can."""
+    compiler = os.environ.get("CC", "gcc")
+    if shutil.which(compiler) is None:
+        return "C compiler {!r} not found".format(compiler)
+    if (
+        shutil.which("pkg-config")
+        and subprocess.run(["pkg-config", "--exists", "yaml-0.1"], capture_output=True).returncode
+    ):
+        return "libyaml (pkg-config yaml-0.1) not found"
+    return None
+
+
+TOOLCHAIN_MISSING = _toolchain_missing()
+
+
+def run_file(path, simulation, simulation_dir, tree_name, last_file, output_dir):
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "model": {"name": "halos-only"},
+                "simulation": {"name": simulation},
+                "input": {
+                    "tree_name": tree_name,
+                    "simulation_dir": str(simulation_dir),
+                    "first_file": 0,
+                    "last_file": last_file,
+                },
+                "output": {
+                    "output_filename": "halos",
+                    "output_directory": str(output_dir),
+                    "output_format": "binary",
+                    "snapshot_list": [49],
+                },
+                "SubSteps": 1,
+                "modules": {"parameters": {}},
+            },
+            sort_keys=False,
+        )
+    )
+    return path
+
+
+@unittest.skipIf(TOOLCHAIN_MISSING, TOOLCHAIN_MISSING or "")
+class CDumpToolTests(unittest.TestCase):
+    """Build ``dump_ctrees_topology`` with the committed build script and check
+    its ``--source-payload`` output byte for byte against the literal oracle.
+
+    The build script regenerates property and module-registry code for its
+    MODEL/SIMULATION pair, so it runs from a temporary copy of the sources it
+    reads (:data:`BUILD_TREE`); this checkout's generated state is untouched.
+    A build failure with a toolchain present fails the test; only an absent
+    toolchain skips it.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp(prefix="acceptance_cdump_"))
+        cls.copy = cls.tmp / "repo"
+        ignore = shutil.ignore_patterns("__pycache__", "*.o", "snapshots", "generated", "build")
+        for rel in BUILD_TREE:
+            source, target = REPO_ROOT / rel, cls.copy / rel
+            if source.is_dir():
+                shutil.copytree(source, target, ignore=ignore, symlinks=True)
+            else:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, target)
+        cls.tools = {}
+        for simulation in ("micro-uchuu", "micro-uchuu-ascii"):
+            build_dir = cls.tmp / ("tool-" + simulation)
+            env = dict(
+                os.environ,
+                MODEL="halos-only",
+                SIMULATION=simulation,
+                TOPOLOGY_DUMP_BUILD_DIR=str(build_dir),
+            )
+            if (Path(sys.prefix) / "bin" / "python3").exists():
+                env["VIRTUAL_ENV"] = sys.prefix  # the copy has no mimic_venv of its own
+            entry = acc.measured_run(
+                ["bash", cls.copy / "tests" / "unit" / "tools" / "build_topology_dump.sh"],
+                "build-" + simulation,
+                cls.tmp / "logs",
+                cwd=cls.copy,
+                env=env,
+            )
+            tool = build_dir / "dump_ctrees_topology"
+            if entry["exit_code"] != 0 or not tool.is_file():
+                log = build_dir / "compile.log"
+                detail = log.read_text()[-3000:] if log.exists() else ""
+                raise AssertionError(
+                    "dump build failed for {}:\n{}\n{}".format(
+                        simulation, Path(entry["stdout"]).read_text()[-2000:], detail
+                    )
+                )
+            cls.tools[simulation] = tool
+        cls.source = SyntheticLHalo().write_source(cls.tmp / "source")
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def setUp(self):
+        self.work = Path(tempfile.mkdtemp(prefix="acceptance_cdump_run_", dir=self.tmp))
+
+    def lhalo_run_file(self, last_file=1):
+        return run_file(
+            self.work / "run.yaml",
+            "micro-uchuu",
+            self.source,
+            SyntheticLHalo.TREE_NAME,
+            last_file,
+            self.work / "out",
+        )
+
+    def test_source_payload_matches_the_literal_oracle_byte_for_byte(self):
+        record = self.work / "record.json"
+        dump = self.work / "synthetic.dump"
+        code, out, err = run_harness(
+            [
+                "dump",
+                "--record",
+                record,
+                "--tool",
+                self.tools["micro-uchuu"],
+                "--run-file",
+                self.lhalo_run_file(),
+                "--out",
+                dump,
+            ]
+        )
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(dump.read_text(), SyntheticLHalo().dump_text())
+        (entry,) = json.loads(record.read_text())["runs"]
+        self.assertEqual(entry["exit_code"], 0)
+        self.assertEqual(entry["dump"]["sha256"], acc.sha256_file(dump))
+
+    def test_default_mode_still_refuses_per_file_readers_unchanged(self):
+        dump = self.work / "v1.dump"
+        result = subprocess.run(
+            [str(self.tools["micro-uchuu"]), str(self.lhalo_run_file()), str(dump)],
+            cwd=str(REPO_ROOT),
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("global_forest_offset", result.stderr)
+        self.assertEqual(dump.read_text(), V1_HEADER)
+
+    def test_default_mode_output_is_byte_identical_to_the_pre_change_tool(self):
+        dump = self.work / "v1.dump"
+        data = SIMULATIONS / "micro-uchuu-ascii" / "_tests" / "data"
+        run = run_file(
+            self.work / "ascii.yaml",
+            "micro-uchuu-ascii",
+            data,
+            "tree_0_0_0.dat",
+            0,
+            self.work / "out",
+        )
+        result = subprocess.run(
+            [str(self.tools["micro-uchuu-ascii"]), str(run), str(dump)],
+            cwd=str(REPO_ROOT),
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(dump.read_text(), ASCII_FIXTURE_V1_DUMP)
+
+    def test_a_missing_requested_file_is_fatal(self):
+        dump = self.work / "missing.dump"
+        result = subprocess.run(
+            [
+                str(self.tools["micro-uchuu"]),
+                "--source-payload",
+                str(self.lhalo_run_file(last_file=2)),
+                str(dump),
+            ],
+            cwd=str(REPO_ROOT),
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Requested input file 2 is missing", result.stderr)
 
 
 # ==========================================================================

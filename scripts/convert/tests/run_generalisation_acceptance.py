@@ -22,7 +22,8 @@ that share none of its code:
   within-forest rank (plus the target's snapshot for the three
   snapshot-qualified links) and the core payload as exact integers and binary32
   bit patterns;
-* for selected extra fields, the independent extractors below, which read the
+* for SourceHaloID identity and selected extra fields, the independent
+  extractors below, which read the
   source files directly -- L-Halo binary records through a layout recomputed
   here from the package's ordered ``halo_properties.yaml``, forests-HDF5
   through raw ``h5py`` reads walked in ``ForestInfo`` order, and ASCII through
@@ -89,8 +90,11 @@ Subcommands
 ``compare``
     Compare a version 3 dataset with a source dump.
 ``compare-extras``
-    Compare a version 3 dataset's selected extra fields with independent
-    source extraction.
+    Compare a version 3 dataset's SourceHaloID identity, and any selected
+    extra fields, with independent source extraction. It needs no extra: with
+    a profile whose ``extra_fields`` is empty (every shipped profile) it still
+    checks the identity, which is how an ASCII conversion's SourceHaloID is
+    verified.
 
 Exit codes: 0 PASS (or a measured command succeeded), 1 FAIL (a comparison
 found a defect, or a measured command failed), 2 usage error or unusable input
@@ -213,6 +217,17 @@ SOURCE_FORMATS = ("lhalo_binary", "consistent_trees_hdf5", "consistent_trees_asc
 #: Formats whose forest (an L-Halo tree, a forests-HDF5 ForestInfo row) is one
 #: inventory unit, so ascending (ForestIndex, rank) *is* SourceHaloID order.
 UNIT_FOREST_FORMATS = ("lhalo_binary", "consistent_trees_hdf5")
+
+#: The profile role that names each format's own per-halo catalog identifier
+#: (C2), which the converter carries as ``MostBoundID``. Restated, not imported.
+IDENTITY_ROLE = {
+    "lhalo_binary": "MostBoundID",
+    "consistent_trees_hdf5": "id",
+    "consistent_trees_ascii": "id",
+}
+#: The extraction record's identity column. A leading underscore cannot collide
+#: with a declared extra (extra names start with a letter).
+IDENTITY_FIELD = "_source_catalog_id"
 
 #: Declarable extra-field types (the property generator's vocabulary), restated
 #: here rather than imported: storage dtype and component count.
@@ -1442,20 +1457,60 @@ def compare_dataset(dataset_dir, dump_path, source_format, budget_bytes, spill_d
 # ===========================================================================
 
 
-def load_extra_declarations(profile_path):
-    """(name, storage dtype, components, sources) for each declared extra, from plain YAML."""
+def load_profile_declarations(profile_path, source_format):
+    """The declared extras and the identity-role aliases of a profile, from plain YAML.
+
+    Returns ``(declared, identity_aliases)``: one ``(name, storage dtype,
+    components, sources)`` per declared extra -- possibly none, since the
+    SourceHaloID identity comparison needs no extra -- and the aliases of the
+    format's catalog-identifier role (:data:`IDENTITY_ROLE`). A profile that is
+    not a mapping, whose ``extra_fields`` is not a list, that lacks the
+    identity role, or with a malformed extra or source raises
+    :class:`AcceptanceError`; an empty ``extra_fields`` list does not.
+    """
     with open(profile_path, "r", encoding="utf-8") as handle:
-        document = yaml.safe_load(handle)
-    extras = document.get("extra_fields") if isinstance(document, dict) else None
-    if not extras:
+        try:
+            document = yaml.safe_load(handle)
+        except yaml.YAMLError as error:
+            raise AcceptanceError("{}: not valid YAML ({})".format(profile_path, error)) from None
+    if not isinstance(document, dict):
+        raise AcceptanceError("{}: the profile is not a mapping".format(profile_path))
+    extras = document.get("extra_fields")
+    if not isinstance(extras, list):
         raise AcceptanceError(
-            "{}: declares no extra_fields; there is nothing to compare".format(profile_path)
+            "{}: extra_fields must be a list (it may be empty)".format(profile_path)
+        )
+    role = IDENTITY_ROLE[source_format]
+    required = document.get("required_columns")
+    aliases = required.get(role) if isinstance(required, dict) else None
+    if (
+        not isinstance(aliases, list)
+        or not aliases
+        or not all(isinstance(alias, str) and alias for alias in aliases)
+    ):
+        raise AcceptanceError(
+            "{}: required_columns.{} must be a nonempty alias list".format(profile_path, role)
         )
     declared = []
     for entry in extras:
-        name, type_name, sources = entry.get("name"), entry.get("type"), entry.get("sources")
-        if type_name not in EXTRA_TYPES or not isinstance(sources, list):
+        if not isinstance(entry, dict):
             raise AcceptanceError("{}: malformed extra {!r}".format(profile_path, entry))
+        name, type_name, sources = entry.get("name"), entry.get("type"), entry.get("sources")
+        if (
+            not isinstance(name, str)
+            or type_name not in EXTRA_TYPES
+            or not isinstance(sources, list)
+        ):
+            raise AcceptanceError("{}: malformed extra {!r}".format(profile_path, entry))
+        for source in sources:
+            if (
+                not isinstance(source, dict)
+                or not isinstance(source.get("field"), str)
+                or source.get("component", 0) not in (0, 1, 2)
+            ):
+                raise AcceptanceError(
+                    "{}: extra {} has a malformed source {!r}".format(profile_path, name, source)
+                )
         dtype, components = EXTRA_TYPES[type_name]
         if len(sources) != components:
             raise AcceptanceError(
@@ -1464,7 +1519,19 @@ def load_extra_declarations(profile_path):
                 )
             )
         declared.append((name, np.dtype(dtype), components, sources))
-    return declared
+    return declared, aliases
+
+
+def _resolve_alias(aliases, available, where, fold=False):
+    """The one alias present in ``available`` (case-folded when ``fold``)."""
+    found = [alias for alias in aliases if (alias.lower() if fold else alias) in available]
+    if len(found) != 1:
+        raise AcceptanceError(
+            "{}: exactly one of the identity aliases {} must resolve, found {}".format(
+                where, aliases, found
+            )
+        )
+    return found[0].lower() if fold else found[0]
 
 
 def _bits_dtype(dtype):
@@ -1472,7 +1539,7 @@ def _bits_dtype(dtype):
 
 
 def extras_record_dtype(declared):
-    fields = [("SourceHaloID", "<i8")]
+    fields = [("SourceHaloID", "<i8"), (IDENTITY_FIELD, "<i8")]
     for name, dtype, components, _sources in declared:
         bits = _bits_dtype(dtype)
         fields.append((name, bits) if components == 1 else (name, bits, (components,)))
@@ -1577,8 +1644,14 @@ def _coalesce(offsets, counts):
     return ranges
 
 
-def iter_hdf5_source(info_file, first_file, last_file, fields, block_rows, budget_bytes):
-    """(first SourceHaloID, {field: values}) over ``File<N>`` groups in ForestInfo order."""
+def iter_hdf5_source(
+    info_file, first_file, last_file, fields, identity_aliases, block_rows, budget_bytes
+):
+    """(first SourceHaloID, rows, {field: values}) over ``File<N>`` groups in ForestInfo order.
+
+    The identity alias is resolved per file and returned under
+    :data:`IDENTITY_FIELD`; it is also the extent every other field must match.
+    """
     source_halo_id = 1
     with h5py.File(info_file, "r") as handle:
         for number in range(int(first_file), int(last_file) + 1):
@@ -1600,10 +1673,16 @@ def iter_hdf5_source(info_file, first_file, last_file, fields, block_rows, budge
             table = info[...]
             offsets = table["ForestHalosOffset"].astype(np.int64)
             counts = table["ForestNhalos"].astype(np.int64)
+            where = "{}/{}/Forests".format(info_file, name)
+            identity = _resolve_alias(identity_aliases, forests, where)
+            length = forests[identity].shape[0]
             for field in fields:
                 if field not in forests:
-                    raise AcceptanceError("{}/{}: no Forests/{}".format(info_file, name, field))
-            length = forests[fields[0]].shape[0]
+                    raise AcceptanceError("{}: no {}".format(where, field))
+                if forests[field].shape[0] != length:
+                    raise AcceptanceError(
+                        "{}: {} and {} lengths differ".format(where, field, identity)
+                    )
             if np.any(offsets < 0) or np.any(counts < 0) or np.any(offsets + counts > length):
                 raise AcceptanceError(
                     "{}/{}: ForestInfo ranges exceed Forests".format(info_file, name)
@@ -1611,7 +1690,9 @@ def iter_hdf5_source(info_file, first_file, last_file, fields, block_rows, budge
             for start, total in _coalesce(offsets, counts):
                 for begin in range(start, start + total, block_rows):
                     stop = min(start + total, begin + block_rows)
-                    yield source_halo_id, {field: forests[field][begin:stop] for field in fields}
+                    columns = {field: forests[field][begin:stop] for field in fields}
+                    columns[IDENTITY_FIELD] = forests[identity][begin:stop]
+                    yield source_halo_id, stop - begin, columns
                     source_halo_id += stop - begin
 
 
@@ -1658,7 +1739,7 @@ def _ascii_trees(path, width):
         yield tree, rows
 
 
-def iter_ascii_source(tree_files, forests_list, fields):
+def iter_ascii_source(tree_files, forests_list, fields, identity_aliases):
     """(SourceHaloID array, {field: token arrays}) per tree block; not in id order.
 
     A unit is one forest's part of one file, numbered by the forest's first
@@ -1669,7 +1750,8 @@ def iter_ascii_source(tree_files, forests_list, fields):
     read; anything else fails rather than being guessed at. Float tokens are
     parsed with Python's correctly rounded ``float()`` before the declared
     cast, so a converter parse that is not correctly rounded is reported, not
-    mirrored.
+    mirrored. The identity alias resolves per file, case-insensitively against
+    the suffix-stripped header, and is returned under :data:`IDENTITY_FIELD`.
     """
     forest_of_tree = _ascii_forest_of_tree(forests_list)
     base = 1
@@ -1679,6 +1761,9 @@ def iter_ascii_source(tree_files, forests_list, fields):
         if missing:
             raise AcceptanceError("{}: no column(s) {}".format(path, missing))
         position = {field: header.index(field.lower()) for field in fields}
+        position[IDENTITY_FIELD] = header.index(
+            _resolve_alias(identity_aliases, header, path, fold=True)
+        )
         unit_of_forest, unit_sizes, tree_offset = {}, [], []
         for tree, rows in _ascii_trees(path, len(header)):
             if tree not in forest_of_tree:
@@ -1694,7 +1779,7 @@ def iter_ascii_source(tree_files, forests_list, fields):
                 continue
             table = np.array(rows, dtype=str)
             ids = base + unit_base[unit] + offset + np.arange(len(rows), dtype=np.int64)
-            yield ids, {field: table[:, position[field]] for field in fields}
+            yield ids, {field: table[:, column] for field, column in position.items()}
         base += int(unit_base[-1])
 
 
@@ -1705,8 +1790,10 @@ def _ascii_values(tokens, dtype):
     return np.array([int(token) for token in tokens], dtype=np.int64)
 
 
-def source_extra_blocks(source_format, declared, inventory, block_rows, budget_bytes, findings):
-    """Independently extracted extras as :func:`extras_record_dtype` blocks."""
+def source_extra_blocks(
+    source_format, declared, identity_aliases, inventory, block_rows, budget_bytes, findings
+):
+    """Independently extracted identity and extras as :func:`extras_record_dtype` blocks."""
     record = extras_record_dtype(declared)
     fields = sorted({source["field"] for _n, _d, _c, sources in declared for source in sources})
     if source_format == "lhalo_binary":
@@ -1714,8 +1801,12 @@ def source_extra_blocks(source_format, declared, inventory, block_rows, budget_b
         missing = [field for field in fields if field not in layout.names]
         if missing:
             raise AcceptanceError("binary layout has no field(s) {}".format(missing))
+        identity = _resolve_alias(identity_aliases, layout.names, "binary layout")
         blocks = (
-            (first + np.arange(len(records), dtype=np.int64), {f: records[f] for f in fields})
+            (
+                first + np.arange(len(records), dtype=np.int64),
+                dict({f: records[f] for f in fields}, **{IDENTITY_FIELD: records[identity]}),
+            )
             for first, records in iter_lhalo_source(
                 inventory["source_dir"],
                 inventory["tree_name"],
@@ -1728,23 +1819,35 @@ def source_extra_blocks(source_format, declared, inventory, block_rows, budget_b
         )
     elif source_format == "consistent_trees_hdf5":
         blocks = (
-            (first + np.arange(len(columns[fields[0]]), dtype=np.int64), columns)
-            for first, columns in iter_hdf5_source(
+            (first + np.arange(rows, dtype=np.int64), columns)
+            for first, rows, columns in iter_hdf5_source(
                 inventory["info_file"],
                 inventory["first_file"],
                 inventory["last_file"],
                 fields,
+                identity_aliases,
                 block_rows,
                 budget_bytes,
             )
         )
     elif source_format == "consistent_trees_ascii":
-        blocks = iter_ascii_source(inventory["tree_files"], inventory["forests_list"], fields)
+        blocks = iter_ascii_source(
+            inventory["tree_files"], inventory["forests_list"], fields, identity_aliases
+        )
     else:
         raise AcceptanceError("unknown source format {!r}".format(source_format))
     for ids, columns in blocks:
         out = np.zeros(len(ids), dtype=record)
         out["SourceHaloID"] = ids
+        catalog_id = columns[IDENTITY_FIELD]
+        if source_format == "consistent_trees_ascii":
+            catalog_id = _ascii_values(catalog_id, np.int64)
+        catalog_id = np.asarray(catalog_id)
+        if catalog_id.dtype.kind not in "iu":
+            raise AcceptanceError(
+                "the source catalog identifier is {}, not an integer".format(catalog_id.dtype)
+            )
+        out[IDENTITY_FIELD] = catalog_id
         for name, dtype, components, sources in declared:
             if source_format == "consistent_trees_ascii":
                 columns_for = {
@@ -1762,12 +1865,25 @@ def source_extra_blocks(source_format, declared, inventory, block_rows, budget_b
 def compare_extras(
     dataset_dir, source_format, profile, inventory, budget_bytes, spill_dir, block_rows
 ):
-    """Compare every declared extra of a dataset with independent source extraction."""
-    declared = load_extra_declarations(profile)
+    """Compare a dataset's SourceHaloID identity and declared extras with source extraction.
+
+    The identity comparison runs whether or not the profile declares any
+    extra: ``row_coverage`` requires the converted SourceHaloIDs to be exactly
+    the set the source inventory defines, and ``source_identity`` requires the
+    converted ``MostBoundID`` at each SourceHaloID to equal that source row's
+    own catalog identifier, so a SourceHaloID moved to the wrong halo is caught
+    even when the set of ids is right. This is the identity check for ASCII,
+    whose ``compare`` cannot derive SourceHaloID from forest order.
+    """
+    declared, identity_aliases = load_profile_declarations(profile, source_format)
     findings = Findings()
     findings.declare("duplicate_reference_rows", "no SourceHaloID extracted twice")
     findings.declare("duplicate_converted_rows", "no SourceHaloID converted twice")
     findings.declare("row_coverage", "the same SourceHaloIDs on both sides")
+    findings.declare(
+        "source_identity",
+        "each SourceHaloID's converted MostBoundID equals its source row's catalog identifier",
+    )
     for name, _dtype, _components, _sources in declared:
         findings.declare("extra_" + name, "{} bits equal the source's declared cast".format(name))
     try:
@@ -1809,12 +1925,13 @@ def compare_extras(
             ExternalSorter(record, key, share, spill_dir, "converted extras")
         )
         for block in source_extra_blocks(
-            source_format, declared, inventory, block_rows, budget_bytes, findings
+            source_format, declared, identity_aliases, inventory, block_rows, budget_bytes, findings
         ):
             ref.add(block)
-        for ids, arrays in dataset.extra_blocks(usable, block_rows):
+        for ids, arrays in dataset.extra_blocks(usable + ["MostBoundID"], block_rows):
             out = np.zeros(len(ids), dtype=record)
             out["SourceHaloID"] = ids
+            out[IDENTITY_FIELD] = arrays["MostBoundID"].astype(np.int64)
             for name in usable:
                 out[name] = arrays[name].view(record[name].base)
             conv.add(out)
@@ -1860,6 +1977,19 @@ def compare_extras(
             hit = match >= 0
             matched += int(np.count_nonzero(hit))
             rr, cc = r[hit], c[match[hit]]
+            findings.compared("source_identity", len(rr))
+            moved = rr[IDENTITY_FIELD] != cc[IDENTITY_FIELD]
+            if moved.any():
+                findings.fail(
+                    "source_identity",
+                    np.count_nonzero(moved),
+                    [
+                        "{}: source catalog id {} converted MostBoundID {}".format(
+                            describe(a), int(a[IDENTITY_FIELD]), int(b[IDENTITY_FIELD])
+                        )
+                        for a, b in zip(rr[moved], cc[moved])
+                    ],
+                )
             for name in usable:
                 bad = rr[name] != cc[name]
                 if bad.ndim > 1:
@@ -1886,6 +2016,7 @@ def compare_extras(
         "failed_checks": failed,
         "source_format": source_format,
         "extras": [name for name, *_rest in declared],
+        "identity_aliases": identity_aliases,
         "matched_rows": matched,
         "dataset": {"path": str(dataset.directory), "rows": dataset.total_rows},
         "checks": findings.as_dict(),
@@ -2330,7 +2461,9 @@ def build_parser():
     compare.set_defaults(handler=cmd_compare)
 
     extras = sub.add_parser(
-        "compare-extras", parents=[common, limits], help="extras vs independent source extraction"
+        "compare-extras",
+        parents=[common, limits],
+        help="SourceHaloID identity and extras vs independent source extraction",
     )
     extras.add_argument("--column-map", required=True, help="the profile that declared the extras")
     extras.add_argument("--source-dir")
