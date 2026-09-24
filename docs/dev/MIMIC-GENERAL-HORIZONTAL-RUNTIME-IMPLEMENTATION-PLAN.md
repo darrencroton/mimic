@@ -100,7 +100,7 @@ These are architectural decisions this plan deliberately does not make. Each has
 | R0-7 | **Relationship to chunked slab streaming.** | (a) Land gap retention on whole slabs now; design chunking separately later and accept that it may rework retention. (b) Design chunked streaming and gap retention together first, before Slice 4. | Owner judgement. (a) reaches a runnable gapped mini-Millennium soonest; (b) honours the design review's finding 10 more strictly. Under either, full-Uchuu execution stays out of this plan. |
 | R0-8 | **Selected extras.** | (a) Validate every `/schema` declaration but materialise only extras the package declares, ignoring undeclared ones. (b) Require the package to declare every extra present. | (a): extras are opt-in by design; an undeclared extra must still be validated, never silently trusted. |
 | R0-9 | **Output provenance for v3 inputs.** Recording `source_format` and `column_mapping_sha256` in `RunProperties` changes the output schema. | (a) Record both and bump `hdf5_format_version`. (b) Record nothing new. | (a): a run should be traceable to the exact mapping it consumed. |
-| R0-10 | **Package naming.** | One package per (simulation, source format). Proposed first package: `simulations/mini-millennium-horizontal/`. | Accept the name or give another; a different name is a mechanical plan amendment to Slices 3 and 6. |
+| R0-10 | **Package naming.** | One package per (simulation, source format). Proposed: `simulations/mini-millennium-horizontal/` (Slices 3–6), and `micro-uchuu-lhalo-horizontal/`, `micro-uchuu-hdf5-horizontal/`, `millennium-horizontal/` and `mini-uchuu-horizontal/` (Slice 7). | Accept the names or give others; a different name is a mechanical plan amendment to the slices that list it. |
 | R0-11 | **Promoting the v3 specification.** | (a) Move the approved draft into `HORIZONTAL-HDF5-FORMAT.md` as a normative version 3 section once runtime support ships. (b) Keep two files. | (a), in Slice 8 only, after the parity gate. |
 
 **Recorded decisions:** none yet. The owner adds one dated line per decision here.
@@ -372,7 +372,7 @@ These are architectural decisions this plan deliberately does not make. Each has
 ### Acceptance Criteria
 
 - [ ] The horizontal side is a fresh v3 conversion of all eight real `trees_063.*` files with `simulations/mini-millennium/converter_columns.yaml`, recorded by commit, command and `column_mapping_sha256`, and its report shows 1,533,122 halos and 29,291 gapped descendant links.
-- [ ] For every output snapshot, the set of `UniqueGalaxyID`s is identical and every output field is bitwise identical, with no tolerance, under `halos-only` and `sage16`, with fixed and dynamic timesteps.
+- [ ] For every output snapshot, the set of `UniqueGalaxyID`s is identical and every output field is bitwise identical, with no tolerance, on each of the four legs: `halos-only`/fixed, `halos-only`/dynamic, `sage16`/fixed and `sage16`/dynamic. A missing leg is a failure.
 - [ ] Comparisons use `scripts/compare_cross_format_identity.py` unchanged; if a change is genuinely needed it is a separate approved slice, never a relaxation.
 - [ ] Every divergence is reported by snapshot, field and example ID, and treated as a defect to trace to a slice, never a tolerance to add.
 - [ ] The v2 micro-Uchuu cross-format identity gate passes on the same commit.
@@ -398,8 +398,8 @@ These are architectural decisions this plan deliberately does not make. Each has
 
 ### Validation Plan
 
-- Tests to add/update: the gate harness, following `simulations/micro-uchuu-horizontal/_tests/scientific/test_cross_format_identity.py` (isolated worktree per build pair).
-- Commands to run: `make MODEL=halos-only SIMULATION=mini-millennium-horizontal tests-scientific` on a machine holding the real data, plus the v2 gate; delegate and capture logs.
+- Tests to add/update: the gate harness, following `simulations/micro-uchuu-horizontal/_tests/scientific/test_cross_format_identity.py`. Like that harness, **one invocation runs every leg itself**: it builds the four `{halos-only, sage16} × {mini-millennium (vertical), mini-millennium-horizontal}` pairs in isolated git worktrees and runs each model pair under both `TimestepScheme: fixed` and `TimestepScheme: dynamic`. That makes four parity legs: `halos-only`/fixed, `halos-only`/dynamic, `sage16`/fixed and `sage16`/dynamic. The harness fails, never skips, if any leg does not run, and its log names each leg's verdict.
+- Commands to run: `make MODEL=halos-only SIMULATION=mini-millennium-horizontal tests-scientific` on a machine holding the real data. `MODEL=` there selects only the ambient tier build; the `sage16` legs and both timestep schemes run inside the harness, not from separate commands. Then run the v2 gate, `make MODEL=halos-only SIMULATION=micro-uchuu-horizontal tests-scientific`. Delegate both and capture logs; the receipt quotes all four leg verdicts.
 - Lint (differential, via the `lint` skill): required.
 - Manual checks: confirm the vertical side read the same eight files the conversion inventory names.
 
@@ -417,7 +417,8 @@ These are architectural decisions this plan deliberately does not make. Each has
 
 - [ ] micro-Uchuu v3 from L-Halo binary and from forests-HDF5 each have their own package, with payload declarations matching their own `/schema` (L-Halo `1e10 Msun/h`; forests-HDF5 `Msun/h`).
 - [ ] Each micro-Uchuu v3 package passes per-`UniqueGalaxyID` bitwise parity against its **own** vertical package (`micro-uchuu`, `micro-uchuu-hdf5`) under `halos-only`; no cross-source-format identity is claimed.
-- [ ] Millennium and mini-Uchuu are gated only on the locally present leading file range, labelled as a subset in every record; no whole-simulation claim is made.
+- [ ] Millennium and mini-Uchuu each get their own v3 package (`simulations/millennium-horizontal/`, `simulations/mini-uchuu-horizontal/`), converted from the locally present leading file range only (files 0–15 today), and each passes per-`UniqueGalaxyID` bitwise parity under `halos-only` against its own vertical package run over **the identical file range** — for mini-Uchuu that means overriding the shipped `halos-only_mini-uchuu.yaml` range of 0–3 to match, and recording the range used on both sides.
+- [ ] Every record, README and report for those two packages labels them as a sampled subset of named files; no whole-simulation conversion or runtime claim is made. Whole-simulation evidence needs the owner to supply the remaining files (16–511 and 16–127), and without them it remains a named gap of this plan.
 - [ ] Full Uchuu gets at most a fixture-level package test; its production run remains explicitly unperformed and, per [Width is not memory](#width-is-not-memory), out of scope.
 - [ ] Every package README states which evidence it has: complete real data, a sampled subset, or fixtures only.
 
@@ -426,6 +427,8 @@ These are architectural decisions this plan deliberately does not make. Each has
 - Files allowed to change:
   - `simulations/micro-uchuu-lhalo-horizontal/`
   - `simulations/micro-uchuu-hdf5-horizontal/`
+  - `simulations/millennium-horizontal/`
+  - `simulations/mini-uchuu-horizontal/`
   - `models/halos-only/input/`
   - `docs/dev/MIMIC-GENERAL-HORIZONTAL-RUNTIME-ACCEPTANCE.md`
 - Functions/classes/components allowed to change: package metadata, run files, package-local gates.
@@ -446,7 +449,7 @@ These are architectural decisions this plan deliberately does not make. Each has
 - Tests to add/update: package-local schema-agreement tests and gates.
 - Commands to run: per-package `generate`, `validate-modules`, `tests-scientific` on dataset-present machines; `make check-docs`, `git diff --check`.
 - Lint (differential, via the `lint` skill): required when Python changes.
-- Manual checks: package names and evidence labels agree with R0-10.
+- Manual checks: package names and evidence labels agree with R0-10; for the two sampled packages, the vertical and horizontal sides name the same file range.
 
 ### Rollback Path
 
