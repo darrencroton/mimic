@@ -796,5 +796,309 @@ class TestSelfContained(unittest.TestCase):
         )
 
 
+# ==========================================================================
+# The generic keyed external sort (Slice 6)
+# ==========================================================================
+
+#: A record with a subarray payload, the shape of a transposed halo row.
+KEYED_DTYPE = np.dtype(
+    [
+        ("a", "<i8"),
+        ("b", "<i8"),
+        ("c", "<i8"),
+        ("mass", "<f4"),
+        ("pos", "<f4", (3,)),
+    ]
+)
+
+
+def keyed_records(count, seed, key_span=50):
+    rng = np.random.default_rng(seed)
+    records = np.zeros(count, dtype=KEYED_DTYPE)
+    records["a"] = rng.integers(-key_span, key_span, count)
+    records["b"] = rng.integers(0, key_span, count)
+    records["c"] = np.arange(count)
+    records["mass"] = rng.standard_normal(count).astype(np.float32)
+    records["pos"] = rng.standard_normal((count, 3)).astype(np.float32)
+    return records
+
+
+def keyed_oracle(records, key_fields):
+    """``np.lexsort`` over the key fields: stable, so equal keys keep input
+    order, which is exactly what a single run of the sorter preserves."""
+    order = np.lexsort(tuple(records[name] for name in reversed(key_fields)))
+    return records[order]
+
+
+class KeyedSortCase(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.spills = Path(self.tmp.name)
+        self.addCleanup(self.tmp.cleanup)
+
+    def sorter(self, key_fields=("a", "b", "c"), gen_records=64, dtype=KEYED_DTYPE, **kwargs):
+        per_record = rank_sort.keyed_generation_bytes_per_record(dtype, len(key_fields))
+        budget = per_record * gen_records + rank_sort.SCRATCH_WRITE_BUFFER_BYTES
+        return rank_sort.KeyedSorter(
+            dtype, key_fields, budget_bytes=budget, spill_dir=self.spills, **kwargs
+        )
+
+    def merge_budget(self, records, key_fields=("a", "b", "c"), consumer=0):
+        per = rank_sort.keyed_merge_bytes_per_record(KEYED_DTYPE, len(key_fields)) + consumer
+        # plus the writer buffer an intermediate pass carves out of the budget
+        return per * records + rank_sort.SCRATCH_WRITE_BUFFER_BYTES
+
+    def drain(self, sorter, merge_records=64, key_fields=("a", "b", "c"), consumer=0):
+        blocks = sorter.sorted_blocks(
+            budget_bytes=self.merge_budget(merge_records, key_fields, consumer),
+            consumer_bytes_per_record=consumer,
+        )
+        out = [block.copy() for block in blocks]
+        return np.concatenate(out) if out else np.empty(0, dtype=sorter.dtype)
+
+    def feed(self, sorter, records, pieces=7):
+        for piece in np.array_split(records, pieces):
+            sorter.add(piece)
+
+
+class TestKeyedOrder(KeyedSortCase):
+    def test_total_keys_match_the_lexsort_oracle_bit_for_bit(self):
+        records = keyed_records(3000, seed=1)
+        for gen_records, merge_records in ((5000, 5000), (97, 64), (8, 2)):
+            with self.subTest(gen=gen_records, merge=merge_records):
+                with self.sorter(gen_records=gen_records) as sorter:
+                    self.feed(sorter, records)
+                    out = self.drain(sorter, merge_records)
+                    self.assertEqual(sorter.n_records, records.size)
+                expected = keyed_oracle(records, ("a", "b", "c"))
+                self.assertEqual(out.tobytes(), expected.tobytes())
+
+    def test_duplicate_keys_come_out_sorted_and_complete(self):
+        records = keyed_records(2000, seed=2, key_span=4)
+        with self.sorter(key_fields=("a",), gen_records=33) as sorter:
+            self.feed(sorter, records)
+            out = self.drain(sorter, 16, key_fields=("a",))
+        self.assertTrue(bool(np.all(np.diff(out["a"]) >= 0)))
+        # a multiset comparison on the whole record, via the unique third field
+        np.testing.assert_array_equal(np.sort(out["c"]), np.arange(records.size))
+        by_c = out[np.argsort(out["c"])]
+        self.assertEqual(by_c.tobytes(), records.tobytes())
+
+    def test_intermediate_merge_passes_preserve_the_order(self):
+        records = keyed_records(4000, seed=3)
+        with mock.patch.object(rank_sort, "_keyed_fanin_cap", return_value=3):
+            with self.sorter(gen_records=40) as sorter:
+                self.feed(sorter, records)
+                out = self.drain(sorter, 30)
+                self.assertGreater(sorter.n_merge_passes, 1)
+                self.assertEqual(sorter.n_runs, 100)
+        self.assertEqual(out.tobytes(), keyed_oracle(records, ("a", "b", "c")).tobytes())
+
+    def test_signed_zero_and_float_bits_survive(self):
+        records = np.zeros(4, dtype=KEYED_DTYPE)
+        records["a"] = [3, 1, 2, 0]
+        records["c"] = [0, 1, 2, 3]
+        records["mass"] = np.array([-0.0, 1e-45, -1e38, 0.0], dtype=np.float32)
+        records["pos"][1] = [-0.0, 3.5, np.float32(np.finfo(np.float32).tiny)]
+        with self.sorter(gen_records=2) as sorter:
+            sorter.add(records)
+            out = self.drain(sorter, 4)
+        self.assertEqual(out.tobytes(), records[[3, 1, 2, 0]].tobytes())
+
+    def test_keys_beyond_int32_and_int53_order_exactly(self):
+        records = np.zeros(5, dtype=KEYED_DTYPE)
+        values = [2**53 + 1, 2**53, 2**31, -(2**62), 2**63 - 1]
+        records["a"] = values
+        records["c"] = np.arange(5)
+        with self.sorter(gen_records=2) as sorter:
+            sorter.add(records)
+            out = self.drain(sorter, 2)
+        self.assertEqual(out["a"].tolist(), sorted(values))
+
+    def test_empty_and_single_record_sorts(self):
+        with self.sorter() as sorter:
+            self.assertEqual(self.drain(sorter).size, 0)
+            self.assertEqual(sorter.n_runs, 0)
+        with self.sorter() as sorter:
+            one = keyed_records(1, seed=4)
+            sorter.add(one)
+            self.assertEqual(self.drain(sorter).tobytes(), one.tobytes())
+
+
+class TestKeyedContract(KeyedSortCase):
+    def test_key_fields_must_be_scalar_int64(self):
+        cases = (
+            (np.dtype([("a", "<i4"), ("b", "<i8")]), ("a",), "never coerced"),
+            (np.dtype([("a", "<f8")]), ("a",), "never coerced"),
+            (np.dtype([("a", "<i8", (2,))]), ("a",), "never coerced"),
+            (KEYED_DTYPE, ("z",), "not a field"),
+            (KEYED_DTYPE, ("a", "a"), "repeat"),
+            (KEYED_DTYPE, (), "at least one"),
+            (np.dtype("<i8"), ("a",), "structured"),
+            (np.dtype([("a", "<i8"), ("o", object)]), ("a",), "object"),
+        )
+        for dtype, key_fields, pattern in cases:
+            with self.subTest(dtype=str(dtype), key=key_fields):
+                with self.assertRaisesRegex(RankSortError, pattern):
+                    rank_sort.KeyedSorter(
+                        dtype, key_fields, budget_bytes=1 << 16, spill_dir=self.spills
+                    )
+
+    def test_budgets_are_integers_large_enough_for_one_record(self):
+        for budget, pattern in ((True, "integer"), (1.5e6, "integer"), (8200, "cannot hold")):
+            with self.subTest(budget=budget):
+                with self.assertRaisesRegex(RankSortError, pattern):
+                    rank_sort.KeyedSorter(
+                        KEYED_DTYPE, ("a",), budget_bytes=budget, spill_dir=self.spills
+                    )
+
+    def test_a_merge_budget_below_a_two_way_merge_is_refused(self):
+        with self.sorter(gen_records=2) as sorter:
+            sorter.add(keyed_records(10, seed=5))
+            blocks = sorter.sorted_blocks(budget_bytes=self.merge_budget(1) - 8192)
+            with self.assertRaisesRegex(RankSortError, "cannot buffer"):
+                next(blocks)
+
+    def test_records_of_another_dtype_or_shape_are_refused(self):
+        with self.sorter() as sorter:
+            with self.assertRaisesRegex(RankSortError, "must be a"):
+                sorter.add(np.zeros(3, dtype=np.dtype([("a", "<i8")])))
+            with self.assertRaisesRegex(RankSortError, "1-D"):
+                sorter.add(keyed_records(4, seed=6).reshape(2, 2))
+
+    def test_the_lifecycle_is_one_way(self):
+        with self.sorter() as sorter:
+            sorter.add(keyed_records(4, seed=7))
+            sorter.seal()
+            sorter.seal()  # idempotent
+            with self.assertRaisesRegex(RankSortError, "already sealed"):
+                sorter.add(keyed_records(1, seed=8))
+            self.assertEqual(self.drain(sorter).size, 4)
+            with self.assertRaisesRegex(RankSortError, "merged once"):
+                sorter.sorted_blocks(budget_bytes=1 << 20)
+
+
+class TestKeyedMemory(KeyedSortCase):
+    def test_generation_and_merge_stay_within_their_metered_budgets(self):
+        meter = rank_sort.ResidencyMeter()
+        records = keyed_records(5000, seed=9)
+        with self.sorter(gen_records=100, residency=meter) as sorter:
+            self.feed(sorter, records, pieces=50)
+            generation_peak = meter.peak_bytes
+            self.assertLessEqual(generation_peak, sorter.generation_budget_bytes)
+            merge = self.merge_budget(200, consumer=40)
+            blocks = sorter.sorted_blocks(budget_bytes=merge, consumer_bytes_per_record=40)
+            largest = 0
+            for block in blocks:
+                largest = max(largest, block.size)
+                self.assertLessEqual(meter.bytes_current, merge)
+            self.assertLessEqual(largest, sorter.merge_records)
+        self.assertLessEqual(meter.peak_bytes, max(generation_peak, merge))
+        self.assertEqual(meter.bytes_current, 0)
+
+    def test_sealing_releases_the_generation_buffers(self):
+        meter = rank_sort.ResidencyMeter()
+        with self.sorter(gen_records=100, residency=meter) as sorter:
+            self.assertGreater(meter.bytes_current, 0)
+            sorter.add(keyed_records(10, seed=10))
+            sorter.seal()
+            self.assertEqual(meter.bytes_current, 0)
+
+    def test_actual_allocation_stays_within_the_budget(self):
+        """``tracemalloc`` over a whole sort, against the larger of the two
+        phase budgets plus the rank core's unmetered allowance. 200,000 records
+        of 44 bytes are 8.8 MB, so one escaped record-sized buffer could not
+        hide inside the allowance."""
+        records = keyed_records(200_000, seed=11)
+        gen_records = 4096
+        merge = self.merge_budget(4096)
+        gc.collect()
+        tracemalloc.start()
+        try:
+            tracemalloc.reset_peak()
+            before = tracemalloc.get_traced_memory()[0]
+            with self.sorter(gen_records=gen_records) as sorter:
+                for start in range(0, records.size, 1000):
+                    sorter.add(records[start : start + 1000])
+                count = 0
+                for block in sorter.sorted_blocks(budget_bytes=merge):
+                    count += block.size
+                budget = max(sorter.generation_budget_bytes, merge)
+            peak = tracemalloc.get_traced_memory()[1] - before
+        finally:
+            tracemalloc.stop()
+        self.assertEqual(count, records.size)
+        self.assertLessEqual(peak, budget + rank_sort.UNMETERED_ALLOWANCE_BYTES)
+
+
+class TestKeyedSpills(KeyedSortCase):
+    def spill_files(self):
+        return sorted(str(path) for path in self.spills.rglob("*") if path.is_file())
+
+    def test_no_spill_survives_close_on_success_or_failure(self):
+        with self.sorter(gen_records=8) as sorter:
+            self.feed(sorter, keyed_records(100, seed=12))
+            self.assertTrue(self.spill_files())
+            self.drain(sorter, 8)
+        self.assertEqual(self.spill_files(), [])
+        self.assertEqual(list(self.spills.iterdir()), [])
+        with self.assertRaises(RuntimeError):
+            with self.sorter(gen_records=8) as sorter:
+                self.feed(sorter, keyed_records(100, seed=13))
+                raise RuntimeError("caller failure")
+        self.assertEqual(list(self.spills.iterdir()), [])
+
+    def test_a_corrupted_run_is_refused(self):
+        with self.sorter(gen_records=8) as sorter:
+            self.feed(sorter, keyed_records(40, seed=14))
+            sorter.seal()
+            victim = sorted(sorter.spill_directory.iterdir())[0]
+            raw = bytearray(victim.read_bytes())
+            raw[-1] ^= 0xFF
+            victim.write_bytes(bytes(raw))
+            with self.assertRaisesRegex(RankSortError, "CRC32"):
+                self.drain(sorter, 8)
+
+    def test_a_truncated_run_is_refused(self):
+        with self.sorter(gen_records=8) as sorter:
+            self.feed(sorter, keyed_records(40, seed=15))
+            sorter.seal()
+            victim = sorted(sorter.spill_directory.iterdir())[0]
+            victim.write_bytes(victim.read_bytes()[:-3])
+            with self.assertRaisesRegex(RankSortError, "byte"):
+                self.drain(sorter, 8)
+
+    def test_a_shared_ledger_sees_every_sorter(self):
+        ledger = rank_sort.SpillLedger()
+        first = self.sorter(gen_records=8, ledger=ledger)
+        second = self.sorter(gen_records=8, ledger=ledger)
+        try:
+            first.add(keyed_records(16, seed=16))
+            second.add(keyed_records(16, seed=17))
+            self.assertEqual(ledger.live_bytes, 32 * KEYED_DTYPE.itemsize)
+        finally:
+            first.close()
+            second.close()
+        self.assertEqual(ledger.live_bytes, 0)
+        self.assertEqual(ledger.peak_bytes, 32 * KEYED_DTYPE.itemsize)
+
+    def test_spill_writers_use_the_contracted_buffer(self):
+        opened = []
+        real_open = open
+
+        def spy(path, mode="r", buffering=-1, *args, **kwargs):
+            if "w" in mode:
+                opened.append(buffering)
+            return real_open(path, mode, buffering, *args, **kwargs)
+
+        with mock.patch("builtins.open", side_effect=spy):
+            with self.sorter(gen_records=8) as sorter:
+                self.feed(sorter, keyed_records(40, seed=18))
+                self.drain(sorter, 8)
+        self.assertTrue(opened)
+        self.assertEqual(set(opened), {rank_sort.SCRATCH_WRITE_BUFFER_BYTES})
+        self.assertEqual(rank_sort.SCRATCH_WRITE_BUFFER_BYTES, 8192)
+
+
 if __name__ == "__main__":
     unittest.main()

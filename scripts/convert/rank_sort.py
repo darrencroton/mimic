@@ -98,6 +98,19 @@ intermediates. A partially written ranks file is removed on failure too.
 
 numpy + stdlib only. Deliberately not a general sorting library: it exists for
 this one key.
+
+**The keyed external sort (Slice 6).** The converter generalisation's bounded
+transpose (``transpose.py``/``source_keys.py``) needs the same budgeted
+run-generation/k-way-merge machinery over several *other* record layouts --
+snapshot-partitioned halo rows, source-key join records, resolved links and
+chain edges. :class:`KeyedSorter` provides exactly that, and nothing more: a
+structured record dtype, a tuple of int64 key fields, a byte budget. It reuses
+this module's spill directory, residency meter, block reader and fan-in cap
+unchanged, and it does not touch ``rank_forests`` or any of the constants,
+layouts or guarantees documented above -- the rank core keeps its own
+specialised, allocation-free merge, because its allocation contract is
+stricter than the generic sorter's (see :class:`KeyedSorter` for what the
+generic one meters and what it leaves to a measured allowance).
 """
 
 import contextlib
@@ -106,7 +119,7 @@ import tempfile
 import zlib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Iterator, List, Sequence, Tuple
+from typing import Iterable, Iterator, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -1292,3 +1305,627 @@ def _verify_ranks(
                 ranks_path, observed_squares, _MOMENT_MODULUS, expected_squares
             )
         )
+
+
+# ==========================================================================
+# Generic keyed external sort (Slice 6 of the converter generalisation plan)
+# ==========================================================================
+
+#: Buffer size of every generic spill *writer* handle. C4 fixes scratch writer
+#: buffering at exactly 8192 bytes; readers stay unbuffered for the reason the
+#: module docstring gives, and :func:`_fill_block` makes their short reads
+#: harmless.
+SCRATCH_WRITE_BUFFER_BYTES = 8192
+
+#: One contiguous int64 copy of one key field, per record. Every key field is
+#: copied out of the structured record into its own contiguous column so that
+#: ``np.lexsort`` and ``np.searchsorted`` never have to make a hidden
+#: contiguous copy of a strided field view.
+_KEY_COLUMN_BYTES = 8
+
+#: The sort permutation ``np.lexsort`` returns, one ``intp`` per record.
+_PERMUTATION_BYTES = int(np.dtype(np.intp).itemsize)
+
+#: Fewest records a generic merge buffers per run before it prefers another
+#: merge pass to a wider fan-in. Each merge iteration does Python-level work
+#: per live run and drains at least one run's buffer, so a wide fan-in over
+#: tiny buffers (a small budget) turns into millions of iterations that each
+#: emit a handful of records; a narrower fan-in costs one more sequential
+#: pass through disk instead. Budget-neutral either way: it changes how the
+#: same merge buffer is divided, never its size.
+KEYED_MIN_RUN_BLOCK_RECORDS = 256
+
+
+def keyed_generation_bytes_per_record(dtype, n_keys: int) -> int:
+    """Working bytes one record costs while a :class:`KeyedSorter` generates
+    runs: the record in the fill chunk, the record again in the sorted copy the
+    permutation is gathered into, its key columns, and its permutation entry.
+    """
+    return 2 * int(np.dtype(dtype).itemsize) + n_keys * _KEY_COLUMN_BYTES + _PERMUTATION_BYTES
+
+
+def keyed_merge_bytes_per_record(dtype, n_keys: int) -> int:
+    """Working bytes one buffered record costs in a :class:`KeyedSorter` merge:
+    the record in its run's read buffer and that buffer's key columns, the
+    record again in the gathered ready set and *its* key columns, the
+    permutation entry, and the record a third time in the sorted output block.
+    """
+    itemsize = int(np.dtype(dtype).itemsize)
+    return 3 * itemsize + 2 * n_keys * _KEY_COLUMN_BYTES + _PERMUTATION_BYTES
+
+
+def read_into(handle, raw: memoryview) -> int:
+    """Fill ``raw`` from an unbuffered ``handle``; the public form of
+    :func:`_fill_block`, for callers streaming their own spool files."""
+    return _fill_block(handle, raw)
+
+
+#: Public name of the residency meter, for callers that share one meter across
+#: several sorters and their own buffers so that a single high-water mark
+#: covers everything they hold concurrently.
+ResidencyMeter = _Residency
+
+
+class SpillLedger:
+    """Live and peak spill bytes on disk across every sorter that shares it.
+
+    Each :class:`KeyedSorter` still owns its own private spill directory; the
+    ledger only adds their byte counts together, so a caller running several
+    sorters at once can report one honest storage high-water mark instead of
+    summing per-sorter peaks that were never simultaneous.
+    """
+
+    def __init__(self) -> None:
+        self.live_bytes = 0
+        self.peak_bytes = 0
+
+    def add(self, nbytes: int) -> None:
+        self.live_bytes += int(nbytes)
+        if self.live_bytes > self.peak_bytes:
+            self.peak_bytes = self.live_bytes
+
+    def remove(self, nbytes: int) -> None:
+        self.live_bytes -= int(nbytes)
+
+
+class _LedgeredSpills(_Spills):
+    """:class:`_Spills`, additionally reporting every byte to a shared
+    :class:`SpillLedger`. The directory, naming and cleanup behaviour are
+    inherited unchanged."""
+
+    def __init__(self, directory, ledger: SpillLedger) -> None:
+        super().__init__(directory)
+        self.ledger = ledger
+
+    def note_written(self, path: Path, nbytes: int) -> None:
+        super().note_written(path, nbytes)
+        self.ledger.add(nbytes)
+
+    def remove(self, path: Path) -> None:
+        nbytes = self._sizes.get(path, 0)
+        super().remove(path)
+        self.ledger.remove(nbytes)
+
+
+def _record_bytes(records: np.ndarray) -> np.ndarray:
+    """A 1-D uint8 view over a contiguous record array's bytes.
+
+    Used instead of ``memoryview(records).cast("B")``: a structured dtype with
+    subarray fields (``Pos`` is ``(float32, 3)``) exports a buffer format
+    string that ``memoryview.cast`` is not guaranteed to accept.
+    """
+    return records.view(np.uint8).reshape(-1)
+
+
+class _KeyedRunWriter:
+    """Streams records into one spill run with 8192-byte buffering, binding
+    the run to its record count and CRC32 as it writes."""
+
+    def __init__(self, spills: _Spills, tag: str, itemsize: int, residency: _Residency) -> None:
+        self.spills = spills
+        self.itemsize = itemsize
+        self.residency = residency
+        self.path = spills.new_path(tag)
+        self.handle = open(str(self.path), "wb", buffering=SCRATCH_WRITE_BUFFER_BYTES)
+        residency.acquire(SCRATCH_WRITE_BUFFER_BYTES)
+        self.crc = 0
+        self.n_records = 0
+
+    def write(self, records: np.ndarray) -> None:
+        raw = _record_bytes(records)
+        self.handle.write(raw)
+        self.crc = zlib.crc32(raw, self.crc)
+        self.n_records += int(records.size)
+        self.spills.note_written(self.path, int(records.size) * self.itemsize)
+
+    def finish(self) -> _Run:
+        self._close()
+        return _Run(self.path, self.n_records, self.crc)
+
+    def abort(self) -> None:
+        self._close()
+
+    def _close(self) -> None:
+        if not self.handle.closed:
+            self.handle.close()
+            self.residency.release(SCRATCH_WRITE_BUFFER_BYTES)
+
+
+class _KeyedRunReader:
+    """Reads one sorted run back through its fixed slice of a merge arena,
+    copying the key fields into contiguous columns on every refill. Verifies
+    the run's byte size on open and its CRC32 after the last record."""
+
+    __slots__ = (
+        "run",
+        "buffer",
+        "raw",
+        "keys",
+        "key_fields",
+        "itemsize",
+        "capacity",
+        "handle",
+        "remaining",
+        "crc",
+        "size",
+        "offset",
+        "ceiling",
+    )
+
+    def __init__(
+        self,
+        run: _Run,
+        buffer: np.ndarray,
+        keys: Sequence[np.ndarray],
+        key_fields: Sequence[str],
+    ) -> None:
+        self.itemsize = int(buffer.dtype.itemsize)
+        expected = run.n_records * self.itemsize
+        actual = os.path.getsize(str(run.path))
+        if actual != expected:
+            raise RankSortError(
+                "{}: spill run is {} byte(s), expected {} for {} record(s)".format(
+                    run.path, actual, expected, run.n_records
+                )
+            )
+        self.run = run
+        self.buffer = buffer
+        self.raw = memoryview(_record_bytes(buffer))
+        self.keys = keys
+        self.key_fields = key_fields
+        self.capacity = int(buffer.size)
+        self.handle = open(str(run.path), "rb", buffering=0)
+        self.remaining = int(run.n_records)
+        self.crc = 0
+        self.size = 0
+        self.offset = 0
+        self.ceiling: Optional[Tuple[int, ...]] = None
+
+    def refill(self) -> bool:
+        self.size = 0
+        self.offset = 0
+        if self.remaining <= 0:
+            if self.crc != self.run.crc:
+                raise RankSortError(
+                    "{}: spill run read back with CRC32 {} but was written with {} -- the "
+                    "merge input does not match the run that was spilled".format(
+                        self.run.path, self.crc, self.run.crc
+                    )
+                )
+            return False
+        count = min(self.capacity, self.remaining)
+        wanted = count * self.itemsize
+        got = _fill_block(self.handle, self.raw[:wanted])
+        if got != wanted:
+            raise RankSortError(
+                "{}: spill run yielded {} of {} expected byte(s)".format(self.run.path, got, wanted)
+            )
+        self.crc = zlib.crc32(self.raw[:wanted], self.crc)
+        block = self.buffer[:count]
+        for column, name in zip(self.keys, self.key_fields):
+            np.copyto(column[:count], block[name])
+        self.remaining -= count
+        self.size = count
+        self.ceiling = tuple(int(column[count - 1]) for column in self.keys)
+        return True
+
+    def close(self) -> None:
+        self.handle.close()
+
+
+def _keyed_count_at_or_below(
+    keys: Sequence[np.ndarray], lo: int, hi: int, boundary: Tuple[int, ...]
+) -> int:
+    """Index of the first record in ``[lo, hi)`` whose key tuple exceeds
+    ``boundary``, over key columns sorted lexicographically.
+
+    Narrows one key field at a time with two binary searches over contiguous
+    int64 columns: records strictly below the bound on a field are all at or
+    below the boundary, records equal on it are resolved by the next field,
+    and records above it are excluded. No array is allocated.
+    """
+    last = len(keys) - 1
+    for level, (column, bound) in enumerate(zip(keys, boundary)):
+        segment = column[lo:hi]
+        left = lo + int(np.searchsorted(segment, bound, side="left"))
+        right = lo + int(np.searchsorted(segment, bound, side="right"))
+        if level == last:
+            return right
+        if left == right:
+            return left
+        lo, hi = left, right
+    return hi  # pragma: no cover - the loop always returns on its last level
+
+
+def _keyed_fanin_cap(merge_records: int) -> int:
+    """The rank core's fan-in cap, narrowed so each run keeps at least
+    :data:`KEYED_MIN_RUN_BLOCK_RECORDS` buffered records when the budget
+    allows it; never below a two-way merge."""
+    by_block = int(merge_records) // KEYED_MIN_RUN_BLOCK_RECORDS
+    return max(2, min(_fanin_cap(merge_records), by_block))
+
+
+class KeyedSorter:
+    """Bounded external sort of structured records on int64 key fields.
+
+    **Contract.** Records are one fixed structured ``dtype`` (no object
+    fields; subarray fields such as a ``(float32, 3)`` vector are fine). The
+    order is lexicographic over ``key_fields``, each of which must be exactly
+    int64 and is never coerced. Equal keys are legal: the merge emits them
+    adjacent, in a deterministic order (run order, then input order within a
+    run), but a caller that needs a *total* order must make its key total.
+
+    **Lifecycle.** :meth:`add` records (any number of calls, any block
+    sizes), then iterate :meth:`sorted_blocks` once, then :meth:`close` --
+    or use the sorter as a context manager, which closes it on every path.
+    Closing removes every spill file this sorter created; nothing survives it.
+
+    **Memory.** Run generation holds ``run_records`` records at
+    :func:`keyed_generation_bytes_per_record` each plus one 8192-byte spill
+    writer buffer, together sized from the constructor's ``budget_bytes``. The merge is sized separately, from the
+    ``budget_bytes`` passed to :meth:`sorted_blocks`, because a caller may run
+    the merge of one sorter while another sorter is generating, and must be
+    able to split one budget between them. Each merge buffered record costs
+    :func:`keyed_merge_bytes_per_record` plus ``consumer_bytes_per_record``,
+    which the sorter *reserves on the consumer's behalf*: every yielded block
+    is at most the buffered record count, so a consumer whose scratch is
+    bounded per record of the block it was handed is inside the budget too.
+    An intermediate pass carves its output writer's buffer out of the same
+    merge budget. Every one of those buffers is reported to the shared
+    :data:`ResidencyMeter`, so the budget is asserted by measurement, not by
+    argument.
+
+    **What it does not meter**, in the same spirit as the rank core's list:
+    the transient ``np.lexsort`` scratch beyond its returned permutation, the
+    small per-run bookkeeping objects, per-iteration interpreter churn, and the
+    ndarray headers and allocator rounding of each buffer. Unlike the rank
+    core it does not preallocate every temporary through ``out=``; the
+    permutation is allocated per sort and is charged per record instead. The
+    caller's tests measure the whole call with ``tracemalloc``.
+
+    **Blocks are views.** Each yielded block is a view into a reusable buffer
+    and is valid only until the next block is requested.
+    """
+
+    def __init__(
+        self,
+        dtype,
+        key_fields: Sequence[str],
+        *,
+        budget_bytes: int,
+        spill_dir,
+        residency: Optional[_Residency] = None,
+        ledger: Optional[SpillLedger] = None,
+        tag: str = "keyed",
+    ) -> None:
+        dtype = np.dtype(dtype)
+        if dtype.names is None:
+            raise RankSortError(
+                "a keyed sort needs a structured record dtype, got {}".format(dtype)
+            )
+        if dtype.hasobject:
+            raise RankSortError("a keyed sort cannot spill object fields ({})".format(dtype))
+        key_fields = tuple(key_fields)
+        if not key_fields:
+            raise RankSortError("a keyed sort needs at least one key field")
+        if len(set(key_fields)) != len(key_fields):
+            raise RankSortError("key fields {} repeat a field".format(key_fields))
+        for name in key_fields:
+            if name not in dtype.names:
+                raise RankSortError(
+                    "key field {!r} is not a field of {} (have {})".format(
+                        name, dtype, ", ".join(dtype.names)
+                    )
+                )
+            field_dtype = dtype.fields[name][0]
+            if field_dtype.kind != "i" or field_dtype.itemsize != 8 or field_dtype.shape:
+                raise RankSortError(
+                    "key field {!r} has dtype {} -- every key field must be a scalar int64 and "
+                    "is never coerced".format(name, field_dtype.str)
+                )
+        if isinstance(budget_bytes, bool) or not isinstance(budget_bytes, (int, np.integer)):
+            raise RankSortError(
+                "budget_bytes must be an integer, got {!r}".format(type(budget_bytes).__name__)
+            )
+        budget_bytes = int(budget_bytes)
+        per_record = keyed_generation_bytes_per_record(dtype, len(key_fields))
+        if budget_bytes < per_record + SCRATCH_WRITE_BUFFER_BYTES:
+            raise RankSortError(
+                "generation budget of {} byte(s) cannot hold one {}-byte record's {} byte(s) of "
+                "working set plus the {}-byte spill writer buffer".format(
+                    budget_bytes, dtype.itemsize, per_record, SCRATCH_WRITE_BUFFER_BYTES
+                )
+            )
+
+        self.dtype = dtype
+        self.key_fields = key_fields
+        self.itemsize = int(dtype.itemsize)
+        self.generation_budget_bytes = budget_bytes
+        # the spill writer's buffer is open while a run is written, so it is
+        # carved out of the same budget rather than held beside it
+        self.run_records = (budget_bytes - SCRATCH_WRITE_BUFFER_BYTES) // per_record
+        self.residency = residency if residency is not None else _Residency()
+        self.ledger = ledger if ledger is not None else SpillLedger()
+        self.tag = tag
+        self.n_records = 0
+        self.n_runs = 0
+        self.n_merge_passes = 0
+        self.merge_records = 0
+        self.merge_fanin = 0
+
+        spill_root = Path(spill_dir)
+        self._spills = _LedgeredSpills(
+            tempfile.mkdtemp(prefix="keyed_{}_".format(tag), dir=str(spill_root)), self.ledger
+        )
+        self._runs: List[_Run] = []
+        self._filled = 0
+        self._state = "generating"
+        self._generation_bytes = self.run_records * per_record
+        self.residency.acquire(self._generation_bytes)
+        self._chunk = np.empty(self.run_records, dtype=dtype)
+        self._sorted = np.empty(self.run_records, dtype=dtype)
+        self._chunk_keys = tuple(np.empty(self.run_records, dtype=np.int64) for _ in key_fields)
+
+    # ---- context management ------------------------------------------------
+
+    def __enter__(self) -> "KeyedSorter":
+        return self
+
+    def __exit__(self, *exc_info) -> None:
+        self.close()
+
+    def close(self) -> None:
+        """Release every buffer and remove every spill file. Idempotent."""
+        self._release_generation()
+        if self._state != "closed":
+            self._state = "closed"
+            self._spills.cleanup()
+
+    @property
+    def spill_directory(self) -> Path:
+        return self._spills.directory
+
+    # ---- generation --------------------------------------------------------
+
+    def add(self, records: np.ndarray) -> None:
+        """Append records. The array is copied; the caller may reuse it."""
+        if self._state != "generating":
+            raise RankSortError(
+                "records added to a keyed sort that is already {}".format(self._state)
+            )
+        if not isinstance(records, np.ndarray) or records.dtype != self.dtype:
+            raise RankSortError(
+                "records must be a {} array, got {!r}".format(
+                    self.dtype, getattr(records, "dtype", type(records).__name__)
+                )
+            )
+        if records.ndim != 1:
+            raise RankSortError("records must be 1-D, got shape {}".format(records.shape))
+        count = int(records.size)
+        taken = 0
+        while taken < count:
+            take = min(count - taken, self.run_records - self._filled)
+            self._chunk[self._filled : self._filled + take] = records[taken : taken + take]
+            self._filled += take
+            taken += take
+            if self._filled == self.run_records:
+                self._spill_chunk()
+        self.n_records += count
+
+    def _spill_chunk(self) -> None:
+        count = self._filled
+        if not count:
+            return
+        chunk = self._chunk[:count]
+        for column, name in zip(self._chunk_keys, self.key_fields):
+            np.copyto(column[:count], chunk[name])
+        # np.lexsort sorts by its LAST key first, so the key columns go in
+        # reversed; it is stable, so equal keys keep their input order
+        order = np.lexsort(tuple(column[:count] for column in reversed(self._chunk_keys)))
+        # mode="clip" rather than the default "raise", which buffers the whole
+        # output through a hidden temporary; every index is in range anyway
+        np.take(chunk, order, out=self._sorted[:count], mode="clip")
+        del order
+        writer = _KeyedRunWriter(self._spills, "gen", self.itemsize, self.residency)
+        try:
+            writer.write(self._sorted[:count])
+        except BaseException:
+            writer.abort()
+            raise
+        self._runs.append(writer.finish())
+        self._filled = 0
+
+    def _release_generation(self) -> None:
+        if self._generation_bytes:
+            self._chunk = None
+            self._sorted = None
+            self._chunk_keys = ()
+            self.residency.release(self._generation_bytes)
+            self._generation_bytes = 0
+
+    # ---- merging -----------------------------------------------------------
+
+    def seal(self) -> None:
+        """End generation now: spill the last partial run and release the
+        generation buffers, without starting the merge.
+
+        A caller that must hold a finished sorter while other work runs --
+        and that work's buffers -- seals it first, so the idle sorter holds no
+        memory at all. Idempotent.
+        """
+        if self._state == "sealed":
+            return
+        if self._state != "generating":
+            raise RankSortError("a keyed sort that is {} cannot be sealed".format(self._state))
+        self._spill_chunk()
+        self._release_generation()
+        self._state = "sealed"
+
+    def sorted_blocks(
+        self, *, budget_bytes: int, consumer_bytes_per_record: int = 0
+    ) -> Iterator[np.ndarray]:
+        """Yield every added record in key order, in bounded blocks.
+
+        Seals the sorter at once -- before this call returns, not when the
+        first block is requested -- so the generation buffers are gone before
+        a caller allocates anything alongside the merge. The runs are then
+        reduced by intermediate merge passes until one final pass can consume
+        them, and that final pass is streamed. ``budget_bytes`` bounds the
+        merge's buffers plus the consumer's reserved scratch; intermediate
+        passes have no consumer and use the same budget for buffers alone.
+        """
+        if self._state not in ("generating", "sealed"):
+            raise RankSortError("a keyed sort can be merged once; it is {}".format(self._state))
+        self.seal()
+        self._state = "merging"
+        self.n_runs = len(self._runs)
+        return self._merge_all(int(budget_bytes), int(consumer_bytes_per_record))
+
+    def _merge_all(self, budget_bytes: int, consumer_bytes: int) -> Iterator[np.ndarray]:
+        runs = self._runs
+        if not runs:
+            self._state = "merged"
+            return
+        n_keys = len(self.key_fields)
+        buffer_cost = keyed_merge_bytes_per_record(self.dtype, n_keys)
+        final_records = budget_bytes // (buffer_cost + consumer_bytes)
+        # an intermediate pass writes its output run, so its writer buffer is
+        # carved out of the pass's budget; the final pass writes nothing
+        reduce_records = max(0, budget_bytes - SCRATCH_WRITE_BUFFER_BYTES) // buffer_cost
+        needed = min(MIN_MERGE_RECORDS, len(runs))
+        if final_records < needed:
+            raise RankSortError(
+                "merge budget of {} byte(s) cannot buffer the {} record(s) a merge of {} run(s) "
+                "needs at {} B/record ({} for buffers, {} reserved for the consumer)".format(
+                    budget_bytes,
+                    needed,
+                    len(runs),
+                    buffer_cost + consumer_bytes,
+                    buffer_cost,
+                    consumer_bytes,
+                )
+            )
+        fanin_cap = _keyed_fanin_cap(final_records)
+        if len(runs) > fanin_cap and reduce_records < MIN_MERGE_RECORDS:
+            raise RankSortError(
+                "merge budget of {} byte(s) cannot run an intermediate pass over {} run(s): it "
+                "needs {} record(s) at {} B/record plus the {}-byte writer buffer".format(
+                    budget_bytes,
+                    len(runs),
+                    MIN_MERGE_RECORDS,
+                    buffer_cost,
+                    SCRATCH_WRITE_BUFFER_BYTES,
+                )
+            )
+        while len(runs) > fanin_cap:
+            reduce_cap = _keyed_fanin_cap(reduce_records)
+            merged: List[_Run] = []
+            for start in range(0, len(runs), reduce_cap):
+                group = runs[start : start + reduce_cap]
+                if len(group) == 1:
+                    merged.append(group[0])
+                    continue
+                writer = _KeyedRunWriter(self._spills, "merge", self.itemsize, self.residency)
+                try:
+                    blocks = self._merge_runs(group, reduce_records, 0)
+                    with contextlib.closing(blocks):
+                        for block in blocks:
+                            writer.write(block)
+                except BaseException:
+                    writer.abort()
+                    raise
+                merged.append(writer.finish())
+                for run in group:
+                    self._spills.remove(run.path)
+            runs = merged
+            self._runs = runs
+            self.n_merge_passes += 1
+        self.merge_records = final_records
+        self.merge_fanin = len(runs)
+        blocks = self._merge_runs(runs, final_records, consumer_bytes)
+        with contextlib.closing(blocks):
+            yield from blocks
+        self._state = "merged"
+
+    def _merge_runs(
+        self, runs: Sequence[_Run], merge_records: int, consumer_bytes: int
+    ) -> Iterator[np.ndarray]:
+        """Block-wise k-way merge: everything buffered at or below the lowest
+        buffered ceiling is the complete next prefix of the merged order, so
+        gather it, sort it, emit it. The reader that set the ceiling is always
+        drained, which guarantees progress."""
+        fanin = len(runs)
+        per_run = max(1, merge_records // fanin)
+        buffered = fanin * per_run
+        n_keys = len(self.key_fields)
+        reserved = buffered * (keyed_merge_bytes_per_record(self.dtype, n_keys) + consumer_bytes)
+        self.residency.acquire(reserved)
+        readers: List[_KeyedRunReader] = []
+        try:
+            arena = np.empty(buffered, dtype=self.dtype)
+            arena_keys = tuple(np.empty(buffered, dtype=np.int64) for _ in self.key_fields)
+            gathered = np.empty(buffered, dtype=self.dtype)
+            gathered_keys = tuple(np.empty(buffered, dtype=np.int64) for _ in self.key_fields)
+            output = np.empty(buffered, dtype=self.dtype)
+            for index, run in enumerate(runs):
+                low = index * per_run
+                high = low + per_run
+                readers.append(
+                    _KeyedRunReader(
+                        run,
+                        arena[low:high],
+                        tuple(column[low:high] for column in arena_keys),
+                        self.key_fields,
+                    )
+                )
+            live = [reader for reader in readers if reader.refill()]
+            while live:
+                boundary = min(reader.ceiling for reader in live)
+                count = 0
+                contributors = 0
+                for reader in live:
+                    end = _keyed_count_at_or_below(
+                        reader.keys, reader.offset, reader.size, boundary
+                    )
+                    taken = end - reader.offset
+                    if not taken:
+                        continue
+                    gathered[count : count + taken] = reader.buffer[reader.offset : end]
+                    for target, source in zip(gathered_keys, reader.keys):
+                        target[count : count + taken] = source[reader.offset : end]
+                    reader.offset = end
+                    count += taken
+                    contributors += 1
+                if contributors == 1:
+                    # one run's contiguous slice is already in key order
+                    yield gathered[:count]
+                else:
+                    order = np.lexsort(tuple(column[:count] for column in reversed(gathered_keys)))
+                    np.take(gathered[:count], order, out=output[:count], mode="clip")
+                    del order
+                    yield output[:count]
+                live = [reader for reader in live if reader.offset < reader.size or reader.refill()]
+        finally:
+            for reader in readers:
+                reader.close()
+            self.residency.release(reserved)
