@@ -2,8 +2,14 @@
 
 Per-phase subcommands over a user-supplied ``--workdir``; canonical metadata
 comes from explicit ``--simulation-info`` and ``--a-list`` paths so the
-converter stays simulation-agnostic. Later plan slices add the write,
-validate, and cross-check stages.
+converter stays simulation-agnostic.
+
+This is the legacy ASCII-to-version-2 workflow and it is unchanged: every
+command here reads Consistent-Trees ASCII and ``write`` always emits
+horizontal-HDF5 format version 2 (docs/dev/HORIZONTAL-HDF5-FORMAT.md), which
+the current Mimic reader runs. L-Halo binary and forests-HDF5 sources, declared
+extra fields and the lossless version 3 format are the generic CLI's,
+``convert_trees.py``; its output is not runnable by the current Mimic.
 
 Usage (micro-Uchuu example):
     mimic_venv/bin/python scripts/convert/convert_ctrees.py scatter \\
@@ -83,7 +89,9 @@ def _add_consume_flag(parser: argparse.ArgumentParser) -> None:
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="convert_ctrees",
-        description="Convert Consistent-Trees ASCII output to Mimic horizontal HDF5",
+        description="Convert Consistent-Trees ASCII output to Mimic horizontal HDF5 format "
+        "version 2 (the runnable format). For L-Halo binary or forests-HDF5 sources, declared "
+        "extra fields or lossless format version 3, use convert_trees.py.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 

@@ -1,0 +1,48 @@
+# micro-Uchuu converter profile -- Consistent-Trees forests-HDF5, for
+# scripts/convert/convert_trees.py.
+#
+# Route: --source-format consistent_trees_hdf5 --info-file
+# snapshots/MicroUchuu_mergertree_info.h5, one FileN group (files 0-0). The
+# committed fixture (_tests/data/MicroUchuu_test_mergertree_info.h5) stores
+# Snap_num.
+#
+# Checked against the package's source metadata: the roles are the Forests/
+# datasets the reference C reader consumes (src/io/vertical/read_ctrees_hdf5.c),
+# and halo_properties.yaml declares exactly the payload they fill, so no extra
+# field is selected. Both snapshot spellings stay listed because the C reader
+# resolves either per file and exactly one must resolve. The full Forests/
+# field set is wider (69 fields in the real micro-Uchuu dataset); any of it
+# can be added under extra_fields -- see
+# scripts/convert/profiles/consistent_trees_hdf5_extras_example.yaml.
+#
+# particle_mass, used to derive Len as the vertical reader does, comes from the
+# package's simulation_info.yaml.
+#
+# This profile only selects source fields. It does not change a run YAML,
+# halo_properties.yaml or the snapshots symlink.
+
+schema_version: 1
+source_format: consistent_trees_hdf5
+
+required_columns:
+  Descendant: [Descendant]
+  FirstProgenitor: [FirstProgenitor]
+  NextProgenitor: [NextProgenitor]
+  FirstHaloInFOFgroup: [FirstHaloInFOFgroup]
+  NextHaloInFOFgroup: [NextHaloInFOFgroup]
+  Mvir: [Mvir]
+  x: [x]
+  y: [y]
+  z: [z]
+  vx: [vx]
+  vy: [vy]
+  vz: [vz]
+  Jx: [Jx]
+  Jy: [Jy]
+  Jz: [Jz]
+  vrms: [vrms]
+  vmax: [vmax]
+  id: [id]
+  snap: [Snap_num, Snap_idx]
+
+extra_fields: []
