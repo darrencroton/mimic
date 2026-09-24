@@ -80,7 +80,7 @@ Widening links to int64 lets the runtime **name** a row above `INT32_MAX`. It do
 
 **What follows.**
 
-- This plan makes the input/driver seam int64-correct and makes wide slabs **fail loudly and early** against a declared memory budget, rather than fail in an allocator or narrow silently. It does **not** deliver a whole-snapshot low-memory run of full Uchuu, and no slice, document or report may say it does.
+- This plan makes the input/driver seam int64-correct, so a wide slab can never narrow silently or overflow an index. **What happens when it does not fit in memory depends on R0-5**, which this plan does not decide. Under R0-5(a), wide slabs and over-large retention **fail loudly and early** against a declared memory ceiling, before allocation. Under R0-5(b), the driver reports the bytes a slab or retention set needs, and running out of memory surfaces as an allocator failure. That trade is the owner's. It does **not** deliver a whole-snapshot low-memory run of full Uchuu, and no slice, document or report may say it does.
 - Running full Uchuu needs chunked slab streaming ([`MIMIC-CHUNKED-SLAB-STREAMING-PLAN.md`](MIMIC-CHUNKED-SLAB-STREAMING-PLAN.md)), still a concept note. The design review's finding 10 says gap retention and chunked streaming interact — retaining several generations of *windows* is a different memory problem from retaining several whole slabs — and should be designed together. Whether to do that before this plan, or to land gap retention on whole slabs first and accept a later redesign, is owner decision R0-7.
 - Gap retention has its own memory cost, bounded by the data rather than by a constant. For mini-Millennium, maximum span 2 means at most three whole generations are live at once; the retained population per snapshot is measurable from the dataset before a run and is reported, not assumed.
 - `links_adjacent == 1` collapses retention to today's two generations, which is why the converter measures and stamps it honestly.
@@ -327,8 +327,8 @@ These are architectural decisions this plan deliberately does not make. Each has
 
 - [ ] The driver computes each generation's resident bytes from actual struct widths before allocating it, and the run profile reports the maximum concurrently retained generations and bytes.
 - [ ] Under R0-5(a), a retention or slab that would exceed the configured ceiling aborts before allocation, naming the snapshot, the bytes required and the ceiling; the new key is documented and validated like every other run-file key.
-- [ ] A synthetic slab above `INT32_MAX` rows is exercised through the reader's and driver's index arithmetic without allocating billions of rows (a virtual or header-only test), and reaches the budget refusal rather than an index error.
-- [ ] No document, log or report produced by this slice states or implies that full Uchuu runs with whole slabs resident; the refusal message names chunked slab streaming as the missing capability.
+- [ ] A synthetic slab above `INT32_MAX` rows is exercised through the reader's and driver's index arithmetic without allocating billions of rows (a virtual or header-only test), and reaches the pre-allocation size computation with its required bytes reported, never an index error or a narrowed value. Under R0-5(a) it then reaches the budget refusal.
+- [ ] No document, log or report produced by this slice states or implies that full Uchuu runs with whole slabs resident; under R0-5(a) the refusal message names chunked slab streaming as the missing capability, and under R0-5(b) the reported size does.
 - [ ] Measured retention for real mini-Millennium (maximum concurrently retained generations and peak RSS) is recorded in the slice receipt.
 
 ### Authorized Surface
