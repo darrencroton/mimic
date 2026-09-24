@@ -470,7 +470,10 @@ class ManifestLifecycleTests(TempCase):
             with self.subTest(relpath=relpath):
                 with self.assertRaises(ConverterError):
                     self.manifest.artifact_path(relpath)
-        self.assertEqual(self.manifest.artifact_path("ingest/x.bin"), self.work / "ingest/x.bin")
+        # the manifest resolves its workdir (/var -> /private/var on macOS)
+        self.assertEqual(
+            self.manifest.artifact_path("ingest/x.bin"), (self.work / "ingest/x.bin").resolve()
+        )
 
     def test_verify_artifact_detects_missing_resized_and_edited(self):
         path = self.write_artifact("ingest/a.bin")

@@ -1007,6 +1007,66 @@ class SkipTrustAndCleanupTests(PipelineCase):
                 self.assertEqual(manifest.artifact(relpath)["status"], cm.ARTIFACT_REMOVED)
         manifest.verify_stage_artifacts("write")
 
+    def test_ingest_cleanup_deferred_until_after_write_cleanup(self):
+        """Regression (Slice 7 steer 2): consuming the transposed snapshots
+        first and the ingest chunks afterwards is accepted -- the successor's
+        own artifacts were consumed by the complete write stage."""
+        self.initialize()
+        pipeline.run_ingest(self.work)
+        pipeline.run_transpose(self.work)
+        pipeline.run_write(self.work, StubWriter(), consume_transposed=True)
+        manifest = pipeline.run_transpose(self.work, consume_ingest=True)
+        for stage in ("ingest", "transpose"):
+            for relpath in manifest.stage(stage)["artifacts"]:
+                self.assertEqual(manifest.artifact(relpath)["status"], cm.ARTIFACT_REMOVED)
+                self.assertFalse((self.work / relpath).exists())
+        pipeline.run_write(self.work, StubWriter())
+        self.assert_no_strays(self.work)
+
+    def test_deferred_ingest_cleanup_still_verifies_what_remains(self):
+        """The transitive allowance covers only consumed successor artifacts,
+        and the later stage now holding their rows must verify: a corrupt
+        write output blocks the deferred ingest cleanup, deleting nothing."""
+        self.initialize()
+        pipeline.run_ingest(self.work)
+        pipeline.run_transpose(self.work)
+        manifest = pipeline.run_write(self.work, StubWriter(), consume_transposed=True)
+        output = manifest.artifact_path(manifest.stage("write")["artifacts"][0])
+        data = bytearray(output.read_bytes())
+        data[0] ^= 0x01
+        output.write_bytes(bytes(data))
+        with self.assertRaisesRegex(ConverterError, "content checksum"):
+            manifest.consume_stage("ingest", "transpose")
+        with self.assertRaisesRegex(ConverterError, "content checksum"):
+            pipeline.run_transpose(self.work, consume_ingest=True)
+        for relpath in manifest.stage("ingest")["artifacts"]:
+            self.assertTrue((self.work / relpath).exists())
+
+    def test_leftover_scan_accepts_chunk_indices_past_six_digits(self):
+        """Regression (Slice 7 steer 2): chunk_name grows past six digits at
+        index 1,000,000; the resume scan must still own those names."""
+        self.assertEqual(pipeline.chunk_name(999999), "chunk_999999.bin")
+        self.assertEqual(pipeline.chunk_name(1000000), "chunk_1000000.bin")
+        for index in (999999, 1000000, 1000001, 12345678):
+            match = pipeline._CHUNK_RE.match(pipeline.chunk_name(index))
+            self.assertIsNotNone(match, index)
+            self.assertEqual(int(match.group(1)), index)
+            self.assertIsNotNone(pipeline._CHUNK_RE.match(pipeline.chunk_name(index) + ".partial"))
+        self.assertIsNone(pipeline._CHUNK_RE.match("chunk_12345.bin"))
+        self.initialize()
+        manifest = cm.ConversionManifest.load(self.work)
+        ingest_dir = self.work / pipeline.INGEST_DIR
+        ingest_dir.mkdir()
+        names = ["chunk_1000000.bin", "chunk_1000001.bin.partial", "chunk_1000002.bin"]
+        for name in names:
+            (ingest_dir / name).write_bytes(b"x")
+        leftovers = pipeline._ingest_leftovers(manifest, 1000000)
+        self.assertEqual(sorted(p.name for p in leftovers), sorted(names))
+        # below the registered count and unregistered is still foreign
+        (ingest_dir / "chunk_999999.bin").write_bytes(b"x")
+        with self.assertRaisesRegex(ConverterError, "chunk_999999.bin"):
+            pipeline._ingest_leftovers(manifest, 1000000)
+
     def test_cleanup_is_refused_while_its_successor_is_incomplete(self):
         self.initialize()
         pipeline.run_ingest(self.work)

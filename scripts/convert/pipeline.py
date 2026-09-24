@@ -145,7 +145,9 @@ DEFAULT_TRANSPOSE_BUDGET_BYTES = 2 * 1024**3
 #: would rewrite an O(chunks) manifest O(chunks) times.
 DEFAULT_SAVE_EVERY_CHUNKS = 32
 
-_CHUNK_RE = re.compile(r"^chunk_(\d{6})\.bin(\.partial)?$")
+#: ``chunk_name`` zero-pads to six digits and grows past them at index
+#: 1,000,000, so the pattern accepts six or more.
+_CHUNK_RE = re.compile(r"^chunk_(\d{6,})\.bin(\.partial)?$")
 _PARTIAL_SUFFIX = ".partial"
 
 #: Ingest-record fields carrying the source coordinate. The leading

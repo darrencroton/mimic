@@ -45,7 +45,8 @@ moved.
 
 **Containment.** Every artifact path is recorded relative to the workdir and
 resolved back strictly inside it; symlinks are refused rather than followed.
-Deleting an artifact is verify-then-delete (:meth:`remove_artifact`), and a
+Deleting an artifact happens only through :meth:`consume_stage`, which is
+verify-then-delete (its single unlink is ``_unlink_artifact``), and a
 stage's abandoned attempt directory -- created only after the manifest has
 recorded it, so everything under it is that attempt's own unverified output --
 is the only directory this module ever removes (:meth:`discard_attempt`).
@@ -864,15 +865,11 @@ class ConversionManifest:
             self.verify_artifact(relpath, "{} artifact".format(stage))
         return removed
 
-    def remove_artifact(self, relpath: str) -> None:
-        """Verify-then-delete one manifest-owned artifact. Must be followed by
-        :meth:`save`; a crash between the unlink and the save is converged by
-        :meth:`consume_stage`."""
-        self.verify_artifact(relpath, "artifact to consume")
-        self._unlink_artifact(relpath)
-
     def _unlink_artifact(self, relpath: str) -> None:
-        """The one unlink of a registered artifact; callers verify first."""
+        """The one unlink of a registered artifact. Only
+        :meth:`consume_stage` calls it, after verifying the successor stage and
+        every artifact it is about to delete; it must be followed by
+        :meth:`save`."""
         self.artifact_path(relpath).unlink()
         self.data["artifacts"][relpath]["status"] = ARTIFACT_REMOVED
 
@@ -903,7 +900,18 @@ class ConversionManifest:
             # re-verify a successor whose own artifacts a later complete stage
             # may have consumed in turn.
             return []
-        self.verify_stage_artifacts(successor)
+        # A successor artifact that the stage after it deliberately consumed
+        # is accepted as consumed -- the same transitive rule every skip-trust
+        # path uses -- so deferring this cleanup until after the next one is
+        # not refused. Everything the successor still holds is verified.
+        index = STAGES.index(successor)
+        later = STAGES[index + 1] if index + 1 < len(STAGES) else None
+        later_complete = later is not None and self.is_complete(later)
+        consumed = self.verify_stage_artifacts(successor, allow_removed=later_complete)
+        if consumed:
+            # Those rows now live only in the later stage's artifacts, so they
+            # are what must verify before any predecessor byte goes.
+            self.verify_stage_artifacts(later)
         # Every predecessor is verified before the first one is deleted, so a
         # single corrupt artifact refuses the whole consumption cleanly.
         present = []
