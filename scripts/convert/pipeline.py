@@ -290,10 +290,15 @@ def _default_adapter_budget() -> int:
 
 
 def _lhalo_parameters(parameters: Mapping) -> Dict[str, object]:
+    """``simulation_info`` is optional here and recorded only when given: the
+    binary adapter itself reads no physical metadata, but a caller that names
+    it (``convert_trees.py`` always does) binds the conversion to that file's
+    content, as the ASCII route does, so the write stage can refuse a header
+    from different metadata."""
     merged = _check_keys(
         parameters,
         ("sources",),
-        {"memory_budget_bytes": _default_adapter_budget()},
+        {"memory_budget_bytes": _default_adapter_budget(), "simulation_info": None},
         "lhalo_binary",
     )
     sources = merged["sources"]
@@ -313,29 +318,38 @@ def _lhalo_parameters(parameters: Mapping) -> Dict[str, object]:
                 _path_string(entry[1], "sources[{}] path".format(position)),
             ]
         )
-    return {
+    recorded = {
         "sources": canonical_sources,
         "memory_budget_bytes": _strict_int(merged["memory_budget_bytes"], "memory_budget_bytes", 1),
     }
+    if merged["simulation_info"] is not None:
+        recorded["simulation_info"] = _path_string(merged["simulation_info"], "simulation_info")
+    return recorded
 
 
 def _hdf5_parameters(parameters: Mapping) -> Dict[str, object]:
+    """``simulation_info`` is optional and recorded only when given, exactly
+    as for L-Halo (:func:`_lhalo_parameters`): ``particle_mass`` alone does
+    not identify the metadata a header is written from."""
     merged = _check_keys(
         parameters,
         ("info_path", "first_file", "last_file", "particle_mass"),
-        {"memory_budget_bytes": _default_adapter_budget()},
+        {"memory_budget_bytes": _default_adapter_budget(), "simulation_info": None},
         "consistent_trees_hdf5",
     )
     particle_mass = finite_float(merged["particle_mass"], "particle_mass")
     if particle_mass <= 0.0:
         raise ConverterError("particle_mass must be positive, got {!r}".format(particle_mass))
-    return {
+    recorded = {
         "info_path": _path_string(merged["info_path"], "info_path"),
         "first_file": _strict_int(merged["first_file"], "first_file"),
         "last_file": _strict_int(merged["last_file"], "last_file"),
         "particle_mass": particle_mass,
         "memory_budget_bytes": _strict_int(merged["memory_budget_bytes"], "memory_budget_bytes", 1),
     }
+    if merged["simulation_info"] is not None:
+        recorded["simulation_info"] = _path_string(merged["simulation_info"], "simulation_info")
+    return recorded
 
 
 def _ascii_parameters(parameters: Mapping) -> Dict[str, object]:
@@ -386,11 +400,17 @@ class _Route:
 
 
 def _lhalo_dependencies(parameters: Mapping):
-    return [(path, (SOURCE_ROLE,), False) for _ordinal, path in parameters["sources"]]
+    dependencies = [(path, (SOURCE_ROLE,), False) for _ordinal, path in parameters["sources"]]
+    if "simulation_info" in parameters:
+        dependencies.append((parameters["simulation_info"], ("simulation_info",), True))
+    return dependencies
 
 
 def _hdf5_dependencies(parameters: Mapping):
-    return [(parameters["info_path"], (SOURCE_ROLE,), False)]
+    dependencies = [(parameters["info_path"], (SOURCE_ROLE,), False)]
+    if "simulation_info" in parameters:
+        dependencies.append((parameters["simulation_info"], ("simulation_info",), True))
+    return dependencies
 
 
 def _ascii_dependencies(parameters: Mapping):

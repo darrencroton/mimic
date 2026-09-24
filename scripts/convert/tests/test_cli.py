@@ -485,6 +485,145 @@ class FailureTests(CliCase):
         self.assertEqual(tree_state(copy), before)
 
 
+class LHaloMetadataBindingTests(CliCase):
+    """An L-Halo conversion is bound to the simulation_info it was ingested
+    with: the header's box size and cosmology come from that file at write
+    time, and nothing in the binary source would catch a different one.
+
+    mini-Millennium (62.5 Mpc/h) and Millennium (500 Mpc/h) share cosmology
+    and particle mass, so only the file's content identity tells them apart.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.work = self.tmp / "work"
+        self.mini = SIMULATIONS / "mini-millennium" / "simulation_info.yaml"
+        self.full = SIMULATIONS / "millennium" / "simulation_info.yaml"
+
+    def ingest_and_transpose(self, sim_info=None):
+        route = lhalo_route(
+            "mini-millennium", self.literal_gapped_source(), "trees_063", last_file=1
+        )
+        if sim_info is not None:
+            route[route.index("--simulation-info") + 1] = sim_info
+        self.cli("ingest", "--workdir", self.work, *route)
+        self.cli("transpose", "--workdir", self.work)
+        return route
+
+    def assert_nothing_written(self):
+        written = sorted(str(p) for p in (self.work / "write").rglob("*") if p.is_file())
+        self.assertEqual(written, [], "a refused write created output files")
+        manifest = json.loads((self.work / "manifest.json").read_text())
+        self.assertNotEqual(manifest["stages"]["write"]["status"], "complete")
+
+    def test_write_refuses_another_packages_simulation_info(self):
+        self.ingest_and_transpose()
+        result = self.cli("write", "--workdir", self.work, "--simulation-info", self.full, expect=1)
+        self.assertIn("different simulation_info", result.stderr)
+        self.assert_nothing_written()
+        # The recorded metadata still writes, and its box size is the header's.
+        self.cli("write", "--workdir", self.work, "--simulation-info", self.mini)
+        manifest = json.loads((self.work / "manifest.json").read_text())
+        dataset = self.work / manifest["stages"]["write"]["directory"]
+        with h5py.File(dataset / "snapshot_000.h5", "r") as handle:
+            self.assertEqual(float(handle["header"].attrs["box_size_mpc_h"]), 62.5)
+
+    def test_metadata_edited_after_ingest_is_refused_at_write(self):
+        edited = self.tmp / "simulation_info.yaml"
+        shutil.copy(self.mini, edited)
+        self.ingest_and_transpose(sim_info=edited)
+        edited.write_text(edited.read_text().replace("value: 62.5", "value: 500.0"))
+        result = self.cli("write", "--workdir", self.work, "--simulation-info", edited, expect=1)
+        self.assertIn(str(edited.resolve()), result.stderr)
+        self.assert_nothing_written()
+
+    def test_resume_with_another_packages_simulation_info_is_refused(self):
+        route = self.ingest_and_transpose()
+        before = tree_state(self.work)
+        other = list(route)
+        other[other.index("--simulation-info") + 1] = self.full
+        result = self.cli("ingest", "--workdir", self.work, *other, expect=1)
+        self.assertIn("different conversion", result.stderr)
+        self.assertEqual(tree_state(self.work), before)
+
+
+class ForestsHDF5MetadataBindingTests(LHaloMetadataBindingTests):
+    """The same binding on the forests-HDF5 route. Full Uchuu (2000 Mpc/h)
+    and micro-Uchuu (100 Mpc/h) share cosmology and particle mass, so the
+    writer's particle_mass agreement check alone cannot tell them apart."""
+
+    def setUp(self):
+        CliCase.setUp(self)
+        self.work = self.tmp / "work"
+        self.mini = SIMULATIONS / "uchuu" / "simulation_info.yaml"
+        self.full = SIMULATIONS / "micro-uchuu-hdf5" / "simulation_info.yaml"
+
+    def ingest_and_transpose(self, sim_info=None):
+        route = hdf5_route("uchuu", "mergertree_info.h5")
+        if sim_info is not None:
+            route[route.index("--simulation-info") + 1] = sim_info
+        self.cli("ingest", "--workdir", self.work, *route)
+        self.cli("transpose", "--workdir", self.work)
+        return route
+
+    def test_write_refuses_another_packages_simulation_info(self):
+        self.ingest_and_transpose()
+        result = self.cli("write", "--workdir", self.work, "--simulation-info", self.full, expect=1)
+        self.assertIn("different simulation_info", result.stderr)
+        self.assert_nothing_written()
+        self.cli("write", "--workdir", self.work, "--simulation-info", self.mini)
+        manifest = json.loads((self.work / "manifest.json").read_text())
+        dataset = self.work / manifest["stages"]["write"]["directory"]
+        with h5py.File(dataset / "snapshot_000.h5", "r") as handle:
+            self.assertEqual(float(handle["header"].attrs["box_size_mpc_h"]), 2000.0)
+
+    def test_metadata_edited_after_ingest_is_refused_at_write(self):
+        edited = self.tmp / "simulation_info.yaml"
+        shutil.copy(self.mini, edited)
+        self.ingest_and_transpose(sim_info=edited)
+        edited.write_text(edited.read_text().replace("value: 2000.0", "value: 100.0"))
+        result = self.cli("write", "--workdir", self.work, "--simulation-info", edited, expect=1)
+        self.assertIn(str(edited.resolve()), result.stderr)
+        self.assert_nothing_written()
+
+
+class LHaloWriterBindingTests(unittest.TestCase):
+    """The v3 writer's own L-Halo agreement check, reached through the
+    pipeline API rather than the CLI (whose earlier check would fire first):
+    a conversion that recorded its simulation_info refuses a writer built
+    from different metadata, before any output file exists."""
+
+    def test_the_writer_refuses_metadata_the_conversion_did_not_record(self):
+        import pipeline
+        from column_schema import ConverterError
+        from hdf5_writer import HorizontalV3Writer
+
+        tmp = Path(tempfile.mkdtemp(prefix="cli_writer_"))
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        source = tmp / "src"
+        source.mkdir()
+        lhalo.write_lhalo_file(str(source / "trees.0"), [literal.TREE_A, literal.TREE_B])
+        a_list = source / "a.list"
+        a_list.write_text(literal.A_LIST_TEXT)
+        mini = SIMULATIONS / "mini-millennium" / "simulation_info.yaml"
+        work = tmp / "work"
+        pipeline.initialize(
+            work,
+            literal.lhalo_schema(),
+            {"sources": [[0, str(source / "trees.0")]], "simulation_info": str(mini)},
+            a_list,
+            transpose_budget_bytes=literal.BUDGET,
+        )
+        pipeline.run_ingest(work)
+        pipeline.run_transpose(work)
+        other = SIMULATIONS / "millennium" / "simulation_info.yaml"
+        with self.assertRaisesRegex(ConverterError, "L-Halo conversion was recorded against"):
+            pipeline.run_write(work, HorizontalV3Writer(other))
+        self.assertEqual([p for p in (work / "write").rglob("*") if p.is_file()], [])
+        manifest = pipeline.run_write(work, HorizontalV3Writer(mini))
+        self.assertTrue(manifest.is_complete("write"))
+
+
 # ==========================================================================
 # Output identification (in process: a wide slab cannot be manufactured)
 # ==========================================================================

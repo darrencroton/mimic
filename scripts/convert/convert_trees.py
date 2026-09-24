@@ -270,6 +270,7 @@ def _adapter_parameters(args, info, budget_bytes: int) -> dict:
                 for ordinal in range(args.first_file, args.last_file + 1)
             ],
             "memory_budget_bytes": budget_bytes,
+            "simulation_info": args.simulation_info,
         }
     if source_format == "consistent_trees_hdf5":
         _check_file_range(args, info)
@@ -279,6 +280,7 @@ def _adapter_parameters(args, info, budget_bytes: int) -> dict:
             "last_file": args.last_file,
             "particle_mass": _reference_particle_mass(args.simulation_info),
             "memory_budget_bytes": budget_bytes,
+            "simulation_info": args.simulation_info,
         }
     parameters = {
         "tree_files": list(args.tree_file),
@@ -546,10 +548,33 @@ def cmd_transpose(args) -> int:
     return 0
 
 
+def _require_recorded_simulation_info(workdir, path) -> None:
+    """``write --simulation-info`` must be the very file the conversion was
+    ingested with: every route this CLI starts pins it by content. The header's
+    box size and cosmology come from it, and nothing in the source would catch
+    another package's metadata. Read-only."""
+    from conversion_manifest import ConversionManifest, sha256_file
+
+    manifest = ConversionManifest.load(workdir)
+    pinned = [record for record in manifest.dependencies if "simulation_info" in record["roles"]]
+    if not pinned:
+        return
+    given = sha256_file(path)
+    for record in pinned:
+        if record.get("sha256") != given:
+            raise ConverterError(
+                "{}: this conversion was ingested with a different simulation_info ({}, sha256 "
+                "{}); refusing to write a header from other metadata".format(
+                    path, record["path"], record.get("sha256")
+                )
+            )
+
+
 def cmd_write(args) -> int:
     import pipeline
     from hdf5_writer import HorizontalV3Writer
 
+    _require_recorded_simulation_info(args.workdir, args.simulation_info)
     manifest = pipeline.run_write(
         args.workdir,
         HorizontalV3Writer(args.simulation_info),

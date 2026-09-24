@@ -933,6 +933,15 @@ class HorizontalV3Writer(StageWriter):
                         parameters["simulation_info"], recorded, self._simulation_info_sha256
                     )
                 )
+        elif inputs.source_format == "lhalo_binary" and "simulation_info" in parameters:
+            recorded = sha256_file(parameters["simulation_info"])
+            if recorded != self._simulation_info_sha256:
+                raise ConverterError(
+                    "{}: the L-Halo conversion was recorded against a different simulation_info "
+                    "(sha256 {}) than the writer was given ({}); refusing to mix metadata".format(
+                        parameters["simulation_info"], recorded, self._simulation_info_sha256
+                    )
+                )
 
     def _measure(self, inputs: WriteInputs) -> V3Measurement:
         """One bounded pass over the transposed records: per-snapshot counts,
