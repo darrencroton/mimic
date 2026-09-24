@@ -1,0 +1,295 @@
+{
+  "dtype_tag": "ctrees-scratch-v1/itemsize=108/id:<i8,desc_id:<i8,desc_scale:<f8,pid:<i8,upid:<i8,snap:<i4,Mvir:<f4,X:<f4,Y:<f4,Z:<f4,VX:<f4,VY:<f4,VZ:<f4,Jx:<f4,Jy:<f4,Jz:<f4,vrms:<f4,vmax:<f4,tree_root_id:<i8,forest_id:<i8",
+  "intermediates": {
+    "/private/tmp/mimic_legacy_manifest_v2_capture/workdir/forest_index_table.npy": {
+      "kind": "forest-index-table",
+      "md5": "7756b12a9f85158b5c08947c1a655894",
+      "status": "present"
+    },
+    "/private/tmp/mimic_legacy_manifest_v2_capture/workdir/forest_max_snap.npy": {
+      "kind": "forest-max-snap-merged",
+      "md5": "2d755ad4734d96f3d6cbc5a570d819b5",
+      "status": "present"
+    },
+    "/private/tmp/mimic_legacy_manifest_v2_capture/workdir/scratch/forest_max_src_0.npy": {
+      "kind": "forest-max-snap",
+      "md5": "2d755ad4734d96f3d6cbc5a570d819b5",
+      "status": "present"
+    },
+    "/private/tmp/mimic_legacy_manifest_v2_capture/workdir/scratch/roots_src_0.npy": {
+      "kind": "observed-roots",
+      "md5": "a1f6d42bbb09e7fb1d7ab9776197f843",
+      "status": "present"
+    },
+    "/private/tmp/mimic_legacy_manifest_v2_capture/workdir/scratch/snap_001.bin": {
+      "dtype_tag": "ctrees-scratch-v1/itemsize=108/id:<i8,desc_id:<i8,desc_scale:<f8,pid:<i8,upid:<i8,snap:<i4,Mvir:<f4,X:<f4,Y:<f4,Z:<f4,VX:<f4,VY:<f4,VZ:<f4,Jx:<f4,Jy:<f4,Jz:<f4,vrms:<f4,vmax:<f4,tree_root_id:<i8,forest_id:<i8",
+      "kind": "snapshot-scratch",
+      "md5": "b3115348de6e3467ad725ca0b270de53",
+      "rows": 1,
+      "status": "removed"
+    },
+    "/private/tmp/mimic_legacy_manifest_v2_capture/workdir/scratch/snap_001.idx": {
+      "dtype_tag": "<i8",
+      "kind": "snapshot-index",
+      "md5": "7bb0d494f49beaf2520a34c970f36d91",
+      "rows": 1,
+      "status": "present"
+    },
+    "/private/tmp/mimic_legacy_manifest_v2_capture/workdir/scratch/snap_001.src_0.bin": {
+      "dtype_tag": "ctrees-scratch-v1/itemsize=108/id:<i8,desc_id:<i8,desc_scale:<f8,pid:<i8,upid:<i8,snap:<i4,Mvir:<f4,X:<f4,Y:<f4,Z:<f4,VX:<f4,VY:<f4,VZ:<f4,Jx:<f4,Jy:<f4,Jz:<f4,vrms:<f4,vmax:<f4,tree_root_id:<i8,forest_id:<i8",
+      "kind": "worker-scratch",
+      "md5": "b3115348de6e3467ad725ca0b270de53",
+      "rows": 1,
+      "status": "removed"
+    },
+    "/private/tmp/mimic_legacy_manifest_v2_capture/workdir/scratch/snap_001_sorted.bin": {
+      "dtype_tag": "ctrees-scratch-v1/itemsize=108/id:<i8,desc_id:<i8,desc_scale:<f8,pid:<i8,upid:<i8,snap:<i4,Mvir:<f4,X:<f4,Y:<f4,Z:<f4,VX:<f4,VY:<f4,VZ:<f4,Jx:<f4,Jy:<f4,Jz:<f4,vrms:<f4,vmax:<f4,tree_root_id:<i8,forest_id:<i8",
+      "kind": "snapshot-sorted",
+      "md5": "b3115348de6e3467ad725ca0b270de53",
+      "rows": 1,
+      "status": "present"
+    },
+    "/private/tmp/mimic_legacy_manifest_v2_capture/workdir/scratch/snap_002.bin": {
+      "dtype_tag": "ctrees-scratch-v1/itemsize=108/id:<i8,desc_id:<i8,desc_scale:<f8,pid:<i8,upid:<i8,snap:<i4,Mvir:<f4,X:<f4,Y:<f4,Z:<f4,VX:<f4,VY:<f4,VZ:<f4,Jx:<f4,Jy:<f4,Jz:<f4,vrms:<f4,vmax:<f4,tree_root_id:<i8,forest_id:<i8",
+      "kind": "snapshot-scratch",
+      "md5": "448e27a91cf3ce1fa48e1d88fcc79f9f",
+      "rows": 1,
+      "status": "removed"
+    },
+    "/private/tmp/mimic_legacy_manifest_v2_capture/workdir/scratch/snap_002.idx": {
+      "dtype_tag": "<i8",
+      "kind": "snapshot-index",
+      "md5": "74b2b7bfb1e9db76447bc49a90253e2b",
+      "rows": 1,
+      "status": "present"
+    },
+    "/private/tmp/mimic_legacy_manifest_v2_capture/workdir/scratch/snap_002.src_0.bin": {
+      "dtype_tag": "ctrees-scratch-v1/itemsize=108/id:<i8,desc_id:<i8,desc_scale:<f8,pid:<i8,upid:<i8,snap:<i4,Mvir:<f4,X:<f4,Y:<f4,Z:<f4,VX:<f4,VY:<f4,VZ:<f4,Jx:<f4,Jy:<f4,Jz:<f4,vrms:<f4,vmax:<f4,tree_root_id:<i8,forest_id:<i8",
+      "kind": "worker-scratch",
+      "md5": "448e27a91cf3ce1fa48e1d88fcc79f9f",
+      "rows": 1,
+      "status": "removed"
+    },
+    "/private/tmp/mimic_legacy_manifest_v2_capture/workdir/scratch/snap_002_sorted.bin": {
+      "dtype_tag": "ctrees-scratch-v1/itemsize=108/id:<i8,desc_id:<i8,desc_scale:<f8,pid:<i8,upid:<i8,snap:<i4,Mvir:<f4,X:<f4,Y:<f4,Z:<f4,VX:<f4,VY:<f4,VZ:<f4,Jx:<f4,Jy:<f4,Jz:<f4,vrms:<f4,vmax:<f4,tree_root_id:<i8,forest_id:<i8",
+      "kind": "snapshot-sorted",
+      "md5": "448e27a91cf3ce1fa48e1d88fcc79f9f",
+      "rows": 1,
+      "status": "present"
+    },
+    "/private/tmp/mimic_legacy_manifest_v2_capture/workdir/scratch/snap_003.bin": {
+      "dtype_tag": "ctrees-scratch-v1/itemsize=108/id:<i8,desc_id:<i8,desc_scale:<f8,pid:<i8,upid:<i8,snap:<i4,Mvir:<f4,X:<f4,Y:<f4,Z:<f4,VX:<f4,VY:<f4,VZ:<f4,Jx:<f4,Jy:<f4,Jz:<f4,vrms:<f4,vmax:<f4,tree_root_id:<i8,forest_id:<i8",
+      "kind": "snapshot-scratch",
+      "md5": "5e16c1a8c744a357aec7d091a4d42982",
+      "rows": 1,
+      "status": "removed"
+    },
+    "/private/tmp/mimic_legacy_manifest_v2_capture/workdir/scratch/snap_003.idx": {
+      "dtype_tag": "<i8",
+      "kind": "snapshot-index",
+      "md5": "e92cd24e43b7ce29968c322331f98fe7",
+      "rows": 1,
+      "status": "present"
+    },
+    "/private/tmp/mimic_legacy_manifest_v2_capture/workdir/scratch/snap_003.src_0.bin": {
+      "dtype_tag": "ctrees-scratch-v1/itemsize=108/id:<i8,desc_id:<i8,desc_scale:<f8,pid:<i8,upid:<i8,snap:<i4,Mvir:<f4,X:<f4,Y:<f4,Z:<f4,VX:<f4,VY:<f4,VZ:<f4,Jx:<f4,Jy:<f4,Jz:<f4,vrms:<f4,vmax:<f4,tree_root_id:<i8,forest_id:<i8",
+      "kind": "worker-scratch",
+      "md5": "5e16c1a8c744a357aec7d091a4d42982",
+      "rows": 1,
+      "status": "removed"
+    },
+    "/private/tmp/mimic_legacy_manifest_v2_capture/workdir/scratch/snap_003_sorted.bin": {
+      "dtype_tag": "ctrees-scratch-v1/itemsize=108/id:<i8,desc_id:<i8,desc_scale:<f8,pid:<i8,upid:<i8,snap:<i4,Mvir:<f4,X:<f4,Y:<f4,Z:<f4,VX:<f4,VY:<f4,VZ:<f4,Jx:<f4,Jy:<f4,Jz:<f4,vrms:<f4,vmax:<f4,tree_root_id:<i8,forest_id:<i8",
+      "kind": "snapshot-sorted",
+      "md5": "5e16c1a8c744a357aec7d091a4d42982",
+      "rows": 1,
+      "status": "present"
+    },
+    "/private/tmp/mimic_legacy_manifest_v2_capture/workdir/scratch/snap_004.bin": {
+      "dtype_tag": "ctrees-scratch-v1/itemsize=108/id:<i8,desc_id:<i8,desc_scale:<f8,pid:<i8,upid:<i8,snap:<i4,Mvir:<f4,X:<f4,Y:<f4,Z:<f4,VX:<f4,VY:<f4,VZ:<f4,Jx:<f4,Jy:<f4,Jz:<f4,vrms:<f4,vmax:<f4,tree_root_id:<i8,forest_id:<i8",
+      "kind": "snapshot-scratch",
+      "md5": "aa496dcfd0a912709556cf22ef357fa0",
+      "rows": 5,
+      "status": "removed"
+    },
+    "/private/tmp/mimic_legacy_manifest_v2_capture/workdir/scratch/snap_004.idx": {
+      "dtype_tag": "<i8",
+      "kind": "snapshot-index",
+      "md5": "6cf31f7f5e27761d9a40bf493a25c36e",
+      "rows": 5,
+      "status": "present"
+    },
+    "/private/tmp/mimic_legacy_manifest_v2_capture/workdir/scratch/snap_004.src_0.bin": {
+      "dtype_tag": "ctrees-scratch-v1/itemsize=108/id:<i8,desc_id:<i8,desc_scale:<f8,pid:<i8,upid:<i8,snap:<i4,Mvir:<f4,X:<f4,Y:<f4,Z:<f4,VX:<f4,VY:<f4,VZ:<f4,Jx:<f4,Jy:<f4,Jz:<f4,vrms:<f4,vmax:<f4,tree_root_id:<i8,forest_id:<i8",
+      "kind": "worker-scratch",
+      "md5": "aa496dcfd0a912709556cf22ef357fa0",
+      "rows": 5,
+      "status": "removed"
+    },
+    "/private/tmp/mimic_legacy_manifest_v2_capture/workdir/scratch/snap_004_sorted.bin": {
+      "dtype_tag": "ctrees-scratch-v1/itemsize=108/id:<i8,desc_id:<i8,desc_scale:<f8,pid:<i8,upid:<i8,snap:<i4,Mvir:<f4,X:<f4,Y:<f4,Z:<f4,VX:<f4,VY:<f4,VZ:<f4,Jx:<f4,Jy:<f4,Jz:<f4,vrms:<f4,vmax:<f4,tree_root_id:<i8,forest_id:<i8",
+      "kind": "snapshot-sorted",
+      "md5": "aa496dcfd0a912709556cf22ef357fa0",
+      "rows": 5,
+      "status": "present"
+    },
+    "/private/tmp/mimic_legacy_manifest_v2_capture/workdir/scratch/snap_005.bin": {
+      "dtype_tag": "ctrees-scratch-v1/itemsize=108/id:<i8,desc_id:<i8,desc_scale:<f8,pid:<i8,upid:<i8,snap:<i4,Mvir:<f4,X:<f4,Y:<f4,Z:<f4,VX:<f4,VY:<f4,VZ:<f4,Jx:<f4,Jy:<f4,Jz:<f4,vrms:<f4,vmax:<f4,tree_root_id:<i8,forest_id:<i8",
+      "kind": "snapshot-scratch",
+      "md5": "746b593d2adc5f5ace833481d2ed44e5",
+      "rows": 9,
+      "status": "removed"
+    },
+    "/private/tmp/mimic_legacy_manifest_v2_capture/workdir/scratch/snap_005.idx": {
+      "dtype_tag": "<i8",
+      "kind": "snapshot-index",
+      "md5": "ae162f3733b71ba1fa747a8d373a50bc",
+      "rows": 9,
+      "status": "present"
+    },
+    "/private/tmp/mimic_legacy_manifest_v2_capture/workdir/scratch/snap_005.src_0.bin": {
+      "dtype_tag": "ctrees-scratch-v1/itemsize=108/id:<i8,desc_id:<i8,desc_scale:<f8,pid:<i8,upid:<i8,snap:<i4,Mvir:<f4,X:<f4,Y:<f4,Z:<f4,VX:<f4,VY:<f4,VZ:<f4,Jx:<f4,Jy:<f4,Jz:<f4,vrms:<f4,vmax:<f4,tree_root_id:<i8,forest_id:<i8",
+      "kind": "worker-scratch",
+      "md5": "746b593d2adc5f5ace833481d2ed44e5",
+      "rows": 9,
+      "status": "removed"
+    },
+    "/private/tmp/mimic_legacy_manifest_v2_capture/workdir/scratch/snap_005_sorted.bin": {
+      "dtype_tag": "ctrees-scratch-v1/itemsize=108/id:<i8,desc_id:<i8,desc_scale:<f8,pid:<i8,upid:<i8,snap:<i4,Mvir:<f4,X:<f4,Y:<f4,Z:<f4,VX:<f4,VY:<f4,VZ:<f4,Jx:<f4,Jy:<f4,Jz:<f4,vrms:<f4,vmax:<f4,tree_root_id:<i8,forest_id:<i8",
+      "kind": "snapshot-sorted",
+      "md5": "746b593d2adc5f5ace833481d2ed44e5",
+      "rows": 9,
+      "status": "present"
+    }
+  },
+  "manifest_version": 2,
+  "observed_pairs": [
+    [
+      1,
+      0.6
+    ],
+    [
+      2,
+      0.7
+    ],
+    [
+      3,
+      0.8
+    ],
+    [
+      4,
+      0.9
+    ],
+    [
+      5,
+      1.0
+    ]
+  ],
+  "provenance": {
+    "a_list": {
+      "md5": "eb1d4c6c5d32b275bdec18c6db6764aa",
+      "path": "/private/tmp/mimic_legacy_manifest_v2_capture/inputs/fixture.a_list"
+    },
+    "forests_list": {
+      "md5": "3033358b8db7ce392a382dacc6d28419",
+      "path": "/private/tmp/mimic_legacy_manifest_v2_capture/inputs/forests.list"
+    },
+    "simulation_info": {
+      "md5": "557d9996e138c1f1f408c25ccccbf23e",
+      "path": "/private/tmp/mimic_legacy_manifest_v2_capture/inputs/simulation_info.yaml"
+    },
+    "source_files": [
+      "/private/tmp/mimic_legacy_manifest_v2_capture/inputs/tree_0_0_0.dat"
+    ]
+  },
+  "snapshots": {
+    "1": {
+      "id_checksum": 4011,
+      "index_file": "/private/tmp/mimic_legacy_manifest_v2_capture/workdir/scratch/snap_001.idx",
+      "rows": 1,
+      "scratch_file": "/private/tmp/mimic_legacy_manifest_v2_capture/workdir/scratch/snap_001.bin",
+      "sorted_file": "/private/tmp/mimic_legacy_manifest_v2_capture/workdir/scratch/snap_001_sorted.bin",
+      "status": "sorted"
+    },
+    "2": {
+      "id_checksum": 4010,
+      "index_file": "/private/tmp/mimic_legacy_manifest_v2_capture/workdir/scratch/snap_002.idx",
+      "rows": 1,
+      "scratch_file": "/private/tmp/mimic_legacy_manifest_v2_capture/workdir/scratch/snap_002.bin",
+      "sorted_file": "/private/tmp/mimic_legacy_manifest_v2_capture/workdir/scratch/snap_002_sorted.bin",
+      "status": "sorted"
+    },
+    "3": {
+      "id_checksum": 1013,
+      "index_file": "/private/tmp/mimic_legacy_manifest_v2_capture/workdir/scratch/snap_003.idx",
+      "rows": 1,
+      "scratch_file": "/private/tmp/mimic_legacy_manifest_v2_capture/workdir/scratch/snap_003.bin",
+      "sorted_file": "/private/tmp/mimic_legacy_manifest_v2_capture/workdir/scratch/snap_003_sorted.bin",
+      "status": "sorted"
+    },
+    "4": {
+      "id_checksum": 1019,
+      "index_file": "/private/tmp/mimic_legacy_manifest_v2_capture/workdir/scratch/snap_004.idx",
+      "rows": 5,
+      "scratch_file": "/private/tmp/mimic_legacy_manifest_v2_capture/workdir/scratch/snap_004.bin",
+      "sorted_file": "/private/tmp/mimic_legacy_manifest_v2_capture/workdir/scratch/snap_004_sorted.bin",
+      "status": "sorted"
+    },
+    "5": {
+      "id_checksum": 6003,
+      "index_file": "/private/tmp/mimic_legacy_manifest_v2_capture/workdir/scratch/snap_005.idx",
+      "rows": 9,
+      "scratch_file": "/private/tmp/mimic_legacy_manifest_v2_capture/workdir/scratch/snap_005.bin",
+      "sorted_file": "/private/tmp/mimic_legacy_manifest_v2_capture/workdir/scratch/snap_005_sorted.bin",
+      "status": "sorted"
+    }
+  },
+  "source_files": {
+    "/private/tmp/mimic_legacy_manifest_v2_capture/inputs/tree_0_0_0.dat": {
+      "dtype_tag": "ctrees-scratch-v1/itemsize=108/id:<i8,desc_id:<i8,desc_scale:<f8,pid:<i8,upid:<i8,snap:<i4,Mvir:<f4,X:<f4,Y:<f4,Z:<f4,VX:<f4,VY:<f4,VZ:<f4,Jx:<f4,Jy:<f4,Jz:<f4,vrms:<f4,vmax:<f4,tree_root_id:<i8,forest_id:<i8",
+      "md5": "e0eae24f7592b2de143e290133810cbb",
+      "mtime_ns": 1790217550556758077,
+      "observed_pairs": [
+        [
+          1,
+          0.6
+        ],
+        [
+          2,
+          0.7
+        ],
+        [
+          3,
+          0.8
+        ],
+        [
+          4,
+          0.9
+        ],
+        [
+          5,
+          1.0
+        ]
+      ],
+      "parsed_count": 17,
+      "per_snapshot_checksums": {
+        "1": 4011,
+        "2": 4010,
+        "3": 1013,
+        "4": 1019,
+        "5": 6003
+      },
+      "per_snapshot_counts": {
+        "1": 1,
+        "2": 1,
+        "3": 1,
+        "4": 5,
+        "5": 9
+      },
+      "pre_count": 17,
+      "size": 3127,
+      "src_index": 0,
+      "status": "completed"
+    }
+  }
+}
