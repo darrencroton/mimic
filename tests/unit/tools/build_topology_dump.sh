@@ -11,8 +11,17 @@
 # Usage:
 #   ./build_topology_dump.sh
 #   MODEL=halos-only SIMULATION=micro-uchuu-ascii ./build_topology_dump.sh
+#   TOPOLOGY_DUMP_BUILD_DIR=/scratch/dump-mini-millennium \
+#     MODEL=halos-only SIMULATION=mini-millennium ./build_topology_dump.sh
 #
-# Output: tests/unit/tools/build/dump_ctrees_topology
+# Output: tests/unit/tools/build/dump_ctrees_topology, or
+#         $TOPOLOGY_DUMP_BUILD_DIR/dump_ctrees_topology when that is set (a
+#         relative path resolves against the repository root).
+# The executable is only valid for the SIMULATION it was built for (struct
+# RawHalo is generated from that package's halo_properties.yaml), so callers
+# that need several packages' tools at once give each its own build directory.
+# Every source is recompiled on every invocation, so a fresh directory is a
+# clean-state build.
 # Exit codes: 0 success, 1 build/link failure, 2 precondition failure
 ###############################################################################
 
@@ -36,7 +45,7 @@ export MODEL SIMULATION
 MODEL_ROOT="models/${MODEL}"
 
 TOOL_DIR="tests/unit/tools"
-BUILD_DIR="${TOOL_DIR}/build"
+BUILD_DIR="${TOPOLOGY_DUMP_BUILD_DIR:-${TOOL_DIR}/build}"
 OBJ_DIR="${BUILD_DIR}/obj"
 OUT_EXE="${BUILD_DIR}/dump_ctrees_topology"
 SRC_DIR="src"
