@@ -64,12 +64,14 @@ budget.
 Measurement
 -----------
 Every subcommand appends one entry to the ``--record`` JSON file (created on
-first use, rewritten atomically): the command line, start time, wall and CPU
-seconds, peak RSS, exit code, the git commit and working-tree state, SHA-256
-identities of the harness and of any executable it ran, the identity (path,
-size, mtime, inode, optionally SHA-256) of every input it read, storage widths
-and B/halo of converted output, and every external sort's record width, run
-count, merge passes and spilled bytes. Child peak RSS comes from ``wait4`` for
+first use, rewritten atomically) -- including a run stopped by unusable input,
+whose entry (``kind: error``, exit 2) carries the error text. Each entry holds
+the command line, start time, wall and CPU seconds, peak RSS, exit code, the
+git commit and working-tree state, SHA-256 identities of the harness and of
+any executable it ran, the identity (path, size, mtime, inode, optionally
+SHA-256) of every input it read, storage widths and B/halo of converted
+output, and every external sort's record width, run count, merge passes and
+spilled bytes. Child peak RSS comes from ``wait4`` for
 that child alone; the in-process comparator reports the process's lifetime peak.
 
 Subcommands
@@ -92,7 +94,9 @@ Subcommands
 
 Exit codes: 0 PASS (or a measured command succeeded), 1 FAIL (a comparison
 found a defect, or a measured command failed), 2 usage error or unusable input
-(a malformed or truncated dump, a missing source file, an unsupported layout).
+(a malformed or truncated dump, a missing or unreadable file, an unsupported
+layout). Only a ``--record`` file that cannot be opened or is not a record
+leaves nothing recorded.
 
 Example (a Slice 11-style invocation; paths illustrative)::
 
@@ -250,8 +254,10 @@ class Findings:
         self.checks[name]["compared"] += int(count)
 
     def fail(self, name, count, samples=()):
+        """Record a failure. A failure always counts: ``count`` below 1 counts as 1,
+        so a defect found in an empty file can never leave a check at zero."""
         check = self.checks[name]
-        check["failures"] += int(count)
+        check["failures"] += max(1, int(count))
         room = SAMPLE_LIMIT - len(check["samples"])
         if room > 0:
             check["samples"].extend(str(sample) for sample in list(samples)[:room])
@@ -895,9 +901,12 @@ class V3Dataset:
     problems that make a comparison meaningless -- a wrong format version, a
     header snapshot disagreeing with its file name, a missing required
     dataset, a ragged ``/halos`` group, mixed source formats -- raise
-    :class:`DatasetDefect`. A float payload dataset that is not little-endian
-    binary32 (the vertical readers' ``float``) is a failure of that field's
-    check and is excluded from bit comparison.
+    :class:`DatasetDefect`. A float payload dataset stored as anything but
+    little-endian binary32 (the vertical readers' ``float``) fails the
+    ``payload_storage`` check once per file and field, whatever that file's row
+    count (an empty snapshot's wrong schema is still a defect). Such a file's
+    values are still compared, cast to binary32, so a storage defect in one
+    file never silences the value comparison of that field in any file.
     """
 
     def __init__(self, directory, findings=None):
@@ -907,7 +916,6 @@ class V3Dataset:
         paths = sorted(self.directory.glob("snapshot_*.h5"))
         if not paths:
             raise DatasetDefect("{}: no snapshot_*.h5 files".format(self.directory))
-        self.float_excluded = set()
         for path in paths:
             try:
                 number = int(path.stem.split("_", 1)[1])
@@ -950,18 +958,18 @@ class V3Dataset:
                         raise DatasetDefect(
                             "{}: /halos/{} shape {} != {}".format(path, name, dataset.shape, shape)
                         )
+                    if findings is not None:
+                        findings.compared("payload_storage", 1)
                     if dataset.dtype != np.dtype("<f4"):
-                        self.float_excluded.add(name)
-                        if findings is not None:
-                            findings.fail(
-                                "payload_" + name,
-                                rows,
-                                [
-                                    "{}: /halos/{} is {}, not <f4 binary32".format(
-                                        path.name, name, dataset.dtype
-                                    )
-                                ],
+                        if dataset.dtype.kind not in "fiu":
+                            raise DatasetDefect(
+                                "{}: /halos/{} is {}, not numeric".format(path, name, dataset.dtype)
                             )
+                        defect = "{}: /halos/{} is {} ({} rows), not <f4 binary32".format(
+                            path.name, name, dataset.dtype, rows
+                        )
+                        if findings is not None:
+                            findings.fail("payload_storage", 1, [defect])
             self.files.append((number, path, rows))
         if len(source_formats) != 1:
             raise DatasetDefect("mixed source_format values {}".format(sorted(source_formats)))
@@ -990,8 +998,10 @@ class V3Dataset:
         for number, halos, start, stop in self._slices(block_rows):
             columns = {name: halos[name][start:stop].astype(np.int64) for name in _INT_DATASETS}
             for name, _components in FLOAT_PAYLOAD:
-                if name not in self.float_excluded:
-                    columns[name] = halos[name][start:stop].view("<u4")
+                values = halos[name][start:stop]
+                if values.dtype != np.dtype("<f4"):
+                    values = values.astype("<f4")  # already failed payload_storage
+                columns[name] = values.view("<u4")
             yield number, np.arange(start, stop, dtype=np.int64), columns
 
     def extra_blocks(self, names, block_rows):
@@ -1175,6 +1185,7 @@ def _declare_checks(findings, source_format):
         findings.declare("payload_" + name, "{} equals the reference exactly".format(name))
     for name, _components in FLOAT_PAYLOAD:
         findings.declare("payload_" + name, "{} binary32 bits equal the reference".format(name))
+    findings.declare("payload_storage", "every float payload dataset is <f4 binary32 in every file")
     findings.declare("source_halo_id", "SourceHaloID equals the inventory prefix sum")
     if source_format not in UNIT_FOREST_FORMATS:
         findings.not_applicable(
@@ -1183,7 +1194,7 @@ def _declare_checks(findings, source_format):
         )
 
 
-def _compare_window(reference, converted, source_format, float_excluded, findings):
+def _compare_window(reference, converted, source_format, findings):
     n = len(reference)
 
     def check(name, bad, describe):
@@ -1230,8 +1241,6 @@ def _compare_window(reference, converted, source_format, float_excluded, finding
             ),
         )
     for name, components in FLOAT_PAYLOAD:
-        if name in float_excluded:
-            continue
         bad = reference[name] != converted[name]
         if components > 1:
             bad = bad.any(axis=1)
@@ -1261,7 +1270,6 @@ def compare_streams(
     source_format,
     budget_bytes,
     spill_dir=None,
-    float_excluded=(),
     findings=None,
 ):
     """Run the whole comparison over block streams; return its report dict.
@@ -1357,7 +1365,7 @@ def compare_streams(
             hit = match >= 0
             matched += int(np.count_nonzero(hit))
             if hit.any():
-                _compare_window(ref[hit], conv[match[hit]], source_format, float_excluded, findings)
+                _compare_window(ref[hit], conv[match[hit]], source_format, findings)
     finally:
         stats["sorts"] = [made.stats for made in sorters]
         for made in sorters:
@@ -1415,7 +1423,6 @@ def compare_dataset(dataset_dir, dump_path, source_format, budget_bytes, spill_d
         source_format,
         budget_bytes,
         spill_dir,
-        dataset.float_excluded,
         findings,
     )
     report["dump"] = {
@@ -1765,15 +1772,22 @@ def compare_extras(
         findings.declare("extra_" + name, "{} bits equal the source's declared cast".format(name))
     try:
         dataset = V3Dataset(dataset_dir)
+        # an extra stored differently in two files (an empty snapshot included)
+        descriptions = dataset.dataset_descriptions([name for name, *_rest in declared])
     except DatasetDefect as defect:
         findings.declare("dataset_integrity", "the dataset is structurally comparable")
         findings.fail("dataset_integrity", 1, [str(defect)])
-        return {"report_format": REPORT_FORMAT, "verdict": "FAIL", "checks": findings.as_dict()}
+        return {
+            "report_format": REPORT_FORMAT,
+            "verdict": "FAIL",
+            "failed_checks": findings.failed,
+            "source_format": source_format,
+            "checks": findings.as_dict(),
+        }
     if dataset.source_format != source_format:
         raise AcceptanceError(
             "dataset source_format {!r} is not {!r}".format(dataset.source_format, source_format)
         )
-    descriptions = dataset.dataset_descriptions([name for name, *_rest in declared])
     usable = []
     for name, dtype, components, _sources in declared:
         want = (dtype, () if components == 1 else (components,))
@@ -2067,25 +2081,35 @@ def measured_run(argv, label, log_dir, cwd=None, env=None):
     return entry
 
 
-def in_process_measurement(label, function):
-    """Run ``function()`` here; measure wall/CPU time and the process's peak RSS."""
-    before = resource.getrusage(resource.RUSAGE_SELF)
-    start = time.monotonic()
-    entry = {"label": label, "kind": "in_process", "command": sys.argv, "started": _now()}
-    try:
-        result = function()
-        entry["result"] = result
-    finally:
+class _ProcessClock:
+    """Wall and CPU time since construction, and the process's peak RSS so far."""
+
+    def __init__(self):
+        self.started = _now()
+        self._start = time.monotonic()
+        self._before = resource.getrusage(resource.RUSAGE_SELF)
+
+    def measurements(self):
         after = resource.getrusage(resource.RUSAGE_SELF)
-        entry.update(
-            {
-                "wall_seconds": time.monotonic() - start,
-                "user_seconds": after.ru_utime - before.ru_utime,
-                "system_seconds": after.ru_stime - before.ru_stime,
-                "peak_rss_bytes": _maxrss_bytes(after.ru_maxrss),
-                "peak_rss_scope": "process lifetime",
-            }
-        )
+        return {
+            "started": self.started,
+            "wall_seconds": time.monotonic() - self._start,
+            "user_seconds": after.ru_utime - self._before.ru_utime,
+            "system_seconds": after.ru_stime - self._before.ru_stime,
+            "peak_rss_bytes": _maxrss_bytes(after.ru_maxrss),
+            "peak_rss_scope": "process lifetime",
+        }
+
+
+def in_process_measurement(label, function, command):
+    """Run ``function()`` here; measure wall/CPU time and the process's peak RSS.
+
+    An exception propagates to :func:`main`, which records the failed run.
+    """
+    clock = _ProcessClock()
+    result = function()
+    entry = {"label": label, "kind": "in_process", "command": command, "result": result}
+    entry.update(clock.measurements())
     return entry
 
 
@@ -2189,6 +2213,7 @@ def cmd_compare(args):
             args.spill_dir,
             _block_rows(args, budget),
         ),
+        args.command_line,
     )
     report = entry["result"]
     _write_report(args.report, report)
@@ -2231,6 +2256,7 @@ def cmd_compare_extras(args):
             args.spill_dir,
             _block_rows(args, budget),
         ),
+        args.command_line,
     )
     report = entry["result"]
     _write_report(args.report, report)
@@ -2322,19 +2348,43 @@ def build_parser():
 
 def main(argv=None):
     parser = build_parser()
+    command_line = [str(Path(__file__).resolve())] + [
+        str(arg) for arg in (sys.argv[1:] if argv is None else argv)
+    ]
     args = parser.parse_args(argv)
+    args.command_line = command_line
     if getattr(args, "argv", None) and args.argv[0] == "--":
         args.argv = args.argv[1:]
+    clock = _ProcessClock()
     try:
         record = RunRecord(args.record)
-        entry, exit_code = args.handler(args)
-    except AcceptanceError as error:
-        print("run_generalisation_acceptance: error: {}".format(error), file=sys.stderr)
+    except (AcceptanceError, OSError, ValueError) as error:
+        print(
+            "run_generalisation_acceptance: error: {} (nothing recorded)".format(error),
+            file=sys.stderr,
+        )
         return EXIT_ERROR
+    try:
+        entry, exit_code = args.handler(args)
+    except (AcceptanceError, DatasetDefect, OSError) as error:
+        # unusable input still leaves a record of the run that met it
+        print("run_generalisation_acceptance: error: {}".format(error), file=sys.stderr)
+        exit_code = EXIT_ERROR
+        entry = {
+            "label": getattr(args, "label", None) or args.command,
+            "kind": "error",
+            "command": command_line,
+            "exit_code": EXIT_ERROR,
+            "error": "{}: {}".format(type(error).__name__, error),
+        }
+        entry.update(clock.measurements())
     entry["exit_status"] = exit_code
     entry["code"] = code_identity()
     if args.source:
-        entry["recorded_sources"] = source_identities(args.source, args.hash_sources)
+        try:
+            entry["recorded_sources"] = source_identities(args.source, args.hash_sources)
+        except OSError as error:
+            entry["recorded_sources_error"] = str(error)
     record.append(entry)
     verdict = (
         entry.get("result", {}).get("verdict") if isinstance(entry.get("result"), dict) else None

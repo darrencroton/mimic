@@ -326,6 +326,23 @@ def get_value(dataset_dir, forest, rank, name):
         return handle["halos"][name][row]
 
 
+def retype(path, name, dtype):
+    """Rewrite one /halos dataset of one snapshot file with another storage dtype."""
+    with h5py.File(path, "r+") as handle:
+        data = handle["halos"][name][...].astype(dtype)
+        del handle["halos"][name]
+        handle["halos"].create_dataset(name, data=data)
+
+
+def empty_snapshot(dataset_dir):
+    """The first snapshot file of the dataset that holds no halos."""
+    for path in sorted(Path(dataset_dir).glob("snapshot_*.h5")):
+        with h5py.File(path, "r") as handle:
+            if handle["halos"]["SourceHaloID"].shape[0] == 0:
+                return path
+    raise AssertionError("the synthetic dataset has no empty snapshot")
+
+
 def compare(dataset, dump, budget_bytes=1 << 20, block_rows=3):
     return acc.compare_dataset(dataset, dump, "lhalo_binary", budget_bytes, None, block_rows)
 
@@ -462,6 +479,79 @@ class ComparatorDefectTests(unittest.TestCase):
         self.assertGreater(halo_sort["runs"], 1, "the tiny budget must force spill runs")
         self.assertGreater(halo_sort["spilled_bytes"], 0)
         self.assertEqual(json.loads(report.read_text())["verdict"], "PASS")
+
+    def test_unusable_input_is_still_recorded(self):
+        record = self.work / "record.json"
+        truncated = self.copy_dump(lambda text: text.rsplit("# end", 1)[0])
+        missing = self.work / "no-such.dump"
+        for dump in (truncated, missing):
+            code, _out, err = run_harness(
+                [
+                    "compare",
+                    "--record",
+                    record,
+                    "--dataset",
+                    self.dataset,
+                    "--dump",
+                    dump,
+                    "--source-format",
+                    "lhalo_binary",
+                    "--source",
+                    self.dataset,
+                ]
+            )
+            self.assertEqual(code, acc.EXIT_ERROR, err)
+        truncated_entry, missing_entry = json.loads(record.read_text())["runs"]
+        for entry, dump, error in (
+            (truncated_entry, truncated, "AcceptanceError"),
+            (missing_entry, missing, "FileNotFoundError"),
+        ):
+            self.assertEqual(entry["label"], "compare")
+            self.assertEqual(entry["kind"], "error")
+            self.assertEqual(entry["exit_code"], acc.EXIT_ERROR)
+            self.assertEqual(entry["exit_status"], acc.EXIT_ERROR)
+            self.assertTrue(entry["error"].startswith(error), entry["error"])
+            self.assertIn("compare", entry["command"])
+            self.assertIn(str(dump), entry["command"])
+            self.assertGreaterEqual(entry["wall_seconds"], 0)
+            self.assertGreater(entry["peak_rss_bytes"], 0)
+            self.assertEqual(len(entry["code"]["git_commit"]), 40)
+            self.assertTrue(entry["recorded_sources"])
+        self.assertIn("truncated", truncated_entry["error"])
+        code, _out, _err = run_harness(
+            [
+                "compare-extras",
+                "--record",
+                record,
+                "--dataset",
+                self.dataset,
+                "--source-format",
+                "lhalo_binary",
+                "--column-map",
+                self.work / "absent.yaml",
+                "--source-dir",
+                self.source,
+                "--tree-name",
+                SyntheticLHalo.TREE_NAME,
+                "--first-file",
+                "0",
+                "--last-file",
+                "1",
+                "--halo-properties",
+                MICRO / "halo_properties.yaml",
+            ]
+        )
+        self.assertEqual(code, acc.EXIT_ERROR)
+        entry = json.loads(record.read_text())["runs"][-1]
+        self.assertEqual((entry["label"], entry["kind"]), ("compare-extras", "error"))
+        self.assertIn("absent.yaml", entry["error"])
+
+    def test_a_failure_never_counts_zero(self):
+        findings = acc.Findings()
+        findings.declare("check", "test")
+        findings.fail("check", 0, ["an empty file's defect"])
+        self.assertEqual(findings.checks["check"]["failures"], 1)
+        self.assertEqual(findings.failed, ["check"])
 
     def test_cli_exit_codes(self):
         record = self.work / "record.json"
@@ -645,14 +735,39 @@ class ComparatorDefectTests(unittest.TestCase):
         set_value(dataset, 0, 6, "SourceHaloID", 10**9)
         self.assertFailsExactly(compare(dataset, self.dump), "source_halo_id")
 
-    def test_non_binary32_payload_fails_its_field(self):
+    def test_non_binary32_payload_storage_fails_even_with_exact_values(self):
         dataset = self.copy_dataset()
-        for path in sorted(dataset.glob("snapshot_*.h5")):
-            with h5py.File(path, "r+") as handle:
-                data = handle["halos"]["Vmax"][...].astype("<f8")
-                del handle["halos"]["Vmax"]
-                handle["halos"].create_dataset("Vmax", data=data)
-        self.assertFailsExactly(compare(dataset, self.dump), "payload_Vmax")
+        paths = sorted(dataset.glob("snapshot_*.h5"))
+        for path in paths:
+            retype(path, "Vmax", "<f8")
+        report = compare(dataset, self.dump)
+        self.assertFailsExactly(report, "payload_storage")
+        self.assertEqual(report["checks"]["payload_storage"]["failures"], len(paths))
+        # the values themselves, cast back to binary32, were still compared
+        self.assertGreater(report["checks"]["payload_Vmax"]["compared"], 0)
+
+    def test_empty_snapshot_storage_defect_alone_fails(self):
+        dataset = self.copy_dataset()
+        empty = empty_snapshot(dataset)
+        retype(empty, "Vmax", "<f8")
+        report = compare(dataset, self.dump)
+        self.assertFailsExactly(report, "payload_storage")
+        self.assertEqual(report["checks"]["payload_storage"]["failures"], 1)
+        self.assertIn(empty.name, report["checks"]["payload_storage"]["samples"][0])
+        self.assertIn("(0 rows)", report["checks"]["payload_storage"]["samples"][0])
+
+    def test_empty_snapshot_storage_defect_does_not_mask_populated_corruption(self):
+        """The steer-attempt-1 false PASS: one empty file's wrong dtype must not
+        silence the value comparison of that field in the populated files."""
+        dataset = self.copy_dataset()
+        retype(empty_snapshot(dataset), "Vmax", "<f8")
+        set_value(dataset, 0, 0, "Vmax", 123.0)
+        report = compare(dataset, self.dump)
+        self.assertFailsExactly(report, "payload_storage", "payload_Vmax")
+        self.assertEqual(report["checks"]["payload_Vmax"]["failures"], 1)
+        self.assertIn(
+            "(ForestIndex=0, HaloRankInForest=0)", report["checks"]["payload_Vmax"]["samples"][0]
+        )
 
     # -- columns the comparison must ignore ------------------------------------
 
@@ -980,6 +1095,7 @@ class ExtrasTests(unittest.TestCase):
         self.assertEqual(code, acc.EXIT_FAIL, text)
         self.assertEqual(report["failed_checks"], ["extra_" + flip])
         self.assertEqual(report["checks"]["extra_" + flip]["failures"], 1)
+        return dataset
 
     def test_lhalo_binary_extras_including_signed_duplicate_ids_and_sentinels(self):
         source = SyntheticLHalo().write_source(self.tmp / "source")
@@ -999,7 +1115,7 @@ class ExtrasTests(unittest.TestCase):
                 ),
             ],
         )
-        self.check_route(
+        dataset = self.check_route(
             "lhalo_binary",
             profile,
             lhalo_ingest_args(source, profile),
@@ -1018,6 +1134,29 @@ class ExtrasTests(unittest.TestCase):
             "RawParticleID",
             MICRO / "simulation_info.yaml",
         )
+        # an extra stored differently in one empty snapshot is a dataset failure
+        inconsistent = self.tmp / "inconsistent"
+        shutil.copytree(dataset, inconsistent)
+        retype(empty_snapshot(inconsistent), "MeanMass", "<f8")
+        code, report, text = self.extras_cli(
+            inconsistent,
+            "lhalo_binary",
+            profile,
+            [
+                "--source-dir",
+                source,
+                "--tree-name",
+                SyntheticLHalo.TREE_NAME,
+                "--first-file",
+                "0",
+                "--last-file",
+                "1",
+                "--halo-properties",
+                MICRO / "halo_properties.yaml",
+            ],
+        )
+        self.assertEqual(code, acc.EXIT_FAIL, text)
+        self.assertEqual(report["failed_checks"], ["dataset_integrity"])
 
     def test_forests_hdf5_extras(self):
         package = SIMULATIONS / "micro-uchuu-hdf5"
@@ -1158,7 +1297,8 @@ class MeasurementTests(unittest.TestCase):
                 "--",
                 sys.executable,
                 "-c",
-                "import sys; b = bytearray(64 << 20); b[::4096] = b'x' * len(b[::4096]); sys.exit(3)",
+                "import sys; b = bytearray(64 << 20); "
+                "b[::4096] = b'x' * len(b[::4096]); sys.exit(3)",
             ]
         )
         self.assertEqual(code, acc.EXIT_FAIL)
