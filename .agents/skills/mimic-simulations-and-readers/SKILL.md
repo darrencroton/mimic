@@ -47,6 +47,16 @@ Required files: `simulation_info.yaml` (paths, cosmology, units, chunking defaul
 
 `micro-uchuu-horizontal` is the odd one out: the same micro-Uchuu catalog converted to the horizontal HDF5 format (`docs/dev/HORIZONTAL-HDF5-FORMAT.md`), so it is the only package declaring `input.processing_order: horizontal` and the only one whose `tree_name` is a format-fixed literal rather than a name the user chooses. Its first/last_file are metadata only — the reader derives its file set from the snapshot list. It ships small re-chunked fixtures under `_tests/data/` plus a committed generator and conformance checker under `_tests/input/`; the full 50-snapshot dataset is a machine-local gitignored `snapshots` symlink. It is runnable end to end now that the horizontal driver exists, with shipped run files `models/halos-only/input/halos-only_micro-uchuu-horizontal.yaml` and `models/sage16/input/sage16_micro-uchuu-horizontal.yaml`; it also declares `simulation.unique_galaxy_id_multiplier` — see the `mimic-config-and-flags` skill. It is still deliberately absent from `scripts/discovery.py`'s `FULL_MODEL_TEST_SIMULATIONS` and `PRODUCTION_TEST_CONFIG_SIMULATIONS` (nothing in the scientific tier consumes those lists, so that membership gap is cosmetic, not functional) — the package's own cross-format identity gate (section 2) is the real end-to-end validation, run manually with `make MODEL=halos-only SIMULATION=micro-uchuu-horizontal tests-scientific`; see `docs/DEVELOPER-GUIDE.md` → "The cross-format identity gate".
 
+**Converter profiles and horizontal format version 3 (conversion only, not runnable).** Seven packages carry a `converter_columns.yaml` — `mini-millennium`, `millennium`, `micro-uchuu`, `mini-uchuu` (`lhalo_binary`), `uchuu`, `micro-uchuu-hdf5` (`consistent_trees_hdf5`) and `micro-uchuu-ascii` (`consistent_trees_ascii`) — which is the profile `scripts/convert/convert_trees.py` uses to convert that package's source into lossless horizontal-HDF5 **version 3**. A profile selects source fields and describes the source layout; it never changes the package's run files, `halo_properties.yaml` or `snapshots` symlink. Facts to carry into any reader or package work:
+
+- **No reader consumes version 3.** `horizontal_hdf5` accepts only `format_version = 2` with `links_adjacent == 1`; the driver holds two generations and indexes with `int`. A converted v3 dataset is conversion evidence, not a runnable package, and no v3 simulation package exists yet. The runtime follow-on is planned, not implemented (`docs/dev/MIMIC-DEVELOPMENT-PATHWAY.md` names the current plan).
+- **Gaps are real in L-Halo data.** mini-Millennium has 29,291 descendant links that skip a snapshot (maximum span 2); the vertical L-Halo reader follows them naturally, and v3 records each as an int64 row index plus an int32 target-snapshot column. A v2-style reading that assumes N±1 is wrong for v3.
+- **Units are the source's own, so one package per (simulation, source format).** v3 keeps L-Halo `M_Crit200` as float32 `1e10 Msun/h` and Consistent-Trees mass as float32 `Msun/h`, declared per file in `/schema`. A future v3 package's `halo_properties.yaml` must declare what its files declare.
+- **Identity is source-relative.** v3 `ForestIndex`/`HaloRankInForest` follow the source representation's own convention (L-Halo: file-prefix tree number and original within-tree row), so `UniqueGalaxyID` matches that format's vertical reader and is not promised equal across the micro-Uchuu triplet's formats. `SourceHaloID` is the converter's positive, globally unique row key; `MostBoundID` is signed data with legal duplicates, never a key.
+- **Name the file range you hold.** `simulation_info.yaml`'s `first_file`/`last_file` is the whole catalogue. Millennium (0–511) and mini-Uchuu (0–127) have only files 0–15 locally, and those are what was converted and checked; a requested missing file fails the conversion. Full Uchuu has only its committed fixture; its production catalogue has never been converted.
+
+Commands, profiles and what each route's evidence covers: `scripts/convert/README.md`.
+
 **The a_list contract**: one scale factor per line, earliest→latest (increasing a, decreasing z); the line count defines snapshot indices 0..N-1; the last line is normally a=1.0 (z=0). All redshift and timestep math derives from this file — ordering is critical.
 
 ## 2. The micro-Uchuu triplet — the cross-format validation asset
@@ -130,7 +140,7 @@ Full walkthrough, including what `open_run` checks and the identity multiplier: 
 
 ## Provenance and maintenance
 
-Verified against the live repo 2026-07-04; the horizontal-reader material added 2026-08-04; the horizontal driver and cross-format identity gate material added 2026-08-12. Re-verify drift-prone specifics:
+Verified against the live repo 2026-07-04; the horizontal-reader material added 2026-08-04; the horizontal driver and cross-format identity gate material added 2026-08-12. Converter-profile and format-version-3 facts added 2026-09-25 at the close of the converter generalisation. Re-verify drift-prone specifics:
 
 ```bash
 sed -n '16,31p' src/io/vertical/registry.c                                  # registered vertical readers
@@ -140,6 +150,8 @@ grep -n "CTREES_READ_WINDOW_BYTES" src/io/vertical/read_ctrees_hdf5.c        # 1
 grep -n "forests_per_file > 0" src/io/vertical/read_ctrees_ascii.c           # ASCII requirement
 grep -n "bridge_halo_data_to_rawhalo" src/io/vertical/read_ctrees_*.c        # shared bridge
 for s in simulations/*/simulation_info.yaml; do grep -H "tree_type" "$s"; done   # package table
+ls simulations/*/converter_columns.yaml                                       # converter profiles (7)
+grep -n "HORIZONTAL_HDF5_FORMAT_VERSION" src/io/horizontal/read_horizontal_hdf5.c   # still 2 until v3 runtime lands
 grep -n -i "fix_flybys" simulations/micro-uchuu-ascii/README.md          # historical: divergence removed, README should say so
 sed -n '/^required_inputs/,/^halo_properties/p' src/core/core_properties.yaml   # core roles
 ```

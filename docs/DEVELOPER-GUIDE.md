@@ -976,6 +976,16 @@ The Consistent-Trees readers (`src/io/vertical/read_ctrees_ascii.c`, `read_ctree
 
 Horizontal input is a second reader family, not a variant of the vertical readers. A vertical reader hands the core one forest at a time; a horizontal reader hands it one snapshot's whole halo population — a *slab* — so global, snapshot-synchronous operations become expressible. The on-disk contract these readers consume is frozen in [dev/HORIZONTAL-HDF5-FORMAT.md](dev/HORIZONTAL-HDF5-FORMAT.md) (`format_version = 2`; version 1 is rejected outright, no legacy-read path). One horizontal reader ships: `horizontal_hdf5` (`src/io/horizontal/read_horizontal_hdf5.c`), exercised by the `micro-uchuu-horizontal` simulation package.
 
+**Format version 3 exists as converter output only.** `scripts/convert/convert_trees.py` writes a lossless `format_version = 3` from L-Halo binary, Consistent-Trees forests-HDF5 and Consistent-Trees ASCII sources (manual: [`scripts/convert/README.md`](../scripts/convert/README.md)). The shipped reader and driver cannot consume it, and each obstacle is a specific, current code fact rather than a missing flag:
+
+- the reader accepts only `format_version == 2` with `links_adjacent == 1`, and rejects the v3 `/schema` group and any selected extra dataset as unexpected objects;
+- the reader's dataset table declares the five links int32, and it rejects `n_halos` above `INT32_MAX`;
+- the property generator requires every `tree_link`, `index` and `count` core role to be an `int` field, so generated links, `HaloNr`, the aux offsets and every `mimic_tree_get_*` accessor are `int`, and the driver refuses a slab above `INT_MAX`;
+- the driver retains exactly two generations and resolves every progenitor through N−1, whereas a v3 progenitor link names its own target snapshot and a chain may span several (mini-Millennium's descendant links skip up to two snapshots);
+- v3 payload units are the source's own and are declared in `/schema` — L-Halo mass is float32 `1e10 Msun/h`, Consistent-Trees mass float32 `Msun/h` — so a consuming package's `halo_properties.yaml` must match the file, one package per (simulation, source format).
+
+int64 indices alone would not make full-Uchuu slabs fit in memory; that needs chunked slab streaming as well. The runtime work, its preservation rules (no synthetic gap halos, the source's inheritance times and chain order, source-relative `UniqueGalaxyID`) and its acceptance gate (per-`UniqueGalaxyID` bitwise vertical/horizontal parity on real gapped mini-Millennium) are planned, not implemented. See [`MIMIC-DEVELOPMENT-PATHWAY.md`](dev/MIMIC-DEVELOPMENT-PATHWAY.md) for the current plan. Until that work lands, do not describe any v3 dataset as runnable.
+
 The horizontal **driver** (`run_horizontal_driver()`, `src/core/horizontal_driver.c`) now exists, so every level of reader checking is on the run path:
 
 - **Configuration validation — runs on every run.** Two-registry `tree_type` resolution, the reader/order compatibility check, the exact `tree_name` literal, the identity-multiplier rules, and the horizontal rejections (HDF5-only output, no `--skip`, `NTask == 1`; see [The Horizontal Driver](#the-horizontal-driver)), all in `src/core/read_parameter_file.c`.

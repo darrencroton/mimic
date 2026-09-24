@@ -40,7 +40,7 @@ echo "exit_code=$rc"   # non-zero = failure regardless of log text
 | Unit | `make tests-unit` | C; direct function calls, no full pipeline | up to ~3 min |
 | Integration | `make tests-integration` | Python; real `./mimic` runs via run files; keep each test under ~30 s | up to ~3 min |
 | Scientific | `make tests-scientific` | Python; physics contracts vs reference data and metadata-declared ranges | ~30 s |
-| Converter | `make tests-converter` | Python stdlib-unittest suite for `scripts/convert/`; package-independent, needs `mimic_venv` | ~10 s |
+| Converter | `make tests-converter` | Python stdlib-unittest suite for `scripts/convert/` (both converter entry points); package-independent, needs `mimic_venv` | ~4–5 min (1,486 tests, 259 s measured 2026-09-25) — delegate it |
 | Fixture conformance | `make check-horizontal-fixture` | Structural check of the committed horizontal-HDF5 fixture against the frozen format spec | seconds |
 
 `make tests` composes: clean → generate test registry → one build → `check-docs` → `validate-modules` → `check-horizontal-fixture` → `tests-converter` → all three tiers, accumulating failures in `build/.test_failures` and printing a final verdict block. Append the `summary` goal to any test target to filter output to `MIMIC_RESULT:` FAIL/SKIP/WARN/ERROR lines (PASS suppressed; infra steps silenced on success, dumped in full on failure; a crashing test that emits no markers dumps its full log). Unit and integration are long with large output — when orchestrating from a main agent context, delegate the run and act on the summarized report (AGENTS.md testing strategy).
@@ -124,9 +124,19 @@ Then: run the individual test → run its tier with `summary` → confirm your m
 
 Full driver mechanics and the parity checklist the gate is checking: `docs/DEVELOPER-GUIDE.md` → "The Horizontal Driver" and "The cross-format identity gate".
 
+## 9. Converter evidence is not runtime evidence
+
+The generalised converter (`scripts/convert/convert_trees.py`, format version 3) has its own evidence chain, and none of it is a runtime test:
+
+- **Suite**: `make tests-converter` covers both converter entry points, including the acceptance harness's self-tests (`scripts/convert/tests/test_generalisation_acceptance.py`), which plant dropped/duplicated rows, wrong target snapshots, reordered chains and changed values and require the comparator to catch each. A comparator that cannot fail on a planted defect is not evidence.
+- **Real-data acceptance** is manual and dataset-present: `scripts/convert/tests/run_generalisation_acceptance.py` (`build-dump`, `dump`, `convert`, `compare`, `compare-extras`, each with a measured `--record`). `compare` checks links, target snapshots and the core payload bit for bit against the C dump harness's `--source-payload` mode, which is Mimic's own vertical reader; `compare-extras` checks `SourceHaloID` and selected extras against independent Python extraction, and is the **only** `SourceHaloID` check for ASCII. Build one dump tool per package (`TOPOLOGY_DUMP_BUILD_DIR=<dir> MODEL=halos-only SIMULATION=<pkg> tests/unit/tools/build_topology_dump.sh`), since the tool is valid only for the package it was built for.
+- **Label populations honestly.** Complete real data (mini-Millennium, micro-Uchuu in three formats), sampled subsets (Millennium and mini-Uchuu files 0–15) and fixtures (full Uchuu) are different kinds of evidence; a report that merges them overclaims. A missing requested file must fail, never narrow the inventory.
+- **No runtime claim follows from any of it.** The horizontal reader rejects version 3. The runtime follow-on's acceptance gate is per-`UniqueGalaxyID` bitwise parity between vertical and horizontal on the **real** gapped mini-Millennium dataset, following the section 8 pattern; until that gate exists and passes, no test, report or commit message may say version 3 runs.
+- The version 2 converter's gates are unchanged: producer battery 15/15 and topology cross-check 8/8 on a fresh micro-Uchuu ASCII conversion, with totals 22,580,924 halos / 50 snapshots / 440,651 forests / `max_halo_rank_in_forest = 350074`.
+
 ## Provenance and maintenance
 
-Verified against the live repo 2026-07-04; the cross-format identity gate (section 8) added 2026-08-12 once the horizontal driver landed. Re-verify drift-prone specifics:
+Verified against the live repo 2026-07-04; the cross-format identity gate (section 8) added 2026-08-12 once the horizontal driver landed. Section 9 (converter evidence) added 2026-09-25 at the close of the converter generalisation. Re-verify drift-prone specifics:
 
 ```bash
 sed -n '41,56p' scripts/discovery.py                       # FULL_MODEL_TEST_SIMULATIONS membership

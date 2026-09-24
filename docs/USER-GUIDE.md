@@ -392,7 +392,7 @@ Mimic separates the on-disk reader format from the processing driver. The input 
 
 The HDF5-based readers are only available when Mimic is built with HDF5 (the default; see [Build Options](#build-options)). Selecting one in a `USE-HDF5=no` build stops with a clear configuration error.
 
-The first four formats are forest-ordered and feed the vertical driver. `horizontal_hdf5` is the one horizontal format, read by a separate reader family; its on-disk contract is `docs/dev/HORIZONTAL-HDF5-FORMAT.md`, and the `micro-uchuu-horizontal` package is the shipped example. Its driver opens and validates the whole dataset before processing any halo data (see `input.processing_order` below and [Running Horizontal Input](#running-horizontal-input)).
+The first four formats are forest-ordered and feed the vertical driver. `horizontal_hdf5` is the one horizontal format, read by a separate reader family; its on-disk contract is `docs/dev/HORIZONTAL-HDF5-FORMAT.md` (`format_version = 2`, the only version the reader accepts), and the `micro-uchuu-horizontal` package is the shipped example. See [Producing Horizontal Input](#producing-horizontal-input) for how such datasets are made. Its driver opens and validates the whole dataset before processing any halo data (see `input.processing_order` below and [Running Horizontal Input](#running-horizontal-input)).
 
 `input.tree_name` is reader-specific — each reader decides what the value means, so it is not a general filename pattern. `lhalo_binary` is the prefix before the numbered file suffix (`tree_name.<file_number>`). `consistent_trees_ascii` and `consistent_trees_hdf5` are literal filenames under `input.simulation_dir`, including any extension. `lhalo_hdf5` uses explicit HDF5 filenames: for one file, set `tree_name` to that filename; for multiple files, include a `%d` file-number placeholder, for example `trees_063.%d.hdf5`. `horizontal_hdf5` fixes its filename convention in the format itself and therefore accepts exactly the literal `snapshot_%03d.h5` — any other value, including `snapshot_%d.h5`, is rejected at startup with a message naming the accepted literal.
 
@@ -445,6 +445,19 @@ input:
 ```
 
 `uniform` (the default) gives every task an equal number of forests. The other schemes weight by per-forest halo count to balance work — `linear` by `nhalos`, `quadratic` by `nhalos²`, `exponent` by `nhalos` raised to the integer part of `exponent_forest_dist_scheme` (repeated multiplication, so a fractional value is truncated), and `generic_power` by `pow(nhalos, exponent_forest_dist_scheme)` (fractional exponents allowed) — so tasks receive a comparable total halo load rather than a comparable forest count.
+
+### Producing Horizontal Input
+
+Horizontal input is produced offline, from a simulation's forest-ordered trees, by the converters under `scripts/convert/`. Their manual is [`scripts/convert/README.md`](../scripts/convert/README.md). There are two, and only one of them produces input Mimic can run today:
+
+| Converter | Sources | Output | Runnable today? |
+| --- | --- | --- | --- |
+| `convert_ctrees.py` | Consistent-Trees ASCII | horizontal HDF5 `format_version = 2` | **Yes** — this is how `micro-uchuu-horizontal` was made |
+| `convert_trees.py` | L-Halo binary, Consistent-Trees forests-HDF5, Consistent-Trees ASCII | horizontal HDF5 `format_version = 3`, lossless | **No** — the `horizontal_hdf5` reader rejects version 3 |
+
+`convert_trees.py` has routes and shipped profiles (`simulations/<package>/converter_columns.yaml`) for mini-Millennium, Millennium, micro-Uchuu, mini-Uchuu and full Uchuu. Version 3 keeps what version 2 cannot: descendant links that skip snapshots (mini-Millennium has 29,291 of them), snapshots above `INT32_MAX` halos, each source's native units and precision, and any additional numeric fields you select in a profile. Running version 3 needs reader and driver work that has not been done — carrying galaxies across a skipped snapshot, and indexing slabs wider than int32 — so a successful conversion is conversion evidence, not a runnable simulation. Every `convert_trees.py` stage says so in its own output.
+
+Real-data conversions have been validated for mini-Millennium and micro-Uchuu in full, for Millennium and mini-Uchuu on their first 16 files only, and for full Uchuu only on its small committed fixture; see the converter manual for what each of those covers.
 
 ### Output Formats
 
