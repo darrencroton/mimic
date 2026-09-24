@@ -405,6 +405,53 @@ class TestBridgeRuns(unittest.TestCase):
         with self.assertRaisesRegex(ConverterError, "refusing to resume"):
             env.prepare(schema_of(DEFAULT_PROFILE))
 
+    def test_resume_after_linking_refuses_a_source_modified_in_place(self):
+        """Same path, same order, different bytes: refused exactly as the
+        legacy route's scatter refuses it, never silently accepted."""
+        schema = schema_of()
+        for label in ("size changes", "same size, new mtime"):
+            with self.subTest(label), tempfile.TemporaryDirectory() as tmp:
+                env = Env(Path(tmp))
+                workdir = env.prepare(schema)
+                manifest_before = (workdir / "manifest.json").read_bytes()
+                path = env.tree_files[1]
+                text = path.read_text()
+                stat = path.stat()
+                if label == "size changes":
+                    path.write_text(text.replace("150.0", "150.25", 1))
+                else:
+                    # one digit of a Rvir token, same length; mtime moved on
+                    path.write_text(text.replace("150.0", "151.0", 1))
+                    os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 10**9))
+                    self.assertEqual(path.stat().st_size, stat.st_size)
+                with self.assertRaisesRegex(
+                    ConverterError, "source file\\(s\\) changed after snapshots were finalized"
+                ):
+                    env.prepare(schema)
+                self.assertEqual((workdir / "manifest.json").read_bytes(), manifest_before)
+                # the legacy route refuses the same modification the same way
+                legacy = Path(tmp) / "legacy"
+                with capture_stderr():
+                    path.write_text(text)
+                    run_scatter(
+                        env.tree_files,
+                        env.forests_list,
+                        env.a_list,
+                        legacy,
+                        simulation_info_path=env.sim_info,
+                    )
+                    path.write_text(text.replace("150.0", "150.25", 1))
+                    with self.assertRaisesRegex(
+                        ConverterError, "source file\\(s\\) changed after snapshots were finalized"
+                    ):
+                        run_scatter(
+                            env.tree_files,
+                            env.forests_list,
+                            env.a_list,
+                            legacy,
+                            simulation_info_path=env.sim_info,
+                        )
+
     def test_wide_schema(self):
         env = Env(self.root)
         data = {
@@ -518,6 +565,27 @@ class TestBridgeRefusals(unittest.TestCase):
         for bad in (0, -1, 2.0, True):
             with self.subTest(budget=bad), self.assertRaises(ConverterError):
                 CTreesAsciiAdapter(schema_of(), self.workdir, memory_budget_bytes=bad)
+
+    def test_forest_view_budget_is_checked_before_the_table_is_loaded(self):
+        from unittest import mock
+
+        adapter = CTreesAsciiAdapter(schema_of(), self.workdir)
+        adapter.inventory()
+        adapter.memory_budget_bytes = 16
+        loads = []
+        real_load = np.load
+
+        def recording_load(path, *args, **kwargs):
+            loads.append((Path(path).name, kwargs.get("mmap_mode")))
+            return real_load(path, *args, **kwargs)
+
+        with mock.patch.object(ctrees_ascii.np, "load", recording_load):
+            with self.assertRaisesRegex(
+                ConverterError, "forest sidecar view .* above the configured"
+            ):
+                list(adapter.iter_forests())
+        table_loads = [mode for name, mode in loads if name == "forest_index_table.npy"]
+        self.assertEqual(table_loads, ["r"])
 
     def test_budget_is_checked_before_allocation(self):
         tiny = CTreesAsciiAdapter(schema_of(), self.workdir, memory_budget_bytes=1024)

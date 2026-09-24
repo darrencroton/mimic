@@ -239,7 +239,15 @@ def _check_recorded_inputs(
     manifest: Manifest, tree_files, forests_list_path, a_list_path, simulation_info_path
 ) -> None:
     """The identity binding scatter applies on resume, for a resume that does
-    not re-enter scatter: the same ordered sources and the same metadata bytes."""
+    not re-enter scatter: the same ordered sources, each still the bytes that
+    were scattered, and the same metadata bytes.
+
+    Source content is judged by scatter's own rule, ``Manifest.classify_source``
+    (recorded size and mtime_ns, a ``consumed`` entry satisfying it without a
+    stat), and a changed source is refused with the message ``run_scatter``
+    gives the same case on the legacy route -- so silent substitution stays
+    impossible whether or not scatter is re-entered.
+    """
     provenance = manifest.data["provenance"]
     checks = (
         (
@@ -265,6 +273,15 @@ def _check_recorded_inputs(
                 "{}: {} differs from the one this workdir was prepared with; refusing to "
                 "resume -- use a fresh workdir".format(manifest.path, what)
             )
+    changed = [
+        Path(path) for path in tree_files if manifest.classify_source(path) not in SOURCE_SATISFIED
+    ]
+    if changed:
+        raise ConverterError(
+            "source file(s) changed after snapshots were finalized ({} pending: {}); "
+            "downstream snapshot products would be stale — refusing to resume, "
+            "use a fresh workdir".format(len(changed), [str(p) for p in changed[:3]])
+        )
 
 
 class CTreesAsciiAdapter(SourceAdapter):
@@ -348,14 +365,26 @@ class CTreesAsciiAdapter(SourceAdapter):
         manifest = self._manifest
         table_path = Path(manifest.workdir) / "forest_index_table.npy"
         manifest.verify_intermediate(table_path, "forest index table")
-        forest_table = np.load(table_path)
+        # sized from the memory-mapped header, and checked, before anything is
+        # materialised (C4: fail before allocation)
+        header = np.load(table_path, mmap_mode="r")
+        if header.dtype != np.dtype("<i8") or header.ndim != 1:
+            raise ConverterError(
+                "{}: forest index table must be int64 [n_forests], got {} {}".format(
+                    table_path, header.dtype, header.shape
+                )
+            )
+        # the table plus the two searchsorted bounds and the per-forest totals
+        # (4 x 8 B per forest), and the six per-unit views below (6 x 8 B per unit)
         self._check_budget(
-            forest_table.nbytes * 4 + self._unit_counts.nbytes * 6,
+            header.nbytes * 4 + self._unit_counts.nbytes * 6,
             "the forest sidecar view ({} forest(s), {} unit(s))".format(
-                forest_table.size, self._unit_counts.size
+                header.shape[0], self._unit_counts.size
             ),
             "raise memory_budget_bytes",
         )
+        forest_table = np.array(header)
+        del header
         n_units_per_file = np.diff(self._file_unit_offsets)
         file_of_unit = np.repeat(np.arange(n_units_per_file.size, dtype=np.int64), n_units_per_file)
         unit_of_unit = np.arange(self._unit_counts.size, dtype=np.int64) - np.repeat(

@@ -2147,6 +2147,52 @@ class TestExtendedScatter(unittest.TestCase):
         with self.assertRaisesRegex(ConverterError, "does not match the tag"):
             Manifest.load_or_create(env.workdir)
 
+    def test_release_verifies_the_source_units_sidecar(self):
+        """``release`` verifies every intermediate a source produced before
+        recording it consumed; for an extended scatter that includes the
+        source-units sidecar every SourceHaloID of the file derives from."""
+        env = SpanningEnv(self.root)
+        manifest = env.run(schema=_schema(), batch_mode=True)
+        sidecars = {
+            i: (env.workdir / "scratch" / scatter.source_units_name(i)).resolve() for i in range(2)
+        }
+        for i, path in enumerate(env.tree_files):
+            entry = manifest.source_entry(path)
+            self.assertEqual(entry["source_units"], 3)
+            self.assertIn(
+                (sidecars[i], "source-units sidecar"),
+                [(p.resolve(), what) for p, what in manifest.source_intermediates(entry)],
+            )
+        # a corrupted sidecar is caught before consumption; nothing is recorded
+        table = np.load(sidecars[1])
+        table[0, 1] += 1
+        np.save(sidecars[1], table)
+        before = (env.workdir / "manifest.json").read_bytes()
+        with self.assertRaisesRegex(ConverterError, "source-units sidecar.*checksum"):
+            run_release(env.workdir, [env.tree_files[1]])
+        self.assertEqual((env.workdir / "manifest.json").read_bytes(), before)
+        # a truncated one likewise
+        good = (env.workdir / "scratch" / scatter.source_units_name(0)).read_bytes()
+        sidecars[0].write_bytes(good[: len(good) // 2])
+        with self.assertRaisesRegex(ConverterError, "source-units sidecar.*checksum"):
+            run_release(env.workdir, [env.tree_files[0]])
+        self.assertEqual((env.workdir / "manifest.json").read_bytes(), before)
+        # restored, it releases, and the entry records consumption
+        sidecars[0].write_bytes(good)
+        run_release(env.workdir, [env.tree_files[0]])
+        released = Manifest.load_or_create(env.workdir).source_entry(env.tree_files[0])
+        self.assertEqual(released["status"], SOURCE_CONSUMED)
+
+    def test_legacy_source_entries_list_no_units_sidecar(self):
+        env = ScatterEnv(self.root)
+        manifest = env.run(batch_mode=True)
+        for path in env.tree_files:
+            entry = manifest.source_entry(path)
+            self.assertNotIn("source_units", entry)
+            self.assertNotIn(
+                "source-units sidecar", [what for _p, what in manifest.source_intermediates(entry)]
+            )
+
     def test_pre_slice5_tag_comparison_rejects_an_extended_manifest(self):
         # the pre-slice-5 Manifest accepted exactly DTYPE_TAG; an extended
         # manifest's tag differs, so older code refuses to resume it

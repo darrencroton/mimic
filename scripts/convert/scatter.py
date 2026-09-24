@@ -627,14 +627,18 @@ class Manifest:
     def source_intermediates(self, entry: dict) -> List[Tuple[Path, str]]:
         """Every intermediate one completed source entry produced, derived from
         the entry itself rather than guessed from the scratch directory
-        listing: the two per-source sidecars plus one worker-scratch file per
-        snapshot the file contributed rows to."""
+        listing: the two per-source sidecars, the source-units sidecar when the
+        entry records one (an extended-layout scatter; every SourceHaloID and
+        source coordinate of the file derives from it), plus one worker-scratch
+        file per snapshot the file contributed rows to."""
         scratch_dir = self.workdir / "scratch"
         src_index = entry["src_index"]
         owned = [
             (scratch_dir / "roots_src_{}.npy".format(src_index), "observed-roots sidecar"),
             (scratch_dir / "forest_max_src_{}.npy".format(src_index), "forest-max-snap sidecar"),
         ]
+        if "source_units" in entry:
+            owned.append((scratch_dir / source_units_name(src_index), "source-units sidecar"))
         for snap_str in sorted(entry["per_snapshot_counts"], key=int):
             owned.append(
                 (
@@ -1224,6 +1228,12 @@ def run_scatter(
             "observed_pairs": [[snap, scale] for snap, scale in result.observed_pairs],
             "status": "completed",
         }
+        if result.source_units is not None:
+            # absent from a legacy entry, so the legacy JSON is unchanged; it
+            # is what makes release verify the sidecar (source_intermediates)
+            manifest.data["source_files"][result.path]["source_units"] = int(
+                result.source_units.shape[0]
+            )
         maybe_save_manifest()
 
     if pool_size <= 1 or len(pending) <= 1:
