@@ -50,12 +50,12 @@ Converter and format facts this plan builds on, all measured or specified in com
 
 The consumer obligations below come from the v3 specification's own "A consumer must validate at open" paragraph and from the design review's findings, restated as runtime requirements:
 
-- **Generated payload schemas.** Payload units and precision are the adapter's native ones, declared per file in `/schema`. L-Halo mass is float32 `1e10 Msun/h`; Consistent-Trees mass is float32 `Msun/h`. A consuming package's `halo_properties.yaml` must declare exactly what the file declares, which means **one simulation package per (simulation, source format)**. The runtime compares the package's compiled declarations against `/schema` at open and aborts on any disagreement, so a wrong-by-10¹⁰ mass is a startup failure rather than a silent result.
+- **Generated payload schemas.** Payload units and precision are the adapter's native ones, declared per file in `/schema`. L-Halo mass is float32 `1e10 Msun/h`; Consistent-Trees mass is float32 `Msun/h`. A consuming package's `halo_properties.yaml` must declare exactly what the file declares, which means **one simulation package per (simulation, source format)**. The runtime compares the package's compiled payload declarations against `/schema` at open and aborts on any disagreement (topology and identity fields are checked against the format's fixed table instead), so a wrong-by-10¹⁰ mass is a startup failure rather than a silent result.
 - **v3 reader validation.** At open: supported version, object set `/header` + `/halos` + `/schema`, header consistency across files, `/schema` agreement, `source_format` and `column_mapping_sha256` identical across files, scale factors against the a_list, the five physical header values against the package, identity-multiplier bounds. At slab load: every non-null link is a valid row of the file its target-snapshot column names, and every biconditional (`*Snapshot == -1` iff the index is `-1`) holds.
 - **Snapshot-qualified progenitor lookup.** `FirstProgenitor` resolves into the `FirstProgenitorSnapshot` file and each `NextProgenitor` into its own `NextProgenitorSnapshot` file. A chain may span several earlier snapshots. N−1 is never assumed when `links_adjacent == 0`.
 - **Pending processed and galaxy state across gaps.** A halo at snapshot *k* whose `DescendantSnapshot` is *m* > *k* + 1 must keep its processed halo and galaxies alive until *m* is processed. The review's retention horizon — `horizon(k) = max(DescendantSnapshot)` over snapshot *k*'s rows with a descendant, or *k* if none — is exact, forward-only and computable from the slab already loaded.
 - **Ownership and lifetime.** One owner for retained state: the driver, generalising its existing two-generation ownership into a pool of retired generations keyed by snapshot number, each released once its horizon has been processed. The reader stays stateless with respect to retention.
-- **int64 indices throughout the input/driver seam.** Links, halo numbers, aux offsets, workspace and scratch capacities, loop counters and the generated accessors. Changing the HDF5 dtype alone while any of these stays `int` would narrow silently or refuse at the old bound.
+- **int64 indices throughout the input/driver seam.** Links, halo numbers, aux offsets, workspace and scratch capacities, loop counters, and every accessor on the path that reads a v3 link — generated or reader-owned, as R0-2 decides. Changing the HDF5 dtype alone while any of these stays `int` would narrow silently or refuse at the old bound. R0-4 decides only whether vertical-only code, which never sees a slab index, is widened too.
 - **Full-Uchuu memory constraints.** See [Width is not memory](#width-is-not-memory). int64 is necessary for full Uchuu and nowhere near sufficient.
 
 ## Preservation rules
@@ -82,19 +82,19 @@ Widening links to int64 lets the runtime **name** a row above `INT32_MAX`. It do
 
 - This plan makes the input/driver seam int64-correct, so a wide slab can never narrow silently or overflow an index. **What happens when it does not fit in memory depends on R0-5**, which this plan does not decide. Under R0-5(a), wide slabs and over-large retention **fail loudly and early** against a declared memory ceiling, before allocation. Under R0-5(b), the driver reports the bytes a slab or retention set needs, and running out of memory surfaces as an allocator failure. That trade is the owner's. It does **not** deliver a whole-snapshot low-memory run of full Uchuu, and no slice, document or report may say it does.
 - Running full Uchuu needs chunked slab streaming ([`MIMIC-CHUNKED-SLAB-STREAMING-PLAN.md`](MIMIC-CHUNKED-SLAB-STREAMING-PLAN.md)), still a concept note. The design review's finding 10 says gap retention and chunked streaming interact — retaining several generations of *windows* is a different memory problem from retaining several whole slabs — and should be designed together. Whether to do that before this plan, or to land gap retention on whole slabs first and accept a later redesign, is owner decision R0-7.
-- Gap retention has its own memory cost, bounded by the data rather than by a constant. For mini-Millennium, maximum span 2 means at most three whole generations are live at once; the retained population per snapshot is measurable from the dataset before a run and is reported, not assumed.
+- Gap retention has its own memory cost, bounded by the data rather than by a constant. For mini-Millennium, maximum span 2 means at most three generations are live at once (whole generations under R0-6(a), projections under R0-6(b)); the retained population per snapshot is measurable from the dataset before a run and is reported, not assumed.
 - `links_adjacent == 1` collapses retention to today's two generations, which is why the converter measures and stamps it honestly.
 
 ## Gate R0: owner decisions before any slice
 
-These are architectural decisions this plan deliberately does not make. Each has a recommendation, but a recommendation is not a decision: the owner records each outcome in this section, dated, before Slice 1 starts. A project-manager may not decide any of them, and a decision that changes a slice's surface or criteria is a plan amendment, not an in-run adjustment.
+These are architectural decisions this plan deliberately does not make. Each has a recommendation, but a recommendation is not a decision: the owner records each outcome in this section, dated, before Slice 1 starts. A project-manager may not decide any of them, and a decision that changes a slice's surface or criteria is a plan amendment, not an in-run adjustment. Every slice below is written so that its criteria hold under **every** option listed here, branching explicitly where options differ. Where an option cannot be delivered inside the slices as written, it is marked **requires amendment** and says what must change. It remains a legitimate choice, but recording it means the owner amends the named slice before that slice starts.
 
 | # | Decision | Options | Recommendation |
 |---|---|---|---|
 | R0-1 | **Where v3 is read.** `tree_type` is public configuration. | (a) Extend `horizontal_hdf5` to accept v2 and v3, dispatching on `format_version`, with v2's validation path byte-for-byte unchanged. (b) Register a second horizontal reader name for v3. | (a): the format ratchet already names the version in every file, and `tree_name` stays the literal `snapshot_%03d.h5`. |
-| R0-2 | **How wide links enter the generated view.** The generator requires `tree_link` roles to be `int`, and `RawHalo` is shared by every reader. | (a) Allow `long long` `tree_link` fields and widen accessors to `int64_t` everywhere, so vertical packages keep `int` storage but all index arithmetic is int64. (b) Widen `RawHalo` links to int64 for every package. (c) Keep `RawHalo` int32 and hold v3 links in reader-owned int64 slab arrays. | (a): per-package storage width with one int64 index type; the vertical path's bytes and results must stay identical, which Slice 1 proves. |
-| R0-3 | **Where the three target-snapshot columns and `SourceHaloID` live.** | (a) Reader-owned slab arrays, following the `ForestIndex`/`HaloRankInForest` precedent the v2 erratum of 2026-08-11 settled. (b) Declared catalog properties. | (a), as the design review recommends: they are format metadata, not catalog properties. |
-| R0-4 | **Scope of the int64 index change.** `HaloNr`, `HaloAuxData` and the vertical tree walk are shared with the vertical driver. | (a) int64 through the whole seam, vertical included. (b) int64 in the horizontal path only, with a checked narrowing boundary at the shared services. | (a): one index type, no boundary to audit; its cost (struct growth on the vertical path) is measured in Slice 1 before acceptance. |
+| R0-2 | **How wide links enter the generated view.** The generator requires `tree_link` roles to be `int`, and `RawHalo` is shared by every reader. | (a) Allow `long long` `tree_link` fields and widen accessors to `int64_t` everywhere, so vertical packages keep `int` storage but all index arithmetic is int64. (b) Widen `RawHalo` links to int64 for every package — **requires amendment**: `src/io/vertical/binary.c` `fread`s L-Halo records directly into `struct RawHalo`, so this changes the vertical readers' record handling and every package's `halo_properties.yaml`, none of which is in Slice 1's surface. (c) Keep `RawHalo` int32 and hold v3 links in reader-owned int64 slab arrays. | (a): per-package storage width with one int64 index type; the vertical path's bytes and results must stay identical, which Slice 1 proves. |
+| R0-3 | **Where the three target-snapshot columns and `SourceHaloID` live.** | (a) Reader-owned slab arrays, following the `ForestIndex`/`HaloRankInForest` precedent the v2 erratum of 2026-08-11 settled. (b) Declared catalog properties — **requires amendment**: Slice 2's reader tests would need a package declaring them, which does not exist until Slice 3, so Slices 2 and 3 would swap order. | (a), as the design review recommends: they are format metadata, not catalog properties. |
+| R0-4 | **Scope of the int64 index change beyond the seam.** Every path a horizontal slab index reaches must be int64 under either option: the horizontal driver, `struct Halo.HaloNr` in the shared workspace, the link accessors R0-2 selects, and the shared inheritance, output-buffer and virial services. What is open is vertical-only code, which never sees a slab index: the vertical driver's `struct HaloAuxData` and `build_model.c`'s tree walk. | (a) Widen the vertical-only code too, so there is one index type. (b) Leave vertical-only code `int`, since a vertical unit is one forest. | (a): one index type, nothing to audit at a boundary; its cost (struct growth on the vertical path) is measured in Slice 1 before acceptance. |
 | R0-5 | **Retained-generation memory policy.** | (a) A run-file memory ceiling for retained generations, checked before each retention and failing before allocation. (b) No ceiling; report the measured retention and let the allocator fail. | (a). A new run-file key is a public configuration surface, which is why this is the owner's call. |
 | R0-6 | **Retained footprint per generation.** | (a) Retain whole generations (raw slab, aux, processed buffer, pool). (b) Retain a projection of the fields a later snapshot reads, generalising the deferred compact previous-slab projection. | (a) for this plan, since it is the smallest change with a clean parity argument; (b) belongs with chunked streaming. |
 | R0-7 | **Relationship to chunked slab streaming.** | (a) Land gap retention on whole slabs now; design chunking separately later and accept that it may rework retention. (b) Design chunked streaming and gap retention together first, before Slice 4. | Owner judgement. (a) reaches a runnable gapped mini-Millennium soonest; (b) honours the design review's finding 10 more strictly. Under either, full-Uchuu execution stays out of this plan. |
@@ -119,13 +119,13 @@ These are architectural decisions this plan deliberately does not make. Each has
 
 ### Intended Change
 
-- Make every halo index, link value, count and capacity on the input/driver seam int64, per decisions R0-2 and R0-4, without changing any vertical or v2 horizontal result.
+- Make every halo index, link value, count and capacity that a horizontal slab index reaches int64 — and, under R0-4(a), the vertical-only ones too — in the form R0-2's recorded option takes, without changing any vertical or v2 horizontal result.
 
 ### Acceptance Criteria
 
 - [ ] Gate R0 is fully recorded in this plan, and this slice implements R0-2 and R0-4 as recorded.
-- [ ] Link access matches R0-2's recorded option on every path. Under R0-2(a) or (b), the generated `mimic_tree_get_*` link accessors take and return `int64_t`. Under R0-2(c), the generated link accessors keep `int` because v3 links never enter `RawHalo`; the reader-owned v3 link arrays are `int64_t`, and so is every index parameter and return type on the path that reads them. In every case the generator accepts the link storage type R0-2 allows and still rejects every other type for `tree_link`, `index` and `count` roles.
-- [ ] `HaloNr`, the aux `FirstHalo`/`NHalos` pairs, progenitor/FoF walk variables, workspace and scratch capacities, and the horizontal slab loop are int64 on every path; no silent narrowing remains, and any checked narrowing R0-4 permits aborts naming the value.
+- [ ] Link access matches R0-2's recorded option on every path. Under R0-2(a) or (b), the generated `mimic_tree_get_*` link accessors take and return `int64_t`. Under R0-2(b) this slice starts only after the owner has amended its surface (see R0-2). Under R0-2(c), the generated link accessors keep `int` because v3 links never enter `RawHalo`. The int64 reader-owned link arrays are created in Slice 2, and this slice widens every index parameter and return type the driver will use to read them. In every case the generator accepts the link storage type R0-2 allows and still rejects every other type for `tree_link`, `index` and `count` roles.
+- [ ] On every path a horizontal slab index reaches, these are int64 and no silent narrowing remains: `HaloNr`, the horizontal driver's aux pairs, progenitor/FoF walk variables, workspace and scratch capacities, the shared inheritance/output-buffer/virial index parameters, and the horizontal slab loop. Under R0-4(a) the vertical-only `struct HaloAuxData` offsets and `build_model.c` tree-walk variables are int64 too. Under R0-4(b) they stay `int`, and no horizontal index passes through them.
 - [ ] Vertical output on the default pair and every committed baseline is bitwise identical to the pre-change commit.
 - [ ] v2 horizontal output on the `micro-uchuu-horizontal` fixture is bitwise identical to the pre-change commit.
 - [ ] The measured change in `sizeof(struct RawHalo)`, `sizeof(struct Halo)` and default-pair peak RSS is recorded in the slice receipt.
@@ -175,19 +175,19 @@ These are architectural decisions this plan deliberately does not make. Each has
 
 ### Intended Change
 
-- Teach the horizontal reader to open, validate and load v3 datasets per the v3 specification and R0-1, R0-3 and R0-8, leaving v2 validation exactly as it is.
+- Teach Mimic to open, validate and load v3 datasets per the v3 specification and the recorded R0-1, R0-2, R0-3 and R0-8, leaving v2 validation exactly as it is. Under R0-1(a) this extends `horizontal_hdf5`; under R0-1(b) it adds a second horizontal reader and leaves `horizontal_hdf5` unchanged.
 
 ### Acceptance Criteria
 
 - [ ] v2 datasets take exactly the v2 validation path; every existing v2 reader test passes unchanged, and a v2 file with `links_adjacent != 1` is still rejected.
-- [ ] v1, unknown and mixed-version datasets are rejected, naming the file and version.
+- [ ] v1, unknown and mixed-version datasets are rejected, naming the file and version. Under R0-1(b), `read_horizontal_hdf5.c` is byte-for-byte unchanged, the new reader rejects every version other than 3, and its registered name is disjoint from every vertical and horizontal reader name.
 - [ ] v3 `open_run` enforces the object set `/header`, `/halos`, `/schema`; header consistency across files; `source_format` and `column_mapping_sha256` identical across files; scale factors against the a_list exactly; the five physical header values against the package; identity-multiplier bounds; `n_halos` as int64 with no int32 ceiling.
-- [ ] **Fields the package declares** (every core payload field it consumes plus every extra it declares): v3 `open_run` compares each one's `/schema` declaration (`type`, `units`, `h_convention`) and dataset dtype/shape with the package's compiled `halo_properties.yaml`, and aborts on any disagreement, on a declared field missing from `/schema` or `/halos`, or on a type/shape mismatch.
+- [ ] **Fields the package declares** (every core payload field it consumes plus every extra it declares): v3 `open_run` compares each one's `/schema` declaration (`type`, `units`, `h_convention`) and dataset dtype/shape with the package's compiled `halo_properties.yaml`, and aborts on any disagreement, on a declared field missing from `/schema` or `/halos`, or on a type/shape mismatch. Topology and identity fields are excluded from this comparison even when the package declares them, because `/schema` never declares them: the five link roles always, and `SourceHaloID` and the target-snapshot columns under R0-3(b). They are checked against the v3 fixed format table instead.
 - [ ] **`/schema` fields the package does not declare** are governed by R0-8, not by the criterion above. Under R0-8(a) each one's declaration is checked for internal consistency (a valid `type`/`h_convention` vocabulary entry and a dataset whose dtype and shape match its own declared `type`), is not materialised, and is never an abort merely for being undeclared. Under R0-8(b) an undeclared field aborts at open, naming it.
 - [ ] A `/schema` or `/halos` object that is an external or soft link is rejected, whether or not the package declares it.
-- [ ] `load_slab` fills int64 links, the three target-snapshot columns and `SourceHaloID` into reader-owned arrays (per R0-3), and validates every non-null link against the `n_halos` of the file its target column names, plus every `-1`-iff-`-1` biconditional, with bounded counted diagnostics.
+- [ ] `load_slab` fills the five int64 links where R0-2's recorded option puts them: the generated `RawHalo` fields under (a) or (b), or reader-owned int64 arrays under (c). It fills the three target-snapshot columns and `SourceHaloID` where R0-3's recorded option puts them: reader-owned slab arrays under (a), or the package's declared catalog properties under (b), whose types are checked against the v3 fixed format table because `/schema` does not declare them. It then validates every non-null link against the `n_halos` of the file its target column names, plus every `-1`-iff-`-1` biconditional, with bounded counted diagnostics.
 - [ ] Validation scans use bounded hyperslab reads; nothing allocates proportional to a snapshot's `n_halos` except the slab itself.
-- [ ] Committed v3 fixtures are small, produced by `scripts/convert/convert_trees.py` from committed source fixtures, and include a gap, an empty snapshot, a cross-snapshot `NextProgenitor` and one selected extra.
+- [ ] Committed v3 fixtures are small, produced by `scripts/convert/convert_trees.py` from committed source fixtures, and include a gap, an empty snapshot, a cross-snapshot `NextProgenitor` and one selected extra. The extra exercises R0-8's recorded outcome for a field the test package does not declare: not materialised under (a), abort at open under (b).
 
 ### Authorized Surface
 
@@ -195,6 +195,8 @@ These are architectural decisions this plan deliberately does not make. Each has
   - `src/io/horizontal/read_horizontal_hdf5.c`
   - `src/io/horizontal/reader.h`
   - `src/io/horizontal/interface.c`
+  - `src/io/horizontal/registry.c` (R0-1(b) only)
+  - `src/io/horizontal/read_horizontal_v3_hdf5.c` (new; R0-1(b) only — the `hdf5.c` suffix is required by the Makefile's HDF5 source rule)
   - `simulations/micro-uchuu-horizontal/_tests/unit/`
   - `tests/data/horizontal_v3/`
   - `tests/unit/`
@@ -231,6 +233,7 @@ These are architectural decisions this plan deliberately does not make. Each has
 ### Acceptance Criteria
 
 - [ ] `halo_properties.yaml` declares every v3 payload field with the `/schema` type, units and `h_convention` of a dataset converted with `simulations/mini-millennium/converter_columns.yaml` — in particular `M_Crit200` as float `1e10 Msun/h`.
+- [ ] Link-role declarations follow R0-2's recorded option: `long long` under (a); as the amended Slice 1 specifies under (b); under (c) the existing `int` declarations, with v3's int64 links read only into reader-owned arrays. Under R0-3(b) the package also declares `SourceHaloID` and the three target-snapshot columns as catalog properties, with the v3 format table's types. Under R0-3(a) it declares none of them.
 - [ ] `simulation_info.yaml` declares `tree_type`/`processing_order` per R0-1, the mini-Millennium cosmology, box size and particle mass unchanged, and the a_list identical to `simulations/mini-millennium/mini-millennium.a_list`.
 - [ ] `make generate` and `make validate-modules` pass for this package under `halos-only` and `sage16`.
 - [ ] The package's README states its provenance: which converter commit, command and profile produced its data, and that its `snapshots/` is a local symlink to a converted dataset, never committed data.
@@ -274,10 +277,11 @@ These are architectural decisions this plan deliberately does not make. Each has
 
 ### Acceptance Criteria
 
+- [ ] Under R0-7(a) this slice proceeds as written. Under R0-7(b) it starts only after the owner has amended it from an approved joint chunked-streaming and gap-retention design, and its criteria then apply as amended.
 - [ ] Most-massive-progenitor, count and gather resolve `FirstProgenitor` through `FirstProgenitorSnapshot` and each `NextProgenitor` through its own `NextProgenitorSnapshot`, reading the retained generation of that snapshot; N−1 is never assumed when `links_adjacent == 0`.
 - [ ] The chain-walk cycle guard is bounded by the total retained population, not by one slab's count.
 - [ ] Each generation's horizon is computed at load as the maximum `DescendantSnapshot` over its rows with a descendant, or its own snapshot if none; a generation is released exactly when its horizon has been processed, and never earlier.
-- [ ] The driver is the single owner of retained generations (raw slab, reader-owned arrays, aux, processed buffer, galaxy pool); the reader holds no retention state; every generation is released on success and on failure, and `close_run` finds no slab loaded.
+- [ ] The driver is the single owner of retained generations: whole generations under R0-6(a) (raw slab, reader-owned arrays, aux, processed buffer, galaxy pool), or the projection R0-6(b) specifies, owning every buffer that projection keeps; the reader holds no retention state; every generation is released on success and on failure, and `close_run` finds no slab loaded.
 - [ ] A `links_adjacent == 1` dataset, including every v2 dataset, retains exactly two generations, and v2 output is bitwise identical to the pre-change commit.
 - [ ] No synthetic halo, phantom generation or interpolated state is created on any path; empty snapshots are processed as empty.
 - [ ] Inherited galaxies keep their progenitor's `SnapNum` until marshalling, so the time interval and dynamic substeps span the real gap.
@@ -321,7 +325,7 @@ These are architectural decisions this plan deliberately does not make. Each has
 
 ### Intended Change
 
-- Make retained-generation and wide-slab memory explicit: measure it, report it, and refuse before allocation per R0-5, so a slab or retention set that cannot fit fails loudly instead of narrowing or dying in the allocator.
+- Make retained-generation and wide-slab memory explicit on every path: compute each allocation's size from struct widths before allocating it, and report it, so a slab or retention set that cannot fit never narrows or overflows an index. What happens next is R0-5's recorded option: under (a) it is refused before allocation against a run-file ceiling; under (b) its required size is reported and exhaustion surfaces as an allocator failure.
 
 ### Acceptance Criteria
 
@@ -349,13 +353,13 @@ These are architectural decisions this plan deliberately does not make. Each has
 
 ### Risk Flags
 
-- Risky surfaces touched: public run-file configuration; memory accounting.
+- Risky surfaces touched: memory accounting; public run-file configuration under R0-5(a) only.
 - Approval needed before implementation: yes
 - Independent audit required: yes
 
 ### Validation Plan
 
-- Tests to add/update: refusal at and just above the ceiling; a key-rejection test for malformed values.
+- Tests to add/update: in every case, pre-allocation size computation and reporting for normal and above-`INT32_MAX` synthetic slabs. Under R0-5(a), also refusal at and just above the ceiling, and a key-rejection test for malformed values. Under R0-5(b), a test that no ceiling key is accepted and that the reported required bytes match the struct-width arithmetic.
 - Commands to run: unit tests, `make tests summary` (delegated), a real mini-Millennium horizontal run with the profile captured, `make check-format`, `make check-docs`, `git diff --check`.
 - Lint (differential, via the `lint` skill): required.
 - Manual checks: confirm every file that reports run memory reports retained generations too.
@@ -464,9 +468,9 @@ These are architectural decisions this plan deliberately does not make. Each has
 
 ### Acceptance Criteria
 
-- [ ] `docs/USER-GUIDE.md` and `docs/DEVELOPER-GUIDE.md` describe v3 consumption, the retention model, the memory ceiling and the one-package-per-source-format rule as implemented.
+- [ ] `docs/USER-GUIDE.md` and `docs/DEVELOPER-GUIDE.md` describe v3 consumption, the retention model, the memory policy R0-5 recorded (the ceiling under (a), the reported-size behaviour under (b)) and the one-package-per-source-format rule as implemented.
 - [ ] Runtime support is claimed only for routes whose Slice 6 or Slice 7 gate passed, naming the evidence; full Uchuu is stated as not runnable.
-- [ ] `HORIZONTAL-HDF5-FORMAT.md` carries version 3 as normative per R0-11, with version 2's text, invariants and errata unchanged.
+- [ ] Version 3 is normative per R0-11's recorded option: under (a) `HORIZONTAL-HDF5-FORMAT.md` carries it as a normative section; under (b) the v3 file's status line changes from DRAFT to normative and `HORIZONTAL-HDF5-FORMAT.md` cross-links it. Either way, version 2's text, invariants and errata are unchanged.
 - [ ] Skills describing the reader, driver and format are updated to the implemented facts.
 - [ ] `make check-docs` passes and no prose is hard-wrapped.
 
