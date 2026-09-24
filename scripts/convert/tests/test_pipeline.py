@@ -1120,6 +1120,46 @@ class SkipTrustAndCleanupTests(PipelineCase):
 # ==========================================================================
 
 
+class WriteInputForestTests(PipelineCase):
+    """The write stage's forest enumeration (converter generalisation
+    Slice 8): lazy, read-only, bound to the recorded inventory."""
+
+    def transposed(self):
+        self.initialize()
+        pipeline.run_ingest(self.work)
+        pipeline.run_transpose(self.work)
+        return cm.ConversionManifest.load(self.work)
+
+    def test_lhalo_forests_are_the_inventory_trees_in_order(self):
+        inputs = pipeline._write_inputs(self.transposed())
+        records = [
+            (r.forest_index, r.forest_id, r.source_file_ordinal, r.unit_ordinal, r.n_halos)
+            for r in inputs.forests()
+        ]
+        # TREE_A (4 halos) and TREE_B (1) in file 0, TREE_C (3) in file 1
+        self.assertEqual(records, [(0, 0, 0, 0, 4), (1, 1, 0, 1, 1), (2, 2, 1, 0, 3)])
+        self.assertEqual(len(list(inputs.forests())), 3)
+
+    def test_the_enumeration_reads_no_source_until_it_is_called(self):
+        manifest = self.transposed()
+        with mock.patch.object(pipeline, "build_adapter", side_effect=InjectedFailure):
+            inputs = pipeline._write_inputs(manifest)
+            with self.assertRaises(InjectedFailure):
+                inputs.forests()
+
+    def test_the_enumeration_is_bound_to_the_recorded_inventory(self):
+        manifest = self.transposed()
+        manifest.data["sources"]["inventory"]["units_sha256"] = "0" * 64
+        inputs = pipeline._write_inputs(manifest)
+        with self.assertRaisesRegex(ConverterError, "inventory changed"):
+            inputs.forests()
+
+    def test_the_stub_writer_path_is_unchanged(self):
+        self.transposed()
+        manifest = pipeline.run_write(self.work, StubWriter())
+        self.assertTrue(manifest.is_complete("write"))
+
+
 class OtherAdapterTests(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="pipeline_adapters_"))

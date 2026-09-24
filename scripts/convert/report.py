@@ -12,19 +12,32 @@ the full window of multipliers the dataset admits.
 
 Emitted as ``conversion_report.json`` (machine-readable record) plus
 ``conversion_report.txt`` (human-readable rendering) under the workdir.
+
+A generic (format version 3) conversion has its own report,
+:func:`run_report_v3`, in a separate section at the end of this module; it
+reads the generic manifest and the v3 battery and shares only the identity
+multiplier arithmetic with the legacy report above, which is unchanged.
 """
 
 import json
 import os
 import sys
 from pathlib import Path
-from typing import List, Tuple
+from typing import Dict, List, Mapping, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import numpy as np  # noqa: E402
+from conversion_manifest import ConversionManifest  # noqa: E402
 from ctrees_parser import ConverterError  # noqa: E402
 from scatter import Manifest, load_a_list  # noqa: E402
-from validate import DEFAULT_MULTIPLIER, Outcome, battery_failed  # noqa: E402
+from validate import (  # noqa: E402
+    DEFAULT_MULTIPLIER,
+    DEFAULT_V3_BUDGET_BYTES,
+    Outcome,
+    battery_failed,
+    run_battery_v3,
+)
 
 _INT64_MAX = 2**63 - 1
 
@@ -256,6 +269,371 @@ def run_report(workdir, a_list_path, multiplier: int = DEFAULT_MULTIPLIER) -> di
     json_path = write_report(report, manifest.workdir)
     print(
         "report: wrote {} and {} — validation {}".format(
+            json_path,
+            Path(manifest.workdir) / REPORT_TXT,
+            "PASS" if report["validation_passed"] else "FAIL",
+        ),
+        file=sys.stderr,
+    )
+    return report
+
+
+# ==========================================================================
+# Format version 3 (converter generalisation Slice 8)
+# ==========================================================================
+#
+# The report of a generic (manifest version 3) conversion. Everything above is
+# the legacy ASCII-to-v2 report and is unchanged.
+#
+# It states what was converted and what that output can and cannot do yet:
+# source format, the ACTUAL format version the emitted files declare (read
+# back by the battery, not assumed), the mapping and source layout, link-gap
+# counts, index bounds, resource measurements, the validation outcomes, and
+# the runtime limitations that keep the current Mimic from running it. It
+# carries the consumer payload-metadata fragment, labelled insufficient for
+# runtime execution. It writes into the conversion workdir only: no
+# simulation package, halo_properties.yaml or run file is created or changed.
+
+REPORT_V3_KIND = "mimic-generic-conversion-report"
+
+#: ``INT_MAX``, the largest slab the current horizontal driver accepts.
+_C_INT_MAX = 2**31 - 1
+
+#: Stated for every v3 dataset, whatever it contains.
+_V3_STANDING_LIMITATIONS = (
+    "Mimic's horizontal_hdf5 reader accepts only format_version 2 and rejects a version 3 "
+    "file at open: it defines exactly the root groups /header and /halos, so the /schema "
+    "group is refused before any value is read (src/io/horizontal/read_horizontal_hdf5.c).",
+    "The reader's fixed dataset table declares the five links int32 and has no "
+    "target-snapshot columns, no SourceHaloID and no declared extras; a reader that "
+    "consumes version 3 is the separate runtime follow-on, not part of this converter.",
+    "Payload units and precision are the source's native ones as /schema declares them; a "
+    "consuming simulation package's halo_properties.yaml must declare the same, and this "
+    "converter neither writes nor edits one.",
+)
+
+
+def _v3_limitations(measured: Mapping, schema) -> List[str]:
+    limitations = list(_V3_STANDING_LIMITATIONS)
+    gapped = int(measured.get("gapped_descendants", 0))
+    if gapped:
+        limitations.append(
+            "{} Descendant link(s) skip snapshots (longest span {}); the horizontal driver "
+            "retains only two snapshot generations and cannot carry state across a "
+            "gap.".format(gapped, measured.get("max_descendant_span"))
+        )
+    counts = measured.get("snapshot_counts") or []
+    widest = max(counts) if counts else 0
+    if widest > _C_INT_MAX:
+        limitations.append(
+            "The largest snapshot holds {} halos, above INT_MAX ({}); the horizontal driver "
+            "refuses such a slab.".format(widest, _C_INT_MAX)
+        )
+    if schema.extra_fields:
+        limitations.append(
+            "{} declared extra field(s) ({}) have no runtime consumer yet.".format(
+                len(schema.extra_fields), ", ".join(extra.name for extra in schema.extra_fields)
+            )
+        )
+    return limitations
+
+
+def _v3_multiplier(max_rank: int, n_forests_total: int) -> Dict[str, object]:
+    window = identity_multiplier_window(max_rank, n_forests_total)
+    try:
+        recommended = recommended_multiplier(max_rank, n_forests_total)
+    except ConverterError as exc:
+        return {"window": list(window), "recommended": None, "reason": str(exc)}
+    return {"window": list(window), "recommended": recommended, "reason": None}
+
+
+def build_report_v3(manifest, battery, dataset_dir) -> dict:
+    """Assemble the v3 report from the generic manifest and a v3 battery
+    result (``validate.V3BatteryResult``)."""
+    schema = manifest.schema
+    measured = dict(battery.measurements)
+    configuration = manifest.configuration
+    transpose = manifest.stage("transpose").get("result") or {}
+    writer = (manifest.stage("write").get("result") or {}).get("writer")
+    counts = [int(value) for value in measured.get("snapshot_counts") or []]
+    total_halos = int(sum(counts))
+    emitted_bytes = int(sum(measured.get("snapshot_bytes") or [])) + int(
+        measured.get("sidecar_bytes") or 0
+    )
+    n_forests_total = int(measured.get("n_forests_total", 0))
+    max_rank = int(measured.get("header_max_halo_rank_in_forest", -1))
+    int32_max = int(np.iinfo(np.int32).max)
+    widest = max(counts) if counts else 0
+    return {
+        "report_kind": REPORT_V3_KIND,
+        "workdir": str(manifest.workdir),
+        "dataset_dir": str(Path(dataset_dir).resolve()),
+        "source": {
+            "source_format": schema.source_format,
+            "adapter_parameters": configuration["adapter"]["parameters"],
+            "inventory": manifest.inventory,
+            "dependencies": [
+                {key: record.get(key) for key in ("path", "roles", "size_bytes", "sha256")}
+                for record in manifest.dependencies
+            ],
+        },
+        "format": {
+            "declared_format_versions": measured.get("format_versions"),
+            "writer": writer,
+            "links_adjacent": measured.get("header_links_adjacent"),
+            "links_adjacent_measured": measured.get("links_adjacent_measured"),
+        },
+        "mapping": {
+            "column_mapping_sha256": schema.digest,
+            "schema": schema.as_canonical(),
+            "source_layout": (
+                None if schema.source_layout is None else schema.source_layout.as_canonical()
+            ),
+        },
+        "totals": {
+            "halos": total_halos,
+            "snapshots": len(counts),
+            "snapshots_with_halos": sum(1 for count in counts if count),
+            "n_forests_total": n_forests_total,
+            "len_zero": measured.get("len_zero"),
+        },
+        "per_snapshot": [
+            {"snapshot": snap, "halos": count, "file_bytes": size}
+            for snap, (count, size) in enumerate(zip(counts, measured.get("snapshot_bytes") or []))
+        ],
+        "links": {
+            "non_null": measured.get("non_null_links"),
+            "gapped_descendants": measured.get("gapped_descendants"),
+            "max_descendant_span": measured.get("max_descendant_span"),
+            "gapped_first_progenitors": measured.get("gapped_first_progenitors"),
+            "max_first_progenitor_span": measured.get("max_first_progenitor_span"),
+            "next_progenitors_off_owner_snapshot": measured.get(
+                "next_progenitors_off_owner_snapshot"
+            ),
+            "transpose_gapped_descendants": transpose.get("n_gapped_descendants"),
+        },
+        "index_bounds": {
+            "source_halo_id_min": measured.get("min_source_halo_id"),
+            "source_halo_id_max": measured.get("max_source_halo_id"),
+            "max_forest_index": measured.get("max_forest_index"),
+            "max_halo_rank_in_forest": max_rank,
+            "max_snapshot_halos": widest,
+            "max_link_row": measured.get("max_link_row"),
+            "int32_max": int32_max,
+            "any_index_above_int32": any(
+                value is not None and int(value) > int32_max
+                for value in (
+                    widest,
+                    measured.get("max_link_row"),
+                    measured.get("max_source_halo_id"),
+                )
+            ),
+        },
+        "identity_multiplier": _v3_multiplier(max_rank, n_forests_total),
+        "resources": {
+            "emitted_bytes": emitted_bytes,
+            "emitted_bytes_per_halo": (emitted_bytes / total_halos) if total_halos else None,
+            "record_itemsize": {
+                "ingest": configuration["record_dtypes"]["ingest"].get("itemsize"),
+                "transposed": configuration["record_dtypes"]["transposed"].get("itemsize"),
+            },
+            "ingest_max_rows": configuration["ingest_max_rows"],
+            "transpose": {
+                "budget_bytes": configuration["transpose_budget_bytes"],
+                "peak_resident_bytes": transpose.get("peak_resident_bytes"),
+                "peak_spill_bytes": transpose.get("peak_spill_bytes"),
+                "sort_runs": transpose.get("sort_runs"),
+                "sort_merge_passes": transpose.get("sort_merge_passes"),
+                "chain_rounds": transpose.get("chain_rounds"),
+            },
+            "validation": {
+                "budget_bytes": measured.get("budget_bytes"),
+                "peak_resident_bytes": measured.get("peak_resident_bytes"),
+                "peak_spill_bytes": measured.get("peak_spill_bytes"),
+            },
+            "note": (
+                "bytes per halo includes each dataset's final partially-filled 65536-row "
+                "chunk, which dominates for small datasets"
+            ),
+        },
+        "runtime_compatibility": {
+            "runnable_by_current_mimic": False,
+            "limitations": _v3_limitations(measured, schema),
+        },
+        "consumer_metadata_fragment": {
+            "sufficient_for_runtime_execution": False,
+            "label": (
+                "Payload types, native units and core-role bindings only. Insufficient to enable "
+                "runtime execution: it does not describe gapped-link state, int64 slab access or "
+                "a version 3 reader, and no simulation package was written from it."
+            ),
+            "simulation_packages_written": False,
+            "fragment": schema.consumer_metadata_fragment(),
+        },
+        "validation": [outcome.as_dict() for outcome in battery.outcomes],
+        "validation_passed": not battery.failed,
+    }
+
+
+def render_text_v3(report: dict) -> str:
+    source = report["source"]
+    totals = report["totals"]
+    links = report["links"]
+    bounds = report["index_bounds"]
+    resources = report["resources"]
+    multiplier = report["identity_multiplier"]
+    lines = [
+        "Conversion report (horizontal-HDF5 format version 3)",
+        "====================================================",
+        "",
+        "NOT RUNNABLE BY THE CURRENT MIMIC -- see runtime compatibility below.",
+        "",
+        "workdir:        {}".format(report["workdir"]),
+        "dataset dir:    {}".format(report["dataset_dir"]),
+        "source format:  {}".format(source["source_format"]),
+        "format version: {} (declared by the emitted files)".format(
+            report["format"]["declared_format_versions"]
+        ),
+        "mapping:        column_mapping_sha256 {}".format(
+            report["mapping"]["column_mapping_sha256"]
+        ),
+        "source layout:  {}".format(
+            "none (not a fixed-record source)"
+            if report["mapping"]["source_layout"] is None
+            else "{} byte order, {}-byte records".format(
+                report["mapping"]["source_layout"]["byte_order"],
+                report["mapping"]["source_layout"]["itemsize"],
+            )
+        ),
+        "",
+        "totals: {} halo(s) in {} snapshot file(s) ({} populated); {} forest(s); {} "
+        "Len==0 halo(s)".format(
+            totals["halos"],
+            totals["snapshots"],
+            totals["snapshots_with_halos"],
+            totals["n_forests_total"],
+            totals["len_zero"],
+        ),
+        "links: links_adjacent={} (measured {}); {} gapped Descendant link(s), longest span {}; "
+        "{} gapped FirstProgenitor link(s); {} NextProgenitor link(s) off their owner's "
+        "snapshot".format(
+            report["format"]["links_adjacent"],
+            report["format"]["links_adjacent_measured"],
+            links["gapped_descendants"],
+            links["max_descendant_span"],
+            links["gapped_first_progenitors"],
+            links["next_progenitors_off_owner_snapshot"],
+        ),
+        "       non-null: {}".format(links["non_null"]),
+        "index bounds: SourceHaloID [{}, {}]; max ForestIndex {}; max rank {}; largest snapshot "
+        "{} halo(s); largest link row {}; any index above INT32_MAX: {}".format(
+            bounds["source_halo_id_min"],
+            bounds["source_halo_id_max"],
+            bounds["max_forest_index"],
+            bounds["max_halo_rank_in_forest"],
+            bounds["max_snapshot_halos"],
+            bounds["max_link_row"],
+            bounds["any_index_above_int32"],
+        ),
+        "identity multiplier: window {}, recommended {}{}".format(
+            multiplier["window"],
+            multiplier["recommended"],
+            "" if multiplier["reason"] is None else " ({})".format(multiplier["reason"]),
+        ),
+        "resources: {} byte(s) emitted ({} B/halo); transpose peak resident {} / spill {} "
+        "byte(s); validation peak resident {} / spill {} byte(s)".format(
+            resources["emitted_bytes"],
+            (
+                "n/a"
+                if resources["emitted_bytes_per_halo"] is None
+                else "{:.2f}".format(resources["emitted_bytes_per_halo"])
+            ),
+            resources["transpose"]["peak_resident_bytes"],
+            resources["transpose"]["peak_spill_bytes"],
+            resources["validation"]["peak_resident_bytes"],
+            resources["validation"]["peak_spill_bytes"],
+        ),
+        "           ({})".format(resources["note"]),
+        "",
+        "per-snapshot halos / file bytes:",
+    ]
+    for entry in report["per_snapshot"]:
+        lines.append(
+            "  snapshot {:>3} -- {} / {}".format(
+                entry["snapshot"], entry["halos"], entry["file_bytes"]
+            )
+        )
+    lines += ["", "runtime compatibility: runnable by the current Mimic: NO"]
+    lines += ["  - {}".format(text) for text in report["runtime_compatibility"]["limitations"]]
+    fragment = report["consumer_metadata_fragment"]
+    lines += ["", "consumer payload-metadata fragment (INSUFFICIENT for runtime execution):"]
+    lines.append("  {}".format(fragment["label"]))
+    for entry in fragment["fragment"]["halo_properties"]:
+        lines.append(
+            "  {:<16} {:<10} {:<22} h:{:<8} core role: {}".format(
+                entry["name"],
+                entry["type"],
+                entry["units"],
+                entry["h_convention"],
+                entry["provides_core_role"] or "-",
+            )
+        )
+    lines += ["", "validation outcomes:"]
+    for outcome in report["validation"]:
+        text = "  {}: {}".format(outcome["name"], outcome["status"])
+        if outcome["detail"]:
+            text += " -- {}".format(outcome["detail"])
+        lines.append(text)
+    lines += ["", "validation: {}".format("PASS" if report["validation_passed"] else "FAIL"), ""]
+    return "\n".join(lines)
+
+
+def _write_atomic(path: Path, text: str) -> None:
+    tmp = path.with_name(path.name + ".tmp")
+    with open(tmp, "w") as handle:
+        handle.write(text)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(tmp, path)
+
+
+def write_report_v3(report: dict, workdir) -> Path:
+    """Write the v3 JSON record and its text rendering into the workdir;
+    returns the JSON path."""
+    workdir = Path(workdir)
+    json_path = workdir / REPORT_JSON
+    _write_atomic(json_path, json.dumps(report, indent=2, sort_keys=True) + "\n")
+    _write_atomic(workdir / REPORT_TXT, render_text_v3(report))
+    return json_path
+
+
+def run_report_v3(
+    workdir,
+    a_list_path,
+    multiplier: int = DEFAULT_MULTIPLIER,
+    *,
+    budget_bytes: int = DEFAULT_V3_BUDGET_BYTES,
+    spill_dir=None,
+) -> dict:
+    """Validate a completed generic conversion's v3 dataset and write its
+    report into the workdir. The battery outcome is in the report AND in its
+    ``validation_passed``; a failing dataset still gets a report, never a
+    quietly successful one."""
+    manifest = ConversionManifest.load(workdir)
+    manifest.require_complete("write")
+    dataset_dir = manifest.artifact_path(manifest.stage("write")["directory"])
+    battery = run_battery_v3(
+        dataset_dir,
+        a_list_path,
+        manifest_path=manifest.path,
+        multiplier=multiplier,
+        budget_bytes=budget_bytes,
+        spill_dir=spill_dir,
+    )
+    report = build_report_v3(manifest, battery, dataset_dir)
+    json_path = write_report_v3(report, manifest.workdir)
+    print(
+        "report: wrote {} and {} -- validation {}".format(
             json_path,
             Path(manifest.workdir) / REPORT_TXT,
             "PASS" if report["validation_passed"] else "FAIL",

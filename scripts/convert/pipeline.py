@@ -13,8 +13,13 @@ predecessor is complete:
 2. :func:`run_transpose` feeds those chunks, checksum-verified as they are
    read, to ``transpose.transpose`` and registers every per-snapshot output.
 3. :func:`run_write` hands the verified transposed snapshots to a
-   :class:`StageWriter` and registers what it produced. The v3 HDF5 writer is
-   Slice 8's; this slice defines the stage and its state transitions only.
+   :class:`StageWriter` and registers what it produced. The concrete v3 HDF5
+   writer is ``hdf5_writer.HorizontalV3Writer`` (Slice 8); this module owns
+   the stage, its state transitions and the inputs it hands a writer --
+   including the forest enumeration for the ``forests.h5`` sidecar, which
+   ingest does not persist and :func:`run_write` re-derives read-only from the
+   recorded adapter configuration, bound to the recorded inventory
+   (:attr:`WriteInputs.forests`).
 
 State lives in ``conversion_manifest.ConversionManifest``. Nothing here keeps
 state between calls: every stage entry reloads the manifest, rebuilds the
@@ -1041,10 +1046,19 @@ class WriteInputs:
     transposed: Tuple[TransposedSnapshot, ...]
     transpose_result: Mapping
     configuration: Mapping
+    #: Zero-argument callable returning a fresh iterator over every forest of
+    #: the recorded inventory in ``ForestIndex`` order, as
+    #: ``adapters.ctrees_hdf5.ForestRecord`` values -- the ``forests.h5``
+    #: sidecar's rows. Lazy: the adapter is rebuilt read-only and bound to the
+    #: recorded inventory only when a writer first calls it, so a writer that
+    #: emits no sidecar never touches the source. ``None`` only for inputs a
+    #: caller assembled by hand.
+    forests: Optional[Callable[[], Iterator]] = None
 
 
 class StageWriter(abc.ABC):
-    """What the write stage asks of a writer (the v3 writer is Slice 8's).
+    """What the write stage asks of a writer (``hdf5_writer.HorizontalV3Writer``
+    is the v3 one).
 
     ``write`` creates its outputs only under ``out_dir`` -- a fresh,
     manifest-recorded attempt directory -- and returns every file it
@@ -1083,6 +1097,68 @@ def read_transposed(manifest: ConversionManifest, snapshot: int) -> np.ndarray:
     raise ConverterError("{}: no transposed snapshot {}".format(manifest.path, snapshot))
 
 
+def _bound_adapter(manifest: ConversionManifest) -> SourceAdapter:
+    """The recorded adapter, rebuilt read-only and required to enumerate the
+    recorded dependency set and inventory -- so every forest it reports is one
+    this conversion's ``SourceHaloID`` and ``ForestIndex`` values were
+    assigned against. The ASCII adapter reads its completed preparation."""
+    adapter_config = manifest.configuration["adapter"]
+    source_format = adapter_config["source_format"]
+    prepared = None
+    if _route(source_format).prepared:
+        prepared = manifest.artifact_path(ASCII_PREPARATION_DIR)
+        if not prepared.is_dir():
+            raise ConverterError(
+                "{}: the ASCII preparation directory is missing; the forest sidecar cannot be "
+                "enumerated".format(prepared)
+            )
+    adapter = build_adapter(
+        source_format,
+        manifest.schema,
+        adapter_config["parameters"],
+        _max_snapshot(manifest),
+        prepared_dir=prepared,
+    )
+    _bind_adapter(manifest, adapter)
+    return adapter
+
+
+def _lhalo_forests(adapter) -> Iterator:
+    """L-Halo's sidecar rows: one per tree, in inventory order. Its
+    ``ForestIndex`` is the file-prefix tree number (C1), which is the tree's
+    position in that order, and its ``ForestID`` is that same dense run forest
+    number (C3), disambiguated by the file and tree ordinals. Zero-halo trees
+    are forests too: they occupy a tree number."""
+    from adapters.ctrees_hdf5 import ForestRecord
+
+    for position, unit in enumerate(adapter.inventory().units):
+        yield ForestRecord(
+            forest_index=position,
+            forest_id=position,
+            source_file_ordinal=unit.source_file_ordinal,
+            unit_ordinal=unit.unit_ordinal,
+            n_halos=unit.n_halos,
+        )
+
+
+def _forest_provider(manifest: ConversionManifest) -> Callable[[], Iterator]:
+    """:attr:`WriteInputs.forests` for one manifest: the bound adapter is
+    built on first call and reused, so a writer that enumerates the forests
+    twice (once to write, once to verify) reads the inventory once."""
+    source_format = manifest.configuration["adapter"]["source_format"]
+    bound: List[SourceAdapter] = []
+
+    def forests() -> Iterator:
+        if not bound:
+            bound.append(_bound_adapter(manifest))
+        adapter = bound[0]
+        if source_format == "lhalo_binary":
+            return _lhalo_forests(adapter)
+        return adapter.iter_forests()
+
+    return forests
+
+
 def _write_inputs(manifest: ConversionManifest) -> WriteInputs:
     snapshots = []
     for relpath in manifest.stage("transpose")["artifacts"]:
@@ -1104,6 +1180,7 @@ def _write_inputs(manifest: ConversionManifest) -> WriteInputs:
         transposed=tuple(snapshots),
         transpose_result=dict(manifest.stage("transpose")["result"]),
         configuration=configuration,
+        forests=_forest_provider(manifest),
     )
 
 

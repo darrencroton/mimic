@@ -1,12 +1,22 @@
 """Slice 7 unit tests: horizontal-HDF5 emission against the frozen contract
 (docs/dev/HORIZONTAL-HDF5-FORMAT.md), the forests.h5 sidecar, writer resume/refuse
-semantics, and the conversion report."""
+semantics, and the conversion report.
 
+Converter generalisation Slice 8 adds the format version 3 writer
+(``HorizontalV3Writer``) at the end. Its oracle is ``test_pipeline``'s literal
+gapped L-Halo source and the transposed arrays hand-derived from it
+(``test_pipeline.EXPECTED``), extended here with payload and extra values
+that are literal functions of each halo's SourceHaloID -- never the writer's
+own table or the transpose's output."""
+
+import dataclasses
 import os
+import shutil
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 import h5py
@@ -17,6 +27,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import convert_ctrees  # noqa: E402
 import fixtures  # noqa: E402
+import pipeline  # noqa: E402
+import test_ctrees_hdf5_adapter as h5fixtures  # noqa: E402
+import test_lhalo_adapter as lhalo  # noqa: E402
+import test_pipeline as literal  # noqa: E402
+from column_schema import build_schema, load_column_map  # noqa: E402
+from conversion_manifest import ConversionManifest  # noqa: E402
 from ctrees_parser import ConverterError  # noqa: E402
 from fixups import FIXED_RECORD_DTYPE, run_fixups  # noqa: E402
 from hdf5_writer import (  # noqa: E402
@@ -25,6 +41,8 @@ from hdf5_writer import (  # noqa: E402
     FORMAT_VERSION,
     HALO_DATASETS,
     HEADER_ATTRS,
+    V3_FORMAT_VERSION,
+    HorizontalV3Writer,
     build_halo_arrays,
     load_header_metadata,
     run_write,
@@ -41,7 +59,7 @@ from scatter import Manifest, run_scatter  # noqa: E402
 from sort_index import run_sort  # noqa: E402
 from test_fixups import capture_stderr  # noqa: E402
 from test_links import GOLDEN_LINKS, make_linked_workdir  # noqa: E402
-from validate import run_battery  # noqa: E402
+from validate import run_battery, run_battery_v3  # noqa: E402
 
 
 def make_written_workdir(root: Path):
@@ -748,6 +766,494 @@ class TestExtendedLayoutRefusal(unittest.TestCase):
             self.assertEqual(code, 1)
             self.assertIn("cannot carry", err.text)
             self.assertFalse((extended.workdir / "hdf5").exists())
+
+
+# ==========================================================================
+# Format version 3 (converter generalisation Slice 8)
+# ==========================================================================
+
+#: Literal fixed-table storage of every v3 /halos topology and identity
+#: column, restated from docs/dev/HORIZONTAL-HDF5-FORMAT-V3-DRAFT.md.
+V3_FIXED = {
+    "Descendant": "<i8",
+    "FirstProgenitor": "<i8",
+    "NextProgenitor": "<i8",
+    "FirstHaloInFOFgroup": "<i8",
+    "NextHaloInFOFgroup": "<i8",
+    "DescendantSnapshot": "<i4",
+    "FirstProgenitorSnapshot": "<i4",
+    "NextProgenitorSnapshot": "<i4",
+    "SourceHaloID": "<i8",
+    "ForestIndex": "<i8",
+    "HaloRankInForest": "<i8",
+}
+
+#: The L-Halo extras-example profile's payload and extras as the file must
+#: declare and store them: name -> (type, units, dtype, vec3).
+V3_LHALO_EXTRAS_PAYLOAD = {
+    "Len": ("int", "particles", "<i4", False),
+    "SnapNum": ("int", "dimensionless", "<i4", False),
+    "M_Crit200": ("float", "1e10 Msun/h", "<f4", False),
+    "Pos": ("vec3_float", "Mpc/h", "<f4", True),
+    "Vel": ("vec3_float", "km/s", "<f4", True),
+    "Spin": ("vec3_float", "Mpc/h km/s", "<f4", True),
+    "VelDisp": ("float", "km/s", "<f4", False),
+    "Vmax": ("float", "km/s", "<f4", False),
+    "MostBoundID": ("long long", "dimensionless", "<i8", False),
+    "M_Mean200": ("float", "1e10 Msun/h", "<f4", False),
+    "M_TopHat": ("float", "1e10 Msun/h", "<f4", False),
+    "SubHalfMass": ("float", "1e10 Msun/h", "<f4", False),
+    "SourceFileNr": ("int", "dimensionless", "<i4", False),
+    "SubhaloIndex": ("int", "dimensionless", "<i4", False),
+    "PosX": ("float", "Mpc/h", "<f4", False),
+}
+
+
+def v3_source_values(sid: int) -> dict:
+    """Every non-topology L-Halo field of the literal halo with this
+    SourceHaloID, as a literal function of it. Spin's last component is a
+    signed zero, which must survive."""
+    return {
+        "M_Mean200": sid + 0.5,
+        "M_TopHat": -0.25 * sid,
+        "SubHalfMass": 1024.0 * sid + 0.125,
+        "FileNr": -sid,
+        "SubhaloIndex": 100 + sid,
+        "Pos": (sid + 0.25, 2.0 * sid, 3.0 * sid),
+        "Vel": (float(sid), -float(sid), 0.5),
+        "Spin": (0.125 * sid, 1.0, -0.0),
+        "VelDisp": 10.0 + sid,
+        "Vmax": 20.0 + sid,
+    }
+
+
+def v3_expected_extras(sid: int) -> dict:
+    """The v3 dataset value of every payload/extra column for one halo:
+    the literal source value, renamed and component-selected exactly as the
+    extras profile declares."""
+    values = v3_source_values(sid)
+    return {
+        "Pos": values["Pos"],
+        "Vel": values["Vel"],
+        "Spin": values["Spin"],
+        "VelDisp": values["VelDisp"],
+        "Vmax": values["Vmax"],
+        "M_Mean200": values["M_Mean200"],
+        "M_TopHat": values["M_TopHat"],
+        "SubHalfMass": values["SubHalfMass"],
+        "SourceFileNr": values["FileNr"],
+        "SubhaloIndex": values["SubhaloIndex"],
+        "PosX": values["Pos"][0],
+    }
+
+
+def v3_literal_trees():
+    """test_pipeline's three literal trees (SourceHaloID A -> 1-4, B -> 5,
+    C -> 6-8) with every other field set by :func:`v3_source_values`."""
+    trees = []
+    sid = 1
+    for tree in (literal.TREE_A, literal.TREE_B, literal.TREE_C):
+        rows = []
+        for row in tree:
+            values = dict(row)
+            values.update(v3_source_values(sid))
+            rows.append(values)
+            sid += 1
+        trees.append(rows)
+    return trees
+
+
+def write_simulation_info(path, particle_mass: float = 0.0325, box: float = 100.0) -> Path:
+    path = Path(path)
+    path.write_text(
+        "simulation:\n"
+        "  cosmology: {omega_matter: 0.3089, omega_lambda: 0.6911, hubble_h: 0.6774}\n"
+        "  box_size: {value: %r, units: Mpc/h}\n"
+        "  particle_mass: {value: %r, units: 1e10 Msun/h}\n" % (box, particle_mass)
+    )
+    return path
+
+
+def make_v3_conversion(
+    root, profile="lhalo_binary_extras_example.yaml", *, write=True, block_rows=2
+):
+    """The literal gapped L-Halo source through initialize, ingest,
+    transpose and (unless ``write`` is False) the v3 write stage, streaming in
+    ``block_rows``-row blocks so even eight halos cross block boundaries."""
+    root = Path(root)
+    src = root / "src"
+    src.mkdir(parents=True)
+    tree_a, tree_b, tree_c = v3_literal_trees()
+    file0 = lhalo.write_lhalo_file(str(src / "trees.0"), [tree_a, tree_b])
+    file1 = lhalo.write_lhalo_file(str(src / "trees.1"), [tree_c])
+    a_list = src / "a.list"
+    a_list.write_text(literal.A_LIST_TEXT)
+    sim_info = write_simulation_info(src / "simulation_info.yaml")
+    work = root / "work"
+    schema = literal.lhalo_schema(profile)
+    pipeline.initialize(
+        work,
+        schema,
+        {"sources": [[0, file0], [1, file1]]},
+        a_list,
+        ingest_max_rows=3,
+        transpose_budget_bytes=literal.BUDGET,
+    )
+    pipeline.run_ingest(work)
+    pipeline.run_transpose(work)
+    conversion = SimpleNamespace(
+        work=work, a_list=a_list, sim_info=sim_info, schema=schema, manifest=None, dataset=None
+    )
+    if write:
+        manifest = pipeline.run_write(work, HorizontalV3Writer(sim_info, block_rows=block_rows))
+        conversion.manifest = manifest
+        conversion.dataset = manifest.artifact_path(manifest.stage("write")["directory"])
+    return conversion
+
+
+class V3Case(unittest.TestCase):
+    """One written extras conversion shared by the read-only tests."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls._tmp = tempfile.TemporaryDirectory(prefix="v3_writer_")
+        cls.conv = make_v3_conversion(cls._tmp.name)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._tmp.cleanup()
+
+    def open(self, name):
+        handle = h5py.File(self.conv.dataset / name, "r")
+        self.addCleanup(handle.close)
+        return handle
+
+
+class TestV3Emission(V3Case):
+    def test_emits_every_a_list_snapshot_including_the_empty_one_and_the_sidecar(self):
+        self.assertEqual(
+            sorted(os.listdir(self.conv.dataset)),
+            ["forests.h5"] + [snapshot_h5_name(s) for s in range(4)],
+        )
+        empty = self.open(snapshot_h5_name(1))
+        self.assertEqual(int(empty["header"].attrs["n_halos"]), 0)
+        self.assertEqual(set(empty["schema"]), set(V3_LHALO_EXTRAS_PAYLOAD))
+        for name, dtype in V3_FIXED.items():
+            self.assertEqual(empty["halos"][name].shape, (0,), name)
+            self.assertEqual(empty["halos"][name].dtype.str, dtype, name)
+        for name, (_type, _units, dtype, is_vec) in V3_LHALO_EXTRAS_PAYLOAD.items():
+            self.assertEqual(empty["halos"][name].shape, (0, 3) if is_vec else (0,), name)
+            self.assertEqual(empty["halos"][name].dtype.str, dtype, name)
+
+    def test_every_file_holds_exactly_the_c3_objects(self):
+        header_names = set(HEADER_ATTRS) | {"source_format", "column_mapping_sha256"}
+        for snap in range(4):
+            handle = self.open(snapshot_h5_name(snap))
+            self.assertEqual(set(handle.keys()), {"header", "halos", "schema"})
+            self.assertEqual(set(handle.attrs.keys()), set())
+            self.assertEqual(set(handle["header"].attrs.keys()), header_names)
+            self.assertEqual(
+                set(handle["halos"].keys()), set(V3_FIXED) | set(V3_LHALO_EXTRAS_PAYLOAD)
+            )
+            for name in handle["halos"]:
+                self.assertIsInstance(handle["halos"].get(name, getlink=True), h5py.HardLink)
+        sidecar = self.open("forests.h5")
+        self.assertEqual(
+            set(sidecar.keys()), {"ForestID", "SourceFileOrdinal", "SourceUnitOrdinal"}
+        )
+        self.assertEqual(set(sidecar.attrs.keys()), set())
+
+    def test_topology_and_identity_are_the_hand_derived_gapped_graph(self):
+        for snap, columns in literal.EXPECTED.items():
+            halos = self.open(snapshot_h5_name(snap))["halos"]
+            for name, values in columns.items():
+                if name == "M_Crit200":
+                    expected = np.asarray(values, dtype="<f4")
+                elif name in V3_FIXED:
+                    expected = np.asarray(values, dtype=V3_FIXED[name])
+                else:
+                    expected = np.asarray(values, dtype=V3_LHALO_EXTRAS_PAYLOAD[name][2])
+                stored = halos[name][...]
+                self.assertEqual(stored.dtype.str, expected.dtype.str, name)
+                np.testing.assert_array_equal(stored, expected, err_msg="{} {}".format(snap, name))
+        # the two gapped descendants and the mixed-age sibling survive as such
+        snap0 = self.open(snapshot_h5_name(0))["halos"]
+        np.testing.assert_array_equal(snap0["DescendantSnapshot"][...], [3, 2])
+        snap2 = self.open(snapshot_h5_name(2))["halos"]
+        np.testing.assert_array_equal(snap2["NextProgenitorSnapshot"][...], [0, -1, -1])
+
+    def test_signed_duplicated_mostboundid_is_carried_as_data(self):
+        snap3 = self.open(snapshot_h5_name(3))["halos"]
+        np.testing.assert_array_equal(snap3["MostBoundID"][...], [77, 13, 77])
+        snap2 = self.open(snapshot_h5_name(2))["halos"]
+        np.testing.assert_array_equal(snap2["MostBoundID"][...], [-5, 12, -3])
+
+    def test_payload_and_extras_keep_native_units_precision_and_values(self):
+        for snap, columns in literal.EXPECTED.items():
+            halos = self.open(snapshot_h5_name(snap))["halos"]
+            wanted = [v3_expected_extras(sid) for sid in columns["SourceHaloID"]]
+            for name in v3_expected_extras(1):
+                _type, _units, dtype, _vec = V3_LHALO_EXTRAS_PAYLOAD[name]
+                expected = np.asarray([row[name] for row in wanted], dtype=dtype)
+                stored = halos[name][...]
+                self.assertEqual(stored.dtype.str, dtype, name)
+                # bitwise, so the signed zero in Spin counts
+                self.assertEqual(stored.tobytes(), expected.tobytes(), "{} {}".format(snap, name))
+
+    def test_header_records_version_measured_gaps_identity_bounds_and_provenance(self):
+        for snap, scale in enumerate((0.25, 0.5, 0.75, 1.0)):
+            attrs = self.open(snapshot_h5_name(snap))["header"].attrs
+            self.assertEqual(attrs["format_version"], 3)
+            self.assertEqual(attrs["format_version"].dtype, np.int32)
+            self.assertEqual(attrs["links_adjacent"], 0)
+            self.assertEqual(attrs["snapshot_number"], snap)
+            self.assertEqual(attrs["scale_factor"], scale)
+            self.assertEqual(attrs["n_halos"], len(literal.EXPECTED[snap]["SourceHaloID"]))
+            self.assertEqual(attrs["n_forests_total"], 3)
+            self.assertEqual(attrs["max_halo_rank_in_forest"], 3)
+            self.assertEqual(attrs["particle_mass_msun_h"], 0.0325e10)
+            self.assertEqual(attrs["box_size_mpc_h"], 100.0)
+            self.assertEqual(attrs["source_format"], b"lhalo_binary")
+            self.assertEqual(attrs["column_mapping_sha256"], self.conv.schema.digest.encode())
+            for name, size in (("source_format", 32), ("column_mapping_sha256", 64)):
+                kind = attrs.get_id(name).get_type()
+                self.assertFalse(kind.is_variable_str())
+                self.assertEqual(kind.get_size(), size)
+                self.assertEqual(kind.get_cset(), h5py.h5t.CSET_ASCII)
+
+    def test_schema_group_declares_every_payload_field_exactly(self):
+        for snap in range(4):
+            schema = self.open(snapshot_h5_name(snap))["schema"]
+            self.assertEqual(set(schema), set(V3_LHALO_EXTRAS_PAYLOAD))
+            for name, (type_name, units, _dtype, _vec) in V3_LHALO_EXTRAS_PAYLOAD.items():
+                group = schema[name]
+                self.assertEqual(len(group), 0)
+                self.assertEqual(set(group.attrs), {"type", "units", "h_convention", "description"})
+                self.assertEqual(group.attrs["type"], type_name)
+                self.assertEqual(group.attrs["units"], units)
+                for key in group.attrs:
+                    kind = group.attrs.get_id(key).get_type()
+                    self.assertTrue(kind.is_variable_str())
+                    self.assertEqual(kind.get_cset(), h5py.h5t.CSET_UTF8)
+
+    def test_storage_is_chunked_explicit_little_endian_and_unfiltered(self):
+        halos = self.open(snapshot_h5_name(2))["halos"]
+        for name in halos:
+            dataset = halos[name]
+            self.assertEqual(dataset.chunks, CHUNK_VEC if dataset.ndim == 2 else CHUNK_1D)
+            self.assertIsNone(dataset.compression)
+            self.assertFalse(dataset.shuffle)
+            self.assertEqual(dataset.id.get_type().get_order(), h5py.h5t.ORDER_LE, name)
+
+    def test_sidecar_carries_the_lhalo_forest_provenance(self):
+        sidecar = self.open("forests.h5")
+        np.testing.assert_array_equal(sidecar["ForestID"][...], [0, 1, 2])
+        np.testing.assert_array_equal(sidecar["SourceFileOrdinal"][...], [0, 0, 1])
+        np.testing.assert_array_equal(sidecar["SourceUnitOrdinal"][...], [0, 1, 0])
+        for name in sidecar:
+            self.assertEqual(sidecar[name].dtype.str, "<i8")
+
+    def test_the_v3_battery_passes_and_the_v2_battery_rejects_the_dataset(self):
+        result = run_battery_v3(
+            self.conv.dataset,
+            self.conv.a_list,
+            manifest_path=self.conv.manifest.path,
+            budget_bytes=1 << 20,
+        )
+        self.assertEqual(
+            [o.name for o in result.outcomes if o.status != "PASS"], [], result.outcomes
+        )
+        v2 = {o.name: o for o in run_battery(self.conv.dataset, self.conv.a_list)}
+        self.assertEqual(v2["object-set"].status, "FAIL")
+        self.assertIn("schema", v2["object-set"].detail)
+
+    def test_the_write_stage_records_the_writer_identity(self):
+        writer = self.conv.manifest.stage("write")["result"]["writer"]
+        self.assertEqual(writer["format_version"], V3_FORMAT_VERSION)
+        self.assertEqual(writer["header"]["particle_mass_msun_h"], 0.0325e10)
+        self.assertNotEqual(V3_FORMAT_VERSION, FORMAT_VERSION)
+
+
+class _CorruptingWriter(HorizontalV3Writer):
+    """Writes correctly, then flips one stored value before ``verify`` runs."""
+
+    def __init__(self, sim_info, file_name, dataset, row=0):
+        super().__init__(sim_info)
+        self.target = (file_name, dataset, row)
+
+    def write(self, inputs, out_dir):
+        produced = super().write(inputs, out_dir)
+        file_name, dataset, row = self.target
+        with h5py.File(Path(out_dir) / file_name, "r+") as handle:
+            values = handle["halos"][dataset]
+            if values.dtype.kind == "f":
+                values[row] = values[row] + 1
+            else:
+                values[row] = values[row] + 7
+        return produced
+
+
+class TestV3WriteVerification(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="v3_verify_"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.conv = make_v3_conversion(self.tmp, write=False)
+
+    def assert_refused_before_success_or_cleanup(self, writer, message):
+        with self.assertRaisesRegex(ConverterError, message):
+            pipeline.run_write(self.conv.work, writer, consume_transposed=True)
+        manifest = ConversionManifest.load(self.conv.work)
+        self.assertEqual(manifest.stage("write")["status"], "failed")
+        self.assertEqual(manifest.stage("write")["artifacts"], [])
+        # nothing was consumed: every transposed snapshot is still verified present
+        manifest.verify_stage_artifacts("transpose")
+
+    def test_corruption_in_an_extra_field_fails_the_stage(self):
+        writer = _CorruptingWriter(self.conv.sim_info, snapshot_h5_name(2), "SubHalfMass", 1)
+        self.assert_refused_before_success_or_cleanup(writer, "SubHalfMass")
+
+    def test_corruption_in_a_target_snapshot_column_fails_the_stage(self):
+        writer = _CorruptingWriter(self.conv.sim_info, snapshot_h5_name(0), "DescendantSnapshot")
+        self.assert_refused_before_success_or_cleanup(writer, "DescendantSnapshot")
+
+    def test_a_retry_after_refusal_writes_a_verified_dataset(self):
+        writer = _CorruptingWriter(self.conv.sim_info, snapshot_h5_name(3), "Pos")
+        self.assert_refused_before_success_or_cleanup(writer, "Pos")
+        manifest = pipeline.run_write(self.conv.work, HorizontalV3Writer(self.conv.sim_info))
+        self.assertTrue(manifest.is_complete("write"))
+
+    def test_a_completed_write_is_not_claimed_by_different_physical_metadata(self):
+        pipeline.run_write(self.conv.work, HorizontalV3Writer(self.conv.sim_info))
+        pipeline.run_write(self.conv.work, HorizontalV3Writer(self.conv.sim_info))
+        other = write_simulation_info(self.tmp / "other.yaml", box=62.5)
+        with self.assertRaisesRegex(ConverterError, "completed by writer"):
+            pipeline.run_write(self.conv.work, HorizontalV3Writer(other))
+
+    def test_inputs_disagreeing_with_the_transpose_gap_count_are_refused(self):
+        manifest = ConversionManifest.load(self.conv.work)
+        inputs = pipeline._write_inputs(manifest)
+        result = dict(inputs.transpose_result, n_gapped_descendants=0, links_adjacent=True)
+        out = self.tmp / "out"
+        out.mkdir()
+        with self.assertRaisesRegex(ConverterError, "refusing to stamp links_adjacent"):
+            HorizontalV3Writer(self.conv.sim_info).write(
+                dataclasses.replace(inputs, transpose_result=result), out
+            )
+        self.assertEqual(list(out.iterdir()), [])
+
+    def test_inputs_without_a_forest_enumeration_are_refused(self):
+        inputs = pipeline._write_inputs(ConversionManifest.load(self.conv.work))
+        with self.assertRaisesRegex(ConverterError, "forest enumeration"):
+            HorizontalV3Writer(self.conv.sim_info).write(
+                dataclasses.replace(inputs, forests=None), self.tmp
+            )
+
+    def test_block_rows_must_be_a_positive_integer(self):
+        for bad in (0, -1, 1.5, True, "8"):
+            with self.assertRaises(ConverterError):
+                HorizontalV3Writer(self.conv.sim_info, block_rows=bad)
+
+
+class TestV3OtherRoutes(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="v3_routes_"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def hdf5_conversion(self):
+        directory = self.tmp / "h5"
+        directory.mkdir()
+        info = h5fixtures.write_source(
+            str(directory),
+            [{"forests": [h5fixtures.MERGER_FOREST]}, {"forests": [h5fixtures.lone(9, snap=5)]}],
+        )
+        a_list = self.tmp / "h5.a_list"
+        a_list.write_text("".join("{}\n".format(0.5 + 0.1 * i) for i in range(6)))
+        work = self.tmp / "h5work"
+        pipeline.initialize(
+            work,
+            h5fixtures.load_schema(),
+            {
+                "info_path": info,
+                "first_file": 0,
+                "last_file": 1,
+                "particle_mass": h5fixtures.PARTICLE_MASS,
+            },
+            a_list,
+            ingest_max_rows=2,
+            transpose_budget_bytes=literal.BUDGET,
+        )
+        pipeline.run_ingest(work)
+        pipeline.run_transpose(work)
+        return work, a_list
+
+    def test_forests_hdf5_route_writes_an_adjacent_dataset_with_source_forest_ids(self):
+        work, a_list = self.hdf5_conversion()
+        sim_info = write_simulation_info(self.tmp / "sim.yaml", h5fixtures.PARTICLE_MASS)
+        manifest = pipeline.run_write(work, HorizontalV3Writer(sim_info))
+        dataset = manifest.artifact_path(manifest.stage("write")["directory"])
+        with h5py.File(dataset / snapshot_h5_name(5), "r") as handle:
+            self.assertEqual(handle["header"].attrs["links_adjacent"], 1)
+            self.assertEqual(handle["header"].attrs["source_format"], b"consistent_trees_hdf5")
+            self.assertEqual(handle["schema"]["M_Crit200"].attrs["units"], "Msun/h")
+            np.testing.assert_array_equal(
+                handle["halos"]["FirstProgenitorSnapshot"][...], [4, 4, -1]
+            )
+        with h5py.File(dataset / "forests.h5", "r") as handle:
+            np.testing.assert_array_equal(handle["SourceFileOrdinal"][...], [0, 1])
+            np.testing.assert_array_equal(handle["SourceUnitOrdinal"][...], [0, 0])
+            np.testing.assert_array_equal(
+                handle["ForestID"][...], [h5fixtures.MERGER_FOREST["id"], 9]
+            )
+        result = run_battery_v3(dataset, a_list, manifest_path=manifest.path, budget_bytes=1 << 20)
+        self.assertEqual([o.name for o in result.outcomes if o.status != "PASS"], [])
+
+    def test_forests_hdf5_route_refuses_a_header_particle_mass_its_len_did_not_use(self):
+        work, _a_list = self.hdf5_conversion()
+        sim_info = write_simulation_info(self.tmp / "sim.yaml", 0.0325)
+        with self.assertRaisesRegex(ConverterError, "particle_mass"):
+            pipeline.run_write(work, HorizontalV3Writer(sim_info))
+
+    def ascii_conversion(self):
+        src = self.tmp / "ascii"
+        src.mkdir()
+        forests = fixtures.standard_forests()
+        tree = fixtures.write_ctrees_file(src / "tree_0_0_0.dat", fixtures.all_trees(forests))
+        parameters = {
+            "tree_files": [str(tree)],
+            "forests_list": str(fixtures.write_forests_list(src / "forests.list", forests)),
+            "simulation_info": str(fixtures.write_simulation_info(src / "simulation_info.yaml")),
+        }
+        a_list = fixtures.write_a_list(src / "fixture.a_list")
+        schema = build_schema(load_column_map(literal.PROFILE_DIR / "consistent_trees_ascii.yaml"))
+        work = self.tmp / "ascii_work"
+        pipeline.initialize(
+            work,
+            schema,
+            parameters,
+            a_list,
+            ingest_max_rows=4,
+            transpose_budget_bytes=literal.BUDGET,
+        )
+        pipeline.run_ingest(work)
+        pipeline.run_transpose(work)
+        return work, a_list, Path(parameters["simulation_info"]), forests
+
+    def test_ascii_route_writes_and_validates(self):
+        work, a_list, sim_info, forests = self.ascii_conversion()
+        manifest = pipeline.run_write(work, HorizontalV3Writer(sim_info))
+        dataset = manifest.artifact_path(manifest.stage("write")["directory"])
+        with h5py.File(dataset / "forests.h5", "r") as handle:
+            self.assertEqual(
+                handle["ForestID"][...].tolist(), sorted(forest.forest_id for forest in forests)
+            )
+        result = run_battery_v3(dataset, a_list, manifest_path=manifest.path, budget_bytes=1 << 20)
+        self.assertEqual([o.name for o in result.outcomes if o.status != "PASS"], [])
+
+    def test_ascii_route_refuses_simulation_info_it_was_not_prepared_against(self):
+        work, _a_list, _sim_info, _forests = self.ascii_conversion()
+        other = write_simulation_info(self.tmp / "other.yaml", particle_mass=0.0325, box=50.0)
+        with self.assertRaisesRegex(ConverterError, "different simulation_info"):
+            pipeline.run_write(work, HorizontalV3Writer(other))
 
 
 if __name__ == "__main__":
