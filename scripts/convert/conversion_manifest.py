@@ -538,8 +538,9 @@ class ConversionManifest:
         """Write a new manifest into an empty or absent ``workdir``.
 
         ``configuration`` must carry ``schema`` as :func:`schema_record`
-        produced it. Refuses a workdir that already holds anything, and one
-        that contains any of the ``dependencies``.
+        produced it. Refuses a workdir that already holds anything -- except
+        a lone ``manifest.json.tmp`` left by an interrupted first save, which
+        is discarded -- and one that contains any of the ``dependencies``.
         """
         workdir = Path(workdir)
         resolved = workdir.resolve()
@@ -553,7 +554,15 @@ class ConversionManifest:
         if workdir.exists():
             if not workdir.is_dir():
                 raise ConverterError("{} is not a directory".format(workdir))
-            if any(workdir.iterdir()):
+            entries = list(workdir.iterdir())
+            stale = workdir / (MANIFEST_NAME + ".tmp")
+            if entries == [stale] and stale.is_file() and not stale.is_symlink():
+                # A crash inside the very first save() left only its
+                # temporary file: no manifest was ever published, so nothing
+                # was recorded or created. Recover by discarding it.
+                stale.unlink()
+                entries = []
+            if entries:
                 raise ConverterError(
                     "{}: refusing to start a conversion in a non-empty directory without a "
                     "generic manifest".format(workdir)
@@ -884,15 +893,23 @@ class ConversionManifest:
                     self.path, stage, successor
                 )
             )
+        candidates = [
+            relpath
+            for relpath in self.stage(stage)["artifacts"]
+            if (self.artifact(relpath) or {}).get("status") == ARTIFACT_PRESENT
+        ]
+        if not candidates:
+            # Nothing left to consume: an idempotent no-op, which must not
+            # re-verify a successor whose own artifacts a later complete stage
+            # may have consumed in turn.
+            return []
         self.verify_stage_artifacts(successor)
         # Every predecessor is verified before the first one is deleted, so a
         # single corrupt artifact refuses the whole consumption cleanly.
         present = []
         removed = []
-        for relpath in self.stage(stage)["artifacts"]:
+        for relpath in candidates:
             entry = self.artifact(relpath)
-            if entry is None or entry.get("status") != ARTIFACT_PRESENT:
-                continue
             if not self.artifact_path(relpath).exists():
                 entry["status"] = ARTIFACT_REMOVED
                 removed.append(relpath)

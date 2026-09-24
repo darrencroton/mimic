@@ -355,6 +355,29 @@ class ManifestLifecycleTests(TempCase):
         with self.assertRaisesRegex(ConverterError, "non-empty"):
             cm.ConversionManifest.create(other, configuration_for(self.schema), [])
 
+    def test_create_recovers_from_a_crash_inside_the_first_save(self):
+        """Regression (Slice 7 steer 2): a crash between writing
+        manifest.json.tmp and its rename in the very first save leaves only
+        the temporary file; creation must recover, not refuse forever."""
+        work = self.tmp / "crashed"
+        with mock.patch.object(cm.os, "replace", side_effect=OSError("crash before rename")):
+            with self.assertRaises(OSError):
+                cm.ConversionManifest.create(work, configuration_for(self.schema), [])
+        self.assertEqual([p.name for p in work.iterdir()], [cm.MANIFEST_NAME + ".tmp"])
+        self.assertEqual(cm.classify_manifest(work), cm.MANIFEST_ABSENT)
+        manifest = cm.ConversionManifest.create(work, configuration_for(self.schema), [])
+        self.assertEqual([p.name for p in work.iterdir()], [cm.MANIFEST_NAME])
+        self.assertEqual(cm.ConversionManifest.load(work).schema.digest, manifest.schema.digest)
+
+    def test_a_stale_temporary_beside_other_files_is_still_refused(self):
+        work = self.tmp / "mixed"
+        work.mkdir()
+        (work / (cm.MANIFEST_NAME + ".tmp")).write_text("{}")
+        (work / "stray").write_text("x")
+        with self.assertRaisesRegex(ConverterError, "non-empty"):
+            cm.ConversionManifest.create(work, configuration_for(self.schema), [])
+        self.assertTrue((work / (cm.MANIFEST_NAME + ".tmp")).exists())
+
     def test_require_schema_refuses_a_same_width_substitute(self):
         record = json.loads(json.dumps(cm.schema_record(self.schema)))
         extra = record["canonical"]["extra_fields"][0]

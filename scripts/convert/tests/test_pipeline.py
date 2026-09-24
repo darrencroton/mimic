@@ -987,6 +987,26 @@ class SkipTrustAndCleanupTests(PipelineCase):
         self.assertEqual(tree_state(self.src), sources_before)
         self.assert_no_strays(self.work)
 
+    def test_repeated_cleanup_flags_are_idempotent_end_to_end(self):
+        """Regression (Slice 7 steer 1): with both consume flags used end to
+        end, re-running each stage with its flag is a no-op, not a refusal to
+        re-verify a successor whose artifacts were consumed in turn."""
+        self.initialize()
+        pipeline.run_ingest(self.work)
+        pipeline.run_transpose(self.work, consume_ingest=True)
+        pipeline.run_write(self.work, StubWriter(), consume_transposed=True)
+        before = tree_state(self.work)
+        pipeline.run_transpose(self.work, consume_ingest=True)
+        pipeline.run_write(self.work, StubWriter(), consume_transposed=True)
+        self.assertEqual(tree_state(self.work), before)
+        manifest = cm.ConversionManifest.load(self.work)
+        self.assertEqual(manifest.consume_stage("ingest", "transpose"), [])
+        self.assertEqual(manifest.consume_stage("transpose", "write"), [])
+        for stage in ("ingest", "transpose"):
+            for relpath in manifest.stage(stage)["artifacts"]:
+                self.assertEqual(manifest.artifact(relpath)["status"], cm.ARTIFACT_REMOVED)
+        manifest.verify_stage_artifacts("write")
+
     def test_cleanup_is_refused_while_its_successor_is_incomplete(self):
         self.initialize()
         pipeline.run_ingest(self.work)
