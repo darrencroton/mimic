@@ -1,0 +1,29 @@
+# Mimic halos-only mini-Uchuu (horizontal HDF5 version 3, sampled files 0-15) Run Configuration
+#
+# Identical to halos-only_mini-uchuu.yaml with input.last_file set to 15 (the
+# parity gate's vertical side), except for simulation.name and
+# output.output_directory. The shipped vertical run file reads files 0-3; the
+# gate overrides that to 0-15 in a scratch copy so both sides read the same files.
+
+model:
+  name: halos-only
+
+simulation:
+  name: mini-uchuu-horizontal
+
+input:
+  # Metadata only for the horizontal reader: names the converted sampled
+  # subset, Uchuu400_Planck_lhalo_binary.0-.15 of 128
+  first_file: 0
+  last_file: 15
+
+output:
+  output_filename: halos
+  output_directory: output/halos-only-mini-uchuu-horizontal
+  output_format: hdf5
+  snapshot_list: [49, 28, 23, 16, 12, 10, 8, 7]
+
+SubSteps: 1
+
+modules:
+  parameters: {}

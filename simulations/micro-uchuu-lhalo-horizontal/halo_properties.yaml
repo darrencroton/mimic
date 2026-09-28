@@ -1,0 +1,141 @@
+# micro-Uchuu (from L-Halo binary) Halo Catalog Properties — horizontal HDF5 format version 3
+#
+# Runtime plan Slice 7 package (docs/dev/MIMIC-GENERAL-HORIZONTAL-RUNTIME-IMPLEMENTATION-PLAN.md).
+# The package's compiled declarations are checked against the converter's own
+# /schema derivation for this route, and against the real converted dataset's
+# /schema when it is present, by _tests/integration/test_schema_conformance.py
+# (make tests-integration with this package selected).
+#
+# Every entry is a `/halos` dataset of docs/dev/HORIZONTAL-HDF5-FORMAT-V3-DRAFT.md.
+# The payload fields declare exactly the type, units and h_convention the
+# converter's lhalo_binary route writes into each file's `/schema` when it
+# converts simulations/micro-uchuu/, and the reader aborts at open on any
+# disagreement; in particular M_Crit200 stays float32 in the native L-Halo
+# 1e10 Msun/h.
+#
+# The five links are `long long` (Gate R0-2(a)): version 3 stores them as
+# int64, and the reader refuses a package whose link storage would narrow them.
+# They, SourceHaloID, the three target-snapshot columns and the
+# ForestIndex/HaloRankInForest identity arrays are governed by the format's
+# fixed table, not by `/schema`; the last six are reader-owned slab arrays
+# (Gate R0-3(a)) and are deliberately NOT declared here.
+#
+# Declaration order and declared output ranges mirror
+# simulations/micro-uchuu/halo_properties.yaml: the order fixes the output record's
+# field order, which the parity gate requires to be identical.
+#
+# Required core roles (src/core/core_properties.yaml required_inputs):
+# Descendant, FirstProgenitor, NextProgenitor, FirstHaloInFOFgroup,
+# NextHaloInFOFgroup, SnapNum, Len, HaloMass.
+
+halo_properties:
+  # --- merger-tree topology links (int64 snapshot-local indices in v3) ---
+  - name: Descendant
+    type: long long
+    units: dimensionless
+    description: Row index of the descendant in the DescendantSnapshot file, or -1 if none
+    provides_core_role: Descendant
+
+  - name: FirstProgenitor
+    type: long long
+    units: dimensionless
+    description: Row index of the main progenitor in the FirstProgenitorSnapshot file, or -1 if none
+    provides_core_role: FirstProgenitor
+
+  - name: NextProgenitor
+    type: long long
+    units: dimensionless
+    description: Row index of the next sibling progenitor in the NextProgenitorSnapshot file, or -1 if none
+    provides_core_role: NextProgenitor
+
+  - name: FirstHaloInFOFgroup
+    type: long long
+    units: dimensionless
+    description: Row index in this snapshot of the FoF central
+    provides_core_role: FirstHaloInFOFgroup
+
+  - name: NextHaloInFOFgroup
+    type: long long
+    units: dimensionless
+    description: Row index in this snapshot of the next FoF-group member, or -1 if last
+    provides_core_role: NextHaloInFOFgroup
+
+  # --- particle count (core required input) ---
+  - name: Len
+    type: int
+    units: particles
+    description: Number of particles in the catalog halo
+    provides_core_role: Len
+
+  # --- catalog mass (native L-Halo 1e10 Msun/h, float32) ---
+  - name: M_Crit200
+    type: float
+    units: 1e10 Msun/h
+    h_convention: carried
+    description: Catalog spherical-overdensity halo mass, M200c
+    provides_core_role: HaloMass
+
+  # --- output halo properties (copied from the tree) ---
+  - name: Pos
+    type: vec3_float
+    units: Mpc/h
+    h_convention: carried
+    description: 3D position vector (comoving coordinates)
+    output: true
+    init_source: copy_from_tree_array
+    output_source: copy_direct_array
+    range: [0.0, 100.0]
+
+  - name: Vel
+    type: vec3_float
+    units: km/s
+    h_convention: none
+    description: 3D velocity vector (peculiar velocity)
+    output: true
+    init_source: copy_from_tree_array
+    output_source: copy_direct_array
+    range: [-5000.0, 5000.0]
+
+  - name: VelDisp
+    type: float
+    units: km/s
+    h_convention: none
+    description: Velocity dispersion
+    output: true
+    init_source: copy_from_tree
+    output_source: copy_direct
+    range: [0.0, 5000.0]
+
+  - name: Vmax
+    type: float
+    units: km/s
+    h_convention: none
+    description: Maximum circular velocity
+    output: true
+    init_source: copy_from_tree
+    output_source: copy_direct
+    range: [10.0, 5000.0]
+
+  - name: Spin
+    type: vec3_float
+    units: Mpc/h km/s
+    description: Specific angular momentum (J/Mvir)
+    output: true
+    init_source: copy_from_tree_array
+    output_source: copy_direct_array
+    range: [-1000.0, 1000.0]
+
+  - name: MostBoundID
+    type: long long
+    units: dimensionless
+    description: ID of most bound particle (Rockstar halo id from ctrees conversion)
+    output: true
+    init_source: copy_from_tree
+    output_source: copy_direct
+
+  # --- snapshot index (core required input; core owns the halo property) ---
+  - name: SnapNum
+    type: int
+    units: dimensionless
+    description: Snapshot number (index in simulation output)
+    provides_core_role: SnapNum

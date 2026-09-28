@@ -1,0 +1,27 @@
+# Mimic halos-only Millennium (horizontal HDF5 version 3, sampled files 0-15) Run Configuration
+#
+# Identical to halos-only_millennium.yaml except for simulation.name and
+# output.output_directory; the package's parity gate checks exactly that.
+
+model:
+  name: halos-only
+
+simulation:
+  name: millennium-horizontal
+
+input:
+  # Metadata only for the horizontal reader: names the converted sampled
+  # subset, trees_063.0-.15 of 512, the same range halos-only_millennium.yaml reads
+  first_file: 0
+  last_file: 15
+
+output:
+  output_filename: halos
+  output_directory: output/halos-only-millennium-horizontal
+  output_format: hdf5
+  snapshot_list: [63, 37, 32, 27, 23, 20, 18, 16]
+
+SubSteps: 1
+
+modules:
+  parameters: {}

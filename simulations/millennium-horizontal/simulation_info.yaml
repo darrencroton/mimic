@@ -1,0 +1,38 @@
+# Millennium (sampled files 0-15) Simulation Metadata — horizontal HDF5 format version 3
+#
+# Runtime plan Slice 7 package. The cosmology, box size, particle mass and
+# a_list are simulations/millennium/'s own, unchanged: the reader compares
+# every file's five physical header values and scale factors against them at
+# open.
+#
+# `tree_name` is the snapshot filename convention, not a general pattern: the
+# format fixes it at `snapshot_%03d.h5` and the reader accepts no other value.
+# first_file/last_file are metadata only; the horizontal reader derives its file
+# set from the snapshot list. They name the
+# converted SAMPLED SUBSET, trees_063.0-.15 of the 512 files
+# simulations/millennium/ declares; this package is not the whole simulation.
+# `snapshots/` is a gitignored local symlink to a converted dataset, never
+# committed data.
+
+input:
+  first_file: 0
+  last_file: 15
+  tree_name: snapshot_%03d.h5
+  tree_type: horizontal_hdf5
+  processing_order: horizontal
+  simulation_dir: simulations/millennium-horizontal/snapshots
+  snapshot_list_file: simulations/millennium-horizontal/millennium.a_list
+
+simulation:
+  cosmology:
+    omega_matter: 0.25
+    omega_lambda: 0.75
+    hubble_h: 0.73
+  box_size:
+    value: 500.0
+    units: Mpc/h
+    h_convention: carried
+  particle_mass:
+    value: 0.0860657
+    units: 1e10 Msun/h
+    h_convention: carried
