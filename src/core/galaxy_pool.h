@@ -48,11 +48,13 @@ struct GalaxyPool; /* opaque; defined in galaxy_pool.c */
  * it is reset-aware, counting allocations since the last galaxy_pool_reset and
  * keeping the largest such run. `slots_allocated` is the sum of chunk
  * capacities, which is what stays resident; the difference between the two is
- * chunk slack. */
+ * chunk slack. `resident_bytes` is every byte the pool holds allocated: its own
+ * header, each chunk's header and every slot. */
 struct GalaxyPoolStats {
   int64_t galaxies_high_water;
   int64_t slots_allocated;
   int chunk_count;
+  int64_t resident_bytes;
 };
 
 /* Create a pool with an initial chunk sized for `initial_capacity` galaxies
@@ -60,6 +62,13 @@ struct GalaxyPoolStats {
  * passed to every other galaxy_pool_* call and, eventually, to
  * galaxy_pool_destroy(). */
 struct GalaxyPool *galaxy_pool_create(int initial_capacity);
+
+/* The exact bytes galaxy_pool_create(initial_capacity) allocates -- the pool
+ * header, the first chunk's header and its slots -- computed without creating
+ * anything, by the same capacity rule. Returns 0 (leaving `*bytes` untouched)
+ * only if the sum would overflow int64_t. A pure query: it lets a caller
+ * budget a pool before it exists. */
+int galaxy_pool_initial_resident_bytes(int64_t initial_capacity, int64_t *bytes);
 
 /* Return a stable pointer to one uninitialised GalaxyData slot in `pool`,
  * growing the pool by a new, larger chunk when the current chunk is full and

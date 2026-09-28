@@ -22,6 +22,7 @@
  */
 
 #include <assert.h>
+#include <stdint.h>
 
 #include "galaxy_pool.h"
 #include "memory.h"
@@ -72,17 +73,37 @@ static struct GalaxyChunk *new_chunk(int capacity) {
   return chunk;
 }
 
-struct GalaxyPool *galaxy_pool_create(int initial_capacity) {
-  struct GalaxyPool *pool = mymalloc_cat(sizeof(struct GalaxyPool), MEM_GALAXIES);
-
-  int capacity =
+/* The first chunk's capacity for a creation hint. Shared by galaxy_pool_create()
+ * and galaxy_pool_initial_resident_bytes(), so the size query can never drift
+ * from what creation allocates. The result is at least GALAXY_POOL_MIN_CHUNK, so
+ * new_chunk() never raises it. */
+static int initial_chunk_capacity(int64_t initial_capacity) {
+  int64_t capacity =
       initial_capacity > GALAXY_POOL_MIN_CHUNK ? initial_capacity : GALAXY_POOL_DEFAULT_CHUNK;
   /* Clamp a caller-supplied hint the same way grown chunks are clamped, so
    * chunk_capacity never starts above the cap that galaxy_pool_alloc()
    * maintains. */
   if (capacity > GALAXY_POOL_MAX_CHUNK)
     capacity = GALAXY_POOL_MAX_CHUNK;
-  pool->chunk_capacity = capacity;
+  return (int)capacity;
+}
+
+int galaxy_pool_initial_resident_bytes(int64_t initial_capacity, int64_t *bytes) {
+  assert(bytes != NULL);
+
+  const int64_t capacity = initial_chunk_capacity(initial_capacity);
+  const int64_t headers = (int64_t)(sizeof(struct GalaxyPool) + sizeof(struct GalaxyChunk));
+  if ((uint64_t)capacity > (uint64_t)(INT64_MAX - headers) / sizeof(struct GalaxyData)) {
+    return 0;
+  }
+  *bytes = headers + capacity * (int64_t)sizeof(struct GalaxyData);
+  return 1;
+}
+
+struct GalaxyPool *galaxy_pool_create(int initial_capacity) {
+  struct GalaxyPool *pool = mymalloc_cat(sizeof(struct GalaxyPool), MEM_GALAXIES);
+
+  pool->chunk_capacity = initial_chunk_capacity(initial_capacity);
   pool->live = 0;
   pool->live_high_water = 0;
   pool->slots_allocated = 0;
@@ -150,6 +171,10 @@ void galaxy_pool_stats(const struct GalaxyPool *pool, struct GalaxyPoolStats *ou
   out->galaxies_high_water = pool->live_high_water;
   out->slots_allocated = pool->slots_allocated;
   out->chunk_count = pool->chunk_count;
+  /* Exactly what galaxy_pool_create() and new_chunk() passed to mymalloc_cat(). */
+  out->resident_bytes = (int64_t)sizeof(struct GalaxyPool) +
+                        (int64_t)pool->chunk_count * (int64_t)sizeof(struct GalaxyChunk) +
+                        pool->slots_allocated * (int64_t)sizeof(struct GalaxyData);
 }
 
 void galaxy_pool_destroy(struct GalaxyPool *pool) {

@@ -1,33 +1,50 @@
 /**
  * @file    test_horizontal_retention_budget.c
- * @brief   Unit tests for the horizontal driver's pre-allocation retention accounting.
+ * @brief   Unit tests for the horizontal driver's retention memory accounting.
  *
  * Before the reader allocates a snapshot's slab, the horizontal driver sizes that
- * snapshot's generation from its halo count and struct widths, reports the size,
- * and -- when input.retention_memory_ceiling_mb is set -- refuses a retention set
- * above the ceiling. These tests drive run_horizontal_driver() itself through a
- * fake HorizontalReader whose snapshot_halo_count() reports any row count,
- * including one above INT32_MAX, and whose load_slab() ends the run the moment it
- * is reached. Nothing is ever loaded, so a slab of billions of rows is exercised
- * through the reader interface's and the driver's index and byte arithmetic
- * without allocating it.
+ * snapshot's generation from its halo count and struct widths (slab and
+ * reader-owned arrays, aux, seeded output buffer and, when no spare pool will be
+ * reused, a new galaxy pool), reports the size, and -- when
+ * input.retention_memory_ceiling_mb is set -- refuses a retention set above the
+ * ceiling. After each sweep it measures what the retention pool holds and feeds
+ * the run memory profile. These tests drive run_horizontal_driver() itself:
  *
- * Every case runs in a forked child, because both outcomes end the process: a
- * refusal is a FATAL_ERROR, and reaching load_slab() is the fake reader's
- * _exit(). The parent reads the child's log and exit status and checks the
- * reported bytes against the struct-width arithmetic computed here
- * independently.
+ *  - through a fake HorizontalReader whose snapshot_halo_count() reports any row
+ *    count, including one above INT32_MAX, and whose load_slab() ends the run the
+ *    moment it is reached, so a slab of billions of rows is exercised through the
+ *    reader interface's and the driver's index and byte arithmetic without
+ *    allocating it;
+ *  - through the same fake reader building small real slabs, so whole sweeps
+ *    complete across overlapping generations and the measured maxima, the run
+ *    profile and the in-sweep growth warning can be checked;
+ *  - through the real horizontal_hdf5 reader on the committed version 3 fixture,
+ *    so the driver's per-row slab width is checked against the arrays that reader
+ *    actually allocates.
+ *
+ * Every case runs in a forked child, because each ends the process: a refusal is
+ * a FATAL_ERROR, reaching the exiting load_slab() is the fake reader's _exit(),
+ * and a completed run exits once it has printed its profile. The parent reads the
+ * child's log and exit status and checks the reported bytes against struct-width
+ * arithmetic computed here independently.
+ *
+ * Fake slabs set each RawHalo field by its core role through the generated
+ * catalog field table, so the fake reader builds a valid slab under whichever
+ * simulation package is compiled.
  *
  * The run_tests.sh entry for this test compiles horizontal_driver.c under -DHDF5
  * in place of the shared, non-HDF5 driver object, whose output setup is a
  * fail-fast stub that would abort before any generation is sized.
  */
 
+#include "../../src/core/galaxy_pool.h"
+#include "../../src/include/constants.h"
 #include "../../src/include/proto.h"
 #include "../../src/include/types.h"
 #include "../../src/io/horizontal/reader.h"
 #include "../../src/util/error.h"
 #include "../../src/util/memory.h"
+#include "../../src/util/run_profile.h"
 #include "../framework/test_framework.h"
 
 #include <errno.h>
@@ -48,11 +65,11 @@ static int failed = 0;
 
 /*
  * Link-time stand-ins for the HDF5 output path the -DHDF5 driver references
- * but these tests never reach: every case ends at or before the first slab
- * load, long before any output is written. allvars.c and metadata_hdf5.c are
- * compiled without -DHDF5 or not linked in the shared unit-test object pool,
- * so this translation unit supplies their symbols, as test_hdf5_write_attrs.c
- * does. Either metadata hook aborts if it is ever called.
+ * but these tests never reach: every case requests no output snapshot, so no
+ * output file is ever written. allvars.c and metadata_hdf5.c are compiled
+ * without -DHDF5 or not linked in the shared unit-test object pool, so this
+ * translation unit supplies their symbols, as test_hdf5_write_attrs.c does.
+ * Either metadata hook aborts if it is ever called.
  */
 size_t HDF5_dst_size;
 size_t *HDF5_dst_offsets;
@@ -75,52 +92,161 @@ void write_description_attr(hid_t obj_id, const char *text) {
   abort();
 }
 
-/* The fake reader's exit status once load_slab() is reached: distinct from
- * FATAL_ERROR's 1 and from a crash, so the parent can tell "sized and accepted"
- * from "refused". */
+/* The child's exit status once the exiting load_slab() is reached, and once a
+ * completed run has printed its profile: distinct from FATAL_ERROR's 1 and from
+ * a crash, so the parent can tell the outcomes apart. */
 #define LOAD_SLAB_REACHED_EXIT 77
 #define LOAD_SLAB_REACHED_MARKER "FAKE_READER: load_slab reached"
+#define RUN_COMPLETED_EXIT 78
 
 /* Above INT32_MAX (2,147,483,647) and above MAX_HALO_ARRAY_SIZE, so the output
  * seed takes its past-the-ceiling branch. */
 #define WIDE_SLAB_ROWS INT64_C(3000000000)
 #define NORMAL_SLAB_ROWS INT64_C(1000)
 
+/* More halos than a new galaxy pool's first chunk holds, so a sweep over them
+ * grows the pool by a chunk. Checked against the pool itself at run time. */
+#define POOL_GROWING_ROWS INT64_C(9000)
+
+/* Whole-MB ceilings are in the parser's unit, 1 MB = 1024^2 B. */
+#define BYTES_PER_MB INT64_C(1048576)
+
+#define MAX_FAKE_SNAPSHOTS 4
 #define OUTPUT_DIR "archive/test-fixtures/horizontal_retention_budget"
+
+/* The committed version 3 fixture (see tests/data/README.md) and the only
+ * package whose /schema it matches. */
+#define V3_FIXTURE_DIR "tests/data/horizontal_v3/dataset"
+#define V3_FIXTURE_A_LIST "fixture.a_list"
+#define V3_FIXTURE_PACKAGE "mini-millennium-horizontal"
+#define V3_FIXTURE_SNAPSHOTS 4
+
+extern double *Age;
+
+/* ------------------------------------------------------------------------- */
+/* Setting RawHalo fields by core role                                        */
+/* ------------------------------------------------------------------------- */
+
+static void set_int_member(int *member, double value) { *member = (int)value; }
+static void set_long_member(long *member, double value) { *member = (long)value; }
+static void set_llong_member(long long *member, double value) { *member = (long long)value; }
+static void set_float_member(float *member, double value) { *member = (float)value; }
+static void set_double_member(double *member, double value) { *member = value; }
+
+/* Reached only when a core role names a member of a type this setter does not
+ * handle, which would leave the fake slab silently wrong. */
+static void set_unsupported_member(const void *member, double value) {
+  (void)member;
+  (void)value;
+  fprintf(stderr, "FAKE_READER: a core-role member has a type the fake reader cannot set\n");
+  abort();
+}
+
+#define SET_MEMBER(pointer, value)                                                                 \
+  _Generic((pointer),                                                                              \
+      int *: set_int_member,                                                                       \
+      long *: set_long_member,                                                                     \
+      long long *: set_llong_member,                                                               \
+      float *: set_float_member,                                                                   \
+      double *: set_double_member,                                                                 \
+      default: set_unsupported_member)((pointer), (value))
+
+/* Assign `value` to the member bound to core role `role`, whatever the compiled
+ * package calls it. */
+static void set_role(struct RawHalo *halo, const char *role, double value) {
+#define CATALOG_FIELD(member, dataset, type, units, h_convention, core_role, role_kind)            \
+  if (strcmp(core_role, role) == 0) {                                                              \
+    SET_MEMBER(&halo->member, value);                                                              \
+  }
+#include "../../src/include/generated/catalog_field_metadata.inc"
+#undef CATALOG_FIELD
+}
 
 /* ------------------------------------------------------------------------- */
 /* Fake reader                                                                */
 /* ------------------------------------------------------------------------- */
 
-/* Set by each case before it forks; the child inherits them. */
-static int64_t FakeHaloCount = 0;
-static int32_t FakeFormatVersion = 3;
+/* What load_slab() does: end the run before anything is allocated, or build a
+ * small real slab and let the sweep run. */
+enum FakeLoad { FAKE_LOAD_EXITS, FAKE_LOAD_BUILDS };
+
+/* Set by each case before it forks; the child inherits it. In a chain, every
+ * snapshot holds one halo whose descendant is the next snapshot's halo, so two
+ * generations overlap at every step; otherwise every halo is its own FoF group
+ * with no descendant, and each generation is released after its own sweep. */
+static struct {
+  int64_t snapshot_count;
+  int64_t halo_count[MAX_FAKE_SNAPSHOTS];
+  int32_t format_version;
+  enum FakeLoad load;
+  int chain;
+} Fake;
 
 static void fake_open_run(struct HorizontalRunInfo *info) {
-  info->snapshot_count = 1;
-  info->format_version = FakeFormatVersion;
+  int64_t widest = 0;
+  for (int64_t k = 0; k < Fake.snapshot_count; k++) {
+    widest = Fake.halo_count[k] > widest ? Fake.halo_count[k] : widest;
+  }
+  info->snapshot_count = Fake.snapshot_count;
+  info->format_version = Fake.format_version;
   info->links_adjacent = 1;
-  info->n_forests_total = HORIZONTAL_EMPTY_N_FORESTS;
-  info->max_halo_rank_in_forest = HORIZONTAL_EMPTY_MAX_RANK;
+  info->n_forests_total = Fake.chain ? 1 : widest;
+  info->max_halo_rank_in_forest = Fake.chain ? Fake.snapshot_count - 1 : 0;
 }
 
 static void fake_close_run(void) {}
 
-static int64_t fake_snapshot_halo_count(int64_t snapnum) {
-  (void)snapnum;
-  return FakeHaloCount;
-}
+static int64_t fake_snapshot_halo_count(int64_t snapnum) { return Fake.halo_count[snapnum]; }
 
-/* Reached only once the driver has sized and accepted the generation. Ends the
- * run here, before anything the size describes is allocated. */
 static void fake_load_slab(int64_t snapnum, struct SnapshotSlab *slab) {
-  (void)slab;
-  fprintf(stderr, "%s for snapshot %" PRId64 "\n", LOAD_SLAB_REACHED_MARKER, snapnum);
-  fflush(NULL);
-  _exit(LOAD_SLAB_REACHED_EXIT);
+  if (Fake.load == FAKE_LOAD_EXITS) {
+    /* Reached only once the driver has sized and accepted the generation. Ends
+     * the run here, before anything the size describes is allocated. */
+    fprintf(stderr, "%s for snapshot %" PRId64 "\n", LOAD_SLAB_REACHED_MARKER, snapnum);
+    fflush(NULL);
+    _exit(LOAD_SLAB_REACHED_EXIT);
+  }
+
+  /* A version 2 slab: the raw halos and the two identity columns, with links
+   * implicitly naming N+1 (Descendant) and N-1 (FirstProgenitor). */
+  const int64_t nhalos = Fake.halo_count[snapnum];
+  *slab = snapshot_slab_empty();
+  slab->snapnum = snapnum;
+  slab->nhalos = nhalos;
+  if (nhalos == 0) {
+    return;
+  }
+
+  slab->halos = mymalloc(sizeof(struct RawHalo) * (size_t)nhalos);
+  slab->forest_index = mymalloc(sizeof(int64_t) * (size_t)nhalos);
+  slab->halo_rank_in_forest = mymalloc(sizeof(int64_t) * (size_t)nhalos);
+  memset(slab->halos, 0, sizeof(struct RawHalo) * (size_t)nhalos);
+
+  const int has_descendant = Fake.chain && snapnum + 1 < Fake.snapshot_count;
+  const int has_progenitor = Fake.chain && snapnum > 0;
+  for (int64_t i = 0; i < nhalos; i++) {
+    struct RawHalo *halo = &slab->halos[i];
+    set_role(halo, "Descendant", has_descendant ? 0 : -1);
+    set_role(halo, "FirstProgenitor", has_progenitor ? 0 : -1);
+    set_role(halo, "NextProgenitor", -1);
+    set_role(halo, "FirstHaloInFOFgroup", (double)i);
+    set_role(halo, "NextHaloInFOFgroup", -1);
+    set_role(halo, "SnapNum", (double)snapnum);
+    set_role(halo, "Len", 100);
+    set_role(halo, "HaloMass", 10.0);
+    slab->forest_index[i] = Fake.chain ? 0 : i;
+    slab->halo_rank_in_forest[i] = Fake.chain ? snapnum : 0;
+  }
 }
 
-static void fake_release_slab(struct SnapshotSlab *slab) { *slab = snapshot_slab_empty(); }
+static void fake_release_slab(struct SnapshotSlab *slab) {
+  if (slab->halos != NULL) {
+    myfree(slab->halo_rank_in_forest);
+    myfree(slab->forest_index);
+    myfree(slab->halos);
+  }
+  *slab = snapshot_slab_empty();
+}
 
 static const struct HorizontalReader FakeReader = {
     .name = "fake_retention_budget",
@@ -132,35 +258,61 @@ static const struct HorizontalReader FakeReader = {
     .release_slab = fake_release_slab,
 };
 
+/* One snapshot of `nhalos`, ended at load: the pre-allocation cases. */
+static void fake_single_snapshot(int64_t nhalos, int32_t format_version) {
+  memset(&Fake, 0, sizeof(Fake));
+  Fake.snapshot_count = 1;
+  Fake.halo_count[0] = nhalos;
+  Fake.format_version = format_version;
+  Fake.load = FAKE_LOAD_EXITS;
+}
+
 /* ------------------------------------------------------------------------- */
 /* Expected footprint, from struct widths                                     */
 /* ------------------------------------------------------------------------- */
 
-/* The generation's resident bytes, computed here from the same struct widths
- * and seeding rule the driver documents, independently of its code. */
-static int64_t expected_generation_bytes(int64_t nhalos, int32_t format_version) {
+/* A new galaxy pool's exact resident bytes, as galaxy_pool_create(0) allocates
+ * them. The driver creates pools with that hint. */
+static int64_t new_pool_bytes(void) {
+  int64_t bytes = -1;
+  if (!galaxy_pool_initial_resident_bytes(0, &bytes)) {
+    abort();
+  }
+  return bytes;
+}
+
+static int64_t slab_row_bytes(int32_t format_version) {
   int64_t row = (int64_t)sizeof(struct RawHalo) + 2 * (int64_t)sizeof(int64_t);
   if (format_version >= 3) {
     row += 3 * (int64_t)sizeof(int32_t) + (int64_t)sizeof(int64_t);
   }
-  const int64_t slab = nhalos * row;
-  const int64_t aux = (nhalos > 0 ? nhalos : 1) * (int64_t)sizeof(struct HorizontalHaloAux);
+  return row;
+}
 
-  int64_t seed;
+static int64_t output_seed_records(int64_t nhalos) {
   if (nhalos > MAX_HALO_ARRAY_SIZE) {
-    seed = nhalos + MIN_HALO_ARRAY_GROWTH;
-  } else {
-    int64_t headroom = (int64_t)((double)nhalos * HORIZONTAL_OUTPUT_SEED_HEADROOM);
-    if (headroom < MIN_HALO_ARRAY_GROWTH) {
-      headroom = MIN_HALO_ARRAY_GROWTH;
-    }
-    seed = nhalos + headroom;
-    if (seed > MAX_HALO_ARRAY_SIZE) {
-      seed = MAX_HALO_ARRAY_SIZE;
-    }
+    return nhalos + MIN_HALO_ARRAY_GROWTH;
   }
+  int64_t headroom = (int64_t)((double)nhalos * HORIZONTAL_OUTPUT_SEED_HEADROOM);
+  if (headroom < MIN_HALO_ARRAY_GROWTH) {
+    headroom = MIN_HALO_ARRAY_GROWTH;
+  }
+  const int64_t seed = nhalos + headroom;
+  return seed > MAX_HALO_ARRAY_SIZE ? MAX_HALO_ARRAY_SIZE : seed;
+}
 
-  return slab + aux + seed * (int64_t)sizeof(struct Halo);
+/* The generation's resident bytes without any galaxy pool: what the driver
+ * counted before a new pool was a footprint term. */
+static int64_t generation_bytes_without_pool(int64_t nhalos, int32_t format_version) {
+  const int64_t slab = nhalos * slab_row_bytes(format_version);
+  const int64_t aux = (nhalos > 0 ? nhalos : 1) * (int64_t)sizeof(struct HorizontalHaloAux);
+  return slab + aux + output_seed_records(nhalos) * (int64_t)sizeof(struct Halo);
+}
+
+/* The generation's footprint as the driver must now compute it: with a new
+ * galaxy pool whenever no spare one is reused. */
+static int64_t generation_bytes(int64_t nhalos, int32_t format_version, int new_pool) {
+  return generation_bytes_without_pool(nhalos, format_version) + (new_pool ? new_pool_bytes() : 0);
 }
 
 /* ------------------------------------------------------------------------- */
@@ -170,18 +322,71 @@ static int64_t expected_generation_bytes(int64_t nhalos, int32_t format_version)
 struct ChildResult {
   int exited;      /* the child exited rather than being killed */
   int exit_status; /* its status when it exited */
-  char log[16384]; /* everything it wrote to stdout and stderr */
+  char log[65536]; /* everything it wrote to stdout and stderr */
 };
 
-/* Run the driver in a child against the fake reader with `nhalos` rows and the
- * given ceiling in bytes (0 = none), capturing its log. Returns 0 on success. */
-static int run_driver_in_child(int64_t nhalos, int32_t format_version, int64_t ceiling,
-                               struct ChildResult *result) {
+/* Lookback times and redshifts for `count` snapshots, with the leading slot
+ * Age[-1] that init() also provides. Values only need to be finite and ordered:
+ * no physics module runs. */
+static double AgeStorage[ABSOLUTEMAXSNAPS + 1];
+
+static void install_time_axis(int count) {
+  Age = AgeStorage + 1;
+  Age[-1] = 13.7;
+  for (int k = 0; k < count; k++) {
+    if (MimicConfig.AA[k] <= 0.0) {
+      MimicConfig.AA[k] = 0.5 + 0.5 * (double)k / (double)(count > 1 ? count - 1 : 1);
+    }
+    MimicConfig.ZZ[k] = 1.0 / MimicConfig.AA[k] - 1.0;
+    Age[k] = 13.0 * (1.0 - MimicConfig.AA[k]) + 0.1;
+  }
+}
+
+/* The configuration every child starts from: a horizontal run of `reader` with
+ * no output snapshot requested and an empty module pipeline. */
+static void configure_child(const struct HorizontalReader *reader, int64_t ceiling) {
+  memset(&MimicConfig, 0, sizeof(MimicConfig));
+  snprintf(MimicConfig.OutputDir, sizeof(MimicConfig.OutputDir), "%s", OUTPUT_DIR);
+  snprintf(MimicConfig.OutputFileBaseName, sizeof(MimicConfig.OutputFileBaseName), "model");
+  MimicConfig.ProcessingOrder = (int)INPUT_PROCESSING_ORDER_HORIZONTAL;
+  MimicConfig.horizontal_reader = reader;
+  MimicConfig.OverwriteOutputFiles = 1;
+  MimicConfig.NOUT = 0;
+  MimicConfig.RetentionMemoryCeiling = ceiling;
+  MimicConfig.UniqueGalaxyIDMultiplier = (int64_t)TREE_MUL_FAC;
+  MimicConfig.Omega = 0.25;
+  MimicConfig.OmegaLambda = 0.75;
+  MimicConfig.Hubble_h = 0.73;
+  MimicConfig.PartMass = 0.0860657;
+  MimicConfig.G = 43.0071;
+  MimicConfig.Hubble = 100.0;
+  MimicConfig.SubSteps = 1;
+  MimicConfig.MaxDynamicSubsteps = 200;
+  MimicConfig.TimestepScheme = TIMESTEP_SCHEME_FIXED;
+}
+
+/* Point the child at the committed version 3 fixture, as a run of its package
+ * would configure it (mirrors test_horizontal_v3_reader.c). */
+static void configure_v3_fixture(void) {
+  snprintf(MimicConfig.SimulationDir, sizeof(MimicConfig.SimulationDir), "%s", V3_FIXTURE_DIR);
+  snprintf(MimicConfig.FileWithSnapList, sizeof(MimicConfig.FileWithSnapList), "%s/%s",
+           V3_FIXTURE_DIR, V3_FIXTURE_A_LIST);
+  read_snap_list();
+  MimicConfig.MAXSNAPS = MimicConfig.Snaplistlen;
+  MimicConfig.BoxSize = 62.5;
+  MimicConfig.Omega = 0.25;
+  MimicConfig.OmegaLambda = 0.75;
+  MimicConfig.Hubble_h = 0.73;
+  MimicConfig.PartMass = 0.0860657;
+}
+
+/* Run the driver in a child against `reader` (the fake one unless the v3
+ * fixture is requested) with the given ceiling in bytes (0 = none), capturing its
+ * log. A run that completes prints the run memory profile and the leak check,
+ * then exits RUN_COMPLETED_EXIT. Returns 0 on success. */
+static int run_driver_in_child(int64_t ceiling, int use_v3_fixture, struct ChildResult *result) {
   int pipefd[2];
   memset(result, 0, sizeof(*result));
-
-  FakeHaloCount = nhalos;
-  FakeFormatVersion = format_version;
 
   fflush(NULL);
   if (pipe(pipefd) != 0) {
@@ -205,22 +410,22 @@ static int run_driver_in_child(int64_t nhalos, int32_t format_version, int64_t c
     initialize_error_handling(LOG_LEVEL_INFO, NULL);
     set_verbose_format(1);
 
-    memset(&MimicConfig, 0, sizeof(MimicConfig));
-    snprintf(MimicConfig.OutputDir, sizeof(MimicConfig.OutputDir), "%s", OUTPUT_DIR);
-    snprintf(MimicConfig.OutputFileBaseName, sizeof(MimicConfig.OutputFileBaseName), "model");
-    MimicConfig.ProcessingOrder = (int)INPUT_PROCESSING_ORDER_HORIZONTAL;
-    MimicConfig.horizontal_reader = &FakeReader;
-    MimicConfig.OverwriteOutputFiles = 1;
-    MimicConfig.NOUT = 0;
-    MimicConfig.RetentionMemoryCeiling = ceiling;
+    const struct HorizontalReader *reader =
+        use_v3_fixture ? horizontal_reader_lookup("horizontal_hdf5") : &FakeReader;
+    configure_child(reader, ceiling);
+    if (use_v3_fixture) {
+      configure_v3_fixture();
+      install_time_axis(MimicConfig.Snaplistlen);
+    } else {
+      install_time_axis((int)Fake.snapshot_count);
+    }
 
     run_horizontal_driver();
 
-    /* Unreachable in every case here: the driver either refuses the generation
-     * or reaches the fake load_slab(). */
-    fprintf(stderr, "FAKE_READER: driver returned\n");
+    print_run_memory_profile();
+    check_memory_leaks();
     fflush(NULL);
-    _exit(0);
+    _exit(RUN_COMPLETED_EXIT);
   }
 
   close(pipefd[1]);
@@ -259,6 +464,15 @@ static int log_contains(const struct ChildResult *result, const char *needle) {
   return strstr(result->log, needle) != NULL;
 }
 
+static int log_count(const struct ChildResult *result, const char *needle) {
+  int count = 0;
+  for (const char *at = strstr(result->log, needle); at != NULL;
+       at = strstr(at + strlen(needle), needle)) {
+    count++;
+  }
+  return count;
+}
+
 /* Echo the child's first log line containing `needle`, so the test log carries
  * the driver's own wording as evidence. */
 static void print_log_line(const struct ChildResult *result, const char *needle) {
@@ -271,19 +485,40 @@ static void print_log_line(const struct ChildResult *result, const char *needle)
   printf("    driver: %.*s\n", length, start);
 }
 
-/* The driver's pre-allocation report for snapshot 0, whose retention pool is
- * still empty, so the pool total with it equals the generation's own size. */
-static void expected_report(char *buf, size_t size, int64_t bytes, int64_t nhalos) {
-  snprintf(buf, size, "Snapshot 0 generation needs %" PRId64 " B for %" PRId64 " halos", bytes,
-           nhalos);
+/* The driver's pre-allocation report for snapshot `snap`: the generation's size
+ * and the pool total with it. */
+static void expected_report(char *buf, size_t size, int snap, int64_t bytes, int64_t nhalos) {
+  snprintf(buf, size, "Snapshot %d generation needs %" PRId64 " B for %" PRId64 " halos", snap,
+           bytes, nhalos);
 }
 
-static void expected_pool_total(char *buf, size_t size, int64_t bytes) {
-  snprintf(buf, size, "retention pool holds 0 B, %" PRId64 " B with it", bytes);
+static void expected_pool_line(char *buf, size_t size, int64_t pool_bytes, int new_pool,
+                               int64_t resident, int64_t required) {
+  snprintf(buf, size,
+           "galaxy pool %" PRId64 " B%s); retention pool holds %" PRId64 " B, %" PRId64
+           " B with it",
+           pool_bytes, new_pool ? " new" : ", a resident spare reused", resident, required);
+}
+
+/* Run one pre-allocation case: accepted means the exiting load_slab() was
+ * reached, refused means a FATAL before it. */
+static int admission_accepted(int64_t ceiling, struct ChildResult *result) {
+  if (run_driver_in_child(ceiling, 0, result) != 0) {
+    return -1;
+  }
+  if (result->exited && result->exit_status == LOAD_SLAB_REACHED_EXIT) {
+    return 1;
+  }
+  if (result->exited && result->exit_status == 1 &&
+      !log_contains(result, LOAD_SLAB_REACHED_MARKER) &&
+      log_contains(result, "Refused before allocation")) {
+    return 0;
+  }
+  return -1;
 }
 
 /* ------------------------------------------------------------------------- */
-/* Tests                                                                      */
+/* Tests: pre-allocation sizing and refusal                                   */
 /* ------------------------------------------------------------------------- */
 
 /**
@@ -291,7 +526,7 @@ static void expected_pool_total(char *buf, size_t size, int64_t bytes) {
  * @brief   A halo count above INT32_MAX crosses the reader dispatch unchanged.
  */
 int test_reader_interface_carries_wide_count(void) {
-  FakeHaloCount = WIDE_SLAB_ROWS;
+  fake_single_snapshot(WIDE_SLAB_ROWS, 3);
   const int64_t count = horizontal_reader_halo_count(&FakeReader, 0);
   TEST_ASSERT(count == WIDE_SLAB_ROWS,
               "horizontal_reader_halo_count() should return the reader's int64 count unnarrowed");
@@ -306,15 +541,12 @@ int test_reader_interface_carries_wide_count(void) {
 int test_normal_slab_is_sized_before_load(void) {
   struct ChildResult result;
   char needle[256];
-  const int64_t bytes = expected_generation_bytes(NORMAL_SLAB_ROWS, 2);
+  const int64_t bytes = generation_bytes(NORMAL_SLAB_ROWS, 2, 1);
 
   TEST_ASSERT(prepare_output_dir() == 0, "Should create the output directory");
-  TEST_ASSERT(run_driver_in_child(NORMAL_SLAB_ROWS, 2, 0, &result) == 0,
-              "Should run the driver in a child");
-
-  TEST_ASSERT(result.exited && result.exit_status == LOAD_SLAB_REACHED_EXIT,
-              "An unbounded run should reach load_slab()");
-  expected_report(needle, sizeof(needle), bytes, NORMAL_SLAB_ROWS);
+  fake_single_snapshot(NORMAL_SLAB_ROWS, 2);
+  TEST_ASSERT(admission_accepted(0, &result) == 1, "An unbounded run should reach load_slab()");
+  expected_report(needle, sizeof(needle), 0, bytes, NORMAL_SLAB_ROWS);
   TEST_ASSERT(log_contains(&result, needle),
               "The report should state the struct-width size of a version 2 generation");
   TEST_ASSERT(log_contains(&result, "ceiling 0 B (none set)"),
@@ -332,19 +564,18 @@ int test_normal_slab_is_sized_before_load(void) {
 int test_wide_slab_is_sized_before_load(void) {
   struct ChildResult result;
   char needle[256];
-  const int64_t bytes = expected_generation_bytes(WIDE_SLAB_ROWS, 3);
+  const int64_t bytes = generation_bytes(WIDE_SLAB_ROWS, 3, 1);
 
   TEST_ASSERT(prepare_output_dir() == 0, "Should create the output directory");
-  TEST_ASSERT(run_driver_in_child(WIDE_SLAB_ROWS, 3, 0, &result) == 0,
-              "Should run the driver in a child");
-
-  TEST_ASSERT(result.exited && result.exit_status == LOAD_SLAB_REACHED_EXIT,
+  fake_single_snapshot(WIDE_SLAB_ROWS, 3);
+  TEST_ASSERT(admission_accepted(0, &result) == 1,
               "An unbounded wide slab should be sized and reach load_slab(), not abort");
-  expected_report(needle, sizeof(needle), bytes, WIDE_SLAB_ROWS);
+  expected_report(needle, sizeof(needle), 0, bytes, WIDE_SLAB_ROWS);
   TEST_ASSERT(log_contains(&result, needle),
               "The report should state the wide slab's exact struct-width size");
-  expected_pool_total(needle, sizeof(needle), bytes);
-  TEST_ASSERT(log_contains(&result, needle), "The report should state the pool total with it");
+  expected_pool_line(needle, sizeof(needle), new_pool_bytes(), 1, 0, bytes);
+  TEST_ASSERT(log_contains(&result, needle),
+              "The report should count the new galaxy pool and state the pool total with it");
   TEST_ASSERT(!log_contains(&result, "FATAL"), "An unbounded wide slab should not abort");
   printf("  %" PRId64 "-row version 3 slab: %" PRId64 " B reported before load\n", WIDE_SLAB_ROWS,
          bytes);
@@ -363,10 +594,9 @@ int test_ceiling_accepts_retention_at_the_ceiling(void) {
 
   TEST_ASSERT(prepare_output_dir() == 0, "Should create the output directory");
   for (int i = 0; i < 2; i++) {
-    const int64_t bytes = expected_generation_bytes(rows[i], 3);
-    TEST_ASSERT(run_driver_in_child(rows[i], 3, bytes, &result) == 0,
-                "Should run the driver in a child");
-    TEST_ASSERT(result.exited && result.exit_status == LOAD_SLAB_REACHED_EXIT,
+    const int64_t bytes = generation_bytes(rows[i], 3, 1);
+    fake_single_snapshot(rows[i], 3);
+    TEST_ASSERT(admission_accepted(bytes, &result) == 1,
                 "A retention set exactly at the ceiling should be accepted and loaded");
     printf("  %" PRId64 " rows at a ceiling of %" PRId64 " B: accepted\n", rows[i], bytes);
   }
@@ -386,15 +616,11 @@ int test_ceiling_refuses_retention_just_above(void) {
 
   TEST_ASSERT(prepare_output_dir() == 0, "Should create the output directory");
   for (int i = 0; i < 2; i++) {
-    const int64_t bytes = expected_generation_bytes(rows[i], 3);
+    const int64_t bytes = generation_bytes(rows[i], 3, 1);
     const int64_t ceiling = bytes - 1;
-    TEST_ASSERT(run_driver_in_child(rows[i], 3, ceiling, &result) == 0,
-                "Should run the driver in a child");
-
-    TEST_ASSERT(result.exited && result.exit_status == 1,
-                "A retention set one byte above the ceiling should FATAL");
-    TEST_ASSERT(!log_contains(&result, LOAD_SLAB_REACHED_MARKER),
-                "The refusal should come before the reader loads the slab");
+    fake_single_snapshot(rows[i], 3);
+    TEST_ASSERT(admission_accepted(ceiling, &result) == 0,
+                "A retention set one byte above the ceiling should be refused before load");
     snprintf(needle, sizeof(needle), "Snapshot 0 needs %" PRId64 " B", bytes);
     TEST_ASSERT(log_contains(&result, needle),
                 "The refusal should name the snapshot and the bytes it needs");
@@ -403,8 +629,6 @@ int test_ceiling_refuses_retention_just_above(void) {
     snprintf(needle, sizeof(needle), "input.retention_memory_ceiling_mb ceiling of %" PRId64 " B",
              ceiling);
     TEST_ASSERT(log_contains(&result, needle), "The refusal should name the ceiling and its key");
-    TEST_ASSERT(log_contains(&result, "Refused before allocation"),
-                "The refusal should say nothing was allocated");
     TEST_ASSERT(log_contains(&result, "needs chunked slab streaming, a capability Mimic does "
                                       "not implement"),
                 "The refusal should name chunked slab streaming as the missing capability");
@@ -412,6 +636,76 @@ int test_ceiling_refuses_retention_just_above(void) {
            ceiling);
     print_log_line(&result, "Snapshot 0 needs ");
   }
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_new_pool_counts_against_a_whole_mb_ceiling_for_an_empty_snapshot
+ * @brief   An empty snapshot's footprint includes the galaxy pool it must
+ *          create, so a whole-MB ceiling is judged against that too, and the
+ *          exact boundary sits at the footprint with the pool.
+ *
+ * The old footprint (no pool) is below both the exact boundary and one byte
+ * under it, so the refusal one byte under is one the old accounting would have
+ * accepted. Whether 1 MB itself admits the snapshot depends on the compiled
+ * GalaxyData width; the expectation is computed, and the case says whether it
+ * discriminates under this package.
+ */
+int test_new_pool_counts_against_a_whole_mb_ceiling_for_an_empty_snapshot(void) {
+  struct ChildResult result;
+  const int64_t old_bytes = generation_bytes_without_pool(0, 2);
+  const int64_t bytes = generation_bytes(0, 2, 1);
+  const int64_t one_mb = BYTES_PER_MB;
+
+  TEST_ASSERT(prepare_output_dir() == 0, "Should create the output directory");
+  fake_single_snapshot(0, 2);
+
+  TEST_ASSERT(admission_accepted(one_mb, &result) == (bytes <= one_mb ? 1 : 0),
+              "A 1 MB ceiling should admit the empty snapshot exactly when its footprint with "
+              "the new pool fits");
+  TEST_ASSERT(admission_accepted(bytes, &result) == 1,
+              "A ceiling equal to the footprint with the new pool should be accepted");
+  TEST_ASSERT(admission_accepted(bytes - 1, &result) == 0,
+              "One byte under the footprint with the new pool should be refused");
+  TEST_ASSERT(bytes - 1 >= old_bytes,
+              "The footprint without the pool should fit the refused ceiling, so the old "
+              "accounting would have accepted it");
+  printf("  empty snapshot: %" PRId64 " B without the pool, %" PRId64 " B with it; 1 MB %s%s\n",
+         old_bytes, bytes, bytes <= one_mb ? "accepts" : "refuses",
+         (old_bytes <= one_mb && bytes > one_mb) ? " (the old footprint would have accepted)" : "");
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_new_pool_counts_against_a_whole_mb_ceiling_for_a_tiny_slab
+ * @brief   The widest tiny slab whose old footprint fits 1 MB is refused at
+ *          1 MB once its new galaxy pool is counted, and is accepted at the
+ *          exact boundary of the footprint with the pool.
+ */
+int test_new_pool_counts_against_a_whole_mb_ceiling_for_a_tiny_slab(void) {
+  struct ChildResult result;
+  const int64_t one_mb = BYTES_PER_MB;
+
+  int64_t rows = 1;
+  while (generation_bytes_without_pool(rows + 1, 2) <= one_mb) {
+    rows++;
+  }
+  const int64_t old_bytes = generation_bytes_without_pool(rows, 2);
+  const int64_t bytes = generation_bytes(rows, 2, 1);
+  TEST_ASSERT(old_bytes <= one_mb && bytes > one_mb,
+              "The chosen slab should fit 1 MB without the pool and not with it");
+
+  TEST_ASSERT(prepare_output_dir() == 0, "Should create the output directory");
+  fake_single_snapshot(rows, 2);
+  TEST_ASSERT(admission_accepted(one_mb, &result) == 0,
+              "A 1 MB ceiling should refuse a slab that fits only when its new pool is ignored");
+  TEST_ASSERT(admission_accepted(bytes, &result) == 1,
+              "A ceiling equal to the footprint with the new pool should be accepted");
+  TEST_ASSERT(admission_accepted(bytes - 1, &result) == 0,
+              "One byte under the footprint with the new pool should be refused");
+  printf("  %" PRId64 "-row slab: %" PRId64 " B without the pool, %" PRId64
+         " B with it; 1 MB refuses\n",
+         rows, old_bytes, bytes);
   return TEST_PASS;
 }
 
@@ -425,8 +719,9 @@ int test_unrepresentable_slab_is_refused(void) {
   const int64_t ceilings[2] = {0, INT64_MAX};
 
   TEST_ASSERT(prepare_output_dir() == 0, "Should create the output directory");
+  fake_single_snapshot(INT64_MAX, 3);
   for (int i = 0; i < 2; i++) {
-    TEST_ASSERT(run_driver_in_child(INT64_MAX, 3, ceilings[i], &result) == 0,
+    TEST_ASSERT(run_driver_in_child(ceilings[i], 0, &result) == 0,
                 "Should run the driver in a child");
     TEST_ASSERT(result.exited && result.exit_status == 1,
                 "An INT64_MAX-row slab should FATAL whatever the ceiling");
@@ -450,12 +745,247 @@ int test_negative_count_is_refused(void) {
   struct ChildResult result;
 
   TEST_ASSERT(prepare_output_dir() == 0, "Should create the output directory");
-  TEST_ASSERT(run_driver_in_child(-1, 3, 0, &result) == 0, "Should run the driver in a child");
+  fake_single_snapshot(-1, 3);
+  TEST_ASSERT(run_driver_in_child(0, 0, &result) == 0, "Should run the driver in a child");
   TEST_ASSERT(result.exited && result.exit_status == 1, "A negative halo count should FATAL");
   TEST_ASSERT(log_contains(&result, "a halo count cannot be negative"),
               "The refusal should name the negative count");
   TEST_ASSERT(!log_contains(&result, LOAD_SLAB_REACHED_MARKER),
               "The refusal should come before the reader loads the slab");
+  return TEST_PASS;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Tests: completed sweeps, measurement and the run profile                   */
+/* ------------------------------------------------------------------------- */
+
+/**
+ * @test    test_overlapping_generations_are_measured_and_profiled
+ * @brief   A three-snapshot chain retains two generations at once; the driver's
+ *          admission figures, its peak and the run profile all equal the
+ *          struct-width accounting, and a new pool is counted exactly when no
+ *          spare exists.
+ *
+ * Snapshots 0 and 1 each create a galaxy pool (nothing has been released yet);
+ * snapshot 2 reuses the pool snapshot 0 released, which is resident as a spare
+ * when snapshot 2 is admitted. Each generation holds one halo, one galaxy and
+ * one output record, so nothing grows during a sweep and every generation holds
+ * exactly its footprint with a new pool.
+ */
+int test_overlapping_generations_are_measured_and_profiled(void) {
+  struct ChildResult result;
+  char needle[256];
+  const int64_t pool = new_pool_bytes();
+  const int64_t generation = generation_bytes(1, 2, 1);
+  const int64_t peak = 2 * generation;
+
+  TEST_ASSERT(prepare_output_dir() == 0, "Should create the output directory");
+  memset(&Fake, 0, sizeof(Fake));
+  Fake.snapshot_count = 3;
+  Fake.halo_count[0] = Fake.halo_count[1] = Fake.halo_count[2] = 1;
+  Fake.format_version = 2;
+  Fake.load = FAKE_LOAD_BUILDS;
+  Fake.chain = 1;
+
+  TEST_ASSERT(run_driver_in_child(0, 0, &result) == 0, "Should run the driver in a child");
+  TEST_ASSERT(result.exited && result.exit_status == RUN_COMPLETED_EXIT,
+              "The chain should be processed to the end");
+
+  expected_pool_line(needle, sizeof(needle), pool, 1, 0, generation);
+  TEST_ASSERT(log_contains(&result, needle),
+              "Snapshot 0 should be admitted with a new pool into an empty retention pool");
+  expected_pool_line(needle, sizeof(needle), pool, 1, generation, peak);
+  TEST_ASSERT(log_contains(&result, needle),
+              "Snapshot 1 should be admitted with a new pool beside snapshot 0's generation");
+  expected_pool_line(needle, sizeof(needle), 0, 0, generation + pool, peak);
+  TEST_ASSERT(log_contains(&result, needle),
+              "Snapshot 2 should reuse the released pool, which is already resident");
+  TEST_ASSERT(log_count(&result, "Released snapshot ") == 3,
+              "Every snapshot should be released exactly once");
+
+  snprintf(needle, sizeof(needle),
+           "Retained at most 2 generations concurrently, holding at most %" PRId64 " B resident",
+           peak);
+  TEST_ASSERT(log_contains(&result, needle),
+              "The driver should report two concurrent generations and their exact peak bytes");
+  TEST_ASSERT(log_contains(&result, "Retained generations R: at most 2 concurrently"),
+              "The run profile should report two concurrent generations");
+  snprintf(needle, sizeof(needle), "Retention pool resident: at most %" PRId64 " B", peak);
+  TEST_ASSERT(log_contains(&result, needle),
+              "The run profile should report the driver's own peak resident bytes");
+  TEST_ASSERT(log_contains(&result, "No memory leaks detected"),
+              "Every generation, pool and fake slab should be released");
+  TEST_ASSERT(!log_contains(&result, "The retention pool grew to"),
+              "No ceiling is set, so no in-sweep warning should be issued");
+  printf("  3-snapshot chain: 2 generations, %" PRId64 " B peak (new pool %" PRId64 " B)\n", peak,
+         pool);
+  print_log_line(&result, "Retention pool resident:");
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_in_sweep_pool_growth_past_the_ceiling_warns_once
+ * @brief   Growth the admission check cannot see -- a galaxy pool adding a chunk
+ *          mid-sweep -- is measured, reported in the profile and warned about
+ *          once; the next admission counts the grown pool.
+ *
+ * A single snapshot holds more isolated halos than a new pool's first chunk, so
+ * its sweep grows the pool; the ceiling is set exactly at its admission figure,
+ * so admission passes and the grown pool passes the ceiling. A second, unbounded
+ * run adds a one-halo snapshot after it, whose admission must count the grown
+ * pool it reuses. (Under a ceiling that second admission may or may not fit,
+ * depending on the compiled struct widths, so it is checked without one.)
+ */
+int test_in_sweep_pool_growth_past_the_ceiling_warns_once(void) {
+  struct ChildResult result;
+  char needle[256];
+
+  /* The pool a sweep over POOL_GROWING_ROWS galaxies leaves behind, measured on
+   * a real pool, and what it adds beyond a new pool. */
+  init_memory_system(0);
+  struct GalaxyPool *grown = galaxy_pool_create(0);
+  struct GalaxyPoolStats fresh_stats;
+  galaxy_pool_stats(grown, &fresh_stats);
+  for (int64_t i = 0; i < POOL_GROWING_ROWS; i++) {
+    (void)galaxy_pool_alloc(grown);
+  }
+  struct GalaxyPoolStats grown_stats;
+  galaxy_pool_stats(grown, &grown_stats);
+  galaxy_pool_destroy(grown);
+  check_memory_leaks();
+  TEST_ASSERT(grown_stats.chunk_count > fresh_stats.chunk_count,
+              "The sweep's galaxies should outgrow a new pool's first chunk");
+  const int64_t growth = grown_stats.resident_bytes - fresh_stats.resident_bytes;
+
+  const int64_t admission = generation_bytes(POOL_GROWING_ROWS, 2, 1);
+  const int64_t swept = admission + growth;
+
+  TEST_ASSERT(prepare_output_dir() == 0, "Should create the output directory");
+  memset(&Fake, 0, sizeof(Fake));
+  Fake.snapshot_count = 1;
+  Fake.halo_count[0] = POOL_GROWING_ROWS;
+  Fake.format_version = 2;
+  Fake.load = FAKE_LOAD_BUILDS;
+
+  TEST_ASSERT(run_driver_in_child(admission, 0, &result) == 0, "Should run the driver in a child");
+  TEST_ASSERT(result.exited && result.exit_status == RUN_COMPLETED_EXIT,
+              "A snapshot admitted exactly at the ceiling should be processed");
+  snprintf(needle, sizeof(needle),
+           "The retention pool grew to %" PRId64 " B during snapshot 0's sweep, above the "
+           "input.retention_memory_ceiling_mb ceiling of %" PRId64 " B",
+           swept, admission);
+  TEST_ASSERT(log_contains(&result, needle),
+              "The in-sweep growth past the ceiling should be warned about with exact bytes");
+  TEST_ASSERT(log_contains(&result, "Only in-sweep growth of the output buffer and galaxy pool "
+                                    "can pass the ceiling"),
+              "The warning should name in-sweep output-buffer and galaxy-pool growth only");
+  TEST_ASSERT(log_count(&result, "The retention pool grew to") == 1,
+              "The warning should be issued once per run");
+  snprintf(needle, sizeof(needle), "Retention pool resident: at most %" PRId64 " B", swept);
+  TEST_ASSERT(log_contains(&result, needle),
+              "The run profile should report the grown peak, not the admission figure");
+  TEST_ASSERT(log_contains(&result, "Retained generations R: at most 1 concurrently"),
+              "The run profile should report the one generation retained");
+  TEST_ASSERT(log_contains(&result, "No memory leaks detected"),
+              "Every generation, pool and fake slab should be released");
+  printf("  %" PRId64 " isolated halos: admitted at %" PRId64 " B, swept to %" PRId64 " B\n",
+         POOL_GROWING_ROWS, admission, swept);
+  print_log_line(&result, "The retention pool grew to");
+
+  Fake.snapshot_count = 2;
+  Fake.halo_count[1] = 1;
+  TEST_ASSERT(run_driver_in_child(0, 0, &result) == 0, "Should run the driver in a child");
+  TEST_ASSERT(result.exited && result.exit_status == RUN_COMPLETED_EXIT,
+              "The unbounded two-snapshot run should be processed");
+  expected_pool_line(needle, sizeof(needle), 0, 0, grown_stats.resident_bytes,
+                     grown_stats.resident_bytes + generation_bytes(1, 2, 0));
+  TEST_ASSERT(log_contains(&result, needle),
+              "The next admission should count the grown pool it reuses");
+  TEST_ASSERT(!log_contains(&result, "The retention pool grew to"),
+              "No ceiling is set, so no in-sweep warning should be issued");
+  return TEST_PASS;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Tests: the slab width against the real reader                              */
+/* ------------------------------------------------------------------------- */
+
+/* Bytes of every array the reader attached to a loaded slab, one row each. */
+static int64_t reader_allocated_bytes(const struct SnapshotSlab *slab) {
+  const int64_t n = slab->nhalos;
+  int64_t bytes = 0;
+  bytes += (slab->halos != NULL) ? n * (int64_t)sizeof(struct RawHalo) : 0;
+  bytes += (slab->forest_index != NULL) ? n * (int64_t)sizeof(int64_t) : 0;
+  bytes += (slab->halo_rank_in_forest != NULL) ? n * (int64_t)sizeof(int64_t) : 0;
+  bytes += (slab->descendant_snapshot != NULL) ? n * (int64_t)sizeof(int32_t) : 0;
+  bytes += (slab->first_progenitor_snapshot != NULL) ? n * (int64_t)sizeof(int32_t) : 0;
+  bytes += (slab->next_progenitor_snapshot != NULL) ? n * (int64_t)sizeof(int32_t) : 0;
+  bytes += (slab->source_halo_id != NULL) ? n * (int64_t)sizeof(int64_t) : 0;
+  return bytes;
+}
+
+/**
+ * @test    test_slab_width_matches_the_real_v3_reader
+ * @brief   For every snapshot of the committed version 3 fixture, the slab bytes
+ *          the driver reports before load equal the bytes of the arrays the real
+ *          horizontal_hdf5 reader allocates for it.
+ *
+ * Skips unless the fixture's package is compiled, as the fixture's own reader
+ * tests do.
+ */
+int test_slab_width_matches_the_real_v3_reader(void) {
+  struct ChildResult result;
+  char needle[256];
+
+  if (strcmp(MIMIC_COMPILED_SIMULATION, V3_FIXTURE_PACKAGE) != 0) {
+    return TEST_SKIP_WITH("the v3 fixture's /schema matches only SIMULATION=" V3_FIXTURE_PACKAGE);
+  }
+
+  TEST_ASSERT(prepare_output_dir() == 0, "Should create the output directory");
+  TEST_ASSERT(run_driver_in_child(0, 1, &result) == 0, "Should run the driver in a child");
+  TEST_ASSERT(result.exited && result.exit_status == RUN_COMPLETED_EXIT,
+              "The driver should process the whole fixture");
+
+  init_memory_system(0);
+  configure_child(horizontal_reader_lookup("horizontal_hdf5"), 0);
+  configure_v3_fixture();
+  const struct HorizontalReader *reader = MimicConfig.horizontal_reader;
+  struct HorizontalRunInfo info;
+  horizontal_reader_open_run(reader, &info);
+  TEST_ASSERT(info.format_version == 3 && info.snapshot_count == V3_FIXTURE_SNAPSHOTS,
+              "The fixture should open as a four-snapshot version 3 run");
+
+  int loaded_nonempty = 0;
+  for (int64_t snap = 0; snap < info.snapshot_count; snap++) {
+    struct SnapshotSlab slab = snapshot_slab_empty();
+    horizontal_reader_load_slab(reader, snap, &slab);
+    const int64_t actual = reader_allocated_bytes(&slab);
+    if (slab.nhalos > 0) {
+      TEST_ASSERT(slab.descendant_snapshot != NULL && slab.source_halo_id != NULL,
+                  "A non-empty version 3 slab should carry its reader-owned v3 arrays");
+      loaded_nonempty++;
+    }
+    snprintf(needle, sizeof(needle),
+             "for %" PRId64 " halos (slab and reader-owned arrays %" PRId64 " B,", slab.nhalos,
+             actual);
+    char prefix[64];
+    snprintf(prefix, sizeof(prefix), "Snapshot %" PRId64 " generation needs ", snap);
+    const char *line = strstr(result.log, prefix);
+    TEST_ASSERT(line != NULL, "The driver should report every snapshot's footprint");
+    const char *end = strchr(line, '\n');
+    const size_t length = (end != NULL) ? (size_t)(end - line) : strlen(line);
+    char report[1024];
+    snprintf(report, sizeof(report), "%.*s", (int)length, line);
+    TEST_ASSERT(strstr(report, needle) != NULL,
+                "The driver's slab bytes should equal the arrays the reader allocated");
+    printf("  snapshot %" PRId64 ": %" PRId64 " halos, reader allocated %" PRId64
+           " B, driver reported the same\n",
+           snap, slab.nhalos, actual);
+    horizontal_reader_release_slab(reader, &slab);
+  }
+  horizontal_reader_close_run(reader);
+  TEST_ASSERT(loaded_nonempty > 0, "The fixture should hold at least one non-empty snapshot");
+  check_memory_leaks();
   return TEST_PASS;
 }
 
@@ -476,8 +1006,13 @@ int main(void) {
   TEST_RUN(test_wide_slab_is_sized_before_load);
   TEST_RUN(test_ceiling_accepts_retention_at_the_ceiling);
   TEST_RUN(test_ceiling_refuses_retention_just_above);
+  TEST_RUN(test_new_pool_counts_against_a_whole_mb_ceiling_for_an_empty_snapshot);
+  TEST_RUN(test_new_pool_counts_against_a_whole_mb_ceiling_for_a_tiny_slab);
   TEST_RUN(test_unrepresentable_slab_is_refused);
   TEST_RUN(test_negative_count_is_refused);
+  TEST_RUN(test_overlapping_generations_are_measured_and_profiled);
+  TEST_RUN(test_in_sweep_pool_growth_past_the_ceiling_warns_once);
+  TEST_RUN(test_slab_width_matches_the_real_v3_reader);
 
   TEST_SUMMARY();
   return TEST_RESULT();

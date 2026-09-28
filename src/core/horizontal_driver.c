@@ -889,16 +889,19 @@ static int64_t horizontal_count_live_slabs(const struct HorizontalDriverState *s
  *
  * Every term is int64_t and formed by checked arithmetic, so a slab of any row
  * count -- including one above INT32_MAX -- is sized exactly or refused, never
- * narrowed or wrapped. The galaxy pool is deliberately not a term: a generation
- * reuses a spare pool whose chunks are already resident (and already counted by
- * horizontal_retained_resident_bytes()), and how far its sweep then grows that
- * pool is not knowable before the sweep runs.
+ * narrowed or wrapped. The galaxy pool is a term only when the generation must
+ * create one: its first chunk and headers are then fixed before the sweep
+ * (galaxy_pool_initial_resident_bytes()). A reused spare pool is already
+ * resident and already counted by horizontal_retained_resident_bytes(). What
+ * no footprint can include is how far the sweep then grows the output buffer
+ * and the galaxy pool.
  */
 struct HorizontalGenerationFootprint {
   int64_t slab_bytes;      /* struct RawHalo rows plus every reader-owned array */
   int64_t aux_bytes;       /* struct HorizontalHaloAux rows */
   int64_t output_capacity; /* output buffer seed, in struct Halo records */
   int64_t output_bytes;    /* that seed, in bytes */
+  int64_t pool_bytes;      /* a new galaxy pool, or 0 when a spare is reused */
   int64_t total_bytes;
 };
 
@@ -954,27 +957,32 @@ static int horizontal_output_seed_capacity(int64_t nhalos, int64_t *capacity) {
 
 /* Size a generation of `nhalos` rows before anything is allocated for it. The
  * aux array always holds at least one row, as horizontal_acquire_generation()
- * allocates it. Returns 0 when any term overflows int64_t. */
-static int horizontal_generation_footprint(int64_t nhalos, int32_t format_version,
+ * allocates it; `new_pool` says whether horizontal_take_pool() will have to
+ * create a galaxy pool (created with the same hint, 0) rather than reuse a
+ * spare. Returns 0 when any term overflows int64_t. */
+static int horizontal_generation_footprint(int64_t nhalos, int32_t format_version, int new_pool,
                                            struct HorizontalGenerationFootprint *fp) {
   memset(fp, 0, sizeof(*fp));
 
-  int64_t fixed_bytes = 0;
+  int64_t slab_and_aux = 0;
+  int64_t without_pool = 0;
   return horizontal_checked_bytes(nhalos, horizontal_slab_row_bytes(format_version),
                                   &fp->slab_bytes) &&
          horizontal_checked_bytes(nhalos > 0 ? nhalos : 1, sizeof(struct HorizontalHaloAux),
                                   &fp->aux_bytes) &&
          horizontal_output_seed_capacity(nhalos, &fp->output_capacity) &&
          horizontal_checked_bytes(fp->output_capacity, sizeof(struct Halo), &fp->output_bytes) &&
-         horizontal_checked_sum(fp->slab_bytes, fp->aux_bytes, &fixed_bytes) &&
-         horizontal_checked_sum(fixed_bytes, fp->output_bytes, &fp->total_bytes);
+         (!new_pool || galaxy_pool_initial_resident_bytes(0, &fp->pool_bytes)) &&
+         horizontal_checked_sum(fp->slab_bytes, fp->aux_bytes, &slab_and_aux) &&
+         horizontal_checked_sum(slab_and_aux, fp->output_bytes, &without_pool) &&
+         horizontal_checked_sum(without_pool, fp->pool_bytes, &fp->total_bytes);
 }
 
-/* A galaxy pool's resident chunks, in bytes. */
+/* A galaxy pool's resident bytes: its header, its chunks' headers and slots. */
 static int64_t horizontal_pool_resident_bytes(const struct GalaxyPool *pool) {
   struct GalaxyPoolStats stats;
   galaxy_pool_stats(pool, &stats);
-  return stats.slots_allocated * (int64_t)sizeof(struct GalaxyData);
+  return stats.resident_bytes;
 }
 
 /*
@@ -1017,9 +1025,10 @@ static int64_t horizontal_retained_resident_bytes(const struct HorizontalDriverS
  * exactly at the ceiling is accepted.
  *
  * The figure checked is what the pool holds resident now plus this generation's
- * footprint. Growth inside a sweep (the marshaller enlarging an output buffer, a
- * pool adding a chunk) happens after this check and is not refused by it; it is
- * measured, and reported in the run memory profile.
+ * footprint, which includes a new galaxy pool whenever no spare one will be
+ * reused. The only allocation for a generation not refused here is in-sweep
+ * growth of its output buffer and galaxy pool, which happens after this check;
+ * it is measured, and reported in the run memory profile.
  */
 static void horizontal_require_generation_fits(const struct HorizontalDriverState *state,
                                                int64_t snapnum, int64_t nhalos,
@@ -1031,8 +1040,9 @@ static void horizontal_require_generation_fits(const struct HorizontalDriverStat
   }
 
   const int64_t resident = horizontal_retained_resident_bytes(state);
+  const int new_pool = (state->spare_count == 0);
   int64_t required = 0;
-  if (!horizontal_generation_footprint(nhalos, state->format_version, fp) ||
+  if (!horizontal_generation_footprint(nhalos, state->format_version, new_pool, fp) ||
       !horizontal_checked_sum(resident, fp->total_bytes, &required)) {
     FATAL_ERROR("Snapshot %" PRId64 " holds %" PRId64 " halos, too many for its generation's "
                 "resident size to be counted in 64-bit bytes. Refused before allocation: "
@@ -1044,10 +1054,12 @@ static void horizontal_require_generation_fits(const struct HorizontalDriverStat
   const int64_t ceiling = MimicConfig.RetentionMemoryCeiling;
   VERBOSE_LOG("Snapshot %" PRId64 " generation needs %" PRId64 " B for %" PRId64
               " halos (slab and reader-owned arrays %" PRId64 " B, aux %" PRId64
-              " B, output buffer seed %" PRId64 " records = %" PRId64 " B); retention pool "
-              "holds %" PRId64 " B, %" PRId64 " B with it; ceiling %" PRId64 " B%s",
+              " B, output buffer seed %" PRId64 " records = %" PRId64 " B, galaxy pool %" PRId64
+              " B%s); retention pool holds %" PRId64 " B, %" PRId64 " B with it; ceiling %" PRId64
+              " B%s",
               snapnum, fp->total_bytes, nhalos, fp->slab_bytes, fp->aux_bytes, fp->output_capacity,
-              fp->output_bytes, resident, required, ceiling, ceiling > 0 ? "" : " (none set)");
+              fp->output_bytes, fp->pool_bytes, new_pool ? " new" : ", a resident spare reused",
+              resident, required, ceiling, ceiling > 0 ? "" : " (none set)");
 
   if (ceiling > 0 && required > ceiling) {
     FATAL_ERROR("Snapshot %" PRId64 " needs %" PRId64 " B (%.3f GB) resident for its %" PRId64
@@ -1567,19 +1579,21 @@ void run_horizontal_driver(void) {
     run_profile_note_retention(state.retained_count, resident);
 
     /* The ceiling is enforced before each generation is allocated, from what is
-     * resident then plus the new generation's seeded size. Growth inside the
-     * sweep -- the marshaller enlarging an output buffer past its seed, a pool
-     * adding a chunk -- happens in the output-buffer and galaxy-pool services
-     * and cannot be refused before it is allocated, so it is reported instead.
-     * Once per run: later overshoots are covered by the profile's peak. */
+     * resident then plus the new generation's footprint (slab, aux, seeded output
+     * buffer and, when none is reused, a new galaxy pool). What remains is
+     * in-sweep growth of the output buffer and galaxy pool only -- the marshaller
+     * enlarging the buffer past its seed, the pool adding a chunk -- which the
+     * output-buffer and galaxy-pool services allocate mid-sweep, so it cannot be
+     * refused before allocation and is reported instead. Once per run: later
+     * overshoots are covered by the profile's peak. */
     const int64_t ceiling = MimicConfig.RetentionMemoryCeiling;
     if (ceiling > 0 && resident > ceiling && !state.warned_sweep_over_ceiling) {
       state.warned_sweep_over_ceiling = 1;
       WARNING_LOG("The retention pool grew to %" PRId64 " B during snapshot %" PRId64
                   "'s sweep, above the input.retention_memory_ceiling_mb ceiling of %" PRId64
-                  " B: output-buffer and galaxy-pool growth inside a sweep is measured but "
-                  "cannot be refused before allocation, so the ceiling bounds each generation's "
-                  "admission, not this growth",
+                  " B. Only in-sweep growth of the output buffer and galaxy pool can pass the "
+                  "ceiling: it is allocated mid-sweep, so it is measured here rather than "
+                  "refused before allocation",
                   resident, snapnum, ceiling);
     }
 

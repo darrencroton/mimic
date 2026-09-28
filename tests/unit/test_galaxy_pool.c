@@ -17,6 +17,7 @@
 #include "../../src/util/memory.h"
 #include "../framework/test_framework.h"
 
+#include <inttypes.h>
 #include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
@@ -556,6 +557,78 @@ int test_stats_report_peak_concurrent_and_resident_capacity(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_initial_resident_bytes_matches_a_created_pool
+ * @brief   galaxy_pool_initial_resident_bytes() predicts, before creation, the
+ *          exact resident bytes a pool created with the same hint reports.
+ *
+ * The hints cover every branch of the creation rule: the default first chunk (0
+ * and a hint below the minimum), a hint taken as given, and hints clamped at the
+ * chunk cap. A pool's resident bytes then grow by exactly one chunk header plus
+ * its slots per chunk added.
+ */
+int test_initial_resident_bytes_matches_a_created_pool(void) {
+  init_memory_system(0);
+  initialize_error_handling(LOG_LEVEL_WARNING, NULL);
+
+  const int hints[] = {0, -5, 500, 5000, 100000, 50000000, 2000000000};
+  for (size_t i = 0; i < sizeof(hints) / sizeof(hints[0]); i++) {
+    int64_t predicted = -1;
+    TEST_ASSERT(galaxy_pool_initial_resident_bytes(hints[i], &predicted) == 1,
+                "The size query should succeed for every int hint");
+
+    struct GalaxyPool *pool = galaxy_pool_create(hints[i]);
+    struct GalaxyPoolStats stats;
+    galaxy_pool_stats(pool, &stats);
+    TEST_ASSERT(stats.chunk_count == 1, "A fresh pool holds exactly one chunk");
+    TEST_ASSERT(predicted == stats.resident_bytes,
+                "The size query should equal the fresh pool's resident bytes");
+    TEST_ASSERT(predicted > stats.slots_allocated * (int64_t)sizeof(struct GalaxyData),
+                "The resident bytes should include the pool and chunk headers");
+    galaxy_pool_destroy(pool);
+    printf("  hint %d: %" PRId64 " B\n", hints[i], predicted);
+  }
+
+  int64_t below_minimum = 0;
+  int64_t default_hint = 0;
+  int64_t clamped_large = 0;
+  int64_t clamped_larger = 0;
+  galaxy_pool_initial_resident_bytes(500, &below_minimum);
+  galaxy_pool_initial_resident_bytes(0, &default_hint);
+  galaxy_pool_initial_resident_bytes(50000000, &clamped_large);
+  galaxy_pool_initial_resident_bytes(2000000000, &clamped_larger);
+  TEST_ASSERT(below_minimum == default_hint,
+              "A hint at or below the minimum chunk should take the default first chunk");
+  TEST_ASSERT(clamped_large == clamped_larger, "Hints above the chunk cap should clamp to it");
+
+  /* Growth past the first chunk adds one chunk header and that chunk's slots:
+   * the same header each time, so two growth steps must add the same overhead. */
+  struct GalaxyPool *pool = galaxy_pool_create(0);
+  struct GalaxyPoolStats stats[3];
+  galaxy_pool_stats(pool, &stats[0]);
+  for (int step = 1; step <= 2; step++) {
+    const int64_t fill = stats[step - 1].slots_allocated - stats[step - 1].galaxies_high_water;
+    for (int64_t i = 0; i <= fill; i++) {
+      (void)galaxy_pool_alloc(pool);
+    }
+    galaxy_pool_stats(pool, &stats[step]);
+    TEST_ASSERT(stats[step].chunk_count == step + 1,
+                "Filling the pool one slot past capacity should add exactly one chunk");
+  }
+  int64_t overhead[2];
+  for (int step = 0; step < 2; step++) {
+    const int64_t slot_bytes = (stats[step + 1].slots_allocated - stats[step].slots_allocated) *
+                               (int64_t)sizeof(struct GalaxyData);
+    overhead[step] = stats[step + 1].resident_bytes - stats[step].resident_bytes - slot_bytes;
+  }
+  TEST_ASSERT(overhead[0] > 0 && overhead[0] == overhead[1],
+              "Each added chunk should add its slots plus one fixed, non-zero header");
+  galaxy_pool_destroy(pool);
+
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
 /** @brief Main test runner */
 int main(void) {
   printf("%s", BLUE);
@@ -574,6 +647,7 @@ int main(void) {
   TEST_RUN(test_two_pools_survive_interleaved_chunk_growth_and_one_reset);
   TEST_RUN(test_alloc_across_multiple_grown_chunks_stable_and_reusable);
   TEST_RUN(test_stats_report_peak_concurrent_and_resident_capacity);
+  TEST_RUN(test_initial_resident_bytes_matches_a_created_pool);
 
   TEST_SUMMARY();
   return TEST_RESULT();
