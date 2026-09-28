@@ -61,6 +61,24 @@ def snapshot_fixture_snapshot_files():
     ]
 
 
+def snapshot_fixture_horizons():
+    """Retention horizon of every fixture snapshot, from its own Descendant column.
+
+    The fixture is version 2, whose descendants all live at snapshot k + 1, so the
+    horizon of snapshot k is k + 1 when any of its halos has a descendant and k
+    otherwise -- the driver's rule (horizontal_generation_horizon()) specialised to the
+    version 2 link scope.
+    """
+    import h5py
+
+    horizons = []
+    for snap, path in enumerate(snapshot_fixture_snapshot_files()):
+        with h5py.File(path, "r") as handle:
+            has_descendant = bool((handle["halos/Descendant"][()] >= 0).any())
+        horizons.append(snap + 1 if has_descendant else snap)
+    return horizons
+
+
 def snapshot_fixture_present():
     """Is the committed horizontal-package fixture's full payload present?
 
@@ -250,8 +268,9 @@ def test_horizontal_run_completes_and_writes_output_over_the_fixture():
 
     Expected: exit 0; output does NOT include "Parameter validation failed" or either of
               the two messages earlier slices retired; the per-snapshot lifecycle lines
-              show every snapshot loaded and released in ascending order under the
-              two-generation rotation, with two slabs live from snapshot 1 onward; and
+              show every snapshot loaded in ascending order with the live-slab count the
+              retention horizons imply, and every snapshot released exactly once, at its
+              horizon, never more than two slabs live (the adjacent-dataset bound); and
               the run leaves exactly one numbered partition file per requested output
               snapshot, each named for and holding only that snapshot, plus a master
               linking each snapshot to its own file, with TotHalosPerSnap totals equal
@@ -259,8 +278,18 @@ def test_horizontal_run_completes_and_writes_output_over_the_fixture():
               dataset or link, TreeType "horizontal_hdf5", and UniqueGalaxyIDMultiplier in
               both per-file and master RunProperties.
     Validates: the horizontal driver produces output through the driver-neutral
-               output partition seam, and does so under the state rotation the phase
-               specifies rather than by holding every slab live.
+               output partition seam, and does so under the retention schedule the
+               runtime plan specifies (a generation lives until its retention horizon
+               has been processed) rather than by holding every slab live.
+
+    The retention horizon of snapshot k is the latest snapshot any of its halos names as
+    its descendant's, or k itself when none has a descendant. This fixture is version 2,
+    so every descendant is at k + 1 and horizon(k) is k + 1 when any halo of snapshot k
+    has a descendant and k otherwise. The expected lifecycle is derived from the
+    fixture's own Descendant columns (snapshot_fixture_horizons()), not hard-coded. At
+    the time of writing the fixture's snapshot 0 is empty and snapshots 2 and 5 hold no
+    halo with a descendant, so snapshots 0, 2 and 5 are released in their own step and
+    snapshots 1 and 3 load with one slab live.
 
     Runs against the committed horizontal-package fixture (simulations/micro-uchuu-horizontal/
     _tests/data/), not the machine-local production dataset: the latter is multi-gigabyte,
@@ -330,17 +359,32 @@ def test_horizontal_run_completes_and_writes_output_over_the_fixture():
     ), "the skeleton driver's abort must not survive into a producing driver"
 
     # The FULL ordered lifecycle, not just "a line mentioning two slabs somewhere":
-    # every snapshot must be loaded in ascending order, each load after the first
-    # with two generations live, and every snapshot released. Asserting the ordered
-    # subsequence is what makes a shortened or reordered loop fail here.
+    # every snapshot must be loaded in ascending order with the live-slab count its
+    # predecessors' horizons imply, and every snapshot released exactly at its
+    # horizon: after the sweep of that snapshot for an earlier generation, and after
+    # its own output for a generation nothing later links into. Asserting the ordered
+    # subsequence is what makes a shortened, reordered, early or late release fail here.
+    horizons = snapshot_fixture_horizons()
     expected_sequence = []
+    retained = []
+    max_live = 0
     for snap in range(nsnapshots):
-        live = 1 if snap == 0 else 2
+        retained.append(snap)
+        live = len(retained)
+        max_live = max(max_live, live)
         expected_sequence.append(f"Loaded snapshot {snap} (")
         expected_sequence.append(f"; {live} slab{'' if live == 1 else 's'} live")
-        if snap > 0:
-            expected_sequence.append(f"Released snapshot {snap - 1} ")
-    expected_sequence.append(f"Released snapshot {nsnapshots - 1} ")
+        for earlier in [k for k in retained if k < snap and horizons[k] <= snap]:
+            expected_sequence.append(f"Released snapshot {earlier} ")
+            retained.remove(earlier)
+        if horizons[snap] <= snap:
+            expected_sequence.append(f"Released snapshot {snap} ")
+            retained.remove(snap)
+    assert not retained, f"every horizon of the fixture lies inside the run: {horizons}"
+    assert max_live <= 2, (
+        f"a version 2 fixture must never need more than two live generations, "
+        f"derived {max_live} from horizons {horizons}"
+    )
 
     cursor = 0
     for needle in expected_sequence:
@@ -350,6 +394,16 @@ def test_horizontal_run_completes_and_writes_output_over_the_fixture():
             f"the rotation sequence is incomplete or out of order:\n{output}"
         )
         cursor = found + len(needle)
+
+    # Exactly once each: the ordered subsequence above cannot see a second release.
+    released_lines = output.count("Released snapshot ")
+    assert released_lines == nsnapshots, (
+        f"each of the {nsnapshots} snapshots must be released exactly once, "
+        f"found {released_lines} release lines:\n{output}"
+    )
+    assert (
+        f"Retained at most {max_live} generation" in output
+    ), f"the driver should report the {max_live}-generation peak the horizons imply:\n{output}"
 
     partitions = snapshot_partition_files(output_dir)
     assert [p.name for p in partitions] == sorted(f"model_{snap:03d}.hdf5" for snap in requested), (

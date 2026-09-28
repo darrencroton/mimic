@@ -152,18 +152,24 @@ int test_seam_signatures_are_int64(void) {
               "get_virial_radius takes an int64_t halo index");
   TEST_ASSERT(HAS_SIGNATURE(get_virial_velocity, double (*)(struct HaloInputView, int64_t)),
               "get_virial_velocity takes an int64_t halo index");
-  TEST_ASSERT(HAS_SIGNATURE(horizontal_find_most_massive_progenitor,
-                            int64_t (*)(struct HaloInputView,
-                                        const struct HorizontalGatherContext *, int64_t)),
-              "horizontal_find_most_massive_progenitor takes and returns int64_t");
+  TEST_ASSERT(
+      HAS_SIGNATURE(horizontal_find_most_massive_progenitor,
+                    struct HorizontalProgenitorRef (*)(
+                        struct HaloInputView, const struct HorizontalGatherContext *, int64_t)),
+      "horizontal_find_most_massive_progenitor takes an int64_t index and names its "
+      "answer by generation and row");
+  TEST_ASSERT(sizeof(((struct HorizontalProgenitorRef *)0)->snapnum) == sizeof(int64_t) &&
+                  sizeof(((struct HorizontalProgenitorRef *)0)->halonr) == sizeof(int64_t),
+              "HorizontalProgenitorRef carries int64_t snapshot and row");
   TEST_ASSERT(HAS_SIGNATURE(horizontal_count_progenitor_galaxies,
                             int64_t (*)(struct HaloInputView,
                                         const struct HorizontalGatherContext *, int64_t)),
               "horizontal_count_progenitor_galaxies takes and returns int64_t");
-  TEST_ASSERT(HAS_SIGNATURE(horizontal_gather_progenitor_galaxies,
-                            void (*)(struct HaloInputView, const struct HorizontalGatherContext *,
-                                     int64_t, int64_t, struct InheritanceProgenitorGalaxy *)),
-              "horizontal_gather_progenitor_galaxies takes int64_t indices");
+  TEST_ASSERT(
+      HAS_SIGNATURE(horizontal_gather_progenitor_galaxies,
+                    void (*)(struct HaloInputView, const struct HorizontalGatherContext *, int64_t,
+                             struct HorizontalProgenitorRef, struct InheritanceProgenitorGalaxy *)),
+      "horizontal_gather_progenitor_galaxies takes int64_t indices");
   TEST_ASSERT(HAS_SIGNATURE(inherit_descendant_halos,
                             int64_t (*)(struct GalaxyPool *, struct Halo *, int64_t, int64_t,
                                         const struct InheritanceDescendant *,

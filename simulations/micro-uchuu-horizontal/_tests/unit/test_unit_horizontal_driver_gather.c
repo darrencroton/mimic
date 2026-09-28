@@ -2,14 +2,17 @@
  * @file    test_unit_horizontal_driver_gather.c
  * @brief   Unit tests for the horizontal driver's cross-generation progenitor lookup.
  *
- * The horizontal driver is the first place in Mimic where **two** input
- * generations are live at once: while snapshot N is processed, snapshot N-1's
- * raw slab, its per-halo output ranges and its output buffer are all still in
- * memory. Progenitor lookup is the one step that has to reach across that
- * boundary, and it has to reach across it in exactly one direction:
+ * The horizontal driver is the first place in Mimic where several input
+ * generations are live at once: while snapshot N is processed, the retained
+ * generations its progenitors live in -- for this version 2 package always
+ * snapshot N-1 alone -- keep their raw slab, per-halo output ranges and output
+ * buffer in memory. Progenitor lookup is the one step that has to reach across
+ * that boundary, and it has to reach across it in exactly one direction:
  * `FirstProgenitor` is read from slab N, and everything the chain touches after
  * that -- `NextProgenitor`, `Len`, occupancy, and the galaxies themselves --
- * belongs to slab N-1.
+ * belongs to slab N-1. A version 2 slab carries no target-snapshot columns, so
+ * these tests also pin its implicit link scope: FirstProgenitor names N-1 and
+ * NextProgenitor stays inside its owner's slab.
  *
  * Nothing else in the suite can catch a transposition there. The compiler
  * cannot: both generations have the same types. The cross-format bitwise
@@ -146,26 +149,61 @@ static struct HaloInputView current_view(void) {
   return view;
 }
 
+/* Snapshot of the descendants (slab N) and of the previous slab (N-1). */
+#define CURRENT_SNAPSHOT 2
+#define PREVIOUS_SNAPSHOT 1
+#define FIXTURE_SNAPSHOTS 3
+
+/* One retention pool per context, so building one never rewrites another's. */
+static struct HorizontalRetainedGeneration previous_pool[FIXTURE_SNAPSHOTS];
+static struct HorizontalRetainedGeneration transposed_pool[FIXTURE_SNAPSHOTS];
+static struct HorizontalRetainedGeneration empty_pool[FIXTURE_SNAPSHOTS];
+
+/* A version 2 lookup at snapshot 2 over `pool`, whose slot 1 holds the given
+ * slab, ranges and buffer. No target-snapshot columns: version 2 links are
+ * implicitly scoped. The retained population is both generations. */
+static struct HorizontalGatherContext version2_lookup(struct HorizontalRetainedGeneration *pool,
+                                                      struct RawHalo *halos,
+                                                      struct HorizontalHaloAux *aux,
+                                                      struct Halo *processed) {
+  struct HorizontalGatherContext context;
+
+  for (int k = 0; k < FIXTURE_SNAPSHOTS; k++) {
+    memset(&pool[k], 0, sizeof(pool[k]));
+    pool[k].snapnum = -1;
+  }
+  if (halos != NULL) {
+    pool[PREVIOUS_SNAPSHOT].snapnum = PREVIOUS_SNAPSHOT;
+    pool[PREVIOUS_SNAPSHOT].view.halos = halos;
+    pool[PREVIOUS_SNAPSHOT].view.count = NHALOS;
+    pool[PREVIOUS_SNAPSHOT].aux = aux;
+    pool[PREVIOUS_SNAPSHOT].processed = processed;
+    pool[PREVIOUS_SNAPSHOT].next_progenitor_snapshot = NULL;
+  }
+
+  context.snapnum = CURRENT_SNAPSHOT;
+  context.first_progenitor_snapshot = NULL;
+  context.generations = pool;
+  context.snapshot_count = FIXTURE_SNAPSHOTS;
+  context.retained_population = (halos != NULL) ? 2 * NHALOS : NHALOS;
+  return context;
+}
+
 /* The correct previous generation: slab N-1's halos, ranges and galaxies. */
 static struct HorizontalGatherContext previous_generation(void) {
-  struct HorizontalGatherContext context;
-  context.view.halos = previous_halos;
-  context.view.count = NHALOS;
-  context.aux = previous_aux;
-  context.processed = previous_processed;
-  return context;
+  return version2_lookup(previous_pool, previous_halos, previous_aux, previous_processed);
 }
 
 /* The transposition under test: the CURRENT generation offered where the
  * previous one belongs. Every assertion below is paired with a call through
  * this context, so a test that could not fail is visible immediately. */
 static struct HorizontalGatherContext transposed_generation(void) {
-  struct HorizontalGatherContext context;
-  context.view.halos = current_halos;
-  context.view.count = NHALOS;
-  context.aux = current_aux;
-  context.processed = current_processed;
-  return context;
+  return version2_lookup(transposed_pool, current_halos, current_aux, current_processed);
+}
+
+/* Most-massive-progenitor answer expected in slab N-1. */
+static int names_previous_row(struct HorizontalProgenitorRef ref, int64_t row) {
+  return ref.snapnum == PREVIOUS_SNAPSHOT && ref.halonr == row;
 }
 
 static void seed_fixtures(void) {
@@ -184,16 +222,18 @@ static int test_most_massive_progenitor_reads_the_previous_slab(void) {
   const struct HorizontalGatherContext prev = previous_generation();
   const struct HorizontalGatherContext transposed = transposed_generation();
 
-  const int64_t chosen = horizontal_find_most_massive_progenitor(view, &prev, 0);
-  TEST_ASSERT_EQUAL(chosen, 1,
-                    "the chain p0->p1->p2 should select p1: the most massive OCCUPIED "
-                    "progenitor by slab N-1's Len");
+  const struct HorizontalProgenitorRef chosen =
+      horizontal_find_most_massive_progenitor(view, &prev, 0);
+  TEST_ASSERT(names_previous_row(chosen, 1),
+              "the chain p0->p1->p2 should select p1 of snapshot N-1: the most massive "
+              "OCCUPIED progenitor by slab N-1's Len");
 
   /* Same call, previous generation replaced by the current one. Slab N's Len
    * ordering would select halo 2 and its NextProgenitor chain terminates
    * immediately, so a transposed read cannot return 1 here. */
-  const int64_t transposed_choice = horizontal_find_most_massive_progenitor(view, &transposed, 0);
-  TEST_ASSERT(transposed_choice != chosen,
+  const struct HorizontalProgenitorRef transposed_choice =
+      horizontal_find_most_massive_progenitor(view, &transposed, 0);
+  TEST_ASSERT(transposed_choice.halonr != chosen.halonr,
               "reading the wrong generation must change the answer, or this test proves nothing");
 
   return TEST_PASS;
@@ -211,9 +251,8 @@ static int test_occupied_first_progenitor_is_pinned(void) {
    * occupied and its Len is 800. The vertical-side rule (build_model.c) pins p4
    * anyway, and this is the assertion that would catch a rewrite that "fixed"
    * the pin into a plain maximum. */
-  TEST_ASSERT_EQUAL(horizontal_find_most_massive_progenitor(view, &prev, 1), 4,
-                    "an occupied FirstProgenitor must win over a more massive later "
-                    "chain entry");
+  TEST_ASSERT(names_previous_row(horizontal_find_most_massive_progenitor(view, &prev, 1), 4),
+              "an occupied FirstProgenitor must win over a more massive later chain entry");
   TEST_ASSERT(previous_halos[5].Len > previous_halos[4].Len,
               "the fixture must actually offer a more massive later entry");
   TEST_ASSERT(previous_aux[5].NHalos > 0, "the more massive later entry must be occupied");
@@ -227,18 +266,14 @@ static int test_occupied_first_progenitor_is_pinned(void) {
 static int test_no_progenitor_needs_no_previous_generation(void) {
   seed_fixtures();
   const struct HaloInputView view = current_view();
-  struct HorizontalGatherContext empty;
+  /* No generation retained at all: no slab, no ranges, no galaxies. A halo with
+   * FirstProgenitor -1 must return without resolving any generation. */
+  const struct HorizontalGatherContext empty = version2_lookup(empty_pool, NULL, NULL, NULL);
+  const struct HorizontalProgenitorRef none =
+      horizontal_find_most_massive_progenitor(view, &empty, 2);
 
-  /* Snapshot 0's context: no slab, no ranges, no galaxies. Every halo there has
-   * FirstProgenitor -1 (the format's adjacency invariant), so the lookup must
-   * return without touching any member of the context. */
-  empty.view.halos = NULL;
-  empty.view.count = 0;
-  empty.aux = NULL;
-  empty.processed = NULL;
-
-  TEST_ASSERT_EQUAL(horizontal_find_most_massive_progenitor(view, &empty, 2), -1,
-                    "a halo with no FirstProgenitor selects nothing");
+  TEST_ASSERT(none.snapnum == -1 && none.halonr == -1,
+              "a halo with no FirstProgenitor selects nothing");
   TEST_ASSERT_EQUAL((int)horizontal_count_progenitor_galaxies(view, &empty, 2), 0,
                     "a halo with no FirstProgenitor gathers no galaxies");
 
@@ -277,7 +312,8 @@ static int test_gather_order_sources_and_times(void) {
   const struct HorizontalGatherContext prev = previous_generation();
   struct InheritanceProgenitorGalaxy gathered[4];
 
-  const int64_t first_occupied = horizontal_find_most_massive_progenitor(view, &prev, 0);
+  const struct HorizontalProgenitorRef first_occupied =
+      horizontal_find_most_massive_progenitor(view, &prev, 0);
   const int64_t count = horizontal_count_progenitor_galaxies(view, &prev, 0);
   TEST_ASSERT_EQUAL((int)count, 3, "the fixture chain should gather three galaxies");
 
@@ -341,7 +377,8 @@ static int test_gather_reads_the_previous_output_buffer(void) {
   /* The same gather through the transposed context lands in the other buffer
    * entirely, which is what makes the assertion above meaningful. */
   memset(wrong, 0, sizeof(wrong));
-  horizontal_gather_progenitor_galaxies(view, &transposed, 0, 0, wrong);
+  const struct HorizontalProgenitorRef row0 = {PREVIOUS_SNAPSHOT, 0};
+  horizontal_gather_progenitor_galaxies(view, &transposed, 0, row0, wrong);
   TEST_ASSERT(wrong[0].source >= &current_processed[0] &&
                   wrong[0].source < &current_processed[NPROCESSED],
               "the transposed control must read the other buffer, or the check above "

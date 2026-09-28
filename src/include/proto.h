@@ -69,19 +69,29 @@ void horizontal_driver_remove_incomplete_outputs(void);
 void horizontal_driver_clear_output_paths(void);
 
 /* Horizontal-side counterparts of the vertical driver's progenitor lookup
- * (build_model.c). They take the previous generation as one bundle so the
- * current and previous slabs cannot be transposed, and are declared here — as
- * the vertical-side pair is — so the fixture package's unit tests can drive them
- * directly with two synthetic slabs. */
-int64_t horizontal_find_most_massive_progenitor(struct HaloInputView view,
-                                                const struct HorizontalGatherContext *prev,
-                                                int64_t halonr);
+ * (build_model.c). They take the retained generations as one bundle so the
+ * descendant slab and a progenitor slab cannot be transposed, resolve every link
+ * through its target-snapshot column, and are declared here — as the
+ * vertical-side pair is — so the horizontal packages' unit tests can drive them
+ * directly with synthetic slabs. The most massive progenitor is named by
+ * generation and row, because a chain may span several retained generations
+ * whose slab indices overlap. */
+struct HorizontalProgenitorRef horizontal_find_most_massive_progenitor(
+    struct HaloInputView view, const struct HorizontalGatherContext *lookup, int64_t halonr);
 int64_t horizontal_count_progenitor_galaxies(struct HaloInputView view,
-                                             const struct HorizontalGatherContext *prev,
+                                             const struct HorizontalGatherContext *lookup,
                                              int64_t halonr);
 void horizontal_gather_progenitor_galaxies(struct HaloInputView view,
-                                           const struct HorizontalGatherContext *prev,
-                                           int64_t halonr, int64_t first_occupied,
+                                           const struct HorizontalGatherContext *lookup,
+                                           int64_t halonr,
+                                           struct HorizontalProgenitorRef first_occupied,
                                            struct InheritanceProgenitorGalaxy *progenitors);
+
+/* Retention horizon of one loaded slab: the latest snapshot any of its halos
+ * names as its descendant's, or the slab's own snapshot when none of them has a
+ * descendant (an empty snapshot included). The driver releases the generation
+ * once that snapshot has been processed. Declared for the packages' unit tests. */
+struct SnapshotSlab; /* io/horizontal/reader.h */
+int64_t horizontal_generation_horizon(const struct SnapshotSlab *slab);
 
 #endif /* #ifndef CORE_PROTO_H */

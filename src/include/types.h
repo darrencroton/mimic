@@ -195,8 +195,8 @@ struct HaloAuxData {
 /* Horizontal-driver counterpart of struct HaloAuxData's FirstHalo/NHalos pair:
  * where one snapshot's processed halos landed in that snapshot's output buffer,
  * indexed by slab halo index. The horizontal driver keeps one of these arrays per
- * live slab generation and reads the previous generation's when it gathers
- * progenitor galaxies.
+ * retained slab generation and reads the progenitor's generation's when it
+ * gathers progenitor galaxies.
  *
  * The traversal flags (DoneFlag/HaloFlag) have no counterpart here: they exist
  * to sequence the vertical driver's depth-first recursion, and a snapshot slab is
@@ -208,19 +208,55 @@ struct HorizontalHaloAux {
   int64_t NHalos;    /* output halos produced for this halo */
 };
 
-/* The previous slab generation, as the horizontal driver's gather step sees it.
+/* One retained slab generation, as the horizontal driver's progenitor lookup
+ * sees it: a snapshot's raw halos, where each of them landed in that snapshot's
+ * output buffer, the buffer itself, and the snapshot each of its NextProgenitor
+ * links names.
  *
- * Bundled into one struct so a gather cannot be handed the current slab's view
- * with the previous slab's aux array (or vice versa): the three members are
- * always the same generation, and the compiler cannot catch a mismatch between
- * three separately passed arguments whose indices happen to overlap.
- * `view.halos` is NULL and `aux`/`processed` are NULL at snapshot 0, where no
- * previous generation exists; every progenitor chain is then empty because a
- * snapshot-0 halo can carry no FirstProgenitor. */
+ * Bundled into one struct so a lookup cannot be handed one generation's view
+ * with another generation's aux array (or vice versa): the members are always
+ * the same generation, and the compiler cannot catch a mismatch between
+ * separately passed arguments whose indices happen to overlap.
+ *
+ * `next_progenitor_snapshot` is the reader-owned version 3 column. It is NULL for
+ * a version 2 generation, whose NextProgenitor links implicitly stay inside the
+ * owner's own snapshot (HORIZONTAL-HDF5-FORMAT.md "Link Scope"). */
+struct HorizontalRetainedGeneration {
+  int64_t snapnum;                         /* this generation's snapshot; -1 marks an empty slot */
+  struct HaloInputView view;               /* raw halos of that snapshot */
+  const struct HorizontalHaloAux *aux;     /* [view.count] output ranges */
+  const struct Halo *processed;            /* that snapshot's output buffer */
+  const int32_t *next_progenitor_snapshot; /* [view.count], or NULL (version 2) */
+};
+
+/* Every progenitor generation a snapshot's lookup can reach.
+ *
+ * `generations` is the driver's retention pool, indexed by snapshot number: slot
+ * k describes snapshot k while that generation is retained, and carries snapnum
+ * -1 otherwise. A progenitor link therefore resolves in one step, through the
+ * target-snapshot column that names its generation -- never by assuming N-1.
+ * `first_progenitor_snapshot` is the descendant slab's own version 3 column,
+ * NULL for version 2, whose FirstProgenitor links implicitly name N-1.
+ *
+ * `retained_population` is the halo count summed over every retained
+ * generation. A progenitor chain can visit each retained halo at most once, so
+ * it bounds the chain walk's cycle guard; no single slab's count does once a
+ * chain can span several snapshots. */
 struct HorizontalGatherContext {
-  struct HaloInputView view;           /* raw halos of snapshot N-1 */
-  const struct HorizontalHaloAux *aux; /* [view.count], snapshot N-1 output ranges */
-  const struct Halo *processed;        /* snapshot N-1 output buffer */
+  int64_t snapnum;                                        /* snapshot of the descendants */
+  const int32_t *first_progenitor_snapshot;               /* [descendant slab], or NULL (v2) */
+  const struct HorizontalRetainedGeneration *generations; /* [snapshot_count], by snapshot */
+  int64_t snapshot_count;
+  int64_t retained_population;
+};
+
+/* A progenitor named by its generation and its row there. A slab index alone no
+ * longer identifies a progenitor once one chain can span several retained
+ * generations, because the same index recurs in every slab. {-1, -1} names no
+ * progenitor. */
+struct HorizontalProgenitorRef {
+  int64_t snapnum;
+  int64_t halonr;
 };
 
 #endif /* #ifndef TYPES_H */
