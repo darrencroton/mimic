@@ -1,8 +1,10 @@
 # mini-Millennium Halo Catalog Properties — horizontal HDF5 format version 3
 #
-# SKELETON (runtime plan Slice 2): only what a build selecting this package
-# needs so the horizontal_hdf5 reader tests can accept a version 3 fixture.
-# Run files, README, package tests and the full declaration audit are Slice 3's
+# Complete package (runtime plan Slice 3; skeleton committed by Slice 2). Run
+# files and README are alongside; the package's compiled declarations are
+# checked against a committed v3 fixture's `/schema` by
+# _tests/check_schema_conformance.py, and against a real converted dataset's
+# `/schema` in Slice 3's validation.md
 # (docs/dev/MIMIC-GENERAL-HORIZONTAL-RUNTIME-IMPLEMENTATION-PLAN.md).
 #
 # Every entry is a `/halos` dataset of docs/dev/HORIZONTAL-HDF5-FORMAT-V3-DRAFT.md.

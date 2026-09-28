@@ -1,6 +1,6 @@
 # mini-Millennium Simulation Metadata — horizontal HDF5 format version 3
 #
-# SKELETON (runtime plan Slice 2); Slice 3 completes the package. The
+# Complete package (runtime plan Slice 3; skeleton committed by Slice 2). The
 # cosmology, box size, particle mass and a_list are mini-Millennium's own
 # (simulations/mini-millennium/simulation_info.yaml and
 # mini-millennium.a_list), unchanged: the reader compares every file's five
