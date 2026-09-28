@@ -97,7 +97,7 @@ int sage_initialise_merger_clock_process(struct ModuleContext *ctx, struct Halo 
     /* SAGE parity: reset MergTime for Type 1/2→0 promotions (satellite-to-central). */
     if (halos[i].Type == 0) {
       if (halos[i].galaxy->MergTime < SAGE_MERGTIME_UNSET_THRESHOLD) {
-        DEBUG_LOG("Reset MergTime for central %d (Type→0 transition, was %.3f)", halos[i].HaloNr,
+        DEBUG_LOG("Reset MergTime for central %lld (Type→0 transition, was %.3f)", halos[i].HaloNr,
                   halos[i].galaxy->MergTime);
 
         halos[i].galaxy->MergTime = SAGE_MERGTIME_UNSET;
@@ -113,7 +113,7 @@ int sage_initialise_merger_clock_process(struct ModuleContext *ctx, struct Halo 
     // merge immediately rather than receive a new dynamical-friction clock.
     if (halos[i].Type == 2 && halos[i].galaxy->MergTime > SAGE_MERGTIME_UNSET_THRESHOLD) {
       halos[i].galaxy->MergTime = 0.0f;
-      DEBUG_LOG("Type 2 satellite %d: forcing immediate merge (MergTime=0.0)", halos[i].HaloNr);
+      DEBUG_LOG("Type 2 satellite %lld: forcing immediate merge (MergTime=0.0)", halos[i].HaloNr);
       continue;
     }
 
@@ -132,7 +132,7 @@ int sage_initialise_merger_clock_process(struct ModuleContext *ctx, struct Halo 
     const double mergtime = calculate_merger_time(&halos[i], central, ctx->params);
     halos[i].galaxy->MergTime = mergtime;
 
-    DEBUG_LOG("Satellite %d: Set MergTime=%.3f (target=%d, Len=%d, Mvir=%.3e, infallMvir=%.3e)",
+    DEBUG_LOG("Satellite %lld: Set MergTime=%.3f (target=%d, Len=%d, Mvir=%.3e, infallMvir=%.3e)",
               halos[i].HaloNr, mergtime, target_idx, halos[i].Len, halos[i].Mvir,
               halos[i].infallMvir);
   }

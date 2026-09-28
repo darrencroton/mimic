@@ -22,6 +22,7 @@
 #include "globals.h"
 #include "inheritance.h"
 #include "module_registry.h"
+#include "numeric.h"
 #include "proto.h"
 #include "types.h"
 #include "generated/tree_property_accessors.h"
@@ -36,7 +37,7 @@
  * Shared by the vertical and horizontal drivers; this is the only instantiation of
  * the generated populator.
  */
-struct HaloInitPayload make_halo_init_payload(struct HaloInputView view, int halonr) {
+struct HaloInitPayload make_halo_init_payload(struct HaloInputView view, int64_t halonr) {
   struct HaloInitPayload payload;
 
 #include "../include/generated/populate_halo_payload.inc"
@@ -45,20 +46,19 @@ struct HaloInitPayload make_halo_init_payload(struct HaloInputView view, int hal
 }
 
 /* Shared by the vertical and horizontal drivers. */
-int count_fof_subhalos(struct HaloInputView view, int first_fof_halo) {
-  int count = 0;
-  int fofhalo = first_fof_halo;
+int64_t count_fof_subhalos(struct HaloInputView view, int64_t first_fof_halo) {
+  int64_t count = 0;
+  int64_t fofhalo = first_fof_halo;
 
   int64_t steps = 0;
 
   while (fofhalo >= 0) {
     /* The chain stays inside this view, so it can visit each halo at most once;
      * more steps than that means the input's FoF links form a cycle, which
-     * would otherwise loop forever. The guard counter is int64_t so it cannot
-     * itself overflow when view.count reaches the format's INT32_MAX ceiling;
-     * count only increments after the guard, so it stays within int range. */
+     * would otherwise loop forever. count only increments after the guard, so
+     * it never exceeds view.count. */
     if (++steps > view.count) {
-      FATAL_ERROR("FoF chain from halo %d visits more than the %" PRId64
+      FATAL_ERROR("FoF chain from halo %" PRId64 " visits more than the %" PRId64
                   " halos of its input view; the NextHaloInFOFgroup links contain a cycle",
                   first_fof_halo, view.count);
     }
@@ -82,7 +82,7 @@ int count_fof_subhalos(struct HaloInputView view, int first_fof_halo) {
  * FoFWorkspace global and the horizontal driver's per-run buffer respectively).
  */
 static void setup_module_context(struct ModuleContext *ctx, struct HaloInputView view,
-                                 struct Halo *workspace, int halonr, int centralgal) {
+                                 struct Halo *workspace, int64_t halonr, int centralgal) {
   int snap = mimic_tree_get_SnapNum(view, halonr);
 
   /* Snapshot information */
@@ -133,7 +133,7 @@ static void setup_module_context(struct ModuleContext *ctx, struct HaloInputView
  * @param   view       Input view over this unit's raw halos
  * @param   workspace  FoF workspace holding this group's galaxies
  * @param   halonr     Index of the FOF-background subhalo (main halo)
- * @param   ngal       Total number of halos to process
+ * @param   ngal_total Total number of halos to process
  *
  * Driver adapter for physics execution: selects the FOF Type 0 central,
  * propagates the stable central unique ID, builds the module context, and hands
@@ -146,10 +146,15 @@ static void setup_module_context(struct ModuleContext *ctx, struct HaloInputView
  * Phase assignments and loop modes are configured in the input YAML file.
  * TimestepScheme and SubSteps together determine the active substep count.
  */
-void process_halo_evolution(struct HaloInputView view, struct Halo *workspace, int halonr,
-                            int ngal) {
+void process_halo_evolution(struct HaloInputView view, struct Halo *workspace, int64_t halonr,
+                            int64_t ngal_total) {
   int centralgal, i;
   struct ModuleContext ctx;
+
+  /* The module pipeline counts a FoF workspace in int (struct ModuleContext's
+   * central_index and execute_module_pipeline()'s ngal). The workspace is bounded
+   * by MAX_HALO_ARRAY_SIZE, so this never fires on a valid run. */
+  const int ngal = narrow_int64_to_int_checked(ngal_total, "FoF workspace galaxy count");
 
   /* Identify the FOF Type 0 central used for global module context. */
   centralgal = -1;
@@ -161,12 +166,12 @@ void process_halo_evolution(struct HaloInputView view, struct Halo *workspace, i
   }
 
   if (centralgal == -1) {
-    FATAL_ERROR("No Type 0 central found for FOF halo %d (ngal=%d)", halonr, ngal);
+    FATAL_ERROR("No Type 0 central found for FOF halo %" PRId64 " (ngal=%d)", halonr, ngal);
   }
 
   if (workspace[centralgal].HaloNr != halonr) {
-    FATAL_ERROR("Central galaxy HaloNr=%d does not match FOF halo %d", workspace[centralgal].HaloNr,
-                halonr);
+    FATAL_ERROR("Central galaxy HaloNr=%lld does not match FOF halo %" PRId64,
+                workspace[centralgal].HaloNr, halonr);
   }
 
   /* Set FOF-host central unique ID for all members (stable output contract). */

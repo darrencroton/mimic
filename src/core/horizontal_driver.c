@@ -36,7 +36,6 @@
 
 #include <errno.h>
 #include <inttypes.h>
-#include <limits.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -50,7 +49,6 @@
 #include "globals.h"
 #include "inheritance.h"
 #include "memory.h"
-#include "numeric.h"
 #include "output_buffer.h"
 #include "progress.h"
 #include "proto.h"
@@ -184,20 +182,21 @@ struct HorizontalGeneration {
 /*
  * Driver-scoped state. The workspace and the two scratch buffers are grown
  * monotonically and kept for the whole run (as the vertical driver's equivalents
- * are), then freed before the driver returns.
+ * are), then freed before the driver returns. Their capacities are int64_t like
+ * every slab index and count they are sized from.
  */
 struct HorizontalDriverState {
   const struct HorizontalReader *reader;
   struct HorizontalGeneration gen[2];
 
   struct Halo *workspace;
-  int workspace_capacity;
+  int64_t workspace_capacity;
 
   struct InheritanceProgenitorGalaxy *progenitor_scratch;
-  int progenitor_capacity;
+  int64_t progenitor_capacity;
 
   struct OutputBufferSegment *segments;
-  int segment_capacity;
+  int64_t segment_capacity;
 };
 
 /* ------------------------------------------------------------------------- */
@@ -207,10 +206,10 @@ struct HorizontalDriverState {
 /* Mirrors ensure_fof_workspace_capacity() in build_model.c: same growth
  * factor, same minimum increment, same ceiling, same fatal. */
 static void horizontal_ensure_workspace_capacity(struct HorizontalDriverState *state,
-                                                 int required) {
+                                                 int64_t required) {
   while (required > state->workspace_capacity) {
-    const int old_size = state->workspace_capacity;
-    int new_size = (int)(state->workspace_capacity * HALO_ARRAY_GROWTH_FACTOR);
+    const int64_t old_size = state->workspace_capacity;
+    int64_t new_size = (int64_t)(state->workspace_capacity * HALO_ARRAY_GROWTH_FACTOR);
 
     if (new_size - state->workspace_capacity < MIN_HALO_ARRAY_GROWTH)
       new_size = state->workspace_capacity + MIN_HALO_ARRAY_GROWTH;
@@ -219,12 +218,13 @@ static void horizontal_ensure_workspace_capacity(struct HorizontalDriverState *s
       new_size = MAX_HALO_ARRAY_SIZE;
 
     if (new_size <= state->workspace_capacity) {
-      FATAL_ERROR("Snapshot FoF workspace requires %d halos but maximum allowed size is %d",
+      FATAL_ERROR("Snapshot FoF workspace requires %" PRId64
+                  " halos but maximum allowed size is %d",
                   required, MAX_HALO_ARRAY_SIZE);
     }
 
-    INFO_LOG("Growing snapshot halo workspace from %d to %d elements", state->workspace_capacity,
-             new_size);
+    INFO_LOG("Growing snapshot halo workspace from %" PRId64 " to %" PRId64 " elements",
+             state->workspace_capacity, new_size);
 
     state->workspace_capacity = new_size;
     state->workspace =
@@ -234,7 +234,7 @@ static void horizontal_ensure_workspace_capacity(struct HorizontalDriverState *s
 }
 
 static struct InheritanceProgenitorGalaxy *
-horizontal_ensure_progenitor_scratch(struct HorizontalDriverState *state, int required) {
+horizontal_ensure_progenitor_scratch(struct HorizontalDriverState *state, int64_t required) {
   if (required > state->progenitor_capacity) {
     state->progenitor_scratch =
         myrealloc_cat(state->progenitor_scratch,
@@ -245,7 +245,7 @@ horizontal_ensure_progenitor_scratch(struct HorizontalDriverState *state, int re
 }
 
 static struct OutputBufferSegment *
-horizontal_ensure_segment_scratch(struct HorizontalDriverState *state, int required) {
+horizontal_ensure_segment_scratch(struct HorizontalDriverState *state, int64_t required) {
   if (required > state->segment_capacity) {
     state->segments = myrealloc_cat(
         state->segments, (size_t)required * sizeof(struct OutputBufferSegment), MEM_HALOS);
@@ -270,10 +270,11 @@ horizontal_ensure_segment_scratch(struct HorizontalDriverState *state, int requi
  * the answer (lenoccmax = -1 disables further replacement), and otherwise the
  * chain is scanned in order and replaced only on a strict Len increase.
  */
-int horizontal_find_most_massive_progenitor(struct HaloInputView view,
-                                            const struct HorizontalGatherContext *prev,
-                                            int halonr) {
-  int prog, first_occupied, lenoccmax;
+int64_t horizontal_find_most_massive_progenitor(struct HaloInputView view,
+                                                const struct HorizontalGatherContext *prev,
+                                                int64_t halonr) {
+  int64_t prog, first_occupied;
+  int lenoccmax;
   int64_t steps = 0;
 
   lenoccmax = 0;
@@ -289,7 +290,7 @@ int horizontal_find_most_massive_progenitor(struct HaloInputView view,
      * cycle guard: the chain stays inside the previous slab and can visit each
      * of that slab's halos at most once. */
     if (++steps > prev->view.count) {
-      FATAL_ERROR("Progenitor chain of halo %d visits more than the %" PRId64
+      FATAL_ERROR("Progenitor chain of halo %" PRId64 " visits more than the %" PRId64
                   " halos of the previous snapshot; the input's NextProgenitor links "
                   "contain a cycle",
                   halonr, prev->view.count);
@@ -308,17 +309,17 @@ int horizontal_find_most_massive_progenitor(struct HaloInputView view,
 /* Horizontal-side count_progenitor_galaxies() in build_model.c. */
 int64_t horizontal_count_progenitor_galaxies(struct HaloInputView view,
                                              const struct HorizontalGatherContext *prev,
-                                             int halonr) {
+                                             int64_t halonr) {
   int64_t count = 0;
   int64_t steps = 0;
-  int prog = mimic_tree_get_FirstProgenitor(view, halonr);
+  int64_t prog = mimic_tree_get_FirstProgenitor(view, halonr);
 
   while (prog >= 0) {
     /* The chain stays inside the previous slab, so it can visit each of that
      * slab's halos at most once; more steps than that means the input's
      * progenitor links form a cycle, which would otherwise loop forever. */
     if (++steps > prev->view.count) {
-      FATAL_ERROR("Progenitor chain of halo %d visits more than the %" PRId64
+      FATAL_ERROR("Progenitor chain of halo %" PRId64 " visits more than the %" PRId64
                   " halos of the previous snapshot; the input's NextProgenitor links "
                   "contain a cycle",
                   halonr, prev->view.count);
@@ -340,11 +341,11 @@ int64_t horizontal_count_progenitor_galaxies(struct HaloInputView view,
  * the previous slab's.
  */
 void horizontal_gather_progenitor_galaxies(struct HaloInputView view,
-                                           const struct HorizontalGatherContext *prev, int halonr,
-                                           int first_occupied,
+                                           const struct HorizontalGatherContext *prev,
+                                           int64_t halonr, int64_t first_occupied,
                                            struct InheritanceProgenitorGalaxy *progenitors) {
   int64_t index = 0;
-  int prog = mimic_tree_get_FirstProgenitor(view, halonr);
+  int64_t prog = mimic_tree_get_FirstProgenitor(view, halonr);
 
   while (prog >= 0) {
     for (int64_t i = 0; i < prev->aux[prog].NHalos; i++) {
@@ -372,13 +373,13 @@ void horizontal_gather_progenitor_galaxies(struct HaloInputView view,
  * Halo.HaloNr keeps the slab index, which is what the output-conversion virial
  * recomputation indexes the slab view with; HaloRankInForest never goes there.
  */
-static int64_t horizontal_make_unique_galaxy_id(const struct SnapshotSlab *slab, int halonr) {
+static int64_t horizontal_make_unique_galaxy_id(const struct SnapshotSlab *slab, int64_t halonr) {
   const int64_t multiplier = MimicConfig.UniqueGalaxyIDMultiplier;
   const int64_t rank_in_forest = slab->halo_rank_in_forest[halonr];
   const int64_t forestnr_global = slab->forest_index[halonr];
 
   if (!mimic_unique_galaxy_id_components_valid(multiplier, rank_in_forest, forestnr_global)) {
-    FATAL_ERROR("UniqueGalaxyID components out of range at snapshot %" PRId64 " halo %d: "
+    FATAL_ERROR("UniqueGalaxyID components out of range at snapshot %" PRId64 " halo %" PRId64 ": "
                 "HaloRankInForest=%" PRId64 ", ForestIndex=%" PRId64 " (limits: rank < %" PRId64
                 ", forest index < %" PRId64 ")",
                 slab->snapnum, halonr, rank_in_forest, forestnr_global, multiplier,
@@ -399,19 +400,19 @@ static int64_t horizontal_make_unique_galaxy_id(const struct SnapshotSlab *slab,
  * only substitutions are the previous-generation lookup (which crosses slabs)
  * and the identity encoding (which reads the format's carried components).
  */
-static int horizontal_join_progenitor_halos(struct HorizontalDriverState *state,
-                                            struct HorizontalGeneration *cur,
-                                            const struct HorizontalGatherContext *prev, int halonr,
-                                            int ngalstart) {
+static int64_t horizontal_join_progenitor_halos(struct HorizontalDriverState *state,
+                                                struct HorizontalGeneration *cur,
+                                                const struct HorizontalGatherContext *prev,
+                                                int64_t halonr, int64_t ngalstart) {
   const struct HaloInputView view = {cur->slab.halos, cur->slab.nhalos};
   struct InheritanceDescendant descendant;
   struct InheritanceProgenitorGalaxy *progenitors = NULL;
-  int current_snap, first_occupied, required;
+  int current_snap;
+  int64_t first_occupied, required;
 
   first_occupied = horizontal_find_most_massive_progenitor(view, prev, halonr);
 
-  const int nprogenitors = narrow_int64_to_int_checked(
-      horizontal_count_progenitor_galaxies(view, prev, halonr), "snapshot progenitor galaxy count");
+  const int64_t nprogenitors = horizontal_count_progenitor_galaxies(view, prev, halonr);
 
   required = ngalstart + nprogenitors;
   if (nprogenitors == 0 && halonr == mimic_tree_get_FirstHaloInFOFgroup(view, halonr)) {
@@ -451,22 +452,23 @@ static int horizontal_join_progenitor_halos(struct HorizontalDriverState *state,
  *
  * @return  Number of subhalos in the group (its members are now accounted for).
  */
-static int horizontal_process_fof_group(struct HorizontalDriverState *state,
-                                        struct HorizontalGeneration *cur,
-                                        const struct HorizontalGatherContext *prev, int central) {
+static int64_t horizontal_process_fof_group(struct HorizontalDriverState *state,
+                                            struct HorizontalGeneration *cur,
+                                            const struct HorizontalGatherContext *prev,
+                                            int64_t central) {
   const struct HaloInputView view = {cur->slab.halos, cur->slab.nhalos};
-  const int nsegments = count_fof_subhalos(view, central);
+  const int64_t nsegments = count_fof_subhalos(view, central);
   struct OutputBufferSegment *segments = horizontal_ensure_segment_scratch(state, nsegments);
-  int segment_index = 0;
-  int fofhalo = central;
-  int ngal = 0;
+  int64_t segment_index = 0;
+  int64_t fofhalo = central;
+  int64_t ngal = 0;
 
   /* Cycle safety: count_fof_subhalos() above already walked this exact chain
    * over the same immutable slab with a bounded-iteration guard, so this second
    * traversal cannot loop. */
   while (fofhalo >= 0) {
-    const int workspace_start = ngal;
-    const int source_halo = fofhalo;
+    const int64_t workspace_start = ngal;
+    const int64_t source_halo = fofhalo;
 
     ngal = horizontal_join_progenitor_halos(state, cur, prev, fofhalo, ngal);
 
@@ -474,7 +476,7 @@ static int horizontal_process_fof_group(struct HorizontalDriverState *state,
      * subhalo slice before physics runs, exactly as the tree FoF block in build_model.c. */
     const double central_mvir =
         get_virial_mass(view, mimic_tree_get_FirstHaloInFOFgroup(view, source_halo));
-    for (int p = workspace_start; p < ngal; p++) {
+    for (int64_t p = workspace_start; p < ngal; p++) {
       state->workspace[p].CentralMvir = central_mvir;
     }
 
@@ -493,7 +495,7 @@ static int horizontal_process_fof_group(struct HorizontalDriverState *state,
 
   marshal_workspace_to_output_buffer(state->workspace, &cur->processed, segments, segment_index);
 
-  for (int i = 0; i < segment_index; i++) {
+  for (int64_t i = 0; i < segment_index; i++) {
     cur->aux[segments[i].source_id].FirstHalo = segments[i].output_first;
     cur->aux[segments[i].source_id].NHalos = segments[i].output_count;
   }
@@ -678,14 +680,12 @@ static void horizontal_acquire_generation(struct HorizontalDriverState *state,
   horizontal_reader_load_slab(state->reader, snapnum, &gen->slab);
   gen->snapnum = snapnum;
 
-  /* Halo indices are int throughout the halo structures (struct Halo.HaloNr and
-   * the generated accessors), and the format's own int32 topology bound already
-   * forbids a larger slab (HORIZONTAL-HDF5-FORMAT.md invariant 2). Check it here
-   * rather than trusting the producer. */
-  if (gen->slab.nhalos > (int64_t)INT_MAX) {
-    FATAL_ERROR("Snapshot %" PRId64 " holds %" PRId64 " halos, above the %d the driver can index",
-                snapnum, gen->slab.nhalos, INT_MAX);
-  }
+  /* No slab-size refusal here: every index this driver computes from a slab
+   * (struct Halo.HaloNr, the generated accessors and link values, the aux ranges,
+   * the FoF and progenitor walks, and the workspace and scratch sizes) is
+   * int64_t. The only int32 bound on a slab is the format's own, which the reader
+   * enforces at open for a version 2 file (HORIZONTAL-HDF5-FORMAT.md invariant
+   * 2). */
 
   const int64_t nhalos = gen->slab.nhalos;
 
@@ -917,10 +917,10 @@ void run_horizontal_driver(void) {
      * itself (HORIZONTAL-HDF5-FORMAT.md invariant 6), so this visits every group
      * exactly once; the member tally below proves it visited every halo. */
     const struct HaloInputView view = {cur->slab.halos, cur->slab.nhalos};
-    const int nhalos = (int)cur->slab.nhalos;
+    const int64_t nhalos = cur->slab.nhalos;
     int64_t members_processed = 0;
 
-    for (int halonr = 0; halonr < nhalos; halonr++) {
+    for (int64_t halonr = 0; halonr < nhalos; halonr++) {
       if (mimic_tree_get_FirstHaloInFOFgroup(view, halonr) == halonr) {
         members_processed += horizontal_process_fof_group(&state, cur, &prev, halonr);
       }

@@ -71,7 +71,8 @@ halo_properties:
     init_source: skip  # Set in build_model.c, not in init_halo()
 
   - name: HaloNr
-    type: int
+    type: long long  # A halo index into the driver's input view (a tree or a whole snapshot
+                     # slab), so it is as wide as the int64_t indices the tree accessors take
     units: dimensionless
     description: Halo number in tree (internal index, not output)
     output: false

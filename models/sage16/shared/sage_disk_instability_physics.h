@@ -84,7 +84,7 @@ static inline double mimic_sage_apply_disk_instability(struct Halo *halo,
       const double excess = gal->BulgeMass - gal->StellarMass;
       const double tolerance = 1.0e-10 + 1.0e-4 * gal->StellarMass;
       if (excess > tolerance) {
-        WARNING_LOG("Disk instability: Bulge mass %.4e exceeds stellar mass %.4e in halo %d",
+        WARNING_LOG("Disk instability: Bulge mass %.4e exceeds stellar mass %.4e in halo %lld",
                     gal->BulgeMass, gal->StellarMass, halo->HaloNr);
       }
       gal->BulgeMass = gal->StellarMass;
@@ -94,20 +94,20 @@ static inline double mimic_sage_apply_disk_instability(struct Halo *halo,
       const double excess = gal->MetalsBulgeMass - gal->MetalsStellarMass;
       const double tolerance = 1.0e-10 + 1.0e-4 * gal->MetalsStellarMass;
       if (excess > tolerance) {
-        WARNING_LOG("Disk instability: Bulge metals %.4e exceed stellar metals %.4e in halo %d",
+        WARNING_LOG("Disk instability: Bulge metals %.4e exceed stellar metals %.4e in halo %lld",
                     gal->MetalsBulgeMass, gal->MetalsStellarMass, halo->HaloNr);
       }
       gal->MetalsBulgeMass = gal->MetalsStellarMass;
     }
 
-    DEBUG_LOG("Halo %d: Disk unstable - transferred %.3e Msun to bulge", halo->HaloNr,
+    DEBUG_LOG("Halo %lld: Disk unstable - transferred %.3e Msun to bulge", halo->HaloNr,
               transferred_stars);
   }
 
   if (unstable_gas > 0.0 && gal->ColdGas > 0.0) {
     const double unstable_gas_fraction = unstable_gas / gal->ColdGas;
 
-    DEBUG_LOG("Halo %d: Unstable gas fraction = %.4f", halo->HaloNr, unstable_gas_fraction);
+    DEBUG_LOG("Halo %lld: Unstable gas fraction = %.4f", halo->HaloNr, unstable_gas_fraction);
     return unstable_gas_fraction;
   }
 

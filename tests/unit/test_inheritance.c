@@ -109,7 +109,7 @@ int test_main_branch_deep_copy_and_reset(void) {
   progenitor.is_main_branch = 1;
 
   struct GalaxyPool *pool = galaxy_pool_create(0);
-  int end = inherit_descendant_halos(pool, workspace, 0, 2, &descendant, &progenitor, 1);
+  int64_t end = inherit_descendant_halos(pool, workspace, 0, 2, &descendant, &progenitor, 1);
 
   TEST_ASSERT(end == 1, "Main branch progenitor should produce one workspace halo");
   TEST_ASSERT(workspace[0].galaxy != source.galaxy, "Inherited galaxy data must be deep-copied");
@@ -158,7 +158,7 @@ int test_satellite_transition_captures_infall(void) {
   progenitor.is_main_branch = 1;
 
   struct GalaxyPool *pool = galaxy_pool_create(0);
-  int end = inherit_descendant_halos(pool, workspace, 0, 2, &descendant, &progenitor, 1);
+  int64_t end = inherit_descendant_halos(pool, workspace, 0, 2, &descendant, &progenitor, 1);
 
   TEST_ASSERT(end == 1, "Satellite main branch should produce one halo");
   TEST_ASSERT(workspace[0].Type == 1, "Main branch in non-FOF subhalo should become Type 1");
@@ -199,7 +199,7 @@ int test_orphan_conversion_and_local_central(void) {
   progenitors[1].is_main_branch = 0;
 
   struct GalaxyPool *pool = galaxy_pool_create(0);
-  int end = inherit_descendant_halos(pool, workspace, 0, 4, &descendant, progenitors, 2);
+  int64_t end = inherit_descendant_halos(pool, workspace, 0, 4, &descendant, progenitors, 2);
 
   TEST_ASSERT(end == 2, "Two non-merged progenitors should produce two halos");
   TEST_ASSERT(workspace[0].Type == 1, "Main Type 1 source should remain Type 1");
@@ -239,7 +239,7 @@ int test_type3_skip_and_new_halo_creation(void) {
   progenitor.is_main_branch = 1;
 
   struct GalaxyPool *pool = galaxy_pool_create(0);
-  int end = inherit_descendant_halos(pool, workspace, 0, 2, &descendant, &progenitor, 1);
+  int64_t end = inherit_descendant_halos(pool, workspace, 0, 2, &descendant, &progenitor, 1);
 
   TEST_ASSERT(end == 1, "All-Type-3 central slice should create a new halo");
   TEST_ASSERT(workspace[0].Type == 0, "New central halo should be Type 0");
@@ -286,7 +286,7 @@ int test_type2_preserved_without_orphan_retransition(void) {
   progenitors[1].is_main_branch = 0;
 
   struct GalaxyPool *pool = galaxy_pool_create(0);
-  int end = inherit_descendant_halos(pool, workspace, 0, 3, &descendant, progenitors, 2);
+  int64_t end = inherit_descendant_halos(pool, workspace, 0, 3, &descendant, progenitors, 2);
 
   TEST_ASSERT(end == 2, "Valid Type 1 + Type 2 slice should produce two halos");
   TEST_ASSERT(workspace[1].Type == 2, "Type 2 source should remain Type 2 without retransition");
@@ -315,7 +315,7 @@ int test_no_progenitor_central_creates_new_halo(void) {
   memset(workspace, 0, sizeof(workspace));
 
   struct GalaxyPool *pool = galaxy_pool_create(0);
-  int end = inherit_descendant_halos(pool, workspace, 0, 1, &descendant, NULL, 0);
+  int64_t end = inherit_descendant_halos(pool, workspace, 0, 1, &descendant, NULL, 0);
 
   TEST_ASSERT(end == 1, "No-progenitor central subhalo should create one halo");
   TEST_ASSERT(workspace[0].Type == 0, "New no-progenitor halo should be Type 0");
@@ -349,7 +349,7 @@ int test_no_progenitor_satellite_creates_none(void) {
    * a live pool unconditionally (unlike free_unit_halos(), NULL is not a
    * legal "no galaxies allocated" signal here) — give it a real one. */
   struct GalaxyPool *pool = galaxy_pool_create(0);
-  int end = inherit_descendant_halos(pool, workspace, 0, 1, &descendant, NULL, 0);
+  int64_t end = inherit_descendant_halos(pool, workspace, 0, 1, &descendant, NULL, 0);
 
   TEST_ASSERT(end == 0, "No-progenitor satellite subhalo should create no halo");
 
@@ -359,6 +359,53 @@ int test_no_progenitor_satellite_creates_none(void) {
 }
 
 /** @brief Main test runner */
+/**
+ * @test    test_halo_index_above_int32_is_carried_exactly
+ * @brief   A descendant halo index above INT32_MAX reaches struct Halo.HaloNr unchanged
+ *
+ * A horizontal slab index can exceed int32, and the inheritance service is the
+ * one place that copies the driver's index into every workspace halo. Both the
+ * inherited-galaxy path and the new-central path are exercised.
+ */
+int test_halo_index_above_int32_is_carried_exactly(void) {
+  init_memory_system(0);
+  initialize_error_handling(LOG_LEVEL_WARNING, NULL);
+
+  const int64_t wide_halo_nr = ((int64_t)1 << 32) + 7; /* 4294967303, above INT32_MAX */
+
+  struct Halo source;
+  struct GalaxyData source_galaxy;
+  struct Halo workspace[2];
+  struct InheritanceProgenitorGalaxy progenitor;
+  memset(workspace, 0, sizeof(workspace));
+  init_source_halo(&source, &source_galaxy, 0);
+  progenitor.source = &source;
+  progenitor.source_time = 14.0;
+  progenitor.is_main_branch = 1;
+
+  struct GalaxyPool *pool = galaxy_pool_create(0);
+
+  struct InheritanceDescendant inherited = make_descendant(1);
+  inherited.halo_nr = wide_halo_nr;
+  int64_t end = inherit_descendant_halos(pool, workspace, 0, 2, &inherited, &progenitor, 1);
+  TEST_ASSERT(end == 1, "Main branch progenitor should produce one workspace halo");
+  TEST_ASSERT(workspace[0].HaloNr == wide_halo_nr,
+              "An inherited galaxy must carry the full int64 descendant halo index");
+
+  struct InheritanceDescendant created = make_descendant(1);
+  created.halo_nr = wide_halo_nr + 1;
+  end = inherit_descendant_halos(pool, workspace, 1, 2, &created, NULL, 0);
+  TEST_ASSERT(end == 2, "No-progenitor central should create one halo after the first");
+  TEST_ASSERT(workspace[1].HaloNr == wide_halo_nr + 1,
+              "A new central must carry the full int64 descendant halo index");
+  TEST_ASSERT(workspace[1].CentralHalo == 1,
+              "The new central's subhalo-local central is its own workspace offset");
+
+  galaxy_pool_destroy(pool);
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
 int main(void) {
   printf("%s", BLUE);
   printf("============================================================\n");
@@ -375,6 +422,7 @@ int main(void) {
   TEST_RUN(test_type2_preserved_without_orphan_retransition);
   TEST_RUN(test_no_progenitor_central_creates_new_halo);
   TEST_RUN(test_no_progenitor_satellite_creates_none);
+  TEST_RUN(test_halo_index_above_int32_is_carried_exactly);
 
   TEST_SUMMARY();
   return TEST_RESULT();

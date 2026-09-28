@@ -67,7 +67,8 @@ static int values_are_distinct(double a, double b) {
  * `payload` and has `view` in scope, so reproducing that shape here is the only
  * way to exercise the generated emission directly.
  */
-static struct HaloInitPayload populate_payload_through_view(struct HaloInputView view, int halonr) {
+static struct HaloInitPayload populate_payload_through_view(struct HaloInputView view,
+                                                            int64_t halonr) {
   struct HaloInitPayload payload;
 
 #include "../../src/include/generated/populate_halo_payload.inc"
@@ -277,7 +278,7 @@ int test_payload_populator_reads_view_not_global(void) {
 
   const struct HaloInputView view_a = {halos_a, VIEW_TEST_NHALOS};
   const struct HaloInputView view_b = {halos_b, VIEW_TEST_NHALOS};
-  const int halonr = 1;
+  const int64_t halonr = 1;
 
   /* ===== EXECUTE ===== */
   InputTreeHalos = halos_b; /* global points at the wrong array for payload A */

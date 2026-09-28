@@ -26,7 +26,7 @@
  * test_enumerated_driver) exercise unit ordering over synthetic readers and
  * must not run the real recursive tree build. The shared FoF evolution
  * adapters the drivers call live in halo_evolution.c, which IS linked. */
-void build_halo_tree(int halonr, int unit, int depth) {
+void build_halo_tree(int64_t halonr, int unit, int depth) {
   (void)unit;
   (void)depth;
   if (HaloAux != NULL) {

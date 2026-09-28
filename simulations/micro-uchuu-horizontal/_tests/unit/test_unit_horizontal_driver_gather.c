@@ -184,7 +184,7 @@ static int test_most_massive_progenitor_reads_the_previous_slab(void) {
   const struct HorizontalGatherContext prev = previous_generation();
   const struct HorizontalGatherContext transposed = transposed_generation();
 
-  const int chosen = horizontal_find_most_massive_progenitor(view, &prev, 0);
+  const int64_t chosen = horizontal_find_most_massive_progenitor(view, &prev, 0);
   TEST_ASSERT_EQUAL(chosen, 1,
                     "the chain p0->p1->p2 should select p1: the most massive OCCUPIED "
                     "progenitor by slab N-1's Len");
@@ -192,7 +192,7 @@ static int test_most_massive_progenitor_reads_the_previous_slab(void) {
   /* Same call, previous generation replaced by the current one. Slab N's Len
    * ordering would select halo 2 and its NextProgenitor chain terminates
    * immediately, so a transposed read cannot return 1 here. */
-  const int transposed_choice = horizontal_find_most_massive_progenitor(view, &transposed, 0);
+  const int64_t transposed_choice = horizontal_find_most_massive_progenitor(view, &transposed, 0);
   TEST_ASSERT(transposed_choice != chosen,
               "reading the wrong generation must change the answer, or this test proves nothing");
 
@@ -277,7 +277,7 @@ static int test_gather_order_sources_and_times(void) {
   const struct HorizontalGatherContext prev = previous_generation();
   struct InheritanceProgenitorGalaxy gathered[4];
 
-  const int first_occupied = horizontal_find_most_massive_progenitor(view, &prev, 0);
+  const int64_t first_occupied = horizontal_find_most_massive_progenitor(view, &prev, 0);
   const int64_t count = horizontal_count_progenitor_galaxies(view, &prev, 0);
   TEST_ASSERT_EQUAL((int)count, 3, "the fixture chain should gather three galaxies");
 

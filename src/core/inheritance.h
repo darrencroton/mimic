@@ -6,8 +6,10 @@
 struct GalaxyPool; /* opaque; defined in galaxy_pool.c */
 
 struct InheritanceDescendant {
-  /* Driver-supplied identity, time, and descendant halo properties. */
-  int halo_nr;
+  /* Driver-supplied identity, time, and descendant halo properties. halo_nr is
+   * an index into the driver's input view, so it is as wide as struct
+   * Halo.HaloNr. */
+  int64_t halo_nr;
   int current_snap;
   double current_time;
   double new_halo_dt;
@@ -43,10 +45,14 @@ struct InheritanceProgenitorGalaxy {
  * asserts the bound and never grows `workspace`. Bounds are enforced with
  * assert(), so callers must satisfy the precondition rather than rely on
  * runtime growth here.
+ *
+ * Workspace offsets and counts are int64_t, like the halo indices the drivers
+ * compute them from; the one int consumer, struct Halo.CentralHalo, is written
+ * through a checked narrowing.
  */
-int inherit_descendant_halos(struct GalaxyPool *pool, struct Halo *workspace, int start,
-                             int capacity, const struct InheritanceDescendant *descendant,
-                             const struct InheritanceProgenitorGalaxy *progenitors,
-                             int nprogenitors);
+int64_t inherit_descendant_halos(struct GalaxyPool *pool, struct Halo *workspace, int64_t start,
+                                 int64_t capacity, const struct InheritanceDescendant *descendant,
+                                 const struct InheritanceProgenitorGalaxy *progenitors,
+                                 int64_t nprogenitors);
 
 #endif /* CORE_INHERITANCE_H */

@@ -88,10 +88,10 @@ int sage_reincorporation_process(struct ModuleContext *ctx, struct Halo *halos, 
     return 0;
   }
   if (dt_status != MIMIC_OBJECT_TIME_OK) {
-    ERROR_LOG(
-        "Invalid reincorporation dt for halo %d (SnapNum=%d, dT=%.3e, num_substeps=%d, status=%s)",
-        central_halo->HaloNr, central_halo->SnapNum, central_halo->dT,
-        (ctx != NULL) ? ctx->num_substeps : -1, mimic_object_time_status_str(dt_status));
+    ERROR_LOG("Invalid reincorporation dt for halo %lld (SnapNum=%d, dT=%.3e, num_substeps=%d, "
+              "status=%s)",
+              central_halo->HaloNr, central_halo->SnapNum, central_halo->dT,
+              (ctx != NULL) ? ctx->num_substeps : -1, mimic_object_time_status_str(dt_status));
     return -1;
   }
 

@@ -42,7 +42,7 @@
  * (spherical-overdensity mass estimate from the halo finder). Falls back to
  * Len * PartMass for subhalos and centrals without a valid HaloMass entry.
  */
-double get_virial_mass(struct HaloInputView view, int halonr) {
+double get_virial_mass(struct HaloInputView view, int64_t halonr) {
   const double halo_mass = mimic_tree_get_HaloMass(view, halonr);
 
   if (halonr == mimic_tree_get_FirstHaloInFOFgroup(view, halonr) && halo_mass >= 0.0)
@@ -67,7 +67,7 @@ double get_virial_mass(struct HaloInputView view, int halonr) {
  *
  * Returns 0.0 if the virial radius is zero or negative.
  */
-double get_virial_velocity(struct HaloInputView view, int halonr) {
+double get_virial_velocity(struct HaloInputView view, int64_t halonr) {
   double Rvir;
 
   Rvir = get_virial_radius(view, halonr);
@@ -99,7 +99,7 @@ double get_virial_velocity(struct HaloInputView view, int halonr) {
  * Note: For certain simulations like Bolshoi, the Rvir property from the
  * halo catalog could be used directly instead of this calculation.
  */
-double get_virial_radius(struct HaloInputView view, int halonr) {
+double get_virial_radius(struct HaloInputView view, int64_t halonr) {
   /* Rvir is recomputed from Mvir and the critical density rather than taken
    * from the catalog, so all simulations share one virial definition
    * (catalogs like Bolshoi provide Rvir directly, but with varying

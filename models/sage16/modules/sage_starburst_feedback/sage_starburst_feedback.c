@@ -282,7 +282,7 @@ int sage_starburst_feedback_process(struct ModuleContext *ctx, struct Halo *halo
       return 0;
     }
     if (dt_status != MIMIC_OBJECT_TIME_OK) {
-      ERROR_LOG("Invalid disk-instability dt for halo %d (SnapNum=%d, dT=%.3e, num_substeps=%d, "
+      ERROR_LOG("Invalid disk-instability dt for halo %lld (SnapNum=%d, dT=%.3e, num_substeps=%d, "
                 "status=%s)",
                 halo->HaloNr, halo->SnapNum, halo->dT, ctx->num_substeps,
                 mimic_object_time_status_str(dt_status));

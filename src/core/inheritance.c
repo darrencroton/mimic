@@ -12,11 +12,13 @@
  */
 
 #include <assert.h>
+#include <inttypes.h>
 #include <string.h>
 
 #include "inheritance.h"
 #include "galaxy_pool.h"
 #include "error.h"
+#include "numeric.h"
 
 static void copy_progenitor_galaxy(struct GalaxyPool *pool, struct Halo *target,
                                    const struct Halo *source) {
@@ -104,8 +106,9 @@ static void init_new_halo(struct GalaxyPool *pool, struct Halo *halo,
   init_galaxy_defaults(halo->galaxy);
 }
 
-static void set_local_centrals(struct Halo *workspace, int start, int end) {
-  int i, centralgal, ncentrals;
+static void set_local_centrals(struct Halo *workspace, int64_t start, int64_t end) {
+  int64_t i, centralgal;
+  int ncentrals;
 
   if (end <= start) {
     return;
@@ -118,7 +121,7 @@ static void set_local_centrals(struct Halo *workspace, int start, int end) {
       ncentrals++;
       if (ncentrals > 1) {
         FATAL_ERROR("Multiple Type 0/1 centrals found in subhalo slice "
-                    "(range %d-%d, first=%d, second=%d)",
+                    "(range %" PRId64 "-%" PRId64 ", first=%" PRId64 ", second=%" PRId64 ")",
                     start, end, centralgal, i);
       }
       centralgal = i;
@@ -127,21 +130,26 @@ static void set_local_centrals(struct Halo *workspace, int start, int end) {
 
   if (centralgal == -1) {
     for (i = start; i < end; i++) {
-      ERROR_LOG("  Galaxy %d: Type=%d, HaloNr=%d", i, workspace[i].Type, workspace[i].HaloNr);
+      ERROR_LOG("  Galaxy %" PRId64 ": Type=%d, HaloNr=%lld", i, workspace[i].Type,
+                workspace[i].HaloNr);
     }
-    FATAL_ERROR("No Type 0/1 central found in subhalo slice (range %d-%d)", start, end);
+    FATAL_ERROR("No Type 0/1 central found in subhalo slice (range %" PRId64 "-%" PRId64 ")", start,
+                end);
   }
 
+  /* CentralHalo is an int workspace offset; the workspace is bounded by
+   * MAX_HALO_ARRAY_SIZE, so this never fires on a valid run. */
+  const int central_halo = narrow_int64_to_int_checked(centralgal, "Halo.CentralHalo");
   for (i = start; i < end; i++) {
-    workspace[i].CentralHalo = centralgal;
+    workspace[i].CentralHalo = central_halo;
   }
 }
 
-int inherit_descendant_halos(struct GalaxyPool *pool, struct Halo *workspace, int start,
-                             int capacity, const struct InheritanceDescendant *descendant,
-                             const struct InheritanceProgenitorGalaxy *progenitors,
-                             int nprogenitors) {
-  int end = start;
+int64_t inherit_descendant_halos(struct GalaxyPool *pool, struct Halo *workspace, int64_t start,
+                                 int64_t capacity, const struct InheritanceDescendant *descendant,
+                                 const struct InheritanceProgenitorGalaxy *progenitors,
+                                 int64_t nprogenitors) {
+  int64_t end = start;
 
   assert(pool != NULL);
   assert(workspace != NULL);
@@ -151,7 +159,7 @@ int inherit_descendant_halos(struct GalaxyPool *pool, struct Halo *workspace, in
   assert(nprogenitors >= 0);
   assert(nprogenitors == 0 || progenitors != NULL);
 
-  for (int i = 0; i < nprogenitors; i++) {
+  for (int64_t i = 0; i < nprogenitors; i++) {
     assert(end < capacity);
     assert(progenitors[i].source != NULL);
 

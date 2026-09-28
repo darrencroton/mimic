@@ -16,7 +16,7 @@
 static int passed = 0;
 static int failed = 0;
 
-static void init_halo(struct Halo *halo, int type, int halo_nr) {
+static void init_halo(struct Halo *halo, int type, int64_t halo_nr) {
   memset(halo, 0, sizeof(*halo));
   halo->Type = type;
   halo->HaloNr = halo_nr;
@@ -249,6 +249,45 @@ int test_buffer_grows_when_capacity_exceeded(void) {
 }
 
 /** @brief Main test runner */
+/**
+ * @test    test_halo_index_above_int32_survives_marshalling
+ * @brief   A segment whose source halo index exceeds INT32_MAX marshals unchanged
+ *
+ * The segment's source_id and every copied halo's HaloNr are horizontal slab
+ * indices, so both must pass through the marshaller at full int64 width.
+ */
+int test_halo_index_above_int32_survives_marshalling(void) {
+  init_memory_system(0);
+  initialize_error_handling(LOG_LEVEL_WARNING, NULL);
+
+  const int64_t wide_halo_nr = ((int64_t)1 << 32) + 42; /* above INT32_MAX */
+
+  struct Halo workspace[2];
+  struct Halo output[2];
+  struct OutputBuffer buffer = {output, 0, 2};
+  struct OutputBufferSegment segment = {
+      .source_id = wide_halo_nr,
+      .snapshot_number = 7,
+      .workspace_start = 0,
+      .workspace_count = 2,
+      .output_first = -1,
+      .output_count = -1,
+  };
+  memset(output, 0, sizeof(output));
+  init_halo(&workspace[0], 0, wide_halo_nr);
+  init_halo(&workspace[1], 1, wide_halo_nr);
+
+  marshal_workspace_to_output_buffer(workspace, &buffer, &segment, 1);
+
+  TEST_ASSERT(segment.source_id == wide_halo_nr, "The segment's source halo index is unchanged");
+  TEST_ASSERT(segment.output_count == 2, "Both halos are copied");
+  TEST_ASSERT(output[0].HaloNr == wide_halo_nr && output[1].HaloNr == wide_halo_nr,
+              "Copied halos keep their full int64 HaloNr");
+
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
 int main(void) {
   printf("%s", BLUE);
   printf("============================================================\n");
@@ -263,6 +302,7 @@ int main(void) {
   TEST_RUN(test_empty_segment_records_zero_count);
   TEST_RUN(test_multiple_segments_accumulate_into_one_buffer);
   TEST_RUN(test_buffer_grows_when_capacity_exceeded);
+  TEST_RUN(test_halo_index_above_int32_survives_marshalling);
 
   TEST_SUMMARY();
   return TEST_RESULT();

@@ -4,6 +4,7 @@
  */
 
 #include <assert.h>
+#include <inttypes.h>
 
 #include "constants.h"
 #include "error.h"
@@ -13,27 +14,27 @@
 
 static void validate_segment(const struct OutputBufferSegment *segment) {
   if (segment->workspace_start < 0 || segment->workspace_count < 0) {
-    FATAL_ERROR("Invalid output segment for source %d: start=%d count=%d", segment->source_id,
-                segment->workspace_start, segment->workspace_count);
+    FATAL_ERROR("Invalid output segment for source %" PRId64 ": start=%" PRId64 " count=%" PRId64,
+                segment->source_id, segment->workspace_start, segment->workspace_count);
   }
 }
 
 void marshal_workspace_to_output_buffer(struct Halo *workspace, struct OutputBuffer *buffer,
-                                        struct OutputBufferSegment *segments, int nsegments) {
+                                        struct OutputBufferSegment *segments, int64_t nsegments) {
   assert(workspace != NULL);
   assert(buffer != NULL);
   assert(buffer->halos != NULL);
   assert(segments != NULL || nsegments == 0);
 
-  for (int s = 0; s < nsegments; s++) {
+  for (int64_t s = 0; s < nsegments; s++) {
     struct OutputBufferSegment *segment = &segments[s];
     validate_segment(segment);
 
     segment->output_first = buffer->count;
     segment->output_count = 0;
 
-    const int end = segment->workspace_start + segment->workspace_count;
-    for (int p = segment->workspace_start; p < end; p++) {
+    const int64_t end = segment->workspace_start + segment->workspace_count;
+    for (int64_t p = segment->workspace_start; p < end; p++) {
       if (workspace[p].Type == 3) {
         /* Type 3 halos are not emitted. The galaxy pool owns the galaxy memory
          * and reclaims it on the per-tree reset, so we only clear the pointer. */
@@ -49,7 +50,7 @@ void marshal_workspace_to_output_buffer(struct Halo *workspace, struct OutputBuf
         if (new_capacity > MAX_HALO_ARRAY_SIZE)
           new_capacity = MAX_HALO_ARRAY_SIZE;
         if (new_capacity <= buffer->capacity)
-          FATAL_ERROR("ProcessedHalos cannot grow beyond %d elements (source %d)",
+          FATAL_ERROR("ProcessedHalos cannot grow beyond %d elements (source %" PRId64 ")",
                       MAX_HALO_ARRAY_SIZE, segment->source_id);
         buffer->halos =
             myrealloc_cat(buffer->halos, (size_t)new_capacity * sizeof(struct Halo), MEM_HALOS);

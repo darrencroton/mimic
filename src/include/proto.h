@@ -6,17 +6,21 @@
 #include "types.h"
 #include "memory.h"
 
+/* Every halo index, and every count or workspace offset derived from one, is
+   int64_t on both drivers: a horizontal slab index can exceed int32, and the
+   vertical driver shares these types so there is one index type throughout. */
+
 /* Shared driver adapters (src/core/halo_evolution.c); each driver passes its
    own FoF workspace. */
-void process_halo_evolution(struct HaloInputView view, struct Halo *workspace, int halonr,
-                            int ngal);
-int count_fof_subhalos(struct HaloInputView view, int first_fof_halo);
-struct HaloInitPayload make_halo_init_payload(struct HaloInputView view, int halonr);
+void process_halo_evolution(struct HaloInputView view, struct Halo *workspace, int64_t halonr,
+                            int64_t ngal);
+int64_t count_fof_subhalos(struct HaloInputView view, int64_t first_fof_halo);
+struct HaloInitPayload make_halo_init_payload(struct HaloInputView view, int64_t halonr);
 
 /* Vertical driver (src/core/build_model.c) */
-void build_halo_tree(int halonr, int unit, int depth);
-int join_progenitor_halos(struct HaloInputView view, int halonr, int nstart, int unit);
-int find_most_massive_progenitor(struct HaloInputView view, int halonr);
+void build_halo_tree(int64_t halonr, int unit, int depth);
+int64_t join_progenitor_halos(struct HaloInputView view, int64_t halonr, int64_t nstart, int unit);
+int64_t find_most_massive_progenitor(struct HaloInputView view, int64_t halonr);
 void free_vertical_driver_scratch(void);
 
 /* Initialization (src/core/init.c) */
@@ -40,9 +44,9 @@ void finalize_halo_file(int filenr);
 void prepare_halo_for_output(struct HaloInputView view, const struct Halo *g, struct HaloOutput *o);
 
 /* Virial property helpers (src/core/virial.c) */
-double get_virial_velocity(struct HaloInputView view, int halonr);
-double get_virial_radius(struct HaloInputView view, int halonr);
-double get_virial_mass(struct HaloInputView view, int halonr);
+double get_virial_velocity(struct HaloInputView view, int64_t halonr);
+double get_virial_radius(struct HaloInputView view, int64_t halonr);
+double get_virial_mass(struct HaloInputView view, int64_t halonr);
 
 /* Horizontal driver (src/core/horizontal_driver.c) */
 struct InheritanceProgenitorGalaxy; /* core/inheritance.h */
@@ -69,14 +73,15 @@ void horizontal_driver_clear_output_paths(void);
  * current and previous slabs cannot be transposed, and are declared here — as
  * the vertical-side pair is — so the fixture package's unit tests can drive them
  * directly with two synthetic slabs. */
-int horizontal_find_most_massive_progenitor(struct HaloInputView view,
-                                            const struct HorizontalGatherContext *prev, int halonr);
+int64_t horizontal_find_most_massive_progenitor(struct HaloInputView view,
+                                                const struct HorizontalGatherContext *prev,
+                                                int64_t halonr);
 int64_t horizontal_count_progenitor_galaxies(struct HaloInputView view,
                                              const struct HorizontalGatherContext *prev,
-                                             int halonr);
+                                             int64_t halonr);
 void horizontal_gather_progenitor_galaxies(struct HaloInputView view,
-                                           const struct HorizontalGatherContext *prev, int halonr,
-                                           int first_occupied,
+                                           const struct HorizontalGatherContext *prev,
+                                           int64_t halonr, int64_t first_occupied,
                                            struct InheritanceProgenitorGalaxy *progenitors);
 
 #endif /* #ifndef CORE_PROTO_H */

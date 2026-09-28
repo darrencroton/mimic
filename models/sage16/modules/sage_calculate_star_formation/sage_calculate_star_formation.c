@@ -77,7 +77,7 @@ int sage_calculate_star_formation_process(struct ModuleContext *ctx, struct Halo
   }
   if (dt_status != MIMIC_OBJECT_TIME_OK) {
     ERROR_LOG(
-        "Invalid star formation dt for halo %d (SnapNum=%d, dT=%.3e, num_substeps=%d, status=%s)",
+        "Invalid star formation dt for halo %lld (SnapNum=%d, dT=%.3e, num_substeps=%d, status=%s)",
         halo->HaloNr, halo->SnapNum, halo->dT, (ctx != NULL) ? ctx->num_substeps : -1,
         mimic_object_time_status_str(dt_status));
     return -1;

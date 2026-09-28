@@ -129,6 +129,22 @@ VIEW_TAKING_OUTPUT_FUNCTIONS = {
 NUMERIC_TYPES = {"float", "double", "vec3_float"}
 H_CONVENTIONS = {"carried", "none", "free"}
 
+# Catalog storage types each integer core role accepts. A tree link may be stored
+# as `int` (every vertical format) or `long long` (a horizontal slab wider than
+# int32); either way its generated accessor returns int64_t, so every index the
+# drivers compute from a link is int64 whatever the package stores. Index and
+# count roles stay `int`: SnapNum and Len are bounded by the snapshot count and a
+# halo's particle count, not by a slab's row count.
+CORE_ROLE_STORAGE_TYPES = {
+    "tree_link": ("int", "long long"),
+    "index": ("int",),
+    "count": ("int",),
+}
+
+# C type of every tree-link accessor's return value and of every accessor's halo
+# index parameter.
+HALO_INDEX_C_TYPE = "int64_t"
+
 UNIT_REGISTRY = {
     "dimensionless": {"dimension": "dimensionless", "cgs": 1.0, "h_convention": "none"},
     "index": {"dimension": "dimensionless", "cgs": 1.0, "h_convention": "none"},
@@ -522,9 +538,10 @@ def normalize_catalog_contract(
         source = catalog_by_name[core_map[name]]
         source_type = source["type"]
         role_kind = required.get("role")
-        if role_kind in {"tree_link", "index", "count"} and source_type != "int":
+        allowed_types = CORE_ROLE_STORAGE_TYPES.get(role_kind)
+        if allowed_types is not None and source_type not in allowed_types:
             raise ValueError(
-                f"core role '{name}' requires an int catalog field, "
+                f"core role '{name}' requires an {' or '.join(allowed_types)} catalog field, "
                 f"but '{core_map[name]}' has type '{source_type}'"
             )
         if role_kind == "mass" and source_type not in {"float", "double"}:
@@ -911,11 +928,17 @@ def generate_tree_property_accessors_h(
     Every accessor reads through an explicit `struct HaloInputView view` handed
     in by the caller rather than a file-scope input array, so the same generated
     family serves any driver that can produce a view over struct RawHalo records.
+
+    Every accessor takes its halo index as int64_t, and every tree-link accessor
+    returns int64_t whatever the catalog stores (`int` or `long long`, per
+    CORE_ROLE_STORAGE_TYPES), so no index computed from a link narrows to int.
     """
     virial = catalog_info["virial_mass_input"]
+    index_type = HALO_INDEX_C_TYPE
     code = generate_header(yaml_hash)
     code += "#ifndef GENERATED_TREE_PROPERTY_ACCESSORS_H\n"
     code += "#define GENERATED_TREE_PROPERTY_ACCESSORS_H\n\n"
+    code += "#include <stdint.h>\n\n"
     code += '#include "globals.h"\n\n'
 
     emitted = set()
@@ -927,12 +950,15 @@ def generate_tree_property_accessors_h(
         if role_name == "HaloMass":
             c_type = "double"
             expr = _c_expr_with_conversion(raw_expr, virial["_input_convert"])
+        elif required.get("role") == "tree_link":
+            c_type = index_type
+            expr = raw_expr
         else:
             c_type = TYPE_MAP[source["type"]]["c_type"]
             expr = raw_expr
         code += (
             f"static inline {c_type} mimic_tree_get_{role_name}"
-            "(struct HaloInputView view, int halonr) {\n"
+            f"(struct HaloInputView view, {index_type} halonr) {{\n"
         )
         code += f"  return ({c_type})({expr});\n"
         code += "}\n\n"
@@ -952,7 +978,7 @@ def generate_tree_property_accessors_h(
         if type_info["is_array"]:
             code += (
                 f"static inline {c_type} mimic_tree_get_{prop['name']}_component"
-                "(struct HaloInputView view, int halonr, int component) {\n"
+                f"(struct HaloInputView view, {index_type} halonr, int component) {{\n"
             )
             expr = _c_expr_with_conversion(f"view.halos[halonr].{raw_field}[component]", conv)
             code += f"  return ({c_type})({expr});\n"
@@ -960,7 +986,7 @@ def generate_tree_property_accessors_h(
         else:
             code += (
                 f"static inline {c_type} mimic_tree_get_{prop['name']}"
-                "(struct HaloInputView view, int halonr) {\n"
+                f"(struct HaloInputView view, {index_type} halonr) {{\n"
             )
             expr = _c_expr_with_conversion(f"view.halos[halonr].{raw_field}", conv)
             code += f"  return ({c_type})({expr});\n"

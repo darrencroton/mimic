@@ -18,11 +18,14 @@ struct OutputBuffer {
   int64_t capacity;
 };
 
+/* One descendant subhalo's slice of the FoF workspace. source_id is the input
+ * halo index the slice came from and the workspace fields are offsets into the
+ * workspace, so all are int64_t like the drivers' own halo indices. */
 struct OutputBufferSegment {
-  int source_id;
+  int64_t source_id;
   int snapshot_number;
-  int workspace_start;
-  int workspace_count;
+  int64_t workspace_start;
+  int64_t workspace_count;
   int64_t output_first;
   int64_t output_count;
 };
@@ -39,6 +42,6 @@ struct OutputBufferSegment {
  * the returned struct fields.
  */
 void marshal_workspace_to_output_buffer(struct Halo *workspace, struct OutputBuffer *buffer,
-                                        struct OutputBufferSegment *segments, int nsegments);
+                                        struct OutputBufferSegment *segments, int64_t nsegments);
 
 #endif /* CORE_OUTPUT_BUFFER_H */

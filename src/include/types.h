@@ -182,12 +182,14 @@ struct MimicConfig {
  * For another package pair: make MODEL=<name> SIMULATION=<name> generate
  */
 
-/* auxiliary halo data */
+/* auxiliary halo data. The traversal flags are int; the output range is int64_t,
+ * matching the output buffer's own counts and struct HorizontalHaloAux, so one
+ * index type runs through both drivers. */
 struct HaloAuxData {
   int DoneFlag;
   int HaloFlag;
-  int NHalos;
-  int FirstHalo;
+  int64_t NHalos;    /* output halos produced for this halo */
+  int64_t FirstHalo; /* first output index for this halo */
 };
 
 /* Horizontal-driver counterpart of struct HaloAuxData's FirstHalo/NHalos pair:
