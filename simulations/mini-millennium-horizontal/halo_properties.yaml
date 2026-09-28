@@ -3,8 +3,8 @@
 # Complete package (runtime plan Slice 3; skeleton committed by Slice 2). Run
 # files and README are alongside; the package's compiled declarations are
 # checked against a committed v3 fixture's `/schema` by
-# _tests/check_schema_conformance.py, and against a real converted dataset's
-# `/schema` in Slice 3's validation.md
+# _tests/integration/test_schema_conformance.py (make tests-integration), and
+# against a real converted dataset's `/schema` in Slice 3's validation.md
 # (docs/dev/MIMIC-GENERAL-HORIZONTAL-RUNTIME-IMPLEMENTATION-PLAN.md).
 #
 # Every entry is a `/halos` dataset of docs/dev/HORIZONTAL-HDF5-FORMAT-V3-DRAFT.md.
