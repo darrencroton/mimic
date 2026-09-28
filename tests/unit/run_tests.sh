@@ -303,6 +303,7 @@ compile_and_run_test() {
        [ "$test_name" = "test_master_hdf5_partitions" ] || \
        [ "$test_name" = "test_unit_horizontal_reader_open" ] || \
        [ "$test_name" = "test_unit_horizontal_reader_realdata" ] || \
+       [ "$test_name" = "test_horizontal_v3_reader" ] || \
        [ "$test_name" = "test_hdf5_write_attrs" ]; then
         if [ "$HDF5_AVAILABLE" != "1" ]; then
             echo "MIMIC_RESULT: SKIP ${test_display} -- HDF5 development library not available"

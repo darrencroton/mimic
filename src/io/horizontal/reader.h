@@ -15,8 +15,9 @@
  *
  * The horizontal front end reads one snapshot at a time: the working set
  * of a run is one snapshot's halo population instead of one forest's history.
- * See docs/dev/HORIZONTAL-HDF5-FORMAT.md for the on-disk contract this interface
- * consumes.
+ * See docs/dev/HORIZONTAL-HDF5-FORMAT.md (version 2) and
+ * docs/dev/HORIZONTAL-HDF5-FORMAT-V3-DRAFT.md (version 3) for the on-disk
+ * contracts this interface consumes.
  *
  * This is deliberately a second, small vtable rather than a widening of
  * struct VerticalReader, whose twelve hooks are partition/unit-shaped and carry no
@@ -37,6 +38,8 @@ struct RawHalo;
 struct HorizontalRunInfo {
   int64_t snapshot_count;          /* number of snapshots in the run */
   int32_t format_version;          /* on-disk contract version of the dataset */
+  int32_t links_adjacent;          /* 1: every non-null Descendant targets snapshot N+1 (always 1
+                                      for version 2); 0: version 3 gaps are present */
   int64_t n_forests_total;         /* run-scoped forest count (identity bound) */
   int64_t max_halo_rank_in_forest; /* run-scoped maximum rank (identity bound) */
 };
@@ -65,7 +68,7 @@ struct HorizontalRunInfo {
 #define SNAPSHOT_SLAB_NO_SNAPSHOT ((int64_t)-1)
 
 /** Static initializer for the empty slab state. */
-#define SNAPSHOT_SLAB_INIT {SNAPSHOT_SLAB_NO_SNAPSHOT, 0, NULL, NULL, NULL}
+#define SNAPSHOT_SLAB_INIT {SNAPSHOT_SLAB_NO_SNAPSHOT, 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL}
 
 /**
  * One snapshot's halo population, owned by the reader between load_slab and
@@ -80,13 +83,24 @@ struct HorizontalRunInfo {
  * properties, and this reader compiles under every selected simulation package
  * (Makefile:112), so it must not depend on RawHalo members that only one
  * package's catalog would declare.
+ *
+ * The three target-snapshot columns and source_halo_id are version 3 format
+ * metadata held the same way (runtime plan Gate R0-3(a)). Each *_snapshot entry
+ * names the snapshot whose slab the matching RawHalo link indexes into, or is -1
+ * exactly when that link is -1; load_slab has already validated both. They are
+ * NULL for a version 2 slab, whose links are implicitly N+1 (Descendant), N-1
+ * (FirstProgenitor) and N-1 (NextProgenitor), and for an empty snapshot.
  */
 struct SnapshotSlab {
-  int64_t snapnum;              /* loaded snapshot, or SNAPSHOT_SLAB_NO_SNAPSHOT */
-  int64_t nhalos;               /* halos in this slab */
-  struct RawHalo *halos;        /* [nhalos], reader-owned */
-  int64_t *forest_index;        /* [nhalos], reader-owned */
-  int64_t *halo_rank_in_forest; /* [nhalos], reader-owned */
+  int64_t snapnum;                    /* loaded snapshot, or SNAPSHOT_SLAB_NO_SNAPSHOT */
+  int64_t nhalos;                     /* halos in this slab */
+  struct RawHalo *halos;              /* [nhalos], reader-owned */
+  int64_t *forest_index;              /* [nhalos], reader-owned */
+  int64_t *halo_rank_in_forest;       /* [nhalos], reader-owned */
+  int32_t *descendant_snapshot;       /* [nhalos], reader-owned; version 3 only */
+  int32_t *first_progenitor_snapshot; /* [nhalos], reader-owned; version 3 only */
+  int32_t *next_progenitor_snapshot;  /* [nhalos], reader-owned; version 3 only */
+  int64_t *source_halo_id;            /* [nhalos], reader-owned; version 3 only */
 };
 
 /** @brief Value of an empty (unloaded) slab handle. */

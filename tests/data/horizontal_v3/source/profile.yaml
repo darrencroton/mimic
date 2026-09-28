@@ -1,0 +1,59 @@
+# Converter profile for the committed v3 reader fixture (tests/data/horizontal_v3).
+#
+# The mini-Millennium L-Halo profile (simulations/mini-millennium/converter_columns.yaml)
+# plus exactly one selected extra, SubHalfMass. The skeleton package
+# simulations/mini-millennium-horizontal does not declare SubHalfMass, so the
+# fixture exercises R0-8(a): an undeclared /schema field is validated for
+# internal consistency and never materialised.
+
+schema_version: 1
+source_format: lhalo_binary
+
+required_columns:
+  Descendant: [Descendant]
+  FirstProgenitor: [FirstProgenitor]
+  NextProgenitor: [NextProgenitor]
+  FirstHaloInFOFgroup: [FirstHaloInFOFgroup]
+  NextHaloInFOFgroup: [NextHaloInFOFgroup]
+  Len: [Len]
+  M_Crit200: [M_Crit200]
+  Pos: [Pos]
+  Vel: [Vel]
+  Spin: [Spin]
+  VelDisp: [VelDisp]
+  Vmax: [Vmax]
+  MostBoundID: [MostBoundID]
+  SnapNum: [SnapNum]
+
+extra_fields:
+  - name: SubHalfMass
+    sources:
+      - field: SubHalfMass
+    type: float
+    units: 1e10 Msun/h
+    h_convention: carried
+    description: Mass within the subhalo half-mass radius
+
+binary_layout:
+  byte_order: little
+  itemsize: 104
+  offsets:
+    Descendant: 0
+    FirstProgenitor: 4
+    NextProgenitor: 8
+    FirstHaloInFOFgroup: 12
+    NextHaloInFOFgroup: 16
+    Len: 20
+    M_Mean200: 24
+    M_Crit200: 28
+    M_TopHat: 32
+    Pos: 36
+    Vel: 48
+    VelDisp: 60
+    Vmax: 64
+    Spin: 68
+    MostBoundID: 80
+    SnapNum: 88
+    FileNr: 92
+    SubhaloIndex: 96
+    SubHalfMass: 100

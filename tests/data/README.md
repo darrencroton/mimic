@@ -10,6 +10,12 @@ tests/data/
 │   ├── mini-millennium.a_list 64-snapshot scale-factor list
 │   └── trees_063.0            Single-file mini-Millennium merger tree (18 MB),
 │                              shared by both LHaloTree simulation packages
+├── horizontal_v3/             Horizontal-HDF5 format version 3 reader fixture
+│   ├── regenerate.sh          Rebuilds source/trees_fixture.0 and dataset/
+│   ├── source/                Committed converter inputs: generate_source.py,
+│   │                          trees_fixture.0, profile.yaml, fixture.a_list
+│   └── dataset/               convert_trees.py output: snapshot_000-003.h5,
+│                              forests.h5, fixture.a_list
 └── output/
     ├── baseline/              COMMITTED reference outputs (see below)
     │   ├── binary/            + metadata/ (schema, configs, version)
@@ -28,6 +34,14 @@ Each baseline directory carries its own `metadata/` (including `output_schema.js
 - **The full-physics SAGE baseline** is model-owned: it lives under `models/sage16/modules/_tests/` (`test_scientific_sage_physics_baseline.py`) and writes its run output to `output/physics-binary/`.
 
 Both comparisons use the strict `1e-6` relative tolerance by default; CI relaxes the gate via `MIMIC_BASELINE_RTOL` only for cross-platform float noise, with diffs beyond the strict tolerance still reported as warnings.
+
+## The version 3 reader fixture
+
+`horizontal_v3/` holds the smallest dataset that carries every topology case the horizontal-HDF5 version 3 reader must accept: seven halos in two L-Halo trees over four snapshots, with a descendant gap of span 3 across the empty snapshot 2, a gap of span 2, a `NextProgenitor` that crosses snapshots, a FoF satellite, and one selected extra (`SubHalfMass`) that the consuming package does not declare. It is read by `tests/unit/test_horizontal_v3_reader.c`, whose accepting tests run only under `SIMULATION=mini-millennium-horizontal`: the fixture's `/schema` declares mini-Millennium's native L-Halo units, and a package must declare exactly what a file declares.
+
+The dataset is converter output, never hand-edited. `source/generate_source.py` writes the L-Halo source `source/trees_fixture.0`, and `regenerate.sh` converts it with `scripts/convert/convert_trees.py` (`ingest`, `transpose`, `write`, `report`), using `source/profile.yaml` (the mini-Millennium profile plus the one extra; `column_mapping_sha256` `db55a0b67806da507789ee60f9057ded4285e05d0d0df57564a52f765cc43406`), `source/fixture.a_list` (the first four mini-Millennium scale factors) and `simulations/mini-millennium/simulation_info.yaml` for the physical header values. The report stage's producer validation battery must pass.
+
+Each non-empty snapshot file is about 9.5 MB on disk because the converter writes fixed `(65536,)` chunks, but about 13 KB compressed, which is what the repository stores; only three of the four snapshots hold halos for that reason.
 
 ## Regenerating a baseline
 

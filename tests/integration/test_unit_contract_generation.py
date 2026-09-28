@@ -21,6 +21,7 @@ from generate_properties import (
     _linear_conversion_expr,
     _unit_info,
     core_property_files,
+    generate_catalog_field_metadata_inc,
     generate_raw_halo_defs_h,
     generate_tree_property_accessors_h,
     load_core_metadata,
@@ -329,6 +330,39 @@ def test_tree_link_core_roles_accept_long_long_catalog_fields():
     )
 
 
+def test_catalog_field_metadata_carries_compiled_declarations():
+    # The horizontal-HDF5 v3 reader compares a file's /schema against this
+    # table, so each entry must carry the on-disk dataset name, the declared
+    # type and units, the *effective* h_convention (explicit, else derived from
+    # the unit label, exactly as every conversion resolves it) and the core
+    # role with its kind -- in catalog declaration order.
+    halo_props, reference_units = _core_halo_props_and_reference_units()
+    catalog = _synthetic_role_catalog("long long")
+    catalog["catalog_fields"].append(
+        {"name": "Extra", "source": "ExtraOnDisk", "type": "vec3_float", "units": "Mpc/h"}
+    )
+    catalog_info = normalize_catalog_contract(halo_props, catalog, reference_units)
+    table = generate_catalog_field_metadata_inc(catalog_info, "0" * 32)
+    entries = [line for line in table.splitlines() if line.startswith("CATALOG_FIELD(")]
+
+    assert len(entries) == len(catalog["catalog_fields"]), table
+    assert entries[0] == (
+        'CATALOG_FIELD(Desc, "Desc", "long long", "dimensionless", "none", "Descendant", '
+        '"tree_link")'
+    ), entries[0]
+    assert (
+        'CATALOG_FIELD(Mass200, "Mass200", "float", "1e10 Msun/h", "carried", "HaloMass", '
+        '"mass")' in entries
+    ), table
+    npart = 'CATALOG_FIELD(NPart, "NPart", "int", "particles", "none", "Len", "count")'
+    assert npart in entries, table
+    # No explicit h_convention: Mpc/h derives "carried" from the unit registry;
+    # the dataset name is the entry's `source`, the member its `name`.
+    assert entries[-1] == (
+        'CATALOG_FIELD(Extra, "ExtraOnDisk", "vec3_float", "Mpc/h", "carried", "", "")'
+    ), entries[-1]
+
+
 def test_int_tree_links_still_generate_int64_accessors():
     # Vertical packages keep int storage (R0-2(a)); the accessor widens it.
     halo_props, reference_units = _core_halo_props_and_reference_units()
@@ -496,6 +530,7 @@ def main():
             test_required_input_roles_generate_accessors_from_inline_bindings,
             test_tree_link_core_roles_reject_non_integer_catalog_fields,
             test_tree_link_core_roles_accept_long_long_catalog_fields,
+            test_catalog_field_metadata_carries_compiled_declarations,
             test_int_tree_links_still_generate_int64_accessors,
             test_tree_link_core_roles_reject_every_other_type,
             test_index_and_count_core_roles_reject_long_long,

@@ -1,0 +1,36 @@
+# mini-Millennium Simulation Metadata — horizontal HDF5 format version 3
+#
+# SKELETON (runtime plan Slice 2); Slice 3 completes the package. The
+# cosmology, box size, particle mass and a_list are mini-Millennium's own
+# (simulations/mini-millennium/simulation_info.yaml and
+# mini-millennium.a_list), unchanged: the reader compares every file's five
+# physical header values and scale factors against them at open.
+#
+# `tree_name` is the snapshot filename convention, not a general pattern: the
+# format fixes it at `snapshot_%03d.h5` and the reader accepts no other value.
+# first_file/last_file are metadata only; the horizontal reader derives its file
+# set from the snapshot list. `snapshots/` is a gitignored local symlink to a
+# converted dataset, never committed data.
+
+input:
+  first_file: 0
+  last_file: 0
+  tree_name: snapshot_%03d.h5
+  tree_type: horizontal_hdf5
+  processing_order: horizontal
+  simulation_dir: simulations/mini-millennium-horizontal/snapshots
+  snapshot_list_file: simulations/mini-millennium-horizontal/mini-millennium.a_list
+
+simulation:
+  cosmology:
+    omega_matter: 0.25
+    omega_lambda: 0.75
+    hubble_h: 0.73
+  box_size:
+    value: 62.5
+    units: Mpc/h
+    h_convention: carried
+  particle_mass:
+    value: 0.0860657
+    units: 1e10 Msun/h
+    h_convention: carried

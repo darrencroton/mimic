@@ -16,6 +16,7 @@ Reads:
 
 Generates:
     src/include/generated/property_defs.h
+    src/include/generated/catalog_field_metadata.inc
     src/include/generated/populate_halo_payload.inc
     src/include/generated/property_test_helpers.h
     src/include/generated/copy_to_output.inc
@@ -1024,6 +1025,46 @@ def generate_read_tree_hdf5_properties_inc(
     return code
 
 
+def generate_catalog_field_metadata_inc(
+    catalog_info: Dict[str, Dict[str, Any]], yaml_hash: str
+) -> str:
+    """Generate the compiled catalog declaration table, one entry per catalog field.
+
+    Each entry carries what a self-describing input must agree with: the struct
+    RawHalo member, its on-disk dataset name, the declared `type` and `units`,
+    the effective `h_convention` (explicit, else derived from the unit label, as
+    every conversion in this generator resolves it), and the core role the
+    field provides with that role's kind ("" for both when it provides none).
+    The horizontal-HDF5 version 3 reader compares these against each file's
+    `/schema`, so it reads the package's compiled declarations rather than
+    re-parsing YAML at run time.
+    """
+    role_kinds = {
+        required.get("name"): required.get("role", "")
+        for required in catalog_info["required_inputs"]
+    }
+    field_roles = {field: role for role, field in catalog_info["core_role_map"].items()}
+    code = generate_header(yaml_hash)
+    code += (
+        "/* Requires the CATALOG_FIELD macro:\n"
+        " *   CATALOG_FIELD(member, dataset, type, units, h_convention, core_role, role_kind)\n"
+        " * One entry per catalog field of halo_properties.yaml, in declaration order.\n"
+        " * Entries carry no separator; the macro supplies one if it needs it. */\n\n"
+    )
+    for prop in catalog_info["catalog_by_name"].values():
+        role = field_roles.get(prop["name"], "")
+        fields = [
+            json.dumps(prop["source"]),
+            json.dumps(prop["type"]),
+            json.dumps(prop.get("units", "dimensionless")),
+            json.dumps(_effective_h_convention(prop)),
+            json.dumps(role),
+            json.dumps(role_kinds.get(role, "") if role else ""),
+        ]
+        code += f"CATALOG_FIELD({prop['name']}, {', '.join(fields)})\n"
+    return code
+
+
 def generate_raw_halo_defs_h(catalog_info: Dict[str, Dict[str, Any]], yaml_hash: str) -> str:
     """Generate struct RawHalo, the on-disk merger-tree record.
 
@@ -1979,6 +2020,10 @@ def main():
     write_file(
         GENERATED_DIR / "read_tree_hdf5_properties.inc",
         generate_read_tree_hdf5_properties_inc(catalog_info, yaml_hash),
+    )
+    write_file(
+        GENERATED_DIR / "catalog_field_metadata.inc",
+        generate_catalog_field_metadata_inc(catalog_info, yaml_hash),
     )
     write_file(
         GENERATED_DIR / "parameter_unit_conversions.h",
