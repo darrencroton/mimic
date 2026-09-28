@@ -77,18 +77,18 @@ static struct GalaxyChunk *new_chunk(int capacity) {
  * and galaxy_pool_initial_resident_bytes(), so the size query can never drift
  * from what creation allocates. The result is at least GALAXY_POOL_MIN_CHUNK, so
  * new_chunk() never raises it. */
-static int initial_chunk_capacity(int64_t initial_capacity) {
-  int64_t capacity =
+static int initial_chunk_capacity(int initial_capacity) {
+  int capacity =
       initial_capacity > GALAXY_POOL_MIN_CHUNK ? initial_capacity : GALAXY_POOL_DEFAULT_CHUNK;
   /* Clamp a caller-supplied hint the same way grown chunks are clamped, so
    * chunk_capacity never starts above the cap that galaxy_pool_alloc()
    * maintains. */
   if (capacity > GALAXY_POOL_MAX_CHUNK)
     capacity = GALAXY_POOL_MAX_CHUNK;
-  return (int)capacity;
+  return capacity;
 }
 
-int galaxy_pool_initial_resident_bytes(int64_t initial_capacity, int64_t *bytes) {
+int galaxy_pool_initial_resident_bytes(int initial_capacity, int64_t *bytes) {
   assert(bytes != NULL);
 
   const int64_t capacity = initial_chunk_capacity(initial_capacity);

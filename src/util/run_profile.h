@@ -44,8 +44,9 @@
  *       It excludes the driver's run-scoped workspace and scratch buffers and the
  *       reader's run-scoped tables, which do not scale with retention.
  *
- * None of the three is reported anywhere else, and a projection that assumes
- * C = G = slab count is a case rather than an invariant. This unit collects them
+ * None of C, P and G is reported anywhere else, and a projection that assumes
+ * C = G = slab count is a case rather than an invariant. R's peak is also on the
+ * driver's own verbose "Retained at most" line. This unit collects them
  * as run-level maxima and reports them once at run end, next to peak process
  * RSS.
  *

@@ -67,12 +67,22 @@ static int profile_after_notes(const struct RetentionNote *notes, int count, cha
     _exit(0);
   }
 
+  /* Read to EOF even once the buffer is full, discarding the excess, so the
+   * child can never block on a full pipe while waitpid() waits for it. */
   close(pipefd[1]);
   size_t used = 0;
-  ssize_t nread;
-  while (used < output_size - 1 &&
-         (nread = read(pipefd[0], output + used, output_size - 1 - used)) > 0) {
-    used += (size_t)nread;
+  char discard[1024] = {0};
+  for (;;) {
+    const int keeping = used < output_size - 1;
+    char *into = keeping ? output + used : discard;
+    const size_t room = keeping ? output_size - 1 - used : sizeof(discard);
+    const ssize_t nread = read(pipefd[0], into, room);
+    if (nread <= 0) {
+      break;
+    }
+    if (keeping) {
+      used += (size_t)nread;
+    }
   }
   output[used] = '\0';
   close(pipefd[0]);

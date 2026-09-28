@@ -1160,18 +1160,22 @@ horizontal_acquire_generation(struct HorizontalDriverState *state, int64_t snapn
   horizontal_require_generation_fits(state, snapnum, nhalos, &footprint);
 
   horizontal_reader_load_slab(state->reader, snapnum, &gen->slab);
+
+  /* Counted as retained together with the slot's snapnum, and by the slab's own
+   * row count, so any failure from here on -- the count check below included --
+   * is released by the failure path with the bookkeeping balanced: release
+   * decrements both counters by exactly what was added here. */
   gen->snapnum = snapnum;
+  state->retained_count++;
+  state->retained_population += gen->slab.nhalos;
+  if (state->retained_count > state->max_retained_count) {
+    state->max_retained_count = state->retained_count;
+  }
 
   if (gen->slab.nhalos != nhalos) {
     FATAL_ERROR("Reader '%s' loaded %" PRId64 " halos for snapshot %" PRId64
                 " after reporting %" PRId64 "; the generation was sized for the reported count",
                 state->reader->name, gen->slab.nhalos, snapnum, nhalos);
-  }
-
-  state->retained_count++;
-  state->retained_population += nhalos;
-  if (state->retained_count > state->max_retained_count) {
-    state->max_retained_count = state->retained_count;
   }
 
   /* A gapped dataset can only be walked through its target-snapshot columns;

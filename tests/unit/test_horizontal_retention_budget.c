@@ -22,11 +22,13 @@
  *    so the driver's per-row slab width is checked against the arrays that reader
  *    actually allocates.
  *
- * Every case runs in a forked child, because each ends the process: a refusal is
- * a FATAL_ERROR, reaching the exiting load_slab() is the fake reader's _exit(),
- * and a completed run exits once it has printed its profile. The parent reads the
- * child's log and exit status and checks the reported bytes against struct-width
- * arithmetic computed here independently.
+ * Every case that runs the driver does so in a forked child, because each such
+ * run ends the process: a refusal is a FATAL_ERROR, reaching the exiting
+ * load_slab() is the fake reader's _exit(), and a completed run exits once it has
+ * printed its profile. The parent reads the child's log and exit status and
+ * checks the reported bytes against struct-width arithmetic computed here
+ * independently. (test_reader_interface_carries_wide_count calls only the reader
+ * dispatch, in process.)
  *
  * Fake slabs set each RawHalo field by its core role through the generated
  * catalog field table, so the fake reader builds a valid slab under whichever
@@ -267,6 +269,19 @@ static void fake_single_snapshot(int64_t nhalos, int32_t format_version) {
   Fake.load = FAKE_LOAD_EXITS;
 }
 
+/* A chain of `snapshots` one-halo snapshots, each descending into the next, built
+ * and swept for real: two generations overlap at every step. */
+static void fake_chain(int64_t snapshots) {
+  memset(&Fake, 0, sizeof(Fake));
+  Fake.snapshot_count = snapshots;
+  for (int64_t k = 0; k < snapshots; k++) {
+    Fake.halo_count[k] = 1;
+  }
+  Fake.format_version = 2;
+  Fake.load = FAKE_LOAD_BUILDS;
+  Fake.chain = 1;
+}
+
 /* ------------------------------------------------------------------------- */
 /* Expected footprint, from struct widths                                     */
 /* ------------------------------------------------------------------------- */
@@ -428,12 +443,22 @@ static int run_driver_in_child(int64_t ceiling, int use_v3_fixture, struct Child
     _exit(RUN_COMPLETED_EXIT);
   }
 
+  /* Read to EOF even once the log is full, discarding the excess: a child
+   * blocked on a full pipe would never exit, and waitpid() would wait forever. */
   close(pipefd[1]);
   size_t used = 0;
-  ssize_t nread;
-  while (used < sizeof(result->log) - 1 &&
-         (nread = read(pipefd[0], result->log + used, sizeof(result->log) - 1 - used)) > 0) {
-    used += (size_t)nread;
+  char discard[4096] = {0};
+  for (;;) {
+    const int keeping = used < sizeof(result->log) - 1;
+    char *into = keeping ? result->log + used : discard;
+    const size_t room = keeping ? sizeof(result->log) - 1 - used : sizeof(discard);
+    const ssize_t nread = read(pipefd[0], into, room);
+    if (nread <= 0) {
+      break;
+    }
+    if (keeping) {
+      used += (size_t)nread;
+    }
   }
   result->log[used] = '\0';
   close(pipefd[0]);
@@ -780,12 +805,7 @@ int test_overlapping_generations_are_measured_and_profiled(void) {
   const int64_t peak = 2 * generation;
 
   TEST_ASSERT(prepare_output_dir() == 0, "Should create the output directory");
-  memset(&Fake, 0, sizeof(Fake));
-  Fake.snapshot_count = 3;
-  Fake.halo_count[0] = Fake.halo_count[1] = Fake.halo_count[2] = 1;
-  Fake.format_version = 2;
-  Fake.load = FAKE_LOAD_BUILDS;
-  Fake.chain = 1;
+  fake_chain(3);
 
   TEST_ASSERT(run_driver_in_child(0, 0, &result) == 0, "Should run the driver in a child");
   TEST_ASSERT(result.exited && result.exit_status == RUN_COMPLETED_EXIT,
@@ -820,6 +840,97 @@ int test_overlapping_generations_are_measured_and_profiled(void) {
   printf("  3-snapshot chain: 2 generations, %" PRId64 " B peak (new pool %" PRId64 " B)\n", peak,
          pool);
   print_log_line(&result, "Retention pool resident:");
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_ceiling_counts_the_resident_generation_below_the_boundary
+ * @brief   With snapshot 0's generation still resident, snapshot 1 is refused
+ *          one byte below the resident-plus-footprint total, and the refusal
+ *          counts the resident generation.
+ *
+ * Snapshot 1's own footprint fits this ceiling many times over, so only the
+ * resident term -- snapshot 0's whole generation, still retained because its
+ * halo descends into snapshot 1 -- can push the total over it. An edit that
+ * dropped the resident term from required = resident + footprint would admit
+ * snapshot 1 here.
+ */
+int test_ceiling_counts_the_resident_generation_below_the_boundary(void) {
+  struct ChildResult result;
+  char needle[256];
+  const int64_t generation = generation_bytes(1, 2, 1);
+  const int64_t required = 2 * generation;
+  const int64_t ceiling = required - 1;
+
+  TEST_ASSERT(prepare_output_dir() == 0, "Should create the output directory");
+  fake_chain(2);
+  TEST_ASSERT(generation <= ceiling, "Snapshot 1's own footprint should fit the ceiling");
+
+  TEST_ASSERT(run_driver_in_child(ceiling, 0, &result) == 0, "Should run the driver in a child");
+  TEST_ASSERT(result.exited && result.exit_status == 1,
+              "Snapshot 1 should be refused one byte below the resident-plus-footprint total");
+  expected_pool_line(needle, sizeof(needle), new_pool_bytes(), 1, 0, generation);
+  TEST_ASSERT(log_contains(&result, needle), "Snapshot 0 should be admitted first");
+  expected_pool_line(needle, sizeof(needle), new_pool_bytes(), 1, generation, required);
+  TEST_ASSERT(log_contains(&result, needle),
+              "Snapshot 1's admission should count snapshot 0's resident generation");
+  snprintf(needle, sizeof(needle),
+           "Snapshot 1 needs %" PRId64 " B (%.3f GB) resident for its 1 halos, which would bring "
+           "the retention pool to %" PRId64 " B",
+           generation, (double)generation / 1.0e9, required);
+  TEST_ASSERT(log_contains(&result, needle),
+              "The refusal should name snapshot 1, its own bytes and the resident-inclusive total");
+  snprintf(needle, sizeof(needle), "input.retention_memory_ceiling_mb ceiling of %" PRId64 " B",
+           ceiling);
+  TEST_ASSERT(log_contains(&result, needle), "The refusal should name the ceiling");
+  TEST_ASSERT(log_contains(&result, "Horizontal driver exiting early: releasing 1 retained "
+                                    "generation"),
+              "The failure path should release exactly snapshot 0's resident generation");
+  TEST_ASSERT(log_count(&result, "Released snapshot ") == 1,
+              "Only snapshot 0 was ever retained, so only it should be released");
+  printf("  2-snapshot chain at %" PRId64 " B: snapshot 1 refused (own %" PRId64
+         " B + resident %" PRId64 " B)\n",
+         ceiling, generation, generation);
+  print_log_line(&result, "Snapshot 1 needs ");
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_ceiling_admits_the_resident_generation_at_the_boundary
+ * @brief   With the ceiling exactly at the resident-plus-footprint total, every
+ *          snapshot of a chain is admitted, whether its admission creates a new
+ *          galaxy pool or reuses a resident spare.
+ *
+ * Snapshot 1 is admitted with a new pool beside snapshot 0's resident
+ * generation. Snapshot 2 is admitted beside snapshot 1's generation and the
+ * spare pool snapshot 0 left, which it reuses: the same total, reached with the
+ * pool counted as resident rather than as footprint.
+ */
+int test_ceiling_admits_the_resident_generation_at_the_boundary(void) {
+  struct ChildResult result;
+  char needle[256];
+  const int64_t pool = new_pool_bytes();
+  const int64_t generation = generation_bytes(1, 2, 1);
+  const int64_t required = 2 * generation;
+
+  TEST_ASSERT(prepare_output_dir() == 0, "Should create the output directory");
+  fake_chain(3);
+  TEST_ASSERT(run_driver_in_child(required, 0, &result) == 0, "Should run the driver in a child");
+  TEST_ASSERT(result.exited && result.exit_status == RUN_COMPLETED_EXIT,
+              "Every snapshot should be admitted exactly at the ceiling");
+  expected_pool_line(needle, sizeof(needle), pool, 1, generation, required);
+  TEST_ASSERT(log_contains(&result, needle),
+              "Snapshot 1 should be admitted with a new pool beside the resident generation");
+  expected_pool_line(needle, sizeof(needle), 0, 0, generation + pool, required);
+  TEST_ASSERT(log_contains(&result, needle),
+              "Snapshot 2 should be admitted reusing the resident spare pool");
+  TEST_ASSERT(!log_contains(&result, "Refused before allocation"), "Nothing should be refused");
+  TEST_ASSERT(!log_contains(&result, "The retention pool grew to"),
+              "Nothing grows in these sweeps, so the ceiling should never be passed");
+  snprintf(needle, sizeof(needle), "Retention pool resident: at most %" PRId64 " B", required);
+  TEST_ASSERT(log_contains(&result, needle), "The peak should sit exactly at the ceiling");
+  printf("  3-snapshot chain at %" PRId64 " B: all admitted (new pool, then spare reused)\n",
+         required);
   return TEST_PASS;
 }
 
@@ -1011,6 +1122,8 @@ int main(void) {
   TEST_RUN(test_unrepresentable_slab_is_refused);
   TEST_RUN(test_negative_count_is_refused);
   TEST_RUN(test_overlapping_generations_are_measured_and_profiled);
+  TEST_RUN(test_ceiling_counts_the_resident_generation_below_the_boundary);
+  TEST_RUN(test_ceiling_admits_the_resident_generation_at_the_boundary);
   TEST_RUN(test_in_sweep_pool_growth_past_the_ceiling_warns_once);
   TEST_RUN(test_slab_width_matches_the_real_v3_reader);
 
