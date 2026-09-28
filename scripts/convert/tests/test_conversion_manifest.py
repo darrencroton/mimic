@@ -15,6 +15,7 @@ Every destructive case works on a private temporary copy.
 import hashlib
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -266,6 +267,26 @@ class DependencyTests(TempCase):
         self.assertEqual(merged["roles"], ["a_list", "source"])
         self.assertEqual(merged["objects"], ["/File0", "/File1"])
 
+    def test_merge_refuses_two_different_content_hashes_for_one_path(self):
+        first = cm.pin_dependency(self.source, ["source"], content_sha256=True)
+        (agreeing,) = cm.merge_dependencies(
+            [first, cm.pin_dependency(self.source, ["a_list"], content_sha256=True)]
+        )
+        self.assertEqual(agreeing["sha256"], hashlib.sha256(b"abcdefgh").hexdigest())
+        # same size, mtime, device and inode: only the content hashes disagree
+        status = os.stat(self.source)
+        with open(self.source, "r+b") as handle:
+            handle.write(b"X")
+        os.utime(self.source, ns=(status.st_atime_ns, status.st_mtime_ns))
+        second = cm.pin_dependency(self.source, ["a_list"], content_sha256=True)
+        with self.assertRaisesRegex(
+            ConverterError,
+            r"{} changed while it was being pinned \(sha256 {} -> {}\)".format(
+                re.escape(first["path"]), first["sha256"], second["sha256"]
+            ),
+        ):
+            cm.merge_dependencies([first, second])
+
     def test_verify_detects_every_kind_of_change(self):
         cases = {
             "size": lambda: self.source.write_bytes(b"abcdefghi"),
@@ -426,6 +447,149 @@ class ManifestLifecycleTests(TempCase):
                 self.manifest.path.write_text(json.dumps(data))
                 with self.assertRaises(ConverterError):
                     cm.ConversionManifest.load(self.work)
+
+    def with_artifact_and_inventory(self):
+        """The fixture manifest with one registered ingest artifact and an
+        inventory, so every record type the shape sweep checks is present."""
+        self.manifest.begin_attempt("ingest")
+        self.write_artifact("ingest/a.bin")
+        self.manifest.register_artifact("ingest/a.bin", "ingest", "canonical-chunk", n_rows=1)
+        self.manifest.require_inventory(
+            cm.inventory_record(SourceInventory([SourceUnit(0, 0, 1), SourceUnit(1, 0, 2)]))
+        )
+        self.manifest.save()
+        return self.manifest.path.read_text()
+
+    def test_malformed_record_shapes_are_refused_naming_the_key(self):
+        original = self.with_artifact_and_inventory()
+        chunk = "artifacts['ingest/a.bin']"
+        edits = {
+            "configuration": lambda d: d.update(configuration=[]),
+            "tuning": lambda d: d.update(tuning=None),
+            "stages.ingest": lambda d: d["stages"].update(ingest=[]),
+            "stages.transpose (missing ['result']": lambda d: d["stages"]["transpose"].pop(
+                "result"
+            ),
+            "stages.ingest.attempt": lambda d: d["stages"]["ingest"].update(attempt="1"),
+            "stages.ingest.directory": lambda d: d["stages"]["ingest"].update(directory=3),
+            "stages.ingest.result": lambda d: d["stages"]["ingest"].update(result=[]),
+            "stages.ingest.artifacts": lambda d: d["stages"]["ingest"].update(
+                artifacts="ingest/a.bin"
+            ),
+            "stages.ingest.artifacts[1]": lambda d: d["stages"]["ingest"]["artifacts"].append(
+                "ingest/unregistered.bin"
+            ),
+            "stages.transpose.artifacts[0]": lambda d: d["stages"]["transpose"]["artifacts"].append(
+                "ingest/a.bin"
+            ),
+            "artifacts": lambda d: d.update(artifacts=[]),
+            chunk: lambda d: d["artifacts"].update({"ingest/a.bin": 7}),
+            chunk + " (missing ['sha256']": lambda d: d["artifacts"]["ingest/a.bin"].pop("sha256"),
+            chunk + ".bytes": lambda d: d["artifacts"]["ingest/a.bin"].update(bytes="7"),
+            chunk + ".status": lambda d: d["artifacts"]["ingest/a.bin"].update(status="gone"),
+            chunk + ".stage": lambda d: d["artifacts"]["ingest/a.bin"].update(stage="later"),
+            "sources": lambda d: d.update(sources=[]),
+            "sources (missing ['inventory']": lambda d: d["sources"].pop("inventory"),
+            "sources.dependencies": lambda d: d["sources"].update(dependencies={}),
+            "sources.dependencies[0]": lambda d: d["sources"]["dependencies"].__setitem__(0, 1),
+            "sources.dependencies[0].roles": lambda d: d["sources"]["dependencies"][0].update(
+                roles="source"
+            ),
+            "sources.dependencies[0].size_bytes": lambda d: d["sources"]["dependencies"][0].update(
+                size_bytes=None
+            ),
+            "sources.dependencies[0].sha256": lambda d: d["sources"]["dependencies"][0].update(
+                sha256=5
+            ),
+            "sources.inventory": lambda d: d["sources"].update(inventory=[]),
+            "sources.inventory (missing ['total_halos']": lambda d: d["sources"]["inventory"].pop(
+                "total_halos"
+            ),
+            "sources.inventory.selected_halos": lambda d: d["sources"]["inventory"].update(
+                selected_halos=1.5
+            ),
+            "sources.inventory.files": lambda d: d["sources"]["inventory"].update(files={}),
+            "sources.inventory.files[1]": lambda d: d["sources"]["inventory"]["files"].__setitem__(
+                1, "file 1"
+            ),
+            "sources.inventory.files[0].n_units": lambda d: d["sources"]["inventory"]["files"][
+                0
+            ].update(n_units="1"),
+        }
+        path = re.escape(str(self.work / cm.MANIFEST_NAME))
+        for key, edit in edits.items():
+            with self.subTest(key=key):
+                data = json.loads(original)
+                edit(data)
+                self.manifest.path.write_text(json.dumps(data))
+                with self.assertRaisesRegex(
+                    ConverterError,
+                    "^{}: malformed generic manifest: {}".format(path, re.escape(key)),
+                ):
+                    cm.ConversionManifest.load(self.work)
+        self.manifest.path.write_text(original)
+        self.assertEqual(cm.ConversionManifest.load(self.work).inventory["n_units"], 2)
+
+    def test_a_manifest_written_before_tuning_was_recorded_is_refused_by_name(self):
+        """A version 3 manifest without a ``tuning`` record predates the
+        tuning split; it is refused as such, not as a malformed file."""
+        original = self.with_artifact_and_inventory()
+        data = json.loads(original)
+        del data["tuning"]
+        self.manifest.path.write_text(json.dumps(data))
+        with self.assertRaisesRegex(
+            ConverterError,
+            "^{}: this manifest was written before tuning was recorded".format(
+                re.escape(str(self.work / cm.MANIFEST_NAME))
+            ),
+        ):
+            cm.ConversionManifest.load(self.work)
+        self.manifest.path.write_text(original)
+
+    def test_an_unreadable_manifest_is_refused_naming_it(self):
+        work = self.tmp / "unreadable"
+        (work / cm.MANIFEST_NAME).mkdir(parents=True)
+        path = re.escape(str(work / cm.MANIFEST_NAME))
+        for call in (cm.classify_manifest, cm.ConversionManifest.load, cm.open_manifest):
+            with self.subTest(call=call.__name__, what="directory"):
+                with self.assertRaisesRegex(
+                    ConverterError, "^{}: not a readable JSON".format(path)
+                ):
+                    call(work)
+        if os.geteuid() == 0:  # pragma: no cover - root reads a mode-000 file
+            self.skipTest("running as root: a mode-000 file stays readable")
+        self.manifest.path.chmod(0)
+        self.addCleanup(self.manifest.path.chmod, 0o644)
+        path = re.escape(str(self.work / cm.MANIFEST_NAME))
+        for call in (cm.classify_manifest, cm.ConversionManifest.load):
+            with self.subTest(call=call.__name__, what="permission"):
+                with self.assertRaisesRegex(
+                    ConverterError, "^{}: not a readable JSON".format(path)
+                ):
+                    call(self.work)
+
+    def test_save_never_writes_through_a_symlinked_temporary(self):
+        before = self.manifest.path.read_bytes()
+        victim = self.tmp / "victim.txt"
+        victim.write_text("not the manifest's to write")
+        # the manifest's own, resolved, path: on macOS TMPDIR resolves through /private
+        tmp = self.manifest.path.with_name(cm.MANIFEST_NAME + ".tmp")
+        tmp.symlink_to(victim)
+        self.manifest.data["stages"]["ingest"]["attempt"] = 7
+        with self.assertRaisesRegex(
+            ConverterError,
+            "^{}: cannot open the manifest's temporary file".format(re.escape(str(tmp))),
+        ):
+            self.manifest.save()
+        self.assertEqual(victim.read_text(), "not the manifest's to write")
+        self.assertTrue(tmp.is_symlink())
+        self.assertEqual(self.manifest.path.read_bytes(), before)
+        # a regular file an interrupted save left there is truncated and reused
+        tmp.unlink()
+        tmp.write_text("{" * 100000)
+        self.manifest.save()
+        self.assertFalse(tmp.exists())
+        self.assertEqual(cm.ConversionManifest.load(self.work).stage("ingest")["attempt"], 7)
 
     def test_stage_transitions_are_ordered_and_explicit(self):
         with self.assertRaisesRegex(ConverterError, "not complete"):

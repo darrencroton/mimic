@@ -1,7 +1,6 @@
 """Bounded transpose and 64-bit topology remapping for canonical adapter data
-(Slice 6 of the converter generalisation plan,
-docs/dev/MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md, contracts
-C1/C3/C4).
+(contracts C1, C3 and C4 of
+docs/dev/MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md).
 
 **What it does.** :func:`transpose` consumes the canonical batches of any
 source adapter (``adapters/base.py``: links carried as target ``SourceHaloID``)
@@ -10,7 +9,7 @@ file whose rows are that snapshot's halos in ascending ``SourceHaloID`` order,
 with the five links resolved to int64 snapshot-local rows and the three
 progenitor/descendant links qualified by their int32 target snapshot -- the
 v3 ``/halos`` columns of ``docs/dev/HORIZONTAL-HDF5-FORMAT-V3-DRAFT.md``. It
-writes no HDF5; the Slice 8 writer does.
+writes no HDF5: ``hdf5_writer_v3.py`` writes the v3 file from these records.
 
 **What it preserves.** Rows are *moved*, never changed: every payload,
 extra and identity value is copied bit for bit, ``ForestIndex`` and
@@ -69,7 +68,8 @@ exclusively, only in the assembly phase, and removed again if anything fails,
 so a failed call leaves no output that could be mistaken for a finished one.
 The canonical input is only ever read: re-running from the same source is the
 recovery path, and no scratch of this module is ever the only copy of
-anything. Persistence, manifests and restart are Slice 7's.
+anything. Persistence, manifests and restart belong to ``pipeline.py``, which
+calls this module.
 
 numpy + stdlib only.
 """
@@ -164,16 +164,40 @@ _CONCURRENT_WRITERS = 1
 #: margin; a budget thousands of times smaller than its input would need more.
 UNMETERED_ALLOWANCE_BYTES = 1 << 20
 
-#: Per-row scratch while a batch becomes row records: the snapshot lookup's
-#: positions, its bounds-clipped copy and its two membership masks.
+#: Per-row scratch while a batch becomes row records, beyond the row array
+#: itself. The snapshot lookup's positions and their bounds-clipped copy
+#: (2 x 8 B) stay alive beside the row array until ``_rows_of`` returns.
+#: Before the row array exists, the lookup's membership test holds 25 B/row
+#: (those 16 B, the gathered snapshot numbers and their mask) and
+#: ``CanonicalBatch.validate`` 9 B/row (``np.diff`` over the ids and its
+#: mask); every row array is far wider than 25 B, so neither raises the peak.
+#: ``validate`` runs before ``_ingest`` takes this reservation, under the same
+#: held batch, so the larger reservation that follows covers it. The last
+#: 2 B/row cover the call's fixed overhead, about 4 KB. Measured with
+#: ``tracemalloc`` around ``_ingest`` on one real batch: the row array plus
+#: 16.0-16.8 B/row from 4,931 to 389,588 rows, with and without every extra
+#: type.
 _INGEST_SCRATCH_BYTES_PER_ROW = 2 * 8 + 2
 
-#: Per-row scratch in assembly: two link-null masks, the snapshot-position
-#: check and its expected values.
-_ASSEMBLY_SCRATCH_BYTES_PER_ROW = 2 + 2 * 8
+#: Per-row scratch in assembly: the snapshot-position check's ``arange``, its
+#: ``searchsorted`` result and the ``- 1`` applied to that result (3 x 8 B),
+#: the chunk's peak. What follows is smaller: the gathered expected snapshot
+#: numbers (8 B, alive to the end of the chunk) with their comparison mask,
+#: then the three masks of the null check. numpy elides the ``- 1`` temporary
+#: for arrays of 256 KiB or more, so a chunk of 32,768 rows or more measures
+#: 16 B/row; below that the full 24 is paid (24.04 B/row measured at 28,882
+#: rows).
+_ASSEMBLY_SCRATCH_BYTES_PER_ROW = 3 * 8
 
-#: Per-record consumer scratch reserved while resolved links are scattered:
-#: the local-row, kind-mask and located target snapshot/row arrays.
+#: Per-record consumer scratch reserved while resolved links are scattered,
+#: for the one segment in flight: its owner-local rows plus ``locate``'s
+#: positions, gathered snapshot numbers, gathered offsets and target rows
+#: (5 x 8 B), and a kind mask. Measured with ``tracemalloc`` around
+#: ``_resolve_chunk`` at 40.0-40.2 B/record for segments of 16,384 to 474,531
+#: records. Each segment is scattered by a call of its own
+#: (:meth:`_Transpose._scatter_links`) so that its arrays are freed before the
+#: next segment is located; were they still bound, a segment would cost about
+#: 58 B/record.
 _SCATTER_SCRATCH_BYTES_PER_RECORD = 5 * 8 + 1
 
 
@@ -867,10 +891,10 @@ class _Transpose:
                 consumer_bytes_per_record=_SCATTER_SCRATCH_BYTES_PER_RECORD,
             )
             with contextlib.closing(links):
-                # primed before any output file is opened, so the resolved
-                # sort's own intermediate passes never overlap an output writer
-                current = next(links, None)
-                offset = 0
+                # primed before any output file is opened: the merge's floor
+                # check runs on the first block, and the resolved sort's own
+                # intermediate passes must never overlap an output writer
+                cursor = _LinkCursor(links)
                 for path in self.targets:
                     with open(str(path), "xb", buffering=SCRATCH_WRITE_BUFFER_BYTES):
                         pass
@@ -879,16 +903,14 @@ class _Transpose:
                 try:
                     for first, rows in spool.chunks(row_buffer):
                         out = out_buffer[: rows.size]
-                        current, offset = self._resolve_chunk(
-                            first, rows, out, layout, links, current, offset, written
-                        )
+                        self._resolve_chunk(first, rows, out, layout, cursor, written)
                         writer.write(first, out)
                 finally:
                     writer.close()
-                if current is not None:
+                if cursor.block is not None:
                     raise ConverterError(
                         "resolved links remain for global position {} beyond the {} rows".format(
-                            int(current["owner_gp"][offset]), layout.total
+                            int(cursor.block["owner_gp"][cursor.offset]), layout.total
                         )
                     )
         finally:
@@ -925,12 +947,12 @@ class _Transpose:
         rows: np.ndarray,
         out: np.ndarray,
         layout: SnapshotLayout,
-        links: Iterator[np.ndarray],
-        current: Optional[np.ndarray],
-        offset: int,
+        cursor: "_LinkCursor",
         written: Dict[str, int],
-    ) -> Tuple[Optional[np.ndarray], int]:
-        """Fill one chunk's output rows; returns the resolved-link cursor."""
+    ) -> None:
+        """Fill the output rows of global positions ``first .. first +
+        len(rows)``, taking every resolved link those rows own from
+        ``cursor`` and counting each written link in ``written``."""
         n_rows = int(rows.size)
         end = first + n_rows
 
@@ -953,35 +975,8 @@ class _Transpose:
         for extra in self.schema.extra_fields:
             out[extra.name] = rows[extra.name]
 
-        while current is not None:
-            owners = current["owner_gp"]
-            stop = offset + int(np.searchsorted(owners[offset:], end, side="left"))
-            if stop > offset:
-                segment = current[offset:stop]
-                local = segment["owner_gp"] - first
-                if int(local.min()) < 0:
-                    raise ConverterError(  # pragma: no cover - resolved links are owner-sorted
-                        "resolved link for global position {} arrived after its row".format(
-                            int(segment["owner_gp"][int(np.argmin(local))])
-                        )
-                    )
-                target_snapshot, target_row = layout.locate(segment["target_gp"])
-                kinds = segment["kind"]
-                for kind, name in enumerate(LINK_FIELDS):
-                    mask = kinds == kind
-                    if not bool(np.any(mask)):
-                        continue
-                    slots = local[mask]
-                    out[name][slots] = target_row[mask]
-                    column = _SNAPSHOT_COLUMN.get(name)
-                    if column is not None:
-                        out[column][slots] = target_snapshot[mask]
-                    written[name] += int(slots.size)
-            offset = stop
-            if offset < current.size:
-                break
-            current = next(links, None)
-            offset = 0
+        for segment in cursor.take_below(end):
+            self._scatter_links(segment, first, out, layout, written)
 
         # every non-null source link resolved exactly once, and no null one
         for name in LINK_FIELDS:
@@ -994,7 +989,68 @@ class _Transpose:
                         name, int(rows["SourceHaloID"][bad]), layout.describe(first + bad)
                     )
                 )
-        return current, offset
+
+    @staticmethod
+    def _scatter_links(
+        segment: np.ndarray,
+        first: int,
+        out: np.ndarray,
+        layout: SnapshotLayout,
+        written: Dict[str, int],
+    ) -> None:
+        """Write one segment of resolved links into the chunk whose row 0 is
+        global position ``first``. A call of its own so that the segment's
+        arrays are freed before the next segment is located
+        (:data:`_SCATTER_SCRATCH_BYTES_PER_RECORD`)."""
+        local = segment["owner_gp"] - first
+        if int(local.min()) < 0:
+            raise ConverterError(  # pragma: no cover - resolved links are owner-sorted
+                "resolved link for global position {} arrived after its row".format(
+                    int(segment["owner_gp"][int(np.argmin(local))])
+                )
+            )
+        target_snapshot, target_row = layout.locate(segment["target_gp"])
+        kinds = segment["kind"]
+        for kind, name in enumerate(LINK_FIELDS):
+            mask = kinds == kind
+            if not bool(np.any(mask)):
+                continue
+            slots = local[mask]
+            out[name][slots] = target_row[mask]
+            column = _SNAPSHOT_COLUMN.get(name)
+            if column is not None:
+                out[column][slots] = target_snapshot[mask]
+            written[name] += int(slots.size)
+
+
+class _LinkCursor:
+    """Read position in the owner-sorted stream of resolved links.
+
+    ``block`` is the stream's current block -- a view the stream reuses,
+    valid until the next block is requested -- or ``None`` once the stream is
+    exhausted; ``offset`` is its first link not yet taken. Constructing the
+    cursor requests the first block, which primes the merge behind it.
+    """
+
+    def __init__(self, blocks: Iterator[np.ndarray]):
+        self._blocks = blocks
+        self.block: Optional[np.ndarray] = next(blocks, None)
+        self.offset = 0
+
+    def take_below(self, end: int) -> Iterator[np.ndarray]:
+        """Yield, in stream order, every remaining link whose owner's global
+        position is below ``end``, as contiguous segments of the stream's
+        blocks. A segment is valid only until the next one is requested."""
+        while self.block is not None:
+            owners = self.block["owner_gp"]
+            stop = self.offset + int(np.searchsorted(owners[self.offset :], end, side="left"))
+            if stop > self.offset:
+                yield self.block[self.offset : stop]
+            self.offset = stop
+            if self.offset < self.block.size:
+                return
+            self.block = next(self._blocks, None)
+            self.offset = 0
 
 
 class _SnapshotWriter:

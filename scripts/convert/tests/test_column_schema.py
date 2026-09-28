@@ -1,4 +1,4 @@
-"""Slice 2 unit tests: canonical source schema, mapping profiles and schema
+"""Unit tests for the canonical source schema, mapping profiles and schema
 identity (scripts/convert/column_schema.py).
 
 Three properties carry most of the weight here and are tested directly rather
@@ -9,9 +9,9 @@ than inferred:
   value is read, typed, named or labelled is not.
 - **Same-width substitutions are visible.** ``int``/``float``,
   ``long long``/``double`` and ``vec3_int``/``vec3_float`` occupy the same
-  bytes and must still produce different digests, because Slice 7's resume
-  path must reject a same-width schema substitution before it mutates
-  anything.
+  bytes and must still produce different digests, because the conversion
+  manifest's resume path must reject a same-width schema substitution before
+  it mutates anything.
 - **Integers never pass through floating point.** Offsets, itemsizes and
   declared values above 2**31 and 2**53 survive canonical serialization
   exactly, and 2**53 and 2**53 + 1 are distinguishable.
@@ -25,6 +25,7 @@ import copy
 import dataclasses
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -37,6 +38,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import column_schema as cs  # noqa: E402
+import ctrees_parser  # noqa: E402
 from adapters import source_inventory as si  # noqa: E402
 from ctrees_parser import ConverterError  # noqa: E402
 
@@ -44,6 +46,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 PROFILE_DIR = REPO_ROOT / "scripts" / "convert" / "profiles"
 DATA_DIR = Path(__file__).parent / "data" / "column_maps"
 LHALO_PROPERTIES = REPO_ROOT / "simulations" / "mini-millennium" / "halo_properties.yaml"
+CTREES_HDF5_READER = REPO_ROOT / "src" / "io" / "vertical" / "read_ctrees_hdf5.c"
 
 
 def valid_profile(source_format, extras=None):
@@ -1412,6 +1415,20 @@ class V3FieldTableTests(unittest.TestCase):
         self.assertEqual(payload["M_Crit200"].units, "1e10 Msun/h")
         self.assertEqual(cs.EXTRA_TYPES[payload["M_Crit200"].type].numpy_dtype, "float32")
 
+    def test_core_payload_names_are_every_format_payload_in_declared_order(self):
+        """The reserved core names and each format's payload table are one list.
+
+        ``RESERVED_OUTPUT_NAMES`` is built from ``_CORE_PAYLOAD_NAMES`` before
+        the payload tables exist, so a payload field added to or renamed in one
+        table without the other would leave an extra free to shadow it.
+        """
+        for source_format in cs.SOURCE_FORMATS:
+            with self.subTest(source_format=source_format):
+                self.assertEqual(
+                    tuple(field.name for field in cs.PAYLOAD_FIELDS[source_format]),
+                    cs._CORE_PAYLOAD_NAMES,
+                )
+
     def test_ctrees_mass_stays_native_msun_h(self):
         for source_format in ("consistent_trees_ascii", "consistent_trees_hdf5"):
             payload = {f.name: f for f in cs.PAYLOAD_FIELDS[source_format]}
@@ -1442,6 +1459,58 @@ class V3FieldTableTests(unittest.TestCase):
         table = {entry["name"] for entry in fragment["format_table_fields"]}
         self.assertIn("Descendant", table)
         self.assertIn("SourceHaloID", table)
+
+    def test_consumer_metadata_fragment_binds_the_link_roles_on_format_table_fields(self):
+        schema = schema_for(
+            valid_profile("lhalo_binary"), cs.load_source_properties(LHALO_PROPERTIES)
+        )
+        fragment = schema.consumer_metadata_fragment()
+        self.assertEqual(
+            set(fragment),
+            {
+                "source_format",
+                "column_mapping_sha256",
+                "complete",
+                "incomplete_because",
+                "identity_conventions",
+                "halo_properties",
+                "format_table_fields",
+            },
+        )
+        links = (
+            "Descendant",
+            "FirstProgenitor",
+            "NextProgenitor",
+            "FirstHaloInFOFgroup",
+            "NextHaloInFOFgroup",
+        )
+        unbound = (
+            "DescendantSnapshot",
+            "FirstProgenitorSnapshot",
+            "NextProgenitorSnapshot",
+            "SourceHaloID",
+            "ForestIndex",
+            "HaloRankInForest",
+        )
+        entries = fragment["format_table_fields"]
+        self.assertEqual([entry["name"] for entry in entries], list(links + unbound))
+        for entry in entries:
+            self.assertEqual(
+                set(entry), {"name", "type", "description", "provides_core_role"}, entry["name"]
+            )
+        roles = {entry["name"]: entry["provides_core_role"] for entry in entries}
+        for name in links:
+            self.assertEqual(roles[name], name)
+        for name in unbound:
+            self.assertIsNone(roles[name], name)
+        # every core role is provided exactly once across payload and format table
+        provided = [
+            entry["provides_core_role"]
+            for entry in fragment["halo_properties"] + entries
+            if entry["provides_core_role"] is not None
+        ]
+        self.assertEqual(len(provided), len(set(provided)))
+        self.assertEqual(set(provided), set(cs._CORE_ROLE_BINDINGS.values()))
 
 
 class PropertyGeneratorVocabularyTests(unittest.TestCase):
@@ -1493,6 +1562,46 @@ class PropertyGeneratorVocabularyTests(unittest.TestCase):
         required = {entry["name"] for entry in text.get("required_inputs", [])}
         self.assertTrue(required, "core_properties.yaml declares no required_inputs")
         self.assertEqual(set(cs._CORE_ROLE_BINDINGS.values()), required)
+
+
+class SourceReaderVocabularyTests(unittest.TestCase):
+    """Each format's required roles must be the names its reference reader reads.
+
+    Checked against the readers themselves -- the ASCII parser's column tables
+    and the C forests-HDF5 reader's field table -- rather than against a copy,
+    so a column added to or dropped from a reader fails here instead of
+    surfacing as an unmappable role at conversion time.
+    """
+
+    def test_ascii_roles_are_the_parser_required_columns_plus_snap(self):
+        roles = cs.REQUIRED_ROLES["consistent_trees_ascii"]
+        self.assertEqual(len(roles), len(set(roles)))
+        self.assertEqual(
+            set(roles),
+            set(ctrees_parser._INT_COLUMNS) | set(ctrees_parser._FLOAT_COLUMNS) | {"snap"},
+        )
+
+    def test_hdf5_roles_are_the_c_reader_fixed_fields_plus_snap(self):
+        """The C table names every field but the snapshot, whose dataset name
+        (``Snap_num`` or ``Snap_idx``) the reader chooses per file at runtime and
+        which the profile therefore maps through the ``snap`` role."""
+        source = CTREES_HDF5_READER.read_text()
+        table = re.search(
+            r"CTREES_H5_FIXED_FIELD_NAMES\[CTREES_H5_FIELD_COUNT\]\s*=\s*\{(.*?)\};",
+            source,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(table, "CTREES_H5_FIXED_FIELD_NAMES not found in the C reader")
+        entries = re.findall(r'\[(\w+)\]\s*=\s*(?:"([^"]*)"|(NULL))', table.group(1))
+        self.assertTrue(entries, "CTREES_H5_FIXED_FIELD_NAMES has no parsable entries")
+        named = [name for _slot, name, null in entries if not null]
+        runtime_named = [slot for slot, _name, null in entries if null]
+        self.assertEqual(runtime_named, ["CTREES_H5_FIELD_SNAP"])
+        self.assertEqual(len(named), len(set(named)))
+
+        roles = cs.REQUIRED_ROLES["consistent_trees_hdf5"]
+        self.assertEqual(len(roles), len(set(roles)))
+        self.assertEqual(set(roles), set(named) | {"snap"})
 
 
 class ImmutabilityTests(unittest.TestCase):

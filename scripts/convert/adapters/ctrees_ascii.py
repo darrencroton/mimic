@@ -1,7 +1,6 @@
 """Consistent-Trees ASCII source adapter: the canonical bridge over the existing
-ASCII topology preparation (Slice 5 of the converter generalisation plan,
-docs/dev/MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md, contracts
-C1/C2/C4).
+ASCII topology preparation (contracts C1/C2/C4 of
+docs/dev/MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md).
 
 **Why a bridge rather than a reader.** Consistent-Trees ASCII stores no merger
 links: the vertical reader reconstructs them (``ctrees_utils.c``
@@ -53,8 +52,8 @@ Chain order is the link stage's, untouched.
 increasing as ``CanonicalBatch`` requires. ``SourceHaloID`` does *not* ascend
 across batches -- unlike the two prelinked adapters, whose emission follows the
 inventory -- because the preparation is snapshot-partitioned; the transpose
-(Slice 6) partitions by snapshot anyway. After the last batch the adapter
-proves every id in ``[1, total]`` was emitted exactly once.
+partitions by snapshot anyway. After the last batch the adapter proves every
+id in ``[1, total]`` was emitted exactly once.
 
 **Bounds (C4).** ASCII keeps its existing per-snapshot bounds; nothing is
 catalog-sized except the two budgeted terms C4 permits, each checked against
@@ -66,18 +65,21 @@ catalog-sized except the two budgeted terms C4 permits, each checked against
 
 Per snapshot the resident working set is three ``SourceHaloID`` columns (the
 snapshot and both neighbours) plus the snapshot's sort permutation, 8 bytes
-per halo each, plus one batch's gathered rows; fixed and links records are
-memory-mapped, never loaded whole. A snapshot too large for the budget is
-refused, never allocated.
+per halo each, plus one batch's gathered rows (:func:`batch_term_bytes`, which
+never charges more rows than the snapshot holds). Fixed and links records are
+memory-mapped, never loaded whole, and each snapshot's are checksum-verified
+once per pass: the mapping verified while the snapshot is the upcoming
+neighbour is the one its own batches are gathered from. A snapshot too large
+for the budget is refused, never allocated.
 """
 
 import os
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional, Sequence, Tuple
+from typing import Dict, Iterator, List, NamedTuple, Optional, Sequence, Tuple
 
 import numpy as np
 from column_schema import EXTRA_TYPES, CanonicalSchema, ConverterError
-from ctrees_parser import DEFAULT_CHUNKSIZE, ScratchLayout
+from ctrees_parser import DEFAULT_CHUNKSIZE, EXTRA_FIELD_PREFIX, ScratchLayout
 from fixups import fixed_layout, run_fixups
 from links import (
     DEFAULT_RANK_BUDGET_BYTES,
@@ -103,9 +105,10 @@ from .base import (
     SourceAdapter,
     SourceInventory,
     SourceUnit,
+    check_budget,
+    require_integer,
 )
 from .ctrees_hdf5 import ForestRecord
-from .lhalo_binary import _require_integer
 
 __all__ = [
     "ConverterError",
@@ -115,6 +118,7 @@ __all__ = [
     "SOURCE_ID_READ_ROWS",
     "DEFAULT_MEMORY_BUDGET_BYTES",
     "CTreesAsciiAdapter",
+    "batch_term_bytes",
     "prepare_workdir",
 ]
 
@@ -176,6 +180,68 @@ _PAYLOAD_NAMES = frozenset(
 _BATCH_CANONICAL_BYTES_PER_ROW = 3 * 8 + 3 * 8 + 5 * 8 + 64
 
 
+def batch_term_bytes(schema: CanonicalSchema, max_rows: int, n_rows: Optional[int] = None) -> int:
+    """Bytes :meth:`CTreesAsciiAdapter.iter_batches` charges for one batch of a
+    snapshot of ``n_rows`` halos, as one addend of that snapshot's budget check.
+
+    A batch holds ``min(max_rows, n_rows)`` rows, since no batch spans two
+    snapshots. Each row is charged its gathered fixed record (the schema's
+    extended fixed layout), its links record, the canonical identity,
+    coordinate, link and payload columns built from them, and one element of
+    every declared extra; the total is doubled as headroom for the conversion
+    temporaries a batch's assembly creates. The function is pure: it reads
+    only the schema's declared widths, so a caller can evaluate it before any
+    preparation has run.
+
+    Args:
+        schema: A ``consistent_trees_ascii`` schema; its extras set the widths.
+        max_rows: The batch-size cap passed to ``iter_batches``.
+        n_rows: The snapshot's halo count, or ``None`` to charge a full batch
+            of ``max_rows`` -- the worst case, which over-refuses a small
+            catalog (664 MiB for the default profile at ``1 << 20`` rows).
+
+    Returns:
+        The batch term in bytes.
+
+    Raises:
+        ConverterError: ``schema`` is not a ``consistent_trees_ascii`` schema,
+            ``max_rows`` is not an integer of at least 1, or ``n_rows`` is not
+            ``None`` or a non-negative integer.
+    """
+    max_rows = require_integer(
+        max_rows,
+        "max_rows",
+        "a fractional batch size would be truncated, and True would silently mean 1",
+        minimum=1,
+    )
+    if n_rows is None:
+        rows = max_rows
+    else:
+        n_rows = require_integer(
+            n_rows, "n_rows", "a snapshot holds a whole number of halos", minimum=0
+        )
+        rows = min(max_rows, n_rows)
+    fixed_dtype, _fixed_tag = fixed_layout(ScratchLayout.from_schema(schema))
+    row_bytes = (
+        fixed_dtype.itemsize
+        + LINKS_RECORD_DTYPE.itemsize
+        + _BATCH_CANONICAL_BYTES_PER_ROW
+        + sum(EXTRA_TYPES[extra.type].itemsize for extra in schema.extra_fields)
+    )
+    return 2 * rows * row_bytes
+
+
+class _MappedSnapshot(NamedTuple):
+    """One snapshot's verified, memory-mapped scratch and its ``SourceHaloID``
+    column, carried from the iteration that verified it to the one that
+    emits it."""
+
+    snap: int
+    fixed: np.ndarray
+    links: np.ndarray
+    ids: np.ndarray
+
+
 def prepare_workdir(
     schema: CanonicalSchema,
     tree_files: Sequence,
@@ -187,6 +253,8 @@ def prepare_workdir(
     pool_size: int = 1,
     chunksize: int = DEFAULT_CHUNKSIZE,
     rank_budget_bytes: int = DEFAULT_RANK_BUDGET_BYTES,
+    max_rows: Optional[int] = None,
+    memory_budget_bytes: Optional[int] = None,
 ) -> Manifest:
     """Run the existing ASCII topology preparation in the schema's extended
     scratch layout: scatter, sort, fix-ups and links. Returns the workdir
@@ -197,6 +265,17 @@ def prepare_workdir(
     are bound into the manifest as on the legacy route, and the schema's
     layout (tag and digest) is too, so a resume with any other selection --
     or with none -- is refused before anything is mutated.
+
+    **Early batch-term refusal.** Given ``max_rows`` and
+    ``memory_budget_bytes`` (the batch size and the adapter ceiling the
+    ingest will read with), the largest snapshot's batch term
+    (:func:`batch_term_bytes`) is checked against the budget as soon as
+    scatter has counted every snapshot, before sort, fix-ups or links run:
+    a snapshot :meth:`CTreesAsciiAdapter.iter_batches` would refuse for its
+    batch term is refused here instead, with the same message and remedy,
+    and the scatter output is kept for a resume under a larger budget. The
+    two are given together or not at all; without them no early check is
+    made and ``iter_batches`` remains the only one.
 
     **Resume** follows the stages' own rules, which this does not change: each
     stage skip-trusts the snapshots it already finished, but scatter, sort and
@@ -212,6 +291,24 @@ def prepare_workdir(
                 CTreesAsciiAdapter.source_format, schema.source_format
             )
         )
+    if (max_rows is None) != (memory_budget_bytes is None):
+        raise ConverterError(
+            "prepare_workdir needs max_rows and memory_budget_bytes together, got max_rows={!r} "
+            "and memory_budget_bytes={!r}".format(max_rows, memory_budget_bytes)
+        )
+    if max_rows is not None:
+        max_rows = require_integer(
+            max_rows,
+            "max_rows",
+            "a fractional batch size would be truncated, and True would silently mean 1",
+            minimum=1,
+        )
+        memory_budget_bytes = require_integer(
+            memory_budget_bytes,
+            "memory_budget_bytes",
+            "a fractional ceiling would be truncated into a different budget than asked for",
+            minimum=1,
+        )
     manifest = Manifest.load_or_create(workdir, layout=ScratchLayout.from_schema(schema))
     if manifest.path.exists() and any(
         entry.get("status") == "linked" for entry in manifest.data["snapshots"].values()
@@ -220,7 +317,7 @@ def prepare_workdir(
             manifest, tree_files, forests_list_path, a_list_path, simulation_info_path
         )
         return run_links(workdir, budget_bytes=rank_budget_bytes)
-    run_scatter(
+    scattered = run_scatter(
         tree_files=tree_files,
         forests_list_path=forests_list_path,
         a_list_path=a_list_path,
@@ -230,9 +327,31 @@ def prepare_workdir(
         simulation_info_path=simulation_info_path,
         schema=schema,
     )
+    if max_rows is not None:
+        _check_largest_batch_term(schema, scattered, max_rows, memory_budget_bytes)
     run_sort(workdir)
     run_fixups(workdir, a_list_path=a_list_path, simulation_info_path=simulation_info_path)
     return run_links(workdir, budget_bytes=rank_budget_bytes)
+
+
+def _check_largest_batch_term(
+    schema: CanonicalSchema, manifest: Manifest, max_rows: int, memory_budget_bytes: int
+) -> None:
+    """Refuse the largest scattered snapshot's batch term before any later
+    stage runs. The row counts are the ones ``iter_batches`` reads, recorded
+    by scatter's concatenation; the lowest-numbered snapshot of the largest
+    count is the one named."""
+    rows_of = {int(snap): int(entry["rows"]) for snap, entry in manifest.data["snapshots"].items()}
+    if not rows_of:
+        return
+    largest = max(rows_of.values())
+    snap = min(snap for snap, n_rows in rows_of.items() if n_rows == largest)
+    check_budget(
+        batch_term_bytes(schema, max_rows, largest),
+        memory_budget_bytes,
+        "snapshot {} ({} halos, batches of {})".format(snap, largest, max_rows),
+        "raise memory_budget_bytes or lower max_rows",
+    )
 
 
 def _check_recorded_inputs(
@@ -313,7 +432,7 @@ class CTreesAsciiAdapter(SourceAdapter):
                 "the consistent_trees_ascii schema declares payload {}, but this adapter fills "
                 "{}".format(sorted(declared), sorted(_PAYLOAD_NAMES))
             )
-        memory_budget_bytes = _require_integer(
+        memory_budget_bytes = require_integer(
             memory_budget_bytes,
             "memory_budget_bytes",
             "a fractional ceiling would be truncated into a different budget than asked for",
@@ -376,8 +495,9 @@ class CTreesAsciiAdapter(SourceAdapter):
             )
         # the table plus the two searchsorted bounds and the per-forest totals
         # (4 x 8 B per forest), and the six per-unit views below (6 x 8 B per unit)
-        self._check_budget(
+        check_budget(
             header.nbytes * 4 + self._unit_counts.nbytes * 6,
+            self.memory_budget_bytes,
             "the forest sidecar view ({} forest(s), {} unit(s))".format(
                 header.shape[0], self._unit_counts.size
             ),
@@ -421,13 +541,12 @@ class CTreesAsciiAdapter(SourceAdapter):
     def iter_batches(self, max_rows: int) -> Iterator[CanonicalBatch]:
         """Stream canonical batches of at most ``max_rows`` rows (see the
         module docstring for their order and for what is resident)."""
-        max_rows = _require_integer(
+        max_rows = require_integer(
             max_rows,
             "max_rows",
             "a fractional batch size would be truncated, and True would silently mean 1",
+            minimum=1,
         )
-        if max_rows < 1:
-            raise ConverterError("max_rows must be at least 1, got {}".format(max_rows))
         inventory = self.inventory()
         manifest = self._manifest
         snaps = sorted(int(s) for s in manifest.data["snapshots"])
@@ -436,52 +555,46 @@ class CTreesAsciiAdapter(SourceAdapter):
         rows_of = {snap: int(manifest.data["snapshots"][str(snap)]["rows"]) for snap in snaps}
 
         total = inventory.total_halos
-        self._check_budget(
+        check_budget(
             (total + 7) // 8,
+            self.memory_budget_bytes,
             "the SourceHaloID coverage bitset (1 bit per halo, {} halos)".format(total),
             "raise memory_budget_bytes; the bitset is what proves every id is emitted once",
         )
         claimed = np.zeros((total + 7) // 8, dtype=np.uint8)
-        batch_bytes = (
-            2
-            * max_rows
-            * (
-                fixed_dtype.itemsize
-                + LINKS_RECORD_DTYPE.itemsize
-                + _BATCH_CANONICAL_BYTES_PER_ROW
-                + sum(EXTRA_TYPES[extra.type].itemsize for extra in self.schema.extra_fields)
-            )
-        )
 
         emitted = 0
         previous: Optional[Tuple[int, np.ndarray]] = None
-        upcoming: Optional[Tuple[int, np.ndarray]] = None
+        upcoming: Optional[_MappedSnapshot] = None
         for snap in snaps:
             n_rows = rows_of[snap]
             n_prev = rows_of.get(snap - 1, 0) if snap - 1 in recorded else 0
             n_next = rows_of.get(snap + 1, 0) if snap + 1 in recorded else 0
-            self._check_budget(
+            check_budget(
                 8 * (n_prev + n_rows + n_next)
                 + SNAPSHOT_BYTES_PER_HALO * n_rows
                 + SOURCE_ID_READ_ROWS * SOURCE_ID_READ_BYTES_PER_ROW
-                + batch_bytes,
+                + batch_term_bytes(self.schema, max_rows, n_rows),
+                self.memory_budget_bytes,
                 "snapshot {} ({} halos, neighbours {} and {}, batches of {})".format(
                     snap, n_rows, n_prev, n_next, max_rows
                 ),
                 "raise memory_budget_bytes or lower max_rows",
             )
-            fixed, links = self._open_snapshot(snap, fixed_dtype)
-            if upcoming is not None and upcoming[0] == snap:
-                current = upcoming[1]
+            if upcoming is not None and upcoming.snap == snap:
+                fixed, links, current = upcoming.fixed, upcoming.links, upcoming.ids
             else:
+                fixed, links = self._open_snapshot(snap, fixed_dtype)
                 current = self._source_ids(fixed, snap)
             prev_ids = previous[1] if previous is not None and previous[0] == snap - 1 else None
             upcoming = None
             if snap + 1 in recorded:
-                next_fixed, _next_links = self._open_snapshot(snap + 1, fixed_dtype)
-                upcoming = (snap + 1, self._source_ids(next_fixed, snap + 1))
-                del next_fixed, _next_links
-            next_ids = upcoming[1] if upcoming is not None else None
+                next_fixed, next_links = self._open_snapshot(snap + 1, fixed_dtype)
+                upcoming = _MappedSnapshot(
+                    snap + 1, next_fixed, next_links, self._source_ids(next_fixed, snap + 1)
+                )
+                del next_fixed, next_links
+            next_ids = upcoming.ids if upcoming is not None else None
 
             order = np.argsort(current, kind="stable")
             ascending = current[order]
@@ -521,15 +634,6 @@ class CTreesAsciiAdapter(SourceAdapter):
             )
 
     # ---- inventory -------------------------------------------------------
-
-    def _check_budget(self, required_bytes: int, what: str, remedy: str) -> None:
-        """Refuse an over-budget allocation *before* making it (C4)."""
-        if required_bytes > self.memory_budget_bytes:
-            raise ConverterError(
-                "{} needs {} bytes, above the configured memory budget of {} bytes; {}".format(
-                    what, required_bytes, self.memory_budget_bytes, remedy
-                )
-            )
 
     def _load_manifest(self) -> Manifest:
         manifest_path = self.workdir / "manifest.json"
@@ -600,8 +704,9 @@ class CTreesAsciiAdapter(SourceAdapter):
                     )
                 )
             n_units += int(header.shape[0])
-            self._check_budget(
+            check_budget(
                 INVENTORY_BASE_BYTES + n_units * INVENTORY_BYTES_PER_UNIT,
+                self.memory_budget_bytes,
                 "the source inventory ({} unit(s) through file {})".format(n_units, ordinal),
                 "raise memory_budget_bytes",
             )
@@ -633,10 +738,13 @@ class CTreesAsciiAdapter(SourceAdapter):
         stacked = np.concatenate(tables) if tables else np.zeros((0, 2), dtype=np.int64)
         self._unit_forest_ids = np.ascontiguousarray(stacked[:, 0])
         self._unit_counts = np.ascontiguousarray(stacked[:, 1])
-        self._unit_bases = np.ones(self._unit_counts.size, dtype=np.int64)
-        if self._unit_counts.size > 1:
-            np.cumsum(self._unit_counts[:-1], out=self._unit_bases[1:])
-            self._unit_bases[1:] += 1
+        # the emitted ids are the inventory's own bases, unit for unit: both
+        # the stacked tables and ``inventory.units`` are in (file, unit) order
+        self._unit_bases = np.fromiter(
+            (inventory.base_id(u.source_file_ordinal, u.unit_ordinal) for u in inventory.units),
+            dtype=np.int64,
+            count=len(inventory.units),
+        )
         self._file_unit_offsets = np.r_[
             np.int64(0), np.cumsum([table.shape[0] for table in tables], dtype=np.int64)
         ]
@@ -771,7 +879,7 @@ class CTreesAsciiAdapter(SourceAdapter):
         }
         extras = {
             extra.name: np.ascontiguousarray(
-                fixed["extra_" + extra.name], dtype=EXTRA_TYPES[extra.type].numpy_dtype
+                fixed[EXTRA_FIELD_PREFIX + extra.name], dtype=EXTRA_TYPES[extra.type].numpy_dtype
             )
             for extra in self.schema.extra_fields
         }

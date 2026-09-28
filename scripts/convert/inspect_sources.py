@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Read-only source inspection CLI (Slice 1 of the converter generalisation
-plan, docs/dev/MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md).
+"""Read-only source inspection CLI for the converter
+(docs/dev/MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md).
 
 Two subcommands:
 
@@ -12,10 +12,11 @@ Two subcommands:
               Uchuu), each against its declared adapter route, plus a full
               inspection of whichever ones are reachable.
 
-Never writes into a source directory; every open is read-only. This is the
-generic `inspect` command named in the plan's C4 command list (`inspect,
-ingest, transpose, write, validate, report`) -- the other five remain future
-work.
+Never writes into a source directory; every open is read-only. It inspects a
+source as the simulation package declares it, independently of any mapping
+profile; convert_trees.py's own `inspect` subcommand is the profile-resolved
+counterpart that sits beside `ingest`, `transpose`, `write`, `validate` and
+`report`.
 """
 
 import argparse
@@ -23,6 +24,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import List
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -98,13 +100,8 @@ def _protected_paths_for_hdf5(sim_info: si.SimulationInfo):
 
 
 def _protected_paths_for_lhalo(sim_info: si.SimulationInfo):
-    """The individual L-Halo tree files this run actually reads. A tree
-    file inside `simulation_dir` can itself be a filesystem symlink whose
-    target resolves outside `simulation_dir` -- the in-directory path is
-    what a user would naturally point --json at, and `simulation_dir`
-    protection alone does not cover the real file a symlink resolves
-    through. `check_lhalo_reachability` already enumerates these into
-    `present_files`, mirroring `_protected_paths_for_hdf5` exactly."""
+    """The L-Halo tree files this run reads (see `_protected_source_paths`
+    for why each real file, not just `simulation_dir`, is protected)."""
     if sim_info.tree_type != "lhalo_binary":
         return []
     try:
@@ -114,15 +111,10 @@ def _protected_paths_for_lhalo(sim_info: si.SimulationInfo):
 
 
 def _protected_paths_for_ascii(sim_info: si.SimulationInfo):
-    """Every file the ASCII route actually reads: the index files
-    (forests.list, locations.dat) plus every discovered tree_*.dat file
-    (the same glob `inspect_ascii_source` uses). Any of these could
-    themselves be symlinks resolving outside `simulation_dir` -- the same
-    class of risk as the L-Halo route's tree files. No named package
-    currently uses this route (NAMED_PACKAGES has none with
-    tree_type == consistent_trees_ascii), but `inspect --source-format
-    consistent_trees_ascii` can be invoked directly against any package, so
-    this is not merely hypothetical for `cmd_inspect`."""
+    """The files the ASCII route reads: the index files (forests.list,
+    locations.dat) and every tree_*.dat file `inspect_ascii_source` would
+    open. No named package uses this route, but `inspect --source-format
+    consistent_trees_ascii` can name any package."""
     if sim_info.tree_type != "consistent_trees_ascii":
         return []
     sim_dir = Path(sim_info.simulation_dir)
@@ -136,10 +128,10 @@ def _protected_source_paths(sim_info: si.SimulationInfo):
     `simulation_dir` itself -- HDF5 external-link targets, L-Halo binary
     tree files, and ASCII index/tree files can each resolve through a
     symlink to somewhere outside `simulation_dir` (the same underlying gap,
-    closed once per route: metadata/a_list/simulation_dir in round 3, HDF5
-    external links in round 5, L-Halo/ASCII files here). Each helper is
-    gated on `tree_type` and no-ops for the other two routes, so calling
-    all three unconditionally is safe."""
+    closed once per route: metadata/a_list/simulation_dir by the callers,
+    HDF5 external links, L-Halo tree files and ASCII index/tree files by the
+    three helpers here). Each helper is gated on `tree_type` and no-ops for
+    the other two routes, so calling all three unconditionally is safe."""
     protected = []
     protected.extend(_protected_paths_for_hdf5(sim_info))
     protected.extend(_protected_paths_for_lhalo(sim_info))
@@ -157,8 +149,7 @@ def _check_json_output_safe(json_path, protected_paths) -> None:
     Without this, --json is a normal documented flag that can silently
     destroy a real source file: pointing it at a source path overwrites that
     path in place with the JSON report, which is exactly what "inspection
-    never writes into source directories" (this slice's own acceptance
-    criterion) forbids."""
+    never writes into source directories" forbids."""
     resolved = Path(json_path).resolve()
     for protected in protected_paths:
         if protected is None:
@@ -217,27 +208,7 @@ def inspect_lhalo_source(
         if scan_links:
             summary = si.scan_lhalo_file(header, max_snapshot=max_snapshot)
             entry["link_summary"] = _link_summary_to_dict(summary)
-            combined.non_null_descendant_links += summary.non_null_descendant_links
-            combined.forward_adjacent_links += summary.forward_adjacent_links
-            combined.forward_gap_links += summary.forward_gap_links
-            combined.non_forward_or_zero_span += summary.non_forward_or_zero_span
-            combined.max_span = max(combined.max_span, summary.max_span)
-            if summary.mostboundid_min is not None:
-                combined.mostboundid_min = (
-                    summary.mostboundid_min
-                    if combined.mostboundid_min is None
-                    else min(combined.mostboundid_min, summary.mostboundid_min)
-                )
-            if summary.mostboundid_max is not None:
-                combined.mostboundid_max = (
-                    summary.mostboundid_max
-                    if combined.mostboundid_max is None
-                    else max(combined.mostboundid_max, summary.mostboundid_max)
-                )
-            for snap, count in summary.snapshot_halo_counts.items():
-                combined.snapshot_halo_counts[snap] = (
-                    combined.snapshot_halo_counts.get(snap, 0) + count
-                )
+            combined.merge(summary)
         files_report.append(entry)
     return {
         "adapter": "lhalo_binary",
@@ -293,10 +264,10 @@ def inspect_ascii_source(sim_info: si.SimulationInfo, scan_links: bool = True):
     """ASCII reachability/field report, plus (unless scan_links=False) cheap
     real counts via the parser's own existing independent pre-count helper
     (ctrees_parser.prescan_file -- a single stream pass, no pandas, no
-    topology reconstruction). Full link-span/topology/forest identity for
-    ASCII remains out of this slice's scope (that duplicates Slice 5's job);
-    see docs/dev/MIMIC-CONVERTER-BASELINE-REFERENCE.md for the full pipeline
-    counts on the one dataset this slice captured end to end."""
+    topology reconstruction). Link-span, topology and forest identity for
+    ASCII belong to the ASCII adapter's own preparation stages, not to
+    inspection; docs/dev/MIMIC-CONVERTER-BASELINE-REFERENCE.md records the
+    full pipeline counts for one dataset end to end."""
     sim_dir = Path(sim_info.simulation_dir)
     forests_list = sim_dir / "forests.list"
     locations = sim_dir / "locations.dat"
@@ -392,21 +363,28 @@ def cmd_inspect(args):
     if args.json:
         Path(args.json).write_text(text + "\n")
     print(text)
-    return 0
+    return 1 if _file_errors(report) else 0
+
+
+def _file_errors(report) -> List[str]:
+    """Names of the report's per-file entries that recorded an error.
+
+    A malformed source file is reported as that file's ``error`` so the other
+    files are still inspected, but the run must still exit non-zero: an
+    operator reading only the exit status would otherwise take a report that
+    names a defect for a clean one.
+    """
+    return [entry["name"] for entry in report.get("files") or [] if entry.get("error")]
 
 
 # Per-package isolation boundaries (cmd_survey's three try blocks below, and
-# _named_package_protected_paths above) each catch bare `Exception`, not an
-# enumerated tuple. Rounds 2-5 each separately discovered one more specific
-# exception type escaping a fixed tuple here (KeyError/IndexError from a
-# malformed dataset, a transient OSError during reachability, yaml.YAMLError
-# from broken YAML, ValueError/TypeError from a malformed first_file) --
-# every one of those library calls sits on untrusted per-package binary/HDF5/
-# YAML input, this tool's own declared risky surface, and there is no
-# exception type for which "crash and discard every other package's results"
-# is the right behavior here. A fifth distinct exception type reaching one of
-# these boundaries from a later slice's descendant code should not need its
-# own future correction round.
+# _named_package_protected_paths) each catch bare `Exception`, not an
+# enumerated tuple. The library calls inside them sit on untrusted per-package
+# binary/HDF5/YAML input and raise a wide spread of types (KeyError/IndexError
+# from a malformed dataset, a transient OSError during reachability,
+# yaml.YAMLError from broken YAML, ValueError/TypeError from a malformed
+# first_file), and there is no exception type for which "crash and discard
+# every other package's results" is the right behavior here.
 
 
 def _named_package_protected_paths(root: Path):
@@ -471,19 +449,13 @@ def cmd_survey(args):
             elif adapter == "ctrees_hdf5":
                 reach = si.check_hdf5_reachability(sim_info)
             else:
-                sim_dir = Path(sim_info.simulation_dir)
-                reach = si.SourceReachability(
-                    simulation_dir=str(sim_dir),
-                    exists=sim_dir.exists(),
-                    host=si.host_identity(),
-                    declared_first_file=sim_info.first_file,
-                    declared_last_file=sim_info.last_file,
-                    declared_file_count=0,
-                    present_files=[],
-                    present_file_count=0,
-                    total_bytes=0,
-                    free_bytes_on_volume=si.free_space_bytes(sim_dir),
-                    notes=[
+                reach = si.SourceReachability.observed(
+                    sim_info,
+                    Path(sim_info.simulation_dir).exists(),
+                    0,
+                    [],
+                    0,
+                    [
                         "ASCII reachability uses forests.list/locations.dat, "
                         "not first_file/last_file"
                     ],
@@ -506,6 +478,8 @@ def cmd_survey(args):
                     args.byte_order,
                     not args.no_link_scan,
                 )
+                if _file_errors(entry["inspection"]):
+                    any_error = True
             except Exception as exc:
                 entry["inspection_error"] = str(exc)
                 any_error = True

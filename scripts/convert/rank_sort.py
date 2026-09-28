@@ -99,7 +99,7 @@ intermediates. A partially written ranks file is removed on failure too.
 numpy + stdlib only. Deliberately not a general sorting library: it exists for
 this one key.
 
-**The keyed external sort (Slice 6).** The converter generalisation's bounded
+**The keyed external sort.** The converter generalisation's bounded
 transpose (``transpose.py``/``source_keys.py``) needs the same budgeted
 run-generation/k-way-merge machinery over several *other* record layouts --
 snapshot-partitioned halo rows, source-key join records, resolved links and
@@ -323,7 +323,7 @@ def rank_forests(
     ranks_path = Path(ranks_path)
     spill_root = Path(spill_dir) if spill_dir is not None else ranks_path.parent
     spills = _Spills(tempfile.mkdtemp(prefix="rank_spill_", dir=str(spill_root)))
-    residency = _Residency()
+    residency = ResidencyMeter()
     ranks_created = False
     try:
         runs, total = _generate_runs(blocks, spills, run_records, residency)
@@ -372,7 +372,7 @@ def rank_forests(
 # --------------------------------------------------------------------------
 
 
-class _Residency:
+class ResidencyMeter:
     """Working memory this module holds, and its high-water marks.
 
     Every allocation is reported here — record buffers in both bytes and
@@ -381,6 +381,10 @@ class _Residency:
     should have held. An instrument that only ever counts the buffers that were
     *sized* from the budget cannot reveal an overrun, which is the whole reason
     the scratch is counted too.
+
+    Public so that callers can share one meter across several keyed sorters and
+    their own buffers, and a single high-water mark covers everything they hold
+    concurrently.
     """
 
     def __init__(self) -> None:
@@ -460,6 +464,11 @@ class _Spills:
         self.live_bytes += nbytes
         if self.live_bytes > self.peak_bytes:
             self.peak_bytes = self.live_bytes
+
+    def size_of(self, path: Path) -> int:
+        """Bytes recorded as written to ``path`` and not yet removed; zero for a
+        path this directory does not track."""
+        return self._sizes.get(path, 0)
 
     def remove(self, path: Path) -> None:
         self.live_bytes -= self._sizes.pop(path, 0)
@@ -668,7 +677,7 @@ def _generate_runs(
     blocks: Iterable[Tuple[int, np.ndarray]],
     spills: _Spills,
     run_records: int,
-    residency: _Residency,
+    residency: ResidencyMeter,
 ) -> Tuple[List[_Run], int]:
     """Fill one budget-sized chunk at a time, sort it, spill it as a run.
 
@@ -871,7 +880,7 @@ def _reduce_runs(
     spills: _Spills,
     fanin_cap: int,
     merge_records: int,
-    residency: _Residency,
+    residency: ResidencyMeter,
 ) -> Tuple[List[_Run], int]:
     """Merge runs until few enough remain for one final pass to consume.
 
@@ -905,7 +914,7 @@ def _reduce_runs(
 
 
 def _merge_runs(
-    runs: Sequence[_Run], merge_records: int, residency: _Residency
+    runs: Sequence[_Run], merge_records: int, residency: ResidencyMeter
 ) -> Iterator[np.ndarray]:
     """Yield the records of ``runs`` in global key order, in bounded blocks.
 
@@ -1039,7 +1048,7 @@ def _assign_ranks(
     ranks_path: Path,
     total: int,
     merge_records: int,
-    residency: _Residency,
+    residency: ResidencyMeter,
 ) -> Tuple[np.ndarray, np.ndarray, int]:
     """One streaming pass over the merged key order, writing each record's
     within-forest rank to its global position in the backing store.
@@ -1194,7 +1203,7 @@ def _verify_ranks(
     forest_counts: np.ndarray,
     max_rank: int,
     budget_bytes: int,
-    residency: _Residency,
+    residency: ResidencyMeter,
 ) -> None:
     """Re-read the backing store and check it against the group boundaries.
 
@@ -1308,7 +1317,7 @@ def _verify_ranks(
 
 
 # ==========================================================================
-# Generic keyed external sort (Slice 6 of the converter generalisation plan)
+# Generic keyed external sort (the converter generalisation's transpose)
 # ==========================================================================
 
 #: Buffer size of every generic spill *writer* handle. C4 fixes scratch writer
@@ -1360,12 +1369,6 @@ def read_into(handle, raw: memoryview) -> int:
     return _fill_block(handle, raw)
 
 
-#: Public name of the residency meter, for callers that share one meter across
-#: several sorters and their own buffers so that a single high-water mark
-#: covers everything they hold concurrently.
-ResidencyMeter = _Residency
-
-
 class SpillLedger:
     """Live and peak spill bytes on disk across every sorter that shares it.
 
@@ -1402,7 +1405,7 @@ class _LedgeredSpills(_Spills):
         self.ledger.add(nbytes)
 
     def remove(self, path: Path) -> None:
-        nbytes = self._sizes.get(path, 0)
+        nbytes = self.size_of(path)
         super().remove(path)
         self.ledger.remove(nbytes)
 
@@ -1421,7 +1424,7 @@ class _KeyedRunWriter:
     """Streams records into one spill run with 8192-byte buffering, binding
     the run to its record count and CRC32 as it writes."""
 
-    def __init__(self, spills: _Spills, tag: str, itemsize: int, residency: _Residency) -> None:
+    def __init__(self, spills: _Spills, tag: str, itemsize: int, residency: ResidencyMeter) -> None:
         self.spills = spills
         self.itemsize = itemsize
         self.residency = residency
@@ -1557,6 +1560,22 @@ def _keyed_count_at_or_below(
     return hi  # pragma: no cover - the loop always returns on its last level
 
 
+def _require_integer(value, name: str, minimum: Optional[int] = None) -> int:
+    """``value`` as a Python ``int``, refusing anything ``int()`` would coerce.
+
+    A float would be truncated and ``True`` read as 1 -- a budget silently
+    different from the one asked for -- so both are refused; ``bool`` is
+    excluded explicitly because it is a subclass of ``int``. numpy integers
+    are accepted, since budgets are routinely computed from array sizes.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
+        raise RankSortError("{} must be an integer, got {!r}".format(name, type(value).__name__))
+    value = int(value)
+    if minimum is not None and value < minimum:
+        raise RankSortError("{} must be at least {}, got {}".format(name, minimum, value))
+    return value
+
+
 def _keyed_fanin_cap(merge_records: int) -> int:
     """The rank core's fan-in cap, narrowed so each run keeps at least
     :data:`KEYED_MIN_RUN_BLOCK_RECORDS` buffered records when the budget
@@ -1572,8 +1591,9 @@ class KeyedSorter:
     fields; subarray fields such as a ``(float32, 3)`` vector are fine). The
     order is lexicographic over ``key_fields``, each of which must be exactly
     int64 and is never coerced. Equal keys are legal: the merge emits them
-    adjacent, in a deterministic order (run order, then input order within a
-    run), but a caller that needs a *total* order must make its key total.
+    adjacent, in an order that is deterministic for a given input and budget
+    but not otherwise specified. A total key gives a total order, so a caller
+    that needs one must make its key total.
 
     **Lifecycle.** :meth:`add` records (any number of calls, any block
     sizes), then iterate :meth:`sorted_blocks` once, then :meth:`close` --
@@ -1614,7 +1634,7 @@ class KeyedSorter:
         *,
         budget_bytes: int,
         spill_dir,
-        residency: Optional[_Residency] = None,
+        residency: Optional[ResidencyMeter] = None,
         ledger: Optional[SpillLedger] = None,
         tag: str = "keyed",
     ) -> None:
@@ -1643,11 +1663,7 @@ class KeyedSorter:
                     "key field {!r} has dtype {} -- every key field must be a scalar int64 and "
                     "is never coerced".format(name, field_dtype.str)
                 )
-        if isinstance(budget_bytes, bool) or not isinstance(budget_bytes, (int, np.integer)):
-            raise RankSortError(
-                "budget_bytes must be an integer, got {!r}".format(type(budget_bytes).__name__)
-            )
-        budget_bytes = int(budget_bytes)
+        budget_bytes = _require_integer(budget_bytes, "budget_bytes")
         per_record = keyed_generation_bytes_per_record(dtype, len(key_fields))
         if budget_bytes < per_record + SCRATCH_WRITE_BUFFER_BYTES:
             raise RankSortError(
@@ -1664,7 +1680,7 @@ class KeyedSorter:
         # the spill writer's buffer is open while a run is written, so it is
         # carved out of the same budget rather than held beside it
         self.run_records = (budget_bytes - SCRATCH_WRITE_BUFFER_BYTES) // per_record
-        self.residency = residency if residency is not None else _Residency()
+        self.residency = residency if residency is not None else ResidencyMeter()
         self.ledger = ledger if ledger is not None else SpillLedger()
         self.tag = tag
         self.n_records = 0
@@ -1786,6 +1802,11 @@ class KeyedSorter:
     ) -> Iterator[np.ndarray]:
         """Yield every added record in key order, in bounded blocks.
 
+        Both arguments are type-checked when this is called, as the
+        constructor's budget is: an integer (numpy integers included), never a
+        float or a ``bool``, and ``consumer_bytes_per_record`` non-negative. A
+        refused call leaves the sorter as it was.
+
         Seals the sorter at once -- before this call returns, not when the
         first block is requested -- so the generation buffers are gone before
         a caller allocates anything alongside the merge. The runs are then
@@ -1793,13 +1814,26 @@ class KeyedSorter:
         them, and that final pass is streamed. ``budget_bytes`` bounds the
         merge's buffers plus the consumer's reserved scratch; intermediate
         passes have no consumer and use the same budget for buffers alone.
+
+        **The merge-floor check is deferred.** Whether ``budget_bytes`` can
+        buffer a two-way merge of these runs, and whether it can run the
+        intermediate passes they need, is known only once the merge starts, so
+        a budget that is too small raises on the first ``next()``, not here. A
+        caller that creates output artifacts must therefore prime the
+        generator -- request its first block -- before creating them, so a
+        refused merge leaves nothing behind; ``transpose._Transpose._assemble``
+        does exactly that before opening any output file.
         """
+        budget_bytes = _require_integer(budget_bytes, "budget_bytes")
+        consumer_bytes = _require_integer(
+            consumer_bytes_per_record, "consumer_bytes_per_record", minimum=0
+        )
         if self._state not in ("generating", "sealed"):
             raise RankSortError("a keyed sort can be merged once; it is {}".format(self._state))
         self.seal()
         self._state = "merging"
         self.n_runs = len(self._runs)
-        return self._merge_all(int(budget_bytes), int(consumer_bytes_per_record))
+        return self._merge_all(budget_bytes, consumer_bytes)
 
     def _merge_all(self, budget_bytes: int, consumer_bytes: int) -> Iterator[np.ndarray]:
         runs = self._runs

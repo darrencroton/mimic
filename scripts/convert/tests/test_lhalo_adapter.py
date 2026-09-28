@@ -42,16 +42,17 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import column_schema as cs  # noqa: E402
 from adapters import lhalo_binary as lb  # noqa: E402
 from adapters import source_inventory as si  # noqa: E402
+from adapters import topology  # noqa: E402
 from adapters.base import NULL_LINK  # noqa: E402
 from adapters.lhalo_binary import (  # noqa: E402
     DEFAULT_MEMORY_BUDGET_BYTES,
     INVENTORY_BASE_BYTES,
     INVENTORY_BYTES_PER_UNIT,
     TOPOLOGY_COLUMN_BYTES_PER_HALO,
-    VALIDATION_BYTES_PER_HALO,
     ConverterError,
     LHaloBinaryAdapter,
 )
+from adapters.topology import VALIDATION_BYTES_PER_HALO  # noqa: E402
 
 REPO_ROOT = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -381,11 +382,26 @@ def validation_budget_bytes(n_halos):
     Restated from the declared public constants rather than imported from the
     implementation, so the budget tests compare against the documented
     contract instead of against whatever the code happens to compute. The read
-    buffer is a constant, not a per-halo term, which is why it cannot be
-    folded into ``VALIDATION_BYTES_PER_HALO``.
+    buffer and the fixed base are constants, not per-halo terms, which is why
+    they cannot be folded into ``VALIDATION_BYTES_PER_HALO``.
     """
     read_buffer = min(lb.TOPOLOGY_READ_CHUNK_ROWS, n_halos) * ORACLE_RECORD_BYTES
-    return n_halos * VALIDATION_BYTES_PER_HALO + read_buffer
+    return n_halos * VALIDATION_BYTES_PER_HALO + read_buffer + lb.TOPOLOGY_BASE_BYTES
+
+
+#: Canonical bytes per emitted row under the default profile, restated by
+#: hand: identity, coordinates and links (11 x int64 = 88) plus the 64-byte
+#: L-Halo payload (Len, SnapNum, M_Crit200, Pos, Vel, Spin, VelDisp, Vmax,
+#: MostBoundID).
+CANONICAL_ROW_BYTES = 88 + 64
+
+
+def emission_budget_bytes(max_rows, n_halos, extras_bytes=0):
+    """What the adapter's emission budget check requires: one batch's raw
+    records and canonical columns, doubled at concatenation, for at most the
+    inventory's rows."""
+    rows = min(max_rows, n_halos)
+    return 2 * rows * (ORACLE_RECORD_BYTES + CANONICAL_ROW_BYTES + extras_bytes)
 
 
 def inventory_budget_bytes(n_units):
@@ -1391,6 +1407,84 @@ class BudgetTests(FixtureCase):
             list(adapter.iter_batches(256))
         self.assertIn("structural validation of 4000 halos", str(caught.exception))
 
+    def test_an_emission_buffer_over_the_budget_is_refused_before_any_tree_is_read(self):
+        """The emission term is checked once, before the first tree.
+
+        The tree is sized so the emission term dominates the other two, so a
+        budget one byte short of it isolates the emission check.
+        """
+        n_halos = 4000
+        self.write("trees.0", [linear_tree(n_halos)])
+        need = emission_budget_bytes(n_halos, n_halos)
+        self.assertGreater(need - 1, validation_budget_bytes(n_halos))
+        self.assertGreater(need - 1, inventory_budget_bytes(1))
+        adapter = self.adapter([(0, self.path("trees.0"))], memory_budget_bytes=need - 1)
+        with mock.patch.object(
+            LHaloBinaryAdapter, "_read_tree_topology", side_effect=AssertionError("read")
+        ):
+            with self.assertRaises(ConverterError) as caught:
+                list(adapter.iter_batches(n_halos))
+        message = str(caught.exception)
+        self.assertIn("emission (batches of 4000 rows, 104 B/row raw read plus 152 B/row", message)
+        self.assertIn("--ingest-max-rows", message)
+        self.assertIn("memory_budget_bytes", message)
+
+    def test_an_emission_buffer_at_the_budget_is_accepted(self):
+        n_halos = 4000
+        self.write("trees.0", [linear_tree(n_halos)])
+        need = emission_budget_bytes(n_halos, n_halos)
+        adapter = self.adapter([(0, self.path("trees.0"))], memory_budget_bytes=need)
+        columns, sizes = collect(adapter, n_halos)
+        self.assertEqual(sizes, [n_halos])
+        self.assertEqual(columns["identity"]["SourceHaloID"].tolist(), list(range(1, n_halos + 1)))
+
+    def test_the_emission_term_charges_at_most_the_inventory_rows(self):
+        """A batch size far above the source's halo count is charged for the
+        rows the source actually has, as the ASCII route charges one snapshot."""
+        n_halos = 4000
+        self.write("trees.0", [linear_tree(n_halos)])
+        need = emission_budget_bytes(n_halos, n_halos)
+        adapter = self.adapter([(0, self.path("trees.0"))], memory_budget_bytes=need)
+        _columns, sizes = collect(adapter, 100 * n_halos)
+        self.assertEqual(sizes, [n_halos])
+
+    def test_the_extras_widen_the_emission_term(self):
+        """The extras example adds 24 B/row of canonical columns (five 4-byte
+        scalars and one 4-byte vector component); the raw record is the same
+        104 bytes."""
+        n_halos = 4000
+        self.write("trees.0", [linear_tree(n_halos)])
+        need = emission_budget_bytes(n_halos, n_halos, extras_bytes=24)
+        adapter = self.adapter(
+            [(0, self.path("trees.0"))], schema=extras_schema(), memory_budget_bytes=need - 1
+        )
+        with self.assertRaisesRegex(ConverterError, "plus 176 B/row canonical columns"):
+            list(adapter.iter_batches(n_halos))
+        adapter = self.adapter(
+            [(0, self.path("trees.0"))], schema=extras_schema(), memory_budget_bytes=need
+        )
+        self.assertEqual(sum(batch.n_rows for batch in adapter.iter_batches(n_halos)), n_halos)
+
+    def test_the_default_batch_size_fits_the_default_budget_for_the_shipped_profiles(self):
+        """Pins the figures at the CLI defaults: ``--ingest-max-rows`` 1 << 20
+        and the 2 GiB budget, for a source of at least that many halos."""
+        import pipeline
+
+        self.assertEqual(pipeline.DEFAULT_INGEST_MAX_ROWS, 1 << 20)
+        self.assertEqual(DEFAULT_MEMORY_BUDGET_BYTES, 2 * 1024**3)
+        rows = pipeline.DEFAULT_INGEST_MAX_ROWS
+        for schema, canonical, figure in (
+            (default_schema(), 152, 536_870_912),
+            (extras_schema(), 176, 587_202_560),
+        ):
+            with self.subTest(extras=len(schema.extra_fields)):
+                self.assertEqual(topology.canonical_row_bytes(schema), canonical)
+                self.assertEqual(2 * rows * (ORACLE_RECORD_BYTES + canonical), figure)
+                self.assertLessEqual(figure, DEFAULT_MEMORY_BUDGET_BYTES)
+                topology.check_emission_budget(
+                    schema, rows, rows, ORACLE_RECORD_BYTES, DEFAULT_MEMORY_BUDGET_BYTES
+                )
+
     def test_a_non_positive_budget_is_rejected(self):
         self.write("trees.0", [TREE_B])
         with self.assertRaises(ConverterError):
@@ -1586,7 +1680,7 @@ class BudgetAccountingTests(FixtureCase):
     """``VALIDATION_BYTES_PER_HALO`` must really bound the validation path.
 
     Round 1 review found the budget check counting only the six retained
-    topology columns (48 B/halo) while ``_validate_tree`` went on to allocate
+    topology columns (48 B/halo) while ``validate_tree`` went on to allocate
     its own whole-tree scratch with those columns still live -- so an operator
     sizing ``memory_budget_bytes`` from the documented figure could be
     exceeded by more than 2x. The constant is now the measured whole-path
@@ -1605,7 +1699,7 @@ class BudgetAccountingTests(FixtureCase):
 
         The six columns are copied *inside* the traced window on purpose.
         ``_read_tree_topology`` allocates them and they stay live across
-        ``_validate_tree``, so a measurement that excluded them would report
+        ``validate_tree``, so a measurement that excluded them would report
         only the scratch -- which is exactly the half-accounting that made the
         original constant wrong, and would let this test pass against a
         constant that is still too low.
@@ -1614,7 +1708,7 @@ class BudgetAccountingTests(FixtureCase):
         try:
             baseline = tracemalloc.get_traced_memory()[0]
             held = {name: values.copy() for name, values in columns.items()}
-            lb._validate_tree(held, n_halos, "budget measurement", None)
+            topology.validate_tree(held, n_halos, "budget measurement", None)
             peak = tracemalloc.get_traced_memory()[1]
         finally:
             tracemalloc.stop()
@@ -1635,7 +1729,7 @@ class BudgetAccountingTests(FixtureCase):
                     )
 
     def test_the_real_read_path_also_stays_within_the_declared_budget(self):
-        """Measure through ``_read_tree_topology``, not just ``_validate_tree``.
+        """Measure through ``_read_tree_topology``, not just ``validate_tree``.
 
         Round 2 review noted the self-policing claim was narrower than what it
         needed to police: tracing pre-built columns skips the read buffer that
@@ -1668,7 +1762,7 @@ class BudgetAccountingTests(FixtureCase):
                         columns = adapter._read_tree_topology(
                             handle, header_bytes, n_halos, "budget measurement"
                         )
-                        lb._validate_tree(columns, n_halos, "budget measurement", None)
+                        topology.validate_tree(columns, n_halos, "budget measurement", None)
                         peak = tracemalloc.get_traced_memory()[1] - baseline
                     finally:
                         tracemalloc.stop()
@@ -1683,6 +1777,58 @@ class BudgetAccountingTests(FixtureCase):
                     ),
                 )
                 os.remove(path)
+
+    def test_a_small_trees_fixed_peak_stays_within_the_declared_base(self):
+        """``TOPOLOGY_BASE_BYTES`` must cover the real path's fixed overhead.
+
+        Below about 20 halos the path's fixed peak (array headers, the column
+        dict, the checks' small scratch) exceeds both linear terms; this
+        re-measures the complete real path -- ``_read_tree_topology`` through a
+        real file handle, then ``validate_tree`` -- at those sizes, three times
+        each because the first call can spike.
+        """
+        for n_halos in (1, 2, 3, 5, 7, 10, 20, 100):
+            with self.subTest(n_halos=n_halos):
+                path = os.path.join(self.tmpdir, "small{}.0".format(n_halos))
+                write_lhalo_file(path, [linear_tree(n_halos)])
+                adapter = LHaloBinaryAdapter(default_schema(), [(0, path)])
+                peaks = []
+                for _repeat in range(3):
+                    with open(path, "rb") as handle:
+                        tracemalloc.start()
+                        try:
+                            baseline = tracemalloc.get_traced_memory()[0]
+                            columns = adapter._read_tree_topology(
+                                handle, 12, n_halos, "budget measurement"
+                            )
+                            topology.validate_tree(columns, n_halos, "budget measurement", None)
+                            del columns
+                            peaks.append(tracemalloc.get_traced_memory()[1] - baseline)
+                        finally:
+                            tracemalloc.stop()
+                self.assertLessEqual(
+                    max(peaks),
+                    validation_budget_bytes(n_halos),
+                    "a {}-halo tree peaked at {} bytes".format(n_halos, max(peaks)),
+                )
+                os.remove(path)
+
+    def test_the_linear_terms_alone_would_understate_a_one_halo_tree(self):
+        """Why the base exists, pinned: at one halo the measured peak is above
+        the per-halo figure plus the one-record read buffer."""
+        path = os.path.join(self.tmpdir, "one.0")
+        write_lhalo_file(path, [linear_tree(1)])
+        adapter = LHaloBinaryAdapter(default_schema(), [(0, path)])
+        with open(path, "rb") as handle:
+            tracemalloc.start()
+            try:
+                baseline = tracemalloc.get_traced_memory()[0]
+                columns = adapter._read_tree_topology(handle, 12, 1, "budget measurement")
+                topology.validate_tree(columns, 1, "budget measurement", None)
+                peak = tracemalloc.get_traced_memory()[1] - baseline
+            finally:
+                tracemalloc.stop()
+        self.assertGreater(peak, VALIDATION_BYTES_PER_HALO + ORACLE_RECORD_BYTES)
 
     def test_the_previous_chunk_is_released_before_the_next_read(self):
         """Pinned by lifetime, because a budget assertion cannot see this.
@@ -1740,14 +1886,14 @@ class BudgetAccountingTests(FixtureCase):
         adapter = LHaloBinaryAdapter(default_schema(), [(0, path)])
 
         captured = []
-        real_validate = lb._validate_tree
+        real_validate = lb.validate_tree
 
         def spy(columns, *args, **kwargs):
             captured.append(weakref.ref(columns["Descendant"]))
             return real_validate(columns, *args, **kwargs)
 
-        lb._validate_tree = spy
-        self.addCleanup(setattr, lb, "_validate_tree", real_validate)
+        lb.validate_tree = spy
+        self.addCleanup(setattr, lb, "validate_tree", real_validate)
 
         batches = adapter.iter_batches(8)
         first = next(batches)
@@ -2005,6 +2151,17 @@ REAL_FILE = os.path.join(MINI_MILLENNIUM, "snapshots", "trees_063.0")
 REAL_AVAILABLE = os.path.exists(REAL_FILE)
 
 
+def load_package_info(package_dir):
+    """A package's ``simulation_info.yaml`` with its repo-relative
+    ``simulation_dir`` anchored at ``REPO_ROOT``, as
+    ``inspect_sources._anchor_simulation_dir`` anchors it, so the declared
+    files resolve the same way from any working directory."""
+    info = si.load_simulation_info(os.path.join(package_dir, "simulation_info.yaml"))
+    if not os.path.isabs(info.simulation_dir):
+        info.simulation_dir = os.path.join(REPO_ROOT, info.simulation_dir)
+    return info
+
+
 @unittest.skipUnless(REAL_AVAILABLE, "mini-Millennium source data is not present")
 class RealMiniMillenniumTests(unittest.TestCase):
     """Complete real trees, compared against the independent extraction.
@@ -2109,8 +2266,7 @@ class RealMiniMillenniumTests(unittest.TestCase):
 
     def test_file_prefix_tree_numbers_match_the_vertical_enumeration(self):
         """Cumulative tree counts over preceding files, read independently."""
-        info = si.load_simulation_info(os.path.join(MINI_MILLENNIUM, "simulation_info.yaml"))
-        pairs = si.lhalo_file_paths(info)
+        pairs = si.lhalo_file_paths(load_package_info(MINI_MILLENNIUM))
         if not all(os.path.exists(path) for _number, path in pairs):
             self.skipTest("the full mini-Millennium file set is not present")
         expected_base = 0

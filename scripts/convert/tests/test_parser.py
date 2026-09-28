@@ -1,11 +1,11 @@
-"""Slice 2 unit tests: frozen dtype, header dialects, #tree attribution,
-independent pre-count, malformed-input aborts.
+"""Unit tests for the ctrees ASCII parser: frozen dtype, header dialects,
+#tree attribution, independent pre-count, malformed-input aborts.
 
-Converter generalisation Slice 5 adds the schema-driven selection, the
-extended scratch layout, declared-extra parsing and source-unit planning
-(``Test*Selection*``, ``TestExtraParsing``, ``TestSourceUnits``,
-``TestScratchLayout``). Their oracles are literal: expected values are written
-out or computed from the fixture's own source text, never from the parser."""
+The schema-driven selection, the extended scratch layout, declared-extra
+parsing and source-unit planning are covered by ``Test*Selection*``,
+``TestExtraParsing``, ``TestSourceUnits`` and ``TestScratchLayout``. Their
+oracles are literal: expected values are written out or computed from the
+fixture's own source text, never from the parser."""
 
 import os
 import sys
@@ -20,7 +20,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import fixtures  # noqa: E402
-from column_schema import build_schema, load_column_map, parse_column_map  # noqa: E402
+from column_schema import (  # noqa: E402
+    EXTRA_TYPES,
+    build_schema,
+    load_column_map,
+    parse_column_map,
+)
 from ctrees_parser import (  # noqa: E402
     DTYPE_TAG,
     LEGACY_LAYOUT,
@@ -723,6 +728,22 @@ class TestScratchLayout(unittest.TestCase):
         self.assertIn("extra_RawJ:<f4[3]", layout.dtype_tag)
         self.assertNotEqual(layout.dtype_tag, DTYPE_TAG)
         self.assertEqual(ScratchLayout.from_record(layout.to_record(), "t"), layout)
+
+    def test_every_declarable_extra_type_has_its_little_endian_scratch_element(self):
+        expected = {
+            "int": ("<i4", ()),
+            "long long": ("<i8", ()),
+            "float": ("<f4", ()),
+            "double": ("<f8", ()),
+            "vec3_int": ("<i4", (3,)),
+            "vec3_float": ("<f4", (3,)),
+        }
+        self.assertEqual(set(expected), set(EXTRA_TYPES))
+        for type_name, (element, shape) in expected.items():
+            with self.subTest(type=type_name):
+                layout = ScratchLayout(extras=(("E", type_name),), schema_digest="0" * 64)
+                stored = layout.dtype.fields["extra_E"][0]
+                self.assertEqual((stored.base.str, stored.shape), (element, shape))
 
     def test_zero_extra_layout_still_carries_source_keys(self):
         layout = ScratchLayout.from_schema(ascii_schema())

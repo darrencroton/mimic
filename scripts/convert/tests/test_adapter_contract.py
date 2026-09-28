@@ -41,6 +41,15 @@ def ascii_schema(extras=None):
     return cs.build_schema(cs.parse_column_map(profile, origin="<test>"))
 
 
+def id_of(inventory, coordinate):
+    """The ``SourceHaloID`` the inventory assigns one coordinate: its unit's
+    ``base_id`` plus the within-unit row."""
+    return (
+        inventory.base_id(coordinate.source_file_ordinal, coordinate.unit_ordinal)
+        + coordinate.row_ordinal
+    )
+
+
 def make_batch(schema, n_rows=3, **overrides):
     """A structurally valid batch of ``n_rows`` rows, before any override.
 
@@ -109,7 +118,7 @@ class InventoryTests(unittest.TestCase):
         seen = set()
         for source_halo_id in range(1, inventory.total_halos + 1):
             coordinate = inventory.coordinate(source_halo_id)
-            self.assertEqual(inventory.source_halo_id(coordinate), source_halo_id)
+            self.assertEqual(id_of(inventory, coordinate), source_halo_id)
             self.assertNotIn(coordinate, seen)
             seen.add(coordinate)
         self.assertEqual(len(seen), inventory.total_halos)
@@ -133,10 +142,12 @@ class InventoryTests(unittest.TestCase):
             with self.subTest(source_halo_id=bad):
                 with self.assertRaisesRegex(ConverterError, "outside"):
                     inventory.coordinate(bad)
-        with self.assertRaisesRegex(ConverterError, "outside unit"):
-            inventory.source_halo_id(base.SourceCoordinate(0, 0, 2))
+        # A row one past the unit's end has no id: its would-be id lies
+        # outside [1, total_halos].
+        with self.assertRaisesRegex(ConverterError, "outside"):
+            inventory.coordinate(inventory.base_id(0, 0) + 2)
         with self.assertRaisesRegex(ConverterError, "not in the inventory"):
-            inventory.source_halo_id(base.SourceCoordinate(1, 0, 0))
+            inventory.base_id(1, 0)
         with self.assertRaisesRegex(ConverterError, "not in the inventory"):
             inventory.base_id(9, 9)
 
@@ -598,7 +609,8 @@ class SourceHaloIdDerivationTests(unittest.TestCase):
     """A batch's ids must be the ones its own coordinates imply.
 
     `CanonicalBatch` carries `coordinates` precisely so identity is
-    recoverable, and `SourceInventory.source_halo_id()` is what defines the id.
+    recoverable, and the inventory's `base_id()` plus the within-unit row is
+    what defines the id.
     Nothing in `CanonicalBatch.validate()` can check the two against each other
     -- it holds no inventory, and giving it one would put a whole-inventory
     lookup on every batch. The guarantee therefore lives here, at the contract
@@ -645,7 +657,7 @@ class SourceHaloIdDerivationTests(unittest.TestCase):
                 int(batch.coordinates["unit_ordinal"][row]),
                 int(batch.coordinates["row_ordinal"][row]),
             )
-            expected = inventory.source_halo_id(coordinate)
+            expected = id_of(inventory, coordinate)
             actual = int(batch.identity["SourceHaloID"][row])
             if expected != actual:
                 bad.append((coordinate, expected, actual))
@@ -655,7 +667,7 @@ class SourceHaloIdDerivationTests(unittest.TestCase):
         for unit in self.UNITS:
             with self.subTest(unit=(unit.source_file_ordinal, unit.unit_ordinal)):
                 coordinates = self._coordinates_of(unit)
-                ids = [self.inventory.source_halo_id(c) for c in coordinates]
+                ids = [id_of(self.inventory, c) for c in coordinates]
                 batch = self._batch_for(self.schema, coordinates, ids)
                 batch.validate()
                 self.assertEqual(self._mismatches(self.inventory, batch), [])
@@ -691,7 +703,7 @@ class SourceHaloIdDerivationTests(unittest.TestCase):
         unit = self.UNITS[2]
         compacted = base.SourceInventory([base.SourceUnit(1, 0, unit.n_halos)])
         coordinates = self._coordinates_of(unit)
-        ids = [compacted.source_halo_id(c) for c in coordinates]
+        ids = [id_of(compacted, c) for c in coordinates]
         batch = self._batch_for(self.schema, coordinates, ids)
 
         batch.validate()
@@ -700,9 +712,7 @@ class SourceHaloIdDerivationTests(unittest.TestCase):
         # Whereas the correctly sampled inventory -- parent units, narrowed
         # selection -- produces ids that do agree.
         sampled = base.SourceInventory(self.UNITS, selected=[(1, 0)])
-        good = self._batch_for(
-            self.schema, coordinates, [sampled.source_halo_id(c) for c in coordinates]
-        )
+        good = self._batch_for(self.schema, coordinates, [id_of(sampled, c) for c in coordinates])
         good.validate()
         self.assertEqual(self._mismatches(self.inventory, good), [])
 

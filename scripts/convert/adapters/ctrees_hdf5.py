@@ -1,6 +1,5 @@
-"""Consistent-Trees forests-HDF5 source adapter (Slice 4 of the converter
-generalisation plan, docs/dev/MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md,
-contracts C1/C3/C4).
+"""Consistent-Trees forests-HDF5 source adapter (contracts C1/C3/C4 of
+docs/dev/MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md).
 
 Streams the uchuutools "forests-HDF5" packaging of Consistent-Trees output into
 the canonical batches ``adapters/base.py`` defines, without an ASCII
@@ -85,30 +84,44 @@ file backing it, and the whole set is pinned by
 file's size, modification time or inode has changed since inventory.
 
 **Bounds (C4).** All offsets, counts, row indices and remapping keys are int64
-throughout; nothing is narrowed to int32. Three terms scale with something
-other than a constant, and all three are named:
+throughout; nothing is narrowed to int32. Four terms scale with something
+other than a constant, and all four are named:
 
-1. *Dataset reads* are bounded. Emission reads at most the caller's
-   ``max_rows`` rows of each selected dataset at a time and the topology pass
-   reads at most :data:`TOPOLOGY_READ_CHUNK_ROWS`, so a forest larger than one
-   batch is read and emitted across several; no forest's payload is ever
-   materialised whole. The C reader's fallback of reading a super-forest into
-   one whole-forest buffer is deliberately not reproduced.
+1. *Dataset reads* are bounded. When a file's ``ForestInfo`` lists its
+   forests in storage order -- every real source does -- consecutive forests
+   are read together through one *read window* of at most
+   :data:`TOPOLOGY_READ_CHUNK_ROWS` rows per selected dataset, and every
+   forest wholly inside it is validated and emitted from those arrays, so
+   each dataset is read once per window instead of twice per forest. The
+   window's rows are sized from the budget (see ``_window_rows``). A forest
+   larger than the window, and every forest of a file not in storage order,
+   is read per forest instead: the topology pass reads at most
+   :data:`TOPOLOGY_READ_CHUNK_ROWS` rows and emission at most the caller's
+   ``max_rows`` rows of each dataset at a time, so a forest larger than one
+   batch is read and emitted across several. No forest's payload is ever
+   materialised whole beyond the window; the C reader's fallback of reading a
+   super-forest into one whole-forest buffer is deliberately not reproduced.
 2. *Per-forest structural validation* holds the forest's five links plus
    ``SnapNum`` as int64, and the validator's scratch, while it runs:
-   ``lhalo_binary.VALIDATION_BYTES_PER_HALO`` per halo (re-measured on this
-   path at 119.0 B/halo, the same worst case Slice 3 found) plus a bounded
-   read buffer and a small constant. It is the one whole-forest term, checked against the budget
-   **before** allocation and released before emission begins. A forest too
-   large for the configured budget is refused, never allocated.
-3. *The inventory* is O(forest count), the explicitly budgeted term C4
+   ``topology.VALIDATION_BYTES_PER_HALO`` per halo (re-measured on this path
+   at 119.0 B/halo, the same worst case as the L-Halo path) plus the bounded
+   read buffer -- the read window, or the per-forest topology chunk -- and the
+   :data:`TOPOLOGY_BASE_BYTES` constant. It is the one whole-forest term,
+   checked against the budget **before** allocation and released before
+   emission begins. A forest too large for the configured budget is refused,
+   never allocated.
+3. *The emission buffer* holds one batch: the raw values read for up to
+   ``max_rows`` rows and the canonical columns built from them, doubled while
+   ``topology.BatchBuilder`` concatenates the accumulated chunks. It is
+   checked once, before the first batch, by ``topology.check_emission_budget``.
+4. *The inventory* is O(forest count), the explicitly budgeted term C4
    permits, checked per file before that file's ``ForestInfo`` is read.
 
 Each term is checked against the whole ``memory_budget_bytes`` ceiling before
 its own allocation, as in the L-Halo adapter; it bounds working buffers, not
 interpreter RSS or HDF5's own library caches (C4).
 
-**Deliberate differences from the C reader**, each a tightening:
+**Deliberate differences from the C reader.** Each of these is a tightening:
 
 - ``particle_mass`` must be positive. The C reader silently sets ``Len = 0``
   when ``PartMass <= 0``; a lossless converter refuses to invent a count.
@@ -122,12 +135,22 @@ interpreter RSS or HDF5's own library caches (C4).
   the whole file set is requested) attributes are cross-checked when present.
 - Both snapshot spellings present in one file is ambiguous and fails
   (C2: exactly one alias per role per file); the C reader silently prefers
-  ``Snap_num``. The spelling is resolved per file rather than once.
+  ``Snap_num``.
 - Every required dataset must be exactly little-endian int64 or float64 of
   the class its role needs. The C reader reads raw bytes with the file type
   as the memory type and reinterprets them as ``double``/``int64_t``, so a
   big-endian or differently-typed dataset has no correct reference
   interpretation to reproduce; it fails instead of being guessed.
+- A non-finite payload value, a finite value that overflows float32 on
+  narrowing, and a ``Spin`` whose ``J / Mvir`` product overflows float32 are
+  all rejected with the source row named. The C reader's only finiteness
+  checks are on the snapshot and the derived ``Len``; it would silently store
+  the others as NaN or +/-inf.
+
+One difference is a loosening: the snapshot spelling is resolved **per
+file**. The C reader detects ``Snap_num``/``Snap_idx`` once, on the first
+requested file, and reuses that name for every later one, so a file set that
+mixes the two spellings fails there and converts here.
 
 **Not reproduced**, because they are properties of the compiled runtime rather
 than of the source: the per-forest ``nhalos < INT_MAX`` limit (v3 links are
@@ -158,21 +181,19 @@ from .base import (
     SourceAdapter,
     SourceInventory,
     SourceUnit,
-)
-
-# lhalo_binary.py is outside this slice's authorised surface, so its shared
-# helpers are reused under their existing names rather than moved into a
-# common module. _validate_tree is the structural validator C1 requires of
-# every prelinked adapter; it was run over all 440,651 real micro-Uchuu
-# forests-HDF5 forests (22,580,924 halos) with zero violations before being
-# made a gate here.
-from .lhalo_binary import (
-    VALIDATION_BYTES_PER_HALO,
-    _BatchBuilder,
-    _require_integer,
-    _validate_tree,
+    check_budget,
+    identity_columns,
+    require_integer,
 )
 from .source_inventory import MissingDependencyError, SourceFileIdentity, pin_source_file
+from .topology import (
+    TOPOLOGY_COLUMNS,
+    VALIDATION_BYTES_PER_HALO,
+    BatchBuilder,
+    check_emission_budget,
+    check_validation_budget,
+    validate_tree,
+)
 
 try:
     import h5py
@@ -204,12 +225,9 @@ INT32_MAX = int(np.iinfo(np.int32).max)
 #: dividing by the particle mass (1e10 Msun/h) to estimate ``Len``.
 LEN_MASS_SCALE = 1e-10
 
-#: The columns whole-forest structural validation needs.
-TOPOLOGY_COLUMNS: Tuple[str, ...] = LINK_FIELDS + ("SnapNum",)
-
-#: Rows per dataset read while gathering the topology columns. Fixed rather
-#: than taken from ``max_rows`` so the transient read buffer stays O(1) in the
-#: forest size, exactly as in the L-Halo adapter.
+#: Rows per dataset read while gathering the topology columns, and the largest
+#: read window. Fixed rather than taken from ``max_rows`` so the transient read
+#: buffer stays O(1) in the forest size, exactly as in the L-Halo adapter.
 TOPOLOGY_READ_CHUNK_ROWS = 65536
 
 #: Transient bytes per row of one topology read chunk, beyond the retained
@@ -227,7 +245,8 @@ TOPOLOGY_READ_BUFFER_BYTES_PER_ROW = 32
 #: per-row figure can express. Measured at 6.4-7.4 KB for forests of 1-10
 #: halos and a residual of 14.0 KB at 100 halos, above the linear terms;
 #: 64 KiB covers that with more than 4x room. Without it a one-halo forest's
-#: budget would be declared as 192 bytes against a measured 7.5 KB.
+#: budget would be declared as 192 bytes against a measured 7.5 KB. The read
+#: window path is measured against the same constant.
 TOPOLOGY_BASE_BYTES = 64 * 1024
 
 #: Peak bytes per forest of the complete ``_build_inventory()`` path -- the
@@ -487,7 +506,9 @@ def ctrees_payload(
     ``raw`` holds the float64 value roles and the int64 ``id`` by role name;
     ``snapshots`` is the already-checked int64 snapshot column. The order is
     the C reader's (see the module docstring): narrow to float32, normalise
-    Spin on the float32 mass, derive Len from the float32 mass.
+    Spin on the float32 mass, derive Len from the float32 mass. Every returned
+    array owns its memory, so a batch never keeps a caller's read buffer
+    alive.
     """
     mass = _narrow_to_float32(raw["Mvir"], "Mvir", context, first_row)
     position = np.stack(
@@ -547,7 +568,7 @@ def ctrees_payload(
         "Spin": spin,
         "VelDisp": dispersion,
         "Vmax": vmax,
-        "MostBoundID": np.ascontiguousarray(raw["id"], dtype=np.int64),
+        "MostBoundID": np.array(raw["id"], dtype=np.int64),
     }
 
 
@@ -737,6 +758,63 @@ class _FilePlan:
     dtypes: Dict[str, np.dtype]
 
 
+@dataclass
+class _ReadWindow:
+    """One read window: every selected dataset's values over ``[low, high)``.
+
+    ``arrays`` is keyed like :func:`_chunk_reads`. ``read_buffer_bytes`` is
+    what the window is charged as a forest's validation read buffer.
+    """
+
+    low: int
+    high: int
+    arrays: Dict[Tuple[str, Optional[int]], np.ndarray]
+    read_buffer_bytes: int
+
+    def rows(self, first: int, count: int) -> Dict[Tuple[str, Optional[int]], np.ndarray]:
+        """Views of the window's values for dataset rows ``[first, first + count)``."""
+        low = first - self.low
+        return {key: values[low : low + count] for key, values in self.arrays.items()}
+
+
+def _chunk_reads(plan: _FilePlan) -> Tuple[Tuple[str, Optional[int]], ...]:
+    """The distinct ``(dataset, component)`` reads one chunk of ``plan`` needs.
+
+    Every required role's dataset whole (component ``None``) and every extra
+    source component, each once even when a role and an extra share a
+    dataset, in first-use order.
+    """
+    keys: Dict[Tuple[str, Optional[int]], None] = {}
+    for spelling in plan.roles.values():
+        keys[(spelling, None)] = None
+    for components in plan.extras.values():
+        for spelling, component in components:
+            keys[(spelling, component)] = None
+    return tuple(keys)
+
+
+def _window_bytes_per_row(plan: _FilePlan) -> int:
+    """Bytes one read-window row costs: the stored element width of every
+    :func:`_chunk_reads` read, plus the per-row transient allowance the
+    topology read already carries (:data:`TOPOLOGY_READ_BUFFER_BYTES_PER_ROW`),
+    which covers the snapshot check's temporaries when a window-held forest's
+    ``SnapNum`` is converted."""
+    stored = sum(int(plan.dtypes[spelling].itemsize) for spelling, _component in _chunk_reads(plan))
+    return stored + TOPOLOGY_READ_BUFFER_BYTES_PER_ROW
+
+
+def _in_storage_order(plan: _FilePlan) -> bool:
+    """Whether ``plan``'s non-empty forests sit in the datasets in row order.
+
+    ``validate_forest_table`` has already proved the non-empty forests tile
+    ``[0, halo_extent)`` exactly, so strictly ascending offsets in row order
+    mean each forest starts where the previous one ends, and a run of
+    consecutive rows is one contiguous slab.
+    """
+    offsets = plan.offsets[plan.counts > 0]
+    return bool(np.all(offsets[1:] > offsets[:-1]))
+
+
 class CTreesHDF5Adapter(SourceAdapter):
     """Streams Consistent-Trees forests-HDF5 forests into canonical batches.
 
@@ -776,8 +854,8 @@ class CTreesHDF5Adapter(SourceAdapter):
                 "the consistent_trees_hdf5 schema declares payload {}, but this adapter computes "
                 "{}".format(sorted(declared), sorted(_PAYLOAD_NAMES))
             )
-        first_file = _require_integer(first_file, "first_file", "it selects recorded identity")
-        last_file = _require_integer(last_file, "last_file", "it selects recorded identity")
+        first_file = require_integer(first_file, "first_file", "it selects recorded identity")
+        last_file = require_integer(last_file, "last_file", "it selects recorded identity")
         if not 0 <= first_file <= last_file:
             raise ConverterError(
                 "need 0 <= first_file <= last_file, got first_file={} last_file={}".format(
@@ -798,7 +876,7 @@ class CTreesHDF5Adapter(SourceAdapter):
                     particle_mass
                 )
             )
-        memory_budget_bytes = _require_integer(
+        memory_budget_bytes = require_integer(
             memory_budget_bytes,
             "memory_budget_bytes",
             "a fractional ceiling would be truncated into a different budget than asked for",
@@ -808,7 +886,7 @@ class CTreesHDF5Adapter(SourceAdapter):
                 "memory_budget_bytes must be positive, got {}".format(memory_budget_bytes)
             )
         if max_snapshot is not None:
-            max_snapshot = _require_integer(
+            max_snapshot = require_integer(
                 max_snapshot, "max_snapshot", "a fractional bound would be truncated"
             )
             if max_snapshot < 0:
@@ -882,15 +960,6 @@ class CTreesHDF5Adapter(SourceAdapter):
             raise ConverterError(
                 "cannot open forests-HDF5 info file {}: {}".format(self.info_path, exc)
             ) from exc
-
-    def _check_budget(self, required_bytes: int, what: str, remedy: str) -> None:
-        """Refuse an over-budget allocation *before* making it (C4)."""
-        if required_bytes > self.memory_budget_bytes:
-            raise ConverterError(
-                "{} needs {} bytes, above the configured memory budget of {} bytes; {}".format(
-                    what, required_bytes, self.memory_budget_bytes, remedy
-                )
-            )
 
     def _build_inventory(self):
         walk = _DependencyWalk()
@@ -1082,8 +1151,9 @@ class CTreesHDF5Adapter(SourceAdapter):
             )
         # Checked before the read, from the extent alone: the read and every
         # structure built from it are the O(forest count) term C4 budgets.
-        self._check_budget(
+        check_budget(
             (units_so_far + n_forests) * INVENTORY_BYTES_PER_UNIT + INVENTORY_BASE_BYTES,
+            self.memory_budget_bytes,
             "inventory of {} forests ({} B/unit plus a {}-byte base)".format(
                 units_so_far + n_forests, INVENTORY_BYTES_PER_UNIT, INVENTORY_BASE_BYTES
             ),
@@ -1209,30 +1279,61 @@ class CTreesHDF5Adapter(SourceAdapter):
         number -- the inventory's order, so ``SourceHaloID`` ascends across
         every batch. Each forest is structurally validated in full before any
         of its rows enter a batch.
+
+        The emission buffer is budget-checked once, before any file is
+        reopened, with :meth:`_raw_bytes_per_row` as the raw per-row term (see
+        ``topology.check_emission_budget``). A file in storage order is read
+        through read windows (:meth:`_read_window`); a forest no window holds
+        is read per forest. Both routes emit identical batches.
         """
-        max_rows = _require_integer(
+        max_rows = require_integer(
             max_rows,
             "max_rows",
             "a fractional batch size would be truncated, and True would silently mean 1",
+            minimum=1,
         )
-        if max_rows < 1:
-            raise ConverterError("max_rows must be at least 1, got {}".format(max_rows))
         inventory = self.inventory()
+        check_emission_budget(
+            self.schema,
+            max_rows,
+            inventory.total_halos,
+            self._raw_bytes_per_row(),
+            self.memory_budget_bytes,
+        )
         self._verify_dependencies()
-        builder = _BatchBuilder(self.schema, max_rows)
+        builder = BatchBuilder(self.schema, max_rows)
         with self._open_info() as handle:
             for plan in self._plans:
                 datasets = self._reopen(handle, plan)
+                window_rows = self._window_rows(plan) if _in_storage_order(plan) else 0
+                nonempty = np.flatnonzero(plan.counts > 0)
+                ends = plan.offsets[nonempty] + plan.counts[nonempty]
+                window: Optional[_ReadWindow] = None
+                position = -1
                 for unit in range(plan.counts.shape[0]):
                     n_halos = int(plan.counts[unit])
                     if n_halos == 0:
                         continue
+                    position += 1
                     offset = int(plan.offsets[unit])
                     context = "{}: File{} forest row {} (ForestID {})".format(
                         self.info_path, plan.ordinal, unit, int(plan.forest_ids[unit])
                     )
-                    topology = self._read_forest_topology(datasets, plan, offset, n_halos, context)
-                    _validate_tree(topology, n_halos, context, self.max_snapshot)
+                    if window_rows and (window is None or offset >= window.high):
+                        # Released before the next window is read, so two
+                        # windows never coexist.
+                        window = None
+                        window = self._read_window(
+                            datasets, plan, nonempty, ends, position, window_rows
+                        )
+                    held = window is not None and offset + n_halos <= window.high
+                    if held:
+                        topology = self._window_topology(window, plan, offset, n_halos, context)
+                    else:
+                        topology = self._read_forest_topology(
+                            datasets, plan, offset, n_halos, context
+                        )
+                    validate_tree(topology, n_halos, context, self.max_snapshot)
                     # Released before emission, so the one whole-forest term
                     # never overlaps the output buffers.
                     del topology
@@ -1241,8 +1342,14 @@ class CTreesHDF5Adapter(SourceAdapter):
                     start = 0
                     while start < n_halos:
                         count = min(max_rows - builder.n_rows, n_halos - start)
-                        builder.add(
-                            self._columns(
+                        if held:
+                            raw = window.rows(offset + start, count)
+                            chunk = self._convert(
+                                raw, plan, unit, n_halos, base_id, start, count, context
+                            )
+                            del raw
+                        else:
+                            chunk = self._columns(
                                 datasets,
                                 plan,
                                 unit,
@@ -1253,12 +1360,109 @@ class CTreesHDF5Adapter(SourceAdapter):
                                 count,
                                 context,
                             )
-                        )
+                        builder.add(chunk)
+                        del chunk
                         start += count
                         if builder.n_rows == max_rows:
                             yield builder.take()
+                window = None
         if builder.n_rows:
             yield builder.take()
+
+    def _raw_bytes_per_row(self) -> int:
+        """Bytes of raw source values one emitted row reads.
+
+        Every required role is an 8-byte dataset (``_ROLE_DTYPES``) read once
+        per chunk, and every extra component is read at its declared element
+        width, so the figure follows from the schema alone: 152 B/row without
+        extras.
+        """
+        return 8 * len(_ROLE_DTYPES) + sum(
+            extra.spec.itemsize for extra in self.schema.extra_fields
+        )
+
+    def _window_rows(self, plan: _FilePlan) -> int:
+        """The largest read window this file's forests may use, in rows.
+
+        A window of ``R`` rows holds one array per selected dataset read
+        (:func:`_chunk_reads`), :func:`_window_bytes_per_row` bytes per row in
+        all. Any forest validated from it has at most ``R`` halos, so its
+        validation figure is at most ``R * VALIDATION_BYTES_PER_HALO + R *
+        window_bytes_per_row + TOPOLOGY_BASE_BYTES``. Choosing::
+
+            R = min(TOPOLOGY_READ_CHUNK_ROWS,
+                    (memory_budget_bytes - TOPOLOGY_BASE_BYTES)
+                    // (VALIDATION_BYTES_PER_HALO + window_bytes_per_row))
+
+        therefore keeps every window-served forest inside the budget, with the
+        window charged as that forest's read buffer. 0 means the budget cannot
+        afford a window, and every forest of the file is read per forest.
+        """
+        per_row = VALIDATION_BYTES_PER_HALO + _window_bytes_per_row(plan)
+        affordable = (self.memory_budget_bytes - TOPOLOGY_BASE_BYTES) // per_row
+        return int(max(0, min(TOPOLOGY_READ_CHUNK_ROWS, affordable)))
+
+    def _read_window(
+        self,
+        datasets,
+        plan: _FilePlan,
+        nonempty: np.ndarray,
+        ends: np.ndarray,
+        position: int,
+        window_rows: int,
+    ) -> Optional[_ReadWindow]:
+        """Read the window that starts at the ``position``-th non-empty forest.
+
+        ``nonempty`` lists the file's non-empty ``ForestInfo`` rows in row
+        order and ``ends`` their exclusive end rows, which ascend because the
+        file is in storage order. The window extends over every following
+        forest that still fits in ``window_rows`` rows, and reads each selected
+        dataset once over that span. Returns ``None`` when the starting forest
+        alone is larger than ``window_rows``.
+        """
+        low = int(plan.offsets[nonempty[position]])
+        last = int(np.searchsorted(ends, low + window_rows, side="right")) - 1
+        if last < position:
+            return None
+        high = int(ends[last])
+        context = "{}: File{} ForestInfo rows {}-{} (read window)".format(
+            self.info_path, plan.ordinal, int(nonempty[position]), int(nonempty[last])
+        )
+        arrays = {
+            key: self._read(datasets[key[0]], low, high, key[1], context)
+            for key in _chunk_reads(plan)
+        }
+        return _ReadWindow(
+            low=low,
+            high=high,
+            arrays=arrays,
+            read_buffer_bytes=(high - low) * _window_bytes_per_row(plan),
+        )
+
+    def _window_topology(
+        self, window: _ReadWindow, plan: _FilePlan, offset: int, n_halos: int, context: str
+    ) -> Dict[str, np.ndarray]:
+        """One window-held forest's links and snapshots as int64.
+
+        The links are views of the window; only ``SnapNum`` is converted.
+        Budget-checked like the per-forest route, with the window as the read
+        buffer, which ``_window_rows`` guarantees fits.
+        """
+        check_validation_budget(
+            n_halos,
+            window.read_buffer_bytes,
+            TOPOLOGY_BASE_BYTES,
+            self.memory_budget_bytes,
+            context,
+        )
+        rows = window.rows(offset, n_halos)
+        columns = {
+            name: np.asarray(rows[(plan.roles[name], None)], dtype=np.int64) for name in LINK_FIELDS
+        }
+        columns["SnapNum"] = convert_snapshots(
+            rows[(plan.roles["snap"], None)], self.max_snapshot, context, 0
+        )
+        return columns
 
     @staticmethod
     def _read(dataset, low: int, high: int, component: Optional[int], context: str) -> np.ndarray:
@@ -1285,13 +1489,8 @@ class CTreesHDF5Adapter(SourceAdapter):
         read_buffer_bytes = min(TOPOLOGY_READ_CHUNK_ROWS, n_halos) * (
             TOPOLOGY_READ_BUFFER_BYTES_PER_ROW
         )
-        self._check_budget(
-            n_halos * VALIDATION_BYTES_PER_HALO + read_buffer_bytes + TOPOLOGY_BASE_BYTES,
-            "{}: structural validation of {} halos ({} B/halo plus a {}-byte read buffer and a "
-            "{}-byte base)".format(
-                context, n_halos, VALIDATION_BYTES_PER_HALO, read_buffer_bytes, TOPOLOGY_BASE_BYTES
-            ),
-            "raise memory_budget_bytes",
+        check_validation_budget(
+            n_halos, read_buffer_bytes, TOPOLOGY_BASE_BYTES, self.memory_budget_bytes, context
         )
         columns = {name: np.empty(n_halos, dtype=np.int64) for name in TOPOLOGY_COLUMNS}
         snap = plan.roles["snap"]
@@ -1325,22 +1524,36 @@ class CTreesHDF5Adapter(SourceAdapter):
     ) -> Dict[str, Dict[str, np.ndarray]]:
         """Read and convert one bounded chunk of one forest."""
         low = offset + start
-        high = low + count
-        rows = np.arange(start, start + count, dtype=np.int64)
-        identity = {
-            "SourceHaloID": base_id + rows,
-            "ForestIndex": np.full(count, plan.forest_base + unit, dtype=np.int64),
-            "HaloRankInForest": rows.copy(),
+        raw = {
+            key: self._read(datasets[key[0]], low, low + count, key[1], context)
+            for key in _chunk_reads(plan)
         }
-        coordinates = {
-            "source_file_ordinal": np.full(count, plan.ordinal, dtype=np.int64),
-            "unit_ordinal": np.full(count, unit, dtype=np.int64),
-            "row_ordinal": rows.copy(),
-        }
+        return self._convert(raw, plan, unit, n_halos, base_id, start, count, context)
+
+    def _convert(
+        self,
+        raw: Dict[Tuple[str, Optional[int]], np.ndarray],
+        plan: _FilePlan,
+        unit: int,
+        n_halos: int,
+        base_id: int,
+        start: int,
+        count: int,
+        context: str,
+    ) -> Dict[str, Dict[str, np.ndarray]]:
+        """Convert one chunk's raw dataset values into the canonical groups.
+
+        ``raw`` maps each :func:`_chunk_reads` key to the chunk's ``count``
+        stored values, whether read for this chunk or sliced from a read
+        window. Every returned array owns its memory.
+        """
+        identity, coordinates = identity_columns(
+            base_id, plan.forest_base + unit, plan.ordinal, unit, start, count
+        )
 
         links = {}
         for name in LINK_FIELDS:
-            local = self._read(datasets[plan.roles[name]], low, high, None, context)
+            local = raw[(plan.roles[name], None)]
             # Re-checked chunk-locally: the topology pass validated these
             # rows, and a value outside the forest now would mean the source
             # changed underneath the conversion.
@@ -1350,25 +1563,19 @@ class CTreesHDF5Adapter(SourceAdapter):
                 )
             links[name] = np.where(local >= 0, base_id + local, NULL_LINK).astype(np.int64)
 
-        raw = {
-            role: self._read(datasets[plan.roles[role]], low, high, None, context)
-            for role in _FLOAT_ROLES + ("id",)
-        }
+        roles = {role: raw[(plan.roles[role], None)] for role in _FLOAT_ROLES + ("id",)}
         snapshots = convert_snapshots(
-            self._read(datasets[plan.roles["snap"]], low, high, None, context),
-            self.max_snapshot,
-            context,
-            start,
+            raw[(plan.roles["snap"], None)], self.max_snapshot, context, start
         )
-        payload = ctrees_payload(raw, self.particle_mass, snapshots, context, start)
-        del raw
+        payload = ctrees_payload(roles, self.particle_mass, snapshots, context, start)
+        del roles
 
         extras = {}
         for extra in self.schema.extra_fields:
             spec = extra.spec
             parts = []
             for spelling, component in plan.extras[extra.name]:
-                values = self._read(datasets[spelling], low, high, component, context)
+                values = raw[(spelling, component)]
                 if values.dtype.kind == "f" and not bool(np.all(np.isfinite(values))):
                     row = int(np.flatnonzero(~np.isfinite(values))[0])
                     raise ConverterError(
@@ -1377,7 +1584,7 @@ class CTreesHDF5Adapter(SourceAdapter):
                             context, start + row, extra.name, spelling, float(values[row])
                         )
                     )
-                parts.append(np.ascontiguousarray(values, dtype=spec.numpy_dtype))
+                parts.append(np.array(values, dtype=spec.numpy_dtype))
             extras[extra.name] = parts[0] if spec.n_components == 1 else np.stack(parts, axis=1)
 
         return {

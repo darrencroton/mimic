@@ -1,4 +1,4 @@
-"""Slice 9 CLI tests: the generic ``convert_trees.py`` and the legacy
+"""CLI tests: the generic ``convert_trees.py`` and the legacy
 ``convert_ctrees.py`` driven as subprocesses.
 
 Every conversion here runs from a fresh temporary working directory, never
@@ -215,14 +215,14 @@ class HelpTests(CliCase):
         for command in ("inspect", "ingest", "transpose", "write", "validate", "report"):
             self.cli(command, "--help")
 
-    def test_write_defaults_to_version_3_and_offers_nothing_else(self):
+    def test_write_help_states_format_version_3_and_offers_no_format_version_flag(self):
         text = " ".join(self.cli("write", "--help").stdout.split())
-        self.assertIn("--format-version {3}", text)
-        self.assertIn("only version 3 (the default)", text)
+        self.assertIn("format version 3", text)
+        self.assertNotIn("--format-version", text)
         result = self.cli(
             "write", "--workdir", "w", "--simulation-info", "x", "--format-version", "2", expect=2
         )
-        self.assertIn("invalid choice", result.stderr)
+        self.assertIn("unrecognized arguments", result.stderr)
 
     def test_memory_budget_help_does_not_claim_an_rss_bound(self):
         text = " ".join(self.cli("ingest", "--help").stdout.split())
@@ -333,21 +333,27 @@ class StageChainTests(CliCase):
         )
 
     def test_micro_uchuu_ascii_fixture(self):
-        # The ASCII adapter charges its batch buffer at the full --ingest-max-rows
-        # (not the snapshot's actual rows) against the budget, so a small
-        # budget needs a matching batch size. A known Slice 5 carry-forward in
-        # adapters/ctrees_ascii.py; it fails loudly, never silently.
-        self.run_chain(
-            ascii_route(), "micro-uchuu-ascii", n_halos=4, ingest=("--ingest-max-rows", "4096")
-        )
+        # Runs at the default batch size: the ASCII adapter charges its batch
+        # buffer per snapshot at min(max_rows, n_rows), so a small budget no
+        # longer needs a matching --ingest-max-rows.
+        self.run_chain(ascii_route(), "micro-uchuu-ascii", n_halos=4)
 
     def test_the_shipped_default_profile_is_announced_when_no_profile_is_named(self):
         route = ascii_route()
         index = route.index("--column-map")
         del route[index : index + 2]
         result = self.cli("inspect", *route)
-        self.assertIn("profile: shipped default", result.stdout)
-        self.assertIn("consistent_trees_ascii.yaml", result.stdout)
+        self.assertIn("profile: shipped default", result.stderr)
+        self.assertIn("consistent_trees_ascii.yaml", result.stderr)
+
+    def test_inspect_stdout_is_pure_json_with_the_runtime_notice_on_stderr(self):
+        data = SIMULATIONS / "micro-uchuu" / "_tests" / "data"
+        route = lhalo_route("micro-uchuu", data, "Uchuu100_test_lhalo_binary")
+        result = self.cli("inspect", *route, "--memory-budget-mb", BUDGET_MB)
+        document = json.loads(result.stdout)
+        self.assertEqual(document["output"]["format_version"], 3)
+        self.assertIn(RUNTIME_MARK, result.stderr)
+        self.assertIn("profile: named", result.stderr)
 
 
 # ==========================================================================
@@ -596,7 +602,7 @@ class LHaloWriterBindingTests(unittest.TestCase):
     def test_the_writer_refuses_metadata_the_conversion_did_not_record(self):
         import pipeline
         from column_schema import ConverterError
-        from hdf5_writer import HorizontalV3Writer
+        from hdf5_writer_v3 import HorizontalV3Writer
 
         tmp = Path(tempfile.mkdtemp(prefix="cli_writer_"))
         self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
@@ -620,7 +626,11 @@ class LHaloWriterBindingTests(unittest.TestCase):
         with self.assertRaisesRegex(ConverterError, "L-Halo conversion was recorded against"):
             pipeline.run_write(work, HorizontalV3Writer(other))
         self.assertEqual([p for p in (work / "write").rglob("*") if p.is_file()], [])
-        manifest = pipeline.run_write(work, HorizontalV3Writer(mini))
+        # HorizontalV3Writer's completion line goes through hdf5_writer._log (stderr);
+        # capture both streams so this in-process call cannot leak either into the
+        # test runner's own output, regardless of which one a future change uses.
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            manifest = pipeline.run_write(work, HorizontalV3Writer(mini))
         self.assertTrue(manifest.is_complete("write"))
 
 

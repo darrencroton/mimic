@@ -1,11 +1,10 @@
-"""Lossless L-Halo binary source adapter (Slice 3 of the converter
-generalisation plan, docs/dev/MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md,
-contracts C1/C3/C4).
+"""Lossless L-Halo binary source adapter (contracts C1/C3/C4 of
+docs/dev/MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md).
 
 Streams the shipped fixed-record L-Halo tree files -- mini-Millennium,
 Millennium, mini-Uchuu and micro-Uchuu all ship the same 19-field, 104-byte
 record -- into the canonical batches ``adapters/base.py`` defines. It reads
-only; it opens no file for writing and creates no path, so Slice 1's
+only; it opens no file for writing and creates no path, so the converter's
 source-overwrite protection has no write set to enumerate here.
 
 **What "lossless" means on this route.** The adapter preserves what the source
@@ -47,8 +46,8 @@ read off the C driver rather than assumed:
 - ``SourceHaloID`` is the inventory's prefix sum over ``(file, tree)`` and is
   distinct from ``MostBoundID`` by construction.
 
-**Bounds (C4).** Three terms scale with something other than a constant, and
-all three are named rather than left implicit:
+**Bounds (C4).** Four terms scale with something other than a constant, and
+all four are named rather than left implicit:
 
 1. *Record reads* are bounded. Emission reads at most the caller's
    ``max_rows`` records at a time, and the validation pass reads at most
@@ -61,17 +60,23 @@ all three are named rather than left implicit:
    and the second pass hits the page cache the first one just warmed.
 2. *Per-tree validation* -- the five links plus ``SnapNum`` as int64, **plus
    the transient scratch the structural checks allocate while those columns
-   are still live** -- peaks at :data:`VALIDATION_BYTES_PER_HALO` bytes per
-   halo for the tree currently being validated. Structural validation
+   are still live** -- peaks at ``topology.VALIDATION_BYTES_PER_HALO`` bytes
+   per halo for the tree currently being validated. Structural validation
    (reciprocal chains, cycles, FoF membership) is not expressible
    chunk-locally, so this term is deliberate, budgeted, and checked *before*
    allocation. The retained columns are only 48 of those bytes; counting just
    them would understate the real peak by more than half, so the budget uses
    the measured whole-path figure instead, **plus** the one bounded read
-   buffer of item 1 -- a constant, and the one term a per-halo figure cannot
-   express. The columns are **released as soon as validation returns**,
-   before emission begins, so this term never overlaps the output buffers.
-3. *The inventory* is O(tree count), which C4 permits as an explicitly
+   buffer of item 1 and the :data:`TOPOLOGY_BASE_BYTES` fixed addend --
+   constants, which a per-halo figure cannot express. The columns are
+   **released as soon as validation returns**, before emission begins, so
+   this term never overlaps the output buffers.
+3. *The emission buffer* holds one batch: up to ``max_rows`` raw records and
+   the canonical columns built from them, doubled while
+   ``topology.BatchBuilder`` concatenates the accumulated chunks. It is
+   checked once, before the first batch, by
+   ``topology.check_emission_budget``.
+4. *The inventory* is O(tree count), which C4 permits as an explicitly
    budgeted term. It is the contract's own mandated structure: C1 defines
    ``SourceHaloID`` as a prefix sum over the complete ordered inventory, so it
    cannot be streamed away. Budgeted at :data:`INVENTORY_BYTES_PER_UNIT`
@@ -128,25 +133,31 @@ from .base import (
     SourceAdapter,
     SourceInventory,
     SourceUnit,
+    check_budget,
+    identity_columns,
+    require_integer,
 )
 from .source_inventory import LHaloHeader, read_lhalo_header
+from .topology import (
+    TOPOLOGY_COLUMNS,
+    BatchBuilder,
+    check_emission_budget,
+    check_validation_budget,
+    validate_tree,
+)
 
 __all__ = [
     "ConverterError",
     "TOPOLOGY_COLUMNS",
     "TOPOLOGY_READ_CHUNK_ROWS",
     "TOPOLOGY_COLUMN_BYTES_PER_HALO",
-    "VALIDATION_BYTES_PER_HALO",
+    "TOPOLOGY_BASE_BYTES",
     "INVENTORY_BYTES_PER_UNIT",
     "INVENTORY_BASE_BYTES",
     "DEFAULT_MEMORY_BUDGET_BYTES",
     "LHaloBinaryAdapter",
 ]
 
-
-#: The columns whole-tree structural validation needs: the five stored links
-#: plus the snapshot they are interpreted against.
-TOPOLOGY_COLUMNS: Tuple[str, ...] = LINK_FIELDS + ("SnapNum",)
 
 #: Records per read while gathering those columns. Fixed rather than taken
 #: from the caller's ``max_rows`` so the raw read buffer stays O(1) in the
@@ -156,61 +167,36 @@ TOPOLOGY_COLUMNS: Tuple[str, ...] = LINK_FIELDS + ("SnapNum",)
 #: the validation peak. 65536 records is 6.8 MB on that record.
 TOPOLOGY_READ_CHUNK_ROWS = 65536
 
-#: Bytes the six retained topology columns occupy per halo. Held as int64
-#: rather than the source's int32 so that index arithmetic, ``bincount`` and
-#: the chain walks below cannot overflow or silently re-cast mid-expression.
-#: This is **not** the budget figure: see :data:`VALIDATION_BYTES_PER_HALO`.
+#: Bytes the six retained topology columns occupy per halo, held as int64
+#: (see ``topology.TOPOLOGY_COLUMNS``). This is **not** the budget figure: see
+#: ``topology.VALIDATION_BYTES_PER_HALO``, which also covers the validator's
+#: scratch.
 TOPOLOGY_COLUMN_BYTES_PER_HALO = 8 * len(TOPOLOGY_COLUMNS)
 
-#: Peak bytes per halo of the whole per-tree validation path, which is what
-#: the budget check must bound. The six retained columns above are only 48 of
-#: these; ``_validate_tree`` and its helpers then allocate whole-tree scratch
-#: -- the ``rows`` index array, the boolean masks, their fancy-indexed int64
-#: copies (``heads``, ``owners``, ``descendant[heads]`` and their FoF
-#: counterparts) and several ``bincount`` results -- while those columns are
-#: still live.
-#:
-#: Measured with ``tracemalloc`` around **the retained columns plus**
-#: ``_validate_tree`` -- both, because the columns stay live across the
-#: validation and measuring only the scratch is the same half-accounting that
-#: made the previous figure wrong. Taken at n = 20k, 40k, 100k and 400k halos
-#: over three deliberately different tree shapes; the per-halo figure was flat
-#: in n to within 0.6% in every case, so this is a slope, not a two-point
-#: extrapolation:
-#:
-#:     linear chain (every halo has both a descendant and a
-#:                   FirstProgenitor)                        119.0 B/halo
-#:     wide (one progenitor each, large FoF groups)            98.0 B/halo
-#:     dense sibling chains (64-member progenitor/FoF chains) 109.3 B/halo
-#:
-#: The linear shape is the worst because it is the one that makes
-#: ``has_first`` and ``has_descendant`` dense *simultaneously*, so the
-#: FirstProgenitor block's three int64 copies are all full length. 160 is that
-#: 119.1 worst case plus a 1.34x margin, because a budget that refuses work is
-#: safe and one that accepts work it cannot hold is the defect this figure
-#: exists to prevent. The margin costs nothing real: the largest tree in any
-#: shipped package (397,280 halos, mini-Uchuu) needs 63.6 MB of the 2 GiB
-#: default.
-#:
-#: ``BudgetAccountingTests`` in the test module re-measures all three shapes
-#: and fails if any exceeds this constant, so the figure is self-policing
-#: rather than a number that silently rots as numpy's temporaries change.
-VALIDATION_BYTES_PER_HALO = 160
+#: The constant part of the validation path's peak -- array headers, the
+#: column dict, the check helpers' small fixed scratch -- which neither the
+#: per-halo figure nor the read buffer can express. Measured with
+#: ``tracemalloc`` around the complete real path (``_read_tree_topology``
+#: through a real file handle, then ``topology.validate_tree``): a peak of
+#: 2,597-2,674 bytes at one halo and 3,883 at ten, against 264 and 2,640
+#: from the two linear terms, with a worst observed peak of 5,397 bytes (a
+#: first-call spike on a seven-halo tree). The linear terms alone cover the
+#: peak from about 20 halos up. 16 KiB is that worst peak with a ~3x margin.
+#: ``BudgetAccountingTests`` re-measures the real path at small sizes and
+#: fails if it exceeds the declared figure.
+TOPOLOGY_BASE_BYTES = 16 * 1024
 
 #: Peak bytes per inventory unit of the **complete** ``_build_inventory()``
 #: path, which is what the budget check must bound.
 #:
-#: The previous figure, 464, was measured around ``SourceInventory(units)``
-#: alone. That is not the path: ``_build_inventory`` also accumulates a
-#: ``_SourceFile`` per file -- each retaining an ``LHaloHeader`` whose
-#: ``tree_halo_counts`` is a real int64 array, 8 bytes per tree -- and a
-#: ``SourceUnit`` per tree, and holds all of it while ``SourceInventory``
-#: builds its own tuple, prefix-sum tuple and index dict on top. Measured
-#: against the real 8-file mini-Millennium dataset the old figure was **5.6%**
-#: short (14,500,184 bytes actual against 13,727,440 declared). This is the
-#: third time in this module that a budget constant measured against a
-#: narrower scope than the path it guards has turned out to understate it;
-#: measure the whole path.
+#: ``SourceInventory(units)`` alone is not the path: ``_build_inventory``
+#: also accumulates a ``_SourceFile`` per file -- each retaining an
+#: ``LHaloHeader`` whose ``tree_halo_counts`` is a real int64 array, 8 bytes
+#: per tree -- and a ``SourceUnit`` per tree, and holds all of it while
+#: ``SourceInventory`` builds its own tuple, prefix-sum tuple and index dict on
+#: top. Measuring ``SourceInventory`` alone understates the real 8-file
+#: mini-Millennium peak (14,500,184 bytes) by 5.6%, so the figure is measured
+#: around the whole path.
 #:
 #: Measured with ``tracemalloc`` around the real ``inventory()`` call, over
 #: synthetic catalogs from 1 to 200,000 trees and on real mini-Millennium.
@@ -225,7 +211,7 @@ VALIDATION_BYTES_PER_HALO = 160
 #:     n = 200,000 synthetic                470 B/unit
 #:
 #: 640 is that 506 worst case plus a 1.26x margin, for the same reason
-#: :data:`VALIDATION_BYTES_PER_HALO` carries one: a budget that refuses work
+#: ``topology.VALIDATION_BYTES_PER_HALO`` carries one: a budget that refuses work
 #: is safe, and one that accepts work it cannot hold is the defect the figure
 #: exists to prevent. ``BudgetAccountingTests`` re-measures the real path and
 #: fails if it exceeds this constant, so it cannot drift back open silently.
@@ -244,27 +230,12 @@ INVENTORY_BYTES_PER_UNIT = 640
 INVENTORY_BASE_BYTES = 256 * 1024
 
 #: Default ceiling for the budgeted terms above. Chosen to hold every
-#: inventory this plan's L-Halo sources actually present -- micro-Uchuu's
+#: inventory the shipped L-Halo sources present -- micro-Uchuu's
 #: 440,651 trees need ~282 MB, mini-Millennium's 29,585 need ~19 MB -- while
 #: refusing a full 512-file Millennium (~9.1 GB, extrapolated from the 27,747
 #: trees per file measured across its 16 local files) loudly instead of
 #: paging.
 DEFAULT_MEMORY_BUDGET_BYTES = 2 * 1024**3
-
-
-def _require_integer(value, what: str, because: str) -> int:
-    """Type-check an integral scalar instead of coercing it.
-
-    ``int()`` would quietly truncate ``1.5`` and quietly accept ``True`` as 1,
-    and every scalar this module takes is one a later stage depends on -- a
-    recorded identity, a memory ceiling, a snapshot bound. ``bool`` is excluded
-    explicitly because it is a subclass of ``int``. ``numpy`` integers are
-    accepted: a caller computing a value from array data should not have to
-    convert it back first.
-    """
-    if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
-        raise ConverterError("{} must be an integer, got {!r}; {}".format(what, value, because))
-    return int(value)
 
 
 def _peek_ntrees(path: Path, byte_order: str) -> Optional[int]:
@@ -373,7 +344,7 @@ class LHaloBinaryAdapter(SourceAdapter):
             )
         if schema.source_layout is None:  # pragma: no cover - build_schema guarantees it
             raise ConverterError("a lhalo_binary schema always carries a frozen source layout")
-        memory_budget_bytes = _require_integer(
+        memory_budget_bytes = require_integer(
             memory_budget_bytes,
             "memory_budget_bytes",
             "a fractional ceiling would be truncated into a different budget than the caller "
@@ -384,7 +355,7 @@ class LHaloBinaryAdapter(SourceAdapter):
                 "memory_budget_bytes must be positive, got {}".format(memory_budget_bytes)
             )
         if max_snapshot is not None:
-            max_snapshot = _require_integer(
+            max_snapshot = require_integer(
                 max_snapshot,
                 "max_snapshot",
                 "a fractional snapshot bound would be truncated into a different bound than the "
@@ -408,9 +379,9 @@ class LHaloBinaryAdapter(SourceAdapter):
                 )
             )
 
-        # Resolve through the shared Slice 2 API rather than reimplementing
-        # alias matching: the layout's entry names are exactly the source
-        # field names a binary profile may reference.
+        # Resolve through column_schema's shared API rather than
+        # reimplementing alias matching: the layout's entry names are exactly
+        # the source field names a binary profile may reference.
         available = [entry.name for entry in self.layout.entries]
         self._roles = resolve_required_columns(schema, available)
         self._extras = resolve_extra_sources(schema, available)
@@ -467,7 +438,7 @@ class LHaloBinaryAdapter(SourceAdapter):
                         position, entry
                     )
                 ) from None
-            ordinal = _require_integer(
+            ordinal = require_integer(
                 ordinal,
                 "sources[{}]: source_file_ordinal".format(position),
                 "it is recorded identity and is never coerced",
@@ -561,9 +532,10 @@ class LHaloBinaryAdapter(SourceAdapter):
             try:
                 declared_trees = _peek_ntrees(path, byte_order)
                 if declared_trees is not None:
-                    self._check_budget(
+                    check_budget(
                         (len(units) + declared_trees) * INVENTORY_BYTES_PER_UNIT
                         + INVENTORY_BASE_BYTES,
+                        self.memory_budget_bytes,
                         "inventory of {} trees ({} B/unit plus a {}-byte base)".format(
                             len(units) + declared_trees,
                             INVENTORY_BYTES_PER_UNIT,
@@ -604,15 +576,6 @@ class LHaloBinaryAdapter(SourceAdapter):
             forest_base += header.ntrees
         return tuple(files), SourceInventory(units)
 
-    def _check_budget(self, required_bytes: int, what: str, remedy: str) -> None:
-        """Refuse an over-budget allocation *before* making it (C4)."""
-        if required_bytes > self.memory_budget_bytes:
-            raise ConverterError(
-                "{} needs {} bytes, above the configured memory budget of {} bytes; {}".format(
-                    what, required_bytes, self.memory_budget_bytes, remedy
-                )
-            )
-
     # ---- batch streaming -------------------------------------------------
 
     def iter_batches(self, max_rows: int) -> Iterator[CanonicalBatch]:
@@ -624,16 +587,26 @@ class LHaloBinaryAdapter(SourceAdapter):
         whole inventory, so a batch that ends mid-tree is still strictly
         increasing, and packing them keeps a catalog of 29,585 small trees from
         producing 29,585 tiny batches.
+
+        The emission buffer is budget-checked once, before any tree is read,
+        with the record width as the raw per-row term (see
+        ``topology.check_emission_budget``).
         """
-        max_rows = _require_integer(
+        max_rows = require_integer(
             max_rows,
             "max_rows",
             "a fractional batch size would be truncated, and True would silently mean 1",
+            minimum=1,
         )
-        if max_rows < 1:
-            raise ConverterError("max_rows must be at least 1, got {}".format(max_rows))
         inventory = self.inventory()
-        builder = _BatchBuilder(self.schema, max_rows)
+        check_emission_budget(
+            self.schema,
+            max_rows,
+            inventory.total_halos,
+            self.layout.itemsize,
+            self.memory_budget_bytes,
+        )
+        builder = BatchBuilder(self.schema, max_rows)
 
         for source in self._files:
             header = source.header
@@ -656,7 +629,7 @@ class LHaloBinaryAdapter(SourceAdapter):
                         # zero, which the prefix sums already handle.
                         continue
                     topology = self._read_tree_topology(handle, offset, n_halos, context)
-                    _validate_tree(topology, n_halos, context, self.max_snapshot)
+                    validate_tree(topology, n_halos, context, self.max_snapshot)
                     # Released before emission begins, not merely rebound on
                     # the next iteration. Nothing below reads it, and holding
                     # it would keep 48 B/halo of the tree resident through the
@@ -730,10 +703,11 @@ class LHaloBinaryAdapter(SourceAdapter):
         allocation rather than after it.
 
         The check covers the *whole* validation path, not just the six
-        columns allocated here: ``_validate_tree`` runs while they are live
+        columns allocated here: ``validate_tree`` runs while they are live
         and allocates more whole-tree scratch of its own, so budgeting the
         columns alone would let an operator's configured ceiling be exceeded
-        by more than 2x a few lines later.
+        by more than 2x a few lines later. :data:`TOPOLOGY_BASE_BYTES` covers
+        the path's fixed peak, which dominates a tree of a few halos.
 
         The read chunk is :data:`TOPOLOGY_READ_CHUNK_ROWS`, deliberately not
         the caller's ``max_rows``. This pass only fills six columns and gains
@@ -744,12 +718,8 @@ class LHaloBinaryAdapter(SourceAdapter):
         peak that this constant is not meant to cover.
         """
         read_buffer_bytes = min(TOPOLOGY_READ_CHUNK_ROWS, n_halos) * self.layout.itemsize
-        self._check_budget(
-            n_halos * VALIDATION_BYTES_PER_HALO + read_buffer_bytes,
-            "{}: structural validation of {} halos ({} B/halo plus a {}-byte read buffer)".format(
-                context, n_halos, VALIDATION_BYTES_PER_HALO, read_buffer_bytes
-            ),
-            "raise memory_budget_bytes",
+        check_validation_budget(
+            n_halos, read_buffer_bytes, TOPOLOGY_BASE_BYTES, self.memory_budget_bytes, context
         )
         columns = {name: np.empty(n_halos, dtype=np.int64) for name in TOPOLOGY_COLUMNS}
         self._seek(handle, offset, context)
@@ -758,8 +728,8 @@ class LHaloBinaryAdapter(SourceAdapter):
         while start < n_halos:
             count = min(TOPOLOGY_READ_CHUNK_ROWS, n_halos - start)
             # Released before the next read allocates, not after: rebinding
-            # alone would hold two chunk buffers at once, which measured as a
-            # 13.6 MB constant rather than the intended 6.8 MB.
+            # alone would hold two chunk buffers at once, a 13.6 MB constant
+            # rather than the intended 6.8 MB.
             records = None
             records = self._read_records(handle, count, context)
             for name in TOPOLOGY_COLUMNS:
@@ -781,22 +751,12 @@ class LHaloBinaryAdapter(SourceAdapter):
         context: str,
     ) -> Dict[str, Dict[str, np.ndarray]]:
         """Turn one chunk of records into the five canonical column groups."""
-        n_rows = records.shape[0]
-        rows = np.arange(start, start + n_rows, dtype=np.int64)
-
-        identity = {
-            "SourceHaloID": base_id + rows,
-            "ForestIndex": np.full(n_rows, forest_index, dtype=np.int64),
-            "HaloRankInForest": rows.copy(),
-        }
-        coordinates = {
-            "source_file_ordinal": np.full(n_rows, source.ordinal, dtype=np.int64),
-            "unit_ordinal": np.full(n_rows, tree_ordinal, dtype=np.int64),
-            "row_ordinal": rows.copy(),
-        }
+        identity, coordinates = identity_columns(
+            base_id, forest_index, source.ordinal, tree_ordinal, start, records.shape[0]
+        )
         # A stored link is a within-tree row index; the canonical form is the
         # target's SourceHaloID, so the whole tree's ids shift by one base.
-        # Only -1 is null, and _validate_tree has already refused anything
+        # Only -1 is null, and validate_tree has already refused anything
         # else negative or out of tree.
         links = {}
         for name in LINK_FIELDS:
@@ -892,358 +852,3 @@ class LHaloBinaryAdapter(SourceAdapter):
                         context, start + row, name, int(values[row])
                     )
                 )
-
-
-# ==========================================================================
-# Per-tree structural validation
-# ==========================================================================
-
-
-def _rows_of(mask: np.ndarray) -> np.ndarray:
-    """The row indices a boolean mask selects, in ascending order."""
-    return np.asarray(mask).nonzero()[0]
-
-
-def _first_row(mask: np.ndarray) -> int:
-    """The first row a boolean mask selects. Callers check ``any()`` first."""
-    return int(_rows_of(mask)[0])
-
-
-def _validate_tree(
-    columns: Dict[str, np.ndarray], n_halos: int, context: str, max_snapshot: Optional[int]
-) -> None:
-    """Reject a structurally invalid tree (C1).
-
-    Every rule below was checked against all four shipped L-Halo datasets --
-    mini-Millennium (8/8 files), micro-Uchuu (4/4), and four files each of
-    Millennium and mini-Uchuu, 75.4 M halos in total -- with zero violations
-    before it was made a gate, so none of them fails valid source data.
-
-    A **forward gap is not malformed**: ``Descendant`` must point strictly
-    forward, and a span of 2 is as legal as a span of 1. mini-Millennium's
-    29,291 gaps are the reason this route exists.
-    """
-    descendant = columns["Descendant"]
-    first_progenitor = columns["FirstProgenitor"]
-    next_progenitor = columns["NextProgenitor"]
-    fof_central = columns["FirstHaloInFOFgroup"]
-    next_in_fof = columns["NextHaloInFOFgroup"]
-    snapshot = columns["SnapNum"]
-    rows = np.arange(n_halos, dtype=np.int64)
-
-    _validate_ranges(columns, n_halos, context)
-    _validate_snapshots(snapshot, context, max_snapshot)
-    _validate_descendants(descendant, snapshot, context)
-    _validate_progenitors(
-        descendant, first_progenitor, next_progenitor, snapshot, rows, n_halos, context
-    )
-    _validate_fof(fof_central, next_in_fof, snapshot, rows, n_halos, context)
-
-
-def _validate_ranges(columns: Dict[str, np.ndarray], n_halos: int, context: str) -> None:
-    """Every link is ``-1`` or a row of this tree.
-
-    ``FirstHaloInFOFgroup`` is the exception with no null: a central
-    self-references (C3), so the whole column must be a real row.
-    """
-    for name in LINK_FIELDS:
-        values = columns[name]
-        floor = 0 if name == "FirstHaloInFOFgroup" else NULL_LINK
-        below = values < floor
-        if bool(below.any()):
-            row = _first_row(below)
-            if name == "FirstHaloInFOFgroup":
-                raise ConverterError(
-                    "{}, row {}: FirstHaloInFOFgroup is {}, but it is never null -- a central "
-                    "self-references".format(context, row, int(values[row]))
-                )
-            raise ConverterError(
-                "{}, row {}: {} is {}; only -1 is the null sentinel".format(
-                    context, row, name, int(values[row])
-                )
-            )
-        above = values >= n_halos
-        if bool(above.any()):
-            row = _first_row(above)
-            raise ConverterError(
-                "{}, row {}: {} points to row {}, outside this {}-halo tree".format(
-                    context, row, name, int(values[row]), n_halos
-                )
-            )
-
-
-def _validate_snapshots(snapshot: np.ndarray, context: str, max_snapshot: Optional[int]) -> None:
-    below = snapshot < 0
-    if bool(below.any()):
-        row = _first_row(below)
-        raise ConverterError(
-            "{}, row {}: SnapNum is {}, which is negative".format(context, row, int(snapshot[row]))
-        )
-    if max_snapshot is None:
-        return
-    above = snapshot > max_snapshot
-    if bool(above.any()):
-        row = _first_row(above)
-        raise ConverterError(
-            "{}, row {}: SnapNum is {}, outside the a_list's range [0, {}]".format(
-                context, row, int(snapshot[row]), max_snapshot
-            )
-        )
-
-
-def _validate_descendants(descendant: np.ndarray, snapshot: np.ndarray, context: str) -> None:
-    """``Descendant`` points strictly forward in time; gaps are legal."""
-    linked = descendant >= 0
-    if not bool(linked.any()):
-        return
-    span = snapshot[descendant[linked]] - snapshot[linked]
-    bad = span < 1
-    if bool(bad.any()):
-        row = int(_rows_of(linked)[_first_row(bad)])
-        target = int(descendant[row])
-        raise ConverterError(
-            "{}, row {}: Descendant points to row {} at snapshot {}, not forward of snapshot {}; "
-            "a forward gap is legal, a non-forward link is not".format(
-                context, row, target, int(snapshot[target]), int(snapshot[row])
-            )
-        )
-
-
-def _validate_progenitors(
-    descendant: np.ndarray,
-    first_progenitor: np.ndarray,
-    next_progenitor: np.ndarray,
-    snapshot: np.ndarray,
-    rows: np.ndarray,
-    n_halos: int,
-    context: str,
-) -> None:
-    """The progenitor chains must be exactly the reciprocal of ``Descendant``.
-
-    Four independent properties, because no three of them imply the fourth:
-    each ``FirstProgenitor`` names a halo that names it back; each
-    ``NextProgenitor`` sibling shares its owner's descendant; every halo with a
-    descendant is named exactly once across all chains; and the chains actually
-    reach all of them. The last is not redundant -- an in-degree of exactly one
-    is equally satisfied by a chain plus a disjoint cycle, which is precisely
-    the corruption a reachability count catches.
-
-    Two rules C3 states are enforced *transitively* here rather than tested
-    again, because each is a consequence of the rules above and a separate
-    branch for it would be unreachable:
-
-    - **"FirstProgenitor points backwards."** ``_validate_descendants`` has
-      already proved ``SnapNum[Descendant[x]] > SnapNum[x]`` for every linked
-      ``x``, and reciprocity proves ``Descendant[FirstProgenitor[h]] == h``.
-      Substituting gives ``SnapNum[h] > SnapNum[FirstProgenitor[h]]``.
-    - **A chain head implies a progenitor.** Reciprocity makes
-      ``FirstProgenitor[h]`` a halo whose ``Descendant`` is ``h``, so ``h``
-      cannot simultaneously have a head and no progenitors.
-
-    ``snapshot`` is still a parameter: the caller passes the whole column set,
-    and dropping it here would only move the argument list out of step with
-    the other validators.
-    """
-    del snapshot  # enforced transitively; see the docstring
-    has_first = first_progenitor >= 0
-    if bool(has_first.any()):
-        heads = first_progenitor[has_first]
-        owners = rows[has_first]
-        broken = descendant[heads] != owners
-        if bool(broken.any()):
-            position = _first_row(broken)
-            owner, head = int(owners[position]), int(heads[position])
-            raise ConverterError(
-                "{}, row {}: FirstProgenitor is row {}, but that halo's Descendant is {}, not {} "
-                "-- the progenitor round trip is inconsistent".format(
-                    context, owner, head, int(descendant[head]), owner
-                )
-            )
-
-    has_next = next_progenitor >= 0
-    if bool(has_next.any()):
-        siblings = next_progenitor[has_next]
-        owners = rows[has_next]
-        orphaned = descendant[owners] < 0
-        if bool(orphaned.any()):
-            owner = int(owners[_first_row(orphaned)])
-            raise ConverterError(
-                "{}, row {}: NextProgenitor is set but the halo has no Descendant, so there is no "
-                "chain for it to belong to".format(context, owner)
-            )
-        mismatched = descendant[siblings] != descendant[owners]
-        if bool(mismatched.any()):
-            position = _first_row(mismatched)
-            owner, sibling = int(owners[position]), int(siblings[position])
-            raise ConverterError(
-                "{}, row {}: NextProgenitor row {} descends to {}, but this halo descends to {}; "
-                "siblings must name the same descendant".format(
-                    context, owner, sibling, int(descendant[sibling]), int(descendant[owner])
-                )
-            )
-
-    has_descendant = descendant >= 0
-    progenitor_counts = np.bincount(descendant[has_descendant], minlength=n_halos)
-    missing_head = (progenitor_counts > 0) & ~has_first
-    if bool(missing_head.any()):
-        row = _first_row(missing_head)
-        raise ConverterError(
-            "{}, row {}: {} halo(s) name this one as their Descendant, but FirstProgenitor is "
-            "-1".format(context, row, int(progenitor_counts[row]))
-        )
-
-    in_degree = np.bincount(first_progenitor[has_first], minlength=n_halos) + np.bincount(
-        next_progenitor[has_next], minlength=n_halos
-    )
-    wrong = in_degree != has_descendant.astype(np.int64)
-    if bool(wrong.any()):
-        row = _first_row(wrong)
-        raise ConverterError(
-            "{}, row {}: this halo is named by {} progenitor pointer(s) but should be named by {} "
-            "-- the progenitor chains double-count or drop it".format(
-                context, row, int(in_degree[row]), int(has_descendant[row])
-            )
-        )
-
-    reached = _walk_chain(first_progenitor[has_first], next_progenitor, n_halos)
-    expected = int(has_descendant.sum())
-    if reached != expected:
-        raise ConverterError(
-            "{}: the NextProgenitor chains reach {} of {} halos that have a Descendant -- the "
-            "unreached halos form a cycle".format(context, reached, expected)
-        )
-
-
-def _validate_fof(
-    fof_central: np.ndarray,
-    next_in_fof: np.ndarray,
-    snapshot: np.ndarray,
-    rows: np.ndarray,
-    n_halos: int,
-    context: str,
-) -> None:
-    """FoF groups are same-snapshot, centrally rooted and acyclic (C1/C3)."""
-    wrong_snapshot = snapshot[fof_central] != snapshot
-    if bool(wrong_snapshot.any()):
-        row = _first_row(wrong_snapshot)
-        central = int(fof_central[row])
-        raise ConverterError(
-            "{}, row {}: FirstHaloInFOFgroup is row {} at snapshot {}, but this halo is at "
-            "snapshot {}; FoF links stay in the current snapshot".format(
-                context, row, central, int(snapshot[central]), int(snapshot[row])
-            )
-        )
-    not_self = fof_central[fof_central] != fof_central
-    if bool(not_self.any()):
-        row = _first_row(not_self)
-        central = int(fof_central[row])
-        raise ConverterError(
-            "{}, row {}: FirstHaloInFOFgroup is row {}, but that halo's own FirstHaloInFOFgroup "
-            "is {} -- a central must self-reference".format(
-                context, row, central, int(fof_central[central])
-            )
-        )
-
-    has_next = next_in_fof >= 0
-    if bool(has_next.any()):
-        members = next_in_fof[has_next]
-        owners = rows[has_next]
-        foreign = fof_central[members] != fof_central[owners]
-        if bool(foreign.any()):
-            position = _first_row(foreign)
-            owner, member = int(owners[position]), int(members[position])
-            raise ConverterError(
-                "{}, row {}: NextHaloInFOFgroup row {} belongs to group {}, not this halo's "
-                "group {}".format(
-                    context, owner, member, int(fof_central[member]), int(fof_central[owner])
-                )
-            )
-
-    is_central = fof_central == rows
-    in_degree = np.bincount(next_in_fof[has_next], minlength=n_halos)
-    expected = (~is_central).astype(np.int64)
-    wrong = in_degree != expected
-    if bool(wrong.any()):
-        row = _first_row(wrong)
-        raise ConverterError(
-            "{}, row {}: this halo is named by {} NextHaloInFOFgroup pointer(s) but should be "
-            "named by {} -- a central is never a chain target and a satellite is named "
-            "once".format(context, row, int(in_degree[row]), int(expected[row]))
-        )
-
-    reached = _walk_chain(rows[is_central], next_in_fof, n_halos)
-    if reached != n_halos:
-        raise ConverterError(
-            "{}: the NextHaloInFOFgroup chains reach {} of {} halos from their centrals -- the "
-            "unreached halos form a cycle".format(context, reached, n_halos)
-        )
-
-
-def _walk_chain(heads: np.ndarray, successor: np.ndarray, n_halos: int) -> int:
-    """Count the halos reachable from ``heads`` along ``successor``.
-
-    A frontier walk rather than a per-node loop: every node has at most one
-    successor, so the frontier never grows and the number of iterations is the
-    longest chain, not the halo count. Real sources make that cheap -- the
-    deepest chain measured across all four datasets is 3,817 (mini-Uchuu FoF)
-    against 46 M halos in that sample.
-
-    Callers run this only after proving in-degree is exactly one, which means
-    a cycle is necessarily disjoint from the reachable set and can never be
-    entered. The ``visited > n_halos`` guard is insurance against a future
-    caller reordering those checks, not a live path.
-    """
-    frontier = heads[heads >= 0]
-    visited = 0
-    while frontier.size:
-        visited += int(frontier.size)
-        if visited > n_halos:  # pragma: no cover - unreachable after the in-degree check
-            raise ConverterError("chain walk revisited a halo; the links contain a cycle")
-        following = successor[frontier]
-        frontier = following[following >= 0]
-    return visited
-
-
-# ==========================================================================
-# Batch assembly
-# ==========================================================================
-
-
-class _BatchBuilder:
-    """Accumulates chunk columns until ``max_rows`` rows are ready.
-
-    Holds at most ``max_rows`` rows: the caller sizes each chunk against the
-    remaining space, so the builder never overshoots and never buffers a whole
-    tree.
-    """
-
-    _GROUPS = ("identity", "coordinates", "links", "payload", "extras")
-
-    def __init__(self, schema: CanonicalSchema, max_rows: int):
-        self.schema = schema
-        self.max_rows = max_rows
-        self.n_rows = 0
-        self._parts: Dict[str, Dict[str, List[np.ndarray]]] = {group: {} for group in self._GROUPS}
-
-    def add(self, columns: Dict[str, Dict[str, np.ndarray]]) -> None:
-        added = None
-        for group in self._GROUPS:
-            for name, values in columns[group].items():
-                self._parts[group].setdefault(name, []).append(values)
-                added = values.shape[0] if added is None else added
-        self.n_rows += 0 if added is None else added
-
-    def take(self) -> CanonicalBatch:
-        """Concatenate and hand over the accumulated rows, then reset."""
-        groups = {
-            group: {
-                name: (parts[0] if len(parts) == 1 else np.concatenate(parts))
-                for name, parts in self._parts[group].items()
-            }
-            for group in self._GROUPS
-        }
-        batch = CanonicalBatch(schema=self.schema, **groups)
-        batch.validate()
-        self._parts = {group: {} for group in self._GROUPS}
-        self.n_rows = 0
-        return batch

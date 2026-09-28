@@ -1,6 +1,5 @@
-"""Generic CLI for the generalised merger-tree converter (Slice 9 of
-docs/dev/MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md, contracts C2
-and C4).
+"""Generic CLI for the generalised merger-tree converter (contracts C2 and C4
+of docs/dev/MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md).
 
 Converts any of the three supported vertical source formats into lossless
 horizontal-HDF5 **format version 3** (docs/dev/HORIZONTAL-HDF5-FORMAT-V3-DRAFT.md)
@@ -315,12 +314,13 @@ def _resolve_configuration(args):
     return schema, parameters, len(scale_factors), budget_bytes
 
 
-def _announce_profile(args, schema) -> None:
+def _announce_profile(args, schema, *, file=sys.stdout) -> None:
     origin = "shipped default" if args.column_map is None else "named"
     print(
         "profile: {} {} ({} extra field(s); column_mapping_sha256 {})".format(
             origin, _profile_path(args), len(schema.extra_fields), schema.digest
-        )
+        ),
+        file=file,
     )
 
 
@@ -376,10 +376,10 @@ def cmd_inspect(args) -> int:
     """Read-only report of what ``ingest`` would convert from these inputs."""
     import pipeline
     import transpose as transpose_module
-    from hdf5_writer import v3_halo_datasets
+    from hdf5_writer_v3 import v3_halo_datasets
 
     schema, parameters, n_snapshots, _budget = _resolve_configuration(args)
-    _announce_profile(args, schema)
+    _announce_profile(args, schema, file=sys.stderr)
     report = {
         "source_format": args.source_format,
         "simulation_info": str(Path(args.simulation_info).resolve()),
@@ -421,7 +421,7 @@ def cmd_inspect(args) -> int:
         "runtime_support": RUNTIME_NOTICE,
     }
     print(json.dumps(report, indent=2, sort_keys=True))
-    print(RUNTIME_NOTICE)
+    print(RUNTIME_NOTICE, file=sys.stderr)
     return 0
 
 
@@ -572,7 +572,7 @@ def _require_recorded_simulation_info(workdir, path) -> None:
 
 def cmd_write(args) -> int:
     import pipeline
-    from hdf5_writer import HorizontalV3Writer
+    from hdf5_writer_v3 import HorizontalV3Writer
 
     _require_recorded_simulation_info(args.workdir, args.simulation_info)
     manifest = pipeline.run_write(
@@ -599,7 +599,7 @@ def _complete_manifest(workdir):
 
 
 def cmd_validate(args) -> int:
-    from validate import run_battery_v3
+    from validate_v3 import run_battery_v3
 
     manifest = _complete_manifest(args.workdir)
     budget_bytes = _megabytes(args.memory_budget_mb)
@@ -618,7 +618,7 @@ def cmd_validate(args) -> int:
         _print_topology(
             int(measured["gapped_descendants"]),
             int(measured.get("max_descendant_span") or 0),
-            not int(measured["gapped_descendants"]),
+            bool(measured["links_adjacent_measured"]),
             [int(count) for count in measured["snapshot_counts"]],
         )
     print("validation: {}".format("FAIL" if battery.failed else "PASS"))
@@ -643,7 +643,7 @@ def cmd_report(args) -> int:
         _print_topology(
             int(links["gapped_descendants"]),
             int(links.get("max_descendant_span") or 0),
-            not int(links["gapped_descendants"]),
+            bool(report["format"]["links_adjacent_measured"]),
             counts,
         )
     print(
@@ -817,21 +817,17 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
 
     write = sub.add_parser(
-        "write", help="emit snapshot_NNN.h5 + forests.h5 in horizontal-HDF5 format version 3"
+        "write",
+        help="emit snapshot_NNN.h5 + forests.h5 in horizontal-HDF5 format version 3",
+        description="emit snapshot_NNN.h5 + forests.h5 in horizontal-HDF5 format version 3 "
+        "(the only version this CLI writes; version 2 is the ASCII-only convert_ctrees.py "
+        "workflow)",
     )
     _add_workdir(write)
     write.add_argument(
         "--simulation-info",
         required=True,
         help="simulation_info.yaml supplying the header's physical values",
-    )
-    write.add_argument(
-        "--format-version",
-        type=int,
-        choices=(FORMAT_VERSION,),
-        default=FORMAT_VERSION,
-        help="output format version; this CLI writes only version 3 (the default). Version 2 "
-        "is the ASCII-only convert_ctrees.py workflow",
     )
     write.add_argument(
         "--consume-transposed",

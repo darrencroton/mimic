@@ -236,11 +236,11 @@ Produced by `CanonicalSchema.consumer_metadata_fragment()` in `scripts/convert/c
     }
   ],
   "format_table_fields": [
-    {"name": "Descendant", "type": "long long",
+    {"name": "Descendant", "type": "long long", "provides_core_role": "Descendant",
      "description": "Snapshot-local row index of the descendant, -1 if none"},
-    {"name": "DescendantSnapshot", "type": "int",
+    {"name": "DescendantSnapshot", "type": "int", "provides_core_role": null,
      "description": "Snapshot of the Descendant target, -1 iff Descendant is -1"},
-    {"name": "SourceHaloID", "type": "long long",
+    {"name": "SourceHaloID", "type": "long long", "provides_core_role": null,
      "description": "Positive, globally unique converter row key from the adapter's declared source order"}
   ]
 }
@@ -250,7 +250,7 @@ Three things about this fragment are deliberate:
 
 - **`"complete": false` is machine-readable, not a footnote.** The fragment describes the payload a `halo_properties.yaml` would declare. It does **not** describe runtime topology support, and a tool that consumed it as a complete consumer specification would be wrong. It says so in its own output.
 - **Every `type`, `units` and `h_convention` is drawn from the property generator's vocabulary.** `EXTRA_TYPES` is asserted equal to `generate_properties.TYPE_MAP`, `H_CONVENTIONS` equal to the generator's, and every core payload unit present in `UNIT_REGISTRY` with the same `h_convention` the registry assigns it. Those are mechanical tests against the generator itself, not a transcribed copy.
-- **`format_table_fields` is separate from `halo_properties`.** Topology and identity are format-owned and are not offered as catalog properties to declare — the distinction the v2 erratum of 2026-08-11 established for `ForestIndex` and `HaloRankInForest`.
+- **`format_table_fields` is separate from `halo_properties`.** Each entry names the core role it provides (the five links provide their own; the target-snapshot and identity fields provide none), so a consumer can see every core role the file satisfies without inferring it from names. Topology and identity are format-owned and are not offered as catalog properties to declare — the distinction the v2 erratum of 2026-08-11 established for `ForestIndex` and `HaloRankInForest`.
 
 ## Findings
 

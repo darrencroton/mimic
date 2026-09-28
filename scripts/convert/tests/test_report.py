@@ -16,15 +16,35 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import h5py
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import report  # noqa: E402
 from column_schema import ConverterError  # noqa: E402
 from report import REPORT_JSON, REPORT_TXT, run_report_v3  # noqa: E402
 from test_hdf5_writer import V3_LHALO_EXTRAS_PAYLOAD, make_v3_conversion  # noqa: E402
+from validate_v3 import run_battery_v3  # noqa: E402
+
+#: The fixed topology and identity table in format order, with the core
+#: role each provides, restated from src/core/core_properties.yaml's
+#: required_inputs rather than read from the converter.
+FORMAT_TABLE_ROLES = [
+    ("Descendant", "long long", "Descendant"),
+    ("FirstProgenitor", "long long", "FirstProgenitor"),
+    ("NextProgenitor", "long long", "NextProgenitor"),
+    ("FirstHaloInFOFgroup", "long long", "FirstHaloInFOFgroup"),
+    ("NextHaloInFOFgroup", "long long", "NextHaloInFOFgroup"),
+    ("DescendantSnapshot", "int", None),
+    ("FirstProgenitorSnapshot", "int", None),
+    ("NextProgenitorSnapshot", "int", None),
+    ("SourceHaloID", "long long", None),
+    ("ForestIndex", "long long", None),
+    ("HaloRankInForest", "long long", None),
+]
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 BUDGET = 1 << 20
@@ -139,6 +159,21 @@ class TestV3Report(unittest.TestCase):
         self.assertIsNone(entries["SubHalfMass"]["provides_core_role"])
         self.assertIsNone(entries["MostBoundID"]["provides_core_role"])
 
+    def test_consumer_fragment_lists_the_format_table_fields_with_their_core_roles(self):
+        fragment = self.report["consumer_metadata_fragment"]["fragment"]
+        self.assertEqual(
+            [
+                (entry["name"], entry["type"], entry["provides_core_role"])
+                for entry in fragment["format_table_fields"]
+            ],
+            FORMAT_TABLE_ROLES,
+        )
+        text = (self.conv.work / REPORT_TXT).read_text()
+        self.assertRegex(
+            text,
+            r"NextHaloInFOFgroup +long long +\(format table\) +core role: " r"NextHaloInFOFgroup",
+        )
+
     def test_report_is_written_only_into_the_workdir(self):
         self.assertEqual(
             set(os.listdir(self.conv.work)) - self.workdir_before, {REPORT_JSON, REPORT_TXT}
@@ -148,7 +183,7 @@ class TestV3Report(unittest.TestCase):
 
     def test_every_battery_outcome_is_reported_and_passes(self):
         self.assertTrue(self.report["validation_passed"])
-        self.assertEqual(len(self.report["validation"]), 19)
+        self.assertEqual(len(self.report["validation"]), 20)
         self.assertEqual({o["status"] for o in self.report["validation"]}, {"PASS"})
 
 
@@ -166,6 +201,33 @@ class TestV3ReportFailures(unittest.TestCase):
         failing = {o["name"] for o in report["validation"] if o["status"] == "FAIL"}
         self.assertEqual(failing, {"len-nonnegative", "manifest-binding"})
         self.assertIn("validation: FAIL", (conv.work / REPORT_TXT).read_text())
+
+    def test_a_structurally_failed_dataset_still_gets_a_failing_report(self):
+        conv = make_v3_conversion(self.tmp)
+        with h5py.File(conv.dataset / "snapshot_002.h5", "r+") as handle:
+            handle.create_group("extra")
+        report_v3 = run_report_v3(conv.work, conv.a_list, budget_bytes=BUDGET)
+        self.assertFalse(report_v3["validation_passed"])
+        statuses = {o["name"]: o["status"] for o in report_v3["validation"]}
+        self.assertEqual(statuses["object-set"], "FAIL")
+        self.assertEqual(statuses["row-values"], "SKIP")
+        self.assertEqual(statuses["position-bounds"], "SKIP")
+        self.assertIn("validation: FAIL", (conv.work / REPORT_TXT).read_text())
+        self.assertEqual(json.loads((conv.work / REPORT_JSON).read_text()), report_v3)
+
+    def test_a_supplied_battery_result_is_reported_without_running_the_battery_again(self):
+        conv = make_v3_conversion(self.tmp)
+        with h5py.File(conv.dataset / "snapshot_002.h5", "r+") as handle:
+            handle["halos"]["Len"][0] = -3
+        battery = run_battery_v3(
+            conv.dataset, conv.a_list, manifest_path=conv.manifest.path, budget_bytes=BUDGET
+        )
+        with mock.patch.object(report, "run_battery_v3") as spy:
+            report_v3 = run_report_v3(conv.work, conv.a_list, battery=battery)
+        spy.assert_not_called()
+        self.assertEqual(report_v3["validation"], [o.as_dict() for o in battery.outcomes])
+        self.assertFalse(report_v3["validation_passed"])
+        self.assertEqual(report_v3["resources"]["validation"]["budget_bytes"], BUDGET)
 
     def test_an_incomplete_conversion_is_refused(self):
         conv = make_v3_conversion(self.tmp, write=False)

@@ -27,7 +27,7 @@ After this stage the ``Jx``/``Jy``/``Jz`` fields of the fixed records carry the
 normalised Spin components (raw J only where ``Mvir == 0``, per the reference
 carve-out).
 
-An extended scratch layout (converter generalisation Slice 5) passes through
+An extended scratch layout passes through
 unchanged apart from the two appended fields: its source coordinates and
 declared extras are copied field for field into the fixed record, and no
 convention touches them -- an extra that selects the raw ``Jx``/``Jy``/``Jz``
@@ -45,7 +45,6 @@ import yaml
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from ctrees_parser import (  # noqa: E402
-    EXTENDED_DTYPE_TAG_PREFIX,
     RECORD_DTYPE,
     ConverterError,
     ScratchLayout,
@@ -76,8 +75,9 @@ FIXED_DTYPE_TAG = "ctrees-fixed-v1/itemsize=120/" + ",".join(
     for name in FIXED_RECORD_DTYPE.names
 )
 
-#: Version prefix of an extended fixed-record tag (see fixed_layout).
-EXTENDED_FIXED_DTYPE_TAG_PREFIX = EXTENDED_DTYPE_TAG_PREFIX.replace("scratch", "fixed")
+#: Version prefix of an extended fixed-record tag (see fixed_layout); like the
+#: extended scratch prefix, it differs from the frozen ``ctrees-fixed-v1``.
+EXTENDED_FIXED_DTYPE_TAG_PREFIX = "ctrees-fixed-v2"
 
 
 def fixed_record_dtype(scratch_dtype: np.dtype) -> np.dtype:

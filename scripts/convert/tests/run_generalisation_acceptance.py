@@ -60,7 +60,11 @@ not total interpreter RSS; a join window additionally holds every request for
 one target row at once, so its high-water mark (reported) follows the largest
 FoF group, not the catalog. The per-file ``ForestInfo`` table of a forests-HDF5
 source is an O(forest-count) term, refused before it is read if it exceeds the
-budget.
+budget. The independent source extractors read in ``--block-rows`` slices; the
+ASCII extractor counts each tree's rows in a first pass that keeps no tokens,
+then reads every tree in slices of the requested columns, so its token memory
+follows ``--block-rows`` rather than the largest forest (its ``forests.list``
+mapping and per-file tree plan are O(tree-count) terms).
 
 Measurement
 -----------
@@ -120,6 +124,7 @@ import argparse
 import contextlib
 import datetime
 import hashlib
+import itertools
 import json
 import os
 import platform
@@ -928,14 +933,22 @@ class V3Dataset:
         self.directory = Path(directory)
         self.files = []
         source_formats = set()
-        paths = sorted(self.directory.glob("snapshot_*.h5"))
-        if not paths:
-            raise DatasetDefect("{}: no snapshot_*.h5 files".format(self.directory))
-        for path in paths:
+        numbered = []
+        for path in self.directory.glob("snapshot_*.h5"):
             try:
-                number = int(path.stem.split("_", 1)[1])
+                numbered.append((int(path.stem.split("_", 1)[1]), path))
             except ValueError:
                 raise DatasetDefect("{}: unparsable snapshot file name".format(path)) from None
+        if not numbered:
+            raise DatasetDefect("{}: no snapshot_*.h5 files".format(self.directory))
+        # numeric, not lexicographic, order: every stream here ascends by snapshot
+        numbered.sort()
+        for (number, path), (after, other) in zip(numbered, numbered[1:]):
+            if number == after:
+                raise DatasetDefect(
+                    "{} and {} both hold snapshot {}".format(path.name, other.name, number)
+                )
+        for number, path in numbered:
             with h5py.File(path, "r") as handle:
                 if "header" not in handle or "halos" not in handle:
                     raise DatasetDefect("{}: missing /header or /halos".format(path))
@@ -1291,10 +1304,14 @@ def compare_streams(
 
     ``converted_raw_blocks`` and ``identity_blocks`` are zero-argument
     callables returning fresh iterators (the converted side is read twice),
-    so the pipeline can run over files or over virtual blocks alike.
+    so the pipeline can run over files or over virtual blocks alike. A
+    ``findings`` passed in must already hold :func:`_declare_checks`'s checks
+    (:func:`compare_dataset` declares them before reading the dataset);
+    without one, a fresh, declared :class:`Findings` is made here.
     """
-    findings = findings if findings is not None else Findings()
-    _declare_checks(findings, source_format)
+    if findings is None:
+        findings = Findings()
+        _declare_checks(findings, source_format)
     share = max(1, int(budget_bytes) // 4)
     stats = {"joins": {}}
     sorters = []
@@ -1401,6 +1418,19 @@ def compare_streams(
     }
 
 
+def _uncomparable_report(findings, source_format, defect):
+    """The FAIL report of a dataset too malformed to compare (:class:`DatasetDefect`)."""
+    findings.declare("dataset_integrity", "the dataset is structurally comparable")
+    findings.fail("dataset_integrity", 1, [str(defect)])
+    return {
+        "report_format": REPORT_FORMAT,
+        "verdict": "FAIL",
+        "failed_checks": findings.failed,
+        "source_format": source_format,
+        "checks": findings.as_dict(),
+    }
+
+
 def compare_dataset(dataset_dir, dump_path, source_format, budget_bytes, spill_dir, block_rows):
     """Compare a version 3 dataset directory against a source dump file."""
     if source_format not in SOURCE_FORMATS:
@@ -1418,15 +1448,7 @@ def compare_dataset(dataset_dir, dump_path, source_format, budget_bytes, spill_d
     try:
         dataset = V3Dataset(dataset_dir, findings)
     except DatasetDefect as defect:
-        findings.declare("dataset_integrity", "the dataset is structurally comparable")
-        findings.fail("dataset_integrity", 1, [str(defect)])
-        return {
-            "report_format": REPORT_FORMAT,
-            "verdict": "FAIL",
-            "failed_checks": findings.failed,
-            "source_format": source_format,
-            "checks": findings.as_dict(),
-        }
+        return _uncomparable_report(findings, source_format, defect)
     if dataset.source_format != source_format:
         raise AcceptanceError(
             "dataset source_format {!r} is not {!r}".format(dataset.source_format, source_format)
@@ -1466,7 +1488,10 @@ def load_profile_declarations(profile_path, source_format):
     format's catalog-identifier role (:data:`IDENTITY_ROLE`). A profile that is
     not a mapping, whose ``extra_fields`` is not a list, that lacks the
     identity role, or with a malformed extra or source raises
-    :class:`AcceptanceError`; an empty ``extra_fields`` list does not.
+    :class:`AcceptanceError`, as does an extra name that is repeated, is
+    ``SourceHaloID`` or does not start with an ASCII letter (it could not be a
+    distinct field of :func:`extras_record_dtype`); an empty ``extra_fields``
+    list does not.
     """
     with open(profile_path, "r", encoding="utf-8") as handle:
         try:
@@ -1502,6 +1527,17 @@ def load_profile_declarations(profile_path, source_format):
             or not isinstance(sources, list)
         ):
             raise AcceptanceError("{}: malformed extra {!r}".format(profile_path, entry))
+        # each name becomes a field of extras_record_dtype beside the two identity fields
+        if not (name[:1].isascii() and name[:1].isalpha()):
+            raise AcceptanceError(
+                "{}: extra name {!r} must start with an ASCII letter".format(profile_path, name)
+            )
+        if name == "SourceHaloID":
+            raise AcceptanceError(
+                "{}: extra name {!r} collides with the identity field".format(profile_path, name)
+            )
+        if any(name == other for other, *_rest in declared):
+            raise AcceptanceError("{}: extra {} is declared twice".format(profile_path, name))
         for source in sources:
             if (
                 not isinstance(source, dict)
@@ -1715,44 +1751,114 @@ def _ascii_forest_of_tree(forests_list):
     return mapping
 
 
-def _ascii_trees(path, width):
-    """Yield (tree root id, data row lines) per ``#tree`` block, in file order."""
-    tree, rows, seen_tree = None, [], False
+def _ascii_rows(path, width):
+    """Yield ``(tree root id, None)`` per ``#tree`` marker and ``(None, tokens)`` per data row.
+
+    Events arrive in file order and nothing is retained between them, so a
+    caller that keeps nothing holds one line at a time. A data row must carry
+    exactly ``width`` tokens and follow a marker; the single tree-count token
+    line before the first marker is skipped, as are comments and blank lines.
+    """
+    seen_tree = False
     with open(path, "r", encoding="ascii") as handle:
         handle.readline()
         for number, line in enumerate(handle, start=2):
             if line.startswith("#tree"):
-                if seen_tree:
-                    yield tree, rows
-                tree, rows, seen_tree = int(line.split()[1]), [], True
+                seen_tree = True
+                yield int(line.split()[1]), None
             elif line.startswith("#") or not line.strip():
                 continue
             else:
                 tokens = line.split()
                 if len(tokens) == width and seen_tree:
-                    rows.append(tokens)
+                    yield None, tokens
                 elif len(tokens) == 1 and not seen_tree:
                     continue  # the tree-count line before the first marker
                 else:
                     raise AcceptanceError("{}:{}: malformed data row".format(path, number))
-    if seen_tree:
-        yield tree, rows
 
 
-def iter_ascii_source(tree_files, forests_list, fields, identity_aliases):
-    """(SourceHaloID array, {field: token arrays}) per tree block; not in id order.
+def _ascii_tree_plan(path, width, forest_of_tree, forests_list):
+    """Pass one: ``([unit, offset in unit, rows, root id] per tree, unit sizes)``, keeping no tokens.
+
+    A unit is one forest's part of this file, numbered by the forest's first
+    ``#tree`` marker here; a tree's offset is the number of that unit's rows
+    before it. An empty tree still claims its forest's unit number.
+    """
+    unit_of_forest, unit_sizes, trees = {}, [], []
+    for tree, tokens in _ascii_rows(path, width):
+        if tokens is None:
+            if tree not in forest_of_tree:
+                raise AcceptanceError("{}: tree {} is not in {}".format(path, tree, forests_list))
+            unit = unit_of_forest.setdefault(forest_of_tree[tree], len(unit_of_forest))
+            if unit == len(unit_sizes):
+                unit_sizes.append(0)
+            trees.append([unit, unit_sizes[unit], 0, tree])
+        else:
+            trees[-1][2] += 1
+            unit_sizes[trees[-1][0]] += 1
+    return trees, unit_sizes
+
+
+def _ascii_slices(path, width, columns, trees, block_rows):
+    """Pass two: ``(tree ordinal, first row in tree, token table)`` in bounded slices.
+
+    Each table holds at most ``block_rows`` rows of only ``columns`` and never
+    spans two trees. The markers and rows must match pass one's ``trees`` plan
+    exactly -- the same root ids in the same order, each with the same row
+    count -- so a file that changed between the passes in a way that moves any
+    row's identity raises :class:`AcceptanceError`; an edit that keeps every
+    marker and count is not detected here and is what the harness's recorded
+    input identities exist to catch.
+    """
+
+    def changed():
+        return AcceptanceError("{}: changed between the counting and reading passes".format(path))
+
+    tree_index, done, kept = -1, 0, []
+    for tree, tokens in _ascii_rows(path, width):
+        if tokens is not None:
+            if done + len(kept) >= trees[tree_index][2]:
+                raise changed()
+            kept.append([tokens[column] for column in columns])
+            if len(kept) < block_rows:
+                continue
+        if kept:
+            yield tree_index, done, np.array(kept, dtype=str).reshape(len(kept), len(columns))
+            done, kept = done + len(kept), []
+        if tokens is None:
+            if tree_index >= 0 and done != trees[tree_index][2]:
+                raise changed()
+            tree_index, done = tree_index + 1, 0
+            if tree_index >= len(trees) or trees[tree_index][3] != tree:
+                raise changed()
+    if kept:
+        yield tree_index, done, np.array(kept, dtype=str).reshape(len(kept), len(columns))
+        done += len(kept)
+    if tree_index != len(trees) - 1 or (trees and done != trees[tree_index][2]):
+        raise changed()
+
+
+def iter_ascii_source(tree_files, forests_list, fields, identity_aliases, block_rows):
+    """(SourceHaloID array, {field: token arrays}) per slice of a tree block; not in id order.
 
     A unit is one forest's part of one file, numbered by the forest's first
     ``#tree`` marker in that file; a row's ordinal is its position among its
     unit's rows in file order; ``SourceHaloID`` prefix-sums unit sizes in
-    ascending (file, unit) order, from 1. A first pass counts each tree's rows.
-    Only the indexed-header dialect (``#name(0) name(1) ...`` on line 1) is
-    read; anything else fails rather than being guessed at. Float tokens are
-    parsed with Python's correctly rounded ``float()`` before the declared
+    ascending (file, unit) order, from 1. Pass one counts each tree's rows
+    without keeping a token; pass two, with every unit's prefix sum known,
+    yields each tree in slices of at most ``block_rows`` rows holding only the
+    requested columns, so memory follows ``block_rows``, never the largest
+    forest. Only the indexed-header dialect (``#name(0) name(1) ...`` on line
+    1) is read; anything else fails rather than being guessed at. Float tokens
+    are parsed with Python's correctly rounded ``float()`` before the declared
     cast, so a converter parse that is not correctly rounded is reported, not
     mirrored. The identity alias resolves per file, case-insensitively against
     the suffix-stripped header, and is returned under :data:`IDENTITY_FIELD`.
     """
+    block_rows = int(block_rows)
+    if block_rows <= 0:
+        raise AcceptanceError("block_rows must be positive, not {}".format(block_rows))
     forest_of_tree = _ascii_forest_of_tree(forests_list)
     base = 1
     for path in tree_files:
@@ -1764,22 +1870,16 @@ def iter_ascii_source(tree_files, forests_list, fields, identity_aliases):
         position[IDENTITY_FIELD] = header.index(
             _resolve_alias(identity_aliases, header, path, fold=True)
         )
-        unit_of_forest, unit_sizes, tree_offset = {}, [], []
-        for tree, rows in _ascii_trees(path, len(header)):
-            if tree not in forest_of_tree:
-                raise AcceptanceError("{}: tree {} is not in {}".format(path, tree, forests_list))
-            unit = unit_of_forest.setdefault(forest_of_tree[tree], len(unit_of_forest))
-            if unit == len(unit_sizes):
-                unit_sizes.append(0)
-            tree_offset.append((unit, unit_sizes[unit]))
-            unit_sizes[unit] += len(rows)
+        columns = sorted(set(position.values()))
+        slot = {field: columns.index(column) for field, column in position.items()}
+        trees, unit_sizes = _ascii_tree_plan(path, len(header), forest_of_tree, forests_list)
         unit_base = np.concatenate([[0], np.cumsum(unit_sizes, dtype=np.int64)])
-        for (_tree, rows), (unit, offset) in zip(_ascii_trees(path, len(header)), tree_offset):
-            if not rows:
-                continue
-            table = np.array(rows, dtype=str)
-            ids = base + unit_base[unit] + offset + np.arange(len(rows), dtype=np.int64)
-            yield ids, {field: table[:, column] for field, column in position.items()}
+        for tree_index, first, table in _ascii_slices(
+            path, len(header), columns, trees, block_rows
+        ):
+            unit, offset, _rows, _root = trees[tree_index]
+            ids = base + unit_base[unit] + offset + first + np.arange(len(table), dtype=np.int64)
+            yield ids, {field: table[:, column] for field, column in slot.items()}
         base += int(unit_base[-1])
 
 
@@ -1832,7 +1932,7 @@ def source_extra_blocks(
         )
     elif source_format == "consistent_trees_ascii":
         blocks = iter_ascii_source(
-            inventory["tree_files"], inventory["forests_list"], fields, identity_aliases
+            inventory["tree_files"], inventory["forests_list"], fields, identity_aliases, block_rows
         )
     else:
         raise AcceptanceError("unknown source format {!r}".format(source_format))
@@ -1891,15 +1991,7 @@ def compare_extras(
         # an extra stored differently in two files (an empty snapshot included)
         descriptions = dataset.dataset_descriptions([name for name, *_rest in declared])
     except DatasetDefect as defect:
-        findings.declare("dataset_integrity", "the dataset is structurally comparable")
-        findings.fail("dataset_integrity", 1, [str(defect)])
-        return {
-            "report_format": REPORT_FORMAT,
-            "verdict": "FAIL",
-            "failed_checks": findings.failed,
-            "source_format": source_format,
-            "checks": findings.as_dict(),
-        }
+        return _uncomparable_report(findings, source_format, defect)
     if dataset.source_format != source_format:
         raise AcceptanceError(
             "dataset source_format {!r} is not {!r}".format(dataset.source_format, source_format)
@@ -2170,14 +2262,54 @@ def _now():
     return datetime.datetime.now(datetime.timezone.utc).isoformat()
 
 
+def _open_logs(log_dir, label):
+    """A fresh ``(stdout path, stderr path, stdout, stderr)`` log pair for one run.
+
+    The stem is the second-resolution start time, the label and this process's
+    id, plus a counter when that stem is taken; both files are created
+    exclusively, so a retry of the same label within one second (from this or
+    another harness process) never overwrites an earlier run's logs.
+    """
+    base = "{}_{}_{}".format(
+        time.strftime("%Y%m%dT%H%M%S"),
+        "".join(c if c.isalnum() else "_" for c in label),
+        os.getpid(),
+    )
+    for attempt in itertools.count():
+        stem = base if attempt == 0 else "{}_{}".format(base, attempt)
+        stdout_path, stderr_path = log_dir / (stem + ".out"), log_dir / (stem + ".err")
+        try:
+            out = open(stdout_path, "xb")
+        except FileExistsError:
+            continue
+        try:
+            err = open(stderr_path, "xb")
+        except FileExistsError:
+            out.close()
+            stdout_path.unlink()  # created exclusively just above; leave no stray log
+            continue
+        return stdout_path, stderr_path, out, err
+
+
+def _stop_child(process):
+    """Terminate ``process`` and reap it, killing it if it ignores the request."""
+    process.terminate()
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+
+
 def measured_run(argv, label, log_dir, cwd=None, env=None):
-    """Run one child to completion; measure its wall/CPU time and its own peak RSS."""
+    """Run one child to completion; measure its wall/CPU time and its own peak RSS.
+
+    Any exception while waiting (a ``KeyboardInterrupt`` included) terminates
+    the child before it propagates, so an interrupted harness leaves no
+    orphaned run behind.
+    """
     log_dir = Path(log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
-    stem = "{}_{}".format(
-        time.strftime("%Y%m%dT%H%M%S"), "".join(c if c.isalnum() else "_" for c in label)
-    )
-    stdout_path, stderr_path = log_dir / (stem + ".out"), log_dir / (stem + ".err")
     argv = [str(arg) for arg in argv]
     executable = shutil.which(argv[0]) or argv[0]
     entry = {
@@ -2186,19 +2318,23 @@ def measured_run(argv, label, log_dir, cwd=None, env=None):
         "command": argv,
         "cwd": str(cwd or Path.cwd()),
         "started": _now(),
-        "stdout": str(stdout_path),
-        "stderr": str(stderr_path),
     }
     if Path(executable).is_file():
         entry["executable"] = file_identity(executable, hash_contents=True)
+    stdout_path, stderr_path, out, err = _open_logs(log_dir, label)
+    entry["stdout"], entry["stderr"] = str(stdout_path), str(stderr_path)
     start = time.monotonic()
-    with open(stdout_path, "wb") as out, open(stderr_path, "wb") as err:
+    with out, err:
         try:
             process = subprocess.Popen(argv, stdout=out, stderr=err, cwd=cwd, env=env)
         except OSError as error:
             entry.update({"exit_code": None, "error": str(error), "wall_seconds": 0.0})
             return entry
-        _pid, status, usage = os.wait4(process.pid, 0)
+        try:
+            _pid, status, usage = os.wait4(process.pid, 0)
+        except BaseException:
+            _stop_child(process)
+            raise
     process.returncode = os.waitstatus_to_exitcode(status)
     entry.update(
         {
@@ -2329,11 +2465,51 @@ def _budget(args):
 
 
 def _block_rows(args, budget):
-    return args.block_rows or max(1024, budget // 4096)
+    if args.block_rows is None:
+        return max(1024, budget // 4096)
+    if args.block_rows <= 0:
+        raise AcceptanceError("--block-rows must be positive, not {}".format(args.block_rows))
+    return args.block_rows
+
+
+def _comparison_entry(args, entry, sources):
+    """Write the full report, record the inputs and summarise a comparison's entry."""
+    report = entry["result"]
+    _write_report(args.report, report)
+    entry["inputs"] = source_identities(sources, args.hash_sources)
+    entry["result"] = {key: report.get(key) for key in ("verdict", "failed_checks", "matched_rows")}
+    entry["result"]["report"] = args.report
+    entry["resources"] = report.get("resources")
+    return entry, EXIT_PASS if report["verdict"] == "PASS" else EXIT_FAIL
+
+
+def hdf5_link_targets(info_file, first_file, last_file):
+    """The files the ``File<N>`` external links of a forests-HDF5 info file resolve to.
+
+    Each link is followed by HDF5 itself and the file it actually opened is
+    reported, so the recorded target is the one the extraction read, however
+    the library resolved a relative link. A group that is not an external link,
+    or that cannot be resolved (the extraction has already refused it), adds
+    nothing. Each target is listed once, in ``File<N>`` order.
+    """
+    targets = []
+    with h5py.File(info_file, "r") as handle:
+        for number in range(int(first_file), int(last_file) + 1):
+            name = "File{}".format(number)
+            if not isinstance(handle.get(name, getlink=True), h5py.ExternalLink):
+                continue
+            try:
+                target = Path(os.path.abspath(handle[name].file.filename))
+            except KeyError:
+                continue
+            if target not in targets:
+                targets.append(target)
+    return targets
 
 
 def cmd_compare(args):
     budget = _budget(args)
+    block_rows = _block_rows(args, budget)
     entry = in_process_measurement(
         "compare",
         lambda: compare_dataset(
@@ -2342,21 +2518,16 @@ def cmd_compare(args):
             args.source_format,
             budget,
             args.spill_dir,
-            _block_rows(args, budget),
+            block_rows,
         ),
         args.command_line,
     )
-    report = entry["result"]
-    _write_report(args.report, report)
-    entry["inputs"] = source_identities([args.dump, args.dataset], args.hash_sources)
-    entry["result"] = {key: report.get(key) for key in ("verdict", "failed_checks", "matched_rows")}
-    entry["result"]["report"] = args.report
-    entry["resources"] = report.get("resources")
-    return entry, EXIT_PASS if report["verdict"] == "PASS" else EXIT_FAIL
+    return _comparison_entry(args, entry, [args.dump, args.dataset])
 
 
 def cmd_compare_extras(args):
     budget = _budget(args)
+    block_rows = _block_rows(args, budget)
     inventory = {
         "source_dir": args.source_dir,
         "tree_name": args.tree_name,
@@ -2385,12 +2556,10 @@ def cmd_compare_extras(args):
             inventory,
             budget,
             args.spill_dir,
-            _block_rows(args, budget),
+            block_rows,
         ),
         args.command_line,
     )
-    report = entry["result"]
-    _write_report(args.report, report)
     sources = [args.dataset, args.column_map]
     if args.source_format == "lhalo_binary":
         sources += [
@@ -2398,14 +2567,12 @@ def cmd_compare_extras(args):
             for n in range(args.first_file, args.last_file + 1)
         ]
     elif args.source_format == "consistent_trees_hdf5":
+        # the info file is usually links only; the halos live in its File<N> targets
         sources.append(args.info_file)
+        sources += hdf5_link_targets(args.info_file, args.first_file, args.last_file)
     else:
         sources += [args.forests_list] + list(args.tree_file)
-    entry["inputs"] = source_identities(sources, args.hash_sources)
-    entry["result"] = {key: report.get(key) for key in ("verdict", "failed_checks", "matched_rows")}
-    entry["result"]["report"] = args.report
-    entry["resources"] = report.get("resources")
-    return entry, EXIT_PASS if report["verdict"] == "PASS" else EXIT_FAIL
+    return _comparison_entry(args, entry, sources)
 
 
 def build_parser():

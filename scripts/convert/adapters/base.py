@@ -1,31 +1,30 @@
 """Canonical record/topology contracts shared by every source adapter
-(Slice 2 of the converter generalisation plan,
-docs/dev/MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md, contracts
-C1/C3/C4).
+(contracts C1/C3/C4 of
+docs/dev/MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md).
 
 Pure contract module: it defines the inventory, the source-coordinate
 identity, the deterministic ``SourceHaloID`` assignment and the canonical
-batch an adapter must emit, and validates one. It opens no source file and
-implements no adapter -- the L-Halo binary, forests-HDF5 and ASCII adapters
-arrive in Slices 3-5 and subclass :class:`SourceAdapter`.
+batch an adapter must emit, validates one, and holds the scalar and budget
+checks every adapter applies. It opens no source file and implements no
+adapter; ``lhalo_binary``, ``ctrees_hdf5`` and ``ctrees_ascii`` subclass
+:class:`SourceAdapter`.
 
 **Links are carried as target ``SourceHaloID``, not as output row indices.**
 An adapter cannot know a target's snapshot-local row: that mapping is built by
-the bounded external sort/merge of Slice 6 (C4). Emitting the target's
-``SourceHaloID`` keeps each batch flat and bounded (one int64 per link), keeps
-the whole relationship spoolable, and keeps the source coordinate recoverable
--- the inventory's prefix sums invert an id back to
+the bounded external sort/merge in ``transpose.py`` (C4). Emitting the
+target's ``SourceHaloID`` keeps each batch flat and bounded (one int64 per
+link), keeps the whole relationship spoolable, and keeps the source coordinate
+recoverable -- the inventory's prefix sums invert an id back to
 ``(source_file_ordinal, unit_ordinal, row_ordinal)`` exactly.
 
-**Notes for adapter authors (Slices 3-5).**
+**Adapter-author contract.**
 
-- Enumerate the adapter's *complete* real read/write set up front. Slice 1's
-  source-overwrite protection needed three correction rounds because each fix
-  was scoped to the route under review instead of derived from "every path
-  this run actually touches" as one principle.
-- Do not copy Slice 1's deliberate bare-``Exception`` isolation boundaries
-  into a write path. Reporting a failed *read* as data is safe; swallowing a
-  failed *write* can leave a partial artifact that looks complete.
+- Derive source-overwrite protection from the adapter's *complete* real
+  read/write set -- every path the run actually touches -- as one principle,
+  never from the route under review.
+- A failed *read* may be reported as data; a failed *write* must propagate.
+  Swallowing a write failure behind a bare-``Exception`` boundary can leave a
+  partial artifact that looks complete.
 - **Check each selected extra's source component against the source field's
   real shape *and type*, at read time.** A profile's ``{field}`` means a stored
   scalar and ``{field, component}`` means one element of a stored vector, and
@@ -38,9 +37,8 @@ the whole relationship spoolable, and keeps the source coordinate recoverable
   ``consistent_trees_hdf5``. An ASCII column has no declared type until it is
   parsed, and a forests-HDF5 dataset's dtype is a property of the file rather
   than of any profile, so **those two adapters own both checks at read time**
-  and must fail rather than guess which of three values a component-less
-  vector reference meant, or silently cast an integer column into a float
-  output.
+  and fail rather than guess which of three values a component-less vector
+  reference meant, or silently cast an integer column into a float output.
 - **Reject two required roles that resolve to the same source field.**
   ``Len: [SnapNum]`` passes every per-role check -- both are integers -- and
   would emit snapshot numbers as particle counts. ``build_schema`` rejects it
@@ -56,6 +54,9 @@ the whole relationship spoolable, and keeps the source coordinate recoverable
   big-endian arrays that ``validate()`` rejects on dtype. That fails safe --
   a mismatched dtype is refused, never silently misread -- but it is a step a
   big-endian adapter has to take, not a bug to report.
+- Type-check every integral scalar with :func:`require_integer` rather than
+  coercing it, and refuse every budgeted allocation with
+  :func:`check_budget` *before* making it.
 """
 
 import abc
@@ -66,6 +67,7 @@ import numpy as np
 from column_schema import (
     EXTRA_TYPES,
     IDENTITY_FIELDS,
+    INT64_MAX,
     SOURCE_FORMATS,
     TOPOLOGY_FIELDS,
     CanonicalSchema,
@@ -78,10 +80,13 @@ __all__ = [
     "INT64_MAX",
     "LINK_FIELDS",
     "SNAPSHOT_LINK_FIELDS",
+    "require_integer",
+    "check_budget",
     "SourceCoordinate",
     "SourceUnit",
     "SourceInventory",
     "CanonicalBatch",
+    "identity_columns",
     "SourceAdapter",
 ]
 
@@ -90,16 +95,14 @@ __all__ = [
 #: the C reader's own ``CT_ASSIGN_LINK`` bounds.
 NULL_LINK = -1
 
-INT64_MAX = int(np.iinfo(np.int64).max)
-
 #: The five stored topology links, in the fixed v3 order.
 LINK_FIELDS: Tuple[str, ...] = tuple(
     field.name for field in TOPOLOGY_FIELDS if field.type == "long long"
 )
 
-#: The three target-snapshot columns. They are *derived* at write time from a
-#: resolved target's SnapNum (Slice 6/8), not carried by an adapter, and are
-#: named here so the contract lives in one place.
+#: The three target-snapshot columns. ``transpose.py`` *derives* them from a
+#: resolved target's SnapNum; an adapter never carries them. They are named
+#: here so the contract lives in one place.
 SNAPSHOT_LINK_FIELDS: Tuple[str, ...] = tuple(
     field.name for field in TOPOLOGY_FIELDS if field.type == "int"
 )
@@ -108,6 +111,60 @@ _IDENTITY_FIELD_NAMES = tuple(field.name for field in IDENTITY_FIELDS)
 
 #: The FoF central link is never null: a central self-references (C3).
 _NEVER_NULL_LINKS = ("FirstHaloInFOFgroup",)
+
+
+# ==========================================================================
+# Scalar and budget checks
+# ==========================================================================
+
+
+def require_integer(value, what: str, because: str, minimum: Optional[int] = None) -> int:
+    """Type-check an integral scalar instead of coercing it.
+
+    ``int()`` would quietly truncate ``1.5`` and quietly accept ``True`` as 1,
+    and every scalar an adapter or the pipeline takes is one a later stage
+    depends on -- a recorded identity, a memory ceiling, a snapshot bound.
+    ``bool`` is excluded explicitly because it is a subclass of ``int``.
+    ``numpy`` integers are accepted: a caller computing a value from array
+    data should not have to convert it back first.
+
+    Args:
+        value: The scalar to check.
+        what: Names the scalar in the error.
+        because: Why coercion is refused, appended to the type error.
+        minimum: When given, the smallest accepted value.
+
+    Returns:
+        The value as a Python ``int``.
+
+    Raises:
+        ConverterError: ``value`` is not an integer, or is below ``minimum``.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
+        raise ConverterError("{} must be an integer, got {!r}; {}".format(what, value, because))
+    value = int(value)
+    if minimum is not None and value < minimum:
+        raise ConverterError("{} must be at least {}, got {}".format(what, minimum, value))
+    return value
+
+
+def check_budget(required_bytes: int, memory_budget_bytes: int, what: str, remedy: str) -> None:
+    """Refuse an over-budget allocation *before* making it (C4).
+
+    Each budgeted term is compared against the whole ``memory_budget_bytes``
+    ceiling on its own, not as a running total: the ceiling bounds working
+    buffers term by term, never interpreter RSS. ``what`` names the term and
+    how its figure was built; ``remedy`` tells the operator what to change.
+
+    Raises:
+        ConverterError: ``required_bytes`` exceeds ``memory_budget_bytes``.
+    """
+    if required_bytes > memory_budget_bytes:
+        raise ConverterError(
+            "{} needs {} bytes, above the configured memory budget of {} bytes; {}".format(
+                what, required_bytes, memory_budget_bytes, remedy
+            )
+        )
 
 
 # ==========================================================================
@@ -218,21 +275,6 @@ class SourceInventory:
             return self._bases[self._index[key]]
         except KeyError:
             raise ConverterError("unit {} is not in the inventory".format(key)) from None
-
-    def source_halo_id(self, coordinate: SourceCoordinate) -> int:
-        """The ``SourceHaloID`` of one source coordinate."""
-        key = (coordinate.source_file_ordinal, coordinate.unit_ordinal)
-        position = self._index.get(key)
-        if position is None:
-            raise ConverterError("unit {} is not in the inventory".format(key))
-        unit = self.units[position]
-        if not 0 <= coordinate.row_ordinal < unit.n_halos:
-            raise ConverterError(
-                "row {} is outside unit {} ({} halos)".format(
-                    coordinate.row_ordinal, key, unit.n_halos
-                )
-            )
-        return self._bases[position] + coordinate.row_ordinal
 
     def coordinate(self, source_halo_id: int) -> SourceCoordinate:
         """Invert a ``SourceHaloID`` back to its source coordinate.
@@ -462,6 +504,41 @@ class CanonicalBatch:
                 n_rows,
                 spec.n_components,
             )
+
+
+def identity_columns(
+    base_id: int,
+    forest_index: int,
+    source_file_ordinal: int,
+    unit_ordinal: int,
+    start: int,
+    n_rows: int,
+) -> Tuple[Dict[str, np.ndarray], Dict[str, np.ndarray]]:
+    """The ``identity`` and ``coordinates`` groups for one contiguous row range
+    of one unit.
+
+    Covers rows ``[start, start + n_rows)`` of the unit whose row 0 has
+    ``SourceHaloID`` ``base_id`` (``SourceInventory.base_id``). Each row's
+    ``SourceHaloID`` is ``base_id + row``, ``HaloRankInForest`` and
+    ``row_ordinal`` are the original within-unit row, and ``ForestIndex`` and
+    the file/unit ordinals are constant. Every column is int64, one element
+    per row.
+
+    Returns:
+        ``(identity, coordinates)``, keyed as :class:`CanonicalBatch` expects.
+    """
+    rows = np.arange(start, start + n_rows, dtype=np.int64)
+    identity = {
+        "SourceHaloID": base_id + rows,
+        "ForestIndex": np.full(n_rows, forest_index, dtype=np.int64),
+        "HaloRankInForest": rows.copy(),
+    }
+    coordinates = {
+        "source_file_ordinal": np.full(n_rows, source_file_ordinal, dtype=np.int64),
+        "unit_ordinal": np.full(n_rows, unit_ordinal, dtype=np.int64),
+        "row_ordinal": rows.copy(),
+    }
+    return identity, coordinates
 
 
 # ==========================================================================

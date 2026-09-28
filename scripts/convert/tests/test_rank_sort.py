@@ -293,7 +293,7 @@ class TestOracleEquality(RankSortCase):
 
         spills = rank_sort._Spills(tempfile.mkdtemp(dir=str(self.spills)))
         try:
-            residency = rank_sort._Residency()
+            residency = rank_sort.ResidencyMeter()
             runs, _ = rank_sort._generate_runs(blocks, spills, 48, residency)
             self.assertGreater(len(runs), 8)
             # the yielded block is a VIEW into one reusable buffer, so a
@@ -333,7 +333,7 @@ class TestMemoryBound(RankSortCase):
     def test_actual_allocation_for_a_whole_call_stays_within_the_budget(self):
         """Measure what a complete ``rank_forests`` call really allocates.
 
-        Every other memory test here reads ``_Residency``, and four rounds of
+        Every other memory test here reads ``ResidencyMeter``, and four rounds of
         review each found one more allocation that counter did not know about —
         a test that reads the instrument cannot detect the instrument being
         incomplete. This one measures ``tracemalloc``'s peak for the whole call,
@@ -405,7 +405,7 @@ class TestMemoryBound(RankSortCase):
         blocks = random_blocks(n_snaps=3, per_snap=40, n_forests=4, seed=44)
         spills = rank_sort._Spills(tempfile.mkdtemp(dir=str(self.spills)))
         try:
-            residency = rank_sort._Residency()
+            residency = rank_sort.ResidencyMeter()
             runs, _ = rank_sort._generate_runs(blocks, spills, 16, residency)
             self.assertGreater(len(runs), 2)
             arena = np.empty(8 * len(runs), dtype=rank_sort.SPILL_DTYPE)
@@ -450,10 +450,10 @@ class TestMemoryBound(RankSortCase):
                 spills = rank_sort._Spills(tempfile.mkdtemp(dir=str(self.spills)))
                 try:
                     runs, total = rank_sort._generate_runs(
-                        blocks, spills, run_records, rank_sort._Residency()
+                        blocks, spills, run_records, rank_sort.ResidencyMeter()
                     )
                     self.assertGreaterEqual(len(runs), 5)
-                    meter = rank_sort._Residency()
+                    meter = rank_sort.ResidencyMeter()
                     emitted = 0
                     for block in rank_sort._merge_runs(runs, merge_records, meter):
                         emitted += block.size
@@ -495,7 +495,7 @@ class TestRanksVerification(RankSortCase):
             np.asarray(counts, dtype=np.int64),
             max_rank,
             run_budget(64),
-            rank_sort._Residency(),
+            rank_sort.ResidencyMeter(),
         )
 
     def test_the_verification_block_cannot_overflow_either_sum(self):
@@ -537,7 +537,7 @@ class TestRanksVerification(RankSortCase):
         counts = np.array([total], dtype=np.int64)
         path = self.write_ranks(np.arange(total, dtype=np.int64))
         budget = total * 8  # one whole store's worth of int64
-        meter = rank_sort._Residency()
+        meter = rank_sort.ResidencyMeter()
         tracemalloc.start()
         try:
             tracemalloc.reset_peak()
@@ -660,14 +660,14 @@ class TestSpillLifetime(RankSortCase):
         blocks = random_blocks(n_snaps=2, per_snap=40, n_forests=3, seed=15)
         spills = rank_sort._Spills(tempfile.mkdtemp(dir=str(self.spills)))
         try:
-            runs, _ = rank_sort._generate_runs(blocks, spills, 32, rank_sort._Residency())
+            runs, _ = rank_sort._generate_runs(blocks, spills, 32, rank_sort.ResidencyMeter())
             with open(str(runs[0].path), "r+b") as handle:
                 handle.seek(0)
                 first = handle.read(1)
                 handle.seek(0)
                 handle.write(bytes([first[0] ^ 0xFF]))
             with self.assertRaises(RankSortError) as caught:
-                for _ in rank_sort._merge_runs(runs, 32, rank_sort._Residency()):
+                for _ in rank_sort._merge_runs(runs, 32, rank_sort.ResidencyMeter()):
                     pass
             self.assertIn("CRC32", str(caught.exception))
         finally:
@@ -677,11 +677,11 @@ class TestSpillLifetime(RankSortCase):
         blocks = random_blocks(n_snaps=2, per_snap=40, n_forests=3, seed=16)
         spills = rank_sort._Spills(tempfile.mkdtemp(dir=str(self.spills)))
         try:
-            runs, _ = rank_sort._generate_runs(blocks, spills, 32, rank_sort._Residency())
+            runs, _ = rank_sort._generate_runs(blocks, spills, 32, rank_sort.ResidencyMeter())
             with open(str(runs[0].path), "r+b") as handle:
                 handle.truncate(rank_sort.SPILL_RECORD_NBYTES)
             with self.assertRaises(RankSortError) as caught:
-                for _ in rank_sort._merge_runs(runs, 32, rank_sort._Residency()):
+                for _ in rank_sort._merge_runs(runs, 32, rank_sort.ResidencyMeter()):
                     pass
             self.assertIn("expected", str(caught.exception))
         finally:
@@ -951,6 +951,43 @@ class TestKeyedContract(KeyedSortCase):
                     rank_sort.KeyedSorter(
                         KEYED_DTYPE, ("a",), budget_bytes=budget, spill_dir=self.spills
                     )
+
+    def test_merge_arguments_must_be_integers_when_the_merge_is_requested(self):
+        """Refused at the ``sorted_blocks`` call itself, before sealing: a
+        float would be truncated into a different budget and ``True`` read
+        as 1, and neither may wait for the first ``next()``."""
+        merge = self.merge_budget(64)
+        cases = (
+            (dict(budget_bytes=float(merge)), "budget_bytes must be an integer"),
+            (dict(budget_bytes=True), "budget_bytes must be an integer"),
+            (dict(budget_bytes=merge, consumer_bytes_per_record=8.0), "consumer_bytes"),
+            (dict(budget_bytes=merge, consumer_bytes_per_record=False), "consumer_bytes"),
+            (dict(budget_bytes=merge, consumer_bytes_per_record=-1), "at least 0"),
+        )
+        records = keyed_records(10, seed=5)
+        for arguments, pattern in cases:
+            with self.subTest(arguments=arguments):
+                with self.sorter(gen_records=4) as sorter:
+                    sorter.add(records[:6])
+                    with self.assertRaisesRegex(RankSortError, pattern):
+                        sorter.sorted_blocks(**arguments)
+                    # the refused call left the sorter generating
+                    sorter.add(records[6:])
+                    self.assertEqual(
+                        self.drain(sorter).tobytes(),
+                        keyed_oracle(records, ("a", "b", "c")).tobytes(),
+                    )
+
+    def test_numpy_integer_merge_arguments_are_accepted(self):
+        records = keyed_records(50, seed=6)
+        with self.sorter(gen_records=8) as sorter:
+            sorter.add(records)
+            blocks = sorter.sorted_blocks(
+                budget_bytes=np.int64(self.merge_budget(16, consumer=8)),
+                consumer_bytes_per_record=np.int32(8),
+            )
+            out = np.concatenate([block.copy() for block in blocks])
+        self.assertEqual(out.tobytes(), keyed_oracle(records, ("a", "b", "c")).tobytes())
 
     def test_a_merge_budget_below_a_two_way_merge_is_refused(self):
         with self.sorter(gen_records=2) as sorter:

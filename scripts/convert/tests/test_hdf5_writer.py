@@ -41,13 +41,12 @@ from hdf5_writer import (  # noqa: E402
     FORMAT_VERSION,
     HALO_DATASETS,
     HEADER_ATTRS,
-    V3_FORMAT_VERSION,
-    HorizontalV3Writer,
     build_halo_arrays,
     load_header_metadata,
     run_write,
     snapshot_h5_name,
 )
+from hdf5_writer_v3 import V3_FORMAT_VERSION, HorizontalV3Writer  # noqa: E402
 from links import LINKS_RECORD_DTYPE, run_links  # noqa: E402
 from report import (  # noqa: E402
     build_report,
@@ -59,7 +58,8 @@ from scatter import Manifest, run_scatter  # noqa: E402
 from sort_index import run_sort  # noqa: E402
 from test_fixups import capture_stderr  # noqa: E402
 from test_links import GOLDEN_LINKS, make_linked_workdir  # noqa: E402
-from validate import run_battery, run_battery_v3  # noqa: E402
+from validate import run_battery  # noqa: E402
+from validate_v3 import run_battery_v3  # noqa: E402
 
 
 def make_written_workdir(root: Path):
@@ -1093,6 +1093,39 @@ class _CorruptingWriter(HorizontalV3Writer):
         return produced
 
 
+class _MutatingWriter(HorizontalV3Writer):
+    """Writes correctly, then applies ``mutate(out_dir)`` before ``verify``
+    runs."""
+
+    def __init__(self, sim_info, mutate):
+        super().__init__(sim_info)
+        self.mutate = mutate
+
+    def write(self, inputs, out_dir):
+        produced = super().write(inputs, out_dir)
+        self.mutate(Path(out_dir))
+        return produced
+
+
+def _rechunk_empty(file_name, dataset, chunks):
+    """A mutation re-creating one zero-row /halos dataset with other chunks."""
+
+    def mutate(out_dir):
+        with h5py.File(out_dir / file_name, "r+") as handle:
+            halos = handle["halos"]
+            dtype, shape = halos[dataset].dtype, halos[dataset].shape
+            del halos[dataset]
+            halos.create_dataset(
+                dataset,
+                shape=shape,
+                dtype=dtype,
+                chunks=chunks,
+                maxshape=(None,) + shape[1:],
+            )
+
+    return mutate
+
+
 class TestV3WriteVerification(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="v3_verify_"))
@@ -1115,6 +1148,43 @@ class TestV3WriteVerification(unittest.TestCase):
     def test_corruption_in_a_target_snapshot_column_fails_the_stage(self):
         writer = _CorruptingWriter(self.conv.sim_info, snapshot_h5_name(0), "DescendantSnapshot")
         self.assert_refused_before_success_or_cleanup(writer, "DescendantSnapshot")
+
+    def test_a_changed_schema_attribute_fails_the_stage(self):
+        def mutate(out_dir):
+            with h5py.File(out_dir / snapshot_h5_name(2), "r+") as handle:
+                handle["schema"]["Vmax"].attrs.create(
+                    "units", "m/s", dtype=h5py.string_dtype("utf-8")
+                )
+
+        self.assert_refused_before_success_or_cleanup(
+            _MutatingWriter(self.conv.sim_info, mutate), "/schema/Vmax units"
+        )
+
+    def test_a_changed_sidecar_row_fails_the_stage(self):
+        def mutate(out_dir):
+            with h5py.File(out_dir / "forests.h5", "r+") as handle:
+                handle["ForestID"][1] = 99
+
+        self.assert_refused_before_success_or_cleanup(
+            _MutatingWriter(self.conv.sim_info, mutate),
+            "/ForestID rows .* differ from the forest enumeration",
+        )
+
+    def test_a_scalar_chunk_shape_in_the_zero_halo_snapshot_fails_the_stage(self):
+        mutate = _rechunk_empty(snapshot_h5_name(1), "Vmax", (1024,))
+        self.assertNotEqual((1024,), CHUNK_1D)
+        self.assert_refused_before_success_or_cleanup(
+            _MutatingWriter(self.conv.sim_info, mutate),
+            r"snapshot_001\.h5: /halos/Vmax: chunks \(1024,\)",
+        )
+
+    def test_a_vector_chunk_shape_in_the_zero_halo_snapshot_fails_the_stage(self):
+        mutate = _rechunk_empty(snapshot_h5_name(1), "Pos", (1024, 3))
+        self.assertNotEqual((1024, 3), CHUNK_VEC)
+        self.assert_refused_before_success_or_cleanup(
+            _MutatingWriter(self.conv.sim_info, mutate),
+            r"snapshot_001\.h5: /halos/Pos: chunks \(1024, 3\)",
+        )
 
     def test_a_retry_after_refusal_writes_a_verified_dataset(self):
         writer = _CorruptingWriter(self.conv.sim_info, snapshot_h5_name(3), "Pos")
@@ -1159,7 +1229,7 @@ class TestV3OtherRoutes(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp(prefix="v3_routes_"))
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
 
-    def hdf5_conversion(self):
+    def hdf5_conversion(self, simulation_info=None):
         directory = self.tmp / "h5"
         directory.mkdir()
         info = h5fixtures.write_source(
@@ -1177,6 +1247,7 @@ class TestV3OtherRoutes(unittest.TestCase):
                 "first_file": 0,
                 "last_file": 1,
                 "particle_mass": h5fixtures.PARTICLE_MASS,
+                **({} if simulation_info is None else {"simulation_info": str(simulation_info)}),
             },
             a_list,
             ingest_max_rows=2,
@@ -1212,6 +1283,19 @@ class TestV3OtherRoutes(unittest.TestCase):
         sim_info = write_simulation_info(self.tmp / "sim.yaml", 0.0325)
         with self.assertRaisesRegex(ConverterError, "particle_mass"):
             pipeline.run_write(work, HorizontalV3Writer(sim_info))
+
+    def test_forests_hdf5_route_refuses_simulation_info_it_was_not_recorded_against(self):
+        # equal particle_mass, as Uchuu and micro-Uchuu share; only the box differs
+        recorded = write_simulation_info(self.tmp / "sim.yaml", h5fixtures.PARTICLE_MASS, box=100.0)
+        other = write_simulation_info(self.tmp / "other.yaml", h5fixtures.PARTICLE_MASS, box=62.5)
+        work, _a_list = self.hdf5_conversion(simulation_info=recorded)
+        with self.assertRaisesRegex(
+            ConverterError,
+            "forests-HDF5 conversion was recorded against a different simulation_info",
+        ):
+            pipeline.run_write(work, HorizontalV3Writer(other))
+        manifest = pipeline.run_write(work, HorizontalV3Writer(recorded))
+        self.assertTrue(manifest.is_complete("write"))
 
     def ascii_conversion(self):
         src = self.tmp / "ascii"

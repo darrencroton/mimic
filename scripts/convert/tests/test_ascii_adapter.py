@@ -1,7 +1,7 @@
-"""Converter generalisation Slice 5: the Consistent-Trees ASCII canonical bridge
+"""The Consistent-Trees ASCII canonical bridge
 (scripts/convert/adapters/ctrees_ascii.py).
 
-Two independent oracles, per the slice's validation plan:
+Two independent oracles:
 
 - **literal expectations** written out from the fixture topology and source
   text -- source coordinates, ``SourceHaloID`` prefix sums, extra values and a
@@ -18,6 +18,7 @@ import tempfile
 import tracemalloc
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import h5py
 import numpy as np
@@ -28,14 +29,18 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import fixtures  # noqa: E402
 from adapters import ctrees_ascii  # noqa: E402
 from adapters.base import LINK_FIELDS  # noqa: E402
-from adapters.ctrees_ascii import CTreesAsciiAdapter, prepare_workdir  # noqa: E402
+from adapters.ctrees_ascii import (  # noqa: E402
+    CTreesAsciiAdapter,
+    batch_term_bytes,
+    prepare_workdir,
+)
 from column_schema import build_schema, load_column_map, parse_column_map  # noqa: E402
 from ctrees_parser import ConverterError  # noqa: E402
-from fixups import run_fixups  # noqa: E402
+from fixups import fixed_scratch_name, run_fixups  # noqa: E402
 from hdf5_writer import run_write  # noqa: E402
-from links import run_links  # noqa: E402
+from links import links_scratch_name, run_links  # noqa: E402
 from scatter import Manifest, run_scatter, source_units_name  # noqa: E402
-from sort_index import run_sort  # noqa: E402
+from sort_index import index_name, run_sort, sorted_scratch_name  # noqa: E402
 from test_fixups import capture_stderr  # noqa: E402
 
 PROFILE_DIR = Path(__file__).resolve().parents[1] / "profiles"
@@ -196,6 +201,46 @@ class TestCanonicalBridge(unittest.TestCase):
             _batches, table = collect(self.adapter, max_rows)
             for name, values in self.table.items():
                 self.assertEqual(table[name].tobytes(), values.tobytes(), (max_rows, name))
+
+    def test_each_snapshot_is_verified_once_per_pass(self):
+        """The fixed and links scratch verified while a snapshot is the upcoming
+        neighbour are the ones its batches come from: one checksum each per
+        pass, and the emitted rows are unchanged."""
+        real_verify = Manifest.verify_intermediate
+        verified = []
+
+        def recording_verify(manifest, path, what):
+            verified.append((str(Path(path).resolve()), what))
+            return real_verify(manifest, path, what)
+
+        adapter = CTreesAsciiAdapter(self.schema, self.workdir)
+        adapter.inventory()
+        snapshots = Manifest.load_or_create(self.workdir).data["snapshots"]
+        expected = sorted(
+            (str(Path(entry[key]).resolve()), what)
+            for entry in snapshots.values()
+            for key, what in (
+                ("fixed_file", "fixed snapshot scratch"),
+                ("links_file", "snapshot links scratch"),
+            )
+        )
+        with mock.patch.object(Manifest, "verify_intermediate", recording_verify):
+            for n_pass in (1, 2):
+                _batches, table = collect(adapter, max_rows=3)
+                self.assertEqual(sorted(verified), sorted(expected * n_pass), n_pass)
+                for name, values in self.table.items():
+                    self.assertEqual(table[name].tobytes(), values.tobytes(), (n_pass, name))
+
+    def test_default_batch_size_fits_a_budget_sized_to_the_snapshots(self):
+        """A batch is charged at the snapshot's own row count, so the CLI's
+        default of 1 << 20 rows no longer demands a full batch's bytes for a
+        handful of halos: 512 MiB, below that full-batch charge, suffices."""
+        budget = 512 * 1024**2
+        self.assertGreater(batch_term_bytes(self.schema, 1 << 20), budget)
+        adapter = CTreesAsciiAdapter(self.schema, self.workdir, memory_budget_bytes=budget)
+        _batches, table = collect(adapter, max_rows=1 << 20)
+        for name, values in self.table.items():
+            self.assertEqual(table[name].tobytes(), values.tobytes(), name)
 
     def test_extras_carry_literal_source_values(self):
         for hid, k in self.row_of.items():
@@ -380,6 +425,67 @@ class TestBridgeRuns(unittest.TestCase):
         _b, resumed = collect(CTreesAsciiAdapter(schema, interrupted))
         for name in clean:
             self.assertEqual(clean[name].tobytes(), resumed[name].tobytes(), name)
+
+    def test_an_oversized_snapshot_is_refused_right_after_scatter(self):
+        """The largest snapshot's batch term is refused as soon as scatter has
+        counted it -- no snapshot is sorted, fixed or linked -- at its exact
+        requirement, and a re-run under a budget that holds it resumes from
+        the kept scatter output to the same batches as a clean preparation."""
+        env = Env(self.root)
+        schema = schema_of()
+        max_rows = 2
+        _b, clean = collect(CTreesAsciiAdapter(schema, env.prepare(schema, workdir="clean")))
+        workdir = self.root / "early"
+
+        for only in ({"max_rows": max_rows}, {"memory_budget_bytes": 1 << 30}):
+            with self.subTest(only=only), self.assertRaisesRegex(ConverterError, "together"):
+                env.prepare(schema, workdir="early", **only)
+            self.assertFalse(workdir.exists())
+
+        with mock.patch.object(ctrees_ascii, "run_sort", side_effect=AssertionError("sorted")):
+            with self.assertRaisesRegex(ConverterError, "above the configured memory budget"):
+                env.prepare(schema, workdir="early", max_rows=max_rows, memory_budget_bytes=1)
+        rows_of = {
+            int(snap): int(entry["rows"])
+            for snap, entry in Manifest.load_or_create(workdir).data["snapshots"].items()
+        }
+        largest = max(rows_of.values())
+        refused = min(snap for snap, n_rows in rows_of.items() if n_rows == largest)
+        # all-types profile: 200-byte fixed record + 36 links + 152 canonical + 56 extras
+        requirement = 2 * min(max_rows, largest) * (200 + 36 + 152 + 56)
+
+        def statuses():
+            data = Manifest.load_or_create(workdir).data
+            return {entry["status"] for entry in data["snapshots"].values()}
+
+        with self.assertRaisesRegex(
+            ConverterError,
+            r"^snapshot {} \({} halos, batches of {}\) needs {} bytes, above the configured "
+            r"memory budget of {} bytes; raise memory_budget_bytes or lower max_rows$".format(
+                refused, largest, max_rows, requirement, requirement - 1
+            ),
+        ):
+            env.prepare(
+                schema, workdir="early", max_rows=max_rows, memory_budget_bytes=requirement - 1
+            )
+        self.assertEqual(statuses(), {"concatenated"})
+        later_stage_files = {
+            name(snap)
+            for snap in rows_of
+            for name in (sorted_scratch_name, index_name, fixed_scratch_name, links_scratch_name)
+        }
+        self.assertEqual({path.name for path in workdir.rglob("*")} & later_stage_files, set())
+
+        env.prepare(schema, workdir="early", max_rows=max_rows, memory_budget_bytes=requirement)
+        self.assertEqual(statuses(), {"linked"})
+        _b, resumed = collect(CTreesAsciiAdapter(schema, workdir))
+        for name in clean:
+            self.assertEqual(clean[name].tobytes(), resumed[name].tobytes(), name)
+
+        # a linked workdir resumes through the link stage alone, as before
+        manifest_before = (workdir / "manifest.json").read_text()
+        env.prepare(schema, workdir="early", max_rows=max_rows, memory_budget_bytes=1)
+        self.assertEqual((workdir / "manifest.json").read_text(), manifest_before)
 
     def test_resume_after_linking_rechecks_the_inputs(self):
         env = Env(self.root)
@@ -567,8 +673,6 @@ class TestBridgeRefusals(unittest.TestCase):
                 CTreesAsciiAdapter(schema_of(), self.workdir, memory_budget_bytes=bad)
 
     def test_forest_view_budget_is_checked_before_the_table_is_loaded(self):
-        from unittest import mock
-
         adapter = CTreesAsciiAdapter(schema_of(), self.workdir)
         adapter.inventory()
         adapter.memory_budget_bytes = 16
@@ -591,13 +695,74 @@ class TestBridgeRefusals(unittest.TestCase):
         tiny = CTreesAsciiAdapter(schema_of(), self.workdir, memory_budget_bytes=1024)
         with self.assertRaisesRegex(ConverterError, "source inventory .* above the configured"):
             tiny.inventory()
-        # enough for the inventory and the bitset, not for one snapshot's terms
-        inventory_only = (
-            ctrees_ascii.INVENTORY_BASE_BYTES + 6 * ctrees_ascii.INVENTORY_BYTES_PER_UNIT
+        # the inventory is built under an ample budget, then the ceiling drops
+        # to enough for the bitset but not for one snapshot's bounded read
+        small = CTreesAsciiAdapter(schema_of(), self.workdir)
+        small.inventory()
+        small.memory_budget_bytes = (
+            ctrees_ascii.SOURCE_ID_READ_ROWS * ctrees_ascii.SOURCE_ID_READ_BYTES_PER_ROW
         )
-        small = CTreesAsciiAdapter(schema_of(), self.workdir, memory_budget_bytes=inventory_only)
         with self.assertRaisesRegex(ConverterError, "snapshot .* above the configured"):
             next(small.iter_batches(10**5))
+
+    def test_an_oversized_snapshot_is_refused_at_its_exact_requirement(self):
+        """The largest snapshot's figure, rebuilt from literal widths (the
+        all-types profile's 200-byte fixed record, 36-byte links record,
+        152 canonical bytes and 56 extra bytes per row), is the exact
+        boundary: one byte less is refused naming the snapshot, and exactly
+        that much converts."""
+        schema = schema_of()
+        rows_of = {
+            int(snap): int(entry["rows"])
+            for snap, entry in Manifest.load_or_create(self.workdir).data["snapshots"].items()
+        }
+        max_rows = 2
+
+        def requirement(snap):
+            n_rows = rows_of[snap]
+            neighbours = rows_of.get(snap - 1, 0) + rows_of.get(snap + 1, 0)
+            return (
+                8 * (neighbours + n_rows)
+                + 16 * n_rows
+                + 65536 * 40
+                + 2 * min(max_rows, n_rows) * (200 + 36 + 152 + 56)
+            )
+
+        worst = max(requirement(snap) for snap in rows_of)
+        refused = min(snap for snap in rows_of if requirement(snap) == worst)
+        adapter = CTreesAsciiAdapter(schema, self.workdir)
+        adapter.inventory()
+        adapter.memory_budget_bytes = worst - 1
+        with self.assertRaisesRegex(
+            ConverterError,
+            r"^snapshot {} \({} halos, neighbours \d+ and \d+, batches of {}\) needs {} bytes, "
+            r"above the configured memory budget of {} bytes; raise memory_budget_bytes or "
+            r"lower max_rows$".format(refused, rows_of[refused], max_rows, worst, worst - 1),
+        ):
+            list(adapter.iter_batches(max_rows))
+        adapter.memory_budget_bytes = worst
+        self.assertEqual(
+            sum(batch.n_rows for batch in adapter.iter_batches(max_rows)), sum(rows_of.values())
+        )
+
+    def test_batch_term_is_pinned_to_the_record_widths(self):
+        default, all_types = schema_of(DEFAULT_PROFILE), schema_of()
+        # default profile: 144-byte fixed record + 36 links + 152 canonical
+        self.assertEqual(batch_term_bytes(default, 1 << 20), 2 * (1 << 20) * 332)
+        self.assertEqual(batch_term_bytes(default, 1 << 20, 4), 2 * 4 * 332)
+        self.assertEqual(batch_term_bytes(default, 3, 0), 0)
+        # all-types profile: 200-byte fixed record + 36 + 152 + 56 extra bytes
+        self.assertEqual(batch_term_bytes(all_types, 10, 3), 2 * 3 * 444)
+        self.assertEqual(batch_term_bytes(all_types, 2, 5), 2 * 2 * 444)
+        self.assertEqual(batch_term_bytes(all_types, 7), batch_term_bytes(all_types, 7, 7))
+        for bad in (0, True, 1.5):
+            with self.subTest(max_rows=bad), self.assertRaises(ConverterError):
+                batch_term_bytes(default, bad)
+        for bad in (-1, 1.5, True):
+            with self.subTest(n_rows=bad), self.assertRaises(ConverterError):
+                batch_term_bytes(default, 4, bad)
+        with self.assertRaisesRegex(ConverterError, "consistent_trees_ascii schema"):
+            batch_term_bytes(schema_of(PROFILE_DIR / "consistent_trees_hdf5.yaml"), 4)
 
     def test_tampered_unit_sidecar_is_refused(self):
         with tempfile.TemporaryDirectory() as tmp:

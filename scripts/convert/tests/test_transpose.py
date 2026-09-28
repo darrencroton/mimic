@@ -1,4 +1,4 @@
-"""Slice 6 unit tests: the bounded transpose (scripts/convert/transpose.py).
+"""Unit tests for the bounded transpose (scripts/convert/transpose.py).
 
 **The oracle is hand-written.** :data:`GRAPH` is a small gapped,
 mixed-progenitor catalog over six snapshots -- snapshot 3 is empty, siblings
@@ -38,6 +38,7 @@ import rank_sort  # noqa: E402
 import transpose as tp  # noqa: E402
 from adapters import base  # noqa: E402
 from ctrees_parser import ConverterError  # noqa: E402
+from source_keys import RESOLVED_DTYPE  # noqa: E402
 
 TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(TESTS_DIR)))
@@ -776,6 +777,134 @@ class TestBudget(TransposeCase):
         self.assertGreater(result.peak_spill_bytes, 0)
         self.assertTrue(modes)
         self.assertEqual({buffering for _mode, buffering in modes}, {8192})
+
+
+class TestPerRowScratch(TransposeCase):
+    """The declared per-row and per-link scratch constants against the
+    ``tracemalloc`` peak of the real ingest and assembly code, each measured
+    inside a real transpose. Chunks run to tens of thousands of rows, so a
+    constant a few percent short is tens of kilobytes over, far above the
+    calls' fixed overhead of a few kilobytes."""
+
+    def test_ingest_peak_stays_within_the_row_array_and_declared_scratch(self):
+        """One ~97,000-row batch at a 64 MiB budget, sized so the row sorter
+        never spills while it is added: the window holds validation, the
+        snapshot lookup, the row array and the copy into the sorter's
+        preallocated chunk, and nothing else."""
+        schema = ascii_schema()
+        table = synthetic_table(10_000, n_snapshots=20, seed=7)
+        n_rows = table.shape[0]
+        budget = 64 << 20
+        plan = tp.plan_budget(schema, budget)
+        row = tp.row_dtype(schema)
+        run_records = (
+            plan.row_generation_bytes - rank_sort.SCRATCH_WRITE_BUFFER_BYTES
+        ) // rank_sort.keyed_generation_bytes_per_record(row, len(tp._ROW_KEY))
+        self.assertLessEqual(n_rows, plan.max_batch_rows)
+        self.assertGreater(run_records, n_rows)
+        batch = next(synthetic_source(schema, table)(n_rows))
+        real = tp._Transpose._ingest
+        peaks = []
+
+        def traced(transposer, batches, rows):
+            gc.collect()
+            tracemalloc.start()
+            try:
+                base = tracemalloc.get_traced_memory()[0]
+                real(transposer, batches, rows)
+                peaks.append(tracemalloc.get_traced_memory()[1] - base)
+            finally:
+                tracemalloc.stop()
+
+        with mock.patch.object(tp._Transpose, "_ingest", traced):
+            result = self.run_transpose(
+                schema, lambda max_rows: iter([batch]), budget=budget, snapshots=range(20)
+            )
+        self.assertEqual(result.total_halos, n_rows)
+        declared = n_rows * (row.itemsize + tp._INGEST_SCRATCH_BYTES_PER_ROW)
+        self.assertLessEqual(
+            peaks[0],
+            declared,
+            "ingest peaked at the row array plus {:.2f} B/row; {} are declared".format(
+                peaks[0] / n_rows - row.itemsize, tp._INGEST_SCRATCH_BYTES_PER_ROW
+            ),
+        )
+
+    def test_assembly_peak_stays_within_the_declared_row_and_link_scratch(self):
+        """Every full chunk's ``_resolve_chunk`` runs over its own links,
+        taken from the real stream first -- so the merge's allocations, which
+        its sorter meters, stay outside the window -- and re-cut into blocks
+        of a chosen size: 256 links, where the per-row term dominates, and
+        about 1.2 chunks' worth, where each chunk's links span several
+        segments and the per-link term dominates.
+
+        The 16 MiB budget keeps each chunk below 256 KiB of int64 per column,
+        numpy's threshold for eliding temporaries, which is where the per-row
+        cost is highest."""
+        schema = ascii_schema()
+        budget = 16 << 20
+        plan = tp.plan_budget(schema, budget)
+        self.assertLess(plan.assembly_rows * 8, 256 << 10)
+        table = synthetic_table(7_000, n_snapshots=20, seed=7)
+        self.assertGreater(table.shape[0], 2 * plan.assembly_rows)
+        real = tp._Transpose._resolve_chunk
+        for block_links in (256, plan.assembly_rows * 6 // 5):
+            with self.subTest(block_links=block_links):
+                measured = []
+
+                def traced(
+                    transposer,
+                    first,
+                    rows,
+                    out,
+                    layout,
+                    cursor,
+                    written,
+                    block_links=block_links,
+                    measured=measured,
+                ):
+                    end = first + int(rows.size)
+                    taken = [segment.copy() for segment in cursor.take_below(end)]
+                    links = np.concatenate(taken) if taken else np.empty(0, RESOLVED_DTYPE)
+                    del taken
+                    blocks = [
+                        links[start : start + block_links]
+                        for start in range(0, links.size, block_links)
+                    ]
+                    local = tp._LinkCursor(iter(blocks))
+                    gc.collect()
+                    tracemalloc.start()
+                    try:
+                        base = tracemalloc.get_traced_memory()[0]
+                        real(transposer, first, rows, out, layout, local, written)
+                        peak = tracemalloc.get_traced_memory()[1] - base
+                    finally:
+                        tracemalloc.stop()
+                    self.assertIsNone(local.block)
+                    measured.append((int(rows.size), int(links.size), peak))
+
+                with mock.patch.object(tp._Transpose, "_resolve_chunk", traced):
+                    result = self.run_transpose(
+                        schema, synthetic_source(schema, table), budget=budget, snapshots=range(20)
+                    )
+                self.assertEqual(result.total_halos, table.shape[0])
+                full = [entry for entry in measured if entry[0] == plan.assembly_rows]
+                self.assertGreaterEqual(len(full), 2)
+                for n_rows, n_links, peak in full:
+                    segment = min(block_links, n_links)
+                    declared = (
+                        n_rows * tp._ASSEMBLY_SCRATCH_BYTES_PER_ROW
+                        + segment * tp._SCATTER_SCRATCH_BYTES_PER_RECORD
+                    )
+                    self.assertLessEqual(
+                        peak,
+                        declared,
+                        "a {}-row chunk with {} links in blocks of {} peaked at {} bytes".format(
+                            n_rows, n_links, block_links, peak
+                        ),
+                    )
+                if block_links > 256:
+                    self.assertTrue(all(n_links > block_links for _, n_links, _ in full))
 
 
 def synthetic_table(n_forests, n_snapshots, seed):

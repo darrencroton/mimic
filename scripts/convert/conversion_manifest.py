@@ -1,6 +1,5 @@
-"""Schema-bound, adapter-neutral stage state for generic conversions (Slice 7
-of the converter generalisation plan,
-docs/dev/MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md, contract C4).
+"""Schema-bound, adapter-neutral stage state for generic conversions
+(contract C4 of docs/dev/MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md).
 
 **What this owns, and what it does not.** One JSON manifest per generic
 workdir, ``manifest.json``, at ``manifest_version = 3``. It freezes the whole
@@ -9,7 +8,10 @@ canonical schema and its ``column_mapping_sha256``, the binary source layout
 identity, every record dtype with its shapes, the snapshot list and the
 source inventory -- pins every source dependency, and records the explicit
 ``ingest`` -> ``transpose`` -> ``write`` stage state with a SHA-256 content
-checksum for every artifact a stage produced. It does not run a stage:
+checksum for every artifact a stage produced. Performance-only settings that
+cannot change any output (the ASCII preparation's worker count and parser
+chunk size) are recorded beside the configuration, under ``tuning``, and are
+not part of its identity or digest. It does not run a stage:
 ``pipeline.py`` does, through the transitions below. ``scatter.Manifest``
 remains the owner of the legacy ASCII-to-v2 state; nothing here reads, writes
 or upgrades one.
@@ -43,6 +45,14 @@ every stage entry. :meth:`ConversionManifest.verify_dependencies` re-pins every
 recorded path before a stage mutates anything and names the first one that
 moved.
 
+**Shape.** :meth:`ConversionManifest.load` checks the shape of every record
+outside the digest-protected configuration that the stages, the validator
+and the report index -- stage records, artifact entries, dependency records,
+the inventory and ``tuning`` -- and that every artifact a stage lists is
+registered to that stage, so a hand-edited or partially corrupted manifest is
+refused naming the manifest path and the offending key, never with a bare
+``KeyError`` or ``TypeError`` from whichever reader touched it first.
+
 **Containment.** Every artifact path is recorded relative to the workdir and
 resolved back strictly inside it; symlinks are refused rather than followed.
 Deleting an artifact happens only through :meth:`consume_stage`, which is
@@ -51,15 +61,15 @@ stage's abandoned attempt directory -- created only after the manifest has
 recorded it, so everything under it is that attempt's own unverified output --
 is the only directory this module ever removes (:meth:`discard_attempt`).
 Source files are never opened for writing, and a workdir that contains a
-source dependency is refused, so no cleanup path can reach one.
-
-numpy + stdlib (+ the converter's own ``column_schema``/``scatter``).
+source dependency is refused, so no cleanup path can reach one. The
+manifest's own temporary file is opened without following a symlink.
 """
 
 import hashlib
 import json
 import math
 import os
+import reprlib
 import shutil
 import stat
 from pathlib import Path
@@ -146,7 +156,11 @@ _TOP_LEVEL_KEYS = (
     "manifest_version",
     "sources",
     "stages",
+    "tuning",
 )
+
+_STAGE_KEYS = ("artifacts", "attempt", "directory", "error", "result", "status")
+_SOURCES_KEYS = ("dependencies", "inventory")
 
 _HASH_BLOCK_BYTES = 8 * 1024 * 1024
 
@@ -344,7 +358,8 @@ def merge_dependencies(records: Iterable[Mapping]) -> List[Dict[str, object]]:
     """One record per physical path, roles and objects merged, sorted by path.
 
     Two records for the same path must agree on every piece of content
-    evidence; a disagreement means the file changed while it was being pinned.
+    evidence, including two recorded SHA-256s; a disagreement means the file
+    changed while it was being pinned.
     """
     merged: Dict[str, Dict[str, object]] = {}
     for record in records:
@@ -365,6 +380,11 @@ def merge_dependencies(records: Iterable[Mapping]) -> List[Dict[str, object]]:
         existing["objects"] = sorted(set(existing["objects"]) | set(record["objects"]))
         if existing.get("sha256") is None:
             existing["sha256"] = record.get("sha256")
+        elif record.get("sha256") is not None and record["sha256"] != existing["sha256"]:
+            change = "sha256 {} -> {}".format(existing["sha256"], record["sha256"])
+            raise ConverterError(
+                "source dependency {} changed while it was being pinned ({})".format(path, change)
+            )
     return [merged[path] for path in sorted(merged)]
 
 
@@ -434,7 +454,7 @@ def _read_json(path: Path) -> object:
     try:
         with open(path) as handle:
             return json.load(handle)
-    except ValueError as exc:
+    except (OSError, ValueError) as exc:
         raise ConverterError("{}: not a readable JSON manifest ({})".format(path, exc)) from exc
 
 
@@ -496,6 +516,179 @@ def open_manifest(workdir):
 
 
 # ==========================================================================
+# Manifest shape
+# ==========================================================================
+
+
+def _malformed(path: Path, key: str, expected: str, value) -> ConverterError:
+    return ConverterError(
+        "{}: malformed generic manifest: {} must be {}, got {} {}".format(
+            path, key, expected, type(value).__name__, reprlib.repr(value)
+        )
+    )
+
+
+def _require_mapping(
+    value,
+    path: Path,
+    key: str,
+    exact: Optional[Sequence[str]] = None,
+    required: Sequence[str] = (),
+) -> Mapping:
+    """``value`` as a JSON object; with ``exact``, holding exactly those keys,
+    and in any case holding every ``required`` key."""
+    if not isinstance(value, dict):
+        raise _malformed(path, key, "a JSON object", value)
+    missing = sorted(set(exact if exact is not None else required) - set(value))
+    unknown = sorted(set(value) - set(exact)) if exact is not None else []
+    if missing or unknown:
+        raise ConverterError(
+            "{}: malformed generic manifest: {} (missing {}, unknown {})".format(
+                path, key, missing, unknown
+            )
+        )
+    return value
+
+
+def _require_list(value, path: Path, key: str) -> list:
+    if not isinstance(value, list):
+        raise _malformed(path, key, "a JSON array", value)
+    return value
+
+
+def _require_int(value, path: Path, key: str, minimum: Optional[int] = 0) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise _malformed(path, key, "an integer", value)
+    if minimum is not None and value < minimum:
+        raise _malformed(path, key, "at least {}".format(minimum), value)
+    return value
+
+
+def _require_str(value, path: Path, key: str, nullable: bool = False) -> Optional[str]:
+    if value is None and nullable:
+        return None
+    if not isinstance(value, str):
+        raise _malformed(path, key, "a string or null" if nullable else "a string", value)
+    return value
+
+
+def _check_artifacts(artifacts, path: Path) -> Mapping:
+    _require_mapping(artifacts, path, "artifacts")
+    for relpath, entry in artifacts.items():
+        key = "artifacts[{!r}]".format(relpath)
+        _require_mapping(entry, path, key, required=("bytes", "kind", "sha256", "stage", "status"))
+        if entry["stage"] not in STAGES:
+            raise _malformed(path, key + ".stage", "one of {}".format(STAGES), entry["stage"])
+        if entry["status"] not in (ARTIFACT_PRESENT, ARTIFACT_REMOVED):
+            raise _malformed(
+                path,
+                key + ".status",
+                "{!r} or {!r}".format(ARTIFACT_PRESENT, ARTIFACT_REMOVED),
+                entry["status"],
+            )
+        _require_str(entry["kind"], path, key + ".kind")
+        _require_int(entry["bytes"], path, key + ".bytes")
+        _require_str(entry["sha256"], path, key + ".sha256")
+    return artifacts
+
+
+def _check_stages(stages, artifacts: Mapping, path: Path) -> None:
+    if not isinstance(stages, dict) or sorted(stages) != sorted(STAGES):
+        raise ConverterError("{}: stage records must be exactly {}".format(path, STAGES))
+    for name in STAGES:
+        key = "stages.{}".format(name)
+        record = _require_mapping(stages[name], path, key, exact=_STAGE_KEYS)
+        if record["status"] not in _STAGE_STATUSES:
+            raise ConverterError(
+                "{}: stage {!r} has unknown status {!r}".format(path, name, record["status"])
+            )
+        _require_int(record["attempt"], path, key + ".attempt")
+        _require_str(record["directory"], path, key + ".directory", nullable=True)
+        _require_str(record["error"], path, key + ".error", nullable=True)
+        if record["result"] is not None:
+            _require_mapping(record["result"], path, key + ".result")
+        listed = _require_list(record["artifacts"], path, key + ".artifacts")
+        for position, relpath in enumerate(listed):
+            item = "{}.artifacts[{}]".format(key, position)
+            _require_str(relpath, path, item)
+            if (artifacts.get(relpath) or {}).get("stage") != name:
+                raise ConverterError(
+                    "{}: malformed generic manifest: {} names {!r}, which has no artifacts "
+                    "entry of stage {!r}".format(path, item, relpath, name)
+                )
+
+
+def _check_sources(sources, path: Path) -> None:
+    _require_mapping(sources, path, "sources", exact=_SOURCES_KEYS)
+    dependencies = _require_list(sources["dependencies"], path, "sources.dependencies")
+    for position, record in enumerate(dependencies):
+        key = "sources.dependencies[{}]".format(position)
+        _require_mapping(
+            record,
+            path,
+            key,
+            required=("path", "roles", "objects", "size_bytes", "mtime_ns", "device", "inode"),
+        )
+        _require_str(record["path"], path, key + ".path")
+        for name in ("roles", "objects"):
+            for index, value in enumerate(_require_list(record[name], path, key + "." + name)):
+                _require_str(value, path, "{}.{}[{}]".format(key, name, index))
+        for name in ("size_bytes", "device", "inode"):
+            _require_int(record[name], path, key + "." + name)
+        _require_int(record["mtime_ns"], path, key + ".mtime_ns", minimum=None)
+        _require_str(record.get("sha256"), path, key + ".sha256", nullable=True)
+    inventory = sources["inventory"]
+    if inventory is None:
+        return
+    key = "sources.inventory"
+    _require_mapping(
+        inventory,
+        path,
+        key,
+        required=(
+            "files",
+            "n_selected_units",
+            "n_units",
+            "selected_halos",
+            "selected_sha256",
+            "total_halos",
+            "units_sha256",
+        ),
+    )
+    for name in ("n_units", "total_halos", "n_selected_units", "selected_halos"):
+        _require_int(inventory[name], path, key + "." + name)
+    for name in ("units_sha256", "selected_sha256"):
+        _require_str(inventory[name], path, key + "." + name)
+    for position, entry in enumerate(_require_list(inventory["files"], path, key + ".files")):
+        item = "{}.files[{}]".format(key, position)
+        _require_mapping(entry, path, item, required=("n_halos", "n_units", "source_file_ordinal"))
+        for name in ("source_file_ordinal", "n_units", "n_halos"):
+            _require_int(entry[name], path, "{}.{}".format(item, name))
+
+
+def _check_shape(data: Mapping, path: Path) -> None:
+    """Every record type the stages, the validator and the report index, so
+    a malformed manifest is refused here naming its path and key."""
+    if (
+        isinstance(data, dict)
+        and "tuning" not in data
+        and set(data) == set(_TOP_LEVEL_KEYS) - {"tuning"}
+    ):
+        raise ConverterError(
+            "{}: this manifest was written before tuning was recorded separately from the "
+            "configuration (a version 3 manifest without a tuning record); it is not resumed. "
+            "Start the conversion again in a fresh workdir".format(path)
+        )
+    _require_mapping(data, path, "the top level", exact=_TOP_LEVEL_KEYS)
+    _require_mapping(data["configuration"], path, "configuration", required=("schema",))
+    _require_str(data["configuration_sha256"], path, "configuration_sha256")
+    _require_mapping(data["tuning"], path, "tuning")
+    artifacts = _check_artifacts(data["artifacts"], path)
+    _check_stages(data["stages"], artifacts, path)
+    _check_sources(data["sources"], path)
+
+
+# ==========================================================================
 # The generic manifest
 # ==========================================================================
 
@@ -535,13 +728,16 @@ class ConversionManifest:
         configuration: Mapping,
         dependencies: Sequence[Mapping],
         inventory: Optional[Mapping] = None,
+        tuning: Optional[Mapping] = None,
     ) -> "ConversionManifest":
         """Write a new manifest into an empty or absent ``workdir``.
 
         ``configuration`` must carry ``schema`` as :func:`schema_record`
-        produced it. Refuses a workdir that already holds anything -- except
-        a lone ``manifest.json.tmp`` left by an interrupted first save, which
-        is discarded -- and one that contains any of the ``dependencies``.
+        produced it. ``tuning`` holds the performance-only settings recorded
+        outside the configuration's identity (:meth:`record_tuning`). Refuses
+        a workdir that already holds anything -- except a lone
+        ``manifest.json.tmp`` left by an interrupted first save, which is
+        discarded -- and one that contains any of the ``dependencies``.
         """
         workdir = Path(workdir)
         resolved = workdir.resolve()
@@ -581,6 +777,7 @@ class ConversionManifest:
             },
             "stages": {stage: _empty_stage() for stage in STAGES},
             "artifacts": {},
+            "tuning": json.loads(canonical_json(dict(tuning or {}))),
         }
         workdir.mkdir(parents=True, exist_ok=True)
         manifest = cls(workdir, data, schema)
@@ -591,9 +788,11 @@ class ConversionManifest:
     def load(cls, workdir) -> "ConversionManifest":
         """Load and validate a generic manifest. Writes nothing.
 
-        Refuses a legacy, version-1 or unknown manifest, a manifest whose
-        configuration digest no longer matches its configuration, and one
-        whose embedded schema does not rebuild to its recorded digest.
+        Refuses a legacy, version-1 or unknown manifest, one whose records do
+        not have the shapes the stages index (named by key), one whose
+        configuration digest does not match its configuration, and one whose
+        embedded schema does not rebuild to its recorded digest. Every refusal
+        is a ``ConverterError`` naming the manifest path.
         """
         path = Path(workdir) / MANIFEST_NAME
         kind = classify_manifest(workdir)
@@ -606,29 +805,13 @@ class ConversionManifest:
                 "provenance to it".format(path, LEGACY_MANIFEST_VERSION)
             )
         data = _read_json(path)
-        missing = sorted(set(_TOP_LEVEL_KEYS) - set(data))
-        unknown = sorted(set(data) - set(_TOP_LEVEL_KEYS))
-        if missing or unknown:
-            raise ConverterError(
-                "{}: malformed generic manifest (missing {}, unknown {})".format(
-                    path, missing, unknown
-                )
-            )
+        _check_shape(data, path)
         recomputed = canonical_sha256(data["configuration"])
         if recomputed != data["configuration_sha256"]:
             raise ConverterError(
                 "{}: configuration digest {} != recorded {} -- the embedded configuration was "
                 "edited; refusing to resume".format(path, recomputed, data["configuration_sha256"])
             )
-        stages = data["stages"]
-        if not isinstance(stages, dict) or sorted(stages) != sorted(STAGES):
-            raise ConverterError("{}: stage records must be exactly {}".format(path, STAGES))
-        for name in STAGES:
-            status = stages[name].get("status")
-            if status not in _STAGE_STATUSES:
-                raise ConverterError(
-                    "{}: stage {!r} has unknown status {!r}".format(path, name, status)
-                )
         schema = schema_from_record(data["configuration"]["schema"], str(path))
         manifest = cls(workdir, data, schema)
         manifest._check_stage_order()
@@ -662,6 +845,10 @@ class ConversionManifest:
     def inventory(self) -> Optional[Mapping]:
         return self.data["sources"]["inventory"]
 
+    @property
+    def tuning(self) -> Mapping:
+        return self.data["tuning"]
+
     def stage(self, name: str) -> Dict[str, object]:
         if name not in STAGES:
             raise ConverterError("unknown stage {!r}".format(name))
@@ -675,15 +862,39 @@ class ConversionManifest:
     def save(self) -> None:
         """Atomic, durable replace: write a sibling temporary file, fsync it,
         rename it over the manifest, fsync the directory. A crash leaves
-        either the previous manifest or this one, never a torn file."""
+        either the previous manifest or this one, never a torn file.
+
+        The temporary file is opened with ``O_NOFOLLOW``: a symlink planted at
+        its name is refused, never written through. A regular file left there
+        by an interrupted save is truncated and reused.
+        """
         document = json.dumps(self.data, indent=2, sort_keys=True, allow_nan=False) + "\n"
         tmp = self.path.with_name(MANIFEST_NAME + ".tmp")
-        with open(tmp, "w") as handle:
+        try:
+            descriptor = os.open(
+                str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o644
+            )
+        except OSError as exc:
+            raise ConverterError(
+                "{}: cannot open the manifest's temporary file for writing ({}); a symlink there "
+                "is never followed".format(tmp, exc)
+            ) from exc
+        with os.fdopen(descriptor, "w") as handle:
             handle.write(document)
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(tmp, self.path)
         _fsync_directory(self.workdir)
+
+    def record_tuning(self, tuning: Mapping) -> None:
+        """Replace the recorded performance-only settings and save.
+
+        ``tuning`` is outside the configuration and its digest: it may differ
+        between attempts because nothing it holds can change an output. What
+        is recorded is what the next attempt that reads it uses.
+        """
+        self.data["tuning"] = json.loads(canonical_json(dict(tuning)))
+        self.save()
 
     # ---- binding checks (all read-only) -----------------------------------
 

@@ -41,6 +41,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import column_schema as cs  # noqa: E402
 from adapters import ctrees_hdf5 as ch  # noqa: E402
 from adapters import source_inventory as si  # noqa: E402
+from adapters import topology  # noqa: E402
 from adapters.ctrees_hdf5 import (  # noqa: E402
     INVENTORY_BASE_BYTES,
     INVENTORY_BYTES_PER_UNIT,
@@ -50,7 +51,7 @@ from adapters.ctrees_hdf5 import (  # noqa: E402
     ConverterError,
     CTreesHDF5Adapter,
 )
-from adapters.lhalo_binary import VALIDATION_BYTES_PER_HALO  # noqa: E402
+from adapters.topology import VALIDATION_BYTES_PER_HALO  # noqa: E402
 
 REPO_ROOT = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -1501,6 +1502,210 @@ class ChunkingTests(TempDirCase):
 
 
 # ==========================================================================
+# Read windows
+# ==========================================================================
+
+
+def batch_bytes(batches):
+    """Every batch as comparable bytes: size, then each column's dtype, shape
+    and raw bytes, group by group."""
+    out = []
+    for batch in batches:
+        record = [batch.n_rows]
+        for group in ("identity", "coordinates", "links", "payload", "extras"):
+            for name, values in sorted(getattr(batch, group).items()):
+                record.append((group, name, values.dtype.str, values.shape, values.tobytes()))
+        out.append(record)
+    return out
+
+
+def per_forest_batches(adapter, max_rows):
+    """The batches the per-forest route emits for ``adapter``'s source."""
+    with mock.patch.object(ch, "_in_storage_order", return_value=False):
+        return list(adapter.iter_batches(max_rows))
+
+
+def numbered(forest_id, first_id, forest_spec):
+    """``forest_spec`` with every row's catalog ``id`` set explicitly, so the
+    stored ids do not depend on where the forest sits in the datasets."""
+    rows = [dict(row, id=first_id + index) for index, row in enumerate(forest_spec["rows"])]
+    return forest(forest_id, *rows)
+
+
+class ReadWindowTests(TempDirCase):
+    """Storage-order files are read through read windows; every other file,
+    and every forest larger than a window, is read per forest. Both routes
+    must emit byte-identical batches."""
+
+    def mixed_forests(self):
+        return [
+            numbered(1, 100, lone(1)),
+            numbered(2, 200, chain_forest(9)),
+            numbered(3, 300, MERGER_FOREST),
+            forest(4),
+            numbered(5, 500, lone(5)),
+            numbered(6, 600, chain_forest(4)),
+        ]
+
+    def test_committed_fixtures_emit_identical_batches_through_both_routes(self):
+        for fixture in (MICRO_FIXTURE, UCHUU_FIXTURE):
+            for max_rows in (1, 2, 3, 4, 1000):
+                with self.subTest(fixture=os.path.basename(fixture), max_rows=max_rows):
+                    adapter = adapter_for(fixture)
+                    adapter.inventory()
+                    self.assertTrue(ch._in_storage_order(adapter._plans[0]))
+                    self.assertEqual(
+                        batch_bytes(adapter.iter_batches(max_rows)),
+                        batch_bytes(per_forest_batches(adapter, max_rows)),
+                    )
+
+    def test_windows_smaller_than_a_forest_fall_back_for_that_forest_only(self):
+        info = write_source(
+            self.tmp,
+            [
+                {
+                    "forests": self.mixed_forests(),
+                    "extra_columns": {"pid": np.arange(19, dtype="<i8") * 7 - 3},
+                },
+                {
+                    "forests": [numbered(7, 700, lone(7))],
+                    "extra_columns": {"pid": np.array([11], dtype="<i8")},
+                },
+            ],
+            layout="internal",
+        )
+        schema = schema_from(
+            [
+                {
+                    "name": "ParentID",
+                    "sources": [{"field": "pid"}],
+                    "type": "long long",
+                    "units": "dimensionless",
+                    "h_convention": "none",
+                    "description": "test extra",
+                }
+            ]
+        )
+        for window_rows in (1, 3, 5, 16, TOPOLOGY_READ_CHUNK_ROWS):
+            for max_rows in (1, 3, 7, 1000):
+                with self.subTest(window_rows=window_rows, max_rows=max_rows):
+                    adapter = adapter_for(info, schema)
+                    with mock.patch.object(ch, "TOPOLOGY_READ_CHUNK_ROWS", window_rows):
+                        windowed = batch_bytes(adapter.iter_batches(max_rows))
+                        reference = batch_bytes(per_forest_batches(adapter, max_rows))
+                    self.assertEqual(windowed, reference)
+
+    def test_a_source_not_in_storage_order_is_read_per_forest_with_the_same_batches(self):
+        """The same forests laid out in reverse storage order take the
+        per-forest route, and emit exactly what the storage-order layout emits
+        through its read window."""
+        forests = self.mixed_forests()
+        for name in ("ordered", "shuffled"):
+            os.makedirs(os.path.join(self.tmp, name))
+        ordered = write_source(os.path.join(self.tmp, "ordered"), [{"forests": forests}])
+        shuffled = write_source(
+            os.path.join(self.tmp, "shuffled"),
+            [{"forests": forests, "order": list(reversed(range(len(forests))))}],
+        )
+        windows = []
+        real_read_window = CTreesHDF5Adapter._read_window
+
+        def spy(adapter_self, *args, **kwargs):
+            window = real_read_window(adapter_self, *args, **kwargs)
+            windows.append(window)
+            return window
+
+        for max_rows in (1, 4, 1000):
+            with self.subTest(max_rows=max_rows):
+                windows.clear()
+                with mock.patch.object(CTreesHDF5Adapter, "_read_window", spy):
+                    reference = batch_bytes(adapter_for(ordered).iter_batches(max_rows))
+                    self.assertEqual(len(windows), 1)
+                    windows.clear()
+                    adapter = adapter_for(shuffled)
+                    adapter.inventory()
+                    self.assertFalse(ch._in_storage_order(adapter._plans[0]))
+                    self.assertEqual(batch_bytes(adapter.iter_batches(max_rows)), reference)
+                self.assertEqual(windows, [])
+
+    def test_each_dataset_is_read_once_per_window(self):
+        n_forests, window_rows = 50, 16
+        info = write_source(self.tmp, [{"forests": [lone(i) for i in range(1, n_forests + 1)]}])
+        reads = []
+        original = CTreesHDF5Adapter._read
+
+        def spy(dataset, low, high, component, context):
+            reads.append((dataset.name, low, high))
+            return original(dataset, low, high, component, context)
+
+        with mock.patch.object(ch, "TOPOLOGY_READ_CHUNK_ROWS", window_rows):
+            with mock.patch.object(CTreesHDF5Adapter, "_read", staticmethod(spy)):
+                table, _ = collect(adapter_for(info), max_rows=7)
+        self.assertEqual(table["identity"]["SourceHaloID"].tolist(), list(range(1, 51)))
+        n_datasets = len(cs.REQUIRED_ROLES["consistent_trees_hdf5"])
+        windows = sorted({(low, high) for _name, low, high in reads})
+        self.assertEqual(windows, [(0, 16), (16, 32), (32, 48), (48, 50)])
+        self.assertEqual(len(reads), len(windows) * n_datasets)
+
+    def test_batches_own_their_memory_rather_than_viewing_a_window(self):
+        """A batch that viewed its read window would keep the whole window
+        alive until the batch is written."""
+        info = write_source(
+            self.tmp,
+            [{"forests": self.mixed_forests()}],
+            extra_columns={
+                "Rvir": np.linspace(1.0, 2.0, 19),
+                "Spin": np.zeros(19),
+                "pid": np.arange(19),
+            },
+        )
+        schema = load_schema("consistent_trees_hdf5_extras_example.yaml")
+        for max_rows in (1, 5, 1000):
+            with self.subTest(max_rows=max_rows):
+                for batch in adapter_for(info, schema).iter_batches(max_rows):
+                    for group in ("identity", "coordinates", "links", "payload", "extras"):
+                        for name, values in getattr(batch, group).items():
+                            self.assertTrue(values.flags.owndata, (group, name))
+
+    def test_the_window_is_sized_from_the_budget(self):
+        info = write_source(self.tmp, [{"forests": self.mixed_forests()}])
+        adapter = adapter_for(info)
+        adapter.inventory()
+        plan = adapter._plans[0]
+        per_row = ch._window_bytes_per_row(plan)
+        # 19 eight-byte role datasets plus the 32 B/row transient allowance.
+        self.assertEqual(per_row, 19 * 8 + TOPOLOGY_READ_BUFFER_BYTES_PER_ROW)
+        self.assertEqual(adapter._window_rows(plan), TOPOLOGY_READ_CHUNK_ROWS)
+        for rows in (0, 1, 27, 1000):
+            adapter.memory_budget_bytes = TOPOLOGY_BASE_BYTES + rows * (
+                VALIDATION_BYTES_PER_HALO + per_row
+            )
+            self.assertEqual(adapter._window_rows(plan), rows)
+            adapter.memory_budget_bytes += VALIDATION_BYTES_PER_HALO + per_row - 1
+            self.assertEqual(adapter._window_rows(plan), rows)
+        adapter.memory_budget_bytes = TOPOLOGY_BASE_BYTES - 1
+        self.assertEqual(adapter._window_rows(plan), 0)
+
+    def test_a_window_held_forest_is_charged_the_window_as_its_read_buffer(self):
+        info = write_source(self.tmp, [{"forests": self.mixed_forests()}])
+        adapter = adapter_for(info)
+        charged = []
+        real_check = ch.check_validation_budget
+
+        def spy(n_halos, read_buffer_bytes, base_bytes, budget, context):
+            charged.append((n_halos, read_buffer_bytes, base_bytes))
+            return real_check(n_halos, read_buffer_bytes, base_bytes, budget, context)
+
+        with mock.patch.object(ch, "check_validation_budget", spy):
+            collect(adapter)
+        window_bytes = 19 * ch._window_bytes_per_row(adapter._plans[0])
+        self.assertEqual(
+            charged,
+            [(n, window_bytes, TOPOLOGY_BASE_BYTES) for n in (1, 9, 4, 1, 4)],
+        )
+
+
+# ==========================================================================
 # Budget
 # ==========================================================================
 
@@ -1534,6 +1739,79 @@ class BudgetTests(TempDirCase):
         adapter.memory_budget_bytes = need - 1
         with self.assertRaisesRegex(ConverterError, "structural validation of 50 halos"):
             collect(adapter)
+
+    #: Raw bytes one emitted row reads without extras: nineteen 8-byte role
+    #: datasets. Canonical bytes: 88 of identity, coordinates and links plus
+    #: the 64-byte ctrees payload.
+    RAW_ROW_BYTES = 19 * 8
+    CANONICAL_ROW_BYTES = 88 + 64
+
+    def emission_need(self, rows, extra_raw=0, extra_canonical=0):
+        return (
+            2 * rows * (self.RAW_ROW_BYTES + extra_raw + self.CANONICAL_ROW_BYTES + extra_canonical)
+        )
+
+    def test_an_emission_buffer_over_the_budget_is_refused_before_any_forest_is_read(self):
+        n = 1000
+        info = write_source(self.tmp, [{"forests": [chain_forest(n)]}])
+        need = self.emission_need(n)
+        self.assertGreater(need - 1, INVENTORY_BASE_BYTES + INVENTORY_BYTES_PER_UNIT)
+        adapter = adapter_for(info, memory_budget_bytes=need - 1)
+        with mock.patch.object(
+            CTreesHDF5Adapter, "_read", staticmethod(mock.Mock(side_effect=AssertionError("read")))
+        ):
+            with self.assertRaises(ConverterError) as caught:
+                list(adapter.iter_batches(n))
+        message = str(caught.exception)
+        self.assertIn(
+            "emission (batches of 1000 rows, 152 B/row raw read plus 152 B/row canonical", message
+        )
+        self.assertIn("--ingest-max-rows", message)
+        self.assertIn("memory_budget_bytes", message)
+
+    def test_an_emission_buffer_at_the_budget_is_accepted(self):
+        n = 1000
+        info = write_source(self.tmp, [{"forests": [chain_forest(n)]}])
+        table, batches = collect(adapter_for(info, memory_budget_bytes=self.emission_need(n)), n)
+        self.assertEqual([batch.n_rows for batch in batches], [n])
+        self.assertEqual(table["identity"]["SourceHaloID"].tolist(), list(range(1, n + 1)))
+        # Far above the source's halo count, the term is charged for its rows.
+        collect(adapter_for(info, memory_budget_bytes=self.emission_need(n)), 100 * n)
+
+    def test_the_extras_widen_both_emission_widths(self):
+        """The extras example reads three more 8-byte datasets and emits three
+        8-byte columns."""
+        n = 1000
+        extra_columns = {"Rvir": np.ones(n), "Spin": np.zeros(n), "pid": np.arange(n)}
+        info = write_source(self.tmp, [{"forests": [chain_forest(n)]}], extra_columns=extra_columns)
+        schema = load_schema("consistent_trees_hdf5_extras_example.yaml")
+        need = self.emission_need(n, extra_raw=24, extra_canonical=24)
+        with self.assertRaisesRegex(
+            ConverterError, "176 B/row raw read plus 176 B/row canonical columns"
+        ):
+            list(adapter_for(info, schema, memory_budget_bytes=need - 1).iter_batches(n))
+        collect(adapter_for(info, schema, memory_budget_bytes=need), n)
+
+    def test_the_default_batch_size_fits_the_default_budget_for_the_shipped_profiles(self):
+        """Pins the figures at the CLI defaults: ``--ingest-max-rows`` 1 << 20
+        and the 2 GiB budget, for a source of at least that many halos."""
+        import pipeline
+
+        self.assertEqual(pipeline.DEFAULT_INGEST_MAX_ROWS, 1 << 20)
+        self.assertEqual(ch.DEFAULT_MEMORY_BUDGET_BYTES, 2 * 1024**3)
+        rows = pipeline.DEFAULT_INGEST_MAX_ROWS
+        for profile, width, figure in (
+            ("consistent_trees_hdf5.yaml", 152, 637_534_208),
+            ("consistent_trees_hdf5_extras_example.yaml", 176, 738_197_504),
+        ):
+            with self.subTest(profile=profile):
+                schema = load_schema(profile)
+                self.assertEqual(topology.canonical_row_bytes(schema), width)
+                self.assertEqual(2 * rows * (width + width), figure)
+                self.assertLessEqual(figure, ch.DEFAULT_MEMORY_BUDGET_BYTES)
+                topology.check_emission_budget(
+                    schema, rows, rows, width, ch.DEFAULT_MEMORY_BUDGET_BYTES
+                )
 
     def test_non_positive_or_fractional_budgets_are_rejected(self):
         info = write_source(self.tmp, [{"forests": [lone(1)]}])
@@ -1590,7 +1868,7 @@ class BudgetAccountingTests(TempDirCase):
             tracemalloc.start()
             try:
                 columns = adapter._read_forest_topology(datasets, plan, 0, n, "measure")
-                ch._validate_tree(columns, n, "measure", None)
+                topology.validate_tree(columns, n, "measure", None)
                 del columns
                 _, peak = tracemalloc.get_traced_memory()
             finally:
@@ -1607,6 +1885,38 @@ class BudgetAccountingTests(TempDirCase):
                     + TOPOLOGY_BASE_BYTES
                 )
                 self.assertLessEqual(peak, declared)
+
+    def measure_window(self, n):
+        """Peak of the read-window route for a file holding one chain forest:
+        the window read, the forest's topology from it and its validation."""
+        adapter = adapter_for(self.write_chain(n), last_file=0)
+        adapter.inventory()
+        plan = adapter._plans[0]
+        nonempty = np.flatnonzero(plan.counts > 0)
+        ends = plan.offsets[nonempty] + plan.counts[nonempty]
+        with adapter._open_info() as handle:
+            datasets = adapter._reopen(handle, plan)
+            tracemalloc.start()
+            try:
+                window = adapter._read_window(
+                    datasets, plan, nonempty, ends, 0, TOPOLOGY_READ_CHUNK_ROWS
+                )
+                columns = adapter._window_topology(window, plan, 0, n, "measure")
+                topology.validate_tree(columns, n, "measure", None)
+                del columns
+                _, peak = tracemalloc.get_traced_memory()
+            finally:
+                tracemalloc.stop()
+        return peak, window.read_buffer_bytes
+
+    def test_the_window_path_stays_within_its_declared_budget(self):
+        for n in (1, 10, 100, 1000, 20000, 60000):
+            with self.subTest(n=n):
+                peak, read_buffer_bytes = self.measure_window(n)
+                self.assertLessEqual(
+                    peak,
+                    topology.validation_budget_bytes(n, read_buffer_bytes, TOPOLOGY_BASE_BYTES),
+                )
 
     def test_the_read_buffer_constant_covers_the_measured_read(self):
         """The read phase alone, net of its 48 B/halo of retained columns."""

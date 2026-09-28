@@ -14,8 +14,8 @@ under archive/dev-plans/; the reference sources cited below are authoritative):
   the reference strtod-then-cast parse path;
 - duplicate or missing required columns abort; malformed rows abort.
 
-**Declarative selection** (Slice 5 of the converter generalisation plan,
-docs/dev/MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md, C1/C2). Passing
+**Declarative selection** (contracts C1/C2 of
+docs/dev/MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md). Passing
 a ``consistent_trees_ascii`` :class:`column_schema.CanonicalSchema` selects the
 required columns through the profile's aliases and carries its declared extra
 fields in an *extended* scratch layout (:class:`ScratchLayout`), which also
@@ -52,10 +52,12 @@ from typing import Dict, Iterator, List, Optional, Set, Tuple
 
 import numpy as np
 import pandas as pd
+from column_schema import EXTRA_TYPES, resolve_extra_sources, resolve_required_columns
+from errors import ConverterError
 
 #: Frozen scratch-record dtype: little-endian, packed, itemsize 108 bytes.
-#: Field order and widths are contract-frozen by the implementation plan
-#: (Slice 2); every scratch-file manifest entry records DTYPE_TAG against it.
+#: Field order and widths never change; every legacy scratch-file manifest
+#: entry records DTYPE_TAG against it.
 RECORD_DTYPE = np.dtype(
     [
         ("id", "<i8"),
@@ -99,18 +101,6 @@ SOURCE_KEY_FIELDS = (
 #: ``X`` or ``id`` can never collide with a frozen scratch field.
 EXTRA_FIELD_PREFIX = "extra_"
 
-#: Declared extra type -> (little-endian element dtype, component count). The
-#: same table as column_schema.EXTRA_TYPES, which is not imported at module
-#: level because it imports ConverterError from here.
-_EXTRA_STORAGE = {
-    "int": ("<i4", 1),
-    "long long": ("<i8", 1),
-    "float": ("<f4", 1),
-    "double": ("<f8", 1),
-    "vec3_int": ("<i4", 3),
-    "vec3_float": ("<f4", 3),
-}
-
 #: Version prefix of an extended scratch dtype tag. Deliberately different from
 #: the frozen ``ctrees-scratch-v1`` prefix: a converter that predates the
 #: extended layout compares tags for equality and so refuses such a workdir.
@@ -131,6 +121,12 @@ def describe_dtype(prefix: str, dtype: np.dtype) -> str:
             text += "[{}]".format(",".join(str(n) for n in sub.shape))
         parts.append(text)
     return "{}/itemsize={}/{}".format(prefix, dtype.itemsize, ",".join(parts))
+
+
+def _little_endian_element(spec) -> str:
+    """Scratch element dtype of a declared extra type: the
+    ``column_schema.EXTRA_TYPES`` element, always little-endian (``<i4`` etc.)."""
+    return np.dtype(spec.numpy_dtype).newbyteorder("<").str
 
 
 @dataclass(frozen=True)
@@ -162,11 +158,12 @@ class ScratchLayout:
         ]
         fields.extend(SOURCE_KEY_FIELDS)
         for name, type_name in self.extras:
-            element, n_components = _EXTRA_STORAGE[type_name]
-            if n_components == 1:
+            spec = EXTRA_TYPES[type_name]
+            element = _little_endian_element(spec)
+            if spec.n_components == 1:
                 fields.append((EXTRA_FIELD_PREFIX + name, element))
             else:
-                fields.append((EXTRA_FIELD_PREFIX + name, element, (n_components,)))
+                fields.append((EXTRA_FIELD_PREFIX + name, element, (spec.n_components,)))
         return np.dtype(fields, align=False)
 
     @property
@@ -187,7 +184,7 @@ class ScratchLayout:
             (extra.name, extra.type) for extra in sorted(schema.extra_fields, key=lambda e: e.name)
         )
         for _name, type_name in extras:
-            if type_name not in _EXTRA_STORAGE:  # pragma: no cover - column_schema rejects it
+            if type_name not in EXTRA_TYPES:  # pragma: no cover - column_schema rejects it
                 raise ConverterError("unsupported extra type {!r}".format(type_name))
         return cls(extras=extras, schema_digest=schema.digest)
 
@@ -225,7 +222,7 @@ class ScratchLayout:
                     context, digest
                 )
             )
-        unknown = [type_name for _name, type_name in extras if type_name not in _EXTRA_STORAGE]
+        unknown = [type_name for _name, type_name in extras if type_name not in EXTRA_TYPES]
         if unknown or list(extras) != sorted(extras):
             raise ConverterError(
                 "{}: scratch layout record lists unsupported or unsorted extras {!r}".format(
@@ -270,6 +267,9 @@ _FLOAT_COLUMNS = (
 #: Older ctrees files use snap_num, newer use snap_idx (read_ctrees_ascii.c).
 SNAPSHOT_SPELLINGS = ("snap_idx", "snap_num")
 
+#: Required roles parsed as int64; every other role is parsed as float64.
+_INT_ROLES = frozenset(_INT_COLUMNS + ("snap",))
+
 #: record field <- ctrees column (both normalized) for direct copies.
 _RECORD_FROM_COLUMN = {
     "id": "id",
@@ -290,10 +290,6 @@ _RECORD_FROM_COLUMN = {
     "vrms": "vrms",
     "vmax": "vmax",
 }
-
-
-class ConverterError(RuntimeError):
-    """Fatal converter failure: the run must abort, never repair silently."""
 
 
 @dataclass
@@ -362,8 +358,8 @@ class ExtraColumns:
     columns: Tuple[Tuple[int, str], ...]
 
     @property
-    def is_integer(self) -> bool:
-        return _EXTRA_STORAGE[self.type][0][1] == "i"
+    def spec(self):
+        return EXTRA_TYPES[self.type]
 
 
 @dataclass
@@ -373,10 +369,13 @@ class ColumnLayout:
     all_names: List[str]
     #: normalized-lowercase required column -> column index in the file
     indices: Dict[str, int]
-    #: which snapshot spelling the file uses (normalized lowercase)
+    #: which snapshot spelling the file uses (normalized lowercase), under
+    #: either resolution
     snapshot_column: str
-    #: key of the snapshot column in ``indices``; the legacy resolution keys it
-    #: by its spelling, the profile resolution by the role name ``snap``
+    #: key of the snapshot column in ``indices``. Both fields exist because the
+    #: resolutions key ``indices`` differently: the legacy one by spelling (so
+    #: this equals ``snapshot_column``), the profile one by the role name
+    #: ``snap`` (so the spelling is only in ``snapshot_column``)
     snapshot_key: str = ""
     #: selected extras (schema-driven resolution only)
     extras: Tuple[ExtraColumns, ...] = ()
@@ -387,13 +386,18 @@ class ColumnLayout:
         if not self.snapshot_key:
             self.snapshot_key = self.snapshot_column
 
+    def is_integer_role(self, key: str) -> bool:
+        """Whether the ``indices`` entry ``key`` fills an int64 role (``_INT_ROLES``),
+        with the snapshot column recognised under either resolution's key."""
+        return ("snap" if key == self.snapshot_key else key) in _INT_ROLES
+
 
 def resolve_columns(names: List[str]) -> ColumnLayout:
     """Map required columns to file column indices, aborting per the contract.
 
     Case-insensitive first-match semantics follow the reference
     match_column_name(); unlike the reference, a duplicated required column or
-    both snapshot spellings at once abort (plan Slice 2).
+    both snapshot spellings at once abort.
     """
     lowered = [n.lower() for n in names]
     counts: Dict[str, int] = {}
@@ -439,9 +443,6 @@ def resolve_columns(names: List[str]) -> ColumnLayout:
     return ColumnLayout(all_names=names, indices=indices, snapshot_column=snapshot_column)
 
 
-#: Required roles parsed as int64; every other role is parsed as float64.
-_INT_ROLES = frozenset(_INT_COLUMNS + ("snap",))
-
 #: The only token shape an integer extra accepts (ASCII digits, optional sign).
 _INTEGER_LITERAL = r"[+-]?[0-9]+"
 
@@ -458,8 +459,6 @@ def resolve_selection(names: List[str], schema) -> ColumnLayout:
     in the legacy resolution -- real headers repeat ``b_to_a`` and ``A[x]`` once
     suffix-stripped. Extra typing rules are the module docstring's.
     """
-    from column_schema import resolve_extra_sources, resolve_required_columns
-
     if schema.source_format != "consistent_trees_ascii":
         what = schema.source_format
         raise ConverterError(
@@ -487,7 +486,7 @@ def resolve_selection(names: List[str], schema) -> ColumnLayout:
     float_declared: Dict[str, str] = {}
     for extra_name, components in sorted(resolve_extra_sources(schema, available).items()):
         extra = next(e for e in schema.extra_fields if e.name == extra_name)
-        is_integer = _EXTRA_STORAGE[extra.type][0][1] == "i"
+        is_integer = extra.spec.is_integer
         columns = []
         for position, (spelling, component) in enumerate(components):
             what = "extra field {!r} source[{}] (column {!r})".format(
@@ -790,7 +789,7 @@ class CtreesFileParser:
         used = {"c{}".format(idx): col for col, idx in self.layout.indices.items()}
         dtype_map = {}
         for pname, col in used.items():
-            if col in _INT_COLUMNS or col == self.layout.snapshot_key:
+            if self.layout.is_integer_role(col):
                 dtype_map[pname] = np.int64
             else:
                 dtype_map[pname] = np.float64
@@ -946,8 +945,8 @@ class CtreesFileParser:
         raw = chunk["c{}".format(idx)].to_numpy()
         label = "{} [extra {}, {}]".format(spelling, extra.name, extra.type)
         what = "column '{}'".format(label)
-        element = np.dtype(_EXTRA_STORAGE[extra.type][0])
-        if extra.is_integer:
+        element = np.dtype(_little_endian_element(extra.spec))
+        if extra.spec.is_integer:
             if raw.dtype == object:
                 values = self._parse_integer_text(raw, what, row_offset)
             else:

@@ -46,7 +46,10 @@
  * run-scoped across FirstFile..LastFile. Unlike the driver, a missing requested
  * file is fatal here: reference evidence must not silently narrow the inventory.
  * The stream ends with an `# end` trailer carrying the row and forest totals,
- * so a truncated dump is detectable by its consumer as well as by exit status.
+ * so a truncated dump is detectable by its consumer as well as by exit status,
+ * and a source dump that fails (exit 1) after it was opened is removed, so no
+ * partial reference is left on disk. The default mode keeps its original
+ * behaviour: a refused v1 run leaves the header it had written.
  */
 
 #include <inttypes.h>
@@ -63,14 +66,41 @@
 #include "vertical/interface.h"
 #include "vertical/reader.h"
 
+/* The --source-payload dump being written, or NULL: set once the dump is opened
+ * and cleared once it is complete, so every failure in between can remove it. */
+static FILE *partial_dump_stream = NULL;
+static const char *partial_dump_path = NULL;
+
+/**
+ * @brief   Close and remove an unfinished source dump, if one is registered.
+ *
+ * Idempotent; reports (but survives) a failed removal, since it runs on paths
+ * that are already exiting with status 1.
+ */
+static void discard_partial_dump(void) {
+  if (partial_dump_stream != NULL) {
+    fclose(partial_dump_stream);
+    partial_dump_stream = NULL;
+  }
+  if (partial_dump_path != NULL) {
+    if (remove(partial_dump_path) != 0) {
+      fprintf(stderr, "dump_ctrees_topology: could not remove partial dump '%s'\n",
+              partial_dump_path);
+    }
+    partial_dump_path = NULL;
+  }
+}
+
 /**
  * @brief   Exit handler required by src/util/memory.c's fatal-allocation path.
  *
  * This harness has its own main() and does not link core/main.c (which
  * defines the production myexit() with MPI-aware messaging), so it provides
- * the same minimal contract directly: print and exit with the given code.
+ * the same minimal contract directly: remove an unfinished source dump, print
+ * and exit with the given code. Every FATAL_ERROR reaches here.
  */
 void myexit(int signum) {
+  discard_partial_dump();
   fprintf(stderr, "dump_ctrees_topology: exiting (%d)\n", signum);
   exit(signum);
 }
@@ -243,6 +273,8 @@ int main(int argc, char **argv) {
   const int per_file_offsets =
       mode == DUMP_MODE_SOURCE_V1 && reader->partition_model == PARTITION_PER_FILE;
   if (mode == DUMP_MODE_SOURCE_V1) {
+    partial_dump_stream = out;
+    partial_dump_path = dump_path;
     source_dump_header(out, reader);
   } else {
     fprintf(out, "# %s\n", TOPOLOGY_DUMP_FORMAT_VERSION);
@@ -326,9 +358,13 @@ int main(int argc, char **argv) {
    * (cheaper than testing every fprintf) and the fclose flush separately,
    * since the final buffered write can only fail at close. */
   const int write_failed = ferror(out);
+  partial_dump_stream = NULL; /* closed just below, whatever the outcome */
   if (fclose(out) != 0 || write_failed) {
-    fprintf(stderr, "Failed to write dump '%s' completely (output is truncated)\n", dump_path);
+    fprintf(stderr, "Failed to write dump '%s' completely (%s)\n", dump_path,
+            partial_dump_path != NULL ? "partial dump removed" : "output is truncated");
+    discard_partial_dump();
     return 1;
   }
+  partial_dump_path = NULL; /* complete: keep it */
   return 0;
 }

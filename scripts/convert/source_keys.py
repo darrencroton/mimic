@@ -1,7 +1,6 @@
 """Source-key joins and independent topology closure checks for the bounded
-transpose (Slice 6 of the converter generalisation plan,
-docs/dev/MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md, contracts
-C1/C3/C4).
+transpose (contracts C1, C3 and C4 of
+docs/dev/MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md).
 
 Canonical adapter batches carry every link as the target's ``SourceHaloID``
 (``adapters/base.py``). A v3 file needs the target's *snapshot-local row* and,
@@ -209,20 +208,39 @@ def validate_snapshots(snapshots: Sequence[int]) -> Tuple[int, ...]:
 class SnapshotLayout:
     """Where each snapshot's rows sit in the snapshot-major global order.
 
-    ``offsets[p]`` is the global position of row 0 of the ``p``-th snapshot,
-    and ``offsets[-1]`` the total. The sums are formed in exact Python ints and
-    refused if they leave int64, so no offset is ever a wrapped value.
+    ``counts`` holds one row count per snapshot, each an integer (numpy
+    integers included, so ``np.bincount`` output is taken as is; ``bool`` and
+    floats are refused, since ``int()`` would read them as a different
+    count) and non-negative. ``offsets[p]`` is the global position of row 0
+    of the ``p``-th snapshot, and ``offsets[-1]`` the total. The sums are
+    formed in exact Python ints and refused if they leave int64, so no offset
+    is ever a wrapped value.
     """
 
     def __init__(self, snapshots: Sequence[int], counts: Sequence[int]):
         self.snapshots_tuple = validate_snapshots(snapshots)
-        counts = [int(count) for count in counts]
-        if len(counts) != len(self.snapshots_tuple):
+        try:
+            values = list(counts)
+        except TypeError:
             raise ConverterError(
-                "{} snapshot counts for {} snapshots".format(len(counts), len(self.snapshots_tuple))
+                "snapshot counts must be a sequence of row counts, got {!r}".format(
+                    type(counts).__name__
+                )
+            ) from None
+        if len(values) != len(self.snapshots_tuple):
+            raise ConverterError(
+                "{} snapshot counts for {} snapshots".format(len(values), len(self.snapshots_tuple))
             )
+        counts = []
         offsets = [0]
-        for snapshot, count in zip(self.snapshots_tuple, counts):
+        for snapshot, count in zip(self.snapshots_tuple, values):
+            if isinstance(count, bool) or not isinstance(count, (int, np.integer)):
+                raise ConverterError(
+                    "snapshot {} has count {!r}, which is not an integer; it would be read as a "
+                    "different count".format(snapshot, count)
+                )
+            count = int(count)
+            counts.append(count)
             if count < 0:
                 raise ConverterError("snapshot {} has a negative count {}".format(snapshot, count))
             if offsets[-1] > INT64_MAX - count:
@@ -250,10 +268,11 @@ class SnapshotLayout:
         return self.snapshots[position], gp - self.offsets[position]
 
     def describe(self, gp: int) -> str:
+        """``gp`` as "snapshot S row R" for a diagnostic, or as out of range."""
         gp = int(gp)
         if not 0 <= gp < self.total:
             return "global position {} (outside the {} converted rows)".format(gp, self.total)
-        position = int(np.searchsorted(self.offsets, gp, side="right")) - 1
+        position = int(self.positions(np.int64(gp)))
         return "snapshot {} row {}".format(
             int(self.snapshots[position]), gp - int(self.offsets[position])
         )

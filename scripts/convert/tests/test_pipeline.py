@@ -23,6 +23,7 @@ directory.
 import hashlib
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -44,6 +45,7 @@ import fixtures  # noqa: E402
 import pipeline  # noqa: E402
 import test_ctrees_hdf5_adapter as h5fixtures  # noqa: E402
 import test_lhalo_adapter as lhalo  # noqa: E402
+from adapters import ctrees_ascii  # noqa: E402
 from column_schema import ConverterError  # noqa: E402
 from test_conversion_manifest import LEGACY_FIXTURE, tree_state  # noqa: E402
 
@@ -175,6 +177,22 @@ def same_width_variant(schema):
     return cs.build_schema(cs.parse_column_map(document, "<variant>"))
 
 
+def read_transposed(manifest, snapshot):
+    """One snapshot's verified transposed rows (a read-only memory map when
+    non-empty), for comparing stage outputs with hand-derived arrays."""
+    dtype = pipeline.transpose_module.output_dtype(manifest.schema)
+    for relpath in manifest.stage("transpose")["artifacts"]:
+        entry = manifest.artifact(relpath)
+        if entry.get("snapshot") != snapshot:
+            continue
+        manifest.verify_artifact(relpath, "transposed snapshot {}".format(snapshot))
+        n_halos = int(entry["n_halos"])
+        if not n_halos:
+            return np.empty(0, dtype=dtype)
+        return np.memmap(manifest.artifact_path(relpath), dtype=dtype, mode="r", shape=(n_halos,))
+    raise ConverterError("{}: no transposed snapshot {}".format(manifest.path, snapshot))
+
+
 class InjectedFailure(Exception):
     """Raised by an injection point; deliberately not a ConverterError."""
 
@@ -256,7 +274,7 @@ class PipelineCase(unittest.TestCase):
     def assert_expected(self, work):
         manifest = cm.ConversionManifest.load(work)
         for snap, columns in EXPECTED.items():
-            rows = pipeline.read_transposed(manifest, snap)
+            rows = read_transposed(manifest, snap)
             for name, values in columns.items():
                 np.testing.assert_array_equal(
                     rows[name], np.asarray(values, dtype=rows[name].dtype), err_msg=name
@@ -477,7 +495,7 @@ class BindingTests(PipelineCase):
         self.assertEqual(
             [e.name for e in manifest.schema.extra_fields], [e.name for e in schema.extra_fields]
         )
-        rows = pipeline.read_transposed(manifest, 3)
+        rows = read_transposed(manifest, 3)
         # an extra selected by the vanished profile, read from the source
         self.assertIn("M_Mean200", rows.dtype.names)
         np.testing.assert_array_equal(rows["SourceHaloID"], [1, 5, 6])
@@ -644,6 +662,70 @@ class BindingTests(PipelineCase):
         with self.assertRaisesRegex(ConverterError, "forests_1.h5"):
             pipeline.run_ingest(work2)
         self.assertEqual(tree_state(work2), before)
+
+    def test_a_completed_stage_without_its_result_keys_is_refused_by_name(self):
+        """The stages index a completed predecessor's result, so a hand-edited
+        manifest that hollows one out is refused naming the stage and the
+        missing keys before anything is mutated, not with a ``KeyError``."""
+        self.initialize()
+        pipeline.run_ingest(self.work)
+        path = self.work / cm.MANIFEST_NAME
+        original = path.read_text()
+        data = json.loads(original)
+        data["stages"]["ingest"]["result"] = {"n_rows": 0}
+        path.write_text(json.dumps(data))
+        before = tree_state(self.work)
+        with self.assertRaisesRegex(
+            ConverterError,
+            "completed ingest stage's result is missing \\['n_chunks', 'snapshot_counts'\\]",
+        ):
+            pipeline.run_transpose(self.work)
+        self.assertEqual(tree_state(self.work), before)
+        path.write_text(original)
+        self.run_all()
+        original = path.read_text()
+        data = json.loads(original)
+        data["stages"]["write"]["result"]["writer"] = "someone"
+        path.write_text(json.dumps(data))
+        with self.assertRaisesRegex(ConverterError, "result.writer must be a mapping"):
+            pipeline.run_write(self.work, StubWriter())
+        path.write_text(original)
+        self.assert_matches_reference(self.work)
+
+    def test_a_malformed_manifest_is_refused_by_a_stage_before_mutation(self):
+        self.initialize()
+        pipeline.run_ingest(self.work)
+        path = self.work / cm.MANIFEST_NAME
+        original = path.read_text()
+        chunk = "ingest/chunk_000000.bin"
+        edits = {
+            "artifacts['{}'] (missing ['sha256']".format(chunk): lambda d: d["artifacts"][
+                chunk
+            ].pop("sha256"),
+            "stages.ingest.artifacts": lambda d: d["stages"]["ingest"].update(artifacts=chunk),
+            "stages.transpose": lambda d: d["stages"].update(transpose="pending"),
+            "sources.inventory.files[0]": lambda d: d["sources"]["inventory"]["files"].__setitem__(
+                0, None
+            ),
+        }
+        for key, edit in edits.items():
+            with self.subTest(key=key):
+                data = json.loads(original)
+                edit(data)
+                path.write_text(json.dumps(data))
+                before = tree_state(self.work)
+                for stage in (pipeline.run_transpose, pipeline.run_ingest):
+                    with self.assertRaisesRegex(
+                        ConverterError,
+                        "^{}: malformed generic manifest: {}".format(
+                            re.escape(str(path)), re.escape(key)
+                        ),
+                    ):
+                        stage(self.work)
+                self.assertEqual(tree_state(self.work), before)
+        path.write_text(original)
+        self.run_all()
+        self.assert_matches_reference(self.work)
 
     def test_legacy_workdir_is_refused_and_untouched(self):
         work = self.tmp / "legacy"
@@ -963,6 +1045,26 @@ class SkipTrustAndCleanupTests(PipelineCase):
             pipeline.run_write(self.work, StubWriter())
         self.assertEqual(tree_state(self.work), before)
 
+    def test_a_writer_that_leaves_an_empty_directory_fails_the_stage(self):
+        class EmptyDirectoryWriter(StubWriter):
+            def write(self, inputs, out_dir):
+                produced = super().write(inputs, out_dir)
+                (out_dir / "unused" / "nested").mkdir(parents=True)
+                return produced
+
+        self.initialize()
+        pipeline.run_ingest(self.work)
+        pipeline.run_transpose(self.work)
+        with self.assertRaisesRegex(
+            ConverterError, r"unused.nested: writer left an empty directory"
+        ):
+            pipeline.run_write(self.work, EmptyDirectoryWriter())
+        record = cm.ConversionManifest.load(self.work).stage("write")
+        self.assertEqual(record["status"], cm.STAGE_FAILED)
+        self.assertEqual(record["artifacts"], [])
+        self.run_all()
+        self.assert_matches_reference(self.work)
+
     def test_a_different_writer_cannot_claim_a_completed_write(self):
         self.initialize()
         self.run_all()
@@ -1211,11 +1313,79 @@ class OtherAdapterTests(unittest.TestCase):
         self.assertEqual(got.stage("ingest")["result"]["n_rows"], n_halos)
         ids = np.concatenate(
             [
-                pipeline.read_transposed(got, s)["SourceHaloID"]
+                read_transposed(got, s)["SourceHaloID"]
                 for s in got.configuration["snapshots"]["numbers"]
             ]
         )
         self.assertEqual(sorted(ids.tolist()), list(range(1, n_halos + 1)))
+
+    def test_ascii_tuning_is_outside_the_conversion_identity(self):
+        """``pool_size`` and ``chunksize`` change no output: a resume that
+        names different values is not a different conversion, records them
+        while ingest is incomplete and hands them to the preparation; once
+        ingest is complete they are accepted without a write. Every other
+        parameter change is still refused, untouched."""
+        parameters, a_list = self.ascii_source()
+        schema = cs.build_schema(cs.load_column_map(PROFILE_DIR / "consistent_trees_ascii.yaml"))
+        sizes = dict(ingest_max_rows=4, transpose_budget_bytes=BUDGET)
+        clean = self.tmp / "clean"
+        pipeline.initialize(clean, schema, parameters, a_list, **sizes)
+        pipeline.run_ingest(clean)
+
+        work = self.tmp / "work"
+        tuned = dict(parameters, pool_size=1, chunksize=3)
+        manifest = pipeline.initialize(work, schema, tuned, a_list, **sizes)
+        self.assertEqual(manifest.tuning, {"chunksize": 3, "pool_size": 1})
+        recorded = manifest.configuration["adapter"]["parameters"]
+        self.assertFalse({"pool_size", "chunksize"} & set(recorded))
+        self.assertEqual(
+            manifest.data["configuration_sha256"],
+            cm.ConversionManifest.load(clean).data["configuration_sha256"],
+        )
+        with _raise_on_call("_write_chunk", "before", 1):
+            with self.assertRaises(InjectedFailure):
+                pipeline.run_ingest(work)
+
+        new_tuning = dict(parameters, pool_size=2, chunksize=5)
+        manifest = pipeline.initialize(work, schema, new_tuning, a_list, **sizes)
+        self.assertEqual(cm.ConversionManifest.load(work).tuning, {"chunksize": 5, "pool_size": 2})
+        with mock.patch.object(
+            ctrees_ascii, "prepare_workdir", wraps=ctrees_ascii.prepare_workdir
+        ) as prepare:
+            pipeline.run_ingest(work)
+        self.assertEqual(
+            (prepare.call_args.kwargs["pool_size"], prepare.call_args.kwargs["chunksize"]), (2, 5)
+        )
+        got, want = cm.ConversionManifest.load(work), cm.ConversionManifest.load(clean)
+        self.assertEqual(
+            [got.artifact(r)["sha256"] for r in got.stage("ingest")["artifacts"]],
+            [want.artifact(r)["sha256"] for r in want.stage("ingest")["artifacts"]],
+        )
+
+        before = tree_state(work)
+        pipeline.initialize(work, schema, dict(parameters, pool_size=3), a_list, **sizes)
+        self.assertEqual(tree_state(work), before)
+        self.assertEqual(cm.ConversionManifest.load(work).tuning, {"chunksize": 5, "pool_size": 2})
+        refused = {
+            "rank_budget_bytes": (dict(new_tuning, rank_budget_bytes=1 << 20), sizes),
+            "memory_budget_bytes": (dict(new_tuning, memory_budget_bytes=1 << 30), sizes),
+            "tree_files": (dict(new_tuning, tree_files=parameters["tree_files"] * 2), sizes),
+            "ingest_max_rows": (new_tuning, dict(sizes, ingest_max_rows=5)),
+            "transpose_budget_bytes": (new_tuning, dict(sizes, transpose_budget_bytes=BUDGET * 2)),
+        }
+        for what, (changed, changed_sizes) in refused.items():
+            with self.subTest(changed=what):
+                with self.assertRaisesRegex(ConverterError, "different conversion"):
+                    pipeline.initialize(work, schema, changed, a_list, **changed_sizes)
+                self.assertEqual(tree_state(work), before)
+
+        data = json.loads((work / cm.MANIFEST_NAME).read_text())
+        data["tuning"]["pool_size"] = 0
+        (work / cm.MANIFEST_NAME).write_text(json.dumps(data))
+        with self.assertRaisesRegex(
+            ConverterError, r"tuning\.pool_size must be a positive integer"
+        ):
+            pipeline.run_transpose(work)
 
     def test_hdf5_route_runs_and_restarts(self):
         directory = self.tmp / "h5"
@@ -1243,8 +1413,8 @@ class OtherAdapterTests(unittest.TestCase):
                 pipeline.run_transpose(work)
         pipeline.run_transpose(work)
         manifest = pipeline.run_write(work, StubWriter())
-        rows5 = pipeline.read_transposed(manifest, 5)
-        rows4 = pipeline.read_transposed(manifest, 4)
+        rows5 = read_transposed(manifest, 5)
+        rows4 = read_transposed(manifest, 4)
         # MERGER_FOREST (file 0) then the lone forest (file 1): ids 1-4, 5
         np.testing.assert_array_equal(rows5["SourceHaloID"], [1, 2, 5])
         np.testing.assert_array_equal(rows4["SourceHaloID"], [3, 4])

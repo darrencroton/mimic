@@ -23,7 +23,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Dict, List, Mapping, Tuple
+from typing import Dict, List, Mapping, Optional, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -36,8 +36,8 @@ from validate import (  # noqa: E402
     DEFAULT_V3_BUDGET_BYTES,
     Outcome,
     battery_failed,
-    run_battery_v3,
 )
+from validate_v3 import V3BatteryResult, run_battery_v3  # noqa: E402
 
 _INT64_MAX = 2**63 - 1
 
@@ -349,7 +349,7 @@ def _v3_multiplier(max_rank: int, n_forests_total: int) -> Dict[str, object]:
 
 def build_report_v3(manifest, battery, dataset_dir) -> dict:
     """Assemble the v3 report from the generic manifest and a v3 battery
-    result (``validate.V3BatteryResult``)."""
+    result (:class:`validate_v3.V3BatteryResult`)."""
     schema = manifest.schema
     measured = dict(battery.measurements)
     configuration = manifest.configuration
@@ -578,6 +578,12 @@ def render_text_v3(report: dict) -> str:
                 entry["provides_core_role"] or "-",
             )
         )
+    for entry in fragment["fragment"]["format_table_fields"]:
+        lines.append(
+            "  {:<16} {:<10} {:<33} core role: {}".format(
+                entry["name"], entry["type"], "(format table)", entry["provides_core_role"] or "-"
+            )
+        )
     lines += ["", "validation outcomes:"]
     for outcome in report["validation"]:
         text = "  {}: {}".format(outcome["name"], outcome["status"])
@@ -614,22 +620,30 @@ def run_report_v3(
     *,
     budget_bytes: int = DEFAULT_V3_BUDGET_BYTES,
     spill_dir=None,
+    battery: Optional[V3BatteryResult] = None,
 ) -> dict:
     """Validate a completed generic conversion's v3 dataset and write its
     report into the workdir. The battery outcome is in the report AND in its
     ``validation_passed``; a failing dataset still gets a report, never a
-    quietly successful one."""
+    quietly successful one.
+
+    ``battery``, when given, is a :func:`run_battery_v3` result the caller
+    already holds for this conversion's dataset and ``a_list_path``; it is
+    reported as is and the battery is not run again, so ``multiplier``,
+    ``budget_bytes`` and ``spill_dir`` are then unused. Binding that result to
+    this dataset is the caller's obligation."""
     manifest = ConversionManifest.load(workdir)
     manifest.require_complete("write")
     dataset_dir = manifest.artifact_path(manifest.stage("write")["directory"])
-    battery = run_battery_v3(
-        dataset_dir,
-        a_list_path,
-        manifest_path=manifest.path,
-        multiplier=multiplier,
-        budget_bytes=budget_bytes,
-        spill_dir=spill_dir,
-    )
+    if battery is None:
+        battery = run_battery_v3(
+            dataset_dir,
+            a_list_path,
+            manifest_path=manifest.path,
+            multiplier=multiplier,
+            budget_bytes=budget_bytes,
+            spill_dir=spill_dir,
+        )
     report = build_report_v3(manifest, battery, dataset_dir)
     json_path = write_report_v3(report, manifest.workdir)
     print(

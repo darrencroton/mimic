@@ -2,9 +2,9 @@
 
 **Purpose**: Define the proposed lossless general on-disk contract for horizontal HDF5 merger-tree input — one that can represent skipped-snapshot links, snapshot populations above `INT32_MAX`, non-Consistent-Trees sources and declaratively selected extra fields, none of which version 2 can represent.
 
-> **Status: DRAFT. Not normative. Nothing in this document is a contract yet.**
+> **Status: normative for the producer since Gate G1; runtime support pending.**
 >
-> This is the producer contract proposed by [`MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md`](MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md) (contract C3), published here as a draft so it can be reviewed before anything is built against it. It becomes normative only when the owner clears **Gate G1**, the v3 consumer-design approval gate, by adding a dated `**APPROVED <date> by owner**` line to [`MIMIC-V3-CONSUMER-DESIGN-REVIEW.md`](MIMIC-V3-CONSUMER-DESIGN-REVIEW.md) and committing it. Until then no later slice may treat this file as normative, no producer may emit version 3 data, and this specification may still change.
+> This is the producer contract proposed by [`MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md`](MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md) (contract C3). **Gate G1**, the v3 consumer-design approval gate, cleared on 2026-09-23: [`MIMIC-V3-CONSUMER-DESIGN-REVIEW.md`](MIMIC-V3-CONSUMER-DESIGN-REVIEW.md) carries the dated `**APPROVED 23-09-2026 by Darren Croton**` line, and `scripts/convert/convert_trees.py` emits version 3 by default. This document is therefore the normative producer contract, not a draft under review. It keeps its DRAFT filename until the owner decides its promotion into [`HORIZONTAL-HDF5-FORMAT.md`](HORIZONTAL-HDF5-FORMAT.md), a decision recorded as R0-11 in [`MIMIC-GENERAL-HORIZONTAL-RUNTIME-IMPLEMENTATION-PLAN.md`](MIMIC-GENERAL-HORIZONTAL-RUNTIME-IMPLEMENTATION-PLAN.md); the filename is administrative and does not affect the contract's force.
 >
 > **Mimic cannot read version 3 today, and this document does not claim otherwise.** The reader rejects unsupported versions (`HORIZONTAL_HDF5_FORMAT_VERSION` in `src/io/horizontal/read_horizontal_hdf5.c`), its fixed dataset table stores links as int32, the horizontal driver retains exactly two snapshot generations (`src/core/horizontal_driver.c`), and it refuses a slab above `INT_MAX`. Reader and driver support for gapped links and wide indices is a separate architectural project, not a hidden part of this format. See [Runtime support status](#runtime-support-status).
 >
@@ -336,7 +336,7 @@ Producing a lossless file and executing it are separate problems, and this forma
 | Slabs above `INT_MAX` | Driver refuses them explicitly |
 | Native payload units per source | A package's `halo_properties.yaml` must declare the units the file declares |
 
-[`MIMIC-V3-CONSUMER-DESIGN-REVIEW.md`](MIMIC-V3-CONSUMER-DESIGN-REVIEW.md) traces each proposed field, unit, ordering and qualified link through the generated input view, gap-state ownership and bounded slab access, with a worked mixed-gap graph. It is the input to Gate G1 and is unapproved at the time of writing.
+[`MIMIC-V3-CONSUMER-DESIGN-REVIEW.md`](MIMIC-V3-CONSUMER-DESIGN-REVIEW.md) traces each proposed field, unit, ordering and qualified link through the generated input view, gap-state ownership and bounded slab access, with a worked mixed-gap graph. It was the input to Gate G1 and was approved on 2026-09-23; that approval closes the producer-side gate, not the runtime prerequisites listed above, which remain unimplemented.
 
 ## Versioning Policy
 

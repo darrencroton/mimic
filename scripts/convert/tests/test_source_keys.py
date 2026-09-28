@@ -1,4 +1,4 @@
-"""Slice 6 unit tests: source-key joins, closure checks and chain acyclicity
+"""Unit tests for source-key joins, closure checks and chain acyclicity
 (scripts/convert/source_keys.py).
 
 The oracle for every positive case is a hand-written expected target, never a
@@ -408,6 +408,37 @@ class TestSnapshots(unittest.TestCase):
             sk.SnapshotLayout((0, 1, 2), (1, 1))
         with self.assertRaisesRegex(ConverterError, "negative"):
             sk.SnapshotLayout((0, 1), (1, -1))
+
+    def test_counts_that_int_would_coerce_are_refused(self):
+        """A float count would be truncated and ``True`` read as 1, each a
+        layout silently different from the rows it describes."""
+        cases = (
+            ((1, 2.0), "snapshot 1 has count 2.0, which is not an integer"),
+            ((1.5, 2), "snapshot 0 has count 1.5, which is not an integer"),
+            ((True, 2), "snapshot 0 has count True, which is not an integer"),
+            (np.asarray([1.0, 2.0]), "not an integer"),
+            (3, "must be a sequence"),
+        )
+        for counts, pattern in cases:
+            with self.subTest(counts=counts):
+                with self.assertRaisesRegex(ConverterError, pattern):
+                    sk.SnapshotLayout((0, 1), counts)
+
+    def test_bincount_output_is_accepted_as_counts(self):
+        snap_positions = np.asarray([0, 0, 2, 3, 3, 3], dtype=np.int64)
+        counts = np.bincount(snap_positions, minlength=5)
+        layout = sk.SnapshotLayout((0, 1, 2, 3, 4), counts)
+        self.assertEqual(layout.offsets.tolist(), [0, 2, 2, 3, 6, 6])
+        self.assertEqual(layout.counts.tolist(), [2, 0, 1, 3, 0])
+        self.assertEqual(layout.total, 6)
+
+    def test_describe_names_the_snapshot_row_of_a_position(self):
+        layout = sk.SnapshotLayout((0, 1, 2, 3, 4), (0, 2, 0, 0, 1))
+        self.assertEqual(layout.describe(0), "snapshot 1 row 0")
+        self.assertEqual(layout.describe(np.int64(1)), "snapshot 1 row 1")
+        self.assertEqual(layout.describe(2), "snapshot 4 row 0")
+        self.assertEqual(layout.describe(3), "global position 3 (outside the 3 converted rows)")
+        self.assertEqual(layout.describe(-1), "global position -1 (outside the 3 converted rows)")
 
 
 class TestJoinRecords(unittest.TestCase):

@@ -1,5 +1,5 @@
-"""Read-only source inspection helpers (Slice 1 of the converter generalisation
-plan, docs/dev/MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md).
+"""Read-only source inspection helpers for the converter
+(docs/dev/MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md).
 
 Pure inspection: every function here opens sources for reading only, and none
 writes into a source directory. Used by scripts/convert/inspect_sources.py.
@@ -261,6 +261,46 @@ class LinkSpanSummary:
     mostboundid_min: Optional[int] = None
     mostboundid_max: Optional[int] = None
 
+    def add_spans(self, span: np.ndarray) -> None:
+        """Classify one array of spans, one per non-null ``Descendant`` link."""
+        self.non_null_descendant_links += int(span.size)
+        self.non_forward_or_zero_span += int(np.count_nonzero(span < 1))
+        self.forward_adjacent_links += int(np.count_nonzero(span == 1))
+        gaps = span[span > 1]
+        self.forward_gap_links += int(gaps.size)
+        if gaps.size:
+            self.max_span = max(self.max_span, int(gaps.max()))
+
+    def count_snapshots(self, snapshots: np.ndarray) -> None:
+        """Add one halo per element of ``snapshots`` to ``snapshot_halo_counts``."""
+        for snap, count in zip(*np.unique(snapshots, return_counts=True)):
+            self._add_snapshot_count(int(snap), int(count))
+
+    def widen_identity_bounds(self, low: Optional[int], high: Optional[int]) -> None:
+        """Extend the ``MostBoundID`` bounds to cover ``[low, high]``; ``None`` is no bound."""
+        if low is not None:
+            self.mostboundid_min = (
+                low if self.mostboundid_min is None else min(self.mostboundid_min, low)
+            )
+        if high is not None:
+            self.mostboundid_max = (
+                high if self.mostboundid_max is None else max(self.mostboundid_max, high)
+            )
+
+    def merge(self, other: "LinkSpanSummary") -> None:
+        """Fold another scan's evidence into this one, as if one scan had seen both."""
+        self.non_null_descendant_links += other.non_null_descendant_links
+        self.forward_adjacent_links += other.forward_adjacent_links
+        self.forward_gap_links += other.forward_gap_links
+        self.non_forward_or_zero_span += other.non_forward_or_zero_span
+        self.max_span = max(self.max_span, other.max_span)
+        self.widen_identity_bounds(other.mostboundid_min, other.mostboundid_max)
+        for snap, count in other.snapshot_halo_counts.items():
+            self._add_snapshot_count(snap, count)
+
+    def _add_snapshot_count(self, snap: int, count: int) -> None:
+        self.snapshot_halo_counts[snap] = self.snapshot_halo_counts.get(snap, 0) + count
+
 
 def scan_lhalo_file(header: LHaloHeader, max_snapshot: Optional[int] = None) -> LinkSpanSummary:
     """Tree-by-tree scan of one already-header-validated L-Halo file.
@@ -296,23 +336,8 @@ def scan_lhalo_file(header: LHaloHeader, max_snapshot: Optional[int] = None) -> 
                     "range)".format(header.path, tree_index, max_snapshot)
                 )
 
-            for s, c in zip(*np.unique(records["SnapNum"], return_counts=True)):
-                key = int(s)
-                summary.snapshot_halo_counts[key] = summary.snapshot_halo_counts.get(key, 0) + int(
-                    c
-                )
-            tree_min = int(most_bound_id.min())
-            tree_max = int(most_bound_id.max())
-            summary.mostboundid_min = (
-                tree_min
-                if summary.mostboundid_min is None
-                else min(summary.mostboundid_min, tree_min)
-            )
-            summary.mostboundid_max = (
-                tree_max
-                if summary.mostboundid_max is None
-                else max(summary.mostboundid_max, tree_max)
-            )
+            summary.count_snapshots(records["SnapNum"])
+            summary.widen_identity_bounds(int(most_bound_id.min()), int(most_bound_id.max()))
 
             # Only -1 is the null sentinel (matches the C reader's
             # CT_ASSIGN_LINK, which accepts exactly [-1, nhalos)); anything
@@ -332,14 +357,7 @@ def scan_lhalo_file(header: LHaloHeader, max_snapshot: Optional[int] = None) -> 
                             header.path, tree_index
                         )
                     )
-                span = snap[targets] - snap[valid]
-                summary.non_null_descendant_links += int(valid.sum())
-                summary.non_forward_or_zero_span += int(np.count_nonzero(span < 1))
-                summary.forward_adjacent_links += int(np.count_nonzero(span == 1))
-                gaps = span[span > 1]
-                summary.forward_gap_links += int(gaps.size)
-                if gaps.size:
-                    summary.max_span = max(summary.max_span, int(gaps.max()))
+                summary.add_spans(snap[targets] - snap[valid])
     return summary
 
 
@@ -397,42 +415,14 @@ def inspect_ctrees_hdf5_source(
             link = f.get(key, getlink=True)
             link_type = type(link).__name__
             try:
-                group = f[key]
-                forest_info = group["ForestInfo"][:]
-                forests_group = group["Forests"]
+                forest_info, forests_group, snap_field, fields = _inspect_file_structure(
+                    f, key, "{} File {}".format(info_path, key)
+                )
             except Exception as exc:
                 # Bare Exception, not an enumerated tuple: this is untrusted
-                # per-file HDF5 structure (this slice's own declared risky
-                # surface), and no exception type here should abort every
-                # other FileN group's already-gathered results just because
-                # one file is malformed.
-                files.append(
-                    HDF5FileLinkage(name=key, link_type=link_type, reachable=False, error=str(exc))
-                )
-                continue
-
-            context = "{} File {}".format(info_path, key)
-            _require_forest_info_fields(forest_info, context)
-            _require_dataset(forests_group, "Descendant", context)
-            snap_field = _resolve_snap_field(forests_group, context)
-            _require_dataset(forests_group, snap_field, context)
-
-            try:
-                fields = {
-                    fname: {
-                        "dtype": str(forests_group[fname].dtype),
-                        "shape": list(forests_group[fname].shape),
-                        "is_virtual": bool(forests_group[fname].is_virtual),
-                    }
-                    for fname in forests_group.keys()
-                }
-            except Exception as exc:
-                # A dangling soft link or malformed subgroup inside Forests/
-                # surfaces here as whatever HDF5/h5py itself raises (e.g. a
-                # bare KeyError with no file/field context) once dereferenced
-                # by .dtype/.shape/.is_virtual -- treat it the same as the
-                # group-access failure above: this file is unreachable, the
-                # others are not affected.
+                # per-file HDF5 structure, and no exception type here should
+                # abort every other FileN group's results just because one
+                # file is malformed. The failure is this file's report.
                 files.append(
                     HDF5FileLinkage(name=key, link_type=link_type, reachable=False, error=str(exc))
                 )
@@ -440,24 +430,6 @@ def inspect_ctrees_hdf5_source(
             n_forests = int(forest_info.shape[0])
             n_halos = int(forest_info["ForestNhalos"].sum()) if n_forests else 0
             max_forest_nhalos = int(forest_info["ForestNhalos"].max()) if n_forests else None
-
-            # Structural ForestInfo validation is O(n_forests), not
-            # O(n_halos), so it always runs -- unlike the payload-intensive
-            # span computation below, it is not something --no-link-scan
-            # should be able to skip past on a real, supported path.
-            # Unconditional even when n_forests == 0: every internal check is
-            # itself sized-guarded and reduces to comparing the two dataset
-            # extents (0 declared halos means both must actually be empty) --
-            # previously gating this whole call on `if n_forests:` let a
-            # zero-forest ForestInfo bypass the extent-agreement check
-            # entirely, silently accepting mismatched Descendant/snapshot
-            # dataset lengths.
-            _validate_forest_info_offsets(
-                forest_info["ForestHalosOffset"],
-                forest_info["ForestNhalos"],
-                forests_group["Descendant"].shape[0],
-                forests_group[snap_field].shape[0],
-            )
 
             link_summary = None
             if scan_links and n_halos:
@@ -478,6 +450,45 @@ def inspect_ctrees_hdf5_source(
                 )
             )
     return root_attrs, files
+
+
+def _inspect_file_structure(f, key: str, context: str):
+    """Open one ``FileN`` group and validate its structure.
+
+    Returns ``(forest_info, forests_group, snap_field, fields)``, where
+    ``fields`` maps every ``Forests/`` member to its dtype, shape and VDS flag.
+    Raises on the first structural defect; the caller records it as that
+    file's error.
+
+    The ``ForestInfo`` offset/count validation is O(n_forests), not
+    O(n_halos), so it always runs, including under ``--no-link-scan`` and for
+    a zero-forest table, where it reduces to requiring both dataset extents to
+    be empty.
+    """
+    group = f[key]
+    forest_info = group["ForestInfo"][:]
+    forests_group = group["Forests"]
+    _require_forest_info_fields(forest_info, context)
+    _require_dataset(forests_group, "Descendant", context)
+    snap_field = _resolve_snap_field(forests_group, context)
+    _require_dataset(forests_group, snap_field, context)
+    # A dangling soft link or malformed subgroup inside Forests/ raises
+    # whatever h5py raises once dereferenced by .dtype/.shape/.is_virtual.
+    fields = {
+        fname: {
+            "dtype": str(forests_group[fname].dtype),
+            "shape": list(forests_group[fname].shape),
+            "is_virtual": bool(forests_group[fname].is_virtual),
+        }
+        for fname in forests_group.keys()
+    }
+    _validate_forest_info_offsets(
+        forest_info["ForestHalosOffset"],
+        forest_info["ForestNhalos"],
+        forests_group["Descendant"].shape[0],
+        forests_group[snap_field].shape[0],
+    )
+    return forest_info, forests_group, snap_field, fields
 
 
 #: The snapshot column carries either spelling and either an integer or an
@@ -505,8 +516,8 @@ _FOREST_INFO_REQUIRED_FIELDS = ("ForestHalosOffset", "ForestNhalos")
 def _require_forest_info_fields(forest_info: np.ndarray, context: str) -> None:
     """Raise ConverterError with file context instead of letting a malformed
     ForestInfo compound dtype missing a required field surface as a bare
-    ValueError ("no field of name ...") once indexed by name -- mirrors
-    _require_dataset's existing pattern for the Forests/ group."""
+    ValueError ("no field of name ...") once indexed by name -- the same
+    pattern _require_dataset applies to the Forests/ group."""
     names = forest_info.dtype.names or ()
     missing = [name for name in _FOREST_INFO_REQUIRED_FIELDS if name not in names]
     if missing:
@@ -525,8 +536,8 @@ def _require_dataset(forests_group, name: str, context: str) -> None:
     dereferenceability: a dangling h5py.SoftLink passes that check but
     raises KeyError on `forests_group[name]`, and an ExternalLink resolving
     to a group rather than a dataset raises AttributeError on `.ndim` --
-    both reachable from a malformed real file and previously escaped as raw
-    exceptions instead of a per-file ConverterError."""
+    both reachable from a malformed real file, and both reported here as a
+    ConverterError naming the file and field."""
     if name not in forests_group:
         raise ConverterError(
             "{}: Forests/ is missing the required dataset '{}'".format(context, name)
@@ -555,10 +566,11 @@ def _validate_forest_info_offsets(
     real C reader's validate_forestinfo_cache_row_ctrees_hdf5:
     forestnhalos >= 0, < INT_MAX, foresthalosoffset >= 0), forests
     non-overlapping and in ascending row order, and the ForestNhalos sum
-    agreeing exactly with the Forests dataset length(s) actually present
-    (previously only checked inside the link-scan path, which --no-link-scan
-    could skip past entirely -- see steer-attempt-3 item 1's
-    ForestNhalos=[-1, 1] regression). Not full parity with the C reader's
+    agreeing exactly with the Forests dataset length(s) actually present,
+    independently of whether a link scan runs. Together these prove the
+    non-empty forests tile the datasets exactly, in row order, which is what
+    lets the link scan locate a row's forest by bisecting the offsets. Not
+    full parity with the C reader's
     per-forest-read validation (that also checks a UniqueGalaxyIDMultiplier
     bound this read-only tool has no reason to know) -- just enough that
     corrupted ForestInfo metadata cannot silently mis-resolve link targets or
@@ -623,13 +635,20 @@ def _scan_ctrees_hdf5_links(
     which also runs _validate_forest_info_offsets unconditionally -- this
     function's own work is exactly the part --no-link-scan is meant to skip.
     `max_snapshot`, when supplied, bounds the snapshot range to
-    [0, max_snapshot] in place of [0, INT_MAX]."""
-    offsets = forest_info["ForestHalosOffset"]
-    counts = forest_info["ForestNhalos"]
+    [0, max_snapshot] in place of [0, INT_MAX].
+
+    Memory is one whole-file int64 snapshot column (8 B/halo) plus
+    `chunk_rows`-bounded temporaries. The snapshot column is whole because a
+    Descendant target can lie anywhere in its forest, outside the current
+    chunk; h5py datasets require increasing-order indices, plain numpy arrays
+    do not. Each chunk's rows are assigned to forests by bisecting the
+    offsets -- which _validate_forest_info_offsets has proved ascending and
+    tiling the datasets exactly -- for the chunk's first and last row, then
+    repeating each overlapping forest's index over its rows inside the
+    chunk."""
+    offsets = np.asarray(forest_info["ForestHalosOffset"], dtype=np.int64)
+    counts = np.asarray(forest_info["ForestNhalos"], dtype=np.int64)
     total = int(counts.sum())
-    row_offset = np.repeat(offsets, counts)
-    if row_offset.shape[0] != total:
-        raise ConverterError("ForestInfo offsets/counts do not sum to the declared halo total")
 
     snap_ds = forests_group[snap_field]
     desc_ds = forests_group["Descendant"]
@@ -639,23 +658,7 @@ def _scan_ctrees_hdf5_links(
             "declared halo total".format(snap_field)
         )
 
-    # The snapshot column is read whole (one value per halo) so target-snapshot
-    # lookups can use arbitrary-order fancy indexing; h5py datasets require
-    # increasing-order indices, plain numpy arrays do not.
-    raw_snap = snap_ds[:]
-    if np.issubdtype(raw_snap.dtype, np.floating):
-        # Exact floor(v) == v, matching the C reader's own integral-float
-        # snapshot check (CT_ASSIGN_SNAP_DOUBLE) -- not a tolerant
-        # np.allclose, which would accept non-integral values once |v| gets
-        # into the tens of thousands under numpy's default rtol=1e-5.
-        if not np.all(np.floor(raw_snap) == raw_snap):
-            raise ConverterError(
-                "Forests/{} carries non-integral values -- not a valid integral-float "
-                "snapshot column".format(snap_field)
-            )
-        all_snap = raw_snap.astype(np.int64)
-    else:
-        all_snap = raw_snap.astype(np.int64)
+    all_snap = _read_snapshot_column(snap_ds, total, chunk_rows, snap_field)
     # Range check on both paths, matching the C reader's CT_ASSIGN_SNAP_INT/
     # CT_ASSIGN_SNAP_DOUBLE (read_ctrees_hdf5.c:486-511): v >= 0 and
     # v <= LastSnapshotNr (here, max_snapshot derived from the caller's
@@ -666,17 +669,15 @@ def _scan_ctrees_hdf5_links(
         raise ConverterError(
             "Forests/{} has a snapshot value outside [0, {}]".format(snap_field, upper_bound)
         )
-    forest_count_for_row = np.repeat(counts, counts)
 
     summary = LinkSpanSummary()
-    for s, c in zip(*np.unique(all_snap, return_counts=True)):
-        summary.snapshot_halo_counts[int(s)] = int(c)
+    for start in range(0, total, chunk_rows):
+        summary.count_snapshots(all_snap[start : min(start + chunk_rows, total)])
+    summary.snapshot_halo_counts = dict(sorted(summary.snapshot_halo_counts.items()))
 
     for start in range(0, total, chunk_rows):
         end = min(start + chunk_rows, total)
         desc = desc_ds[start:end]
-        snap = all_snap[start:end]
-        local_offset = row_offset[start:end]
 
         # Only -1 is the null sentinel (matches read_ctrees_hdf5.c's
         # CT_ASSIGN_LINK, which accepts exactly [-1, nhalos)).
@@ -687,20 +688,50 @@ def _scan_ctrees_hdf5_links(
         valid = desc >= 0
         if not valid.any():
             continue
+        rows = start + np.flatnonzero(valid)
+        forest = _forest_of_rows(offsets, counts, start, end)[valid]
         local_targets = desc[valid]
-        if np.any(local_targets >= forest_count_for_row[start:end][valid]):
+        if np.any(local_targets >= counts[forest]):
             raise ConverterError("forests-HDF5 chunk has an out-of-forest Descendant index")
-        global_targets = local_offset[valid] + local_targets
-        target_snap = all_snap[global_targets]
-        span = target_snap - snap[valid]
-        summary.non_null_descendant_links += int(valid.sum())
-        summary.non_forward_or_zero_span += int(np.count_nonzero(span < 1))
-        summary.forward_adjacent_links += int(np.count_nonzero(span == 1))
-        gaps = span[span > 1]
-        summary.forward_gap_links += int(gaps.size)
-        if gaps.size:
-            summary.max_span = max(summary.max_span, int(gaps.max()))
+        summary.add_spans(all_snap[offsets[forest] + local_targets] - all_snap[rows])
     return summary
+
+
+def _forest_of_rows(offsets: np.ndarray, counts: np.ndarray, start: int, end: int) -> np.ndarray:
+    """The ForestInfo row holding each dataset row in ``[start, end)``.
+
+    ``offsets``/``counts`` must tile the datasets exactly in ascending row
+    order. The last forest whose offset is at most a row is the one holding
+    it, so bisection finds the forests holding ``start`` and ``end - 1``, and
+    every forest between them contributes its rows clipped to the chunk; an
+    empty forest contributes none.
+    """
+    first = int(np.searchsorted(offsets, start, side="right")) - 1
+    last = int(np.searchsorted(offsets, end - 1, side="right")) - 1
+    overlapping = np.arange(first, last + 1)
+    low = np.maximum(offsets[overlapping], start)
+    high = np.minimum(offsets[overlapping] + counts[overlapping], end)
+    return np.repeat(overlapping, np.maximum(high - low, 0))
+
+
+def _read_snapshot_column(snap_ds, total: int, chunk_rows: int, snap_field: str) -> np.ndarray:
+    """The whole snapshot column as int64, read in `chunk_rows` slices.
+
+    An integral-float column must be exactly integral, `floor(v) == v`,
+    matching the C reader's own check (CT_ASSIGN_SNAP_DOUBLE) -- not a
+    tolerant np.allclose, which would accept non-integral values once |v|
+    gets into the tens of thousands under numpy's default rtol=1e-5."""
+    all_snap = np.empty(total, dtype=np.int64)
+    is_float = np.issubdtype(snap_ds.dtype, np.floating)
+    for start in range(0, total, chunk_rows):
+        raw = snap_ds[start : min(start + chunk_rows, total)]
+        if is_float and not np.all(np.floor(raw) == raw):
+            raise ConverterError(
+                "Forests/{} carries non-integral values -- not a valid integral-float "
+                "snapshot column".format(snap_field)
+            )
+        all_snap[start : start + raw.shape[0]] = raw.astype(np.int64)
+    return all_snap
 
 
 # --------------------------------------------------------------------------
@@ -764,6 +795,37 @@ class SourceReachability:
     total_bytes: int
     free_bytes_on_volume: Optional[int]
     notes: List[str] = field(default_factory=list)
+
+    @classmethod
+    def observed(
+        cls,
+        sim_info: "SimulationInfo",
+        exists: bool,
+        declared_file_count: int,
+        present: List[Path],
+        total_bytes: int,
+        notes: List[str],
+    ) -> "SourceReachability":
+        """A report for ``sim_info.simulation_dir`` as seen now from this host.
+
+        ``exists`` is the caller's own observation of the directory, the one
+        its ``notes`` were derived from. The host and the volume's free space
+        are filled here, so every route reports them the same way.
+        """
+        base = Path(sim_info.simulation_dir)
+        return cls(
+            simulation_dir=str(base),
+            exists=exists,
+            host=host_identity(),
+            declared_first_file=sim_info.first_file,
+            declared_last_file=sim_info.last_file,
+            declared_file_count=declared_file_count,
+            present_files=[str(p) for p in present],
+            present_file_count=len(present),
+            total_bytes=total_bytes,
+            free_bytes_on_volume=free_space_bytes(base),
+            notes=notes,
+        )
 
 
 def host_identity() -> str:
@@ -873,18 +935,8 @@ def check_lhalo_reachability(sim_info: SimulationInfo) -> SourceReachability:
         )
     if not exists:
         notes.append("simulation_dir does not exist")
-    return SourceReachability(
-        simulation_dir=str(base),
-        exists=exists,
-        host=host_identity(),
-        declared_first_file=sim_info.first_file,
-        declared_last_file=sim_info.last_file,
-        declared_file_count=declared_count,
-        present_files=[str(p) for p in present],
-        present_file_count=len(present),
-        total_bytes=total_bytes,
-        free_bytes_on_volume=free_space_bytes(base),
-        notes=notes,
+    return SourceReachability.observed(
+        sim_info, exists, declared_count, present, total_bytes, notes
     )
 
 
@@ -937,16 +989,6 @@ def check_hdf5_reachability(sim_info: SimulationInfo) -> SourceReachability:
             "Nfiles attribute -- not directly comparable to present_file_count (info file + "
             "external-link targets) for this route".format(declared_count)
         )
-    return SourceReachability(
-        simulation_dir=str(base),
-        exists=exists,
-        host=host_identity(),
-        declared_first_file=sim_info.first_file,
-        declared_last_file=sim_info.last_file,
-        declared_file_count=declared_count,
-        present_files=[str(p) for p in present],
-        present_file_count=len(present),
-        total_bytes=total_bytes,
-        free_bytes_on_volume=free_space_bytes(base),
-        notes=notes,
+    return SourceReachability.observed(
+        sim_info, exists, declared_count, present, total_bytes, notes
     )

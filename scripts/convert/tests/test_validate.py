@@ -25,6 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import validate  # noqa: E402
+import validate_v3  # noqa: E402
 from conversion_manifest import ConversionManifest  # noqa: E402
 from ctrees_parser import ConverterError  # noqa: E402
 from hdf5_writer import (  # noqa: E402
@@ -2196,7 +2197,7 @@ class V3BatteryCase(unittest.TestCase):
 
     def run_v3(self, directory, manifest=True, **kwargs):
         kwargs.setdefault("budget_bytes", V3_BUDGET)
-        result = validate.run_battery_v3(
+        result = validate_v3.run_battery_v3(
             directory,
             kwargs.pop("a_list", self.conv.a_list),
             manifest_path=self.conv.manifest.path if manifest else None,
@@ -2237,7 +2238,7 @@ class V3BatteryCase(unittest.TestCase):
 class TestV3BatteryPristine(V3BatteryCase):
     def test_every_check_passes_on_the_written_dataset(self):
         result, outcomes = self.run_v3(self.conv.dataset)
-        self.assertEqual(list(outcomes), list(validate.V3_CHECKS))
+        self.assertEqual(list(outcomes), list(validate_v3.V3_CHECKS))
         self.assertEqual(
             [o.line() for o in result.outcomes if o.status != "PASS"], [], "pristine dataset"
         )
@@ -2635,7 +2636,7 @@ class TestV3BatteryBinding(V3BatteryCase):
         )
         directory = manifest.artifact_path(manifest.stage("write")["directory"])
         outcomes = outcome_map(
-            validate.run_battery_v3(
+            validate_v3.run_battery_v3(
                 directory, self.conv.a_list, manifest_path=manifest.path, budget_bytes=V3_BUDGET
             ).outcomes
         )
@@ -2650,7 +2651,7 @@ class TestV3BatteryBinding(V3BatteryCase):
         work, manifest = self.edited_manifest(edit)
         directory = manifest.artifact_path(manifest.stage("write")["directory"])
         outcomes = outcome_map(
-            validate.run_battery_v3(
+            validate_v3.run_battery_v3(
                 directory, self.conv.a_list, manifest_path=manifest.path, budget_bytes=V3_BUDGET
             ).outcomes
         )
@@ -2663,7 +2664,7 @@ class TestV3BatteryBinding(V3BatteryCase):
         )
         directory = self.copy()
         outcomes = outcome_map(
-            validate.run_battery_v3(
+            validate_v3.run_battery_v3(
                 directory, self.conv.a_list, manifest_path=manifest.path, budget_bytes=V3_BUDGET
             ).outcomes
         )
@@ -2687,7 +2688,7 @@ class TestV3LiteralGraphs(unittest.TestCase):
         header.setdefault("max_rank", 6)
         directory = self.tmp / "dataset_{}".format(len(list(self.tmp.iterdir())))
         a_list = write_literal_v3(directory, snapshots, sidecar, **header)
-        result = validate.run_battery_v3(directory, a_list, budget_bytes=V3_BUDGET)
+        result = validate_v3.run_battery_v3(directory, a_list, budget_bytes=V3_BUDGET)
         return result, outcome_map(result.outcomes)
 
     def test_the_literal_graph_passes(self):
@@ -2734,6 +2735,34 @@ class TestV3LiteralGraphs(unittest.TestCase):
         snapshots[1]["NextProgenitor"] = [(1, 1), None]
         _result, outcomes = self.run_literal(snapshots, sidecar)
         self.assertEqual(outcomes["topology-closure"].status, "FAIL")
+
+    def test_a_position_beyond_the_header_box_fails_position_bounds(self):
+        snapshots, sidecar = literal_graph()
+        # the literal header states a 100 Mpc/h box; x = 250 belongs to a larger one
+        snapshots[2]["Pos"] = [[1.0, 1.0, 1.0], [250.0, 2.0, 3.0], [4.0, 5.0, 6.0]]
+        result, outcomes = self.run_literal(snapshots, sidecar)
+        self.assertEqual(
+            [o.name for o in result.outcomes if o.status == "FAIL"], ["position-bounds"]
+        )
+        self.assertIn(
+            "snapshot_002.h5 row 1 Pos [250.0, 2.0, 3.0]", outcomes["position-bounds"].detail
+        )
+        self.assertIn("box_size_mpc_h = 100.0", outcomes["position-bounds"].detail)
+
+    def test_a_negative_position_component_fails_position_bounds(self):
+        snapshots, sidecar = literal_graph()
+        snapshots[0]["Pos"] = [[1.0, 1.0, 1.0], [1.0, -0.5, 1.0]]
+        _result, outcomes = self.run_literal(snapshots, sidecar)
+        self.assertEqual(outcomes["position-bounds"].status, "FAIL")
+        self.assertIn(
+            "snapshot_000.h5 row 1 Pos [1.0, -0.5, 1.0]", outcomes["position-bounds"].detail
+        )
+
+    def test_positions_on_the_box_faces_pass_position_bounds(self):
+        snapshots, sidecar = literal_graph()
+        snapshots[2]["Pos"] = [[0.0, 0.0, 0.0], [100.0, 100.0, 100.0], [0.0, 50.0, 100.0]]
+        _result, outcomes = self.run_literal(snapshots, sidecar)
+        self.assertEqual(outcomes["position-bounds"].status, "PASS")
 
     def test_a_forest_with_zero_halos_is_legal_for_lhalo(self):
         snapshots, _sidecar = literal_graph()
@@ -2799,7 +2828,7 @@ class TestV3BoundedBattery(unittest.TestCase):
         spill.mkdir()
         tracemalloc.start()
         try:
-            result = validate.run_battery_v3(
+            result = validate_v3.run_battery_v3(
                 directory, a_list, budget_bytes=V3_BUDGET, spill_dir=spill
             )
             _current, peak = tracemalloc.get_traced_memory()
@@ -2821,7 +2850,7 @@ class TestV3BoundedBattery(unittest.TestCase):
         a_list = write_chain_dataset(directory, 4)
         for bad in (V3_BUDGET - 1, 1.5, True):
             with self.assertRaises(ConverterError):
-                validate.run_battery_v3(directory, a_list, budget_bytes=bad)
+                validate_v3.run_battery_v3(directory, a_list, budget_bytes=bad)
 
 
 class TestProducerDispatch(unittest.TestCase):
@@ -2846,14 +2875,14 @@ class TestV3FormatTables(unittest.TestCase):
 
     def test_the_fixed_table_matches_the_schema_module_and_the_writer(self):
         from column_schema import EXTRA_TYPES, IDENTITY_FIELDS, TOPOLOGY_FIELDS
-        from hdf5_writer import V3_FORMAT_VERSION, v3_halo_datasets
+        from hdf5_writer_v3 import V3_FORMAT_VERSION, v3_halo_datasets
         from test_pipeline import lhalo_schema
 
         restated = [
             (field.name, np.dtype(EXTRA_TYPES[field.type].numpy_dtype).newbyteorder("<").str)
             for field in TOPOLOGY_FIELDS + IDENTITY_FIELDS
         ]
-        self.assertEqual(list(validate._V3_FIXED_DATASETS), restated)
+        self.assertEqual(list(validate_v3._V3_FIXED_DATASETS), restated)
         written = v3_halo_datasets(lhalo_schema())
         self.assertEqual(
             [(name, dtype.str) for name, (dtype, _vec) in list(written.items())[:11]], restated
@@ -2864,7 +2893,7 @@ class TestV3FormatTables(unittest.TestCase):
         from column_schema import EXTRA_TYPES
 
         self.assertEqual(
-            validate._V3_TYPES,
+            validate_v3._V3_TYPES,
             {
                 name: (np.dtype(spec.numpy_dtype).newbyteorder("<").str, spec.n_components == 3)
                 for name, spec in EXTRA_TYPES.items()

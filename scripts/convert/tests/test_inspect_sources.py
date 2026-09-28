@@ -14,6 +14,7 @@ import os
 import struct
 import sys
 import tempfile
+import tracemalloc
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -119,6 +120,47 @@ class LHaloLinkScanTests(unittest.TestCase):
         self.assertEqual(summary.max_span, 2)
         self.assertEqual(summary.non_forward_or_zero_span, 0)
         self.assertEqual(summary.snapshot_halo_counts, {0: 1, 1: 2, 2: 1, 3: 1})
+
+    def test_merging_summaries_matches_one_scan_over_both(self):
+        first = si.LinkSpanSummary(
+            non_null_descendant_links=3,
+            forward_adjacent_links=2,
+            forward_gap_links=1,
+            max_span=4,
+            non_forward_or_zero_span=0,
+            snapshot_halo_counts={1: 2, 3: 1},
+            mostboundid_min=-5,
+            mostboundid_max=10,
+        )
+        second = si.LinkSpanSummary(
+            non_null_descendant_links=2,
+            forward_adjacent_links=0,
+            forward_gap_links=1,
+            max_span=7,
+            non_forward_or_zero_span=1,
+            snapshot_halo_counts={3: 4, 0: 1},
+            mostboundid_min=-9,
+            mostboundid_max=2,
+        )
+        combined = si.LinkSpanSummary()
+        combined.merge(first)
+        combined.merge(second)
+        self.assertEqual(combined.non_null_descendant_links, 5)
+        self.assertEqual(combined.forward_adjacent_links, 2)
+        self.assertEqual(combined.forward_gap_links, 2)
+        self.assertEqual(combined.max_span, 7)
+        self.assertEqual(combined.non_forward_or_zero_span, 1)
+        self.assertEqual(combined.snapshot_halo_counts, {1: 2, 3: 5, 0: 1})
+        self.assertEqual((combined.mostboundid_min, combined.mostboundid_max), (-9, 10))
+
+    def test_merging_a_summary_without_identity_bounds_keeps_the_existing_ones(self):
+        combined = si.LinkSpanSummary(mostboundid_min=1, mostboundid_max=2)
+        combined.merge(si.LinkSpanSummary())
+        self.assertEqual((combined.mostboundid_min, combined.mostboundid_max), (1, 2))
+        empty = si.LinkSpanSummary()
+        empty.merge(si.LinkSpanSummary())
+        self.assertIsNone(empty.mostboundid_min)
+        self.assertIsNone(empty.mostboundid_max)
 
     def test_non_forward_link_is_counted_not_rejected(self):
         header = si.read_lhalo_header(DATA_DIR / "non_forward_link.bin")
@@ -256,6 +298,16 @@ def _write_ctrees_hdf5_fixture(
 
 
 class CtreesHDF5InspectionTests(unittest.TestCase):
+    def assert_reported_malformed(self, path, pattern, **kwargs):
+        """Inspection returns, reporting the one FileN group as unreachable with
+        the named structural defect as its error and no link summary."""
+        _root_attrs, files = si.inspect_ctrees_hdf5_source(path, **kwargs)
+        self.assertEqual(len(files), 1)
+        self.assertFalse(files[0].reachable)
+        self.assertRegex(files[0].error, pattern)
+        self.assertIsNone(files[0].link_summary)
+        self.assertIsNone(files[0].n_halos)
+
     def test_valid_fixture_snap_num_int(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "info.h5"
@@ -334,7 +386,7 @@ class CtreesHDF5InspectionTests(unittest.TestCase):
             with self.assertRaises(ConverterError):
                 si.inspect_ctrees_hdf5_source(path)
 
-    def test_missing_snap_field_fails(self):
+    def test_missing_snap_field_is_reported_as_that_files_error(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "info.h5"
             with h5py.File(path, "w") as f:
@@ -354,21 +406,17 @@ class CtreesHDF5InspectionTests(unittest.TestCase):
                 group.create_dataset("ForestInfo", data=info)
                 fg = group.create_group("Forests")
                 fg.create_dataset("Descendant", data=np.array([-1], dtype="<i8"))
-            with self.assertRaises(ConverterError):
-                si.inspect_ctrees_hdf5_source(path)
+            self.assert_reported_malformed(path, r"has neither Snap_num nor Snap_idx")
 
-    def test_missing_descendant_dataset_fails_cleanly(self):
-        # Previously a bare KeyError from forests_group["Descendant"], only
-        # caught by survey's broadened exception tuple, not by main()'s
-        # (ConverterError, MissingDependencyError, OSError, ValueError) for
-        # `inspect`. Now validated explicitly, mirroring _resolve_snap_field.
+    def test_missing_descendant_dataset_is_reported_as_that_files_error(self):
+        # Validated explicitly, mirroring _resolve_snap_field, so the defect is
+        # named rather than surfacing as a bare KeyError.
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "info.h5"
             _write_ctrees_hdf5_fixture(path, forests=[[(-1, 0)]], snap_field="Snap_num")
             with h5py.File(path, "r+") as f:
                 del f["File0/Forests/Descendant"]
-            with self.assertRaises(ConverterError):
-                si.inspect_ctrees_hdf5_source(path)
+            self.assert_reported_malformed(path, r"missing the required dataset 'Descendant'")
 
     def test_out_of_forest_descendant_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -387,7 +435,7 @@ class CtreesHDF5InspectionTests(unittest.TestCase):
             with self.assertRaises(ConverterError):
                 si.inspect_ctrees_hdf5_source(path)
 
-    def test_overlapping_forest_offsets_fails(self):
+    def test_overlapping_forest_offsets_are_reported_as_that_files_error(self):
         # Two forests declaring overlapping row ranges must not silently
         # "succeed" with mis-resolved link targets.
         with tempfile.TemporaryDirectory() as tmp:
@@ -401,10 +449,9 @@ class CtreesHDF5InspectionTests(unittest.TestCase):
                 info["ForestHalosOffset"][1] = 1  # overlaps forest 0's range [0, 2)
                 del f["File0/ForestInfo"]
                 f["File0"].create_dataset("ForestInfo", data=info)
-            with self.assertRaises(ConverterError):
-                si.inspect_ctrees_hdf5_source(path)
+            self.assert_reported_malformed(path, r"overlapping or out-of-order")
 
-    def test_overlapping_forest_offsets_fails_even_with_scan_links_false(self):
+    def test_overlapping_forest_offsets_are_reported_even_with_scan_links_false(self):
         # ForestInfo structural validation is O(n_forests) and must run
         # unconditionally -- --no-link-scan only skips the payload-intensive
         # O(n_halos) span computation, not this.
@@ -418,13 +465,11 @@ class CtreesHDF5InspectionTests(unittest.TestCase):
                 info["ForestHalosOffset"][1] = 1
                 del f["File0/ForestInfo"]
                 f["File0"].create_dataset("ForestInfo", data=info)
-            with self.assertRaises(ConverterError):
-                si.inspect_ctrees_hdf5_source(path, scan_links=False)
+            self.assert_reported_malformed(path, r"overlapping or out-of-order", scan_links=False)
 
-    def test_negative_forest_nhalos_with_zero_sum_fails(self):
-        # steer-attempt-3 item 1: ForestNhalos=[-1, 1] sums to 0, so
-        # n_halos=0 previously short-circuited the scan entirely and every
-        # check silently passed -- both with and without --no-link-scan.
+    def test_negative_forest_nhalos_with_zero_sum_is_reported_as_that_files_error(self):
+        # ForestNhalos=[-1, 1] sums to 0, so a check gated on the halo total
+        # would pass it silently -- both with and without --no-link-scan.
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "info.h5"
             forest_info_dtype = np.dtype(
@@ -448,16 +493,14 @@ class CtreesHDF5InspectionTests(unittest.TestCase):
                 fg = group.create_group("Forests")
                 fg.create_dataset("Descendant", data=np.array([-1], dtype="<i8"))
                 fg.create_dataset("Snap_num", data=np.array([0], dtype="<i8"))
-            with self.assertRaises(ConverterError):
-                si.inspect_ctrees_hdf5_source(path)
-            with self.assertRaises(ConverterError):
-                si.inspect_ctrees_hdf5_source(path, scan_links=False)
+            self.assert_reported_malformed(path, r"row 0 has a negative ForestNhalos \(-1\)")
+            self.assert_reported_malformed(
+                path, r"row 0 has a negative ForestNhalos \(-1\)", scan_links=False
+            )
 
-    def test_empty_forest_info_with_mismatched_extents_fails(self):
-        # steer-attempt-3 item 2: zero declared forests but mismatched
-        # Descendant/snapshot-column dataset lengths previously bypassed
-        # _validate_forest_info_offsets entirely (only called `if
-        # n_forests:`), reporting reachable=True, n_halos=0 with no check.
+    def test_empty_forest_info_with_mismatched_extents_is_reported_as_that_files_error(self):
+        # Zero declared forests still require both dataset extents to agree
+        # with the (empty) ForestInfo total.
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "info.h5"
             forest_info_dtype = np.dtype(
@@ -477,15 +520,19 @@ class CtreesHDF5InspectionTests(unittest.TestCase):
                 fg = group.create_group("Forests")
                 fg.create_dataset("Descendant", data=np.array([-1] * 5, dtype="<i8"))
                 fg.create_dataset("Snap_num", data=np.array([0] * 3, dtype="<i8"))
-            with self.assertRaises(ConverterError):
-                si.inspect_ctrees_hdf5_source(path)
-            with self.assertRaises(ConverterError):
-                si.inspect_ctrees_hdf5_source(path, scan_links=False)
+            self.assert_reported_malformed(
+                path,
+                r"ForestNhalos sum \(0\) disagrees with the Forests/Descendant dataset length \(5\)",
+            )
+            self.assert_reported_malformed(
+                path,
+                r"ForestNhalos sum \(0\) disagrees with the Forests/Descendant dataset length \(5\)",
+                scan_links=False,
+            )
 
-    def test_forest_info_missing_column_fails_cleanly(self):
-        # steer-attempt-3 item 3: a ForestInfo compound array missing
-        # ForestNhalos previously raised a bare
-        # "ValueError: no field of name ForestNhalos" with no file context.
+    def test_forest_info_missing_column_is_reported_as_that_files_error(self):
+        # A ForestInfo compound missing ForestNhalos is named with its file
+        # context, not left to surface as numpy's bare "no field of name".
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "info.h5"
             forest_info_dtype = np.dtype(
@@ -504,8 +551,9 @@ class CtreesHDF5InspectionTests(unittest.TestCase):
                 fg = group.create_group("Forests")
                 fg.create_dataset("Descendant", data=np.array([-1], dtype="<i8"))
                 fg.create_dataset("Snap_num", data=np.array([0], dtype="<i8"))
-            with self.assertRaises(ConverterError):
-                si.inspect_ctrees_hdf5_source(path)
+            self.assert_reported_malformed(
+                path, r"ForestInfo is missing required column\(s\) \['ForestNhalos'\]"
+            )
 
     def test_dangling_soft_link_in_forests_group_reported_not_raised(self):
         # steer-attempt-5 item 1: a dangling soft link inside Forests/
@@ -536,11 +584,10 @@ class CtreesHDF5InspectionTests(unittest.TestCase):
             self.assertFalse(files[0].reachable)
             self.assertIsNotNone(files[0].error)
 
-    def test_dangling_soft_link_named_descendant_fails_cleanly(self):
-        # steer-attempt-6 item 1: unlike an incidentally-named dangling link
-        # (test above), a dangling link named exactly "Descendant" passes
-        # `name in forests_group` (the name exists) but previously raised an
-        # uncaught KeyError on dereference, outside any per-file guard.
+    def test_dangling_soft_link_named_descendant_is_reported_as_that_files_error(self):
+        # Unlike an incidentally-named dangling link (test above), a dangling
+        # link named exactly "Descendant" passes `name in forests_group` but
+        # cannot be dereferenced.
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "info.h5"
             forest_info_dtype = np.dtype(
@@ -560,13 +607,13 @@ class CtreesHDF5InspectionTests(unittest.TestCase):
                 fg = group.create_group("Forests")
                 fg["Descendant"] = h5py.SoftLink("/does/not/exist")
                 fg.create_dataset("Snap_num", data=np.array([0], dtype="<i8"))
-            with self.assertRaises(ConverterError):
-                si.inspect_ctrees_hdf5_source(path)
+            self.assert_reported_malformed(
+                path, r"Forests/Descendant exists by name but cannot be opened as a dataset"
+            )
 
-    def test_external_link_named_descendant_resolving_to_group_fails_cleanly(self):
-        # steer-attempt-6 item 1: an ExternalLink named "Descendant" that
-        # resolves to a group rather than a dataset previously raised an
-        # uncaught AttributeError ('Group' object has no attribute 'ndim').
+    def test_external_link_named_descendant_resolving_to_group_is_reported(self):
+        # An ExternalLink named "Descendant" that resolves to a group rather
+        # than a dataset has no .ndim.
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "info.h5"
             target = Path(tmp) / "target.h5"
@@ -589,12 +636,13 @@ class CtreesHDF5InspectionTests(unittest.TestCase):
                 fg = group.create_group("Forests")
                 fg["Descendant"] = h5py.ExternalLink("target.h5", "/SomeGroup")
                 fg.create_dataset("Snap_num", data=np.array([0], dtype="<i8"))
-            with self.assertRaises(ConverterError):
-                si.inspect_ctrees_hdf5_source(path)
+            self.assert_reported_malformed(
+                path, r"Forests/Descendant exists by name but cannot be opened as a dataset"
+            )
 
-    def test_malformed_rank_descendant_fails_cleanly(self):
-        # A 0-d (scalar) Descendant dataset previously raised an uncaught
-        # IndexError once indexed as if it were the expected 1-D array.
+    def test_malformed_rank_descendant_is_reported_as_that_files_error(self):
+        # A 0-d (scalar) Descendant dataset cannot be indexed as the expected
+        # 1-D array.
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "info.h5"
             forest_info_dtype = np.dtype(
@@ -614,8 +662,7 @@ class CtreesHDF5InspectionTests(unittest.TestCase):
                 fg = group.create_group("Forests")
                 fg.create_dataset("Descendant", data=np.int64(-1))  # 0-d, not 1-D
                 fg.create_dataset("Snap_num", data=np.array([0, 1], dtype="<i8"))
-            with self.assertRaises(ConverterError):
-                si.inspect_ctrees_hdf5_source(path)
+            self.assert_reported_malformed(path, r"Forests/Descendant has rank 0")
 
     def test_snapshot_outside_a_list_bound_fails_integer_path(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -657,6 +704,189 @@ class CtreesHDF5InspectionTests(unittest.TestCase):
             with mock.patch.object(si, "h5py", None):
                 with self.assertRaises(si.MissingDependencyError):
                     si.inspect_ctrees_hdf5_source(path)
+
+    def test_one_malformed_file_is_reported_without_aborting_the_others(self):
+        """Every structural defect of one FileN group becomes that group's
+        error; the other groups are still inspected in full, including one
+        that follows the malformed group."""
+
+        def remove_descendant(group):
+            del group["Forests/Descendant"]
+
+        def remove_snapshot(group):
+            del group["Forests/Snap_num"]
+
+        def overlap_forests(group):
+            info = group["ForestInfo"][:]
+            info["ForestHalosOffset"][1] = 1
+            del group["ForestInfo"]
+            group.create_dataset("ForestInfo", data=info)
+
+        def drop_forest_nhalos(group):
+            info = group["ForestInfo"][:]
+            del group["ForestInfo"]
+            group.create_dataset(
+                "ForestInfo", data=info[["ForestID", "ForestHalosOffset", "ForestNtrees"]]
+            )
+
+        defects = (
+            (remove_descendant, r"missing the required dataset 'Descendant'"),
+            (remove_snapshot, r"has neither Snap_num nor Snap_idx"),
+            (overlap_forests, r"overlapping or out-of-order"),
+            (drop_forest_nhalos, r"ForestInfo is missing required column"),
+        )
+        for corrupt, pattern in defects:
+            for scan_links in (True, False):
+                with self.subTest(defect=corrupt.__name__, scan_links=scan_links):
+                    with tempfile.TemporaryDirectory() as tmp:
+                        path = Path(tmp) / "info.h5"
+                        _write_ctrees_hdf5_fixture(
+                            path, forests=[[(1, 0), (-1, 2)], [(-1, 1)]], snap_field="Snap_num"
+                        )
+                        with h5py.File(path, "r+") as f:
+                            f.attrs["Nfiles"] = 2
+                            f.copy("File0", "File1")
+                            corrupt(f["File0"])
+                        _root_attrs, files = si.inspect_ctrees_hdf5_source(
+                            path, scan_links=scan_links
+                        )
+                    self.assertEqual([entry.name for entry in files], ["File0", "File1"])
+                    malformed, intact = files
+                    self.assertFalse(malformed.reachable)
+                    self.assertRegex(malformed.error, pattern)
+                    self.assertTrue(intact.reachable)
+                    self.assertIsNone(intact.error)
+                    self.assertEqual((intact.n_forests, intact.n_halos), (2, 3))
+                    if scan_links:
+                        self.assertEqual(intact.link_summary.non_null_descendant_links, 1)
+                        self.assertEqual(intact.link_summary.max_span, 2)
+                    else:
+                        self.assertIsNone(intact.link_summary)
+
+    @staticmethod
+    def _write_many_forests(path, sizes):
+        """One FileN group whose forests have the given halo counts, laid out
+        in row order. Each forest is a main branch (row r descends to row
+        r - 1) whose snapshots count down from the forest's size plus its
+        index, skipping one snapshot below row 2 so every forest of four or
+        more halos carries a forward gap of 2."""
+        sizes = np.asarray(sizes, dtype=np.int64)
+        offsets = np.concatenate([[0], np.cumsum(sizes)[:-1]]).astype(np.int64)
+        desc, snap = [], []
+        for index, size in enumerate(sizes.tolist()):
+            for row in range(size):
+                desc.append(row - 1 if row > 0 else -1)
+                snap.append(index + size + 2 - row - (1 if row >= 3 else 0))
+        info = np.zeros(
+            sizes.size,
+            dtype=[
+                ("ForestID", "<i8"),
+                ("ForestHalosOffset", "<i8"),
+                ("ForestNhalos", "<i8"),
+                ("ForestNtrees", "<i8"),
+            ],
+        )
+        info["ForestID"] = np.arange(sizes.size)
+        info["ForestHalosOffset"] = offsets
+        info["ForestNhalos"] = sizes
+        with h5py.File(path, "w") as f:
+            f.attrs["Nfiles"] = 1
+            group = f.create_group("File0")
+            group.create_dataset("ForestInfo", data=info)
+            forests = group.create_group("Forests")
+            forests.create_dataset("Descendant", data=np.array(desc, dtype="<i8"))
+            forests.create_dataset("Snap_num", data=np.array(snap, dtype="<i8"))
+        return desc, snap, offsets.tolist(), sizes.tolist()
+
+    def test_link_scan_is_independent_of_the_chunk_size(self):
+        """Forests of mixed sizes, empty forests among them, straddle every
+        chunk boundary; the span counts match a scalar per-row oracle."""
+        sizes = [4, 0, 1, 7, 0, 0, 3, 11, 2, 0, 5]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "info.h5"
+            desc, snap, offsets, counts = self._write_many_forests(path, sizes)
+            spans = []
+            for offset, count in zip(offsets, counts):
+                for row in range(offset, offset + count):
+                    if desc[row] >= 0:
+                        spans.append(snap[offset + desc[row]] - snap[row])
+            expected = {
+                "non_null_descendant_links": len(spans),
+                "forward_adjacent_links": sum(1 for span in spans if span == 1),
+                "forward_gap_links": sum(1 for span in spans if span > 1),
+                "max_span": max(span for span in spans if span > 1),
+                "non_forward_or_zero_span": sum(1 for span in spans if span < 1),
+            }
+            snapshot_counts = {}
+            for value in snap:
+                snapshot_counts[value] = snapshot_counts.get(value, 0) + 1
+            self.assertGreater(expected["forward_gap_links"], 0)
+            for chunk_rows in (1, 2, 3, 5, 8, 1000):
+                with self.subTest(chunk_rows=chunk_rows):
+                    _root_attrs, files = si.inspect_ctrees_hdf5_source(path, chunk_rows=chunk_rows)
+                    summary = files[0].link_summary
+                    for name, value in expected.items():
+                        self.assertEqual(getattr(summary, name), value, name)
+                    self.assertEqual(summary.snapshot_halo_counts, snapshot_counts)
+                    self.assertEqual(
+                        list(summary.snapshot_halo_counts), sorted(summary.snapshot_halo_counts)
+                    )
+
+    def test_out_of_forest_descendant_is_found_in_any_chunk(self):
+        """A Descendant valid for a larger neighbour but outside its own forest
+        is rejected wherever the chunk boundaries fall."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "info.h5"
+            self._write_many_forests(path, [5, 0, 2, 6])
+            with h5py.File(path, "r+") as f:
+                f["File0/Forests/Descendant"][6] = 3  # forest 2 (rows 5-6) has 2 halos
+            for chunk_rows in (1, 3, 4, 1000):
+                with self.subTest(chunk_rows=chunk_rows):
+                    with self.assertRaisesRegex(ConverterError, "out-of-forest Descendant"):
+                        si.inspect_ctrees_hdf5_source(path, chunk_rows=chunk_rows)
+
+    def test_link_scan_holds_one_whole_file_column(self):
+        """The scan's only whole-file array is the int64 snapshot column
+        (8 B/halo), beside the ForestInfo table and its int64 offset/count
+        columns (64 B/forest) and chunk-bounded temporaries (128 B/row of
+        one chunk). A per-row forest offset or count array over the whole
+        file would add at least 8 B/halo each and break the bound."""
+        n_forests, size, chunk_rows = 50_000, 10, 65536
+        n_halos = n_forests * size
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "info.h5"
+            info = np.zeros(
+                n_forests,
+                dtype=[
+                    ("ForestID", "<i8"),
+                    ("ForestHalosOffset", "<i8"),
+                    ("ForestNhalos", "<i8"),
+                    ("ForestNtrees", "<i8"),
+                ],
+            )
+            info["ForestHalosOffset"] = np.arange(n_forests) * size
+            info["ForestNhalos"] = size
+            local = np.tile(np.arange(size), n_forests)
+            with h5py.File(path, "w") as f:
+                f.attrs["Nfiles"] = 1
+                group = f.create_group("File0")
+                group.create_dataset("ForestInfo", data=info)
+                forests = group.create_group("Forests")
+                forests.create_dataset(
+                    "Descendant", data=np.where(local > 0, local - 1, -1).astype("<i8")
+                )
+                forests.create_dataset("Snap_num", data=(size - local).astype("<i8"))
+            tracemalloc.start()
+            try:
+                _root_attrs, files = si.inspect_ctrees_hdf5_source(path, chunk_rows=chunk_rows)
+                peak = tracemalloc.get_traced_memory()[1]
+            finally:
+                tracemalloc.stop()
+        self.assertEqual(files[0].link_summary.non_null_descendant_links, n_forests * (size - 1))
+        bound = 8 * n_halos + 64 * n_forests + 128 * chunk_rows
+        self.assertLessEqual(
+            peak, bound, "{:.1f} B/halo against a {} B bound".format(peak / n_halos, bound)
+        )
 
     def test_real_full_uchuu_fixture_is_reachable_and_inspectable(self):
         repo_root = Path(__file__).parents[3]
@@ -874,6 +1104,55 @@ class JsonOutputSafetyTests(unittest.TestCase):
     def _write_minimal_lhalo_file(self, path):
         with open(path, "wb") as f:
             f.write(struct.pack("<ii", 0, 0))  # Ntrees=0, totNHalos=0
+
+    def test_a_malformed_source_file_makes_inspect_exit_nonzero(self):
+        """The report still names the malformed file's error as data, and the
+        other file is still inspected, but the exit status says the source
+        is not clean."""
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = Path(tmp_str)
+            info_path = tmp / "info.h5"
+            _write_ctrees_hdf5_fixture(
+                info_path, forests=[[(1, 0), (-1, 2)], [(-1, 1)]], snap_field="Snap_num"
+            )
+            with h5py.File(info_path, "r+") as f:
+                f.attrs["Nfiles"] = 2
+                f.copy("File0", "File1")
+                del f["File0"]["Forests/Descendant"]
+            data = {
+                "input": {
+                    "first_file": 0,
+                    "last_file": 0,
+                    "tree_name": "info.h5",
+                    "tree_type": "consistent_trees_hdf5",
+                    "simulation_dir": str(tmp),
+                    "snapshot_list_file": str(tmp / "a_list"),
+                }
+            }
+            sim_info_path = tmp / "simulation_info.yaml"
+            with open(sim_info_path, "w") as f:
+                yaml.safe_dump(data, f)
+            (tmp / "a_list").write_text("0.25\n0.5\n0.75\n1.0\n")
+
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = inspect_sources.main(
+                    [
+                        "inspect",
+                        "--source-format",
+                        "consistent_trees_hdf5",
+                        "--simulation-info",
+                        str(sim_info_path),
+                        "--a-list",
+                        str(tmp / "a_list"),
+                    ]
+                )
+            self.assertEqual(rc, 1)
+            report = json.loads(buf.getvalue())
+            malformed, intact = report["files"]
+            self.assertRegex(malformed["error"], r"missing the required dataset 'Descendant'")
+            self.assertIsNone(intact["error"])
+            self.assertEqual(intact["n_halos"], 3)
 
     def test_json_directly_at_source_file_refused(self):
         with tempfile.TemporaryDirectory() as tmp_str:

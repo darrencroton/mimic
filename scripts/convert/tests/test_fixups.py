@@ -1151,8 +1151,9 @@ class TestExtendedFixups(unittest.TestCase):
         self.assertEqual(FIXED_RECORD_DTYPE.itemsize, 120)
 
     def test_extended_fixed_record_is_scratch_plus_len_and_mostboundid(self):
-        from fixups import fixed_layout
+        from fixups import EXTENDED_FIXED_DTYPE_TAG_PREFIX, fixed_layout
 
+        self.assertEqual(EXTENDED_FIXED_DTYPE_TAG_PREFIX, "ctrees-fixed-v2")
         dtype, tag = fixed_layout(self.extended.layout)
         self.assertEqual(dtype.names, self.extended.layout.dtype.names + ("Len", "MostBoundID"))
         self.assertEqual(dtype.itemsize, self.extended.layout.dtype.itemsize + 12)

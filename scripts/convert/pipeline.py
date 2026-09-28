@@ -1,6 +1,5 @@
 """Generic, resumable stage orchestration for canonical adapter conversions
-(Slice 7 of the converter generalisation plan,
-docs/dev/MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md, contract C4).
+(contract C4 of docs/dev/MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md).
 
 **Stages.** A generic conversion is :func:`initialize` followed by three
 explicit stages, each resumable on its own and each refusing to run before its
@@ -14,8 +13,8 @@ predecessor is complete:
    read, to ``transpose.transpose`` and registers every per-snapshot output.
 3. :func:`run_write` hands the verified transposed snapshots to a
    :class:`StageWriter` and registers what it produced. The concrete v3 HDF5
-   writer is ``hdf5_writer.HorizontalV3Writer`` (Slice 8); this module owns
-   the stage, its state transitions and the inputs it hands a writer --
+   writer is ``hdf5_writer_v3.HorizontalV3Writer``; this module owns the
+   stage, its state transitions and the inputs it hands a writer --
    including the forest enumeration for the ``forests.h5`` sidecar, which
    ingest does not persist and :func:`run_write` re-derives read-only from the
    recorded adapter configuration, bound to the recorded inventory
@@ -41,6 +40,14 @@ name the recorded one exactly.
   be what the source still yields. Chunk files an interrupted run wrote but
   never registered are removed -- only names of this stage's own pattern at
   or beyond the registered count; anything else in the directory is refused.
+- *Resume cost.* That proof is paid in full on every ingest resume: each
+  registered chunk is re-hashed from disk, and the adapter is re-read from
+  the start of the source with every batch re-serialized and hashed, the
+  registered ones included. A crash late in ingest therefore costs roughly
+  two passes over the chunks already written plus a full re-read of the
+  source before the first new chunk is appended.
+  :data:`DEFAULT_SAVE_EVERY_CHUNKS` bounds only the loss of chunks written
+  but not yet registered, never this verification cost.
 - *Transpose* and *write* are all-or-nothing per attempt. Each attempt's
   directory (``transpose/attempt_NNN``, ``write/attempt_NNN``) is recorded in
   the manifest before it is created, and an interrupted attempt's directory is
@@ -48,6 +55,15 @@ name the recorded one exactly.
   after every artifact it produced has been checked against independent
   expectations (row counts from ingest, file sizes, the exact directory
   listing) and registered with its checksum, in the same manifest save.
+- *Tuning.* A format's performance-only parameters -- for ASCII the
+  preparation's ``pool_size`` and ``chunksize`` -- change no output, so they
+  are recorded under the manifest's ``tuning`` rather than in the frozen
+  configuration, and :func:`initialize` compares the configuration without
+  them. Re-initializing with different tuning is a resume, not a different
+  conversion: while ingest is incomplete the new values are recorded and the
+  next ingest attempt uses them; once it is complete they are accepted and
+  nothing is written, so ``tuning`` keeps the values the completed ingest
+  used. Every other parameter change is still refused.
 
 **Skip-trust.** Re-running a complete stage verifies every one of its
 artifacts' SHA-256 before reporting it done; an artifact a later complete
@@ -61,31 +77,35 @@ and deletes only verified, manifest-registered artifacts inside the workdir
 **Sources are read-only.** Adapters open source files for reading only, the
 manifest records them as pinned dependencies, and a workdir that contains a
 source file is refused at :func:`initialize`. There is no release or
-transfer step for these adapters (C4: "do not extend source release to the new
-adapters this round").
+transfer step for these adapters.
 
 **Failure.** A failing stage records ``failed`` with the error text (best
 effort), never ``complete``, and re-raises; the error names the offending
-source file, chunk or artifact.
+source file, chunk or artifact. Every stage attempt runs inside
+:func:`_stage_attempt`, the only place a stage is completed.
 
 **Memory.** Ingest holds one adapter batch and its serialized records (at
 most ``ingest_max_rows`` rows); transpose reads chunks in slices of the
 transpose's own planned batch size, so its ``transpose_budget_bytes`` bound is
-unchanged by persistence.
+unchanged by persistence. The ASCII preparation refuses a snapshot whose
+ingest batch cannot fit the adapter budget as soon as scatter has counted it,
+before sort, fix-ups and links run.
 """
 
 import abc
+import functools
 import hashlib
 import json
 import os
 import re
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, Iterator, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 import transpose as transpose_module
-from adapters.base import LINK_FIELDS, CanonicalBatch, SourceAdapter
+from adapters.base import LINK_FIELDS, CanonicalBatch, SourceAdapter, require_integer
 from column_schema import (
     EXTRA_TYPES,
     IDENTITY_FIELDS,
@@ -101,6 +121,7 @@ from conversion_manifest import (
     SOURCE_ROLE,
     STAGE_FAILED,
     STAGE_RUNNING,
+    STAGES,
     ConversionManifest,
     canonical_json,
     classify_manifest,
@@ -129,7 +150,6 @@ __all__ = [
     "chunk_name",
     "ingest_dtype",
     "initialize",
-    "read_transposed",
     "run_ingest",
     "run_transpose",
     "run_write",
@@ -139,8 +159,8 @@ INGEST_DIR = "ingest"
 TRANSPOSE_DIR = "transpose"
 WRITE_DIR = "write"
 #: The ASCII adapter's own topology-preparation workdir, inside the generic
-#: one. It holds the legacy-class (``scatter.Manifest``) extended-layout state
-#: that ``ctrees_ascii.prepare_workdir`` owns and resumes by its own rules.
+#: one. It holds the ``scatter.Manifest`` extended-layout state that
+#: ``ctrees_ascii.prepare_workdir`` owns and resumes by its own rules.
 ASCII_PREPARATION_DIR = "ascii_preparation"
 
 DEFAULT_INGEST_MAX_ROWS = 1 << 20
@@ -248,16 +268,8 @@ def _record_dtypes(schema: CanonicalSchema) -> Dict[str, object]:
 # ==========================================================================
 
 
-def _strict_int(value, what: str, minimum: int = 0) -> int:
-    if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
-        raise ConverterError(
-            "{} must be an integer, got {!r}; it is recorded configuration and is never "
-            "coerced".format(what, value)
-        )
-    value = int(value)
-    if value < minimum:
-        raise ConverterError("{} must be at least {}, got {}".format(what, minimum, value))
-    return value
+#: Why ``require_integer`` refuses to coerce a recorded configuration scalar.
+_RECORDED = "it is recorded configuration and is never coerced"
 
 
 def _path_string(value, what: str) -> str:
@@ -289,12 +301,22 @@ def _default_adapter_budget() -> int:
     return DEFAULT_MEMORY_BUDGET_BYTES
 
 
+def _optional_simulation_info(recorded: Dict[str, object], merged: Mapping) -> Dict[str, object]:
+    """Add ``simulation_info`` to the two prelinked formats' recorded
+    parameters when it was given, and only then.
+
+    Neither prelinked adapter reads physical metadata itself (and
+    ``particle_mass`` alone does not identify the metadata a header is written
+    from), but a caller that names the file (``convert_trees.py`` always
+    does) binds the conversion to its content, as the ASCII route does, so the
+    write stage can refuse a header from different metadata.
+    """
+    if merged["simulation_info"] is not None:
+        recorded["simulation_info"] = _path_string(merged["simulation_info"], "simulation_info")
+    return recorded
+
+
 def _lhalo_parameters(parameters: Mapping) -> Dict[str, object]:
-    """``simulation_info`` is optional here and recorded only when given: the
-    binary adapter itself reads no physical metadata, but a caller that names
-    it (``convert_trees.py`` always does) binds the conversion to that file's
-    content, as the ASCII route does, so the write stage can refuse a header
-    from different metadata."""
     merged = _check_keys(
         parameters,
         ("sources",),
@@ -314,23 +336,22 @@ def _lhalo_parameters(parameters: Mapping) -> Dict[str, object]:
             )
         canonical_sources.append(
             [
-                _strict_int(entry[0], "sources[{}] ordinal".format(position)),
+                require_integer(
+                    entry[0], "sources[{}] ordinal".format(position), _RECORDED, minimum=0
+                ),
                 _path_string(entry[1], "sources[{}] path".format(position)),
             ]
         )
     recorded = {
         "sources": canonical_sources,
-        "memory_budget_bytes": _strict_int(merged["memory_budget_bytes"], "memory_budget_bytes", 1),
+        "memory_budget_bytes": require_integer(
+            merged["memory_budget_bytes"], "memory_budget_bytes", _RECORDED, minimum=1
+        ),
     }
-    if merged["simulation_info"] is not None:
-        recorded["simulation_info"] = _path_string(merged["simulation_info"], "simulation_info")
-    return recorded
+    return _optional_simulation_info(recorded, merged)
 
 
 def _hdf5_parameters(parameters: Mapping) -> Dict[str, object]:
-    """``simulation_info`` is optional and recorded only when given, exactly
-    as for L-Halo (:func:`_lhalo_parameters`): ``particle_mass`` alone does
-    not identify the metadata a header is written from."""
     merged = _check_keys(
         parameters,
         ("info_path", "first_file", "last_file", "particle_mass"),
@@ -342,14 +363,14 @@ def _hdf5_parameters(parameters: Mapping) -> Dict[str, object]:
         raise ConverterError("particle_mass must be positive, got {!r}".format(particle_mass))
     recorded = {
         "info_path": _path_string(merged["info_path"], "info_path"),
-        "first_file": _strict_int(merged["first_file"], "first_file"),
-        "last_file": _strict_int(merged["last_file"], "last_file"),
+        "first_file": require_integer(merged["first_file"], "first_file", _RECORDED, minimum=0),
+        "last_file": require_integer(merged["last_file"], "last_file", _RECORDED, minimum=0),
         "particle_mass": particle_mass,
-        "memory_budget_bytes": _strict_int(merged["memory_budget_bytes"], "memory_budget_bytes", 1),
+        "memory_budget_bytes": require_integer(
+            merged["memory_budget_bytes"], "memory_budget_bytes", _RECORDED, minimum=1
+        ),
     }
-    if merged["simulation_info"] is not None:
-        recorded["simulation_info"] = _path_string(merged["simulation_info"], "simulation_info")
-    return recorded
+    return _optional_simulation_info(recorded, merged)
 
 
 def _ascii_parameters(parameters: Mapping) -> Dict[str, object]:
@@ -380,23 +401,15 @@ def _ascii_parameters(parameters: Mapping) -> Dict[str, object]:
         ],
         "forests_list": _path_string(merged["forests_list"], "forests_list"),
         "simulation_info": _path_string(merged["simulation_info"], "simulation_info"),
-        "pool_size": _strict_int(merged["pool_size"], "pool_size", 1),
-        "chunksize": _strict_int(merged["chunksize"], "chunksize", 1),
-        "rank_budget_bytes": _strict_int(merged["rank_budget_bytes"], "rank_budget_bytes", 1),
-        "memory_budget_bytes": _strict_int(merged["memory_budget_bytes"], "memory_budget_bytes", 1),
+        "pool_size": require_integer(merged["pool_size"], "pool_size", _RECORDED, minimum=1),
+        "chunksize": require_integer(merged["chunksize"], "chunksize", _RECORDED, minimum=1),
+        "rank_budget_bytes": require_integer(
+            merged["rank_budget_bytes"], "rank_budget_bytes", _RECORDED, minimum=1
+        ),
+        "memory_budget_bytes": require_integer(
+            merged["memory_budget_bytes"], "memory_budget_bytes", _RECORDED, minimum=1
+        ),
     }
-
-
-@dataclass(frozen=True)
-class _Route:
-    """How the pipeline builds, prepares and binds one source format."""
-
-    parameters: Callable[[Mapping], Dict[str, object]]
-    #: pre-inventory dependencies: [(path, roles, content_sha256)]
-    static_dependencies: Callable[[Mapping], List[Tuple[str, Tuple[str, ...], bool]]]
-    #: True when the adapter needs a preparation (a mutation) before it can
-    #: report its inventory
-    prepared: bool
 
 
 def _lhalo_dependencies(parameters: Mapping):
@@ -420,10 +433,143 @@ def _ascii_dependencies(parameters: Mapping):
     return dependencies
 
 
+def _build_lhalo(schema, parameters, max_snapshot, prepared_dir) -> SourceAdapter:
+    from adapters.lhalo_binary import LHaloBinaryAdapter
+
+    return LHaloBinaryAdapter(
+        schema,
+        [(ordinal, path) for ordinal, path in parameters["sources"]],
+        max_snapshot=max_snapshot,
+        memory_budget_bytes=parameters["memory_budget_bytes"],
+    )
+
+
+def _build_hdf5(schema, parameters, max_snapshot, prepared_dir) -> SourceAdapter:
+    from adapters.ctrees_hdf5 import CTreesHDF5Adapter
+
+    return CTreesHDF5Adapter(
+        schema,
+        parameters["info_path"],
+        first_file=parameters["first_file"],
+        last_file=parameters["last_file"],
+        particle_mass=parameters["particle_mass"],
+        max_snapshot=max_snapshot,
+        memory_budget_bytes=parameters["memory_budget_bytes"],
+    )
+
+
+def _build_ascii(schema, parameters, max_snapshot, prepared_dir) -> SourceAdapter:
+    from adapters.ctrees_ascii import CTreesAsciiAdapter
+
+    if prepared_dir is None:
+        raise ConverterError("the ASCII adapter reads a prepared workdir; prepare it first")
+    return CTreesAsciiAdapter(
+        schema, prepared_dir, memory_budget_bytes=parameters["memory_budget_bytes"]
+    )
+
+
+def _lhalo_source_paths(adapter, parameters: Mapping) -> List[str]:
+    return [path for _ordinal, path in parameters["sources"]]
+
+
+def _hdf5_source_paths(adapter, parameters: Mapping) -> List[str]:
+    paths = {dependency.identity.path for dependency in adapter.dependencies()}
+    paths.add(parameters["info_path"])
+    return sorted(paths)
+
+
+def _ascii_source_paths(adapter, parameters: Mapping) -> List[str]:
+    return list(parameters["tree_files"])
+
+
+def _hdf5_inventory_dependencies(adapter):
+    return [
+        (dependency.identity.path, (SOURCE_ROLE,), dependency.objects)
+        for dependency in adapter.dependencies()
+    ]
+
+
+def _no_inventory_dependencies(adapter):
+    return []
+
+
+def _lhalo_forests(adapter) -> Iterator:
+    """L-Halo's sidecar rows: one per tree, in inventory order. Its
+    ``ForestIndex`` is the file-prefix tree number (C1), which is the tree's
+    position in that order, and its ``ForestID`` is that same dense run forest
+    number (C3), disambiguated by the file and tree ordinals. Zero-halo trees
+    are forests too: they occupy a tree number."""
+    from adapters.ctrees_hdf5 import ForestRecord
+
+    for position, unit in enumerate(adapter.inventory().units):
+        yield ForestRecord(
+            forest_index=position,
+            forest_id=position,
+            source_file_ordinal=unit.source_file_ordinal,
+            unit_ordinal=unit.unit_ordinal,
+            n_halos=unit.n_halos,
+        )
+
+
+def _adapter_forests(adapter) -> Iterator:
+    return adapter.iter_forests()
+
+
+@dataclass(frozen=True)
+class _Route:
+    """Everything the pipeline does differently per source format; a new
+    format is one more entry in :data:`_ROUTES`."""
+
+    #: validates caller parameters into their recorded form, tuning included
+    parameters: Callable[[Mapping], Dict[str, object]]
+    #: pre-inventory dependencies: [(path, roles, content_sha256)]
+    static_dependencies: Callable[[Mapping], List[Tuple[str, Tuple[str, ...], bool]]]
+    #: (schema, parameters, max_snapshot, prepared_dir) -> the adapter; read-only
+    build: Callable[[CanonicalSchema, Mapping, int, Optional[Path]], SourceAdapter]
+    #: (adapter, parameters) -> the bulk source files the adapter reads now,
+    #: for the pinned-set check
+    source_paths: Callable[[SourceAdapter, Mapping], List[str]]
+    #: adapter -> dependencies only its inventory reveals: [(path, roles, objects)]
+    inventory_dependencies: Callable[[SourceAdapter], List[Tuple[str, Tuple[str, ...], object]]]
+    #: adapter -> the ``forests.h5`` sidecar rows (:attr:`WriteInputs.forests`)
+    forests: Callable[[SourceAdapter], Iterator]
+    #: True when the adapter needs a preparation (a mutation) before it can
+    #: report its inventory
+    prepared: bool
+    #: parameter names that change no output: recorded under the manifest's
+    #: ``tuning``, outside the configuration identity
+    tuning: Tuple[str, ...] = ()
+
+
 _ROUTES: Dict[str, _Route] = {
-    "lhalo_binary": _Route(_lhalo_parameters, _lhalo_dependencies, prepared=False),
-    "consistent_trees_hdf5": _Route(_hdf5_parameters, _hdf5_dependencies, prepared=False),
-    "consistent_trees_ascii": _Route(_ascii_parameters, _ascii_dependencies, prepared=True),
+    "lhalo_binary": _Route(
+        _lhalo_parameters,
+        _lhalo_dependencies,
+        _build_lhalo,
+        _lhalo_source_paths,
+        _no_inventory_dependencies,
+        _lhalo_forests,
+        prepared=False,
+    ),
+    "consistent_trees_hdf5": _Route(
+        _hdf5_parameters,
+        _hdf5_dependencies,
+        _build_hdf5,
+        _hdf5_source_paths,
+        _hdf5_inventory_dependencies,
+        _adapter_forests,
+        prepared=False,
+    ),
+    "consistent_trees_ascii": _Route(
+        _ascii_parameters,
+        _ascii_dependencies,
+        _build_ascii,
+        _ascii_source_paths,
+        _no_inventory_dependencies,
+        _adapter_forests,
+        prepared=True,
+        tuning=("pool_size", "chunksize"),
+    ),
 }
 if tuple(sorted(_ROUTES)) != tuple(sorted(SOURCE_FORMATS)):  # pragma: no cover - contract drift
     raise ImportError("pipeline.py's adapter routes disagree with column_schema.SOURCE_FORMATS")
@@ -439,7 +585,8 @@ def _route(source_format: str) -> _Route:
 
 def canonical_parameters(source_format: str, parameters: Mapping) -> Dict[str, object]:
     """Validate one format's adapter parameters into their recorded form:
-    exact key set, defaults filled in, integers type-checked, paths resolved."""
+    exact key set, defaults filled in, integers type-checked, paths resolved.
+    Tuning parameters are included; :func:`initialize` separates them."""
     return _route(source_format).parameters(parameters)
 
 
@@ -451,51 +598,13 @@ def build_adapter(
     prepared_dir: Optional[Path] = None,
 ) -> SourceAdapter:
     """Construct the adapter a recorded configuration names. Read-only."""
-    if source_format == "lhalo_binary":
-        from adapters.lhalo_binary import LHaloBinaryAdapter
-
-        return LHaloBinaryAdapter(
-            schema,
-            [(ordinal, path) for ordinal, path in parameters["sources"]],
-            max_snapshot=max_snapshot,
-            memory_budget_bytes=parameters["memory_budget_bytes"],
-        )
-    if source_format == "consistent_trees_hdf5":
-        from adapters.ctrees_hdf5 import CTreesHDF5Adapter
-
-        return CTreesHDF5Adapter(
-            schema,
-            parameters["info_path"],
-            first_file=parameters["first_file"],
-            last_file=parameters["last_file"],
-            particle_mass=parameters["particle_mass"],
-            max_snapshot=max_snapshot,
-            memory_budget_bytes=parameters["memory_budget_bytes"],
-        )
-    if source_format == "consistent_trees_ascii":
-        from adapters.ctrees_ascii import CTreesAsciiAdapter
-
-        if prepared_dir is None:
-            raise ConverterError("the ASCII adapter reads a prepared workdir; prepare it first")
-        return CTreesAsciiAdapter(
-            schema, prepared_dir, memory_budget_bytes=parameters["memory_budget_bytes"]
-        )
-    raise ConverterError("unknown source_format {!r}".format(source_format))
-
-
-def _adapter_source_paths(source_format: str, adapter, parameters: Mapping) -> List[str]:
-    """The bulk source files the adapter reads now, for the pinned-set check."""
-    if source_format == "consistent_trees_hdf5":
-        paths = {dependency.identity.path for dependency in adapter.dependencies()}
-        paths.add(parameters["info_path"])
-        return sorted(paths)
-    if source_format == "lhalo_binary":
-        return [path for _ordinal, path in parameters["sources"]]
-    return list(parameters["tree_files"])
+    return _route(source_format).build(schema, parameters, max_snapshot, prepared_dir)
 
 
 def _prepare_ascii(manifest: ConversionManifest) -> Path:
-    """Run (or resume) the ASCII topology preparation inside the workdir."""
+    """Run (or resume) the ASCII topology preparation inside the workdir,
+    with the recorded tuning and the ingest's batch size and adapter budget,
+    so an oversized snapshot is refused as soon as scatter has counted it."""
     from adapters.ctrees_ascii import prepare_workdir
 
     parameters = manifest.configuration["adapter"]["parameters"]
@@ -507,9 +616,11 @@ def _prepare_ascii(manifest: ConversionManifest) -> Path:
         manifest.configuration["snapshots"]["a_list_path"],
         parameters["simulation_info"],
         prepared,
-        pool_size=parameters["pool_size"],
-        chunksize=parameters["chunksize"],
+        pool_size=manifest.tuning["pool_size"],
+        chunksize=manifest.tuning["chunksize"],
         rank_budget_bytes=parameters["rank_budget_bytes"],
+        max_rows=manifest.configuration["ingest_max_rows"],
+        memory_budget_bytes=parameters["memory_budget_bytes"],
     )
     return prepared
 
@@ -519,11 +630,8 @@ def _bind_adapter(manifest: ConversionManifest, adapter) -> None:
     recorded ones (recording the inventory the first time). Read-only."""
     adapter_config = manifest.configuration["adapter"]
     inventory = adapter.inventory()
-    manifest.require_dependency_paths(
-        _adapter_source_paths(
-            adapter_config["source_format"], adapter, adapter_config["parameters"]
-        )
-    )
+    route = _route(adapter_config["source_format"])
+    manifest.require_dependency_paths(route.source_paths(adapter, adapter_config["parameters"]))
     manifest.require_inventory(inventory_record(inventory))
 
 
@@ -545,9 +653,11 @@ def initialize(
 
     The source format is the schema's. Every source dependency is pinned and,
     for the two prelinked formats, the complete inventory is read and
-    recorded now (read-only). Re-initializing a workdir with the identical
-    configuration returns its manifest unchanged; anything different -- or a
-    legacy workdir -- is refused.
+    recorded now (read-only). The format's tuning parameters are split off
+    into the manifest's ``tuning``. Re-initializing a workdir with the
+    identical configuration returns its manifest unchanged -- tuning apart,
+    which is recorded while ingest is incomplete (see the module docstring);
+    anything else different, or a legacy workdir, is refused.
     """
     if not isinstance(schema, CanonicalSchema):
         raise ConverterError(
@@ -556,8 +666,11 @@ def initialize(
     source_format = schema.source_format
     route = _route(source_format)
     recorded_parameters = route.parameters(parameters)
-    ingest_max_rows = _strict_int(ingest_max_rows, "ingest_max_rows", 1)
-    transpose_budget_bytes = _strict_int(transpose_budget_bytes, "transpose_budget_bytes", 1)
+    tuning = {name: recorded_parameters.pop(name) for name in route.tuning}
+    ingest_max_rows = require_integer(ingest_max_rows, "ingest_max_rows", _RECORDED, minimum=1)
+    transpose_budget_bytes = require_integer(
+        transpose_budget_bytes, "transpose_budget_bytes", _RECORDED, minimum=1
+    )
     # Refused here, before any source is read, if the budget cannot hold one
     # row in some phase.
     transpose_module.plan_budget(schema, transpose_budget_bytes)
@@ -589,6 +702,9 @@ def initialize(
                 )
             )
         manifest.verify_dependencies()
+        tuning_changed = canonical_json(manifest.tuning) != canonical_json(tuning)
+        if tuning_changed and not manifest.is_complete("ingest"):
+            manifest.record_tuning(tuning)
         return manifest
     if kind != MANIFEST_ABSENT:
         # classify_manifest raised for everything else except legacy
@@ -604,12 +720,9 @@ def initialize(
     if not route.prepared:
         adapter = build_adapter(source_format, schema, recorded_parameters, len(snapshots) - 1)
         inventory = inventory_record(adapter.inventory())
-        if source_format == "consistent_trees_hdf5":
-            for dependency in adapter.dependencies():
-                pins.append(
-                    pin_dependency(dependency.identity.path, (SOURCE_ROLE,), dependency.objects)
-                )
-    manifest = ConversionManifest.create(workdir, configuration, pins, inventory)
+        for path, roles, objects in route.inventory_dependencies(adapter):
+            pins.append(pin_dependency(path, roles, objects))
+    manifest = ConversionManifest.create(workdir, configuration, pins, inventory, tuning)
     # A dependency that moved while the inventory was read is caught here,
     # before any stage runs.
     manifest.verify_dependencies()
@@ -630,8 +743,71 @@ def _open_for_stage(workdir, schema: Optional[CanonicalSchema]) -> ConversionMan
                 manifest.path
             )
         )
+    _check_tuning(manifest)
+    _check_stage_results(manifest)
     manifest.verify_dependencies()
     return manifest
+
+
+def _check_tuning(manifest: ConversionManifest) -> None:
+    """The recorded tuning must name exactly the route's tuning parameters,
+    each a positive integer. Read-only."""
+    expected = _route(manifest.configuration["adapter"]["source_format"]).tuning
+    tuning = manifest.tuning
+    if sorted(tuning) != sorted(expected):
+        raise ConverterError(
+            "{}: tuning records {} but this source format takes exactly {}".format(
+                manifest.path, sorted(tuning), sorted(expected)
+            )
+        )
+    for name in expected:
+        value = tuning[name]
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise ConverterError(
+                "{}: tuning.{} must be a positive integer, got {!r}".format(
+                    manifest.path, name, value
+                )
+            )
+
+
+#: The result keys this module, the CLI, the validator and the report index
+#: for a completed stage. The manifest records a stage's result as an opaque
+#: mapping; what it must hold is this module's contract, checked here so a
+#: hand-edited manifest is refused by name rather than with a ``KeyError``
+#: from the first consumer.
+_STAGE_RESULT_KEYS = {
+    "ingest": ("n_chunks", "n_rows", "snapshot_counts"),
+    "transpose": (
+        "total_halos",
+        "n_links",
+        "n_gapped_descendants",
+        "max_descendant_span",
+        "links_adjacent",
+    ),
+    "write": ("writer", "n_files"),
+}
+
+
+def _check_stage_results(manifest: ConversionManifest) -> None:
+    """Every completed stage's result holds the keys its consumers index
+    (:data:`_STAGE_RESULT_KEYS`), and ``write``'s ``writer`` is a mapping.
+    Read-only."""
+    for stage, keys in _STAGE_RESULT_KEYS.items():
+        if not manifest.is_complete(stage):
+            continue
+        result = manifest.stage(stage)["result"]
+        missing = [key for key in keys if not isinstance(result, Mapping) or key not in result]
+        if missing:
+            raise ConverterError(
+                "{}: the completed {} stage's result is missing {}; the manifest was edited "
+                "outside the converter".format(manifest.path, stage, missing)
+            )
+        if stage == "write" and not isinstance(result["writer"], Mapping):
+            raise ConverterError(
+                "{}: the completed write stage's result.writer must be a mapping, got {!r}".format(
+                    manifest.path, type(result["writer"]).__name__
+                )
+            )
 
 
 def _snapshots(manifest: ConversionManifest) -> List[int]:
@@ -640,6 +816,69 @@ def _snapshots(manifest: ConversionManifest) -> List[int]:
 
 def _max_snapshot(manifest: ConversionManifest) -> int:
     return len(_snapshots(manifest)) - 1
+
+
+class _Attempt:
+    """One running stage attempt, as :func:`_stage_attempt` yields it: the
+    attempt directory it created (``None`` for ingest) and the result the
+    body sets for the stage to be completed with."""
+
+    def __init__(self, directory: Optional[Path]):
+        self.directory = directory
+        self.result: Optional[Mapping] = None
+
+
+@contextmanager
+def _stage_attempt(
+    manifest: ConversionManifest, stage: str, directory: Optional[str] = None
+) -> Iterator[_Attempt]:
+    """Run one attempt of ``stage``; the only place a stage is completed.
+
+    The attempt is recorded as running, and saved, before anything is
+    created; ``directory``, a workdir-relative attempt directory, is then
+    created. The stage is completed with ``attempt.result`` only when the
+    body returns normally having set one. Any exception -- ``KeyboardInterrupt``
+    included, and a failure to complete -- records the attempt ``failed``
+    (best effort) and propagates, so a failure never completes a stage.
+    """
+    manifest.begin_attempt(stage, directory)
+    try:
+        attempt = _Attempt(None if directory is None else manifest.artifact_path(directory))
+        if attempt.directory is not None:
+            attempt.directory.mkdir(parents=True)
+        yield attempt
+        if attempt.result is None:
+            raise ConverterError(
+                "{}: the {} attempt produced no result; refusing to complete it".format(
+                    manifest.path, stage
+                )
+            )
+        manifest.complete_stage(stage, attempt.result)
+    except BaseException as exc:
+        manifest.fail_stage(stage, exc)
+        raise
+
+
+def _skip_if_complete(
+    manifest: ConversionManifest, stage: str, consume: Optional[str] = None
+) -> bool:
+    """Skip-trust for a complete stage; ``False``, doing nothing, otherwise.
+
+    Every artifact of ``stage`` is verified by SHA-256 -- one the next stage
+    deliberately consumed is accepted as consumed once that stage is
+    complete -- and then the opt-in consumption of ``consume``, the stage's
+    predecessor, runs.
+    """
+    if not manifest.is_complete(stage):
+        return False
+    position = STAGES.index(stage)
+    later = STAGES[position + 1] if position + 1 < len(STAGES) else None
+    manifest.verify_stage_artifacts(
+        stage, allow_removed=later is not None and manifest.is_complete(later)
+    )
+    if consume is not None:
+        manifest.consume_stage(consume, stage)
+    return True
 
 
 # ==========================================================================
@@ -697,11 +936,11 @@ def run_ingest(
 ) -> ConversionManifest:
     """Stream the source into verified canonical chunks, resuming from the
     last registered chunk. See the module docstring."""
-    save_every_chunks = _strict_int(save_every_chunks, "save_every_chunks", 1)
+    save_every_chunks = require_integer(
+        save_every_chunks, "save_every_chunks", _RECORDED, minimum=1
+    )
     manifest = _open_for_stage(workdir, schema)
-    stage = manifest.stage("ingest")
-    if manifest.is_complete("ingest"):
-        manifest.verify_stage_artifacts("ingest", allow_removed=manifest.is_complete("transpose"))
+    if _skip_if_complete(manifest, "ingest"):
         return manifest
 
     adapter_config = manifest.configuration["adapter"]
@@ -713,13 +952,12 @@ def run_ingest(
             source_format, manifest.schema, adapter_config["parameters"], _max_snapshot(manifest)
         )
         _bind_adapter(manifest, adapter)
-    registered = list(stage["artifacts"])
+    registered = list(manifest.stage("ingest")["artifacts"])
     for relpath in registered:
         manifest.verify_artifact(relpath, "ingest chunk")
     leftovers = _ingest_leftovers(manifest, len(registered))
 
-    manifest.begin_attempt("ingest")
-    try:
+    with _stage_attempt(manifest, "ingest") as attempt:
         for path in leftovers:
             path.unlink()
         manifest.artifact_path(INGEST_DIR).mkdir(exist_ok=True)
@@ -734,11 +972,7 @@ def run_ingest(
             )
             _bind_adapter(manifest, adapter)
             manifest.save()
-        result = _stream_chunks(manifest, adapter, registered, save_every_chunks)
-        manifest.complete_stage("ingest", result)
-    except BaseException as exc:
-        manifest.fail_stage("ingest", exc)
-        raise
+        attempt.result = _stream_chunks(manifest, adapter, registered, save_every_chunks)
     return manifest
 
 
@@ -930,12 +1164,10 @@ def run_transpose(
     ``consume_ingest`` deletes the ingest chunks once the transpose is
     complete and its outputs re-verify; it is off by default.
     """
+    consume = "ingest" if consume_ingest else None
     manifest = _open_for_stage(workdir, schema)
     manifest.require_complete("ingest")
-    if manifest.is_complete("transpose"):
-        manifest.verify_stage_artifacts("transpose", allow_removed=manifest.is_complete("write"))
-        if consume_ingest:
-            manifest.consume_stage("ingest", "transpose")
+    if _skip_if_complete(manifest, "transpose", consume):
         return manifest
     consumed = [
         relpath
@@ -949,25 +1181,18 @@ def run_transpose(
         )
 
     directory = _prepare_attempt(manifest, "transpose", TRANSPOSE_DIR)
-    manifest.begin_attempt("transpose", directory)
-    try:
-        out_dir = manifest.artifact_path(directory)
-        out_dir.mkdir(parents=True)
+    with _stage_attempt(manifest, "transpose", directory) as attempt:
         result = transpose_module.transpose(
             manifest.schema,
             lambda max_rows: _chunk_batches(manifest, max_rows),
             _snapshots(manifest),
-            out_dir,
+            attempt.directory,
             budget_bytes=manifest.configuration["transpose_budget_bytes"],
-            spill_dir=out_dir,
+            spill_dir=attempt.directory,
         )
-        summary = _register_transposed(manifest, result, directory)
-        manifest.complete_stage("transpose", summary)
-    except BaseException as exc:
-        manifest.fail_stage("transpose", exc)
-        raise
-    if consume_ingest:
-        manifest.consume_stage("ingest", "transpose")
+        attempt.result = _register_transposed(manifest, result, directory)
+    if consume is not None:
+        manifest.consume_stage(consume, "transpose")
     return manifest
 
 
@@ -1077,7 +1302,7 @@ class WriteInputs:
 
 
 class StageWriter(abc.ABC):
-    """What the write stage asks of a writer (``hdf5_writer.HorizontalV3Writer``
+    """What the write stage asks of a writer (``hdf5_writer_v3.HorizontalV3Writer``
     is the v3 one).
 
     ``write`` creates its outputs only under ``out_dir`` -- a fresh,
@@ -1099,22 +1324,6 @@ class StageWriter(abc.ABC):
     @abc.abstractmethod
     def verify(self, inputs: WriteInputs, produced: Sequence[Path]) -> None:
         """Re-read and check every produced file; raise on any defect."""
-
-
-def read_transposed(manifest: ConversionManifest, snapshot: int) -> np.ndarray:
-    """One snapshot's verified transposed rows (read-only memory map when
-    non-empty)."""
-    dtype = transpose_module.output_dtype(manifest.schema)
-    for relpath in manifest.stage("transpose")["artifacts"]:
-        entry = manifest.artifact(relpath)
-        if entry.get("snapshot") != snapshot:
-            continue
-        manifest.verify_artifact(relpath, "transposed snapshot {}".format(snapshot))
-        n_halos = int(entry["n_halos"])
-        if not n_halos:
-            return np.empty(0, dtype=dtype)
-        return np.memmap(manifest.artifact_path(relpath), dtype=dtype, mode="r", shape=(n_halos,))
-    raise ConverterError("{}: no transposed snapshot {}".format(manifest.path, snapshot))
 
 
 def _bound_adapter(manifest: ConversionManifest) -> SourceAdapter:
@@ -1143,38 +1352,19 @@ def _bound_adapter(manifest: ConversionManifest) -> SourceAdapter:
     return adapter
 
 
-def _lhalo_forests(adapter) -> Iterator:
-    """L-Halo's sidecar rows: one per tree, in inventory order. Its
-    ``ForestIndex`` is the file-prefix tree number (C1), which is the tree's
-    position in that order, and its ``ForestID`` is that same dense run forest
-    number (C3), disambiguated by the file and tree ordinals. Zero-halo trees
-    are forests too: they occupy a tree number."""
-    from adapters.ctrees_hdf5 import ForestRecord
-
-    for position, unit in enumerate(adapter.inventory().units):
-        yield ForestRecord(
-            forest_index=position,
-            forest_id=position,
-            source_file_ordinal=unit.source_file_ordinal,
-            unit_ordinal=unit.unit_ordinal,
-            n_halos=unit.n_halos,
-        )
-
-
 def _forest_provider(manifest: ConversionManifest) -> Callable[[], Iterator]:
     """:attr:`WriteInputs.forests` for one manifest: the bound adapter is
     built on first call and reused, so a writer that enumerates the forests
-    twice (once to write, once to verify) reads the inventory once."""
-    source_format = manifest.configuration["adapter"]["source_format"]
-    bound: List[SourceAdapter] = []
+    twice (once to write, once to verify) reads the inventory once. A build
+    that fails is not cached; the next call tries again."""
+    route = _route(manifest.configuration["adapter"]["source_format"])
+
+    @functools.lru_cache(maxsize=None)
+    def bound() -> SourceAdapter:
+        return _bound_adapter(manifest)
 
     def forests() -> Iterator:
-        if not bound:
-            bound.append(_bound_adapter(manifest))
-        adapter = bound[0]
-        if source_format == "lhalo_binary":
-            return _lhalo_forests(adapter)
-        return adapter.iter_forests()
+        return route.forests(bound())
 
     return forests
 
@@ -1221,39 +1411,33 @@ def run_write(
             "run_write needs a StageWriter, got {!r}".format(type(writer).__name__)
         )
     identity = _writer_identity(writer)
+    consume = "transpose" if consume_transposed else None
     manifest = _open_for_stage(workdir, schema)
     manifest.require_complete("transpose")
-    stage = manifest.stage("write")
     if manifest.is_complete("write"):
-        if canonical_json(stage["result"]["writer"]) != canonical_json(identity):
+        completed_by = manifest.stage("write")["result"]["writer"]
+        if canonical_json(completed_by) != canonical_json(identity):
             raise ConverterError(
                 "{}: the write stage was completed by writer {}, not {}; refusing".format(
-                    manifest.path, stage["result"]["writer"], identity
+                    manifest.path, completed_by, identity
                 )
             )
-        manifest.verify_stage_artifacts("write")
-        if consume_transposed:
-            manifest.consume_stage("transpose", "write")
+    if _skip_if_complete(manifest, "write", consume):
         return manifest
     # verify-before-consume: every transposed snapshot, in full, first
     manifest.verify_stage_artifacts("transpose")
     inputs = _write_inputs(manifest)
 
     directory = _prepare_attempt(manifest, "write", WRITE_DIR)
-    manifest.begin_attempt("write", directory)
-    try:
-        out_dir = manifest.artifact_path(directory)
-        out_dir.mkdir(parents=True)
+    with _stage_attempt(manifest, "write", directory) as attempt:
+        out_dir = attempt.directory
         produced = _check_produced(out_dir, writer.write(inputs, out_dir))
         writer.verify(inputs, produced)
         for path in produced:
             manifest.register_artifact(manifest.relative(path), "write", "write-output")
-        manifest.complete_stage("write", {"writer": identity, "n_files": len(produced)})
-    except BaseException as exc:
-        manifest.fail_stage("write", exc)
-        raise
-    if consume_transposed:
-        manifest.consume_stage("transpose", "write")
+        attempt.result = {"writer": identity, "n_files": len(produced)}
+    if consume is not None:
+        manifest.consume_stage(consume, "write")
     return manifest
 
 
@@ -1269,7 +1453,8 @@ def _writer_identity(writer: StageWriter) -> Dict[str, object]:
 
 def _check_produced(out_dir: Path, produced) -> List[Path]:
     """The writer's reported outputs must be regular files strictly inside
-    ``out_dir`` and exactly what the directory now holds."""
+    ``out_dir`` and exactly what the directory now holds. A symlink or an
+    empty subdirectory anywhere under ``out_dir`` is a failed production."""
     resolved_dir = out_dir.resolve()
     reported = []
     for item in produced:
@@ -1290,6 +1475,10 @@ def _check_produced(out_dir: Path, produced) -> List[Path]:
             candidate = Path(root) / name
             if candidate.is_symlink():
                 raise ConverterError("{}: writer created a symlink".format(candidate))
+        for name in dirs:
+            candidate = Path(root) / name
+            if not any(candidate.iterdir()):
+                raise ConverterError("{}: writer left an empty directory".format(candidate))
         on_disk.extend(Path(root) / name for name in files)
     if sorted(on_disk) != sorted(reported):
         raise ConverterError(

@@ -705,7 +705,7 @@ class TestForestMapWorkerDistribution(unittest.TestCase):
             "does not match the parent's (md5 bbb)"
         )
         with self.assertRaisesRegex(ConverterError, r"aaa.*bbb|/fake/forests\.list"):
-            scatter._scatter_worker(("/fake/path.dat", 0, self.dir, 1_000_000))
+            scatter._scatter_worker(("/fake/path.dat", 0, self.dir, 1_000_000, None))
 
     def test_scatter_worker_raises_clear_error_when_never_initialized(self):
         # Finding 2 (opencode, P3): the "never initialized" case must say so
@@ -713,7 +713,7 @@ class TestForestMapWorkerDistribution(unittest.TestCase):
         scatter._worker_forest_map = None
         scatter._worker_init_error = None
         with self.assertRaisesRegex(ConverterError, "never initialized"):
-            scatter._scatter_worker(("/fake/path.dat", 0, self.dir, 1_000_000))
+            scatter._scatter_worker(("/fake/path.dat", 0, self.dir, 1_000_000, None))
 
     def test_worker_forest_map_content_mismatch_aborts_run_with_no_completed_output(self):
         # end-to-end: the two loads must differ in CONTENT, not merely
@@ -881,7 +881,9 @@ class TestForestMapWorkerDistribution(unittest.TestCase):
         task_args = captured["task_args"]
         self.assertEqual(len(task_args), 3)  # one task per pending source file
         for task in task_args:
-            self.assertEqual(len(task), 4)  # (path, src_index, scratch_dir, chunksize)
+            # (path, src_index, scratch_dir, chunksize, schema); a legacy run has no schema
+            self.assertEqual(len(task), 5)
+            self.assertIsNone(task[4])
             for element in task:
                 self.assertNotIsInstance(element, scatter.ForestMap)
 
@@ -1982,7 +1984,7 @@ class TestScratchBuffering(unittest.TestCase):
             forest_map = load_forests_list(env.forests_list)
             scratch_dir = Path(tmp) / "scratch"
             tasks = [
-                (path, i, scratch_dir, 2) + (() if i == 0 else (_schema(),))
+                (path, i, scratch_dir, 2, None if i == 0 else _schema())
                 for i, path in enumerate(env.tree_files)
             ]
             ctx = mp.get_context("spawn")

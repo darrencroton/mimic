@@ -40,8 +40,10 @@ import struct
 import subprocess
 import sys
 import tempfile
+import tracemalloc
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import h5py
 import numpy as np
@@ -829,6 +831,80 @@ class ComparatorDefectTests(unittest.TestCase):
         self.assertEqual(report["verdict"], "FAIL")
         self.assertIn("nothing_compared", report["failed_checks"])
 
+    def test_non_positive_block_rows_is_a_recorded_usage_error(self):
+        # a negative size made every read range empty: nothing converted was read
+        record = self.work / "record.json"
+        for value in ("-3", "0"):
+            with self.subTest(block_rows=value):
+                code, _out, err = run_harness(
+                    [
+                        "compare",
+                        "--record",
+                        record,
+                        "--dataset",
+                        self.dataset,
+                        "--dump",
+                        self.dump,
+                        "--source-format",
+                        "lhalo_binary",
+                        "--block-rows",
+                        value,
+                    ]
+                )
+                self.assertEqual(code, acc.EXIT_ERROR, err)
+                self.assertIn("--block-rows must be positive", err)
+                entry = json.loads(record.read_text())["runs"][-1]
+                self.assertEqual((entry["kind"], entry["exit_status"]), ("error", acc.EXIT_ERROR))
+                self.assertIn("--block-rows", entry["error"])
+
+    def test_snapshot_files_are_read_in_numeric_not_lexicographic_order(self):
+        dataset = self.copy_dataset()
+        # "snapshot_10.h5" sorts after "snapshot_049.h5" as text, before it as a number
+        (dataset / "snapshot_010.h5").rename(dataset / "snapshot_10.h5")
+        numbers = [number for number, _path, _rows in acc.V3Dataset(dataset).files]
+        self.assertEqual(numbers, sorted(numbers))
+        self.assertIn(10, numbers)
+        report = compare(dataset, self.dump)
+        self.assertEqual(report["verdict"], "PASS", report["failed_checks"])
+        self.assertEqual(report["matched_rows"], len(self.synthetic.halos))
+
+    def test_two_files_of_one_snapshot_are_a_dataset_failure(self):
+        dataset = self.copy_dataset()
+        shutil.copy2(dataset / "snapshot_010.h5", dataset / "snapshot_10.h5")
+        report = compare(dataset, self.dump)
+        self.assertFailsExactly(report, "dataset_integrity")
+        self.assertIn("both hold snapshot 10", report["checks"]["dataset_integrity"]["samples"][0])
+
+    def test_a_comparison_declares_its_checks_once(self):
+        with mock.patch.object(acc, "_declare_checks", wraps=acc._declare_checks) as declare:
+            report = compare(self.dataset, self.dump)
+        self.assertEqual(report["verdict"], "PASS", report["failed_checks"])
+        self.assertEqual(declare.call_count, 1)
+
+    def test_both_comparisons_report_an_uncomparable_dataset_alike(self):
+        dataset = self.copy_dataset()
+        with h5py.File(sorted(dataset.glob("snapshot_*.h5"))[0], "r+") as handle:
+            handle["header"].attrs["format_version"] = np.int32(2)
+        topology = compare(dataset, self.dump)
+        extras = acc.compare_extras(
+            dataset,
+            "lhalo_binary",
+            REPO_ROOT / "scripts" / "convert" / "profiles" / "lhalo_binary.yaml",
+            {},
+            1 << 20,
+            None,
+            3,
+        )
+        for report in (topology, extras):
+            self.assertEqual(
+                set(report),
+                {"report_format", "verdict", "failed_checks", "source_format", "checks"},
+            )
+            self.assertFailsExactly(report, "dataset_integrity")
+        self.assertEqual(
+            topology["checks"]["dataset_integrity"], extras["checks"]["dataset_integrity"]
+        )
+
 
 # ==========================================================================
 # 64-bit bounded sort, join and comparison
@@ -1272,6 +1348,21 @@ class ExtrasTests(unittest.TestCase):
                 dict(base, extra_fields=[extra("X", [{"field": "Pos", "component": 5}], "float")])
             ),
             "no identity role": yaml.safe_dump(dict(base, required_columns={"Len": ["Len"]})),
+            "repeated extra name": yaml.safe_dump(
+                dict(
+                    base,
+                    extra_fields=[
+                        extra("X", [{"field": "Len"}], "int"),
+                        extra("X", [{"field": "SnapNum"}], "int"),
+                    ],
+                )
+            ),
+            "extra named SourceHaloID": yaml.safe_dump(
+                dict(base, extra_fields=[extra("SourceHaloID", [{"field": "Len"}], "int")])
+            ),
+            "extra named like the identity field": yaml.safe_dump(
+                dict(base, extra_fields=[extra(acc.IDENTITY_FIELD, [{"field": "Len"}], "int")])
+            ),
         }
         for label, text in malformed.items():
             with self.subTest(label):
@@ -1417,6 +1508,84 @@ class ExtrasTests(unittest.TestCase):
         entry = json.loads(self.record.read_text())["runs"][-1]
         self.assertEqual(entry["kind"], "error")
 
+    def test_colliding_extra_names_are_recorded_usage_errors(self):
+        # each would otherwise reach np.dtype() as a duplicate field: a bare ValueError
+        shipped = REPO_ROOT / "scripts" / "convert" / "profiles" / "lhalo_binary.yaml"
+        colliding = {
+            "repeated": [
+                extra("RawLen", [{"field": "Len"}], "int"),
+                extra("RawLen", [{"field": "SnapNum"}], "int"),
+            ],
+            "identity": [extra("SourceHaloID", [{"field": "Len"}], "int")],
+        }
+        for label, extras in colliding.items():
+            with self.subTest(label):
+                profile = write_profile(self.tmp / "{}.yaml".format(label), shipped, extras)
+                code, _report, text = self.extras_cli(
+                    self.tmp,
+                    "lhalo_binary",
+                    profile,
+                    [
+                        "--source-dir",
+                        self.tmp,
+                        "--tree-name",
+                        "x",
+                        "--first-file",
+                        "0",
+                        "--last-file",
+                        "0",
+                        "--halo-properties",
+                        MICRO / "halo_properties.yaml",
+                    ],
+                )
+                self.assertEqual(code, acc.EXIT_ERROR, text)
+                entry = json.loads(self.record.read_text())["runs"][-1]
+                self.assertEqual((entry["kind"], entry["exit_status"]), ("error", acc.EXIT_ERROR))
+                self.assertTrue(entry["error"].startswith("AcceptanceError"), entry["error"])
+
+    def test_forests_hdf5_inputs_include_the_external_link_targets(self):
+        package = SIMULATIONS / "micro-uchuu-hdf5"
+        fixture = package / "_tests" / "data" / "MicroUchuu_test_mergertree_info.h5"
+        forests = self.tmp / "forests_0.h5"
+        with h5py.File(fixture, "r") as source, h5py.File(forests, "w") as target:
+            source.copy(source["File0"], target, name="File0")
+        linked = self.tmp / "linked_info.h5"
+        with h5py.File(linked, "w") as handle:
+            handle["File0"] = h5py.ExternalLink(forests.name, "/File0")  # relative, as shipped
+        self.assertEqual(
+            [path.resolve() for path in acc.hdf5_link_targets(linked, 0, 0)], [forests.resolve()]
+        )
+        self.assertEqual(acc.hdf5_link_targets(fixture, 0, 0), [], "a hard link has no target")
+        # the extraction reads the same rows through the link as from the fixture itself
+        _declared, aliases = acc.load_profile_declarations(
+            package / "converter_columns.yaml", "consistent_trees_hdf5"
+        )
+
+        def extracted(info):
+            blocks = acc.iter_hdf5_source(info, 0, 0, ["Mvir"], aliases, 4, 1 << 20)
+            return [
+                (first, rows, {k: v.tolist() for k, v in c.items()}) for first, rows, c in blocks
+            ]
+
+        self.assertEqual(extracted(linked), extracted(fixture))
+        # the recorded inputs name the file the halos were read from, not just the info file
+        empty = self.tmp / "empty_dataset"
+        empty.mkdir()
+        code, report, text = self.extras_cli(
+            empty,
+            "consistent_trees_hdf5",
+            package / "converter_columns.yaml",
+            ["--info-file", linked, "--first-file", "0", "--last-file", "0"],
+        )
+        self.assertEqual(code, acc.EXIT_FAIL, text)
+        self.assertEqual(report["failed_checks"], ["dataset_integrity"])
+        entry = json.loads(self.record.read_text())["runs"][-1]
+        recorded = [identity["path"] for identity in entry["inputs"]]
+        self.assertIn(str(linked.resolve()), recorded)
+        self.assertIn(str(forests.resolve()), recorded)
+        self.assertEqual(entry["result"]["report"], str(self.tmp / "extras.json"))
+        self.assertIn("resources", entry)
+
     def test_opposite_endian_extraction_reads_the_declared_values(self):
         synthetic = SyntheticLHalo([[[halo(5, mbid=-(1 << 40), m_crit=-1.0)]]])
         little = synthetic.write_source(self.tmp / "le")
@@ -1446,6 +1615,118 @@ class ExtrasTests(unittest.TestCase):
             list(acc.iter_lhalo_source(source, "synthetic_trees", 0, 1, layout, "little", 10))
         with self.assertRaises(acc.AcceptanceError):
             list(acc.iter_lhalo_source(source, "synthetic_trees", 0, 2, layout, "little", 10))
+
+
+# ==========================================================================
+# The ASCII extractor's memory bound
+# ==========================================================================
+
+ASCII_HEADER = "#scale(0) id(1) desc_id(2) x(3) Mvir(4) num_prog(5) Tree_root_ID(6)\n"
+
+
+def write_ascii(directory, trees, forest_of_tree):
+    """One indexed-header ASCII tree file of ``{tree root: rows}`` and its forests.list.
+
+    Row ``i`` of the file (from 0) has catalog id ``i + 1`` and x ``i / 1000``.
+    """
+    directory.mkdir(parents=True, exist_ok=True)
+    lines, row = [ASCII_HEADER, "#Omega_M = 0.3\n", "{}\n".format(len(trees))], 0
+    for tree, rows in trees.items():
+        lines.append("#tree {}\n".format(tree))
+        for _ in range(rows):
+            lines.append("0.5 {} -1 {:.3f} 1.0e12 0 {}\n".format(row + 1, row / 1000, tree))
+            row += 1
+    path = directory / "tree_0_0_0.dat"
+    path.write_text("".join(lines))
+    listing = directory / "forests.list"
+    listing.write_text(
+        "#TreeRootID ForestID\n"
+        + "".join("{} {}\n".format(t, f) for t, f in forest_of_tree.items())
+    )
+    return path, listing
+
+
+class AsciiExtractionTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="acceptance_ascii_"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def peak(self, path, listing, block_rows):
+        """tracemalloc peak while streaming ``x`` of every row; the blocks' sizes and ids."""
+        sizes, ids = [], []
+        tracemalloc.start()
+        try:
+            for block_ids, columns in acc.iter_ascii_source(
+                [path], listing, ["x"], ["id"], block_rows
+            ):
+                sizes.append(len(block_ids))
+                ids.append((int(block_ids[0]), int(block_ids[-1]), columns["x"][0]))
+            _current, peak = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+        return peak, sizes, ids
+
+    def test_ascii_extraction_memory_follows_block_rows_not_the_tree(self):
+        """A 20,000-row tree read 1,000 rows at a time never holds the whole tree's tokens.
+
+        The earlier extractor kept every token of a tree twice (a list of rows
+        and a string array), about 21 MB here whatever the block size.
+        """
+        path, listing = write_ascii(self.tmp, {7: 20000}, {7: 1})
+        peak, sizes, ids = self.peak(path, listing, 1000)
+        self.assertEqual(sizes, [1000] * 20)
+        self.assertEqual(ids[0], (1, 1000, "0.000"))
+        self.assertEqual(ids[-1], (19001, 20000, "19.000"))
+        whole_peak, whole_sizes, _ids = self.peak(path, listing, 20000)
+        self.assertEqual(whole_sizes, [20000])
+        # the whole tree's tokens of just the two kept columns, as Python strings
+        whole_tokens = 20000 * 2 * sys.getsizeof("19999")
+        self.assertLess(peak, whole_tokens / 2, (peak, whole_tokens))
+        self.assertLess(4 * peak, whole_peak, (peak, whole_peak))
+
+    def test_ascii_slices_assign_the_same_source_halo_ids_at_any_block_size(self):
+        # forests 1 and 2 interleave across trees; the empty tree still opens forest 3's unit
+        trees = {11: 3, 21: 5, 12: 4, 31: 0, 22: 2, 13: 1, 32: 3}
+        forests = {11: 1, 12: 1, 13: 1, 21: 2, 22: 2, 31: 3, 32: 3}
+        path, listing = write_ascii(self.tmp, trees, forests)
+
+        def ids(block_rows):
+            blocks = acc.iter_ascii_source([path], listing, ["x"], ["id"], block_rows)
+            return [
+                (int(i), int(c), x)
+                for block_ids, columns in blocks
+                for i, c, x in zip(block_ids, columns[acc.IDENTITY_FIELD], columns["x"])
+            ]
+
+        whole = ids(1 << 20)
+        # unit order 1, 2, 3; a row's ordinal counts its forest's earlier rows in the file
+        by_catalog = {catalog: source for source, catalog, _x in whole}
+        self.assertEqual([by_catalog[c] for c in (1, 4, 9, 13, 16)], [1, 9, 4, 14, 16])
+        self.assertEqual(sorted(by_catalog.values()), list(range(1, 19)))
+        for block_rows in (1, 2, 3, 7):
+            with self.subTest(block_rows=block_rows):
+                self.assertEqual(ids(block_rows), whole)
+        with self.assertRaises(acc.AcceptanceError):
+            ids(0)
+
+    def test_a_file_changed_between_the_passes_is_refused(self):
+        path, listing = write_ascii(self.tmp, {7: 5, 8: 2}, {7: 1, 8: 2})
+        plan = acc._ascii_tree_plan
+        for label, edit in (
+            ("fewer rows planned", lambda trees: trees[0].__setitem__(2, 4)),
+            ("more rows planned", lambda trees: trees[1].__setitem__(2, 3)),
+            ("a tree fewer planned", lambda trees: trees.pop()),
+            ("tree ids swapped", lambda trees: trees[0].__setitem__(3, trees[1][3])),
+        ):
+
+            def changed(*args, edit=edit):
+                trees, sizes = plan(*args)
+                edit(trees)
+                return trees, sizes
+
+            with self.subTest(label), mock.patch.object(acc, "_ascii_tree_plan", changed):
+                with self.assertRaisesRegex(acc.AcceptanceError, "changed between"):
+                    list(acc.iter_ascii_source([path], listing, ["x"], ["id"], 2))
 
 
 # ==========================================================================
@@ -1479,6 +1760,37 @@ ASCII_FIXTURE_V1_DUMP = """# mimic-topology-dump v1
 -9223372036854775808
 """
 V1_HEADER = "\n".join(ASCII_FIXTURE_V1_DUMP.splitlines()[:3]) + "\n"
+
+#: ``mimic-source-dump v1`` of the same fixture through the enumerated
+#: consistent_trees_ascii reader, typed from tree_0_0_0.dat and forests.list:
+#: forests 1001..1003 are forest numbers 0..2, all in partition 0 as units
+#: 0..2; 1000011 (snap 48) is 1000001's first progenitor, and every halo heads
+#: its own FoF group. len is round(float32(Mvir) * 1e-10 / 0.0327), the
+#: package particle mass (153, 138, 92, 61); m_crit200 is float32(Mvir)
+#: (5e10 -> 513a43b7, 4.5e10 -> 5127a358, 3e10 -> 50df8476, 2e10 -> 509502f9);
+#: pos/vel are x..z and vx..vz (5.1 -> 40a33333); spin is J/Mvir = 0 (J is
+#: zero); vel_disp is vrms and vmax is vmax. Backslashes continue lines.
+ASCII_FIXTURE_SOURCE_DUMP = """# mimic-source-dump v1
+# reader consistent_trees_ascii partition_model enumerated
+# columns forest_index rank partition unit snapnum descendant descendant_snap \
+first_progenitor first_progenitor_snap next_progenitor next_progenitor_snap first_fof next_fof \
+len most_bound_id m_crit200 pos_x pos_y pos_z vel_x vel_y vel_z spin_x spin_y spin_z vel_disp vmax
+# links are within-forest ranks, -1 = no link; *_snap is the target's snapnum, -1 = no link; \
+m_crit200..vmax are binary32 bit patterns in hex
+0 0 0 0 49 -1 -1 1 48 -1 -1 0 -1 153 1000001 \
+513a43b7 40a00000 40c00000 40e00000 41200000 41a00000 41f00000 00000000 00000000 00000000 \
+42a00000 42f00000
+0 1 0 0 48 0 49 -1 -1 -1 -1 1 -1 138 1000011 \
+5127a358 40a33333 40c33333 40e33333 41300000 41a80000 41f80000 00000000 00000000 00000000 \
+42960000 42e60000
+1 0 0 1 49 -1 -1 -1 -1 -1 -1 0 -1 92 1000002 \
+50df8476 41700000 41800000 41880000 41400000 41b00000 42000000 00000000 00000000 00000000 \
+42700000 42c80000
+2 0 0 2 49 -1 -1 -1 -1 -1 -1 0 -1 61 1000003 \
+509502f9 41c80000 41d00000 41d80000 41500000 41b80000 42040000 00000000 00000000 00000000 \
+42480000 42b40000
+# end rows 4 forests 3
+"""
 
 
 def _toolchain_missing():
@@ -1629,6 +1941,34 @@ class CDumpToolTests(unittest.TestCase):
         self.assertIn("global_forest_offset", result.stderr)
         self.assertEqual(dump.read_text(), V1_HEADER)
 
+    def test_source_payload_of_the_enumerated_ascii_reader_matches_its_literal(self):
+        # the only --source-payload run through global_forest_offset (enumerated readers)
+        record = self.work / "record.json"
+        dump = self.work / "ascii.dump"
+        data = SIMULATIONS / "micro-uchuu-ascii" / "_tests" / "data"
+        run = run_file(
+            self.work / "ascii.yaml", "micro-uchuu-ascii", data, "tree_0_0_0.dat", 0, self.work
+        )
+        code, out, err = run_harness(
+            [
+                "dump",
+                "--record",
+                record,
+                "--tool",
+                self.tools["micro-uchuu-ascii"],
+                "--run-file",
+                run,
+                "--out",
+                dump,
+            ]
+        )
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(dump.read_text(), ASCII_FIXTURE_SOURCE_DUMP)
+        parsed = acc.SourceDump(dump)
+        self.assertEqual(
+            (parsed.reader, parsed.partition_model), ("consistent_trees_ascii", "enumerated")
+        )
+
     def test_default_mode_output_is_byte_identical_to_the_pre_change_tool(self):
         dump = self.work / "v1.dump"
         data = SIMULATIONS / "micro-uchuu-ascii" / "_tests" / "data"
@@ -1664,6 +2004,8 @@ class CDumpToolTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 1)
         self.assertIn("Requested input file 2 is missing", result.stderr)
+        # files 0 and 1 were already dumped when file 2 was found missing
+        self.assertFalse(dump.exists(), "a failed source dump must leave no partial file")
 
 
 # ==========================================================================
@@ -1761,6 +2103,42 @@ class MeasurementTests(unittest.TestCase):
             ]
         )
         self.assertEqual(code, acc.EXIT_ERROR, "an existing workdir is refused")
+
+    def test_same_label_runs_within_one_second_keep_separate_logs(self):
+        entries = []
+        with mock.patch.object(acc.time, "strftime", return_value="20260101T000000"):
+            for text in ("first", "second"):
+                entries.append(
+                    acc.measured_run(
+                        [sys.executable, "-c", "print({!r})".format(text)], "retry", self.tmp
+                    )
+                )
+        self.assertNotEqual(entries[0]["stdout"], entries[1]["stdout"])
+        self.assertNotEqual(entries[0]["stderr"], entries[1]["stderr"])
+        for entry, text in zip(entries, ("first", "second")):
+            self.assertEqual(entry["exit_code"], 0)
+            self.assertEqual(Path(entry["stdout"]).read_text().strip(), text)
+            self.assertTrue(Path(entry["stderr"]).is_file())
+        # the stem collision leaves no stray log behind: exactly two pairs exist
+        self.assertEqual(len(list(Path(self.tmp).glob("*.out"))), 2)
+        self.assertEqual(len(list(Path(self.tmp).glob("*.err"))), 2)
+
+    def test_an_interrupted_wait_terminates_the_child(self):
+        waited = []
+
+        def interrupted(pid, _options):
+            waited.append(pid)
+            raise KeyboardInterrupt
+
+        with mock.patch.object(acc.os, "wait4", side_effect=interrupted):
+            with self.assertRaises(KeyboardInterrupt):
+                acc.measured_run(
+                    [sys.executable, "-c", "import time; time.sleep(60)"], "sleep", self.tmp
+                )
+        (pid,) = waited
+        # terminated and reaped: the pid no longer names a process of ours
+        with self.assertRaises(ProcessLookupError):
+            os.kill(pid, 0)
 
     def test_the_harness_imports_nothing_from_the_converter(self):
         converter_modules = {

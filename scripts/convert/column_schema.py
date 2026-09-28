@@ -1,15 +1,14 @@
-"""Canonical source schema, mapping profiles and schema identity (Slice 2 of
-the converter generalisation plan,
-docs/dev/MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md, contracts
-C1-C3).
+"""Canonical source schema, mapping profiles and schema identity.
+
+Contracts C1-C3 of docs/dev/MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md.
 
 Pure and side-effect free. This module parses a declarative mapping profile,
 validates it, freezes it into an immutable :class:`CanonicalSchema`, and
 derives that schema's deterministic SHA-256 identity. It reads a YAML profile
 (and, for binary sources, an ordered ``halo_properties.yaml``) when asked to;
 it never writes, never opens a source catalog and never converts data. The
-adapters (Slices 3-5), the transpose (Slice 6), the manifest (Slice 7) and the
-v3 writer (Slice 8) all consume what this module produces.
+source adapters, the transpose, the conversion manifest and the v3 writer all
+consume what this module produces.
 
 Three identities must not be confused, and this module keeps them apart by
 construction:
@@ -29,6 +28,12 @@ The canonical serialization rules (C2) are the reason this module exists:
 comments, mapping key order, alias order and extra-definition order are
 presentation and must not change the digest; field types, source components,
 units and h conventions are semantics and must.
+
+Profile input is untrusted YAML, and a YAML value may be a list or a mapping
+wherever a scalar is expected. Every dict- or set-membership test on a profile
+value therefore runs only after an ``isinstance(str)`` check, so a list or
+mapping value produces :class:`ConverterError` rather than a bare
+``TypeError`` from hashing.
 """
 
 import hashlib
@@ -39,7 +44,7 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 import yaml
-from ctrees_parser import ConverterError
+from errors import ConverterError
 
 __all__ = [
     "ConverterError",
@@ -57,6 +62,7 @@ __all__ = [
     "PAYLOAD_FIELDS",
     "SOURCE_IDENTITY_CONVENTIONS",
     "MAX_OUTPUT_NAME_BYTES",
+    "INT64_MAX",
     "SourceComponent",
     "ExtraField",
     "BinaryLayout",
@@ -143,12 +149,12 @@ H_CONVENTIONS = ("carried", "free", "none")
 #: is a property of the file, never of the machine reading it.
 BYTE_ORDERS = {"little": "<", "big": ">"}
 
-#: Upper bound on a binary record's itemsize and on any field offset within
-#: it. A record extent is a byte count that a reader must be able to seek to,
-#: so int64 is the ceiling that matters; nothing here describes a real record
-#: anywhere near it, and refusing a value beyond it keeps an absurd literal
-#: from reaching arithmetic that assumes a machine word.
-_MAX_RECORD_EXTENT = 2**63 - 1
+#: Largest signed 64-bit integer. It bounds a binary record's itemsize and any
+#: field offset within it: a record extent is a byte count that a reader must
+#: be able to seek to, so int64 is the ceiling that matters; nothing here
+#: describes a real record anywhere near it, and refusing a value beyond it
+#: keeps an absurd literal from reaching arithmetic that assumes a machine word.
+INT64_MAX = 2**63 - 1
 
 #: Output names are ASCII ``[A-Za-z][A-Za-z0-9_]*``, at most 63 bytes (C2).
 #: Matched with ``fullmatch``: ``$`` also matches immediately *before* a
@@ -177,7 +183,7 @@ class _FixedField:
 #: The five int64 snapshot-local link columns plus the three int32
 #: target-snapshot columns (C3). The snapshot columns are -1 if and only if
 #: the corresponding row index is -1; that biconditional is a v3 validator
-#: obligation (Slice 8), stated here so the name table and the rule live
+#: obligation (validate.py), stated here so the name table and the rule live
 #: together.
 TOPOLOGY_FIELDS: Tuple[_FixedField, ...] = (
     _FixedField(
@@ -742,12 +748,6 @@ class ColumnMap:
     def roles(self) -> Tuple[str, ...]:
         return tuple(role for role, _aliases in self.required_columns)
 
-    def aliases_for(self, role: str) -> Tuple[str, ...]:
-        for name, aliases in self.required_columns:
-            if name == role:
-                return aliases
-        raise ConverterError("{}: no required column role {!r}".format(self.origin, role))
-
 
 # ==========================================================================
 # Strict YAML loading
@@ -954,9 +954,6 @@ def _parse_extra_field(raw, source_format: str, origin: str, index: int) -> Extr
             "{}: name {!r} collides with a reserved topology/identity/core name".format(what, name)
         )
 
-    # `in` against a dict hashes the key, so a list/dict value would raise a
-    # bare TypeError instead of this module's named error. Checked as a string
-    # first, here and at every other dict-membership test below.
     type_name = raw["type"]
     if not isinstance(type_name, str) or type_name not in EXTRA_TYPES:
         raise ConverterError(
@@ -1045,10 +1042,10 @@ def _parse_binary_layout(raw, origin: str) -> BinaryLayout:
             )
         )
     itemsize = _require_int(raw["itemsize"], "{}: binary_layout.itemsize".format(origin))
-    if not 0 < itemsize <= _MAX_RECORD_EXTENT:
+    if not 0 < itemsize <= INT64_MAX:
         raise ConverterError(
             "{}: binary_layout.itemsize must be in [1, {}], got {}".format(
-                origin, _MAX_RECORD_EXTENT, itemsize
+                origin, INT64_MAX, itemsize
             )
         )
 
@@ -1070,10 +1067,10 @@ def _parse_binary_layout(raw, origin: str) -> BinaryLayout:
         offset = _require_int(
             offsets_raw[field_name], "{}: binary_layout.offsets.{}".format(origin, field_name)
         )
-        if not 0 <= offset <= _MAX_RECORD_EXTENT:
+        if not 0 <= offset <= INT64_MAX:
             raise ConverterError(
                 "{}: binary_layout.offsets.{} must be in [0, {}], got {}".format(
-                    origin, field_name, _MAX_RECORD_EXTENT, offset
+                    origin, field_name, INT64_MAX, offset
                 )
             )
         offsets.append((field_name, offset))
@@ -1411,8 +1408,11 @@ class CanonicalSchema:
     def consumer_metadata_fragment(self) -> Dict[str, object]:
         """Payload types/units/core-role bindings a future consumer needs.
 
-        Deliberately incomplete, and says so: it covers the payload a
-        ``halo_properties.yaml`` would declare, and does *not* describe the
+        ``halo_properties`` lists the payload a ``halo_properties.yaml`` would
+        declare; ``format_table_fields`` lists the format-owned topology and
+        identity fields with the core role each provides (the five links bind
+        the tree-link roles; the target-snapshot and identity fields bind
+        none). Deliberately incomplete, and says so: it does *not* describe the
         runtime topology support v3 needs (retained gap state, wide slab
         access), which is an architectural prerequisite outside this
         converter (plan "Conversion versus execution is an explicit
@@ -1439,15 +1439,21 @@ class CanonicalSchema:
                 for field in self.output_field_declarations()
             ],
             "format_table_fields": [
-                {"name": field.name, "type": field.type, "description": field.description}
+                {
+                    "name": field.name,
+                    "type": field.type,
+                    "description": field.description,
+                    "provides_core_role": _CORE_ROLE_BINDINGS.get(field.name),
+                }
                 for field in TOPOLOGY_FIELDS + IDENTITY_FIELDS
             ],
         }
 
 
-#: Core-role bindings a consuming ``halo_properties.yaml`` needs for the
-#: required inputs in src/core/core_properties.yaml. Extras never bind a core
-#: role: a declaratively selected field is payload, not a pipeline input.
+#: Core-role bindings a consumer needs for the required inputs in
+#: src/core/core_properties.yaml: the five links are format-table fields, the
+#: other three payload. Extras never bind a core role: a declaratively
+#: selected field is payload, not a pipeline input.
 _CORE_ROLE_BINDINGS = {
     "Descendant": "Descendant",
     "FirstProgenitor": "FirstProgenitor",
@@ -1586,7 +1592,7 @@ def _check_extra_types(
     """
     by_name = {prop.name: prop for prop in source_properties}
     for extra in extra_fields:
-        declared_element = EXTRA_TYPES[extra.type].numpy_dtype
+        declared_element = extra.spec.numpy_dtype
         for position, (spelling, _component) in enumerate(resolved[extra.name]):
             source_element = EXTRA_TYPES[by_name[spelling].type].numpy_dtype
             if source_element != declared_element:

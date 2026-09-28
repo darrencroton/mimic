@@ -14,7 +14,7 @@ workdir; ``remove_intermediate`` refuses anything else. The downstream stages
 consume their predecessors through ``Manifest.consume_intermediates``, which is
 opt-in per run (plan Slice 8) and routes every deletion through that same guard.
 
-**Scratch layout** (converter generalisation Slice 5). A workdir holds one
+**Scratch layout**. A workdir holds one
 ``ctrees_parser.ScratchLayout`` for its whole life: the frozen 108-byte legacy
 record of the ASCII-to-v2 route, or the extended record of the canonical ASCII
 bridge (source coordinates plus declared extras). ``run_scatter`` fixes it
@@ -415,9 +415,9 @@ class Manifest:
     ) -> None:
         """Record an intermediate's absolute path and content checksum — the
         frozen ownership contract every later deletion is verified against.
-        Scratch files holding structured records must carry the frozen
-        DTYPE_TAG (plan Slice 2: 'recorded in every scratch-file manifest
-        entry'); other binaries record their own dtype."""
+        Scratch files holding structured records carry the workdir's
+        ``manifest.layout.dtype_tag`` (the frozen ``DTYPE_TAG`` for the legacy
+        layout); other binaries record their own dtype."""
         resolved = Path(path).resolve()
         entry = {"kind": kind, "status": "present", "md5": file_md5(resolved)}
         if rows is not None:
@@ -1016,14 +1016,14 @@ def _init_scatter_worker(forests_list_path: str, expected_md5: str) -> None:
 
 
 def _scatter_worker(args: Tuple) -> FileScatterResult:
-    """Pool task: ``(path, src_index, scratch_dir, chunksize[, schema])``.
+    """Pool task: ``(path, src_index, scratch_dir, chunksize, schema)``.
 
-    The optional fifth element is the extended layout's schema; it travels
-    with the task (a small frozen object) so a pooled worker scatters into the
-    same layout, through the same :func:`scatter_one_file`, as the serial path.
+    ``schema`` is the extended layout's schema, or ``None`` for the legacy
+    layout; it travels with the task (a small frozen object) so a pooled
+    worker scatters into the same layout, through the same
+    :func:`scatter_one_file`, as the serial path.
     """
-    path, src_index, scratch_dir, chunksize = args[:4]
-    schema = args[4] if len(args) > 4 else None
+    path, src_index, scratch_dir, chunksize, schema = args
     if _worker_forest_map is None:
         raise ConverterError(
             _worker_init_error
@@ -1247,10 +1247,7 @@ def run_scatter(
         # the whole ForestMap being pickled into every task. forest_map.md5
         # travels alongside the path so each worker's independent load can
         # be bound to the parent's identity rather than trusted blind.
-        args = [
-            (path, i, scratch_dir, chunksize) + ((schema,) if schema is not None else ())
-            for path, i in pending
-        ]
+        args = [(path, i, scratch_dir, chunksize, schema) for path, i in pending]
         with Pool(
             processes=min(pool_size, len(pending)),
             initializer=_init_scatter_worker,
