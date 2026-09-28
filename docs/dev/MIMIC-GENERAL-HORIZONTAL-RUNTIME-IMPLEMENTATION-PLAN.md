@@ -117,6 +117,15 @@ These are architectural decisions this plan deliberately does not make. Each has
 - R0-10 (2026-09-28): the proposed names are accepted — `simulations/mini-millennium-horizontal/`, `micro-uchuu-lhalo-horizontal/`, `micro-uchuu-hdf5-horizontal/`, `millennium-horizontal/` and `mini-uchuu-horizontal/`.
 - R0-11 (2026-09-28): **(a)** — move the approved v3 draft into `HORIZONTAL-HDF5-FORMAT.md` as a normative version 3 section, in Slice 8 only, after the parity gate.
 
+## Plan amendments
+
+- **2026-09-28, before any slice was accepted** (owner-approved; found when the first Mode B run's Slice 1 Developer stopped on a surface gap, then by a read-only surface audit of every slice). The fixes make each slice's frozen criteria reachable and change no criterion's meaning.
+  - **Slice 1:** add `src/include/proto.h`, which declares every function whose index parameters must widen. Add the eight sage16 files and `src/io/vertical/hdf5.c` whose log calls print a widened index with `%d`. Add the micro-Uchuu gather test. The component clause becomes "no physics-behaviour change", with those files limited to format specifiers.
+  - **Slice 2:** with every package declaring `int` links, no build could accept a v3 fixture. Slice 2 therefore creates the `simulations/mini-millennium-horizontal/` skeleton and Slice 3 completes it. Also add the generator, `check_generated.py`, the generator test and `tests/data/README.md`, so the `/schema` comparison reads compiled units and `h_convention`.
+  - **Slice 4:** add `src/include/proto.h` and `src/include/types.h`, where the progenitor lookup prototypes and `struct HorizontalGatherContext` live.
+  - **Execution policy, Slices 3 and 5–7:** name where real v3 data lives, in directories parallel to the vertical data behind new gitignored `snapshots` symlinks (owner-authorised), and which slice creates it. Slice 5 states that its key is not recorded in `RunProperties`.
+  - **Slice 8:** add the documents and skills that would otherwise stay false: vertical package READMEs, `VISION.md`, and four skill files. Add a narrow code exception for the converter's "not runnable" notice and flag and their two tests.
+
 ## Independent review notes for Gate R0 (2026-09-28)
 
 These are questions for the owner to weigh when recording Gate R0, not decisions, and they change none of this plan's frozen text above.
@@ -133,6 +142,7 @@ These are questions for the owner to weigh when recording Gate R0, not decisions
 - Every runtime slice builds and tests with a consistent `MODEL=`/`SIMULATION=` pair, runs `make tests summary` on the default pair (delegated, logs captured), `make check-generated`, `make validate-modules`, `make check-format`, `make check-docs` and `git diff --check`, plus differential lint. Long suites are delegated and never run concurrently.
 - **Vertical bit-identity is a standing gate.** Any slice that touches shared code proves the vertical path unchanged against the committed baselines, with no tolerance change and no baseline regeneration.
 - **The v2 cross-format identity gate stays green** (`micro-uchuu-ascii` vertical against `micro-uchuu-horizontal` horizontal) after any slice that touches the horizontal reader or driver, on a machine holding both datasets.
+- **Real v3 mini-Millennium data** (owner-authorised 2026-09-28): a v3 conversion of all eight real `trees_063.*` files with `simulations/mini-millennium/converter_columns.yaml`, written to `/Volumes/Internal/data/millennium/mini-millennium-horizontal` (outside the repository, parallel to the vertical data), behind the gitignored symlink `simulations/mini-millennium-horizontal/snapshots`. The first slice that needs it (Slice 3's manual check) creates both and records the converter commit, command and `column_mapping_sha256`; later slices reuse it, and Slice 6 replaces it with its own fresh conversion. This is the only symlink Slices 1–6 create; Slice 7 follows the same rule for its own packages. No existing symlink or source file changes.
 - No failing test is weakened; generated files are never hand-edited; no dependency changes; no production data, symlink or baseline is modified.
 - **Effort:** Slices 1, 2, 4, 5 and 6 are high effort (shared seam, public format consumption, ownership, memory, scientific evidence) and want a strong Developer and an independent Reviewer. Slices 3, 7 and 8 are medium.
 
@@ -166,9 +176,20 @@ These are questions for the owner to weigh when recording Gate R0, not decisions
   - `src/core/output_buffer.c`
   - `src/core/output_buffer.h`
   - `src/core/virial.c`
+  - `src/include/proto.h`
+  - `src/io/vertical/hdf5.c`
+  - `models/sage16/shared/sage_disk_instability_physics.h`
+  - `models/sage16/modules/sage_calculate_cooling_budget/sage_calculate_cooling_budget.c`
+  - `models/sage16/modules/sage_calculate_star_formation/sage_calculate_star_formation.c`
+  - `models/sage16/modules/sage_initialise_merger_clock/sage_initialise_merger_clock.c`
+  - `models/sage16/modules/sage_radio_mode_heating/sage_radio_mode_heating.c`
+  - `models/sage16/modules/sage_reincorporation/sage_reincorporation.c`
+  - `models/sage16/modules/sage_resolve_mergers_and_disruption/sage_resolve_mergers_and_disruption.c`
+  - `models/sage16/modules/sage_starburst_feedback/sage_starburst_feedback.c`
+  - `simulations/micro-uchuu-horizontal/_tests/unit/test_unit_horizontal_driver_gather.c`
   - `tests/unit/`
   - `tests/integration/test_unit_contract_generation.py`
-- Functions/classes/components allowed to change: generated accessor and struct emission for index-typed roles; index-typed fields and locals on the input/driver seam; no physics module.
+- Functions/classes/components allowed to change: generated accessor and struct emission for index-typed roles; index-typed fields, locals and their prototypes on the input/driver seam; no physics-behaviour change in any module. The listed sage16 files and `src/io/vertical/hdf5.c` may change only the format specifiers (and matching casts) of log calls that print a widened index, because `log_message` has no printf format attribute and an int64 passed to `%d` would silently narrow.
 - Tests allowed or expected to change: accessor-width, narrowing and struct-layout unit tests; generator type-rule tests.
 
 ### Explicit Non-Goals
@@ -219,14 +240,19 @@ These are questions for the owner to weigh when recording Gate R0, not decisions
   - `src/io/horizontal/registry.c` (R0-1(b) only)
   - `src/io/horizontal/read_horizontal_v3_hdf5.c` (new; R0-1(b) only — the `hdf5.c` suffix is required by the Makefile's HDF5 source rule)
   - `simulations/micro-uchuu-horizontal/_tests/unit/`
+  - `simulations/mini-millennium-horizontal/` (package skeleton only; see below)
+  - `scripts/generate_properties.py`
+  - `scripts/check_generated.py`
+  - `tests/integration/test_unit_contract_generation.py`
   - `tests/data/horizontal_v3/`
+  - `tests/data/README.md`
   - `tests/unit/`
-- Functions/classes/components allowed to change: horizontal reader validation, slab loading and slab-array ownership.
+- Functions/classes/components allowed to change: horizontal reader validation, slab loading and slab-array ownership. The generator may emit a new generated catalog-metadata table (each catalog field's `units` and `h_convention`) that the v3 reader includes, so the `/schema` comparison reads the package's compiled declarations; the shared `read_tree_hdf5_properties.inc` and the vertical readers are unchanged. The `simulations/mini-millennium-horizontal/` skeleton is only what a build selecting that package needs so that the reader tests can accept a v3 fixture: `halo_properties.yaml` (R0-2(a) `long long` links), `simulation_info.yaml` and its a_list. Run files, README, package tests and the full declaration audit are Slice 3's.
 - Tests allowed or expected to change: v2 regression, v3 conformance and corruption cases.
 
 ### Explicit Non-Goals
 
-- No driver change beyond what compiles against the new slab arrays; no gap retention; no new simulation package; no change to what a v2 file must contain.
+- No driver change beyond what compiles against the new slab arrays; no gap retention; no simulation package other than the mini-Millennium skeleton above; no change to what a v2 file must contain.
 
 ### Risk Flags
 
@@ -237,7 +263,7 @@ These are questions for the owner to weigh when recording Gate R0, not decisions
 ### Validation Plan
 
 - Tests to add/update: one negative case per v3 invariant a consumer checks; v2 regression unchanged.
-- Commands to run: reader unit tests under the fixture pair, `make tests summary` (delegated), `make check-format`, `make check-docs`, `git diff --check`.
+- Commands to run: `make generate` and `make check-generated` on the default pair and on `SIMULATION=mini-millennium-horizontal`, reader unit tests under the fixture pair, `make tests summary` (delegated), `make check-format`, `make check-docs`, `git diff --check`.
 - Lint (differential, via the `lint` skill): required.
 - Manual checks: build the pre-change binary and confirm the new fixtures are rejected there and accepted here.
 
@@ -249,7 +275,7 @@ These are questions for the owner to weigh when recording Gate R0, not decisions
 
 ### Intended Change
 
-- Add the first v3 simulation package (name per R0-10), whose `halo_properties.yaml` declares exactly what the converter's mini-Millennium `/schema` declares, with run files for `halos-only` and `sage16`.
+- Complete the first v3 simulation package (name per R0-10), whose skeleton Slice 2 created for its reader tests, so that its `halo_properties.yaml` declares exactly what the converter's mini-Millennium `/schema` declares, with run files for `halos-only` and `sage16`. Every criterion below applies to the completed package, including any skeleton file Slice 2 committed.
 
 ### Acceptance Criteria
 
@@ -258,7 +284,7 @@ These are questions for the owner to weigh when recording Gate R0, not decisions
 - [ ] `simulation_info.yaml` declares `tree_type`/`processing_order` per R0-1, the mini-Millennium cosmology, box size and particle mass unchanged, and the a_list identical to `simulations/mini-millennium/mini-millennium.a_list`.
 - [ ] `make generate` and `make validate-modules` pass for this package under `halos-only` and `sage16`.
 - [ ] The package's README states its provenance: which converter commit, command and profile produced its data, and that its `snapshots/` is a local symlink to a converted dataset, never committed data.
-- [ ] Existing packages, including `simulations/mini-millennium/`, are unchanged.
+- [ ] Every package other than `simulations/mini-millennium-horizontal/`, including `simulations/mini-millennium/`, is unchanged.
 
 ### Authorized Surface
 
@@ -271,7 +297,7 @@ These are questions for the owner to weigh when recording Gate R0, not decisions
 
 ### Explicit Non-Goals
 
-- No reader or driver change; no production conversion committed; no change to any existing package.
+- No reader or driver change; no production conversion committed; no change to any package other than `simulations/mini-millennium-horizontal/`.
 
 ### Risk Flags
 
@@ -315,10 +341,12 @@ These are questions for the owner to weigh when recording Gate R0, not decisions
   - `src/core/horizontal_driver.c`
   - `src/core/galaxy_pool.c`
   - `src/core/galaxy_pool.h`
+  - `src/include/proto.h`
+  - `src/include/types.h`
   - `simulations/micro-uchuu-horizontal/_tests/unit/`
   - `simulations/mini-millennium-horizontal/_tests/`
   - `tests/unit/`
-- Functions/classes/components allowed to change: generation acquisition/release, progenitor lookup/count/gather, FoF assembly's progenitor access, retention bookkeeping.
+- Functions/classes/components allowed to change: generation acquisition/release, progenitor lookup/count/gather (including their `proto.h` prototypes), FoF assembly's progenitor access, retention bookkeeping, and the `struct HorizontalGatherContext` definition in `types.h`, which today describes exactly one previous generation.
 - Tests allowed or expected to change: the design review's worked five-halo mixed-gap graph as a committed fixture; release-order and failure-path lifetime tests.
 
 ### Explicit Non-Goals
@@ -354,7 +382,7 @@ These are questions for the owner to weigh when recording Gate R0, not decisions
 - [ ] Under R0-5(a), a retention or slab that would exceed the configured ceiling aborts before allocation, naming the snapshot, the bytes required and the ceiling. The new key is stored in a `struct MimicConfig` field, and parsed and validated like every other run-file key, with unknown and malformed values rejected at configuration. Its user-facing documentation is Slice 8's job, not this slice's.
 - [ ] A synthetic slab above `INT32_MAX` rows is exercised through the reader's and driver's index arithmetic without allocating billions of rows (a virtual or header-only test), and reaches the pre-allocation size computation with its required bytes reported, never an index error or a narrowed value. Under R0-5(a) it then reaches the budget refusal.
 - [ ] No document, log or report produced by this slice states or implies that full Uchuu runs with whole slabs resident; under R0-5(a) the refusal message names chunked slab streaming as the missing capability, and under R0-5(b) the reported size does.
-- [ ] Measured retention for real mini-Millennium (maximum concurrently retained generations and peak RSS) is recorded in the slice receipt.
+- [ ] Measured retention for real mini-Millennium (maximum concurrently retained generations and peak RSS) is recorded in the slice receipt. The real data is the converted mini-Millennium dataset named under [Execution policy](#execution-policy).
 
 ### Authorized Surface
 
@@ -372,6 +400,7 @@ These are questions for the owner to weigh when recording Gate R0, not decisions
 ### Explicit Non-Goals
 
 - No chunked slab streaming, no slab splitting, no projection, no full-Uchuu run.
+- No output-schema or emitted-metadata change: the new key is not recorded in `RunProperties` (R0-9; the v2 gate's metadata comparison permits no delta).
 
 ### Risk Flags
 
@@ -403,7 +432,7 @@ These are questions for the owner to weigh when recording Gate R0, not decisions
 - [ ] Comparisons use `scripts/compare_cross_format_identity.py` unchanged; if a change is genuinely needed it is a separate approved slice, never a relaxation.
 - [ ] Every divergence is reported by snapshot, field and example ID, and treated as a defect to trace to a slice, never a tolerance to add.
 - [ ] The v2 micro-Uchuu cross-format identity gate passes on the same commit.
-- [ ] Sources, symlinks and baselines are unchanged; workdirs and outputs live outside the repository.
+- [ ] Sources, baselines and every existing symlink are unchanged. The fresh conversion is written to `/Volumes/Internal/data/millennium/mini-millennium-horizontal`, replacing Slice 5's uncommitted conversion there, which the `simulations/mini-millennium-horizontal/snapshots` symlink created in Slice 5 already targets. Workdirs and outputs live outside the repository.
 
 ### Authorized Surface
 
@@ -448,6 +477,7 @@ These are questions for the owner to weigh when recording Gate R0, not decisions
 - [ ] Every record, README and report for those two packages labels them as a sampled subset of named files; no whole-simulation conversion or runtime claim is made. Whole-simulation evidence needs the owner to supply the remaining files (16–511 and 16–127), and without them it remains a named gap of this plan.
 - [ ] Full Uchuu gets at most a fixture-level package test; its production run remains explicitly unperformed and, per [Width is not memory](#width-is-not-memory), out of scope.
 - [ ] Every package README states which evidence it has: complete real data, a sampled subset, or fixtures only.
+- [ ] Each package's converted data lives outside the repository in a directory parallel to its vertical package's data, behind a new gitignored `snapshots` symlink (owner-authorised 2026-09-28): `/Volumes/Internal/data/uchuu/micro-uchuu/micro-uchuu-lhalo-horizontal`, `/Volumes/Internal/data/uchuu/micro-uchuu/micro-uchuu-hdf5-horizontal`, `/Volumes/Internal/data/millennium/millennium-horizontal` and `/Volumes/Internal/data/uchuu/mini-uchuu-horizontal`. No existing symlink or source file changes.
 
 ### Authorized Surface
 
@@ -505,16 +535,31 @@ These are questions for the owner to weigh when recording Gate R0, not decisions
   - `docs/dev/HORIZONTAL-HDF5-FORMAT-V3-DRAFT.md`
   - `docs/dev/MIMIC-DEVELOPMENT-PATHWAY.md`
   - `scripts/convert/README.md`
+  - `docs/VISION.md`
+  - `simulations/mini-millennium/README.md`
+  - `simulations/micro-uchuu/README.md`
+  - `simulations/millennium/README.md`
+  - `simulations/mini-uchuu/README.md`
+  - `simulations/uchuu/README.md`
+  - `scripts/convert/convert_trees.py`
+  - `scripts/convert/convert_ctrees.py`
+  - `scripts/convert/report.py`
+  - `scripts/convert/tests/test_cli.py`
+  - `scripts/convert/tests/test_report.py`
   - `.agents/skills/mimic-architecture-contract/SKILL.md`
   - `.agents/skills/mimic-config-and-flags/SKILL.md` (R0-5(a) only: the new run-file key)
+  - `.agents/skills/mimic-config-and-flags/references/all-config-keys.md` (R0-5(a) only: the new run-file key)
+  - `.agents/skills/mimic-diagnostics-and-tooling/SKILL.md`
+  - `.agents/skills/mimic-docs-and-writing/SKILL.md`
+  - `.agents/skills/mimic-run-and-operate/SKILL.md`
   - `.agents/skills/mimic-simulations-and-readers/SKILL.md`
   - `.agents/skills/mimic-validation-and-qa/SKILL.md`
-- Functions/classes/components allowed to change: documentation only.
-- Tests allowed or expected to change: none.
+- Functions/classes/components allowed to change: documentation, plus one narrow code exception. The converter's runtime-support notice (`RUNTIME_NOTICE` in `convert_trees.py`, the matching text in `convert_ctrees.py`, and the report's runtime-status line and `runnable_by_current_mimic` flag in `report.py`) and the two tests that assert them may change only so they state exactly the routes whose Slice 6 or Slice 7 gate passed. No other converter behaviour changes. Under R0-11(a) `HORIZONTAL-HDF5-FORMAT-V3-DRAFT.md` is kept, at least as a stub that preserves its `Runtime support status` anchor, because other committed documents link to it.
+- Tests allowed or expected to change: the two converter tests named above, for the notice text and flag only.
 
 ### Explicit Non-Goals
 
-- No code change; no claim beyond measured evidence.
+- No code change beyond the converter runtime-support notice and flag above; no claim beyond measured evidence.
 
 ### Risk Flags
 
@@ -524,9 +569,9 @@ These are questions for the owner to weigh when recording Gate R0, not decisions
 
 ### Validation Plan
 
-- Tests to add/update: none.
-- Commands to run: `make check-docs`, `make check-format`, `git diff --check`.
-- Lint (differential, via the `lint` skill): not required for Markdown-only changes.
+- Tests to add/update: the two converter runtime-notice tests, for text and flag only.
+- Commands to run: `make tests-converter` (delegated), `make check-docs`, `make check-format`, `git diff --check`.
+- Lint (differential, via the `lint` skill): required for the Python changes.
 - Manual checks: every support claim traced to a recorded gate.
 
 ### Rollback Path
