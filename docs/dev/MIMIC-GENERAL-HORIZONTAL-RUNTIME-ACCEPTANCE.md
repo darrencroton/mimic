@@ -74,7 +74,9 @@ links: links_adjacent=0 (measured 0); 29291 gapped Descendant link(s), longest s
 validation: PASS
 ```
 
-All 20 producer validation checks passed. The 65 written files (`snapshot_000.h5` to `snapshot_063.h5` and `forests.h5`) were copied with `/bin/cp -f` into `/Volumes/Internal/data/millennium/mini-millennium-horizontal`, replacing Slice 5's uncommitted conversion. The `simulations/mini-millennium-horizontal/snapshots` symlink already targets that directory and was not touched. A `cmp` of every installed file against the workdir copy found no difference. Digests of the installed dataset:
+The same report opens with `NOT RUNNABLE BY THE CURRENT MIMIC`, and its runtime-compatibility section says the reader rejects version 3 and the driver cannot carry state across a gap. That is converter-era text that `scripts/convert/report.py` prints unconditionally. This gate's result supersedes it, and the plan schedules its update for Slice 8.
+
+All 20 producer validation checks passed. The 65 written files (`snapshot_000.h5` to `snapshot_063.h5` and `forests.h5`) were copied with `/bin/cp -f` into `/Volumes/Internal/data/millennium/mini-millennium-horizontal`, replacing the uncommitted conversion that Slice 3 made there. Slice 3 also created the `simulations/mini-millennium-horizontal/snapshots` symlink, which already targets that directory and was not touched. The plan's Slice 6 criterion text says "Slice 5" here, a known plan slip. A `cmp` of every installed file against the workdir copy found no difference. Digests of the installed dataset:
 
 - `forests.h5`: `dc404c941666d7e2d2ece668d538556e2dddbb194df4844ba6b13c4d551835e0`
 - `snapshot_063.h5`: `89c9070f01b56b5a01d978a9b235cb733835ef1dd88fdc51efff91492d6ad60c`
@@ -100,9 +102,9 @@ conversion inventory: 29585 forests from source files [0, 1, 2, 3, 4, 5, 6, 7], 
 
 1. `stage_preconditions`: both datasets resolve, including all eight tree files, 64 snapshot files and `forests.h5`.
 2. `stage_dataset_provenance`: every file is version 3 from `lhalo_binary` with the pinned `column_mapping_sha256` and `links_adjacent = 0`. The dataset holds exactly 1,533,122 halos and 29,291 gapped descendant links with a longest span of 2, and the inventory names exactly the vertical package's files.
-3. `stage_run_file_diffs`: each committed horizontal run file differs from its vertical counterpart only in `simulation.name` and `output.output_directory` (plus the leading comment), and all four match HEAD.
+3. `stage_run_file_diffs`: `scripts/compare_cross_format_identity.py` matches its HEAD copy byte for byte, and so do all four run files. Each horizontal run file differs from its vertical counterpart only in `simulation.name` and `output.output_directory` (plus the leading comment). The comparator is run and imported from the working tree, so this check is repeated before every comparison: a dirty comparator cannot certify parity.
 4. `stage_build_worktrees`.
-5.–8. `stage_halos_only_fixed`, `stage_halos_only_dynamic`, `stage_sage16_fixed`, `stage_sage16_dynamic`. Each leg runs both drivers from the worktrees' own run files. The dynamic variant is the committed file plus the single line `TimestepScheme: dynamic`. Each leg checks that the vertical run read the inventory's files, and that snapshot lists, redshifts, cosmology, `UniqueGalaxyIDMultiplier`, field names, units and record schema are exactly equal. It then runs the comparator and checks that each run wrote exactly the requested snapshots, none empty, and that the comparator compared every record both runs wrote. The vertical side wrote 8 partitions and the horizontal side 8, one per requested snapshot.
+5.–8. `stage_halos_only_fixed`, `stage_halos_only_dynamic`, `stage_sage16_fixed`, `stage_sage16_dynamic`. Each leg runs both drivers from the worktrees' own run files. The dynamic variant is the committed file plus the single line `TimestepScheme: dynamic`. The committed file must carry no `TimestepScheme` key of its own, because Mimic's parameter reader takes the first matching key. Each leg checks that the vertical run read the inventory's files, and that snapshot lists, redshifts, cosmology, `UniqueGalaxyIDMultiplier`, field names, units and record schema are exactly equal. It then runs the comparator and checks that each run wrote exactly the requested snapshots, none empty, and that the comparator compared every record both runs wrote. The vertical side wrote 8 partitions and the horizontal side 8, one per requested snapshot.
 9. `stage_leg_verdicts`: names each leg's verdict and fails unless all four passed.
 
 Two deliberate departures from the micro-Uchuu gate:
@@ -110,7 +112,7 @@ Two deliberate departures from the micro-Uchuu gate:
 - **Every leg runs whatever the others' outcome.** An aborted stage is reported as SKIP, and this gate must fail, never skip, when a leg does not run. A setup failure makes every later stage fail its own prerequisite check, and the verdict stage reports a leg that never ran as `FAIL: leg did not run`.
 - **The comparator runs before the count checks.** A divergence is therefore always reported by snapshot, field and example id, never cut short by a count mismatch.
 
-Before the commit, negative checks exercised the failure paths: a missing dataset, a leg whose builds did not complete, and a verdict stage with no leg results all raised a FAIL.
+Negative checks exercised the failure paths. Each of these raised a FAIL: a missing dataset, a leg whose builds did not complete, a verdict stage with no leg results, a working-tree file that differs from HEAD, and a run file that already declares `TimestepScheme`.
 
 ## 5. The v2 micro-Uchuu gate on the same commit
 

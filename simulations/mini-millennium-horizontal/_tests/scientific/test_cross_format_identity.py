@@ -33,10 +33,10 @@ Stages, in order (one MIMIC_RESULT marker each):
    files hold 1,533,122 halos and 29,291 gapped descendant links; and the
    conversion inventory (``forests.h5``'s ``SourceFileOrdinal``) names exactly
    the tree files the vertical package reads.
-3. Run-file diffs -- each committed horizontal run file differs from its
-   vertical counterpart in exactly ``simulation.name`` and
-   ``output.output_directory`` (plus the leading header comment), and all four
-   match their committed HEAD copies.
+3. Run files and comparator -- the comparator script matches its committed
+   HEAD copy byte for byte, as do all four run files; and each horizontal run
+   file differs from its vertical counterpart in exactly ``simulation.name``
+   and ``output.output_directory`` (plus the leading header comment).
 4. Builds -- one detached git worktree per ``{halos-only, sage16} x {vertical,
    horizontal}`` pair at HEAD. The ambient tier build is never touched.
 5-8. Parity legs -- ``halos-only`` then ``sage16``, each under fixed and then
@@ -88,7 +88,9 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 # The comparison algorithm has exactly one implementation. The gate shells out to
 # the script for the run-vs-run comparison and imports its helpers only to read
-# the record schema the same way it does.
+# the record schema the same way it does. Both uses read the working-tree copy,
+# so stage 3 (and every comparison) requires it to match HEAD byte for byte: a
+# dirty comparator must never certify parity on the gate's behalf.
 import compare_cross_format_identity as comparator  # noqa: E402
 from framework import run_test_suite  # noqa: E402  (path set up above)
 
@@ -142,6 +144,14 @@ PREFLIGHT_ATTRS = (
 #: vertical counterpart. `simulation.name` selects the package under test;
 #: `output.output_directory` keeps the two runs from writing over each other.
 AUTHORIZED_KEY_CHANGES = ("simulation.name", "output.output_directory")
+
+#: The committed comparator the gate runs and imports; pinned to HEAD.
+COMPARATOR_SCRIPT = REPO_ROOT / "scripts" / "compare_cross_format_identity.py"
+
+#: The run-file key the dynamic legs add. Mimic's parameter reader takes the
+#: first matching key, so a committed run file already carrying it would make a
+#: "dynamic" leg silently run whatever that first value says.
+TIMESTEP_SCHEME_KEY = "TimestepScheme"
 
 SNAP_GROUP_RE = re.compile(r"^Snap(\d+)$")
 FILE_GROUP_RE = re.compile(r"^File(\d+)$")
@@ -515,11 +525,13 @@ def committed_run_file(model: str, simulation: str) -> Path:
 
 
 def assert_matches_head(path: Path) -> None:
-    """Fail when a run file in the working tree differs from its HEAD copy.
+    """Fail when a working-tree file the gate relies on differs from its HEAD copy.
 
-    The worktrees are pinned to HEAD and execute their own copies, so a dirty
-    working-tree run file would never reach the runs -- but it would still be the
-    file this stage inspected.
+    Used for the run files and for the comparator. The worktrees are pinned to
+    HEAD and execute their own run-file copies, so a dirty working-tree run file
+    would never reach the runs -- but it would still be the file this stage
+    inspected. The comparator is run and imported from the working tree, so a
+    dirty copy would decide the verdict while the record says it is unchanged.
     """
     relative = path.relative_to(REPO_ROOT).as_posix()
     completed = subprocess.run(
@@ -533,7 +545,8 @@ def assert_matches_head(path: Path) -> None:
     if path.read_bytes() != completed.stdout:
         raise AssertionError(
             f"{path} differs from its committed copy at HEAD. This gate certifies committed "
-            f"run files against HEAD-built executables; commit or revert the file and re-run."
+            f"run files and the committed comparator against HEAD-built executables; commit "
+            f"or revert the file and re-run."
         )
 
 
@@ -637,9 +650,12 @@ def assert_horizontal_run_file_diff(vertical_path: Path, horizontal_path: Path) 
 
 
 def stage_run_file_diffs():
-    """Each committed horizontal run file differs in exactly the two authorized keys."""
-    banner("Stage 3: committed run-file diffs")
+    """The comparator is HEAD's; each horizontal run file differs in exactly two keys."""
+    banner("Stage 3: committed comparator and run-file diffs")
     GATE.require("dataset", "not checking run files")
+
+    assert_matches_head(COMPARATOR_SCRIPT)
+    log(f"  {COMPARATOR_SCRIPT.relative_to(REPO_ROOT)} matches its committed HEAD copy")
 
     for model in MODELS:
         vertical_path = committed_run_file(model, VERTICAL_SIMULATION)
@@ -777,8 +793,19 @@ def dynamic_variant(run_file: Path, scratch: Path) -> Path:
     """Write the committed run file with `TimestepScheme: dynamic` added after SubSteps.
 
     Verified to be the committed file plus exactly that one line, so the two
-    runs of a scheme pair are otherwise byte-identical.
+    runs of a scheme pair are otherwise byte-identical. The committed file must
+    carry no TimestepScheme key of its own: the parameter reader takes the first
+    matching key, so an existing one would silently decide the dynamic leg.
     """
+    committed = yaml.safe_load(run_file.read_text()) or {}
+    if TIMESTEP_SCHEME_KEY in flatten_keys(committed) or any(
+        line.strip().startswith(f"{TIMESTEP_SCHEME_KEY}:")
+        for line in run_file.read_text().splitlines()
+    ):
+        raise AssertionError(
+            f"{run_file} already declares {TIMESTEP_SCHEME_KEY}; the reader takes the first "
+            f"matching key, so the dynamic leg could silently run another scheme"
+        )
     lines = run_file.read_text().splitlines(keepends=True)
     out = []
     inserted = False
@@ -803,6 +830,12 @@ def dynamic_variant(run_file: Path, scratch: Path) -> Path:
     if len(written) != len(base) + 1 or not inserted:
         raise AssertionError(
             f"{variant} is not {run_file} with exactly one 'TimestepScheme: dynamic' line added"
+        )
+    parsed = flatten_keys(yaml.safe_load(variant.read_text()) or {})
+    if parsed.get(TIMESTEP_SCHEME_KEY) != "dynamic":
+        raise AssertionError(
+            f"{variant}: {TIMESTEP_SCHEME_KEY} parses as {parsed.get(TIMESTEP_SCHEME_KEY)!r}, "
+            f"expected 'dynamic'"
         )
     return variant
 
@@ -1089,9 +1122,11 @@ def assert_snapshot_coverage(run: RunOutput, counts: dict[int, int], expected: s
 
 def run_comparator(leg: str, vertical_run: RunOutput, horizontal_run: RunOutput):
     """Run the committed comparator, logging its whole report. Returns (exit, stdout)."""
+    # Re-checked at every use, not only in stage 3: the verdict is the script's.
+    assert_matches_head(COMPARATOR_SCRIPT)
     command = [
         sys.executable,
-        str(REPO_ROOT / "scripts" / "compare_cross_format_identity.py"),
+        str(COMPARATOR_SCRIPT),
         vertical_run.spec,
         horizontal_run.spec,
         "--left-label",
