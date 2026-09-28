@@ -1148,6 +1148,16 @@ static char *horizontal_h5_v3_read_schema_attr(hid_t group, const char *path, co
   return copy;
 }
 
+/** @brief H5Aiterate2 callback counting an object's attributes into a uint64_t. */
+static herr_t horizontal_h5_count_attr(hid_t location_id, const char *attr_name,
+                                       const H5A_info_t *ainfo, void *op_data) {
+  (void)location_id;
+  (void)attr_name;
+  (void)ainfo;
+  (*(uint64_t *)op_data)++;
+  return 0;
+}
+
 /** @brief `/schema` storage spec for a `type` value, or NULL if outside the vocabulary. */
 static const struct horizontal_h5_schema_type_spec *horizontal_h5_v3_schema_type(const char *name) {
   for (size_t i = 0; i < HORIZONTAL_H5_V3_SCHEMA_TYPE_COUNT; i++) {
@@ -1229,23 +1239,27 @@ static void horizontal_h5_v3_read_schema(hid_t file, const char *path,
                   path, name, HORIZONTAL_HDF5_FORMAT_VERSION_V3);
     }
 
-    H5O_info2_t oinfo;
-    if (H5Oget_info_by_name3(group, name, &oinfo, H5O_INFO_BASIC | H5O_INFO_NUM_ATTRS,
-                             H5P_DEFAULT) < 0) {
-      FATAL_ERROR("%s: could not inspect '/schema/%s'", path, name);
+    /* Group-ness and the attribute count use only API spellings present in
+       HDF5 1.10 as well as 1.12+ (H5O_info2_t and H5Oget_info_by_name3 are
+       1.12+ only): open the object generically, ask its identifier type, and
+       count attributes by iteration. */
+    hid_t member = H5Oopen(group, name, H5P_DEFAULT);
+    if (member < 0) {
+      FATAL_ERROR("%s: could not open '/schema/%s'", path, name);
     }
-    if (oinfo.type != H5O_TYPE_GROUP) {
+    if (H5Iget_type(member) != H5I_GROUP) {
       FATAL_ERROR("%s: '/schema/%s' must be a group", path, name);
     }
-    if (oinfo.num_attrs != HORIZONTAL_H5_SCHEMA_ATTR_COUNT) {
+    hsize_t attr_idx = 0;
+    uint64_t num_attrs = 0;
+    if (H5Aiterate2(member, H5_INDEX_NAME, H5_ITER_INC, &attr_idx, horizontal_h5_count_attr,
+                    &num_attrs) < 0) {
+      FATAL_ERROR("%s: could not enumerate the attributes of '/schema/%s'", path, name);
+    }
+    if (num_attrs != HORIZONTAL_H5_SCHEMA_ATTR_COUNT) {
       FATAL_ERROR("%s: '/schema/%s' carries %" PRIu64 " attributes; format_version %d requires "
                   "exactly 'type', 'units', 'h_convention' and 'description'",
-                  path, name, (uint64_t)oinfo.num_attrs, HORIZONTAL_HDF5_FORMAT_VERSION_V3);
-    }
-
-    hid_t member = H5Gopen2(group, name, H5P_DEFAULT);
-    if (member < 0) {
-      FATAL_ERROR("%s: could not open group '/schema/%s'", path, name);
+                  path, name, num_attrs, HORIZONTAL_HDF5_FORMAT_VERSION_V3);
     }
     if (horizontal_h5_member_count(member, path, name) != 0) {
       FATAL_ERROR("%s: '/schema/%s' has children; a schema declaration has none", path, name);
@@ -1258,7 +1272,7 @@ static void horizontal_h5_v3_read_schema(hid_t file, const char *path,
           horizontal_h5_v3_read_schema_attr(member, path, name, HORIZONTAL_H5_V3_SCHEMA_ATTRS[a]);
     }
     schema->count++;
-    if (H5Gclose(member) < 0) {
+    if (H5Oclose(member) < 0) {
       FATAL_ERROR("%s: could not close group '/schema/%s'", path, name);
     }
 
@@ -1697,8 +1711,11 @@ static void horizontal_h5_fill_halos(hid_t file, const char *path, int64_t n_hal
  * literals at the call site. The caller (horizontal_h5_fill_identity() below)
  * still hard-types its destination buffers as int64_t and passes a literal
  * column count of 1; that is not derived from this lookup, and is safe only
- * because format_version 2 fixes ForestIndex and HaloRankInForest as scalar
- * (ncols 0) int64 columns -- this function does not itself enforce that.
+ * because both format versions fix ForestIndex and HaloRankInForest as scalar
+ * (ncols 0) int64 columns -- format_version 2 in HORIZONTAL_H5_HALO_DATASETS
+ * and format_version 3 in HORIZONTAL_H5_V3_FIXED_DATASETS, each checked at
+ * open by its own dataset validation. This function does not itself enforce
+ * that.
  */
 static const struct horizontal_h5_dataset_spec *
 horizontal_h5_dataset_spec_by_name(const char *name) {
