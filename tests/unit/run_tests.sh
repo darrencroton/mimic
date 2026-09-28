@@ -299,11 +299,13 @@ compile_and_run_test() {
     local test_cflags="$CFLAGS"
     local test_ldflags="$LDFLAGS"
     local extra_sources=""
+    local link_objs="$SHARED_OBJS"
     if [ "$test_name" = "test_ctrees_hdf5_reader" ] || \
        [ "$test_name" = "test_master_hdf5_partitions" ] || \
        [ "$test_name" = "test_unit_horizontal_reader_open" ] || \
        [ "$test_name" = "test_unit_horizontal_reader_realdata" ] || \
        [ "$test_name" = "test_horizontal_v3_reader" ] || \
+       [ "$test_name" = "test_horizontal_retention_budget" ] || \
        [ "$test_name" = "test_hdf5_write_attrs" ]; then
         if [ "$HDF5_AVAILABLE" != "1" ]; then
             echo "MIMIC_RESULT: SKIP ${test_display} -- HDF5 development library not available"
@@ -323,11 +325,21 @@ compile_and_run_test() {
     if [ "$test_name" = "test_hdf5_write_attrs" ]; then
         extra_sources="${SRC_DIR}/io/output/hdf5.c"
     fi
+    # test_horizontal_retention_budget runs run_horizontal_driver() up to its
+    # first generation's pre-allocation check. The shared driver object is built
+    # without -DHDF5, where the driver's output setup is a fail-fast stub that
+    # aborts before any generation is sized, so this test compiles the driver
+    # itself under the test's -DHDF5 flags (with the per-file writer it then
+    # calls) in place of that shared object.
+    if [ "$test_name" = "test_horizontal_retention_budget" ]; then
+        extra_sources="${SRC_DIR}/core/horizontal_driver.c ${SRC_DIR}/io/output/hdf5.c"
+        link_objs="${SHARED_OBJS/ ${OBJ_DIR}\/src_core_horizontal_driver.o/}"
+    fi
 
     # Compile the test file and link the pre-built shared objects
     local compile_log="${BUILD_DIR}/${test_name}.compile.log"
     if summary_enabled; then
-        if ! $CC $test_cflags $module_include $test_file $extra_sources $SHARED_OBJS -o $test_exe $test_ldflags > "$compile_log" 2>&1; then
+        if ! $CC $test_cflags $module_include $test_file $extra_sources $link_objs -o $test_exe $test_ldflags > "$compile_log" 2>&1; then
             echo "MIMIC_RESULT: ERROR ${test_display} -- compilation failed"
             cat "$compile_log"
             COMPILE_ERRORS=$((COMPILE_ERRORS + 1))
@@ -337,7 +349,7 @@ compile_and_run_test() {
         fi
     else
         echo -e "${BLUE}Compiling ${test_name}...${NC}"
-        if ! $CC $test_cflags $module_include $test_file $extra_sources $SHARED_OBJS -o $test_exe $test_ldflags 2>&1 | tee "$compile_log"; then
+        if ! $CC $test_cflags $module_include $test_file $extra_sources $link_objs -o $test_exe $test_ldflags 2>&1 | tee "$compile_log"; then
             echo -e "${RED}✗ Compilation failed for ${test_name}${NC}"
             echo "  See ${compile_log} for details"
             COMPILE_ERRORS=$((COMPILE_ERRORS + 1))

@@ -149,8 +149,23 @@ static int write_null_phase_fixture(char *path, size_t path_size, const char *la
  * tree_name the format fixes) to match the order it forces. Any inherited
  * tree_type/tree_name line is dropped rather than duplicated.
  */
+static int write_input_fixture(char *path, size_t path_size, const char *label,
+                               const char *processing_order, const char *extra_input);
+
 static int write_processing_order_fixture(char *path, size_t path_size,
                                           const char *processing_order) {
+  return write_input_fixture(path, path_size, processing_order, processing_order, NULL);
+}
+
+/**
+ * @brief   write_processing_order_fixture() plus extra input-section lines.
+ *
+ * `extra_input` (NULL for none) is written verbatim right after the injected
+ * reader declaration, so it must carry its own two-space indentation and
+ * newline. `label` names the fixture file.
+ */
+static int write_input_fixture(char *path, size_t path_size, const char *label,
+                               const char *processing_order, const char *extra_input) {
   FILE *src;
   FILE *dst;
   char line[1024];
@@ -164,8 +179,7 @@ static int write_processing_order_fixture(char *path, size_t path_size,
     return -1;
   }
 
-  snprintf(path, path_size, "archive/test-fixtures/test_processing_order_%s.yaml",
-           processing_order);
+  snprintf(path, path_size, "archive/test-fixtures/test_processing_order_%s.yaml", label);
   src = fopen(test_binary_param_file(), "r");
   if (src == NULL) {
     return -1;
@@ -196,6 +210,9 @@ static int write_processing_order_fixture(char *path, size_t path_size,
       } else {
         fprintf(dst, "  tree_type: lhalo_binary\n  tree_name: trees_063\n");
       }
+      if (extra_input != NULL) {
+        fputs(extra_input, dst);
+      }
       wrote_processing_order = 1;
     }
   }
@@ -205,6 +222,9 @@ static int write_processing_order_fixture(char *path, size_t path_size,
       fprintf(dst, "  tree_type: horizontal_hdf5\n  tree_name: %s\n", "snapshot_%03d.h5");
     } else {
       fprintf(dst, "  tree_type: lhalo_binary\n  tree_name: trees_063\n");
+    }
+    if (extra_input != NULL) {
+      fputs(extra_input, dst);
     }
     wrote_processing_order = 1;
   }
@@ -498,11 +518,15 @@ static int read_parameter_file_should_fatal(const char *path) {
   return WIFEXITED(status) && WEXITSTATUS(status) != 0;
 }
 
-static int read_parameter_file_fatal_message_contains(const char *path, const char *needle) {
+/**
+ * @brief   Parse `path` in a child and capture what it writes to stderr.
+ * @return  1 when the child exited non-zero (a FATAL), 0 when it exited cleanly,
+ *          -1 when it could not be run or crashed.
+ */
+static int read_parameter_file_capture_fatal(const char *path, char *output, size_t output_size) {
   int pipefd[2];
   pid_t pid;
   int status;
-  char output[4096];
   size_t used = 0;
   ssize_t nread;
 
@@ -529,8 +553,8 @@ static int read_parameter_file_fatal_message_contains(const char *path, const ch
   }
 
   close(pipefd[1]);
-  while (used < sizeof(output) - 1 &&
-         (nread = read(pipefd[0], output + used, sizeof(output) - 1 - used)) > 0) {
+  while (used < output_size - 1 &&
+         (nread = read(pipefd[0], output + used, output_size - 1 - used)) > 0) {
     used += (size_t)nread;
   }
   output[used] = '\0';
@@ -544,7 +568,17 @@ static int read_parameter_file_fatal_message_contains(const char *path, const ch
     return -1;
   }
 
-  return WIFEXITED(status) && WEXITSTATUS(status) != 0 && strstr(output, needle) != NULL;
+  return WIFEXITED(status) && WEXITSTATUS(status) != 0;
+}
+
+static int read_parameter_file_fatal_message_contains(const char *path, const char *needle) {
+  char output[4096];
+  const int result = read_parameter_file_capture_fatal(path, output, sizeof(output));
+
+  if (result < 0) {
+    return -1;
+  }
+  return result == 1 && strstr(output, needle) != NULL;
 }
 
 /**
@@ -1593,6 +1627,167 @@ int test_null_named_phase(void) {
 }
 
 /**
+ * @test    test_retention_ceiling_defaults_to_none
+ * @brief   input.retention_memory_ceiling_mb is optional: absent means no ceiling,
+ *          whatever a previous parse in the same process left behind.
+ */
+int test_retention_ceiling_defaults_to_none(void) {
+  char fixture_path[MAX_STRING_LEN];
+
+  /* ===== SETUP ===== */
+  setup_test();
+  TEST_ASSERT(write_processing_order_fixture(fixture_path, sizeof(fixture_path), "vertical") == 0,
+              "Should create a vertical fixture without the key");
+  MimicConfig.RetentionMemoryCeiling = 12345;
+
+  /* ===== EXECUTE ===== */
+  read_parameter_file(fixture_path);
+
+  /* ===== VALIDATE ===== */
+  TEST_ASSERT(MimicConfig.RetentionMemoryCeiling == 0,
+              "An omitted input.retention_memory_ceiling_mb should leave no ceiling");
+
+  /* ===== CLEANUP ===== */
+  teardown_test();
+
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_retention_ceiling_is_parsed_in_bytes
+ * @brief   A valid value is stored as MB x 1024^2 bytes, up to the largest value
+ *          whose byte count fits in int64_t.
+ *
+ * Observed through the vertical-run rejection, which names the parsed byte count:
+ * no configuration in this harness both carries the key and passes validation (a
+ * vertical run rejects it, and a horizontal one fails on this harness's binary
+ * output), so the stored value is read from the message rather than MimicConfig.
+ */
+int test_retention_ceiling_is_parsed_in_bytes(void) {
+  char small_path[MAX_STRING_LEN];
+  char largest_path[MAX_STRING_LEN];
+
+  /* ===== SETUP ===== */
+  TEST_ASSERT(write_input_fixture(small_path, sizeof(small_path), "retention_ceiling_small",
+                                  "vertical", "  retention_memory_ceiling_mb: 3\n") == 0,
+              "Should create a 3 MB ceiling fixture");
+  /* INT64_MAX / 1024^2, rounded down. */
+  TEST_ASSERT(write_input_fixture(largest_path, sizeof(largest_path), "retention_ceiling_largest",
+                                  "vertical",
+                                  "  retention_memory_ceiling_mb: 8796093022207\n") == 0,
+              "Should create a largest-accepted ceiling fixture");
+
+  /* ===== EXECUTE / VALIDATE ===== */
+  TEST_ASSERT(read_parameter_file_fatal_message_contains(
+                  small_path, "input.retention_memory_ceiling_mb is set (3145728 B)") == 1,
+              "3 MB should be stored as 3 x 1024^2 bytes");
+  TEST_ASSERT(
+      read_parameter_file_fatal_message_contains(
+          largest_path, "input.retention_memory_ceiling_mb is set (9223372036853727232 B)") == 1,
+      "The largest representable MB value should be stored without overflow");
+
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_retention_ceiling_rejected_for_vertical_runs
+ * @brief   A vertical run rejects the key at configuration: it retains no
+ *          generations, so the ceiling would bound nothing.
+ */
+int test_retention_ceiling_rejected_for_vertical_runs(void) {
+  char fixture_path[MAX_STRING_LEN];
+
+  TEST_ASSERT(write_input_fixture(fixture_path, sizeof(fixture_path), "retention_ceiling_vertical",
+                                  "vertical", "  retention_memory_ceiling_mb: 1024\n") == 0,
+              "Should create a vertical fixture carrying the key");
+
+  TEST_ASSERT(read_parameter_file_fatal_message_contains(
+                  fixture_path, "bounds only the horizontal driver's retained generations and "
+                                "reader 'lhalo_binary' feeds the vertical driver") == 1,
+              "A vertical run should reject input.retention_memory_ceiling_mb");
+
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_retention_ceiling_accepted_for_horizontal_runs
+ * @brief   A horizontal configuration accepts a valid key: its validation fails
+ *          here only on what this harness cannot provide (HDF5 output), never on
+ *          the key.
+ *
+ * Skips when no horizontal reader is registered, for the reason given on
+ * test_ntask_multi_rejects_horizontal_processing_order().
+ */
+int test_retention_ceiling_accepted_for_horizontal_runs(void) {
+  char fixture_path[MAX_STRING_LEN];
+  char output[4096];
+
+  if (horizontal_reader_count() == 0) {
+    return TEST_SKIP_WITH("no horizontal reader registered (HDF5 development library not "
+                          "available); tree_type: horizontal_hdf5 cannot resolve");
+  }
+
+  TEST_ASSERT(write_input_fixture(fixture_path, sizeof(fixture_path),
+                                  "retention_ceiling_horizontal", "horizontal",
+                                  "  retention_memory_ceiling_mb: 1024\n") == 0,
+              "Should create a horizontal fixture carrying the key");
+
+  TEST_ASSERT(read_parameter_file_capture_fatal(fixture_path, output, sizeof(output)) == 1,
+              "The horizontal fixture should still fail on this harness's binary output");
+  TEST_ASSERT(strstr(output, "horizontal runs are HDF5-only") != NULL,
+              "The failure should be the binary-output rejection");
+  TEST_ASSERT(strstr(output, "retention_memory_ceiling_mb") == NULL,
+              "A horizontal configuration should raise nothing about a valid ceiling");
+
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_retention_ceiling_rejects_malformed_values
+ * @brief   Zero, negative, non-integer, non-scalar and overflowing values, and a
+ *          misspelled key, are each rejected at configuration with a message
+ *          naming the key.
+ */
+int test_retention_ceiling_rejects_malformed_values(void) {
+  static const struct {
+    const char *label;
+    const char *line;
+    const char *message;
+  } cases[] = {
+      {"retention_ceiling_zero", "  retention_memory_ceiling_mb: 0\n",
+       "input.retention_memory_ceiling_mb must be a positive whole number of MB"},
+      {"retention_ceiling_negative", "  retention_memory_ceiling_mb: -5\n",
+       "input.retention_memory_ceiling_mb must be a positive whole number of MB"},
+      {"retention_ceiling_word", "  retention_memory_ceiling_mb: lots\n",
+       "input.retention_memory_ceiling_mb must be a valid 64-bit integer"},
+      {"retention_ceiling_fraction", "  retention_memory_ceiling_mb: 1.5\n",
+       "input.retention_memory_ceiling_mb must be a valid 64-bit integer"},
+      {"retention_ceiling_suffix", "  retention_memory_ceiling_mb: 64GB\n",
+       "input.retention_memory_ceiling_mb must be a valid 64-bit integer"},
+      {"retention_ceiling_sequence", "  retention_memory_ceiling_mb: [1, 2]\n",
+       "input.retention_memory_ceiling_mb must be an integer scalar"},
+      {"retention_ceiling_overflow", "  retention_memory_ceiling_mb: 8796093022208\n",
+       "whose byte count does not fit in a 64-bit integer"},
+      {"retention_ceiling_misspelled", "  retention_memory_ceiling: 1024\n",
+       "Unknown key 'input.retention_memory_ceiling'"},
+  };
+  char fixture_path[MAX_STRING_LEN];
+
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+    TEST_ASSERT(write_input_fixture(fixture_path, sizeof(fixture_path), cases[i].label, "vertical",
+                                    cases[i].line) == 0,
+                "Should create the malformed-value fixture");
+    const int result = read_parameter_file_fatal_message_contains(fixture_path, cases[i].message);
+    TEST_ASSERT(result != -1, "The malformed-value child should not crash");
+    TEST_ASSERT(result == 1, "A malformed input.retention_memory_ceiling_mb should FATAL with "
+                             "a message naming the key");
+    printf("  %s -> rejected\n", cases[i].label);
+  }
+
+  return TEST_PASS;
+}
+
+/**
  * @brief   Main test runner
  *
  * Executes all test cases and reports results.
@@ -1652,6 +1847,11 @@ int main(int argc, char **argv) {
   TEST_RUN(test_tilde_post_timestep);
   TEST_RUN(test_null_phases_block);
   TEST_RUN(test_null_named_phase);
+  TEST_RUN(test_retention_ceiling_defaults_to_none);
+  TEST_RUN(test_retention_ceiling_is_parsed_in_bytes);
+  TEST_RUN(test_retention_ceiling_rejected_for_vertical_runs);
+  TEST_RUN(test_retention_ceiling_accepted_for_horizontal_runs);
+  TEST_RUN(test_retention_ceiling_rejects_malformed_values);
 
   /* Print summary and return result */
   TEST_SUMMARY();

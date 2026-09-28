@@ -2,7 +2,7 @@
  * @file    run_profile.c
  * @brief   Run-scope memory profile: peak RSS and the driver's sizing terms
  *
- * See run_profile.h for what C and G are and why peak RSS is the primary
+ * See run_profile.h for what C, P, G and R are and why peak RSS is the primary
  * number rather than a reconstructed sum.
  */
 
@@ -31,6 +31,10 @@ static int64_t GalaxyPoolHighWater = 0;
 static int64_t GalaxyPoolSlots = 0;
 static int GalaxyPoolChunks = 0;
 static size_t GalaxyBytes = 0;
+/* Horizontal retention (term R). 0 generations means never noted: a run that
+ * noted retention at all held at least the generation it was processing. */
+static int64_t RetainedGenerations = 0;
+static int64_t RetainedBytes = 0;
 
 void run_profile_note_output_buffer(int64_t count, int64_t capacity, size_t record_bytes) {
   if (count > OutputBufferPopulation)
@@ -55,6 +59,13 @@ void run_profile_note_galaxy_pool(int64_t galaxies_high_water, int64_t slots_all
   if (chunk_count > GalaxyPoolChunks)
     GalaxyPoolChunks = chunk_count;
   GalaxyBytes = galaxy_bytes;
+}
+
+void run_profile_note_retention(int64_t generations, int64_t resident_bytes) {
+  if (generations > RetainedGenerations)
+    RetainedGenerations = generations;
+  if (resident_bytes > RetainedBytes)
+    RetainedBytes = resident_bytes;
 }
 
 int64_t run_profile_peak_rss_bytes(void) {
@@ -122,6 +133,15 @@ void print_run_memory_profile(void) {
              (double)GalaxyPoolSlots * (double)GalaxyBytes / RUN_PROFILE_BYTES_PER_GB, slack);
   } else {
     INFO_LOG("  Galaxy pool high-water G: unmeasured (no galaxy pool was reported)");
+  }
+
+  if (RetainedGenerations > 0) {
+    INFO_LOG("  Retained generations R: at most %" PRId64 " concurrently", RetainedGenerations);
+    INFO_LOG("  Retention pool resident: at most %" PRId64 " B = %.3f GB (raw slabs with "
+             "reader-owned arrays, aux, output buffers and galaxy pools)",
+             RetainedBytes, (double)RetainedBytes / RUN_PROFILE_BYTES_PER_GB);
+  } else {
+    INFO_LOG("  Retained generations R: unmeasured (no horizontal generation was retained)");
   }
 
   set_log_level(saved_level);

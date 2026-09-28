@@ -31,6 +31,19 @@
  *       including Type 3 galaxies that are never emitted, so the output count
  *       does not bound it.
  *
+ * A fourth term belongs to the horizontal driver alone:
+ *
+ *   R - its retention pool: the most generations it held concurrently, and the
+ *       most bytes resident across them -- every retained generation's raw slab
+ *       with its reader-owned arrays, aux array, output buffer and galaxy pool,
+ *       plus the reset spare pools it keeps for reuse. The driver computes each
+ *       generation's share from struct widths before allocating it (and refuses
+ *       it there against input.retention_memory_ceiling_mb, when one is set); the
+ *       figure noted here is measured after each snapshot's sweep, when the
+ *       output buffers and pools have grown and nothing has yet been released.
+ *       It excludes the driver's run-scoped workspace and scratch buffers and the
+ *       reader's run-scoped tables, which do not scale with retention.
+ *
  * None of the three is reported anywhere else, and a projection that assumes
  * C = G = slab count is a case rather than an invariant. This unit collects them
  * as run-level maxima and reports them once at run end, next to peak process
@@ -82,6 +95,11 @@ void run_profile_note_output_buffer(int64_t count, int64_t capacity, size_t reco
  * multiplies a per-generation term by the number of live generations. */
 void run_profile_note_galaxy_pool(int64_t galaxies_high_water, int64_t slots_allocated,
                                   int chunk_count, size_t galaxy_bytes);
+
+/* Record the horizontal driver's retention at one point of its schedule: the
+ * generations it holds and the resident bytes it accounts to them (term R
+ * above). Keeps the run-level maximum of each independently. */
+void run_profile_note_retention(int64_t generations, int64_t resident_bytes);
 
 /* Peak resident set size of this process in bytes, or 0 if the platform did
  * not report it. */

@@ -48,6 +48,11 @@
     "MIMIC_COMPILED_SIMULATION must be set at compile time via -DMIMIC_COMPILED_SIMULATION=<name>. Use make SIMULATION=<name>."
 #endif
 
+/* Bytes per MB of input.retention_memory_ceiling_mb. 1024^2, matching the other
+   _mb run-file key (output.target_file_size_mb); defined here rather than in
+   constants.h because this parser is the key's only reader. */
+#define RETENTION_CEILING_BYTES_PER_MB (1024LL * 1024LL)
+
 /* Helper functions for DOM navigation */
 static yaml_node_t *get_mapping_value(yaml_document_t *doc, yaml_node_t *mapping, const char *key);
 static const char *get_scalar_value(yaml_node_t *node);
@@ -163,6 +168,9 @@ void read_parameter_file(const char *fname) {
   MimicConfig.vertical_reader = NULL;
   MimicConfig.horizontal_reader = NULL;
   ProcessingOrderConfigured = 0;
+
+  /* Seeded for the same reason: absent from both files means no ceiling. */
+  MimicConfig.RetentionMemoryCeiling = 0;
 
   /*
    * Load order: simulation config file first (provides defaults), then all
@@ -805,7 +813,8 @@ static void parse_input_section(yaml_document_t *doc, yaml_node_t *section) {
                                            "snapshot_list_file",
                                            "max_tree_depth",
                                            "forest_distribution_scheme",
-                                           "exponent_forest_dist_scheme"};
+                                           "exponent_forest_dist_scheme",
+                                           "retention_memory_ceiling_mb"};
 
   DEBUG_LOG("Parsing input section");
   reject_unknown_keys(doc, section, "input", valid_keys,
@@ -904,6 +913,28 @@ static void parse_input_section(yaml_document_t *doc, yaml_node_t *section) {
     MimicConfig.Exponent_Forest_Dist_Scheme =
         get_strict_double_value(node, "input.exponent_forest_dist_scheme");
     DEBUG_LOG("Exponent_Forest_Dist_Scheme = %g", MimicConfig.Exponent_Forest_Dist_Scheme);
+  }
+
+  /* Optional resident-memory ceiling for the horizontal driver's retained
+     generations. A whole number of MB, positive, and small enough that its byte
+     count fits in int64_t; omitting the key is how a run asks for no ceiling, so
+     zero is rejected rather than read as "none". */
+  node = get_mapping_value(doc, section, "retention_memory_ceiling_mb");
+  if (node) {
+    const int64_t mb = get_strict_int64_value(node, "input.retention_memory_ceiling_mb");
+    if (mb <= 0) {
+      FATAL_ERROR("input.retention_memory_ceiling_mb must be a positive whole number of MB "
+                  "(1 MB = 1024^2 B), but it is %" PRId64 "; omit the key for no ceiling",
+                  mb);
+    }
+    if (mb > INT64_MAX / RETENTION_CEILING_BYTES_PER_MB) {
+      FATAL_ERROR("input.retention_memory_ceiling_mb is %" PRId64 " MB, whose byte count does "
+                  "not fit in a 64-bit integer (the largest accepted value is %" PRId64 " MB)",
+                  mb, (int64_t)(INT64_MAX / RETENTION_CEILING_BYTES_PER_MB));
+    }
+    MimicConfig.RetentionMemoryCeiling = mb * RETENTION_CEILING_BYTES_PER_MB;
+    DEBUG_LOG("RetentionMemoryCeiling = %" PRId64 " B (from %" PRId64 " MB)",
+              MimicConfig.RetentionMemoryCeiling, mb);
   }
 }
 
@@ -1476,6 +1507,16 @@ static void validate_and_postprocess(void) {
     }
     if (!is_vertical_reader && MimicConfig.OverwriteOutputFiles == 0) {
       ERROR_LOG("--skip was given, but resume is not supported for horizontal runs");
+      errors++;
+    }
+    /* The ceiling bounds the horizontal driver's retained generations; a vertical
+       run holds one forest and retains none, so accepting the key there would
+       promise a bound nothing enforces. */
+    if (is_vertical_reader && MimicConfig.RetentionMemoryCeiling > 0) {
+      ERROR_LOG("input.retention_memory_ceiling_mb is set (%" PRId64 " B), but it bounds only "
+                "the horizontal driver's retained generations and reader '%s' feeds the "
+                "vertical driver",
+                MimicConfig.RetentionMemoryCeiling, reader_name);
       errors++;
     }
     if (!is_vertical_reader && NTask > 1) {

@@ -94,6 +94,14 @@ struct MimicConfig {
   int ForestDistributionScheme;       // default: 0 (uniform_in_forests)
   double Exponent_Forest_Dist_Scheme; // power-law index for the power schemes
 
+  /* Resident-memory ceiling for the horizontal driver's retained generations, in
+   * bytes (input.retention_memory_ceiling_mb, 1 MB = 1024^2 B). 0 means no ceiling:
+   * the driver still computes and reports every generation's resident bytes but
+   * refuses nothing. Checked before each generation is allocated
+   * (src/core/horizontal_driver.c); a vertical run rejects the key at
+   * configuration. Not recorded in output metadata. */
+  int64_t RetentionMemoryCeiling;
+
   /* output parameters */
   int64_t TargetFileSize;
   int64_t ForestsPerFile;
