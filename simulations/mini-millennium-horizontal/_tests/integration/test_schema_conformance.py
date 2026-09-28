@@ -7,10 +7,12 @@ with a real version 3 dataset's `/schema` -- checked two ways, the YAML-via-
 generator view (the same effective-h_convention lookup
 scripts/generate_properties.py applies) and, when present, the generated
 catalog_field_metadata.inc this package's own build compiled. The five link
-roles are excluded from the /schema comparison because /schema never
-declares them (Gate R0-2); SourceHaloID and the three target-snapshot
-columns must not appear as declared catalog properties at all (Gate
-R0-3(a) -- they are reader-owned slab arrays).
+roles are declared `long long` (Gate R0-2(a)) and excluded from the /schema
+comparison because /schema never declares them -- they are checked against
+the v3 format's fixed table instead. SourceHaloID, the three target-snapshot
+columns and the ForestIndex/HaloRankInForest identity arrays must not appear
+as declared catalog properties at all (Gate R0-3(a) and the identity-array
+precedent -- they are reader-owned format-table arrays).
 
 The dataset compared against is the committed version 3 reader fixture
 (tests/data/horizontal_v3/dataset/, tests/data/horizontal_v3/regenerate.sh),
@@ -44,6 +46,7 @@ PACKAGE_ROOT = REPO_ROOT / "simulations" / "mini-millennium-horizontal"
 FIXTURE_DIR = REPO_ROOT / "tests" / "data" / "horizontal_v3" / "dataset"
 GENERATED_METADATA = REPO_ROOT / "src" / "include" / "generated" / "catalog_field_metadata.inc"
 PACKAGE_HALO_PROPERTIES = "simulations/mini-millennium-horizontal/halo_properties.yaml"
+CONVERTER_PROFILE = REPO_ROOT / "simulations" / "mini-millennium" / "converter_columns.yaml"
 
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
@@ -58,18 +61,42 @@ LINK_ROLES = {
     "NextHaloInFOFgroup",
 }
 
-# Reader-owned under R0-3(a): format metadata, never declared catalog properties.
+# Reader-owned under R0-3(a) and the ForestIndex/HaloRankInForest identity-array
+# precedent: format-table metadata, never declared catalog properties.
 READER_OWNED_FIELDS = {
     "SourceHaloID",
     "DescendantSnapshot",
     "FirstProgenitorSnapshot",
     "NextProgenitorSnapshot",
+    "ForestIndex",
+    "HaloRankInForest",
 }
+
+# The one deliberate R0-8(a) extra in the committed v3 fixture: an undeclared
+# /schema field that must be validated for internal consistency and never
+# materialised (tests/data/horizontal_v3/source/profile.yaml). It is not part
+# of this package's own declarations.
+FIXTURE_ONLY_EXTRA_FIELDS = {"SubHalfMass"}
 
 CATALOG_FIELD_RE = re.compile(
     r'CATALOG_FIELD\(\s*\w+\s*,\s*"([^"]*)"\s*,\s*"([^"]*)"\s*,\s*"([^"]*)"\s*,'
     r'\s*"([^"]*)"\s*,\s*"([^"]*)"\s*,\s*"([^"]*)"\s*\)'
 )
+
+
+def _expected_payload_fields():
+    """Non-link field names the mini-Millennium converter profile selects.
+
+    Source of the expected declared-name set:
+    simulations/mini-millennium/converter_columns.yaml's required_columns
+    keys, minus the five link roles (the profile selects those too, but
+    /schema never declares them).
+    """
+    import yaml
+
+    with open(CONVERTER_PROFILE, encoding="utf-8") as f:
+        profile = yaml.safe_load(f)
+    return set(profile["required_columns"]) - LINK_ROLES
 
 
 def _require_simulation():
@@ -146,33 +173,44 @@ def test_yaml_declarations_match_fixture_schema():
     assert len(names) == len(set(names)), f"duplicate declarations: {names}"
 
     for forbidden in sorted(READER_OWNED_FIELDS):
-        assert forbidden not in names, (
+        msg = (
             f"{forbidden} is reader-owned under R0-3(a) and must not be a declared catalog property"
         )
+        assert forbidden not in names, msg
+
+    payload_names = set(names) - LINK_ROLES
+    expected_payload = _expected_payload_fields()
+    msg = (
+        f"declared non-link fields {sorted(payload_names)} != the converter "
+        f"profile's selection {sorted(expected_payload)}"
+    )
+    assert payload_names == expected_payload, msg
+    msg = (
+        f"fixture /schema {sorted(schema)} != declared payload fields "
+        f"{sorted(payload_names)} plus the deliberate R0-8(a) extra "
+        f"{sorted(FIXTURE_ONLY_EXTRA_FIELDS)}"
+    )
+    assert set(schema) == payload_names | FIXTURE_ONLY_EXTRA_FIELDS, msg
 
     checked = 0
     for prop in props:
         name = prop["name"]
         if name in LINK_ROLES:
-            assert prop["type"] == "long long", (
-                f"{name}: link role must be 'long long' under R0-2(a), got {prop['type']!r}"
-            )
+            msg = f"{name}: link role must be 'long long' under R0-2(a), got {prop['type']!r}"
+            assert prop["type"] == "long long", msg
             continue
-        assert name in schema, f"{name}: declared but the fixture's /schema does not include it"
         entry = schema[name]
-        assert prop["type"] == entry["type"], (
-            f"{name}: type {prop['type']!r} != /schema {entry['type']!r}"
-        )
-        assert prop["units"] == entry["units"], (
-            f"{name}: units {prop['units']!r} != /schema {entry['units']!r}"
-        )
+        msg = f"{name}: type {prop['type']!r} != /schema {entry['type']!r}"
+        assert prop["type"] == entry["type"], msg
+        msg = f"{name}: units {prop['units']!r} != /schema {entry['units']!r}"
+        assert prop["units"] == entry["units"], msg
         effective_h = gp._effective_h_convention(prop)
-        assert effective_h == entry["h_convention"], (
-            f"{name}: h_convention {effective_h!r} != /schema {entry['h_convention']!r}"
-        )
+        msg = f"{name}: h_convention {effective_h!r} != /schema {entry['h_convention']!r}"
+        assert effective_h == entry["h_convention"], msg
         checked += 1
 
-    assert checked == 9, f"expected 9 non-link payload fields checked, got {checked}"
+    msg = f"expected {len(expected_payload)} non-link payload fields checked, got {checked}"
+    assert checked == len(expected_payload), msg
 
 
 def test_compiled_catalog_metadata_matches_fixture_schema():
@@ -195,32 +233,39 @@ def test_compiled_catalog_metadata_matches_fixture_schema():
         )
 
     schema = _read_fixture_schema()
+    expected_payload = _expected_payload_fields()
+
+    compiled_names = set(generated)
+    compiled_payload_names = compiled_names - LINK_ROLES
+    msg = (
+        f"compiled non-link fields {sorted(compiled_payload_names)} != the "
+        f"converter profile's selection {sorted(expected_payload)}"
+    )
+    assert compiled_payload_names == expected_payload, msg
 
     checked = 0
     for dataset, entry in generated.items():
         if entry["role_kind"] == "tree_link":
             assert dataset in LINK_ROLES, f"{dataset}: unexpected tree_link role"
-            assert entry["type"] == "long long", (
-                f"{dataset}: link role must be 'long long' under R0-2(a), got {entry['type']!r}"
-            )
+            msg = f"{dataset}: link role must be 'long long' under R0-2(a), got {entry['type']!r}"
+            assert entry["type"] == "long long", msg
             continue
-        assert dataset in schema, (
-            f"{dataset}: compiled but the fixture's /schema does not include it"
-        )
+        msg = f"{dataset}: compiled but the fixture's /schema does not include it"
+        assert dataset in schema, msg
         fixture_entry = schema[dataset]
-        assert entry["type"] == fixture_entry["type"], (
-            f"{dataset}: compiled type {entry['type']!r} != /schema {fixture_entry['type']!r}"
-        )
-        assert entry["units"] == fixture_entry["units"], (
-            f"{dataset}: compiled units {entry['units']!r} != /schema {fixture_entry['units']!r}"
-        )
-        assert entry["h_convention"] == fixture_entry["h_convention"], (
+        msg = f"{dataset}: compiled type {entry['type']!r} != /schema {fixture_entry['type']!r}"
+        assert entry["type"] == fixture_entry["type"], msg
+        msg = f"{dataset}: compiled units {entry['units']!r} != /schema {fixture_entry['units']!r}"
+        assert entry["units"] == fixture_entry["units"], msg
+        msg = (
             f"{dataset}: compiled h_convention {entry['h_convention']!r} != "
             f"/schema {fixture_entry['h_convention']!r}"
         )
+        assert entry["h_convention"] == fixture_entry["h_convention"], msg
         checked += 1
 
-    assert checked == 9, f"expected 9 non-link payload fields checked, got {checked}"
+    msg = f"expected {len(expected_payload)} non-link payload fields checked, got {checked}"
+    assert checked == len(expected_payload), msg
 
 
 if __name__ == "__main__":
