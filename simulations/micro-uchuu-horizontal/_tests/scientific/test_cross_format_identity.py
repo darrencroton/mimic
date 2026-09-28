@@ -107,9 +107,17 @@ ASCII_DATASET_FILES = ("forests.list", "locations.dat", "tree_0_0_0.dat")
 
 #: The vertical-path-preservation reference commit: periodically advanced, not a
 #: permanent invariant. Moved `ae22d278` -> `a654c228` (2026-09-10) after the
-#: validated `fix_flybys` removal (docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md);
-#: see PERMITTED_DELTAS below for what a re-anchor must reset.
-BASELINE_COMMIT = "a654c228"
+#: validated `fix_flybys` removal (docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md).
+#: Moved `a654c228` -> `aedded2f` (2026-09-28) after the 94c4f22e Uchuu-family
+#: particle-mass correction (0.0325 -> 0.0327), verified by a full-field,
+#: all-record comparison of a654c228 against aedded2f over all 4,409,643
+#: records: only Len and the fields it derives -- satellite Mvir, Rvir, Vvir,
+#: deltaMvir, infallVvir -- changed. Len matched the rounding of
+#: Len = round(Mvir*1e-10/PartMass) record for record, and Mvir, Rvir and Vvir
+#: followed from it exactly; deltaMvir and infallVvir derive from those in code.
+#: Every other field, dtype, shape and the dataset set were identical.
+#: See PERMITTED_DELTAS below for what a re-anchor must reset.
+BASELINE_COMMIT = "aedded2f"
 
 #: HDF5 attributes that legitimately differ between two builds/runs of the same
 #: code and carry no scientific content, mapped to the object paths where they
@@ -133,6 +141,14 @@ PROVENANCE_ATTR_PATHS = {
 #: classify()'s special cases and assert_output_schema_delta's `expected` set
 #: back to empty -- a fresh anchor starts with nothing yet to permit.
 PERMITTED_DELTAS = ()
+
+#: output_schema.json top-level keys excluded from assert_output_schema_delta.
+#: `source_md5` is a hash of the generator and its property/unit YAML inputs,
+#: not of the schema itself, so it changes whenever either does, even when the
+#: schema it describes -- the field list, types and units -- is bit-identical.
+#: Excluded by exact key, the same way PROVENANCE_ATTR_PATHS excludes by exact
+#: attribute path: only this key is exempt, nothing else silently rides along.
+SCHEMA_PROVENANCE_KEYS = {".source_md5"}
 
 #: Attributes required to be exactly equal between the two runs of a pair before
 #: their records are compared. A pair that disagrees here is not two views of one
@@ -1462,6 +1478,11 @@ def assert_output_schema_delta(baseline: RunOutput, head: RunOutput) -> None:
     Kept in step with PERMITTED_DELTAS: a change that appears in one and not the
     other means the schema writer and the HDF5 writer have diverged. Empty at
     the current anchor; grows only alongside a new PERMITTED_DELTAS entry.
+
+    SCHEMA_PROVENANCE_KEYS is excluded before that comparison: it names a hash
+    of the generator and its YAML inputs, not of the schema, so it moves on its
+    own schedule and carries no scientific content -- the field list, types and
+    units are still compared exactly.
     """
     before = json.loads(baseline.schema_path().read_text())
     after = json.loads(head.schema_path().read_text())
@@ -1486,6 +1507,8 @@ def assert_output_schema_delta(baseline: RunOutput, head: RunOutput) -> None:
             differences.append(path)
 
     compare(before, after, "")
+
+    differences = [path for path in differences if path not in SCHEMA_PROVENANCE_KEYS]
 
     expected: set[str] = set()
     if set(differences) != expected:
