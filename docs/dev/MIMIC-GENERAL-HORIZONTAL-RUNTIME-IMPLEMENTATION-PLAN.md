@@ -2,7 +2,7 @@
 
 **Purpose:** Make Mimic's horizontal reader and driver consume horizontal-HDF5 format version 3, the lossless output of the generalised converter, so that gapped and wide merger-tree datasets can be run, and prove it by per-`UniqueGalaxyID` bitwise parity against the vertical driver on real gapped mini-Millennium data.
 
-**Status:** Proposed implementation contract, written 2026-09-25 as the runtime follow-on that Slice 12 of [`MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md`](MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md) requires. It was written after inspecting the final converter and schema at `16101d5b26af00815417b07f33a34f42317559c0` (the commit that closed that plan's acceptance evidence). The converter was subsequently reviewed and cleaned up on 2026-09-28 ([`MIMIC-CONVERTER-GENERALISATION-CODE-REVIEW.md`](MIMIC-CONVERTER-GENERALISATION-CODE-REVIEW.md)) without changing the v3 format, the CLI's command lines or the acceptance figures this plan relies on; its v3 writer now lives in `scripts/convert/hdf5_writer_v3.py` and its v3 battery in `scripts/convert/validate_v3.py`, and the consumer metadata fragment's `format_table_fields` now name the core role each provides. That review's four questions for Gate R0 are recorded under [Independent review notes for Gate R0](#independent-review-notes-for-gate-r0-2026-09-28). **It is not approved for execution.** Nothing here has been implemented, and nothing here authorises implementation: [Gate R0](#gate-r0-owner-decisions-before-any-slice) names the architectural decisions the owner must make first, and every slice that touches the runtime is approval-gated. No project-manager or Developer session may start this plan on its own initiative, and nothing in the converter plan's Mode B run authorises it.
+**Status:** Proposed implementation contract, written 2026-09-25 as the runtime follow-on that Slice 12 of [`MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md`](MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md) requires. It was written after inspecting the final converter and schema at `16101d5b26af00815417b07f33a34f42317559c0` (the commit that closed that plan's acceptance evidence). The converter was subsequently reviewed and cleaned up on 2026-09-28 ([`MIMIC-CONVERTER-GENERALISATION-CODE-REVIEW.md`](MIMIC-CONVERTER-GENERALISATION-CODE-REVIEW.md)) without changing the v3 format, the CLI's command lines or the acceptance figures this plan relies on; its v3 writer now lives in `scripts/convert/hdf5_writer_v3.py` and its v3 battery in `scripts/convert/validate_v3.py`, and the consumer metadata fragment's `format_table_fields` now name the core role each provides. That review's four questions for Gate R0 are recorded under [Independent review notes for Gate R0](#independent-review-notes-for-gate-r0-2026-09-28). **Approved for execution by the owner on 2026-09-28**, with every [Gate R0](#gate-r0-owner-decisions-before-any-slice) decision recorded in that section. Nothing here has been implemented yet. Every slice that touches the runtime remains approval-gated. No project-manager or Developer session may start this plan on its own initiative, and nothing in the converter plan's Mode B run authorises it.
 
 **What this plan is for, in one sentence:** conversion already works; running the result does not, and the gap between the two is a reader, a driver and an input seam that were all built for adjacent, int32-indexed, fixed-unit input.
 
@@ -103,7 +103,19 @@ These are architectural decisions this plan deliberately does not make. Each has
 | R0-10 | **Package naming.** | One package per (simulation, source format). Proposed: `simulations/mini-millennium-horizontal/` (Slices 3–6), and `micro-uchuu-lhalo-horizontal/`, `micro-uchuu-hdf5-horizontal/`, `millennium-horizontal/` and `mini-uchuu-horizontal/` (Slice 7). | Accept the names or give others; a different name is a mechanical plan amendment to the slices that list it. |
 | R0-11 | **Promoting the v3 specification.** | (a) Move the approved draft into `HORIZONTAL-HDF5-FORMAT.md` as a normative version 3 section once runtime support ships. (b) Keep two files. | (a), in Slice 8 only, after the parity gate. |
 
-**Recorded decisions:** none yet. The owner adds one dated line per decision here.
+**Recorded decisions** (owner, 2026-09-28; every recommendation above accepted as proposed, and R0-7, which carried no recommendation, decided as (a)):
+
+- R0-1 (2026-09-28): **(a)** — extend `horizontal_hdf5` to accept v2 and v3, dispatching on `format_version`, with v2's validation path byte-for-byte unchanged.
+- R0-2 (2026-09-28): **(a)** — allow `long long` `tree_link` fields and widen the generated link accessors to `int64_t` everywhere; vertical packages keep `int` storage.
+- R0-3 (2026-09-28): **(a)** — the three target-snapshot columns and `SourceHaloID` are reader-owned slab arrays.
+- R0-4 (2026-09-28): **(a)** — widen vertical-only index code (`struct HaloAuxData`, `build_model.c`'s tree walk) to int64 too; Slice 1 measures the cost.
+- R0-5 (2026-09-28): **(a)** — a run-file memory ceiling for retained generations, checked before each retention and failing before allocation.
+- R0-6 (2026-09-28): **(a)** — retain whole generations.
+- R0-7 (2026-09-28): **(a)** — land gap retention on whole slabs now; design chunked streaming separately later and accept that it may rework retention.
+- R0-8 (2026-09-28): **(a)** — validate every `/schema` declaration; materialise only extras the package declares.
+- R0-9 (2026-09-28): **(a)** — output provenance is scheduled as its own output-schema plan after this one lands; no slice here delivers it.
+- R0-10 (2026-09-28): the proposed names are accepted — `simulations/mini-millennium-horizontal/`, `micro-uchuu-lhalo-horizontal/`, `micro-uchuu-hdf5-horizontal/`, `millennium-horizontal/` and `mini-uchuu-horizontal/`.
+- R0-11 (2026-09-28): **(a)** — move the approved v3 draft into `HORIZONTAL-HDF5-FORMAT.md` as a normative version 3 section, in Slice 8 only, after the parity gate.
 
 ## Independent review notes for Gate R0 (2026-09-28)
 
@@ -116,7 +128,7 @@ These are questions for the owner to weigh when recording Gate R0, not decisions
 
 ## Execution policy
 
-- **Not executable yet.** Every slice below requires Gate R0 to be fully recorded first. Slices 1, 2, 4, 5 and 8 are also approval-gated individually.
+- **Gate R0 first.** Every slice below requires Gate R0 to be fully recorded first (recorded 2026-09-28). Slices 1, 2, 4, 5 and 8 are also approval-gated individually.
 - Slices run in order; each is independently gateable. Every slice records its prerequisite check first — datasets, their paths and file counts, the C toolchain (libyaml + HDF5), `mimic_venv` — and stops for the owner if anything critical is missing, exactly as the converter plan's data-availability section requires.
 - Every runtime slice builds and tests with a consistent `MODEL=`/`SIMULATION=` pair, runs `make tests summary` on the default pair (delegated, logs captured), `make check-generated`, `make validate-modules`, `make check-format`, `make check-docs` and `git diff --check`, plus differential lint. Long suites are delegated and never run concurrently.
 - **Vertical bit-identity is a standing gate.** Any slice that touches shared code proves the vertical path unchanged against the committed baselines, with no tolerance change and no baseline regeneration.
