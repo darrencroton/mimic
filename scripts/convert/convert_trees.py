@@ -44,13 +44,10 @@ Consistent-Trees ASCII to version 2 workflow is unchanged and lives in
 **Conversion is not route validation.** Mimic's horizontal_hdf5 reader and
 horizontal driver consume format version 3, but a converted dataset is an
 evidenced runtime route only where a recorded parity gate passed against the
-same source format's vertical reader over the same files
-(docs/dev/MIMIC-GENERAL-HORIZONTAL-RUNTIME-ACCEPTANCE.md). The only evidenced
-routes are mini-Millennium (lhalo_binary, complete; halos-only and sage16),
-micro-Uchuu (lhalo_binary and consistent_trees_hdf5, complete; halos-only) and
-Millennium and mini-Uchuu (lhalo_binary, files 0-15 only; halos-only). Full
-Uchuu is not runnable: it exceeds whole-slab memory and needs chunked slab
-streaming. Every stage says so, and says whether the dataset has non-adjacent
+same source format's vertical reader over the same files. The evidenced
+routes are the five in runtime_routes.ROUTES, which mirrors the table under
+docs/dev/HORIZONTAL-HDF5-FORMAT.md#v3-runtime-support; full Uchuu is not
+runnable. Every stage says so, and says whether the dataset has non-adjacent
 (gapped) Descendant links or a snapshot wider than int32.
 
 **Restart.** Each stage records its state in ``<workdir>/manifest.json``
@@ -110,6 +107,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import runtime_routes  # noqa: E402
 from column_schema import SOURCE_FORMATS, ConverterError  # noqa: E402
 
 CONVERT_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
@@ -123,19 +121,10 @@ DEFAULT_MEMORY_BUDGET_MB = 2048
 _INT32_MAX = 2**31 - 1
 
 #: Printed by every stage that reports on a conversion, so a successful
-#: conversion can never be read as a validated route. It names exactly the
-#: routes whose parity gate passed; keep it in step with report.py's
-#: runtime-compatibility text and with the acceptance record.
-RUNTIME_NOTICE = (
-    "runtime support: format version 3 is consumed by the current Mimic horizontal reader "
-    "and driver, but a conversion is not a validated route. The only evidenced routes "
-    "(per-UniqueGalaxyID bitwise parity against the same source format's vertical reader, "
-    "docs/dev/MIMIC-GENERAL-HORIZONTAL-RUNTIME-ACCEPTANCE.md) are: mini-Millennium "
-    "lhalo_binary, complete, halos-only and sage16; micro-Uchuu lhalo_binary and "
-    "consistent_trees_hdf5, complete, halos-only; Millennium and mini-Uchuu lhalo_binary, "
-    "files 0-15 only, halos-only. Full Uchuu is not runnable: it exceeds whole-slab memory "
-    "and needs chunked slab streaming."
-)
+#: conversion can never be read as a validated route. The wording and the
+#: route list come from runtime_routes, the converter's one copy of the
+#: evidenced routes (the spec's V3 Runtime Support table is the authority).
+RUNTIME_NOTICE = runtime_routes.runtime_notice()
 
 #: Per-format inventory options: every one is required for its format and
 #: rejected for the other two, so an option meant for another route can never
@@ -795,11 +784,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="convert_trees",
         description="Convert L-Halo binary, Consistent-Trees forests-HDF5 or Consistent-Trees "
-        "ASCII merger trees to Mimic horizontal HDF5 format version 3. The current Mimic reads "
-        "version 3, but converted output is a validated route only where a recorded parity "
-        "gate passed (mini-Millennium, micro-Uchuu, and Millennium and mini-Uchuu files 0-15; "
-        "see each stage's runtime-support line); full Uchuu is not runnable. The ASCII-to-"
-        "version-2 workflow is convert_ctrees.py.",
+        "ASCII merger trees to Mimic horizontal HDF5 format version 3. "
+        + runtime_routes.cli_description()
+        + " The ASCII-to-version-2 workflow is convert_ctrees.py.",
         epilog="Package profiles: simulations/<package>/converter_columns.yaml. Restart: every "
         "stage resumes from <workdir>/manifest.json; see the module docstring.",
     )

@@ -24,6 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import report  # noqa: E402
+import runtime_routes  # noqa: E402
 from column_schema import ConverterError  # noqa: E402
 from report import REPORT_JSON, REPORT_TXT, run_report_v3  # noqa: E402
 from test_hdf5_writer import V3_LHALO_EXTRAS_PAYLOAD, make_v3_conversion  # noqa: E402
@@ -135,14 +136,8 @@ class TestV3Report(unittest.TestCase):
         self.assertIs(runtime["runnable_by_current_mimic"], True)
         joined = " ".join(runtime["limitations"])
         self.assertIn("Format consumed, route not validated", joined)
-        self.assertIn(
-            "The only evidenced routes are: mini-Millennium lhalo_binary, complete, halos-only "
-            "and sage16; micro-Uchuu lhalo_binary and consistent_trees_hdf5, complete, "
-            "halos-only; Millennium and mini-Uchuu lhalo_binary, files 0-15 only, halos-only.",
-            joined,
-        )
-        self.assertIn("Full Uchuu is not runnable: it exceeds whole-slab memory", joined)
-        self.assertIn("chunked slab streaming", joined)
+        for sentence in runtime_routes.standing_limitations():
+            self.assertIn(sentence, joined)
         self.assertNotIn("accepts only format_version 2", joined)
         self.assertIn("2 Descendant link(s) skip snapshots", joined)
         self.assertIn("SubHalfMass", joined)

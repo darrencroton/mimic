@@ -423,15 +423,15 @@ make MODEL=halos-only SIMULATION=micro-uchuu-horizontal
 
 **Version 3 input.** A version 3 dataset keeps descendant links that skip snapshots, int64 row indices, and each source's native payload units, which each file declares in its `/schema` group. At open the reader checks that `/schema` against your package's compiled `halo_properties.yaml` — type, units and `h_convention` of every field the package declares — and stops on any disagreement, so a package that labels mass `1e10 Msun/h` against a file whose `/schema` says `Msun/h` (a 10¹⁰ unit mismatch) is a startup error rather than a silent result. The check compares declared labels only: values that are mis-scaled under correct labels are not detected at run time. That is why there is **one simulation package per simulation and source format**: `micro-uchuu-lhalo-horizontal` (L-Halo binary, mass in `1e10 Msun/h`) and `micro-uchuu-hdf5-horizontal` (forests-HDF5, mass in `Msun/h`) are two packages for one simulation. Each package's `snapshots/` is a local link to a dataset you convert yourself; its README gives the conversion command.
 
-Mimic can read any conforming version 3 dataset paired with a simulation package whose declarations match its `/schema`, but a route counts as supported only where its horizontal output has been shown bitwise identical, per `UniqueGalaxyID`, to the vertical reader of the same source format over the same files. The evidence is [`MIMIC-GENERAL-HORIZONTAL-RUNTIME-ACCEPTANCE.md`](dev/MIMIC-GENERAL-HORIZONTAL-RUNTIME-ACCEPTANCE.md):
+Mimic can read any conforming version 3 dataset paired with a simulation package whose declarations match its `/schema`, but a route counts as supported only where its horizontal output has been shown bitwise identical, per `UniqueGalaxyID`, to the vertical reader of the same source format over the same files. The authoritative table, with its evidence, is [V3 Runtime Support](dev/HORIZONTAL-HDF5-FORMAT.md#v3-runtime-support) in the format specification; it is reproduced here:
 
 | Package | Source data | Validated for |
 | --- | --- | --- |
-| `mini-millennium-horizontal` | all eight mini-Millennium L-Halo files, with 29,291 skipped-snapshot links | `halos-only` and `sage16`, fixed and dynamic timesteps |
-| `micro-uchuu-lhalo-horizontal` | the complete micro-Uchuu L-Halo catalogue | `halos-only`, fixed and dynamic timesteps |
-| `micro-uchuu-hdf5-horizontal` | the complete micro-Uchuu forests-HDF5 catalogue | `halos-only`, fixed and dynamic timesteps |
-| `millennium-horizontal` | Millennium files 0–15 only, a sample of 512 | `halos-only`, fixed and dynamic timesteps, on those files only |
-| `mini-uchuu-horizontal` | mini-Uchuu files 0–15 only, a sample of 128 | `halos-only`, fixed and dynamic timesteps, on those files only |
+| `mini-millennium-horizontal` | complete real data, with 29,291 gapped `Descendant` links | `halos-only` and `sage16`, fixed and dynamic timesteps |
+| `micro-uchuu-lhalo-horizontal` | complete real data (L-Halo binary) | `halos-only`, fixed and dynamic timesteps |
+| `micro-uchuu-hdf5-horizontal` | complete real data (forests-HDF5) | `halos-only`, fixed and dynamic timesteps |
+| `millennium-horizontal` | **sampled subset**: files 0–15 only | `halos-only`, fixed and dynamic timesteps, on files 0–15 only |
+| `mini-uchuu-horizontal` | **sampled subset**: files 0–15 only | `halos-only`, fixed and dynamic timesteps, on files 0–15 only |
 
 Nothing else is claimed: no whole-simulation result for Millennium or mini-Uchuu, no `sage16` result outside mini-Millennium, and no equality between packages built from different source formats. **Full Uchuu is not runnable**: its largest snapshot cannot be held in memory as a whole slab on any host this project has, and running it needs chunked slab streaming, which Mimic does not implement.
 
@@ -482,11 +482,9 @@ Horizontal input is produced offline, from a simulation's forest-ordered trees, 
 | Converter | Sources | Output | Runnable? |
 | --- | --- | --- | --- |
 | `convert_ctrees.py` | Consistent-Trees ASCII | horizontal HDF5 `format_version = 2` | **Yes** — this is how `micro-uchuu-horizontal` was made |
-| `convert_trees.py` | L-Halo binary, Consistent-Trees forests-HDF5, Consistent-Trees ASCII | horizontal HDF5 `format_version = 3`, lossless | **Yes, for the validated routes** listed under [Running Horizontal Input](#running-horizontal-input); not full Uchuu |
+| `convert_trees.py` | L-Halo binary, Consistent-Trees forests-HDF5, Consistent-Trees ASCII | horizontal HDF5 `format_version = 3`, lossless | **Yes, for the validated routes** in the [V3 Runtime Support table](dev/HORIZONTAL-HDF5-FORMAT.md#v3-runtime-support); not full Uchuu |
 
-`convert_trees.py` has routes and shipped profiles (`simulations/<package>/converter_columns.yaml`) for mini-Millennium, Millennium, micro-Uchuu, mini-Uchuu and full Uchuu. Version 3 keeps what version 2 cannot: descendant links that skip snapshots (mini-Millennium has 29,291 of them), snapshots above `INT32_MAX` halos, each source's native units and precision, and any additional numeric fields you select in a profile. The reader and driver consume version 3: they carry galaxies across a skipped snapshot and index slabs with 64-bit integers (the driver refuses a snapshot above `INT32_MAX` halos only if it is a requested output snapshot, and warns above 1e9 halos). A successful conversion is still conversion evidence, not a validated route; each `convert_trees.py` stage names the validated routes in its own output, and states that full Uchuu is not runnable.
-
-Real-data conversions have been validated for mini-Millennium and micro-Uchuu in full, for Millennium and mini-Uchuu on their first 16 files only, and for full Uchuu only on its small committed fixture; see the converter manual for what each of those covers.
+`convert_trees.py` has routes and shipped profiles (`simulations/<package>/converter_columns.yaml`) for mini-Millennium, Millennium, micro-Uchuu, mini-Uchuu and full Uchuu. Version 3 keeps what version 2 cannot: descendant links that skip snapshots (mini-Millennium has 29,291 of them), snapshots above `INT32_MAX` halos, each source's native units and precision, and any additional numeric fields you select in a profile. The reader and driver consume version 3: they carry galaxies across a skipped snapshot and index slabs with 64-bit integers (the driver refuses a snapshot above `INT32_MAX` halos only if it is a requested output snapshot, and warns above 1e9 halos). A successful conversion is still conversion evidence, not a validated route; each `convert_trees.py` stage names the validated routes in its own output (the list is the [V3 Runtime Support table](dev/HORIZONTAL-HDF5-FORMAT.md#v3-runtime-support)) and states that full Uchuu is not runnable. The converter manual (`scripts/convert/README.md`) says what each conversion covers, including that full Uchuu has been converted only from its small committed fixture.
 
 ### Output Formats
 

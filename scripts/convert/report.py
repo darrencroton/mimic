@@ -28,6 +28,7 @@ from typing import Dict, List, Mapping, Optional, Tuple
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import numpy as np  # noqa: E402
+import runtime_routes  # noqa: E402
 from conversion_manifest import ConversionManifest  # noqa: E402
 from ctrees_parser import ConverterError  # noqa: E402
 from scatter import Manifest, load_a_list  # noqa: E402
@@ -305,20 +306,10 @@ _C_INT_MAX = 2**31 - 1
 #: emitted files all declare it.
 _V3_CONSUMED_FORMAT_VERSIONS = [3]
 
-#: Stated for every v3 dataset, whatever it contains. The route list names
-#: exactly the routes whose parity gate passed; keep it in step with
-#: convert_trees.py's RUNTIME_NOTICE and with the acceptance record.
-_V3_STANDING_LIMITATIONS = (
-    "Format consumed, route not validated: Mimic's horizontal_hdf5 reader and horizontal "
-    "driver consume format_version 3, but a conversion is an evidenced runtime route only "
-    "where a recorded parity gate showed its horizontal output bitwise identical, per "
-    "UniqueGalaxyID, to the same source format's vertical reader over the same files "
-    "(docs/dev/MIMIC-GENERAL-HORIZONTAL-RUNTIME-ACCEPTANCE.md).",
-    "The only evidenced routes are: mini-Millennium lhalo_binary, complete, halos-only and "
-    "sage16; micro-Uchuu lhalo_binary and consistent_trees_hdf5, complete, halos-only; "
-    "Millennium and mini-Uchuu lhalo_binary, files 0-15 only, halos-only.",
-    "Full Uchuu is not runnable: it exceeds whole-slab memory, and running it needs chunked "
-    "slab streaming, which Mimic does not implement.",
+#: Stated for every v3 dataset, whatever it contains. The route sentences come
+#: from runtime_routes, the converter's one copy of the evidenced routes; the
+#: payload sentence is about the schema rule, not about routes, so it lives here.
+_V3_STANDING_LIMITATIONS = runtime_routes.standing_limitations() + (
     "Payload units and precision are the source's native ones as /schema declares them; "
     "every field a consuming simulation package's halo_properties.yaml declares must match "
     "/schema (undeclared /schema fields are validated and ignored), so there is one package "

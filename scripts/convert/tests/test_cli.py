@@ -48,6 +48,7 @@ sys.path.insert(0, str(CONVERT_DIR))
 sys.path.insert(0, str(HERE))
 
 import convert_trees  # noqa: E402
+import runtime_routes  # noqa: E402
 import test_lhalo_adapter as lhalo  # noqa: E402
 import test_pipeline as literal  # noqa: E402
 
@@ -216,17 +217,10 @@ class HelpTests(CliCase):
         notice = convert_trees.RUNTIME_NOTICE
         self.assertTrue(notice.startswith(RUNTIME_MARK))
         self.assertIn("a conversion is not a validated route", notice)
-        for route in (
-            "mini-Millennium lhalo_binary, complete, halos-only and sage16",
-            "micro-Uchuu lhalo_binary and consistent_trees_hdf5, complete, halos-only",
-            "Millennium and mini-Uchuu lhalo_binary, files 0-15 only, halos-only",
-        ):
-            self.assertIn(route, notice)
-        self.assertIn(
-            "Full Uchuu is not runnable: it exceeds whole-slab memory and needs chunked slab "
-            "streaming",
-            notice,
-        )
+        for route in runtime_routes.ROUTES:
+            self.assertIn(route.simulation, notice)
+        self.assertIn(runtime_routes.SPEC_ANCHOR, notice)
+        self.assertIn(runtime_routes.FULL_UCHUU_NOT_RUNNABLE, notice)
 
     def test_every_subcommand_has_help(self):
         for command in ("inspect", "ingest", "transpose", "write", "validate", "report"):
