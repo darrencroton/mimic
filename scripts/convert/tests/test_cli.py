@@ -51,7 +51,7 @@ import convert_trees  # noqa: E402
 import test_lhalo_adapter as lhalo  # noqa: E402
 import test_pipeline as literal  # noqa: E402
 
-RUNTIME_MARK = "runtime support: NONE"
+RUNTIME_MARK = "runtime support: format version 3 is consumed"
 BUDGET_MB = "64"
 
 
@@ -208,8 +208,25 @@ class HelpTests(CliCase):
         for command in ("inspect", "ingest", "transpose", "write", "validate", "report"):
             self.assertIn(command, text)
         self.assertIn("format version 3", text)
-        self.assertIn("not runnable by the current Mimic", text)
+        self.assertIn("validated route only where a recorded parity gate passed", text)
+        self.assertIn("full Uchuu is not runnable", text)
         self.assertIn("convert_ctrees.py", text)
+
+    def test_runtime_notice_names_only_the_evidenced_routes(self):
+        notice = convert_trees.RUNTIME_NOTICE
+        self.assertTrue(notice.startswith(RUNTIME_MARK))
+        self.assertIn("a conversion is not a validated route", notice)
+        for route in (
+            "mini-Millennium lhalo_binary, complete, halos-only and sage16",
+            "micro-Uchuu lhalo_binary and consistent_trees_hdf5, complete, halos-only",
+            "Millennium and mini-Uchuu lhalo_binary, files 0-15 only, halos-only",
+        ):
+            self.assertIn(route, notice)
+        self.assertIn(
+            "Full Uchuu is not runnable: it exceeds whole-slab memory and needs chunked slab "
+            "streaming",
+            notice,
+        )
 
     def test_every_subcommand_has_help(self):
         for command in ("inspect", "ingest", "transpose", "write", "validate", "report"):
@@ -284,7 +301,8 @@ class StageChainTests(CliCase):
         self.assertEqual(len(list(dataset.glob("snapshot_*.h5"))), n_snapshots)
         report = json.loads((work / "conversion_report.json").read_text())
         self.assertTrue(report["validation_passed"])
-        self.assertFalse(report["runtime_compatibility"]["runnable_by_current_mimic"])
+        # Format capability ("format consumed"), not route validation.
+        self.assertIs(report["runtime_compatibility"]["runnable_by_current_mimic"], True)
         if n_halos is not None:
             self.assertEqual(report["totals"]["halos"], n_halos)
         self.assertEqual(os.listdir(self.cwd), [], "a stage wrote into its working directory")

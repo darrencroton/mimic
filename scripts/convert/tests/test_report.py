@@ -129,16 +129,27 @@ class TestV3Report(unittest.TestCase):
         self.assertLessEqual(resources["validation"]["peak_resident_bytes"], BUDGET)
         self.assertGreater(resources["record_itemsize"]["transposed"], 0)
 
-    def test_report_never_claims_runtime_executability(self):
+    def test_report_states_format_capability_and_only_the_evidenced_routes(self):
         runtime = self.report["runtime_compatibility"]
-        self.assertIs(runtime["runnable_by_current_mimic"], False)
+        # The flag means "format consumed", never "route validated".
+        self.assertIs(runtime["runnable_by_current_mimic"], True)
         joined = " ".join(runtime["limitations"])
-        self.assertIn("accepts only format_version 2", joined)
+        self.assertIn("Format consumed, route not validated", joined)
+        self.assertIn(
+            "The only evidenced routes are: mini-Millennium lhalo_binary, complete, halos-only "
+            "and sage16; micro-Uchuu lhalo_binary and consistent_trees_hdf5, complete, "
+            "halos-only; Millennium and mini-Uchuu lhalo_binary, files 0-15 only, halos-only.",
+            joined,
+        )
+        self.assertIn("Full Uchuu is not runnable: it exceeds whole-slab memory", joined)
+        self.assertIn("chunked slab streaming", joined)
+        self.assertNotIn("accepts only format_version 2", joined)
         self.assertIn("2 Descendant link(s) skip snapshots", joined)
         self.assertIn("SubHalfMass", joined)
         text = (self.conv.work / REPORT_TXT).read_text()
-        self.assertIn("NOT RUNNABLE BY THE CURRENT MIMIC", text)
-        self.assertIn("runnable by the current Mimic: NO", text)
+        self.assertIn("FORMAT CONSUMED BY THE CURRENT MIMIC; ROUTE NOT VALIDATED", text)
+        self.assertNotIn("NOT RUNNABLE BY THE CURRENT MIMIC", text)
+        self.assertIn("format consumed by the current Mimic: YES", text)
         self.assertIn("INSUFFICIENT for runtime execution", text)
 
     def test_consumer_fragment_has_native_units_types_and_core_roles(self):

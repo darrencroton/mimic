@@ -9,7 +9,10 @@ command here reads Consistent-Trees ASCII and ``write`` always emits
 horizontal-HDF5 format version 2 (docs/dev/HORIZONTAL-HDF5-FORMAT.md), which
 the current Mimic reader runs. L-Halo binary and forests-HDF5 sources, declared
 extra fields and the lossless version 3 format are the generic CLI's,
-``convert_trees.py``; its output is not runnable by the current Mimic.
+``convert_trees.py``. The current Mimic reads version 3 too, but a version 3
+conversion is a validated route only where a recorded parity gate passed; see
+that CLI's runtime-support line for the evidenced routes. Full Uchuu is not
+runnable.
 
 Usage (micro-Uchuu example):
     mimic_venv/bin/python scripts/convert/convert_ctrees.py scatter \\
@@ -90,8 +93,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="convert_ctrees",
         description="Convert Consistent-Trees ASCII output to Mimic horizontal HDF5 format "
-        "version 2 (the runnable format). For L-Halo binary or forests-HDF5 sources, declared "
-        "extra fields or lossless format version 3, use convert_trees.py.",
+        "version 2. For L-Halo binary or forests-HDF5 sources, declared extra fields or lossless "
+        "format version 3 (also read by the current Mimic, on the routes convert_trees.py "
+        "names as evidenced), use convert_trees.py.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 

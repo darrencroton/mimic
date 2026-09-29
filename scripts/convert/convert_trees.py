@@ -41,10 +41,16 @@ this CLI writes nothing outside ``--workdir``.
 Consistent-Trees ASCII to version 2 workflow is unchanged and lives in
 ``convert_ctrees.py``, whose commands keep their version 2 defaults.
 
-**Conversion is not runtime support.** Mimic's current horizontal reader accepts
-only format version 2 and rejects a version 3 file at open; the horizontal
-driver also cannot carry state across a skipped snapshot or load a slab above
-INT32_MAX. Every stage says so, and says whether the dataset has non-adjacent
+**Conversion is not route validation.** Mimic's horizontal_hdf5 reader and
+horizontal driver consume format version 3, but a converted dataset is an
+evidenced runtime route only where a recorded parity gate passed against the
+same source format's vertical reader over the same files
+(docs/dev/MIMIC-GENERAL-HORIZONTAL-RUNTIME-ACCEPTANCE.md). The only evidenced
+routes are mini-Millennium (lhalo_binary, complete; halos-only and sage16),
+micro-Uchuu (lhalo_binary and consistent_trees_hdf5, complete; halos-only) and
+Millennium and mini-Uchuu (lhalo_binary, files 0-15 only; halos-only). Full
+Uchuu is not runnable: it exceeds whole-slab memory and needs chunked slab
+streaming. Every stage says so, and says whether the dataset has non-adjacent
 (gapped) Descendant links or a snapshot wider than int32.
 
 **Restart.** Each stage records its state in ``<workdir>/manifest.json``
@@ -117,12 +123,18 @@ DEFAULT_MEMORY_BUDGET_MB = 2048
 _INT32_MAX = 2**31 - 1
 
 #: Printed by every stage that reports on a conversion, so a successful
-#: conversion can never be read as a runnable simulation.
+#: conversion can never be read as a validated route. It names exactly the
+#: routes whose parity gate passed; keep it in step with report.py's
+#: runtime-compatibility text and with the acceptance record.
 RUNTIME_NOTICE = (
-    "runtime support: NONE -- this is horizontal-HDF5 format version 3, which the current "
-    "Mimic horizontal reader rejects (it accepts only format version 2). A successful "
-    "conversion is not a runnable simulation; consuming version 3 is a separate runtime "
-    "follow-on."
+    "runtime support: format version 3 is consumed by the current Mimic horizontal reader "
+    "and driver, but a conversion is not a validated route. The only evidenced routes "
+    "(per-UniqueGalaxyID bitwise parity against the same source format's vertical reader, "
+    "docs/dev/MIMIC-GENERAL-HORIZONTAL-RUNTIME-ACCEPTANCE.md) are: mini-Millennium "
+    "lhalo_binary, complete, halos-only and sage16; micro-Uchuu lhalo_binary and "
+    "consistent_trees_hdf5, complete, halos-only; Millennium and mini-Uchuu lhalo_binary, "
+    "files 0-15 only, halos-only. Full Uchuu is not runnable: it exceeds whole-slab memory "
+    "and needs chunked slab streaming."
 )
 
 #: Per-format inventory options: every one is required for its format and
@@ -776,8 +788,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="convert_trees",
         description="Convert L-Halo binary, Consistent-Trees forests-HDF5 or Consistent-Trees "
-        "ASCII merger trees to Mimic horizontal HDF5 format version 3. Converted output is not "
-        "runnable by the current Mimic (its reader accepts only version 2); the ASCII-to-"
+        "ASCII merger trees to Mimic horizontal HDF5 format version 3. The current Mimic reads "
+        "version 3, but converted output is a validated route only where a recorded parity "
+        "gate passed (mini-Millennium, micro-Uchuu, and Millennium and mini-Uchuu files 0-15; "
+        "see each stage's runtime-support line); full Uchuu is not runnable. The ASCII-to-"
         "version-2 workflow is convert_ctrees.py.",
         epilog="Package profiles: simulations/<package>/converter_columns.yaml. Restart: every "
         "stage resumes from <workdir>/manifest.json; see the module docstring.",

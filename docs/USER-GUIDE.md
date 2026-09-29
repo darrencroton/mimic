@@ -155,6 +155,7 @@ Run memory profile (GB = 1e9 B):
   Output population P: 14648 records
   Galaxy pool high-water G: 15525 galaxies at 176 B = 0.003 GB
   Galaxy pool allocated: 24576 slots in 2 chunks = 0.004 GB (36.8% chunk slack)
+  Retained generations R: unmeasured (no horizontal generation was retained)
 ```
 
 | Line | Meaning |
@@ -164,6 +165,7 @@ Run memory profile (GB = 1e9 B):
 | Output population `P` | The largest population any one live buffer reached: galaxies emitted plus orphans carried forward. Scoped to whatever the driver keeps live — one snapshot for horizontal input, one tree for vertical — not a run-wide total |
 | Galaxy pool high-water `G` | The most galaxies live at once. It can exceed `P`, because galaxies consumed by mergers are allocated but never written |
 | Galaxy pool allocated | What the pool holds resident, and how much of that is unused slack in its last chunk |
+| Retained generations `R` | Horizontal runs only: the most snapshot generations the driver held at once, followed by a `Retention pool resident` line giving the most bytes resident across them (raw slabs with reader-owned arrays, aux, output buffers and galaxy pools). Adjacent input holds at most two; gapped input holds more (see [Running Horizontal Input](#running-horizontal-input)). A vertical run retains no generation and reports `unmeasured` |
 
 Sizes here use GB = 1e9 B. The separate allocator report under `--verbose` uses MB = 1024², so convert before comparing the two. Under MPI only rank 0 prints, and its RSS is that one rank rather than the node total.
 
@@ -361,7 +363,7 @@ For balanced work, choose a rank count that divides `last_file - first_file + 1`
 
 Both halves of a Mimic run are interchangeable packages. **Model packages** live under `models/`, and each one is self-documenting: its README describes the scientific scope, module pipeline, parameters, and references, and its `input/` directory holds ready-to-run configurations. **Simulation packages** live under `simulations/` and wrap a merger-tree catalogue with its cosmology, units, and snapshot list. The workflow in this guide applies to every *runnable* combination equally — including packages you build yourself.
 
-`micro-uchuu-horizontal` and `shin-uchuu` are the two shipped horizontal packages — `micro-uchuu-horizontal` is the same micro-Uchuu catalogue as `micro-uchuu-ascii`, converted to horizontal HDF5 and read by the horizontal driver. It is runnable like any other package, with its own shipped run files (`models/halos-only/input/halos-only_micro-uchuu-horizontal.yaml`, `models/sage16/input/sage16_micro-uchuu-horizontal.yaml`); see [Running Horizontal Input](#running-horizontal-input) for what is different about it. A package is runnable when a run file pairs it with a model under `models/<model>/input/`.
+`micro-uchuu-horizontal` and `shin-uchuu` are the version 2 horizontal packages — `micro-uchuu-horizontal` is the same micro-Uchuu catalogue as `micro-uchuu-ascii`, converted to horizontal HDF5 and read by the horizontal driver. It is runnable like any other package, with its own shipped run files (`models/halos-only/input/halos-only_micro-uchuu-horizontal.yaml`, `models/sage16/input/sage16_micro-uchuu-horizontal.yaml`); see [Running Horizontal Input](#running-horizontal-input) for what is different about it. Five more horizontal packages read version 3 data — `mini-millennium-horizontal`, `micro-uchuu-lhalo-horizontal`, `micro-uchuu-hdf5-horizontal`, `millennium-horizontal` and `mini-uchuu-horizontal` — and [Running Horizontal Input](#running-horizontal-input) lists exactly which models and file ranges each has been validated for. A package is runnable when a run file pairs it with a model under `models/<model>/input/`.
 
 To run any runnable pairing, build for it and use the matching run file:
 
@@ -392,7 +394,7 @@ Mimic separates the on-disk reader format from the processing driver. The input 
 
 The HDF5-based readers are only available when Mimic is built with HDF5 (the default; see [Build Options](#build-options)). Selecting one in a `USE-HDF5=no` build stops with a clear configuration error.
 
-The first four formats are forest-ordered and feed the vertical driver. `horizontal_hdf5` is the one horizontal format, read by a separate reader family; its on-disk contract is `docs/dev/HORIZONTAL-HDF5-FORMAT.md` (`format_version = 2`, the only version the reader accepts), and the `micro-uchuu-horizontal` package is the shipped example. See [Producing Horizontal Input](#producing-horizontal-input) for how such datasets are made. Its driver opens and validates the whole dataset before processing any halo data (see `input.processing_order` below and [Running Horizontal Input](#running-horizontal-input)).
+The first four formats are forest-ordered and feed the vertical driver. `horizontal_hdf5` is the one horizontal format, read by a separate reader family; its on-disk contract is `docs/dev/HORIZONTAL-HDF5-FORMAT.md`, which specifies `format_version = 2` and `format_version = 3`. The reader accepts both, dispatching on each file's version, and rejects every other. `micro-uchuu-horizontal` is the shipped version 2 example and `mini-millennium-horizontal` the shipped version 3 example. See [Producing Horizontal Input](#producing-horizontal-input) for how such datasets are made. Its driver opens and validates the whole dataset before processing any halo data (see `input.processing_order` below and [Running Horizontal Input](#running-horizontal-input)).
 
 `input.tree_name` is reader-specific — each reader decides what the value means, so it is not a general filename pattern. `lhalo_binary` is the prefix before the numbered file suffix (`tree_name.<file_number>`). `consistent_trees_ascii` and `consistent_trees_hdf5` are literal filenames under `input.simulation_dir`, including any extension. `lhalo_hdf5` uses explicit HDF5 filenames: for one file, set `tree_name` to that filename; for multiple files, include a `%d` file-number placeholder, for example `trees_063.%d.hdf5`. `horizontal_hdf5` fixes its filename convention in the format itself and therefore accepts exactly the literal `snapshot_%03d.h5` — any other value, including `snapshot_%d.h5`, is rejected at startup with a message naming the accepted literal.
 
@@ -418,6 +420,33 @@ A `horizontal` run works like any other run — build for the package, point `./
 make MODEL=halos-only SIMULATION=micro-uchuu-horizontal
 ./mimic models/halos-only/input/halos-only_micro-uchuu-horizontal.yaml
 ```
+
+**Version 3 input.** A version 3 dataset keeps descendant links that skip snapshots, int64 row indices, and each source's native payload units, which each file declares in its `/schema` group. At open the reader checks that `/schema` against your package's compiled `halo_properties.yaml` — type, units and `h_convention` of every field the package declares — and stops on any disagreement, so a mass that is wrong by 10¹⁰ is a startup error rather than a silent result. That is why there is **one simulation package per simulation and source format**: `micro-uchuu-lhalo-horizontal` (L-Halo binary, mass in `1e10 Msun/h`) and `micro-uchuu-hdf5-horizontal` (forests-HDF5, mass in `Msun/h`) are two packages for one simulation. Each package's `snapshots/` is a local link to a dataset you convert yourself; its README gives the conversion command.
+
+Mimic can read any conforming version 3 dataset, but a route counts as supported only where its horizontal output has been shown bitwise identical, per `UniqueGalaxyID`, to the vertical reader of the same source format over the same files. The evidence is [`MIMIC-GENERAL-HORIZONTAL-RUNTIME-ACCEPTANCE.md`](dev/MIMIC-GENERAL-HORIZONTAL-RUNTIME-ACCEPTANCE.md):
+
+| Package | Source data | Validated for |
+| --- | --- | --- |
+| `mini-millennium-horizontal` | all eight mini-Millennium L-Halo files, with 29,291 skipped-snapshot links | `halos-only` and `sage16`, fixed and dynamic timesteps |
+| `micro-uchuu-lhalo-horizontal` | the complete micro-Uchuu L-Halo catalogue | `halos-only`, fixed and dynamic timesteps |
+| `micro-uchuu-hdf5-horizontal` | the complete micro-Uchuu forests-HDF5 catalogue | `halos-only`, fixed and dynamic timesteps |
+| `millennium-horizontal` | Millennium files 0–15 only, a sample of 512 | `halos-only`, fixed and dynamic timesteps, on those files only |
+| `mini-uchuu-horizontal` | mini-Uchuu files 0–15 only, a sample of 128 | `halos-only`, fixed and dynamic timesteps, on those files only |
+
+Nothing else is claimed: no whole-simulation result for Millennium or mini-Uchuu, no `sage16` result outside mini-Millennium, and no equality between packages built from different source formats. **Full Uchuu is not runnable**: its largest snapshot cannot be held in memory as a whole slab on any host this project has, and running it needs chunked slab streaming, which Mimic does not implement.
+
+**Retained generations and memory.** The horizontal driver keeps each snapshot's generation — its raw slab, processed halos, output buffer and galaxies — until every later snapshot that one of its halos names as a descendant has been processed, then releases it. For adjacent input (every version 2 dataset, and version 3 datasets whose headers say `links_adjacent = 1`) that means at most two generations at once, the current snapshot and the previous one. A dataset with skipped-snapshot links holds a generation across the snapshots its descendants skip: real mini-Millennium peaks at three. The run memory profile's `R` lines report the most generations and bytes held at once. A run's memory need therefore follows its widest snapshots and longest gaps, not its total halo count; one measured `halos-only` run over mini-Uchuu files 0–15, whose largest snapshot holds about five million halos, peaked at 36.4 GB of process memory.
+
+**`input.retention_memory_ceiling_mb`** is an optional ceiling on that retention, in whole MB (1 MB = 1024² B). Before the driver allocates a snapshot's generation it computes the bytes the generation needs, from its halo count and the structure widths, adds what is already retained, and stops the run — naming the snapshot, the bytes required and the ceiling, and that holding it in less memory needs chunked slab streaming — if the total would exceed the ceiling. A total exactly at the ceiling is accepted.
+
+```yaml
+input:
+  retention_memory_ceiling_mb: 16384   # optional; horizontal runs only; omit for no ceiling
+```
+
+- It must be a positive whole number; zero, negative, fractional and non-numeric values are rejected at configuration. Omit the key for no ceiling.
+- It is rejected for vertical runs, which retain no generation.
+- It bounds only what is admitted to the retention pool: the struct-width payload of each generation (its figure can undercount real allocations by a few bytes of allocator rounding). It does **not** bound output buffers and galaxy pools growing during a snapshot's sweep (the driver warns once if that growth takes the pool past the ceiling), the driver's run-wide workspace, or process RSS. Plan a large run against peak RSS, not against this key.
 
 **Reading horizontal-run output.** A horizontal run's HDF5 output differs from a vertical run's in a few specific, deliberate ways:
 
@@ -448,14 +477,14 @@ input:
 
 ### Producing Horizontal Input
 
-Horizontal input is produced offline, from a simulation's forest-ordered trees, by the converters under `scripts/convert/`. Their manual is [`scripts/convert/README.md`](../scripts/convert/README.md). There are two, and only one of them produces input Mimic can run today:
+Horizontal input is produced offline, from a simulation's forest-ordered trees, by the converters under `scripts/convert/`. Their manual is [`scripts/convert/README.md`](../scripts/convert/README.md). There are two, and the `horizontal_hdf5` reader reads the output of both:
 
-| Converter | Sources | Output | Runnable today? |
+| Converter | Sources | Output | Runnable? |
 | --- | --- | --- | --- |
 | `convert_ctrees.py` | Consistent-Trees ASCII | horizontal HDF5 `format_version = 2` | **Yes** — this is how `micro-uchuu-horizontal` was made |
-| `convert_trees.py` | L-Halo binary, Consistent-Trees forests-HDF5, Consistent-Trees ASCII | horizontal HDF5 `format_version = 3`, lossless | **No** — the `horizontal_hdf5` reader rejects version 3 |
+| `convert_trees.py` | L-Halo binary, Consistent-Trees forests-HDF5, Consistent-Trees ASCII | horizontal HDF5 `format_version = 3`, lossless | **Yes, for the validated routes** listed under [Running Horizontal Input](#running-horizontal-input); not full Uchuu |
 
-`convert_trees.py` has routes and shipped profiles (`simulations/<package>/converter_columns.yaml`) for mini-Millennium, Millennium, micro-Uchuu, mini-Uchuu and full Uchuu. Version 3 keeps what version 2 cannot: descendant links that skip snapshots (mini-Millennium has 29,291 of them), snapshots above `INT32_MAX` halos, each source's native units and precision, and any additional numeric fields you select in a profile. Running version 3 needs reader and driver work that has not been done — carrying galaxies across a skipped snapshot, and indexing slabs wider than int32 — so a successful conversion is conversion evidence, not a runnable simulation. Every `convert_trees.py` stage says so in its own output.
+`convert_trees.py` has routes and shipped profiles (`simulations/<package>/converter_columns.yaml`) for mini-Millennium, Millennium, micro-Uchuu, mini-Uchuu and full Uchuu. Version 3 keeps what version 2 cannot: descendant links that skip snapshots (mini-Millennium has 29,291 of them), snapshots above `INT32_MAX` halos, each source's native units and precision, and any additional numeric fields you select in a profile. The reader and driver consume version 3: they carry galaxies across a skipped snapshot and index slabs with 64-bit integers. A successful conversion is still conversion evidence, not a validated route; each `convert_trees.py` stage names the validated routes in its own output, and states that full Uchuu is not runnable.
 
 Real-data conversions have been validated for mini-Millennium and micro-Uchuu in full, for Millennium and mini-Uchuu on their first 16 files only, and for full Uchuu only on its small committed fixture; see the converter manual for what each of those covers.
 

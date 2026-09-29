@@ -34,7 +34,7 @@ All numeric scalars use strict parsers (`get_strict_int_value`, `get_strict_int6
 
 **Unit scalar form** (`get_unit_scalar_value`): a bare number is taken as already in the reference units. A mapping form accepts ONLY `value`, `units`, `h_convention` (unknown keys fatal); `value` and `units` are required; `h_convention` defaults to the unit label's own convention from the generated unit registry and must be one of `carried`, `free`, `none`. Conversion = cgs ratio × h-convention correction (`× Hubble_h` when converting into `carried`, `÷` when out of it); converting between `none` and an h-dependent convention is fatal.
 
-## `input:` section — valid keys: `first_file`, `last_file`, `tree_name`, `tree_type`, `processing_order`, `simulation_dir`, `snapshot_list_file`, `max_tree_depth`, `forest_distribution_scheme`, `exponent_forest_dist_scheme`
+## `input:` section — valid keys: `first_file`, `last_file`, `tree_name`, `tree_type`, `processing_order`, `simulation_dir`, `snapshot_list_file`, `max_tree_depth`, `forest_distribution_scheme`, `exponent_forest_dist_scheme`, `retention_memory_ceiling_mb`
 
 | Key | Type | Behavior |
 |---|---|---|
@@ -47,6 +47,7 @@ All numeric scalars use strict parsers (`get_strict_int_value`, `get_strict_int6
 | `max_tree_depth` | int | Default 500 (seeded in `parse_cli`). Recursion guard for `build_halo_tree` |
 | `forest_distribution_scheme` | string | `uniform` (default), `linear`, `quadratic`, `exponent`, `generic_power`; unknown value fatal listing the valid five. Consistent-Trees forest→task load balancing only; other readers ignore it, and the ASCII reader always splits uniformly |
 | `exponent_forest_dist_scheme` | double | Default 0.7. Exponent for the power-law schemes |
+| `retention_memory_ceiling_mb` | int64 > 0 (MB) | Optional, horizontal runs only; absent means no ceiling. Parsed by `get_strict_int64_value`: zero or negative is fatal ("must be a positive whole number of MB (1 MB = 1024^2 B) ... omit the key for no ceiling"), as is a value whose byte count overflows int64. Stored as bytes in `MimicConfig.RetentionMemoryCeiling` (default 0 = none). `validate_and_postprocess()` rejects it when the resolved reader feeds the vertical driver, which retains nothing. The horizontal driver (`horizontal_require_generation_fits()`) sizes each snapshot generation from struct widths before allocating it and aborts if the retained pool plus that generation would exceed the ceiling (a total exactly at the ceiling is accepted); the message names the snapshot, the bytes, the ceiling and chunked slab streaming. It bounds retention admission only (struct-width payload; allocator rounding can add a few bytes): in-sweep output-buffer and galaxy-pool growth is warned about once, not refused, and run-wide workspace and process RSS are not covered. Not recorded in `RunProperties` |
 
 ### Horizontal-only rejections (`validate_and_postprocess()`, beside the `processing_order` check above)
 

@@ -289,27 +289,39 @@ def run_report(workdir, a_list_path, multiplier: int = DEFAULT_MULTIPLIER) -> di
 # source format, the ACTUAL format version the emitted files declare (read
 # back by the battery, not assumed), the mapping and source layout, link-gap
 # counts, index bounds, resource measurements, the validation outcomes, and
-# the runtime limitations that keep the current Mimic from running it. It
+# its runtime status: that the current Mimic consumes format version 3, which
+# routes a parity gate has actually validated, and what still limits it. It
 # carries the consumer payload-metadata fragment, labelled insufficient for
 # runtime execution. It writes into the conversion workdir only: no
 # simulation package, halo_properties.yaml or run file is created or changed.
 
 REPORT_V3_KIND = "mimic-generic-conversion-report"
 
-#: ``INT_MAX``, the largest slab the current horizontal driver accepts.
+#: ``INT32_MAX``: a slab above it is addressable only through int64 indices.
 _C_INT_MAX = 2**31 - 1
 
-#: Stated for every v3 dataset, whatever it contains.
+#: The format version the current reader and driver consume through this
+#: report's route; ``runnable_by_current_mimic`` is True exactly when the
+#: emitted files all declare it.
+_V3_CONSUMED_FORMAT_VERSIONS = [3]
+
+#: Stated for every v3 dataset, whatever it contains. The route list names
+#: exactly the routes whose parity gate passed; keep it in step with
+#: convert_trees.py's RUNTIME_NOTICE and with the acceptance record.
 _V3_STANDING_LIMITATIONS = (
-    "Mimic's horizontal_hdf5 reader accepts only format_version 2 and rejects a version 3 "
-    "file at open: it defines exactly the root groups /header and /halos, so the /schema "
-    "group is refused before any value is read (src/io/horizontal/read_horizontal_hdf5.c).",
-    "The reader's fixed dataset table declares the five links int32 and has no "
-    "target-snapshot columns, no SourceHaloID and no declared extras; a reader that "
-    "consumes version 3 is the separate runtime follow-on, not part of this converter.",
+    "Format consumed, route not validated: Mimic's horizontal_hdf5 reader and horizontal "
+    "driver consume format_version 3, but a conversion is an evidenced runtime route only "
+    "where a recorded parity gate showed its horizontal output bitwise identical, per "
+    "UniqueGalaxyID, to the same source format's vertical reader over the same files "
+    "(docs/dev/MIMIC-GENERAL-HORIZONTAL-RUNTIME-ACCEPTANCE.md).",
+    "The only evidenced routes are: mini-Millennium lhalo_binary, complete, halos-only and "
+    "sage16; micro-Uchuu lhalo_binary and consistent_trees_hdf5, complete, halos-only; "
+    "Millennium and mini-Uchuu lhalo_binary, files 0-15 only, halos-only.",
+    "Full Uchuu is not runnable: it exceeds whole-slab memory, and running it needs chunked "
+    "slab streaming, which Mimic does not implement.",
     "Payload units and precision are the source's native ones as /schema declares them; a "
-    "consuming simulation package's halo_properties.yaml must declare the same, and this "
-    "converter neither writes nor edits one.",
+    "consuming simulation package's halo_properties.yaml must declare the same (one package "
+    "per simulation and source format), and this converter neither writes nor edits one.",
 )
 
 
@@ -319,19 +331,23 @@ def _v3_limitations(measured: Mapping, schema) -> List[str]:
     if gapped:
         limitations.append(
             "{} Descendant link(s) skip snapshots (longest span {}); the horizontal driver "
-            "retains only two snapshot generations and cannot carry state across a "
-            "gap.".format(gapped, measured.get("max_descendant_span"))
+            "retains each snapshot generation until its descendants' snapshots are processed, "
+            "so a run holds more than two generations at once.".format(
+                gapped, measured.get("max_descendant_span")
+            )
         )
     counts = measured.get("snapshot_counts") or []
     widest = max(counts) if counts else 0
     if widest > _C_INT_MAX:
         limitations.append(
-            "The largest snapshot holds {} halos, above INT_MAX ({}); the horizontal driver "
-            "refuses such a slab.".format(widest, _C_INT_MAX)
+            "The largest snapshot holds {} halos, above INT32_MAX ({}); the reader and driver "
+            "index it with int64, but whole-slab memory, not index width, decides whether it "
+            "can run.".format(widest, _C_INT_MAX)
         )
     if schema.extra_fields:
         limitations.append(
-            "{} declared extra field(s) ({}) have no runtime consumer yet.".format(
+            "{} declared extra field(s) ({}) are validated at open but materialised only "
+            "where the consuming package declares them.".format(
                 len(schema.extra_fields), ", ".join(extra.name for extra in schema.extra_fields)
             )
         )
@@ -457,7 +473,11 @@ def build_report_v3(manifest, battery, dataset_dir) -> dict:
             ),
         },
         "runtime_compatibility": {
-            "runnable_by_current_mimic": False,
+            # Format capability ("format consumed"), not route validation: True when
+            # every emitted file declares a version the current reader and driver
+            # consume. Which routes are validated is in the limitations text.
+            "runnable_by_current_mimic": measured.get("format_versions")
+            == _V3_CONSUMED_FORMAT_VERSIONS,
             "limitations": _v3_limitations(measured, schema),
         },
         "consumer_metadata_fragment": {
@@ -486,7 +506,8 @@ def render_text_v3(report: dict) -> str:
         "Conversion report (horizontal-HDF5 format version 3)",
         "====================================================",
         "",
-        "NOT RUNNABLE BY THE CURRENT MIMIC -- see runtime compatibility below.",
+        "FORMAT CONSUMED BY THE CURRENT MIMIC; ROUTE NOT VALIDATED BY THIS CONVERSION -- "
+        "see runtime compatibility below.",
         "",
         "workdir:        {}".format(report["workdir"]),
         "dataset dir:    {}".format(report["dataset_dir"]),
@@ -563,7 +584,13 @@ def render_text_v3(report: dict) -> str:
                 entry["snapshot"], entry["halos"], entry["file_bytes"]
             )
         )
-    lines += ["", "runtime compatibility: runnable by the current Mimic: NO"]
+    lines += [
+        "",
+        "runtime compatibility: format consumed by the current Mimic: {} "
+        "(format capability, not route validation)".format(
+            "YES" if report["runtime_compatibility"]["runnable_by_current_mimic"] else "NO"
+        ),
+    ]
     lines += ["  - {}".format(text) for text in report["runtime_compatibility"]["limitations"]]
     fragment = report["consumer_metadata_fragment"]
     lines += ["", "consumer payload-metadata fragment (INSUFFICIENT for runtime execution):"]
