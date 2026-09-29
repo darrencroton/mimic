@@ -24,6 +24,7 @@ Note: Internal units are 10^10 Msun/h for masses
 """
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -160,6 +161,12 @@ def regenerate_output():
             output_file = TEST_DATA_DIR / "output" / "hdf5" / f"model_{snapnum:03d}.hdf5"
             output_format = "hdf5"
 
+        # Remove every partition of the output snapshot, not only the one named
+        # here, so a sibling left by an earlier run with more partitions cannot be
+        # concatenated into this run's output.
+        for stale in output_partition_files(output_file):
+            stale.unlink()
+
         run_mimic_fresh(param_file, output_file)
         _regenerated_output = output_file
         _regenerated_format = output_format
@@ -167,16 +174,64 @@ def regenerate_output():
     return _regenerated_output
 
 
+def output_partition_files(output_file):
+    """
+    Every partition file of the output snapshot ``output_file`` belongs to.
+
+    A vertical run splits one output snapshot across ``model_z<z>_<N>`` files;
+    ``output_file`` names partition 0, so its siblings are the files sharing the
+    exact ``model_z<z>_`` prefix followed only by digits (the directory also
+    holds ``model_uniquegalid_*`` files and a ``metadata/`` directory, which must
+    not match). A horizontal run writes one ``model_<snap>.hdf5`` per output
+    snapshot holding its whole population, so that file is its own partition set.
+
+    Returns:
+        list[Path]: Partition files, ordered by partition index.
+    """
+    output_file = Path(output_file)
+    if output_file.suffix == ".hdf5":
+        return [output_file] if output_file.exists() else []
+
+    prefix = output_file.name.rsplit("_", 1)[0] + "_"
+    pattern = re.compile(re.escape(prefix) + r"(\d+)")
+    matches = [
+        (int(m.group(1)), path)
+        for path in output_file.parent.iterdir()
+        if path.is_file() and (m := pattern.fullmatch(path.name))
+    ]
+    return [path for _, path in sorted(matches)]
+
+
+_reported_partitions = False
+
+
 def load_output_halos(output_file):
     """
-    Load halos from the output produced by ``regenerate_output()``.
+    Load halos from every partition of the output ``regenerate_output()`` produced.
 
-    Dispatches on the format that run actually wrote. Both loaders return the
-    same ``(recarray, metadata)`` shape, so every check downstream is identical.
+    Dispatches on the format that run actually wrote and concatenates all
+    partitions of the first requested output snapshot, so each check sees the
+    full output rather than partition 0 alone. Both loaders return the same
+    ``(recarray, metadata)`` shape; ``TotHalos`` and ``Ntrees`` are summed.
     """
-    if _regenerated_format == "hdf5":
-        return load_hdf5_halos(output_file)
-    return load_binary_halos(output_file)
+    global _reported_partitions
+    loader = load_hdf5_halos if _regenerated_format == "hdf5" else load_binary_halos
+
+    files = output_partition_files(output_file)
+    assert files, f"No output partition found for {output_file}"
+
+    parts = [loader(path) for path in files]
+    halos = np.concatenate([part[0] for part in parts]).view(np.recarray)
+    metadata = dict(parts[0][1])
+    metadata["TotHalos"] = sum(int(part[1]["TotHalos"]) for part in parts)
+    metadata["Ntrees"] = sum(int(part[1]["Ntrees"]) for part in parts)
+    metadata["partition_files"] = [str(path) for path in files]
+
+    if not _reported_partitions:
+        _reported_partitions = True
+        print(f"Reading {len(files)} output partition(s): {', '.join(p.name for p in files)}")
+
+    return halos, metadata
 
 
 def check_zeros(halos, manifest):
@@ -423,7 +478,7 @@ def test_physical_ranges():
 
     # Report summary
     with_ranges = [k for k, v in props.items() if "range" in v]
-    print(f"Found {len(output_fields)} output fields in binary file.")
+    print(f"Found {len(output_fields)} output fields in the output.")
     print(f"Validation specs present for {len(with_ranges)} properties with ranges.\n")
 
     # Validate each field present in output and manifest
@@ -461,6 +516,8 @@ def test_physical_ranges():
                 )
             else:
                 print(f"{GREEN}✓ PASS: {field} within [{rmin}, {rmax}] (inclusive){NC}")
+                if total_checked > 0:
+                    print(f"  Observed range: {np.min(values):.4g} to {np.max(values):.4g}")
 
         else:
             # Vector field: check each component against same range
@@ -498,6 +555,11 @@ def test_physical_ranges():
                 )
             else:
                 print(f"{GREEN}✓ PASS: {field} components within [{rmin}, {rmax}] (inclusive){NC}")
+                if all_comp_values:
+                    print(
+                        f"  Observed range: {np.min(all_comp_values):.4g} to "
+                        f"{np.max(all_comp_values):.4g} (across all components)"
+                    )
 
     assert failures == 0, f"{failures} failure(s)"
 

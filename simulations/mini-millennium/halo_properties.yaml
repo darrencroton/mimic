@@ -126,7 +126,10 @@ halo_properties:
     output: true
     init_source: copy_from_tree_array
     output_source: copy_direct_array
-    range: [-20.0, 20.0]
+    # |J/Mvir| <= sqrt(2)*lambda'*Vvir*Rvir with lambda' <= 0.5 (Bullock+01) at this
+    # 62.5 Mpc/h box's largest halo (~1e14 Msun/h: Rvir ~0.76 Mpc/h, Vvir ~755 km/s)
+    # is ~400; recorded extreme 43.35 (MIMIC-GENERAL-HORIZONTAL-RUNTIME-ACCEPTANCE.md §6).
+    range: [-500.0, 500.0]
 
   - name: MostBoundID
     type: long long
