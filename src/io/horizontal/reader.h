@@ -33,12 +33,25 @@
    (src/include/generated/raw_halo_defs.h). */
 struct RawHalo;
 
-/** Run-scoped metadata published by open_run. */
+/**
+ * Run-scoped metadata published by open_run.
+ *
+ * slab_row_bytes is the reader's own account of its per-halo slab footprint. The
+ * driver relies on it for retention accounting (the memory ceiling and the
+ * per-generation report), so it must equal exactly what load_slab allocates per
+ * row; the fixture tests measure it against the allocator's MEM_TREES category.
+ * It is the sum of the element widths: the allocator's rounding of each block up
+ * to 8 bytes (at most 7 B per array per slab) is not part of it.
+ */
 struct HorizontalRunInfo {
   int64_t snapshot_count;          /* number of snapshots in the run */
   int32_t format_version;          /* on-disk contract version of the dataset */
   int32_t links_adjacent;          /* 1: every non-null Descendant targets snapshot N+1 (always 1
                                       for version 2); 0: version 3 gaps are present */
+  int64_t slab_row_bytes;          /* bytes load_slab allocates per halo across every
+                                      reader-owned slab array (the raw record, the two
+                                      identity columns and, for version 3, the three
+                                      target-snapshot columns and SourceHaloID) */
   int64_t n_forests_total;         /* run-scoped forest count (identity bound) */
   int64_t max_halo_rank_in_forest; /* run-scoped maximum rank (identity bound) */
 };

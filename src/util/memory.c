@@ -466,6 +466,16 @@ void print_allocated(void) {
 }
 
 /**
+ * @brief   Tracked bytes currently allocated in one category (see memory.h).
+ */
+size_t memory_category_bytes(MemoryCategory category) {
+  if (category < 0 || category >= MEM_MAX_CATEGORY) {
+    return 0;
+  }
+  return CategorySizes[category];
+}
+
+/**
  * @brief   Print memory usage by category
  *
  * This function reports memory usage broken down by category,

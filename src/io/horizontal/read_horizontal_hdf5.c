@@ -2268,6 +2268,24 @@ static void horizontal_h5_check_physical_value(const char *path, const char *att
  * ------------------------------------------------------------------------- */
 
 /**
+ * @brief   Bytes load_slab allocates per halo across every reader-owned slab array.
+ *
+ * Lists exactly the arrays load_slab allocates one row each: the raw record, the
+ * two identity columns and, for version 3, the three int32 target-snapshot
+ * columns and SourceHaloID. open_run publishes it as HorizontalRunInfo.slab_row_bytes
+ * for the driver's retention accounting; tests/unit/test_horizontal_retention_budget.c
+ * and the micro-uchuu-horizontal package test check it against the allocator.
+ * Keep it in step with load_slab.
+ */
+static int64_t horizontal_h5_slab_row_bytes(int is_v3) {
+  size_t row = sizeof(struct RawHalo) + 2 * sizeof(int64_t);
+  if (is_v3) {
+    row += HORIZONTAL_H5_V3_TARGETED_LINKS * sizeof(int32_t) + sizeof(int64_t);
+  }
+  return (int64_t)row;
+}
+
+/**
  * @brief   Open and fully validate the configured snapshot dataset.
  *
  * Publishes run-scoped metadata and builds the per-snapshot halo-count table
@@ -2570,6 +2588,8 @@ static void open_run_horizontal_hdf5(struct HorizontalRunInfo *info) {
   candidate.snapshot_count = snapshot_count;
   candidate.format_version = format_version;
   candidate.links_adjacent = links_adjacent;
+  candidate.slab_row_bytes =
+      horizontal_h5_slab_row_bytes(format_version == HORIZONTAL_HDF5_FORMAT_VERSION_V3);
   candidate.n_forests_total = n_forests_total;
   candidate.max_halo_rank_in_forest = max_halo_rank_in_forest;
 

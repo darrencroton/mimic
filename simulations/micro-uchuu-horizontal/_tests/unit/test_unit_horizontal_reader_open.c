@@ -1602,6 +1602,47 @@ int test_load_slab_matches_fixture(void) {
 }
 
 /**
+ * @test  test_published_slab_row_width_matches_allocator_for_every_snapshot
+ * The row width open_run publishes is what load_slab allocates: for every fixture
+ * snapshot the MEM_TREES delta across load_slab is nhalos times the published
+ * slab_row_bytes (plus at most the allocator's 8-byte block rounding), releasing
+ * the slab returns the category to where it started, and closing the run leaves
+ * no tracked allocation. The driver's retention accounting rests on this figure.
+ */
+int test_published_slab_row_width_matches_allocator_for_every_snapshot(void) {
+  char dir[MAX_STRING_LEN];
+  struct HorizontalRunInfo info;
+
+  TEST_ASSERT(stage_fixture(dir, sizeof(dir)) == 0, "should stage a scratch copy of the fixture");
+  configure_for_fixture(dir);
+
+  const struct HorizontalReader *reader = horizontal_reader_lookup("horizontal_hdf5");
+  horizontal_reader_open_run(reader, &info);
+  TEST_ASSERT(info.format_version == 2, "the committed fixture should open as a version 2 run");
+
+  for (int snap = 0; snap < FIXTURE_SNAPSHOTS; snap++) {
+    struct SnapshotSlab slab = snapshot_slab_empty();
+    const size_t before = memory_category_bytes(MEM_TREES);
+    horizontal_reader_load_slab(reader, snap, &slab);
+    const int64_t allocated = (int64_t)(memory_category_bytes(MEM_TREES) - before);
+    /* The allocator rounds each block up to 8 B, so the delta can exceed nhalos
+       times the width by at most 7 B per array (three arrays in a version 2 slab). */
+    const int64_t published = slab.nhalos * info.slab_row_bytes;
+    TEST_ASSERT(allocated >= published && allocated - published <= 3 * 7,
+                "load_slab's allocator delta should be nhalos times the published row width, "
+                "plus at most the allocator's 8-byte block rounding");
+    horizontal_reader_release_slab(reader, &slab);
+    TEST_ASSERT(memory_category_bytes(MEM_TREES) == before,
+                "release_slab should return every byte load_slab allocated");
+  }
+
+  horizontal_reader_close_run(reader);
+  remove_staged_fixture(dir);
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
+/**
  * @test  test_two_generation_rotation_holds_two_slabs_live
  * Loading and releasing the fixture under the driver's two-generation
  * rotation (load N while N-1 is still live, then release N-1) holds exactly
@@ -2030,7 +2071,7 @@ int test_registries_are_disjoint(void) {
 
 /** @brief Identity bounds as a run-info value, for the predicate tests. */
 static struct HorizontalRunInfo bounds(int64_t n_forests_total, int64_t max_halo_rank_in_forest) {
-  struct HorizontalRunInfo info;
+  struct HorizontalRunInfo info = {0};
   info.snapshot_count = FIXTURE_SNAPSHOTS;
   info.format_version = FIXTURE_FORMAT_VERSION;
   info.n_forests_total = n_forests_total;
@@ -2167,6 +2208,7 @@ int main(void) {
   TEST_RUN(test_missing_hook_aborts);
   TEST_RUN(test_open_close_leaves_no_leak);
   TEST_RUN(test_load_slab_matches_fixture);
+  TEST_RUN(test_published_slab_row_width_matches_allocator_for_every_snapshot);
   TEST_RUN(test_corrupt_links_abort);
   TEST_RUN(test_link_diagnostics_are_bounded);
   TEST_RUN(test_slab_lifecycle);

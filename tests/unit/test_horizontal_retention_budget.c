@@ -122,6 +122,9 @@ void write_description_attr(hid_t obj_id, const char *text) {
 #define V3_FIXTURE_A_LIST "fixture.a_list"
 #define V3_FIXTURE_PACKAGE "mini-millennium-horizontal"
 #define V3_FIXTURE_SNAPSHOTS 4
+/* Reader-owned arrays a version 3 slab carries: halos, two identity columns, three
+   target-snapshot columns and SourceHaloID. */
+#define V3_SLAB_ARRAYS 7
 
 extern double *Age;
 
@@ -193,6 +196,19 @@ static struct {
   int descendant_past_end; /* last snapshot's halo names a descendant (horizon case) */
 } Fake;
 
+/* The slab row width the fake reader publishes at open, and for version 2 slabs
+ * exactly what fake_load_slab allocates per row (the raw record and the two
+ * identity columns). The version 3 branch mirrors the real reader's width so the
+ * driver's accounting of a version 3 run can be checked; the fake never builds
+ * those arrays. */
+static int64_t fake_slab_row_bytes(int32_t format_version) {
+  int64_t row = (int64_t)sizeof(struct RawHalo) + 2 * (int64_t)sizeof(int64_t);
+  if (format_version >= 3) {
+    row += 3 * (int64_t)sizeof(int32_t) + (int64_t)sizeof(int64_t);
+  }
+  return row;
+}
+
 static void fake_open_run(struct HorizontalRunInfo *info) {
   int64_t widest = 0;
   for (int64_t k = 0; k < Fake.snapshot_count; k++) {
@@ -201,6 +217,7 @@ static void fake_open_run(struct HorizontalRunInfo *info) {
   info->snapshot_count = Fake.snapshot_count;
   info->format_version = Fake.format_version;
   info->links_adjacent = 1;
+  info->slab_row_bytes = fake_slab_row_bytes(Fake.format_version);
   info->n_forests_total = Fake.chain ? 1 : widest;
   info->max_halo_rank_in_forest = Fake.chain ? Fake.snapshot_count - 1 : 0;
 }
@@ -307,14 +324,6 @@ static int64_t new_pool_bytes(void) {
   return bytes;
 }
 
-static int64_t slab_row_bytes(int32_t format_version) {
-  int64_t row = (int64_t)sizeof(struct RawHalo) + 2 * (int64_t)sizeof(int64_t);
-  if (format_version >= 3) {
-    row += 3 * (int64_t)sizeof(int32_t) + (int64_t)sizeof(int64_t);
-  }
-  return row;
-}
-
 static int64_t output_seed_records(int64_t nhalos) {
   if (nhalos > MAX_HALO_ARRAY_SIZE) {
     return nhalos + MIN_HALO_ARRAY_GROWTH;
@@ -330,7 +339,7 @@ static int64_t output_seed_records(int64_t nhalos) {
 /* The generation's resident bytes without any galaxy pool: what the driver
  * counted before a new pool was a footprint term. */
 static int64_t generation_bytes_without_pool(int64_t nhalos, int32_t format_version) {
-  const int64_t slab = nhalos * slab_row_bytes(format_version);
+  const int64_t slab = nhalos * fake_slab_row_bytes(format_version);
   const int64_t aux = (nhalos > 0 ? nhalos : 1) * (int64_t)sizeof(struct HorizontalHaloAux);
   return slab + aux + output_seed_records(nhalos) * (int64_t)sizeof(struct Halo);
 }
@@ -1091,25 +1100,12 @@ int test_in_sweep_pool_growth_past_the_ceiling_warns_once(void) {
 /* Tests: the slab width against the real reader                              */
 /* ------------------------------------------------------------------------- */
 
-/* Bytes of every array the reader attached to a loaded slab, one row each. */
-static int64_t reader_allocated_bytes(const struct SnapshotSlab *slab) {
-  const int64_t n = slab->nhalos;
-  int64_t bytes = 0;
-  bytes += (slab->halos != NULL) ? n * (int64_t)sizeof(struct RawHalo) : 0;
-  bytes += (slab->forest_index != NULL) ? n * (int64_t)sizeof(int64_t) : 0;
-  bytes += (slab->halo_rank_in_forest != NULL) ? n * (int64_t)sizeof(int64_t) : 0;
-  bytes += (slab->descendant_snapshot != NULL) ? n * (int64_t)sizeof(int32_t) : 0;
-  bytes += (slab->first_progenitor_snapshot != NULL) ? n * (int64_t)sizeof(int32_t) : 0;
-  bytes += (slab->next_progenitor_snapshot != NULL) ? n * (int64_t)sizeof(int32_t) : 0;
-  bytes += (slab->source_halo_id != NULL) ? n * (int64_t)sizeof(int64_t) : 0;
-  return bytes;
-}
-
 /**
  * @test    test_slab_width_matches_the_real_v3_reader
- * @brief   For every snapshot of the committed version 3 fixture, the slab bytes
- *          the driver reports before load equal the bytes of the arrays the real
- *          horizontal_hdf5 reader allocates for it.
+ * @brief   For every snapshot of the committed version 3 fixture, the slab row
+ *          width the real horizontal_hdf5 reader publishes, and the slab bytes the
+ *          driver reports before load, match the bytes the allocator records for
+ *          the real reader's load_slab (to within its 8-byte block rounding).
  *
  * Skips unless the fixture's package is compiled, as the fixture's own reader
  * tests do.
@@ -1139,8 +1135,16 @@ int test_slab_width_matches_the_real_v3_reader(void) {
   int loaded_nonempty = 0;
   for (int64_t snap = 0; snap < info.snapshot_count; snap++) {
     struct SnapshotSlab slab = snapshot_slab_empty();
+    const size_t before = memory_category_bytes(MEM_TREES);
     horizontal_reader_load_slab(reader, snap, &slab);
-    const int64_t actual = reader_allocated_bytes(&slab);
+    const int64_t actual = (int64_t)(memory_category_bytes(MEM_TREES) - before);
+    /* The allocator rounds each block up to 8 B, so a column whose byte count is not a
+       multiple of 8 (int32 columns of an odd row count) records up to 7 B more than
+       nhalos times its width. Never less, and never more than that per array. */
+    const int64_t published = slab.nhalos * info.slab_row_bytes;
+    TEST_ASSERT(actual >= published && actual - published <= V3_SLAB_ARRAYS * 7,
+                "load_slab's allocator delta should be nhalos times the published row width, "
+                "plus at most the allocator's 8-byte block rounding");
     if (slab.nhalos > 0) {
       TEST_ASSERT(slab.descendant_snapshot != NULL && slab.source_halo_id != NULL,
                   "A non-empty version 3 slab should carry its reader-owned v3 arrays");
@@ -1148,7 +1152,7 @@ int test_slab_width_matches_the_real_v3_reader(void) {
     }
     snprintf(needle, sizeof(needle),
              "for %" PRId64 " halos (slab and reader-owned arrays %" PRId64 " B,", slab.nhalos,
-             actual);
+             published);
     char prefix[64];
     snprintf(prefix, sizeof(prefix), "Snapshot %" PRId64 " generation needs ", snap);
     const char *line = strstr(result.log, prefix);
@@ -1158,10 +1162,10 @@ int test_slab_width_matches_the_real_v3_reader(void) {
     char report[1024];
     snprintf(report, sizeof(report), "%.*s", (int)length, line);
     TEST_ASSERT(strstr(report, needle) != NULL,
-                "The driver's slab bytes should equal the arrays the reader allocated");
-    printf("  snapshot %" PRId64 ": %" PRId64 " halos, reader allocated %" PRId64
-           " B, driver reported the same\n",
-           snap, slab.nhalos, actual);
+                "The driver's slab bytes should equal nhalos times the reader's published width");
+    printf("  snapshot %" PRId64 ": %" PRId64 " halos, allocator recorded %" PRId64
+           " B, driver reported %" PRId64 " B\n",
+           snap, slab.nhalos, actual, published);
     horizontal_reader_release_slab(reader, &slab);
   }
   horizontal_reader_close_run(reader);

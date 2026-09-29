@@ -37,6 +37,18 @@ void set_memory_reporting(int level);
 void print_allocated(void);
 void print_allocated_by_category(void);
 void print_memory_brief(void);
+
+/**
+ * @brief   Tracked bytes currently allocated in one memory category.
+ *
+ * For tests and diagnostics that measure a subsystem's live allocation (take the
+ * difference across the operation of interest). Sizes are the allocator's own
+ * figures, including its rounding of each block up to 8 bytes.
+ *
+ * @param   category  The category to query.
+ * @return  Live tracked bytes, or 0 if category is out of range.
+ */
+size_t memory_category_bytes(MemoryCategory category);
 void check_memory_leaks(void);
 int validate_memory_block(void *ptr);
 int validate_all_memory(void);

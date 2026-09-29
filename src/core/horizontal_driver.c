@@ -22,11 +22,12 @@
  * snapshots its descendants skip, and no synthetic halo or generation is ever
  * created to bridge them.
  *
- * Each generation's resident bytes are computed from struct widths and its halo
- * count before the reader loads its slab, reported, and -- when
- * input.retention_memory_ceiling_mb is set -- refused if the retention pool with
- * it would exceed that ceiling. The run memory profile reports the most
- * generations retained at once and the most bytes resident across them.
+ * Each generation's resident bytes are computed from its halo count, the slab
+ * row width the reader publishes and the driver's own struct widths before the
+ * reader loads its slab, reported, and -- when input.retention_memory_ceiling_mb
+ * is set -- refused if the retention pool with it would exceed that ceiling. The
+ * run memory profile reports the most generations retained at once and the most
+ * bytes resident across them.
  *
  * The physics, inheritance, marshalling and output seams are shared with the
  * vertical driver unchanged, and so are the module-context setup, the halo-evolution
@@ -221,7 +222,7 @@ struct HorizontalDriverState {
   const struct HorizontalReader *reader;
   int run_open; /* the reader's run is open and must be closed */
   int64_t snapshot_count;
-  int32_t format_version; /* the dataset's, which fixes the reader-owned slab arrays */
+  int64_t slab_row_bytes; /* per-row width the reader published at open */
 
   struct HorizontalGeneration *generations;    /* [snapshot_count] */
   struct HorizontalRetainedGeneration *lookup; /* [snapshot_count] */
@@ -876,17 +877,13 @@ static int64_t horizontal_count_live_slabs(const struct HorizontalDriverState *s
 /* Retention memory accounting                                                */
 /* ------------------------------------------------------------------------- */
 
-/* The first format version whose slabs carry the three target-snapshot columns
- * and SourceHaloID as reader-owned arrays (horizontal/reader.h: "version 3
- * only"). */
-#define HORIZONTAL_TARGETED_LINKS_FORMAT_VERSION 3
-
 /* Bytes per gigabyte, decimal, as the run memory profile reports them. */
 #define HORIZONTAL_BYTES_PER_GB 1.0e9
 
 /*
- * What one generation holds resident, in bytes, computed from struct widths
- * before any of it is allocated.
+ * What one generation holds resident, in bytes, computed before any of it is
+ * allocated: the slab term from the row width the reader published, the aux,
+ * output and pool terms from struct widths.
  *
  * Every term is int64_t and formed by checked arithmetic, so a slab of any row
  * count -- including one above INT32_MAX -- is sized exactly or refused, never
@@ -924,17 +921,6 @@ static int horizontal_checked_sum(int64_t a, int64_t b, int64_t *sum) {
   return 1;
 }
 
-/* Bytes per slab row: the raw record, the two identity columns every version
- * carries, and -- from version 3 -- the three int32 target-snapshot columns and
- * SourceHaloID. These are exactly the arrays load_slab allocates, one row each. */
-static size_t horizontal_slab_row_bytes(int32_t format_version) {
-  size_t row = sizeof(struct RawHalo) + 2 * sizeof(int64_t);
-  if (format_version >= HORIZONTAL_TARGETED_LINKS_FORMAT_VERSION) {
-    row += 3 * sizeof(int32_t) + sizeof(int64_t);
-  }
-  return row;
-}
-
 /* The output buffer's seed capacity for a slab of `nhalos`: the slab plus
  * proportional headroom (see horizontal_acquire_generation()), clamped at
  * MAX_HALO_ARRAY_SIZE unless the slab is already past it. 0 on int64_t overflow,
@@ -961,14 +947,13 @@ static int horizontal_output_seed_capacity(int64_t nhalos, int64_t *capacity) {
  * allocates it; `new_pool` says whether horizontal_take_pool() will have to
  * create a galaxy pool (created with the same hint, 0) rather than reuse a
  * spare. Returns 0 when any term overflows int64_t. */
-static int horizontal_generation_footprint(int64_t nhalos, int32_t format_version, int new_pool,
+static int horizontal_generation_footprint(int64_t nhalos, int64_t slab_row_bytes, int new_pool,
                                            struct HorizontalGenerationFootprint *fp) {
   memset(fp, 0, sizeof(*fp));
 
   int64_t slab_and_aux = 0;
   int64_t without_pool = 0;
-  return horizontal_checked_bytes(nhalos, horizontal_slab_row_bytes(format_version),
-                                  &fp->slab_bytes) &&
+  return horizontal_checked_bytes(nhalos, (size_t)slab_row_bytes, &fp->slab_bytes) &&
          horizontal_checked_bytes(nhalos > 0 ? nhalos : 1, sizeof(struct HorizontalHaloAux),
                                   &fp->aux_bytes) &&
          horizontal_output_seed_capacity(nhalos, &fp->output_capacity) &&
@@ -994,7 +979,6 @@ static int64_t horizontal_pool_resident_bytes(const struct GalaxyPool *pool) {
  * this process already holds, so the plain sums below cannot overflow int64_t.
  */
 static int64_t horizontal_retained_resident_bytes(const struct HorizontalDriverState *state) {
-  const size_t row_bytes = horizontal_slab_row_bytes(state->format_version);
   int64_t resident = 0;
 
   for (int64_t k = 0; k < state->snapshot_count; k++) {
@@ -1003,7 +987,7 @@ static int64_t horizontal_retained_resident_bytes(const struct HorizontalDriverS
       continue;
     }
     const int64_t nhalos = gen->slab.nhalos;
-    resident += nhalos * (int64_t)row_bytes;
+    resident += nhalos * state->slab_row_bytes;
     resident += (nhalos > 0 ? nhalos : 1) * (int64_t)sizeof(struct HorizontalHaloAux);
     resident += gen->processed.capacity * (int64_t)sizeof(struct Halo);
     if (gen->pool != NULL) {
@@ -1018,9 +1002,10 @@ static int64_t horizontal_retained_resident_bytes(const struct HorizontalDriverS
 }
 
 /*
- * Size snapshot `snapnum`'s generation from its halo count and struct widths,
- * report it, and refuse it -- before the reader allocates its slab or this
- * driver allocates anything for it -- when it cannot be held: when its size
+ * Size snapshot `snapnum`'s generation from its halo count, the reader's slab
+ * row width and struct widths, report it, and refuse it -- before the reader
+ * allocates its slab or this driver allocates anything for it -- when it cannot
+ * be held: when its size
  * overflows int64_t, or when input.retention_memory_ceiling_mb is set and the
  * retention pool with this generation added would exceed it. A retention set
  * exactly at the ceiling is accepted.
@@ -1043,7 +1028,7 @@ static void horizontal_require_generation_fits(const struct HorizontalDriverStat
   const int64_t resident = horizontal_retained_resident_bytes(state);
   const int new_pool = (state->spare_count == 0);
   int64_t required = 0;
-  if (!horizontal_generation_footprint(nhalos, state->format_version, new_pool, fp) ||
+  if (!horizontal_generation_footprint(nhalos, state->slab_row_bytes, new_pool, fp) ||
       !horizontal_checked_sum(resident, fp->total_bytes, &required)) {
     FATAL_ERROR("Snapshot %" PRId64 " holds %" PRId64 " halos, too many for its generation's "
                 "resident size to be counted in 64-bit bytes. Refused before allocation: "
@@ -1502,6 +1487,12 @@ void run_horizontal_driver(void) {
 
   horizontal_reader_open_run(state.reader, &info);
   state.run_open = 1;
+  if (info.slab_row_bytes < (int64_t)sizeof(struct RawHalo)) {
+    FATAL_ERROR("Reader '%s' published a slab row width of %" PRId64
+                " B, below the %zu B of struct RawHalo alone; every horizontal reader must "
+                "publish the bytes load_slab allocates per halo",
+                state.reader->name, info.slab_row_bytes, sizeof(struct RawHalo));
+  }
   INFO_LOG("Opened horizontal run '%s': %" PRId64 " snapshot%s, format_version %" PRId32
            ", links_adjacent %" PRId32 ", %" PRId64 " forest%s, max halo rank in forest %" PRId64,
            state.reader->name, info.snapshot_count, info.snapshot_count == 1 ? "" : "s",
@@ -1524,7 +1515,7 @@ void run_horizontal_driver(void) {
 
   horizontal_open_output();
 
-  state.format_version = info.format_version;
+  state.slab_row_bytes = info.slab_row_bytes;
   horizontal_allocate_retention(&state, info.snapshot_count);
 
   state.workspace_capacity = INITIAL_FOF_HALOS;
