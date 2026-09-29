@@ -76,6 +76,7 @@ Summary mode filters these markers directly. Pass markers are suppressed; failur
 
 - C tests use `TEST_MARKER_*`, `TEST_RUN`, and `TEST_ASSERT*` from `tests/framework/test_framework.h`. Use `return TEST_SKIP_WITH("reason")` when a test cannot run in the current configuration.
 - Python tests use `result_pass`, `result_fail`, `result_skip`, `result_warn`, `result_error`, and `TestSkipped` from `tests/framework`.
+- A horizontal package's parity gate (`_tests/scientific/test_cross_format_identity.py`) is one `GatePackage` over `tests/framework/parity_gate.py`, and its schema test (`_tests/integration/test_schema_conformance.py`) one `SchemaPackage` over `tests/framework/schema_conformance.py`; add checks to the framework module, not to a package file. The pure run-file helpers are tested in the core tier by `tests/integration/test_parity_gate_helpers.py`.
 
 ## Running Individual Tests
 
@@ -127,7 +128,9 @@ tests/
 ├── integration/        # Python integration tests
 ├── scientific/         # Core scientific validation tests
 ├── framework/          # Shared test utilities (harness, markers, runner, data loader,
-│                       #   comparison helpers, C/Python test templates, and framework headers)
+│                       #   comparison helpers, C/Python test templates, and framework headers;
+│                       #   parity_gate.py and schema_conformance.py carry the horizontal
+│                       #   packages' parity gates and schema-conformance tests)
 ├── data/               # Shared mini simulation data, output fixtures, baselines
 └── generated/          # Auto-generated test metadata
 ```
