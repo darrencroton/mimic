@@ -88,6 +88,6 @@ It deliberately does **not** cover presentation: comments, YAML key order, alias
 ## Related documentation
 
 - [`scripts/convert/README.md`](../README.md): the converter itself
-- [`docs/dev/HORIZONTAL-HDF5-FORMAT-V3-DRAFT.md`](../../../docs/dev/HORIZONTAL-HDF5-FORMAT-V3-DRAFT.md): the draft v3 output contract these profiles feed
+- [`docs/dev/HORIZONTAL-HDF5-FORMAT.md`](../../../docs/dev/HORIZONTAL-HDF5-FORMAT.md#version-3): the version 3 output contract these profiles feed
 - [`docs/dev/HORIZONTAL-HDF5-FORMAT.md`](../../../docs/dev/HORIZONTAL-HDF5-FORMAT.md): the frozen v2 contract, unchanged by this work
 - [`docs/dev/MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md`](../../../docs/dev/MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md): contracts C1–C3, which this grammar implements

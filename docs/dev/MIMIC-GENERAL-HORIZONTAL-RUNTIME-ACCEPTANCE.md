@@ -76,7 +76,7 @@ links: links_adjacent=0 (measured 0); 29291 gapped Descendant link(s), longest s
 validation: PASS
 ```
 
-The same report opens with `NOT RUNNABLE BY THE CURRENT MIMIC`, and its runtime-compatibility section says the reader rejects version 3 and the driver cannot carry state across a gap. That is converter-era text that `scripts/convert/report.py` prints unconditionally. This gate's result supersedes it, and the plan schedules its update for Slice 8.
+The same report opens with `NOT RUNNABLE BY THE CURRENT MIMIC`, and its runtime-compatibility section says the reader rejects version 3 and the driver cannot carry state across a gap. That is converter-era text that `scripts/convert/report.py` prints unconditionally. This gate's result supersedes it, and the plan schedules its update for Slice 8 (done in `73149ca6`).
 
 All 20 producer validation checks passed. The 65 written files (`snapshot_000.h5` to `snapshot_063.h5` and `forests.h5`) were copied with `/bin/cp -f` into `/Volumes/Internal/data/millennium/mini-millennium-horizontal`, replacing the uncommitted conversion that Slice 3 made there. Slice 3 also created the `simulations/mini-millennium-horizontal/snapshots` symlink, which already targets that directory and was not touched. The plan's Slice 6 criterion text says "Slice 5" here, a known plan slip. A `cmp` of every installed file against the workdir copy found no difference. Digests of the installed dataset:
 
@@ -257,7 +257,7 @@ The written files (`snapshot_*.h5` plus `forests.h5`) were copied with `/bin/cp 
 | Millennium 0–15 | `/Volumes/Internal/data/millennium/millennium-horizontal` | 65 | `f8c2c9c0e817a8aaf272dac1d4527450dd43054392358a3a6b161663f0f4a150` | `f6634457d44f9fbbada267135def442c5715aef1df33481d5c28fb0dc6b01e90` |
 | mini-Uchuu 0–15 | `/Volumes/Internal/data/uchuu/mini-uchuu-horizontal` | 51 | `2926d19340c5747ca7d9b7930385264718be19f5ca0fcc78f31ac91aa3ac4bac` | `ddb3c4b4d89ac6879e5ad482bbd057b70c8ccc1cf9b8ef6cbb76ca0b3d09cf8c` |
 
-The reports still open with `NOT RUNNABLE BY THE CURRENT MIMIC`. That is the converter-era text §2 describes; the plan schedules its update for Slice 8.
+The reports still open with `NOT RUNNABLE BY THE CURRENT MIMIC`. That is the converter-era text §2 describes; the plan schedules its update for Slice 8 (done in `73149ca6`).
 
 ## 12. The Slice 7 packages and gates
 

@@ -1,7 +1,7 @@
 """Producer validation battery for horizontal-HDF5 format version 3.
 
 Implements the producer side of Validation Requirements in
-docs/dev/HORIZONTAL-HDF5-FORMAT-V3-DRAFT.md over one dataset directory:
+docs/dev/HORIZONTAL-HDF5-FORMAT.md (section "Version 3") over one dataset directory:
 :func:`run_battery_v3` settles every check named in :data:`V3_CHECKS` and
 returns the outcomes together with the residency and spill high-water marks
 it measured. Version 2's adjacency, MostBoundID ordering and fixed-unit rules

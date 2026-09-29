@@ -773,7 +773,7 @@ class TestExtendedLayoutRefusal(unittest.TestCase):
 # ==========================================================================
 
 #: Literal fixed-table storage of every v3 /halos topology and identity
-#: column, restated from docs/dev/HORIZONTAL-HDF5-FORMAT-V3-DRAFT.md.
+#: column, restated from docs/dev/HORIZONTAL-HDF5-FORMAT.md (section "Version 3").
 V3_FIXED = {
     "Descendant": "<i8",
     "FirstProgenitor": "<i8",

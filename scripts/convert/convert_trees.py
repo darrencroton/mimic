@@ -2,7 +2,7 @@
 of docs/dev/MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md).
 
 Converts any of the three supported vertical source formats into lossless
-horizontal-HDF5 **format version 3** (docs/dev/HORIZONTAL-HDF5-FORMAT-V3-DRAFT.md)
+horizontal-HDF5 **format version 3** (docs/dev/HORIZONTAL-HDF5-FORMAT.md, section "Version 3")
 through six explicit subcommands over a user-supplied ``--workdir``:
 
   inspect    read-only: resolve the profile against the named source inventory
@@ -347,14 +347,19 @@ def _print_topology(n_gapped: int, max_span: int, adjacent: bool, counts) -> Non
     else:
         print(
             "topology: links_adjacent=0 -- NONADJACENT output: {} Descendant link(s) skip "
-            "snapshots (longest span {}); the current horizontal driver cannot carry state "
-            "across a gap".format(n_gapped, max_span)
+            "snapshots (longest span {}); the horizontal driver retains each snapshot "
+            "generation until its descendants' snapshots have been processed, so a gapped "
+            "run may hold more than two generations at once, at most the longest "
+            "descendant span plus one".format(n_gapped, max_span)
         )
     widest = max(counts) if counts else 0
     if widest > _INT32_MAX:
         print(
             "width: WIDE output -- the largest snapshot holds {} halos, above INT32_MAX ({}); "
-            "the current horizontal driver refuses such a slab".format(widest, _INT32_MAX)
+            "version 3 indices are int64 and the horizontal driver does not refuse a slab by "
+            "width; whole-slab retention must hold it in memory (optionally bounded by "
+            "input.retention_memory_ceiling_mb), and chunked slab streaming is not "
+            "implemented".format(widest, _INT32_MAX)
         )
     else:
         print(

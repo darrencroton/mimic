@@ -21,20 +21,21 @@ Mimic's horizontal reader and driver now consume horizontal-HDF5 version 3. The 
 | 7 | `6cd0c448`, `4b926c7f`, `7900080c`, `93846469` | four more v3 packages, halos-only parity against their own vertical packages (micro-Uchuu L-Halo and forests-HDF5 complete; Millennium and mini-Uchuu on files 0–15 only) |
 | 8 | `73149ca6`, `b25798c2`, `d05adb49` | v3 promoted into `HORIZONTAL-HDF5-FORMAT.md`; guides, READMEs and skills updated |
 
-Maintenance commit `209087ee` re-anchored the v2 gate's Stage 8 to `aedded2f`; the owner approved it outside the slices. Full Uchuu remains **not runnable**, because it needs chunked slab streaming. Whole-simulation Millennium and mini-Uchuu evidence needs the remaining source files. Open follow-ups are carried in the repository's `HANDOFF.md` for a full-plan review.
+Maintenance commit `209087ee` re-anchored the v2 gate's Stage 8 to `aedded2f`; the owner approved it outside the slices. Full Uchuu remains **not runnable**, because it needs chunked slab streaming. Whole-simulation Millennium and mini-Uchuu evidence needs the remaining source files. The material open follow-ups (F1 fixture chunking, F3 CI coverage, F5 double catalog fields, F14 the slab-width seam, F18 declared ranges and F19 harness duplication) are dispositioned in [`MIMIC-GENERAL-HORIZONTAL-RUNTIME-CODE-REVIEW.md`](MIMIC-GENERAL-HORIZONTAL-RUNTIME-CODE-REVIEW.md).
 
 ---
 
 ## Table of Contents
 
-1. [Inspected state](#inspected-state)
-2. [What the runtime must consume](#what-the-runtime-must-consume)
-3. [Preservation rules](#preservation-rules)
-4. [Width is not memory](#width-is-not-memory)
-5. [Gate R0: owner decisions before any slice](#gate-r0-owner-decisions-before-any-slice)
-6. [Execution policy](#execution-policy)
-7. [Slices 1–8](#slice-1-int64-indices-through-the-input-and-driver-seam)
-8. [Next Chat Prompts](#next-chat-prompts)
+1. [Outcome (2026-09-29)](#outcome-2026-09-29)
+2. [Inspected state](#inspected-state)
+3. [What the runtime must consume](#what-the-runtime-must-consume)
+4. [Preservation rules](#preservation-rules)
+5. [Width is not memory](#width-is-not-memory)
+6. [Gate R0: owner decisions before any slice](#gate-r0-owner-decisions-before-any-slice)
+7. [Execution policy](#execution-policy)
+8. [Slices 1–8](#slice-1-int64-indices-through-the-input-and-driver-seam)
+9. [Next Chat Prompts](#next-chat-prompts)
 
 ---
 
@@ -122,7 +123,7 @@ These are architectural decisions this plan deliberately does not make. Each has
 
 **Recorded decisions** (owner, 2026-09-28; every recommendation above accepted as proposed, and R0-7, which carried no recommendation, decided as (a)):
 
-- R0-1 (2026-09-28): **(a)** — extend `horizontal_hdf5` to accept v2 and v3, dispatching on `format_version`, with v2's validation path byte-for-byte unchanged.
+- R0-1 (2026-09-28): **(a)** — extend `horizontal_hdf5` to accept v2 and v3, dispatching on `format_version`, with v2's validation path byte-for-byte unchanged (Slice 2 kept every version 2 check; the version-rejection messages now name both supported versions and mixed-version files, so 'byte-for-byte' applies to the checks, not to the message text.)
 - R0-2 (2026-09-28): **(a)** — allow `long long` `tree_link` fields and widen the generated link accessors to `int64_t` everywhere; vertical packages keep `int` storage.
 - R0-3 (2026-09-28): **(a)** — the three target-snapshot columns and `SourceHaloID` are reader-owned slab arrays.
 - R0-4 (2026-09-28): **(a)** — widen vertical-only index code (`struct HaloAuxData`, `build_model.c`'s tree walk) to int64 too; Slice 1 measures the cost.

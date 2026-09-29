@@ -1,7 +1,7 @@
 """Horizontal-HDF5 format version 3 emission for the generic converter pipeline.
 
 Writes ``snapshot_NNN.h5`` and ``forests.h5`` per
-docs/dev/HORIZONTAL-HDF5-FORMAT-V3-DRAFT.md (File Set and Naming, Header
+docs/dev/HORIZONTAL-HDF5-FORMAT.md, section "Version 3" (File Set and Naming, Header
 Attributes, Halo Datasets, The Schema Group, Forest Sidecar, Storage Layout;
 contract C3 of docs/dev/MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md).
 :class:`HorizontalV3Writer` is the generic pipeline's write stage

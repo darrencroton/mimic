@@ -468,8 +468,9 @@ int main(int argc, char **argv) {
   free_vertical_driver_scratch();
 
   /* Harvest the vertical driver's pool cost before the pool goes away. A
-   * horizontal run leaves this pool untouched and reports its own two
-   * pools from inside the driver, so the profile's maxima come from whichever
+   * horizontal run leaves this pool untouched: the horizontal driver
+   * creates galaxy pools lazily, recycles them through a spare stack, and harvests
+   * each into the run profile at teardown, so the profile's maxima come from whichever
    * driver actually ran. */
   struct GalaxyPoolStats tree_pool_stats;
   galaxy_pool_stats(VerticalGalaxyPool, &tree_pool_stats);

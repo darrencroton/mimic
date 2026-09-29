@@ -43,7 +43,9 @@ static int failed = 0;
 /* 1 when function `fn` has exactly the pointer type `type`. */
 #define HAS_SIGNATURE(fn, type) _Generic(&(fn), type: 1, default: 0)
 
-/* A field wide enough for an int64 halo index and signed like one. */
+/* A field wide enough for an int64 halo index and signed like one. Probes width and sign
+ * rather than using _Generic because struct Halo.HaloNr is `long long`, which is not
+ * int64_t on Linux/glibc (where int64_t is `long`). */
 #define IS_SIGNED_64(lvalue) (sizeof(lvalue) == sizeof(int64_t) && (lvalue = -1, lvalue < 0))
 
 /**

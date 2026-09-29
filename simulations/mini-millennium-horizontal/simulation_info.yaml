@@ -14,7 +14,7 @@
 
 input:
   first_file: 0
-  last_file: 0
+  last_file: 7
   tree_name: snapshot_%03d.h5
   tree_type: horizontal_hdf5
   processing_order: horizontal

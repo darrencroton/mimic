@@ -15,8 +15,7 @@
  *
  * The horizontal front end reads one snapshot at a time: the working set
  * of a run is one snapshot's halo population instead of one forest's history.
- * See docs/dev/HORIZONTAL-HDF5-FORMAT.md (version 2) and
- * docs/dev/HORIZONTAL-HDF5-FORMAT-V3-DRAFT.md (version 3) for the on-disk
+ * See docs/dev/HORIZONTAL-HDF5-FORMAT.md (versions 2 and 3) for the on-disk
  * contracts this interface consumes.
  *
  * This is deliberately a second, small vtable rather than a widening of

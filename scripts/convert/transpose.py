@@ -8,7 +8,7 @@ and produces, for every a_list snapshot including empty ones, one flat record
 file whose rows are that snapshot's halos in ascending ``SourceHaloID`` order,
 with the five links resolved to int64 snapshot-local rows and the three
 progenitor/descendant links qualified by their int32 target snapshot -- the
-v3 ``/halos`` columns of ``docs/dev/HORIZONTAL-HDF5-FORMAT-V3-DRAFT.md``. It
+v3 ``/halos`` columns of ``docs/dev/HORIZONTAL-HDF5-FORMAT.md`` (section "Version 3"). It
 writes no HDF5: ``hdf5_writer_v3.py`` writes the v3 file from these records.
 
 **What it preserves.** Rows are *moved*, never changed: every payload,

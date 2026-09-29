@@ -1027,7 +1027,7 @@ class TestBoundedIdentityPass(Slice5Case):
         )
         with identity:
             with self.assertRaisesRegex(
-                ConverterError, "holds 1 of the 4 ForestIndex value\(s\) snapshot 3 needs"
+                ConverterError, r"holds 1 of the 4 ForestIndex value\(s\) snapshot 3 needs"
             ):
                 identity[3]
 

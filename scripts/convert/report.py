@@ -333,9 +333,8 @@ def _v3_limitations(measured: Mapping, schema) -> List[str]:
         limitations.append(
             "{} Descendant link(s) skip snapshots (longest span {}); the horizontal driver "
             "retains each snapshot generation until its descendants' snapshots are processed, "
-            "so a run holds more than two generations at once.".format(
-                gapped, measured.get("max_descendant_span")
-            )
+            "so a run may retain more than two generations at once, at most the longest "
+            "descendant span plus one.".format(gapped, measured.get("max_descendant_span"))
         )
     counts = measured.get("snapshot_counts") or []
     widest = max(counts) if counts else 0

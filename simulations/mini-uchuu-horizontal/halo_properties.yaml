@@ -6,7 +6,7 @@
 # /schema when it is present, by _tests/integration/test_schema_conformance.py
 # (make tests-integration with this package selected).
 #
-# Every entry is a `/halos` dataset of docs/dev/HORIZONTAL-HDF5-FORMAT-V3-DRAFT.md.
+# Every entry is a `/halos` dataset of docs/dev/HORIZONTAL-HDF5-FORMAT.md (section "Version 3").
 # The payload fields declare exactly the type, units and h_convention the
 # converter's lhalo_binary route writes into each file's `/schema` when it
 # converts simulations/mini-uchuu/, and the reader aborts at open on any

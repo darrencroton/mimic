@@ -1719,7 +1719,7 @@ def main(argv=None) -> int:
         prog="validate",
         description="Producer validation battery for horizontal-HDF5 datasets: format "
         "version 2 (docs/dev/HORIZONTAL-HDF5-FORMAT.md) or, when every snapshot file "
-        "declares it, version 3 (docs/dev/HORIZONTAL-HDF5-FORMAT-V3-DRAFT.md)",
+        "declares it, version 3 (docs/dev/HORIZONTAL-HDF5-FORMAT.md, section Version 3)",
     )
     parser.add_argument("directory", help="directory of snapshot_NNN.h5 files + forests.h5")
     parser.add_argument("--a-list", required=True, help="canonical a_list (one scale per line)")
