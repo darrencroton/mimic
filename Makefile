@@ -314,7 +314,7 @@ GIT_DIR := $(shell git rev-parse --git-dir 2>/dev/null)
 # -----------------------------------------------------------------------------
 # Build Targets
 # -----------------------------------------------------------------------------
-.PHONY: all clean tidy help info generate generate-modules generate-test-inputs check-generated check-docs check-format check-horizontal-fixture tests tests-unit tests-integration tests-scientific tests-converter test-clean validate-modules lint-parameters validate-build summary dump-ctrees-topology-tool
+.PHONY: all clean tidy help info generate generate-modules generate-test-inputs check-generated check-docs check-format check-horizontal-fixture tests tests-unit tests-integration tests-scientific tests-horizontal-v3 tests-converter test-clean validate-modules lint-parameters validate-build summary dump-ctrees-topology-tool
 
 all: validate-build $(EXEC)
 
@@ -499,6 +499,7 @@ help:
 	@echo "  make tests-unit         - Run unit tests only"
 	@echo "  make tests-integration  - Run integration tests only"
 	@echo "  make tests-scientific   - Run scientific tests only"
+	@echo "  make tests-horizontal-v3 - Run the version 3 reader/retention battery and mini-millennium-horizontal package tests on committed fixtures"
 	@echo "  make tests-converter    - Run the ctrees->horizontal-HDF5 converter self-tests"
 	@echo "  make check-horizontal-fixture - Check the committed horizontal fixture against the format spec"
 	@echo "  make tests summary     - Run all tests with concise warning/failure/skip output"
@@ -830,6 +831,40 @@ tests-integration:
 
 tests-scientific:
 	$(call RUN_PYTHON_TIER,scientific,SCIENTIFIC VALIDATION,SCIENTIFIC)
+
+# Version 3 horizontal fixture battery. These tests only run under
+# SIMULATION=mini-millennium-horizontal (they skip under the default pair), so
+# this target builds that pair itself, runs exactly the fixture-backed C and
+# Python tests, and fails on any non-zero exit or any unexpected
+# `MIMIC_RESULT: SKIP`. test_int_link_package_rejects_v3 skips by design under
+# this package (the compiled package stores links as long long). Needs no real
+# dataset. Do not widen this to the whole integration tier: the core tests
+# fail by design under a horizontal package. The generated code is regenerated
+# for the caller's MODEL/SIMULATION on every path, including a failed build, so
+# the tree is never left bound to the horizontal pair; rebuild the executable
+# with `make`. run_tests.sh refreshes the test registry and inputs itself.
+HV3_MODEL := halos-only
+HV3_SIMULATION := mini-millennium-horizontal
+HV3_LOG := build/horizontal_v3_tests.log
+HV3_UNIT_TESTS := test_horizontal_v3_reader test_horizontal_retention_budget test_unit_horizontal_retention
+HV3_PY_TESTS := simulations/$(HV3_SIMULATION)/_tests/integration/test_gap_retention.py simulations/$(HV3_SIMULATION)/_tests/integration/test_schema_conformance.py
+
+tests-horizontal-v3:
+	$(MAKE) MODEL=$(HV3_MODEL) SIMULATION=$(HV3_SIMULATION) TEST_BUILD=yes generate validate-build $(EXEC) \
+		|| { $(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) generate; exit 1; }
+	@mkdir -p build; : > $(HV3_LOG); rc=0; \
+	(cd tests/unit && MODEL='$(HV3_MODEL)' SIMULATION='$(HV3_SIMULATION)' ./run_tests.sh $(HV3_UNIT_TESTS)) >> $(HV3_LOG) 2>&1 || rc=1; \
+	for test in $(HV3_PY_TESTS); do \
+		MODEL='$(HV3_MODEL)' SIMULATION='$(HV3_SIMULATION)' $(PYTHON) $$test >> $(HV3_LOG) 2>&1 || rc=1; \
+	done; \
+	skips=$$(grep '^MIMIC_RESULT: SKIP' $(HV3_LOG) | grep -v 'test_int_link_package_rejects_v3'); \
+	if [ -n "$$skips" ]; then echo "Unexpected skips:"; echo "$$skips"; rc=1; fi; \
+	if [ $$rc -ne 0 ]; then echo "FAIL: tests-horizontal-v3 (see $(HV3_LOG))"; \
+	else echo "PASS: tests-horizontal-v3 ($(words $(HV3_UNIT_TESTS)) C tests, $(words $(HV3_PY_TESTS)) Python tests, no unexpected skips)"; fi; \
+	echo $$rc > build/.horizontal_v3_status
+	$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) generate
+	@echo "Generated code restored for MODEL=$(MODEL) SIMULATION=$(SIMULATION); rebuild the executable with 'make'."
+	@test "$$(cat build/.horizontal_v3_status)" = 0
 
 # Reference-topology dump harness: read-only, loads forests through the existing
 # consistent_trees_ascii reader and dumps their literal link fields for
