@@ -41,7 +41,7 @@ Both comparisons use the strict `1e-6` relative tolerance by default; CI relaxes
 
 The dataset is converter output, never hand-edited. `source/generate_source.py` writes the L-Halo source `source/trees_fixture.0`, and `regenerate.sh` converts it with `scripts/convert/convert_trees.py` (`ingest`, `transpose`, `write`, `report`), using `source/profile.yaml` (the mini-Millennium profile plus the one extra; `column_mapping_sha256` `db55a0b67806da507789ee60f9057ded4285e05d0d0df57564a52f765cc43406`), `source/fixture.a_list` (the first four mini-Millennium scale factors) and `simulations/mini-millennium/simulation_info.yaml` for the physical header values. The report stage's producer validation battery must pass.
 
-Each non-empty snapshot file is about 9.5 MB on disk because the converter writes fixed `(65536,)` chunks, but about 13 KB compressed, which is what the repository stores; only three of the four snapshots hold halos for that reason.
+The whole `dataset/` directory is about 116 KB on disk: the converter sizes each version 3 chunk to `max(1, min(n_rows, 65536))` rows, so a handful of halos does not materialise a 65,536-row chunk (before 2026-09-29 the converter wrote fixed `(65536,)` chunks and each non-empty snapshot file was about 9.5 MB). Only three of the four snapshots hold halos; the fourth is deliberately empty to carry the descendant gap, and that is a topology choice, no longer a size constraint.
 
 ## Regenerating a baseline
 

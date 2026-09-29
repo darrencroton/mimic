@@ -6,9 +6,11 @@ Attributes, Halo Datasets, The Schema Group, Forest Sidecar, Storage Layout;
 contract C3 of docs/dev/MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md).
 :class:`HorizontalV3Writer` is the generic pipeline's write stage
 (``pipeline.run_write``), and it never stamps anything but
-``format_version = 3``. It shares only the header attribute table, the chunk
-shapes and the header-metadata loader with the version 2 writer in
-:mod:`hdf5_writer`, which never calls into this module.
+``format_version = 3``. It shares only the header attribute table, the 65,536-row
+chunk-row ceiling and the header-metadata loader with the version 2 writer in
+:mod:`hdf5_writer`, which never calls into this module. Unlike version 2's fixed
+chunks, a version 3 chunk holds ``max(1, min(n_rows, 65536))`` rows (see
+:func:`v3_chunk_shape`), so a small dataset does not materialise a 65,536-row chunk.
 
 The writer consumes the generic pipeline's verified transposed snapshots --
 flat little-endian records whose fields ARE the v3 /halos columns
@@ -31,6 +33,7 @@ time; nothing is O(halos) or O(forests). Every emitted file is re-opened and
 verified against its source records before the stage reports it.
 """
 
+import itertools
 import os
 import sys
 from dataclasses import dataclass
@@ -54,7 +57,6 @@ from ctrees_parser import ConverterError  # noqa: E402
 from fixups import REF_TO_NATIVE_MASS  # noqa: E402
 from hdf5_writer import (  # noqa: E402
     CHUNK_1D,
-    CHUNK_VEC,
     HEADER_ATTRS,
     _log,
     load_header_metadata,
@@ -76,8 +78,9 @@ V3_SCHEMA_ATTRS = ("type", "units", "h_convention", "description")
 V3_SIDECAR_DATASETS = ("ForestID", "SourceFileOrdinal", "SourceUnitOrdinal")
 
 #: Records the writer holds at once when streaming a transposed snapshot, and
-#: forests when streaming the sidecar. Four HDF5 chunks: writes stay
-#: chunk-aligned, and at ~150 B/record the block is ~40 MB.
+#: forests when streaming the sidecar. Four maximal HDF5 chunks (the 65,536-row
+#: ceiling of :func:`v3_chunk_shape`): writes stay chunk-aligned for large datasets,
+#: and at ~150 B/record the block is ~40 MB.
 V3_WRITE_BLOCK_ROWS = 4 * CHUNK_1D[0]
 
 SIDECAR_NAME = "forests.h5"
@@ -197,6 +200,16 @@ def _forest_blocks(records: Iterable, rows: int) -> Iterator[Dict[str, np.ndarra
         yield flush()
 
 
+def v3_chunk_shape(n_rows: int, is_vec: bool) -> Tuple[int, ...]:
+    """The chunk shape of a version 3 dataset of ``n_rows`` rows:
+    ``(max(1, min(n_rows, 65536)),)`` for scalars, with a trailing 3 for
+    vectors. The row count is a ceiling (``CHUNK_1D[0]``, the format's
+    65,536) with a recommended shape, so a small dataset does not allocate a
+    whole 65,536-row chunk; consumers never depend on chunk boundaries."""
+    rows = max(1, min(int(n_rows), CHUNK_1D[0]))
+    return (rows, 3) if is_vec else (rows,)
+
+
 def write_v3_snapshot_file(
     path,
     header: Mapping[str, object],
@@ -227,7 +240,7 @@ def write_v3_snapshot_file(
                 name,
                 shape=(n_halos, 3) if is_vec else (n_halos,),
                 dtype=dtype,
-                chunks=CHUNK_VEC if is_vec else CHUNK_1D,
+                chunks=v3_chunk_shape(n_halos, is_vec),
                 maxshape=(None, 3) if is_vec else (None,),
                 compression=None,
             )
@@ -253,16 +266,37 @@ def write_v3_snapshot_file(
 
 def write_v3_sidecar(path, blocks: Iterable[Mapping[str, np.ndarray]]) -> int:
     """Create ``forests.h5``: exactly the three int64 root datasets, grown
-    block by block. Returns the forest count."""
+    block by block. Returns the forest count.
+
+    The total forest count is not known when the datasets are created, but it
+    is when the enumeration arrives as a single block (a second block never
+    appears), so the chunk rows are then that block's size; otherwise the
+    datasets keep the 65,536-row ceiling.
+    """
     total = 0
+    blocks = iter(blocks)
+    first = next(blocks, None)
+    second = next(blocks, None) if first is not None else None
+    if first is None:
+        chunk_rows = 0
+    elif second is None:
+        chunk_rows = int(first["ForestID"].size)
+    else:
+        chunk_rows = CHUNK_1D[0]
+    pending = [block for block in (first, second) if block is not None]
     with h5py.File(path, "w-", libver="latest") as handle:
         datasets = {
             name: handle.create_dataset(
-                name, shape=(0,), dtype="<i8", chunks=CHUNK_1D, maxshape=(None,), compression=None
+                name,
+                shape=(0,),
+                dtype="<i8",
+                chunks=v3_chunk_shape(chunk_rows, False),
+                maxshape=(None,),
+                compression=None,
             )
             for name in V3_SIDECAR_DATASETS
         }
-        for block in blocks:
+        for block in itertools.chain(pending, blocks):
             count = int(block["ForestID"].size)
             for name, dataset in datasets.items():
                 dataset.resize((total + count,))
@@ -538,8 +572,14 @@ def _verify_v3_dataset_layout(dataset, dtype: np.dtype, is_vec: bool, n_rows: in
         problems.append("dtype {} != {}".format(dataset.dtype.str, dtype.str))
     if dataset.shape != shape:
         problems.append("shape {} != {}".format(dataset.shape, shape))
-    if dataset.chunks != (CHUNK_VEC if is_vec else CHUNK_1D):
-        problems.append("chunks {}".format(dataset.chunks))
+    chunks = dataset.chunks
+    if (
+        chunks is None
+        or len(chunks) != len(shape)
+        or not 1 <= chunks[0] <= CHUNK_1D[0]
+        or (is_vec and chunks[1] != 3)
+    ):
+        problems.append("chunks {} (rows must be in [1, {}])".format(chunks, CHUNK_1D[0]))
     if dataset.compression is not None or dataset.shuffle or dataset.fletcher32:
         problems.append("filtered")
     if dataset.scaleoffset is not None:

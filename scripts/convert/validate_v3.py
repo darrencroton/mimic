@@ -56,7 +56,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from conversion_manifest import ConversionManifest, sha256_file  # noqa: E402
 from ctrees_parser import ConverterError  # noqa: E402
-from hdf5_writer import CHUNK_1D, CHUNK_VEC, HEADER_ATTRS, snapshot_h5_name  # noqa: E402
+from hdf5_writer import CHUNK_1D, HEADER_ATTRS, snapshot_h5_name  # noqa: E402
 from rank_sort import KeyedSorter, RankSortError, ResidencyMeter, SpillLedger  # noqa: E402
 from scatter import load_a_list  # noqa: E402
 from source_keys import (  # noqa: E402
@@ -294,13 +294,22 @@ def _v3_dataset_failures(dataset, name: str, dtype: str, is_vec: bool) -> List[s
     if is_vec:
         if dataset.ndim != 2 or dataset.shape[1] != 3:
             failures.append("{} shape {} is not [n_halos, 3]".format(name, dataset.shape))
-        expected_chunks = CHUNK_VEC
     else:
         if dataset.ndim != 1:
             failures.append("{} shape {} is not [n_halos]".format(name, dataset.shape))
-        expected_chunks = CHUNK_1D
-    if dataset.chunks != expected_chunks:
-        failures.append("{} chunks {} != {}".format(name, dataset.chunks, expected_chunks))
+    chunks = dataset.chunks
+    rank = 2 if is_vec else 1
+    width_ok = not is_vec or (chunks is not None and len(chunks) == 2 and chunks[1] == 3)
+    if chunks is None or len(chunks) != rank or not 1 <= chunks[0] <= CHUNK_1D[0] or not width_ok:
+        failures.append(
+            "{} chunks {} violate the rule: chunked, rank {}{}, 1 <= chunk rows <= {}".format(
+                name,
+                chunks,
+                rank,
+                ", vector width 3" if is_vec else "",
+                CHUNK_1D[0],
+            )
+        )
     failures += _filter_failures(dataset, name)
     if dataset.external or dataset.is_virtual:
         failures.append("{} is stored outside its file".format(name))

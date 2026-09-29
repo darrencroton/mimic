@@ -46,7 +46,13 @@ from hdf5_writer import (  # noqa: E402
     run_write,
     snapshot_h5_name,
 )
-from hdf5_writer_v3 import V3_FORMAT_VERSION, HorizontalV3Writer  # noqa: E402
+from hdf5_writer_v3 import (  # noqa: E402
+    V3_FORMAT_VERSION,
+    V3_SIDECAR_DATASETS,
+    HorizontalV3Writer,
+    v3_chunk_shape,
+    write_v3_sidecar,
+)
 from links import LINKS_RECORD_DTYPE, run_links  # noqa: E402
 from report import (  # noqa: E402
     build_report,
@@ -1040,10 +1046,37 @@ class TestV3Emission(V3Case):
         halos = self.open(snapshot_h5_name(2))["halos"]
         for name in halos:
             dataset = halos[name]
-            self.assertEqual(dataset.chunks, CHUNK_VEC if dataset.ndim == 2 else CHUNK_1D)
+            self.assertEqual(
+                dataset.chunks, v3_chunk_shape(dataset.shape[0], dataset.ndim == 2), name
+            )
             self.assertIsNone(dataset.compression)
             self.assertFalse(dataset.shuffle)
             self.assertEqual(dataset.id.get_type().get_order(), h5py.h5t.ORDER_LE, name)
+
+    def test_chunk_rows_are_the_row_count_clamped_to_the_ceiling(self):
+        self.assertEqual(v3_chunk_shape(0, False), (1,))
+        self.assertEqual(v3_chunk_shape(0, True), (1, 3))
+        self.assertEqual(v3_chunk_shape(7, False), (7,))
+        self.assertEqual(v3_chunk_shape(7, True), (7, 3))
+        self.assertEqual(v3_chunk_shape(65536, False), (65536,))
+        self.assertEqual(v3_chunk_shape(10**9, True), (65536, 3))
+
+    def test_sidecar_chunks_are_the_forest_count_only_when_it_is_known_up_front(self):
+        scratch = tempfile.TemporaryDirectory()
+        self.addCleanup(scratch.cleanup)
+
+        def block(n):
+            return {name: np.arange(n, dtype="<i8") for name in V3_SIDECAR_DATASETS}
+
+        def chunks(blocks):
+            path = Path(scratch.name) / "forests_{}.h5".format(len(blocks))
+            write_v3_sidecar(path, blocks)
+            with h5py.File(path, "r") as handle:
+                return {handle[name].chunks for name in handle}
+
+        self.assertEqual(chunks([block(5)]), {(5,)})
+        self.assertEqual(chunks([block(5), block(2)]), {(65536,)})
+        self.assertEqual(chunks([]), {(1,)})
 
     def test_sidecar_carries_the_lhalo_forest_provenance(self):
         sidecar = self.open("forests.h5")
@@ -1171,19 +1204,17 @@ class TestV3WriteVerification(unittest.TestCase):
         )
 
     def test_a_scalar_chunk_shape_in_the_zero_halo_snapshot_fails_the_stage(self):
-        mutate = _rechunk_empty(snapshot_h5_name(1), "Vmax", (1024,))
-        self.assertNotEqual((1024,), CHUNK_1D)
+        mutate = _rechunk_empty(snapshot_h5_name(1), "Vmax", (65537,))
         self.assert_refused_before_success_or_cleanup(
             _MutatingWriter(self.conv.sim_info, mutate),
-            r"snapshot_001\.h5: /halos/Vmax: chunks \(1024,\)",
+            r"snapshot_001\.h5: /halos/Vmax: chunks \(65537,\)",
         )
 
     def test_a_vector_chunk_shape_in_the_zero_halo_snapshot_fails_the_stage(self):
-        mutate = _rechunk_empty(snapshot_h5_name(1), "Pos", (1024, 3))
-        self.assertNotEqual((1024, 3), CHUNK_VEC)
+        mutate = _rechunk_empty(snapshot_h5_name(1), "Pos", (2, 2))
         self.assert_refused_before_success_or_cleanup(
             _MutatingWriter(self.conv.sim_info, mutate),
-            r"snapshot_001\.h5: /halos/Pos: chunks \(1024, 3\)",
+            r"snapshot_001\.h5: /halos/Pos: chunks \(2, 2\)",
         )
 
     def test_a_retry_after_refusal_writes_a_verified_dataset(self):

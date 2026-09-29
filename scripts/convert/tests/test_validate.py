@@ -2324,6 +2324,23 @@ class TestV3BatteryStructure(V3BatteryCase):
         self.replace_dataset(directory, "snapshot_003.h5", "SubHalfMass", compression="gzip")
         self.assert_fails(directory, "object-set", "compressed")
 
+    def test_a_chunk_row_count_within_the_ceiling_passes_object_set(self):
+        directory = self.copy()
+        self.replace_dataset(directory, "snapshot_002.h5", "Vmax", chunks=(2,))
+        self.replace_dataset(directory, "snapshot_002.h5", "Pos", chunks=(1, 3))
+        _, outcomes = self.run_v3(directory)
+        self.assertEqual(outcomes["object-set"].status, "PASS", outcomes["object-set"].line())
+
+    def test_a_scalar_chunk_above_the_ceiling_fails_object_set(self):
+        directory = self.copy()
+        self.replace_dataset(directory, "snapshot_002.h5", "Vmax", chunks=(65537,))
+        self.assert_fails(directory, "object-set", "Vmax chunks (65537,) violate the rule")
+
+    def test_a_vector_chunk_of_the_wrong_width_fails_object_set(self):
+        directory = self.copy()
+        self.replace_dataset(directory, "snapshot_002.h5", "Pos", chunks=(2, 2))
+        self.assert_fails(directory, "object-set", "Pos chunks (2, 2) violate the rule")
+
     def test_a_declaration_with_the_wrong_type_for_its_dataset_fails_object_set(self):
         directory = self.copy()
         with h5py.File(directory / "snapshot_003.h5", "r+") as handle:

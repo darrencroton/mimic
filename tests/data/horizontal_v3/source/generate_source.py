@@ -22,8 +22,8 @@ fewest that carry every topology case the v3 reader must accept:
 - tree 0, halo 3 (snapshot 3) is a FoF satellite of halo 2;
 - tree 1 is an adjacent snapshot 0 -> 1 pair plus a root at snapshot 3.
 
-Only three snapshots hold halos because every non-empty v3 file is dominated by
-its fixed (65536,) chunks (about 9.5 MB on disk, about 13 KB compressed in git).
+Only three snapshots hold halos: the empty snapshot 2 is what carries the
+span-3 descendant gap, a topology choice rather than a size constraint.
 
 Every payload value is distinct per halo so field-by-field slab checks are
 meaningful, and SubHalfMass (the one selected extra in ../profile.yaml) is
