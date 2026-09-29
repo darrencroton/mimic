@@ -341,8 +341,9 @@ def _v3_limitations(measured: Mapping, schema) -> List[str]:
     if widest > _C_INT_MAX:
         limitations.append(
             "The largest snapshot holds {} halos, above INT32_MAX ({}); the reader and driver "
-            "index it with int64, but whole-slab memory, not index width, decides whether it "
-            "can run.".format(widest, _C_INT_MAX)
+            "index it with int64; the driver refuses it as an output snapshot above INT32_MAX "
+            "and warns above 1e9 rows; whole-slab memory decides whether it can run "
+            "otherwise.".format(widest, _C_INT_MAX)
         )
     if schema.extra_fields:
         limitations.append(

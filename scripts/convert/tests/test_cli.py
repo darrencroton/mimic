@@ -667,6 +667,8 @@ class OutputIdentificationTests(unittest.TestCase):
     def test_a_snapshot_above_int32_is_identified_as_wide(self):
         text = self.topology(0, 0, True, [5, 2**31, 7])
         self.assertIn("WIDE output", text)
+        self.assertIn("only when that snapshot is a requested output snapshot", text)
+        self.assertIn("warns above 1e9 rows", text)
         self.assertIn(str(2**31), text)
         self.assertIn("links_adjacent=1", text)
 

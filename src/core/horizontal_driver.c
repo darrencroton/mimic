@@ -50,6 +50,7 @@
 
 #include <errno.h>
 #include <inttypes.h>
+#include <limits.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1002,11 +1003,45 @@ static int64_t horizontal_retained_resident_bytes(const struct HorizontalDriverS
 }
 
 /*
+ * Apply the width policy for a slab of `nhalos` rows at snapshot `snapnum`,
+ * before anything is allocated for it.
+ *
+ * The reader and driver index a slab with int64_t, but the output path does not:
+ * it counts a snapshot's emitted records in an int (TotHalosPerSnap), the
+ * marshaller cannot grow an output buffer past MAX_HALO_ARRAY_SIZE, and a FoF
+ * group's galaxy count is narrowed to int. Refusal is reserved for where failure
+ * is certain: a requested output snapshot above INT_MAX. Above the marshaller
+ * cap the failure is only likely (the sweep may emit fewer records than it has
+ * rows), so it is a warning. Both need chunked slab streaming to lift.
+ */
+static void horizontal_require_slab_emittable(int64_t snapnum, int64_t nhalos) {
+  if (nhalos > INT_MAX && horizontal_output_snapshot_index(snapnum) >= 0) {
+    FATAL_ERROR("Snapshot %" PRId64 " holds %" PRId64 " halos and is a requested output snapshot, "
+                "but the output path counts the records it emits per snapshot in an int "
+                "(TotHalosPerSnap), which cannot hold that many. Refused before allocation: "
+                "emitting a slab this wide needs chunked slab streaming, a capability Mimic "
+                "does not implement",
+                snapnum, nhalos);
+  }
+
+  if (nhalos > MAX_HALO_ARRAY_SIZE) {
+    WARNING_LOG("Snapshot %" PRId64 " holds %" PRId64 " halos, above MAX_HALO_ARRAY_SIZE (%d). "
+                "The output marshaller cannot grow a buffer past that bound and a FoF workspace "
+                "is counted in int, so the sweep is likely to abort after the slab is loaded. "
+                "Running a slab this wide needs chunked slab streaming, a capability Mimic does "
+                "not implement",
+                snapnum, nhalos, (int)MAX_HALO_ARRAY_SIZE);
+  }
+}
+
+/*
  * Size snapshot `snapnum`'s generation from its halo count, the reader's slab
  * row width and struct widths, report it, and refuse it -- before the reader
  * allocates its slab or this driver allocates anything for it -- when it cannot
- * be held: when its size
- * overflows int64_t, or when input.retention_memory_ceiling_mb is set and the
+ * be held: when its size overflows int64_t, when it is a requested output
+ * snapshot too wide for the output path's int counts (see
+ * horizontal_require_slab_emittable(), which also warns above the output
+ * marshaller's cap), or when input.retention_memory_ceiling_mb is set and the
  * retention pool with this generation added would exceed it. A retention set
  * exactly at the ceiling is accepted.
  *
@@ -1024,6 +1059,7 @@ static void horizontal_require_generation_fits(const struct HorizontalDriverStat
                 "; a halo count cannot be negative",
                 state->reader->name, nhalos, snapnum);
   }
+  horizontal_require_slab_emittable(snapnum, nhalos);
 
   const int64_t resident = horizontal_retained_resident_bytes(state);
   const int new_pool = (state->spare_count == 0);
@@ -1134,13 +1170,13 @@ horizontal_acquire_generation(struct HorizontalDriverState *state, int64_t snapn
   }
 
   /* Sized, reported and (against a configured ceiling) refused from the halo
-   * count alone, before the reader allocates the slab. There is no index-width
-   * refusal: every index this driver computes from a slab (struct Halo.HaloNr,
-   * the generated accessors and link values, the aux ranges, the FoF and
-   * progenitor walks, and the workspace and scratch sizes) is int64_t, and so is
-   * every byte count above. The only int32 bound on a slab is the format's own,
-   * which the reader enforces at open for a version 2 file
-   * (HORIZONTAL-HDF5-FORMAT.md invariant 2). */
+   * count alone, before the reader allocates the slab. The only refusals by width
+   * are those horizontal_require_generation_fits() makes: an output snapshot
+   * above INT_MAX rows, and the ceiling. Every index this driver computes from a
+   * slab (struct Halo.HaloNr, the generated accessors and link values, the aux
+   * ranges, the FoF and progenitor walks, and the workspace and scratch sizes) is
+   * int64_t, and so is every byte count above. The int32 bound of a version 2
+   * slab is the reader's, enforced at open (HORIZONTAL-HDF5-FORMAT.md invariant 2). */
   const int64_t nhalos = horizontal_reader_halo_count(state->reader, snapnum);
   struct HorizontalGenerationFootprint footprint;
   horizontal_require_generation_fits(state, snapnum, nhalos, &footprint);

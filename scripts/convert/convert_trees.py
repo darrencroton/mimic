@@ -356,10 +356,12 @@ def _print_topology(n_gapped: int, max_span: int, adjacent: bool, counts) -> Non
     if widest > _INT32_MAX:
         print(
             "width: WIDE output -- the largest snapshot holds {} halos, above INT32_MAX ({}); "
-            "version 3 indices are int64 and the horizontal driver does not refuse a slab by "
-            "width; whole-slab retention must hold it in memory (optionally bounded by "
-            "input.retention_memory_ceiling_mb), and chunked slab streaming is not "
-            "implemented".format(widest, _INT32_MAX)
+            "version 3 indices are int64; the horizontal driver refuses such a slab before "
+            "loading it only when that snapshot is a requested output snapshot (the output "
+            "path counts emitted records in int), warns above 1e9 rows where the output "
+            "marshaller cannot grow, and otherwise whole-slab retention must hold it in "
+            "memory (optionally bounded by input.retention_memory_ceiling_mb); chunked slab "
+            "streaming is not implemented".format(widest, _INT32_MAX)
         )
     else:
         print(

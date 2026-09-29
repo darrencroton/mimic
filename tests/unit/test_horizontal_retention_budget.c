@@ -49,6 +49,7 @@
 #include "../../src/util/run_profile.h"
 #include "../framework/test_framework.h"
 
+#include <dirent.h>
 #include <errno.h>
 #include <inttypes.h>
 #include <stdint.h>
@@ -194,6 +195,7 @@ static struct {
   int chain;
   int extra_rows;          /* rows built beyond the reported count (count-mismatch case) */
   int descendant_past_end; /* last snapshot's halo names a descendant (horizon case) */
+  int64_t output_snapshot; /* the one requested output snapshot; -1: none requested */
 } Fake;
 
 /* The slab row width the fake reader publishes at open, and for version 2 slabs
@@ -288,9 +290,16 @@ static const struct HorizontalReader FakeReader = {
     .release_slab = fake_release_slab,
 };
 
+/* Every case starts from an empty fake with no output snapshot requested: a
+ * plain memset would leave output_snapshot at 0, which requests snapshot 0. */
+static void fake_reset(void) {
+  memset(&Fake, 0, sizeof(Fake));
+  Fake.output_snapshot = -1;
+}
+
 /* One snapshot of `nhalos`, ended at load: the pre-allocation cases. */
 static void fake_single_snapshot(int64_t nhalos, int32_t format_version) {
-  memset(&Fake, 0, sizeof(Fake));
+  fake_reset();
   Fake.snapshot_count = 1;
   Fake.halo_count[0] = nhalos;
   Fake.format_version = format_version;
@@ -300,7 +309,7 @@ static void fake_single_snapshot(int64_t nhalos, int32_t format_version) {
 /* A chain of `snapshots` one-halo snapshots, each descending into the next, built
  * and swept for real: two generations overlap at every step. */
 static void fake_chain(int64_t snapshots) {
-  memset(&Fake, 0, sizeof(Fake));
+  fake_reset();
   Fake.snapshot_count = snapshots;
   for (int64_t k = 0; k < snapshots; k++) {
     Fake.halo_count[k] = 1;
@@ -448,6 +457,10 @@ static int run_driver_in_child(int64_t ceiling, int use_v3_fixture, struct Child
     const struct HorizontalReader *reader =
         use_v3_fixture ? horizontal_reader_lookup("horizontal_hdf5") : &FakeReader;
     configure_child(reader, ceiling);
+    if (!use_v3_fixture && Fake.output_snapshot >= 0) {
+      MimicConfig.NOUT = 1;
+      MimicConfig.ListOutputSnaps[0] = (int)Fake.output_snapshot;
+    }
     if (use_v3_fixture) {
       configure_v3_fixture();
       install_time_axis(MimicConfig.Snaplistlen);
@@ -503,6 +516,23 @@ static int prepare_output_dir(void) {
     return -1;
   }
   return 0;
+}
+
+/* Entries in OUTPUT_DIR other than "." and ".."; -1 if it cannot be read. */
+static int count_output_entries(void) {
+  DIR *dir = opendir(OUTPUT_DIR);
+  if (dir == NULL) {
+    return -1;
+  }
+  int count = 0;
+  const struct dirent *entry;
+  while ((entry = readdir(dir)) != NULL) {
+    if (strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0) {
+      count++;
+    }
+  }
+  closedir(dir);
+  return count;
 }
 
 static int log_contains(const struct ChildResult *result, const char *needle) {
@@ -603,8 +633,9 @@ int test_normal_slab_is_sized_before_load(void) {
 
 /**
  * @test    test_wide_slab_is_sized_before_load
- * @brief   With no ceiling, a slab above INT32_MAX rows is sized exactly and
- *          reported before load, with no index error or narrowed value.
+ * @brief   With no ceiling and no output requested, a slab above INT32_MAX rows
+ *          is sized exactly and reported before load, with no index error or
+ *          narrowed value, and warned about as above MAX_HALO_ARRAY_SIZE.
  */
 int test_wide_slab_is_sized_before_load(void) {
   struct ChildResult result;
@@ -622,9 +653,48 @@ int test_wide_slab_is_sized_before_load(void) {
   TEST_ASSERT(log_contains(&result, needle),
               "The report should count the new galaxy pool and state the pool total with it");
   TEST_ASSERT(!log_contains(&result, "FATAL"), "An unbounded wide slab should not abort");
+  TEST_ASSERT(log_contains(&result, "Snapshot 0 holds 3000000000 halos, above "
+                                    "MAX_HALO_ARRAY_SIZE (1000000000)") &&
+                  log_contains(&result, "chunked slab streaming"),
+              "A slab above MAX_HALO_ARRAY_SIZE should be warned about, naming the bound and "
+              "the missing chunked slab streaming");
   printf("  %" PRId64 "-row version 3 slab: %" PRId64 " B reported before load\n", WIDE_SLAB_ROWS,
          bytes);
   print_log_line(&result, "Snapshot 0 generation needs ");
+  print_log_line(&result, "above MAX_HALO_ARRAY_SIZE");
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_wide_output_snapshot_is_refused_before_load
+ * @brief   A slab above INT_MAX rows at a requested output snapshot is refused
+ *          before the reader loads it, because the output path counts emitted
+ *          records per snapshot in an int; no output file is created.
+ */
+int test_wide_output_snapshot_is_refused_before_load(void) {
+  struct ChildResult result;
+
+  TEST_ASSERT(prepare_output_dir() == 0, "Should create the output directory");
+  const int entries_before = count_output_entries();
+  TEST_ASSERT(entries_before >= 0, "Should be able to read the output directory");
+
+  fake_single_snapshot(WIDE_SLAB_ROWS, 3);
+  Fake.output_snapshot = 0;
+  TEST_ASSERT(run_driver_in_child(0, 0, &result) == 0, "Should run the driver in a child");
+  TEST_ASSERT(result.exited && result.exit_status == 1,
+              "A wide slab at a requested output snapshot should end in a FATAL, not load");
+  TEST_ASSERT(!log_contains(&result, LOAD_SLAB_REACHED_MARKER),
+              "The refusal should come before the reader loads the slab");
+  TEST_ASSERT(log_contains(&result, "Snapshot 0 holds 3000000000 halos and is a requested output "
+                                    "snapshot") &&
+                  log_contains(&result, "(TotHalosPerSnap)") &&
+                  log_contains(&result, "Refused before allocation") &&
+                  log_contains(&result, "chunked slab streaming"),
+              "The refusal should name the snapshot, the count, the int record counter and "
+              "the missing chunked slab streaming");
+  TEST_ASSERT(count_output_entries() == entries_before,
+              "No output file should be created before the refusal");
+  print_log_line(&result, "requested output snapshot");
   return TEST_PASS;
 }
 
@@ -1051,7 +1121,7 @@ int test_in_sweep_pool_growth_past_the_ceiling_warns_once(void) {
   const int64_t swept = admission + growth;
 
   TEST_ASSERT(prepare_output_dir() == 0, "Should create the output directory");
-  memset(&Fake, 0, sizeof(Fake));
+  fake_reset();
   Fake.snapshot_count = 1;
   Fake.halo_count[0] = POOL_GROWING_ROWS;
   Fake.format_version = 2;
@@ -1189,6 +1259,7 @@ int main(void) {
   TEST_RUN(test_reader_interface_carries_wide_count);
   TEST_RUN(test_normal_slab_is_sized_before_load);
   TEST_RUN(test_wide_slab_is_sized_before_load);
+  TEST_RUN(test_wide_output_snapshot_is_refused_before_load);
   TEST_RUN(test_ceiling_accepts_retention_at_the_ceiling);
   TEST_RUN(test_ceiling_refuses_retention_just_above);
   TEST_RUN(test_new_pool_counts_against_a_whole_mb_ceiling_for_an_empty_snapshot);
