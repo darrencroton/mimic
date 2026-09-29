@@ -253,8 +253,7 @@ struct HorizontalRetainedGeneration {
 struct HorizontalGatherContext {
   int64_t snapnum;                                        /* snapshot of the descendants */
   const int32_t *first_progenitor_snapshot;               /* [descendant slab], or NULL (v2) */
-  const struct HorizontalRetainedGeneration *generations; /* [snapshot_count], by snapshot */
-  int64_t snapshot_count;
+  const struct HorizontalRetainedGeneration *generations; /* [run snapshot count], by snapshot */
   int64_t retained_population;
 };
 

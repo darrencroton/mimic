@@ -154,14 +154,21 @@ static void set_unsupported_member(const void *member, double value) {
       default: set_unsupported_member)((pointer), (value))
 
 /* Assign `value` to the member bound to core role `role`, whatever the compiled
- * package calls it. */
+ * package calls it. A role no catalog field carries would leave the fake slab
+ * silently wrong, so it ends the run instead. */
 static void set_role(struct RawHalo *halo, const char *role, double value) {
+  int matched = 0;
 #define CATALOG_FIELD(member, dataset, type, units, h_convention, core_role, role_kind)            \
   if (strcmp(core_role, role) == 0) {                                                              \
     SET_MEMBER(&halo->member, value);                                                              \
+    matched = 1;                                                                                   \
   }
 #include "../../src/include/generated/catalog_field_metadata.inc"
 #undef CATALOG_FIELD
+  if (!matched) {
+    fprintf(stderr, "FAKE_READER: no catalog field carries core role '%s'\n", role);
+    abort();
+  }
 }
 
 /* ------------------------------------------------------------------------- */
@@ -182,6 +189,8 @@ static struct {
   int32_t format_version;
   enum FakeLoad load;
   int chain;
+  int extra_rows;          /* rows built beyond the reported count (count-mismatch case) */
+  int descendant_past_end; /* last snapshot's halo names a descendant (horizon case) */
 } Fake;
 
 static void fake_open_run(struct HorizontalRunInfo *info) {
@@ -211,7 +220,7 @@ static void fake_load_slab(int64_t snapnum, struct SnapshotSlab *slab) {
 
   /* A version 2 slab: the raw halos and the two identity columns, with links
    * implicitly naming N+1 (Descendant) and N-1 (FirstProgenitor). */
-  const int64_t nhalos = Fake.halo_count[snapnum];
+  const int64_t nhalos = Fake.halo_count[snapnum] + Fake.extra_rows;
   *slab = snapshot_slab_empty();
   slab->snapnum = snapnum;
   slab->nhalos = nhalos;
@@ -228,7 +237,9 @@ static void fake_load_slab(int64_t snapnum, struct SnapshotSlab *slab) {
   const int has_progenitor = Fake.chain && snapnum > 0;
   for (int64_t i = 0; i < nhalos; i++) {
     struct RawHalo *halo = &slab->halos[i];
-    set_role(halo, "Descendant", has_descendant ? 0 : -1);
+    const int names_descendant =
+        has_descendant || (Fake.descendant_past_end && snapnum + 1 == Fake.snapshot_count);
+    set_role(halo, "Descendant", names_descendant ? 0 : -1);
     set_role(halo, "FirstProgenitor", has_progenitor ? 0 : -1);
     set_role(halo, "NextProgenitor", -1);
     set_role(halo, "FirstHaloInFOFgroup", (double)i);
@@ -780,6 +791,65 @@ int test_negative_count_is_refused(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_count_mismatch_after_load_is_refused
+ * @brief   A reader that loads a different row count from the one it reported is
+ *          refused, and the generation already counted as retained is released
+ *          by the failure path.
+ */
+int test_count_mismatch_after_load_is_refused(void) {
+  struct ChildResult result;
+
+  TEST_ASSERT(prepare_output_dir() == 0, "Should create the output directory");
+  fake_single_snapshot(2, 2);
+  Fake.load = FAKE_LOAD_BUILDS;
+  Fake.extra_rows = 1;
+  TEST_ASSERT(run_driver_in_child(0, 0, &result) == 0, "Should run the driver in a child");
+  TEST_ASSERT(result.exited && result.exit_status == 1,
+              "A slab loaded with a different row count should FATAL");
+  TEST_ASSERT(log_contains(&result, "loaded 3 halos for snapshot 0 after reporting 2; the "
+                                    "generation was sized for the reported count"),
+              "The refusal should name the loaded and reported counts");
+  TEST_ASSERT(log_contains(&result, "releasing 1 retained generation"),
+              "The failure path should release the generation counted before the check");
+  /* Logged after the release and the reader close, not before them. */
+  TEST_ASSERT(log_contains(&result, "Released snapshot 0 (raw slab"),
+              "The failure path should actually release snapshot 0");
+  TEST_ASSERT(log_contains(&result, "Closed horizontal run 'fake_retention_budget' with no slab"),
+              "The failure path should close the reader's run with no slab loaded");
+  printf("  3 rows loaded after 2 reported: refused, retained generation released\n");
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_horizon_beyond_the_run_is_refused
+ * @brief   A slab whose halo names a descendant snapshot past the run's last one
+ *          is refused, and the retained generation is released by the failure path.
+ */
+int test_horizon_beyond_the_run_is_refused(void) {
+  struct ChildResult result;
+
+  TEST_ASSERT(prepare_output_dir() == 0, "Should create the output directory");
+  fake_chain(2);
+  Fake.descendant_past_end = 1;
+  TEST_ASSERT(run_driver_in_child(0, 0, &result) == 0, "Should run the driver in a child");
+  TEST_ASSERT(result.exited && result.exit_status == 1,
+              "A descendant beyond the last snapshot should FATAL");
+  TEST_ASSERT(log_contains(&result, "names descendant snapshot 2, beyond the run's last "
+                                    "snapshot 1"),
+              "The refusal should name the horizon and the run's last snapshot");
+  TEST_ASSERT(log_contains(&result, "releasing 2 retained generations"),
+              "The failure path should release both retained generations");
+  /* Logged after the release and the reader close, not before them. */
+  TEST_ASSERT(log_contains(&result, "Released snapshot 0 (raw slab") &&
+                  log_contains(&result, "Released snapshot 1 (raw slab"),
+              "The failure path should actually release snapshots 0 and 1");
+  TEST_ASSERT(log_contains(&result, "Closed horizontal run 'fake_retention_budget' with no slab"),
+              "The failure path should close the reader's run with no slab loaded");
+  printf("  descendant past the last snapshot: refused, generations released\n");
+  return TEST_PASS;
+}
+
 /* ------------------------------------------------------------------------- */
 /* Tests: completed sweeps, measurement and the run profile                   */
 /* ------------------------------------------------------------------------- */
@@ -1121,6 +1191,8 @@ int main(void) {
   TEST_RUN(test_new_pool_counts_against_a_whole_mb_ceiling_for_a_tiny_slab);
   TEST_RUN(test_unrepresentable_slab_is_refused);
   TEST_RUN(test_negative_count_is_refused);
+  TEST_RUN(test_count_mismatch_after_load_is_refused);
+  TEST_RUN(test_horizon_beyond_the_run_is_refused);
   TEST_RUN(test_overlapping_generations_are_measured_and_profiled);
   TEST_RUN(test_ceiling_counts_the_resident_generation_below_the_boundary);
   TEST_RUN(test_ceiling_admits_the_resident_generation_at_the_boundary);

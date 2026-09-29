@@ -149,7 +149,6 @@ static struct HorizontalGatherContext lookup_at(int snap) {
   lookup.snapnum = snap;
   lookup.first_progenitor_snapshot = generations[snap].first_progenitor_snapshot;
   lookup.generations = pool;
-  lookup.snapshot_count = MAX_SNAPSHOTS;
   lookup.retained_population = population;
   return lookup;
 }
@@ -387,6 +386,57 @@ static int test_chain_spanning_three_snapshots(void) {
 }
 
 /**
+ * @brief   A NextProgenitor may name an EARLIER snapshot than its owner's:
+ *          D(3) <- P0(2) -> P1(0) -> P2(1), each progenitor row 0 of its snapshot.
+ *          The chain is walked in stored order and each entry is read from the
+ *          generation its own target-snapshot column names.
+ */
+static int test_next_progenitor_into_an_earlier_snapshot(void) {
+  reset_generations();
+  set_halo(2, 0, 20, at(0, 3), NONE, at(0, 0), 0, -1, 1, 2);
+  set_halo(0, 0, 50, at(0, 3), NONE, at(0, 1), 0, -1, 1, 0);
+  set_halo(1, 0, 30, at(0, 3), NONE, NONE, 0, -1, 1, 1);
+  set_halo(3, 0, 100, NONE, at(0, 2), NONE, 0, -1, 0, 3);
+  retain(0);
+  retain(1);
+  retain(2);
+  const struct HaloInputView view = view_of(3);
+  const struct HorizontalGatherContext lookup = lookup_at(3);
+
+  for (int snap = 0; snap < 3; snap++) {
+    const struct SnapshotSlab slab = slab_of(snap);
+    TEST_ASSERT_EQUAL(horizontal_generation_horizon(&slab), 3,
+                      "every progenitor generation is retained until snapshot 3");
+  }
+
+  TEST_ASSERT_EQUAL((int)horizontal_count_progenitor_galaxies(view, &lookup, 0), 3,
+                    "one galaxy from each of the three progenitor snapshots");
+
+  /* P0 is occupied, so it is pinned although P1 is more massive. */
+  const struct HorizontalProgenitorRef chosen =
+      horizontal_find_most_massive_progenitor(view, &lookup, 0);
+  TEST_ASSERT(chosen.snapnum == 2 && chosen.halonr == 0,
+              "the occupied head P0 (snapshot 2, row 0) is pinned");
+
+  struct InheritanceProgenitorGalaxy gathered[MAX_GALAXIES];
+  memset(gathered, 0, sizeof(gathered));
+  horizontal_gather_progenitor_galaxies(view, &lookup, 0, chosen, gathered);
+  const int chain_snapshots[3] = {2, 0, 1};
+  for (int i = 0; i < 3; i++) {
+    const int snap = chain_snapshots[i];
+    TEST_ASSERT(gathered[i].source == &generations[snap].processed[0],
+                "chain order is P0, P1, P2, each from its own snapshot's buffer");
+    TEST_ASSERT_DOUBLE_EQUAL(gathered[i].source_time, fixture_age[snap], 0.0,
+                             "each galaxy evolves from its own snapshot's age");
+  }
+  TEST_ASSERT_EQUAL(gathered[0].is_main_branch, 1, "P0's galaxy is the main branch");
+  TEST_ASSERT_EQUAL(gathered[1].is_main_branch + gathered[2].is_main_branch, 0,
+                    "P1 and P2 share P0's row but not its generation, so neither is main branch");
+
+  return TEST_PASS;
+}
+
+/**
  * @brief   With an unoccupied head, the scan crosses snapshots to the heaviest occupied entry.
  */
 static int test_unoccupied_head_scans_across_snapshots(void) {
@@ -552,6 +602,7 @@ int main(void) {
   TEST_RUN(test_zero_progenitor_snapshot);
   TEST_RUN(test_link_across_empty_snapshot);
   TEST_RUN(test_chain_spanning_three_snapshots);
+  TEST_RUN(test_next_progenitor_into_an_earlier_snapshot);
   TEST_RUN(test_unoccupied_head_scans_across_snapshots);
   TEST_RUN(test_same_snapshot_next_progenitor);
   TEST_RUN(test_link_into_released_generation_aborts);

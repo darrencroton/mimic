@@ -277,6 +277,12 @@ static int64_t count_progenitor_galaxies(struct HaloInputView view, int64_t halo
 /* MaxFoFWorkspace (allvars.c) stays int: growth is capped at MAX_HALO_ARRAY_SIZE,
  * below INT_MAX, and an int64_t request above that cap reaches the fatal below. */
 static void ensure_fof_workspace_capacity(int64_t required) {
+  /* Refuse an over-cap request up front, before the loop reallocates to the cap. */
+  if (required > MAX_HALO_ARRAY_SIZE) {
+    FATAL_ERROR("FoF workspace requires %" PRId64 " halos but maximum allowed size is %d", required,
+                MAX_HALO_ARRAY_SIZE);
+  }
+
   while (required > MaxFoFWorkspace) {
     int old_size = MaxFoFWorkspace;
     int new_size = (int)(MaxFoFWorkspace * HALO_ARRAY_GROWTH_FACTOR);

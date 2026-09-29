@@ -458,6 +458,90 @@ static int relink(const char *file_path, const char *name, const char *holder, i
   return rc;
 }
 
+/**
+ * @brief   Overwrite a fixed-length header string with `size` raw bytes, through
+ *          the attribute's own datatype so no string conversion rewrites the
+ *          padding or the bytes after a NUL.
+ */
+static int set_header_raw_bytes(const char *file_path, const char *name, const char *bytes) {
+  hid_t file = H5Fopen(file_path, H5F_ACC_RDWR, H5P_DEFAULT);
+  if (file < 0) {
+    return -1;
+  }
+  int rc = 0;
+  hid_t group = H5Gopen2(file, "/header", H5P_DEFAULT);
+  hid_t attr = group < 0 ? H5I_INVALID_HID : H5Aopen(group, name, H5P_DEFAULT);
+  hid_t dtype = attr < 0 ? H5I_INVALID_HID : H5Aget_type(attr);
+  if (dtype < 0 || H5Awrite(attr, dtype, bytes) < 0) {
+    rc = -1;
+  }
+  if (dtype >= 0) {
+    H5Tclose(dtype);
+  }
+  if (attr >= 0) {
+    H5Aclose(attr);
+  }
+  if (group >= 0) {
+    H5Gclose(group);
+  }
+  H5Fclose(file);
+  return rc;
+}
+
+/** @brief Rename attribute `name` of `object` to `new_name`, keeping its value and type. */
+static int rename_attr(const char *file_path, const char *object, const char *name,
+                       const char *new_name) {
+  hid_t file = H5Fopen(file_path, H5F_ACC_RDWR, H5P_DEFAULT);
+  if (file < 0) {
+    return -1;
+  }
+  const int rc = H5Arename_by_name(file, object, name, new_name, H5P_DEFAULT) < 0 ? -1 : 0;
+  H5Fclose(file);
+  return rc;
+}
+
+/** @brief Replace `/header` attribute `name` with a scalar int64 holding `value`. */
+static int replace_header_attr_with_i64(const char *file_path, const char *name, int64_t value) {
+  hid_t file = H5Fopen(file_path, H5F_ACC_RDWR, H5P_DEFAULT);
+  if (file < 0) {
+    return -1;
+  }
+  int rc = 0;
+  if (H5Adelete_by_name(file, "/header", name, H5P_DEFAULT) < 0) {
+    rc = -1;
+  } else {
+    hid_t space = H5Screate(H5S_SCALAR);
+    hid_t attr = H5Acreate_by_name(file, "/header", name, H5T_STD_I64LE, space, H5P_DEFAULT,
+                                   H5P_DEFAULT, H5P_DEFAULT);
+    if (attr < 0 || H5Awrite(attr, H5T_NATIVE_INT64, &value) < 0) {
+      rc = -1;
+    }
+    if (attr >= 0) {
+      H5Aclose(attr);
+    }
+    H5Sclose(space);
+  }
+  H5Fclose(file);
+  return rc;
+}
+
+/** @brief Create a scalar int32 dataset at `name` (a member that is not a group). */
+static int create_scalar_dataset(const char *file_path, const char *name) {
+  hid_t file = H5Fopen(file_path, H5F_ACC_RDWR, H5P_DEFAULT);
+  if (file < 0) {
+    return -1;
+  }
+  hid_t space = H5Screate(H5S_SCALAR);
+  hid_t dset = H5Dcreate2(file, name, H5T_STD_I32LE, space, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+  const int rc = dset < 0 ? -1 : 0;
+  if (dset >= 0) {
+    H5Dclose(dset);
+  }
+  H5Sclose(space);
+  H5Fclose(file);
+  return rc;
+}
+
 static int write_element(const char *file_path, const char *dataset, hsize_t index, hid_t mem_type,
                          const void *value) {
   hid_t file = H5Fopen(file_path, H5F_ACC_RDWR, H5P_DEFAULT);
@@ -1280,6 +1364,72 @@ static int c_fixed_missing(const char *dir) {
   SNAP_FILE(dir, 3, p);
   return delete_link(p, "/halos/NextProgenitorSnapshot");
 }
+static int c_header_soft_link(const char *dir) {
+  SNAP_FILE(dir, 0, p);
+  return relink(p, "/header", "/zz_header", 0);
+}
+static int c_format_version_int64(const char *dir) {
+  SNAP_FILE(dir, 0, p);
+  return replace_header_attr_with_i64(p, "format_version", 3);
+}
+static int c_forest_index_out_of_range(const char *dir) {
+  SNAP_FILE(dir, 0, p);
+  return set_i64_element(p, "ForestIndex", 1, 9);
+}
+static int c_forest_index_max_low(const char *dir) {
+  /* Every header agrees on 3 forests, but the data only reaches forest 1. */
+  return set_attr_i64_all(dir, "n_forests_total", 3);
+}
+static int c_halo_rank_negative(const char *dir) {
+  SNAP_FILE(dir, 0, p);
+  return set_i64_element(p, "HaloRankInForest", 0, -1);
+}
+static int c_empty_sentinel_with_halos(const char *dir) {
+  return set_attr_i64_all(dir, "n_forests_total", 0) == 0 &&
+                 set_attr_i64_all(dir, "max_halo_rank_in_forest", -1) == 0
+             ? 0
+             : -1;
+}
+static int c_zero_forests_with_halos(const char *dir) {
+  return set_attr_i64_all(dir, "n_forests_total", 0);
+}
+static int c_schema_member_dataset(const char *dir) {
+  SNAP_FILE(dir, 0, p);
+  return create_scalar_dataset(p, "/schema/Bogus");
+}
+static int c_schema_attr_misnamed(const char *dir) {
+  SNAP_FILE(dir, 0, p);
+  return rename_attr(p, "/schema/Len", "units", "unit");
+}
+static int c_schema_attr_ascii_vlen(const char *dir) {
+  SNAP_FILE(dir, 0, p);
+  return replace_string_attr(p, "/schema/Len", "units", "particles", 0, H5T_CSET_ASCII);
+}
+static int c_digest_wrong_length(const char *dir) {
+  SNAP_FILE(dir, 0, p);
+  return set_header_string(p, "column_mapping_sha256",
+                           "db55a0b67806da507789ee60f9057ded4285e05d0d0df57564a52f765cc434", 63);
+}
+static int c_header_string_not_null_padded(const char *dir) {
+  /* 'lhalo_binary', a NUL, then a stray 'X': text ends at the NUL but a later byte is set. */
+  SNAP_FILE(dir, 0, p);
+  char bytes[32];
+  memset(bytes, 0, sizeof(bytes));
+  memcpy(bytes, "lhalo_binary", 12);
+  bytes[20] = 'X';
+  return set_header_raw_bytes(p, "source_format", bytes);
+}
+static int c_header_string_non_printable(const char *dir) {
+  SNAP_FILE(dir, 0, p);
+  char bytes[32];
+  memset(bytes, 0, sizeof(bytes));
+  memcpy(bytes, "lha\x01o_binary", 12);
+  return set_header_raw_bytes(p, "source_format", bytes);
+}
+static int c_snapshot_file_missing(const char *dir) {
+  SNAP_FILE(dir, 2, p);
+  return unlink(p);
+}
 static int c_wide_n_halos(const char *dir) {
   /* 2^31 + 5 rows in the empty snapshot 2: every structural check passes and
      the bounded SnapNum scan reads the unwritten fill value 0 at halo 0. */
@@ -1396,6 +1546,39 @@ static const struct corrupt_case OPEN_CASES[] = {
      "dataset '/halos/Descendant' must be int64"},
     {"missing fixed-table dataset", c_fixed_missing, "snapshot_003.h5",
      "required dataset '/halos/NextProgenitorSnapshot' is missing"},
+    {"snapshot 0 /header is a soft link", c_header_soft_link, "snapshot_000.h5: snapshot 0 carries",
+     "'/header' is a soft link"},
+    {"snapshot 0 format_version stored as int64", c_format_version_int64, "snapshot_000.h5",
+     "header attribute 'format_version' is not an int32"},
+    {"ForestIndex outside [0, n_forests_total)", c_forest_index_out_of_range, "snapshot_000.h5",
+     "'/halos/ForestIndex' is 9 at halo 1; the permitted range is [0, 1]"},
+    {"measured ForestIndex maximum disagrees with n_forests_total", c_forest_index_max_low,
+     "declares n_forests_total 3 but the measured maximum of '/halos/ForestIndex' is 1",
+     "it must be 2"},
+    {"negative HaloRankInForest", c_halo_rank_negative, "snapshot_000.h5",
+     "'/halos/HaloRankInForest' is -1 at halo 0; the permitted range is [0, "},
+    {"empty-dataset sentinel with halos present", c_empty_sentinel_with_halos, "snapshot_000.h5",
+     "carries the empty-dataset sentinel (n_forests_total 0, max_halo_rank_in_forest -1) but "
+     "declares 2 halos"},
+    {"n_forests_total 0 with halos present", c_zero_forests_with_halos, "snapshot_000.h5",
+     "header attribute 'n_forests_total' is 0 but the file declares 2 halos"},
+    {"/schema member that is a dataset", c_schema_member_dataset, "snapshot_000.h5",
+     "'/schema/Bogus' must be a group"},
+    {"/schema attribute with a wrong name", c_schema_attr_misnamed, "snapshot_000.h5",
+     "'/schema/Len' is missing its required attribute 'units'"},
+    {"/schema attribute that is an ASCII variable-length string", c_schema_attr_ascii_vlen,
+     "snapshot_000.h5",
+     "attribute 'units' of '/schema/Len' must be a variable-length UTF-8 string"},
+    {"column_mapping_sha256 of the wrong fixed length", c_digest_wrong_length, "snapshot_000.h5",
+     "header attribute 'column_mapping_sha256' must be a fixed-length ASCII string of exactly 64 "
+     "bytes; found HDF5 type class 3 of 63 bytes"},
+    {"header string with a byte after its NUL", c_header_string_not_null_padded, "snapshot_000.h5",
+     "header attribute 'source_format' has a non-NUL byte after its NUL terminator"},
+    {"header string with a non-printable byte", c_header_string_non_printable, "snapshot_000.h5",
+     "header attribute 'source_format' contains a non-printable byte 0x01 at offset 3"},
+    {"missing snapshot file", c_snapshot_file_missing,
+     "snapshot_002.h5: no readable file for configured snapshot 2",
+     "every snapshot in the snapshot list must have a snapshot_NNN.h5 file"},
     {"n_halos above INT32_MAX has no int32 ceiling", c_wide_n_halos,
      "snapshot_002.h5: '/halos/SnapNum' is 0 at halo 0 but the header snapshot_number is 2", NULL},
 };

@@ -502,9 +502,11 @@ def normalize_catalog_contract(
             raise ValueError(f"Duplicate catalog property '{name}'")
         if prop.get("type") not in TYPE_MAP:
             raise ValueError(f"Catalog property '{name}' has unknown type '{prop.get('type')}'")
-        _unit_info(prop.get("units", "dimensionless"))
+        # Default units once, here: every reader of catalog_by_name sees a normalised entry.
+        units = prop.get("units", "dimensionless")
+        _unit_info(units)
 
-        catalog_by_name[name] = {**prop, "source": prop.get("source", name)}
+        catalog_by_name[name] = {**prop, "source": prop.get("source", name), "units": units}
 
         core_role = prop.get("provides_core_role")
         if core_role is not None:
@@ -1004,7 +1006,10 @@ def _read_type_for_catalog(prop: Dict[str, Any]) -> str:
         return "READ_AS_FLOAT, float"
     if prop["type"] == "long long":
         return "READ_AS_LLONG, long long"
-    raise ValueError(f"Unsupported catalog type for HDF5 read: {prop['type']}")
+    raise ValueError(
+        f"Unsupported catalog type for HDF5 read: {prop['type']} "
+        "(double is not yet supported by the generated read list)"
+    )
 
 
 def generate_read_tree_hdf5_properties_inc(
@@ -1056,7 +1061,7 @@ def generate_catalog_field_metadata_inc(
         fields = [
             json.dumps(prop["source"]),
             json.dumps(prop["type"]),
-            json.dumps(prop.get("units", "dimensionless")),
+            json.dumps(prop["units"]),
             json.dumps(_effective_h_convention(prop)),
             json.dumps(role),
             json.dumps(role_kinds.get(role, "") if role else ""),

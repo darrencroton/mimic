@@ -9,7 +9,7 @@
  *   - version 2, the frozen contract of docs/dev/HORIZONTAL-HDF5-FORMAT.md:
  *     exactly the `/header` and `/halos` groups, int32 adjacent links. Its
  *     validation path is exactly what it was before version 3 was added.
- *   - version 3, docs/dev/HORIZONTAL-HDF5-FORMAT-V3-DRAFT.md: `/header`,
+ *   - version 3, docs/dev/HORIZONTAL-HDF5-FORMAT.md (section "Version 3"): `/header`,
  *     `/halos` and `/schema`, int64 links resolved through three explicit
  *     target-snapshot columns (gaps allowed), a `SourceHaloID` row key, and
  *     producer-declared payload units that `/schema` records and the compiled
@@ -194,7 +194,7 @@ static const struct horizontal_h5_dataset_spec HORIZONTAL_H5_HALO_DATASETS[] = {
   (sizeof(HORIZONTAL_H5_HALO_DATASETS) / sizeof(HORIZONTAL_H5_HALO_DATASETS[0]))
 
 /* ---------------------------------------------------------------------------
- * Version 3 contract tables (docs/dev/HORIZONTAL-HDF5-FORMAT-V3-DRAFT.md)
+ * Version 3 contract tables (docs/dev/HORIZONTAL-HDF5-FORMAT.md, section "Version 3")
  *
  * Like the version 2 tables above, these state the format, not a package: the
  * package's own declarations are compared against a file's `/schema` only for
@@ -805,39 +805,95 @@ static int64_t horizontal_h5_scan_i64_max(hid_t file, const char *path, const ch
  * Version dispatch
  * ------------------------------------------------------------------------- */
 
+/** @brief Why horizontal_h5_peek_format_version() could not read a `format_version`. */
+enum horizontal_h5_peek_fault {
+  HORIZONTAL_H5_PEEK_OK = 0,
+  HORIZONTAL_H5_PEEK_HEADER_MISSING,
+  HORIZONTAL_H5_PEEK_HEADER_SOFT_LINK,
+  HORIZONTAL_H5_PEEK_HEADER_EXTERNAL_LINK,
+  HORIZONTAL_H5_PEEK_HEADER_NOT_HARD_LINK, /* any other link type, or an unreadable link */
+  HORIZONTAL_H5_PEEK_VERSION_MISSING,
+  HORIZONTAL_H5_PEEK_VERSION_NOT_SCALAR,
+  HORIZONTAL_H5_PEEK_VERSION_WRONG_TYPE,
+  HORIZONTAL_H5_PEEK_VERSION_UNREADABLE
+};
+
+/** @brief Human-readable description of a peek fault, for the version 3 diagnostic. */
+static const char *horizontal_h5_peek_fault_text(enum horizontal_h5_peek_fault fault) {
+  switch (fault) {
+  case HORIZONTAL_H5_PEEK_HEADER_MISSING:
+    return "'/header' is missing";
+  case HORIZONTAL_H5_PEEK_HEADER_SOFT_LINK:
+    return "'/header' is a soft link";
+  case HORIZONTAL_H5_PEEK_HEADER_EXTERNAL_LINK:
+    return "'/header' is an external link";
+  case HORIZONTAL_H5_PEEK_HEADER_NOT_HARD_LINK:
+    return "'/header' is not a hard link";
+  case HORIZONTAL_H5_PEEK_VERSION_MISSING:
+    return "header attribute 'format_version' is missing";
+  case HORIZONTAL_H5_PEEK_VERSION_NOT_SCALAR:
+    return "header attribute 'format_version' is not a scalar";
+  case HORIZONTAL_H5_PEEK_VERSION_WRONG_TYPE:
+    return "header attribute 'format_version' is not an int32";
+  case HORIZONTAL_H5_PEEK_VERSION_UNREADABLE:
+    return "header attribute 'format_version' could not be read";
+  case HORIZONTAL_H5_PEEK_OK:
+    break;
+  }
+  return "no fault";
+}
+
 /**
  * @brief   Read a file's `format_version` before any per-version check runs.
+ * @param   fault  Receives HORIZONTAL_H5_PEEK_OK, or the first check that failed.
  * @return  1 with *version set when `/header` is a hard-linked object carrying
- *          a scalar int32 `format_version`; 0 otherwise.
+ *          a scalar int32 `format_version`; 0 otherwise, with *fault naming why.
  *
  * Existence is tested before anything is opened, so a file without the
  * attribute prints no HDF5 error stack, and a soft or external `/header` is
- * never followed. A 0 return sends the file down its dataset's version path,
- * whose own checks then name exactly what is missing or malformed.
+ * never followed. A 0 return sends a version 2 file down its dataset's version
+ * path, whose own checks then name exactly what is missing or malformed; the
+ * caller uses *fault to give a version 3 file (one carrying `/schema`) the same
+ * precision. Every handle opened here is closed before returning.
  */
-static int horizontal_h5_peek_format_version(hid_t file, int32_t *version) {
+static int horizontal_h5_peek_format_version(hid_t file, int32_t *version,
+                                             enum horizontal_h5_peek_fault *fault) {
+  *fault = HORIZONTAL_H5_PEEK_OK;
   if (H5Lexists(file, "header", H5P_DEFAULT) <= 0) {
+    *fault = HORIZONTAL_H5_PEEK_HEADER_MISSING;
     return 0;
   }
   H5L_info_t link_info;
-  if (H5Lget_info(file, "header", &link_info, H5P_DEFAULT) < 0 || link_info.type != H5L_TYPE_HARD) {
+  if (H5Lget_info(file, "header", &link_info, H5P_DEFAULT) < 0) {
+    *fault = HORIZONTAL_H5_PEEK_HEADER_NOT_HARD_LINK;
+    return 0;
+  }
+  if (link_info.type != H5L_TYPE_HARD) {
+    *fault = link_info.type == H5L_TYPE_SOFT       ? HORIZONTAL_H5_PEEK_HEADER_SOFT_LINK
+             : link_info.type == H5L_TYPE_EXTERNAL ? HORIZONTAL_H5_PEEK_HEADER_EXTERNAL_LINK
+                                                   : HORIZONTAL_H5_PEEK_HEADER_NOT_HARD_LINK;
     return 0;
   }
   if (H5Aexists_by_name(file, "header", "format_version", H5P_DEFAULT) <= 0) {
+    *fault = HORIZONTAL_H5_PEEK_VERSION_MISSING;
     return 0;
   }
 
-  int ok = 0;
   hid_t attr = H5Aopen_by_name(file, "header", "format_version", H5P_DEFAULT, H5P_DEFAULT);
   if (attr < 0) {
+    *fault = HORIZONTAL_H5_PEEK_VERSION_UNREADABLE;
     return 0;
   }
   hid_t space = H5Aget_space(attr);
   hid_t dtype = H5Aget_type(attr);
-  if (space >= 0 && dtype >= 0 && H5Sget_simple_extent_type(space) == H5S_SCALAR &&
-      horizontal_h5_type_matches(dtype, HORIZONTAL_H5_I32) &&
-      H5Aread(attr, H5T_NATIVE_INT32, version) >= 0) {
-    ok = 1;
+  if (space < 0 || dtype < 0) {
+    *fault = HORIZONTAL_H5_PEEK_VERSION_UNREADABLE;
+  } else if (H5Sget_simple_extent_type(space) != H5S_SCALAR) {
+    *fault = HORIZONTAL_H5_PEEK_VERSION_NOT_SCALAR;
+  } else if (!horizontal_h5_type_matches(dtype, HORIZONTAL_H5_I32)) {
+    *fault = HORIZONTAL_H5_PEEK_VERSION_WRONG_TYPE;
+  } else if (H5Aread(attr, H5T_NATIVE_INT32, version) < 0) {
+    *fault = HORIZONTAL_H5_PEEK_VERSION_UNREADABLE;
   }
   if (dtype >= 0) {
     H5Tclose(dtype);
@@ -846,7 +902,7 @@ static int horizontal_h5_peek_format_version(hid_t file, int32_t *version) {
     H5Sclose(space);
   }
   H5Aclose(attr);
-  return ok;
+  return *fault == HORIZONTAL_H5_PEEK_OK;
 }
 
 /* ---------------------------------------------------------------------------
@@ -2266,8 +2322,18 @@ static void open_run_horizontal_hdf5(struct HorizontalRunInfo *info) {
        whose version cannot be read goes down its dataset's path, whose own
        structure and header checks then name exactly what is wrong. */
     int32_t file_version = 0;
-    const int has_version = horizontal_h5_peek_format_version(file, &file_version);
+    enum horizontal_h5_peek_fault peek_fault;
+    const int has_version = horizontal_h5_peek_format_version(file, &file_version, &peek_fault);
     if (snap == 0) {
+      /* Only a version 3 file has /schema (a version 2 file never enters this
+         branch), so an unreadable carrier beside /schema is a malformed version
+         3 header, not a version 2 file with a bad object set. */
+      if (!has_version && H5Lexists(file, "schema", H5P_DEFAULT) > 0) {
+        FATAL_ERROR("%s: snapshot 0 carries '/schema', which only a version 3 file has, but its "
+                    "'format_version' cannot be read: %s; version 3 requires a hard-linked "
+                    "'/header' with a scalar int32 attribute 'format_version'",
+                    path, horizontal_h5_peek_fault_text(peek_fault));
+      }
       dataset_version = has_version ? file_version : HORIZONTAL_HDF5_FORMAT_VERSION;
       if (dataset_version != HORIZONTAL_HDF5_FORMAT_VERSION &&
           dataset_version != HORIZONTAL_HDF5_FORMAT_VERSION_V3) {

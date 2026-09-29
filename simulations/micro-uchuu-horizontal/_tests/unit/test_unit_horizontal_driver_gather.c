@@ -184,7 +184,6 @@ static struct HorizontalGatherContext version2_lookup(struct HorizontalRetainedG
   context.snapnum = CURRENT_SNAPSHOT;
   context.first_progenitor_snapshot = NULL;
   context.generations = pool;
-  context.snapshot_count = FIXTURE_SNAPSHOTS;
   context.retained_population = (halos != NULL) ? 2 * NHALOS : NHALOS;
   return context;
 }

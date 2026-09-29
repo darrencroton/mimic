@@ -336,8 +336,9 @@ horizontal_resolve_progenitor(const struct HorizontalGatherContext *lookup, int6
   const struct HorizontalRetainedGeneration *generation = &lookup->generations[target_snap];
   if (generation->snapnum != target_snap) {
     FATAL_ERROR("%s link of snapshot %" PRId64 " halo %" PRId64 " names snapshot %" PRId64
-                ", whose generation is not retained; it was released before its retention "
-                "horizon",
+                ", whose generation is not retained: either the input's progenitor chain names "
+                "a generation its own DescendantSnapshot did not keep alive, or a generation "
+                "was released before its retention horizon",
                 link, lookup->snapnum, halonr, target_snap);
   }
   if (prog >= generation->view.count) {
@@ -1134,8 +1135,8 @@ static void horizontal_return_pool(struct HorizontalDriverState *state, struct G
  * so a flat increment leaves a large run a fraction of a percent from a growth
  * that reallocs the whole buffer. The vertical driver's MAXHALOFAC over-allocation
  * is not copied -- at slab scale a five-fold reservation is hundreds of
- * megabytes -- and the seed never enlarges a slab already past
- * MAX_HALO_ARRAY_SIZE, which the marshaller's growth path would refuse.
+ * megabytes -- and the seed adds no proportional headroom to a
+ * slab already past MAX_HALO_ARRAY_SIZE, only the minimum growth increment.
  */
 static struct HorizontalGeneration *
 horizontal_acquire_generation(struct HorizontalDriverState *state, int64_t snapnum,
@@ -1550,7 +1551,6 @@ void run_horizontal_driver(void) {
     lookup.snapnum = snapnum;
     lookup.first_progenitor_snapshot = cur->slab.first_progenitor_snapshot;
     lookup.generations = state.lookup;
-    lookup.snapshot_count = state.snapshot_count;
     lookup.retained_population = state.retained_population;
 
     /* Walk FoF groups in slab order, processing each group when its central is
@@ -1596,7 +1596,8 @@ void run_horizontal_driver(void) {
       WARNING_LOG("The retention pool grew to %" PRId64 " B during snapshot %" PRId64
                   "'s sweep, above the input.retention_memory_ceiling_mb ceiling of %" PRId64
                   " B. Only in-sweep growth of the output buffer and galaxy pool can pass the "
-                  "ceiling: it is allocated mid-sweep, so it is measured here rather than "
+                  "ceiling of the retention pool's admitted payload: it is allocated mid-sweep, so "
+                  "it is measured here rather than "
                   "refused before allocation",
                   resident, snapnum, ceiling);
     }

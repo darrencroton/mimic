@@ -363,6 +363,22 @@ def test_catalog_field_metadata_carries_compiled_declarations():
     ), entries[-1]
 
 
+def test_unitless_catalog_field_defaults_to_dimensionless():
+    # normalize_catalog_contract accepts a field without `units` (validating it as
+    # "dimensionless"), so the normalised entry must carry that default and the
+    # metadata table must not fail resolving the h convention of a None label.
+    halo_props, reference_units = _core_halo_props_and_reference_units()
+    catalog = _synthetic_role_catalog("long long")
+    catalog["catalog_fields"].append({"name": "Bare", "type": "float"})
+    catalog_info = normalize_catalog_contract(halo_props, catalog, reference_units)
+    table = generate_catalog_field_metadata_inc(catalog_info, "0" * 32)
+    assert catalog_info["catalog_by_name"]["Bare"]["units"] == "dimensionless"
+    entries = [line for line in table.splitlines() if line.startswith("CATALOG_FIELD(")]
+    assert entries[-1] == (
+        'CATALOG_FIELD(Bare, "Bare", "float", "dimensionless", "none", "", "")'
+    ), entries[-1]
+
+
 def test_int_tree_links_still_generate_int64_accessors():
     # Vertical packages keep int storage (R0-2(a)); the accessor widens it.
     halo_props, reference_units = _core_halo_props_and_reference_units()
@@ -531,6 +547,7 @@ def main():
             test_tree_link_core_roles_reject_non_integer_catalog_fields,
             test_tree_link_core_roles_accept_long_long_catalog_fields,
             test_catalog_field_metadata_carries_compiled_declarations,
+            test_unitless_catalog_field_defaults_to_dimensionless,
             test_int_tree_links_still_generate_int64_accessors,
             test_tree_link_core_roles_reject_every_other_type,
             test_index_and_count_core_roles_reject_long_long,
