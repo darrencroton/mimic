@@ -126,10 +126,13 @@ halo_properties:
     output: true
     init_source: copy_from_tree_array
     output_source: copy_direct_array
-    # |J/Mvir| <= sqrt(2)*lambda'*Vvir*Rvir with lambda' <= 0.5 (Bullock+01) at this
-    # 62.5 Mpc/h box's largest halo (~1e14 Msun/h: Rvir ~0.76 Mpc/h, Vvir ~755 km/s)
-    # is ~400; recorded extreme 43.35 (MIMIC-GENERAL-HORIZONTAL-RUNTIME-ACCEPTANCE.md §6).
-    range: [-500.0, 500.0]
+    # |J/Mvir| <= sqrt(2)*lambda'*Vvir*Rvir at this 62.5 Mpc/h box's largest halo
+    # (~1e14 Msun/h: Rvir ~0.76 Mpc/h, Vvir ~755 km/s) is ~400 at lambda' = 0.5, about
+    # 5 sigma above the log-normal spin distribution (median ~0.035, sigma_ln ~0.5,
+    # Bullock+01), which only the few most massive halos approach; the range adds a
+    # 2.5x margin on top, so it is a conservative test threshold, not a physical
+    # limit. Recorded extreme 43.35 (acceptance record §6).
+    range: [-1000.0, 1000.0]
 
   - name: MostBoundID
     type: long long

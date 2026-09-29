@@ -188,7 +188,7 @@ Every version 1 dataset — including the pre-remediation Shin-Uchuu production 
 
 ## Errata
 
-A **correction** is an edit that changes what this document *says* without changing which files on disk conform: the reference semantics it describes were always the contract, and the previous wording described them inaccurately. Corrections do not bump `format_version` — a bump would tell every existing reader and producer that the bytes changed, which would be false, and would strand conforming version 1 data. They are recorded here instead, dated, so that anyone who implemented against the earlier wording can see exactly what moved and when. An edit that changes which files conform is not a correction: it bumps the version.
+A **correction** is an edit that changes what this document *says* without changing which files on disk conform: the reference semantics it describes were always the contract, and the previous wording described them inaccurately. Corrections do not bump `format_version` — a bump would tell every existing reader and producer that the bytes changed, which would be false, and would strand conforming version 1 data. They are recorded here instead, dated, so that anyone who implemented against the earlier wording can see exactly what moved and when. An edit that changes which files conform is not a correction: it bumps the version — with one carve-out, ruled by the owner on 2026-09-29: a relaxation confined to producer storage layout that consumers are forbidden to depend on (chunk shape) is recorded here without a bump, because no reader can observe it and every file conforming before still conforms.
 
 | Date | Section | Correction |
 |---|---|---|

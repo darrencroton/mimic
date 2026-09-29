@@ -41,7 +41,8 @@ struct RawHalo;
  * per-generation report), so it must equal exactly what load_slab allocates per
  * row; the fixture tests measure it against the allocator's MEM_TREES category.
  * It is the sum of the element widths: the allocator's rounding of each block up
- * to 8 bytes (at most 7 B per array per slab) is not part of it.
+ * to 8 bytes (the three int32 target-snapshot columns of an odd row count, 4 B
+ * each) is not part of it.
  */
 struct HorizontalRunInfo {
   int64_t snapshot_count;          /* number of snapshots in the run */

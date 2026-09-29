@@ -21,7 +21,7 @@ Mimic's horizontal reader and driver now consume horizontal-HDF5 version 3. The 
 | 7 | `6cd0c448`, `4b926c7f`, `7900080c`, `93846469` | four more v3 packages, halos-only parity against their own vertical packages (micro-Uchuu L-Halo and forests-HDF5 complete; Millennium and mini-Uchuu on files 0–15 only) |
 | 8 | `73149ca6`, `b25798c2`, `d05adb49` | v3 promoted into `HORIZONTAL-HDF5-FORMAT.md`; guides, READMEs and skills updated |
 
-Maintenance commit `209087ee` re-anchored the v2 gate's Stage 8 to `aedded2f`; the owner approved it outside the slices. Full Uchuu remains **not runnable**, because it needs chunked slab streaming. Whole-simulation Millennium and mini-Uchuu evidence needs the remaining source files. The material open follow-ups (F1 fixture chunking, F3 CI coverage, F5 double catalog fields, F14 the slab-width seam, F18 declared ranges and F19 harness duplication) are dispositioned in [`MIMIC-GENERAL-HORIZONTAL-RUNTIME-CODE-REVIEW.md`](MIMIC-GENERAL-HORIZONTAL-RUNTIME-CODE-REVIEW.md).
+Maintenance commit `209087ee` re-anchored the v2 gate's Stage 8 to `aedded2f`; the owner approved it outside the slices. Full Uchuu remains **not runnable**, because it needs chunked slab streaming. Whole-simulation Millennium and mini-Uchuu evidence needs the remaining source files. The material open follow-ups (F1 fixture chunking, F3 CI coverage, F5 double catalog fields, F14 the slab-width seam, F18 declared ranges and F19 harness duplication) are dispositioned in [`MIMIC-GENERAL-HORIZONTAL-RUNTIME-CODE-REVIEW.md`](MIMIC-GENERAL-HORIZONTAL-RUNTIME-CODE-REVIEW.md), whose follow-up passes (2026-09-29) implemented F1, F3, F14, F18 and F19 and documented F5.
 
 ---
 

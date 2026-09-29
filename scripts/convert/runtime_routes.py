@@ -55,17 +55,6 @@ def _route_clause(route: Route) -> str:
     )
 
 
-def _simulations_clause() -> str:
-    """The route simulations by name, the sampled ones grouped under their coverage."""
-    complete = [r.simulation for r in ROUTES if r.coverage == COMPLETE]
-    sampled = [r.simulation for r in ROUTES if r.coverage != COMPLETE]
-    names = list(dict.fromkeys(complete))
-    if sampled:
-        coverage = next(r.coverage for r in ROUTES if r.coverage != COMPLETE)
-        names.append("{} {}".format(" and ".join(sampled), coverage.replace(" only", "")))
-    return ", ".join(names[:-1]) + ", and " + names[-1]
-
-
 def runtime_notice() -> str:
     """The line every conversion stage prints so a success is never read as a validated route."""
     return (
@@ -82,7 +71,7 @@ def cli_description() -> str:
         "The current Mimic reads version 3, but converted output is a validated route only "
         "where a recorded parity gate passed ({}; see each stage's runtime-support line); "
         "full Uchuu is not runnable."
-    ).format(_simulations_clause())
+    ).format("; ".join(_route_clause(r) for r in ROUTES))
 
 
 def standing_limitations() -> Tuple[str, ...]:

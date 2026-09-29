@@ -1604,8 +1604,8 @@ int test_load_slab_matches_fixture(void) {
 /**
  * @test  test_published_slab_row_width_matches_allocator_for_every_snapshot
  * The row width open_run publishes is what load_slab allocates: for every fixture
- * snapshot the MEM_TREES delta across load_slab is nhalos times the published
- * slab_row_bytes (plus at most the allocator's 8-byte block rounding), releasing
+ * snapshot the MEM_TREES delta across load_slab is exactly nhalos times the
+ * published slab_row_bytes (no array of a version 2 slab can round), releasing
  * the slab returns the category to where it started, and closing the run leaves
  * no tracked allocation. The driver's retention accounting rests on this figure.
  */
@@ -1625,12 +1625,14 @@ int test_published_slab_row_width_matches_allocator_for_every_snapshot(void) {
     const size_t before = memory_category_bytes(MEM_TREES);
     horizontal_reader_load_slab(reader, snap, &slab);
     const int64_t allocated = (int64_t)(memory_category_bytes(MEM_TREES) - before);
-    /* The allocator rounds each block up to 8 B, so the delta can exceed nhalos
-       times the width by at most 7 B per array (three arrays in a version 2 slab). */
+    /* Exact: a version 2 slab's three arrays (struct RawHalo rows and two int64
+       columns) are multiples of the allocator's 8-byte block, so no rounding
+       can occur and any extra or widened array changes the delta. */
     const int64_t published = slab.nhalos * info.slab_row_bytes;
-    TEST_ASSERT(allocated >= published && allocated - published <= 3 * 7,
-                "load_slab's allocator delta should be nhalos times the published row width, "
-                "plus at most the allocator's 8-byte block rounding");
+    TEST_ASSERT(sizeof(struct RawHalo) % 8 == 0,
+                "struct RawHalo should be a multiple of 8 B, or no-rounding cannot be assumed");
+    TEST_ASSERT(allocated == published,
+                "load_slab's allocator delta should equal nhalos times the published row width");
     horizontal_reader_release_slab(reader, &slab);
     TEST_ASSERT(memory_category_bytes(MEM_TREES) == before,
                 "release_slab should return every byte load_slab allocated");

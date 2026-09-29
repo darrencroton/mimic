@@ -123,9 +123,12 @@ void write_description_attr(hid_t obj_id, const char *text) {
 #define V3_FIXTURE_A_LIST "fixture.a_list"
 #define V3_FIXTURE_PACKAGE "mini-millennium-horizontal"
 #define V3_FIXTURE_SNAPSHOTS 4
-/* Reader-owned arrays a version 3 slab carries: halos, two identity columns, three
-   target-snapshot columns and SourceHaloID. */
-#define V3_SLAB_ARRAYS 7
+/* The allocator rounds each block up to 8 B. Of the arrays a version 3 slab
+   carries (halos, two int64 identity columns, three int32 target-snapshot
+   columns, int64 SourceHaloID), only the int32 columns can be misaligned: an
+   odd row count rounds each of the three up by 4 B. Everything else is a
+   multiple of 8 B per row, which the test asserts of struct RawHalo. */
+#define V3_ODD_ROW_ROUNDING_BYTES 12
 
 extern double *Age;
 
@@ -1175,7 +1178,8 @@ int test_in_sweep_pool_growth_past_the_ceiling_warns_once(void) {
  * @brief   For every snapshot of the committed version 3 fixture, the slab row
  *          width the real horizontal_hdf5 reader publishes, and the slab bytes the
  *          driver reports before load, match the bytes the allocator records for
- *          the real reader's load_slab (to within its 8-byte block rounding).
+ *          the real reader's load_slab exactly, accounting for its 8-byte block
+ *          rounding of the int32 columns.
  *
  * Skips unless the fixture's package is compiled, as the fixture's own reader
  * tests do.
@@ -1208,13 +1212,16 @@ int test_slab_width_matches_the_real_v3_reader(void) {
     const size_t before = memory_category_bytes(MEM_TREES);
     horizontal_reader_load_slab(reader, snap, &slab);
     const int64_t actual = (int64_t)(memory_category_bytes(MEM_TREES) - before);
-    /* The allocator rounds each block up to 8 B, so a column whose byte count is not a
-       multiple of 8 (int32 columns of an odd row count) records up to 7 B more than
-       nhalos times its width. Never less, and never more than that per array. */
+    /* Exact, not a tolerance: the fixture's snapshots hold at most three halos,
+       so any slack wide enough to cover block rounding would also hide a whole
+       extra per-row array. */
     const int64_t published = slab.nhalos * info.slab_row_bytes;
-    TEST_ASSERT(actual >= published && actual - published <= V3_SLAB_ARRAYS * 7,
+    const int64_t expected = published + ((slab.nhalos % 2 != 0) ? V3_ODD_ROW_ROUNDING_BYTES : 0);
+    TEST_ASSERT(sizeof(struct RawHalo) % 8 == 0,
+                "struct RawHalo should be a multiple of 8 B, or the rounding expectation is wrong");
+    TEST_ASSERT(actual == expected,
                 "load_slab's allocator delta should be nhalos times the published row width, "
-                "plus at most the allocator's 8-byte block rounding");
+                "plus exactly the int32 columns' rounding for an odd row count");
     if (slab.nhalos > 0) {
       TEST_ASSERT(slab.descendant_snapshot != NULL && slab.source_halo_id != NULL,
                   "A non-empty version 3 slab should carry its reader-owned v3 arrays");
