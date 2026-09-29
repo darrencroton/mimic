@@ -258,7 +258,7 @@ All scalar metadata lives as attributes on the `/header` group. The version 2 at
 
 | Attribute | Type | Semantics |
 |---|---|---|
-| `format_version` | int32 | Contract version; this document defines version 3 |
+| `format_version` | int32 | Contract version; this section defines version 3 |
 | `links_adjacent` | int32 | `0` or `1`, **measured across the entire dataset over `Descendant` links only**, and identical in every file. `1` asserts that every non-null `Descendant` link in the whole dataset targets the very next snapshot |
 | `scale_factor` | float64 | Scale factor *a* of this snapshot |
 | `snapshot_number` | int32 | Snapshot index; must equal the `NNN` in the filename |

@@ -4,8 +4,8 @@
 # files and README are alongside; the package's compiled declarations are
 # checked against a committed v3 fixture's `/schema` by
 # _tests/integration/test_schema_conformance.py (make tests-integration), and
-# against a real converted dataset's `/schema` in Slice 3's validation.md
-# (docs/dev/MIMIC-GENERAL-HORIZONTAL-RUNTIME-IMPLEMENTATION-PLAN.md).
+# against the real converted dataset by the package's parity gate, whose
+# provenance stage pins its column_mapping_sha256 (README.md, "Data provenance").
 #
 # Every entry is a `/halos` dataset of docs/dev/HORIZONTAL-HDF5-FORMAT-V3-DRAFT.md.
 # The payload fields declare exactly the type, units and h_convention the

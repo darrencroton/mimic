@@ -23,9 +23,10 @@ on being present.
 Skips automatically when:
   - SIMULATION != mini-millennium-horizontal (wrong compiled package)
 
-Run with:
-  python3 simulations/mini-millennium-horizontal/_tests/integration/test_schema_conformance.py
-or (registered):
+Run with (the SIMULATION variable selects the package; without it every check skips):
+  SIMULATION=mini-millennium-horizontal MODEL=halos-only \
+      python3 simulations/mini-millennium-horizontal/_tests/integration/test_schema_conformance.py
+after `make MODEL=halos-only SIMULATION=mini-millennium-horizontal generate`, or (registered):
   make MODEL=halos-only SIMULATION=mini-millennium-horizontal tests-integration
 """
 

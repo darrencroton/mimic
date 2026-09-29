@@ -2,9 +2,26 @@
 
 **Purpose:** Make Mimic's horizontal reader and driver consume horizontal-HDF5 format version 3, the lossless output of the generalised converter, so that gapped and wide merger-tree datasets can be run, and prove it by per-`UniqueGalaxyID` bitwise parity against the vertical driver on real gapped mini-Millennium data.
 
-**Status:** Proposed implementation contract, written 2026-09-25 as the runtime follow-on that Slice 12 of [`MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md`](MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md) requires. It was written after inspecting the final converter and schema at `16101d5b26af00815417b07f33a34f42317559c0` (the commit that closed that plan's acceptance evidence). The converter was subsequently reviewed and cleaned up on 2026-09-28 ([`MIMIC-CONVERTER-GENERALISATION-CODE-REVIEW.md`](MIMIC-CONVERTER-GENERALISATION-CODE-REVIEW.md)) without changing the v3 format, the CLI's command lines or the acceptance figures this plan relies on; its v3 writer now lives in `scripts/convert/hdf5_writer_v3.py` and its v3 battery in `scripts/convert/validate_v3.py`, and the consumer metadata fragment's `format_table_fields` now name the core role each provides. That review's four questions for Gate R0 are recorded under [Independent review notes for Gate R0](#independent-review-notes-for-gate-r0-2026-09-28). **Approved for execution by the owner on 2026-09-28**, with every [Gate R0](#gate-r0-owner-decisions-before-any-slice) decision recorded in that section. Nothing here has been implemented yet. Every slice that touches the runtime remains approval-gated. No project-manager or Developer session may start this plan on its own initiative, and nothing in the converter plan's Mode B run authorises it.
+**Status:** Proposed implementation contract, written 2026-09-25 as the runtime follow-on that Slice 12 of [`MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md`](MIMIC-CONVERTER-GENERALISATION-IMPLEMENTATION-PLAN.md) requires. It was written after inspecting the final converter and schema at `16101d5b26af00815417b07f33a34f42317559c0` (the commit that closed that plan's acceptance evidence). The converter was subsequently reviewed and cleaned up on 2026-09-28 ([`MIMIC-CONVERTER-GENERALISATION-CODE-REVIEW.md`](MIMIC-CONVERTER-GENERALISATION-CODE-REVIEW.md)) without changing the v3 format, the CLI's command lines or the acceptance figures this plan relies on; its v3 writer now lives in `scripts/convert/hdf5_writer_v3.py` and its v3 battery in `scripts/convert/validate_v3.py`, and the consumer metadata fragment's `format_table_fields` now name the core role each provides. That review's four questions for Gate R0 are recorded under [Independent review notes for Gate R0](#independent-review-notes-for-gate-r0-2026-09-28). **Approved for execution by the owner on 2026-09-28**, with every [Gate R0](#gate-r0-owner-decisions-before-any-slice) decision recorded in that section. **Implemented and accepted 2026-09-29**: all eight slices were accepted under Mode B on `converter-generalisation-mode-b`, and the acceptance gate passed. See [Outcome](#outcome-2026-09-29).
 
 **What this plan is for, in one sentence:** conversion already works; running the result does not, and the gap between the two is a reader, a driver and an input seam that were all built for adjacent, int32-indexed, fixed-unit input.
+
+## Outcome (2026-09-29)
+
+Mimic's horizontal reader and driver now consume horizontal-HDF5 version 3. The acceptance gate passed: on the real complete mini-Millennium dataset, with its 29,291 gapped links, horizontal v3 output is bitwise identical per `UniqueGalaxyID` to vertical `lhalo_binary` on all four `{halos-only, sage16} × {fixed, dynamic}` legs. The evidence is in [`MIMIC-GENERAL-HORIZONTAL-RUNTIME-ACCEPTANCE.md`](MIMIC-GENERAL-HORIZONTAL-RUNTIME-ACCEPTANCE.md).
+
+| Slice | Commits | Result |
+|---|---|---|
+| 1 | `5bac3993` | int64 halo indices through the seam; every vertical and v2 output bitwise unchanged |
+| 2 | `c890d20b`, `24f26279` | v3 reader validation and slab loading; v2 path unchanged |
+| 3 | `90fb111d`, `2874fbfc`, `32097e49` | `mini-millennium-horizontal` package and its real conversion |
+| 4 | `54a74b42` | snapshot-keyed retention pool and snapshot-qualified progenitor lookup |
+| 5 | `7be09990`, `c9ae5225`, `83e3781b` | pre-allocation sizing, run-profile term R, `input.retention_memory_ceiling_mb` |
+| 6 | `2a966931`, `5f0c213f`, `dc2a9d1b`, `4c9518d3` | **acceptance gate passed**: four legs bitwise on real gapped data |
+| 7 | `6cd0c448`, `4b926c7f`, `7900080c`, `93846469` | four more v3 packages, halos-only parity against their own vertical packages (micro-Uchuu L-Halo and forests-HDF5 complete; Millennium and mini-Uchuu on files 0–15 only) |
+| 8 | `73149ca6`, `b25798c2`, `d05adb49` | v3 promoted into `HORIZONTAL-HDF5-FORMAT.md`; guides, READMEs and skills updated |
+
+Maintenance commit `209087ee` re-anchored the v2 gate's Stage 8 to `aedded2f`; the owner approved it outside the slices. Full Uchuu remains **not runnable**, because it needs chunked slab streaming. Whole-simulation Millennium and mini-Uchuu evidence needs the remaining source files. Open follow-ups are carried in the repository's `HANDOFF.md` for a full-plan review.
 
 ---
 

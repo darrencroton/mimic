@@ -19,7 +19,7 @@ There are two entry points, and they produce different format versions:
 | Millennium, `lhalo_binary` | `simulations/millennium-horizontal/` | files 0–15 only (sampled) | `halos-only`, fixed and dynamic, on those files |
 | mini-Uchuu, `lhalo_binary` | `simulations/mini-uchuu-horizontal/` | files 0–15 only (sampled) | `halos-only`, fixed and dynamic, on those files |
 
-Nothing else is claimed. **Full Uchuu is not runnable**: it exceeds whole-slab memory and needs chunked slab streaming, which Mimic does not implement. Every `convert_trees.py` stage prints a `runtime support:` line naming these routes, and every conversion report opens with `FORMAT CONSUMED BY THE CURRENT MIMIC; ROUTE NOT VALIDATED BY THIS CONVERSION`, so a green conversion cannot be mistaken for a validated route. The report's `runtime_compatibility.runnable_by_current_mimic` flag means *format consumed* — `true` when every emitted file declares format version 3 — never *route validated*.
+Nothing else is claimed. **Full Uchuu is not runnable**: it exceeds whole-slab memory and needs chunked slab streaming, which Mimic does not implement. Every `convert_trees.py` stage prints a `runtime support:` line naming these routes, and every conversion report for a measured version 3 dataset opens with `FORMAT CONSUMED BY THE CURRENT MIMIC; ROUTE NOT VALIDATED BY THIS CONVERSION` (an unmeasured or non-version-3 dataset opens with its own warning), so a green conversion cannot be mistaken for a validated route. The report's `runtime_compatibility.runnable_by_current_mimic` flag means *format consumed* — `true` when every emitted file declares format version 3 — never *route validated*.
 
 ## The generic converter: `convert_trees.py` (format version 3)
 

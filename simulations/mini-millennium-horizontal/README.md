@@ -9,7 +9,7 @@ This package declares the horizontal HDF5 on-disk record for the mini-Millennium
 
 ## Data provenance
 
-The dataset is not primary data. It was produced offline by `scripts/convert/convert_trees.py` from the same `trees_063.0`–`trees_063.7` L-Halo binary files that `simulations/mini-millennium/` reads, at converter commit `209087ee201285d89bf007100dd50efe55c1f271`, using the `simulations/mini-millennium/converter_columns.yaml` profile (`column_mapping_sha256 5a74a2e07eca5f3a5fef5e02b75e15c821f94370606d7608b25f082f9f5654b1`). Links, offsets and remapping keys are carried at native converter precision (int64); payload fields keep their native L-Halo storage type and units, in particular `M_Crit200` as float32 in `1e10 Msun/h`. No `fix_flybys`-style demotion or spin renormalisation is applied — version 3 preserves the source's own topology and values exactly.
+The dataset is not primary data. It was produced offline by `scripts/convert/convert_trees.py` from the same `trees_063.0`–`trees_063.7` L-Halo binary files that `simulations/mini-millennium/` reads, at converter commit `83e3781ba1a47eb8f1eb41e4bae78bf891e274c0` (the runtime plan's Slice 6 fresh conversion, which replaced Slice 3's first conversion at `209087ee`; both used the same profile and digest), using the `simulations/mini-millennium/converter_columns.yaml` profile (`column_mapping_sha256 5a74a2e07eca5f3a5fef5e02b75e15c821f94370606d7608b25f082f9f5654b1`). Links, offsets and remapping keys are carried at native converter precision (int64); payload fields keep their native L-Halo storage type and units, in particular `M_Crit200` as float32 in `1e10 Msun/h`. No `fix_flybys`-style demotion or spin renormalisation is applied — version 3 preserves the source's own topology and values exactly.
 
 Cosmology, box size and particle mass match `simulations/mini-millennium/simulation_info.yaml` exactly: Ωm 0.25, ΩΛ 0.75, h 0.73, box 62.5 Mpc/h, particle mass 0.0860657 × 10¹⁰ Msun/h.
 
@@ -56,7 +56,7 @@ make MODEL=halos-only SIMULATION=mini-millennium-horizontal
 ./mimic models/halos-only/input/halos-only_mini-millennium-horizontal.yaml
 ```
 
-**Do not run this package yet.** The dataset carries 29,291 gapped `Descendant` links (`links_adjacent = 0`), and the current horizontal driver cannot carry state across a skipped snapshot — it FATALs with a misleading "NextProgenitor ... cycle" message. Consuming a gapped version 3 dataset is a later runtime-plan slice's work (see [`MIMIC-GENERAL-HORIZONTAL-RUNTIME-IMPLEMENTATION-PLAN.md`](../../docs/dev/MIMIC-GENERAL-HORIZONTAL-RUNTIME-IMPLEMENTATION-PLAN.md)). Until then, this package exists so its declarations, `make generate` and `make validate-modules` can be exercised, not so a simulation can be run.
+**This route is runnable and gated.** The dataset carries 29,291 gapped `Descendant` links (`links_adjacent = 0`, longest span 2). The horizontal driver keeps each generation until its descendants' snapshot has been processed, so this dataset holds at most three generations at once. Its package-local gate, `_tests/scientific/test_cross_format_identity.py`, shows horizontal output bitwise identical per `UniqueGalaxyID` to the vertical `lhalo_binary` reader over the same eight files, on all four `{halos-only, sage16} × {fixed, dynamic}` legs ([`MIMIC-GENERAL-HORIZONTAL-RUNTIME-ACCEPTANCE.md`](../../docs/dev/MIMIC-GENERAL-HORIZONTAL-RUNTIME-ACCEPTANCE.md) §1–§8). Run it on a machine holding both datasets with `make MODEL=halos-only SIMULATION=mini-millennium-horizontal tests-scientific`.
 
 ## Related packages
 
