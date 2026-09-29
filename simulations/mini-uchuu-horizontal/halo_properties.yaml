@@ -126,7 +126,7 @@ halo_properties:
     output: true
     init_source: copy_from_tree_array
     output_source: copy_direct_array
-    range: [-1000.0, 1000.0]
+    range: [-20.0, 20.0]
 
   - name: MostBoundID
     type: long long

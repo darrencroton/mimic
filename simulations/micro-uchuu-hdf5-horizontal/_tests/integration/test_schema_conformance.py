@@ -11,7 +11,9 @@ the converter writes for its route, checked three ways:
    dataset -- and that derivation's digest is the one the package's data and
    parity gate pin;
 2. against the generated catalog_field_metadata.inc this package's own build
-   compiled, when present;
+   compiled -- a missing file, or one generated for another package, FAILS:
+   the test runs only with this package selected, and the registered tier
+   regenerates before it runs;
 3. against the real converted dataset's `/schema` behind this package's
    `snapshots/` symlink, when present (skipped, never faked, when it is not).
 
@@ -93,6 +95,9 @@ READER_OWNED_FIELDS = {
     "HaloRankInForest",
 }
 
+#: The package halo_properties.yaml a generated file names as its source.
+GENERATED_FROM_RE = re.compile(r"simulations/[\w.-]+/halo_properties\.yaml")
+
 CATALOG_FIELD_RE = re.compile(
     r'CATALOG_FIELD\(\s*\w+\s*,\s*"([^"]*)"\s*,\s*"([^"]*)"\s*,\s*"([^"]*)"\s*,'
     r'\s*"([^"]*)"\s*,\s*"([^"]*)"\s*,\s*"([^"]*)"\s*\)'
@@ -137,15 +142,19 @@ def _expected_declarations():
 def _read_generated_catalog_metadata():
     """Parse this build's catalog_field_metadata.inc, keyed by dataset name.
 
-    Returns None if the file is missing or was not generated from this
-    package's halo_properties.yaml (e.g. a stale build for another
-    SIMULATION).
+    Fails if the file is missing or was not generated from this package's
+    halo_properties.yaml. Either is a real defect here: the test runs only
+    with this package selected, and the registered tier regenerates first.
     """
-    if not GENERATED_METADATA.exists():
-        return None
+    regenerate = f"run 'make MODEL=<model> SIMULATION={PACKAGE} generate'"
+    assert GENERATED_METADATA.exists(), f"{GENERATED_METADATA} is missing; {regenerate}"
     text = GENERATED_METADATA.read_text()
     if PACKAGE_HALO_PROPERTIES not in text:
-        return None
+        sources = sorted(set(GENERATED_FROM_RE.findall(text))) or ["(no package named)"]
+        raise AssertionError(
+            f"{GENERATED_METADATA} was generated from {', '.join(sources)}, not "
+            f"{PACKAGE_HALO_PROPERTIES}; {regenerate}"
+        )
     fields = {}
     for dataset, ftype, units, h_convention, _core_role, role_kind in CATALOG_FIELD_RE.findall(
         text
@@ -225,14 +234,6 @@ def test_compiled_catalog_metadata_matches_converter_schema():
     _require_simulation()
 
     generated = _read_generated_catalog_metadata()
-    if generated is None:
-        return (
-            f"{GENERATED_METADATA} is missing or was not generated from "
-            f"{PACKAGE_HALO_PROPERTIES} -- run 'make MODEL=<model> SIMULATION={PACKAGE} "
-            "generate' first; the YAML-via-generator view "
-            "(test_yaml_declarations_match_converter_schema) still ran"
-        )
-
     expected = _expected_declarations()
     msg = f"compiled non-link fields {sorted(set(generated) - LINK_ROLES)} != {sorted(expected)}"
     assert set(generated) - LINK_ROLES == set(expected), msg
