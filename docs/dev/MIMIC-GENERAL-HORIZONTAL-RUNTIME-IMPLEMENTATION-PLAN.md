@@ -126,6 +126,8 @@ These are architectural decisions this plan deliberately does not make. Each has
   - **Execution policy, Slices 3 and 5–7:** name where real v3 data lives, in directories parallel to the vertical data behind new gitignored `snapshots` symlinks (owner-authorised), and which slice creates it. Slice 5 states that its key is not recorded in `RunProperties`.
   - **Slice 8:** add the documents and skills that would otherwise stay false: vertical package READMEs, `VISION.md`, and four skill files. Add a narrow code exception for the converter's "not runnable" notice and flag and their two tests.
 
+- **2026-09-29, second amendment, before Slice 8 was accepted** (owner-decided via AskUserQuestion; Slices 1–7 already accepted, and this change touches only Slice 8). The Slice 8 Developer found that the narrow converter exception could not be implemented unambiguously. A boolean flag cannot state a list of routes, and the report's limitations text and the CLI description also state now-false runtime facts but were outside the named components. The owner's decisions: the exception now covers all converter runtime-status text; `runnable_by_current_mimic` stays a boolean meaning format capability (`True` for version 3, documented as "format consumed", not "route validated"); and the text names the evidenced routes and the full-Uchuu memory limit. Two plan slips are also corrected here: Slice 6's "created in Slice 5" now reads "created in Slice 3", and Slice 4's "retains exactly two generations" now reads "never retains more than two generations", matching the PM's recorded Reading A.
+
 ## Independent review notes for Gate R0 (2026-09-28)
 
 These are questions for the owner to weigh when recording Gate R0, not decisions, and they change none of this plan's frozen text above.
@@ -329,7 +331,7 @@ These are questions for the owner to weigh when recording Gate R0, not decisions
 - [ ] The chain-walk cycle guard is bounded by the total retained population, not by one slab's count.
 - [ ] Each generation's horizon is computed at load as the maximum `DescendantSnapshot` over its rows with a descendant, or its own snapshot if none; a generation is released exactly when its horizon has been processed, and never earlier.
 - [ ] The driver is the single owner of retained generations: whole generations under R0-6(a) (raw slab, reader-owned arrays, aux, processed buffer, galaxy pool), or the projection R0-6(b) specifies, owning every buffer that projection keeps; the reader holds no retention state; every generation is released on success and on failure, and `close_run` finds no slab loaded.
-- [ ] A `links_adjacent == 1` dataset, including every v2 dataset, retains exactly two generations, and v2 output is bitwise identical to the pre-change commit.
+- [ ] A `links_adjacent == 1` dataset, including every v2 dataset, never retains more than two generations, and v2 output is bitwise identical to the pre-change commit.
 - [ ] No synthetic halo, phantom generation or interpolated state is created on any path; empty snapshots are processed as empty.
 - [ ] Inherited galaxies keep their progenitor's `SnapNum` until marshalling, so the time interval and dynamic substeps span the real gap.
 - [ ] `UniqueGalaxyID` is computed from `ForestIndex`/`HaloRankInForest` only.
@@ -432,7 +434,7 @@ These are questions for the owner to weigh when recording Gate R0, not decisions
 - [ ] Comparisons use `scripts/compare_cross_format_identity.py` unchanged; if a change is genuinely needed it is a separate approved slice, never a relaxation.
 - [ ] Every divergence is reported by snapshot, field and example ID, and treated as a defect to trace to a slice, never a tolerance to add.
 - [ ] The v2 micro-Uchuu cross-format identity gate passes on the same commit.
-- [ ] Sources, baselines and every existing symlink are unchanged. The fresh conversion is written to `/Volumes/Internal/data/millennium/mini-millennium-horizontal`, replacing Slice 5's uncommitted conversion there, which the `simulations/mini-millennium-horizontal/snapshots` symlink created in Slice 5 already targets. Workdirs and outputs live outside the repository.
+- [ ] Sources, baselines and every existing symlink are unchanged. The fresh conversion is written to `/Volumes/Internal/data/millennium/mini-millennium-horizontal`, replacing Slice 5's uncommitted conversion there, which the `simulations/mini-millennium-horizontal/snapshots` symlink created in Slice 3 already targets. Workdirs and outputs live outside the repository.
 
 ### Authorized Surface
 
@@ -554,12 +556,17 @@ These are questions for the owner to weigh when recording Gate R0, not decisions
   - `.agents/skills/mimic-run-and-operate/SKILL.md`
   - `.agents/skills/mimic-simulations-and-readers/SKILL.md`
   - `.agents/skills/mimic-validation-and-qa/SKILL.md`
-- Functions/classes/components allowed to change: documentation, plus one narrow code exception. The converter's runtime-support notice (`RUNTIME_NOTICE` in `convert_trees.py`, the matching text in `convert_ctrees.py`, and the report's runtime-status line and `runnable_by_current_mimic` flag in `report.py`) and the two tests that assert them may change only so they state exactly the routes whose Slice 6 or Slice 7 gate passed. No other converter behaviour changes. Under R0-11(a) `HORIZONTAL-HDF5-FORMAT-V3-DRAFT.md` is kept, at least as a stub that preserves its `Runtime support status` anchor, because other committed documents link to it.
-- Tests allowed or expected to change: the two converter tests named above, for the notice text and flag only.
+- Functions/classes/components allowed to change: documentation, plus one narrow code exception covering the converter's runtime-status text and flag, and nothing else in the converter:
+  - the text that may change: `RUNTIME_NOTICE` in `convert_trees.py`, that file's module docstring and argparse description, the matching text in `convert_ctrees.py`, and in `report.py` the runtime-status line, the runtime-compatibility section and the standing-limitations text;
+  - `runnable_by_current_mimic` in `report.py` stays a boolean with an unchanged key, so the report schema does not change. It now means format capability: `True` for a version 3 dataset, because the current reader and driver consume format 3. Its documentation must say it means "format consumed", not "route validated";
+  - the runtime-status text must name exactly the routes whose Slice 6 or Slice 7 gate passed as the only evidenced routes, and must state that full Uchuu exceeds whole-slab memory and needs chunked slab streaming;
+  - the tests that assert this text or flag (`test_cli.py`, `test_report.py`) may change to match.
+  No other converter behaviour changes. Under R0-11(a) `HORIZONTAL-HDF5-FORMAT-V3-DRAFT.md` is kept, at least as a stub that preserves its `Runtime support status` anchor, because other committed documents link to it.
+- Tests allowed or expected to change: the converter tests named above, for the runtime-status text and flag only.
 
 ### Explicit Non-Goals
 
-- No code change beyond the converter runtime-support notice and flag above; no claim beyond measured evidence.
+- No code change beyond the converter runtime-status text and flag above; no claim beyond measured evidence.
 
 ### Risk Flags
 
@@ -569,7 +576,7 @@ These are questions for the owner to weigh when recording Gate R0, not decisions
 
 ### Validation Plan
 
-- Tests to add/update: the two converter runtime-notice tests, for text and flag only.
+- Tests to add/update: the converter runtime-status tests, for text and flag only.
 - Commands to run: `make tests-converter` (delegated), `make check-docs`, `make check-format`, `git diff --check`.
 - Lint (differential, via the `lint` skill): required for the Python changes.
 - Manual checks: every support claim traced to a recorded gate.
