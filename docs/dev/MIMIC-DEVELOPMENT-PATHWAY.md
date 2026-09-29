@@ -208,7 +208,7 @@ Every document in `docs/dev/`. This file is the index itself. (This table was fo
 | [`MIMIC-COUPLED-RATE-FORMULATION-PLAN.md`](MIMIC-COUPLED-RATE-FORMULATION-PLAN.md) | Requirements brief — step 6 | Declared conservative transfers integrated as one coupled system; additive processing mode, existing ABI frozen |
 | [`MIMIC-MODEL-BUILDER-PLAN.md`](MIMIC-MODEL-BUILDER-PLAN.md) | Requirements brief — step 7 | Assisted, gate-driven model-package construction from scientific evidence |
 | [`MIMIC-EMBEDDED-ENGINE-PLAN.md`](MIMIC-EMBEDDED-ENGINE-PLAN.md) | Requirements brief — step 8, optional | Physics-only API for external hosts |
-| [`HORIZONTAL-HDF5-FORMAT.md`](HORIZONTAL-HDF5-FORMAT.md) | **Frozen contract** | The shipped horizontal input format, `format_version = 2`, with its own versioning ratchet |
+| [`HORIZONTAL-HDF5-FORMAT.md`](HORIZONTAL-HDF5-FORMAT.md) | **Normative contract** — version 2 frozen, version 3 normative since 2026-09-29 | The shipped horizontal input format: `format_version = 2` and `format_version = 3` (its `Version 3` section), both read by `horizontal_hdf5`, with one versioning ratchet |
 | [`SAGE16-PRESCRIPTION-CLASSIFICATION.md`](SAGE16-PRESCRIPTION-CLASSIFICATION.md) | Standing evidence | All 18 `sage16` prescriptions classified rate/jump/algebraic/forcing; settled the coupled-rate brief's Open Question 1 |
 | [`MIMIC-DUAL-DRIVER-PLAN.md`](MIMIC-DUAL-DRIVER-PLAN.md) | Executed | Phases 0–5 all done; owns the cross-format identity gate. Archive candidate once Shin-Uchuu lands |
 | [`MIMIC-HORIZONTAL-DRIVER-PLAN.md`](MIMIC-HORIZONTAL-DRIVER-PLAN.md) | Executed | The eleven-slice Phase 5 implementation plan. Archive candidate once Shin-Uchuu lands |

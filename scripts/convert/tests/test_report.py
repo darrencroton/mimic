@@ -157,6 +157,10 @@ class TestV3Report(unittest.TestCase):
         self.assertIs(section["sufficient_for_runtime_execution"], False)
         self.assertIs(section["simulation_packages_written"], False)
         self.assertIn("Insufficient to enable runtime execution", section["label"])
+        self.assertIn("reader-owned target-snapshot and SourceHaloID arrays", section["label"])
+        self.assertNotIn("a version 3 reader", section["label"])
+        text = (self.conv.work / REPORT_TXT).read_text()
+        self.assertIn(section["label"], text)
         fragment = section["fragment"]
         self.assertIs(fragment["complete"], False)
         self.assertEqual(fragment["column_mapping_sha256"], self.conv.schema.digest)
@@ -225,6 +229,33 @@ class TestV3ReportFailures(unittest.TestCase):
         self.assertEqual(statuses["position-bounds"], "SKIP")
         self.assertIn("validation: FAIL", (conv.work / REPORT_TXT).read_text())
         self.assertEqual(json.loads((conv.work / REPORT_JSON).read_text()), report_v3)
+
+    def test_an_unmeasured_format_is_not_reported_as_consumed(self):
+        conv = make_v3_conversion(self.tmp)
+        with h5py.File(conv.dataset / "snapshot_002.h5", "r+") as handle:
+            handle.create_group("extra")
+        report_v3 = run_report_v3(conv.work, conv.a_list, budget_bytes=BUDGET)
+        self.assertIsNone(report_v3["format"]["declared_format_versions"])
+        self.assertIs(report_v3["runtime_compatibility"]["runnable_by_current_mimic"], False)
+        text = (conv.work / REPORT_TXT).read_text()
+        self.assertIn("FORMAT VERSION UNMEASURED; NOT CONFIRMED AS CONSUMED", text)
+        self.assertNotIn("FORMAT CONSUMED BY THE CURRENT MIMIC", text)
+        self.assertIn("format consumed by the current Mimic: NO", text)
+
+    def test_a_format_other_than_3_is_reported_as_not_consumed(self):
+        conv = make_v3_conversion(self.tmp)
+        battery = run_battery_v3(
+            conv.dataset, conv.a_list, manifest_path=conv.manifest.path, budget_bytes=BUDGET
+        )
+        battery.measurements["format_versions"] = [2]
+        report_v3 = run_report_v3(conv.work, conv.a_list, battery=battery)
+        self.assertIs(report_v3["runtime_compatibility"]["runnable_by_current_mimic"], False)
+        text = (conv.work / REPORT_TXT).read_text()
+        self.assertIn(
+            "FORMAT NOT CONSUMED BY THE CURRENT MIMIC (declared format version(s) [2])", text
+        )
+        self.assertNotIn("FORMAT CONSUMED BY THE CURRENT MIMIC;", text)
+        self.assertIn("format consumed by the current Mimic: NO", text)
 
     def test_a_supplied_battery_result_is_reported_without_running_the_battery_again(self):
         conv = make_v3_conversion(self.tmp)

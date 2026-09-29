@@ -319,9 +319,10 @@ _V3_STANDING_LIMITATIONS = (
     "Millennium and mini-Uchuu lhalo_binary, files 0-15 only, halos-only.",
     "Full Uchuu is not runnable: it exceeds whole-slab memory, and running it needs chunked "
     "slab streaming, which Mimic does not implement.",
-    "Payload units and precision are the source's native ones as /schema declares them; a "
-    "consuming simulation package's halo_properties.yaml must declare the same (one package "
-    "per simulation and source format), and this converter neither writes nor edits one.",
+    "Payload units and precision are the source's native ones as /schema declares them; "
+    "every field a consuming simulation package's halo_properties.yaml declares must match "
+    "/schema (undeclared /schema fields are validated and ignored), so there is one package "
+    "per simulation and source format, and this converter neither writes nor edits one.",
 )
 
 
@@ -484,8 +485,9 @@ def build_report_v3(manifest, battery, dataset_dir) -> dict:
             "sufficient_for_runtime_execution": False,
             "label": (
                 "Payload types, native units and core-role bindings only. Insufficient to enable "
-                "runtime execution: it does not describe gapped-link state, int64 slab access or "
-                "a version 3 reader, and no simulation package was written from it."
+                "runtime execution: it does not describe the reader-owned target-snapshot and "
+                "SourceHaloID arrays, gapped-link retention state, or the package's "
+                "simulation_info.yaml and a_list, and no simulation package was written from it."
             ),
             "simulation_packages_written": False,
             "fragment": schema.consumer_metadata_fragment(),
@@ -493,6 +495,27 @@ def build_report_v3(manifest, battery, dataset_dir) -> dict:
         "validation": [outcome.as_dict() for outcome in battery.outcomes],
         "validation_passed": not battery.failed,
     }
+
+
+def _v3_runtime_status_header(report: dict) -> str:
+    """The report's opening runtime-status line, rendered from the measured
+    ``runnable_by_current_mimic`` flag rather than assumed: a failed or
+    structurally rejected dataset may never have had its format measured."""
+    if report["runtime_compatibility"]["runnable_by_current_mimic"]:
+        return (
+            "FORMAT CONSUMED BY THE CURRENT MIMIC; ROUTE NOT VALIDATED BY THIS CONVERSION -- "
+            "see runtime compatibility below."
+        )
+    declared = report["format"]["declared_format_versions"]
+    if not declared:
+        return (
+            "FORMAT VERSION UNMEASURED; NOT CONFIRMED AS CONSUMED BY THE CURRENT MIMIC -- "
+            "see validation and runtime compatibility below."
+        )
+    return (
+        "FORMAT NOT CONSUMED BY THE CURRENT MIMIC (declared format version(s) {}) -- see "
+        "runtime compatibility below.".format(declared)
+    )
 
 
 def render_text_v3(report: dict) -> str:
@@ -506,8 +529,7 @@ def render_text_v3(report: dict) -> str:
         "Conversion report (horizontal-HDF5 format version 3)",
         "====================================================",
         "",
-        "FORMAT CONSUMED BY THE CURRENT MIMIC; ROUTE NOT VALIDATED BY THIS CONVERSION -- "
-        "see runtime compatibility below.",
+        _v3_runtime_status_header(report),
         "",
         "workdir:        {}".format(report["workdir"]),
         "dataset dir:    {}".format(report["dataset_dir"]),
