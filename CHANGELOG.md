@@ -8,7 +8,7 @@ Versions are git tags; `RunProperties/Version` in every HDF5 output and `metadat
 
 ## Unreleased
 
-- **Outputs name their release.** `RunProperties/Version/version` in every HDF5 output, `version` in the run-local `metadata/version_info.json`, and the startup banner carry the build's `git describe --tags` string: the tag name for a release build (`v1.2`), or the tag plus its distance and commit for a later build (`v1.2-3-g23da5ae9`, with `-dirty` when the tree had uncommitted changes). The commit, branch and dates are recorded as before; the attribute is additive, so `hdf5_format_version` stays at `1.2`. A build from a checkout without tags (a shallow CI clone) records the commit hash instead.
+- **Outputs name their release.** `RunProperties/Version/version` in every HDF5 output, `version` in the run-local `metadata/version_info.json`, and the startup banner carry the build's `git describe --tags` string: the tag name for a release build (`v1.2`), or the tag plus its distance and commit for a later build (`v1.2-3-g23da5ae9`, with `-dirty` when the tree had uncommitted changes). The commit, branch and dates are recorded as before; the attribute is additive, so `hdf5_format_version` stays at `1.2`. A build from a checkout without tags (a shallow CI clone) records the commit hash instead. The header is written by one script, `scripts/generate_git_version.sh`, for the Makefile and both test build scripts, which previously carried their own copies of the recipe.
 
 ---
 

@@ -63,30 +63,10 @@ if ! ${MIMIC_PYTHON} scripts/generate_module_registry.py > /dev/null; then
     exit 2
 fi
 
-# Generate git_version.h if it doesn't exist (needed by version.c)
+# Refresh git_version.h (needed by version.c and the HDF5 metadata writer) through
+# the one shared generator, so its macros never drift from the Makefile's build.
 GIT_VERSION_H="build/generated/git_version.h"
-if [ ! -f "$GIT_VERSION_H" ]; then
-    mkdir -p "$(dirname "$GIT_VERSION_H")"
-    if command -v git &> /dev/null && [ -d .git ]; then
-        {
-            echo "#ifndef GIT_VERSION_H"
-            echo "#define GIT_VERSION_H"
-            echo "#define GIT_COMMIT \"$(git rev-parse HEAD 2>/dev/null || echo 'unknown')\""
-            echo "#define GIT_BRANCH \"$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo 'unknown')\""
-            echo "#define GIT_DATE \"$(git log -1 --format=%cd --date=short 2>/dev/null || echo 'unknown')\""
-            echo "#endif"
-        } > "$GIT_VERSION_H"
-    else
-        cat > "$GIT_VERSION_H" << 'EOF'
-#ifndef GIT_VERSION_H
-#define GIT_VERSION_H
-#define GIT_COMMIT "unknown"
-#define GIT_BRANCH "unknown"
-#define GIT_DATE "unknown"
-#endif
-EOF
-    fi
-fi
+scripts/generate_git_version.sh "$GIT_VERSION_H"
 
 CC="${CC:-gcc}"
 YAML_CFLAGS="$(pkg-config --cflags yaml-0.1 2>/dev/null || echo '')"
