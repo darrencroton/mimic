@@ -332,11 +332,13 @@ validate-build:
 	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) --no-print-directory lint-parameters
 	@echo "Pre-build validation passed"
 
-$(GIT_VERSION_H): $(wildcard $(GIT_DIR)/HEAD $(GIT_DIR)/index)
+# Tags live under refs/tags or in packed-refs, so a new tag regenerates the header too.
+$(GIT_VERSION_H): $(wildcard $(GIT_DIR)/HEAD $(GIT_DIR)/index $(GIT_DIR)/packed-refs $(GIT_DIR)/refs/tags/*)
 	@echo "Generating git version..."
 	@mkdir -p $(BUILD_DIR)/generated
 	@echo "#ifndef GIT_VERSION_H" > $@
 	@echo "#define GIT_VERSION_H" >> $@
+	@echo "#define GIT_VERSION \"$$(git describe --tags --always --dirty 2>/dev/null || echo 'unknown')\"" >> $@
 	@echo "#define GIT_COMMIT \"$$(git rev-parse HEAD 2>/dev/null || echo 'unknown')\"" >> $@
 	@echo "#define GIT_BRANCH \"$$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo 'unknown')\"" >> $@
 	@echo "#define GIT_DATE \"$$(git log -1 --format=%cd --date=short 2>/dev/null || echo 'unknown')\"" >> $@

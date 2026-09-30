@@ -295,6 +295,7 @@ int create_version_metadata(const char *output_dir, const char *parameter_file) 
    * git_version.h header, so it always describes the compiled executable
    * (a runtime `git` query would describe the current working directory). */
   fprintf(metadata_file, "{\n");
+  fprintf(metadata_file, "  \"version\": \"%s\",\n", GIT_VERSION);
   fprintf(metadata_file, "  \"git_commit\": \"%s\",\n", GIT_COMMIT);
   fprintf(metadata_file, "  \"git_branch\": \"%s\",\n", GIT_BRANCH);
   fprintf(metadata_file, "  \"build_date\": \"%s\",\n", __DATE__);

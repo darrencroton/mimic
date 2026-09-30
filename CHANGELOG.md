@@ -2,7 +2,13 @@
 
 **Purpose**: Record what each release of Mimic changes for users and developers, what it claims with evidence, and what it does not claim.
 
-Versions are git tags; `RunProperties/Version` in every HDF5 output and `metadata/` in every run directory record the exact build. There was no v1.1 release.
+Versions are git tags; `RunProperties/Version` in every HDF5 output and `metadata/` in every run directory record the exact build (from the first post-v1.2 build, the release name as well as the commit). There was no v1.1 release.
+
+---
+
+## Unreleased
+
+- **Outputs name their release.** `RunProperties/Version/version` in every HDF5 output, `version` in the run-local `metadata/version_info.json`, and the startup banner carry the build's `git describe --tags` string: the tag name for a release build (`v1.2`), or the tag plus its distance and commit for a later build (`v1.2-3-g23da5ae9`, with `-dirty` when the tree had uncommitted changes). The commit, branch and dates are recorded as before; the attribute is additive, so `hdf5_format_version` stays at `1.2`. A build from a checkout without tags (a shallow CI clone) records the commit hash instead.
 
 ---
 

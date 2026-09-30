@@ -44,6 +44,7 @@ void log_run_header(const char *param_file, LogLevel log_level) {
   }
 
   fprintf(stdout, "%sMimic Galaxy Evolution Framework%s\n", bold, reset);
+  fprintf(stdout, "Version : %s\n", GIT_VERSION);
   fprintf(stdout, "Commit  : %s (%s)\n", GIT_COMMIT, GIT_BRANCH);
   fprintf(stdout, "Started : %s\n", time_str);
   if (param_file != NULL) {

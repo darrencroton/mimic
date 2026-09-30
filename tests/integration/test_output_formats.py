@@ -757,6 +757,10 @@ def assert_multiplier_recorded(master_file, partition_file, expected):
         with h5py.File(path, "r") as handle:
             assert "RunProperties" in handle, f"{path.name}: no RunProperties group"
             attrs = handle["RunProperties"].attrs
+            version = handle["RunProperties/Version"].attrs
+            assert (
+                "version" in version and len(np.ravel(version["version"])[0]) > 0
+            ), f"{path.name}: RunProperties/Version records no release version (git describe)"
             assert "UniqueGalaxyIDMultiplier" in attrs, (
                 f"{path.name}: RunProperties records no UniqueGalaxyIDMultiplier, so the "
                 f"UniqueGalaxyID values in this file cannot be decoded"

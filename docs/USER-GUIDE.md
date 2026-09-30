@@ -108,7 +108,7 @@ You now have, under `output/sage16-mini-millennium/`:
 
 - `model_000.hdf5` … — per-tree-file galaxy catalogues
 - `model.hdf5` — a master file linking them together, so you can analyse the run as one dataset
-- `metadata/` — the run's output schema and provenance
+- `metadata/` — the run's output schema and provenance (`version_info.json` names the build's release version, commit and branch)
 - `example_Mvir_Len_plot.py` — a ready-to-run Python script, pre-configured for this run's format, filename, snapshots, and cosmology
 
 The example script is the fastest way to take a first look:
@@ -549,7 +549,8 @@ Per-file HDF5 output contains:
 
 ```text
 /RunProperties/
-  Version/
+  Version/                # @version (git describe: the release tag, e.g. v1.2), @git_commit,
+                          # @git_branch, @git_date, @build_date, @hdf5_format_version
   EnabledModules
   EventContracts          # present only when event contracts exist
   Parameters
