@@ -83,6 +83,8 @@ static uint64_t galaxy_key(const struct Halo *halo) {
   if (halo->UniqueGalaxyID != 0) {
     return (uint64_t)halo->UniqueGalaxyID;
   }
+  /* Deterministic fold, bit-identical between drivers (HaloNr is 64-bit on the horizontal path);
+     widening it changes every SHAM seed and a negative HaloNr here is unestablished, so kept. */
   return ((uint64_t)(uint32_t)FileNum << 48) ^ ((uint64_t)(uint32_t)TreeID << 24) ^
          (uint64_t)(uint32_t)halo->HaloNr ^ (uint64_t)halo->MostBoundID;
 }

@@ -668,6 +668,55 @@ int test_basic_parsing(void) {
 }
 
 /**
+ * @test    test_yaml_line_declares_horizontal_forms
+ * @brief   The fixture detector behind compiled_simulation_is_horizontal()
+ *          (core_test_fixtures.h) accepts every spelling of
+ *          `processing_order: horizontal` a package may write and rejects the
+ *          near misses.
+ *
+ * Plain, double-quoted and single-quoted values match, with or without leading
+ * indentation and a trailing comment; another value, a longer word, mismatched
+ * quotes, a commented-out line and a prose comment do not. Without this a
+ * quoted declaration would silently classify a horizontal package as vertical.
+ */
+int test_yaml_line_declares_horizontal_forms(void) {
+  static const struct {
+    const char *line;
+    int expected;
+  } cases[] = {
+      {"processing_order: horizontal\n", 1},
+      {"  processing_order: horizontal\n", 1},
+      {"\tprocessing_order: horizontal", 1},
+      {"  processing_order: \"horizontal\"\n", 1},
+      {"  processing_order: 'horizontal'\n", 1},
+      {"  processing_order: horizontal  # the driver this package feeds\n", 1},
+      {"  processing_order: \"horizontal\" # quoted, then a comment\n", 1},
+      {"  processing_order: 'horizontal'   # single-quoted, then a comment\n", 1},
+      {"  processing_order: vertical\n", 0},
+      {"  processing_order: \"vertical\"\n", 0},
+      {"  processing_order: horizontally\n", 0},
+      {"  processing_order: \"horizontal'\n", 0},
+      {"  processing_order: 'horizontal\"\n", 0},
+      {"  processing_order: \"\"\n", 0},
+      {"  processing_order:\n", 0},
+      {"# processing_order: horizontal\n", 0},
+      {"  # processing_order: horizontal is not supported here\n", 0},
+      {"  tree_type: horizontal\n", 0},
+  };
+
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+    const int got = yaml_line_declares_horizontal(cases[i].line);
+    if (got != cases[i].expected) {
+      fprintf(stderr, "  line %zu \"%s\": expected %d, got %d\n", i, cases[i].line,
+              cases[i].expected, got);
+    }
+    TEST_ASSERT_EQUAL(got, cases[i].expected,
+                      "yaml_line_declares_horizontal should classify every spelling correctly");
+  }
+  return TEST_PASS;
+}
+
+/**
  * @test    test_default_processing_order
  * @brief   Test that the parsed input.processing_order is the one the compiled
  *          configuration declares, defaulting to vertical when none is declared
@@ -680,7 +729,7 @@ int test_basic_parsing(void) {
  * run file points at, else the framework default.
  *
  * Skips for a horizontal package: the generated core run file this test
- * reads is output_format: binary, which Slice 4's config-time gating now
+ * reads is output_format: binary, which config-time gating
  * rejects for a horizontal configuration (output_format: hdf5 is not a
  * substitute -- see test_cosmology_param_file() in core_test_fixtures.h), so
  * no generated core run file both declares that package's real processing
@@ -785,10 +834,9 @@ int test_explicit_vertical_processing_order(void) {
  * @test    test_ntask_multi_rejects_horizontal_processing_order
  * @brief   Test that NTask > 1 rejects a horizontal configuration at config time.
  *
- * Expected: FATAL with the serial-only message naming the distributed plan.
- * Validates: horizontal runs are serial in this phase (Slice 4 acceptance
- *            criterion c); a vertical configuration is unaffected (see the
- *            paired test below).
+ * Expected: FATAL with the serial-only message.
+ * Validates: horizontal runs are serial; a vertical configuration is
+ *            unaffected (see the paired test below).
  *
  * Skips when no horizontal reader is registered: the fixture below declares
  * tree_type: horizontal_hdf5, and horizontal_reader_lookup() (like every horizontal
@@ -813,8 +861,8 @@ int test_ntask_multi_rejects_horizontal_processing_order(void) {
   /* ===== EXECUTE / VALIDATE ===== */
   int result = read_parameter_file_fatal_message_contains_with_ntask(
       fixture_path, 2,
-      "horizontal runs are serial in this phase; multi-rank execution belongs to the "
-      "distributed plan, docs/dev/MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md");
+      "horizontal runs are serial: multi-rank (NTask > 1) horizontal execution is not "
+      "implemented");
   TEST_ASSERT(result == 1,
               "NTask=2 with a horizontal configuration should FATAL with the serial-only message");
 
@@ -827,8 +875,8 @@ int test_ntask_multi_rejects_horizontal_processing_order(void) {
  * @test    test_ntask_multi_allows_vertical_processing_order
  * @brief   Test that NTask > 1 leaves a vertical configuration's validation unchanged.
  *
- * Expected: validation passes exactly as it did before this slice's NTask gating.
- * Validates: the NTask > 1 rejection added in this slice applies only to
+ * Expected: validation passes exactly as it did before NTask gating existed.
+ * Validates: the NTask > 1 rejection applies only to
  *            horizontal configurations.
  */
 int test_ntask_multi_allows_vertical_processing_order(void) {
@@ -1852,6 +1900,7 @@ int main(int argc, char **argv) {
   TEST_RUN(test_retention_ceiling_rejected_for_vertical_runs);
   TEST_RUN(test_retention_ceiling_accepted_for_horizontal_runs);
   TEST_RUN(test_retention_ceiling_rejects_malformed_values);
+  TEST_RUN(test_yaml_line_declares_horizontal_forms);
 
   /* Print summary and return result */
   TEST_SUMMARY();

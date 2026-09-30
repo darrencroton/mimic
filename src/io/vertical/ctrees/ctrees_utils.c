@@ -734,7 +734,8 @@ static int64_t find_fof_halo(const int64_t totnhalos, const struct additional_in
                 info[loc].scale, info[loc].id, info[loc].pid, info[loc].upid, calldepth);
       }
       calldepth++;
-      return find_fof_halo(totnhalos, info, (int)loc, info[loc].upid, verbose, calldepth);
+      return find_fof_halo(totnhalos, info, CTREES_CHECKED_INT(loc, "the FoF search location"),
+                           info[loc].upid, verbose, calldepth);
     }
   }
 

@@ -13,14 +13,19 @@
  *   - fix_upid / assign_mergertree_indices reconstructing L-Halo merger
  *     pointers for a small hand-built forest, and the multi-FoF regression
  *     (driven through ctrees_apply_topology, the reader's own topology call
- *     sequence) that guards fix_flybys' removal (ctrees_utils.c; see
- *     docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md, decision D1).
+ *     sequence) that guards fix_flybys' removal: it merged unrelated FoF groups at
+ *     each forest's final snapshot (ctrees_utils.c).
  *   - forest distribution across MPI tasks, including the surplus-task and
  *     weighted-no-negative edges fixed when wiring the reader (forest_utils.c).
  *   - the ASCII reader's Consistent-Trees -> L-Halo conventions and the
  *     halo_data -> RawHalo bridge (read_ctrees_ascii.c).
  *   - the value conventions shared by both readers (spin/Len without touching the
  *     file-supplied id/pointers), used by the HDF5 reader (read_ctrees_common.h).
+ *   - the ASCII reader's forest-size guard against a configured, non-default
+ *     UniqueGalaxyID multiplier, driven through the registered reader on a
+ *     synthetic two-forest catalogue (read_ctrees_ascii.c).
+ *   - the checked int narrowing every Consistent-Trees reader applies at its
+ *     int64_t -> int casts (CTREES_CHECKED_INT, ctrees_compat.h).
  *   - HDF5-specific validation is covered separately by test_ctrees_hdf5_reader
  *     when HDF5 development headers/libraries are available.
  *
@@ -28,7 +33,9 @@
  */
 
 #include "../framework/test_framework.h"
+#include "../framework/child_capture.h"
 
+#include "constants.h"
 #include "error.h"
 #include "globals.h"
 #include "memory.h"
@@ -37,11 +44,13 @@
 #include "vertical/ctrees/forest_utils.h"
 #include "vertical/ctrees/parse_ctrees.h"
 #include "vertical/read_ctrees_ascii.h"
+#include "vertical/reader.h"
 
 #include <limits.h>
 #include <math.h>
 
 #include <fcntl.h>
+#include <inttypes.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -269,15 +278,16 @@ int test_forest_topology_reconstruction(void) {
 
 /**
  * @test    test_multi_fof_groups_survive_at_forest_max
- * @brief   Regression for decision D1 (docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md): a
+ * @brief   Regression for the deletion of `fix_flybys`: a
  * forest with TWO independent FoF groups at its maximum scale, each carrying its own
  * subhalo, must keep both groups intact.
  *
  * `fix_flybys` used to demote every `pid == -1` halo but the most massive one at a
  * forest's final scale into a satellite of that survivor, dragging the demoted group's
  * own subhalos across with it and negating the demoted halo's MostBoundID. That is
- * scientifically wrong, so it was deleted; nothing asserted the property it destroyed,
- * which is why the defect reached a production dataset. This test asserts it directly:
+ * scientifically wrong (on Shin-Uchuu it put 33% of z=0 galaxies in one FoF group), so it
+ * was deleted; nothing asserted the property it destroyed, which is why the defect reached a
+ * production dataset. This test asserts it directly:
  * both centrals stay self-central (`pid == -1`, `upid == id`,
  * `FirstHaloInFOFgroup` self-referencing), each subhalo stays in ITS OWN central's FoF
  * chain, and no MostBoundID is negated. Reintroducing any flyby-style collapse fails it.
@@ -387,8 +397,8 @@ int test_multi_fof_groups_survive_at_forest_max(void) {
 
 /**
  * @test    test_verify_fof_centrals_present_rejects_zero_centrals
- * @brief   Regression for the corrupt-input guard restored in D9(c)
- * (docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md): a forest with ZERO `pid == -1`
+ * @brief   Regression for the corrupt-input guard that outlived `fix_flybys`: a forest
+ * with ZERO `pid == -1`
  * halos at its maximum scale is structurally impossible for a valid Consistent-Trees
  * forest.
  *
@@ -951,7 +961,8 @@ int test_bridge_to_rawhalo(void) {
  * with the forests correctly grouped and ordered.
  *
  * Note: two of the deliberate ctrees-helper fixes are NOT unit-tested here and
- * are instead validated end-to-end (see docs/dev/CTREES-UCHUU-VALIDATION.md):
+ * are instead exercised end to end by the micro-Uchuu parity gates
+ * (simulations/micro-uchuu*-horizontal/_tests/scientific/test_cross_format_identity.py):
  *   - read_locations' file-array realloc boundary (fileid >= nallocated) needs a
  *     perfect-cube file count above 2000 (13^3 = 2197 files) to trigger;
  *   - the open()-returns-fd-0 acceptance (`>= 0`) is effectively unreachable in
@@ -990,6 +1001,184 @@ int test_sort_locations_offset_tie(void) {
   return TEST_PASS;
 }
 
+/* ---------------------------------------------------------------------------
+ * ASCII forest-size guard against the configured UniqueGalaxyID multiplier
+ * ------------------------------------------------------------------------- */
+
+/* Tree file of the synthetic catalogue: forest 11 holds two halos (a root at
+   snapshot 1 and its progenitor at snapshot 0), forest 12 holds one. Columns are
+   the subset setup_column_info() requests; M200b/M200c are absent on purpose
+   (requested-but-absent columns are dropped). */
+static const char *const CTREES_GUARD_HEADER =
+    "#scale id desc_scale desc_id pid upid Mvir vrms vmax x y z vx vy vz Jx Jy Jz snap_num\n";
+static const char *const CTREES_GUARD_TREE_A =
+    "1.0 1 0.0 -1 -1 -1 1e12 50 100 1 2 3 10 20 30 0 0 0 1\n"
+    "0.5 2 1.0 1 -1 -1 5e11 40 90 1.5 2.5 3.5 11 21 31 0 0 0 0\n";
+static const char *const CTREES_GUARD_TREE_B =
+    "1.0 3 0.0 -1 -1 -1 2e11 30 80 5 6 7 12 22 32 0 0 0 1\n";
+
+/* Scratch catalogue directory; set by the parent before any child is forked. */
+static char ctrees_guard_dir[256];
+/* Forest (unit) the child loads; set by the parent before forking. */
+static int ctrees_guard_unit = 0;
+
+/**
+ * @brief   Write forests.list, locations.dat and tree_0_0_0.dat for the
+ *          two-forest catalogue into a fresh scratch directory.
+ * @return  0 on success, -1 on any failure.
+ */
+static int write_ctrees_guard_catalogue(void) {
+  char dir_template[] = "/tmp/mimic_ctrees_guard_XXXXXX";
+  if (mkdtemp(dir_template) == NULL) {
+    return -1;
+  }
+  snprintf(ctrees_guard_dir, sizeof(ctrees_guard_dir), "%s", dir_template);
+
+  /* locations.dat offsets point at each tree's first halo row, after its
+     "#tree <root>" line. */
+  char tree[1024];
+  const int off_a_line = snprintf(tree, sizeof(tree), "%s#tree 1\n", CTREES_GUARD_HEADER);
+  const long offset_a = (long)off_a_line;
+  const int off_b_line = snprintf(tree + off_a_line, sizeof(tree) - (size_t)off_a_line,
+                                  "%s#tree 3\n", CTREES_GUARD_TREE_A);
+  const long offset_b = offset_a + (long)off_b_line;
+  snprintf(tree + offset_b, sizeof(tree) - (size_t)offset_b, "%s", CTREES_GUARD_TREE_B);
+
+  char path[512], locations[256];
+  snprintf(path, sizeof(path), "%s/tree_0_0_0.dat", ctrees_guard_dir);
+  if (write_text_file(path, tree) != 0) {
+    return -1;
+  }
+  snprintf(path, sizeof(path), "%s/forests.list", ctrees_guard_dir);
+  if (write_text_file(path, "#TreeRootID ForestID\n1 11\n3 12\n") != 0) {
+    return -1;
+  }
+  snprintf(locations, sizeof(locations),
+           "#TreeRootID FileID Offset Filename\n1 0 %ld tree_0_0_0.dat\n3 0 %ld tree_0_0_0.dat\n",
+           offset_a, offset_b);
+  snprintf(path, sizeof(path), "%s/locations.dat", ctrees_guard_dir);
+  return write_text_file(path, locations);
+}
+
+static void remove_ctrees_guard_catalogue(void) {
+  const char *files[] = {"tree_0_0_0.dat", "forests.list", "locations.dat"};
+  char path[512];
+  for (size_t i = 0; i < sizeof(files) / sizeof(files[0]); i++) {
+    snprintf(path, sizeof(path), "%s/%s", ctrees_guard_dir, files[i]);
+    unlink(path);
+  }
+  rmdir(ctrees_guard_dir);
+}
+
+/** @brief Configure MimicConfig as a run of the scratch catalogue would. */
+static void configure_ctrees_guard_run(int64_t multiplier) {
+  memset(&MimicConfig, 0, sizeof(MimicConfig));
+  snprintf(MimicConfig.SimulationDir, sizeof(MimicConfig.SimulationDir), "%s", ctrees_guard_dir);
+  snprintf(MimicConfig.TreeName, sizeof(MimicConfig.TreeName), "tree_0_0_0.dat");
+  MimicConfig.ForestsPerFile = 100;
+  MimicConfig.LastSnapshotNr = 1;
+  MimicConfig.PartMass = 0.1;
+  MimicConfig.UniqueGalaxyIDMultiplier = multiplier;
+}
+
+/**
+ * Child body: run the registered consistent_trees_ascii reader through
+ * prepare_run, open_partition and load_unit(ctrees_guard_unit) exactly as the
+ * vertical driver does, under the multiplier the parent configured.
+ */
+static void child_load_ctrees_ascii_forest(const char *arg) {
+  (void)arg;
+  init_memory_system(0);
+  const struct VerticalReader *reader = vertical_reader_lookup("consistent_trees_ascii");
+  if (reader == NULL) {
+    fprintf(stderr, "consistent_trees_ascii is not registered\n");
+    _exit(3);
+  }
+  reader->prepare_run();
+  reader->open_partition(0);
+  if (ctrees_guard_unit >= Ntrees) {
+    fprintf(stderr, "unit %d is outside the staged %d forests\n", ctrees_guard_unit, Ntrees);
+    _exit(3);
+  }
+  reader->load_unit(ctrees_guard_unit);
+  if (InputTreeNHalos[ctrees_guard_unit] != (ctrees_guard_unit == 0 ? 2 : 1)) {
+    fprintf(stderr, "forest %d loaded %d halos\n", ctrees_guard_unit,
+            InputTreeNHalos[ctrees_guard_unit]);
+    _exit(3);
+  }
+}
+
+/**
+ * @test    test_ascii_forest_guard_honours_configured_multiplier
+ * @brief   The ASCII reader rejects a forest whose halo count reaches the
+ *          configured UniqueGalaxyID multiplier and accepts one below it.
+ *
+ * With a multiplier of 2, forest 0 (two halos) must abort by the guard's own
+ * message and forest 1 (one halo) must load. The control loads forest 0 under
+ * the default multiplier, so the abort is attributable to the configured
+ * multiplier and not to anything else about the catalogue; a guard that
+ * compared against TREE_MUL_FAC instead of the configured value would load
+ * forest 0 in both runs.
+ */
+int test_ascii_forest_guard_honours_configured_multiplier(void) {
+  /* Evaluate every check first, remove the catalogue and restore the configuration, and only
+   * then assert, so a failing assertion cannot leak the scratch directory or the test value. */
+  const int wrote = write_ctrees_guard_catalogue();
+
+  configure_ctrees_guard_run((int64_t)TREE_MUL_FAC);
+  ctrees_guard_unit = 0;
+  const int control_ok = expect_success(NULL, child_load_ctrees_ascii_forest);
+
+  configure_ctrees_guard_run(2);
+  ctrees_guard_unit = 0;
+  const int at_limit_rejected =
+      expect_fatal(NULL, child_load_ctrees_ascii_forest, "Consistent-Trees forest 0 has 2 halos",
+                   "at or above the unique-galaxy-id limit of 2");
+  ctrees_guard_unit = 1;
+  const int below_limit_ok = expect_success(NULL, child_load_ctrees_ascii_forest);
+
+  remove_ctrees_guard_catalogue();
+  memset(&MimicConfig, 0, sizeof(MimicConfig));
+
+  TEST_ASSERT(wrote == 0, "should write the synthetic catalogue");
+  TEST_ASSERT(control_ok == 1,
+              "control: the two-halo forest should load under the default multiplier");
+  TEST_ASSERT(at_limit_rejected == 1,
+              "a forest at the configured multiplier should be rejected by the guard");
+  TEST_ASSERT(below_limit_ok == 1, "a forest below the configured multiplier should load");
+  return TEST_PASS;
+}
+
+/* Value the child narrows; set by the parent before forking. */
+static int64_t ctrees_narrowing_value = 0;
+
+static void child_checked_int(const char *arg) {
+  (void)arg;
+  const int narrowed = CTREES_CHECKED_INT(ctrees_narrowing_value, "the test quantity");
+  if ((int64_t)narrowed != ctrees_narrowing_value) {
+    fprintf(stderr, "narrowed %d, expected %" PRId64 "\n", narrowed, ctrees_narrowing_value);
+    _exit(3);
+  }
+}
+
+/**
+ * @test    test_checked_int_narrowing
+ * @brief   CTREES_CHECKED_INT passes INT_MAX through unchanged and aborts on
+ *          INT_MAX + 1 naming the quantity, its value and the limit.
+ */
+int test_checked_int_narrowing(void) {
+  ctrees_narrowing_value = INT_MAX;
+  TEST_ASSERT(expect_success(NULL, child_checked_int) == 1, "INT_MAX should narrow unchanged");
+  ctrees_narrowing_value = 0;
+  TEST_ASSERT(expect_success(NULL, child_checked_int) == 1, "zero should narrow unchanged");
+
+  ctrees_narrowing_value = (int64_t)INT_MAX + 1;
+  TEST_ASSERT(expect_fatal(NULL, child_checked_int, "the test quantity is 2147483648",
+                           "above the int limit of 2147483647") == 1,
+              "INT_MAX + 1 should abort by name rather than wrap");
+  return TEST_PASS;
+}
+
 /** @brief Main test runner */
 int main(void) {
   printf("%s", BLUE);
@@ -1017,6 +1206,8 @@ int main(void) {
   TEST_RUN(test_apply_value_conventions_shared);
   TEST_RUN(test_bridge_to_rawhalo);
   TEST_RUN(test_sort_locations_offset_tie);
+  TEST_RUN(test_ascii_forest_guard_honours_configured_multiplier);
+  TEST_RUN(test_checked_int_narrowing);
 
   TEST_SUMMARY();
   return TEST_RESULT();

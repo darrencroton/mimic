@@ -17,7 +17,9 @@
  * whatever simulation package is compiled in. A package that uses it must
  * declare a RawHalo with the field set the bridge writes and ctrees-native units
  * (Msun/h masses, Mpc/h positions) so the generated reference-unit accessors do
- * the catalog -> reference conversion. See docs/dev/CTREES-UCHUU-VALIDATION.md.
+ * the catalog -> reference conversion. `simulations/micro-uchuu-hdf5` is the worked
+ * package, validated byte for byte against its horizontal conversion by
+ * simulations/micro-uchuu-hdf5-horizontal/_tests/scientific/test_cross_format_identity.py.
  *
  * Split of responsibilities mirrors the ASCII reader:
  *   - value conventions on the NATIVE Mvir (spin normalisation, particle-count
@@ -1890,7 +1892,7 @@ static void load_unit_ctrees_hdf5(int unit) {
   /* Pointers and id are already in-file; only the native-Mvir conventions remain. */
   apply_ctrees_value_conventions(halos, nhalos);
 
-  InputTreeNHalos[unit] = (int)nhalos;
+  InputTreeNHalos[unit] = CTREES_CHECKED_INT(nhalos, "the forest halo count");
   InputTreeHalos = mymalloc_cat(sizeof(struct RawHalo) * (nhalos > 0 ? nhalos : 1), MEM_TREES);
   for (int64_t i = 0; i < nhalos; i++) {
     bridge_halo_data_to_rawhalo(&InputTreeHalos[i], &halos[i]);

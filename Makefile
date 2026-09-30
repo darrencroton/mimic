@@ -164,6 +164,11 @@ endif
 
 # Linker configuration
 LDFLAGS =
+# Optional linker flag extension, the link-step counterpart of EXTRA_CFLAGS
+# (e.g., EXTRA_LDFLAGS="-fsanitize=address,undefined"). Not for production builds.
+ifdef EXTRA_LDFLAGS
+    LDFLAGS += $(EXTRA_LDFLAGS)
+endif
 LIBS = -lm
 
 # -----------------------------------------------------------------------------
@@ -353,6 +358,7 @@ $(EXEC_MODE_MARKER): FORCE
 		printf 'USE-MPI=%s\n' '$(USE-MPI)'; \
 		printf 'MODEL=%s\n' '$(MODEL)'; \
 		printf 'SIMULATION=%s\n' '$(SIMULATION)'; \
+		printf 'EXTRA_LDFLAGS=%s\n' '$(EXTRA_LDFLAGS)'; \
 	} > $@.tmp
 	@if cmp -s $@.tmp $@ 2>/dev/null; then rm -f $@.tmp; else mv $@.tmp $@; fi
 
@@ -499,13 +505,13 @@ help:
 	@echo "  make tests-unit         - Run unit tests only"
 	@echo "  make tests-integration  - Run integration tests only"
 	@echo "  make tests-scientific   - Run scientific tests only"
-	@echo "  make tests-horizontal-v3 - Run the version 3 reader/retention battery and mini-millennium-horizontal package tests on committed fixtures"
+	@echo "  make tests-horizontal-v3 - Run the version 3 reader, retention and identity battery and the mini-millennium-horizontal package tests on committed fixtures"
 	@echo "  make tests-converter    - Run the ctrees->horizontal-HDF5 converter self-tests"
 	@echo "  make check-horizontal-fixture - Check the committed horizontal fixture against the format spec"
 	@echo "  make tests summary     - Run all tests with concise warning/failure/skip output"
 	@echo "  make test-clean                   - Clean test artifacts"
 	@echo "  make generate-test-registry - Discover selected tests"
-	@echo "  make dump-ctrees-topology-tool - Build the reference-topology dump harness (scripts/convert)"
+	@echo "  make dump-ctrees-topology-tool - Build the reference-topology dump harness (convert/mimic-convert)"
 	@echo ""
 	@echo "Options:"
 	@echo "  Defaults: MODEL=sage16 SIMULATION=mini-millennium"
@@ -542,6 +548,7 @@ info:
 	@echo "Model set: $(MODEL) ($(MODEL_ROOT))"
 	@echo "Simulation: $(SIMULATION) ($(SIMULATION_ROOT))"
 	@echo "Build flags: $(CFLAGS)"
+	@echo "Link flags: $(LDFLAGS)"
 	@echo ""
 	@echo "Library Detection:"
 	@echo "------------------"
@@ -780,7 +787,7 @@ tests:
 		exit 1; \
 	fi
 
-# Converter self-tests: stdlib-unittest suite for scripts/convert/ (the
+# Converter self-tests: stdlib-unittest suite for convert/mimic-convert/ (the
 # external ctrees -> horizontal-HDF5 converter). Independent of MODEL/SIMULATION
 # and of the C build. Unlike $(PYTHON), this always prefers mimic_venv when it
 # exists: the suite needs the venv stack (pandas, h5py) even when the venv is
@@ -792,7 +799,7 @@ tests-converter:
 	printf "$${BLUE}============================================================$${NC}\n"; \
 	printf "$${BLUE}RUNNING CONVERTER TESTS$${NC}\n"; \
 	printf "$${BLUE}============================================================$${NC}\n"
-	$(call RUN_SUMMARY_AWARE,$(CONVERTER_PYTHON) -m unittest discover -s scripts/convert/tests,converter tests)
+	$(call RUN_SUMMARY_AWARE,$(CONVERTER_PYTHON) -m unittest discover -s convert/mimic-convert/tests,converter tests)
 
 # Structural conformance of the committed horizontal-HDF5 contract fixture
 # (simulations/micro-uchuu-horizontal/_tests/data/) against the frozen format
@@ -838,15 +845,17 @@ tests-scientific:
 # Python tests, and fails on any non-zero exit or any unexpected
 # `MIMIC_RESULT: SKIP`. test_int_link_package_rejects_v3 skips by design under
 # this package (the compiled package stores links as long long). Needs no real
-# dataset. Do not widen this to the whole integration tier: the core tests
-# fail by design under a horizontal package. The generated code is regenerated
-# for the caller's MODEL/SIMULATION on every path, including a failed build, so
-# the tree is never left bound to the horizontal pair; rebuild the executable
-# with `make`. run_tests.sh refreshes the test registry and inputs itself.
+# dataset. Keep it narrow: the whole integration tier also runs under this
+# pair on committed fixtures, but it legitimately skips its vertical-only
+# tests, which this target's no-unexpected-SKIP gate would reject. The
+# generated code is regenerated for the caller's MODEL/SIMULATION on every
+# path, including a failed build, so the tree is never left bound to the
+# horizontal pair; rebuild the executable with `make`. run_tests.sh refreshes
+# the test registry and inputs itself.
 HV3_MODEL := halos-only
 HV3_SIMULATION := mini-millennium-horizontal
 HV3_LOG := build/horizontal_v3_tests.log
-HV3_UNIT_TESTS := test_horizontal_v3_reader test_horizontal_retention_budget test_unit_horizontal_retention
+HV3_UNIT_TESTS := test_horizontal_v3_reader test_horizontal_retention_budget test_unit_horizontal_retention test_unit_horizontal_identity
 HV3_PY_TESTS := simulations/$(HV3_SIMULATION)/_tests/integration/test_gap_retention.py simulations/$(HV3_SIMULATION)/_tests/integration/test_schema_conformance.py
 
 tests-horizontal-v3:
@@ -868,7 +877,7 @@ tests-horizontal-v3:
 
 # Reference-topology dump harness: read-only, loads forests through the existing
 # consistent_trees_ascii reader and dumps their literal link fields for
-# scripts/convert/crosscheck.py --reference-topology. Not part of `make tests`;
+# convert/mimic-convert/crosscheck.py --reference-topology. Not part of `make tests`;
 # build on demand. See tests/unit/tools/dump_ctrees_topology.c.
 dump-ctrees-topology-tool:
 	@MODEL=$(MODEL) SIMULATION=$(SIMULATION) tests/unit/tools/build_topology_dump.sh

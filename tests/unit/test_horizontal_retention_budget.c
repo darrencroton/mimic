@@ -671,8 +671,8 @@ int test_wide_slab_is_sized_before_load(void) {
 /**
  * @test    test_wide_output_snapshot_is_refused_before_load
  * @brief   A slab above INT_MAX rows at a requested output snapshot is refused
- *          before the reader loads it, because the output path counts emitted
- *          records per snapshot in an int; no output file is created.
+ *          before the reader loads it, because the output path caps a
+ *          snapshot's record count at INT_MAX; no output file is created.
  */
 int test_wide_output_snapshot_is_refused_before_load(void) {
   struct ChildResult result;
@@ -690,10 +690,10 @@ int test_wide_output_snapshot_is_refused_before_load(void) {
               "The refusal should come before the reader loads the slab");
   TEST_ASSERT(log_contains(&result, "Snapshot 0 holds 3000000000 halos and is a requested output "
                                     "snapshot") &&
-                  log_contains(&result, "(TotHalosPerSnap)") &&
+                  log_contains(&result, "caps a snapshot's record count at INT_MAX") &&
                   log_contains(&result, "Refused before allocation") &&
                   log_contains(&result, "chunked slab streaming"),
-              "The refusal should name the snapshot, the count, the int record counter and "
+              "The refusal should name the snapshot, the count, the INT_MAX record cap and "
               "the missing chunked slab streaming");
   TEST_ASSERT(count_output_entries() == entries_before,
               "No output file should be created before the refusal");

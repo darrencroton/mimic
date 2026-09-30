@@ -31,6 +31,31 @@ static void copy_hdf5_string(char dest[MAX_STRING_LEN], const char *src) {
 }
 
 /**
+ * @brief   Write a scalar fixed-width string attribute from a value of any length.
+ *
+ * H5Awrite reads exactly the string type's width from the source buffer, so a
+ * literal shorter than that width is read past its end (an out-of-bounds read
+ * AddressSanitizer reports). Every fixed-width string attribute therefore goes
+ * through a zero-padded MAX_STRING_LEN buffer; the on-disk type is unchanged.
+ */
+static void write_string_attribute(hid_t group_id, const char *name, hid_t str_type,
+                                   hid_t dataspace_id, const char *value) {
+  char padded[MAX_STRING_LEN];
+  if (H5Tget_size(str_type) > sizeof(padded)) {
+    FATAL_ERROR("HDF5 string type for attribute %s is wider than %zu bytes", name, sizeof(padded));
+  }
+  copy_hdf5_string(padded, value);
+  hid_t attribute_id = H5Acreate(group_id, name, str_type, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
+  if (attribute_id < 0) {
+    FATAL_ERROR("Failed to create %s attribute in HDF5 output", name);
+  }
+  if (H5Awrite(attribute_id, str_type, padded) < 0) {
+    FATAL_ERROR("Failed to write %s attribute to HDF5 output", name);
+  }
+  H5Aclose(attribute_id);
+}
+
+/**
  * @brief   Attach a scalar string "description" attribute to an HDF5 object.
  */
 void write_description_attr(hid_t obj_id, const char *text) {
@@ -67,7 +92,7 @@ typedef struct {
  * HDF5 format version for reproducibility tracking.
  */
 static void write_version_metadata(hid_t parent_group_id) {
-  hid_t version_group_id, attribute_id, dataspace_id, str_type;
+  hid_t version_group_id, dataspace_id, str_type;
   hsize_t dims = 1;
   herr_t status;
 
@@ -88,62 +113,18 @@ static void write_version_metadata(hid_t parent_group_id) {
     FATAL_ERROR("Failed to set HDF5 string type size for version metadata");
   }
 
-  attribute_id =
-      H5Acreate(version_group_id, "git_commit", str_type, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
-  if (attribute_id < 0) {
-    FATAL_ERROR("Failed to create git_commit attribute in HDF5 output");
-  }
-  status = H5Awrite(attribute_id, str_type, GIT_COMMIT);
-  if (status < 0) {
-    FATAL_ERROR("Failed to write git_commit attribute to HDF5 output");
-  }
-  H5Aclose(attribute_id);
+  write_string_attribute(version_group_id, "git_commit", str_type, dataspace_id, GIT_COMMIT);
 
-  attribute_id =
-      H5Acreate(version_group_id, "git_branch", str_type, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
-  if (attribute_id < 0) {
-    FATAL_ERROR("Failed to create git_branch attribute in HDF5 output");
-  }
-  status = H5Awrite(attribute_id, str_type, GIT_BRANCH);
-  if (status < 0) {
-    FATAL_ERROR("Failed to write git_branch attribute to HDF5 output");
-  }
-  H5Aclose(attribute_id);
+  write_string_attribute(version_group_id, "git_branch", str_type, dataspace_id, GIT_BRANCH);
 
-  attribute_id =
-      H5Acreate(version_group_id, "git_date", str_type, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
-  if (attribute_id < 0) {
-    FATAL_ERROR("Failed to create git_date attribute in HDF5 output");
-  }
-  status = H5Awrite(attribute_id, str_type, GIT_DATE);
-  if (status < 0) {
-    FATAL_ERROR("Failed to write git_date attribute to HDF5 output");
-  }
-  H5Aclose(attribute_id);
+  write_string_attribute(version_group_id, "git_date", str_type, dataspace_id, GIT_DATE);
 
-  attribute_id =
-      H5Acreate(version_group_id, "build_date", str_type, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
-  if (attribute_id < 0) {
-    FATAL_ERROR("Failed to create build_date attribute in HDF5 output");
-  }
-  status = H5Awrite(attribute_id, str_type, BUILD_DATE);
-  if (status < 0) {
-    FATAL_ERROR("Failed to write build_date attribute to HDF5 output");
-  }
-  H5Aclose(attribute_id);
+  write_string_attribute(version_group_id, "build_date", str_type, dataspace_id, BUILD_DATE);
 
   /* Increment hdf5_format_version when the output schema changes. */
   const char *hdf5_format_version = "1.2";
-  attribute_id = H5Acreate(version_group_id, "hdf5_format_version", str_type, dataspace_id,
-                           H5P_DEFAULT, H5P_DEFAULT);
-  if (attribute_id < 0) {
-    FATAL_ERROR("Failed to create hdf5_format_version attribute in HDF5 output");
-  }
-  status = H5Awrite(attribute_id, str_type, hdf5_format_version);
-  if (status < 0) {
-    FATAL_ERROR("Failed to write hdf5_format_version attribute to HDF5 output");
-  }
-  H5Aclose(attribute_id);
+  write_string_attribute(version_group_id, "hdf5_format_version", str_type, dataspace_id,
+                         hdf5_format_version);
 
   H5Sclose(dataspace_id);
   H5Tclose(str_type);
@@ -660,33 +641,14 @@ void store_run_properties(hid_t master_file_id) {
     }
   }
 
-  char timestep_scheme[MAX_STRING_LEN];
-  copy_hdf5_string(timestep_scheme, timestep_scheme_name(MimicConfig.TimestepScheme));
-  attribute_id =
-      H5Acreate(props_group_id, "TimestepScheme", str_type, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
-  if (attribute_id < 0) {
-    FATAL_ERROR("Failed to create TimestepScheme attribute in HDF5 output");
-  }
-  status = H5Awrite(attribute_id, str_type, timestep_scheme);
-  if (status < 0) {
-    FATAL_ERROR("Failed to write TimestepScheme attribute to HDF5 output");
-  }
-  H5Aclose(attribute_id);
+  write_string_attribute(props_group_id, "TimestepScheme", str_type, dataspace_id,
+                         timestep_scheme_name(MimicConfig.TimestepScheme));
 
   /* Record the resolved output partition source's format name, never the
    * active reader pointer directly (see output/util.h). */
   const struct OutputPartitionSource partition_source = get_output_partition_source();
   const char *tree_type_str = partition_source.format_name;
-  attribute_id =
-      H5Acreate(props_group_id, "TreeType", str_type, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
-  if (attribute_id < 0) {
-    FATAL_ERROR("Failed to create TreeType attribute in HDF5 output");
-  }
-  status = H5Awrite(attribute_id, str_type, tree_type_str);
-  if (status < 0) {
-    FATAL_ERROR("Failed to write TreeType attribute to HDF5 output");
-  }
-  H5Aclose(attribute_id);
+  write_string_attribute(props_group_id, "TreeType", str_type, dataspace_id, tree_type_str);
 
   /* Runtime metadata */
   attribute_id =
@@ -709,29 +671,11 @@ void store_run_properties(hid_t master_file_id) {
   local = localtime(&t);
   char end_time[64];
   strftime(end_time, sizeof(end_time), "%Y-%m-%dT%H:%M:%S", local);
-  attribute_id =
-      H5Acreate(props_group_id, "RunEndTime", str_type, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
-  if (attribute_id < 0) {
-    FATAL_ERROR("Failed to create RunEndTime attribute in HDF5 output");
-  }
-  status = H5Awrite(attribute_id, str_type, end_time);
-  if (status < 0) {
-    FATAL_ERROR("Failed to write RunEndTime attribute to HDF5 output");
-  }
-  H5Aclose(attribute_id);
+  write_string_attribute(props_group_id, "RunEndTime", str_type, dataspace_id, end_time);
 
   /* Add input simulation info if defined */
 #ifdef INPUTSIM
-  attribute_id = H5Acreate(props_group_id, "InputSimulation", str_type, dataspace_id, H5P_DEFAULT,
-                           H5P_DEFAULT);
-  if (attribute_id < 0) {
-    FATAL_ERROR("Failed to create InputSimulation attribute in HDF5 output");
-  }
-  status = H5Awrite(attribute_id, str_type, INPUTSIM);
-  if (status < 0) {
-    FATAL_ERROR("Failed to write InputSimulation attribute to HDF5 output");
-  }
-  H5Aclose(attribute_id);
+  write_string_attribute(props_group_id, "InputSimulation", str_type, dataspace_id, INPUTSIM);
 #endif
 
   /* Clean up attribute resources (reused above) */

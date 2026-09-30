@@ -4,10 +4,14 @@
  *
  * The fixture files are synthetic and tiny: they exercise ForestInfo length and
  * halo-slab validation plus strict snapshot parsing without depending on a real
- * Consistent-Trees production dataset.
+ * Consistent-Trees production dataset. The two forest-size guards against the
+ * configured UniqueGalaxyID multiplier are pinned with a small non-default
+ * multiplier, reading each guard's message from a forked child's stderr
+ * (tests/framework/child_capture.h).
  */
 
 #include "../framework/test_framework.h"
+#include "../framework/child_capture.h"
 
 #include "constants.h"
 #include "error.h"
@@ -727,6 +731,121 @@ int test_stage_rejects_oversized_chunk(void) {
   return TEST_PASS;
 }
 
+/* ---------------------------------------------------------------------------
+ * Forest-size guards against a configured, non-default multiplier
+ *
+ * The seams report a rejection by return code and log the guard's message to
+ * stderr, so each check runs in a child (child_capture.h) that exits non-zero
+ * on rejection; the parent then requires the guard's own words, which tells a
+ * multiplier rejection apart from any other check on the same row.
+ * ------------------------------------------------------------------------- */
+
+/* Seam arguments for the children; set by the parent before forking. */
+static int64_t guard_halosoffset = 0;
+static int64_t guard_nhalos = 0;
+
+static void child_validate_forest_slab(const char *path) {
+  if (ctrees_hdf5_test_validate_forest_slab(path, guard_halosoffset, guard_nhalos) !=
+      EXIT_SUCCESS) {
+    _exit(1);
+  }
+}
+
+static void child_read_forestinfo_cache(const char *path) {
+  int64_t halosoffset = -1, nhalos = -1;
+  if (ctrees_hdf5_test_read_forestinfo_cache(path, 1, 0, &halosoffset, &nhalos) != EXIT_SUCCESS) {
+    _exit(1);
+  }
+}
+
+/**
+ * @test    test_forest_slab_guard_honours_configured_multiplier
+ * @brief   The load-time forest slab guard rejects a forest at the configured
+ *          multiplier and accepts one below it.
+ *
+ * The five-halo sequence file leaves room for a three-halo slab, so under a
+ * multiplier of 3 the only check a three-halo forest can fail is the
+ * multiplier guard; the default-multiplier control accepts the same slab.
+ */
+int test_forest_slab_guard_honours_configured_multiplier(void) {
+  init_memory_system(0);
+  char dir_template[] = "/tmp/mimic_ctrees_h5_guard_slab_XXXXXX";
+  TEST_ASSERT(create_dir(dir_template) == 0, "mkdtemp should create a temp directory");
+  char path[512];
+  snprintf(path, sizeof(path), "%s/trees.h5", dir_template);
+
+  /* Evaluate every check first, restore the multiplier and remove the temp directory, and only
+   * then assert, so a failing assertion cannot leak the test value or the directory. */
+  const int wrote = write_sequence_forests_file(path);
+
+  guard_halosoffset = 0;
+  guard_nhalos = 3;
+  MimicConfig.UniqueGalaxyIDMultiplier = (int64_t)TREE_MUL_FAC;
+  const int control_ok = expect_success(path, child_validate_forest_slab);
+
+  MimicConfig.UniqueGalaxyIDMultiplier = 3;
+  const int at_limit_rejected =
+      expect_fatal(path, child_validate_forest_slab, "forest 0 in file 0 has 3 halos",
+                   "at or above the unique-galaxy-id limit of 3");
+  guard_nhalos = 2;
+  const int below_limit_ok = expect_success(path, child_validate_forest_slab);
+
+  MimicConfig.UniqueGalaxyIDMultiplier = (int64_t)TREE_MUL_FAC;
+  unlink(path);
+  rmdir(dir_template);
+
+  TEST_ASSERT(wrote == 0, "should write the five-halo sequence file");
+  TEST_ASSERT(control_ok == 1,
+              "control: a three-halo slab should pass under the default multiplier");
+  TEST_ASSERT(at_limit_rejected == 1,
+              "a slab at the configured multiplier should be rejected by the guard");
+  TEST_ASSERT(below_limit_ok == 1, "a slab below the configured multiplier should pass");
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_forestinfo_guard_honours_configured_multiplier
+ * @brief   The ForestInfo cache guard rejects a row at the configured
+ *          multiplier and accepts one below it.
+ */
+int test_forestinfo_guard_honours_configured_multiplier(void) {
+  init_memory_system(0);
+  char dir_template[] = "/tmp/mimic_ctrees_h5_guard_info_XXXXXX";
+  TEST_ASSERT(create_dir(dir_template) == 0, "mkdtemp should create a temp directory");
+  char path[512];
+  snprintf(path, sizeof(path), "%s/trees.h5", dir_template);
+
+  /* Evaluate every check first, restore the multiplier and remove the temp directory, and only
+   * then assert, so a failing assertion cannot leak the test value or the directory. */
+  const struct test_forestinfo at_limit[1] = {{0, 0, 3, 1}};
+  const int wrote_at_limit = write_forestinfo_file(path, at_limit, 1);
+  MimicConfig.UniqueGalaxyIDMultiplier = (int64_t)TREE_MUL_FAC;
+  const int control_ok = expect_success(path, child_read_forestinfo_cache);
+  MimicConfig.UniqueGalaxyIDMultiplier = 3;
+  const int at_limit_rejected =
+      expect_fatal(path, child_read_forestinfo_cache, "ForestInfo row 0 has 3 halos",
+                   "at or above the unique-galaxy-id limit of 3");
+
+  const struct test_forestinfo below_limit[1] = {{0, 0, 2, 1}};
+  const int wrote_below_limit = write_forestinfo_file(path, below_limit, 1);
+  const int below_limit_ok = expect_success(path, child_read_forestinfo_cache);
+
+  MimicConfig.UniqueGalaxyIDMultiplier = (int64_t)TREE_MUL_FAC;
+  unlink(path);
+  rmdir(dir_template);
+
+  TEST_ASSERT(wrote_at_limit == 0, "should write a three-halo row");
+  TEST_ASSERT(control_ok == 1,
+              "control: a three-halo row should load under the default multiplier");
+  TEST_ASSERT(at_limit_rejected == 1,
+              "a row at the configured multiplier should be rejected by the guard");
+  TEST_ASSERT(wrote_below_limit == 0, "should write a two-halo row");
+  TEST_ASSERT(below_limit_ok == 1, "a row below the configured multiplier should load");
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
 /**
  * @brief   Backfills the identity multiplier production gets from configuration.
  *
@@ -765,6 +884,8 @@ int main(void) {
   TEST_RUN(test_run_prepare_survives_repeated_range_staging);
   TEST_RUN(test_prepare_builds_chunk_plan_from_forest_counts);
   TEST_RUN(test_stage_rejects_oversized_chunk);
+  TEST_RUN(test_forest_slab_guard_honours_configured_multiplier);
+  TEST_RUN(test_forestinfo_guard_honours_configured_multiplier);
 
   TEST_SUMMARY();
   return TEST_RESULT();

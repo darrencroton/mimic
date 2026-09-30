@@ -26,6 +26,7 @@
  */
 
 #include "../../../../tests/framework/test_framework.h"
+#include "../../../../tests/framework/child_capture.h"
 
 #include "../../../../src/include/constants.h"
 #include "../../../../src/include/proto.h"
@@ -191,7 +192,7 @@ static void configure_for_fixture(const char *dir) {
      it from simulation.unique_galaxy_id_multiplier, which defaults to
      TREE_MUL_FAC; a memset MimicConfig would leave it at zero. */
   MimicConfig.UniqueGalaxyIDMultiplier = (int64_t)TREE_MUL_FAC;
-  /* open_run now compares these against the header on every file (Slice 3);
+  /* open_run compares these against the header on every file;
      the fixture's headers were stamped from the package's own
      simulation_info.yaml, so these are that package's values. */
   MimicConfig.BoxSize = FIXTURE_BOX_SIZE;
@@ -600,159 +601,6 @@ static int read_halo_column(const char *file_path, const char *dataset, hid_t me
   return rc;
 }
 
-/* ---------------------------------------------------------------------------
- * Child-process abort harness
- * ------------------------------------------------------------------------- */
-
-typedef void (*child_body_fn)(const char *dir);
-
-/**
- * @brief   Run `body` in a forked child and require it to abort.
- * @return  1 when the child exited non-zero and its stderr contained both
- *          needles (NULL needles are not required), 0 otherwise, -1 on a
- *          harness failure.
- *
- * On mismatch the captured output is printed, so a wrong abort message is
- * diagnosable rather than a bare failure.
- */
-static int expect_fatal_capture(const char *dir, child_body_fn body, const char *needle_a,
-                                const char *needle_b, char *captured, size_t captured_size) {
-  int pipefd[2];
-  char output[16384];
-  size_t used = 0;
-  ssize_t nread;
-  int status;
-
-  fflush(NULL);
-  if (pipe(pipefd) != 0) {
-    return -1;
-  }
-
-  const pid_t pid = fork();
-  if (pid < 0) {
-    close(pipefd[0]);
-    close(pipefd[1]);
-    return -1;
-  }
-
-  if (pid == 0) {
-    close(pipefd[0]);
-    if (freopen("/dev/null", "w", stdout) == NULL) {
-      _exit(127);
-    }
-    dup2(pipefd[1], STDERR_FILENO);
-    close(pipefd[1]);
-    body(dir);
-    /* The body was supposed to abort. Exit 0 so the parent reports a failure. */
-    _exit(0);
-  }
-
-  close(pipefd[1]);
-  while (used < sizeof(output) - 1 &&
-         (nread = read(pipefd[0], output + used, sizeof(output) - 1 - used)) > 0) {
-    used += (size_t)nread;
-  }
-  output[used] = '\0';
-  close(pipefd[0]);
-  if (captured != NULL) {
-    snprintf(captured, captured_size, "%s", output);
-  }
-
-  if (waitpid(pid, &status, 0) < 0) {
-    return -1;
-  }
-  if (used == sizeof(output) - 1) {
-    fprintf(stderr, "  child output truncated at %zu bytes; raise the capture buffer\n",
-            sizeof(output) - 1);
-    return -1;
-  }
-  if (WIFSIGNALED(status)) {
-    fprintf(stderr, "  child died on signal %d; captured output:\n%s\n", WTERMSIG(status), output);
-    return 0;
-  }
-  if (!WIFEXITED(status) || WEXITSTATUS(status) == 0) {
-    fprintf(stderr, "  child did not abort; captured output:\n%s\n", output);
-    return 0;
-  }
-  if ((needle_a != NULL && strstr(output, needle_a) == NULL) ||
-      (needle_b != NULL && strstr(output, needle_b) == NULL)) {
-    fprintf(stderr, "  abort message missing an expected fragment\n");
-    fprintf(stderr, "    wanted: '%s' and '%s'\n", needle_a != NULL ? needle_a : "(any)",
-            needle_b != NULL ? needle_b : "(any)");
-    fprintf(stderr, "    got:\n%s\n", output);
-    return 0;
-  }
-  return 1;
-}
-
-/** @brief expect_fatal_capture() without access to the captured output. */
-static int expect_fatal(const char *dir, child_body_fn body, const char *needle_a,
-                        const char *needle_b) {
-  return expect_fatal_capture(dir, body, needle_a, needle_b, NULL, 0);
-}
-
-/**
- * @brief   Run `body` in a forked child and require it to complete without
- *          aborting.
- * @return  1 when the child exited 0, 0 when it aborted or was signaled
- *          (captured output is printed for diagnosis), -1 on a harness
- *          failure.
- *
- * The mirror image of expect_fatal_capture(): used to pin the accepted side of
- * the physical-header tolerance, where open_run must run to completion.
- */
-static int expect_success(const char *dir, child_body_fn body) {
-  int pipefd[2];
-  char output[16384];
-  size_t used = 0;
-  ssize_t nread;
-  int status;
-
-  fflush(NULL);
-  if (pipe(pipefd) != 0) {
-    return -1;
-  }
-
-  const pid_t pid = fork();
-  if (pid < 0) {
-    close(pipefd[0]);
-    close(pipefd[1]);
-    return -1;
-  }
-
-  if (pid == 0) {
-    close(pipefd[0]);
-    if (freopen("/dev/null", "w", stdout) == NULL) {
-      _exit(127);
-    }
-    dup2(pipefd[1], STDERR_FILENO);
-    close(pipefd[1]);
-    body(dir);
-    _exit(0);
-  }
-
-  close(pipefd[1]);
-  while (used < sizeof(output) - 1 &&
-         (nread = read(pipefd[0], output + used, sizeof(output) - 1 - used)) > 0) {
-    used += (size_t)nread;
-  }
-  output[used] = '\0';
-  close(pipefd[0]);
-
-  if (waitpid(pid, &status, 0) < 0) {
-    return -1;
-  }
-  if (WIFSIGNALED(status)) {
-    fprintf(stderr, "  child died on signal %d; captured output:\n%s\n", WTERMSIG(status), output);
-    return 0;
-  }
-  if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
-    fprintf(stderr, "  child aborted; captured output:\n%s\n", output);
-    return 0;
-  }
-  return 1;
-}
-
 /** @brief Child body: configure for `dir` and open the dataset. */
 static void child_open_run(const char *dir) {
   struct HorizontalRunInfo info;
@@ -900,7 +748,7 @@ static int corrupt_scale_factor(const char *dir) {
 }
 
 /* ---------------------------------------------------------------------------
- * Physical header agreement (Slice 3)
+ * Physical header agreement
  *
  * These mutate the physical header attributes open_run now checks against the
  * configured simulation (MimicConfig.BoxSize/Omega/OmegaLambda/Hubble_h/
@@ -1502,7 +1350,7 @@ static int slab_matches_fixture(const char *file_path, const struct SnapshotSlab
   } while (0)
 
 /* ForestIndex and HaloRankInForest are reader-owned slab arrays, not
-   struct RawHalo members (Slice 2), so they are compared against
+   struct RawHalo members, so they are compared against
    slab->array[h] directly rather than through the CHECK_I64 field-access
    pattern above. */
 #define CHECK_I64_ARRAY(dataset, array)                                                            \
@@ -1674,7 +1522,7 @@ int test_two_generation_rotation_holds_two_slabs_live(void) {
     if (snap > 0) {
       const int prev_slot = (int)((snap - 1) % 2);
       /* Both generations must be live and distinct right before the older one
-         is released -- the exact instant Slice 4's criterion requires. */
+         is released: at most two generations are ever live. */
       TEST_ASSERT(!snapshot_slab_is_empty(&slabs[slot]), "the newly loaded slab should be live");
       TEST_ASSERT(!snapshot_slab_is_empty(&slabs[prev_slot]),
                   "the previous generation should still be live");

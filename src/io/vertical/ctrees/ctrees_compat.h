@@ -23,10 +23,13 @@
  *   into a Mimic FATAL_ERROR.
  */
 
+#include <inttypes.h>
+#include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
 
 #include "constants.h" /* MAX_STRING_LEN — reused so there is one source of truth */
+#include "util/error.h"
 
 /* The L-Halo-tree in-memory halo record (mirrors sage-model core_simulation.h,
    which is byte-compatible with Mimic's generated RawHalo field set). The
@@ -93,5 +96,32 @@ enum ctrees_error_types {
    (upstream sage distinguishes XASSERT=abort from XRETURN=return; the vendored
    parser only ever uses it to return an error code, so the two coincide here). */
 #define XASSERT(EXP, VAL, ...) XRETURN(EXP, VAL, __VA_ARGS__)
+
+/**
+ * @brief   Narrow a 64-bit count or index to the reader interface's int, or abort.
+ * @param   value     The 64-bit quantity.
+ * @param   quantity  What `value` is, named in the abort message.
+ * @return  `value` as an int.
+ *
+ * The reader interface (InputTreeNHalos, halo indices) is int-shaped while the
+ * Consistent-Trees readers count in int64_t. Every narrowing goes through this
+ * check so an out-of-range value fails fast by name instead of wrapping (Vision
+ * principle 7). Callers already bound most of these values earlier; the check at
+ * the cast keeps the cast itself safe if those guards move. Use it through
+ * CTREES_CHECKED_INT so the abort names the call site.
+ */
+static inline int ctrees_checked_int(const int64_t value, const char *quantity, const char *file,
+                                     const char *func, const int line) {
+  if (value > INT_MAX) {
+    log_message(LOG_LEVEL_FATAL, file, func, line,
+                "Consistent-Trees: %s is %" PRId64 ", above the int limit of %d", quantity, value,
+                INT_MAX);
+    myexit(1);
+  }
+  return (int)value;
+}
+
+#define CTREES_CHECKED_INT(value, quantity)                                                        \
+  ctrees_checked_int((value), (quantity), __FILE__, __func__, __LINE__)
 
 #endif /* IO_VERTICAL_CTREES_COMPAT_H */

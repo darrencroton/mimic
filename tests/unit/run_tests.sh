@@ -146,6 +146,10 @@ YAML_LDFLAGS="$(pkg-config --libs yaml-0.1 2>/dev/null || echo '-lyaml')"
 CFLAGS="-Wall -Wextra -I. -I${SRC_DIR} -I${SRC_DIR}/include -I${SRC_DIR}/include/generated -I${SRC_DIR}/util -I${SRC_DIR}/core -I${SRC_DIR}/io -I${SRC_DIR}/module_system -Imodels -I${MODEL_ROOT} -Ibuild/generated -Itests -g -O0 -DMIMIC_COMPILED_MODEL=\"${MODEL}\" -DMIMIC_COMPILED_MODEL_PATH=\"${MODEL_ROOT}\" -DMIMIC_COMPILED_SIMULATION=\"${SIMULATION}\" ${YAML_CFLAGS}"
 CFLAGS="${CFLAGS} -DMIMIC_TEST_BUILD"
 LDFLAGS="-lm ${YAML_LDFLAGS}"
+# Honour the Makefile's EXTRA_CFLAGS / EXTRA_LDFLAGS hooks (exported by make when
+# given on its command line), so a sanitizer build instruments the C tests too.
+CFLAGS="${CFLAGS} ${EXTRA_CFLAGS:-}"
+LDFLAGS="${LDFLAGS} ${EXTRA_LDFLAGS:-}"
 
 # HDF5 detection is shared with build_topology_dump.sh (scripts/lib/hdf5.sh).
 detect_hdf5

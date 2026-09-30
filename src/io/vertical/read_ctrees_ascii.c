@@ -17,8 +17,10 @@
  * below writes (the five merger pointers plus Len, M_Crit200, Pos, Vel, VelDisp,
  * Vmax, Spin, MostBoundID, SnapNum) and ctrees-native units (Msun/h masses,
  * Mpc/h positions) so the generated reference-unit accessors apply the catalog
- * -> reference conversion. See docs/dev/CTREES-UCHUU-VALIDATION.md for the
- * package + validation checklist.
+ * -> reference conversion. `simulations/micro-uchuu-ascii` is the worked package,
+ * validated byte for byte against the horizontal driver by
+ * simulations/micro-uchuu-horizontal/_tests/scientific/test_cross_format_identity.py;
+ * its README records the float32-ULP Mvir difference from the HDF5 reader.
  *
  * Split of responsibilities:
  *   - topology: read_forests/read_locations/assign_forest_ids/sort +
@@ -705,7 +707,7 @@ static void load_unit_ctrees_ascii(int unit) {
   }
   myfree(info);
 
-  InputTreeNHalos[unit] = (int)totnhalos;
+  InputTreeNHalos[unit] = CTREES_CHECKED_INT(totnhalos, "the forest halo count");
   InputTreeHalos =
       mymalloc_cat(sizeof(struct RawHalo) * (totnhalos > 0 ? totnhalos : 1), MEM_TREES);
   for (int64_t i = 0; i < totnhalos; i++) {

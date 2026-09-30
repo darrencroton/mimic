@@ -7,7 +7,7 @@
  * cross-snapshot NextProgenitor and one selected extra the package does not
  * declare): the run metadata open_run publishes; slab contents, target-snapshot
  * arrays and SourceHaloID field by field; that the undeclared extra is
- * validated but never materialised (Gate R0-8(a)); one abort per open-time and
+ * validated but never materialised; one abort per open-time and
  * load-time invariant a consumer checks; rejection of soft and external links
  * under /halos and /schema whether or not the package declares the field; that
  * n_halos above INT32_MAX passes the header and shape checks; bounded link
@@ -18,7 +18,7 @@
  * opens it successfully runs only when that package is compiled in
  * (MIMIC_COMPILED_SIMULATION) and skips otherwise. Under any package whose
  * links are `int`, test_int_link_package_rejects_v3 instead pins the refusal
- * to narrow version 3's int64 links (Gate R0-2(a)).
+ * to narrow version 3's int64 links.
  *
  * Corrupt-input cases use the pattern of the version 2 reader tests
  * (simulations/micro-uchuu-horizontal/_tests/unit/test_unit_horizontal_reader_open.c):
@@ -27,6 +27,7 @@
  */
 
 #include "../framework/test_framework.h"
+#include "../framework/child_capture.h"
 
 #include "../../src/include/constants.h"
 #include "../../src/include/proto.h"
@@ -693,112 +694,6 @@ static int read_halo_column(const char *file_path, const char *dataset, hid_t me
   return rc;
 }
 
-/* ---------------------------------------------------------------------------
- * Child-process harness (the version 2 tests' pattern)
- * ------------------------------------------------------------------------- */
-
-typedef void (*child_body_fn)(const char *dir);
-
-/**
- * @brief   Run `body` in a forked child and capture its stderr.
- * @return  The child's wait status, or -1 on a harness failure.
- */
-static int run_child(const char *dir, child_body_fn body, char *output, size_t output_size) {
-  int pipefd[2];
-  size_t used = 0;
-  ssize_t nread;
-  int status;
-
-  fflush(NULL);
-  if (pipe(pipefd) != 0) {
-    return -1;
-  }
-  const pid_t pid = fork();
-  if (pid < 0) {
-    close(pipefd[0]);
-    close(pipefd[1]);
-    return -1;
-  }
-  if (pid == 0) {
-    close(pipefd[0]);
-    if (freopen("/dev/null", "w", stdout) == NULL) {
-      _exit(127);
-    }
-    dup2(pipefd[1], STDERR_FILENO);
-    close(pipefd[1]);
-    body(dir);
-    _exit(0);
-  }
-
-  close(pipefd[1]);
-  while (used < output_size - 1 &&
-         (nread = read(pipefd[0], output + used, output_size - 1 - used)) > 0) {
-    used += (size_t)nread;
-  }
-  output[used] = '\0';
-  close(pipefd[0]);
-  if (waitpid(pid, &status, 0) < 0) {
-    return -1;
-  }
-  if (used == output_size - 1) {
-    fprintf(stderr, "  child output truncated at %zu bytes\n", output_size - 1);
-    return -1;
-  }
-  return status;
-}
-
-/**
- * @brief   Require `body` to abort with both needles in its stderr.
- * @return  1 on a matching abort, 0 otherwise (output printed), -1 on harness failure.
- */
-static int expect_fatal_capture(const char *dir, child_body_fn body, const char *needle_a,
-                                const char *needle_b, char *captured, size_t captured_size) {
-  static char output[65536];
-  const int status = run_child(dir, body, output, sizeof(output));
-  if (status == -1) {
-    return -1;
-  }
-  if (captured != NULL) {
-    snprintf(captured, captured_size, "%s", output);
-  }
-  if (WIFSIGNALED(status)) {
-    fprintf(stderr, "  child died on signal %d; captured output:\n%s\n", WTERMSIG(status), output);
-    return 0;
-  }
-  if (!WIFEXITED(status) || WEXITSTATUS(status) == 0) {
-    fprintf(stderr, "  child did not abort; captured output:\n%s\n", output);
-    return 0;
-  }
-  if ((needle_a != NULL && strstr(output, needle_a) == NULL) ||
-      (needle_b != NULL && strstr(output, needle_b) == NULL)) {
-    fprintf(stderr, "  abort message missing an expected fragment\n");
-    fprintf(stderr, "    wanted: '%s' and '%s'\n", needle_a != NULL ? needle_a : "(any)",
-            needle_b != NULL ? needle_b : "(any)");
-    fprintf(stderr, "    got:\n%s\n", output);
-    return 0;
-  }
-  return 1;
-}
-
-static int expect_fatal(const char *dir, child_body_fn body, const char *needle_a,
-                        const char *needle_b) {
-  return expect_fatal_capture(dir, body, needle_a, needle_b, NULL, 0);
-}
-
-/** @brief Require `body` to complete without aborting. */
-static int expect_success(const char *dir, child_body_fn body) {
-  static char output[65536];
-  const int status = run_child(dir, body, output, sizeof(output));
-  if (status == -1) {
-    return -1;
-  }
-  if (WIFSIGNALED(status) || !WIFEXITED(status) || WEXITSTATUS(status) != 0) {
-    fprintf(stderr, "  child aborted; captured output:\n%s\n", output);
-    return 0;
-  }
-  return 1;
-}
-
 static const struct HorizontalReader *reader(void) {
   return horizontal_reader_lookup("horizontal_hdf5");
 }
@@ -1029,10 +924,10 @@ static int slab_matches_file(const char *file_path, const struct SnapshotSlab *s
 /**
  * @test  test_v3_load_slab_matches_fixture
  * Every snapshot loads: the gap across the empty snapshot, the cross-snapshot
- * NextProgenitor and every payload field land where Gates R0-2(a) and R0-3(a)
- * put them, field by field against both the hand-derived graph and a direct
- * read of each file; the empty snapshot loads as a zero-halo slab with every
- * array NULL; and load/release leaves no tracked allocation.
+ * NextProgenitor and every payload field land in the int64 RawHalo links and the
+ * reader-owned target-snapshot and SourceHaloID arrays, field by field against both the
+ * hand-derived graph and a direct read of each file; the empty snapshot loads as a zero-halo slab
+ * with every array NULL; and load/release leaves no tracked allocation.
  */
 int test_v3_load_slab_matches_fixture(void) {
   REQUIRE_FIXTURE_PACKAGE();
@@ -1092,7 +987,7 @@ static void count_undeclared_extra_reads(void) {
 
 /**
  * @test  test_v3_undeclared_extra_is_not_materialised
- * Gate R0-8(a): the fixture's selected extra SubHalfMass, which the package
+ * The fixture's selected extra SubHalfMass, which the package
  * does not declare, does not stop open_run (the acceptance test above) and is
  * absent from the read list that fills struct RawHalo, so no slab carries it.
  * Its declaration is still validated: see the undeclared-field cases in
@@ -1121,7 +1016,7 @@ int test_v3_undeclared_extra_is_not_materialised(void) {
  * @test  test_int_link_package_rejects_v3
  * Under a package whose links are `int` (every package but
  * mini-millennium-horizontal today), a version 3 file is refused at open
- * rather than narrowing its int64 links (Gate R0-2(a)).
+ * rather than narrowing its int64 links.
  */
 int test_int_link_package_rejects_v3(void) {
   if (sizeof(((struct RawHalo *)0)->Descendant) != sizeof(int32_t)) {
