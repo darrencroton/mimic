@@ -248,7 +248,6 @@ int test_buffer_grows_when_capacity_exceeded(void) {
   return TEST_PASS;
 }
 
-/** @brief Main test runner */
 /**
  * @test    test_halo_index_above_int32_survives_marshalling
  * @brief   A segment whose source halo index exceeds INT32_MAX marshals unchanged
@@ -288,6 +287,7 @@ int test_halo_index_above_int32_survives_marshalling(void) {
   return TEST_PASS;
 }
 
+/** @brief Main test runner */
 int main(void) {
   printf("%s", BLUE);
   printf("============================================================\n");
