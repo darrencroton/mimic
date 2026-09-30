@@ -27,7 +27,7 @@ MIMIC_EXE = REPO_ROOT / "mimic"
 # Single source of truth for Makefile DEFAULT_* parsing lives with the
 # generator scripts' discovery helpers.
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
-from discovery import makefile_default
+from discovery import makefile_default, package_is_horizontal, package_test_config
 
 
 def compiled_model():
@@ -42,6 +42,35 @@ def compiled_simulation():
         or os.environ.get("SIM")
         or makefile_default("DEFAULT_SIMULATION", "mini-millennium")
     )
+
+
+def selected_package_is_horizontal():
+    """Whether the selected simulation package declares ``processing_order: horizontal``.
+
+    Read from the package's own metadata (discovery.package_processing_order), never
+    from its name, so a new horizontal package is recognised without an edit here.
+    """
+    return package_is_horizontal(compiled_simulation())
+
+
+def selected_package_test_config():
+    """Return the selected package's committed ``_tests/input/test_simulation.yaml``, or None."""
+    return package_test_config(compiled_simulation())
+
+
+def skip_if_selected_package_is_horizontal(needs):
+    """Raise TestSkipped when the selected package is horizontal, naming what the test needs.
+
+    The one guard for tests that inherently need the vertical path: binary galaxy output,
+    ``--skip`` resume, an input file range, forest partitioning, MPI ranks or a vertical
+    reader. A horizontal run is HDF5-only and has none of these, so such a test cannot
+    apply there. ``needs`` completes the sentence "this test needs ...".
+    """
+    if selected_package_is_horizontal():
+        raise TestSkipped(
+            f"selected package {compiled_simulation()} is horizontal; this test needs {needs}, "
+            f"which only a vertical package has"
+        )
 
 
 def default_model():
@@ -127,50 +156,66 @@ def _run_test_input_generator():
         )
 
 
-def _generated_inputs_match_selection(root):
+def _generated_input_manifest(root):
+    """Return the generator's manifest for this selection, or None if absent or stale."""
     manifest_path = root / "manifest.json"
     if not manifest_path.exists():
-        return False
+        return None
     try:
         with manifest_path.open(encoding="utf-8") as handle:
             manifest = json.load(handle)
     except (OSError, json.JSONDecodeError):
-        return False
-    return (
-        manifest.get("model") == compiled_model()
-        and manifest.get("simulation") == compiled_simulation()
-    )
+        return None
+    if (
+        manifest.get("model") != compiled_model()
+        or manifest.get("simulation") != compiled_simulation()
+        or "run_files" not in manifest
+    ):
+        return None
+    return manifest
 
 
 def _ensure_generated_test_inputs():
     """
-    Materialize generated run files for the selected MODEL/SIMULATION.
+    Materialize generated run files for the selected MODEL/SIMULATION and return the manifest.
 
     Tests can be run directly by path, outside Make. In that case the generated
-    input files may not exist yet, so the harness regenerates them on demand.
+    input files may not exist yet, so the harness regenerates them on demand. The
+    manifest lists the run files the generator wrote for the selected package kind;
+    only those are trusted, so a file an earlier generation left behind is never used.
     """
     root = _generated_input_root()
-    required = [
-        root / "core" / "test_binary.yaml",
-        root / "core" / "test_hdf5.yaml",
-        root / "simulations" / compiled_simulation() / "test_binary.yaml",
-        root / "simulations" / compiled_simulation() / "test_hdf5.yaml",
-    ]
-    required.append(root / "simulations" / compiled_simulation() / "test_uniquegalid.yaml")
-
-    if _generated_inputs_match_selection(root) and all(path.exists() for path in required):
-        return
+    manifest = _generated_input_manifest(root)
+    if manifest is not None and all((root / name).exists() for name in manifest["run_files"]):
+        return manifest
 
     _run_test_input_generator()
+    manifest = _generated_input_manifest(root)
+    if manifest is None:
+        raise RuntimeError(f"test input generator wrote no usable manifest under {root}")
+    return manifest
 
 
 def _generated_input(relative_parts, error_hint):
-    """Return a generated test input file, regenerating once if missing."""
-    _ensure_generated_test_inputs()
+    """Return a generated test input file, or skip when the selected package has none.
+
+    Skips (TestSkipped) in two cases, both recorded by the generator rather than
+    decided here: the package's generic tier cannot run at all (the manifest's
+    skip_reason, e.g. a horizontal package with no committed fixture), or the
+    requested file does not exist for the package's kind (a horizontal package has
+    no binary-output or UniqueGalaxyID run file of its own).
+    """
+    manifest = _ensure_generated_test_inputs()
+    if manifest.get("skip_reason"):
+        raise TestSkipped(manifest["skip_reason"])
+    name = "/".join(relative_parts)
     path = _generated_input_root().joinpath(*relative_parts)
-    if not path.exists():
-        _run_test_input_generator()
-    if not path.exists():
+    if name not in manifest["run_files"]:
+        if manifest.get("processing_order") == "horizontal":
+            raise TestSkipped(
+                f"selected package {compiled_simulation()} is horizontal; the generated run "
+                f"file {name} exists only for vertical packages"
+            )
         raise FileNotFoundError(f"{error_hint}: {path}")
     return path
 
@@ -178,6 +223,18 @@ def _generated_input(relative_parts, error_hint):
 def core_input_file(filename):
     """Return a generated core-owned test input file."""
     return _generated_input(("core", filename), "Generated core test input not found")
+
+
+def default_run_file():
+    """Return the generated core run file that runs on the selected package.
+
+    ``test_binary.yaml`` for a vertical package, which keeps every existing default
+    unchanged, and ``test_hdf5.yaml`` for a horizontal one, whose runs are HDF5-only.
+    Use it for a test that needs *a* run and does not read the output format.
+    """
+    if selected_package_is_horizontal():
+        return core_input_file("test_hdf5.yaml")
+    return core_input_file("test_binary.yaml")
 
 
 def simulation_input_file(filename):
@@ -457,8 +514,12 @@ def create_test_param_file(
         model_params (dict): Dict of {parameter_name: value} for modules.parameters section
         first_file (int): First file to process (default: keep reference simulation config)
         last_file (int): Last file to process (default: keep reference simulation config)
+                         A horizontal package has no input file range: a single-file
+                         request (0..0) is not written, and any other range skips the
+                         test (TestSkipped), since only the vertical readers have one.
         ref_param_file (str or Path): Reference YAML parameter file
-                                      (default: generated core test_binary.yaml)
+                                      (default: default_run_file(), the generated core
+                                      run file that runs on the selected package)
         temp_dir (str or Path): Temporary directory for outputs (default: create new)
         output_format (str): Output format override ('binary' or 'hdf5', default: from ref file)
         substeps (int, optional): SubSteps override (default: value from ref file, or 1)
@@ -496,8 +557,13 @@ def create_test_param_file(
         shutil.rmtree(temp_dir)
     """
     # Set defaults
+    horizontal = selected_package_is_horizontal()
+    if horizontal and (first_file, last_file) not in ((None, None), (0, 0)):
+        skip_if_selected_package_is_horizontal(
+            f"an input file range ({first_file}..{last_file}) across several tree files"
+        )
     if ref_param_file is None:
-        ref_param_file = core_input_file("test_binary.yaml")
+        ref_param_file = default_run_file()
     if temp_dir is None:
         temp_dir = tempfile.mkdtemp(prefix="mimic_test_")
     else:
@@ -519,9 +585,11 @@ def create_test_param_file(
     sim_config_path = resolve_sim_config_path(config["simulation"]["config"], ref_param_file)
     with open(sim_config_path, "r") as f:
         sim_config = yaml.safe_load(f)
-    if first_file is not None:
+    # The horizontal reader derives its file set from the snapshot list, so the
+    # single-file request every test makes by convention has nothing to set there.
+    if first_file is not None and not horizontal:
         sim_config["input"]["first_file"] = first_file
-    if last_file is not None:
+    if last_file is not None and not horizontal:
         sim_config["input"]["last_file"] = last_file
 
     generated_sim_config = Path(temp_dir) / f"{output_name}_simulation.yaml"

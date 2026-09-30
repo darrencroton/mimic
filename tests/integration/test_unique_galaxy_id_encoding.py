@@ -37,6 +37,7 @@ from framework import (  # noqa: E402
     run_mimic,
     run_mimic_fresh,
     run_test_suite,
+    skip_if_selected_package_is_horizontal,
 )
 
 TREE_MUL_FAC = 1_000_000_000  # galaxy IDs within a tree occupy this stride
@@ -59,9 +60,14 @@ def _numeric_partition_key(path):
 
 
 def test_selected_simulation_unique_ids_are_unique():
-    """The selected simulation's binary output must not contain duplicate real galaxy IDs."""
+    """The selected simulation's binary output must not contain duplicate real galaxy IDs.
+
+    A horizontal package's output is HDF5-only; its uniqueness contract is
+    test_unique_id_contract in tests/integration/test_output_formats.py.
+    """
     if not MIMIC_EXE.exists():
         raise TestSkipped("Mimic not built")
+    skip_if_selected_package_is_horizontal("binary galaxy output")
 
     param_file, output_dir, temp_dir = create_test_param_file(
         "uniquegalid_selected_simulation",

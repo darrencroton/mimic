@@ -23,10 +23,14 @@ from framework import (
     MIMIC_EXE,
     REPO_ROOT,
     TestSkipped,
+    compiled_simulation,
     create_test_param_file,
     load_binary_halos,
     run_mimic,
     run_test_suite,
+    selected_package_is_horizontal,
+    selected_package_test_config,
+    skip_if_selected_package_is_horizontal,
 )
 
 TEMP_DIR = None
@@ -37,56 +41,103 @@ DEFAULT_MULTIPLIER = 1000000000
 #: The only input.tree_name the horizontal_hdf5 reader accepts.
 HORIZONTAL_TREE_NAME = "snapshot_%03d.h5"
 
-#: Committed horizontal-package fixture (small, deterministic, always present in a
-#: full checkout) -- used instead of the machine-local production dataset so the
-#: driver test below is reproducible on any checkout and reads kilobytes, not
-#: the multi-gigabyte real conversion.
-SNAPSHOT_FIXTURE_DIR = REPO_ROOT / "simulations" / "micro-uchuu-horizontal" / "_tests" / "data"
-SNAPSHOT_FIXTURE_A_LIST = SNAPSHOT_FIXTURE_DIR / "micro-uchuu-fixture.a_list"
+
+def package_fixture():
+    """The selected package's committed horizontal fixture as (dataset dir, a_list), or None.
+
+    Read from the package's own _tests/input/test_simulation.yaml -- the file the
+    generated run files point at -- so each horizontal package is exercised on the
+    fixture whose headers match its own simulation_info.yaml (the reader aborts on
+    any disagreement), and a kilobyte-sized committed dataset is read instead of the
+    machine-local production conversion. None when the selected package is vertical or
+    ships no fixture.
+    """
+    config_path = selected_package_test_config()
+    if config_path is None or not selected_package_is_horizontal():
+        return None
+    with open(config_path, "r") as handle:
+        input_config = (yaml.safe_load(handle) or {}).get("input") or {}
+    dataset_dir = REPO_ROOT / input_config["simulation_dir"]
+    a_list = REPO_ROOT / input_config["snapshot_list_file"]
+    return dataset_dir, a_list
+
+
+def snapshot_fixture_dir():
+    """The directory holding the selected package's committed snapshot fixture."""
+    return package_fixture()[0]
+
+
+def snapshot_fixture_a_list():
+    """The selected package's committed fixture's own scale-factor list."""
+    return package_fixture()[1]
 
 
 def snapshot_fixture_snapshot_count():
     """Number of snapshots the fixture's scale-factor list declares, or 0 if absent."""
-    if not SNAPSHOT_FIXTURE_A_LIST.is_file():
+    if package_fixture() is None or not snapshot_fixture_a_list().is_file():
         return 0
-    with open(SNAPSHOT_FIXTURE_A_LIST, "r") as handle:
+    with open(snapshot_fixture_a_list(), "r") as handle:
         return sum(1 for line in handle if line.strip())
 
 
 def snapshot_fixture_snapshot_files():
     """Every snapshot payload file the fixture's a_list implies, in load order."""
     return [
-        SNAPSHOT_FIXTURE_DIR / f"snapshot_{snap:03d}.h5"
+        snapshot_fixture_dir() / f"snapshot_{snap:03d}.h5"
         for snap in range(snapshot_fixture_snapshot_count())
     ]
 
 
-def snapshot_fixture_horizons():
-    """Retention horizon of every fixture snapshot, from its own Descendant column.
+def snapshot_fixture_halo_counts():
+    """Number of halos in every fixture snapshot, from each file's own halo table."""
+    import h5py
 
-    The fixture is version 2, whose descendants all live at snapshot k + 1, so the
-    horizon of snapshot k is k + 1 when any of its halos has a descendant and k
-    otherwise -- the driver's rule (horizontal_generation_horizon()) specialised to the
-    version 2 link scope.
+    counts = []
+    for path in snapshot_fixture_snapshot_files():
+        with h5py.File(path, "r") as handle:
+            counts.append(int(handle["halos/Descendant"].shape[0]))
+    return counts
+
+
+def snapshot_fixture_links_adjacent():
+    """Whether the fixture declares every Descendant link adjacent (header links_adjacent)."""
+    import h5py
+
+    with h5py.File(snapshot_fixture_snapshot_files()[0], "r") as handle:
+        return bool(int(handle["header"].attrs["links_adjacent"]))
+
+
+def snapshot_fixture_horizons():
+    """Retention horizon of every fixture snapshot, from its own descendant columns.
+
+    The horizon of snapshot k is the latest snapshot any of its halos names as its
+    descendant's, or k itself when none has a descendant -- the driver's rule
+    (horizontal_generation_horizon() in src/core/horizontal_driver.c). A version 3
+    fixture carries each link's target in DescendantSnapshot; a version 2 fixture has
+    no such column because every descendant lives at snapshot k + 1.
     """
     import h5py
 
     horizons = []
     for snap, path in enumerate(snapshot_fixture_snapshot_files()):
         with h5py.File(path, "r") as handle:
-            has_descendant = bool((handle["halos/Descendant"][()] >= 0).any())
-        horizons.append(snap + 1 if has_descendant else snap)
+            linked = handle["halos/Descendant"][()] >= 0
+            if "DescendantSnapshot" in handle["halos"]:
+                targets = handle["halos/DescendantSnapshot"][()][linked]
+            else:
+                targets = [snap + 1] * int(linked.sum())
+        horizons.append(max([snap, *(int(target) for target in targets)]))
     return horizons
 
 
 def snapshot_fixture_present():
-    """Is the committed horizontal-package fixture's full payload present?
+    """Is the selected package's committed horizontal fixture's full payload present?
 
     The guard is derived from the a_list, because the a_list is what bounds the
     run: the driver loads every snapshot the scale-factor list declares, and
     open_run validates every one of those files. output.snapshot_list selects
     which of them are *written*, and bounds nothing that is *read*. Checking the
-    a_list alone would pass a partial checkout that has the 48-byte list but no
+    a_list alone would pass a partial checkout that has the list but no
     payload, so every implied file is checked; a resized fixture changes the set
     checked here rather than letting the guard drift out of sync. forests.h5 is
     deliberately not checked: it is converter provenance the C reader never
@@ -95,6 +146,17 @@ def snapshot_fixture_present():
     return snapshot_fixture_snapshot_count() > 0 and all(
         path.is_file() for path in snapshot_fixture_snapshot_files()
     )
+
+
+def skip_unless_snapshot_fixture_present():
+    """Skip, naming what is missing, unless the selected package's fixture is usable."""
+    if package_fixture() is None:
+        raise TestSkipped(
+            f"selected package {compiled_simulation()} ships no committed horizontal fixture "
+            f"(_tests/input/test_simulation.yaml); this test runs the driver over one"
+        )
+    if not snapshot_fixture_present():
+        raise TestSkipped(f"committed snapshot fixture not found at {snapshot_fixture_dir()}")
 
 
 def snapshot_fixture_input_overrides(simulation_dir=None):
@@ -106,12 +168,12 @@ def snapshot_fixture_input_overrides(simulation_dir=None):
     """
     if simulation_dir is None:
         return {
-            "simulation_dir": str(SNAPSHOT_FIXTURE_DIR),
-            "snapshot_list_file": str(SNAPSHOT_FIXTURE_A_LIST),
+            "simulation_dir": str(snapshot_fixture_dir()),
+            "snapshot_list_file": str(snapshot_fixture_a_list()),
         }
     return {
         "simulation_dir": str(simulation_dir),
-        "snapshot_list_file": str(Path(simulation_dir) / SNAPSHOT_FIXTURE_A_LIST.name),
+        "snapshot_list_file": str(Path(simulation_dir) / snapshot_fixture_a_list().name),
     }
 
 
@@ -130,7 +192,7 @@ def snapshot_partition_path(output_dir, snapnum):
 
 
 def fixture_copy_with_broken_fof_link(destination, snapnum):
-    """Copy the fixture to `destination` and break one FoF link in one snapshot.
+    """Copy the fixture, and its scale-factor list, to `destination` and break one FoF link.
 
     FirstHaloInFOFgroup is bounded by its OWN snapshot's halo count
     (src/io/horizontal/read_horizontal_hdf5.c:849, :884-886), so setting it to that
@@ -142,7 +204,9 @@ def fixture_copy_with_broken_fof_link(destination, snapnum):
     import h5py
 
     destination = Path(destination)
-    shutil.copytree(SNAPSHOT_FIXTURE_DIR, destination)
+    shutil.copytree(snapshot_fixture_dir(), destination)
+    if not (destination / snapshot_fixture_a_list().name).is_file():
+        shutil.copy2(snapshot_fixture_a_list(), destination)
 
     with h5py.File(destination / f"snapshot_{snapnum:03d}.h5", "r+") as handle:
         dataset = handle["halos/FirstHaloInFOFgroup"]
@@ -270,7 +334,7 @@ def test_horizontal_run_completes_and_writes_output_over_the_fixture():
               the two messages earlier slices retired; the per-snapshot lifecycle lines
               show every snapshot loaded in ascending order with the live-slab count the
               retention horizons imply, and every snapshot released exactly once, at its
-              horizon, never more than two slabs live (the adjacent-dataset bound); and
+              horizon, never more than two slabs live when every link is adjacent; and
               the run leaves exactly one numbered partition file per requested output
               snapshot, each named for and holding only that snapshot, plus a master
               linking each snapshot to its own file, with TotHalosPerSnap totals equal
@@ -278,28 +342,25 @@ def test_horizontal_run_completes_and_writes_output_over_the_fixture():
               dataset or link, TreeType "horizontal_hdf5", and UniqueGalaxyIDMultiplier in
               both per-file and master RunProperties.
     Validates: the horizontal driver produces output through the driver-neutral
-               output partition seam, and does so under the retention schedule the
-               runtime plan specifies (a generation lives until its retention horizon
-               has been processed) rather than by holding every slab live.
+               output partition seam, and does so under its retention schedule (a
+               generation lives until its retention horizon has been processed) rather
+               than by holding every slab live.
 
     The retention horizon of snapshot k is the latest snapshot any of its halos names as
-    its descendant's, or k itself when none has a descendant. This fixture is version 2,
-    so every descendant is at k + 1 and horizon(k) is k + 1 when any halo of snapshot k
-    has a descendant and k otherwise. The expected lifecycle is derived from the
-    fixture's own Descendant columns (snapshot_fixture_horizons()), not hard-coded. At
-    the time of writing the fixture's snapshot 0 is empty and snapshots 2 and 5 hold no
-    halo with a descendant, so snapshots 0, 2 and 5 are released in their own step and
-    snapshots 1 and 3 load with one slab live.
+    its descendant's, or k itself when none has a descendant. The expected lifecycle is
+    derived from the fixture's own descendant columns (snapshot_fixture_horizons()), not
+    hard-coded, so it holds for a version 2 fixture (every descendant at k + 1) and a
+    gapped version 3 one alike. The two-live-slab bound is asserted only for a fixture
+    whose header declares links_adjacent: a gapped link legitimately keeps a generation
+    live across the gap.
 
-    Runs against the committed horizontal-package fixture (simulations/micro-uchuu-horizontal/
-    _tests/data/), not the machine-local production dataset: the latter is multi-gigabyte,
-    gitignored, and absent on a fresh checkout, which would make this proof unreproducible
-    outside one workstation. input.simulation_dir and input.snapshot_list_file are
-    overridden to point at the fixture; output.snapshot_list is overridden to indices the
-    fixture's own a_list actually contains, since the generated core run file's default
-    (49) is only valid for the real package's 50-snapshot production list.
-    simulations/micro-uchuu-horizontal/_tests/unit/test_unit_horizontal_reader_open.c already
-    proves open_run succeeds against exactly this fixture with these same two fields set.
+    Runs against the selected package's own committed fixture (package_fixture(): for
+    micro-uchuu-horizontal its _tests/data/generic/, for mini-millennium-horizontal
+    _tests/data/worked_graph/), not the machine-local production dataset: the latter is
+    multi-gigabyte, gitignored, and absent on a fresh checkout, which would make this
+    proof unreproducible outside one workstation. input.simulation_dir and
+    input.snapshot_list_file are overridden to point at the fixture, and
+    output.snapshot_list to indices the fixture's own a_list contains.
 
     The test still only runs when the selected package is itself horizontal (its own
     configuration is the only source of input.tree_type/tree_name/processing_order here);
@@ -307,9 +368,9 @@ def test_horizontal_run_completes_and_writes_output_over_the_fixture():
     unrelated config-mismatch reason. Guarded separately against the fixture being absent,
     so a sparse or partial checkout skips rather than fails.
 
-    output_format is forced to hdf5 because the generated core test input this run file is
-    based on is output_format: binary, which a horizontal configuration rejects at
-    config time (see test_horizontal_binary_output_rejected_at_config_time).
+    output_format is forced to hdf5 explicitly, because output_format: binary is rejected
+    for a horizontal configuration at config time (see
+    test_horizontal_binary_output_rejected_at_config_time).
 
     -v is passed so the driver's per-snapshot lifecycle lines (silent at the default log
     level) are captured. They are VERBOSE_LOG rather than DEBUG_LOG deliberately: the
@@ -323,17 +384,31 @@ def test_horizontal_run_completes_and_writes_output_over_the_fixture():
             "selected package is not horizontal; its own configuration is the only "
             "source of input.tree_type/tree_name/processing_order this test relies on"
         )
-    if not snapshot_fixture_present():
-        raise TestSkipped(f"committed snapshot fixture not found at {SNAPSHOT_FIXTURE_DIR}")
+    skip_unless_snapshot_fixture_present()
 
     nsnapshots = snapshot_fixture_snapshot_count()
-    # Deliberately unsorted, and deliberately including snapshot 0, which the
-    # fixture documents as empty (create_snapshot_fixture.py:164-167). One list
-    # therefore exercises both the unsorted-naming contract (each file must be
+    # Every package fixture this runs over must hold an empty snapshot (the
+    # micro-Uchuu fixture's is 0, create_snapshot_fixture.py; the mini-Millennium
+    # worked_graph fixture's is 3, generate_sources.py), so the zero-galaxy
+    # partition contract below is always exercised; a fixture without one fails
+    # here rather than quietly leaving that contract untested.
+    empty_snapshots = [
+        snap for snap, count in enumerate(snapshot_fixture_halo_counts()) if count == 0
+    ]
+    assert empty_snapshots, (
+        f"the fixture at {snapshot_fixture_dir()} must hold an empty snapshot so the "
+        f"zero-galaxy partition is exercised"
+    )
+    empty_snapshot = empty_snapshots[0]
+    # Deliberately unsorted, and deliberately including the empty snapshot. One
+    # list therefore exercises both the unsorted-naming contract (each file must be
     # named for the snapshot it holds, not for its position in this list) and the
     # zero-galaxy partition, which must still be written.
-    requested = [nsnapshots - 1, 1, 0]
-    empty_snapshot = 0
+    requested = [nsnapshots - 1, 1, empty_snapshot]
+    assert len(set(requested)) == len(requested), (
+        f"the fixture's empty snapshot {empty_snapshot} must differ from snapshots 1 and "
+        f"{nsnapshots - 1}, or the request {requested} names a snapshot twice"
+    )
     output_dir = Path(TEMP_DIR) / "valid_snapshot_output"
 
     returncode, output = run_config(
@@ -381,10 +456,11 @@ def test_horizontal_run_completes_and_writes_output_over_the_fixture():
             expected_sequence.append(f"Released snapshot {snap} ")
             retained.remove(snap)
     assert not retained, f"every horizon of the fixture lies inside the run: {horizons}"
-    assert max_live <= 2, (
-        f"a version 2 fixture must never need more than two live generations, "
-        f"derived {max_live} from horizons {horizons}"
-    )
+    if snapshot_fixture_links_adjacent():
+        assert max_live <= 2, (
+            f"an all-adjacent fixture must never need more than two live generations, "
+            f"derived {max_live} from horizons {horizons}"
+        )
 
     cursor = 0
     for needle in expected_sequence:
@@ -442,13 +518,11 @@ def test_horizontal_run_completes_and_writes_output_over_the_fixture():
                 f"multiplier"
             )
 
-    # The empty snapshot is asserted empty as well as present: if the fixture ever
-    # stopped having one, this fails loudly instead of quietly leaving the
-    # zero-galaxy partition contract untested.
+    # The empty snapshot's partition is asserted empty as well as present.
     with h5py.File(snapshot_partition_path(output_dir, empty_snapshot), "r") as handle:
         rows = handle[f"Snap{empty_snapshot:03d}/Galaxies"].shape[0]
         assert rows == 0, (
-            f"snapshot {empty_snapshot} is the fixture's empty snapshot, so its partition "
+            f"snapshot {empty_snapshot} is an empty fixture snapshot, so its partition "
             f"should carry an empty Galaxies table, found {rows} rows"
         )
 
@@ -510,8 +584,7 @@ def skip_unless_horizontal_driver_is_runnable(probe_name):
             "selected package is not horizontal; its own configuration is the only "
             "source of input.tree_type/tree_name/processing_order this test relies on"
         )
-    if not snapshot_fixture_present():
-        raise TestSkipped(f"committed snapshot fixture not found at {SNAPSHOT_FIXTURE_DIR}")
+    skip_unless_snapshot_fixture_present()
 
 
 def test_horizontal_failure_keeps_partition_files_that_already_closed():
@@ -522,10 +595,10 @@ def test_horizontal_failure_keeps_partition_files_that_already_closed():
               snapshot that completed BEFORE the corrupted snapshot still exists; the
               partition file of the requested snapshot AFTER it does not; and no master
               file exists.
-    Validates: the per-partition cleanup contract D5(a) decision 2 replaces the Phase 5
-               all-or-nothing one with. A closed partition file is final output and must
-               survive a later failure, because destroying weeks of finished output on a
-               late abort is the larger hazard; the master, which never got written, must
+    Validates: the per-partition (not all-or-nothing) cleanup contract. A closed
+               partition file is final output and must survive a later failure,
+               because destroying weeks of finished output on a late abort is the
+               larger hazard; the master, which never got written, must
                not be left behind.
 
     The fault is a deterministic link corruption in a temporary copy of the fixture, not a
@@ -536,8 +609,16 @@ def test_horizontal_failure_keeps_partition_files_that_already_closed():
     """
     skip_unless_horizontal_driver_is_runnable("retention_probe")
 
-    broken_snapshot = 3
     requested = [1, snapshot_fixture_snapshot_count() - 1]
+    # The first populated snapshot strictly between the two requested ones, so the
+    # abort lands after the first request is written and before the second exists.
+    counts = snapshot_fixture_halo_counts()
+    candidates = [snap for snap in range(requested[0] + 1, requested[1]) if counts[snap] > 0]
+    assert candidates, (
+        f"the fixture needs a populated snapshot strictly between {requested[0]} and "
+        f"{requested[1]} to corrupt, found halo counts {counts}"
+    )
+    broken_snapshot = candidates[0]
     dataset_dir = fixture_copy_with_broken_fof_link(
         Path(TEMP_DIR) / "retention_dataset", broken_snapshot
     )
@@ -867,26 +948,30 @@ def test_horizontal_tree_name_must_be_exact_literal():
     # output_format: binary, which a horizontal configuration rejects at config
     # time, independent of tree_name.
     #
-    # simulation_dir/snapshot_list_file are repointed at the committed fixture so this
-    # control cannot start a full production run: now that the driver produces output,
-    # leaving them at a horizontal package's own machine-local dataset would make
-    # this config-time control read gigabytes and write a complete run. Whether the
-    # driver then aborts (any package whose catalog does not match the fixture) or
-    # completes is outside this control's contract -- it asserts config-time acceptance
-    # only, and the run is cheap either way.
+    # The dataset is repointed so this config-time control can never start a full
+    # production run: at the selected package's committed fixture when it has one (the
+    # run is then cheap and completes), otherwise at an empty scratch directory, so
+    # nothing is readable once configuration has been accepted. Whether the driver
+    # then aborts or completes is outside this control's contract -- it asserts
+    # config-time acceptance only.
+    if package_fixture() is not None:
+        dataset_overrides = snapshot_fixture_input_overrides()
+    else:
+        no_dataset = Path(TEMP_DIR) / "tree_name_no_dataset"
+        no_dataset.mkdir(parents=True, exist_ok=True)
+        dataset_overrides = {"simulation_dir": str(no_dataset)}
     returncode, output = run_config(
         "tree_name_accepted",
         input_overrides={
             "tree_type": "horizontal_hdf5",
             "processing_order": "horizontal",
             "tree_name": HORIZONTAL_TREE_NAME,
-            **snapshot_fixture_input_overrides(),
+            **dataset_overrides,
         },
-        # snapshot_list must name an index the fixture's own 6-entry scale-factor
-        # list contains: the generated reference run file requests a snapshot valid
-        # only for the selected package's production list, and an out-of-range
-        # request is itself a config-time rejection, which would mask the one this
-        # control is looking for.
+        # snapshot_list must name an index the run's scale-factor list contains,
+        # and every committed fixture and package list holds at least two: an
+        # out-of-range request is itself a config-time rejection, which would mask
+        # the one this control is looking for.
         output_overrides={"output_format": "hdf5", "snapshot_list": [1]},
     )
     assert "Parameter validation failed" not in output
@@ -897,29 +982,20 @@ def test_multiplier_default_and_non_positive_rejection():
     """
     Test the identity multiplier's default and its non-positive rejection.
 
-    Expected: the default value runs a vertical configuration to completion;
+    Expected: the default value runs the selected package's configuration to completion;
               0 and a negative value fail at config time with a "must be positive" message.
     Validates: simulation.unique_galaxy_id_multiplier parses, defaults to TREE_MUL_FAC,
                and rejects non-positive values.
 
-    The returncode == 0 assertions below run the selected package's own committed
-    configuration to completion, and the multiplier is then read back out of BINARY
-    galaxy output (_run_and_read_unique_ids). A horizontal package rejects
-    output_format: binary at config time, and its own dataset is the machine-local
-    production conversion rather than the committed fixture, so neither the run nor
-    the read-back applies there and the test skips. The horizontal driver's own
-    end-to-end behaviour is covered by
-    test_horizontal_run_completes_and_writes_output_over_the_fixture.
+    The returncode == 0 assertions below run the selected package's own generated run
+    file, on its committed test data, to completion; nothing is read back from the
+    output, so the test applies to vertical and horizontal packages alike. Reading the
+    effective multiplier back out of the ids is the job of the two tests after it.
     """
-    if effective_input_setting("multiplier_probe", "processing_order") == "horizontal":
-        raise TestSkipped(
-            "selected package is horizontal; these assertions read binary galaxy "
-            "output, which a horizontal configuration rejects at config time"
-        )
-    # Absent key: the seeded default is TREE_MUL_FAC, so a vertical run is
-    # accepted by the non-default guard and completes normally.
+    # Absent key: the seeded default is TREE_MUL_FAC, so the run is accepted by the
+    # non-default guard and completes normally.
     returncode, output = run_config("multiplier_absent")
-    assert returncode == 0, f"a default vertical run should succeed:\n{output}"
+    assert returncode == 0, f"a default run should succeed:\n{output}"
     assert "unique_galaxy_id_multiplier" not in output
 
     # Explicitly declaring the default is equally accepted.
@@ -938,15 +1014,11 @@ def test_multiplier_default_and_non_positive_rejection():
         assert "must be positive" in output
 
 
-def _skip_unless_selected_package_is_vertical(probe_name):
+def _skip_unless_selected_package_is_vertical():
     """Skip tests that read binary galaxy output when the selected package forbids it."""
     if not MIMIC_EXE.exists():
         raise TestSkipped("Mimic not built")
-    if effective_input_setting(probe_name, "processing_order") == "horizontal":
-        raise TestSkipped(
-            "selected package is horizontal; these assertions read binary galaxy "
-            "output, which a horizontal configuration rejects at config time"
-        )
+    skip_if_selected_package_is_horizontal("binary galaxy output to read the multiplier back from")
 
 
 def _run_and_read_unique_ids(name, **kwargs):
@@ -991,7 +1063,7 @@ def test_vertical_accepts_non_default_multiplier():
                to forest index -1 and cannot match. The min-id assertion catches the same
                failure independently.
     """
-    _skip_unless_selected_package_is_vertical("multiplier_accept_probe")
+    _skip_unless_selected_package_is_vertical()
 
     ten_billion = 10 * DEFAULT_MULTIPLIER
 
@@ -1031,7 +1103,7 @@ def test_multiplier_precedence_across_both_parser_passes():
                values are spread more than two-fold apart precisely so the test cannot pass
                under the wrong one.
     """
-    _skip_unless_selected_package_is_vertical("multiplier_precedence_probe")
+    _skip_unless_selected_package_is_vertical()
 
     package_value = 2 * DEFAULT_MULTIPLIER
     run_file_value = 9 * DEFAULT_MULTIPLIER

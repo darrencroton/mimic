@@ -49,6 +49,8 @@ from framework import (
     run_mimic,
     run_mimic_fresh,
     run_test_suite,
+    selected_package_is_horizontal,
+    skip_if_selected_package_is_horizontal,
     skip_non_default_baseline,
 )
 
@@ -100,32 +102,6 @@ def _probe_hdf5_support():
     return returncode == 0
 
 
-def selected_package_writes_binary():
-    """
-    Whether the selected simulation package can produce binary output.
-
-    A horizontal package cannot: the driver rejects any output format but
-    HDF5 at configuration time, so the generated ``test_binary.yaml`` is invalid
-    by construction for it and every check below would fail on a run that never
-    happened. The effective processing order is read exactly as the parser
-    resolves it -- an explicit ``input.processing_order`` in the run file wins,
-    otherwise the simulation config the run file points at -- so a package is
-    identified by its own declaration rather than by name.
-    """
-    param_file = core_input_file("test_binary.yaml")
-    with open(param_file) as handle:
-        config = yaml.safe_load(handle)
-
-    order = (config.get("input") or {}).get("processing_order")
-    if order is None:
-        sim_config_path = resolve_sim_config_path(config["simulation"]["config"], param_file)
-        with open(sim_config_path) as handle:
-            sim_config = yaml.safe_load(handle)
-        order = ((sim_config or {}).get("input") or {}).get("processing_order")
-
-    return order != "horizontal"
-
-
 def first_requested_output_snapshot(param_file):
     """The first snapshot ``output.snapshot_list`` in ``param_file`` asks for.
 
@@ -173,6 +149,7 @@ def test_binary_format_execution():
 
     if not MIMIC_EXE.exists():
         raise TestSkipped("Mimic not built")
+    skip_if_selected_package_is_horizontal("binary galaxy output")
 
     param_file = core_input_file("test_binary.yaml")
     assert param_file.exists(), f"Parameter file not found: {param_file}"
@@ -198,6 +175,7 @@ def test_binary_format_loading():
 
     if not MIMIC_EXE.exists():
         raise TestSkipped("Mimic not built")
+    skip_if_selected_package_is_horizontal("binary galaxy output")
 
     # Check output file exists
     output_dir = TEST_DATA_DIR / "output" / "binary"
@@ -384,7 +362,7 @@ def test_hdf5_format_loading():
     # Check output file exists
     param_file = core_input_file("test_hdf5.yaml")
     output_dir = TEST_DATA_DIR / "output" / "hdf5"
-    if selected_package_writes_binary():
+    if not selected_package_is_horizontal():
         # Vertical partition files are named by filenr (forests_per_file
         # chunking), independent of which output snapshots are requested;
         # filenr 0 is always the first partition.
@@ -495,7 +473,7 @@ def test_hdf5_compression_equivalence():
 
     param_file = core_input_file("test_hdf5.yaml")
     output_dir = TEST_DATA_DIR / "output" / "hdf5"
-    if selected_package_writes_binary():
+    if not selected_package_is_horizontal():
         # Vertical partition files are named by filenr (forests_per_file
         # chunking), independent of which output snapshots are requested;
         # filenr 0 is always the first partition.
@@ -676,7 +654,7 @@ def test_unique_id_contract():
 
     param_file = core_input_file("test_hdf5.yaml")
     output_dir = TEST_DATA_DIR / "output" / "hdf5"
-    if selected_package_writes_binary():
+    if not selected_package_is_horizontal():
         # Vertical partition files are named by filenr (forests_per_file
         # chunking), independent of which output snapshots are requested;
         # filenr 0 is always the first partition.
@@ -839,7 +817,7 @@ def test_hdf5_unique_galaxy_id_multiplier_provenance():
     param_file = core_input_file("test_hdf5.yaml")
     output_dir = TEST_DATA_DIR / "output" / "hdf5"
     master_file = output_dir / "model.hdf5"
-    if selected_package_writes_binary():
+    if not selected_package_is_horizontal():
         # Vertical partition files are named by filenr; filenr 0 always exists.
         partition_file = output_dir / "model_000.hdf5"
     else:
@@ -918,11 +896,7 @@ def test_format_equivalence():
     if not MIMIC_EXE.exists():
         raise TestSkipped("Mimic not built")
 
-    if not selected_package_writes_binary():
-        raise TestSkipped(
-            "Horizontal packages reject binary output at configuration "
-            "time, so binary vs HDF5 format equivalence cannot be compared"
-        )
+    skip_if_selected_package_is_horizontal("binary galaxy output to compare against HDF5")
 
     # Check if HDF5 is supported
     if not check_hdf5_support():

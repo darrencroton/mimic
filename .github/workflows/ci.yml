@@ -117,3 +117,11 @@ jobs:
     - name: Run horizontal v3 fixture battery
       run: |
         make tests-horizontal-v3
+
+    # The generic integration tier on a horizontal package, over the committed
+    # worked_graph fixture (simulations/mini-millennium-horizontal/_tests/input/
+    # test_simulation.yaml): HDF5-only run files, vertical-only tests skipped with
+    # a reason. Needs no real dataset; the tier runs in seconds after the build.
+    - name: Run integration tests on a horizontal package
+      run: |
+        make MODEL=halos-only SIMULATION=mini-millennium-horizontal tests-integration

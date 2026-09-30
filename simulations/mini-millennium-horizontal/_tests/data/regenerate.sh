@@ -3,7 +3,7 @@
 # regenerate.sh - Rebuild the committed gap-retention version 3 fixtures
 #
 # Regenerates the three L-Halo sources under source/ from their generator,
-# converts each with scripts/convert/convert_trees.py (ingest, transpose, write,
+# converts each with convert/mimic-convert/convert_trees.py (ingest, transpose, write,
 # then report, which runs the producer validation battery) using the
 # mini-Millennium converter profile this package declares
 # (simulations/mini-millennium/converter_columns.yaml), and installs each
@@ -38,7 +38,7 @@ SOURCE_DIR="${DATA_DIR}/source"
 SIM_INFO="simulations/mini-millennium/simulation_info.yaml"
 HALO_PROPERTIES="simulations/mini-millennium/halo_properties.yaml"
 PROFILE="simulations/mini-millennium/converter_columns.yaml"
-CONVERT="scripts/convert/convert_trees.py"
+CONVERT="convert/mimic-convert/convert_trees.py"
 
 WORKROOT="$(mktemp -d "${TMPDIR:-/tmp}/mimic_gap_retention_fixtures.XXXXXX")"
 trap 'rm -rf "$WORKROOT"' EXIT

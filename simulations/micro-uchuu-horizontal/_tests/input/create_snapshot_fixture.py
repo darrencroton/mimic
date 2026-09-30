@@ -8,9 +8,9 @@ temporary workdir this generator:
    a_list the converter pipeline requires (header metadata comes from this
    package's own ``simulation_info.yaml``, so the fixture is self-consistent
    with the package that ships it);
-2. runs the full ``scripts/convert/`` pipeline over it in production layout
+2. runs the full ``convert/mimic-convert/`` pipeline over it in production layout
    (scatter, sort, fixups, links, write);
-3. runs ``scripts/convert/validate.py`` over that output and aborts unless the
+3. runs ``convert/mimic-convert/validate.py`` over that output and aborts unless the
    producer battery exits 0;
 4. rewrites the validated datasets into ``_tests/data/`` with small chunk
    shapes, preserving the object set, dataset names, dtypes, shapes and every
@@ -23,7 +23,7 @@ Chunk shape and object-header time tracking are the only permitted
 differences between the two. The production contract chunk shape is
 ``(65536,)``/``(65536, 3)``, which allocates 6.25 MiB per populated snapshot
 file; the frozen spec makes chunk layout a storage detail consumers must not
-depend on (docs/dev/HORIZONTAL-HDF5-FORMAT.md, Storage Layout), so the committed
+depend on (convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md, Storage Layout), so the committed
 copy is re-chunked small and the conformance checker deliberately ignores
 chunk shape. The committed copy also writes with ``track_times=False``, which
 omits the object-header modification timestamps HDF5 stamps by default; that
@@ -31,7 +31,7 @@ is what makes the committed copy byte-reproducible across regenerations.
 
 The generator also writes a canonical ``fixture_manifest.json``. The converter's
 own ``manifest.json`` is unsuitable to commit verbatim: it records absolute
-paths and source ``mtime_ns`` (scripts/convert/scatter.py, hdf5_writer.py), so
+paths and source ``mtime_ns`` (convert/mimic-convert/scatter.py, hdf5_writer.py), so
 it is neither path-independent nor reproducible.
 
 Usage:
@@ -40,6 +40,20 @@ Usage:
     mimic_venv/bin/python \\
         simulations/micro-uchuu-horizontal/_tests/input/create_snapshot_fixture.py \\
         --compare-against <dir>   # value-equality assertion only, nothing written
+    mimic_venv/bin/python \\
+        simulations/micro-uchuu-horizontal/_tests/input/create_snapshot_fixture.py \\
+        --package shin-uchuu      # the same synthetic forests under another package
+
+``--package`` builds the same synthetic forests for another version 2 horizontal
+package whose halo schema matches this one (shin-uchuu), taking the header
+metadata from that package's own ``simulation_info.yaml`` and installing the
+fixture under that package's ``_tests/data/`` with a ``<package>-fixture.a_list``.
+``--package-scale-factors`` replaces the fixture's synthetic scale factors with
+the last six of the package's own snapshot list, so the fixture's timesteps
+have the package's real spacing (the generic test tiers' timestep checks
+assume it), and ``--output-subdir NAME`` installs under ``_tests/data/NAME/``
+instead, leaving the contract fixture in ``_tests/data/`` untouched. Without
+these options the default package's outputs are exactly as before.
 
 Re-running regenerates byte-identical ``.h5`` files and a byte-identical
 ``fixture_manifest.json``.
@@ -60,7 +74,7 @@ import numpy as np
 PACKAGE_DIR = Path(__file__).resolve().parents[2]
 REPO_ROOT = PACKAGE_DIR.parents[1]
 DATA_DIR = PACKAGE_DIR / "_tests" / "data"
-CONVERT_DIR = REPO_ROOT / "scripts" / "convert"
+CONVERT_DIR = REPO_ROOT / "convert" / "mimic-convert"
 SIMULATION_INFO = PACKAGE_DIR / "simulation_info.yaml"
 
 #: fixture snapshot list; index = SnapNum, ascending scale factor
@@ -68,6 +82,52 @@ A_LIST = [0.25000, 0.40000, 0.50000, 0.65000, 0.80000, 1.00000]
 
 #: fixture a_list filename inside _tests/data/
 A_LIST_NAME = "micro-uchuu-fixture.a_list"
+
+#: the package this generator belongs to; --package selects another target
+DEFAULT_PACKAGE = PACKAGE_DIR.name
+
+
+def configure_target(package):
+    """Point the generator at another version 2 package's metadata and _tests/data/.
+
+    Rebinds the module-level paths every stage reads, so the default package's run
+    is exactly what it was before this option existed.
+    """
+    global DATA_DIR, SIMULATION_INFO, A_LIST_NAME
+    if package == DEFAULT_PACKAGE:
+        return
+    target_dir = REPO_ROOT / "simulations" / package
+    if not (target_dir / "simulation_info.yaml").is_file():
+        raise FixtureError("no simulation package at {}".format(target_dir))
+    DATA_DIR = target_dir / "_tests" / "data"
+    SIMULATION_INFO = target_dir / "simulation_info.yaml"
+    A_LIST_NAME = "{}-fixture.a_list".format(package)
+
+
+def use_package_scale_factors():
+    """Replace A_LIST with the last len(A_LIST) scale factors of the target's own list."""
+    global A_LIST
+    import yaml
+
+    with open(SIMULATION_INFO, "r") as handle:
+        a_list_rel = (yaml.safe_load(handle).get("input") or {}).get("snapshot_list_file")
+    if not a_list_rel:
+        raise FixtureError("{} declares no input.snapshot_list_file".format(SIMULATION_INFO))
+    values = [
+        float(line.split("#", 1)[0])
+        for line in (REPO_ROOT / a_list_rel).read_text().splitlines()
+        if line.split("#", 1)[0].strip()
+    ]
+    if len(values) < len(A_LIST):
+        raise FixtureError("{} holds fewer than {} scale factors".format(a_list_rel, len(A_LIST)))
+    A_LIST = values[-len(A_LIST) :]
+
+
+def use_output_subdir(name):
+    """Install under _tests/data/<name>/ instead of _tests/data/."""
+    global DATA_DIR
+    DATA_DIR = DATA_DIR / name
+
 
 #: committed-copy chunk shapes (small; the production contract is 65536)
 CHUNK_1D_SMALL = (8,)
@@ -101,7 +161,7 @@ COLUMNS = [
     "Tree_root_ID",
 ]
 
-#: /halos datasets: name -> is_vec3 (docs/dev/HORIZONTAL-HDF5-FORMAT.md)
+#: /halos datasets: name -> is_vec3 (convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md)
 HALO_DATASET_IS_VEC = {
     "Descendant": False,
     "FirstProgenitor": False,
@@ -170,9 +230,9 @@ def fixture_forests():
     - forest 20 carries a two-member FoF group (2010 central, 2011 satellite);
     - forest 10 spans two trees both alive at its max snapshot (1010 and 1020
       are independent ``pid == -1`` centrals there): both survive as
-      self-central (``fix_flybys`` was removed, decision D1,
-      docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md) — this is the multi-FoF
-      regression case, and ``MostBoundID`` is always positive now;
+      self-central (``fix_flybys``, which demoted all but the most massive,
+      is gone) — this is the multi-FoF regression case, and ``MostBoundID``
+      is always positive;
     - forest 30 dies at snapshot 2, well before the final snapshot.
 
     Returns (forests, trees) where forests maps forest id -> [tree root ids]
@@ -337,9 +397,9 @@ def produce_production_dataset(workdir):
             "--manifest",
             str(convert_dir / "manifest.json"),
         ],
-        "producer validation battery (scripts/convert/validate.py)",
+        "producer validation battery (convert/mimic-convert/validate.py)",
     )
-    log("production-layout output passed scripts/convert/validate.py with exit code 0")
+    log("production-layout output passed convert/mimic-convert/validate.py with exit code 0")
     return dataset_dir
 
 
@@ -519,7 +579,7 @@ def build_manifest(data_dir):
             files[name] = entry
     manifest = {
         "generator": "simulations/micro-uchuu-horizontal/_tests/input/create_snapshot_fixture.py",
-        "format_specification": "docs/dev/HORIZONTAL-HDF5-FORMAT.md",
+        "format_specification": "convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md",
         "format_version": 2,
         "a_list": list(A_LIST),
         "a_list_file": A_LIST_NAME,
@@ -598,7 +658,7 @@ def assert_fixture_features(data_dir):
                         break
                     length += 1
                 max_fof_members = max(max_fof_members, length)
-            # Multi-FoF-survival regression (D1/D9, SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md):
+            # Multi-FoF-survival regression:
             # at least one forest must carry more than one independent self-central
             # halo (FirstHaloInFOFgroup == own index) within the same snapshot. This
             # is exactly the topology fix_flybys used to collapse into one group; the
@@ -711,6 +771,22 @@ def main(argv=None):
         "simulations/micro-uchuu-horizontal",
     )
     parser.add_argument(
+        "--package",
+        default=DEFAULT_PACKAGE,
+        help="version 2 horizontal package to build the fixture for (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--package-scale-factors",
+        action="store_true",
+        help="use the last six scale factors of the package's own snapshot list",
+    )
+    parser.add_argument(
+        "--output-subdir",
+        metavar="NAME",
+        default=None,
+        help="install under _tests/data/NAME/ instead of _tests/data/",
+    )
+    parser.add_argument(
         "--compare-against",
         metavar="DIR",
         default=None,
@@ -718,6 +794,11 @@ def main(argv=None):
     )
     args = parser.parse_args(argv)
     try:
+        configure_target(args.package)
+        if args.package_scale_factors:
+            use_package_scale_factors()
+        if args.output_subdir is not None:
+            use_output_subdir(args.output_subdir)
         if args.compare_against is not None:
             compare_only(Path(args.compare_against))
         else:

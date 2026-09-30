@@ -38,6 +38,11 @@ DEFAULT_MODEL = makefile_default("DEFAULT_MODEL", "sage16")
 # to standalone script runs outside of make.
 DEFAULT_SIMULATION = makefile_default("DEFAULT_SIMULATION", "mini-millennium")
 
+# Packages whose selected-model tests are registered with the core and simulation tiers. A
+# package belongs here only when every model's registered tests can run on its generated
+# inputs. No horizontal package does yet: the sage16 module integration tests read binary
+# output (model_z0.000_0), which a horizontal run cannot write (measured 2026-09-30 on
+# mini-millennium-horizontal: 26 FAIL across 17 files; halos-only's own test passes).
 FULL_MODEL_TEST_SIMULATIONS = frozenset(
     {
         "mini-millennium",
@@ -47,6 +52,10 @@ FULL_MODEL_TEST_SIMULATIONS = frozenset(
     }
 )
 
+# Packages whose generated test inputs run the production simulation_info.yaml instead of a
+# committed _tests/input/test_simulation.yaml, so one small real catalogue exercises each shipped
+# vertical reader path. A horizontal package is never a member: its generic tier runs only on
+# committed fixture data.
 PRODUCTION_TEST_CONFIG_SIMULATIONS = frozenset(
     {
         "micro-uchuu",
@@ -74,6 +83,80 @@ def full_model_tests_enabled(simulation: str | None = None) -> bool:
 def production_test_config_enabled(simulation: str | None = None) -> bool:
     """Whether generated tests should use the package's production simulation_info.yaml."""
     return (simulation or selected_simulation()) in PRODUCTION_TEST_CONFIG_SIMULATIONS
+
+
+#: Where a simulation package keeps its committed, test-sized simulation config.
+PACKAGE_TEST_CONFIG = Path("_tests") / "input" / "test_simulation.yaml"
+
+
+def simulation_root(simulation: str | None = None) -> Path:
+    """Return ``simulations/<simulation>/`` for the given or selected package."""
+    return REPO_ROOT / "simulations" / (simulation or selected_simulation())
+
+
+def package_test_config(simulation: str | None = None) -> Path | None:
+    """Return the package's committed ``_tests/input/test_simulation.yaml``, or None."""
+    path = simulation_root(simulation) / PACKAGE_TEST_CONFIG
+    return path if path.is_file() else None
+
+
+def _declared_input(config_path: Path, key: str):
+    """Return ``input.<key>`` from a simulation config, or None when it is not declared."""
+    import yaml
+
+    with config_path.open(encoding="utf-8") as handle:
+        config = yaml.safe_load(handle) or {}
+    return (config.get("input") or {}).get(key)
+
+
+def package_processing_order(simulation: str | None = None) -> str:
+    """Return the processing order a simulation package declares (``vertical`` when unset).
+
+    The package's metadata is the source of this fact, never its name: the production
+    ``simulation_info.yaml`` and, when present, the committed test config are both read,
+    and a package whose two configs disagree fails here rather than generating run files
+    for the wrong driver. The runtime default for an unset key is ``vertical``.
+    """
+    simulation = simulation or selected_simulation()
+    declared = {}
+    production = simulation_root(simulation) / "simulation_info.yaml"
+    for path in (production, package_test_config(simulation)):
+        if path is not None and path.is_file():
+            # An omitted key means ``vertical`` at run time, so it is compared as such: a
+            # horizontal production config beside a test config that omits the key is a
+            # real conflict (the run would load the test config as vertical), not agreement.
+            value = _declared_input(path, "processing_order")
+            declared[rel(path)] = "vertical" if value is None else str(value)
+    orders = set(declared.values())
+    if len(orders) > 1:
+        raise ValueError(
+            f"simulation package {simulation} declares conflicting input.processing_order "
+            f"values: {declared}"
+        )
+    return orders.pop() if orders else "vertical"
+
+
+def package_is_horizontal(simulation: str | None = None) -> bool:
+    """Whether a simulation package declares ``input.processing_order: horizontal``."""
+    return package_processing_order(simulation) == "horizontal"
+
+
+def generic_tier_skip_reason(simulation: str | None = None) -> str | None:
+    """Why the generic run-file-driven tests cannot run for a package, or None if they can.
+
+    A horizontal package runs them only on committed fixture data, declared by its
+    ``_tests/input/test_simulation.yaml``. Without one, the only dataset its configuration
+    names is the machine-local production conversion, which a test must never open, so
+    every test that needs a generated run file skips with this reason instead.
+    """
+    simulation = simulation or selected_simulation()
+    if not package_is_horizontal(simulation) or package_test_config(simulation) is not None:
+        return None
+    return (
+        f"horizontal package {simulation} ships no committed test fixture "
+        f"(simulations/{simulation}/{PACKAGE_TEST_CONFIG.as_posix()}), so the generic tier "
+        f"does not run for it; run its parity gate on a machine holding the dataset"
+    )
 
 
 def existing(paths: Iterable[Path]) -> List[Path]:

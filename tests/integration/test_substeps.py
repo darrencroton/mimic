@@ -22,11 +22,42 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from framework import (
+    REPO_ROOT,
     create_test_param_file,
     parse_test_fixture_executions,
+    read_param_file,
     run_mimic,
     run_test_suite,
 )
+
+#: Precision of the redshift the test fixture logs (TEST_FIXTURE_EXEC's "z=%.4f").
+LOGGED_REDSHIFT_HALF_ULP = 0.5e-4
+
+
+def executions_after_first_snapshot(executions, param_file):
+    """Drop the executions of groups at the run's first snapshot.
+
+    A halo at the first snapshot has no earlier snapshot to evolve from, so its time
+    interval, and with it every substep_dt, is zero by design
+    (src/core/halo_evolution.c, "First snapshot has no previous"). Whether any group
+    sits there is a property of the selected package's data, not of sub-stepping: the
+    mini-Millennium fixture's first snapshot is empty, a horizontal fixture's need not
+    be. The first snapshot is identified from the run's own scale-factor list and the
+    logged redshift, never assumed.
+    """
+    a_list = Path(read_param_file(param_file)["FileWithSnapList"])
+    if not a_list.is_absolute():
+        a_list = REPO_ROOT / a_list
+    with a_list.open() as handle:
+        first_scale_factor = next(
+            float(line.split("#", 1)[0]) for line in handle if line.split("#", 1)[0].strip()
+        )
+    first_redshift = 1.0 / first_scale_factor - 1.0
+    return [
+        e
+        for e in executions
+        if abs(e["redshift"] - first_redshift) > LOGGED_REDSHIFT_HALF_ULP * 1.0001
+    ]
 
 
 def test_substeps_creates_loop():
@@ -130,9 +161,11 @@ def test_substep_dt_calculation():
         assert returncode == 0, f"Mimic failed: {stderr}"
 
         # Parse executions
-        all_executions = parse_test_fixture_executions(stdout)
+        all_executions = executions_after_first_snapshot(
+            parse_test_fixture_executions(stdout), param_file
+        )
 
-        # Check first FOF group (first 10 executions)
+        # Check first FOF group after the first snapshot (first 10 executions)
         assert len(all_executions) >= 10, "Should have at least 10 executions"
         first_fof = all_executions[:10]
 
@@ -195,9 +228,11 @@ def test_module_context_fields():
         assert returncode == 0, f"Mimic failed: {stderr}"
 
         # Parse executions
-        all_executions = parse_test_fixture_executions(stdout)
+        all_executions = executions_after_first_snapshot(
+            parse_test_fixture_executions(stdout), param_file
+        )
 
-        # Check first FOF group
+        # Check first FOF group after the first snapshot
         assert len(all_executions) >= 4, "Should have at least 4 executions"
         first_fof = all_executions[:4]
 

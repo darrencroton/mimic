@@ -4,6 +4,9 @@ Full Pipeline Integration Test
 
 Validates: Complete Mimic execution from input to output
 
+Tests that only need a run use default_run_file(), so they run on every package; the
+tests that read binary output skip on a horizontal package, whose runs are HDF5-only.
+
 This test validates that the full Mimic pipeline executes successfully:
 - Reads parameter file correctly
 - Loads merger tree data
@@ -31,10 +34,13 @@ from framework import (
     TEST_DATA_DIR,
     check_no_memory_leaks,
     core_input_file,
+    default_run_file,
     ensure_output_dirs,
     run_mimic,
     run_mimic_fresh,
     run_test_suite,
+    selected_package_is_horizontal,
+    skip_if_selected_package_is_horizontal,
 )
 
 # Ensure output directories exist before any tests run
@@ -51,7 +57,7 @@ def test_basic_execution():
     print("Testing basic Mimic execution...")
 
     # Run Mimic on test parameter file
-    param_file = core_input_file("test_binary.yaml")
+    param_file = default_run_file()
     assert param_file.exists(), f"{RED}Test parameter file not found: {param_file}{NC}"
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -74,6 +80,7 @@ def test_output_files_created():
     Validates: Output file generation
     """
     print("Testing output file creation...")
+    skip_if_selected_package_is_horizontal("binary galaxy output")
 
     # Expected output location (from test_binary.yaml: writes to binary/)
     # Binary format uses redshift-based naming: model_z{redshift}_{filenr}
@@ -105,7 +112,7 @@ def test_output_directory_created_if_missing():
     """
     print("Testing automatic output directory creation...")
 
-    source_param_file = core_input_file("test_binary.yaml")
+    source_param_file = default_run_file()
     assert (
         source_param_file.exists()
     ), f"{RED}Test parameter file not found: {source_param_file}{NC}"
@@ -129,7 +136,12 @@ def test_output_directory_created_if_missing():
             print(f"STDERR:\n{stderr}")
             assert False, f"{RED}Mimic failed to create missing output directory{NC}"
 
-        output_file = output_dir / "model_z0.000_0"
+        if selected_package_is_horizontal():
+            # A horizontal run names each partition file after the snapshot it holds.
+            snapnum = int(config["output"]["snapshot_list"][0])
+            output_file = output_dir / f"model_{snapnum:03d}.hdf5"
+        else:
+            output_file = output_dir / "model_z0.000_0"
         metadata_dir = output_dir / "metadata"
 
         assert output_dir.exists(), f"{RED}Output directory not created: {output_dir}{NC}"
@@ -151,7 +163,7 @@ def test_no_memory_leaks():
     print("Testing for memory leaks...")
 
     # Run Mimic; the allocator's leak report goes to the run's own output
-    param_file = core_input_file("test_binary.yaml")
+    param_file = default_run_file()
     returncode, stdout, stderr = run_mimic(param_file)
     assert returncode == 0, f"{RED}Mimic execution failed{NC}"
 
@@ -168,6 +180,7 @@ def test_output_loadable():
     Validates: Output format integrity
     """
     print("Testing output file structure...")
+    skip_if_selected_package_is_horizontal("binary galaxy output")
 
     # Expected output file (test_binary.yaml writes to binary/)
     # Binary format uses redshift-based naming: model_z{redshift}_{filenr}
@@ -195,8 +208,10 @@ def test_stdout_content():
     Test that Mimic logs its key run milestones
 
     Expected: startup, processing, and completion milestones in output
-    Validates: the run-lifecycle messages emitted in src/core/main.c and
-               src/core/vertical_driver.c stay present and stable
+    Validates: the run-lifecycle messages emitted in src/core/main.c and the
+               selected package's driver (src/core/vertical_driver.c, or
+               src/core/horizontal_driver.c for a horizontal package) stay present
+               and stable
 
     Only milestones that appear in both default and verbose modes are checked,
     because run_mimic() runs with --verbose (which replaces the default
@@ -204,14 +219,19 @@ def test_stdout_content():
     """
     print("Testing stdout content...")
 
-    param_file = core_input_file("test_binary.yaml")
+    param_file = default_run_file()
     returncode, stdout, stderr = run_mimic(param_file)
     assert returncode == 0, f"{RED}Mimic execution failed{NC}"
+
+    if selected_package_is_horizontal():
+        driver_begins = "Opened horizontal run"  # horizontal driver has opened the dataset
+    else:
+        driver_begins = "Processing 1 input file"  # vertical driver begins
 
     output_combined = stdout + stderr
     for milestone in (
         "Mimic Galaxy Evolution Framework",  # startup banner
-        "Processing 1 input file",  # vertical driver begins
+        driver_begins,
         "Mimic completed successfully",  # clean completion
     ):
         assert milestone in output_combined, f"{RED}Missing run milestone: '{milestone}'{NC}"
@@ -245,7 +265,7 @@ def test_memory_profile_survives_quiet_mode():
     """
     print("Testing memory profile under --quiet...")
 
-    param_file = core_input_file("test_binary.yaml")
+    param_file = default_run_file()
     returncode, stdout, stderr = run_mimic(param_file, extra_args=["--quiet"])
     assert returncode == 0, f"{RED}Mimic execution failed under --quiet{NC}"
 

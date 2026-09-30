@@ -49,9 +49,9 @@ from framework import (
     find_nonfinite,
     load_binary_halos,
     load_hdf5_halos,
-    resolve_sim_config_path,
     run_mimic_fresh,
     run_test_suite,
+    selected_package_is_horizontal,
 )
 from output_schema import load_schema
 
@@ -82,32 +82,6 @@ def gravity_code_units_from_schema(schema):
 # process establishes that guarantee for every test in the suite.
 _regenerated_output = None
 _regenerated_format = None
-
-
-def selected_package_writes_binary():
-    """
-    Whether the selected simulation package can produce binary output.
-
-    A horizontal package cannot: the driver rejects any output format but
-    HDF5 at configuration time, so the generated ``test_binary.yaml`` is invalid
-    by construction for it and every check below would fail on a run that never
-    happened. The effective processing order is read exactly as the parser
-    resolves it -- an explicit ``input.processing_order`` in the run file wins,
-    otherwise the simulation config the run file points at -- so a package is
-    identified by its own declaration rather than by name.
-    """
-    param_file = core_input_file("test_binary.yaml")
-    with open(param_file) as handle:
-        config = yaml.safe_load(handle)
-
-    order = (config.get("input") or {}).get("processing_order")
-    if order is None:
-        sim_config_path = resolve_sim_config_path(config["simulation"]["config"], param_file)
-        with open(sim_config_path) as handle:
-            sim_config = yaml.safe_load(handle)
-        order = ((sim_config or {}).get("input") or {}).get("processing_order")
-
-    return order != "horizontal"
 
 
 def first_requested_output_snapshot(param_file):
@@ -148,7 +122,7 @@ def regenerate_output():
     """
     global _regenerated_output, _regenerated_format
     if _regenerated_output is None:
-        if selected_package_writes_binary():
+        if not selected_package_is_horizontal():
             output_file = TEST_DATA_DIR / "output" / "binary" / "model_z0.000_0"
             param_file = core_input_file("test_binary.yaml")
             output_format = "binary"
