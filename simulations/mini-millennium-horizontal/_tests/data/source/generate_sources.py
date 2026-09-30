@@ -7,20 +7,20 @@ Run from the repository root:
 
 Deterministic and idempotent: re-running reproduces byte-identical source files.
 The record layout is taken from
-``scripts/convert/adapters/source_inventory.LHALO_FIELDS`` (the shipped 104-byte
+``convert/mimic-convert/adapters/source_inventory.LHALO_FIELDS`` (the shipped 104-byte
 L-Halo record), not hand-counted. ``../regenerate.sh`` converts each source with
-``scripts/convert/convert_trees.py`` into the dataset directory of the same name.
+``convert/mimic-convert/convert_trees.py`` into the dataset directory of the same name.
 
 Each source is one L-Halo file holding one tree, and each tree is one retention
 case the horizontal driver must handle:
 
-- ``trees_worked_graph.0`` -- the worked five-halo mixed-gap graph of
-  docs/dev/MIMIC-V3-CONSUMER-DESIGN-REVIEW.md ("A worked mixed-gap graph"),
-  row for row. Snapshots 0-4; E(4) <- D(2) <- {A(0), B(1), C(1)}; A -> D and
-  D -> E are gaps of span 2, D -> E crossing the empty snapshot 3; at snapshot 1
-  B is the FoF central and C its satellite. D's chain spans two snapshots, A's
-  NextProgenitor points forward to B, B's NextProgenitor stays inside snapshot 1,
-  and snapshot 1 holds no halo with a progenitor while snapshot 0 is retained.
+- ``trees_worked_graph.0`` -- the worked five-halo mixed-gap graph, the
+  reference case the retention tests pin by hand. Snapshots 0-4; E(4) <- D(2) <-
+  {A(0), B(1), C(1)}; A -> D and D -> E are gaps of span 2, D -> E crossing the
+  empty snapshot 3; at snapshot 1 B is the FoF central and C its satellite. D's
+  chain spans two snapshots, A's NextProgenitor points forward to B, B's
+  NextProgenitor stays inside snapshot 1, and snapshot 1 holds no halo with a
+  progenitor while snapshot 0 is retained.
 - ``trees_three_snapshot_chain.0`` -- snapshots 0-3; D(3) has progenitors P0(0),
   P1(1) and P2(2), chained in that order, so one progenitor chain spans three
   snapshots and every generation is retained until snapshot 3. Every progenitor
@@ -42,7 +42,7 @@ import sys
 from pathlib import Path
 
 _REPO = Path(__file__).resolve().parents[5]
-sys.path.insert(0, str(_REPO / "scripts" / "convert"))
+sys.path.insert(0, str(_REPO / "convert" / "mimic-convert"))
 from adapters.source_inventory import LHALO_FIELDS, LHALO_RECORD_BYTES  # noqa: E402
 
 SOURCE_DIR = Path(__file__).parent

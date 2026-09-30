@@ -7,10 +7,10 @@ The committed fixtures (../data/, converted by ../data/regenerate.sh from the
 L-Halo sources ../data/source/generate_sources.py writes) are run end to end
 through the real reader and driver, and each test pins, by hand:
 
-  - the design review's worked five-halo mixed-gap graph
-    (docs/dev/MIMIC-V3-CONSUMER-DESIGN-REVIEW.md, "A worked mixed-gap graph"):
-    that the committed fixture is that graph, the retention horizon and release
-    point of every generation, the expected inheritance and every output row;
+  - the worked five-halo mixed-gap graph (``trees_worked_graph.0``, defined in
+    ../data/source/generate_sources.py): that the committed fixture is that
+    graph, the retention horizon and release point of every generation, the
+    expected inheritance and every output row;
   - a progenitor chain spanning three snapshots, with every progenitor at row 0
     of its own slab so a lookup naming a progenitor by row alone would mistake
     the main branch;
@@ -30,7 +30,7 @@ trees: at a snapshot between a halo and its gapped descendant, only the galaxies
 of halos that exist there (the galaxy of a halo whose descendant skips the
 snapshot is emitted at its own snapshot and next at the descendant's). That is
 what this test pins; the measured vertical/horizontal comparison lives in the
-runtime plan's real-data parity gate, not here.
+real-data parity gate (../scientific/test_cross_format_identity.py), not here.
 
 Row expectations hold for the physics-free halos-only model only; under another
 model those tests skip and the lifecycle tests still run.

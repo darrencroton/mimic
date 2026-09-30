@@ -26,11 +26,11 @@ ln -s /path/to/shin-uchuu-subset-ascii simulations/shin-uchuu-ascii/snapshots
 
 ## Data provenance
 
-Source: `/fred/oz214/simulations/uchuu/shinuchuu/mergertrees` on OzSTAR — 2744 `tree_*.dat` files, 11.61 TB, Consistent-Trees ASCII format, 70 snapshots. Cosmology (Ωm 0.3089, ΩΛ 0.6911, h 0.6774) is the Uchuu/Planck-2015 family shared with `micro-uchuu-ascii`; particle mass (8.97×10⁵ Msun/h) and box size (140 Mpc/h) are specific to Shin-Uchuu. The subset was extracted with `scripts/convert/subset.py`, which selects whole forests without reading the bulk tree data, then copies only the selected byte ranges.
+Source: `/fred/oz214/simulations/uchuu/shinuchuu/mergertrees` on OzSTAR — 2744 `tree_*.dat` files, 11.61 TB, Consistent-Trees ASCII format, 70 snapshots. Cosmology (Ωm 0.3089, ΩΛ 0.6911, h 0.6774) is the Uchuu/Planck-2015 family shared with `micro-uchuu-ascii`; particle mass (8.97×10⁵ Msun/h) and box size (140 Mpc/h) are specific to Shin-Uchuu. The subset was extracted with `convert/mimic-convert/subset.py`, which selects whole forests without reading the bulk tree data, then copies only the selected byte ranges. The same subset was the rehearsal-scale dataset for the production conversion; how that conversion was run is in [`shin-uchuu/README.md`](../shin-uchuu/README.md#how-the-production-dataset-was-made).
 
 ## Cross-format sibling
 
-- `simulations/shin-uchuu/` — the horizontal HDF5 conversion of the full production catalog, produced by `scripts/convert/` using this reader's value conventions as the reference.
+- `simulations/shin-uchuu/` — the horizontal HDF5 conversion of the full production catalog, produced by `convert/mimic-convert/` using this reader's value conventions as the reference.
 
 **Mirror maintenance:** `halo_properties.yaml` is an intentional mirror of `simulations/shin-uchuu/halo_properties.yaml` (both use the ctrees RawHalo contract, adjusted only for the 140 Mpc/h box's `Pos` range). Keep them in sync.
 

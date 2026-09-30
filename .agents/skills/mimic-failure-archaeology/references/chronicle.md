@@ -19,7 +19,7 @@ Full record backing `SKILL.md`. Each incident is recorded as symptom → root ca
 | Style sweep 1–18 | 2026-06 | Eighteen numbered style-sweep batches with debt checkpoints, leading into v1.0 |
 | v1.0 | 2026-06-29 | Release tag (`git tag`: `v1.0`) |
 | Dynamic timestep + precision | 2026-06/07 | Dynamic substeps shipped (incident 7); precision policy consolidated (incidents 2–4) |
-| Snapshot planning | 2026-07 | Horizontal driver and related plans in progress — see `docs/dev/MIMIC-DEVELOPMENT-PATHWAY.md` |
+| Snapshot planning | 2026-07 | Horizontal driver and related plans in progress (status perishable) |
 
 Tags marking era boundaries: `v0.1-beta`, `v0.5`, `v0.9-pre-release`, `v1.0` (dates via `git show -s --format='%h %ad %s' --date=short <tag>`).
 
@@ -109,15 +109,15 @@ Tags marking era boundaries: `v0.1-beta`, `v0.5`, `v0.9-pre-release`, `v1.0` (da
 
 ## Incident 9 — fix_flybys z=0 topology divergence (`b727fd36`, accepted then reversed)
 
-**Symptom.** The three micro-uchuu packages (binary, HDF5, ASCII) were believed to produce byte-identical output at every snapshot EXCEPT the final one. **That belief was itself never fully checked and was found to be false at the `sage16` galaxy-output level** (a separate, pre-existing float32-ULP `Mvir` divergence between readers, present at every snapshot and unrelated to `fix_flybys` — addendum §3.4); it may have held for raw halo output, which was never separately confirmed either.
+**Symptom.** The three micro-uchuu packages (binary, HDF5, ASCII) were believed to produce byte-identical output at every snapshot EXCEPT the final one. **That belief was itself never fully checked and was found to be false at the `sage16` galaxy-output level** (a separate, pre-existing float32-ULP `Mvir` divergence between readers, present at every snapshot and unrelated to `fix_flybys`: about 2 × 10⁻⁸ relative in `Mvir` between the ASCII and HDF5 readers, which remains and which `sage16` amplifies); it may have held for raw halo output, which was never separately confirmed either.
 
 **Root cause.** The Consistent-Trees ASCII reader's `fix_flybys` step collapsed multiple z=0 FoF groups (flyby halos, negated MostBoundID) into one; the L-Halo binary and HDF5 readers never did.
 
 **Evidence.** Commit `b727fd36` documented the divergence and the original acceptance rationale, as a ~10–25% Type-0 divergence measured on micro-Uchuu.
 
-**Reversal.** Refuted 2026-09-09: Shin-Uchuu's percolating forests put 33.0% of the z=0 galaxy population into one bogus FoF group, truncating the Type-0 halo mass function by ~2 dex and corrupting the final timestep's physics. "Accepted at the scale we tested" was not "accepted" — see `docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md` for the full diagnosis.
+**Reversal.** Refuted 2026-09-09: Shin-Uchuu's percolating forests put 33.0% of the z=0 galaxy population into one bogus FoF group, truncating the Type-0 halo mass function by ~2 dex and corrupting the final timestep's physics. The measurement: one FoF group held 103,362,317 of 313,317,969 z=0 galaxies (33.0%). `fix_flybys` demoted every FoF central except the most massive at each forest's final snapshot to a satellite of that survivor, negating their `MostBoundID`; on percolating forests that merges unrelated FoF groups. "Accepted at the scale we tested" was not "accepted".
 
-**Status.** `fix_flybys()` has been deleted from the C reader and the Python converter (no runtime switch); the horizontal format bumped to `format_version = 2` with v1 rejected outright. A standalone corrupt-input guard, `verify_fof_centrals_present()`, replaces the one genuine contract `fix_flybys` also carried (a forest's final snapshot must have at least one FoF central). The affected production dataset (Shin-Uchuu v1) is void and is being re-converted. Do not reintroduce the demotion, with or without a switch, without a fresh plan-level decision; see the `mimic-simulations-and-readers` skill.
+**Status.** `fix_flybys()` has been deleted from the C reader and the Python converter (no runtime switch); the horizontal format bumped to `format_version = 2` with v1 rejected outright. A standalone corrupt-input guard, `verify_fof_centrals_present()`, replaces the one genuine contract `fix_flybys` also carried (a forest's final snapshot must have at least one FoF central). The affected production dataset (Shin-Uchuu v1) was void and has been re-converted to version 2. Verification after the fix: `micro-uchuu-ascii` Type-0 496,374, total 557,519, zero negative `MostBoundID`. Do not reintroduce the demotion, with or without a switch, without a fresh plan-level decision; see the `mimic-simulations-and-readers` skill.
 
 ## Incident 10 — Deliberate retirements (not failures)
 

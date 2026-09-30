@@ -13,7 +13,7 @@
 # simulations/shin-uchuu-ascii/ and simulations/shin-uchuu/ (horizontal_hdf5) are
 # a cross-format pair, mirroring the micro-uchuu-ascii / micro-uchuu-horizontal
 # pair: the horizontal package is produced from this ASCII catalog by
-# scripts/convert/, so the shared fields here must stay in sync with
+# convert/mimic-convert/, so the shared fields here must stay in sync with
 # simulations/shin-uchuu/halo_properties.yaml.
 #
 # Key unit difference from the L-Halo binary format: M_Crit200 carries the

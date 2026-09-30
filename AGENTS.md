@@ -56,7 +56,7 @@ make tests summary            # Same, showing only warnings/failures/skips/outco
 
 ## Architecture Orientation
 
-Full architecture, data flow, and invariants: `mimic-architecture-contract` and `docs/DEVELOPER-GUIDE.md`. Consult `docs/dev/` before structural changes.
+Full architecture, data flow, and invariants: `mimic-architecture-contract` and `docs/DEVELOPER-GUIDE.md`. Structural work is planned under `docs/dev/` (the owner's development pathway); plans there are ephemeral and never a source of facts for code or docs.
 
 ```text
 src/
@@ -70,11 +70,15 @@ src/
 models/<model>/      Self-contained package: input/ run YAMLs, model_properties.yaml, modules/,
                      shared/ helpers, plots/  (sage16, sham, halos-only)
 simulations/<sim>/   Catalog halo_properties.yaml, tree fixtures, snapshot lists
-                     vertical: {mini-,}millennium, {micro,mini}-uchuu[-ascii|-hdf5], uchuu,
-                     shin-uchuu-ascii · horizontal: micro-uchuu-horizontal, shin-uchuu
+                     vertical: mini-millennium, millennium, micro-uchuu, micro-uchuu-ascii,
+                     micro-uchuu-hdf5, mini-uchuu, uchuu, shin-uchuu-ascii
+                     horizontal v2: micro-uchuu-horizontal, shin-uchuu
+                     horizontal v3: mini-millennium-horizontal, micro-uchuu-lhalo-horizontal,
+                     micro-uchuu-hdf5-horizontal, millennium-horizontal, mini-uchuu-horizontal
 build/generated/     Build-time generated files (git_version.h, test lists, module registry)
 tests/               Unit, integration, scientific tests
 plot/mimic-plot/     Plotting system (registry is model-local)
+convert/mimic-convert/  Merger-tree converters and the horizontal HDF5 format specification
 ```
 
 **Load-bearing boundaries** (details in the architecture skill):
@@ -105,8 +109,9 @@ Full rules: `docs/STYLE-GUIDE.md` (human readability) and the formatter (mechani
 - `docs/USER-GUIDE.md` — installation, run configuration, output, plotting, troubleshooting
 - `docs/DEVELOPER-GUIDE.md` — architecture, modules, simulations, properties, tests, generated metadata
 - `docs/STYLE-GUIDE.md` — naming, comments, metadata, tests, review conventions
-- `docs/dev/HORIZONTAL-HDF5-FORMAT.md` — frozen horizontal HDF5 input contract (`format_version` ratchet)
-- `docs/dev/` — architecture planning documents; read before structural changes
+- `convert/mimic-convert/README.md` — merger-tree converter manual (producing horizontal HDF5 input)
+- `convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md` — horizontal HDF5 input contract (`format_version` ratchet)
+- `docs/dev/` — Mimic's own development pathway (plans and briefs); not user documentation
 - `plot/mimic-plot/README.md` — plotting manual · `tests/README.md` — test-suite quick reference
 - `models/<model>/README.md` — package science scope, pipeline, parameters, plots, references
 - `simulations/<sim>/README.md` — data, units, snapshot lists, maintenance notes

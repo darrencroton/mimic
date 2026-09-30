@@ -303,7 +303,7 @@ def _expect_role_type_error(catalog_contract, expected_message):
 
 
 def test_tree_link_core_roles_accept_long_long_catalog_fields():
-    # R0-2(a): a wide horizontal package stores its links as long long; the raw
+    # A version 3 horizontal package stores its links as long long; the raw
     # record keeps that storage and every link accessor returns int64_t.
     halo_props, reference_units = _core_halo_props_and_reference_units()
     catalog_info = normalize_catalog_contract(
@@ -380,7 +380,7 @@ def test_unitless_catalog_field_defaults_to_dimensionless():
 
 
 def test_int_tree_links_still_generate_int64_accessors():
-    # Vertical packages keep int storage (R0-2(a)); the accessor widens it.
+    # Vertical packages keep int storage; the accessor widens it.
     halo_props, reference_units = _core_halo_props_and_reference_units()
     catalog_info = normalize_catalog_contract(
         halo_props, _synthetic_role_catalog("int"), reference_units

@@ -4,21 +4,21 @@
  *
  * Reads two horizontal HDF5 contracts, one `snapshot_NNN.h5` file per snapshot
  * under MimicConfig.SimulationDir, dispatching on each file's `format_version`
- * (runtime plan Gate R0-1(a)):
+ * as follows:
  *
- *   - version 2, the frozen contract of docs/dev/HORIZONTAL-HDF5-FORMAT.md:
+ *   - version 2, the frozen contract of convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md:
  *     exactly the `/header` and `/halos` groups, int32 adjacent links. Its
  *     validation path is exactly what it was before version 3 was added.
- *   - version 3, docs/dev/HORIZONTAL-HDF5-FORMAT.md (section "Version 3"): `/header`,
+ *   - version 3, convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md (section "Version 3"): `/header`,
  *     `/halos` and `/schema`, int64 links resolved through three explicit
  *     target-snapshot columns (gaps allowed), a `SourceHaloID` row key, and
  *     producer-declared payload units that `/schema` records and the compiled
  *     simulation package must agree with.
  *
- * Version 1 data (from before `fix_flybys` was removed;
- * docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md) and any other version are
- * rejected outright, and a dataset never mixes versions: snapshot 0 fixes the
- * version every other file must declare.
+ * Version 1 data and any other version are rejected outright: version 1 was
+ * written by a converter step (`fix_flybys`) that merged unrelated FoF groups at
+ * each forest's final snapshot, so no version 1 dataset is valid input. A
+ * dataset never mixes versions: snapshot 0 fixes the version every file declares.
  *
  * open_run validates the whole dataset and publishes run-scoped metadata plus a
  * per-snapshot halo-count table, snapshot_halo_count serves that table, and
@@ -47,7 +47,7 @@
  * agreement with the package's compiled declarations (generated
  * catalog_field_metadata.inc) for every field the package declares. `/schema`
  * fields the package does not declare are validated for internal consistency
- * and never materialised (Gate R0-8(a)). No object under the root, `/halos` or
+ * and never materialised. No object under the root, `/halos` or
  * `/schema` may be a soft or external link.
  *
  * Link validation at load checks index ranges -- for version 3 against the
@@ -85,10 +85,9 @@
 #include "horizontal/reader.h"
 #include "types.h"
 
-/* Supported on-disk contract version (docs/dev/HORIZONTAL-HDF5-FORMAT.md).
-   Bumped 1 -> 2 when fix_flybys was removed (MostBoundID is always positive
-   now; docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md, decision D3). There is
-   no legacy-read path: a version 1 file is rejected outright. */
+/* Supported on-disk contract version (convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md).
+   Version 1 files are rejected outright, with no legacy read path: their converter's
+   `fix_flybys` step merged unrelated FoF groups at each forest's final snapshot. */
 #define HORIZONTAL_HDF5_FORMAT_VERSION 2
 
 /* Halos read per hyperslab during the data scans. Fixed by construction so scan
@@ -99,7 +98,7 @@
 #define HORIZONTAL_HDF5_PATH_LEN (MAX_STRING_LEN + 32)
 
 /* The empty-dataset sentinel the converter stamps when a dataset holds no halos
-   in any snapshot (scripts/convert/links.py). Local names for the shared
+   in any snapshot (convert/mimic-convert/links.py). Local names for the shared
    contract values in horizontal/reader.h, which the identity-bounds check also
    consults. */
 #define HORIZONTAL_HDF5_EMPTY_N_FORESTS HORIZONTAL_EMPTY_N_FORESTS
@@ -194,7 +193,7 @@ static const struct horizontal_h5_dataset_spec HORIZONTAL_H5_HALO_DATASETS[] = {
   (sizeof(HORIZONTAL_H5_HALO_DATASETS) / sizeof(HORIZONTAL_H5_HALO_DATASETS[0]))
 
 /* ---------------------------------------------------------------------------
- * Version 3 contract tables (docs/dev/HORIZONTAL-HDF5-FORMAT.md, section "Version 3")
+ * Version 3 contract tables (convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md, section "Version 3")
  *
  * Like the version 2 tables above, these state the format, not a package: the
  * package's own declarations are compared against a file's `/schema` only for
@@ -1480,7 +1479,7 @@ static void horizontal_h5_v3_validate_dataset(hid_t group, const char *path, con
  *
  * Runs over every declaration, whether or not the package declares the field:
  * an undeclared extra is still validated against its own declaration, never
- * silently trusted (Gate R0-8(a)).
+ * silently trusted.
  */
 static void horizontal_h5_v3_validate_halo_datasets(hid_t file, const char *path, int64_t n_halos,
                                                     const struct horizontal_h5_schema *schema) {
@@ -1537,12 +1536,12 @@ static void horizontal_h5_v3_validate_halo_datasets(hid_t file, const char *path
  * `type`, `units` and `h_convention`, so a wrong-by-10^10 mass is a startup
  * failure rather than a silent result. Topology and identity fields are never
  * in `/schema`; a package field bound to one of them is checked against the
- * format's fixed table instead, which is where Gate R0-2(a)'s `long long` link
- * storage is enforced: an `int` link would narrow version 3's int64 indices.
+ * format's fixed table instead, which is where `long long` link storage is
+ * enforced: an `int` link would narrow version 3's int64 indices.
  *
  * `/schema` fields the package does not declare are not consulted here; they
  * are validated for internal consistency by the structural checks and never
- * materialised (Gate R0-8(a)).
+ * materialised.
  */
 static void horizontal_h5_v3_validate_package(const struct horizontal_h5_schema *schema,
                                               const char *path) {
@@ -1826,7 +1825,7 @@ static void horizontal_h5_validate_read_list_against_format(void) {
  * @brief   Fill the reader-owned identity arrays from one snapshot file.
  *
  * ForestIndex and HaloRankInForest are horizontal-format identity metadata
- * (docs/dev/HORIZONTAL-HDF5-FORMAT.md), not struct RawHalo members: they are
+ * (convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md), not struct RawHalo members: they are
  * read directly by dataset name into slab-owned arrays, independent of
  * halo_properties.yaml and the generated property list that fills struct
  * RawHalo above.
@@ -1883,7 +1882,7 @@ static const struct horizontal_h5_link_spec HORIZONTAL_H5_LINKS[] = {
 
 /* The link validators below read each of these members through offsetof() and
    horizontal_h5_link_value(), which knows exactly two storage widths: the
-   generator admits `int` and `long long` for tree_link roles (Gate R0-2(a)).
+   generator admits `int` and `long long` for tree_link roles.
    Any other width fails to compile rather than validating a truncated or
    over-read value. */
 #define HORIZONTAL_H5_LINK_WIDTH_OK(field)                                                         \
@@ -2336,7 +2335,7 @@ static void open_run_horizontal_hdf5(struct HorizontalRunInfo *info) {
       FATAL_ERROR("%s: could not open the file as HDF5", path);
     }
 
-    /* Version dispatch before any per-version check (Gate R0-1(a)). A file
+    /* Version dispatch before any per-version check. A file
        whose version cannot be read goes down its dataset's path, whose own
        structure and header checks then name exactly what is wrong. */
     int32_t file_version = 0;
@@ -2429,12 +2428,10 @@ static void open_run_horizontal_hdf5(struct HorizontalRunInfo *info) {
                   path, header.scale_factor, snap, MimicConfig.AA[snap]);
     }
 
-    /* Physical header agreement with the configured simulation (dual-driver
-       Phase 5 item 8). A rounding tolerance, not a scientific one -- see
-       horizontal_h5_physical_value_agrees(). particle_mass_msun_h is compared by
-       multiplying the configured value up to native units, matching the
-       producer's own operation (scripts/convert/hdf5_writer.py), never by
-       dividing the header down. */
+    /* Physical header agreement with the configured simulation. A rounding tolerance, not a
+       scientific one -- see horizontal_h5_physical_value_agrees(). particle_mass_msun_h is compared
+       by multiplying the configured value up to native units, matching the producer's own operation
+       (convert/mimic-convert/hdf5_writer.py), never by dividing the header down. */
     horizontal_h5_check_physical_value(path, "box_size_mpc_h", header.box_size_mpc_h,
                                        MimicConfig.BoxSize);
     horizontal_h5_check_physical_value(path, "omega_matter", header.omega_matter,
@@ -2582,7 +2579,7 @@ static void open_run_horizontal_hdf5(struct HorizontalRunInfo *info) {
   }
 
   /* The identity bounds the format requires to be checked at startup
-     (docs/dev/HORIZONTAL-HDF5-FORMAT.md), verified before anything is published so
+     (convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md), verified before anything is published so
      an unencodable dataset never reaches a caller. */
   struct HorizontalRunInfo candidate;
   candidate.snapshot_count = snapshot_count;
@@ -2700,7 +2697,7 @@ static void load_slab_horizontal_hdf5(int64_t snapnum, struct SnapshotSlab *slab
     horizontal_h5_fill_identity(file, path, n_halos, forest_index, halo_rank_in_forest);
 
     if (is_v3) {
-      /* Gate R0-3(a): the three target-snapshot columns and SourceHaloID are
+      /* The three target-snapshot columns and SourceHaloID are
          format metadata held in reader-owned slab arrays, read whole straight
          into those arrays -- they are the slab, so nothing is staged. */
       for (int link = 0; link < HORIZONTAL_H5_V3_TARGETED_LINKS; link++) {

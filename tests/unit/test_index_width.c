@@ -50,7 +50,7 @@ static int failed = 0;
 
 /**
  * @test    test_link_accessors_take_and_return_int64
- * @brief   Every generated tree-link accessor is int64_t in and out (R0-2(a))
+ * @brief   Every generated tree-link accessor is int64_t in and out
  */
 int test_link_accessors_take_and_return_int64(void) {
   const struct HaloInputView view = {NULL, 0};
@@ -197,8 +197,8 @@ int test_index_fields_are_signed_int64(void) {
   struct InheritanceDescendant descendant;
 
   TEST_ASSERT(IS_SIGNED_64(halo.HaloNr), "struct Halo.HaloNr is a signed 64-bit index");
-  TEST_ASSERT(IS_SIGNED_64(aux.FirstHalo), "struct HaloAuxData.FirstHalo is int64 (R0-4(a))");
-  TEST_ASSERT(IS_SIGNED_64(aux.NHalos), "struct HaloAuxData.NHalos is int64 (R0-4(a))");
+  TEST_ASSERT(IS_SIGNED_64(aux.FirstHalo), "struct HaloAuxData.FirstHalo is int64");
+  TEST_ASSERT(IS_SIGNED_64(aux.NHalos), "struct HaloAuxData.NHalos is int64");
   TEST_ASSERT(IS_SIGNED_64(horizontal_aux.FirstHalo),
               "struct HorizontalHaloAux.FirstHalo is int64");
   TEST_ASSERT(IS_SIGNED_64(horizontal_aux.NHalos), "struct HorizontalHaloAux.NHalos is int64");

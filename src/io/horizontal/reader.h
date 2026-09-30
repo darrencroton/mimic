@@ -15,7 +15,7 @@
  *
  * The horizontal front end reads one snapshot at a time: the working set
  * of a run is one snapshot's halo population instead of one forest's history.
- * See docs/dev/HORIZONTAL-HDF5-FORMAT.md (versions 2 and 3) for the on-disk
+ * See convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md (versions 2 and 3) for the on-disk
  * contracts this interface consumes.
  *
  * This is deliberately a second, small vtable rather than a widening of
@@ -60,7 +60,8 @@ struct HorizontalRunInfo {
 /**
  * Empty-dataset sentinel for the run-scoped identity bounds. The converter
  * emits this pair when no snapshot in the dataset contains a halo, so there is
- * no forest count and no rank to report (scripts/convert/links.py:468).
+ * no forest count and no rank to report (`compute_identity` and `_max_rank` in
+ * convert/mimic-convert/links.py).
  */
 #define HORIZONTAL_EMPTY_N_FORESTS ((int64_t)0)
 #define HORIZONTAL_EMPTY_MAX_RANK ((int64_t)-1)
@@ -90,7 +91,7 @@ struct HorizontalRunInfo {
  * carry over.
  *
  * forest_index/halo_rank_in_forest are the UniqueGalaxyID identity components
- * the frozen format carries explicitly (docs/dev/HORIZONTAL-HDF5-FORMAT.md).
+ * the frozen format carries explicitly (convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md).
  * They live here rather than as struct RawHalo members or halo_properties.yaml
  * catalog fields: they are horizontal-format identity metadata, not catalog halo
  * properties, and this reader compiles under every selected simulation package
@@ -98,7 +99,7 @@ struct HorizontalRunInfo {
  * package's catalog would declare.
  *
  * The three target-snapshot columns and source_halo_id are version 3 format
- * metadata held the same way (runtime plan Gate R0-3(a)). Each *_snapshot entry
+ * metadata held the same way. Each *_snapshot entry
  * names the snapshot whose slab the matching RawHalo link indexes into, or is -1
  * exactly when that link is -1; load_slab has already validated both. They are
  * NULL for a version 2 slab, whose links are implicitly N+1 (Descendant), N-1
@@ -190,8 +191,8 @@ const struct HorizontalReader *horizontal_reader_at(size_t index);
  * @return  Non-zero when the bounds are valid, zero otherwise.
  *
  * The identity bounds the frozen format requires to be checked at startup
- * (docs/dev/HORIZONTAL-HDF5-FORMAT.md:126-130): every halo rank must fit below the
- * multiplier, and multiplier * (n_forests_total + 1) must fit in int64_t (the
+ * (convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md, "Galaxy Identity Encoding"): every halo rank
+ * must fit below the multiplier, and multiplier * (n_forests_total + 1) must fit in int64_t (the
  * + 1 reserves the encoder's forest offset). A non-positive multiplier is
  * rejected before any division is performed, so the check itself can neither
  * divide by zero nor overflow.
@@ -204,7 +205,7 @@ int horizontal_identity_bounds_valid(const struct HorizontalRunInfo *info, int64
 /* Dispatchers (horizontal/interface.c). Each verifies that the reader implements
    the hook it needs before calling it, so a reader may register with a subset
    of the hooks implemented. The reader is passed explicitly rather than read
-   from a global: the configuration seam that stores it is Phase 4b Slice 4. */
+   from a global, so unit tests can drive any registered reader directly. */
 void horizontal_reader_open_run(const struct HorizontalReader *reader,
                                 struct HorizontalRunInfo *info);
 void horizontal_reader_close_run(const struct HorizontalReader *reader);

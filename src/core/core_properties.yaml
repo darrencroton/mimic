@@ -142,9 +142,9 @@ halo_properties:
     init_value: 0.0
     output_source: copy_direct
     # A change in virial mass cannot exceed the largest mass Mvir's own range admits
-    # (1e16 Msun/h); recorded extreme -4.77e4 on mini-Uchuu files 0-15
-    # (MIMIC-GENERAL-HORIZONTAL-RUNTIME-ACCEPTANCE.md §13). Global: property names are
-    # unique across the core, simulation and model YAML sets, so no package overrides it.
+    # (1e16 Msun/h); the largest magnitude measured on mini-Uchuu files 0-15 is 4.77e4.
+    # Property names are global across the core, simulation and model YAML sets.
+    # No package can therefore override this range.
     range: [-1000000.0, 1000000.0]
 
   - name: CentralMvir

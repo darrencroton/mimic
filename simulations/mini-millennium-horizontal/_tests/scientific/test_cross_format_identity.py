@@ -8,9 +8,8 @@ and through the horizontal driver (``mini-millennium-horizontal``, a version 3
 conversion of those same eight files carrying 29,291 gapped descendant links),
 produce, for every output snapshot, identical ``UniqueGalaxyID`` sets and per-id
 byte-identical fields. Four legs: ``halos-only`` and ``sage16``, each with fixed
-and dynamic timesteps. This is the acceptance gate of the general horizontal
-runtime plan (docs/dev/MIMIC-GENERAL-HORIZONTAL-RUNTIME-IMPLEMENTATION-PLAN.md,
-Slice 6).
+and dynamic timesteps. It is the real-data evidence that the horizontal driver
+handles gapped (non-adjacent) links.
 
 The stages and every check live in ``tests/framework/parity_gate.py``; this file
 only pins what the package's data must be. It is a manual, dataset-present

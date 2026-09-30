@@ -212,7 +212,7 @@ def read_snapshot(index, snap, field=None):
     concatenated second copy of the snapshot ever exists. That matters most
     where it is largest: a horizontal run holds one snapshot's whole
     record set in a single partition file, and would otherwise hold that
-    snapshot twice at the moment it is read. (Since D5(a) such a run writes one
+    snapshot twice at the moment it is read. (Such a run writes one
     partition file per requested output snapshot rather than one for the whole
     run; the memory argument is unchanged, because it was always about one
     snapshot's records landing in one file.)

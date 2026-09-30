@@ -8,8 +8,8 @@
  * NextProgenitorSnapshot). The horizontal driver therefore retains a pool of
  * generations keyed by snapshot number and resolves every link through its
  * target-snapshot column. These tests drive the lookup directly with synthetic
- * generations built from the worked five-halo mixed-gap graph of
- * docs/dev/MIMIC-V3-CONSUMER-DESIGN-REVIEW.md, a chain spanning three snapshots,
+ * generations built from the worked five-halo mixed-gap graph defined in
+ * _tests/data/source/generate_sources.py, a chain spanning three snapshots,
  * and a same-snapshot NextProgenitor, and check the retention horizon each
  * generation is released by.
  *

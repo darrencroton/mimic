@@ -1,12 +1,14 @@
 # Millennium (sampled files 0-15) Halo Catalog Properties — horizontal HDF5 format version 3
 #
-# Runtime plan Slice 7 package (docs/dev/MIMIC-GENERAL-HORIZONTAL-RUNTIME-IMPLEMENTATION-PLAN.md).
+# Version 3 horizontal package for Millennium, converted from L-Halo binary
+# by convert/mimic-convert/convert_trees.py with the
+# simulations/millennium/converter_columns.yaml profile.
 # The package's compiled declarations are checked against the converter's own
 # /schema derivation for this route, and against the real converted dataset's
 # /schema when it is present, by _tests/integration/test_schema_conformance.py
 # (make tests-integration with this package selected).
 #
-# Every entry is a `/halos` dataset of docs/dev/HORIZONTAL-HDF5-FORMAT.md (section "Version 3").
+# Every entry is a `/halos` dataset of convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md (section "Version 3").
 # The payload fields declare exactly the type, units and h_convention the
 # converter's lhalo_binary route writes into each file's `/schema` when it
 # converts simulations/millennium/, and the reader aborts at open on any
@@ -16,12 +18,12 @@
 # The package covers a sampled subset: files trees_063.0-.15 of the 512 the
 # vertical package declares. See README.md.
 #
-# The five links are `long long` (Gate R0-2(a)): version 3 stores them as
+# The five links are `long long`: version 3 stores them as
 # int64, and the reader refuses a package whose link storage would narrow them.
 # They, SourceHaloID, the three target-snapshot columns and the
 # ForestIndex/HaloRankInForest identity arrays are governed by the format's
 # fixed table, not by `/schema`; the last six are reader-owned slab arrays
-# (Gate R0-3(a)) and are deliberately NOT declared here.
+# and are deliberately NOT declared here.
 #
 # Declaration order and declared output ranges mirror
 # simulations/millennium/halo_properties.yaml: the order fixes the output record's

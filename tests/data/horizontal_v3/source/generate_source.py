@@ -7,7 +7,7 @@ Run from the repository root:
 
 Deterministic and idempotent: re-running reproduces a byte-identical
 ``trees_fixture.0``. The record layout is taken from
-``scripts/convert/adapters/source_inventory.LHALO_FIELDS`` (the shipped 104-byte
+``convert/mimic-convert/adapters/source_inventory.LHALO_FIELDS`` (the shipped 104-byte
 L-Halo record), not hand-counted.
 
 The fixture is one L-Halo file of two trees over four snapshots (0-3), the
@@ -37,7 +37,7 @@ import sys
 from pathlib import Path
 
 _REPO = Path(__file__).resolve().parents[4]
-sys.path.insert(0, str(_REPO / "scripts" / "convert"))
+sys.path.insert(0, str(_REPO / "convert" / "mimic-convert"))
 from adapters.source_inventory import LHALO_FIELDS, LHALO_RECORD_BYTES  # noqa: E402
 
 OUT_PATH = Path(__file__).parent / "trees_fixture.0"

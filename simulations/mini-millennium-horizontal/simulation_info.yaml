@@ -1,6 +1,6 @@
 # mini-Millennium Simulation Metadata — horizontal HDF5 format version 3
 #
-# Complete package (runtime plan Slice 3; skeleton committed by Slice 2). The
+# Version 3 horizontal package for mini-Millennium, converted from L-Halo binary. The
 # cosmology, box size, particle mass and a_list are mini-Millennium's own
 # (simulations/mini-millennium/simulation_info.yaml and
 # mini-millennium.a_list), unchanged: the reader compares every file's five

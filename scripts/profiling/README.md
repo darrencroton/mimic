@@ -1,6 +1,6 @@
 # CPU profiling harness
 
-Component-level CPU attribution for a Mimic run, along the architectural boundaries in [`docs/VISION.md`](../../docs/VISION.md). This is the tooling that produced [`docs/dev/BENCHMARK-SAGE16-MINI-MILLENNIUM.md`](../../docs/dev/BENCHMARK-SAGE16-MINI-MILLENNIUM.md), committed so that the "re-measure before acting" instruction in [`docs/dev/OPTIMISATION-SPECTRUM.md`](../../docs/dev/OPTIMISATION-SPECTRUM.md) is actually executable.
+Component-level CPU attribution for a Mimic run, along the architectural boundaries in [`docs/VISION.md`](../../docs/VISION.md). This harness produced the project's component-level CPU profile of the default run (`sage16` on mini-Millennium; the "reference run" below), and it is committed so that profile can be re-measured. Any profile it produces is perishable: it describes one machine, one dataset and one commit, so re-measure on the code and data in front of you before acting on it.
 
 **Platform: macOS only.** Attribution depends on `/usr/bin/sample`, whose call-graph output carries the `file.c:LINE` annotations the whole method rests on. There is no Linux path here; see [Re-measuring on Linux](#re-measuring-on-linux).
 
@@ -11,7 +11,7 @@ Component-level CPU attribution for a Mimic run, along the architectural boundar
 ## Preconditions
 
 1. **Check the input data actually loads.** `simulations/<sim>/snapshots` is a gitignored symlink. If it points somewhere wrong the run still exits 0, processes zero trees, and finishes in ~0.08 s — a silent no-op that looks like a fast run. `run_wall.py` warns when a repeat reports no galaxy-pool high-water, which is the symptom; confirm a real run before trusting any timing.
-2. **Build with symbols.** The default `make` already uses `-g -O2`, which is what the published numbers describe. Record any deviation.
+2. **Build with symbols.** The default `make` already uses `-g -O2`, which is what the reference run used. Record any deviation.
 3. **Serialise everything.** Never run two `mimic` processes at once, and do not use the machine for anything else while measuring.
 
 ## Scripts
@@ -39,9 +39,9 @@ python3 scripts/profiling/attribute.py /tmp/samples /tmp/agg.json \
 
 `nm_index.py` writes to `scripts/profiling/nm_index.json` by default, which is exactly where `attribute.py` looks for it, so the two agree without being told. The index is a machine-local build artifact and is gitignored. Without it, frames the sampler could not annotate stay Unattributed, and `attribute.py` says so on stderr.
 
-Pass the **sampler-free** wall mean to `--wall-mean-s`, computed over `run_wall.py`'s repeats *excluding* repeat 0, which reads the tree files before the OS file cache is warm. The realised sampling interval is coarser than the nominal 1 ms (~1.27 ms in the published run, because deep stacks slow the sampler), so percentages must be converted to milliseconds using measured wall time, never by multiplying sample counts by the nominal interval.
+Pass the **sampler-free** wall mean to `--wall-mean-s`, computed over `run_wall.py`'s repeats *excluding* repeat 0, which reads the tree files before the OS file cache is warm. The realised sampling interval is coarser than the nominal 1 ms (~1.27 ms in the reference run, because deep stacks slow the sampler), so percentages must be converted to milliseconds using measured wall time, never by multiplying sample counts by the nominal interval.
 
-`--skip-first` drops the first sampled report for the same reason. The published run discarded the warm-up on both sides; say so whenever you report numbers.
+`--skip-first` drops the first sampled report for the same reason. The reference run discarded the warm-up on both sides; say so whenever you report numbers.
 
 `sample_runs.sh` refuses an output directory that already holds `sample_*.txt`, because `attribute.py` aggregates every report it finds and leftovers from a shorter previous collection would be silently mixed into the new profile. Move the old reports aside rather than deleting them.
 
@@ -57,13 +57,13 @@ The way this harness fails is not a crash. Each known failure produces a complet
 - **Reports with no `file:line` annotations at all**, which is what profiling a binary built without `-g` looks like. The mapped-fraction check has no premise to test there, so the absence is itself the failure.
 - **A large `Unattributed` share**, meaning whole binaries matched no rule. Configurable with `--max-unattributed-pct`.
 
-The symbol index is deliberately *not* fingerprinted against the binary. On a `-g` build it resolves essentially nothing — measured at 0.000% of self-samples on the published run, because `sample` annotates every frame the profile actually spends time in — so a stale index has no material blast radius. What matters is that annotations are present at all, which the second check above enforces directly.
+The symbol index is deliberately *not* fingerprinted against the binary. On a `-g` build it resolves essentially nothing — measured at 0.000% of self-samples on the reference run, because `sample` annotates every frame the profile actually spends time in — so a stale index has no material blast radius. What matters is that annotations are present at all, which the second check above enforces directly.
 
 ## Interpreting the result
 
 - **Per-component totals are trustworthy; per-line attribution inside a translation unit is not.** `-O2` folds static helpers into their enclosing function, so a hot "line" may be absorbing neighbouring inlined work. Confirm with a counter before optimising a specific line.
 - **Inclusive figures use an outermost-occurrence rule** so recursion is not multiply-counted, and must not be summed with their callees.
-- Sampling overhead was measured at +8.5% in the published run. It lands in the sampler, but stack-walk pauses are not uniform in call depth, so deeply recursive frames may be mildly over-represented.
+- Sampling overhead was measured at +8.5% in the reference run. It lands in the sampler, but stack-walk pauses are not uniform in call depth, so deeply recursive frames may be mildly over-represented.
 - Warm file cache is the default after the first run. Discard the first repeat with `--skip-first` and say so.
 
 ## Re-measuring on Linux

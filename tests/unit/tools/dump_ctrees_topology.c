@@ -28,11 +28,11 @@
  * **Two modes, two separately versioned formats.** The default (two-argument)
  * invocation writes `mimic-topology-dump v1` exactly as before: MostBoundID-keyed
  * links for the enumerated Consistent-Trees readers, consumed by
- * scripts/convert/crosscheck.py. It still requires the reader's
+ * convert/mimic-convert/crosscheck.py. It still requires the reader's
  * global_forest_offset hook, so it still refuses the per-file L-Halo readers.
  *
  * `--source-payload` writes `mimic-source-dump v1` for the generalisation
- * acceptance comparator (scripts/convert/tests/run_generalisation_acceptance.py).
+ * acceptance comparator (convert/mimic-convert/tests/run_generalisation_acceptance.py).
  * It works with every vertical reader, because MostBoundID is not a key there
  * (L-Halo particle identifiers are signed and repeat): each halo is identified
  * by the reader's own source-relative identity (forest number, within-forest

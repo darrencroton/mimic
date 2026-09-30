@@ -14,9 +14,8 @@
  * machine without the data. See that package's README.md for the conversion
  * commands and the symlink instruction.
  *
- * This is a C unit test rather than a Python integration test because Phase 4b
- * adds no runtime caller: no ./mimic run can reach the reader until the
- * horizontal driver exists.
+ * This is a C unit test rather than a Python integration test so it pins the
+ * reader's own behaviour on real data, independent of the horizontal driver.
  */
 
 #include "../../../../tests/framework/test_framework.h"
@@ -56,7 +55,7 @@ extern struct MimicConfig MimicConfig;
 #define REALDATA_FORMAT_VERSION 2
 
 /* simulations/micro-uchuu-horizontal/simulation_info.yaml's physical values. The
-   real dataset's headers were stamped from these same values (Slice 3), so
+   real dataset's headers were stamped from these same values, so
    open_run's per-file physical-header check needs them configured here too;
    PartMass is carried in 1e10 Msun/h, the units simulation_info.yaml
    declares. */

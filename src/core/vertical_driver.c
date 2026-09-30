@@ -611,8 +611,7 @@ vertical_reader_output_partition_source(const struct VerticalReader *reader) {
 static int horizontal_output_partition_count(void) { return MimicConfig.NOUT; }
 
 /* The snapshot number itself, not a dense index, so every output filename names
- * the snapshot it holds even for an unsorted output.snapshot_list (D5(a) owner
- * decision 1). */
+ * the snapshot it holds even for an unsorted output.snapshot_list. */
 static int horizontal_output_partition_output_id(int partition) {
   return MimicConfig.ListOutputSnaps[partition];
 }

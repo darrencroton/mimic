@@ -21,13 +21,13 @@ Do NOT use it for:
 ## First actions
 
 1. Search this skill and `references/chronicle.md` for your symptom keyword (property name, module name, "parity", "float", "flyby", ...). If it appears, read the incident before touching code.
-2. Search git history before re-investigating (recipes below). The repo has ~1,100+ commits with descriptive messages; most questions are answered in a message or a deleted `docs/dev/` plan.
-3. Check `docs/dev/MIMIC-DEVELOPMENT-PATHWAY.md` — the live index of current plans — to see whether the topic is an active plan rather than a closed battle.
+2. Search git history before re-investigating (recipes below). The repo has ~1,100+ commits with descriptive messages; most questions are answered in a message or a deleted development plan under `docs/dev/`.
+3. Check whether the topic is an active plan rather than a closed battle: `ls docs/dev/` (plans there are ephemeral and never a source of facts).
 4. Only after (1)–(3) come up empty, open a fresh investigation under the rules in the `mimic-scientific-method` skill.
 
 ## Searching history before re-investigating
 
-`docs/dev/` holds active plans only; completed plans are deleted from git and moved to `archive/`, which is a gitignored machine-local symlink that may not exist on your machine. Durable knowledge therefore lives in this skill; git history is how you recover the full documents.
+`docs/dev/` is the owner's development pathway; plans there are ephemeral, and completed plans are deleted from git and moved to `archive/dev-plans/`, which is gitignored and machine-local and may not exist on your machine. Durable knowledge therefore lives in this skill; git history is how you recover the full documents.
 
 ```bash
 # Find commits whose message mentions a topic (case-insensitive)
@@ -65,7 +65,7 @@ Full detail, evidence, and status for every incident is in `references/chronicle
 | 6 | Rename staleness (sage→sage16, `3c40e2b5` et al.) | Renames must grep docs, scripts, harness defaults, AND model-name guards in tests — the physics baseline test silently skipped for a while |
 | 7 | Dynamic timestep campaign (shipped 2026-07-01) | Closed and shipped (`469b7adc`, `b942bf3c`, `58f1d3c2`); MaxDynamicSubsteps 50→200 came from measurement; notes recoverable via `git show 9a6f4322^:...` |
 | 8 | Stripping metal conservation | Documented as a known issue (`25f54878`), then fixed (`3f1e124b`) — check status before "rediscovering" it |
-| 9 | fix_flybys z=0 divergence (`b727fd36`, reversed) | **A reversed decision, and the reason matters.** Accepted 2026-08 as a ~10–25% Type-0 divergence measured on micro-Uchuu; refuted 2026-09-09 on Shin-Uchuu, where percolating forests put 33% of the z=0 population in one bogus FoF group. Deleted from the C reader and converter, horizontal format bumped to `format_version = 2` (`SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md`). The transferable lesson: "accepted at the scale we tested" is not "accepted" |
+| 9 | fix_flybys z=0 divergence (`b727fd36`, reversed) | **A reversed decision, and the reason matters.** Accepted 2026-08 as a ~10–25% Type-0 divergence measured on micro-Uchuu; refuted 2026-09-09 on Shin-Uchuu, where percolating forests put 33% of the z=0 population in one bogus FoF group. Deleted from the C reader and converter, horizontal format bumped to `format_version = 2`. The transferable lesson: "accepted at the scale we tested" is not "accepted" |
 | 10 | Deliberate retirements ≠ failures | Split-pass merger path (`53fb1904`), per-task partition (`8be9309f`), parameter registry (`74c56f4a`) were removed on purpose — do not "restore" them |
 
 Also settled, from the upstream SAGE era: an abandoned Len-based infall recipe (`3a2d1f30`), a reverted infall recipe (`b0088922`), and an ejected-gas wind-back experiment (`10ac96eb`). These are prior art — check them before proposing similar physics changes.
@@ -90,7 +90,7 @@ Representative quirks: the literal `1.414` where √2 belongs, asymmetric gas/me
 
 ## Provenance and maintenance
 
-Status snapshot in this skill and the chronicle dated 2026-07-03; `docs/dev/MIMIC-DEVELOPMENT-PATHWAY.md` is the live index of current plans — trust it over any plan status stated here. Re-verify before relying:
+Status snapshot in this skill and the chronicle dated 2026-07-03; plan status changes faster than this skill, so treat any plan status stated here as perishable. Re-verify before relying:
 
 - Commit hashes and messages: `git show -s --format='%h %ad %s' --date=short <hash>`
 - Tags/era boundaries: `git tag` (as of 2026-07-03: `v0.1-beta`, `v0.5`, `v0.9-pre-release`, `v1.0`)

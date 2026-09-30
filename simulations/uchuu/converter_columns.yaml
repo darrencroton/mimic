@@ -1,5 +1,5 @@
 # Full Uchuu converter profile -- Consistent-Trees forests-HDF5, for
-# scripts/convert/convert_trees.py.
+# convert/mimic-convert/convert_trees.py.
 #
 # Route: --source-format consistent_trees_hdf5 --info-file
 # snapshots/mergertree_info.h5, whose FileN groups are ExternalLinks to
@@ -14,7 +14,7 @@
 # resolves either per file and exactly one must resolve. The full Forests/
 # field set is wider (69 fields in the real micro-Uchuu dataset); any of it
 # can be added under extra_fields -- see
-# scripts/convert/profiles/consistent_trees_hdf5_extras_example.yaml.
+# convert/mimic-convert/profiles/consistent_trees_hdf5_extras_example.yaml.
 #
 # particle_mass, used to derive Len as the vertical reader does, comes from the
 # package's simulation_info.yaml.

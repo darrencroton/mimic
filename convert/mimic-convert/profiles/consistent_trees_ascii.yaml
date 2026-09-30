@@ -1,0 +1,41 @@
+# Consistent-Trees ASCII mapping profile -- default (no extra fields selected).
+#
+# Role names are the reference parser's normalized column names
+# (convert/mimic-convert/ctrees_parser.py), and `snap` is the snapshot role. ASCII
+# aliases are matched suffix-stripped (truncated at the first '(') and
+# case-insensitively, exactly as src/io/vertical/ctrees/parse_ctrees.h does, so
+# `Mvir(10)`, `mvir` and `MVIR` are the same column. Exactly one alias must
+# resolve in each file: `snap` lists both spellings because a given file
+# carries one of them, never both.
+#
+# `scale` is parsed by the reference path but not retained in the scratch
+# record; it is a required role all the same.
+#
+# Reproducing this profile's selection is the existing ASCII-to-v2 workflow's
+# behaviour: the default ASCII path is unchanged by the generalisation.
+
+schema_version: 1
+source_format: consistent_trees_ascii
+
+required_columns:
+  scale: [scale]
+  id: [id]
+  desc_scale: [desc_scale]
+  desc_id: [desc_id]
+  pid: [pid]
+  upid: [upid]
+  snap: [snap_idx, snap_num]
+  mvir: [Mvir]
+  vrms: [vrms]
+  vmax: [vmax]
+  x: [x]
+  y: [y]
+  z: [z]
+  vx: [vx]
+  vy: [vy]
+  vz: [vz]
+  jx: [Jx]
+  jy: [Jy]
+  jz: [Jz]
+
+extra_fields: []

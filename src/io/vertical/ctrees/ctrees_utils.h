@@ -16,10 +16,9 @@
  * NOT on the per-simulation generated `struct RawHalo`; the reader bridges the
  * two at the package boundary.
  *
- * `verify_fof_centrals_present()` is Mimic-native, not ported: it restores,
- * standalone, a corrupt-input guard that used to be a side effect of the
- * now-removed `fix_flybys()` (docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md,
- * decision D9(c)).
+ * `verify_fof_centrals_present()` is Mimic-native, not ported: it keeps, standalone,
+ * the zero-FoF-centrals guard that `fix_flybys()` used to provide before that
+ * function was deleted for merging unrelated FoF groups at each forest's final snapshot.
  */
 
 #include <stdint.h>

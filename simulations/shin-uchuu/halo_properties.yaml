@@ -1,7 +1,7 @@
 # Shin-Uchuu Halo Catalog Properties — horizontal HDF5 format
 #
 # Defines the RawHalo contract for the horizontal_hdf5 reader. Every entry below
-# is a `/halos` dataset of docs/dev/HORIZONTAL-HDF5-FORMAT.md (format_version 2),
+# is a `/halos` dataset of convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md (format_version 2),
 # whose Halo Datasets table makes dataset names and types normative: the
 # generated reader-side code consumes the datasets by name, so property names
 # and the on-disk names are the same strings and no `source:` mapping is needed.
@@ -9,7 +9,7 @@
 # The shared fields mirror simulations/shin-uchuu-ascii/halo_properties.yaml
 # exactly (key order, units, h_convention, range, output, init/output sources,
 # and core-role bindings): the snapshot dataset is produced from that same
-# Shin-Uchuu Consistent-Trees subset by scripts/convert/, which applies the
+# Shin-Uchuu Consistent-Trees subset by convert/mimic-convert/, which applies the
 # same reference value conventions. M_Crit200 therefore carries the native
 # ctrees Mvir in Msun/h, positions are Mpc/h, Spin is the specific angular
 # momentum J/Mvir, (Mpc/h)(km/s), for non-zero Mvir -- the converter
@@ -19,7 +19,7 @@
 # ForestIndex and HaloRankInForest, the producer-owned UniqueGalaxyID identity
 # components the on-disk format carries explicitly, are deliberately NOT
 # declared here: they are horizontal-format identity metadata governed by
-# docs/dev/HORIZONTAL-HDF5-FORMAT.md, not catalog halo properties, so they are
+# convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md, not catalog halo properties, so they are
 # read directly by src/io/horizontal/read_horizontal_hdf5.c into
 # struct SnapshotSlab's reader-owned forest_index/halo_rank_in_forest arrays,
 # never through this file or the generated RawHalo struct. This mirrors

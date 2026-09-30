@@ -209,8 +209,8 @@ struct HaloAuxData {
  * The traversal flags (DoneFlag/HaloFlag) have no counterpart here: they exist
  * to sequence the vertical driver's depth-first recursion, and a snapshot slab is
  * walked once in slab order instead. The range fields are int64_t because a
- * production slab's output can exceed a tree's (Slice 6 widened the output
- * buffer's own counts to int64_t for the same reason). */
+ * production slab's output can exceed a tree's (the output buffer's own counts
+ * are int64_t for the same reason). */
 struct HorizontalHaloAux {
   int64_t FirstHalo; /* first output index for this halo, or -1 when it has none */
   int64_t NHalos;    /* output halos produced for this halo */

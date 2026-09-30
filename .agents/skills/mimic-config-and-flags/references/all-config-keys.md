@@ -57,7 +57,7 @@ These are not separate `input:` keys — they are additional config-time checks 
 |---|---|
 | `output.output_format: binary` | "output_format is 'binary', but horizontal runs are HDF5-only" |
 | `--skip` given (`MimicConfig.OverwriteOutputFiles == 0`) | "--skip was given, but resume is not supported for horizontal runs" |
-| `NTask > 1` | Serial-only message naming `docs/dev/MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md` as the home for multi-rank execution |
+| `NTask > 1` | Serial-only message (multi-rank horizontal operation is not implemented; rejected at startup) |
 
 ## `output:` section — valid keys: `output_filename`, `output_directory`, `output_format`, `snapshot_list`, `target_file_size_mb`, `forests_per_file`
 

@@ -83,7 +83,7 @@ Before accepting your own conclusion:
 1. **Hypothesis with predicted numbers** (section: First actions).
 2. **Cheapest discriminating experiment first** — mini-Millennium or a micro-Uchuu package, one variable at a time; the micro-Uchuu format triplet discriminates reader effects from physics effects.
 3. **Evidence at the bar** — sections 1–5; measured, residuals explained, negatives checked.
-4. **Adoption through change control** — gates, tests, and (if outputs changed) justified baseline regeneration in the same commit (`mimic-change-control`, `mimic-validation-and-qa`). Structural ideas get a plan in `docs/dev/` first (index: `MIMIC-DEVELOPMENT-PATHWAY.md`).
+4. **Adoption through change control** — gates, tests, and (if outputs changed) justified baseline regeneration in the same commit (`mimic-change-control`, `mimic-validation-and-qa`). Structural work is planned under the owner's development pathway in `docs/dev/`; plans are ephemeral and never a source of facts.
 5. **Or documented retirement** — a written negative result (point 3 above). Silence is the only unacceptable outcome: it guarantees the idea gets re-fought.
 
 Claims about Mimic made externally (papers, READMEs) follow the same bar: state what was measured (e.g. "≥98% of galaxies bit-identical per property against Croton et al. 2016 SAGE on mini-Millennium"), and label anything unmeasured as open/candidate — see `mimic-docs-and-writing`.

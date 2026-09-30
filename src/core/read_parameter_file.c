@@ -1520,9 +1520,8 @@ static void validate_and_postprocess(void) {
       errors++;
     }
     if (!is_vertical_reader && NTask > 1) {
-      ERROR_LOG("NTask is %d, but horizontal runs are serial in this phase; multi-rank "
-                "execution belongs to the distributed plan, "
-                "docs/dev/MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md",
+      ERROR_LOG("NTask is %d, but horizontal runs are serial: multi-rank (NTask > 1) "
+                "horizontal execution is not implemented",
                 NTask);
       errors++;
     }

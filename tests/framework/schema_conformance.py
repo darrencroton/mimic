@@ -7,15 +7,15 @@ file: a ``SchemaPackage`` naming what the package pins, and a ``main()`` calling
 ``run_schema_conformance(SPEC, title)``, which runs four tests:
 
 1. ``test_converter_schema_is_the_pinned_route`` -- the vertical package's
-   converter profile (scripts/convert/column_schema.py, the code that writes
+   converter profile (convert/mimic-convert/column_schema.py, the code that writes
    every file's ``/schema`` and stamps its ``column_mapping_sha256``) derives the
    pinned source format, digest and mass units. Needs no dataset.
 2. ``test_yaml_declarations_match_converter_schema`` -- the YAML declarations
    match that derivation exactly: the five link roles are declared
-   ``long long`` (Gate R0-2(a)) and excluded from the ``/schema`` comparison;
+   ``long long`` (version 3 links are int64) and excluded from the ``/schema`` comparison;
    the reader-owned format-table arrays (SourceHaloID, the three
-   target-snapshot columns, ForestIndex, HaloRankInForest; Gate R0-3(a)) are
-   not declared at all; the payload set is equal.
+   target-snapshot columns, ForestIndex, HaloRankInForest) are not declared
+   at all; the payload set is equal.
 3. ``test_compiled_catalog_metadata_matches_converter_schema`` -- the
    ``catalog_field_metadata.inc`` this package's build compiled matches too. A
    missing file, or one generated for another package, FAILS: the test runs
@@ -25,7 +25,7 @@ file: a ``SchemaPackage`` naming what the package pins, and a ``main()`` calling
    the derived ``/schema``; and every committed fixture dataset the package
    names (FAIL if absent) satisfies the one-way rule on every populated file:
    each declared payload field appears in ``/schema`` with equal type, units and
-   h_convention, while undeclared ``/schema`` extras are allowed (the R0-8(a)
+   h_convention, while undeclared ``/schema`` extras are allowed (the
    extra ``SubHalfMass`` in tests/data/horizontal_v3/dataset is one). Skipped
    only when there is neither a real dataset nor a fixture to check.
 
@@ -44,7 +44,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-for _path in (REPO_ROOT / "scripts", REPO_ROOT / "scripts" / "convert"):
+for _path in (REPO_ROOT / "scripts", REPO_ROOT / "convert" / "mimic-convert"):
     if str(_path) not in sys.path:
         sys.path.insert(0, str(_path))
 
@@ -58,8 +58,8 @@ LINK_ROLES = frozenset(
     {"Descendant", "FirstProgenitor", "NextProgenitor", "FirstHaloInFOFgroup", "NextHaloInFOFgroup"}
 )
 
-#: Reader-owned under R0-3(a) and the ForestIndex/HaloRankInForest identity-array
-#: precedent: format-table metadata, never declared catalog properties.
+#: Reader-owned format-table metadata, like the ForestIndex/HaloRankInForest
+#: identity arrays: never declared catalog properties.
 READER_OWNED_FIELDS = frozenset(
     {
         "SourceHaloID",
@@ -242,14 +242,14 @@ class SchemaConformance:
         names = [prop["name"] for prop in props]
         assert len(names) == len(set(names)), f"duplicate declarations: {names}"
         for forbidden in sorted(READER_OWNED_FIELDS):
-            msg = f"{forbidden} is reader-owned under R0-3(a) and must not be a declared property"
+            msg = f"{forbidden} is reader-owned format metadata and must not be a declared property"
             assert forbidden not in names, msg
         missing_links = LINK_ROLES - set(names)
         assert not missing_links, f"link roles not declared: {sorted(missing_links)}"
         for prop in props:
             if prop["name"] in LINK_ROLES:
                 msg = (
-                    f"{prop['name']}: link role must be 'long long' under R0-2(a), "
+                    f"{prop['name']}: link role must be 'long long' (version 3 links are int64), "
                     f"got {prop['type']!r}"
                 )
                 assert prop["type"] == "long long", msg
@@ -276,7 +276,8 @@ class SchemaConformance:
             if entry["role_kind"] == "tree_link":
                 assert dataset in LINK_ROLES, f"{dataset}: unexpected tree_link role"
                 msg = (
-                    f"{dataset}: link role must be 'long long' under R0-2(a), got {entry['type']!r}"
+                    f"{dataset}: link role must be 'long long' (version 3 links are int64), "
+                    f"got {entry['type']!r}"
                 )
                 assert entry["type"] == "long long", msg
                 continue

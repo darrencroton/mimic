@@ -3,7 +3,7 @@
 # regenerate.sh - Rebuild the committed horizontal-HDF5 version 3 reader fixture
 #
 # Regenerates tests/data/horizontal_v3/source/trees_fixture.0 from its
-# generator, converts it with scripts/convert/convert_trees.py (ingest,
+# generator, converts it with convert/mimic-convert/convert_trees.py (ingest,
 # transpose, write, then report, which runs the producer validation battery),
 # and installs the written dataset under tests/data/horizontal_v3/dataset/,
 # overwriting the files of the same names. The converter is the only producer:
@@ -35,7 +35,7 @@ SOURCE_DIR="${FIXTURE_DIR}/source"
 DATASET_DIR="${FIXTURE_DIR}/dataset"
 SIM_INFO="simulations/mini-millennium/simulation_info.yaml"
 HALO_PROPERTIES="simulations/mini-millennium/halo_properties.yaml"
-CONVERT="scripts/convert/convert_trees.py"
+CONVERT="convert/mimic-convert/convert_trees.py"
 
 WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/mimic_horizontal_v3_fixture.XXXXXX")"
 trap 'rm -rf "$WORKDIR"' EXIT

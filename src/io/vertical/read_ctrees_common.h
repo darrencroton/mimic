@@ -37,7 +37,7 @@ void apply_ctrees_value_conventions(struct halo_data *halos, int64_t nhalos);
 
 /* Copy one reconstructed/loaded halo_data record into the generated RawHalo
    layout. The target field names are the readers' contract on the simulation
-   package (see docs/dev/CTREES-UCHUU-VALIDATION.md). */
+   package; simulations/micro-uchuu-ascii/halo_properties.yaml declares the full set. */
 void bridge_halo_data_to_rawhalo(struct RawHalo *out, const struct halo_data *in);
 
 #endif /* IO_VERTICAL_READ_CTREES_COMMON_H */

@@ -2,7 +2,7 @@
 #
 # `snapshots/` is a symlink to your local copy of the converted dataset
 # directory: 70 `snapshot_NNN.h5` files plus the `forests.h5` sidecar, produced
-# by scripts/convert/ per docs/dev/HORIZONTAL-HDF5-FORMAT.md from the full
+# by convert/mimic-convert/ per convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md from the full
 # Shin-Uchuu Consistent-Trees catalog.
 #
 # `tree_name` is the snapshot filename convention, not a general pattern: the

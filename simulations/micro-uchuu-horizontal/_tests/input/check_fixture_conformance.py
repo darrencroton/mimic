@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Structural conformance checker for the committed horizontal-HDF5 fixtures.
 
-Asserts everything ``scripts/convert/validate.py`` asserts about the structure
+Asserts everything ``convert/mimic-convert/validate.py`` asserts about the structure
 of a horizontal-HDF5 dataset **except chunk shape**, which is the only excluded
 structural check: the exact object set, the exact header attribute names,
 dtypes and values, the ``n_halos`` value bounds, the exact ``/halos`` dataset
@@ -14,7 +14,7 @@ so it costs kilobytes rather than the 6.25 MiB per populated snapshot the
 production ``(65536,)`` layout would allocate, and the frozen specification
 makes chunk layout a storage detail: "consumers must not depend on chunk
 boundaries, only on dataset shape and type"
-(docs/dev/HORIZONTAL-HDF5-FORMAT.md, Storage Layout).
+(convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md, Storage Layout).
 
 The producer battery's data-level invariants (link ranges, FoF chain integrity,
 progenitor closure, identity density, count conservation against the source)
@@ -84,7 +84,7 @@ HALO_DATASETS = {
 }
 
 #: 1e10 Msun/h (simulation_info) -> Msun/h (header attribute), as the writer
-#: converts it (scripts/convert/hdf5_writer.py load_header_metadata)
+#: converts it (convert/mimic-convert/hdf5_writer.py load_header_metadata)
 REF_TO_NATIVE_MASS = 1.0e10
 
 

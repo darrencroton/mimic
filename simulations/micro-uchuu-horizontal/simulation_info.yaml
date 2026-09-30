@@ -2,7 +2,7 @@
 #
 # `snapshots/` is a symlink to your local copy of the converted dataset
 # directory: 50 `snapshot_NNN.h5` files plus the `forests.h5` sidecar, produced
-# by scripts/convert/ per docs/dev/HORIZONTAL-HDF5-FORMAT.md. See README.md for
+# by convert/mimic-convert/ per convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md. See README.md for
 # the conversion commands and the symlink instruction.
 #
 # `tree_name` is the snapshot filename convention, not a general pattern: the
@@ -24,7 +24,7 @@ simulation:
   # Forest multiplier for UniqueGalaxyID. The dataset's measured
   # max_halo_rank_in_forest is 350074 and its forest count 440651, so 10^9 (the
   # framework default, TREE_MUL_FAC) leaves ample headroom in both directions.
-  # See docs/dev/HORIZONTAL-HDF5-FORMAT.md for the bounds the reader checks.
+  # See convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md for the bounds the reader checks.
   unique_galaxy_id_multiplier: 1000000000
   cosmology:
     omega_matter: 0.3089

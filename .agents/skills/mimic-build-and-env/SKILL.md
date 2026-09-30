@@ -79,7 +79,7 @@ make
 
 ## The mimic_venv virtual environment
 
-`requirements.txt` installs: numpy, matplotlib, tqdm (plotting); h5py, PyYAML (integration/scientific tests and HDF5 inspection); pandas (ctrees→horizontal-HDF5 converter under `scripts/convert/`); black, isort, and a **pinned `clang-format>=20,<21`** (formatting — the pin keeps formatting byte-identical across machines and CI).
+`requirements.txt` installs: numpy, matplotlib, tqdm (plotting); h5py, PyYAML (integration/scientific tests and HDF5 inspection); pandas (ctrees→horizontal-HDF5 converter under `convert/mimic-convert/`); black, isort, and a **pinned `clang-format>=20,<21`** (formatting — the pin keeps formatting byte-identical across machines and CI).
 
 - Activate: `source mimic_venv/bin/activate` — deactivate: `deactivate`.
 - What needs it: `plot/mimic-plot/mimic-plot.py`, the Python test tiers, `./scripts/beautify.sh`, and `make check-format`.
@@ -106,7 +106,7 @@ Selector rules and traps:
 - An unknown `MODEL`/`SIMULATION` fails loudly (`Unknown MODEL ...`) for every target except the model-free set: `clean tidy help check-docs check-format test-clean summary`.
 - **`USE-MPI` is checked with `ifdef`: `make USE-MPI=no` still ENABLES MPI.** To build without MPI, omit the variable entirely.
 - `USE-HDF5` defaults to yes; any value other than `yes` disables it.
-- `EXTRA_CFLAGS` (e.g. `EXTRA_CFLAGS="-O3 -march=native"`) is for benchmarking/profiling only, never production builds.
+- `EXTRA_CFLAGS` (e.g. `EXTRA_CFLAGS="-O3 -march=native"`) and its link-step counterpart `EXTRA_LDFLAGS` (e.g. `EXTRA_LDFLAGS="-fsanitize=address,undefined"` for a sanitizer build) are for benchmarking, profiling and debugging only, never production builds.
 
 `USE-HDF5=no` consequences: all `*hdf5.c` sources are excluded, so (a) only binary output works — a run file with `output.output_format: hdf5` fails at startup with `FATAL: Recompile with HDF5 enabled (default) or remove USE-HDF5=no`, and (b) the HDF5 vertical readers (`lhalo_hdf5`, `consistent_trees_hdf5`) are not registered, so selecting one via `input.tree_type` fails with `Unknown tree_type`. Note the shipped default run file `models/sage16/input/sage16_mini-millennium.yaml` uses `output_format: hdf5`, so a `USE-HDF5=no` build cannot run it unchanged.
 

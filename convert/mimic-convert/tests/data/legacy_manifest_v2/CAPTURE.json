@@ -1,0 +1,9 @@
+{
+  "base_commit": "92d6d3efb65eb289d3a36a81a7821cbec097f06b",
+  "captured_by": "convert/mimic-convert (legacy ASCII-to-v2 route) run_scatter + run_sort",
+  "original_root": "/private/tmp/mimic_legacy_manifest_v2_capture",
+  "scripts_convert_clean": true,
+  "source_mtime_ns": {
+    "inputs/tree_0_0_0.dat": 1790217550556758077
+  }
+}

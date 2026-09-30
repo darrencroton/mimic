@@ -76,7 +76,7 @@ These principles guide design decisions and implementation choices in Mimic.
 - Galaxy inheritance, orphan handling, and property reset rules are centralized and documented.
 - Physics dispatched through this model must be deterministic given a halo's own data: stochastic modules seed from stable per-halo or per-FoF keys, never from a global RNG stream consumed in traversal order, so identical input data produces identical output regardless of which driver or traversal order processed it.
 
-**In practice**: A full-halo module receives the whole FoF workspace. A by-galaxy module receives one galaxy at a time from that same workspace. Event consumers receive one event target after a full-halo producer emits a subscribed event. Mimic ships two drivers over this one processing model — a vertical driver (per-forest, depth-first) and a horizontal driver (per-snapshot, increasing time order) — sharing the same inheritance, physics-execution, and output-marshalling services; see `docs/dev/MIMIC-DUAL-DRIVER-PLAN.md` for the implemented dual-driver architecture.
+**In practice**: A full-halo module receives the whole FoF workspace. A by-galaxy module receives one galaxy at a time from that same workspace. Event consumers receive one event target after a full-halo producer emits a subscribed event. Mimic ships two drivers over this one processing model — a vertical driver (per-forest, depth-first) and a horizontal driver (per-snapshot, increasing time order) — sharing the same inheritance, physics-execution, and output-marshalling services.
 
 ### 5. Bounded Memory and Explicit Ownership
 
@@ -138,6 +138,8 @@ For implementation details, see [DEVELOPER-GUIDE.md](DEVELOPER-GUIDE.md#architec
 - [DEVELOPER-GUIDE.md](DEVELOPER-GUIDE.md): extending models, modules, simulations, properties, tests, and generated metadata
 - [STYLE-GUIDE.md](STYLE-GUIDE.md): naming, comments, documentation, metadata, tests, and review conventions
 - [plot/mimic-plot/README.md](../plot/mimic-plot/README.md): detailed plotting manual
+- [convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md](../convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md): on-disk contract for horizontal HDF5 merger-tree input
+- [convert/mimic-convert/README.md](../convert/mimic-convert/README.md): merger-tree converter manual
 - [tests/README.md](../tests/README.md): test-suite quick reference
 - `models/<model>/README.md`: model-package science scope, module pipeline, parameters, plots, and references
 - `simulations/<simulation>/README.md`: simulation-package data, units, snapshot lists, and maintenance notes

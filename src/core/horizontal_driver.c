@@ -98,7 +98,7 @@
  *     requested output snapshot's file is about to be created and released the
  *     moment that file closes cleanly, so a completed snapshot's output is never
  *     destroyed by a later failure. This is the vertical driver's own per-partition
- *     discipline (vertical_driver.c:311), applied to the horizontal side by D5(a).
+ *     discipline (vertical_driver.c:311), applied to the horizontal side.
  *   slot MASTER - the run's master file. Armed once at run start and, unlike the
  *     vertical driver's registry, still armed when run_horizontal_driver() returns,
  *     because main.c writes the master afterwards; only a successful
@@ -692,7 +692,7 @@ static void horizontal_clear_output_globals(void) {
 /*
  * Prepare the run's output without creating any file yet.
  *
- * Under D5(a) a partition file appears only when its own snapshot finishes, so
+ * A partition file appears only when its own snapshot finishes, so
  * there is nothing to open here: this zeroes the per-snapshot output counters
  * the writers accumulate into and arms the master file for cleanup, and the rest
  * of the lifecycle belongs to horizontal_write_output() below.
@@ -1007,9 +1007,9 @@ static int64_t horizontal_retained_resident_bytes(const struct HorizontalDriverS
  * before anything is allocated for it.
  *
  * The reader and driver index a slab with int64_t, but the output path does not:
- * it counts a snapshot's emitted records in an int (TotHalosPerSnap), the
- * marshaller cannot grow an output buffer past MAX_HALO_ARRAY_SIZE, and a FoF
- * group's galaxy count is narrowed to int. Refusal is reserved for where failure
+ * it caps a snapshot's record count at INT_MAX (output_increment_halo_counters_checked in
+ * src/io/output/util.c), the marshaller cannot grow an output buffer past MAX_HALO_ARRAY_SIZE,
+ * and a FoF group's galaxy count is narrowed to int. Refusal is reserved for where failure
  * is certain: a requested output snapshot above INT_MAX. Above the marshaller
  * cap the failure is only likely (the sweep may emit fewer records than it has
  * rows), so it is a warning. Both need chunked slab streaming to lift.
@@ -1017,8 +1017,8 @@ static int64_t horizontal_retained_resident_bytes(const struct HorizontalDriverS
 static void horizontal_require_slab_emittable(int64_t snapnum, int64_t nhalos) {
   if (nhalos > INT_MAX && horizontal_output_snapshot_index(snapnum) >= 0) {
     FATAL_ERROR("Snapshot %" PRId64 " holds %" PRId64 " halos and is a requested output snapshot, "
-                "but the output path counts the records it emits per snapshot in an int "
-                "(TotHalosPerSnap), which cannot hold that many. Refused before allocation: "
+                "but the output path caps a snapshot's record count at INT_MAX "
+                "(output_increment_halo_counters_checked). Refused before allocation: "
                 "emitting a slab this wide needs chunked slab streaming, a capability Mimic "
                 "does not implement",
                 snapnum, nhalos);
@@ -1539,7 +1539,7 @@ void run_horizontal_driver(void) {
   enable_debug_log_rate_limiting();
 
   /* The vertical driver's per-partition globals have no meaning here; the writers
-   * that still read them are guarded on the processing order (Slice 8). FileNum
+   * that still read them are guarded on the processing order. FileNum
    * is set per partition instead, by horizontal_write_output(). */
   TreeID = 0;
   GlobalForestOffset = 0;

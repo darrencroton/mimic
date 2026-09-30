@@ -90,7 +90,8 @@ PACKAGE = GatePackage(
 
 #: The vertical-path-preservation reference commit: periodically advanced, not a
 #: permanent invariant. Moved `ae22d278` -> `a654c228` (2026-09-10) after the
-#: validated `fix_flybys` removal (docs/dev/SHIN-UCHUU-FLYBY-DEFECT-ADDENDUM.md).
+#: validated `fix_flybys` removal (it merged unrelated FoF groups at each forest's
+#: final snapshot).
 #: Moved `a654c228` -> `aedded2f` (2026-09-28) after the 94c4f22e Uchuu-family
 #: particle-mass correction (0.0325 -> 0.0327), verified by a full-field,
 #: all-record comparison of a654c228 against aedded2f over all 4,409,643

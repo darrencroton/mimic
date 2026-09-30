@@ -3,7 +3,7 @@
 # The mini-Millennium L-Halo profile (simulations/mini-millennium/converter_columns.yaml)
 # plus exactly one selected extra, SubHalfMass. The skeleton package
 # simulations/mini-millennium-horizontal does not declare SubHalfMass, so the
-# fixture exercises R0-8(a): an undeclared /schema field is validated for
+# fixture exercises the rule that an undeclared /schema field is validated for
 # internal consistency and never materialised.
 
 schema_version: 1

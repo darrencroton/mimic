@@ -1,0 +1,710 @@
+"""Phase 3 fix-ups for the ctrees -> horizontal-HDF5 converter.
+
+Implements Phase 3 steps 1-5 on the sorted per-snapshot
+arrays: a_list adjacency validation, spin normalisation, Len derivation, and
+the ``fix_upid`` equivalent. Reference semantics replicated exactly:
+
+- spin: ``J[k] * (1.0 / (double)Mvir)`` in float64, cast to float32, only where
+  ``Mvir != 0`` — multiply-by-reciprocal, matching apply_ctrees_value_conventions
+  (src/io/vertical/read_ctrees_ascii.c:96-122) bit for bit;
+- Len: C ``round()`` half-away-from-zero of ``Mvir_native * 1e-10 / PartMass``
+  with the reference finiteness/negativity/INT_MAX aborts (same file);
+- fix_upid: centrals get ``upid = id``; satellite upid chains are followed to
+  depth 30 with the reference pid fallback, and every resolved satellite gets
+  BOTH ``upid`` and ``pid`` set to the ultimate central's id
+  (src/io/vertical/ctrees/ctrees_utils.c:414-509 and find_fof_halo at 722-787).
+
+``fix_flybys`` was removed from both the C reader and this converter: it
+demoted every FoF central but the most massive at each forest's final
+snapshot, which on Shin-Uchuu put 33% of z=0 galaxies in one FoF group. ``MostBoundID`` is therefore
+always positive now — the demotion marker it used to carry no longer exists.
+Chain construction, ranks, and identity fields belong to ``links``. All aborts carry
+counts and concrete examples — never repair.
+
+After this stage the ``Jx``/``Jy``/``Jz`` fields of the fixed records carry the
+normalised Spin components (raw J only where ``Mvir == 0``, per the reference
+carve-out).
+
+An extended scratch layout passes through
+unchanged apart from the two appended fields: its source coordinates and
+declared extras are copied field for field into the fixed record, and no
+convention touches them -- an extra that selects the raw ``Jx``/``Jy``/``Jz``
+columns keeps the catalog J while the core ``Jx``/``Jy``/``Jz`` are normalised.
+"""
+
+import os
+import sys
+from pathlib import Path
+from typing import Dict, List, Optional, Sequence, Tuple
+
+import numpy as np
+import yaml
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from ctrees_parser import (  # noqa: E402
+    RECORD_DTYPE,
+    ConverterError,
+    ScratchLayout,
+    describe_dtype,
+)
+from scatter import (  # noqa: E402
+    A_LIST_ATOL,
+    Manifest,
+    file_md5,
+    id_checksum,
+    load_a_list,
+    verify_or_consumed,
+)
+from sort_index import consumption_recorded  # noqa: E402
+
+#: Fixed-record dtype: the frozen scratch fields plus this stage's outputs.
+#: Little-endian, packed, itemsize 120. Jx/Jy/Jz hold normalised Spin after
+#: the fix-up stage (see module docstring).
+FIXED_RECORD_DTYPE = np.dtype(
+    [(name, RECORD_DTYPE.fields[name][0].str) for name in RECORD_DTYPE.names]
+    + [("Len", "<i4"), ("MostBoundID", "<i8")],
+    align=False,
+)
+
+#: Human-readable dtype identity recorded in every fixed-file manifest entry.
+FIXED_DTYPE_TAG = "ctrees-fixed-v1/itemsize=120/" + ",".join(
+    "{}:{}".format(name, FIXED_RECORD_DTYPE.fields[name][0].str)
+    for name in FIXED_RECORD_DTYPE.names
+)
+
+#: Version prefix of an extended fixed-record tag (see fixed_layout); like the
+#: extended scratch prefix, it differs from the frozen ``ctrees-fixed-v1``.
+EXTENDED_FIXED_DTYPE_TAG_PREFIX = "ctrees-fixed-v2"
+
+
+def fixed_record_dtype(scratch_dtype: np.dtype) -> np.dtype:
+    """The fixed record for one scratch record: every scratch field, in order,
+    then ``Len`` and ``MostBoundID``. For ``RECORD_DTYPE`` it is exactly the
+    frozen 120-byte ``FIXED_RECORD_DTYPE``."""
+    if scratch_dtype == RECORD_DTYPE:
+        return FIXED_RECORD_DTYPE
+    return np.dtype(
+        scratch_dtype.descr + [("Len", "<i4"), ("MostBoundID", "<i8")],
+        align=False,
+    )
+
+
+def fixed_layout(layout: ScratchLayout) -> Tuple[np.dtype, str]:
+    """``(fixed dtype, fixed dtype tag)`` for a workdir's scratch layout: the
+    frozen pair for the legacy layout, a ``ctrees-fixed-v2`` pair otherwise."""
+    if not layout.is_extended:
+        return FIXED_RECORD_DTYPE, FIXED_DTYPE_TAG
+    dtype = fixed_record_dtype(layout.dtype)
+    return dtype, describe_dtype(EXTENDED_FIXED_DTYPE_TAG_PREFIX, dtype)
+
+
+#: Reference upid-chain depth limit (ctrees_utils.c find_fof_halo).
+MAX_UPID_CHAIN_DEPTH = 30
+
+#: Expected particle-mass units string in simulation_info.yaml; the Len formula
+#: keeps the 1e10-units value, so any other units would silently corrupt Len.
+PARTICLE_MASS_UNITS = "1e10 Msun/h"
+
+#: Catalog native mass unit (Msun/h) expressed in the reference mass unit
+#: (1e10 Msun/h). This is the SAME factor the generated tree accessor bakes into
+#: mimic_tree_get_HaloMass for a native-Msun/h catalog (see
+#: scripts/generate_properties.py:_linear_conversion_expr, which derives it from
+#: core_properties.yaml reference_units and formats it to full float64
+#: precision). Defining it once here — the converter's frozen-units home — keeps
+#: the Len derivation (Mvir_native * NATIVE_TO_REF_MASS / PartMass) and the
+#: cross-check Mvir reconstruction from drifting apart or from the C model.
+NATIVE_TO_REF_MASS = 1e-10
+
+#: Reference mass unit (1e10 Msun/h) expressed in native Msun/h — the reciprocal
+#: of NATIVE_TO_REF_MASS, defined independently as the exact literal so the value
+#: matches the multiplication used when the header attribute was written. Used to
+#: stamp/verify the ``particle_mass_msun_h`` header attribute (a 1e10-Msun/h
+#: particle mass rendered in Msun/h); shared by the writer and the cross-check's
+#: header-consistency guard so the round-trip is bit-for-bit.
+REF_TO_NATIVE_MASS = 1e10
+
+_INT32_MAX = float(np.iinfo(np.int32).max)
+
+#: Shared empty sentinel for "no forest peaks at this snapshot" — passed to
+#: verify_fof_centrals_present, whose no-op path checks .size == 0.
+_EMPTY_FOREST_IDS = np.empty((0,), dtype=np.int64)
+
+
+def load_forests_at_max_by_snap(manifest: Manifest) -> Dict[int, np.ndarray]:
+    """Load ``forest_max_snap.npy`` (Phase 1's per-forest max-snapshot
+    aggregate, produced by scatter's finalize pass) and group forest ids by
+    their maximum snapshot.
+
+    Returns ``{snap: sorted unique forest ids whose maximum snapshot is
+    exactly snap}``. Verified via the manifest against tampering, like every
+    other intermediate this stage reads. This is the sidecar the corrupt-input
+    guard consumes; see ``verify_fof_centrals_present``.
+    """
+    path = Path(manifest.workdir) / "forest_max_snap.npy"
+    manifest.verify_intermediate(path, "forest-max-snap sidecar")
+    table = np.load(path)
+    if table.size == 0:
+        return {}
+    order = np.argsort(table[:, 1], kind="stable")
+    forests = table[order, 0]
+    snaps = table[order, 1]
+    starts = np.nonzero(np.r_[True, snaps[1:] != snaps[:-1]])[0]
+    ends = np.r_[starts[1:], snaps.size]
+    result: Dict[int, np.ndarray] = {}
+    for start, end in zip(starts.tolist(), ends.tolist()):
+        result[int(snaps[start])] = np.sort(forests[start:end])
+    return result
+
+
+def fixed_scratch_name(snap: int) -> str:
+    return "snap_{:03d}_fixed.bin".format(snap)
+
+
+def _log(message: str) -> None:
+    print(message, file=sys.stderr)
+
+
+def load_particle_mass(path) -> float:
+    """Load simulation.particle_mass from simulation_info.yaml.
+
+    The value must be positive and finite (checked at startup)
+    and declared in 1e10 Msun/h — the units the Len formula is frozen in.
+    """
+    path = Path(path)
+    with open(path) as handle:
+        data = yaml.safe_load(handle)
+    try:
+        node = data["simulation"]["particle_mass"]
+        value = float(node["value"])
+    except (KeyError, TypeError, ValueError):
+        raise ConverterError("{}: missing or malformed simulation.particle_mass.value".format(path))
+    units = node.get("units") if isinstance(node, dict) else None
+    if units != PARTICLE_MASS_UNITS:
+        raise ConverterError(
+            "{}: particle_mass units {!r} != required {!r} — the Len formula is frozen "
+            "in 1e10 Msun/h".format(path, units, PARTICLE_MASS_UNITS)
+        )
+    if not (np.isfinite(value) and value > 0.0):
+        raise ConverterError(
+            "{}: particle_mass must be positive and finite, got {}".format(path, value)
+        )
+    return value
+
+
+def round_half_away_from_zero(values: np.ndarray) -> np.ndarray:
+    """C ``round()`` semantics for non-negative float64 input.
+
+    NumPy's rint rounds exact .5 ties to even (banker's rounding); C round()
+    rounds them away from zero. Non-tie values agree, so only exact ties are
+    corrected. Callers abort on negative input before rounding.
+    """
+    rounded = np.rint(values)
+    ties = (values - np.floor(values)) == 0.5
+    return np.where(ties, np.floor(values) + 1.0, rounded)
+
+
+def derive_len(mvir: np.ndarray, particle_mass: float, context: str) -> Tuple[np.ndarray, int]:
+    """Len = round(Mvir_native * 1e-10 / PartMass), replicating the reference.
+
+    Matches apply_ctrees_value_conventions: float32 Mvir widened to float64,
+    the derived count validated (finite, non-negative, <= INT32_MAX) BEFORE
+    rounding and int32 conversion, C round() half-away-from-zero. Len == 0 is
+    preserved and counted, never repaired.
+    """
+    len_particles = mvir.astype(np.float64) * NATIVE_TO_REF_MASS / particle_mass
+    bad = ~np.isfinite(len_particles) | (len_particles < 0.0) | (len_particles > _INT32_MAX)
+    if bad.any():
+        rows = np.nonzero(bad)[0][:5]
+        examples = [
+            "(Mvir={!r}, derived={!r})".format(float(mvir[r]), float(len_particles[r]))
+            for r in rows
+        ]
+        raise ConverterError(
+            "{}: {} invalid derived particle count(s) (non-finite, negative, or > INT32_MAX); "
+            "examples: {}".format(context, int(bad.sum()), ", ".join(examples))
+        )
+    len32 = round_half_away_from_zero(len_particles).astype(np.int32)
+    return len32, int((len32 == 0).sum())
+
+
+def normalise_spin(records: np.ndarray) -> None:
+    """Spin[k] = (float)((double)J[k] * (1.0 / (double)Mvir)) where Mvir != 0.
+
+    Multiply-by-reciprocal in float64 with a float32 result cast, exactly as
+    apply_ctrees_value_conventions computes it (bit-exactness is a frozen
+    comparison rule). Zero-mass halos keep their raw J — the reference
+    carve-out. A float32-overflowing result is carried as the reference's
+    (float) cast would carry it, never aborted here.
+
+    Note: for float32 J and Mvir, reciprocal-multiply and direct division are
+    provably identical at the float32 output. The true quotient is a ratio of
+    24-bit significands, so it can never lie within 2^-49 (relative) of a
+    float32 rounding midpoint unless it equals one exactly, while the two
+    float64 computation paths differ by at most ~2^-51 — they can never
+    straddle a float32 boundary. The reciprocal form is kept for line-by-line
+    correspondence with the C source.
+    """
+    nonzero = np.nonzero(records["Mvir"] != np.float32(0.0))[0]
+    if nonzero.size == 0:
+        return
+    inv_mvir = 1.0 / records["Mvir"][nonzero].astype(np.float64)
+    for component in ("Jx", "Jy", "Jz"):
+        with np.errstate(over="ignore"):
+            records[component][nonzero] = (
+                records[component][nonzero].astype(np.float64) * inv_mvir
+            ).astype(np.float32)
+
+
+def validate_adjacency(records: np.ndarray, snap: int, a_list: np.ndarray, context: str) -> None:
+    """Step 1: every desc_scale must match a_list[snap + 1] within atol.
+
+    ctrees guarantees adjacency via its own phantom halos; a violation is
+    corrupt input with no repair policy. The final a_list snapshot must have
+    all ``desc_id == -1``.
+    """
+    final_snap = len(a_list) - 1
+    has_desc = records["desc_id"] != -1
+    if snap == final_snap:
+        if has_desc.any():
+            rows = np.nonzero(has_desc)[0][:5]
+            examples = [
+                "(id={}, desc_id={})".format(int(records["id"][r]), int(records["desc_id"][r]))
+                for r in rows
+            ]
+            raise ConverterError(
+                "{}: final snapshot {} has {} halo(s) with desc_id != -1; examples: {}".format(
+                    context, snap, int(has_desc.sum()), ", ".join(examples)
+                )
+            )
+        return
+
+    desc_scale = records["desc_scale"][has_desc]
+    if desc_scale.size == 0:
+        return
+    ids = records["id"][has_desc]
+    desc_ids = records["desc_id"][has_desc]
+    unique_scales = np.unique(desc_scale)
+    matched_snap = np.empty(unique_scales.size, dtype=np.int64)
+    matched_ok = np.empty(unique_scales.size, dtype=bool)
+    for i, scale in enumerate(unique_scales):
+        nearest = int(np.argmin(np.abs(a_list - scale)))
+        matched_snap[i] = nearest
+        matched_ok[i] = abs(a_list[nearest] - scale) <= A_LIST_ATOL
+    scale_slot = np.searchsorted(unique_scales, desc_scale)
+    unknown = ~matched_ok[scale_slot]
+    if unknown.any():
+        rows = np.nonzero(unknown)[0][:5]
+        examples = [
+            "(id={}, desc_id={}, desc_scale={})".format(
+                int(ids[r]), int(desc_ids[r]), float(desc_scale[r])
+            )
+            for r in rows
+        ]
+        raise ConverterError(
+            "{}: snapshot {} has {} descendant link(s) whose desc_scale matches no a_list "
+            "entry within atol {}; examples: {}".format(
+                context, snap, int(unknown.sum()), A_LIST_ATOL, ", ".join(examples)
+            )
+        )
+    desc_snap = matched_snap[scale_slot]
+    wrong = desc_snap != snap + 1
+    if wrong.any():
+        rows = np.nonzero(wrong)[0][:5]
+        examples = [
+            "(id={}, desc_id={}, desc_scale={}, maps to snapshot {}, expected {})".format(
+                int(ids[r]), int(desc_ids[r]), float(desc_scale[r]), int(desc_snap[r]), snap + 1
+            )
+            for r in rows
+        ]
+        raise ConverterError(
+            "{}: snapshot {} has {} non-adjacent descendant link(s); examples: {}".format(
+                context, snap, int(wrong.sum()), ", ".join(examples)
+            )
+        )
+
+
+def verify_fof_centrals_present(
+    records: np.ndarray, snap: int, forests_at_max: np.ndarray, context: str
+) -> None:
+    """Corrupt-input guard that outlived ``fix_flybys``.
+
+    ``fix_flybys`` used to abort, as a side effect of its own topology scan,
+    when a forest had zero ``pid == -1`` (FoF central) halos at its maximum
+    scale ("NO FOFs at max scale ... Will crash") — structurally impossible
+    for a valid Consistent-Trees forest. That guard died with the function;
+    nothing else asserted the property it happened to check. This restores it
+    standalone, independent of any demotion or topology-rewriting logic: for
+    every forest whose maximum snapshot is ``snap``, at least one of its
+    records here must have ``pid == -1``.
+
+    ``forests_at_max`` is the sorted, unique array of forest ids whose
+    maximum snapshot (from Phase 1's ``forest_max_snap.npy`` aggregate)
+    equals ``snap``; an empty array is a no-op (no forest peaks here).
+    """
+    if forests_at_max.size == 0:
+        return
+    central_forests = np.unique(records["forest_id"][records["pid"] == -1])
+    missing = np.setdiff1d(forests_at_max, central_forests, assume_unique=True)
+    if missing.size:
+        examples = missing[:5].tolist()
+        raise ConverterError(
+            "{}: snapshot {}: {} forest(s) whose maximum snapshot is this one have zero "
+            "pid == -1 (FoF central) record(s) here; corrupt input (reference fix_flybys "
+            "errors); example forest id(s): {}".format(context, snap, int(missing.size), examples)
+        )
+
+
+def fix_upid_snapshot(records: np.ndarray, snap: int) -> None:
+    """fix_upid equivalent within one snapshot (ctrees_utils.c:414-509).
+
+    Centrals get ``upid = id`` (pid stays -1). Satellites are then processed
+    sequentially in ascending-id order with IN-PLACE rewrites, exactly like
+    the reference scan at ctrees_utils.c:442-503: a later satellite's chain
+    that reaches an already-resolved satellite sees its rewritten
+    ``upid``/``pid`` (path compression), which is what lets the reference
+    accept descending-id chains longer than the per-satellite lookup limit.
+
+    Per chain step: the upid target counts as found only within the origin
+    satellite's forest (the reference resolves inside per-forest arrays, so a
+    same-id halo in another forest is invisible to it); a not-found upid
+    falls back to the current halo's pid (Phase 3 step 5b);
+    neither found is an unresolved failure. Per satellite, at most
+    MAX_UPID_CHAIN_DEPTH + 1 lookups are permitted — find_fof_halo enters
+    with calldepth 0..30 inclusive (ctrees_utils.c:733-740 fails only at 31)
+    and every entry performs one lookup. Every resolved satellite gets BOTH
+    ``upid`` and ``pid`` set to the ultimate central's id.
+
+    Failures are collected across the whole snapshot (failed satellites are
+    never rewritten) and reported together with counts and per-hop examples.
+    """
+    ids = records["id"]
+    n = ids.size
+    upid = records["upid"]
+    pid = records["pid"]
+    forest = records["forest_id"]
+    central = pid == -1
+    upid[central] = ids[central]
+    satellite_rows = np.nonzero(~central)[0]  # records are id-sorted: ascending id
+
+    def _lookup(target: int, origin_forest: int) -> int:
+        pos = int(np.searchsorted(ids, target))
+        if pos < n and ids[pos] == target and forest[pos] == origin_forest:
+            return pos
+        return -1
+
+    failures: List[str] = []
+    n_failures = 0
+    for row in satellite_rows:
+        origin_forest = int(forest[row])
+        cur = int(row)
+        resolved = -1
+        failure = None
+        for _ in range(MAX_UPID_CHAIN_DEPTH + 1):
+            target = _lookup(int(upid[cur]), origin_forest)
+            if target < 0:
+                # reference fallback: follow the current halo's pid instead
+                target = _lookup(int(pid[cur]), origin_forest)
+                if target < 0:
+                    failure = (
+                        "(origin id={}, at id={}, upid={}, pid={}, forest={}: neither "
+                        "target present within the forest)".format(
+                            int(ids[row]),
+                            int(ids[cur]),
+                            int(upid[cur]),
+                            int(pid[cur]),
+                            origin_forest,
+                        )
+                    )
+                    break
+            if pid[target] == -1:
+                resolved = ids[target]
+                break
+            cur = target
+        if resolved != -1:
+            upid[row] = resolved
+            pid[row] = resolved
+            continue
+        if failure is None:
+            failure = "(origin id={}, at id={}, forest={}: chain exceeds depth {})".format(
+                int(ids[row]), int(ids[cur]), origin_forest, MAX_UPID_CHAIN_DEPTH
+            )
+        n_failures += 1
+        if len(failures) < 5:
+            failures.append(failure)
+    if n_failures:
+        raise ConverterError(
+            "snapshot {}: {} satellite upid chain(s) unresolved (missing targets or depth > {}); "
+            "examples: {}".format(snap, n_failures, MAX_UPID_CHAIN_DEPTH, ", ".join(failures))
+        )
+
+
+def apply_fixups_snapshot(
+    records: np.ndarray,
+    snap: int,
+    a_list: np.ndarray,
+    particle_mass: float,
+    forests_at_max: Optional[np.ndarray] = None,
+    context: str = "fixups",
+) -> Tuple[np.ndarray, Dict[str, int]]:
+    """Run Phase 3 steps 1-4 on one snapshot's sorted records.
+
+    ``forests_at_max`` is the sorted array of forest ids whose maximum
+    snapshot (per ``forest_max_snap.npy``) equals ``snap``; ``None`` (the
+    default, used by direct unit-level calls that do not have that sidecar)
+    skips the corrupt-input guard rather than treating it as "no forest
+    peaks here" the way an explicit empty array does.
+
+    Returns the fixed-record array (``fixed_record_dtype(records.dtype)``:
+    FIXED_RECORD_DTYPE for legacy records) and the per-snapshot stats. Every
+    field of ``records`` is copied, so an extended record's source coordinates
+    and extras arrive in the fixed record untouched by any convention below.
+    """
+    fixed = np.zeros(records.size, dtype=fixed_record_dtype(records.dtype))
+    for name in records.dtype.names:
+        fixed[name] = records[name]
+
+    validate_adjacency(fixed, snap, a_list, context)
+    normalise_spin(fixed)
+    fixed["Len"], len_zero = derive_len(fixed["Mvir"], particle_mass, context)
+    # MostBoundID carries the ctrees id (convert_ctrees_to_lht) and is always
+    # positive — the flyby demotion marker that used to negate it is gone.
+    fixed["MostBoundID"] = fixed["id"]
+    # Corrupt-input guard, independent of fix_upid below: every forest
+    # peaking at this snapshot must have at least one pid == -1 record here.
+    if forests_at_max is not None:
+        verify_fof_centrals_present(fixed, snap, forests_at_max, context)
+    fix_upid_snapshot(fixed, snap)
+    return fixed, {"rows": int(fixed.size), "len_zero_count": len_zero}
+
+
+def verify_mostboundid_invariant(records: np.ndarray, context: str) -> None:
+    """Ids are never modified by the fix-up stage, so ``MostBoundID`` must equal
+    ``id`` for every fixed record; abort with count and examples otherwise."""
+    bad = records["MostBoundID"] != records["id"]
+    if bad.any():
+        rows = np.nonzero(bad)[0][:5]
+        examples = [
+            "(row={}, id={}, MostBoundID={})".format(
+                int(r), int(records["id"][r]), int(records["MostBoundID"][r])
+            )
+            for r in rows
+        ]
+        raise ConverterError(
+            "{}: {} halo(s) violate MostBoundID == id after fix-ups; "
+            "examples: {}".format(context, int(bad.sum()), ", ".join(examples))
+        )
+
+
+def run_fixups(
+    workdir,
+    a_list_path,
+    simulation_info_path,
+    snapshots: Optional[Sequence[int]] = None,
+    consume_intermediates: bool = False,
+) -> Manifest:
+    """Apply the fix-up stage to every sorted snapshot (or the given subset).
+
+    The a_list must be byte-identical to the one the scatter stage validated
+    observed pairs against (manifest identity binding); simulation_info.yaml
+    is bound the same way, recorded here if scatter did not record it.
+    Re-running skips snapshots already fixed after verifying their artifacts.
+
+    ``consume_intermediates`` (CLI: ``--consume-intermediates``) turns on the
+    deletion of each snapshot's sorted scratch once its fixed
+    output is verified and registered. It is off by default and changes no
+    emitted byte; with it off this stage deletes nothing, exactly as before.
+    """
+    manifest = Manifest.load_or_create(workdir)
+    if not manifest.path.exists():
+        raise ConverterError("{}: no manifest found; run scatter first".format(workdir))
+
+    a_list, a_list_md5 = load_a_list(a_list_path)
+    provenance = manifest.data["provenance"]
+    recorded = provenance.get("a_list", {}).get("md5")
+    if recorded != a_list_md5:
+        raise ConverterError(
+            "{}: a_list content md5 {} != manifest-recorded {} — the fix-up stage must use "
+            "the a_list the scatter stage validated against".format(
+                a_list_path, a_list_md5, recorded
+            )
+        )
+    sim_info_md5 = file_md5(simulation_info_path)
+    recorded_info = provenance.get("simulation_info")
+    if recorded_info is None:
+        provenance["simulation_info"] = {
+            "path": str(Path(simulation_info_path).resolve()),
+            "md5": sim_info_md5,
+        }
+        manifest.save()
+    elif recorded_info.get("md5") != sim_info_md5:
+        raise ConverterError(
+            "{}: simulation_info content md5 {} != manifest-recorded {} — "
+            "refusing to mix metadata across runs".format(
+                simulation_info_path, sim_info_md5, recorded_info.get("md5")
+            )
+        )
+    particle_mass = load_particle_mass(simulation_info_path)
+    forests_at_max_by_snap = load_forests_at_max_by_snap(manifest)
+
+    if snapshots is None:
+        snapshots = sorted(int(s) for s in manifest.data["snapshots"])
+    for snap in snapshots:
+        fix_one_snapshot(
+            manifest,
+            snap,
+            a_list,
+            particle_mass,
+            forests_at_max_by_snap.get(snap, _EMPTY_FOREST_IDS),
+            consume_intermediates=consume_intermediates,
+        )
+    return manifest
+
+
+def _consume_sorted(manifest: Manifest, entry: dict, snap: int, delete: bool) -> None:
+    """Delete-after-verify for ``snap_NNN_sorted.bin``.
+
+    The fix-up stage is the sorted scratch's terminal consumer: no later stage
+    reads its contents, because ``links`` and the writer both work from the
+    fixed file. Two skip-trust paths still *verify* it on a re-run —
+    ``sort_one_snapshot``'s and ``_finalize_scatter``'s — and each does so on
+    the ONE RULE stated in ``sort_one_snapshot``: strict where the consumption
+    cannot have happened yet, ``scatter.verify_or_consumed`` where it can.
+    ``sort_one_snapshot`` verifies the sorted file OUTRIGHT at ``sorted`` and
+    goes through ``verify_or_consumed`` only at ``fixed`` and ``linked``;
+    ``_finalize_scatter`` likewise verifies it outright in its ``sorted``
+    branch and through ``verify_or_consumed`` only in its ``fixed`` branch.
+    Those consuming statuses are the ones a deletion can precede, so a re-run
+    there skips on a recorded consumption instead of failing on a file the
+    pipeline deliberately deleted.
+
+    The successor is durable before the predecessor is dropped, but "durable"
+    is established differently on each of the three paths that reach here. On
+    the producing path the fixed output has just been re-read, verified against
+    the manifest totals, registered and saved. On the ``fixed`` skip path it is
+    verified against its registered checksum this run. On the ``linked`` skip
+    path it may itself already be recorded consumed by a verified emission, in
+    which case nothing is re-read — the emitted HDF5 that superseded it was
+    verified dataset-by-dataset when the writer took it.
+
+    ``delete`` is the run's opt-in flag. With it clear the sorted file is
+    retained; a removal a crash interrupted between the unlink and the manifest
+    save still converges here, in either state, because those bytes are already
+    gone.
+    """
+    for path in manifest.consume_intermediates([entry["sorted_file"]], delete=delete):
+        _log("fixups: snapshot {} — consumed {}".format(snap, path))
+
+
+def fix_one_snapshot(
+    manifest: Manifest,
+    snap: int,
+    a_list: np.ndarray,
+    particle_mass: float,
+    forests_at_max: np.ndarray = _EMPTY_FOREST_IDS,
+    consume_intermediates: bool = False,
+) -> None:
+    """Fix one snapshot: verify input, apply steps 1-4, write + verify output."""
+    entry = manifest.data["snapshots"].get(str(snap))
+    if entry is None:
+        raise ConverterError("snapshot {}: no manifest entry; run scatter first".format(snap))
+    status = entry.get("status")
+    if status == "linked" and not consumption_recorded(manifest, entry):
+        # As in ``sort_one_snapshot``: ``linked`` became a skip only to keep a
+        # CONSUMED snapshot resumable, so with nothing consumed this stage
+        # refuses exactly as it did before the slice.
+        raise ConverterError(
+            "snapshot {}: unexpected status {!r}; run sort first".format(snap, status)
+        )
+    if status in ("fixed", "linked"):
+        # This stage's output is already on the record. At ``fixed`` it must
+        # still be on disk — the writer, its terminal consumer, runs only once
+        # EVERY snapshot is ``linked`` — so it is verified outright. At
+        # ``linked`` both it and the links file that superseded it may have
+        # been consumed by a verified emission, and a re-run then has to skip
+        # naming them rather than fail on a file the pipeline deleted.
+        consumed: List[str] = []
+        if status == "fixed":
+            manifest.verify_intermediate(entry["fixed_file"], "fixed snapshot scratch")
+        else:
+            verify_or_consumed(manifest, entry["fixed_file"], "fixed snapshot scratch", consumed)
+            verify_or_consumed(manifest, entry["links_file"], "snapshot links scratch", consumed)
+        _consume_sorted(manifest, entry, snap, consume_intermediates)
+        if consumed:
+            _log(
+                "fixups: snapshot {} is already {} and {} — skipping".format(
+                    snap, status, "; ".join(consumed)
+                )
+            )
+        return
+    if status != "sorted":
+        raise ConverterError(
+            "snapshot {}: unexpected status {!r}; run sort first".format(snap, status)
+        )
+
+    sorted_path = Path(entry["sorted_file"])
+    registered = manifest.verify_intermediate(sorted_path, "sorted snapshot scratch")
+    if registered.get("dtype_tag") != manifest.layout.dtype_tag:
+        raise ConverterError(
+            "{}: sorted scratch dtype tag {!r} != this workdir's {!r} — refusing to fix".format(
+                sorted_path, registered.get("dtype_tag"), manifest.layout.dtype_tag
+            )
+        )
+    records = np.fromfile(sorted_path, dtype=manifest.layout.dtype)
+    if len(records) != entry["rows"]:
+        raise ConverterError(
+            "{}: has {} rows, manifest records {}".format(sorted_path, len(records), entry["rows"])
+        )
+
+    fixed, stats = apply_fixups_snapshot(
+        records,
+        snap,
+        a_list,
+        particle_mass,
+        forests_at_max=forests_at_max,
+        context=str(sorted_path),
+    )
+
+    fixed_path = sorted_path.parent / fixed_scratch_name(snap)
+    fixed.tofile(fixed_path)
+
+    # verify the fixed file against the manifest totals before recording it;
+    # ids are never modified by the fix-up stage, so the id checksum and the
+    # |MostBoundID| == id invariant must both hold
+    fixed_dtype, fixed_tag = fixed_layout(manifest.layout)
+    if fixed.dtype != fixed_dtype:  # pragma: no cover - fixed_record_dtype guarantees it
+        raise ConverterError("{}: fixed records are not in the workdir layout".format(fixed_path))
+    reread = np.fromfile(fixed_path, dtype=fixed_dtype)
+    if len(reread) != entry["rows"]:
+        raise ConverterError(
+            "{}: fixed file has {} rows, manifest records {}".format(
+                fixed_path, len(reread), entry["rows"]
+            )
+        )
+    checksum = id_checksum(reread["id"])
+    if checksum != entry["id_checksum"]:
+        raise ConverterError(
+            "{}: fixed-file id checksum {} != manifest checksum {}".format(
+                fixed_path, checksum, entry["id_checksum"]
+            )
+        )
+    verify_mostboundid_invariant(reread, str(fixed_path))
+
+    manifest.register_intermediate(
+        fixed_path, "snapshot-fixed", rows=int(len(reread)), dtype_tag=fixed_tag
+    )
+    entry["fixed_file"] = str(fixed_path.resolve())
+    # Retained as a required field that must always read zero. fix_flybys
+    # is gone, so no stage can demote a flyby — but the count is measured from the
+    # records as persisted rather than written as a literal, so a zero here is
+    # positive evidence from the data. report.py fails loudly on a non-zero total.
+    entry["flyby_demotions"] = int(np.count_nonzero(reread["MostBoundID"] < 0))
+    entry["len_zero_count"] = stats["len_zero_count"]
+    entry["status"] = "fixed"
+    manifest.save()
+    _consume_sorted(manifest, entry, snap, consume_intermediates)
+    _log(
+        "fixups: snapshot {} — {} rows, {} Len==0 halo(s)".format(
+            snap, stats["rows"], stats["len_zero_count"]
+        )
+    )

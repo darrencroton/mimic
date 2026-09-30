@@ -1,24 +1,24 @@
 # mini-Millennium Halo Catalog Properties — horizontal HDF5 format version 3
 #
-# Complete package (runtime plan Slice 3; skeleton committed by Slice 2). Run
+# Version 3 horizontal package for mini-Millennium, converted from L-Halo binary. Run
 # files and README are alongside; the package's compiled declarations are
 # checked against a committed v3 fixture's `/schema` by
 # _tests/integration/test_schema_conformance.py (make tests-integration), and
 # against the real converted dataset by the package's parity gate, whose
 # provenance stage pins its column_mapping_sha256 (README.md, "Data provenance").
 #
-# Every entry is a `/halos` dataset of docs/dev/HORIZONTAL-HDF5-FORMAT.md (section "Version 3").
+# Every entry is a `/halos` dataset of convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md (section "Version 3").
 # The payload fields declare exactly the type, units and h_convention the
 # converter's lhalo_binary route writes into each file's `/schema`, and the
 # reader aborts at open on any disagreement; in particular M_Crit200 stays
 # float32 in the native L-Halo 1e10 Msun/h.
 #
-# The five links are `long long` (Gate R0-2(a)): version 3 stores them as
+# The five links are `long long`: version 3 stores them as
 # int64, and the reader refuses a package whose link storage would narrow them.
 # They, SourceHaloID, the three target-snapshot columns and the
 # ForestIndex/HaloRankInForest identity arrays are governed by the format's
 # fixed table, not by `/schema`; the last six are reader-owned slab arrays
-# (Gate R0-3(a)) and are deliberately NOT declared here.
+# and are deliberately NOT declared here.
 #
 # Required core roles (src/core/core_properties.yaml required_inputs):
 # Descendant, FirstProgenitor, NextProgenitor, FirstHaloInFOFgroup,

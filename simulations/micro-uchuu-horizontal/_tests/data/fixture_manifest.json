@@ -1042,7 +1042,7 @@
       }
     }
   },
-  "format_specification": "docs/dev/HORIZONTAL-HDF5-FORMAT.md",
+  "format_specification": "convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md",
   "format_version": 2,
   "generator": "simulations/micro-uchuu-horizontal/_tests/input/create_snapshot_fixture.py",
   "n_snapshots": 6
