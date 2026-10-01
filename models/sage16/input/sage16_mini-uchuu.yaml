@@ -7,7 +7,7 @@ simulation:
   name: mini-uchuu
 
 input:
-  # Subset of the 127 mini-Uchuu tree files
+  # Subset of the 128 mini-Uchuu tree files
   first_file: 0
   last_file: 3
 
