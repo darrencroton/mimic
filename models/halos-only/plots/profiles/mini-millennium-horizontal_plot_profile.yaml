@@ -1,0 +1,14 @@
+inherits:
+  - default.yaml
+
+mode: exploration
+
+simulation: mini-millennium-horizontal
+
+axes:
+  halo_mass_function:
+    xmin: 9.0
+    xmax: 15.5
+  spatial_distribution:
+    xlim: [0.0, 62.5]
+    ylim: [0.0, 62.5]
