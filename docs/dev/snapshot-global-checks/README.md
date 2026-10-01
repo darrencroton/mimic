@@ -34,7 +34,7 @@ The fixtures are maintained with the plan: a plan revision that changes a bindin
 
 - `fixtures/critical_phrases.txt`: `slice|phrase` lines that must reach both the Developer and Reviewer prompts verbatim. Add a line when a binding sentence is added to the plan; the guard fails if a later edit loses it.
 - `fixtures/witness_paths.json`: per-slice paths an implementation plausibly changes (must be authorized) and paths that non-goals or other slices forbid (must be rejected), plus paths that are unauthorized everywhere.
-- `fixtures/anchors.json`: the plan's `path:start–end` citations with identifiers that range must contain, identifiers the plan names by symbol, plan-named new paths that must not exist at the baseline, and envelopes a revision removed that must not exist either.
+- `fixtures/anchors.json`: the planning baseline (`planning_baseline`, the one place the current baseline commit is recorded; after any commit outside the planning surface, review the drift, record the review in the checks record and move that value; nothing in the plan changes, and `plan.baseline_hash_not_embedded` fails if the plan ever carries it), the plan's `path:start–end` citations with identifiers that range must contain, identifiers the plan names by symbol, plan-named new paths that must not exist at the baseline, and envelopes a revision removed that must not exist either.
 
 ## Limitations
 

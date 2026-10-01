@@ -191,6 +191,29 @@ def collect_drift(repo: Path, baseline: str) -> dict:
     }
 
 
+def embeds_baseline(text: str, baseline: str) -> bool:
+    """True when ``text`` carries the baseline hash in any length this project writes.
+
+    The full hash and its 12-, 8- and 7-character prefixes all count; an older baseline's
+    hash does not match unless it shares the prefix.
+    """
+    return any(baseline[:n] in text for n in (40, 12, 8, 7))
+
+
+# Synthetic texts exercising ``embeds_baseline``: [name, text, must be detected].
+OLD_BASELINE = "717cf3ed5647eb85d2426f44f7dcda7ecd695103"
+NEW_BASELINE = "634b509cd5c1ce1216339a117eb8d43483b6c2a7"
+EMBED_CASES: list[list] = [
+    ["full_hash", f"baseline `{NEW_BASELINE}`", True],
+    ["prefix_12", f"baseline `{NEW_BASELINE[:12]}`", True],
+    ["prefix_8", f"baseline `{NEW_BASELINE[:8]}`", True],
+    ["prefix_7", f"baseline {NEW_BASELINE[:7]}", True],
+    ["historical_full_hash", f"was baselined at `{OLD_BASELINE}`", False],
+    ["historical_prefix", f"was baselined at `{OLD_BASELINE[:8]}`", False],
+    ["no_hash", "baseline named in the checker fixture", False],
+]
+
+
 # Synthetic path sets exercising ``classify_drift`` without touching Git. Each entry is
 # [name, paths, paths that must be reported as outside the planning surface].
 DRIFT_CASES: list[list] = [
@@ -435,6 +458,22 @@ def check_real_plan(
             f"HEAD {drift['head'][:12]} vs baseline {baseline[:12]}: "
             f"{len(planning_touched)} planning-surface path(s) differ ({counts})"
         )
+
+    # 0b. The current planning baseline lives only in anchors.json. PM binds a run to
+    #    the plan's bytes, so a hash written into the plan would force a re-freeze after
+    #    every unrelated commit. Historical hashes (an older baseline) may still be cited.
+    for name, sample, expected in EMBED_CASES:
+        chk.check(
+            f"plan.baseline_embed_detector.{name}",
+            embeds_baseline(sample, NEW_BASELINE) == expected,
+            f"embeds_baseline gave {not expected} for {name}",
+        )
+    chk.check(
+        "plan.baseline_hash_not_embedded",
+        not embeds_baseline(text, baseline),
+        f"the plan embeds the current planning baseline {baseline[:12]}; keep it in "
+        "fixtures/anchors.json only",
+    )
 
     # 1. Parse and check-plan on the frozen plan.
     slices = plan_mod.parse_plan(plan_path)

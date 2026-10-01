@@ -2,7 +2,7 @@
 
 **Purpose:** Record what the planning-only checks under [snapshot-global-checks/](snapshot-global-checks/README.md) proved about the frozen plan [MIMIC-SNAPSHOT-GLOBAL-MODULES-PLAN.md](MIMIC-SNAPSHOT-GLOBAL-MODULES-PLAN.md) at revision 5 on 2026-10-01, with exact commands, counts, limitations and the remaining observations worth acting on before Project Manager (PM) initialization.
 
-**Revision 6 (2026-10-01):** the plan was re-baselined to `50d2ca7ad0dc80464d145e325ff69b77a891208c` after the horizontal micro-Uchuu package rename; see [Re-baseline review](#re-baseline-review-revision-6-2026-10-01) at the end. Everything above that section is unchanged evidence from revision 5 at `717cf3ed`, under that commit's package names.
+**Revisions 6 and 7 (2026-10-01):** the plan was re-baselined after the horizontal micro-Uchuu package rename (revision 6, to `50d2ca7ad0dc80464d145e325ff69b77a891208c`) and again after the horizontal and Shin-Uchuu `plot_profile.yaml` files were added (revision 7), which also removed the baseline commit hash from the plan; see [Re-baseline review](#re-baseline-review-revision-6-2026-10-01) and [Revision 7](#revision-7-the-baseline-leaves-the-plan-2026-10-01) at the end. Everything above those sections is unchanged evidence from revision 5 at `717cf3ed`, under that commit's package names.
 
 **Status:** Planning evidence only. Nothing here implements, mocks or exercises the proposed driver integration. The planning checks concern the plan text, installed PM tooling, C types and specified arithmetic. The separate baseline preflight below exercises existing code only. The checks are pre-implementation evidence: they exercise named contract properties and demonstrate that selected faulty variants are detected, not that a feature works, and a passing phrase check shows only that the named sentences survived, never that the contract has no other gap. All production code was left untouched.
 
@@ -265,3 +265,32 @@ The raw logs, run YAMLs, outputs and the worktree itself are archived under `arc
 - The other eight legs of the 12-leg matrix (`mini-millennium` vertical and `mini-millennium-horizontal` v3, both models, both schemes) were not repeated: their selectors did not change, and the runtime tree differs from `717cf3ed` only by the comments listed above. The default tiers and `tests-horizontal-v3` above exercise those packages' readers and drivers, but the eight legs' row counts were not re-measured.
 - No real-data identity gate was run. They read machine-local datasets and run inside Slice 4, as the plan says. The `snapshots/` links of the three micro-Uchuu horizontal packages resolve (51 entries each) and, read from the snapshot headers, carry the expected formats: `micro-uchuu-ascii-horizontal` version 2, `micro-uchuu-horizontal` version 3 from `lhalo_binary`, `micro-uchuu-hdf5-horizontal` version 3 from `consistent_trees_hdf5`. Each gate's own dataset-provenance stage remains the authority.
 - The `mimic` binary and generated selectors in the main checkout were not touched by these runs.
+
+
+## Revision 7: the baseline leaves the plan (2026-10-01)
+
+Revision 7 follows commit `634b509c` (the baseline at revision 7), which added a `plot_profile.yaml` to each of the six horizontal packages that has a vertical counterpart and to both Shin-Uchuu packages, fixed the `simulation.name` in the `micro-uchuu-ascii` and `micro-uchuu-hdf5` profiles, and updated the affected READMEs. Because that commit is outside the planning surface, the drift check required another baseline move, which would have changed the plan's bytes a third time.
+
+### Drift review
+
+| Question | Finding |
+|---|---|
+| Does any criterion depend on the new files? | No. Only `mimic-plot.py` reads `simulations/<simulation.name>/plot_profile.yaml`; the binary and the byte-identity gates do not, and no plan slice authorizes or tests plotting. |
+| Are the copies valid? | Yes. Each horizontal profile equals its vertical counterpart apart from `simulation.name`, and the box size and particle mass of each pair agree in `simulation_info.yaml`. The Shin-Uchuu profiles use the 140 Mpc/h box and the halo mass function limits of `models/sage16/plots/profiles/shin-uchuu_plot_profile.yaml`. |
+| Does the profile load? | Yes. `mimic-plot.py --verbose` on the archived `halos-only` v2 fixture run (`micro-uchuu-ascii-horizontal`) logs the default, model and `simulations/micro-uchuu-ascii-horizontal/plot_profile.yaml` layers and renders five plots with none skipped. The other packages' profiles were parsed and checked for box and axis values only. |
+| Does the runtime tree differ from the revision 6 baseline? | No source, script, test, model module or fixture changed; the commit adds eight YAML files and edits eight READMEs and two existing profile names. The default tiers, `tests-horizontal-v3`, the v2 legs and the SHAM preflight recorded above for `50d2ca7a` were not repeated. |
+
+### What changed in the plan
+
+Two places carried a commit hash that had to track the repository, so each was rewritten once:
+
+- The "Planning baseline" paragraph now names the fixture (`planning_baseline` in `fixtures/anchors.json`) instead of a hash, explains why, and keeps the historical hash `717cf3ed`. After a commit outside the planning surface, the baseline moves by reviewing the drift, recording the review in this record and editing that one fixture value; the plan's bytes do not change.
+- Slice 4's reference commit is now defined structurally. It is the last commit before any feature code, which is the `before_head` PM records for Slice 1. The test takes it as `REFERENCE_COMMIT=<hash>` or derives it as the parent of the first commit, walking `git log --first-parent --reverse` from the commit that last changed the plan file, that changes any path outside the planning surface. It requires the commit to be an ancestor of HEAD, to contain none of `process_snapshot`, `PROCESSING_MODE_SNAPSHOT`, `SnapshotContext` or `post_snapshot` under `src/`, `scripts/` and `models/`, and to contain every simulation package and run-file selector the legs use under the feature tree's names. An explicit value must equal the derived one or differ from it only in planning-surface paths, and the evidence records the resolved hash. The independent review found that the first draft of this rule (the parent of the first commit adding `process_snapshot` to `module_interface.h`) could resolve to a commit that already held part of Slice 1, and that an explicit argument could bring back the revision 6 defect with a pre-rename commit; the wording above closes both. The derivation was run against the real history (last plan change `7651166f`, first non-planning commit after it `634b509c`, derived reference `7651166f`, zero feature symbols, both fixture packages present).
+
+Seven critical phrases in `fixtures/critical_phrases.txt` now protect the Slice 4 reference-commit obligations through PM's prompt extraction. The checker gained `plan.baseline_hash_not_embedded`, which fails if the plan contains the current planning baseline in its full, 12-, 8- or 7-character form, and seven synthetic cases (`plan.baseline_embed_detector.*`) that run on every invocation: each prefix length must be detected and a historical hash or a hash-free sentence must not. The guard was also exercised against a scratch variant of the plan with the hash put back; it failed with the expected message.
+
+### Planning checks on revision 7
+
+`run_checks.py` on the revision 7 bytes gives `plan_contract` 655 pass, `const_view` 18 pass and 1 skip (the generated-header coverage gap recorded above), `sham_rank` 89 pass: 762 pass, 1 skip, 0 fail, 0 error, with the drift check passing against `634b509c`. PM's `check-plan` with repository context reports `5 slice(s); approval-gated: Slice 1, Slice 2, Slice 3, Slice 4` with no errors. The plan SHA-256 PM would freeze is `8ef1bc29600d6cf5da3f7fa1e0f404269891f2b5b5c59a9d49151d49c2ec375e`.
+
+The plot check in the drift review is archived under `archive/snapshot-global-planning/2026-10-01/rebaseline-634b509c/` (`mimic-plot.log` and `plots/`).
