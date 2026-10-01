@@ -2,6 +2,8 @@
 
 **Purpose:** Record what the planning-only checks under [snapshot-global-checks/](snapshot-global-checks/README.md) proved about the frozen plan [MIMIC-SNAPSHOT-GLOBAL-MODULES-PLAN.md](MIMIC-SNAPSHOT-GLOBAL-MODULES-PLAN.md) at revision 5 on 2026-10-01, with exact commands, counts, limitations and the remaining observations worth acting on before Project Manager (PM) initialization.
 
+**Revision 6 (2026-10-01):** the plan was re-baselined to `50d2ca7ad0dc80464d145e325ff69b77a891208c` after the horizontal micro-Uchuu package rename; see [Re-baseline review](#re-baseline-review-revision-6-2026-10-01) at the end. Everything above that section is unchanged evidence from revision 5 at `717cf3ed`, under that commit's package names.
+
 **Status:** Planning evidence only. Nothing here implements, mocks or exercises the proposed driver integration. The planning checks concern the plan text, installed PM tooling, C types and specified arithmetic. The separate baseline preflight below exercises existing code only. The checks are pre-implementation evidence: they exercise named contract properties and demonstrate that selected faulty variants are detected, not that a feature works, and a passing phrase check shows only that the named sentences survived, never that the contract has no other gap. All production code was left untouched.
 
 ## Environment at the pre-commit check
@@ -178,9 +180,9 @@ The primary delegated existing-code runs to a fresh local test agent in a detach
 
 The fixed/dynamic SAGE counts are separate references; no equality between timestep schemes is claimed, and individual merger/disruption causes were not traced. The first exploratory run used the older `test_physics_binary.yaml`, which omits metal enrichment despite its description. It was superseded by the matrix above using the shipped full pipeline; no baseline configuration was edited.
 
-To reproduce, start each YAML from `models/sage16/input/sage16_mini-millennium.yaml`. Preserve its entire module mapping and parameters for SAGE, including metal enrichment. For halos-only replace modules with `{phases: {}, parameters: {}}`. Select the matching model and one of these simulation configurations: `tests/data/test_simulation.yaml`, `simulations/micro-uchuu-ascii-horizontal/_tests/input/test_simulation.yaml`, or `simulations/mini-millennium-horizontal/_tests/input/test_simulation.yaml`. These select, respectively, the committed vertical trees, v2 `data/generic/`, and v3 `data/worked_graph/`; do not override input paths. Use fresh scratch YAML/output directories, HDF5, `snapshot_list: []`, `SubSteps: 10`, `MaxDynamicSubsteps: 200`, and the selected `TimestepScheme`. Unset inherited model/simulation/test-build/MPI selector variables. For each pair run `make MODEL=<model> SIMULATION=<simulation> USE-HDF5=yes info`, then `generate`, then `make -j4 ... all`, followed by both `./mimic <run.yaml>` legs. Count shard rows without double-counting master links and scan every floating field.
+To reproduce, start each YAML from `models/sage16/input/sage16_mini-millennium.yaml`. Preserve its entire module mapping and parameters for SAGE, including metal enrichment. For halos-only replace modules with `{phases: {}, parameters: {}}`. Select the matching model and one of these simulation configurations: `tests/data/test_simulation.yaml`, `simulations/micro-uchuu-horizontal/_tests/input/test_simulation.yaml`, or `simulations/mini-millennium-horizontal/_tests/input/test_simulation.yaml`. These select, respectively, the committed vertical trees, v2 `data/generic/`, and v3 `data/worked_graph/`; do not override input paths. Use fresh scratch YAML/output directories, HDF5, `snapshot_list: []`, `SubSteps: 10`, `MaxDynamicSubsteps: 200`, and the selected `TimestepScheme`. Unset inherited model/simulation/test-build/MPI selector variables. For each pair run `make MODEL=<model> SIMULATION=<simulation> USE-HDF5=yes info`, then `generate`, then `make -j4 ... all`, followed by both `./mimic <run.yaml>` legs. Count shard rows without double-counting master links and scan every floating field.
 
-The separate SHAM preflight passed production `generate`, `validate-modules`, `lint-parameters`, and `check-generated` with `MODEL=sham SIMULATION=micro-uchuu-ascii-horizontal TEST_BUILD=no USE-HDF5=yes`, followed by `TEST_BUILD=yes generate validate-build mimic`. Its legacy SHAM smoke run preserved the mapping and parameters from `models/sham/input/sham_mini-millennium.yaml`, selected the v2 generic fixture, used fixed timestepping and all HDF5 snapshots, and produced finite output with counts `[0, 1, 1, 1, 5, 5]`. The generated SHAM/test properties and linked module symbols were verified.
+The separate SHAM preflight passed production `generate`, `validate-modules`, `lint-parameters`, and `check-generated` with `MODEL=sham SIMULATION=micro-uchuu-horizontal TEST_BUILD=no USE-HDF5=yes`, followed by `TEST_BUILD=yes generate validate-build mimic`. Its legacy SHAM smoke run preserved the mapping and parameters from `models/sham/input/sham_mini-millennium.yaml`, selected the v2 generic fixture, used fixed timestepping and all HDF5 snapshots, and produced finite output with counts `[0, 1, 1, 1, 5, 5]`. The generated SHAM/test properties and linked module symbols were verified.
 
 Applying production validators to TEST_BUILD output initially failed: `validate-modules` rejected fixture-only `TestDummyProperty`, and `check-generated` reported different property hashes. This is explained by `scripts/validate_modules.py:206` and `scripts/check_generated.py:43`, which load production property inputs, while `scripts/generate_properties.py:1918` adds test properties. The passing sequence follows the existing Makefile test workflow; no failure was hidden or validator weakened.
 
@@ -200,3 +202,66 @@ The primary independently reproduced all 747 passes and the one declared header 
 The final two-clause clarification (after review 13) removes the optional in-tier MPI case and explicitly includes `EventContracts` and `Redshifts` in byte-equality checks. The primary replay passed 748 checks (641 / 18 / 89), with the same declared skip and no failures/errors. The lost-oracle demonstration rejected the corrupted plan with 637 passes, three failures and one error. A subsequent presence clarification requires identical dataset presence and byte equality where present; its replay also passed 748 checks with the same skip and no failures/errors. The environment table names those final bytes.
 
 After the final reviews, scratch checkouts, raw delegate/probe/formatter logs and ad-hoc checker helpers were archived under `archive/snapshot-global-planning/2026-10-01/`. The detached baseline checkout was moved with `git worktree move`; no files were deleted. The reusable scripts, fixtures and latest ignored results remain beside the plan. Raw paths embedded in archived launch manifests retain their original values as historical provenance.
+
+
+## Re-baseline review (revision 6, 2026-10-01)
+
+The plan was baselined at `717cf3ed5647eb85d2426f44f7dcda7ecd695103`. Four commits then landed outside the planning surface: `da816c8d` (four sage16 horizontal run files), `fadabb6d` (the horizontal micro-Uchuu packages renamed after their source format), `4aee080b` (the plan and its records following the rename) and `50d2ca7a` (a Shin-Uchuu README correction). The planning checker's drift check `baseline.no_drift_outside_planning_surface` failed from `da816c8d` onward, as designed. This section records the review that decided whether the plan's premises still hold, and the evidence repeated at the new baseline. The sections above are unchanged evidence from `717cf3ed` and keep the package names of that commit.
+
+### Name map
+
+| Name at `717cf3ed` | Name at `50d2ca7a` | Meaning |
+|---|---|---|
+| `micro-uchuu-horizontal` | `micro-uchuu-ascii-horizontal` | version 2, Consistent-Trees ASCII source, the plan's v2 fixture package |
+| `micro-uchuu-lhalo-horizontal` | `micro-uchuu-horizontal` | version 3, L-Halo binary source |
+| `micro-uchuu-hdf5-horizontal`, `mini-millennium-horizontal`, `millennium-horizontal`, `mini-uchuu-horizontal`, `shin-uchuu` | unchanged | |
+
+The string `micro-uchuu-horizontal` therefore means a different package before and after the rename. In the narrated preflights above it is the version 2 package; everywhere in the plan it is the current name.
+
+### Drift review
+
+| Question | Finding |
+|---|---|
+| Did runtime behaviour change? | No. From `717cf3ed` to `50d2ca7a`, `scripts/`, `tests/framework` and the model modules do not differ; `src/` and the tests differ only by comments in four files (`src/io/horizontal/read_horizontal_hdf5.c`, `src/io/vertical/read_ctrees_ascii.c`, `tests/integration/test_processing_order.py`, `tests/unit/test_horizontal_v3_reader.c`); the `Makefile` differs by one comment and one path (`check-horizontal-fixture`); and the simulation packages' `halo_properties.yaml`, `simulation_info.yaml` and `test_simulation.yaml` changed only in comments and package-relative paths. |
+| Is the v2 fixture the same data? | Yes. Every committed v2 fixture data file (HDF5 snapshots, `forests.h5`, `a_list`) moved at 100% blob identity under the new name. The two `fixture_manifest.json` files differ only in their `generator` path and `_tests/data/generic/regenerate.sh` only in its generator path. |
+| Do the old v2 and L-Halo run files match the new ones? | Yes, apart from the header comment, `simulation.name` and `output_directory` (checked for `halos-only` and `sage16`). |
+| Do the new sage16 horizontal run files touch any criterion? | No. No test or script globs `models/*/input`; the parity gates choose their models explicitly (`halos-only` for the four packages that gained sage16 files); Slice 4 derives from `sage16_mini-millennium.yaml`, which is unchanged. |
+| Do the plan's cited line anchors hold? | Yes: the anchor checks pass at the working tree. |
+| What did not hold? | Slice 4 named `717cf3ed` as the pre-feature reference commit. That commit predates the rename: the baseline worktree has no `micro-uchuu-ascii-horizontal` package, the compiled simulation name must equal the run file's `simulation.name`, and the recorded `SimulationName` and `SimulationDir` attributes and the copied run YAML would differ between the reference and feature legs for the v2 fixture, which the plan's list of permitted differences does not allow. Revision 6 therefore moves the planning baseline, and with it the Slice 4 reference commit, to `50d2ca7ad0dc80464d145e325ff69b77a891208c`, which carries the names the feature tree uses. |
+| Was recorded evidence rewritten? | The rename commit rewrote the narrated preflights in this record and the review record to the new names, which made them describe paths that do not exist at `717cf3ed`. Revision 6 restores both records to their `c51e3623` text and adds this section. |
+
+### Evidence repeated at `50d2ca7a`
+
+A fresh local test agent ran the following in a detached worktree of `50d2ca7a`, sequentially, with the selectors unset between pairs and without any real-data `snapshots/` link. Every command exited zero. The primary re-counted the log markers and two of the four v2 legs from the written output.
+
+| Check | Result |
+|---|---|
+| `make check-docs`, `make check-horizontal-fixture` | pass |
+| `make MODEL=sage16 SIMULATION=mini-millennium generate validate-modules lint-parameters check-generated`, default build | pass; no compiler warnings |
+| `make tests summary` (default pair) | all pass; unit 498 PASS, 10 SKIP; integration 217 PASS, 4 SKIP; scientific 19 PASS, 1 WARN; total 734 PASS, 14 SKIP, 1 WARN, 0 FAIL, 0 ERROR |
+| `make MODEL=sage16 SIMULATION=mini-millennium tests-horizontal-v3` | `PASS: tests-horizontal-v3 (4 C tests, 2 Python tests, no unexpected skips)` |
+
+The 14 skips are the expected default-pair skips: nine v3-fixture unit tests (the fixture schema matches only `mini-millennium-horizontal`), `test_unknown_module_error` (needs process isolation), and four `test_horizontal_*` integration tests (the selected package is not horizontal). The warning is the scientific tier's `test_zero_values` (three fields with zero values), a soft check.
+
+The four v2 fixture legs use the same recipe as above with `simulation.name: micro-uchuu-ascii-horizontal` and `simulation.config` set to `simulations/micro-uchuu-ascii-horizontal/_tests/input/test_simulation.yaml`:
+
+| Model | Scheme | Exit | Snapshots | Rows (per snapshot) | Recorded at `717cf3ed` | Float fields scanned / non-finite |
+|---|---|---:|---:|---|---:|---|
+| halos-only | fixed | 0 | 6 | 13 (0,1,1,1,5,5) | 13 | 84 / 0 |
+| halos-only | dynamic | 0 | 6 | 13 (0,1,1,1,5,5) | 13 | 84 / 0 |
+| sage16 | fixed | 0 | 6 | 11 (0,1,1,1,5,3) | 11 | 216 / 0 |
+| sage16 | dynamic | 0 | 6 | 11 (0,1,1,1,5,3) | 11 | 216 / 0 |
+
+Every master recorded the requested `TimestepScheme`. The SHAM preflight repeated under `MODEL=sham SIMULATION=micro-uchuu-ascii-horizontal USE-HDF5=yes`: `TEST_BUILD=no generate validate-modules lint-parameters check-generated` passed, `TEST_BUILD=yes generate validate-build mimic` built without warnings, and the legacy SHAM smoke run on the v2 fixture (fixed timestepping, all HDF5 snapshots) exited zero with per-snapshot counts `[0, 1, 1, 1, 5, 5]` and no non-finite value, equal to the count recorded at `717cf3ed`.
+
+The raw logs, run YAMLs, outputs and the worktree itself are archived under `archive/snapshot-global-planning/2026-10-01/rebaseline-50d2ca7a/` (`evidence/` and `worktree/`).
+
+### Planning checks on revision 6
+
+`run_checks.py` on the revision 6 bytes gives `plan_contract` 641 pass, `const_view` 18 pass and 1 skip (the same generated-header coverage gap as above), `sham_rank` 89 pass: 748 pass, 1 skip, 0 fail, 0 error, with `baseline.no_drift_outside_planning_surface` passing against `50d2ca7a` because only planning-surface files differ. PM's own `check-plan` with repository context reports `5 slice(s); approval-gated: Slice 1, Slice 2, Slice 3, Slice 4` with no errors. The plan digest PM would freeze is the SHA-256 recorded in the revision 6 commit message, since this record cannot carry the digest of a file it is committed beside without changing it.
+
+### Limits
+
+- The other eight legs of the 12-leg matrix (`mini-millennium` vertical and `mini-millennium-horizontal` v3, both models, both schemes) were not repeated: their selectors did not change, and the runtime tree differs from `717cf3ed` only by the comments listed above. The default tiers and `tests-horizontal-v3` above exercise those packages' readers and drivers, but the eight legs' row counts were not re-measured.
+- No real-data identity gate was run. They read machine-local datasets and run inside Slice 4, as the plan says. The `snapshots/` links of the three micro-Uchuu horizontal packages resolve (51 entries each) and, read from the snapshot headers, carry the expected formats: `micro-uchuu-ascii-horizontal` version 2, `micro-uchuu-horizontal` version 3 from `lhalo_binary`, `micro-uchuu-hdf5-horizontal` version 3 from `consistent_trees_hdf5`. Each gate's own dataset-provenance stage remains the authority.
+- The `mimic` binary and generated selectors in the main checkout were not touched by these runs.

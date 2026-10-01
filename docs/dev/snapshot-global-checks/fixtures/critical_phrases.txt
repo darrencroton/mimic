@@ -61,7 +61,7 @@
 4|`make tests-snapshot-global` runs the neutral phase tests under v2 micro-Uchuu and v3 mini-Millennium fixtures
 4|It does not silently broaden model discovery, launch real-data gates or run the reference-commit comparison
 4|`tests/manual/test_snapshot_disabled_identity.py`
-4|pre-feature baseline commit `717cf3ed5647eb85d2426f44f7dcda7ecd695103`
+4|pre-feature baseline commit `50d2ca7ad0dc80464d145e325ff69b77a891208c`
 4|identical ID sets and per-ID raw property bytes at every output snapshot
 4|Missing datasets fail this acceptance requirement; they do not become SKIPs
 4|Write `docs/dev/MIMIC-SNAPSHOT-GLOBAL-MODULES-ACCEPTANCE.md`
