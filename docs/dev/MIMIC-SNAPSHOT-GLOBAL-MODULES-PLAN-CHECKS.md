@@ -294,3 +294,16 @@ Seven critical phrases in `fixtures/critical_phrases.txt` now protect the Slice 
 `run_checks.py` on the revision 7 bytes gives `plan_contract` 655 pass, `const_view` 18 pass and 1 skip (the generated-header coverage gap recorded above), `sham_rank` 89 pass: 762 pass, 1 skip, 0 fail, 0 error, with the drift check passing against `634b509c`. PM's `check-plan` with repository context reports `5 slice(s); approval-gated: Slice 1, Slice 2, Slice 3, Slice 4` with no errors. The plan SHA-256 PM would freeze is `8ef1bc29600d6cf5da3f7fa1e0f404269891f2b5b5c59a9d49151d49c2ec375e`.
 
 The plot check in the drift review is archived under `archive/snapshot-global-planning/2026-10-01/rebaseline-634b509c/` (`mimic-plot.log` and `plots/`).
+
+
+## Baseline move after revision 7 (2026-10-01)
+
+Commit `13891a17` added `models/halos-only/plots/profiles/mini-millennium-horizontal_plot_profile.yaml`, the halos-only model-level profile for the horizontal mini-Millennium package. It is the only model-level profile keyed by a simulation that has a horizontal counterpart (the two sage16 Shin-Uchuu profiles already cover both Shin-Uchuu packages; no other model has simulation-keyed profiles). It is outside the planning surface, so the drift check failed until the baseline moved; this is the first move under the procedure revision 7 introduced.
+
+| Question | Finding |
+|---|---|
+| Does any criterion depend on the file? | No. Only `mimic-plot.py` reads it, by exact simulation name; the binary, the identity gates and every plan slice are unaffected. |
+| Is it valid? | It is the vertical file with only its own `simulation` entry changed. `configure_plot_profile` run with the halos-only model path and each simulation name resolves identical axes (`halo_mass_function` 9.0 to 15.5, `spatial_distribution` 0 to 62.5) and `mode: exploration` for `mini-millennium` and `mini-millennium-horizontal`. |
+| Did runtime sources, scripts, tests, model modules or fixtures change? | No: the commit adds one YAML file. |
+
+`planning_baseline` in `fixtures/anchors.json` is now `13891a177c0d2ffd407394597fa783ab739472b7`. The plan was not edited, so its SHA-256 is still `8ef1bc29600d6cf5da3f7fa1e0f404269891f2b5b5c59a9d49151d49c2ec375e`.
