@@ -34,7 +34,7 @@ Horizontal runs are HDF5-only, serial-only (`NTask == 1`; multi-rank horizontal 
 - **`unique_galaxy_id_multiplier: 20000000000` (2×10¹⁰)** must match `simulations/shin-uchuu-ascii/`, or `UniqueGalaxyID` diverges between the two packages. Confirmed against this catalog's measured `max_halo_rank_in_forest` ≈ 1.265×10¹⁰.
 - **`Spin` range `[-1000, 1000]`.** Measured over the full production dataset: max `|Spin|` = 416.69, zero non-finite.
 - **`deltaMvir` range `[-1000000.0, 1000000.0]`** (declared in `src/core/core_properties.yaml`, not this package; widened after a measured 4.77e4 on mini-Uchuu). Measured over the `sage16` production run: max `|deltaMvir|` = 12,432.
-- **`_tests/` is not shipped.** No committed contract fixtures, fixture generator, or conformance checker yet; `micro-uchuu-ascii-horizontal/_tests/` is the reference layout to follow.
+- **`_tests/` ships a synthetic contract fixture, not a parity gate.** `_tests/data/` holds the committed version 2 fixture (three forests over six snapshots, rebuilt by `_tests/data/regenerate.sh` with the generator in `micro-uchuu-ascii-horizontal/_tests/input/`) and `_tests/input/test_simulation.yaml` points the generic test tiers at it. There is no package-local conformance check, schema test or cross-format identity gate yet; `make check-horizontal-fixture` covers only the `micro-uchuu-ascii-horizontal` fixture.
 
 ## How the production dataset was made
 
