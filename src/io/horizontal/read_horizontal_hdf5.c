@@ -2273,7 +2273,7 @@ static void horizontal_h5_check_physical_value(const char *path, const char *att
  * two identity columns and, for version 3, the three int32 target-snapshot
  * columns and SourceHaloID. open_run publishes it as HorizontalRunInfo.slab_row_bytes
  * for the driver's retention accounting; tests/unit/test_horizontal_retention_budget.c
- * and the micro-uchuu-horizontal package test check it against the allocator.
+ * and the micro-uchuu-ascii-horizontal package test check it against the allocator.
  * Keep it in step with load_slab.
  */
 static int64_t horizontal_h5_slab_row_bytes(int is_v3) {

@@ -54,7 +54,7 @@ The directory must hold `snapshot_000.h5` … `snapshot_049.h5` and `forests.h5`
 
 ## Running this package
 
-A shipped run file pairs this package with `halos-only`; `make generate` and `make validate-modules` pass for it. There is no `sage16` run file for this package.
+Shipped run files pair this package with `halos-only` and `sage16`; `make generate` and `make validate-modules` pass for the `halos-only` pairing, and this route is validated for `halos-only` only.
 
 ```bash
 make MODEL=halos-only SIMULATION=mini-uchuu-horizontal
@@ -74,4 +74,4 @@ The recorded gate of 2026-09-29 passed: over files 0–15 only (adjacent links),
 ## Related packages
 
 - `simulations/mini-uchuu/` — the same halos in L-Halo binary, the conversion source and the cosmology reference
-- `simulations/micro-uchuu-lhalo-horizontal/` — the complete micro-Uchuu L-Halo version 3 package
+- `simulations/micro-uchuu-horizontal/` — the complete micro-Uchuu L-Halo version 3 package

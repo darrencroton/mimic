@@ -3,7 +3,7 @@
 This package declares the horizontal HDF5 on-disk record for the Shin-Uchuu halo catalog: one `snapshot_NNN.h5` file per snapshot holding that snapshot's whole halo population as a struct-of-arrays, plus the `forests.h5` provenance sidecar. The on-disk contract is frozen in [`convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md`](../../convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md); this package conforms to that specification, never the other way around.
 
 - `simulation_info.yaml`: input paths, snapshot list path, cosmology, units, box size, and particle mass
-- `halo_properties.yaml`: the RawHalo field contract — every `/halos` dataset of the frozen format, with names and types matching the specification exactly. Deliberately omits `ForestIndex` and `HaloRankInForest` (see file header), mirroring `micro-uchuu-horizontal`.
+- `halo_properties.yaml`: the RawHalo field contract — every `/halos` dataset of the frozen format, with names and types matching the specification exactly. Deliberately omits `ForestIndex` and `HaloRankInForest` (see file header), mirroring `micro-uchuu-ascii-horizontal`.
 - `shin-uchuu.a_list`: 70 snapshot scale factors (a=0.04773 to a=0.99998)
 - `snapshots/`: symlink to the converted dataset directory (machine-local, not tracked)
 - `_tests/`: not present (see "Maintenance notes")
@@ -34,7 +34,7 @@ Horizontal runs are HDF5-only, serial-only (`NTask == 1`; multi-rank horizontal 
 - **`unique_galaxy_id_multiplier: 20000000000` (2×10¹⁰)** must match `simulations/shin-uchuu-ascii/`, or `UniqueGalaxyID` diverges between the two packages. Confirmed against this catalog's measured `max_halo_rank_in_forest` ≈ 1.265×10¹⁰.
 - **`Spin` range `[-1000, 1000]`.** Measured over the full production dataset: max `|Spin|` = 416.69, zero non-finite.
 - **`deltaMvir` range `[-1000000.0, 1000000.0]`** (declared in `src/core/core_properties.yaml`, not this package; widened after a measured 4.77e4 on mini-Uchuu). Measured over the `sage16` production run: max `|deltaMvir|` = 12,432.
-- **`_tests/` is not shipped.** No committed contract fixtures, fixture generator, or conformance checker yet; `micro-uchuu-horizontal/_tests/` is the reference layout to follow.
+- **`_tests/` is not shipped.** No committed contract fixtures, fixture generator, or conformance checker yet; `micro-uchuu-ascii-horizontal/_tests/` is the reference layout to follow.
 
 ## How the production dataset was made
 
@@ -140,4 +140,4 @@ The link stage's production peak was measured at about **235 GB** RSS during the
 ## Related packages
 
 - `simulations/shin-uchuu-ascii/` — a subset of the same catalog in Consistent-Trees ASCII, read by the vertical driver
-- `simulations/micro-uchuu-horizontal/` — the worked exemplar this package's structure and conventions mirror
+- `simulations/micro-uchuu-ascii-horizontal/` — the worked exemplar this package's structure and conventions mirror

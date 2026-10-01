@@ -19,7 +19,7 @@
  * Mpc/h positions) so the generated reference-unit accessors apply the catalog
  * -> reference conversion. `simulations/micro-uchuu-ascii` is the worked package,
  * validated byte for byte against the horizontal driver by
- * simulations/micro-uchuu-horizontal/_tests/scientific/test_cross_format_identity.py;
+ * simulations/micro-uchuu-ascii-horizontal/_tests/scientific/test_cross_format_identity.py;
  * its README records the float32-ULP Mvir difference from the HDF5 reader.
  *
  * Split of responsibilities:

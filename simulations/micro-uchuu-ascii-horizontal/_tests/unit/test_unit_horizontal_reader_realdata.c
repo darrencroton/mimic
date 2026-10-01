@@ -9,7 +9,7 @@
  * committed fixture.
  *
  * Opt-in by construction: the dataset is machine-local, reached through the
- * gitignored `simulations/micro-uchuu-horizontal/snapshots` symlink. When that path
+ * gitignored `simulations/micro-uchuu-ascii-horizontal/snapshots` symlink. When that path
  * does not resolve the test skips and names the path, so it stays correct on a
  * machine without the data. See that package's README.md for the conversion
  * commands and the symlink instruction.
@@ -54,7 +54,7 @@ extern struct MimicConfig MimicConfig;
 #define REALDATA_MAX_RANK INT64_C(350074)
 #define REALDATA_FORMAT_VERSION 2
 
-/* simulations/micro-uchuu-horizontal/simulation_info.yaml's physical values. The
+/* simulations/micro-uchuu-ascii-horizontal/simulation_info.yaml's physical values. The
    real dataset's headers were stamped from these same values, so
    open_run's per-file physical-header check needs them configured here too;
    PartMass is carried in 1e10 Msun/h, the units simulation_info.yaml

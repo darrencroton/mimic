@@ -36,12 +36,12 @@ it is neither path-independent nor reproducible.
 
 Usage:
     mimic_venv/bin/python \\
-        simulations/micro-uchuu-horizontal/_tests/input/create_snapshot_fixture.py
+        simulations/micro-uchuu-ascii-horizontal/_tests/input/create_snapshot_fixture.py
     mimic_venv/bin/python \\
-        simulations/micro-uchuu-horizontal/_tests/input/create_snapshot_fixture.py \\
+        simulations/micro-uchuu-ascii-horizontal/_tests/input/create_snapshot_fixture.py \\
         --compare-against <dir>   # value-equality assertion only, nothing written
     mimic_venv/bin/python \\
-        simulations/micro-uchuu-horizontal/_tests/input/create_snapshot_fixture.py \\
+        simulations/micro-uchuu-ascii-horizontal/_tests/input/create_snapshot_fixture.py \\
         --package shin-uchuu      # the same synthetic forests under another package
 
 ``--package`` builds the same synthetic forests for another version 2 horizontal
@@ -578,7 +578,7 @@ def build_manifest(data_dir):
                 entry["datasets"] = {"ForestID": _dataset_entry(handle["ForestID"])}
             files[name] = entry
     manifest = {
-        "generator": "simulations/micro-uchuu-horizontal/_tests/input/create_snapshot_fixture.py",
+        "generator": "simulations/micro-uchuu-ascii-horizontal/_tests/input/create_snapshot_fixture.py",
         "format_specification": "convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md",
         "format_version": 2,
         "a_list": list(A_LIST),
@@ -768,7 +768,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="create_snapshot_fixture",
         description="Regenerate the committed horizontal-HDF5 contract fixtures for "
-        "simulations/micro-uchuu-horizontal",
+        "simulations/micro-uchuu-ascii-horizontal",
     )
     parser.add_argument(
         "--package",

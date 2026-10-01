@@ -355,7 +355,7 @@ def test_horizontal_run_completes_and_writes_output_over_the_fixture():
     live across the gap.
 
     Runs against the selected package's own committed fixture (package_fixture(): for
-    micro-uchuu-horizontal its _tests/data/generic/, for mini-millennium-horizontal
+    micro-uchuu-ascii-horizontal its _tests/data/generic/, for mini-millennium-horizontal
     _tests/data/worked_graph/), not the machine-local production dataset: the latter is
     multi-gigabyte, gitignored, and absent on a fresh checkout, which would make this
     proof unreproducible outside one workstation. input.simulation_dir and
@@ -840,7 +840,7 @@ def test_horizontal_reader_unset_processing_order_names_the_default():
 
     The unset-default case only exists when neither the run file nor the simulation config
     it points at declares input.processing_order; a package whose own configuration declares
-    the key (e.g. micro-uchuu-horizontal's horizontal) makes it configured, so the test
+    the key (e.g. micro-uchuu-ascii-horizontal's horizontal) makes it configured, so the test
     skips there rather than asserting a condition the package contradicts.
     """
     if effective_input_setting("unset_order_probe", "processing_order") is not None:

@@ -54,7 +54,7 @@ The directory must hold `snapshot_000.h5` … `snapshot_063.h5` and `forests.h5`
 
 ## Running this package
 
-A shipped run file pairs this package with `halos-only`; `make generate` and `make validate-modules` pass for it. There is no `sage16` run file for this package.
+Shipped run files pair this package with `halos-only` and `sage16`; `make generate` and `make validate-modules` pass for the `halos-only` pairing, and this route is validated for `halos-only` only.
 
 ```bash
 make MODEL=halos-only SIMULATION=millennium-horizontal

@@ -1,4 +1,7 @@
-# Mimic SAGE on micro-Uchuu Run Configuration - horizontal HDF5
+# Mimic SAGE on micro-Uchuu Run Configuration - horizontal HDF5 version 3, from L-Halo binary
+#
+# Identical to sage16_micro-uchuu.yaml except for simulation.name and
+# output.output_directory.
 
 model:
   name: sage16

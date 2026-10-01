@@ -1,11 +1,11 @@
 {
   "a_list": [
-    0.25,
-    0.4,
-    0.5,
-    0.65,
-    0.8,
-    1.0
+    0.83728,
+    0.87516,
+    0.91481,
+    0.95651,
+    0.97808,
+    0.99951
   ],
   "a_list_file": "micro-uchuu-fixture.a_list",
   "chunk_shape_1d": [
@@ -188,7 +188,7 @@
         },
         "scale_factor": {
           "dtype": "float64",
-          "value": 0.25
+          "value": 0.83728
         },
         "snapshot_number": {
           "dtype": "int32",
@@ -357,7 +357,7 @@
         },
         "scale_factor": {
           "dtype": "float64",
-          "value": 0.4
+          "value": 0.87516
         },
         "snapshot_number": {
           "dtype": "int32",
@@ -526,7 +526,7 @@
         },
         "scale_factor": {
           "dtype": "float64",
-          "value": 0.5
+          "value": 0.91481
         },
         "snapshot_number": {
           "dtype": "int32",
@@ -695,7 +695,7 @@
         },
         "scale_factor": {
           "dtype": "float64",
-          "value": 0.65
+          "value": 0.95651
         },
         "snapshot_number": {
           "dtype": "int32",
@@ -864,7 +864,7 @@
         },
         "scale_factor": {
           "dtype": "float64",
-          "value": 0.8
+          "value": 0.97808
         },
         "snapshot_number": {
           "dtype": "int32",
@@ -1033,7 +1033,7 @@
         },
         "scale_factor": {
           "dtype": "float64",
-          "value": 1.0
+          "value": 0.99951
         },
         "snapshot_number": {
           "dtype": "int32",
@@ -1044,6 +1044,6 @@
   },
   "format_specification": "convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md",
   "format_version": 2,
-  "generator": "simulations/micro-uchuu-horizontal/_tests/input/create_snapshot_fixture.py",
+  "generator": "simulations/micro-uchuu-ascii-horizontal/_tests/input/create_snapshot_fixture.py",
   "n_snapshots": 6
 }

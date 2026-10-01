@@ -53,7 +53,7 @@ The directory must hold `snapshot_000.h5` … `snapshot_049.h5` and `forests.h5`
 
 ## Running this package
 
-A shipped run file pairs this package with `halos-only`; `make generate` and `make validate-modules` pass for it. There is no `sage16` run file for this package.
+Shipped run files pair this package with `halos-only` and `sage16`; `make generate` and `make validate-modules` pass for the `halos-only` pairing, and this route is validated for `halos-only` only.
 
 ```bash
 make MODEL=halos-only SIMULATION=micro-uchuu-hdf5-horizontal
@@ -73,5 +73,5 @@ The recorded gate of 2026-09-29 passed: 4,409,643 galaxies over output snapshots
 ## Related packages
 
 - `simulations/micro-uchuu-hdf5/` — the same halos in forests-HDF5, the conversion source and the cosmology reference
-- `simulations/micro-uchuu-lhalo-horizontal/` — the same simulation converted from L-Halo binary; its `M_Crit200` is in `1e10 Msun/h`, and no identity with this package is claimed
-- `simulations/micro-uchuu-horizontal/` — the version 2 conversion from Consistent-Trees ASCII
+- `simulations/micro-uchuu-horizontal/` — the same simulation converted from L-Halo binary; its `M_Crit200` is in `1e10 Msun/h`, and no identity with this package is claimed
+- `simulations/micro-uchuu-ascii-horizontal/` — the version 2 conversion from Consistent-Trees ASCII

@@ -11,7 +11,7 @@
 # for what is converted and how.
 #
 # Usage (from anywhere):
-#   simulations/micro-uchuu-lhalo-horizontal/_tests/data/regenerate.sh
+#   simulations/micro-uchuu-horizontal/_tests/data/regenerate.sh
 #
 # Exit codes: 0 on success; non-zero if any converter stage fails.
 ###############################################################################
@@ -20,4 +20,4 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 exec "${REPO_ROOT}/simulations/mini-millennium-horizontal/_tests/data/source/convert_worked_graph.sh" \
-    micro-uchuu-lhalo-horizontal micro-uchuu micro-uchuu.a_list
+    micro-uchuu-horizontal micro-uchuu micro-uchuu.a_list

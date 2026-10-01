@@ -1,4 +1,4 @@
-# Shin-Uchuu Halo Catalog Properties — horizontal HDF5 format
+# micro-Uchuu (from Consistent-Trees ASCII) Halo Catalog Properties — horizontal HDF5 format version 2
 #
 # Defines the RawHalo contract for the horizontal_hdf5 reader. Every entry below
 # is a `/halos` dataset of convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md (format_version 2),
@@ -6,15 +6,14 @@
 # generated reader-side code consumes the datasets by name, so property names
 # and the on-disk names are the same strings and no `source:` mapping is needed.
 #
-# The shared fields mirror simulations/shin-uchuu-ascii/halo_properties.yaml
-# exactly (key order, units, h_convention, range, output, init/output sources,
-# and core-role bindings): the snapshot dataset is produced from that same
-# Shin-Uchuu Consistent-Trees subset by convert/mimic-convert/, which applies the
-# same reference value conventions. M_Crit200 therefore carries the native
-# ctrees Mvir in Msun/h, positions are Mpc/h, Spin is the specific angular
-# momentum J/Mvir, (Mpc/h)(km/s), for non-zero Mvir -- the converter
-# deliberately keeps raw J for zero-mass halos -- and Len is derived as
-# round(Mvir * 1e-10 / particle_mass).
+# The shared fields mirror micro-uchuu-ascii/halo_properties.yaml exactly (key
+# order, units, h_convention, range, output, init/output sources, and core-role
+# bindings): the snapshot dataset is produced from the same micro-Uchuu
+# Consistent-Trees source by convert/mimic-convert/, which applies the same reference
+# value conventions. M_Crit200 therefore carries the native ctrees Mvir in
+# Msun/h, positions are Mpc/h, Spin is the specific angular momentum J/Mvir,
+# (Mpc/h)(km/s), for non-zero Mvir -- the converter deliberately keeps raw J
+# for zero-mass halos -- and Len is derived as round(Mvir * 1e-10 / particle_mass).
 #
 # ForestIndex and HaloRankInForest, the producer-owned UniqueGalaxyID identity
 # components the on-disk format carries explicitly, are deliberately NOT
@@ -22,17 +21,16 @@
 # convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md, not catalog halo properties, so they are
 # read directly by src/io/horizontal/read_horizontal_hdf5.c into
 # struct SnapshotSlab's reader-owned forest_index/halo_rank_in_forest arrays,
-# never through this file or the generated RawHalo struct. This mirrors
-# simulations/micro-uchuu-ascii-horizontal/halo_properties.yaml, which omits both for
-# the same reason.
+# never through this file or the generated RawHalo struct.
 #
 # Required core roles (src/core/core_properties.yaml required_inputs):
 # Descendant, FirstProgenitor, NextProgenitor, FirstHaloInFOFgroup,
 # NextHaloInFOFgroup, SnapNum, Len, HaloMass.
 #
-# Mirror maintenance: the shared fields track simulations/shin-uchuu-ascii.
-# Any change to a shared field must be made in both, and any change to a name
-# or type here must first be made in the frozen format specification.
+# Mirror maintenance: the shared fields track micro-uchuu-ascii and
+# micro-uchuu-hdf5. Any change to a shared field must be made in all three, and
+# any change to a name or type here must first be made in the frozen format
+# specification.
 
 halo_properties:
   # --- merger-tree topology links (consumed directly by the core driver) ---
@@ -90,7 +88,7 @@ halo_properties:
     output: true
     init_source: copy_from_tree_array
     output_source: copy_direct_array
-    range: [0.0, 140.0]
+    range: [0.0, 100.0]
 
   - name: Vel
     type: vec3_float
@@ -129,9 +127,7 @@ halo_properties:
     output: true
     init_source: copy_from_tree
     output_source: copy_direct
-    # Floor 0.0, not micro-Uchuu's 10.0: this box's 362x finer particle mass
-    # resolves halos down to a measured 1.77 km/s at Len = 2, and Vmax is a speed.
-    range: [0.0, 5000.0]
+    range: [10.0, 5000.0]
 
   # --- halo identity ---
   - name: MostBoundID

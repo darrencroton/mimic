@@ -1,19 +1,22 @@
-# micro-Uchuu Simulation Metadata — horizontal HDF5 format
+# micro-Uchuu (from L-Halo binary) Simulation Metadata — horizontal HDF5 format version 3
 #
-# `snapshots/` is a symlink to your local copy of the converted dataset
-# directory: 50 `snapshot_NNN.h5` files plus the `forests.h5` sidecar, produced
-# by convert/mimic-convert/ per convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md. See README.md for
-# the conversion commands and the symlink instruction.
+# Version 3 horizontal package for micro-Uchuu, converted from L-Halo binary.
+# The cosmology, box size, particle mass and a_list are simulations/micro-uchuu/'s own,
+# unchanged: the reader compares every file's five physical header values and
+# scale factors against them at open.
 #
 # `tree_name` is the snapshot filename convention, not a general pattern: the
 # format fixes it at `snapshot_%03d.h5` and the reader accepts no other value.
-# It is declared because the configuration layer requires `input.tree_name`
-# unconditionally. first_file/last_file are metadata only; the horizontal reader
-# derives its file set from the snapshot list.
+# first_file/last_file are metadata only; the horizontal reader derives its file
+# set from the snapshot list. They name the
+# converted source files, Uchuu100_Planck_lhalo_binary.0-.3: the vertical
+# package's complete inventory.
+# `snapshots/` is a gitignored local symlink to a converted dataset, never
+# committed data.
 
 input:
   first_file: 0
-  last_file: 0
+  last_file: 3
   tree_name: snapshot_%03d.h5
   tree_type: horizontal_hdf5
   processing_order: horizontal
@@ -21,11 +24,6 @@ input:
   snapshot_list_file: simulations/micro-uchuu-horizontal/micro-uchuu.a_list
 
 simulation:
-  # Forest multiplier for UniqueGalaxyID. The dataset's measured
-  # max_halo_rank_in_forest is 350074 and its forest count 440651, so 10^9 (the
-  # framework default, TREE_MUL_FAC) leaves ample headroom in both directions.
-  # See convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md for the bounds the reader checks.
-  unique_galaxy_id_multiplier: 1000000000
   cosmology:
     omega_matter: 0.3089
     omega_lambda: 0.6911

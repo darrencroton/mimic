@@ -57,7 +57,7 @@ static int failed = 0;
 extern struct MimicConfig MimicConfig;
 
 /* ---------------------------------------------------------------------------
- * Fixture facts (simulations/micro-uchuu-horizontal/_tests/data)
+ * Fixture facts (simulations/micro-uchuu-ascii-horizontal/_tests/data)
  * ------------------------------------------------------------------------- */
 
 #define FIXTURE_SNAPSHOTS 6
@@ -161,7 +161,7 @@ static int stage_fixture(char *dir, size_t dir_size) {
   return 0;
 }
 
-/* The physical values simulations/micro-uchuu-horizontal/simulation_info.yaml
+/* The physical values simulations/micro-uchuu-ascii-horizontal/simulation_info.yaml
    declares. The fixture's headers were stamped from these by the converter
    (create_snapshot_fixture.py), so open_run must see the same values to pass
    the unmodified fixture by construction. PartMass is carried in 1e10 Msun/h,

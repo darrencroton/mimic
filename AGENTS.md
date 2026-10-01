@@ -72,8 +72,8 @@ models/<model>/      Self-contained package: input/ run YAMLs, model_properties.
 simulations/<sim>/   Catalog halo_properties.yaml, tree fixtures, snapshot lists
                      vertical: mini-millennium, millennium, micro-uchuu, micro-uchuu-ascii,
                      micro-uchuu-hdf5, mini-uchuu, uchuu, shin-uchuu-ascii
-                     horizontal v2: micro-uchuu-horizontal, shin-uchuu
-                     horizontal v3: mini-millennium-horizontal, micro-uchuu-lhalo-horizontal,
+                     horizontal v2: micro-uchuu-ascii-horizontal, shin-uchuu
+                     horizontal v3: mini-millennium-horizontal, micro-uchuu-horizontal,
                      micro-uchuu-hdf5-horizontal, millennium-horizontal, mini-uchuu-horizontal
 build/generated/     Build-time generated files (git_version.h, test lists, module registry)
 tests/               Unit, integration, scientific tests

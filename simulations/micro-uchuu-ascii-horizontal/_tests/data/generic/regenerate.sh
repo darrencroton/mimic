@@ -11,7 +11,7 @@
 # of this package's own snapshot list, and installed here.
 #
 # Usage (from anywhere):
-#   simulations/micro-uchuu-horizontal/_tests/data/generic/regenerate.sh
+#   simulations/micro-uchuu-ascii-horizontal/_tests/data/generic/regenerate.sh
 #
 # Exit codes: 0 on success; non-zero if any generator or converter stage fails.
 ###############################################################################
@@ -25,5 +25,5 @@ cd "$REPO_ROOT"
 # shellcheck source=scripts/lib/python.sh disable=SC1091
 . "${REPO_ROOT}/scripts/lib/python.sh"
 
-exec "$MIMIC_PYTHON" simulations/micro-uchuu-horizontal/_tests/input/create_snapshot_fixture.py \
+exec "$MIMIC_PYTHON" simulations/micro-uchuu-ascii-horizontal/_tests/input/create_snapshot_fixture.py \
     --package-scale-factors --output-subdir generic

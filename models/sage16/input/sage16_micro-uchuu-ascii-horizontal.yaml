@@ -1,17 +1,14 @@
-# Mimic SAGE on micro-Uchuu Run Configuration - horizontal HDF5 version 3, from L-Halo binary
-#
-# Identical to sage16_micro-uchuu.yaml except for simulation.name and
-# output.output_directory.
+# Mimic SAGE on micro-Uchuu Run Configuration - horizontal HDF5 version 2, from Consistent-Trees ASCII
 
 model:
   name: sage16
 
 simulation:
-  name: micro-uchuu-lhalo-horizontal
+  name: micro-uchuu-ascii-horizontal
 
 output:
   output_filename: model
-  output_directory: output/sage16-micro-uchuu-lhalo-horizontal
+  output_directory: output/sage16-micro-uchuu-ascii-horizontal
   output_format: hdf5
   snapshot_list: [49, 28, 23, 16, 12, 10, 8, 7]
 

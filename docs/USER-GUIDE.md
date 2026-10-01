@@ -363,7 +363,7 @@ For balanced work, choose a rank count that divides `last_file - first_file + 1`
 
 Both halves of a Mimic run are interchangeable packages. **Model packages** live under `models/`, and each one is self-documenting: its README describes the scientific scope, module pipeline, parameters, and references, and its `input/` directory holds ready-to-run configurations. **Simulation packages** live under `simulations/` and wrap a merger-tree catalogue with its cosmology, units, and snapshot list. The workflow in this guide applies to every *runnable* combination equally — including packages you build yourself.
 
-`micro-uchuu-horizontal` and `shin-uchuu` are the version 2 horizontal packages — `micro-uchuu-horizontal` is the same micro-Uchuu catalogue as `micro-uchuu-ascii`, converted to horizontal HDF5 and read by the horizontal driver. It is runnable like any other package, with its own shipped run files (`models/halos-only/input/halos-only_micro-uchuu-horizontal.yaml`, `models/sage16/input/sage16_micro-uchuu-horizontal.yaml`); see [Running Horizontal Input](#running-horizontal-input) for what is different about it. Five more horizontal packages read version 3 data — `mini-millennium-horizontal`, `micro-uchuu-lhalo-horizontal`, `micro-uchuu-hdf5-horizontal`, `millennium-horizontal` and `mini-uchuu-horizontal` — and [Running Horizontal Input](#running-horizontal-input) lists exactly which models and file ranges each has been validated for. A package is runnable when a run file pairs it with a model under `models/<model>/input/`.
+`micro-uchuu-ascii-horizontal` and `shin-uchuu` are the version 2 horizontal packages — `micro-uchuu-ascii-horizontal` is the same micro-Uchuu catalogue as `micro-uchuu-ascii`, converted to horizontal HDF5 and read by the horizontal driver. It is runnable like any other package, with its own shipped run files (`models/halos-only/input/halos-only_micro-uchuu-ascii-horizontal.yaml`, `models/sage16/input/sage16_micro-uchuu-ascii-horizontal.yaml`); see [Running Horizontal Input](#running-horizontal-input) for what is different about it. Five more horizontal packages read version 3 data — `mini-millennium-horizontal`, `micro-uchuu-horizontal`, `micro-uchuu-hdf5-horizontal`, `millennium-horizontal` and `mini-uchuu-horizontal` — and [Running Horizontal Input](#running-horizontal-input) lists exactly which models and file ranges each has been validated for. A package is runnable when a run file pairs it with a model under `models/<model>/input/`.
 
 To run any runnable pairing, build for it and use the matching run file:
 
@@ -394,7 +394,7 @@ Mimic separates the on-disk reader format from the processing driver. The input 
 
 The HDF5-based readers are only available when Mimic is built with HDF5 (the default; see [Build Options](#build-options)). Selecting one in a `USE-HDF5=no` build stops with a clear configuration error.
 
-The first four formats are forest-ordered and feed the vertical driver. `horizontal_hdf5` is the one horizontal format, read by a separate reader family; its on-disk contract is [`convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md`](../convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md), which specifies `format_version = 2` and `format_version = 3`. The reader accepts both, dispatching on each file's version, and rejects every other. `micro-uchuu-horizontal` is the shipped version 2 example and `mini-millennium-horizontal` the shipped version 3 example. See [Producing Horizontal Input](#producing-horizontal-input) for how such datasets are made. Its driver runs the reader's open-time checks on every snapshot file before processing any halo data, and link and range checks as each slab loads (see `input.processing_order` below and [Running Horizontal Input](#running-horizontal-input)).
+The first four formats are forest-ordered and feed the vertical driver. `horizontal_hdf5` is the one horizontal format, read by a separate reader family; its on-disk contract is [`convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md`](../convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md), which specifies `format_version = 2` and `format_version = 3`. The reader accepts both, dispatching on each file's version, and rejects every other. `micro-uchuu-ascii-horizontal` is the shipped version 2 example and `mini-millennium-horizontal` the shipped version 3 example. See [Producing Horizontal Input](#producing-horizontal-input) for how such datasets are made. Its driver runs the reader's open-time checks on every snapshot file before processing any halo data, and link and range checks as each slab loads (see `input.processing_order` below and [Running Horizontal Input](#running-horizontal-input)).
 
 `input.tree_name` is reader-specific — each reader decides what the value means, so it is not a general filename pattern. `lhalo_binary` is the prefix before the numbered file suffix (`tree_name.<file_number>`). `consistent_trees_ascii` and `consistent_trees_hdf5` are literal filenames under `input.simulation_dir`, including any extension. `lhalo_hdf5` uses explicit HDF5 filenames: for one file, set `tree_name` to that filename; for multiple files, include a `%d` file-number placeholder, for example `trees_063.%d.hdf5`. `horizontal_hdf5` fixes its filename convention in the format itself and therefore accepts exactly the literal `snapshot_%03d.h5` — any other value, including `snapshot_%d.h5`, is rejected at startup with a message naming the accepted literal.
 
@@ -417,18 +417,18 @@ A `horizontal` run works like any other run — build for the package, point `./
 - **Serial only.** Multi-rank horizontal execution is not implemented; a horizontal configuration requires `NTask == 1` and is rejected at startup otherwise.
 
 ```bash
-make MODEL=halos-only SIMULATION=micro-uchuu-horizontal
-./mimic models/halos-only/input/halos-only_micro-uchuu-horizontal.yaml
+make MODEL=halos-only SIMULATION=micro-uchuu-ascii-horizontal
+./mimic models/halos-only/input/halos-only_micro-uchuu-ascii-horizontal.yaml
 ```
 
-**Version 3 input.** A version 3 dataset keeps descendant links that skip snapshots, int64 row indices, and each source's native payload units, which each file declares in its `/schema` group. At open the reader checks that `/schema` against your package's compiled `halo_properties.yaml` — type, units and `h_convention` of every field the package declares — and stops on any disagreement, so a package that labels mass `1e10 Msun/h` against a file whose `/schema` says `Msun/h` (a 10¹⁰ unit mismatch) is a startup error rather than a silent result. The check compares declared labels only: values that are mis-scaled under correct labels are not detected at run time. That is why there is **one simulation package per simulation and source format**: `micro-uchuu-lhalo-horizontal` (L-Halo binary, mass in `1e10 Msun/h`) and `micro-uchuu-hdf5-horizontal` (forests-HDF5, mass in `Msun/h`) are two packages for one simulation. Each package's `snapshots/` is a local link to a dataset you convert yourself; its README gives the conversion command.
+**Version 3 input.** A version 3 dataset keeps descendant links that skip snapshots, int64 row indices, and each source's native payload units, which each file declares in its `/schema` group. At open the reader checks that `/schema` against your package's compiled `halo_properties.yaml` — type, units and `h_convention` of every field the package declares — and stops on any disagreement, so a package that labels mass `1e10 Msun/h` against a file whose `/schema` says `Msun/h` (a 10¹⁰ unit mismatch) is a startup error rather than a silent result. The check compares declared labels only: values that are mis-scaled under correct labels are not detected at run time. That is why there is **one simulation package per simulation and source format**: `micro-uchuu-horizontal` (L-Halo binary, mass in `1e10 Msun/h`) and `micro-uchuu-hdf5-horizontal` (forests-HDF5, mass in `Msun/h`) are two packages for one simulation. Each package's `snapshots/` is a local link to a dataset you convert yourself; its README gives the conversion command.
 
 Mimic can read any conforming version 3 dataset paired with a simulation package whose declarations match its `/schema`, but a route counts as supported only where its horizontal output has been shown bitwise identical, per `UniqueGalaxyID`, to the vertical reader of the same source format over the same files. The authoritative table, with its evidence, is [V3 Runtime Support](../convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md#v3-runtime-support) in the format specification; it is reproduced here:
 
 | Package | Source data | Validated for |
 | --- | --- | --- |
 | `mini-millennium-horizontal` | complete real data, with 29,291 gapped `Descendant` links | `halos-only` and `sage16`, fixed and dynamic timesteps |
-| `micro-uchuu-lhalo-horizontal` | complete real data (L-Halo binary) | `halos-only`, fixed and dynamic timesteps |
+| `micro-uchuu-horizontal` | complete real data (L-Halo binary) | `halos-only`, fixed and dynamic timesteps |
 | `micro-uchuu-hdf5-horizontal` | complete real data (forests-HDF5) | `halos-only`, fixed and dynamic timesteps |
 | `millennium-horizontal` | **sampled subset**: files 0–15 only | `halos-only`, fixed and dynamic timesteps, on files 0–15 only |
 | `mini-uchuu-horizontal` | **sampled subset**: files 0–15 only | `halos-only`, fixed and dynamic timesteps, on files 0–15 only |
@@ -463,7 +463,7 @@ Everything else in [Reading HDF5 Output](#reading-hdf5-output) below applies unc
 
 ```yaml
 simulation:
-  name: micro-uchuu-horizontal
+  name: micro-uchuu-ascii-horizontal
   unique_galaxy_id_multiplier: 1000000000   # optional; default TREE_MUL_FAC (10^9)
 ```
 

@@ -796,11 +796,11 @@ tests-converter:
 	$(call RUN_SUMMARY_AWARE,$(CONVERTER_PYTHON) -m unittest discover -s convert/mimic-convert/tests,converter tests)
 
 # Structural conformance of the committed horizontal-HDF5 contract fixture
-# (simulations/micro-uchuu-horizontal/_tests/data/) against the frozen format
+# (simulations/micro-uchuu-ascii-horizontal/_tests/data/) against the frozen format
 # spec. Package-independent and fast; keeps the fixture from drifting between
 # the manual regeneration runs that produce it.
 check-horizontal-fixture:
-	$(call RUN_SUMMARY_AWARE,$(CONVERTER_PYTHON) simulations/micro-uchuu-horizontal/_tests/input/check_fixture_conformance.py simulations/micro-uchuu-horizontal/_tests/data,horizontal fixture conformance)
+	$(call RUN_SUMMARY_AWARE,$(CONVERTER_PYTHON) simulations/micro-uchuu-ascii-horizontal/_tests/input/check_fixture_conformance.py simulations/micro-uchuu-ascii-horizontal/_tests/data,horizontal fixture conformance)
 
 tests-unit:
 	@if [ "$(TEST_SUMMARY)" != "1" ]; then echo ""; fi

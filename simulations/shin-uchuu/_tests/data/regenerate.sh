@@ -3,7 +3,7 @@
 # regenerate.sh - Rebuild this package's committed version 2 test fixture
 #
 # Runs the version 2 contract-fixture generator
-# (simulations/micro-uchuu-horizontal/_tests/input/create_snapshot_fixture.py)
+# (simulations/micro-uchuu-ascii-horizontal/_tests/input/create_snapshot_fixture.py)
 # for this package: the same synthetic Consistent-Trees forests, converted by
 # the real convert/mimic-convert/convert_ctrees.py pipeline under this
 # package's own simulation_info.yaml (box size, cosmology, particle mass) and
@@ -28,5 +28,5 @@ cd "$REPO_ROOT"
 # shellcheck source=scripts/lib/python.sh disable=SC1091
 . "${REPO_ROOT}/scripts/lib/python.sh"
 
-exec "$MIMIC_PYTHON" simulations/micro-uchuu-horizontal/_tests/input/create_snapshot_fixture.py \
+exec "$MIMIC_PYTHON" simulations/micro-uchuu-ascii-horizontal/_tests/input/create_snapshot_fixture.py \
     --package shin-uchuu --package-scale-factors

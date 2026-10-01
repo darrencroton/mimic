@@ -24,7 +24,7 @@ equality between the two.
 
 Usage:
     mimic_venv/bin/python \\
-        simulations/micro-uchuu-horizontal/_tests/input/check_fixture_conformance.py [DIR]
+        simulations/micro-uchuu-ascii-horizontal/_tests/input/check_fixture_conformance.py [DIR]
 
 DIR defaults to the committed ``_tests/data/``. Exits 0 when the dataset
 conforms, 1 with one line per defect otherwise.

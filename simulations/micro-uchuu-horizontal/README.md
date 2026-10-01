@@ -1,99 +1,78 @@
-# micro-Uchuu Simulation Package — Horizontal HDF5
+# micro-Uchuu (from L-Halo binary) Simulation Package — Horizontal HDF5 (version 3)
 
-This package declares the horizontal HDF5 on-disk record for the micro-Uchuu halo catalog: one `snapshot_NNN.h5` file per snapshot holding that snapshot's whole halo population as a struct-of-arrays, plus the `forests.h5` provenance sidecar. The on-disk contract is frozen in [`convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md`](../../convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md) at `format_version = 2`; this package conforms to that specification, never the other way around.
+This package declares the horizontal HDF5 on-disk record for the micro-Uchuu halo catalog converted from its L-Halo binary packaging: one `snapshot_NNN.h5` file per snapshot holding that snapshot's whole halo population as a struct-of-arrays. The on-disk contract is version 3 of [`convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md`](../../convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md#version-3) (`format_version = 3`); this package conforms to that specification, never the other way around. It is one package per (simulation, source format) because a version 3 file's `/schema` declares the source's native units and precision and the reader checks this package's `halo_properties.yaml` against it, so each source format needs its own package. Its source is `simulations/micro-uchuu/` (L-Halo binary, `lhalo_binary`), and its results are promised equal to that package's only.
 
-- `simulation_info.yaml`: input paths, snapshot list path, cosmology, units, box size, and particle mass
-- `halo_properties.yaml`: the RawHalo field contract — every `/halos` dataset of the frozen format, with names and types matching the specification exactly
-- `micro-uchuu.a_list`: 50 snapshot scale factors (a=0.06688 to a=0.99951), an exact copy of the `micro-uchuu-ascii` list
-- `snapshots/`: symlink to the converted dataset directory (machine-local, not tracked)
-- `_tests/data/`: committed contract fixtures — a tiny, self-validating dataset
-- `_tests/input/`: the fixture generator and the fixture conformance checker
+**Evidence: complete real data.** The dataset is a conversion of all four `Uchuu100_Planck_lhalo_binary` files, the vertical package's complete inventory, and the package's parity gate compares it against that package's own `lhalo_binary` reader under `halos-only`.
+
+- `simulation_info.yaml`: input paths, snapshot list path, cosmology, units, box size and particle mass — identical to `simulations/micro-uchuu/simulation_info.yaml`'s physical values. `first_file`/`last_file` (0–3) are metadata naming the converted source files; the horizontal reader derives its file set from the snapshot list
+- `halo_properties.yaml`: the payload field contract — every `/halos` dataset the converter's `/schema` declares for this route, with the same type, units and `h_convention` — in particular `M_Crit200` as float `1e10 Msun/h`, plus the five link roles declared `long long` (version 3 stores links as int64 snapshot-local indices) and checked against the v3 format's fixed table rather than `/schema`. `SourceHaloID`, the three target-snapshot columns and the `ForestIndex`/`HaloRankInForest` identity arrays are reader-owned arrays whose type the version 3 format table fixes, not the package, so they are deliberately not declared here. Declaration order mirrors the vertical package's, because it fixes the output record's field order
+- `micro-uchuu.a_list`: 50 snapshot scale factors, an exact copy of `simulations/micro-uchuu/micro-uchuu.a_list`
+- `_tests/integration/test_schema_conformance.py`: checks the compiled declarations against the converter's own `/schema` derivation for this route (no data needed) and against the real dataset's `/schema` when present
+- `_tests/scientific/test_cross_format_identity.py`: the parity gate (below)
+- `snapshots/`: symlink to the converted dataset directory (machine-local, not tracked; `snapshots/` itself is gitignored)
 
 ## Data provenance
 
-The dataset is not primary data. It is produced offline by the converter under `convert/mimic-convert/` from the same micro-Uchuu Consistent-Trees ASCII trees that `simulations/micro-uchuu-ascii/` reads, applying the reference reader's value conventions (spin normalisation, `Len` derivation, `fix_upid`) and rewriting global-id links as snapshot-local indices. `fix_flybys()`, which demoted every FoF central except the most massive at each forest's final snapshot and so merged unrelated groups, was removed from the Consistent-Trees ASCII reader and the converter, and the three micro-Uchuu readers now agree on population, Types and `MostBoundID` sets (measured at snap49 when the fix landed; at earlier snapshots `fix_flybys` never acted); the converter no longer demotes independent FoF centrals at a forest's maximum scale, and `MostBoundID` is always positive. The converted micro-Uchuu dataset is 22,580,924 halos across 50 snapshots and 440,651 forests (~2.3 GB).
+The dataset is not primary data. It was produced offline by `convert/mimic-convert/convert_trees.py` at converter commit `4c9518d3e7ad8c942b95155a5e37ebbb4ff4131b` from the same `Uchuu100_Planck_lhalo_binary.0`–`.3` files that `simulations/micro-uchuu/` reads, using that package's converter profile (`column_mapping_sha256 5a74a2e07eca5f3a5fef5e02b75e15c821f94370606d7608b25f082f9f5654b1`). Links, offsets and remapping keys are carried at native converter precision (int64); payload fields keep their native L-Halo binary storage type and units, in particular `M_Crit200` as float32 in `1e10 Msun/h`.
 
-Cosmology, box size and particle mass therefore match `simulations/micro-uchuu-ascii/simulation_info.yaml` exactly: Ωm 0.3089, ΩΛ 0.6911, h 0.6774, box 100 Mpc/h, particle mass 0.0327 × 10¹⁰ Msun/h.
+Converted: 22,580,924 halos across 50 snapshots and 440,651 forests, with no gapped links (`links_adjacent = 1`). The producer validation battery (`convert/mimic-convert/convert_trees.py validate`) passed.
 
-## Regenerating the full dataset
+Cosmology, box size and particle mass match `simulations/micro-uchuu/simulation_info.yaml` exactly.
 
-Run the converter phases in order against the ASCII package, emitting straight to the permanent destination — the manifest records the emitted paths, so files must never be moved afterwards:
+## Regenerating the dataset
+
+Run the converter phases in order against the vertical package, emitting to a workdir outside the repository, then install the written snapshot files at the permanent destination:
 
 ```bash
-W=output/convert/micro-uchuu
-A=simulations/micro-uchuu-ascii/micro-uchuu.a_list
-S=simulations/micro-uchuu-ascii/simulation_info.yaml
-D=/path/to/micro-uchuu-snapshot
+S=simulations/micro-uchuu
+W=/path/to/scratch/convert-workdir
+D=/path/to/micro-uchuu-horizontal
 
-mimic_venv/bin/python convert/mimic-convert/convert_ctrees.py scatter --workdir $W \
-    --forests-list simulations/micro-uchuu-ascii/snapshots/forests.list \
-    --a-list $A --simulation-info $S \
-    simulations/micro-uchuu-ascii/snapshots/tree_0_0_0.dat
-mimic_venv/bin/python convert/mimic-convert/convert_ctrees.py sort --workdir $W
-mimic_venv/bin/python convert/mimic-convert/convert_ctrees.py fixups --workdir $W \
-    --a-list $A --simulation-info $S
-mimic_venv/bin/python convert/mimic-convert/convert_ctrees.py links --workdir $W
-mimic_venv/bin/python convert/mimic-convert/convert_ctrees.py write --workdir $W \
-    --a-list $A --simulation-info $S --output-dir $D
-mimic_venv/bin/python convert/mimic-convert/validate.py $D --a-list $A --manifest $W/manifest.json
-mimic_venv/bin/python convert/mimic-convert/convert_ctrees.py report --workdir $W --a-list $A
+mimic_venv/bin/python convert/mimic-convert/convert_trees.py ingest --workdir "$W" --source-format lhalo_binary \
+    --simulation-info "$S/simulation_info.yaml" --a-list "$S/micro-uchuu.a_list" \
+    --column-map "$S/converter_columns.yaml" \
+    --halo-properties "$S/halo_properties.yaml" --source-dir "$S/snapshots" \
+    --tree-name Uchuu100_Planck_lhalo_binary --first-file 0 --last-file 3
+mimic_venv/bin/python convert/mimic-convert/convert_trees.py transpose --workdir "$W"
+mimic_venv/bin/python convert/mimic-convert/convert_trees.py write --workdir "$W" --simulation-info "$S/simulation_info.yaml"
+mimic_venv/bin/python convert/mimic-convert/convert_trees.py validate --workdir "$W"
+mimic_venv/bin/python convert/mimic-convert/convert_trees.py report --workdir "$W"
+
+mkdir -p "$D"
+cp "$W"/write/attempt_*/snapshot_*.h5 "$W"/write/attempt_*/forests.h5 "$D"/
 ```
 
-`convert/mimic-convert/README.md` documents the workdir layout, the resume semantics, and the cross-check against a `halos-only` reference run.
+`convert/mimic-convert/README.md` documents the workdir layout, resume semantics, memory budgeting and independent comparison tooling.
 
 ## Setting up the snapshots symlink
 
 ```bash
-ln -s /path/to/micro-uchuu-snapshot simulations/micro-uchuu-horizontal/snapshots
+ln -s /path/to/micro-uchuu-horizontal simulations/micro-uchuu-horizontal/snapshots
 ```
 
-The directory must hold `snapshot_000.h5` … `snapshot_049.h5` and `forests.h5`. The symlink is machine-local and gitignored; nothing in the repository ships the 2.3 GB dataset.
+The directory must hold `snapshot_000.h5` … `snapshot_049.h5` and `forests.h5`. The symlink is machine-local and gitignored; nothing in the repository ships the converted dataset.
 
 ## Running this package
 
-The package is runnable end to end through the horizontal driver (`run_horizontal_driver()`), with shipped run files pairing it with both `halos-only` and `sage16`:
+Shipped run files pair this package with `halos-only` and `sage16`; `make generate` and `make validate-modules` pass for the `halos-only` pairing, and this route is validated for `halos-only` only.
 
 ```bash
 make MODEL=halos-only SIMULATION=micro-uchuu-horizontal
 ./mimic models/halos-only/input/halos-only_micro-uchuu-horizontal.yaml
 ```
 
-Horizontal runs are HDF5-only, serial-only (multi-rank horizontal execution is not implemented; a horizontal configuration requires `NTask == 1`), and do not support `--skip` — all three are rejected at configuration time. See [`docs/USER-GUIDE.md`](../../docs/USER-GUIDE.md) → "Running Horizontal Input" and [`docs/DEVELOPER-GUIDE.md`](../../docs/DEVELOPER-GUIDE.md) → "The Horizontal Driver".
+## Parity gate
 
-## The cross-format identity gate
-
-`_tests/scientific/test_cross_format_identity.py` proves the horizontal driver agrees with the vertical driver reading the same catalogue (`micro-uchuu-ascii`): for every output snapshot, the same `UniqueGalaxyID` set and per-ID bitwise-identical fields, under both `halos-only` and `sage16`, under both fixed and dynamic timestep schemes, with no tolerance of any kind.
-
-It is a **manual, dataset-present operation**:
+`_tests/scientific/test_cross_format_identity.py` builds `halos-only` for `micro-uchuu` and for this package in isolated worktrees at HEAD, runs both over the same four files under fixed and dynamic timesteps, and requires per-`UniqueGalaxyID` bitwise identity of every output field at every output snapshot, compared by `scripts/compare_cross_format_identity.py`. It fails, rather than skipping, when either dataset is absent or is not the pinned conversion. It is registered only when this package is selected:
 
 ```bash
 make MODEL=halos-only SIMULATION=micro-uchuu-horizontal tests-scientific
 ```
 
-on a machine holding both the `micro-uchuu-ascii` and `micro-uchuu-horizontal` datasets. It is registered only when this package is selected, so it never runs as part of the default-pair suite or CI, and no automated tier runs it. A missing dataset fails the gate loudly, naming the path it looked for, rather than skipping. The comparator is [`scripts/compare_cross_format_identity.py`](../../scripts/compare_cross_format_identity.py); full mechanics are in [`docs/DEVELOPER-GUIDE.md`](../../docs/DEVELOPER-GUIDE.md) → "The cross-format identity gate".
-
-## Committed contract fixtures
-
-`_tests/data/` holds a tiny conforming dataset — six snapshots (one of them empty), three forests, and topology chosen to exercise the cases a reader must handle: a descendant with three progenitors, a two-member FoF group, and a flyby-demoted central carrying a negated `MostBoundID`.
-
-Regenerate it with:
-
-```bash
-mimic_venv/bin/python simulations/micro-uchuu-horizontal/_tests/input/create_snapshot_fixture.py
-```
-
-The generator never hand-writes HDF5 content. In a scratch temporary workdir it synthesises a tiny Consistent-Trees ASCII tree, runs the full `convert/mimic-convert/` pipeline over it in production layout, runs the producer validation battery (`convert/mimic-convert/validate.py`) and aborts unless it exits 0, then copies the validated datasets here and asserts that every dataset element, every header attribute, and every `/ForestID` value is identical to the validated production-layout file. Re-running regenerates byte-identical files and a byte-identical `fixture_manifest.json` (a canonical, path-independent record; the converter's own `manifest.json` records absolute paths and source `mtime_ns` and is not committable).
-
-**Why the committed fixture is re-chunked.** Production data uses the contract chunk shape `(65536,)` / `(65536, 3)`. HDF5 allocates a chunk in full as soon as any element in it is written, so a snapshot file holding even one halo would cost 6.25 MiB, and a committed production-layout fixture would dwarf the repository. The frozen specification makes chunk layout a storage detail — "consumers must not depend on chunk boundaries, only on dataset shape and type" — so the committed copy is re-chunked small. Values, dtypes, shapes, the object set, and every header attribute are preserved exactly; chunk shape is the only permitted difference, which the generator enforces on every run.
-
-Check conformance of the committed fixture (everything the producer battery asserts structurally, except chunk shape):
-
-```bash
-mimic_venv/bin/python simulations/micro-uchuu-horizontal/_tests/input/check_fixture_conformance.py
-```
+The recorded gate of 2026-09-29 passed: 4,409,643 galaxies over output snapshots 7, 8, 10, 12, 16, 23, 28 and 49, bitwise identical per `UniqueGalaxyID` in all 20 fields with no tolerance, under fixed and dynamic timesteps, on the complete L-Halo files 0–3. It is `halos-only` evidence for this route against its own source format only: no identity with any other micro-Uchuu, Millennium or Uchuu packaging is claimed, and no `sage16` parity is claimed.
 
 ## Related packages
 
-- `simulations/micro-uchuu-ascii/` — the same halos in Consistent-Trees ASCII, the conversion source and the cosmology reference
-- `simulations/micro-uchuu-hdf5/` — the same halos in uchuutools forests-HDF5
-- `simulations/micro-uchuu/` — the same halos in L-Halo binary
+- `simulations/micro-uchuu/` — the same halos in L-Halo binary, the conversion source and the cosmology reference
+- `simulations/micro-uchuu-hdf5-horizontal/` — the same simulation converted from forests-HDF5; its `M_Crit200` is in `Msun/h`, and no identity with this package is claimed
+- `simulations/micro-uchuu-ascii-horizontal/` — the version 2 conversion from Consistent-Trees ASCII

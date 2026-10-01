@@ -21,7 +21,7 @@
  * to narrow version 3's int64 links.
  *
  * Corrupt-input cases use the pattern of the version 2 reader tests
- * (simulations/micro-uchuu-horizontal/_tests/unit/test_unit_horizontal_reader_open.c):
+ * (simulations/micro-uchuu-ascii-horizontal/_tests/unit/test_unit_horizontal_reader_open.c):
  * stage a scratch copy, mutate it with the HDF5 C API, then fork a child that
  * opens or loads it, since FATAL_ERROR ends the process.
  */

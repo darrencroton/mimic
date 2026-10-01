@@ -11,7 +11,7 @@
 # Shin-Uchuu's 140 Mpc/h box instead of micro-Uchuu's 100 Mpc/h.
 #
 # simulations/shin-uchuu-ascii/ and simulations/shin-uchuu/ (horizontal_hdf5) are
-# a cross-format pair, mirroring the micro-uchuu-ascii / micro-uchuu-horizontal
+# a cross-format pair, mirroring the micro-uchuu-ascii / micro-uchuu-ascii-horizontal
 # pair: the horizontal package is produced from this ASCII catalog by
 # convert/mimic-convert/, so the shared fields here must stay in sync with
 # simulations/shin-uchuu/halo_properties.yaml.

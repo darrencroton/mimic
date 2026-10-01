@@ -1,4 +1,7 @@
-# Mimic halos-only micro-Uchuu (horizontal HDF5) Run Configuration
+# Mimic halos-only micro-Uchuu (horizontal HDF5 version 3, from L-Halo binary) Run Configuration
+#
+# Identical to halos-only_micro-uchuu.yaml except for simulation.name and
+# output.output_directory; the package's parity gate checks exactly that.
 
 model:
   name: halos-only
