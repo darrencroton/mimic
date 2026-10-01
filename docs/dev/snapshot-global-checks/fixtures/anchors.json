@@ -1,0 +1,250 @@
+{
+  "_comment": "Line anchors cited in the plan's 'Repository Evidence and Design Decisions' section, with the identifiers each cited range must contain at the planning baseline. A miss means the plan's anchor drifted and the receipt should be re-read before execution. Refreshed for revisions 2/3 with the anchors those revisions added (Makefile SOURCES, discovery, test registry, harness, generator/check_generated hashes, parameter helpers, strict parser, event emission, execute_phase, reserved keys, virial mass).",
+  "planning_baseline": "717cf3ed5647eb85d2426f44f7dcda7ecd695103",
+  "anchors": [
+    {
+      "path": "src/core/horizontal_driver.c",
+      "start": 1576,
+      "end": 1650,
+      "must_contain": [
+        "members_processed != cur->slab.nhalos",
+        "horizontal_publish_generation(&state, cur)",
+        "horizontal_release_expired_generations(&state, snapnum)",
+        "horizontal_write_output("
+      ]
+    },
+    {
+      "path": "src/core/output_buffer.c",
+      "start": 31,
+      "end": 66,
+      "must_contain": [
+        "workspace[p].Type == 3",
+        "workspace[p].galaxy = NULL",
+        "buffer->halos[buffer->count++] = workspace[p]"
+      ]
+    },
+    {
+      "path": "src/core/inheritance.c",
+      "start": 140,
+      "end": 144,
+      "must_contain": [
+        "CentralHalo"
+      ]
+    },
+    {
+      "path": "src/core/module_registry.c",
+      "start": 123,
+      "end": 130,
+      "must_contain": [
+        "void for_each_phase(PhaseVisitor visit, void *userdata)",
+        "visit(\"pre_timestep\"",
+        "visit(\"post_timestep\""
+      ]
+    },
+    {
+      "path": "src/core/module_registry.c",
+      "start": 154,
+      "end": 156,
+      "must_contain": [
+        "module->process == NULL",
+        "FATAL_ERROR"
+      ]
+    },
+    {
+      "path": "src/core/module_registry.c",
+      "start": 770,
+      "end": 790,
+      "must_contain": [
+        "int module_emit_event(struct ModuleContext *ctx",
+        "if (ctx == NULL)",
+        "if (!phase_event_state.active)",
+        "return 0;"
+      ]
+    },
+    {
+      "path": "src/core/module_registry.c",
+      "start": 884,
+      "end": 886,
+      "must_contain": [
+        "ngal <= 0",
+        "return;"
+      ]
+    },
+    {
+      "path": "src/core/module_registry.c",
+      "start": 1150,
+      "end": 1160,
+      "must_contain": [
+        "static int parse_double_strict(",
+        "strtod(str, &endptr)",
+        "*endptr != '\\0'"
+      ]
+    },
+    {
+      "path": "scripts/generate_module_registry.py",
+      "start": 714,
+      "end": 790,
+      "must_contain": [
+        "{name}_process(struct ModuleContext *ctx, struct Halo *halos, int ngal)",
+        ".process = {name}_process"
+      ]
+    },
+    {
+      "path": "scripts/generate_module_registry.py",
+      "start": 662,
+      "end": 689,
+      "must_contain": [
+        "def compute_metadata_hash(",
+        "generator_path.read_bytes()"
+      ]
+    },
+    {
+      "path": "scripts/check_generated.py",
+      "start": 113,
+      "end": 132,
+      "must_contain": [
+        "def compute_module_metadata_hash(",
+        "discover_module_metadata_entries()"
+      ]
+    },
+    {
+      "path": "scripts/discovery.py",
+      "start": 295,
+      "end": 310,
+      "must_contain": [
+        "def framework_test_module_roots(",
+        "glob(\"test_*\")",
+        "module_info.yaml"
+      ]
+    },
+    {
+      "path": "scripts/generate_test_registry.py",
+      "start": 44,
+      "end": 47,
+      "must_contain": [
+        "\"tests\" / \"integration\"",
+        "glob(\"test_*.py\")"
+      ]
+    },
+    {
+      "path": "scripts/generate_test_registry.py",
+      "start": 151,
+      "end": 156,
+      "must_contain": [
+        "parts[0] == \"models\"",
+        "full_model_tests_enabled()"
+      ]
+    },
+    {
+      "path": "Makefile",
+      "start": 122,
+      "end": 129,
+      "must_contain": [
+        "ifeq ($(TEST_BUILD),yes)",
+        "module_system/test_fixture/test_fixture.c",
+        "module_system/test_event_consumer_gamma/test_event_consumer_gamma.c"
+      ]
+    },
+    {
+      "path": "tests/framework/harness.py",
+      "start": 614,
+      "end": 633,
+      "must_contain": [
+        "phase_config.get(\"pre_timestep\"",
+        "phase_config.get(\"post_timestep\"",
+        "modules_section[\"phases\"] = phases"
+      ]
+    },
+    {
+      "path": "src/module_system/parameter_helpers.h",
+      "start": 100,
+      "end": 135,
+      "must_contain": [
+        "#define VALIDATE_RANGE_EXCLUSIVE(",
+        "(value) <= (min) || (value) > (max)"
+      ]
+    },
+    {
+      "path": "src/core/read_parameter_file.c",
+      "start": 422,
+      "end": 424,
+      "must_contain": [
+        "file_exists_readable(path)"
+      ]
+    },
+    {
+      "path": "src/core/read_parameter_file.c",
+      "start": 1228,
+      "end": 1228,
+      "must_contain": [
+        "\"pre_timestep\", \"post_timestep\", \"parameters\", \"phases\""
+      ]
+    },
+    {
+      "path": "src/core/read_parameter_file.c",
+      "start": 1310,
+      "end": 1314,
+      "must_contain": [
+        "Unknown key 'modules.%s'"
+      ]
+    },
+    {
+      "path": "src/core/read_parameter_file.c",
+      "start": 1501,
+      "end": 1528,
+      "must_contain": [
+        "output_binary",
+        "OverwriteOutputFiles == 0",
+        "NTask > 1"
+      ]
+    },
+    {
+      "path": "src/core/virial.c",
+      "start": 45,
+      "end": 52,
+      "must_contain": [
+        "double get_virial_mass(",
+        "MimicConfig.PartMass"
+      ]
+    }
+  ],
+  "identifiers": [
+    {"path": "src/core/module_registry.c", "contains": "bool module_configured_anywhere(const char *name)"},
+    {"path": "src/core/horizontal_driver.c", "contains": "static void horizontal_publish_generation("},
+    {"path": "src/include/types.h", "contains": "double ZZ[ABSOLUTEMAXSNAPS];"},
+    {"path": "src/include/globals.h", "contains": "extern double *Age;"},
+    {"path": "src/include/types.h", "contains": "double BoxSize;"},
+    {"path": "scripts/discovery.py", "contains": "FULL_MODEL_TEST_SIMULATIONS = frozenset("},
+    {"path": "src/module_system/parameter_helpers.h", "contains": "LOAD_AND_VALIDATE_RANGE_INCLUSIVE_INTERNAL"},
+    {"path": "src/module_system/parameter_helpers.h", "contains": "#define LOAD_PARAM_DOUBLE_INTERNAL("},
+    {"path": "src/module_system/parameter_helpers.h", "contains": "#define VALIDATE_RANGE_INCLUSIVE("},
+    {"path": "src/module_system/test_fixture/test_properties.yaml", "contains": "TestDummyProperty"},
+    {"path": "src/module_system/test_fixture/module_info.yaml", "contains": "process_full_halo"},
+    {"path": "tests/framework/parity_gate.py", "contains": ""},
+    {"path": "scripts/compare_cross_format_identity.py", "contains": ""},
+    {"path": "Makefile", "contains": "tests-horizontal-v3:"},
+    {"path": "models/sham/model_properties.yaml", "contains": "name: ShamVpeak"},
+    {"path": "models/sham/model_properties.yaml", "contains": "name: ShamMpeak"},
+    {"path": "models/sham/model_properties.yaml", "contains": "name: ShamOrphanAge"},
+    {"path": "src/core/core_properties.yaml", "contains": "name: UniqueGalaxyID"},
+    {"path": "src/core/core_properties.yaml", "contains": "name: Mvir"},
+    {"path": "simulations/micro-uchuu-horizontal/_tests/input/test_simulation.yaml", "contains": "box_size:\n    value: 100.0\n    units: Mpc/h"},
+    {"path": "simulations/mini-millennium-horizontal/_tests/input/test_simulation.yaml", "contains": "box_size:\n    value: 62.5\n    units: Mpc/h"}
+  ],
+  "must_not_exist_yet": [
+    "scripts/module_modes.py",
+    "src/module_system/test_snapshot_fixture",
+    "tests/unit/test_snapshot_module_contract.c",
+    "tests/integration/test_snapshot_module_schema.py",
+    "tests/integration/test_snapshot_phase.py",
+    "tests/manual",
+    "tests/manual/test_snapshot_disabled_identity.py",
+    "models/sham/modules/sham_global_rank",
+    "models/sham/input/sham_global_micro-uchuu-horizontal.yaml",
+    "docs/dev/MIMIC-SNAPSHOT-GLOBAL-MODULES-ACCEPTANCE.md"
+  ],
+  "must_not_exist_removed_envelopes": [
+    "tests/data/snapshot_global",
+    "tests/integration/test_snapshot_disabled_identity.py"
+  ]
+}

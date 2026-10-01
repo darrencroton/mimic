@@ -1,0 +1,182 @@
+{
+  "_comment": "Per slice: concrete repository-relative paths an implementation would plausibly change (witness, must be authorized) and paths the plan's non-goals or other slices forbid (unauthorized, must be rejected by PM's segment-aware matcher). 'everywhere_unauthorized' applies to every slice. Refreshed for plan revision 2/3: test_fixture is dual mode (Slices 1-2), tests/data/snapshot_global/ no longer exists as an envelope, the disabled-mode identity test lives under tests/manual/, and harness.py is authorized in Slice 2 only.",
+  "everywhere_unauthorized": [
+    "docs/dev/MIMIC-SNAPSHOT-GLOBAL-MODULES-PLAN.md",
+    "docs/dev/MIMIC-SNAPSHOT-GLOBAL-MODULES-PLAN-REVIEW.md",
+    "docs/dev/snapshot-global-checks/fixtures/critical_phrases.txt",
+    "src/include/generated/property_defs.h",
+    "src/core/generated/module_registry.c",
+    ".pm/run.json",
+    "requirements.txt",
+    "pyproject.toml",
+    "LICENSE",
+    "tests/data/output/baseline/anything.h5",
+    "tests/data/snapshot_global/generate_inputs.py",
+    "tests/data/snapshot_global/v3_gapped/trees.h5",
+    "tests/data/snapshot_global/reference_manifest.json",
+    "simulations/micro-uchuu-horizontal/halo_properties.yaml",
+    "simulations/micro-uchuu-horizontal/_tests/data/generic/fixture.h5",
+    "simulations/micro-uchuu-horizontal/_tests/input/test_simulation.yaml",
+    "src/core/core_properties.yaml",
+    "src/module_system/test_fixture/test_properties.yaml",
+    "models/sage16/model_properties.yaml",
+    "models/sham/model_properties.yaml",
+    "models/sham/modules/sham_assign_stellar_mass/sham_assign_stellar_mass.c",
+    "scripts/discovery.py",
+    "Makefile.orig",
+    "src/core/module_registry.c.bak"
+  ],
+  "slices": {
+    "1": {
+      "witness": [
+        "src/core/module_interface.h",
+        "src/core/module_registry.h",
+        "src/core/module_registry.c",
+        "scripts/module_modes.py",
+        "scripts/generate_module_registry.py",
+        "scripts/validate_modules.py",
+        "scripts/check_generated.py",
+        "Makefile",
+        "src/module_system/test_fixture/module_info.yaml",
+        "src/module_system/test_fixture/test_fixture.c",
+        "src/module_system/test_fixture/README.md",
+        "src/module_system/test_fixture/_tests/test_unit_test_fixture.c",
+        "src/module_system/test_fixture/_tests/test_integration_test_fixture.py",
+        "src/module_system/test_snapshot_fixture/module_info.yaml",
+        "src/module_system/test_snapshot_fixture/test_snapshot_fixture.c",
+        "src/module_system/test_snapshot_fixture/_tests/test_unit_test_snapshot_fixture.c",
+        "tests/unit/test_snapshot_module_contract.c",
+        "tests/integration/test_snapshot_module_schema.py",
+        "docs/DEVELOPER-GUIDE.md",
+        ".agents/skills/mimic-modules/SKILL.md"
+      ],
+      "unauthorized": [
+        "src/core/horizontal_driver.c",
+        "src/core/read_parameter_file.c",
+        "src/include/types.h",
+        "src/io/output/metadata_hdf5.c",
+        "src/module_system/test_event_producer/test_event_producer.c",
+        "src/module_system/test_event_producer/module_info.yaml",
+        "tests/framework/harness.py",
+        "tests/framework/test_phase_config.h",
+        "tests/unit/run_tests.sh",
+        "scripts/generate_properties.py",
+        "src/core/snapshot_dispatch.c",
+        "docs/USER-GUIDE.md"
+      ]
+    },
+    "2": {
+      "witness": [
+        "src/include/types.h",
+        "src/core/read_parameter_file.c",
+        "src/core/horizontal_driver.c",
+        "src/io/output/metadata_hdf5.c",
+        "src/module_system/test_fixture/test_fixture.c",
+        "src/module_system/test_fixture/README.md",
+        "src/module_system/test_snapshot_fixture/test_snapshot_fixture.c",
+        "tests/framework/harness.py",
+        "tests/framework/test_phase_config.h",
+        "tests/unit/test_snapshot_module_contract.c",
+        "tests/integration/test_snapshot_phase.py",
+        "tests/integration/test_phase_execution.py",
+        "tests/integration/test_processing_modes.py",
+        "docs/VISION.md",
+        ".agents/skills/mimic-config-and-flags/references/all-config-keys.md",
+        ".agents/skills/mimic-run-and-operate/SKILL.md"
+      ],
+      "unauthorized": [
+        "src/core/inheritance.c",
+        "src/core/output_buffer.c",
+        "src/core/build_model.c",
+        "src/core/vertical_driver.c",
+        "scripts/generate_module_registry.py",
+        "scripts/module_modes.py",
+        "src/module_system/test_fixture/module_info.yaml",
+        "src/module_system/test_fixture/_tests/test_unit_test_fixture.c",
+        "tests/framework/parity_gate.py",
+        "tests/unit/test_snapshot_module_schema.py",
+        "tests/integration/test_snapshot_module_schema.py",
+        "tests/manual/test_snapshot_disabled_identity.py",
+        "simulations/mini-millennium-horizontal/_tests/data/worked_graph/trees.h5",
+        "models/halos-only/input/halos-only_micro-uchuu-horizontal.yaml"
+      ]
+    },
+    "3": {
+      "witness": [
+        "models/sham/modules/sham_global_rank/module_info.yaml",
+        "models/sham/modules/sham_global_rank/sham_global_rank.c",
+        "models/sham/modules/sham_global_rank/README.md",
+        "models/sham/modules/sham_global_rank/_tests/test_unit_sham_global_rank.c",
+        "models/sham/modules/sham_global_rank/_tests/test_integration_sham_global_rank.py",
+        "models/sham/parameter_units.yaml",
+        "models/sham/input/sham_global_micro-uchuu-horizontal.yaml",
+        "models/sham/README.md",
+        "Makefile"
+      ],
+      "unauthorized": [
+        "models/sham/modules/sham_assign_stellar_mass/module_info.yaml",
+        "models/sham/modules/_tests/sham_test_fixtures.h",
+        "models/sham/input/sham_mini-millennium.yaml",
+        "models/sham/plots/registry.py",
+        "src/core/module_registry.c",
+        "src/module_system/test_fixture/test_fixture.c",
+        "tests/framework/harness.py",
+        "tests/integration/test_snapshot_phase.py",
+        "simulations/micro-uchuu-horizontal/simulation_info.yaml"
+      ]
+    },
+    "4": {
+      "witness": [
+        "Makefile",
+        "tests/integration/test_snapshot_phase.py",
+        "tests/integration/test_snapshot_module_schema.py",
+        "tests/manual/test_snapshot_disabled_identity.py",
+        "models/sham/modules/sham_global_rank/_tests/test_unit_sham_global_rank.c",
+        "models/sham/modules/sham_global_rank/_tests/test_integration_sham_global_rank.py",
+        "docs/dev/MIMIC-SNAPSHOT-GLOBAL-MODULES-ACCEPTANCE.md",
+        "tests/README.md",
+        ".agents/skills/mimic-validation-and-qa/SKILL.md"
+      ],
+      "unauthorized": [
+        "tests/integration/test_snapshot_disabled_identity.py",
+        "tests/manual/test_other_manual_case.py",
+        "tests/framework/parity_gate.py",
+        "tests/framework/harness.py",
+        "scripts/compare_cross_format_identity.py",
+        "src/core/horizontal_driver.c",
+        "models/sham/modules/sham_global_rank/sham_global_rank.c",
+        "tests/scientific/test_horizontal_parity.py",
+        ".github/workflows/ci.yml",
+        "tests/unit/test_snapshot_module_contract.c"
+      ]
+    },
+    "5": {
+      "witness": [
+        "docs/VISION.md",
+        "docs/USER-GUIDE.md",
+        "docs/DEVELOPER-GUIDE.md",
+        "docs/STYLE-GUIDE.md",
+        "docs/dev/MIMIC-DEVELOPMENT-PATHWAY.md",
+        "models/sham/README.md",
+        "models/sham/modules/sham_global_rank/README.md",
+        "src/module_system/README.md",
+        "src/module_system/template/README.md",
+        "tests/README.md",
+        ".agents/skills/mimic-config-and-flags/references/all-config-keys.md",
+        ".agents/skills/mimic-debugging-playbook/SKILL.md",
+        ".agents/skills/mimic-docs-and-writing/SKILL.md"
+      ],
+      "unauthorized": [
+        "README.md",
+        "docs/RELEASE-NOTES.md",
+        "src/module_system/template/module_template.c",
+        "src/module_system/test_fixture/README.md",
+        "models/sham/modules/sham_global_rank/sham_global_rank.c",
+        "tests/framework/harness.py",
+        ".agents/skills/mimic-properties/SKILL.md",
+        "AGENTS.md",
+        "Makefile"
+      ]
+    }
+  }
+}

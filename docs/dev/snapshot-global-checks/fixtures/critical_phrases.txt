@@ -1,0 +1,84 @@
+# One phrase per line, prefixed by the slice number it must appear in.
+# Each phrase is a fragment of binding contract text that must survive plan
+# parsing and reach BOTH the Developer and the Reviewer prompt verbatim.
+# Lines starting with '#' are comments. Format: <slice>|<verbatim fragment>
+# Maintained with the plan: revision 3 (2026-09-30) replaced the Slice 3 rank
+# formula, range and oracle phrases and added the harness, fixture, manual-test
+# and numerical-edge clauses introduced by revisions 2 and 3. Revision 5
+# (2026-10-01) added the Slice 2 explicit-selector/isolated-MPI clauses and the
+# Slice 4 key-absent-baseline and byte-equality clauses (the trailing lines).
+1|int (*process_snapshot)(const struct SnapshotContext *ctx, const struct Halo *halos, int64_t count)
+1|without changing `int (*process)(struct ModuleContext *, struct Halo *, int)`
+1|`SnapshotContext` contains `int snapshot_number`, `double redshift`, `double time`
+1|writes only through `halos[i].galaxy`
+1|No callback may retain pointers, reorder/resize the population, change halo fields or pointers, or interpret `CentralHalo` as a snapshot offset
+1|snapshot-only modules have `.process = NULL`; FoF-only modules have `.process_snapshot = NULL`
+1|Neither side treats every non-FoF mode as snapshot mode
+1|Snapshot callbacks do not acquire an event contract
+1|`src/module_system/test_fixture/` gains `process_snapshot` in its supported modes
+1|the untouched event fixtures remain FoF-only
+1|Both HDF5-enabled and `USE-HDF5=no` default builds compile
+1|Required evidence: focused tests, clean default build, `check-generated`, all default test tiers and existing baseline comparisons pass
+1|Recommended Developer: Claude Opus; effort: high
+2|absent, YAML-null and empty lists all mean no global modules
+2|Only `process_snapshot` entries are legal in `post_snapshot`
+2|after the FoF coverage check and before publishing the current generation, releasing generations or writing output
+2|snapshot zero, empty snapshots, non-output snapshots and the final snapshot
+2|The callback receives only `cur->processed.halos` and its int64 count
+2|Zero count is valid even when the driver retains an allocated non-null buffer
+2|`for_each_phase` visits non-empty `post_snapshot` after the existing phases
+2|Nonzero callback return fails the run with module, snapshot and return code
+2|an attempted `module_emit_event` during a snapshot callback; reject it
+2|the registry keeps a snapshot-dispatch-active state; `test_snapshot_fixture` calls `module_emit_event` with a non-null local `struct ModuleContext`
+2|HDF5 `RunProperties/EnabledModules` records each configured global entry with phase `post_snapshot` and mode `process_snapshot`
+2|`tests/framework/harness.py` routes a `post_snapshot` key in `phase_config` as a fixed lifecycle key emitted after `post_timestep`, never as a user-named substep phase
+2|The gapped test distinguishes current-generation data from an older retained one
+2|No new committed fixture data is added
+2|Recommended Developer: Claude Opus; effort: high
+3|`ShamGlobalMassScale` in `(0, 100000]` internal `1e10 Msun/h`, `ShamGlobalNumberDensity` in `[1e-12, 1e3]` `(Mpc/h)^-3`, and `ShamGlobalSlope` in `[0.1, 10]`
+3|the strings `nan`, `inf`, `infinity`, `1e400`, `1,0` and `abc` fail init
+3|Startup rejects simultaneous configuration of `sham_assign_stellar_mass` anywhere
+3|`ShamVpeak = max(previous ShamVpeak, Vmax)` and `ShamMpeak = max(previous ShamMpeak, Mvir)`
+3|must be `<= FLT_MAX` before it is cast to float storage
+3|Eligible objects are every Type 0/1/2 with updated `ShamVpeak > 0`
+3|Sort scratch records by descending `ShamVpeak`, then ascending positive `UniqueGalaxyID` for exact ties. Never sort the borrowed population
+3|`ln M_r = ln M0 - [ln(r + 0.5) - 3 ln BoxSize - ln n0] / alpha`
+3|Never materialise `n_r`, `BoxSize^3` or `n_r / n0` as intermediate doubles
+3|first fail the snapshot if `ln M_r > log(100000.0)`
+3|`exp(log(100000.0))` evaluates to `100000.00000000001`
+3|No tolerance is added and no mass is clipped
+3|A mass that rounds to a nonzero positive float32 subnormal is accepted and stored as that subnormal
+3|reset `StellarMass`, `ShamStellarMassNoScatter`, `ShamScatterDex`, `BulgeMass`, `MetalsStellarMass`, `MetalsBulgeMass` and `StarFormationRate` to zero
+3|Leave `ShamOrphanAge` unchanged
+3|ID-validation scratch is permitted: uniqueness applies to all entries, including ineligible ones
+3|ID 80 receives 16 (rank 0), ID 7 receives 16/3 (rank 1, winning the tie against ID 42 by lower ID) and ID 42 receives 16/5 (rank 2)
+3|Tests catch wrong tie ordering and use of `r+1` instead of `r+0.5`
+3|Same-build permutations/repeats compare exact float bytes; independent formula checks allow at most two float ULPs
+3|has reference float bits `0x000012DA`
+3|nothing is committed under `tests/data/`
+3|Do not change `FULL_MODEL_TEST_SIMULATIONS`
+3|Recommended Developer: Claude Opus; effort: high
+4|`make tests-snapshot-global` runs the neutral phase tests under v2 micro-Uchuu and v3 mini-Millennium fixtures
+4|It does not silently broaden model discovery, launch real-data gates or run the reference-commit comparison
+4|`tests/manual/test_snapshot_disabled_identity.py`
+4|pre-feature baseline commit `717cf3ed5647eb85d2426f44f7dcda7ecd695103`
+4|identical ID sets and per-ID raw property bytes at every output snapshot
+4|Missing datasets fail this acceptance requirement; they do not become SKIPs
+4|Write `docs/dev/MIMIC-SNAPSHOT-GLOBAL-MODULES-ACCEPTANCE.md`
+4|no production-scale global-run memory or observational validation was measured
+4|Recommended Developer: Claude Sonnet; effort: high
+5|VISION Principle 4 and data flow distinguish existing FoF work from an additive post-snapshot population scope
+5|The original three-mode standalone fallback remains documented
+5|Do not archive or edit the frozen plan during the PM run
+5|No code/test rerun is claimed from documentation checks alone
+5|Recommended Developer: Claude Sonnet; effort: medium
+2|Snapshot-module scratch is outside `input.retention_memory_ceiling_mb` accounting
+3|Production-only validators must not be applied to test-property output
+4|including metal enrichment; do not use the older full-physics test YAML
+2|`tests/integration/test_snapshot_phase.py`, one under `MODEL=halos-only SIMULATION=micro-uchuu-horizontal TEST_BUILD=yes` and one under `MODEL=halos-only SIMULATION=mini-millennium-horizontal TEST_BUILD=yes`
+2|the wrapping `tests-snapshot-global` target arrives in Slice 4
+2|the shared `mimic` executable of the main checkout is never rebuilt with MPI inside a test tier
+4|The baseline leg runs with the `modules.post_snapshot` key absent
+4|both compare to that same key-absent baseline output
+4|identical dataset presence and, where present, byte-equal `RunProperties/Parameters`, `FieldMetadata`, `EnabledModules`, `EventContracts` and `Redshifts` datasets
+2|contains no two-rank case
