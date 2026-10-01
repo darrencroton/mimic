@@ -319,3 +319,15 @@ Commit `b0bcafeb` corrected one comment in `models/sage16/input/sage16_mini-uchu
 | Did runtime sources, scripts, tests, model modules or fixtures change? | No: the diff is one comment line. |
 
 `planning_baseline` in `fixtures/anchors.json` is now `b0bcafeb4fa61186d2f518b0a629751ed14a73bb`. The plan was not edited, so its SHA-256 is still `8ef1bc29600d6cf5da3f7fa1e0f404269891f2b5b5c59a9d49151d49c2ec375e`.
+
+
+## Baseline move after the halos-only mini-Uchuu run file comment (2026-10-01)
+
+Commit `990fe51c` made the same comment correction in `models/halos-only/input/halos-only_mini-uchuu.yaml` that `b0bcafeb` made in the sage16 file (127 to 128 mini-Uchuu tree files); a repository search found no further occurrence. It is outside the planning surface, so the drift check failed until the baseline moved.
+
+| Question | Finding |
+|---|---|
+| Does any criterion depend on it? | No. It is a comment in a run file no plan slice reads, and no key or value changed. |
+| Did runtime sources, scripts, tests, model modules or fixtures change? | No: the diff is one comment line. |
+
+`planning_baseline` in `fixtures/anchors.json` is now `990fe51c02cf136f2c20d36027925310bc1760b2`. The plan was not edited, so its SHA-256 is still `8ef1bc29600d6cf5da3f7fa1e0f404269891f2b5b5c59a9d49151d49c2ec375e`.
