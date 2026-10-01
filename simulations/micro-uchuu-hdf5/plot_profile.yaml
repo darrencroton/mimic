@@ -1,5 +1,5 @@
 simulation:
-  name: micro-uchuu
+  name: micro-uchuu-hdf5
   box_size: 100.0
   particle_mass: 0.0327
 

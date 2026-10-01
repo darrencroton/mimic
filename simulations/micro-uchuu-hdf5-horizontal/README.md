@@ -9,6 +9,7 @@ This package declares the horizontal HDF5 on-disk record for the micro-Uchuu hal
 - `micro-uchuu.a_list`: 50 snapshot scale factors, an exact copy of `simulations/micro-uchuu-hdf5/micro-uchuu.a_list`
 - `_tests/integration/test_schema_conformance.py`: checks the compiled declarations against the converter's own `/schema` derivation for this route (no data needed) and against the real dataset's `/schema` when present
 - `_tests/scientific/test_cross_format_identity.py`: the parity gate (below)
+- `plot_profile.yaml`: simulation-specific plotting axis limits and defaults, a copy of `simulations/micro-uchuu-hdf5/plot_profile.yaml` (same box) with the package name changed; `mimic-plot.py` discovers it from `simulations/<simulation.name>/`
 - `snapshots/`: symlink to the converted dataset directory (machine-local, not tracked; `snapshots/` itself is gitignored)
 
 ## Data provenance

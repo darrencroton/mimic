@@ -5,6 +5,7 @@ This package declares the horizontal HDF5 on-disk record for the mini-Millennium
 - `simulation_info.yaml`: input paths, snapshot list path, cosmology, units, box size, and particle mass — identical to `simulations/mini-millennium/simulation_info.yaml`'s physical values
 - `halo_properties.yaml`: the payload field contract — every `/halos` dataset the converter's `/schema` declares, with the same type, units and `h_convention` as `simulations/mini-millennium/converter_columns.yaml` selects, plus the five link roles declared `long long` (version 3 stores links as int64 snapshot-local indices) and checked against the v3 format's fixed table rather than `/schema`. `SourceHaloID`, the three target-snapshot columns and the `ForestIndex`/`HaloRankInForest` identity arrays are reader-owned arrays whose type the version 3 format table fixes, not the package, so they are deliberately not declared here
 - `mini-millennium.a_list`: 64 snapshot scale factors, an exact copy of `simulations/mini-millennium/mini-millennium.a_list`
+- `plot_profile.yaml`: simulation-specific plotting axis limits and defaults, a copy of `simulations/mini-millennium/plot_profile.yaml` (same box) with the package name changed; `mimic-plot.py` discovers it from `simulations/<simulation.name>/`
 - `snapshots/`: symlink to the converted dataset directory (machine-local, not tracked; `snapshots/` itself is gitignored)
 
 ## Data provenance

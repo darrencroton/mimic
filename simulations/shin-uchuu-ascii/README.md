@@ -5,6 +5,7 @@ This package runs Mimic against a subset of the Shin-Uchuu merger trees in Consi
 - `simulation_info.yaml`: tree input paths, snapshot list path, cosmology, units, box size, and particle mass
 - `halo_properties.yaml`: RawHalo field contract for the ctrees readers (mirrors `micro-uchuu-ascii`'s ctrees bridge contract; see file header for the key unit difference from L-Halo binary — M_Crit200 in native Msun/h)
 - `shin-uchuu.a_list`: 70 snapshot scale factors (a=0.04773 to a=0.99998), extracted from the halo data rather than ctrees file headers
+- `plot_profile.yaml`: simulation-specific plotting axis limits and defaults for the halo plots (spatial distribution over the 140 Mpc/h box; halo mass function limits from `models/sage16/plots/profiles/shin-uchuu_plot_profile.yaml`); `mimic-plot.py` discovers it from `simulations/<simulation.name>/`
 - `snapshots/`: symlink to the subset ASCII tree data directory
 - `_tests/`: not present (see "Maintenance notes")
 
@@ -39,5 +40,5 @@ Source: `/fred/oz214/simulations/uchuu/shinuchuu/mergertrees` on OzSTAR — 2744
 - **`MostBoundID` is always positive.** A forest's final snapshot can legitimately hold many independent FoF centrals; `verify_fof_centrals_present()` aborts if it has zero.
 - **`Spin` range `[-1000, 1000]`.** Measured over this subset's 406,668,896 halos: `[-11.673591, +17.797567]`, zero non-finite.
 - **`unique_galaxy_id_multiplier: 20000000000` (2×10¹⁰)** must match `simulations/shin-uchuu/`, or `UniqueGalaxyID` diverges between the two packages.
-- **No `plot_profile.yaml`.** Axis limits belong to a real run's dynamic range; add one from measured output when plotting this package matters.
+- **`plot_profile.yaml` is minimal.** It carries the box-size axis limits and the halo mass function limits only; galaxy-plot limits live in the model-level profiles (`models/sage16/plots/profiles/shin-uchuu-ascii_plot_profile.yaml`) and belong to a real run's dynamic range.
 - **No `_tests/`.** No committed fixture-sized test data or integration scaffolding yet.

@@ -5,6 +5,7 @@ This package declares the horizontal HDF5 on-disk record for the micro-Uchuu hal
 - `simulation_info.yaml`: input paths, snapshot list path, cosmology, units, box size, and particle mass
 - `halo_properties.yaml`: the RawHalo field contract — every `/halos` dataset of the frozen format, with names and types matching the specification exactly
 - `micro-uchuu.a_list`: 50 snapshot scale factors (a=0.06688 to a=0.99951), an exact copy of the `micro-uchuu-ascii` list
+- `plot_profile.yaml`: simulation-specific plotting axis limits and defaults, a copy of `simulations/micro-uchuu-ascii/plot_profile.yaml` (same box) with the package name changed; `mimic-plot.py` discovers it from `simulations/<simulation.name>/`
 - `snapshots/`: symlink to the converted dataset directory (machine-local, not tracked)
 - `_tests/data/`: committed contract fixtures — a tiny, self-validating dataset
 - `_tests/input/`: the fixture generator and the fixture conformance checker

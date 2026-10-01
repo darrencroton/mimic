@@ -5,8 +5,9 @@ This package declares the horizontal HDF5 on-disk record for the Shin-Uchuu halo
 - `simulation_info.yaml`: input paths, snapshot list path, cosmology, units, box size, and particle mass
 - `halo_properties.yaml`: the RawHalo field contract — every `/halos` dataset of the frozen format, with names and types matching the specification exactly. Deliberately omits `ForestIndex` and `HaloRankInForest` (see file header), mirroring `micro-uchuu-ascii-horizontal`.
 - `shin-uchuu.a_list`: 70 snapshot scale factors (a=0.04773 to a=0.99998)
+- `plot_profile.yaml`: simulation-specific plotting axis limits and defaults for the halo plots (spatial distribution over the 140 Mpc/h box; halo mass function limits from `models/sage16/plots/profiles/shin-uchuu_plot_profile.yaml`); `mimic-plot.py` discovers it from `simulations/<simulation.name>/`
 - `snapshots/`: symlink to the converted dataset directory (machine-local, not tracked)
-- `_tests/`: not present (see "Maintenance notes")
+- `_tests/`: a synthetic contract fixture only (see "Maintenance notes")
 
 This package's dataset is not primary data: it is produced offline by `convert/mimic-convert/` from the full Shin-Uchuu Consistent-Trees ASCII catalog (source: `/fred/oz214/simulations/uchuu/shinuchuu/mergertrees` on OzSTAR, 2744 `tree_*.dat` files, 11.61 TB, 315,004,242 z=0 halos, 166,547,771 forests, 70 snapshots), applying the reference reader's value conventions (spin normalisation, `Len` derivation, `fix_upid`) and rewriting global-id links as snapshot-local indices. `MostBoundID` is always positive. Cosmology (Ωm 0.3089, ΩΛ 0.6911, h 0.6774) is the Uchuu/Planck-2015 family; particle mass (8.97×10⁵ Msun/h) and box size (140 Mpc/h) are specific to Shin-Uchuu.
 

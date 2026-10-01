@@ -1,0 +1,12 @@
+simulation:
+  name: shin-uchuu
+  box_size: 140.0
+  particle_mass: 0.0000897
+
+axes:
+  spatial_distribution:
+    xlim: [0.0, 140.0]
+    ylim: [0.0, 140.0]
+  halo_mass_function:
+    xmin: 7.0
+    ymax: 2.0

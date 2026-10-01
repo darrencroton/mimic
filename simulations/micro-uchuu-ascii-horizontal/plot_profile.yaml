@@ -1,5 +1,5 @@
 simulation:
-  name: micro-uchuu-ascii
+  name: micro-uchuu-ascii-horizontal
   box_size: 100.0
   particle_mass: 0.0327
 
