@@ -228,7 +228,7 @@
     {"path": "models/sham/model_properties.yaml", "contains": "name: ShamOrphanAge"},
     {"path": "src/core/core_properties.yaml", "contains": "name: UniqueGalaxyID"},
     {"path": "src/core/core_properties.yaml", "contains": "name: Mvir"},
-    {"path": "simulations/micro-uchuu-horizontal/_tests/input/test_simulation.yaml", "contains": "box_size:\n    value: 100.0\n    units: Mpc/h"},
+    {"path": "simulations/micro-uchuu-ascii-horizontal/_tests/input/test_simulation.yaml", "contains": "box_size:\n    value: 100.0\n    units: Mpc/h"},
     {"path": "simulations/mini-millennium-horizontal/_tests/input/test_simulation.yaml", "contains": "box_size:\n    value: 62.5\n    units: Mpc/h"}
   ],
   "must_not_exist_yet": [
@@ -240,7 +240,7 @@
     "tests/manual",
     "tests/manual/test_snapshot_disabled_identity.py",
     "models/sham/modules/sham_global_rank",
-    "models/sham/input/sham_global_micro-uchuu-horizontal.yaml",
+    "models/sham/input/sham_global_micro-uchuu-ascii-horizontal.yaml",
     "docs/dev/MIMIC-SNAPSHOT-GLOBAL-MODULES-ACCEPTANCE.md"
   ],
   "must_not_exist_removed_envelopes": [

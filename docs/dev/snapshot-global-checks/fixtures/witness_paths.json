@@ -14,9 +14,9 @@
     "tests/data/snapshot_global/generate_inputs.py",
     "tests/data/snapshot_global/v3_gapped/trees.h5",
     "tests/data/snapshot_global/reference_manifest.json",
-    "simulations/micro-uchuu-horizontal/halo_properties.yaml",
-    "simulations/micro-uchuu-horizontal/_tests/data/generic/fixture.h5",
-    "simulations/micro-uchuu-horizontal/_tests/input/test_simulation.yaml",
+    "simulations/micro-uchuu-ascii-horizontal/halo_properties.yaml",
+    "simulations/micro-uchuu-ascii-horizontal/_tests/data/generic/fixture.h5",
+    "simulations/micro-uchuu-ascii-horizontal/_tests/input/test_simulation.yaml",
     "src/core/core_properties.yaml",
     "src/module_system/test_fixture/test_properties.yaml",
     "models/sage16/model_properties.yaml",
@@ -98,7 +98,7 @@
         "tests/integration/test_snapshot_module_schema.py",
         "tests/manual/test_snapshot_disabled_identity.py",
         "simulations/mini-millennium-horizontal/_tests/data/worked_graph/trees.h5",
-        "models/halos-only/input/halos-only_micro-uchuu-horizontal.yaml"
+        "models/halos-only/input/halos-only_micro-uchuu-ascii-horizontal.yaml"
       ]
     },
     "3": {
@@ -109,7 +109,7 @@
         "models/sham/modules/sham_global_rank/_tests/test_unit_sham_global_rank.c",
         "models/sham/modules/sham_global_rank/_tests/test_integration_sham_global_rank.py",
         "models/sham/parameter_units.yaml",
-        "models/sham/input/sham_global_micro-uchuu-horizontal.yaml",
+        "models/sham/input/sham_global_micro-uchuu-ascii-horizontal.yaml",
         "models/sham/README.md",
         "Makefile"
       ],
@@ -122,7 +122,7 @@
         "src/module_system/test_fixture/test_fixture.c",
         "tests/framework/harness.py",
         "tests/integration/test_snapshot_phase.py",
-        "simulations/micro-uchuu-horizontal/simulation_info.yaml"
+        "simulations/micro-uchuu-ascii-horizontal/simulation_info.yaml"
       ]
     },
     "4": {

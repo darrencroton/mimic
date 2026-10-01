@@ -75,7 +75,7 @@
 2|Snapshot-module scratch is outside `input.retention_memory_ceiling_mb` accounting
 3|Production-only validators must not be applied to test-property output
 4|including metal enrichment; do not use the older full-physics test YAML
-2|`tests/integration/test_snapshot_phase.py`, one under `MODEL=halos-only SIMULATION=micro-uchuu-horizontal TEST_BUILD=yes` and one under `MODEL=halos-only SIMULATION=mini-millennium-horizontal TEST_BUILD=yes`
+2|`tests/integration/test_snapshot_phase.py`, one under `MODEL=halos-only SIMULATION=micro-uchuu-ascii-horizontal TEST_BUILD=yes` and one under `MODEL=halos-only SIMULATION=mini-millennium-horizontal TEST_BUILD=yes`
 2|the wrapping `tests-snapshot-global` target arrives in Slice 4
 2|the shared `mimic` executable of the main checkout is never rebuilt with MPI inside a test tier
 4|The baseline leg runs with the `modules.post_snapshot` key absent
