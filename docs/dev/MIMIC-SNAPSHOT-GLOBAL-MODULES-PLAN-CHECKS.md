@@ -307,3 +307,15 @@ Commit `13891a17` added `models/halos-only/plots/profiles/mini-millennium-horizo
 | Did runtime sources, scripts, tests, model modules or fixtures change? | No: the commit adds one YAML file. |
 
 `planning_baseline` in `fixtures/anchors.json` is now `13891a177c0d2ffd407394597fa783ab739472b7`. The plan was not edited, so its SHA-256 is still `8ef1bc29600d6cf5da3f7fa1e0f404269891f2b5b5c59a9d49151d49c2ec375e`.
+
+
+## Baseline move after the mini-Uchuu run file comment (2026-10-01)
+
+Commit `b0bcafeb` corrected one comment in `models/sage16/input/sage16_mini-uchuu.yaml` (the mini-Uchuu tree file count, 127 to 128; the package declares files 0 to 127). It is outside the planning surface, so the drift check failed until the baseline moved.
+
+| Question | Finding |
+|---|---|
+| Does any criterion depend on it? | No. It is a comment in a run file no plan slice reads, and no key or value changed. |
+| Did runtime sources, scripts, tests, model modules or fixtures change? | No: the diff is one comment line. |
+
+`planning_baseline` in `fixtures/anchors.json` is now `b0bcafeb4fa61186d2f518b0a629751ed14a73bb`. The plan was not edited, so its SHA-256 is still `8ef1bc29600d6cf5da3f7fa1e0f404269891f2b5b5c59a9d49151d49c2ec375e`.
