@@ -10,7 +10,7 @@
 
 | Item | Value |
 |---|---|
-| Feature tree (HEAD at every run) | `d5eaec2d500ae80d087167e596188c0653ee1126`; this slice's changes touch only `Makefile`, `tests/`, `.agents/skills/mimic-validation-and-qa/SKILL.md` and this record, none under `src/`, `scripts/` or the non-test parts of `models/` (checked by the identity test itself) |
+| Feature tree | The real-data gates and the first fixture, suite and identity runs used HEAD `d5eaec2d500ae80d087167e596188c0653ee1126`. This slice's commit is `bdd267c9709f6c34e192a9356db8f822885c7c92`, and `make tests-snapshot-global-identity` and `make tests-snapshot-global` were re-run at it with identical results. The slice's changes touch only `Makefile`, `tests/`, `.agents/skills/mimic-validation-and-qa/SKILL.md` and this record, none under `src/`, `scripts/` or the non-test parts of `models/` (checked by the identity test itself) |
 | Reference commit (disabled-mode identity) | `501bac12f654d9622b797bc9b26c536e5385aca2`, derived by the test as the parent of the first commit after the plan's last change that touches a non-planning path (`a74fea44`); no `REFERENCE_COMMIT` was supplied |
 | Slice 1 `before_head` recorded by PM | `7a3f661c762a75134cb5ec9bb037d03da08fbf92`; see [the residuals](#residuals-and-plan-defects) for why this is not the derived value |
 | Default selectors | `MODEL=sage16 SIMULATION=mini-millennium`, restored and rebuilt after every run |
@@ -30,7 +30,9 @@ Logs live in machine-local, git-ignored locations; they are operational records,
 | 03 | `make MODEL=sham SIMULATION=mini-millennium generate validate-modules lint-parameters check-generated` | 0 | 1 s | validation passed; generated code up to date |
 | 04 | `make MODEL=sham SIMULATION=mini-millennium tests summary` | 0 | 340 s | legacy `sham_assign_stellar_mass` tests and the default tiers passed; unit `total=32 passed=32 failed=0`; 32 SKIP, 1 WARN |
 | 06 | `make tests-snapshot-global` | 0 | 31 s | 47 cases counted by the target plus the 27-case sham battery, no skips |
-| 07 | `make tests-snapshot-global-identity` | 0 | 62 s | 15 stages passed, 12 legs, 0 per-ID mismatches |
+| 21 | `make tests-snapshot-global` at `bdd267c9` | 0 | 32 s | identical counts, no skips |
+| 07 | `make tests-snapshot-global-identity` | 0 | 62 s | 17 stage markers PASS (3 setup, 12 legs, comparator self-check, verdicts), 0 per-ID mismatches |
+| 20 | `make tests-snapshot-global-identity` at `bdd267c9` | 0 | 67 s | 17 stage markers PASS, 0 per-ID mismatches, same row counts; evidence in `archive/snapshot-global-identity/20261002T154551Z-ref501bac12-headbdd267c9/evidence.json` |
 | 08 | `make check-docs` | 0 | — | documentation checks passed |
 | 09 | `make check-format` | 0 | — | C, Black and isort passed (229 Python files unchanged) |
 | 10 | `make tests-scientific` (default pair, no summary) | 0 | 11 s | 19 PASS, 1 WARN |
@@ -60,7 +62,7 @@ This slice changed one test: `test_standalone_fallback_keeps_three_modes` in `te
 
 ## Disabled-mode identity: `make tests-snapshot-global-identity`
 
-`tests/manual/test_snapshot_disabled_identity.py` lives outside every auto-discovered tier and is invoked only by its target. It resolved the reference to `501bac12f654d9622b797bc9b26c536e5385aca2` (derived; ancestor of HEAD; no `process_snapshot`, `PROCESSING_MODE_SNAPSHOT`, `SnapshotContext` or `post_snapshot` under `src/`, `scripts/` or `models/`; every simulation package, config and input path the legs select present), and refused, as designed, an explicit value naming HEAD, a non-commit and an older commit that differs outside the planning surface. It built twelve detached worktrees (six per commit) in 37 s of build time, and 62.2 s end to end. Every run recorded `RunProperties/Version@git_commit` equal to its worktree's commit, the leg's `TimestepScheme`, `ModelName` and `SimulationName`, and no run reported a memory leak.
+`tests/manual/test_snapshot_disabled_identity.py` lives outside every auto-discovered tier and is invoked only by its target. It resolved the reference to `501bac12f654d9622b797bc9b26c536e5385aca2` (derived; ancestor of HEAD; no `process_snapshot`, `PROCESSING_MODE_SNAPSHOT`, `SnapshotContext` or `post_snapshot` under `src/`, `scripts/` or `models/`; every simulation package, config and input path the legs select present), and refused, as designed, an explicit value naming HEAD, a non-commit and an older commit that differs outside the planning surface. It built twelve detached worktrees (six per commit) in 37 s of build time, and 62.2 s end to end (the re-run at `bdd267c9`: 40 s and 66.0 s, with every run's recorded `git_commit` equal to its worktree). Every run recorded `RunProperties/Version@git_commit` equal to its worktree's commit, the leg's `TimestepScheme`, `ModelName` and `SimulationName`, and no run reported a memory leak.
 
 Each leg compared two feature runs (`modules.post_snapshot` absent, and `post_snapshot: []` under `modules:`) with the reference run of the same run file. SAGE legs use the shipped `sage16_mini-millennium.yaml` verbatim apart from its selectors, so metal enrichment and its parameters are included; halos-only replaces only its `modules` mapping. Row counts equal the planning preflight: 307518 halos-only and 173205 (fixed) / 173197 (dynamic) sage16 rows on the vertical fixture, 13 / 11 on v2, 6 / 4 on gapped v3.
 
