@@ -914,67 +914,81 @@ tests-snapshot-global-sham:
 # tests-snapshot-global-sham. Each step builds its pair as a test build, runs the
 # declared tests by path, and fails on a build or test exit status, on any
 # `MIMIC_RESULT: FAIL`, `ERROR` or `SKIP`, and on a PASS count that is not the
-# number of cases the test file declares (`def test_` or `TEST_RUN(`), so a case
-# dropped from a runner cannot pass silently. Logs go to $(SG_LOG). It runs no
-# real-data gate and no reference-commit comparison, and it does not touch model
-# discovery. The caller's generated selectors are restored on every exit,
-# including an interrupt; rebuild the executable with `make`.
+# number of cases the test files declare (`def test_` or `TEST_RUN(`), so a case
+# dropped or duplicated cannot pass silently; the sham step is gated on its
+# declared 18 + 9 cases the same way. Logs go to $(SG_LOG). It runs no real-data
+# gate and no reference-commit comparison, and it does not touch model
+# discovery.
+#
+# The recipe is split as tests-horizontal-v3 is: the build steps are their own
+# recipe lines holding only the sub-make, and the shell that runs tests holds no
+# literal $(MAKE), so `make -n tests-snapshot-global` prints the test commands
+# without running any. State passes between lines through files under build/.
+# The caller's generated selectors are restored by the last step and, on an
+# interrupt, by the trap every step installs; both reach the restore through the
+# variable $(SG_RESTORE), which keeps those lines free of a literal $(MAKE). A
+# failed restore makes the target fail. Rebuild the executable with `make`.
 SG_MODEL := halos-only
 SG_V2 := micro-uchuu-ascii-horizontal
 SG_V3 := mini-millennium-horizontal
 SG_LOG := build/snapshot_global_tests.log
 SG_STEP_LOG := build/snapshot_global_step.log
+SG_RC := build/.snapshot_global_status
+SG_TOTAL := build/.snapshot_global_total
+SG_BUILD_STATUS := build/.snapshot_global_build_status
 SG_PHASE_TEST := tests/integration/test_snapshot_phase.py
 SG_SCHEMA_TEST := tests/integration/test_snapshot_module_schema.py
 SG_CONTRACT_TEST := test_snapshot_module_contract
 SG_CONTRACT_SOURCE := tests/unit/$(SG_CONTRACT_TEST).c
 SG_VENV_PATH := $(if $(findstring /,$(PYTHON)),$(abspath $(dir $(PYTHON))):)
-
-tests-snapshot-global:
-	@mkdir -p build; : > $(SG_LOG); rc=0; total=0; \
-	restore() { \
-		$(MAKE) MODEL='$(MODEL)' SIMULATION='$(SIMULATION)' generate >> $(SG_LOG) 2>&1 \
-			&& echo "Generated code restored for MODEL=$(MODEL) SIMULATION=$(SIMULATION); rebuild the executable with 'make'." \
-			|| echo "WARNING: could not restore generated code for MODEL=$(MODEL) SIMULATION=$(SIMULATION)"; \
-	}; \
-	trap restore EXIT; trap 'exit 130' INT; trap 'exit 143' TERM; \
-	check() { \
+SG_RESTORE_TARGET := generate
+SG_RESTORE = $(MAKE) --no-print-directory MODEL='$(MODEL)' SIMULATION='$(SIMULATION)' $(SG_RESTORE_TARGET)
+SG_TRAP = trap '$(SG_RESTORE) >> $(SG_LOG) 2>&1; exit 130' INT; trap '$(SG_RESTORE) >> $(SG_LOG) 2>&1; exit 143' TERM;
+SG_CHECK = check() { \
 		label="$$1"; expected="$$2"; status="$$3"; \
 		{ echo "=== $$label (exit $$status, expecting $$expected cases)"; cat $(SG_STEP_LOG); } >> $(SG_LOG); \
 		passes=$$(grep -c '^MIMIC_RESULT: PASS' $(SG_STEP_LOG)); \
 		bad=$$(grep -E '^MIMIC_RESULT: (FAIL|ERROR|SKIP)' $(SG_STEP_LOG)); \
-		if [ "$$status" -ne 0 ]; then echo "FAIL: $$label exited $$status"; rc=1; fi; \
-		if [ -n "$$bad" ]; then echo "FAIL: $$label reported non-PASS cases:"; echo "$$bad"; rc=1; fi; \
-		if [ "$$passes" -ne "$$expected" ]; then echo "FAIL: $$label ran $$passes PASS cases, expected $$expected"; rc=1; fi; \
-		echo "  $$label: $$passes/$$expected cases"; total=$$((total + passes)); \
-	}; \
-	phase_cases=$$(grep -c '^def test_' $(SG_PHASE_TEST)); \
-	schema_cases=$$(grep -c '^def test_' $(SG_SCHEMA_TEST)); \
-	contract_cases=$$(grep -c 'TEST_RUN(' $(SG_CONTRACT_SOURCE)); \
-	for sim in $(SG_V2) $(SG_V3); do \
-		echo "--- $(SG_MODEL) x $$sim"; \
-		$(MAKE) MODEL=$(SG_MODEL) SIMULATION=$$sim TEST_BUILD=yes generate validate-build $(EXEC) > $(SG_STEP_LOG) 2>&1; \
-		status=$$?; check "build $$sim" 0 $$status; \
-		if [ $$status -ne 0 ]; then continue; fi; \
-		PATH="$(SG_VENV_PATH)$$PATH" MODEL='$(SG_MODEL)' SIMULATION="$$sim" $(PYTHON) $(SG_PHASE_TEST) > $(SG_STEP_LOG) 2>&1; \
-		check "post_snapshot phase tests on $$sim" $$phase_cases $$?; \
-		if [ "$$sim" = "$(SG_V2)" ]; then \
-			(cd tests/unit && MODEL='$(SG_MODEL)' SIMULATION="$$sim" ./run_tests.sh $(SG_CONTRACT_TEST)) > $(SG_STEP_LOG) 2>&1; \
-			check "typed callback unit tests" $$contract_cases $$?; \
-			PATH="$(SG_VENV_PATH)$$PATH" MODEL='$(SG_MODEL)' SIMULATION="$$sim" $(PYTHON) $(SG_SCHEMA_TEST) > $(SG_STEP_LOG) 2>&1; \
-			check "typed callback schema tests" $$schema_cases $$?; \
-		fi; \
-	done; \
-	echo "--- tests-snapshot-global-sham"; \
-	$(MAKE) --no-print-directory MODEL='$(MODEL)' SIMULATION='$(SIMULATION)' tests-snapshot-global-sham > $(SG_STEP_LOG) 2>&1; \
-	status=$$?; \
+		if [ "$$status" -ne 0 ]; then echo "FAIL: $$label exited $$status"; echo 1 > $(SG_RC); fi; \
+		if [ -n "$$bad" ]; then echo "FAIL: $$label reported non-PASS cases:"; echo "$$bad"; echo 1 > $(SG_RC); fi; \
+		if [ "$$passes" -ne "$$expected" ]; then echo "FAIL: $$label ran $$passes PASS cases, expected $$expected"; echo 1 > $(SG_RC); fi; \
+		echo "  $$label: $$passes/$$expected cases"; echo $$(( $$(cat $(SG_TOTAL)) + passes )) > $(SG_TOTAL); \
+	};
+
+tests-snapshot-global:
+	@mkdir -p build; : > $(SG_LOG); echo 0 > $(SG_RC); echo 0 > $(SG_TOTAL)
+	@mkdir -p build; $(SG_TRAP) echo "--- $(SG_MODEL) x $(SG_V2)"; $(MAKE) --no-print-directory MODEL=$(SG_MODEL) SIMULATION=$(SG_V2) TEST_BUILD=yes generate validate-build $(EXEC) > $(SG_STEP_LOG) 2>&1; echo $$? > $(SG_BUILD_STATUS)
+	@$(SG_TRAP) $(SG_CHECK) \
+	check "build $(SG_V2)" 0 "$$(cat $(SG_BUILD_STATUS))"; \
+	if [ "$$(cat $(SG_BUILD_STATUS))" = 0 ]; then \
+		PATH="$(SG_VENV_PATH)$$PATH" MODEL='$(SG_MODEL)' SIMULATION='$(SG_V2)' $(PYTHON) $(SG_PHASE_TEST) > $(SG_STEP_LOG) 2>&1; \
+		check "post_snapshot phase tests on $(SG_V2)" "$$(grep -c '^def test_' $(SG_PHASE_TEST))" $$?; \
+		(cd tests/unit && MODEL='$(SG_MODEL)' SIMULATION='$(SG_V2)' ./run_tests.sh $(SG_CONTRACT_TEST)) > $(SG_STEP_LOG) 2>&1; \
+		check "typed callback unit tests" "$$(grep -c 'TEST_RUN(' $(SG_CONTRACT_SOURCE))" $$?; \
+		PATH="$(SG_VENV_PATH)$$PATH" MODEL='$(SG_MODEL)' SIMULATION='$(SG_V2)' $(PYTHON) $(SG_SCHEMA_TEST) > $(SG_STEP_LOG) 2>&1; \
+		check "typed callback schema tests" "$$(grep -c '^def test_' $(SG_SCHEMA_TEST))" $$?; \
+	fi
+	@mkdir -p build; $(SG_TRAP) echo "--- $(SG_MODEL) x $(SG_V3)"; $(MAKE) --no-print-directory MODEL=$(SG_MODEL) SIMULATION=$(SG_V3) TEST_BUILD=yes generate validate-build $(EXEC) > $(SG_STEP_LOG) 2>&1; echo $$? > $(SG_BUILD_STATUS)
+	@$(SG_TRAP) $(SG_CHECK) \
+	check "build $(SG_V3)" 0 "$$(cat $(SG_BUILD_STATUS))"; \
+	if [ "$$(cat $(SG_BUILD_STATUS))" = 0 ]; then \
+		PATH="$(SG_VENV_PATH)$$PATH" MODEL='$(SG_MODEL)' SIMULATION='$(SG_V3)' $(PYTHON) $(SG_PHASE_TEST) > $(SG_STEP_LOG) 2>&1; \
+		check "post_snapshot phase tests on $(SG_V3)" "$$(grep -c '^def test_' $(SG_PHASE_TEST))" $$?; \
+	fi
+	@$(SG_TRAP) echo "--- tests-snapshot-global-sham"; $(MAKE) --no-print-directory MODEL='$(MODEL)' SIMULATION='$(SIMULATION)' tests-snapshot-global-sham > $(SG_STEP_LOG) 2>&1; echo $$? > $(SG_BUILD_STATUS)
+	@$(SG_TRAP) $(SG_CHECK) \
+	status=$$(cat $(SG_BUILD_STATUS)); \
 	{ echo "=== tests-snapshot-global-sham (exit $$status)"; cat $(SG_STEP_LOG); } >> $(SG_LOG); \
-	if [ $$status -ne 0 ]; then echo "FAIL: tests-snapshot-global-sham exited $$status"; rc=1; fi; \
-	line=$$(grep '^PASS: tests-snapshot-global-sham' $(SG_STEP_LOG)); \
-	if [ -z "$$line" ]; then echo "FAIL: tests-snapshot-global-sham printed no PASS line"; rc=1; else echo "  $$line"; fi; \
-	if grep -q '^MIMIC_RESULT: SKIP' build/snapshot_global_sham_tests.log; then echo "FAIL: tests-snapshot-global-sham skipped a case"; rc=1; fi; \
-	if [ $$rc -ne 0 ]; then echo "FAIL: tests-snapshot-global (see $(SG_LOG))"; \
-	else echo "PASS: tests-snapshot-global ($$total cases counted here, plus the sham battery: $${line#PASS: tests-snapshot-global-sham }; no skips)"; fi; \
+	if [ "$$status" -ne 0 ]; then echo "FAIL: tests-snapshot-global-sham exited $$status"; echo 1 > $(SG_RC); fi; \
+	cp -f $(GSHAM_LOG) $(SG_STEP_LOG); \
+	expected=$$(( $$(grep -c 'TEST_RUN(' $(GSHAM_UNIT_TESTS)) + $$(grep -c '^def test_' $(GSHAM_PY_TESTS)) )); \
+	check "sham_global_rank battery" "$$expected" 0
+	@$(SG_RESTORE) >> $(SG_LOG) 2>&1 \
+		&& echo "Generated code restored for MODEL=$(MODEL) SIMULATION=$(SIMULATION); rebuild the executable with 'make'." \
+		|| { echo "FAIL: could not restore generated code for MODEL=$(MODEL) SIMULATION=$(SIMULATION) (see $(SG_LOG))"; echo 1 > $(SG_RC); }
+	@rc=$$(cat $(SG_RC)); \
+	if [ "$$rc" -ne 0 ]; then echo "FAIL: tests-snapshot-global (see $(SG_LOG))"; \
+	else echo "PASS: tests-snapshot-global ($$(cat $(SG_TOTAL)) cases, every step gated on its declared count, no skips)"; fi; \
 	exit $$rc
 
 # Disabled-mode identity against the pre-feature reference commit. The manual

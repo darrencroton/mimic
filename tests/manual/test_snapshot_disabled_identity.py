@@ -364,6 +364,11 @@ def run_file_text(template: str, model: str, fixture: Fixture, scheme: str) -> s
     assert parsed["output"]["snapshot_list"] == []
     assert parsed["TimestepScheme"] == scheme and parsed["SubSteps"] == 10
     assert "post_snapshot" not in parsed["modules"], "the baseline run file must not carry the key"
+    expected_keys = set(shipped) | {"MaxDynamicSubsteps", "TimestepScheme"}
+    assert set(parsed) == expected_keys, (
+        f"top-level keys {sorted(parsed)} are not the shipped file's plus the scheme keys "
+        f"{sorted(expected_keys)}; a key was dropped or added"
+    )
     if model == "sage16":
         assert parsed["modules"] == shipped["modules"], "the SAGE modules mapping was altered"
     else:
@@ -1315,7 +1320,12 @@ def parse_args(argv=None) -> argparse.Namespace:
 
 def main() -> int:
     identity = Identity(parse_args())
-    return run_test_suite(identity.stages(), "Snapshot-global disabled-mode identity")
+    # Ordered stages: each needs the one before it, so a failure stops the chain
+    # (the remaining stages report SKIP, which fails the make target) rather than
+    # cascading into errors that bury the cause.
+    return run_test_suite(
+        identity.stages(), "Snapshot-global disabled-mode identity", abort_on_failure=True
+    )
 
 
 if __name__ == "__main__":
