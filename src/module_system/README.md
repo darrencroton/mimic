@@ -9,7 +9,7 @@
 - **`output_helpers.h`** — Output conversion helpers referenced by property metadata
 - **`template/`** — Module template with quick-start README
 - **`test_fixture/`** — Infrastructure testing module; provides a stable physics-agnostic module for core tests (dual-mode: FoF modes plus `process_snapshot`)
-- **`test_snapshot_fixture/`** — Snapshot-only test module (`process_snapshot` alone) for the `modules.post_snapshot` phase tests; it deliberately attempts `module_emit_event` during its callback, so it logs one expected ERROR line per snapshot for that rejected probe
+- **`test_snapshot_fixture/`** — Snapshot-only test module (`process_snapshot` alone) for the `modules.post_snapshot` phase tests; it deliberately probes `module_emit_event` during its callback, and the core registry logs one expected ERROR line per snapshot (`module_emit_event called during post_snapshot dispatch`) when it rejects the probe; the fixture itself logs only its INFO marker
 - **`test_event_producer/`** — Synthetic event producer for event routing integration tests
 - **`test_event_producer_b/`** — Second synthetic producer for multi-producer routing tests
 - **`test_event_consumer_alpha/`** — Consumer subscribed to `test_event` from `test_event_producer`
