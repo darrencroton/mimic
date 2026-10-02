@@ -13,6 +13,7 @@ Reads:
     models/<MODEL>/shared/module_info.yaml
     models/<MODEL>/modules/*/module_info.yaml
     src/module_system/test_*/module_info.yaml  (test builds only)
+    scripts/module_modes.py                     - Shared processing-mode descriptors
 
 Generates:
     src/module_system/generated/module_init.c      - Module registration code
@@ -49,6 +50,13 @@ from discovery import (
     standalone_module_files,
     test_property_files,
 )
+from module_modes import (
+    CALLBACK_FAMILIES,
+    STANDALONE_FALLBACK_MODES,
+    callback_families,
+    enum_for_mode,
+    mode_list_errors,
+)
 
 # ==============================================================================
 # PATHS
@@ -59,6 +67,9 @@ MODULE_INIT_C = generated_module_dir() / "module_init.c"
 EVENT_CONTRACTS_H = generated_module_dir() / "event_contracts.h"
 MODULE_SOURCES_TXT = REPO_ROOT / "tests" / "generated" / "module_sources.txt"
 MODULE_HASH_FILE = REPO_ROOT / "build" / "generated" / "module_registry_hash.txt"
+
+# Shared processing-mode descriptors (a generation input; see compute_metadata_hash)
+MODULE_MODES_PY = REPO_ROOT / "scripts" / "module_modes.py"
 
 # ==============================================================================
 # HEADER GENERATION (consistent across all generators)
@@ -147,11 +158,7 @@ def create_standalone_module_metadata(c_file: Path) -> Dict[str, Any]:
         "display_name": module_name.replace("_", " ").title(),
         "version": "1.0.0",
         "sources": [c_file.name],
-        "supported_processing_modes": [
-            "process_full_halo",
-            "process_per_event",
-            "process_by_galaxy",
-        ],
+        "supported_processing_modes": list(STANDALONE_FALLBACK_MODES),
         "dependencies": {"properties": [], "parameters": []},
         "_module_dir": c_file.parent,
         "_pattern": "standalone",
@@ -212,12 +219,6 @@ def validate_unique_module_names(modules: List[Dict[str, Any]]) -> List[str]:
 # VALIDATION
 # ==============================================================================
 
-VALID_PROCESSING_MODES = {
-    "process_full_halo",
-    "process_per_event",
-    "process_by_galaxy",
-}
-
 
 def load_valid_properties() -> set:
     """Load all valid property names from halo and galaxy property files."""
@@ -248,7 +249,7 @@ def load_valid_properties() -> set:
 
 
 def validate_processing_modes(modules: List[Dict[str, Any]]) -> List[str]:
-    """Verify runtime directory modules declare valid processing modes."""
+    """Verify runtime modules declare a valid mode list (see scripts/module_modes.py)."""
     errors = []
 
     for module in modules:
@@ -265,27 +266,9 @@ def validate_processing_modes(modules: List[Dict[str, Any]]) -> List[str]:
             )
             continue
 
-        modes = module["supported_processing_modes"]
-        if not isinstance(modes, list) or len(modes) == 0:
-            errors.append(
-                f"{module_name}/module_info.yaml: 'supported_processing_modes' "
-                f"must be a non-empty list"
-            )
-            continue
-
-        invalid_modes = [mode for mode in modes if mode not in VALID_PROCESSING_MODES]
-        if invalid_modes:
-            errors.append(
-                f"{module_name}/module_info.yaml: Invalid processing mode(s) "
-                f"{invalid_modes} in 'supported_processing_modes' "
-                f"(expected subset of {sorted(VALID_PROCESSING_MODES)})"
-            )
-
-        if len(set(modes)) != len(modes):
-            errors.append(
-                f"{module_name}/module_info.yaml: Duplicate entries in "
-                f"'supported_processing_modes': {modes}"
-            )
+        # Shared with scripts/validate_modules.py so both accept the same lists.
+        for message in mode_list_errors(module["supported_processing_modes"]):
+            errors.append(f"{module_name}/module_info.yaml: {message}")
 
     return errors
 
@@ -667,6 +650,11 @@ def compute_metadata_hash(modules: List[Dict[str, Any]]) -> str:
     md5.update(rel(generator_path).encode("utf-8"))
     md5.update(generator_path.read_bytes())
 
+    # The shared mode descriptors shape generated registration, so they are an
+    # input too. check_generated.py hashes the same path and bytes.
+    md5.update(rel(MODULE_MODES_PY).encode("utf-8"))
+    md5.update(MODULE_MODES_PY.read_bytes())
+
     # Sort by module name for consistent ordering
     sorted_modules = sorted(modules, key=lambda m: m["name"])
 
@@ -712,7 +700,12 @@ def load_saved_hash() -> str:
 
 
 def generate_lifecycle_forward_declarations(modules: List[Dict[str, Any]]) -> List[str]:
-    """Generate forward declarations for module lifecycle functions."""
+    """Generate forward declarations for module lifecycle functions.
+
+    init and cleanup are declared for every module. A typed process callback is
+    declared only for each callback family the module's modes advertise, so a
+    module never needs a stub for a family it does not support.
+    """
     lines = []
     lines.append("/* ========================================================================== */")
     lines.append("/* FORWARD DECLARATIONS FOR MODULE LIFECYCLE FUNCTIONS                       */")
@@ -720,7 +713,9 @@ def generate_lifecycle_forward_declarations(modules: List[Dict[str, Any]]) -> Li
     lines.append("")
     lines.append("/*")
     lines.append(" * Forward declarations for module lifecycle functions.")
-    lines.append(" * These functions are implemented in each module's .c file.")
+    lines.append(" * These functions are implemented in each module's .c file. A typed")
+    lines.append(" * process callback is declared only for the callback families (FoF,")
+    lines.append(" * snapshot) that the module's supported_processing_modes advertise.")
     lines.append(" *")
     lines.append(" * Eliminates need for per-module header files.")
     lines.append(" */")
@@ -729,9 +724,8 @@ def generate_lifecycle_forward_declarations(modules: List[Dict[str, Any]]) -> Li
     for module in sorted(modules, key=lambda m: m["name"]):
         name = module["name"]
         lines.append(f"extern int {name}_init(void);")
-        lines.append(
-            f"extern int {name}_process(struct ModuleContext *ctx, struct Halo *halos, int ngal);"
-        )
+        for family in callback_families(module["supported_processing_modes"]):
+            lines.append(f"extern int {name}{family.symbol_suffix}({family.parameters});")
         lines.append(f"extern int {name}_cleanup(void);")
         lines.append("")
 
@@ -762,11 +756,9 @@ def generate_module_struct_definitions(
 
     for module in sorted(modules, key=lambda m: m["name"]):
         name = module["name"]
-        modes = module.get(
-            "supported_processing_modes",
-            ["process_full_halo", "process_per_event", "process_by_galaxy"],
-        )
+        modes = module["supported_processing_modes"]
         num_modes = len(modes)
+        advertised = {family.key for family in callback_families(modes)}
 
         # Event system fields
         module_id = producer_ids.get(name, 0)
@@ -779,7 +771,11 @@ def generate_module_struct_definitions(
         lines.append(f"static struct Module {name}_module = {{")
         lines.append(f'    .name = "{name}",')
         lines.append(f"    .init = {name}_init,")
-        lines.append(f"    .process = {name}_process,")
+        # Every callback member is initialised explicitly: the advertised
+        # family's symbol, or NULL for a family the module does not support.
+        for family in CALLBACK_FAMILIES:
+            value = f"{name}{family.symbol_suffix}" if family.key in advertised else "NULL"
+            lines.append(f"    .{family.field} = {value},")
         lines.append(f"    .cleanup = {name}_cleanup,")
         lines.append(f"    .supported_processing_modes = {name}_supported_modes,")
         lines.append(f"    .num_supported_modes = {num_modes},")
@@ -841,10 +837,11 @@ def generate_module_init_c(
         " * - PROCESSING_MODE_PER_EVENT: Module processes one event target at a time (ngal = 1)"
     )
     lines.append(" * - PROCESSING_MODE_BY_GALAXY: Module processes one galaxy at a time (ngal = 1)")
+    lines.append(" * - PROCESSING_MODE_SNAPSHOT: Module processes one whole snapshot population")
     lines.append(" *")
-    lines.append(" * Generated from supported_processing_modes metadata.")
-    lines.append(" * Runtime directory modules declare this in module_info.yaml; standalone")
-    lines.append(" * modules inherit all processing modes.")
+    lines.append(" * Generated from supported_processing_modes metadata through the shared")
+    lines.append(" * descriptors in scripts/module_modes.py. Runtime directory modules declare")
+    lines.append(" * this in module_info.yaml; standalone modules advertise the three FoF modes.")
     lines.append(" *")
     lines.append(" * Modules reference these arrays in their Module struct initialization.")
     lines.append(" */")
@@ -852,24 +849,9 @@ def generate_module_init_c(
 
     for module in sorted(runtime_modules, key=lambda m: m["name"]):
         name = module["name"]
-        # Get supported modes from metadata (default to both if not specified)
-        modes = module.get(
-            "supported_processing_modes",
-            ["process_full_halo", "process_per_event", "process_by_galaxy"],
-        )
-
-        # Convert mode strings to enum values
-        mode_enums = []
-        for mode in modes:
-            if mode == "process_full_halo":
-                mode_enums.append("PROCESSING_MODE_FULL_HALO")
-            elif mode == "process_per_event":
-                mode_enums.append("PROCESSING_MODE_PER_EVENT")
-            elif mode == "process_by_galaxy":
-                mode_enums.append("PROCESSING_MODE_BY_GALAXY")
-
-        # Generate array
-        mode_list = ", ".join(mode_enums)
+        # Modes were validated by validate_processing_modes(); enum_for_mode()
+        # raises rather than dropping a mode it does not know.
+        mode_list = ", ".join(enum_for_mode(mode) for mode in module["supported_processing_modes"])
         lines.append(f"const enum ProcessingMode {name}_supported_modes[] = {{{mode_list}}};")
 
     lines.append("")

@@ -94,11 +94,45 @@ typedef void (*PhaseVisitor)(const char *phase_name, struct PhaseModuleConfig *m
  */
 void for_each_phase(PhaseVisitor visit, void *userdata);
 
+/* ==============================================================================
+ * PROCESSING MODE LOOKUP
+ * ==============================================================================
+ *
+ * module_registry.c holds the single C table of processing modes: each entry
+ * names a mode's configuration string and its callback family. Lookups fail
+ * closed on any value outside that table rather than defaulting to a family.
+ * processing_mode_to_string() (module_interface.h) uses the same table.
+ */
+
+/**
+ * @brief   Parse a configuration-string processing mode name
+ *
+ * @param   name      Mode name, e.g. "process_by_galaxy" or "process_snapshot"
+ * @param   out_mode  Receives the mode on success; untouched on failure
+ * @return  0 on success, -1 if @p name is NULL or names no known mode
+ */
+int processing_mode_from_string(const char *name, enum ProcessingMode *out_mode);
+
+/**
+ * @brief   Look up the callback family a processing mode dispatches to
+ *
+ * @param   mode        Processing mode
+ * @param   out_family  Receives the family on success; untouched on failure
+ * @return  0 on success, -1 if @p mode is not a known mode
+ */
+int processing_mode_family(enum ProcessingMode mode, enum ModuleCallbackFamily *out_family);
+
 /**
  * @brief   Register a galaxy physics module
  *
  * Modules call this function to register themselves with the core.
  * Must be called before module_system_init().
+ *
+ * Registration is family-aware: init() and cleanup() are always required, the
+ * module must advertise at least one known processing mode, and each callback
+ * family it advertises must have its typed callback (process() for FoF modes,
+ * process_snapshot() for the snapshot mode). The callback of a family the
+ * module does not advertise may be NULL. Any violation is fatal.
  *
  * @param   module  Pointer to module struct (must remain valid for program
  * lifetime)

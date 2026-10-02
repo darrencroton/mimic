@@ -10,12 +10,17 @@
  * (configuration, registration, pipeline execution) without coupling
  * infrastructure tests to production physics modules.
  *
+ * It is dual mode: it advertises the three FoF modes (test_fixture_process)
+ * and process_snapshot (test_fixture_process_snapshot), so tests can exercise
+ * a module that registers both typed callbacks.
+ *
  * Vision Principle #1: Physics-Agnostic Core Infrastructure
  * - Infrastructure tests MUST use this fixture, not production modules
  * - This prevents production module changes from breaking infrastructure tests
  * - Maintains clean separation between core and physics
  */
 
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -47,6 +52,14 @@ static int ENABLE_LOGGING;
  * of phase execution frequency.
  */
 static int execution_count = 0;
+
+/**
+ * @brief   Snapshot-callback counter
+ *
+ * Incremented each time process_snapshot() is called, separately from the
+ * FoF execution_count so tests can tell the two callback families apart.
+ */
+static int snapshot_execution_count = 0;
 
 /**
  * @brief   Initialize test fixture module
@@ -138,6 +151,51 @@ int test_fixture_process(struct ModuleContext *ctx, struct Halo *halos, int ngal
 }
 
 /**
+ * @brief   Process one borrowed snapshot population (snapshot callback family)
+ *
+ * Checks the borrowed-view contract (see struct Module.process_snapshot), then
+ * sets TestDummyProperty = DUMMY_PARAMETER on every entry, of any Type, through
+ * halos[i].galaxy, the only permitted write. When ENABLE_LOGGING=1 it logs one
+ * TEST_FIXTURE_SNAPSHOT_EXEC marker per call.
+ *
+ * @param   ctx     Snapshot context
+ * @param   halos   Borrowed snapshot population; may be NULL when count is 0
+ * @param   count   Number of entries in halos
+ * @return  0 on success, -1 if the caller violated the borrowed-view contract
+ */
+int test_fixture_process_snapshot(const struct SnapshotContext *ctx, const struct Halo *halos,
+                                  int64_t count) {
+  if (ctx == NULL || count < 0) {
+    ERROR_LOG("test_fixture: invalid snapshot call (ctx=%p, count=%lld)", (const void *)ctx,
+              (long long)count);
+    return -1;
+  }
+  if (count > 0 && halos == NULL) {
+    ERROR_LOG("test_fixture: NULL population with count=%lld at snapshot %d", (long long)count,
+              ctx->snapshot_number);
+    return -1;
+  }
+
+  snapshot_execution_count++;
+
+  for (int64_t i = 0; i < count; i++) {
+    if (halos[i].galaxy == NULL) {
+      ERROR_LOG("test_fixture: snapshot entry %lld has NULL galaxy at snapshot %d", (long long)i,
+                ctx->snapshot_number);
+      return -1;
+    }
+    halos[i].galaxy->TestDummyProperty = (float)DUMMY_PARAMETER;
+  }
+
+  if (ENABLE_LOGGING) {
+    INFO_LOG("TEST_FIXTURE_SNAPSHOT_EXEC: count=%d snapshot=%d n=%lld z=%.4f",
+             snapshot_execution_count, ctx->snapshot_number, (long long)count, ctx->redshift);
+  }
+
+  return 0;
+}
+
+/**
  * @brief   Cleanup test fixture module
  *
  * Called once during program shutdown. No resources to clean up for this
@@ -148,7 +206,10 @@ int test_fixture_process(struct ModuleContext *ctx, struct Halo *halos, int ngal
 int test_fixture_cleanup(void) {
   if (ENABLE_LOGGING) {
     INFO_LOG("TEST_FIXTURE_CLEANUP: total_executions=%d", execution_count);
+    INFO_LOG("TEST_FIXTURE_SNAPSHOT_CLEANUP: total_snapshot_executions=%d",
+             snapshot_execution_count);
   }
   execution_count = 0; /* reset for re-init safety */
+  snapshot_execution_count = 0;
   return 0;
 }

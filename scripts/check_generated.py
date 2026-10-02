@@ -62,7 +62,9 @@ PROPERTY_GENERATED_FILES = [
     REPO_ROOT / "tests" / "generated" / "property_ranges.json",
 ]
 
-# Module metadata inputs / generated outputs
+# Module metadata inputs / generated outputs. The shared processing-mode
+# descriptors are a module-generation input alongside the generator itself.
+MODULE_MODES_PY = REPO_ROOT / "scripts" / "module_modes.py"
 MODULE_EVENT_CONTRACTS_H = generated_module_dir() / "event_contracts.h"
 MODULE_GENERATED_FILES = [MODULE_EVENT_CONTRACTS_H]
 
@@ -111,7 +113,7 @@ def discover_module_metadata_entries() -> List[Tuple[str, str, Path]]:
 
 
 def compute_module_metadata_hash() -> str:
-    """Compute MD5 hash of module metadata."""
+    """Compute MD5 hash of module-generation inputs (same logic as the generator)."""
     entries = discover_module_metadata_entries()
     if not entries:
         return ""
@@ -122,6 +124,12 @@ def compute_module_metadata_hash() -> str:
         return ""
     md5.update(rel(generator_path).encode("utf-8"))
     md5.update(generator_path.read_bytes())
+
+    # Same path and bytes as compute_metadata_hash() in the generator.
+    if not MODULE_MODES_PY.exists():
+        return ""
+    md5.update(rel(MODULE_MODES_PY).encode("utf-8"))
+    md5.update(MODULE_MODES_PY.read_bytes())
 
     for kind, _module_name, path in entries:
         if kind == "standalone":

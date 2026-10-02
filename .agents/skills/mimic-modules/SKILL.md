@@ -1,6 +1,6 @@
 ---
 name: mimic-modules
-description: Creating, modifying, validating, testing, and documenting Mimic runtime physics modules. Load when a task involves model package module files, a module_info.yaml, module lifecycle functions such as name_init/process/cleanup, processing modes (process_full_halo, process_per_event, process_by_galaxy), module phases (pre_timestep, modules.phases, post_timestep), events (module_emit_event, events.emits/consumes), module parameters and LOAD_PARAM macros, transport properties between modules, converting a standalone .c prototype into a directory module, "add a new physics module", "change module X", "module not registered", or module-local tests under _tests/.
+description: Creating, modifying, validating, testing, and documenting Mimic runtime physics modules. Load when a task involves model package module files, a module_info.yaml, module lifecycle functions such as name_init/process/process_snapshot/cleanup, processing modes (process_full_halo, process_per_event, process_by_galaxy, process_snapshot), module phases (pre_timestep, modules.phases, post_timestep), events (module_emit_event, events.emits/consumes), module parameters and LOAD_PARAM macros, transport properties between modules, converting a standalone .c prototype into a directory module, "add a new physics module", "change module X", "module not registered", or module-local tests under _tests/.
 ---
 
 # Mimic Modules
@@ -30,7 +30,7 @@ Before touching any module:
 
 ## 1. Standalone vs directory modules
 
-**Standalone module** (prototype): a single `my_prototype.c` placed directly under `models/<model>/modules/`. The registry generator synthesizes minimal metadata from the filename (`scripts/generate_module_registry.py`, `create_standalone_module_metadata`): module name = filename stem, all three processing modes assumed supported, no dependencies/parameters/tests/docs/events. The C file must still implement the three lifecycle symbols. A directory module and a standalone module must not share a name (generation fails).
+**Standalone module** (prototype): a single `my_prototype.c` placed directly under `models/<model>/modules/`. The registry generator synthesizes minimal metadata from the filename (`scripts/generate_module_registry.py`, `create_standalone_module_metadata`): module name = filename stem, exactly the three FoF processing modes assumed supported (`STANDALONE_FALLBACK_MODES` in `scripts/module_modes.py`; never `process_snapshot`), no dependencies/parameters/tests/docs/events. The C file must still implement `<name>_init`, `<name>_process` and `<name>_cleanup`. A directory module and a standalone module must not share a name (generation fails).
 
 **Directory module** (production): `models/<model>/modules/<name>/` containing `<name>.c`, `module_info.yaml`, `README.md`, optional helper files, and `_tests/`.
 
@@ -38,13 +38,21 @@ Convert a standalone to a directory module as soon as ANY of these matter: a rea
 
 ## 2. The lifecycle contract
 
-Every module implements exactly three functions whose prefix matches `module.name` (and, for directory modules, the directory name):
+Every module implements `init` and `cleanup` plus one typed callback per callback family its `supported_processing_modes` advertise, all prefixed with `module.name` (and, for directory modules, the directory name):
 
 ```c
 int <name>_init(void);      /* once at startup: load+validate params, alloc tables    */
-int <name>_process(struct ModuleContext *ctx, struct Halo *halos, int ngal);
 int <name>_cleanup(void);   /* at shutdown: free module-owned memory                  */
+/* FoF family (process_full_halo / process_per_event / process_by_galaxy): */
+int <name>_process(struct ModuleContext *ctx, struct Halo *halos, int ngal);
+/* Snapshot family (process_snapshot): */
+int <name>_process_snapshot(const struct SnapshotContext *ctx, const struct Halo *halos,
+                            int64_t count);
 ```
+
+FoF-only modules implement `process` only, snapshot-only modules `process_snapshot` only, dual-mode modules both; generated registration sets an unadvertised family's member to `NULL` and `module_registry_add()` aborts on a missing advertised callback, an empty mode list or an unknown mode. Never add a stub for an unadvertised family. `init`/`cleanup` run once per configured module.
+
+`process_snapshot` borrows the current snapshot population for the call only: `count` may be 0 (with `halos` possibly `NULL`); for a positive count `halos` and every `halos[i].galaxy` are non-`NULL`; index with `int64_t`; write only galaxy properties through `halos[i].galaxy`. The `const` is shallow and `-Wcast-qual` is not in the warning set, so **casting away `const`, retaining the pointer in static/heap storage, and indexing by `CentralHalo` compile silently but are forbidden** — check for all three in every snapshot-callback review. No run-file phase dispatches `process_snapshot` yet. Full contract: `struct Module.process_snapshot` in `src/core/module_interface.h` and the DEVELOPER-GUIDE "Snapshot Callback Contract".
 
 Return-code semantics: `init` non-zero aborts startup (before any tree is processed); `process` non-zero exits the run with failure — log an `ERROR_LOG()` with the physics reason first, because the core only knows the module and substep; `cleanup` non-zero is logged and cleanup continues for other modules.
 
@@ -56,12 +64,12 @@ Enforced by `scripts/validate_modules.py` (exit codes: 1 schema, 2 missing file,
 |---|---|
 | `description` | One-sentence module contract |
 | `display_name`, `version` (semver), `author` | Cosmetic/bookkeeping |
-| `supported_processing_modes` | Non-empty subset of `process_full_halo`, `process_per_event`, `process_by_galaxy` |
+| `supported_processing_modes` | Non-empty, duplicate-free subset of `process_full_halo`, `process_per_event`, `process_by_galaxy`, `process_snapshot` — the descriptors in `scripts/module_modes.py`, shared by generator and validator |
 | `additional_files` | Helper sources ONLY. **The primary `<name>.c` is implicit — never list it.** Only `.c` entries are compiled; `.h` entries are documentary |
 | `compilation_requires` | Subset of `HDF5`, `MPI`, `GSL` (exact spelling) — module only builds when the feature is enabled |
 | `dependencies.properties` / `dependencies.parameters` | Names the module uses. Validation aids checked against property metadata and `modules.parameters` — they do NOT order the pipeline; YAML phase order does |
-| `events.emits` | List of `{name, description}` — producers only (`process_full_halo`) |
-| `events.consumes` | List of `{producer, event}` — consumers only (`process_per_event`) |
+| `events.emits` | List of `{name, description}` — producers only (`process_full_halo`); a snapshot-only module cannot emit |
+| `events.consumes` | List of `{producer, event}` — consumers only (`process_per_event`); a snapshot-only module cannot consume |
 | `tests.unit` / `tests.integration` / `tests.scientific` | Path(s) relative to the module dir, e.g. `_tests/test_unit_<name>.c` |
 | `docs.physics` | Usually `README.md` |
 | `is_utility` | True for non-runtime collections (e.g. `models/sage16/shared/`) — compiles no runtime module |
@@ -75,6 +83,9 @@ Real example — `models/sage16/modules/sage_apply_cooling/module_info.yaml` dec
 | `process_full_halo` | Whole FoF workspace, `ngal >= 1` | Cross-galaxy physics (infall budgets, merger detection); the ONLY mode that may emit events |
 | `process_per_event` | One event target, `ngal == 1`, `ctx->active_event != NULL` | Physics triggered by a producer's event |
 | `process_by_galaxy` | One galaxy, `ngal == 1` | Local per-galaxy physics and time integration |
+| `process_snapshot` | Borrowed whole-snapshot population via `process_snapshot` (snapshot family) | Snapshot-wide calculations; not yet accepted in any run-file phase, and FoF phases reject it at startup |
+
+The first three modes are the FoF family (`process`). Mode → name → family lives in one C table (`processing_mode_descriptors` in `src/core/module_registry.c`) mirrored by `scripts/module_modes.py`; lookups fail closed, and a new family needs explicit entries in both plus an implementation.
 
 Choose the narrowest mode that gives enough context. Validate the expectation at the top of `process()` (e.g. `if (ngal != 1) { ERROR_LOG(...); return -1; }`) and skip `halos[i].galaxy == NULL` and `Type == 3` entries.
 
@@ -160,13 +171,15 @@ rc=$?; echo "exit_code=$rc"
 
 ## Provenance and maintenance
 
-Verified against the live repo 2026-07-04. Re-verify drift-prone specifics:
+Verified against the live repo 2026-07-04; processing-mode and lifecycle sections re-verified 2026-10-02. Re-verify drift-prone specifics:
 
 ```bash
 grep -n "^#define LOAD\|^#define VALIDATE" src/module_system/parameter_helpers.h   # macro set
 grep -n "module_precedes_in_substep_phase\|modules_in_same_substep_phase" src/core/module_registry.h
 sed -n '1,45p' src/module_system/generated/event_contracts.h                      # ID naming pattern
-grep -n "VALID_PROCESSING_MODES\|VALID_COMPILATION_FEATURES" scripts/generate_module_registry.py scripts/validate_modules.py
+grep -n "PROCESSING_MODES\|STANDALONE_FALLBACK_MODES" scripts/module_modes.py          # mode descriptors
+grep -n "processing_mode_descriptors" -A6 src/core/module_registry.c               # C mode table
+grep -n "VALID_COMPILATION_FEATURES" scripts/validate_modules.py
 grep -n "standalone" scripts/generate_module_registry.py | head -5                # prototype semantics
 ls src/module_system/template/                                                    # template files
 cat models/sage16/modules/sage_apply_cooling/module_info.yaml                     # reference metadata

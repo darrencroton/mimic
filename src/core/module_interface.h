@@ -25,10 +25,13 @@
  * Module Lifecycle:
  * 1. Module registers itself via module_registry_add() during program start
  * 2. Core calls init() during program initialization
- * 3. Core calls process() for each FOF group during tree processing
- *    - May be called once per timestep or multiple times per substep
- *    - May receive full halo array (process_full_halo), event target halo
- *      (process_per_event), or single galaxy (process_by_galaxy)
+ * 3. Core calls the typed callback of each family the module advertises:
+ *    - process() (FoF family) for each FOF group during tree processing. May
+ *      be called once per timestep or multiple times per substep, and may
+ *      receive the full halo array (process_full_halo), an event target halo
+ *      (process_per_event), or a single galaxy (process_by_galaxy)
+ *    - process_snapshot() (snapshot family) with a borrowed view of one whole
+ *      snapshot population; see struct SnapshotContext for the contract
  * 4. Core calls cleanup() during program shutdown
  *
  * For a complete, maintained example implementation (including the
@@ -39,6 +42,8 @@
 
 #ifndef MODULE_INTERFACE_H
 #define MODULE_INTERFACE_H
+
+#include <stdint.h>
 
 #include "types.h"
 
@@ -60,10 +65,18 @@
 /**
  * @brief   Processing modes for module execution
  *
- * Controls how the core calls modules within a phase:
+ * Each mode belongs to exactly one callback family (enum ModuleCallbackFamily);
+ * module_registry.c owns the one table mapping modes to their configuration
+ * names and families, and scripts/module_modes.py mirrors it for the metadata
+ * generator and validator.
+ *
+ * FoF family (struct Module.process):
  * - PROCESSING_MODE_FULL_HALO: Module processes entire halo array at once (ngal = full array size)
  * - PROCESSING_MODE_PER_EVENT: Module processes one emitted event target at a time (ngal = 1)
  * - PROCESSING_MODE_BY_GALAXY: Core loops over galaxies, module processes one at a time (ngal = 1)
+ *
+ * Snapshot family (struct Module.process_snapshot):
+ * - PROCESSING_MODE_SNAPSHOT: Module processes one whole snapshot population at once
  *
  * When multiple PROCESSING_MODE_BY_GALAXY modules exist in a phase, they execute in
  * galaxy-major order:
@@ -78,11 +91,28 @@ enum ProcessingMode {
   PROCESSING_MODE_FULL_HALO, /**< Module called once with full halo array */
   PROCESSING_MODE_PER_EVENT, /**< Module called for each emitted event target */
   PROCESSING_MODE_BY_GALAXY, /**< Module called per-galaxy (galaxy-major loop) */
+  PROCESSING_MODE_SNAPSHOT,  /**< Module called once with a whole snapshot population */
   PROCESSING_MODE_COUNT      /**< Number of processing modes */
 };
 
 /**
+ * @brief   Callback families: which typed Module callback a processing mode dispatches to
+ *
+ * A module advertising any mode of a family must provide that family's
+ * callback; a family it does not advertise may leave its callback NULL.
+ * A later family needs its own enumerator, callback and explicit mode
+ * descriptors; no mode is assigned to a family by default.
+ */
+enum ModuleCallbackFamily {
+  MODULE_CALLBACK_FAMILY_FOF,      /**< struct Module.process (per-FoF workspace) */
+  MODULE_CALLBACK_FAMILY_SNAPSHOT, /**< struct Module.process_snapshot (whole snapshot) */
+};
+
+/**
  * @brief   Configuration-string name for a processing mode (e.g. "process_full_halo")
+ *
+ * Returns "unknown" for a value outside the mode table; callers that must
+ * reject such a value use processing_mode_family(), which fails closed.
  */
 const char *processing_mode_to_string(enum ProcessingMode mode);
 
@@ -251,6 +281,32 @@ struct ModuleContext {
 };
 
 /**
+ * @brief   Snapshot-wide module execution context
+ *
+ * Passed to struct Module.process_snapshot for one snapshot population. It
+ * deliberately carries only snapshot-level state: there is no FoF central, no
+ * active event, no substep and no common galaxy timestep, because a snapshot
+ * population spans every FoF group and has none of these. The context is
+ * owned by the caller and valid only for the duration of one callback.
+ */
+struct SnapshotContext {
+  /** Index of the snapshot being processed (0 = earliest, increasing towards z=0) */
+  int snapshot_number;
+
+  /** Redshift of the snapshot */
+  double redshift;
+
+  /**
+   * Cosmic time at the snapshot, in the same units as ModuleContext.time:
+   * lookback time from z=0 in internal time units (MimicConfig.Age)
+   */
+  double time;
+
+  /** Read-only configuration (cosmology, units, model parameters) */
+  const struct MimicConfig *params;
+};
+
+/**
  * @brief Emit a phase-local event for subscribed PROCESSING_MODE_PER_EVENT consumers
  *
  * Intended for producer modules running in PROCESSING_MODE_FULL_HALO.
@@ -290,10 +346,11 @@ int module_emit_event(struct ModuleContext *ctx, int event_id, int source_index,
  * All galaxy physics modules must implement this interface. The core calls
  * these functions at appropriate points in the execution pipeline.
  *
- * KEY DESIGN: Modules are simple - they just implement physics via a single
- * process() function. The module doesn't specify its execution phase or processing
- * mode - those are configuration details specified in the input YAML file.
- * This makes modules maximally reusable.
+ * KEY DESIGN: Modules are simple - they implement physics through one typed
+ * callback per callback family they advertise: process() for the FoF modes,
+ * process_snapshot() for the snapshot mode. The module doesn't specify its
+ * execution phase or processing mode - those are configuration details
+ * specified in the input YAML file. This makes modules maximally reusable.
  */
 struct Module {
   /**
@@ -319,9 +376,10 @@ struct Module {
   int (*init)(void);
 
   /**
-   * @brief Process halos in a FOF group
+   * @brief Process halos in a FOF group (FoF callback family)
    *
-   * This is the single processing function called by the pipeline.
+   * Required when the module advertises any FoF mode (process_full_halo,
+   * process_per_event, process_by_galaxy) and NULL otherwise.
    * May be called:
    * - Once or multiple times per timestep (depends on phase and substeps)
    * - With full halo array (ngal > 1, process_full_halo)
@@ -347,6 +405,43 @@ struct Module {
   int (*process)(struct ModuleContext *ctx, struct Halo *halos, int ngal);
 
   /**
+   * @brief Process one whole snapshot population (snapshot callback family)
+   *
+   * Required when the module advertises PROCESSING_MODE_SNAPSHOT and NULL
+   * otherwise; process() is likewise NULL for a module advertising no FoF
+   * mode. Registration rejects a missing callback for any advertised family.
+   *
+   * Borrowed-view contract:
+   * - @p halos is the caller's current-generation storage for the snapshot,
+   *   borrowed for this call only. Neither it nor any pointer reached through
+   *   it may be retained after the callback returns.
+   * - @p count is the population size. Zero is a valid call, and @p halos may
+   *   then be NULL or non-NULL. For a positive count, @p halos is non-NULL and
+   *   every halos[i].galaxy is non-NULL.
+   * - Index with int64_t over [0, count); never narrow the count to int.
+   * - The only permitted writes are galaxy properties through
+   *   halos[i].galaxy. A callback must not reorder or resize the population,
+   *   change any halo field or pointer, or interpret CentralHalo as an offset
+   *   into this array: CentralHalo is a FoF-workspace-local index.
+   *
+   * The const qualifier is shallow: it rejects writes to halo fields and
+   * pointers at compile time, while halos[i].galaxy stays a mutable pointer.
+   * The project warning set does not include -Wcast-qual, so three
+   * violations compile silently and are forbidden by contract rather than by
+   * the compiler: casting away const to write a halo, retaining @p halos (or
+   * a pointer derived from it) in static or heap storage, and indexing
+   * @p halos by CentralHalo. Every review of a snapshot callback checks for
+   * these three patterns explicitly.
+   *
+   * @param ctx   Snapshot context (snapshot number, redshift, time, params)
+   * @param halos Borrowed snapshot population (see contract above)
+   * @param count Number of entries in @p halos (>= 0)
+   * @return 0 on success, non-zero on failure
+   */
+  int (*process_snapshot)(const struct SnapshotContext *ctx, const struct Halo *halos,
+                          int64_t count);
+
+  /**
    * @brief Cleanup module
    *
    * Called once during program shutdown. Use for:
@@ -365,10 +460,11 @@ struct Module {
    * - PROCESSING_MODE_FULL_HALO: Module processes full halo array (array-based operations)
    * - PROCESSING_MODE_PER_EVENT: Module processes one event target at a time
    * - PROCESSING_MODE_BY_GALAXY: Module processes one galaxy at a time (per-galaxy operations)
+   * - PROCESSING_MODE_SNAPSHOT: Module processes one whole snapshot population
    *
    * Set via module_info.yaml (supported_processing_modes field).
-   * Runtime directory modules must declare this explicitly. Legacy standalone
-   * fallback metadata, if still present, may advertise broader support.
+   * Runtime directory modules must declare this explicitly. Standalone
+   * fallback modules advertise exactly the three FoF modes.
    *
    * Runtime validation ensures modules are only configured with supported modes.
    *
@@ -384,8 +480,8 @@ struct Module {
   /**
    * @brief Number of supported processing modes
    *
-   * Length of the supported_processing_modes array. Must be > 0.
-   * Typically 1 (module only works in one mode) or 2 (module supports both modes).
+   * Length of the supported_processing_modes array. Must be > 0;
+   * module_registry_add() rejects an empty list.
    */
   int num_supported_modes;
 

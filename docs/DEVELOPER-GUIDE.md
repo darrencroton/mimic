@@ -231,25 +231,58 @@ Adding a term means adding a note call at the site that owns the quantity, not d
 
 ### Module Lifecycle
 
-Every runtime module implements three functions named after the module:
+Every runtime module implements `init` and `cleanup`, plus one typed process callback for each callback family its `supported_processing_modes` advertise. All are named after the module:
 
 ```c
 int module_name_init(void);
-int module_name_process(struct ModuleContext *ctx, struct Halo *halos, int ngal);
 int module_name_cleanup(void);
+
+/* FoF family: process_full_halo, process_per_event, process_by_galaxy */
+int module_name_process(struct ModuleContext *ctx, struct Halo *halos, int ngal);
+
+/* Snapshot family: process_snapshot */
+int module_name_process_snapshot(const struct SnapshotContext *ctx, const struct Halo *halos,
+                                 int64_t count);
 ```
+
+A module that advertises only FoF modes implements `process` and no snapshot callback; a snapshot-only module implements `process_snapshot` and no `process`; a dual-mode module implements both. Generated registration binds each advertised callback and sets the other to `NULL`, and `module_registry_add()` aborts startup if an advertised family's callback is missing, the mode list is empty, or a mode is unknown. No module needs a stub for a family it does not support.
 
 Lifecycle behavior:
 
-- `init()` runs once at startup. Load and validate module parameters here.
-- `process()` runs during configured phases. Return non-zero after logging an `ERROR_LOG()` message if the module cannot continue.
-- `cleanup()` runs during shutdown. Free module-owned memory here.
+- `init()` runs once at startup for each configured module, however many phases it appears in. Load and validate module parameters here.
+- `process()` runs during configured FoF phases. Return non-zero after logging an `ERROR_LOG()` message if the module cannot continue.
+- `process_snapshot()` follows the [snapshot callback contract](#snapshot-callback-contract). No run-file phase dispatches it yet: the callback, its metadata and its registration exist so modules can declare and test the family.
+- `cleanup()` runs once during shutdown for each configured module. Free module-owned memory here.
 
 Return conventions:
 
 - `init()` non-zero: startup aborts.
 - `process()` non-zero: Mimic exits with failure.
 - `cleanup()` non-zero: error is logged and cleanup continues for other modules.
+
+### Snapshot Callback Contract
+
+`process_snapshot` receives one whole snapshot population rather than one FoF workspace. Its `struct SnapshotContext` (in `src/core/module_interface.h`) carries only snapshot-level state:
+
+| Field | Meaning |
+| --- | --- |
+| `snapshot_number` | Snapshot index |
+| `redshift` | Snapshot redshift |
+| `time` | Lookback time from z=0 at the snapshot, in internal units (the same units as `ModuleContext.time`) |
+| `params` | Read-only pointer to `MimicConfig` |
+
+There is deliberately no FoF central, active event, substep or common galaxy timestep: a snapshot population spans every FoF group and has none of these.
+
+The population is borrowed:
+
+- `halos` is the caller's current-generation storage, valid only for the duration of the call. Neither it nor any pointer reached through it may be retained after the callback returns.
+- `count` may be zero, and `halos` may then be `NULL` or non-`NULL`. For a positive count, `halos` is non-`NULL` and every `halos[i].galaxy` is non-`NULL`.
+- Index with `int64_t` over `[0, count)`; never narrow the count to `int`.
+- The only permitted writes are galaxy properties through `halos[i].galaxy`. A callback must not reorder or resize the population, change any halo field or pointer, or interpret `CentralHalo` as an offset into this array: `CentralHalo` is a FoF-workspace-local index.
+
+The `const` on the view is shallow. It makes a write to a halo field or to `halos[i].galaxy` itself a compile error, while `halos[i].galaxy` remains a mutable `struct GalaxyData *`. The project warning set does not include `-Wcast-qual`, so three violations compile silently and are forbidden by contract rather than by the compiler: casting away `const` to write a halo, retaining `halos` (or a pointer derived from it) in static or heap storage, and indexing `halos` by `CentralHalo`. Every review of a snapshot callback checks for these three patterns explicitly. `tests/integration/test_snapshot_module_schema.py` pins all of these compile-time behaviors.
+
+Snapshot callbacks have no event contract: `events.emits` and `events.consumes` stay tied to the FoF modes `process_full_halo` and `process_per_event`, so a snapshot-only module cannot declare events, while a dual-mode module keeps valid FoF event declarations.
 
 ### Module Communication
 
@@ -307,7 +340,7 @@ The generator derives minimal metadata from the file name:
 
 - module name: `my_prototype`
 - source file: `my_prototype.c`
-- supported modes: `process_full_halo`, `process_per_event`, and `process_by_galaxy`
+- supported modes: exactly the three FoF modes `process_full_halo`, `process_per_event`, and `process_by_galaxy` (a standalone module never advertises `process_snapshot`)
 - no declared dependencies, parameters, tests, docs, or events
 
 The C file must still implement the normal lifecycle symbols:
@@ -387,6 +420,9 @@ The concise README in `models/sage16/modules/sage_resolve_mergers_and_disruption
 | `process_full_halo` | `PROCESSING_MODE_FULL_HALO` | Entire FoF workspace, `ngal >= 1` | Calculations needing central plus satellites; event producers |
 | `process_per_event` | `PROCESSING_MODE_PER_EVENT` | One event target, `ngal = 1`, `ctx->active_event != NULL` | Physics triggered by emitted events |
 | `process_by_galaxy` | `PROCESSING_MODE_BY_GALAXY` | One galaxy, `ngal = 1` | Local per-galaxy physics and time integration |
+| `process_snapshot` | `PROCESSING_MODE_SNAPSHOT` | Borrowed whole-snapshot population through `process_snapshot` | Snapshot-wide calculations; see [Snapshot Callback Contract](#snapshot-callback-contract) |
+
+The first three modes form the FoF callback family (`process`); `process_snapshot` is the snapshot family (`process_snapshot`). Each mode belongs to exactly one family, defined once in the C table in `src/core/module_registry.c` and mirrored by `scripts/module_modes.py` for the generator and validator. A module may declare `process_snapshot` alone or alongside FoF modes. The FoF phases below accept only FoF modes, and no run-file phase accepts `process_snapshot` yet.
 
 Choose the narrowest mode that gives the module the context it needs. A module that only modifies one galaxy at a time should usually use `process_by_galaxy`. A module that redistributes reservoirs across a FoF group or emits merger events should use `process_full_halo`.
 
@@ -1396,7 +1432,7 @@ Required fields for directory runtime modules:
 | Field | Type | Description |
 | --- | --- | --- |
 | `name` | string | Module name, usually matching directory and C function prefix |
-| `supported_processing_modes` | array | Allowed YAML processing modes |
+| `supported_processing_modes` | array | Allowed processing modes: a non-empty list without duplicates, drawn from `scripts/module_modes.py` (`process_full_halo`, `process_per_event`, `process_by_galaxy`, `process_snapshot`). The generator and validator reject unknown, duplicate and empty lists identically |
 
 Common optional fields:
 
@@ -1414,7 +1450,7 @@ Common optional fields:
 | `docs.physics` | Module-local physics/contract documentation |
 | `compilation_requires` | Required optional features such as HDF5 or MPI |
 
-The validator implementation in `scripts/validate_modules.py` is the enforcement source for this schema.
+The validator implementation in `scripts/validate_modules.py` is the enforcement source for this schema. Processing-mode lists are checked through the descriptors in `scripts/module_modes.py`, which the registry generator shares; that file is a module-generation input, so the generator's freshness hash and `make check-generated` both cover its path and bytes and the `Makefile` module-generation stamp depends on it.
 
 ### Property Metadata Schema
 

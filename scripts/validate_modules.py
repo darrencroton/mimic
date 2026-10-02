@@ -40,6 +40,7 @@ from discovery import (
     standalone_module_files,
 )
 from generate_properties import load_parameter_units
+from module_modes import STANDALONE_FALLBACK_MODES, mode_list_errors
 
 # ==============================================================================
 # PATHS
@@ -161,11 +162,7 @@ def discover_modules() -> List[Tuple[Path, Optional[Dict[str, Any]]]]:
                     "name": module_name,
                     "display_name": module_name.replace("_", " ").title(),
                     "version": "1.0.0",
-                    "supported_processing_modes": [
-                        "process_full_halo",
-                        "process_per_event",
-                        "process_by_galaxy",
-                    ],
+                    "supported_processing_modes": list(STANDALONE_FALLBACK_MODES),
                     "dependencies": {"properties": [], "parameters": []},
                     "_pattern": "standalone",
                     "_standalone_file": c_file,
@@ -476,43 +473,20 @@ def validate_compilation_requires(
 def validate_supported_processing_modes(
     module: Dict[str, Any], module_name: str, results: ValidationResults
 ) -> bool:
-    """Validate supported_processing_modes field."""
+    """Validate supported_processing_modes against the shared mode descriptors.
 
-    # Field is optional - if omitted, defaults to
-    # [process_full_halo, process_per_event, process_by_galaxy]
+    Presence is enforced by validate_required_fields(). The accepted lists are
+    defined once in scripts/module_modes.py, which the registry generator also
+    uses, so the two tools accept and reject the same metadata.
+    """
+
     if "supported_processing_modes" not in module:
         return True
 
-    modes = module["supported_processing_modes"]
-
-    # Empty list not allowed
-    if len(modes) == 0:
-        results.add_error(
-            module_name,
-            1,
-            "supported_processing_modes cannot be empty. "
-            "Specify one or more of ['process_full_halo', 'process_per_event', 'process_by_galaxy']",
-        )
-        return False
-
-    # Check for valid values
-    valid_modes = {"process_full_halo", "process_per_event", "process_by_galaxy"}
-    invalid = [mode for mode in modes if mode not in valid_modes]
-    if invalid:
-        results.add_error(
-            module_name,
-            1,
-            f"Invalid processing mode(s): {', '.join(invalid)}. "
-            f"Must be from {sorted(valid_modes)}",
-        )
-        return False
-
-    # Check for duplicates
-    if len(modes) != len(set(modes)):
-        results.add_error(module_name, 1, "supported_processing_modes contains duplicates")
-        return False
-
-    return True
+    errors = mode_list_errors(module["supported_processing_modes"])
+    for message in errors:
+        results.add_error(module_name, 1, message)
+    return not errors
 
 
 # ==============================================================================

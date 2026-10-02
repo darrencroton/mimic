@@ -121,6 +121,7 @@ SOURCES += $(SRC_DIR)/module_system/generated/module_init.c
 # generated module_init.c, so the two stay consistent.
 ifeq ($(TEST_BUILD),yes)
 SOURCES += $(SRC_DIR)/module_system/test_fixture/test_fixture.c
+SOURCES += $(SRC_DIR)/module_system/test_snapshot_fixture/test_snapshot_fixture.c
 SOURCES += $(SRC_DIR)/module_system/test_event_producer/test_event_producer.c
 SOURCES += $(SRC_DIR)/module_system/test_event_consumer_alpha/test_event_consumer_alpha.c
 SOURCES += $(SRC_DIR)/module_system/test_event_consumer_beta/test_event_consumer_beta.c
@@ -447,8 +448,9 @@ MODULE_STAMP := $(BUILD_DIR)/generated/module_registry.stamp
 # Ensure object compilation waits for generated property and module registration outputs
 $(OBJECTS): | $(GENERATED_HEADERS) $(MODULE_STAMP)
 
-# Rule to (re)generate module registration code whenever YAML or generator changes
-$(MODULE_STAMP): $(MODULE_YAML) scripts/generate_module_registry.py FORCE
+# Rule to (re)generate module registration code whenever YAML, the generator, or the
+# shared processing-mode descriptors it reads change
+$(MODULE_STAMP): $(MODULE_YAML) scripts/generate_module_registry.py scripts/module_modes.py FORCE
 	@echo ""
 	@echo "Generating module registration code from metadata (auto)..."
 	@$(PYTHON) scripts/generate_module_registry.py

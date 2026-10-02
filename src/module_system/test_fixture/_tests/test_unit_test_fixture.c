@@ -12,6 +12,7 @@
  * - Module lifecycle (init/cleanup) works
  * - Parameter reading works
  * - Property access works
+ * - Snapshot callback (dual mode) writes every entry and accepts count zero
  * - No memory leaks
  */
 
@@ -25,10 +26,15 @@
 #include "../../util/error.h"
 #include "../../util/memory.h"
 
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+
+/* Snapshot-family callback of this dual-mode fixture (test_fixture.c) */
+extern int test_fixture_process_snapshot(const struct SnapshotContext *ctx,
+                                         const struct Halo *halos, int64_t count);
 
 /* Test statistics (required for TEST_RUN macro) */
 static int passed = 0;
@@ -213,6 +219,52 @@ int test_memory_safety(void) {
 }
 
 /**
+ * @test    test_snapshot_callback
+ * @brief   Test the dual-mode snapshot callback
+ *
+ * Expected: After init, process_snapshot sets TestDummyProperty to the
+ * configured parameter on every entry (any Type) and accepts count zero with a
+ * NULL population
+ */
+int test_snapshot_callback(void) {
+  /* ===== SETUP ===== */
+  reset_config();
+  init_memory_system(0);
+  ensure_modules_registered();
+  set_test_fixture_params(0.25, 0);
+  test_phase_add("galaxy_physics", "test_fixture", PROCESSING_MODE_BY_GALAXY);
+  MimicConfig.SubSteps = 1;
+  TEST_ASSERT(module_system_init() == 0, "Module system init should succeed");
+
+  struct Halo halos[2];
+  struct GalaxyData galaxies[2];
+  memset(halos, 0, sizeof(halos));
+  memset(galaxies, 0, sizeof(galaxies));
+  halos[0].Type = 0;
+  halos[1].Type = 2; /* orphans are part of a snapshot population */
+  halos[0].galaxy = &galaxies[0];
+  halos[1].galaxy = &galaxies[1];
+  struct SnapshotContext ctx = {
+      .snapshot_number = 3, .redshift = 0.5, .time = 1.0, .params = &MimicConfig};
+
+  /* ===== EXECUTE ===== */
+  int empty_result = test_fixture_process_snapshot(&ctx, NULL, 0);
+  int result = test_fixture_process_snapshot(&ctx, halos, 2);
+
+  /* ===== VALIDATE ===== */
+  TEST_ASSERT(empty_result == 0, "Count zero with a NULL population should succeed");
+  TEST_ASSERT(result == 0, "Snapshot callback should succeed");
+  TEST_ASSERT(galaxies[0].TestDummyProperty == 0.25f, "Type 0 entry should be written");
+  TEST_ASSERT(galaxies[1].TestDummyProperty == 0.25f, "Type 2 entry should be written");
+
+  /* ===== CLEANUP ===== */
+  module_system_cleanup();
+  check_memory_leaks();
+
+  return TEST_PASS;
+}
+
+/**
  * @brief   Main test runner
  */
 int main(void) {
@@ -228,6 +280,7 @@ int main(void) {
   TEST_RUN(test_parameter_reading);
   TEST_RUN(test_property_access);
   TEST_RUN(test_memory_safety);
+  TEST_RUN(test_snapshot_callback);
 
   /* Print summary */
   TEST_SUMMARY();

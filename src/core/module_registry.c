@@ -88,6 +88,74 @@ static struct PhaseEventDispatchState phase_event_state = {.events = NULL,
                                                            .current_producer_module_id = 0};
 
 /**
+ * @brief   One processing mode: its configuration name and callback family
+ */
+struct ProcessingModeDescriptor {
+  enum ProcessingMode mode;
+  const char *name;
+  enum ModuleCallbackFamily family;
+};
+
+/**
+ * @brief   The single C table of processing modes
+ *
+ * Every lookup (string parsing, naming, dispatch-family) goes through this
+ * table, and scripts/module_modes.py mirrors it for metadata generation and
+ * validation. A mode absent from the table fails closed everywhere; adding a
+ * mode or family needs an explicit entry here and in that script.
+ */
+static const struct ProcessingModeDescriptor processing_mode_descriptors[] = {
+    {PROCESSING_MODE_FULL_HALO, "process_full_halo", MODULE_CALLBACK_FAMILY_FOF},
+    {PROCESSING_MODE_PER_EVENT, "process_per_event", MODULE_CALLBACK_FAMILY_FOF},
+    {PROCESSING_MODE_BY_GALAXY, "process_by_galaxy", MODULE_CALLBACK_FAMILY_FOF},
+    {PROCESSING_MODE_SNAPSHOT, "process_snapshot", MODULE_CALLBACK_FAMILY_SNAPSHOT},
+};
+
+#define NUM_PROCESSING_MODE_DESCRIPTORS                                                            \
+  ((int)(sizeof(processing_mode_descriptors) / sizeof(processing_mode_descriptors[0])))
+
+/**
+ * @brief   Find the descriptor for a processing mode
+ *
+ * @return  The descriptor, or NULL for a value outside the table
+ */
+static const struct ProcessingModeDescriptor *find_mode_descriptor(enum ProcessingMode mode) {
+  for (int i = 0; i < NUM_PROCESSING_MODE_DESCRIPTORS; i++) {
+    if (processing_mode_descriptors[i].mode == mode) {
+      return &processing_mode_descriptors[i];
+    }
+  }
+  return NULL;
+}
+
+const char *processing_mode_to_string(enum ProcessingMode mode) {
+  const struct ProcessingModeDescriptor *descriptor = find_mode_descriptor(mode);
+  return (descriptor != NULL) ? descriptor->name : "unknown";
+}
+
+int processing_mode_from_string(const char *name, enum ProcessingMode *out_mode) {
+  if (name == NULL || out_mode == NULL) {
+    return -1;
+  }
+  for (int i = 0; i < NUM_PROCESSING_MODE_DESCRIPTORS; i++) {
+    if (strcmp(processing_mode_descriptors[i].name, name) == 0) {
+      *out_mode = processing_mode_descriptors[i].mode;
+      return 0;
+    }
+  }
+  return -1;
+}
+
+int processing_mode_family(enum ProcessingMode mode, enum ModuleCallbackFamily *out_family) {
+  const struct ProcessingModeDescriptor *descriptor = find_mode_descriptor(mode);
+  if (descriptor == NULL || out_family == NULL) {
+    return -1;
+  }
+  *out_family = descriptor->family;
+  return 0;
+}
+
+/**
  * @brief   Find a registered module by name
  *
  * @param   name    Module name to search for
@@ -130,6 +198,49 @@ void for_each_phase(PhaseVisitor visit, void *userdata) {
 }
 
 /**
+ * @brief   Require the typed callback of every callback family a module advertises
+ *
+ * Fails closed: an empty mode list, a mode outside the descriptor table, or an
+ * advertised family without its callback is fatal. A family the module does
+ * not advertise may leave its callback NULL.
+ *
+ * @param   module  Module being registered (name already checked non-NULL)
+ */
+static void check_module_callback_families(const struct Module *module) {
+  if (module->supported_processing_modes == NULL || module->num_supported_modes <= 0) {
+    FATAL_ERROR("Module '%s' advertises no processing modes", module->name);
+  }
+
+  for (int i = 0; i < module->num_supported_modes; i++) {
+    const enum ProcessingMode mode = module->supported_processing_modes[i];
+    enum ModuleCallbackFamily family;
+    if (processing_mode_family(mode, &family) != 0) {
+      FATAL_ERROR("Module '%s' advertises unknown processing mode value %d", module->name,
+                  (int)mode);
+    }
+
+    switch (family) {
+    case MODULE_CALLBACK_FAMILY_FOF:
+      if (module->process == NULL) {
+        FATAL_ERROR("Module '%s' advertises FoF mode '%s' but has a NULL process callback",
+                    module->name, processing_mode_to_string(mode));
+      }
+      break;
+    case MODULE_CALLBACK_FAMILY_SNAPSHOT:
+      if (module->process_snapshot == NULL) {
+        FATAL_ERROR("Module '%s' advertises snapshot mode '%s' but has a NULL "
+                    "process_snapshot callback",
+                    module->name, processing_mode_to_string(mode));
+      }
+      break;
+    default:
+      FATAL_ERROR("Module '%s' mode '%s' maps to unhandled callback family %d", module->name,
+                  processing_mode_to_string(mode), (int)family);
+    }
+  }
+}
+
+/**
  * @brief   Register a galaxy physics module
  *
  * Adds the module to the registry of available modules. Modules must be
@@ -151,9 +262,11 @@ void module_registry_add(struct Module *module) {
     FATAL_ERROR("Module has NULL name");
   }
 
-  if (module->init == NULL || module->process == NULL || module->cleanup == NULL) {
-    FATAL_ERROR("Module '%s' has NULL function pointers", module->name);
+  if (module->init == NULL || module->cleanup == NULL) {
+    FATAL_ERROR("Module '%s' has a NULL init or cleanup function", module->name);
   }
+
+  check_module_callback_families(module);
 
   if (find_module_by_name(module->name) != NULL) {
     FATAL_ERROR("Module '%s' is already registered", module->name);
@@ -214,19 +327,6 @@ static bool module_supports_processing_mode(const struct Module *mod,
     }
   }
   return false;
-}
-
-const char *processing_mode_to_string(enum ProcessingMode mode) {
-  switch (mode) {
-  case PROCESSING_MODE_FULL_HALO:
-    return "process_full_halo";
-  case PROCESSING_MODE_PER_EVENT:
-    return "process_per_event";
-  case PROCESSING_MODE_BY_GALAXY:
-    return "process_by_galaxy";
-  default:
-    return "unknown";
-  }
 }
 
 /**
@@ -402,8 +502,9 @@ bool module_precedes_in_phase(const char *first, const char *second,
 /**
  * @brief   Validate phase configuration against module constraints
  *
- * Ensures that each module in the phase is configured with a processing mode it
- * actually supports. Fails hard with clear error messages if mismatch detected.
+ * Ensures that each module in the phase is configured with a FoF-family
+ * processing mode it actually supports. Fails hard with clear error messages if
+ * a mismatch is detected.
  *
  * @param   config       Phase module configuration array
  * @param   num_modules  Number of modules in phase
@@ -418,6 +519,18 @@ static int validate_phase_processing_modes(struct PhaseModuleConfig *config, int
     if (mod == NULL) {
       /* Module not found - handled elsewhere in add_module_to_pipeline */
       continue;
+    }
+
+    /* Every phase validated here is dispatched by execute_phase(), which calls
+     * only FoF callbacks: any other family would be skipped silently. */
+    enum ModuleCallbackFamily family;
+    if (processing_mode_family(config[i].processing_mode, &family) != 0 ||
+        family != MODULE_CALLBACK_FAMILY_FOF) {
+      ERROR_LOG("Configuration error in phase '%s':", phase_name);
+      ERROR_LOG("  Module '%s' is configured with processing mode '%s', which is not a "
+                "FoF mode (process_full_halo, process_per_event, process_by_galaxy)",
+                mod->name, processing_mode_to_string(config[i].processing_mode));
+      return -1;
     }
 
     /* Check if configured mode is supported */

@@ -66,6 +66,8 @@ This module should **NEVER** appear in:
 **Version**: 1.0.0
 **Category**: testing
 
+**Supported modes** (dual mode): the three FoF modes `process_by_galaxy`, `process_per_event` and `process_full_halo`, bound to `test_fixture_process`, plus `process_snapshot`, bound to `test_fixture_process_snapshot`. Generated registration therefore sets both typed callbacks. The snapshot-only counterpart is [`test_snapshot_fixture`](../test_snapshot_fixture/README.md); the event fixtures are FoF-only.
+
 **Parameters**:
 - `TestFixtureDummyParameter` (double): Dummy parameter for testing parameter API
 - `TestFixtureEnableLogging` (int): Enable verbose logging for test validation (0=minimal, 1=verbose)
@@ -79,8 +81,9 @@ This module should **NEVER** appear in:
 
 The module performs minimal operations:
 1. **Init**: Reads parameters, logs configuration
-2. **Process**: Sets `TestDummyProperty = DummyParameter` on all galaxies
-3. **Cleanup**: No resources to free
+2. **Process** (FoF family): Sets `TestDummyProperty = DummyParameter` on every Type 0 galaxy in the array
+3. **Process snapshot** (snapshot family): Checks the borrowed-view contract, then sets `TestDummyProperty = DummyParameter` on every entry of any Type through `halos[i].galaxy`; logs `TEST_FIXTURE_SNAPSHOT_EXEC` per call when `TestFixtureEnableLogging=1`. No run-file phase dispatches it yet; unit tests call it directly
+4. **Cleanup**: No resources to free
 
 ## Related Documentation
 
