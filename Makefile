@@ -320,7 +320,7 @@ GIT_DIR := $(shell git rev-parse --git-dir 2>/dev/null)
 # -----------------------------------------------------------------------------
 # Build Targets
 # -----------------------------------------------------------------------------
-.PHONY: all clean tidy help info generate generate-modules generate-test-inputs check-generated check-docs check-format check-horizontal-fixture tests tests-unit tests-integration tests-scientific tests-horizontal-v3 tests-converter test-clean validate-modules lint-parameters validate-build summary dump-ctrees-topology-tool
+.PHONY: all clean tidy help info generate generate-modules generate-test-inputs check-generated check-docs check-format check-horizontal-fixture tests tests-unit tests-integration tests-scientific tests-horizontal-v3 tests-snapshot-global-sham tests-converter test-clean validate-modules lint-parameters validate-build summary dump-ctrees-topology-tool
 
 all: validate-build $(EXEC)
 
@@ -502,6 +502,7 @@ help:
 	@echo "  make tests-integration  - Run integration tests only"
 	@echo "  make tests-scientific   - Run scientific tests only"
 	@echo "  make tests-horizontal-v3 - Run the version 3 reader, retention and identity battery and the mini-millennium-horizontal package tests on committed fixtures"
+	@echo "  make tests-snapshot-global-sham - Run the sham_global_rank unit and end-to-end tests under MODEL=sham on the micro-uchuu-ascii-horizontal fixture"
 	@echo "  make tests-converter    - Run the ctrees->horizontal-HDF5 converter self-tests"
 	@echo "  make check-horizontal-fixture - Check the committed horizontal fixture against the format spec"
 	@echo "  make tests summary     - Run all tests with concise warning/failure/skip output"
@@ -870,6 +871,40 @@ tests-horizontal-v3:
 	$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) generate
 	@echo "Generated code restored for MODEL=$(MODEL) SIMULATION=$(SIMULATION); rebuild the executable with 'make'."
 	@test "$$(cat build/.horizontal_v3_status)" = 0
+
+# sham_global_rank battery. Model tests are not registered for horizontal
+# packages (FULL_MODEL_TEST_SIMULATIONS in scripts/discovery.py), and the
+# module runs only in post_snapshot under the horizontal driver, so this target
+# builds MODEL=sham on the committed micro-uchuu-ascii-horizontal fixture as a
+# test build and invokes the module's declared C and Python tests by path. Any
+# non-zero exit or any `MIMIC_RESULT: SKIP` fails it; no skip is expected here.
+# Needs no real dataset and runs no parity gate. As in tests-horizontal-v3, the
+# generated code is restored for the caller's MODEL/SIMULATION on every path;
+# rebuild the executable with `make`.
+GSHAM_MODEL := sham
+GSHAM_SIMULATION := micro-uchuu-ascii-horizontal
+GSHAM_LOG := build/snapshot_global_sham_tests.log
+GSHAM_TEST_DIR := models/$(GSHAM_MODEL)/modules/sham_global_rank/_tests
+GSHAM_UNIT_TESTS := $(GSHAM_TEST_DIR)/test_unit_sham_global_rank.c
+GSHAM_PY_TESTS := $(GSHAM_TEST_DIR)/test_integration_sham_global_rank.py
+
+tests-snapshot-global-sham:
+	$(MAKE) MODEL=$(GSHAM_MODEL) SIMULATION=$(GSHAM_SIMULATION) TEST_BUILD=yes generate validate-build $(EXEC) \
+		|| { $(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) generate; exit 1; }
+	@mkdir -p build; : > $(GSHAM_LOG); rc=0; \
+	(cd tests/unit && MODEL='$(GSHAM_MODEL)' SIMULATION='$(GSHAM_SIMULATION)' ./run_tests.sh $(GSHAM_UNIT_TESTS)) >> $(GSHAM_LOG) 2>&1 || rc=1; \
+	for test in $(GSHAM_PY_TESTS); do \
+		MODEL='$(GSHAM_MODEL)' SIMULATION='$(GSHAM_SIMULATION)' $(PYTHON) $$test >> $(GSHAM_LOG) 2>&1 || rc=1; \
+	done; \
+	skips=$$(grep '^MIMIC_RESULT: SKIP' $(GSHAM_LOG)); \
+	if [ -n "$$skips" ]; then echo "Unexpected skips:"; echo "$$skips"; rc=1; fi; \
+	passes=$$(grep -c '^MIMIC_RESULT: PASS' $(GSHAM_LOG)); \
+	if [ $$rc -ne 0 ]; then echo "FAIL: tests-snapshot-global-sham (see $(GSHAM_LOG))"; \
+	else echo "PASS: tests-snapshot-global-sham ($$passes cases in $(words $(GSHAM_UNIT_TESTS)) C and $(words $(GSHAM_PY_TESTS)) Python tests, no skips)"; fi; \
+	echo $$rc > build/.snapshot_global_sham_status
+	$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) generate
+	@echo "Generated code restored for MODEL=$(MODEL) SIMULATION=$(SIMULATION); rebuild the executable with 'make'."
+	@test "$$(cat build/.snapshot_global_sham_status)" = 0
 
 # Reference-topology dump harness: read-only, loads forests through the existing
 # consistent_trees_ascii reader and dumps their literal link fields for

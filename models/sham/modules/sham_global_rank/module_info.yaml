@@ -1,0 +1,40 @@
+module:
+  name: sham_global_rank
+  description: >-
+    Ranks every galaxy of a whole snapshot by peak circular velocity and assigns stellar mass by
+    inverting an explicit analytic cumulative stellar mass function (uncalibrated demonstration).
+
+  supported_processing_modes: [process_snapshot]
+
+  # sham_global_rank.c is implicit; the header is documentary and declares the rank helper the
+  # unit tests call directly.
+  additional_files:
+    - sham_global_rank.h
+
+  dependencies:
+    properties:
+      - Type
+      - UniqueGalaxyID
+      - Mvir
+      - Vmax
+      - StellarMass
+      - BulgeMass
+      - MetalsStellarMass
+      - MetalsBulgeMass
+      - StarFormationRate
+      - ShamMpeak
+      - ShamVpeak
+      - ShamStellarMassNoScatter
+      - ShamScatterDex
+    parameters:
+      - ShamGlobalMassScale
+      - ShamGlobalNumberDensity
+      - ShamGlobalSlope
+
+  tests:
+    unit: _tests/test_unit_sham_global_rank.c
+    integration: _tests/test_integration_sham_global_rank.py
+    scientific: []
+
+  docs:
+    physics: README.md

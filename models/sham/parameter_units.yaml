@@ -9,3 +9,7 @@ parameters:
     type: double
     units: 1e10 Msun/h
     h_convention: carried
+  - name: ShamGlobalMassScale  # sham_global_rank mass scale M0 of its analytic cumulative target
+    type: double
+    units: 1e10 Msun/h
+    h_convention: carried
