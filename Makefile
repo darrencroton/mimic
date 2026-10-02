@@ -962,20 +962,20 @@ tests-snapshot-global:
 	check "build $(SG_V2)" 0 "$$(cat $(SG_BUILD_STATUS))"; \
 	if [ "$$(cat $(SG_BUILD_STATUS))" = 0 ]; then \
 		PATH="$(SG_VENV_PATH)$$PATH" MODEL='$(SG_MODEL)' SIMULATION='$(SG_V2)' $(PYTHON) $(SG_PHASE_TEST) > $(SG_STEP_LOG) 2>&1; \
-		check "post_snapshot phase tests on $(SG_V2)" "$$(grep -c '^def test_' $(SG_PHASE_TEST))" $$?; \
+		status=$$?; check "post_snapshot phase tests on $(SG_V2)" "$$(grep -c '^def test_' $(SG_PHASE_TEST))" "$$status"; \
 		(cd tests/unit && MODEL='$(SG_MODEL)' SIMULATION='$(SG_V2)' ./run_tests.sh $(SG_CONTRACT_TEST)) > $(SG_STEP_LOG) 2>&1; \
-		check "typed callback unit tests" "$$(grep -c 'TEST_RUN(' $(SG_CONTRACT_SOURCE))" $$?; \
+		status=$$?; check "typed callback unit tests" "$$(grep -c 'TEST_RUN(' $(SG_CONTRACT_SOURCE))" "$$status"; \
 		PATH="$(SG_VENV_PATH)$$PATH" MODEL='$(SG_MODEL)' SIMULATION='$(SG_V2)' $(PYTHON) $(SG_SCHEMA_TEST) > $(SG_STEP_LOG) 2>&1; \
-		check "typed callback schema tests" "$$(grep -c '^def test_' $(SG_SCHEMA_TEST))" $$?; \
+		status=$$?; check "typed callback schema tests" "$$(grep -c '^def test_' $(SG_SCHEMA_TEST))" "$$status"; \
 	fi
 	@mkdir -p build; $(SG_TRAP) echo "--- $(SG_MODEL) x $(SG_V3)"; $(MAKE) --no-print-directory MODEL=$(SG_MODEL) SIMULATION=$(SG_V3) TEST_BUILD=yes generate validate-build $(EXEC) > $(SG_STEP_LOG) 2>&1; echo $$? > $(SG_BUILD_STATUS)
 	@$(SG_TRAP) $(SG_CHECK) \
 	check "build $(SG_V3)" 0 "$$(cat $(SG_BUILD_STATUS))"; \
 	if [ "$$(cat $(SG_BUILD_STATUS))" = 0 ]; then \
 		PATH="$(SG_VENV_PATH)$$PATH" MODEL='$(SG_MODEL)' SIMULATION='$(SG_V3)' $(PYTHON) $(SG_PHASE_TEST) > $(SG_STEP_LOG) 2>&1; \
-		check "post_snapshot phase tests on $(SG_V3)" "$$(grep -c '^def test_' $(SG_PHASE_TEST))" $$?; \
+		status=$$?; check "post_snapshot phase tests on $(SG_V3)" "$$(grep -c '^def test_' $(SG_PHASE_TEST))" "$$status"; \
 	fi
-	@$(SG_TRAP) echo "--- tests-snapshot-global-sham"; $(MAKE) --no-print-directory MODEL='$(MODEL)' SIMULATION='$(SIMULATION)' tests-snapshot-global-sham > $(SG_STEP_LOG) 2>&1; echo $$? > $(SG_BUILD_STATUS)
+	@$(SG_TRAP) echo "--- tests-snapshot-global-sham"; : > $(GSHAM_LOG); $(MAKE) --no-print-directory MODEL='$(MODEL)' SIMULATION='$(SIMULATION)' tests-snapshot-global-sham > $(SG_STEP_LOG) 2>&1; echo $$? > $(SG_BUILD_STATUS)
 	@$(SG_TRAP) $(SG_CHECK) \
 	status=$$(cat $(SG_BUILD_STATUS)); \
 	{ echo "=== tests-snapshot-global-sham (exit $$status)"; cat $(SG_STEP_LOG); } >> $(SG_LOG); \
@@ -1002,11 +1002,11 @@ SGI_LOG := build/snapshot_global_identity.log
 SGI_TEST := tests/manual/test_snapshot_disabled_identity.py
 
 tests-snapshot-global-identity:
-	@mkdir -p build; rc=0; \
+	@mkdir -p build; : > build/.snapshot_global_identity_status; \
 	{ $(PYTHON) $(SGI_TEST); echo $$? > build/.snapshot_global_identity_status; } 2>&1 | tee $(SGI_LOG); \
-	rc=$$(cat build/.snapshot_global_identity_status); \
+	rc=$$(cat build/.snapshot_global_identity_status 2>/dev/null); rc=$${rc:-1}; \
 	if grep -q '^MIMIC_RESULT: SKIP' $(SGI_LOG); then echo "FAIL: tests-snapshot-global-identity skipped a case"; rc=1; fi; \
-	if [ $$rc -ne 0 ]; then echo "FAIL: tests-snapshot-global-identity (see $(SGI_LOG))"; \
+	if [ "$$rc" -ne 0 ]; then echo "FAIL: tests-snapshot-global-identity (see $(SGI_LOG))"; \
 	else echo "PASS: tests-snapshot-global-identity (see $(SGI_LOG))"; fi; \
 	exit $$rc
 

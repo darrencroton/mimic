@@ -21,8 +21,12 @@ Both feature legs are compared with the baseline output. The matrix is
 {halos-only, sage16} x {committed vertical mini-Millennium trees, committed version 2
 horizontal fixture, committed gapped version 3 horizontal fixture} x {fixed, dynamic}: twelve
 legs, each scheme against its own baseline. The SAGE pipeline and parameters are the
-shipped ``models/sage16/input/sage16_mini-millennium.yaml`` verbatim (metal enrichment
-included); halos-only replaces only its ``modules`` mapping with an empty pipeline.
+shipped ``models/sage16/input/sage16_mini-millennium.yaml`` (metal enrichment included). The
+harness substitutes, and asserts it substituted, only: the model name, the simulation name and
+config, ``output.output_directory``, ``output.snapshot_list`` (``[]``, all snapshots), and the
+added ``MaxDynamicSubsteps`` and ``TimestepScheme`` keys; the ``modules`` mapping and every
+parameter stay identical to the shipped file. Halos-only replaces only its ``modules`` mapping
+with an empty pipeline.
 
 Reference commit
 ----------------
@@ -66,8 +70,9 @@ output schema, while accepting the permitted differences.
 Scratch material (worktrees, run files, outputs, logs, evidence.json) lives under
 ``archive/snapshot-global-identity/<stamp>/`` and is never deleted. Needs the local Python
 environment (h5py, numpy, PyYAML), git, make and a C compiler. ``--fixtures``, ``--models``
-and ``--schemes`` run a development subset; a subset run ends in an explicit SKIP and cannot
-satisfy the target.
+and ``--schemes`` run a development subset; a subset run reports SKIP for the stages it cannot
+complete (the comparator self-check needs the sage16 v2 fixed leg, the verdicts need all twelve)
+and so cannot satisfy the target.
 """
 
 from __future__ import annotations
@@ -1012,7 +1017,10 @@ class Identity:
     def test_comparator_rejects_mutations(self) -> None:
         """The comparator fails on every injected defect and accepts only the permitted ones."""
         if self.mutation_source is None:
-            raise AssertionError("the sage16 v2 fixed leg did not run; no real output to mutate")
+            raise TestSkipped(
+                "development subset: the sage16 v2 fixed leg did not run, so there is no real "
+                "output to mutate"
+            )
         run_mutation_checks(self.mutation_source, self.scratch("mutations"))
 
     # ---- stage: verdicts --------------------------------------------------
