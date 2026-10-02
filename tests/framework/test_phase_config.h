@@ -1,11 +1,12 @@
 /**
  * @file    test_phase_config.h
- * @brief   Test helpers for building MimicConfig substep phases in C unit tests
+ * @brief   Test helpers for building MimicConfig pipeline phases in C unit tests
  *
  * The runtime no longer has fixed MimicConfig.galaxy_physics/satellite_mergers fields; substep
  * middle phases are an arbitrary ordered set (MimicConfig.substep_phases). These
  * helpers let unit tests construct that pipeline by name without duplicating the
- * allocation boilerplate, mirroring the YAML 'phases:' form.
+ * allocation boilerplate, mirroring the YAML 'phases:' form. The fixed
+ * pre_timestep and post_snapshot phases have their own append helpers.
  *
  * Allocations match module_system_cleanup()'s free strategy (mymalloc_cat arrays
  * + strdup strings), so a test that calls module_system_init()/cleanup() frees
@@ -92,6 +93,40 @@ static inline void test_free_pre_timestep(void) {
   myfree(MimicConfig.pre_timestep);
   MimicConfig.pre_timestep = NULL;
   MimicConfig.num_pre_timestep = 0;
+}
+
+/**
+ * @brief   Append one entry to MimicConfig.post_snapshot.
+ *
+ * Allocates the post_snapshot array on first call, with the same lifetime
+ * rules as test_pre_timestep_add(): module_system_cleanup() frees it, and a
+ * test that never reaches cleanup calls test_free_post_snapshot().
+ */
+static inline void test_post_snapshot_add(const char *module_name, enum ProcessingMode mode) {
+  if (MimicConfig.post_snapshot == NULL) {
+    MimicConfig.post_snapshot =
+        mymalloc_cat(TEST_PHASE_MODULE_CAP * sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+    MimicConfig.num_post_snapshot = 0;
+  }
+  int i = MimicConfig.num_post_snapshot++;
+  MimicConfig.post_snapshot[i].module_name = strdup(module_name);
+  MimicConfig.post_snapshot[i].processing_mode = mode;
+  MimicConfig.post_snapshot[i].resolved = NULL;
+}
+
+/**
+ * @brief   Free MimicConfig.post_snapshot built by test_post_snapshot_add().
+ *          Safe to call when none were built.
+ */
+static inline void test_free_post_snapshot(void) {
+  if (MimicConfig.post_snapshot == NULL)
+    return;
+  for (int i = 0; i < MimicConfig.num_post_snapshot; i++) {
+    free((void *)MimicConfig.post_snapshot[i].module_name);
+  }
+  myfree(MimicConfig.post_snapshot);
+  MimicConfig.post_snapshot = NULL;
+  MimicConfig.num_post_snapshot = 0;
 }
 
 /**

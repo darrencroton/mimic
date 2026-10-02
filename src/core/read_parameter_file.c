@@ -1098,6 +1098,14 @@ static void parse_simulation_config_file(const char *fname) {
  *     - module_a: process_full_halo
  *     - module_b: process_by_galaxy
  *
+ * This maps mode names only. Whether a mode is legal in its phase (FoF modes
+ * in pre_timestep, the named substep phases and post_timestep; only
+ * process_snapshot in post_snapshot) and whether the module supports it are
+ * checked by module_system_init() against the registry's mode table, before
+ * any module init(). The parser cannot call that table: the topology-dump
+ * harness (tests/unit/tools/build_topology_dump.sh) links this file without
+ * the module system.
+ *
  * @param   doc         YAML document
  * @param   phase_node  Node for this phase (sequence of module:loop pairs)
  * @param   config      Output: array of PhaseModuleConfig
@@ -1197,11 +1205,13 @@ static int parse_phase_config(yaml_document_t *doc, yaml_node_t *phase_node,
       processing_mode = PROCESSING_MODE_PER_EVENT;
     } else if (strcmp(processing_mode_str, "process_by_galaxy") == 0) {
       processing_mode = PROCESSING_MODE_BY_GALAXY;
+    } else if (strcmp(processing_mode_str, "process_snapshot") == 0) {
+      processing_mode = PROCESSING_MODE_SNAPSHOT;
     } else {
-      ERROR_LOG("Phase '%s': invalid processing mode '%s' (must be "
-                "'process_full_halo', 'process_per_event', or "
-                "'process_by_galaxy')",
-                phase_name, processing_mode_str);
+      ERROR_LOG("Phase '%s': module '%s' has invalid processing mode '%s' (must be "
+                "'process_full_halo', 'process_per_event', 'process_by_galaxy' or "
+                "'process_snapshot')",
+                phase_name, module_name, processing_mode_str);
       myfree(*config);
       *config = NULL;
       return -1;
@@ -1225,7 +1235,8 @@ static int parse_phase_config(yaml_document_t *doc, yaml_node_t *phase_node,
  * @return  1 if the name is reserved, 0 otherwise
  */
 static int phase_name_is_reserved(const char *name) {
-  static const char *reserved[] = {"pre_timestep", "post_timestep", "parameters", "phases"};
+  static const char *reserved[] = {"pre_timestep", "post_timestep", POST_SNAPSHOT_PHASE_NAME,
+                                   "parameters", "phases"};
   for (size_t i = 0; i < sizeof(reserved) / sizeof(reserved[0]); i++) {
     if (strcmp(name, reserved[i]) == 0) {
       return 1;
@@ -1283,6 +1294,8 @@ static void parse_modules_section(yaml_document_t *doc, yaml_node_t *section) {
   MimicConfig.num_substep_phases = 0;
   MimicConfig.post_timestep = NULL;
   MimicConfig.num_post_timestep = 0;
+  MimicConfig.post_snapshot = NULL;
+  MimicConfig.num_post_snapshot = 0;
 
   /* Fixed lifecycle phases */
   node = get_mapping_value(doc, section, "pre_timestep");
@@ -1297,6 +1310,25 @@ static void parse_modules_section(yaml_document_t *doc, yaml_node_t *section) {
     FATAL_ERROR("Failed to parse post_timestep phase");
   }
 
+  /* Snapshot-wide phase: absent, null and [] all mean no snapshot modules.
+   * Whether the selected driver can run it is checked in
+   * validate_and_postprocess(), once the reader is known. */
+  node = get_mapping_value(doc, section, POST_SNAPSHOT_PHASE_NAME);
+  if (parse_phase_config(doc, node, &MimicConfig.post_snapshot, &MimicConfig.num_post_snapshot,
+                         POST_SNAPSHOT_PHASE_NAME) != 0) {
+    FATAL_ERROR("Failed to parse %s phase", POST_SNAPSHOT_PHASE_NAME);
+  }
+  /* Each entry runs once per snapshot; a repeated module would silently run twice. */
+  for (int i = 0; i < MimicConfig.num_post_snapshot; i++) {
+    for (int j = 0; j < i; j++) {
+      if (strcmp(MimicConfig.post_snapshot[j].module_name,
+                 MimicConfig.post_snapshot[i].module_name) == 0) {
+        FATAL_ERROR("Phase '%s': module '%s' is listed more than once", POST_SNAPSHOT_PHASE_NAME,
+                    MimicConfig.post_snapshot[i].module_name);
+      }
+    }
+  }
+
   /* Reject any unrecognised key under modules: so stale or mistyped pipelines
    * (e.g. the removed phase_1/phase_2/enabled forms) fail loudly at startup
    * rather than silently dropping physics. */
@@ -1308,9 +1340,10 @@ static void parse_modules_section(yaml_document_t *doc, yaml_node_t *section) {
       continue;
     }
     if (strcmp(key_name, "pre_timestep") != 0 && strcmp(key_name, "post_timestep") != 0 &&
-        strcmp(key_name, "phases") != 0 && strcmp(key_name, "parameters") != 0) {
+        strcmp(key_name, POST_SNAPSHOT_PHASE_NAME) != 0 && strcmp(key_name, "phases") != 0 &&
+        strcmp(key_name, "parameters") != 0) {
       FATAL_ERROR("Unknown key 'modules.%s'; supported keys are pre_timestep, "
-                  "phases, post_timestep, parameters",
+                  "phases, post_timestep, post_snapshot, parameters",
                   key_name);
     }
   }
@@ -1352,6 +1385,9 @@ static void parse_modules_section(yaml_document_t *doc, yaml_node_t *section) {
                 MimicConfig.substep_phases[p].num_modules);
   }
   VERBOSE_LOG("  post_timestep: %d module(s)", MimicConfig.num_post_timestep);
+  if (MimicConfig.num_post_snapshot > 0) {
+    VERBOSE_LOG("  %s: %d module(s)", POST_SNAPSHOT_PHASE_NAME, MimicConfig.num_post_snapshot);
+  }
 
   /* Parse parameters subsection */
   parameters = get_mapping_value(doc, section, "parameters");
@@ -1525,6 +1561,17 @@ static void validate_and_postprocess(void) {
                 NTask);
       errors++;
     }
+    /* Only the horizontal driver holds a whole snapshot's population at once;
+       the vertical driver walks one forest at a time and has no point at which
+       a snapshot is complete, so it accepts only an omitted or empty phase. */
+    if (is_vertical_reader && MimicConfig.num_post_snapshot > 0) {
+      ERROR_LOG("modules.%s lists %d module%s (first: '%s'), but it runs only under the "
+                "horizontal driver and reader '%s' feeds the vertical driver",
+                POST_SNAPSHOT_PHASE_NAME, MimicConfig.num_post_snapshot,
+                MimicConfig.num_post_snapshot == 1 ? "" : "s",
+                MimicConfig.post_snapshot[0].module_name, reader_name);
+      errors++;
+    }
   }
   if (strlen(MimicConfig.FileWithSnapList) == 0) {
     ERROR_LOG("Required parameter 'input.snapshot_list_file' missing");
@@ -1549,11 +1596,13 @@ static void validate_and_postprocess(void) {
   validate_output_snapshots();
 
   /* Log summary */
-  int total_modules = MimicConfig.num_pre_timestep + MimicConfig.num_post_timestep;
+  int total_modules =
+      MimicConfig.num_pre_timestep + MimicConfig.num_post_timestep + MimicConfig.num_post_snapshot;
   for (int p = 0; p < MimicConfig.num_substep_phases; p++) {
     total_modules += MimicConfig.substep_phases[p].num_modules;
   }
-  int total_phases = MimicConfig.num_substep_phases + 2; /* pre + post */
+  /* pre + post, and post_snapshot only when configured */
+  int total_phases = MimicConfig.num_substep_phases + 2 + (MimicConfig.num_post_snapshot > 0);
   VERBOSE_LOG("Configuration: %d output snapshots, %d module instances across %d "
               "phases",
               MimicConfig.NOUT, total_modules, total_phases);

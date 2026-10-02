@@ -204,6 +204,8 @@ Full-halo modules always run before by-galaxy modules within a phase. Events emi
 
 (One shipped exception worth knowing about: `sage_satellite_stripping` runs as `process_by_galaxy` even though it mutates the FoF central through `ctx->central_galaxy`, because the by-galaxy placement is required to match SAGE's strip-then-cool timing for each satellite.)
 
+Horizontal runs add one optional scope above the FoF workspace. After every FoF workspace of a snapshot has been processed, each module listed under `modules.post_snapshot` runs once, in YAML order, with the `process_snapshot` mode: it receives the snapshot's whole processed population (every Type 0, 1 and 2 galaxy across all FoF groups) and may update galaxy properties before that snapshot is inherited from or written. See [Snapshot-wide modules](#snapshot-wide-modules).
+
 ---
 
 ## Configuring Your Runs
@@ -287,6 +289,22 @@ modules:
 ```
 
 Module parameters have no global defaults in the core. A module loads and validates the parameters it needs during its `init()` function. If a required parameter is missing, startup fails before trees are processed — a few seconds, not after a long run.
+
+#### Snapshot-wide modules
+
+`modules.post_snapshot` is an optional fixed phase for modules that need a whole snapshot at once, such as a global ranking. It uses the same list shape as the other phases, but every entry must use `process_snapshot`, and a module may appear in it only once:
+
+```yaml
+modules:
+  post_snapshot:
+    - my_snapshot_module: process_snapshot
+```
+
+- It runs only under the horizontal driver: once per input snapshot (the empty, non-output and final snapshots included, whatever `SubSteps` and `TimestepScheme` say), after the snapshot's FoF sweep and before the snapshot is inherited from or written. A vertical run accepts an absent, `null` or empty (`[]`) `post_snapshot` and rejects a non-empty one at startup. All the horizontal restrictions in [Running Horizontal Input](#running-horizontal-input) still apply.
+- Each callback sees the current snapshot's processed population only — no Type 3 galaxies, no raw halos without a galaxy, nothing from earlier snapshots. Its galaxy-property writes are seen by the next `post_snapshot` entry, by descendants that inherit those galaxies (across skipped snapshots too), and by the snapshot's own output.
+- `process_snapshot` is not allowed in `pre_timestep`, `post_timestep` or a `phases:` entry, and FoF modes are not allowed in `post_snapshot`; `post_snapshot` is also reserved as a `phases:` name. Each of these, an unknown module, a module that does not support `process_snapshot`, and a malformed entry stop the run at startup, naming the phase or module, before any module is initialised.
+- A snapshot module cannot emit or consume FoF events, and a callback that returns an error stops the run, naming the module, the snapshot and the return code; as for any failed horizontal run, no master file is left behind, and partition files of earlier snapshots that had already closed are kept.
+- HDF5 output records each entry in `RunProperties/EnabledModules` with phase `post_snapshot` and mode `process_snapshot`, after the FoF-phase rows. A run without snapshot modules records exactly the rows it did before.
 
 ### Configuration Recipes
 
@@ -416,6 +434,8 @@ A `horizontal` run works like any other run — build for the package, point `./
 - **No `--skip`.** Resume is not supported for horizontal runs; `--skip` is rejected at configuration rather than silently ignored.
 - **Serial only.** Multi-rank horizontal execution is not implemented; a horizontal configuration requires `NTask == 1` and is rejected at startup otherwise.
 
+Only a horizontal run can run [snapshot-wide modules](#snapshot-wide-modules) (`modules.post_snapshot`); these restrictions hold for it unchanged.
+
 ```bash
 make MODEL=halos-only SIMULATION=micro-uchuu-ascii-horizontal
 ./mimic models/halos-only/input/halos-only_micro-uchuu-ascii-horizontal.yaml
@@ -448,7 +468,7 @@ input:
 
 - It must be a positive whole number; zero, negative, fractional and non-numeric values are rejected at configuration. Omit the key for no ceiling.
 - It is rejected for vertical runs, which retain no generation.
-- It bounds only what is admitted to the retention pool: the struct-width payload of each generation (its figure can undercount real allocations by a few bytes of allocator rounding). It does **not** bound output buffers and galaxy pools growing during a snapshot's sweep (the driver warns once if that growth takes the pool past the ceiling), the driver's run-wide workspace, or process RSS. Plan a large run against peak RSS, not against this key.
+- It bounds only what is admitted to the retention pool: the struct-width payload of each generation (its figure can undercount real allocations by a few bytes of allocator rounding). It does **not** bound output buffers and galaxy pools growing during a snapshot's sweep (the driver warns once if that growth takes the pool past the ceiling), the driver's run-wide workspace, scratch memory a `post_snapshot` module allocates during its callback, or process RSS. Plan a large run against peak RSS, not against this key.
 
 **Reading horizontal-run output.** A horizontal run's HDF5 output differs from a vertical run's in a few specific, deliberate ways:
 

@@ -500,9 +500,12 @@ def create_test_param_file(
     Args:
         output_name (str): Name for output directory (created in temp_dir)
         phase_config (dict): Pipeline configuration. 'pre_timestep' and
-                            'post_timestep' are the fixed lifecycle phases; every
-                            other key is a user-named substep phase emitted under
-                            'phases:' in declaration order.
+                            'post_timestep' are the fixed lifecycle phases and
+                            'post_snapshot' is the fixed snapshot-wide phase
+                            (emitted after post_timestep; entries use
+                            'process_snapshot'); every other key is a user-named
+                            substep phase emitted under 'phases:' in declaration
+                            order.
                             Format: {
                                 'pre_timestep': [('module1', 'process_full_halo')],
                                 'galaxy_physics': [('module3', 'process_by_galaxy')],
@@ -608,8 +611,9 @@ def create_test_param_file(
         config["MaxDynamicSubsteps"] = int(max_dynamic_substeps)
 
     # Rebuild the modules section in the current named-substep-phase form:
-    #   pre_timestep (lifecycle) -> phases: { <name>: [...] } -> post_timestep.
-    # Any phase_config key other than pre_timestep/post_timestep is a user-named
+    #   pre_timestep (lifecycle) -> phases: { <name>: [...] } -> post_timestep
+    #   -> post_snapshot (snapshot-wide).
+    # Any phase_config key other than these three fixed keys is a user-named
     # substep phase and is emitted under 'phases:' in declaration order.
     def _entries(items):
         return [{module_name: processing_mode} for module_name, processing_mode in items]
@@ -618,12 +622,13 @@ def create_test_param_file(
     if phase_config is not None:
         pre = phase_config.get("pre_timestep", [])
         post = phase_config.get("post_timestep", [])
+        post_snapshot = phase_config.get("post_snapshot", [])
         if pre:
             modules_section["pre_timestep"] = _entries(pre)
 
         phases = {}
         for phase_name, phase_modules in phase_config.items():
-            if phase_name in ("pre_timestep", "post_timestep"):
+            if phase_name in ("pre_timestep", "post_timestep", "post_snapshot"):
                 continue
             if phase_modules:
                 phases[phase_name] = _entries(phase_modules)
@@ -632,6 +637,8 @@ def create_test_param_file(
 
         if post:
             modules_section["post_timestep"] = _entries(post)
+        if post_snapshot:
+            modules_section["post_snapshot"] = _entries(post_snapshot)
     # else: physics-free mode — leave modules with no phases
 
     config["modules"] = modules_section

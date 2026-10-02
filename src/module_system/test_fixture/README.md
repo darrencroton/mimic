@@ -27,9 +27,7 @@ The `test_fixture` module provides a stable, physics-free module that keeps the 
 - Pipeline execution
 - Error handling
 
-**Example (C unit test)**: add the module to a user-named substep phase with the
-`test_phase_add()` helper from `tests/framework/test_phase_config.h` (the fixed
-`pre_timestep`/`post_timestep` phases are set directly on `MimicConfig`).
+**Example (C unit test)**: add the module to a user-named substep phase with the `test_phase_add()` helper from `tests/framework/test_phase_config.h` (the fixed `pre_timestep` and `post_snapshot` phases have `test_pre_timestep_add()` and `test_post_snapshot_add()`; `post_timestep` is set directly on `MimicConfig`).
 ```c
 /* Run test_fixture once per galaxy in a named substep phase */
 test_phase_add("galaxy_physics", "test_fixture", PROCESSING_MODE_BY_GALAXY);
@@ -43,12 +41,17 @@ snprintf(MimicConfig.ModelParams[1].value, MAX_STRING_LEN, "0");
 MimicConfig.NumModelParams = 2;
 ```
 
-**Example (Python integration test)**: phases are user-named keys in
-`phase_config` (`pre_timestep`/`post_timestep` are the only reserved names).
+**Example (Python integration test)**: phases are user-named keys in `phase_config` (`pre_timestep`, `post_timestep` and `post_snapshot` are the reserved fixed keys; `post_snapshot` runs only under the horizontal driver).
 ```python
 param_file = create_test_param_file(
     phase_config={"galaxy_physics": [("test_fixture", "process_by_galaxy")]},
     model_params={"TestFixtureDummyParameter": "2.5"}
+)
+
+# Dual mode: the same module as a snapshot-wide callback (horizontal packages)
+param_file = create_test_param_file(
+    phase_config={"post_snapshot": [("test_fixture", "process_snapshot")]},
+    model_params={"TestFixtureDummyParameter": "0.25", "TestFixtureEnableLogging": "1"}
 )
 ```
 
@@ -82,7 +85,7 @@ This module should **NEVER** appear in:
 The module performs minimal operations:
 1. **Init**: Reads parameters, logs configuration
 2. **Process** (FoF family): Sets `TestDummyProperty = DummyParameter` on every Type 0 galaxy in the array
-3. **Process snapshot** (snapshot family): Checks the borrowed-view contract, then sets `TestDummyProperty = DummyParameter` on every entry of any Type through `halos[i].galaxy`; logs `TEST_FIXTURE_SNAPSHOT_EXEC` per call when `TestFixtureEnableLogging=1`. No run-file phase dispatches it yet; unit tests call it directly
+3. **Process snapshot** (snapshot family, dispatched from `modules.post_snapshot`): Checks the borrowed-view contract, then sets `TestDummyProperty = DummyParameter` on every entry of any Type through `halos[i].galaxy`. When `TestFixtureEnableLogging=1` it logs `TEST_FIXTURE_SNAPSHOT_EXEC: count=<n> snapshot=<s> n=<count> z=<z> seen_min=<v> seen_max=<v>` per call, where `seen_min`/`seen_max` are the smallest and largest `TestDummyProperty` it found before writing (what an earlier `post_snapshot` entry wrote). A non-empty population with `DummyParameter` outside `TestDummyProperty`'s declared `[0, 1]` range is refused with return code 2 before anything is written — the fixture's way to make a real run's snapshot callback fail; an empty population succeeds
 4. **Cleanup**: No resources to free
 
 ## Related Documentation

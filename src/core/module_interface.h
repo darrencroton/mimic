@@ -17,6 +17,8 @@
  * - pre_timestep: Setup phase (once before substeps)
  * - modules.phases: Ordered user-named substep phases
  * - post_timestep: Finalization phase (once after substeps)
+ * - post_snapshot: Snapshot-wide phase (horizontal driver only; once per
+ *   snapshot, after every FoF group, over the whole processed population)
  *
  * Phase assignments and processing modes are specified in the input YAML configuration,
  * not in module metadata. This provides maximum flexibility - the same module
@@ -30,8 +32,9 @@
  *      be called once per timestep or multiple times per substep, and may
  *      receive the full halo array (process_full_halo), an event target halo
  *      (process_per_event), or a single galaxy (process_by_galaxy)
- *    - process_snapshot() (snapshot family) with a borrowed view of one whole
- *      snapshot population; see struct SnapshotContext for the contract
+ *    - process_snapshot() (snapshot family) once per snapshot from the
+ *      post_snapshot phase, with a borrowed view of that snapshot's whole
+ *      population; see struct Module.process_snapshot for the contract
  * 4. Core calls cleanup() during program shutdown
  *
  * For a complete, maintained example implementation (including the
@@ -60,6 +63,12 @@
  * struct ModulePhaseConfig in module_registry.h. Within each phase, full-halo
  * and event work precedes galaxy-local work. Adding a phase is purely a YAML
  * change — no enum or struct edits are required.
+ *
+ * That shape runs per FoF group. Separately, the horizontal driver runs the
+ * fixed optional post_snapshot phase once per snapshot, after every FoF group
+ * of the snapshot has been processed and before the snapshot is published for
+ * later inheritance or written: each of its process_snapshot entries is called
+ * in YAML order with the snapshot's whole processed population.
  */
 
 /**
@@ -296,10 +305,7 @@ struct SnapshotContext {
   /** Redshift of the snapshot */
   double redshift;
 
-  /**
-   * Cosmic time at the snapshot, in the same units as ModuleContext.time:
-   * lookback time from z=0 in internal time units (MimicConfig.Age)
-   */
+  /** Lookback time from z=0 at the snapshot, in internal time units (same as ModuleContext.time) */
   double time;
 
   /** Read-only configuration (cosmology, units, model parameters) */
@@ -327,15 +333,15 @@ struct SnapshotContext {
  * @param value1        Secondary scalar payload
  * @return 0 on success, non-zero on failure
  *
- * Failure cases: invalid context, invalid halo indices, or calling outside
- * PROCESSING_MODE_FULL_HALO dispatch. The phase event buffer grows to fit
- * whatever is emitted (module_registry.c); only its structural ceiling
- * (MAX_HALO_ARRAY_SIZE) is unrecoverable, and that aborts via FATAL_ERROR
- * rather than returning non-zero, since it is not something a caller can
- * meaningfully handle.
+ * Failure cases: invalid context, invalid halo indices, calling outside
+ * PROCESSING_MODE_FULL_HALO dispatch, or calling during post_snapshot dispatch
+ * (a snapshot callback can neither emit nor consume FoF events). The phase event buffer grows to
+ * fit whatever is emitted (module_registry.c); only its structural ceiling (MAX_HALO_ARRAY_SIZE) is
+ * unrecoverable, and that aborts via FATAL_ERROR rather than returning non-zero, since it is not
+ * something a caller can meaningfully handle.
  *
- * Special case for direct module unit tests: when no phase dispatch context is
- * active, the event is dropped and 0 is returned.
+ * Special case for direct module unit tests: when neither a FoF phase nor
+ * post_snapshot dispatch is active, the event is dropped and 0 is returned.
  */
 int module_emit_event(struct ModuleContext *ctx, int event_id, int source_index, int target_index,
                       double value0, double value1);
@@ -407,8 +413,12 @@ struct Module {
   /**
    * @brief Process one whole snapshot population (snapshot callback family)
    *
-   * Required when the module advertises PROCESSING_MODE_SNAPSHOT and NULL
-   * otherwise; process() is likewise NULL for a module advertising no FoF
+   * Called once per snapshot, in post_snapshot YAML order, by the horizontal
+   * driver after every FoF group of the snapshot has been processed and
+   * before the snapshot is published for inheritance or written, so its
+   * galaxy writes reach later callbacks, descendants and the snapshot's own
+   * output. Required when the module advertises PROCESSING_MODE_SNAPSHOT and
+   * NULL otherwise; process() is likewise NULL for a module advertising no FoF
    * mode. Registration rejects a missing callback for any advertised family.
    *
    * Borrowed-view contract:

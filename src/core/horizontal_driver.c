@@ -64,6 +64,7 @@
 #include "globals.h"
 #include "inheritance.h"
 #include "memory.h"
+#include "module_registry.h"
 #include "output_buffer.h"
 #include "progress.h"
 #include "proto.h"
@@ -1244,6 +1245,36 @@ horizontal_acquire_generation(struct HorizontalDriverState *state, int64_t snapn
   return gen;
 }
 
+/*
+ * Run the post_snapshot phase over snapshot N's swept generation.
+ *
+ * The population is exactly cur->processed: every Type 0/1/2 galaxy the sweep
+ * marshalled for snapshot N, across all its FoF groups, in marshalling order.
+ * Type 3 galaxies never reach it (the marshaller drops them), and neither the
+ * raw slab nor any other retained generation is passed. The callbacks write
+ * through the galaxy pointers of that buffer in place, so what they write is
+ * what later snapshots inherit and what snapshot N writes; no copy is made.
+ * The context is rebuilt from this snapshot alone. An empty snapshot is a
+ * real call with count 0, whatever the buffer pointer holds.
+ *
+ * Module scratch a callback allocates is outside the retention-pool accounting
+ * and input.retention_memory_ceiling_mb.
+ */
+static void horizontal_run_post_snapshot(const struct HorizontalGeneration *cur) {
+  if (MimicConfig.num_post_snapshot == 0) {
+    return;
+  }
+
+  const struct SnapshotContext ctx = {.snapshot_number = (int)cur->snapnum,
+                                      .redshift = MimicConfig.ZZ[cur->snapnum],
+                                      .time = Age[cur->snapnum],
+                                      .params = &MimicConfig};
+  VERBOSE_LOG("Running %s for snapshot %" PRId64 " over %" PRId64 " galax%s",
+              POST_SNAPSHOT_PHASE_NAME, cur->snapnum, cur->processed.count,
+              cur->processed.count == 1 ? "y" : "ies");
+  execute_post_snapshot(&ctx, cur->processed.halos, cur->processed.count);
+}
+
 /* Make a swept generation visible to later snapshots' progenitor lookup. Done
  * only after the sweep, because marshalling may move its output buffer while the
  * sweep is running and nothing may link into a snapshot still being built. */
@@ -1499,7 +1530,8 @@ static void horizontal_probe_output_directory(void) {
  * Proves the output directory writable, opens the configured dataset, then walks
  * every snapshot in increasing time order. For snapshot N: load slab N into the
  * retention pool, process every FoF group against the retained generations its
- * progenitor links name, release every earlier generation whose horizon is N,
+ * progenitor links name, run the post_snapshot phase (when configured) over the
+ * swept population, release every earlier generation whose horizon is N,
  * then — if snapshot N was requested for output — write it to its own partition
  * file and close that file, and finally release generation N itself if nothing
  * after N links back into it. After the final snapshot no generation remains,
@@ -1600,6 +1632,11 @@ void run_horizontal_driver(void) {
                   " halos; the slab's FoF links are inconsistent",
                   snapnum, members_processed, cur->slab.nhalos);
     }
+
+    /* Snapshot-wide modules see the whole swept population, before it is
+     * published for inheritance, before any generation is released and before
+     * it is written. */
+    horizontal_run_post_snapshot(cur);
 
     /* The retention pool is at its largest for this snapshot now: the sweep has
      * grown the output buffers and pools, and nothing has been released yet. */

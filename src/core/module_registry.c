@@ -18,6 +18,7 @@
  */
 
 #include <errno.h>
+#include <inttypes.h>
 #include <limits.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -73,6 +74,16 @@ struct PhaseEventDispatchState {
   bool emission_allowed;
   int current_producer_module_id; /**< module_id of the currently executing producer */
 };
+
+/**
+ * @brief   Whether execute_post_snapshot() is currently running a callback
+ *
+ * Checked by module_emit_event() before its no-active-phase shortcut, so a
+ * snapshot callback that tries to emit a FoF event is rejected rather than
+ * silently accepted as if it were a direct module unit test. Snapshot dispatch
+ * and FoF phase dispatch are never active together.
+ */
+static bool snapshot_dispatch_active = false;
 
 static struct PhaseEventDispatchState phase_event_state = {.events = NULL,
                                                            .event_capacity = 0,
@@ -195,6 +206,12 @@ void for_each_phase(PhaseVisitor visit, void *userdata) {
     visit(phase->name, phase->modules, phase->num_modules, userdata);
   }
   visit("post_timestep", MimicConfig.post_timestep, MimicConfig.num_post_timestep, userdata);
+  /* Only when configured, so a run without snapshot modules visits exactly the
+   * phases it did before post_snapshot existed. */
+  if (MimicConfig.num_post_snapshot > 0) {
+    visit(POST_SNAPSHOT_PHASE_NAME, MimicConfig.post_snapshot, MimicConfig.num_post_snapshot,
+          userdata);
+  }
 }
 
 /**
@@ -281,10 +298,11 @@ void module_registry_add(struct Module *module) {
 /**
  * @brief   Resolve a configured module and add it to the pipeline if new
  *
+ * @param   phase_name   Phase the entry is configured in (for diagnostics)
  * @param   module_name  Name of module to add
  * @return  The registered module (never NULL; fatal if unregistered)
  */
-static struct Module *add_module_to_pipeline(const char *module_name) {
+static struct Module *add_module_to_pipeline(const char *phase_name, const char *module_name) {
   /* Check if already in pipeline */
   for (int i = 0; i < num_pipeline_modules; i++) {
     if (strcmp(execution_pipeline[i]->name, module_name) == 0) {
@@ -295,12 +313,13 @@ static struct Module *add_module_to_pipeline(const char *module_name) {
   /* Find module in registry */
   struct Module *mod = find_module_by_name(module_name);
   if (mod == NULL) {
-    ERROR_LOG("Module '%s' configured but not registered", module_name);
+    ERROR_LOG("Module '%s' configured in phase '%s' but not registered", module_name, phase_name);
     ERROR_LOG("Available modules:");
     for (int j = 0; j < num_registered_modules; j++) {
       ERROR_LOG("  - %s", registered_modules[j]->name);
     }
-    FATAL_ERROR("Unknown module '%s' in pipeline configuration", module_name);
+    FATAL_ERROR("Unknown module '%s' in phase '%s' of the pipeline configuration", module_name,
+                phase_name);
   }
 
   /* Add to execution pipeline */
@@ -401,6 +420,9 @@ bool module_configured_anywhere(const char *name) {
                               MimicConfig.substep_phases[p].num_modules, name)) {
       return true;
     }
+  }
+  if (phase_contains_module(MimicConfig.post_snapshot, MimicConfig.num_post_snapshot, name)) {
+    return true;
   }
   return false;
 }
@@ -549,6 +571,65 @@ static int validate_phase_processing_modes(struct PhaseModuleConfig *config, int
 }
 
 /**
+ * @brief   Validate the post_snapshot phase against module constraints
+ *
+ * Every entry must use process_snapshot, name a module that advertises it and
+ * carries its typed process_snapshot() callback, and appear only once: the
+ * phase runs each entry once per snapshot, so a repeat would silently run a
+ * module twice. Unregistered modules are reported by add_module_to_pipeline().
+ *
+ * @param   config       post_snapshot configuration array
+ * @param   num_modules  Number of entries
+ * @return  0 on success, -1 on validation failure
+ */
+static int validate_post_snapshot_entries(const struct PhaseModuleConfig *config, int num_modules) {
+  for (int i = 0; i < num_modules; i++) {
+    for (int j = 0; j < i; j++) {
+      if (strcmp(config[j].module_name, config[i].module_name) == 0) {
+        ERROR_LOG("Configuration error in phase '%s':", POST_SNAPSHOT_PHASE_NAME);
+        ERROR_LOG("  Module '%s' is listed more than once; each snapshot module runs once per "
+                  "snapshot",
+                  config[i].module_name);
+        return -1;
+      }
+    }
+
+    const struct Module *mod = find_module_by_name(config[i].module_name);
+    if (mod == NULL) {
+      continue; /* Missing module handled by add_module_to_pipeline */
+    }
+
+    enum ModuleCallbackFamily family;
+    if (processing_mode_family(config[i].processing_mode, &family) != 0 ||
+        family != MODULE_CALLBACK_FAMILY_SNAPSHOT) {
+      ERROR_LOG("Configuration error in phase '%s':", POST_SNAPSHOT_PHASE_NAME);
+      ERROR_LOG("  Module '%s' is configured with processing mode '%s'; only process_snapshot "
+                "is allowed in this phase",
+                mod->name, processing_mode_to_string(config[i].processing_mode));
+      return -1;
+    }
+
+    if (!module_supports_processing_mode(mod, config[i].processing_mode)) {
+      ERROR_LOG("Configuration error in phase '%s':", POST_SNAPSHOT_PHASE_NAME);
+      ERROR_LOG("  Module '%s' does not support processing mode '%s'", mod->name,
+                processing_mode_to_string(config[i].processing_mode));
+      ERROR_LOG("  Supported modes: %s", format_supported_modes(mod));
+      return -1;
+    }
+
+    /* Registration already requires the callback of every advertised family;
+     * checked again because a NULL here would be dereferenced on dispatch. */
+    if (mod->process_snapshot == NULL) {
+      ERROR_LOG("Configuration error in phase '%s':", POST_SNAPSHOT_PHASE_NAME);
+      ERROR_LOG("  Module '%s' advertises process_snapshot but has no process_snapshot callback",
+                mod->name);
+      return -1;
+    }
+  }
+  return 0;
+}
+
+/**
  * @brief   Validate event subscription contracts for a phase
  *
  * Ensures every process_per_event module in the phase:
@@ -621,10 +702,9 @@ static int validate_event_subscriptions(struct PhaseModuleConfig *config, int nu
 
 static void build_pipeline_visitor(const char *phase_name, struct PhaseModuleConfig *modules,
                                    int num_modules, void *userdata) {
-  (void)phase_name;
   (void)userdata;
   for (int i = 0; i < num_modules; i++) {
-    modules[i].resolved = add_module_to_pipeline(modules[i].module_name);
+    modules[i].resolved = add_module_to_pipeline(phase_name, modules[i].module_name);
   }
 }
 
@@ -637,7 +717,11 @@ static void log_phase_size_visitor(const char *phase_name, struct PhaseModuleCon
 
 static void validate_modes_visitor(const char *phase_name, struct PhaseModuleConfig *modules,
                                    int num_modules, void *userdata) {
-  if (validate_phase_processing_modes(modules, num_modules, phase_name) != 0) {
+  /* post_snapshot is a reserved name, so no substep phase can match it here. */
+  const int failed = (strcmp(phase_name, POST_SNAPSHOT_PHASE_NAME) == 0)
+                         ? validate_post_snapshot_entries(modules, num_modules)
+                         : validate_phase_processing_modes(modules, num_modules, phase_name);
+  if (failed != 0) {
     *(int *)userdata = 1;
   }
 }
@@ -654,8 +738,8 @@ static void validate_events_visitor(const char *phase_name, struct PhaseModuleCo
  *
  * Validates multi-phase pipeline configuration and initializes all referenced
  * modules. Modules are initialized in the order they appear across all phases
- * (pre_timestep, named substep phases, post_timestep), with duplicates
- * initialized only once.
+ * (pre_timestep, named substep phases, post_timestep, post_snapshot), with
+ * duplicates initialized only once.
  *
  * @return  0 on success, non-zero if initialization fails
  */
@@ -887,6 +971,15 @@ int module_emit_event(struct ModuleContext *ctx, int event_id, int source_index,
     return -1;
   }
 
+  /* Checked before the shortcut below: a snapshot callback has no FoF event
+   * buffer to emit into, and must not be mistaken for a direct unit test. */
+  if (snapshot_dispatch_active) {
+    ERROR_LOG("module_emit_event called during post_snapshot dispatch (event_id=%d); snapshot "
+              "callbacks cannot emit or consume FoF events",
+              event_id);
+    return -1;
+  }
+
   /* Allow direct module unit tests to call producers without active dispatch. */
   if (!phase_event_state.active) {
     DEBUG_LOG("Dropping event_id=%d because no phase dispatch context is active", event_id);
@@ -1064,6 +1157,48 @@ void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
   end_phase_event_dispatch();
 }
 
+void execute_post_snapshot(const struct SnapshotContext *ctx, const struct Halo *halos,
+                           int64_t count) {
+  if (ctx == NULL || ctx->params == NULL) {
+    FATAL_ERROR("execute_post_snapshot called without a snapshot context");
+  }
+  if (count < 0 || (count > 0 && halos == NULL)) {
+    FATAL_ERROR("execute_post_snapshot called with an invalid population at snapshot %d "
+                "(count=%" PRId64 ", halos=%p)",
+                ctx->snapshot_number, count, (const void *)halos);
+  }
+  if (snapshot_dispatch_active || phase_event_state.active) {
+    FATAL_ERROR("execute_post_snapshot called at snapshot %d while another phase dispatch is "
+                "active",
+                ctx->snapshot_number);
+  }
+
+  const struct PhaseModuleConfig *phase = ctx->params->post_snapshot;
+  const int num_modules = ctx->params->num_post_snapshot;
+
+  /* No count shortcut: an empty snapshot is a real call of every entry. */
+  for (int i = 0; i < num_modules; i++) {
+    const struct Module *mod = phase[i].resolved;
+    if (mod == NULL || mod->process_snapshot == NULL) {
+      FATAL_ERROR("Module '%s' in phase '%s' was not resolved to a process_snapshot callback "
+                  "— module_system_init() must run before execute_post_snapshot()",
+                  phase[i].module_name, POST_SNAPSHOT_PHASE_NAME);
+    }
+
+    DEBUG_LOG("Executing module: %s (snapshot %d, count=%" PRId64 ", z=%.3f)", mod->name,
+              ctx->snapshot_number, count, ctx->redshift);
+
+    snapshot_dispatch_active = true;
+    const int result = mod->process_snapshot(ctx, halos, count);
+    snapshot_dispatch_active = false;
+
+    if (result != 0) {
+      FATAL_ERROR("Module '%s' failed in phase '%s' at snapshot %d with return code %d", mod->name,
+                  POST_SNAPSHOT_PHASE_NAME, ctx->snapshot_number, result);
+    }
+  }
+}
+
 /**
  * @brief   Update context for a specific substep
  *
@@ -1160,6 +1295,17 @@ static void free_phase_configuration(void) {
     MimicConfig.post_timestep = NULL;
   }
   MimicConfig.num_post_timestep = 0;
+
+  if (MimicConfig.post_snapshot) {
+    for (int i = 0; i < MimicConfig.num_post_snapshot; i++) {
+      if (MimicConfig.post_snapshot[i].module_name) {
+        free((void *)MimicConfig.post_snapshot[i].module_name);
+      }
+    }
+    myfree(MimicConfig.post_snapshot);
+    MimicConfig.post_snapshot = NULL;
+  }
+  MimicConfig.num_post_snapshot = 0;
 }
 
 int module_system_pipeline_count(void) { return num_pipeline_modules; }

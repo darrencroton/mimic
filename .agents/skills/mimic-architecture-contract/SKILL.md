@@ -70,6 +70,9 @@ run YAML
                                            subscribed per-event consumers; then by-galaxy
                                            modules galaxy-major.
       → marshal_workspace_to_output_buffer()
+      (horizontal driver only, once per snapshot after every FoF group:
+       execute_post_snapshot() runs modules.post_snapshot over the
+       generation's processed buffer, before publication/release/output)
   → ProcessedHalos                         per-tree output buffer
   → binary / HDF5 writers                  src/io/output/
 ```
@@ -99,6 +102,7 @@ Breaking any row below is a defect even if the build and quick tests stay green.
 | `UniqueGalaxyID = halonr + multiplier × (forestnr_global + 1)`, `multiplier = MimicConfig.UniqueGalaxyIDMultiplier` (default `TREE_MUL_FAC = 1e9`), independent of MPI rank layout and file partitioning | `src/include/galaxy_id.h`, taken by both drivers | IDs must be reproducible across serial/MPI runs, file splits, and processing order; see [The identity multiplier](../../../docs/DEVELOPER-GUIDE.md#the-identity-multiplier) |
 | Binary output is readable only via the run-local `metadata/output_schema.json` written alongside it | Design of the schema writer | Struct layout changes between checkouts; the run carries its own truth |
 | Events flow only from full-halo producers to per-event consumers registered in the SAME phase | Checked at `module_system_init` | Immediate dispatch inside the phase loop; a cross-phase event would run against half-updated state |
+| `modules.post_snapshot` (`process_snapshot` only) runs only under the horizontal driver, once per snapshot after the FoF coverage check and before publication, release and output, over exactly `cur->processed` (no Type 3, no raw slab, no older generation); it cannot emit or consume FoF events | Parser (mode family per phase, duplicates, vertical rejection), `module_system_init`, `execute_post_snapshot()`'s dispatch-active flag checked by `module_emit_event()` | Writes must reach the next entry, descendants and the snapshot's own output through the shared galaxy pointers with no copy; snapshot topology is immutable |
 | Galaxy pool is bulk-reset once per processing unit — once per tree for the vertical driver; for the horizontal driver, one pool per retained snapshot generation, bulk-reset when that generation is released at its retention horizon and recycled through a spare stack | Instanced `struct GalaxyPool *` API (`src/core/galaxy_pool.h`) | Per-galaxy frees would be slow and leak-prone; nothing may hold pool pointers across units |
 | Snapshot accumulators (`init_repeat: true` properties) reset once per SNAPSHOT, at inheritance time | `reset_galaxy_snapshot_accumulators()` called from src/core/inheritance.c | Accumulators (e.g. SFR sums) integrate across all substeps within a snapshot. NOTE: `docs/DEVELOPER-GUIDE.md` says "each substep" — the code is the truth; the doc wording is imprecise. See the `mimic-properties` skill |
 
@@ -113,6 +117,7 @@ All allocation goes through `mymalloc_cat` / `myrealloc_cat` / `myfree` (src/uti
 | `HaloAux`, `FoFWorkspace`, `ProcessedHalos` | `MEM_HALOS` | Driver, freed per tree |
 | `GalaxyData` | pool-managed | Galaxy pool; bulk-reset per tree, never individually freed |
 | Module-private allocations | module's choice of category | The module itself — allocate in `init()`/`process()`, free in `cleanup()`; nothing outlives `cleanup()` |
+| Snapshot-callback scratch | module's choice of category | The module, like any module-private allocation (freed before `process_snapshot()` returns or in `cleanup()`); outside the horizontal retention-pool accounting and `input.retention_memory_ceiling_mb`, and bounded by nothing in the core |
 
 `GalaxyData` is pool-managed through an instanced handle API (`struct GalaxyPool *`, `galaxy_pool_create()`/`galaxy_pool_alloc()`/`galaxy_pool_reset()`/`galaxy_pool_destroy()` in `src/core/galaxy_pool.h`), not a file-static singleton: `inherit_descendant_halos()` takes the pool handle explicitly. The vertical driver holds one instance, bulk-reset per tree; the horizontal driver holds one per retained snapshot generation, so every generation a later snapshot can still name as a progenitor keeps valid galaxies while the current one is built from them. A released generation's pool is bulk-reset and returned to a spare stack sized up front, so release never allocates. Adjacent input (`links_adjacent == 1`, every version 2 dataset) never holds more than two generations; gapped version 3 input can hold more, up to its longest descendant span plus one (mini-Millennium at most three, because its longest descendant span is 2). Each generation's resident bytes are computed before allocation (slab term from the reader-published `slab_row_bytes`, the rest from struct widths) and checked against the optional `input.retention_memory_ceiling_mb`; see `docs/DEVELOPER-GUIDE.md` → "The Horizontal Driver".
 

@@ -147,12 +147,18 @@ struct MimicConfig {
    * Pipeline structure defined in input YAML file, not in module metadata.
    * This provides maximum flexibility - users control execution structure.
    *
-   * Lifecycle per snapshot interval:
+   * Lifecycle per snapshot interval, for each FoF group:
    *   pre_timestep (once) -> [ substep_phases[0..N) ] x num_substeps -> post_timestep (once)
    *
    * The middle phases are user-named and arbitrary in number (see
    * struct ModulePhaseConfig). Legacy top-level phase_1/phase_2 inputs are
    * rejected by the parser rather than translated.
+   *
+   * post_snapshot is not part of that per-FoF lifecycle: the horizontal driver
+   * runs it once per snapshot, after every FoF group of the snapshot has been
+   * processed, over the snapshot's whole processed population. Only the
+   * process_snapshot mode is legal there, and a vertical run rejects a
+   * non-empty post_snapshot at configuration.
    */
 
   /* Time sub-stepping */
@@ -171,6 +177,11 @@ struct MimicConfig {
   /* Post-timestep: runs once after substeps */
   struct PhaseModuleConfig *post_timestep; /* Array of modules for this phase */
   int num_post_timestep;                   /* Number of modules in this phase */
+
+  /* Post-snapshot: runs once per snapshot over the whole processed population
+   * (horizontal driver only); every entry is process_snapshot, in YAML order */
+  struct PhaseModuleConfig *post_snapshot; /* Array of modules for this phase */
+  int num_post_snapshot;                   /* Number of modules in this phase */
 
   /* Model parameters - ALL physics parameters */
   int NumModelParams; /* Number of model parameters loaded from input file */

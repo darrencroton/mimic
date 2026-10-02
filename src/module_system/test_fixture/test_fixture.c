@@ -151,17 +151,35 @@ int test_fixture_process(struct ModuleContext *ctx, struct Halo *halos, int ngal
 }
 
 /**
+ * @brief   Return code of a snapshot call refused because DUMMY_PARAMETER is
+ *          outside TestDummyProperty's declared [0, 1] range
+ *
+ * Distinct from the -1 of a contract violation, so callback-failure tests can
+ * check that the core reports the module's own return code.
+ */
+#define TEST_FIXTURE_SNAPSHOT_RANGE_ERROR 2
+
+/**
  * @brief   Process one borrowed snapshot population (snapshot callback family)
  *
  * Checks the borrowed-view contract (see struct Module.process_snapshot), then
  * sets TestDummyProperty = DUMMY_PARAMETER on every entry, of any Type, through
  * halos[i].galaxy, the only permitted write. When ENABLE_LOGGING=1 it logs one
- * TEST_FIXTURE_SNAPSHOT_EXEC marker per call.
+ * TEST_FIXTURE_SNAPSHOT_EXEC marker per call, including the smallest and
+ * largest TestDummyProperty it found before writing, so tests can see what an
+ * earlier callback of the same phase wrote.
+ *
+ * A non-empty population with DUMMY_PARAMETER outside TestDummyProperty's
+ * declared [0, 1] range is refused with TEST_FIXTURE_SNAPSHOT_RANGE_ERROR
+ * before anything is written; that is the fixture's way to make a real run's
+ * snapshot callback fail. An empty population has nothing to write and
+ * succeeds.
  *
  * @param   ctx     Snapshot context
  * @param   halos   Borrowed snapshot population; may be NULL when count is 0
  * @param   count   Number of entries in halos
- * @return  0 on success, -1 if the caller violated the borrowed-view contract
+ * @return  0 on success, -1 if the caller violated the borrowed-view contract,
+ *          TEST_FIXTURE_SNAPSHOT_RANGE_ERROR if the value to write is out of range
  */
 int test_fixture_process_snapshot(const struct SnapshotContext *ctx, const struct Halo *halos,
                                   int64_t count) {
@@ -176,20 +194,38 @@ int test_fixture_process_snapshot(const struct SnapshotContext *ctx, const struc
     return -1;
   }
 
+  if (count > 0 && !(DUMMY_PARAMETER >= 0.0 && DUMMY_PARAMETER <= 1.0)) {
+    ERROR_LOG("test_fixture: TestFixtureDummyParameter = %g is outside TestDummyProperty's [0, 1] "
+              "range; refusing to write it at snapshot %d",
+              DUMMY_PARAMETER, ctx->snapshot_number);
+    return TEST_FIXTURE_SNAPSHOT_RANGE_ERROR;
+  }
+
   snapshot_execution_count++;
 
+  float seen_min = 0.0f;
+  float seen_max = 0.0f;
   for (int64_t i = 0; i < count; i++) {
     if (halos[i].galaxy == NULL) {
       ERROR_LOG("test_fixture: snapshot entry %lld has NULL galaxy at snapshot %d", (long long)i,
                 ctx->snapshot_number);
       return -1;
     }
+    const float seen = halos[i].galaxy->TestDummyProperty;
+    if (i == 0 || seen < seen_min) {
+      seen_min = seen;
+    }
+    if (i == 0 || seen > seen_max) {
+      seen_max = seen;
+    }
     halos[i].galaxy->TestDummyProperty = (float)DUMMY_PARAMETER;
   }
 
   if (ENABLE_LOGGING) {
-    INFO_LOG("TEST_FIXTURE_SNAPSHOT_EXEC: count=%d snapshot=%d n=%lld z=%.4f",
-             snapshot_execution_count, ctx->snapshot_number, (long long)count, ctx->redshift);
+    INFO_LOG("TEST_FIXTURE_SNAPSHOT_EXEC: count=%d snapshot=%d n=%lld z=%.4f seen_min=%.4f "
+             "seen_max=%.4f",
+             snapshot_execution_count, ctx->snapshot_number, (long long)count, ctx->redshift,
+             (double)seen_min, (double)seen_max);
   }
 
   return 0;

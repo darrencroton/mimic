@@ -278,8 +278,12 @@ static void module_entry_visitor(const char *phase_name, struct PhaseModuleConfi
  *
  * Creates an EnabledModules compound dataset containing the complete pipeline
  * configuration: one row per module instance with its name, execution phase
- * (pre_timestep, user-named substep phase, or post_timestep), and processing
- * mode. If a module appears in multiple phases, it has multiple entries.
+ * (pre_timestep, user-named substep phase, post_timestep, or post_snapshot),
+ * and processing mode, in execution order (for_each_phase). post_snapshot rows
+ * follow every FoF-phase row and exist only when that phase is configured, so
+ * a run without snapshot modules records exactly the rows it did before the
+ * phase existed. If a module appears in multiple phases, it has multiple
+ * entries.
  */
 static void write_enabled_modules(hid_t parent_group_id) {
   hid_t dataset_id, dataspace_id, rowtype, str_type;

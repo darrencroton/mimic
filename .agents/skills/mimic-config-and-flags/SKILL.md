@@ -125,11 +125,12 @@ Summary table; full per-key semantics, parse behavior, and the simulation_info-v
 | `modules.pre_timestep` | list | optional | Modules run once per snapshot before substepping |
 | `modules.phases` | ordered map | required for physics | User-named substep phases, executed in YAML order, max 32; each maps to module lists with modes `process_full_halo` / `process_per_event` / `process_by_galaxy` |
 | `modules.post_timestep` | list | optional | Modules run once per snapshot after substepping |
+| `modules.post_snapshot` | list | optional (horizontal only) | `process_snapshot` modules run once per snapshot over the whole population, after the FoF sweep and before inheritance/output; absent/`null`/`[]` = none; a non-empty list is rejected under a vertical reader |
 | `modules.parameters` | map | per model | Flat `name: value` map read by `model_get_double/int/string`; no defaults — a missing parameter fails module init |
 
 **Unit scalar form** (`box_size`, `particle_mass`): either a bare number — interpreted as already in Mimic's reference units (mass 1e10 Msun/h, length Mpc/h) — or a map `{value: <num>, units: <label>, h_convention: <carried|free|none>}` converted at load. Only `value`, `units`, `h_convention` are accepted in the map (unknown keys fatal).
 
-Unknown keys in `model:`, `simulation:`, `simulation.cosmology:`, `input:`, `output:`, `plotting:`, and simulation_info's output-defaults section are all fatal. The `modules:` section rejects anything other than `pre_timestep`, `post_timestep`, `parameters`, `phases` with its own message listing the supported keys.
+Unknown keys in `model:`, `simulation:`, `simulation.cosmology:`, `input:`, `output:`, `plotting:`, and simulation_info's output-defaults section are all fatal. The `modules:` section rejects anything other than `pre_timestep`, `post_timestep`, `post_snapshot`, `parameters`, `phases` with its own message listing the supported keys.
 
 ## parameter_units.yaml (model packages)
 

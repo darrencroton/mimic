@@ -251,13 +251,14 @@ Lifecycle behavior:
 
 - `init()` runs once at startup for each configured module, however many phases it appears in. Load and validate module parameters here.
 - `process()` runs during configured FoF phases. Return non-zero after logging an `ERROR_LOG()` message if the module cannot continue.
-- `process_snapshot()` follows the [snapshot callback contract](#snapshot-callback-contract). No run-file phase dispatches it yet: the callback, its metadata and its registration exist so modules can declare and test the family.
+- `process_snapshot()` runs once per snapshot from the `modules.post_snapshot` phase (horizontal driver only) and follows the [snapshot callback contract](#snapshot-callback-contract).
 - `cleanup()` runs once during shutdown for each configured module. Free module-owned memory here.
 
 Return conventions:
 
 - `init()` non-zero: startup aborts.
 - `process()` non-zero: Mimic exits with failure.
+- `process_snapshot()` non-zero: Mimic exits with failure, naming the module, the `post_snapshot` phase, the snapshot and the return code.
 - `cleanup()` non-zero: error is logged and cleanup continues for other modules.
 
 ### Snapshot Callback Contract
@@ -282,7 +283,11 @@ The population is borrowed:
 
 The `const` on the view is shallow. It makes a write to a halo field or to `halos[i].galaxy` itself a compile error, while `halos[i].galaxy` remains a mutable `struct GalaxyData *`. The project warning set does not include `-Wcast-qual`, so three violations compile silently and are forbidden by contract rather than by the compiler: casting away `const` to write a halo, retaining `halos` (or a pointer derived from it) in static or heap storage, and indexing `halos` by `CentralHalo`. Every review of a snapshot callback checks for these three patterns explicitly. `tests/integration/test_snapshot_module_schema.py` pins all of these compile-time behaviors.
 
-Snapshot callbacks have no event contract: `events.emits` and `events.consumes` stay tied to the FoF modes `process_full_halo` and `process_per_event`, so a snapshot-only module cannot declare events, while a dual-mode module keeps valid FoF event declarations.
+Snapshot callbacks have no event contract: `events.emits` and `events.consumes` stay tied to the FoF modes `process_full_halo` and `process_per_event`, so a snapshot-only module cannot declare events, while a dual-mode module keeps valid FoF event declarations. At run time `execute_post_snapshot()` (`src/core/module_registry.c`) keeps a snapshot-dispatch-active flag that `module_emit_event()` checks before its no-active-phase shortcut, so an emission attempted from a snapshot callback returns `-1` rather than being accepted as if it came from a direct unit test; outside snapshot dispatch that shortcut is unchanged.
+
+**When it runs.** The horizontal driver calls `execute_post_snapshot()` once per input snapshot, from `horizontal_run_post_snapshot()` in `run_horizontal_driver()`, after the FoF coverage check and before the generation is published for later progenitor lookup, before any earlier generation is released and before the snapshot is written. The context is rebuilt for each snapshot from its index, `MimicConfig.ZZ`, `Age` and `&MimicConfig`. The population is the generation's own output buffer, `cur->processed.halos[0:count]`: every surviving Type 0, 1 and 2 galaxy of the snapshot, across all its FoF groups, in marshalling order. The marshaller has already dropped Type 3 entries, and neither the raw slab nor any other retained generation is passed. Because the buffer's halos carry the same galaxy pointers inheritance later deep-copies from, a callback's writes reach the next `post_snapshot` entry, every descendant (adjacent or across a gap) and the snapshot's own output without any copy. Each entry is called in YAML order, including for an empty snapshot (count zero, whatever the buffer pointer holds) and for snapshots not selected for output; the dispatcher has no count shortcut. A non-zero return is fatal, and the driver's existing exit-time failure cleanup releases every retained generation and removes the master and any in-flight partition.
+
+Memory a snapshot module allocates for its callback is outside the retention-pool accounting and `input.retention_memory_ceiling_mb`; it is the module's own, tracked through the usual allocator categories, and released by the module like any module-private allocation (before the callback returns, or in `cleanup()`). Nothing here bounds total process memory.
 
 ### Module Communication
 
@@ -422,7 +427,7 @@ The concise README in `models/sage16/modules/sage_resolve_mergers_and_disruption
 | `process_by_galaxy` | `PROCESSING_MODE_BY_GALAXY` | One galaxy, `ngal = 1` | Local per-galaxy physics and time integration |
 | `process_snapshot` | `PROCESSING_MODE_SNAPSHOT` | Borrowed whole-snapshot population through `process_snapshot` | Snapshot-wide calculations; see [Snapshot Callback Contract](#snapshot-callback-contract) |
 
-The first three modes form the FoF callback family (`process`); `process_snapshot` is the snapshot family (`process_snapshot`). Each mode belongs to exactly one family, defined once in the C table in `src/core/module_registry.c` and mirrored by `scripts/module_modes.py` for the generator and validator. A module may declare `process_snapshot` alone or alongside FoF modes. The FoF phases below accept only FoF modes, and no run-file phase accepts `process_snapshot` yet.
+The first three modes form the FoF callback family (`process`); `process_snapshot` is the snapshot family (`process_snapshot`). Each mode belongs to exactly one family, defined once in the C table in `src/core/module_registry.c` and mirrored by `scripts/module_modes.py` for the generator and validator. A module may declare `process_snapshot` alone or alongside FoF modes. The FoF phases below accept only FoF modes, and `modules.post_snapshot` accepts only `process_snapshot`. The run-file parser maps mode names (`src/core/read_parameter_file.c` keeps its own name list, because the topology-dump harness links it without the module system), and `module_system_init()` checks each entry's mode against its phase's family through the registry's table, and against the module's supported modes and callbacks, before any `init()` runs.
 
 Choose the narrowest mode that gives the module the context it needs. A module that only modifies one galaxy at a time should usually use `process_by_galaxy`. A module that redistributes reservoirs across a FoF group or emits merger events should use `process_full_halo`.
 
@@ -436,6 +441,8 @@ for each substep:
   each modules.phases entry in declared order
 post_timestep
 ```
+
+Under the horizontal driver, once every FoF group of a snapshot has run that sequence, each `modules.post_snapshot` entry runs once over the whole snapshot population, in YAML order. `for_each_phase()` visits the phases in this order, and visits `post_snapshot` only when it has entries, so pipeline collection, validation, event-contract enumeration and the HDF5 `EnabledModules` rows of a run without snapshot modules are exactly what they were before the phase existed.
 
 Inside each phase:
 
@@ -452,6 +459,7 @@ Phase selection guide:
 | `pre_timestep` | Once before substeps | Setup, reionization, infall budgets, merger clock setup |
 | `modules.phases.<name>` | Each substep, in YAML order | Named physical stages such as `galaxy_physics` or `satellite_mergers` |
 | `post_timestep` | Once after substeps | Finalization and accumulator conversion |
+| `post_snapshot` | Once per snapshot, after every FoF group (horizontal driver only) | `process_snapshot` modules needing the whole snapshot population |
 
 ### Accessing the Central Galaxy
 
@@ -1111,8 +1119,9 @@ One bound is enforced, at two points. The horizontal reader checks the configure
 - **Sizing and the ceiling.** `horizontal_require_generation_fits()` computes each generation's resident bytes from its halo count before the reader loads its slab, taking the slab term from the per-row width the reader publishes as `HorizontalRunInfo.slab_row_bytes` (measured against the allocator by the fixture tests, so it excludes the allocator's rounding of each block up to 8 bytes) and the aux, output-buffer and pool terms from struct widths, logs them under `--verbose`, and aborts before allocation if they overflow `int64_t` or if `input.retention_memory_ceiling_mb` (stored in `MimicConfig.RetentionMemoryCeiling`, in bytes, 0 for none) is set and the pool plus the new generation would exceed it. A total exactly at the ceiling is accepted. The refusal names the snapshot, the bytes and the ceiling, and names chunked slab streaming as the missing capability. Before that sizing it makes two width checks (`horizontal_require_slab_emittable()`): it refuses a slab above `INT_MAX` rows at a requested output snapshot, where failure is certain, and warns once for any slab above `MAX_HALO_ARRAY_SIZE`, where it is likely. The ceiling bounds admission only: in-sweep growth of an output buffer or galaxy pool is allocated mid-sweep, so it is measured and warned about once rather than refused, and the driver's run-wide workspace and process RSS are not covered. The configuration parser rejects the key for vertical runs and for zero, negative or non-integer values. The key is not recorded in `RunProperties`.
 - **Reporting.** The run memory profile's term `R` reports the most generations retained at once and the most bytes resident across them (`run_profile_note_retention()`, `src/util/run_profile.c`). Under `--verbose` the driver logs each load (`Loaded snapshot N (...); K slab(s) live`), each horizon, each release and the peak; `tests/integration/test_processing_order.py` asserts that lifecycle wording.
 - **Failure path.** A driver-local `atexit` handler, `horizontal_failure_cleanup()`, releases every retained generation if the run aborts, so `close_run` never finds a slab loaded.
+- **Snapshot-wide modules.** After a snapshot's FoF coverage check, `horizontal_run_post_snapshot()` runs the configured `modules.post_snapshot` entries over that generation's processed buffer, before it is published, before any release and before output. See [Snapshot Callback Contract](#snapshot-callback-contract).
 
-Horizontal configurations are gated at config time (`validate_and_postprocess()`, `src/core/read_parameter_file.c`): `output_format: binary` is rejected (HDF5-only), `--skip` is rejected (no resume), and `NTask > 1` is rejected (serial only: multi-rank horizontal execution is not implemented).
+Horizontal configurations are gated at config time (`validate_and_postprocess()`, `src/core/read_parameter_file.c`): `output_format: binary` is rejected (HDF5-only), `--skip` is rejected (no resume), and `NTask > 1` is rejected (serial only: multi-rank horizontal execution is not implemented). The same function rejects a non-empty `modules.post_snapshot` under a vertical reader, since only the horizontal driver holds a complete snapshot.
 
 **Explicit input view.** The generated `mimic_tree_get_*` accessors and the virial helpers (`get_virial_mass`/`get_virial_velocity`/`get_virial_radius`, `src/core/virial.c`) take a `struct HaloInputView { const struct RawHalo *halos; int64_t count; }` (`src/include/types.h`) as their first argument instead of reading a global array. The vertical driver constructs its view from `InputTreeHalos` and the loaded unit's halo count; the horizontal driver constructs its view from whichever retained slab a call site needs — the current snapshot's, or the generation a progenitor link names. This is what lets exactly the same physics-coupled code serve both drivers with no duplicated arithmetic: there is one shared generated payload populator (`populate_halo_payload.inc`), and `prepare_halo_for_output()` (`src/io/output/util.c`) takes the view too, so no file under `src/io/output/` reads a raw input global.
 

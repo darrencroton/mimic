@@ -15,11 +15,14 @@
  * - Pre-timestep phase (once before substeps)
  * - User-named substep phases (each substep, in input-YAML order)
  * - Post-timestep phase (once after substeps)
+ * - Post-snapshot phase (horizontal driver only: once per snapshot, after
+ *   every FoF group of the snapshot, over its whole processed population)
  *
  * Usage:
  * 1. Modules call module_registry_add() to register themselves (at startup)
  * 2. Main program calls module_system_init() after parameter reading
- * 3. Tree processing calls execute_phase() for each phase
+ * 3. Tree processing calls execute_phase() for each FoF phase, and the
+ *    horizontal driver calls execute_post_snapshot() once per snapshot
  * 4. Main program calls module_system_cleanup() before exit
  */
 
@@ -28,6 +31,7 @@
 
 #include <stdbool.h>
 #include <stddef.h> /* for size_t */
+#include <stdint.h> /* for int64_t */
 
 #include "module_interface.h"
 
@@ -55,6 +59,9 @@ struct PhaseModuleConfig {
                                             looks modules up by name on the hot path */
 };
 
+/** Configuration and provenance name of the snapshot-wide phase (modules.post_snapshot) */
+#define POST_SNAPSHOT_PHASE_NAME "post_snapshot"
+
 /** Maximum number of user-named substep middle phases per run */
 #define MAX_SUBSTEP_PHASES 32
 
@@ -77,7 +84,8 @@ struct ModulePhaseConfig {
 /**
  * @brief   Visitor callback for iterating all configured phases in execution order
  *
- * @param   phase_name   Phase name ("pre_timestep", user-named, "post_timestep")
+ * @param   phase_name   Phase name ("pre_timestep", user-named, "post_timestep",
+ *                       "post_snapshot")
  * @param   modules      Phase module configuration array (may be NULL when empty)
  * @param   num_modules  Number of entries in the array
  * @param   userdata     Caller-supplied context pointer
@@ -87,10 +95,14 @@ typedef void (*PhaseVisitor)(const char *phase_name, struct PhaseModuleConfig *m
 
 /**
  * @brief   Visit every configured phase (pre_timestep, each substep phase in
- *          input order, post_timestep) exactly once
+ *          input order, post_timestep, then post_snapshot) exactly once
  *
  * Single home for the phase-iteration pattern shared by pipeline build,
- * validation, contract enumeration, and output metadata.
+ * validation, contract enumeration, and output metadata. pre_timestep and
+ * post_timestep are visited even when empty; post_snapshot is visited only
+ * when it has entries, so a run without snapshot modules visits exactly the
+ * phases (and produces exactly the pipeline and provenance) it did before
+ * the phase existed.
  */
 void for_each_phase(PhaseVisitor visit, void *userdata);
 
@@ -178,6 +190,28 @@ int module_system_init(void);
  */
 void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
                    struct ModuleContext *ctx, struct Halo *halos, int ngal);
+
+/**
+ * @brief   Run the post_snapshot phase over one snapshot's processed population
+ *
+ * Calls each configured post_snapshot entry's typed process_snapshot()
+ * callback once, in YAML order, with @p ctx, @p halos and @p count. The
+ * phase is read from ctx->params. A zero count is a real call (an empty
+ * snapshot still runs the phase), and @p halos may then be NULL or not.
+ *
+ * Snapshot dispatch is not a FoF phase: while it is active,
+ * module_emit_event() rejects every call with a non-NULL context, so a
+ * snapshot callback can neither emit nor consume FoF events.
+ *
+ * A non-zero callback return is fatal, naming the module, the snapshot and
+ * the return code; the caller's exit-time failure cleanup then runs.
+ *
+ * @param   ctx     Snapshot context (built by the caller for this snapshot)
+ * @param   halos   The snapshot's current processed population (borrowed)
+ * @param   count   Number of entries in @p halos (>= 0)
+ */
+void execute_post_snapshot(const struct SnapshotContext *ctx, const struct Halo *halos,
+                           int64_t count);
 
 /**
  * @brief   Run the full configured module lifecycle over a halo workspace
@@ -292,7 +326,8 @@ int model_get_string(const char *param_name, char *out_value, size_t max_len);
  * @brief   Check if a module is configured in a given phase with a specific mode
  *
  * Intended for use in module init() functions to enforce dependency contracts
- * against the fixed lifecycle phases. For the substep middle phases use the
+ * against the fixed lifecycle phases (including MimicConfig.post_snapshot with
+ * PROCESSING_MODE_SNAPSHOT). For the substep middle phases use the
  * phase-name-agnostic helpers below (module_in_substep_phase, etc.).
  *
  * @param   name         Module name to search for
@@ -306,6 +341,8 @@ bool module_configured_in_phase(const char *name, const struct PhaseModuleConfig
 
 /**
  * @brief   Check if a module is configured in any phase with any mode
+ *
+ * Covers the FoF phases and post_snapshot.
  *
  * @param   name  Module name to search for
  * @return  true if the module appears in any phase
