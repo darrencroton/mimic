@@ -35,6 +35,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
@@ -192,8 +193,19 @@ def test_standalone_fallback_keeps_three_modes():
     assert list(module_modes.STANDALONE_FALLBACK_MODES) == fof
     families = module_modes.callback_families(metadata["supported_processing_modes"])
     assert [family.key for family in families] == [module_modes.FAMILY_FOF], families
-    validator_source = (REPO_ROOT / "scripts" / "validate_modules.py").read_text(encoding="utf-8")
-    assert '"supported_processing_modes": list(STANDALONE_FALLBACK_MODES)' in validator_source
+    # The validator's own discovery, run over a real standalone file, synthesizes the same
+    # three modes; no part of this depends on the validator's source text.
+    with scratch_dir() as directory:
+        source = directory / "standalone_demo.c"
+        source.write_text("/* standalone prototype */\n", encoding="utf-8")
+        with mock.patch.object(validator, "standalone_module_files", lambda: [source]):
+            with mock.patch.object(validator, "module_metadata_files", lambda: []):
+                discovered = validator.discover_modules()
+    assert len(discovered) == 1, discovered
+    found = discovered[0][1]
+    assert found["_pattern"] == "standalone" and found["name"] == "standalone_demo", found
+    assert found["supported_processing_modes"] == fof, found
+    assert not validator_mode_errors(found["supported_processing_modes"])
     print("  ✓ standalone modules keep [process_full_halo, process_per_event, process_by_galaxy]")
 
 

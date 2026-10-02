@@ -320,7 +320,7 @@ GIT_DIR := $(shell git rev-parse --git-dir 2>/dev/null)
 # -----------------------------------------------------------------------------
 # Build Targets
 # -----------------------------------------------------------------------------
-.PHONY: all clean tidy help info generate generate-modules generate-test-inputs check-generated check-docs check-format check-horizontal-fixture tests tests-unit tests-integration tests-scientific tests-horizontal-v3 tests-snapshot-global-sham tests-converter test-clean validate-modules lint-parameters validate-build summary dump-ctrees-topology-tool
+.PHONY: all clean tidy help info generate generate-modules generate-test-inputs check-generated check-docs check-format check-horizontal-fixture tests tests-unit tests-integration tests-scientific tests-horizontal-v3 tests-snapshot-global tests-snapshot-global-sham tests-snapshot-global-identity tests-converter test-clean validate-modules lint-parameters validate-build summary dump-ctrees-topology-tool
 
 all: validate-build $(EXEC)
 
@@ -502,7 +502,9 @@ help:
 	@echo "  make tests-integration  - Run integration tests only"
 	@echo "  make tests-scientific   - Run scientific tests only"
 	@echo "  make tests-horizontal-v3 - Run the version 3 reader, retention and identity battery and the mini-millennium-horizontal package tests on committed fixtures"
+	@echo "  make tests-snapshot-global - Run the post_snapshot phase, typed callback/schema and sham_global_rank batteries on the committed horizontal fixtures"
 	@echo "  make tests-snapshot-global-sham - Run the sham_global_rank unit and end-to-end tests under MODEL=sham on the micro-uchuu-ascii-horizontal fixture"
+	@echo "  make tests-snapshot-global-identity - Compare disabled-mode post_snapshot output with the pre-feature reference commit (builds worktrees; slow; REFERENCE_COMMIT=<hash> optional)"
 	@echo "  make tests-converter    - Run the ctrees->horizontal-HDF5 converter self-tests"
 	@echo "  make check-horizontal-fixture - Check the committed horizontal fixture against the format spec"
 	@echo "  make tests summary     - Run all tests with concise warning/failure/skip output"
@@ -905,6 +907,94 @@ tests-snapshot-global-sham:
 	$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) generate
 	@echo "Generated code restored for MODEL=$(MODEL) SIMULATION=$(SIMULATION); rebuild the executable with 'make'."
 	@test "$$(cat build/.snapshot_global_sham_status)" = 0
+
+# Complete fixture acceptance for the snapshot-global feature, in sequence: the
+# neutral post_snapshot phase tests under the v2 micro-Uchuu and the v3
+# mini-Millennium fixtures, the typed callback unit and schema tests, and
+# tests-snapshot-global-sham. Each step builds its pair as a test build, runs the
+# declared tests by path, and fails on a build or test exit status, on any
+# `MIMIC_RESULT: FAIL`, `ERROR` or `SKIP`, and on a PASS count that is not the
+# number of cases the test file declares (`def test_` or `TEST_RUN(`), so a case
+# dropped from a runner cannot pass silently. Logs go to $(SG_LOG). It runs no
+# real-data gate and no reference-commit comparison, and it does not touch model
+# discovery. The caller's generated selectors are restored on every exit,
+# including an interrupt; rebuild the executable with `make`.
+SG_MODEL := halos-only
+SG_V2 := micro-uchuu-ascii-horizontal
+SG_V3 := mini-millennium-horizontal
+SG_LOG := build/snapshot_global_tests.log
+SG_STEP_LOG := build/snapshot_global_step.log
+SG_PHASE_TEST := tests/integration/test_snapshot_phase.py
+SG_SCHEMA_TEST := tests/integration/test_snapshot_module_schema.py
+SG_CONTRACT_TEST := test_snapshot_module_contract
+SG_CONTRACT_SOURCE := tests/unit/$(SG_CONTRACT_TEST).c
+SG_VENV_PATH := $(if $(findstring /,$(PYTHON)),$(abspath $(dir $(PYTHON))):)
+
+tests-snapshot-global:
+	@mkdir -p build; : > $(SG_LOG); rc=0; total=0; \
+	restore() { \
+		$(MAKE) MODEL='$(MODEL)' SIMULATION='$(SIMULATION)' generate >> $(SG_LOG) 2>&1 \
+			&& echo "Generated code restored for MODEL=$(MODEL) SIMULATION=$(SIMULATION); rebuild the executable with 'make'." \
+			|| echo "WARNING: could not restore generated code for MODEL=$(MODEL) SIMULATION=$(SIMULATION)"; \
+	}; \
+	trap restore EXIT; trap 'exit 130' INT; trap 'exit 143' TERM; \
+	check() { \
+		label="$$1"; expected="$$2"; status="$$3"; \
+		{ echo "=== $$label (exit $$status, expecting $$expected cases)"; cat $(SG_STEP_LOG); } >> $(SG_LOG); \
+		passes=$$(grep -c '^MIMIC_RESULT: PASS' $(SG_STEP_LOG)); \
+		bad=$$(grep -E '^MIMIC_RESULT: (FAIL|ERROR|SKIP)' $(SG_STEP_LOG)); \
+		if [ "$$status" -ne 0 ]; then echo "FAIL: $$label exited $$status"; rc=1; fi; \
+		if [ -n "$$bad" ]; then echo "FAIL: $$label reported non-PASS cases:"; echo "$$bad"; rc=1; fi; \
+		if [ "$$passes" -ne "$$expected" ]; then echo "FAIL: $$label ran $$passes PASS cases, expected $$expected"; rc=1; fi; \
+		echo "  $$label: $$passes/$$expected cases"; total=$$((total + passes)); \
+	}; \
+	phase_cases=$$(grep -c '^def test_' $(SG_PHASE_TEST)); \
+	schema_cases=$$(grep -c '^def test_' $(SG_SCHEMA_TEST)); \
+	contract_cases=$$(grep -c 'TEST_RUN(' $(SG_CONTRACT_SOURCE)); \
+	for sim in $(SG_V2) $(SG_V3); do \
+		echo "--- $(SG_MODEL) x $$sim"; \
+		$(MAKE) MODEL=$(SG_MODEL) SIMULATION=$$sim TEST_BUILD=yes generate validate-build $(EXEC) > $(SG_STEP_LOG) 2>&1; \
+		status=$$?; check "build $$sim" 0 $$status; \
+		if [ $$status -ne 0 ]; then continue; fi; \
+		PATH="$(SG_VENV_PATH)$$PATH" MODEL='$(SG_MODEL)' SIMULATION="$$sim" $(PYTHON) $(SG_PHASE_TEST) > $(SG_STEP_LOG) 2>&1; \
+		check "post_snapshot phase tests on $$sim" $$phase_cases $$?; \
+		if [ "$$sim" = "$(SG_V2)" ]; then \
+			(cd tests/unit && MODEL='$(SG_MODEL)' SIMULATION="$$sim" ./run_tests.sh $(SG_CONTRACT_TEST)) > $(SG_STEP_LOG) 2>&1; \
+			check "typed callback unit tests" $$contract_cases $$?; \
+			PATH="$(SG_VENV_PATH)$$PATH" MODEL='$(SG_MODEL)' SIMULATION="$$sim" $(PYTHON) $(SG_SCHEMA_TEST) > $(SG_STEP_LOG) 2>&1; \
+			check "typed callback schema tests" $$schema_cases $$?; \
+		fi; \
+	done; \
+	echo "--- tests-snapshot-global-sham"; \
+	$(MAKE) --no-print-directory MODEL='$(MODEL)' SIMULATION='$(SIMULATION)' tests-snapshot-global-sham > $(SG_STEP_LOG) 2>&1; \
+	status=$$?; \
+	{ echo "=== tests-snapshot-global-sham (exit $$status)"; cat $(SG_STEP_LOG); } >> $(SG_LOG); \
+	if [ $$status -ne 0 ]; then echo "FAIL: tests-snapshot-global-sham exited $$status"; rc=1; fi; \
+	line=$$(grep '^PASS: tests-snapshot-global-sham' $(SG_STEP_LOG)); \
+	if [ -z "$$line" ]; then echo "FAIL: tests-snapshot-global-sham printed no PASS line"; rc=1; else echo "  $$line"; fi; \
+	if grep -q '^MIMIC_RESULT: SKIP' build/snapshot_global_sham_tests.log; then echo "FAIL: tests-snapshot-global-sham skipped a case"; rc=1; fi; \
+	if [ $$rc -ne 0 ]; then echo "FAIL: tests-snapshot-global (see $(SG_LOG))"; \
+	else echo "PASS: tests-snapshot-global ($$total cases counted here, plus the sham battery: $${line#PASS: tests-snapshot-global-sham }; no skips)"; fi; \
+	exit $$rc
+
+# Disabled-mode identity against the pre-feature reference commit. The manual
+# test lives outside the auto-discovered tiers (tests/manual/ is never globbed by
+# scripts/generate_test_registry.py), builds the reference and HEAD in detached
+# worktrees under archive/snapshot-global-identity/, and never touches this
+# checkout's generated code. Slow (it builds twelve worktrees and runs thirty-six
+# fixture runs); REFERENCE_COMMIT=<hash> overrides the derived reference. Any
+# non-zero exit or any `MIMIC_RESULT: SKIP` (a development subset) fails it.
+SGI_LOG := build/snapshot_global_identity.log
+SGI_TEST := tests/manual/test_snapshot_disabled_identity.py
+
+tests-snapshot-global-identity:
+	@mkdir -p build; rc=0; \
+	{ $(PYTHON) $(SGI_TEST); echo $$? > build/.snapshot_global_identity_status; } 2>&1 | tee $(SGI_LOG); \
+	rc=$$(cat build/.snapshot_global_identity_status); \
+	if grep -q '^MIMIC_RESULT: SKIP' $(SGI_LOG); then echo "FAIL: tests-snapshot-global-identity skipped a case"; rc=1; fi; \
+	if [ $$rc -ne 0 ]; then echo "FAIL: tests-snapshot-global-identity (see $(SGI_LOG))"; \
+	else echo "PASS: tests-snapshot-global-identity (see $(SGI_LOG))"; fi; \
+	exit $$rc
 
 # Reference-topology dump harness: read-only, loads forests through the existing
 # consistent_trees_ascii reader and dumps their literal link fields for
