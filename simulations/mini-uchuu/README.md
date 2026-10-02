@@ -11,7 +11,7 @@ This package runs Mimic against the mini-Uchuu merger trees in L-Halo binary for
 
 **Data files required in `snapshots/`:**
 
-128 binary files (~92 GB total), converted from the Consistent-Trees ASCII trees by sage-model:
+128 binary files (~151 GB total), converted from the Consistent-Trees ASCII trees by sage-model:
 ```text
 Uchuu400_Planck_lhalo_binary.0
 Uchuu400_Planck_lhalo_binary.1
@@ -21,8 +21,8 @@ Uchuu400_Planck_lhalo_binary.127
 
 **Mirror maintenance:** `halo_properties.yaml` follows the `simulations/micro-uchuu/` and `simulations/mini-millennium/` layout (same 26-field L-Halo struct). When changing the lhalo field schema, apply the same change to those packages. Only the `Pos` range differs between them.
 
-**Preferred format for this tier:** L-Halo binary is the preferred mini-Uchuu production format (92 GB, compact and validated format). No forests-HDF5 packaging exists for mini-Uchuu; if needed it must be generated from the Consistent-Trees ASCII trees.
+**Preferred format for this tier:** L-Halo binary is the preferred mini-Uchuu production format (151 GB, compact and validated format). No forests-HDF5 packaging exists for mini-Uchuu; if needed it must be generated from the Consistent-Trees ASCII trees.
 
-**Production-scale smoke:** default integration tests use the tiny fixture and do not touch the 92 GB production catalog. To smoke-test the mounted production files explicitly, build for this package and run `./mimic models/halos-only/input/halos-only_mini-uchuu.yaml`.
+**Production-scale smoke:** default integration tests use the tiny fixture and do not touch the 151 GB production catalog. To smoke-test the mounted production files explicitly, build for this package and run `./mimic models/halos-only/input/halos-only_mini-uchuu.yaml`.
 
-**Horizontal conversion (format version 3).** `converter_columns.yaml` is this package's profile for `convert/mimic-convert/convert_trees.py --source-format lhalo_binary`. `simulation_info.yaml` declares files 0–127; only files 0–15 have been converted and checked (181,188,125 halos), which is wider than the files 0–3 that `halos-only_mini-uchuu.yaml` pins. That is a labelled sample, not a whole-simulation conversion; a requested file that is missing fails the conversion rather than narrowing it. The sampled conversion of files 0–15 runs as the version 3 package `simulations/mini-uchuu-horizontal/`: over those sixteen files, horizontal output is bitwise identical per `UniqueGalaxyID` to this package's vertical output over the same files (with the vertical run's file range widened to 0–15), under `halos-only` with fixed and dynamic timesteps, as gated by that package against this package's reader (see [`mini-uchuu-horizontal/README.md`](../mini-uchuu-horizontal/README.md#parity-gate)). Nothing is claimed for the whole simulation, which needs files 16–127, or for `sage16`. Commands, flags and what the evidence covers: [`convert/mimic-convert/README.md`](../../convert/mimic-convert/README.md).
+**Horizontal conversion (format version 3).** `converter_columns.yaml` is this package's profile for `convert/mimic-convert/convert_trees.py --source-format lhalo_binary`. `simulation_info.yaml` declares files 0–127 and the whole simulation has been converted (1,451,359,554 halos), which is wider than the files 0–3 that `halos-only_mini-uchuu.yaml` pins so that it stays quick to run. Name the file range you hold: a requested file that is missing fails the conversion rather than narrowing it. The conversion runs as the version 3 package `simulations/mini-uchuu-horizontal/`, whose parity gate compares its horizontal output with this package's vertical output over all 128 files (see [`mini-uchuu-horizontal/README.md`](../mini-uchuu-horizontal/README.md#parity-gate)). Commands, flags and what the evidence covers: [`convert/mimic-convert/README.md`](../../convert/mimic-convert/README.md).

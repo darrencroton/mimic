@@ -1,8 +1,8 @@
-# Mimic SAGE on mini-Uchuu Run Configuration - horizontal HDF5 version 3, sampled files 0-15
+# Mimic SAGE on mini-Uchuu Run Configuration - horizontal HDF5 version 3
 #
-# Identical to sage16_mini-uchuu.yaml with input.last_file set to 15, except for
-# simulation.name and output.output_directory. The shipped vertical run file reads
-# files 0-3; this one names the converted sampled subset 0-15.
+# Identical to sage16_mini-uchuu.yaml except for simulation.name,
+# output.output_directory and input.last_file. This run covers the whole simulation
+# (files 0-127); the vertical file reads files 0-3 to stay quick to run.
 
 model:
   name: sage16
@@ -11,10 +11,8 @@ simulation:
   name: mini-uchuu-horizontal
 
 input:
-  # Metadata only for the horizontal reader: names the converted sampled
-  # subset, Uchuu400_Planck_lhalo_binary.0-.15 of 128
   first_file: 0
-  last_file: 15
+  last_file: 127
 
 output:
   output_filename: model

@@ -1,4 +1,4 @@
-# Millennium (sampled files 0-15) Halo Catalog Properties — horizontal HDF5 format version 3
+# Millennium Halo Catalog Properties — horizontal HDF5 format version 3
 #
 # Version 3 horizontal package for Millennium, converted from L-Halo binary
 # by convert/mimic-convert/convert_trees.py with the
@@ -15,8 +15,8 @@
 # disagreement; in particular M_Crit200 stays float32 in the native L-Halo
 # 1e10 Msun/h.
 #
-# The package covers a sampled subset: files trees_063.0-.15 of the 512 the
-# vertical package declares. See README.md.
+# The package covers the whole simulation: all 512 files, trees_063.0-.511, the
+# vertical package's full extent. See README.md.
 #
 # The five links are `long long`: version 3 stores them as
 # int64, and the reader refuses a package whose link storage would narrow them.
@@ -99,7 +99,10 @@ halo_properties:
     output: true
     init_source: copy_from_tree_array
     output_source: copy_direct_array
-    range: [-5000.0, 5000.0]
+    # Measured over the whole catalogue (760,667,000 halos): [-5243.4, 5208.5] km/s. The
+    # range is 6000 rather than the 5000 the other L-Halo packages declare, a margin of
+    # about 14% over the measured extreme; it is a test threshold, not a physical limit.
+    range: [-6000.0, 6000.0]
 
   - name: VelDisp
     type: float
@@ -133,7 +136,7 @@ halo_properties:
     # 5 sigma above the log-normal spin distribution (median ~0.035, sigma_ln ~0.5,
     # Bullock+01), which only the few most massive halos approach; the range adds a
     # 1.7x margin on top, so it is a conservative test threshold, not a physical
-    # limit. Recorded extreme 149.5 on files 0-15 (acceptance record §13).
+    # limit. Measured over the whole catalogue: [-389.3, 314.7].
     range: [-5000.0, 5000.0]
 
   - name: MostBoundID

@@ -2,13 +2,17 @@
 """
 Version 3 route parity gate: mini-uchuu against its own horizontal conversion.
 
-Certifies that the same real merger trees -- Uchuu400_Planck_lhalo_binary.0-.15, a
-sampled subset of the 128 files the package declares -- read through the vertical
-driver (``mini-uchuu``, the ``lhalo_binary`` reader) and through the horizontal
-driver (``mini-uchuu-horizontal``, a version 3 conversion of exactly those files)
-produce, for every output snapshot, identical ``UniqueGalaxyID`` sets and per-id
-byte-identical fields under ``halos-only``, with fixed and dynamic timesteps. Parity
-is promised against the package's own source format only.
+Certifies that the same real merger trees -- the whole simulation,
+Uchuu400_Planck_lhalo_binary.0-.127, all 128 files the package declares -- read
+through the vertical driver (``mini-uchuu``, the ``lhalo_binary`` reader) and through
+the horizontal driver (``mini-uchuu-horizontal``, a version 3 conversion of exactly
+those files) produce, for every output snapshot, identical ``UniqueGalaxyID`` sets and
+per-id byte-identical fields under ``halos-only``, with fixed and dynamic timesteps.
+Parity is promised against the package's own source format only.
+
+The shipped vertical run file ``halos-only_mini-uchuu.yaml`` reads only files 0-3 so
+that it stays quick to run, so the gate runs a scratch copy of it with the input range
+set to 0-127 and nothing else changed, and checks that both runs record that range.
 
 The stages and every check live in ``tests/framework/parity_gate.py``; this file
 only pins what the package's data must be. It is a manual, dataset-present
@@ -34,18 +38,18 @@ PACKAGE = GatePackage(
     vertical="mini-uchuu",
     horizontal="mini-uchuu-horizontal",
     alist="mini-uchuu.a_list",
-    evidence="a sampled subset (Uchuu400_Planck_lhalo_binary.0-.15 of the 128 files simulations/mini-uchuu declares)",
-    file_range=(0, 15),
+    evidence="the whole simulation (Uchuu400_Planck_lhalo_binary.0-.127, all 128 files simulations/mini-uchuu declares)",
+    file_range=(0, 127),
     override_vertical_range=True,
     format_version=3,
     source_format="lhalo_binary",
     column_mapping_sha256="5a74a2e07eca5f3a5fef5e02b75e15c821f94370606d7608b25f082f9f5654b1",
     links_adjacent=1,
-    halos=181_188_125,
-    forests=3_230_400,
+    halos=1_451_359_554,
+    forests=25_843_142,
     gapped_descendants=0,
     max_descendant_span=1,
-    required_free_bytes=100 * 1024**3,
+    required_free_bytes=300 * 1024**3,
 )
 
 

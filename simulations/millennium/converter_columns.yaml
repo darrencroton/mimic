@@ -2,8 +2,8 @@
 #
 # Route: --source-format lhalo_binary, validated against the ordered
 # simulations/millennium/halo_properties.yaml (pass it as --halo-properties).
-# Inventory: trees_063.<N>; simulation_info.yaml declares files 0-511, of
-# which only 0-15 are present locally -- name the range you hold.
+# Inventory: trees_063.<N>; simulation_info.yaml declares files 0-511 -- name the
+# range you hold; a requested file that is missing fails the conversion.
 #
 # Checked against the package's source metadata: halo_properties.yaml declares
 # the shipped 19-field, 104-byte record in the order and at the offsets below.

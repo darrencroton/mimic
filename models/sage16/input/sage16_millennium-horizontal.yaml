@@ -1,7 +1,8 @@
-# Mimic SAGE on Millennium Run Configuration - horizontal HDF5 version 3, sampled files 0-15
+# Mimic SAGE on Millennium Run Configuration - horizontal HDF5 version 3
 #
-# Identical to sage16_millennium.yaml except for simulation.name and
-# output.output_directory.
+# Identical to sage16_millennium.yaml except for simulation.name,
+# output.output_directory and input.last_file. This run covers the whole simulation
+# (files 0-511); the vertical file reads files 0-15 to stay quick to run.
 
 model:
   name: sage16
@@ -10,10 +11,8 @@ simulation:
   name: millennium-horizontal
 
 input:
-  # Metadata only for the horizontal reader: names the converted sampled
-  # subset, trees_063.0-.15 of 512, the same range sage16_millennium.yaml reads
   first_file: 0
-  last_file: 15
+  last_file: 511
 
 output:
   output_filename: model

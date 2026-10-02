@@ -124,7 +124,7 @@ halo_properties:
     # 5 sigma above the log-normal spin distribution (median ~0.035, sigma_ln ~0.5,
     # Bullock+01), which only the few most massive halos approach; the range adds a
     # 2.5x margin on top, so it is a conservative test threshold, not a physical
-    # limit. Recorded extreme 43.35 (acceptance record §6).
+    # limit. Measured extreme 43.35 on the complete catalogue.
     range: [-1000.0, 1000.0]
 
   - name: MostBoundID

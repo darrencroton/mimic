@@ -1,4 +1,4 @@
-# mini-Uchuu (sampled files 0-15) Simulation Metadata — horizontal HDF5 format version 3
+# mini-Uchuu Simulation Metadata — horizontal HDF5 format version 3
 #
 # Version 3 horizontal package for mini-Uchuu, converted from L-Halo binary.
 # The cosmology, box size, particle mass and a_list are simulations/mini-uchuu/'s own,
@@ -7,17 +7,19 @@
 #
 # `tree_name` is the snapshot filename convention, not a general pattern: the
 # format fixes it at `snapshot_%03d.h5` and the reader accepts no other value.
-# first_file/last_file are metadata only; the horizontal reader derives its file
-# set from the snapshot list. They name the
-# converted SAMPLED SUBSET, Uchuu400_Planck_lhalo_binary.0-.15 of the 128
-# files simulations/mini-uchuu/ declares; this package is not the whole
-# simulation.
+# first_file/last_file declare the FULL simulation extent,
+# Uchuu400_Planck_lhalo_binary.0-.127, as simulations/mini-uchuu/ does; the
+# horizontal reader ignores them and derives its file set from the snapshot list.
+# mimic-plot uses this extent as the denominator of the volume fraction (files
+# processed / files declared here), so it must be the whole simulation whatever
+# subset was converted. The files processed are named by the run file's
+# input.first_file/last_file.
 # `snapshots/` is a gitignored local symlink to a converted dataset, never
 # committed data.
 
 input:
   first_file: 0
-  last_file: 15
+  last_file: 127
   tree_name: snapshot_%03d.h5
   tree_type: horizontal_hdf5
   processing_order: horizontal

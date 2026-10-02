@@ -97,7 +97,10 @@ halo_properties:
     output: true
     init_source: copy_from_tree_array
     output_source: copy_direct_array
-    range: [-5000.0, 5000.0]
+    # Measured over the whole catalogue (760,667,000 halos): [-5243.4, 5208.5] km/s. The
+    # range is 6000 rather than the 5000 the other L-Halo packages declare, a margin of
+    # about 14% over the measured extreme; it is a test threshold, not a physical limit.
+    range: [-6000.0, 6000.0]
 
   - name: VelDisp
     type: float
@@ -131,7 +134,7 @@ halo_properties:
     # 5 sigma above the log-normal spin distribution (median ~0.035, sigma_ln ~0.5,
     # Bullock+01), which only the few most massive halos approach; the range adds a
     # 1.7x margin on top, so it is a conservative test threshold, not a physical
-    # limit. Recorded extreme 149.5 on files 0-15 (acceptance record §13).
+    # limit. Measured over the whole catalogue: [-389.3, 314.7].
     range: [-5000.0, 5000.0]
 
   - name: MostBoundID

@@ -3,7 +3,8 @@
 # Route: --source-format lhalo_binary, validated against the ordered
 # simulations/mini-uchuu/halo_properties.yaml (pass it as --halo-properties).
 # Inventory: Uchuu400_Planck_lhalo_binary.<N>; simulation_info.yaml declares
-# files 0-127, of which 0-15 are present locally -- name the range you hold.
+# files 0-127 -- name the range you hold; a requested file that is missing fails
+# the conversion.
 #
 # Checked against the package's source metadata: halo_properties.yaml declares
 # the shipped 19-field, 104-byte record in the order and at the offsets below.
