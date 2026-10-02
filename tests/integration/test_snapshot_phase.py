@@ -223,6 +223,24 @@ def make_run(
     return param_file, output_dir
 
 
+def run_tree_type(param_file):
+    """The input.tree_type a run file resolves to: its own, else its simulation config's.
+
+    The run file's input section wins over the simulation config it names, as in the
+    executable's own two-pass parse, so this is the reader the run will select.
+    """
+    with open(param_file, "r") as handle:
+        config = yaml.safe_load(handle)
+    tree_type = (config.get("input") or {}).get("tree_type")
+    if tree_type is not None:
+        return tree_type
+    sim_config = Path(config["simulation"]["config"])
+    if not sim_config.is_absolute():
+        sim_config = REPO_ROOT / sim_config
+    with open(sim_config, "r") as handle:
+        return (yaml.safe_load(handle).get("input") or {})["tree_type"]
+
+
 def fixture_params(value=DUAL_FIXTURE_VALUE):
     return {"TestFixtureDummyParameter": value, "TestFixtureEnableLogging": 1}
 
@@ -269,10 +287,13 @@ def output_rows(output_dir, snap):
 
 
 def galaxy_bytes(path):
-    """Every Snap*/Galaxies dataset in one output file, as {(file, group): raw bytes}.
+    """Every Snap*/Galaxies dataset in one output file, as {(file, group): field bytes}.
 
     Read by what the file holds, since a vertical run names its files by output file
-    number and a horizontal run by snapshot.
+    number and a horizontal run by snapshot. Each field's values are compared as bytes
+    (exact, NaN payloads included), field by field: a whole compound row also carries
+    its padding bytes, which are not output data and can differ between two otherwise
+    identical runs.
     """
     import h5py
 
@@ -280,7 +301,10 @@ def galaxy_bytes(path):
     with h5py.File(path, "r") as handle:
         for group in sorted(name for name in handle if name.startswith("Snap")):
             if "Galaxies" in handle[group]:
-                found[(Path(path).name, group)] = handle[group]["Galaxies"][()].tobytes()
+                rows = handle[group]["Galaxies"][()]
+                found[(Path(path).name, group)] = tuple(
+                    (name, rows[name].tobytes()) for name in rows.dtype.names
+                )
     return found
 
 
@@ -407,6 +431,22 @@ def _malformed_cases():
             ["Phase 'post_snapshot': module entry must be 'name: mode'"],
         ),
         (
+            "entry mapping with two modules",
+            {
+                "post_snapshot": [
+                    {
+                        "test_snapshot_fixture": "process_snapshot",
+                        "test_fixture": "process_snapshot",
+                    }
+                ]
+            },
+            [
+                "Phase 'post_snapshot': entry 1 lists 2 modules ('test_snapshot_fixture', "
+                "'test_fixture'); each entry must be exactly one 'name: mode' pair",
+                "Failed to parse post_snapshot phase",
+            ],
+        ),
+        (
             "unknown mode",
             {"post_snapshot": [{"test_snapshot_fixture": "process_global"}]},
             [
@@ -475,6 +515,9 @@ def test_malformed_entries_fail_at_startup():
     """
     Test every illegal phase shape and entry fails before module init and dataset open.
 
+    Includes an entry mapping that names two modules, which must be rejected rather than
+    silently reduced to its first pair (that would drop the second module).
+
     Expected: non-zero exit with the named phase/module diagnostic; no module init() line,
               no dataset opened, no snapshot loaded. Shape and mode-name errors stop the
               parser; phase/mode legality, unknown modules and unsupported modes stop
@@ -502,7 +545,9 @@ def test_vertical_driver_rejects_non_empty_phase():
     Test the vertical driver accepts an empty post_snapshot and rejects a non-empty one.
 
     Expected (non-empty): non-zero exit, the diagnostic naming modules.post_snapshot, its
-              first module and the vertical reader; no module init() and no tree file read.
+              first module and the vertical reader the run file selects (read from it, so
+              any vertical package's reader is named correctly); no module init() and no
+              tree file read.
     Expected (empty, []): the run completes on the vertical driver. On a vertical package
               it processes the package's own test tree; on a horizontal package the vertical
               input points at an empty directory (the compiled halo layout is not L-Halo's),
@@ -520,6 +565,7 @@ def test_vertical_driver_rejects_non_empty_phase():
         phase_config={"post_snapshot": [("test_snapshot_fixture", "process_snapshot")]},
         input_overrides=overrides,
     )
+    reader = run_tree_type(param_file)
     returncode, stdout, stderr = run_mimic(param_file)
     assert_startup_rejection(
         returncode,
@@ -527,8 +573,7 @@ def test_vertical_driver_rejects_non_empty_phase():
         stderr,
         [
             "modules.post_snapshot lists 1 module (first: 'test_snapshot_fixture'), but it runs "
-            "only under the horizontal driver and reader 'lhalo_binary' feeds the vertical "
-            "driver",
+            f"only under the horizontal driver and reader '{reader}' feeds the vertical driver",
             "Parameter validation failed",
         ],
         "non-empty post_snapshot under the vertical driver",
@@ -548,7 +593,8 @@ def test_vertical_driver_rejects_non_empty_phase():
     assert "modules.post_snapshot lists" not in output, f"[] must be accepted:\n{output}"
     assert_ok(returncode, stdout, stderr, "empty post_snapshot under the vertical driver")
     assert "Opened horizontal run" not in stdout, "the run must use the vertical driver"
-    assert "Processing 1 input file" in stdout, f"the vertical driver must run:\n{output}"
+    processing = re.search(r"Processing \d+ input files? \(first_file=", stdout)
+    assert processing, f"the vertical driver must run:\n{output}"
     if not vertical_package:
         assert "Missing tree" in stdout, f"no tree file may be read here:\n{output}"
     print("  ✓ vertical driver: [] accepted, a configured snapshot module rejected at startup")

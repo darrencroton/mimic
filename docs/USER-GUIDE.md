@@ -292,7 +292,7 @@ Module parameters have no global defaults in the core. A module loads and valida
 
 #### Snapshot-wide modules
 
-`modules.post_snapshot` is an optional fixed phase for modules that need a whole snapshot at once, such as a global ranking. It uses the same list shape as the other phases, but every entry must use `process_snapshot`, and a module may appear in it only once:
+`modules.post_snapshot` is an optional fixed phase for modules that need a whole snapshot at once, such as a global ranking. It uses the same list shape as the other phases, but every entry must be a single `module_name: process_snapshot` pair, and a module may appear in it only once:
 
 ```yaml
 modules:

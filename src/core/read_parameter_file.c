@@ -13,6 +13,7 @@
 #include <inttypes.h>
 #include <limits.h>
 #include <stdarg.h>
+#include <stddef.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1111,11 +1112,15 @@ static void parse_simulation_config_file(const char *fname) {
  * @param   config      Output: array of PhaseModuleConfig
  * @param   num_modules Output: number of modules in phase
  * @param   phase_name  Phase name for error messages
+ * @param   single_pair_entries  Non-zero to reject an entry mapping with more than
+ *                      one 'name: mode' pair instead of reading only its first
+ *                      (post_snapshot only; the FoF phases keep their existing
+ *                      first-pair behaviour)
  * @return  0 on success, -1 on error
  */
 static int parse_phase_config(yaml_document_t *doc, yaml_node_t *phase_node,
                               struct PhaseModuleConfig **config, int *num_modules,
-                              const char *phase_name) {
+                              const char *phase_name, int single_pair_entries) {
   if (!phase_node) {
     *config = NULL;
     *num_modules = 0;
@@ -1179,6 +1184,20 @@ static int parse_phase_config(yaml_document_t *doc, yaml_node_t *phase_node,
     yaml_node_pair_t *pair = module_node->data.mapping.pairs.start;
     if (pair >= module_node->data.mapping.pairs.top) {
       ERROR_LOG("Phase '%s': empty module entry", phase_name);
+      myfree(*config);
+      *config = NULL;
+      return -1;
+    }
+
+    /* A second pair would otherwise be dropped silently, and with it a module. */
+    const ptrdiff_t npairs = module_node->data.mapping.pairs.top - pair;
+    if (single_pair_entries && npairs > 1) {
+      const char *first = get_scalar_value(yaml_document_get_node(doc, pair[0].key));
+      const char *second = get_scalar_value(yaml_document_get_node(doc, pair[1].key));
+      ERROR_LOG("Phase '%s': entry %d lists %td modules ('%s', '%s'%s); each entry must be "
+                "exactly one 'name: mode' pair",
+                phase_name, idx + 1, npairs, first ? first : "?", second ? second : "?",
+                npairs > 2 ? ", ..." : "");
       myfree(*config);
       *config = NULL;
       return -1;
@@ -1276,7 +1295,7 @@ static void add_substep_phase(yaml_document_t *doc, const char *name, yaml_node_
   if (phase->name == NULL) {
     FATAL_ERROR("Failed to allocate substep phase name '%s'", name);
   }
-  if (parse_phase_config(doc, phase_node, &phase->modules, &phase->num_modules, name) != 0) {
+  if (parse_phase_config(doc, phase_node, &phase->modules, &phase->num_modules, name, 0) != 0) {
     FATAL_ERROR("Failed to parse substep phase '%s'", name);
   }
   MimicConfig.num_substep_phases++;
@@ -1300,13 +1319,13 @@ static void parse_modules_section(yaml_document_t *doc, yaml_node_t *section) {
   /* Fixed lifecycle phases */
   node = get_mapping_value(doc, section, "pre_timestep");
   if (parse_phase_config(doc, node, &MimicConfig.pre_timestep, &MimicConfig.num_pre_timestep,
-                         "pre_timestep") != 0) {
+                         "pre_timestep", 0) != 0) {
     FATAL_ERROR("Failed to parse pre_timestep phase");
   }
 
   node = get_mapping_value(doc, section, "post_timestep");
   if (parse_phase_config(doc, node, &MimicConfig.post_timestep, &MimicConfig.num_post_timestep,
-                         "post_timestep") != 0) {
+                         "post_timestep", 0) != 0) {
     FATAL_ERROR("Failed to parse post_timestep phase");
   }
 
@@ -1315,7 +1334,7 @@ static void parse_modules_section(yaml_document_t *doc, yaml_node_t *section) {
    * validate_and_postprocess(), once the reader is known. */
   node = get_mapping_value(doc, section, POST_SNAPSHOT_PHASE_NAME);
   if (parse_phase_config(doc, node, &MimicConfig.post_snapshot, &MimicConfig.num_post_snapshot,
-                         POST_SNAPSHOT_PHASE_NAME) != 0) {
+                         POST_SNAPSHOT_PHASE_NAME, 1) != 0) {
     FATAL_ERROR("Failed to parse %s phase", POST_SNAPSHOT_PHASE_NAME);
   }
   /* Each entry runs once per snapshot; a repeated module would silently run twice. */
