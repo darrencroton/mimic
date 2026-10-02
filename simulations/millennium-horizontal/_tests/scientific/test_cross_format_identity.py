@@ -38,7 +38,9 @@ PACKAGE = GatePackage(
     vertical="millennium",
     horizontal="millennium-horizontal",
     alist="millennium.a_list",
-    evidence="the whole simulation (trees_063.0-.511, all 512 files simulations/millennium declares)",
+    evidence=(
+        "the whole simulation (trees_063.0-.511, all 512 files simulations/millennium declares)"
+    ),
     file_range=(0, 511),
     override_vertical_range=True,
     format_version=3,

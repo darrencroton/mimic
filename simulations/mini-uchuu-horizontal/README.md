@@ -14,7 +14,7 @@ This package declares the horizontal HDF5 on-disk record for the mini-Uchuu halo
 
 ## Data provenance
 
-The dataset is not primary data. It was produced offline by `convert/mimic-convert/convert_trees.py` at converter commit `cc434c716b2c880d9af5895381f160d113306f9e` on 2026-10-01 from `Uchuu400_Planck_lhalo_binary.0`–`.127`, all 128 files, the same files that `simulations/mini-uchuu/` reads, using that package's converter profile (`column_mapping_sha256 5a74a2e07eca5f3a5fef5e02b75e15c821f94370606d7608b25f082f9f5654b1`). Links, offsets and remapping keys are carried at native converter precision (int64); payload fields keep their native L-Halo binary storage type and units, in particular `M_Crit200` as float32 in `1e10 Msun/h`.
+The dataset is not primary data. It was produced offline by `convert/mimic-convert/convert_trees.py` at converter commit `cc434c716b2c880d9af5895381f160d113306f9e` on 2026-10-01/02 from `Uchuu400_Planck_lhalo_binary.0`–`.127`, all 128 files, the same files that `simulations/mini-uchuu/` reads, using that package's converter profile (`column_mapping_sha256 5a74a2e07eca5f3a5fef5e02b75e15c821f94370606d7608b25f082f9f5654b1`). Links, offsets and remapping keys are carried at native converter precision (int64); payload fields keep their native L-Halo binary storage type and units, in particular `M_Crit200` as float32 in `1e10 Msun/h`.
 
 Converted: 1,451,359,554 halos across 50 snapshots (all populated) and 25,843,142 forests, with no gapped links (`links_adjacent = 1`). The largest snapshot holds 39,798,251 halos and the largest `HaloRankInForest` is 770,679. The producer validation battery passed, and the dataset occupies 204.0 GB (140.6 B/halo). These figures are the whole simulation's.
 
@@ -45,7 +45,7 @@ cp "$W"/write/attempt_*/snapshot_*.h5 "$W"/write/attempt_*/forests.h5 "$D"/
 
 `report` runs the producer validation battery itself and writes `conversion_report.{json,txt}`, so a separate `validate` would repeat it. Do not browse the workdir in Finder while the conversion runs: macOS writes `.DS_Store` files into the directories the converter checks, and the converter refuses a directory that holds anything it did not write.
 
-Measured on the 2026-10-01 conversion (Apple M3 Ultra, 512 GB): `ingest` 47 min, `transpose` 2 h 25 min, `write` 17 min and `report` 32 min, with peak RSS 13.2, 41.4, 13.2 and 9.6 GiB. The ingest chunks (152 B/halo), the transposed snapshots (140 B/halo) and the dataset (204.0 GB) made the workdir 585 GB after `write`; `transpose` spilled up to 678 GB more and the report's validation battery 286 GB, so the workdir needs a volume with well over a terabyte free.
+Measured on the 2026-10-01/02 conversion (Apple M3 Ultra, 512 GB): `ingest` 47 min, `transpose` 2 h 25 min, `write` 17 min and `report` 32 min, with peak RSS 13.2, 41.4, 13.2 and 9.6 GiB. The ingest chunks (152 B/halo), the transposed snapshots (140 B/halo) and the dataset (204.0 GB) made the workdir 628 GB after `write`; `transpose` spilled up to 678 GB more and the report's validation battery 286 GB, so the workdir needs a volume with well over a terabyte free.
 
 `convert/mimic-convert/README.md` documents the workdir layout, resume semantics, memory budgeting and independent comparison tooling.
 

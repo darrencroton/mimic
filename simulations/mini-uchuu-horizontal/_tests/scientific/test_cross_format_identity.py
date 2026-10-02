@@ -38,7 +38,10 @@ PACKAGE = GatePackage(
     vertical="mini-uchuu",
     horizontal="mini-uchuu-horizontal",
     alist="mini-uchuu.a_list",
-    evidence="the whole simulation (Uchuu400_Planck_lhalo_binary.0-.127, all 128 files simulations/mini-uchuu declares)",
+    evidence=(
+        "the whole simulation (Uchuu400_Planck_lhalo_binary.0-.127, "
+        "all 128 files simulations/mini-uchuu declares)"
+    ),
     file_range=(0, 127),
     override_vertical_range=True,
     format_version=3,

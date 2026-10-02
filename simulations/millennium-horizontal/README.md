@@ -45,7 +45,7 @@ cp "$W"/write/attempt_*/snapshot_*.h5 "$W"/write/attempt_*/forests.h5 "$D"/
 
 `report` runs the producer validation battery itself and writes `conversion_report.{json,txt}`, so a separate `validate` would repeat it. Do not browse the workdir in Finder while the conversion runs: macOS writes `.DS_Store` files into the directories the converter checks, and the converter refuses a directory that holds anything it did not write.
 
-Measured on the 2026-10-01 conversion (Apple M3 Ultra, 512 GB): `ingest` 26 min, `transpose` 59 min, `write` 9 min and `report` 17 min, with peak RSS 7.7, 23.3, 7.2 and 9.5 GiB. The ingest chunks (152 B/halo), the transposed snapshots (140 B/halo) and the dataset (107.1 GB) made the workdir 307 GB after `write`; `transpose` spilled up to 355 GB more and the report's validation battery 147 GB, so size the volume for the sum.
+Measured on the 2026-10-01 conversion (Apple M3 Ultra, 512 GB): `ingest` 26 min, `transpose` 59 min, `write` 9 min and `report` 17 min, with peak RSS 7.7, 23.3, 7.2 and 9.5 GiB. The ingest chunks (152 B/halo), the transposed snapshots (140 B/halo) and the dataset (107.1 GB) made the workdir 329 GB after `write`; `transpose` spilled up to 355 GB more and the report's validation battery 147 GB, so size the volume for the sum.
 
 `convert/mimic-convert/README.md` documents the workdir layout, resume semantics, memory budgeting and independent comparison tooling.
 
@@ -74,7 +74,7 @@ make MODEL=halos-only SIMULATION=millennium-horizontal
 make MODEL=halos-only SIMULATION=millennium-horizontal tests-scientific
 ```
 
-The recorded gate of 2026-10-02 (at commit `8d1e6908952ff9f46c62e4d346b36e8aecd4c59f`, 15 minutes in all) passed: over all 512 files (15,026,757 gapped `Descendant` links, longest span 2), 148,798,431 galaxies over output snapshots 16, 18, 20, 23, 27, 32, 37 and 63, bitwise identical per `UniqueGalaxyID` in all 20 fields with no tolerance, under fixed and dynamic timesteps. Each leg's runs took 153 s (vertical) and 188 s (horizontal) at fixed timesteps, and the horizontal run's retention pool held at most 33.5 GB. It is `halos-only` evidence for this route against its own source format only: no identity with any other micro-Uchuu, Millennium or Uchuu packaging is claimed, and no `sage16` parity is claimed.
+The recorded gate of 2026-10-02 (at commit `8d1e6908952ff9f46c62e4d346b36e8aecd4c59f`, 15 minutes in all) passed: over all 512 files (15,026,757 gapped `Descendant` links, longest span 2), 148,798,431 galaxies over output snapshots 16, 18, 20, 23, 27, 32, 37 and 63, bitwise identical per `UniqueGalaxyID` in all 20 fields with no tolerance, under fixed and dynamic timesteps. The fixed-timestep runs took 153 s (vertical) and 188 s (horizontal), and the horizontal run's retention pool held at most 33.5 GB. It is `halos-only` evidence for this route against its own source format only: no identity with any other micro-Uchuu, Millennium or Uchuu packaging is claimed, and no `sage16` parity is claimed.
 
 ## Related packages
 

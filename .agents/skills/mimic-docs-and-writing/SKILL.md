@@ -87,4 +87,4 @@ wc -l models/sage16/modules/sage_resolve_mergers_and_disruption/README.md   # ho
 git log --oneline -n1 8d0f39c6 432e4ca7                     # the revert/redo doctrine anchors
 ```
 
-The horizontal-processing and converter-generalisation claims were re-derived 2026-09-25 from the converter's acceptance record. Document roles and the narrative doctrine are owner-set and durable; the external-claims list must be re-derived from the repo's evidence whenever capabilities land (a claim is only as current as its measurement).
+The horizontal-processing and converter-generalisation claims were re-derived 2026-10-02 from the conversion reports and the parity-gate results recorded in the package READMEs and the format specification's route table. Document roles and the narrative doctrine are owner-set and durable; the external-claims list must be re-derived from the repo's evidence whenever capabilities land (a claim is only as current as its measurement).
