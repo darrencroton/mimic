@@ -114,6 +114,9 @@ PLANNING_FILES = frozenset(
 PLANNING_DIRECTORY = "docs/dev/snapshot-global-checks/"
 
 FEATURE_PATHS = ("src", "scripts", "models")
+
+#: Everything a leg's worktree builds or reads, for the uncommitted-edit check.
+RUNTIME_PATHS = (*FEATURE_PATHS, "simulations", "Makefile")
 FEATURE_SYMBOLS = r"process_snapshot|PROCESSING_MODE_SNAPSHOT|SnapshotContext|post_snapshot"
 
 #: The shipped SAGE run file every leg derives from.
@@ -141,6 +144,9 @@ RUN_END_TIME = "RunEndTime"
 
 #: Added to the copied run YAML by the feature-empty leg, and nothing else.
 EMPTY_LIST_LINE = "  post_snapshot: []"
+
+#: Errors kept per comparison in evidence.json and logged per failed leg; the count is exact.
+ERROR_CAP = 200
 
 BUILD_TIMEOUT_S = 3600
 RUN_TIMEOUT_S = 3600
@@ -316,9 +322,14 @@ def resolve_reference(explicit: str | None) -> Reference:
 
 
 def runtime_tree_differences() -> list[str]:
-    """Uncommitted edits to the feature tree's runtime paths (test envelopes excluded)."""
-    changed = git("diff", "--name-only", "HEAD", "--", *FEATURE_PATHS).stdout.split()
-    return [path for path in changed if "/_tests/" not in path]
+    """Uncommitted edits to anything the worktree builds and runs from.
+
+    Covers src/, scripts/, models/ (module test envelopes excluded), simulations/ (fixtures
+    included) and the Makefile: the legs build HEAD in worktrees, so an uncommitted edit to
+    any of these would not be tested.
+    """
+    changed = git("diff", "--name-only", "HEAD", "--", *RUNTIME_PATHS).stdout.split()
+    return [path for path in changed if not (path.startswith("models/") and "/_tests/" in path)]
 
 
 # ---------------------------------------------------------------------------
@@ -544,6 +555,7 @@ def compare_attributes(where: str, path: str, a, b, base: OutputRun, other: Outp
         text_a, text_b = attribute_text(left), attribute_text(right)
         if (
             path == "RunProperties"
+            and not shape_differs
             and text_a
             and text_b
             and base.embeds_prefix(text_a)
@@ -658,7 +670,8 @@ def compare_galaxies(base: OutputRun, other: OutputRun, report: Report) -> None:
 def compare_metadata_file(rel: str, base: OutputRun, other: OutputRun, empty_leg: bool, report):
     left, right = (base.directory / rel).read_bytes(), (other.directory / rel).read_bytes()
     if rel == "metadata/version_info.json":
-        report.allow("metadata/version_info.json")
+        if left != right:
+            report.allow("metadata/version_info.json")
         for label, raw in (("baseline", left), ("candidate", right)):
             if not isinstance(json.loads(raw), dict):
                 report.error(f"{rel}: {label} is not a JSON object")
@@ -1007,6 +1020,7 @@ class Identity:
         for record, empty_leg in ((absent, False), (empty, True)):
             report = compare_outputs(baseline.output, record.output, empty_leg=empty_leg)
             leg_evidence[f"compare_{record.variant}"] = report.summary()
+            leg_evidence[f"compare_{record.variant}"]["error_lines"] = report.errors[:ERROR_CAP]
             log(
                 f"  {name} {record.variant}: {report.galaxies} galaxies over {report.snapshots} "
                 f"snapshot(s), {report.fields} fields, {report.id_mismatches} per-ID mismatches, "
@@ -1020,6 +1034,10 @@ class Identity:
         leg_evidence["verdict"] = self.verdicts[name]
         self.save_evidence()
         if failures:
+            for line in failures[:ERROR_CAP]:
+                log(f"  {name} FAILURE: {line}")
+            if len(failures) > ERROR_CAP:
+                log(f"  {name}: {len(failures) - ERROR_CAP} further failure(s) not logged")
             raise AssertionError(f"{name}: {len(failures)} failure(s); first: {failures[0]}")
 
     def leg_stages(self):
@@ -1394,6 +1412,23 @@ def run_mutation_checks(source: OutputRun, scratch: Path) -> None:
         log(
             f"  {'control accepted' if accepted else 'mutation rejected'}: path-prefix attribute on {where}"
         )
+
+    # The prefix substitution also needs the same dtype and shape on both sides.
+    for run, width in ((prefixed_base, 1024), (prefixed, 512)):
+        with h5py.File(run.directory / master, "r+") as handle:
+            handle["RunProperties"].attrs.create(
+                "PathNote", data=f"{run.prefixes[0]}/x".encode(), dtype=f"S{width}"
+            )
+    report = compare_outputs(prefixed_base, prefixed)
+    if not any("RunProperties@PathNote" in error for error in report.errors) or any(
+        "PathNote" in label for label in report.permitted
+    ):
+        raise AssertionError(f"a prefix difference with a changed dtype was accepted: {report}")
+    for run in (prefixed_base, prefixed):
+        with h5py.File(run.directory / master, "r+") as handle:
+            del handle["RunProperties"].attrs["PathNote"]
+    results.append("a path-prefix attribute with a changed dtype")
+    log("  mutation rejected: path-prefix attribute with a changed dtype")
 
     # The empty-list line is accepted only in the explicit-empty leg, and only when present.
     listed = candidate("empty_list")

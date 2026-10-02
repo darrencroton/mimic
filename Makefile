@@ -928,7 +928,12 @@ tests-snapshot-global-sham:
 # The caller's generated selectors are restored by the last step and, on an
 # interrupt, by the trap every step installs; both reach the restore through the
 # variable $(SG_RESTORE), which keeps those lines free of a literal $(MAKE). A
-# failed restore makes the target fail. Rebuild the executable with `make`.
+# failed restore makes the target fail. Residual: a signal that arrives between
+# recipe lines, or SIGKILL, cannot be trapped and may leave the test-build
+# selectors in place, and a HUP or QUIT sent only to make (not to its process
+# group, as a terminal hangup or Ctrl-backslash does) may not reach the running
+# step; `make generate` (with the caller's MODEL and SIMULATION) restores them.
+# Rebuild the executable with `make`.
 SG_MODEL := halos-only
 SG_V2 := micro-uchuu-ascii-horizontal
 SG_V3 := mini-millennium-horizontal
@@ -944,7 +949,7 @@ SG_CONTRACT_SOURCE := tests/unit/$(SG_CONTRACT_TEST).c
 SG_VENV_PATH := $(if $(findstring /,$(PYTHON)),$(abspath $(dir $(PYTHON))):)
 SG_RESTORE_TARGET := generate
 SG_RESTORE = $(MAKE) --no-print-directory MODEL='$(MODEL)' SIMULATION='$(SIMULATION)' $(SG_RESTORE_TARGET)
-SG_TRAP = trap '$(SG_RESTORE) >> $(SG_LOG) 2>&1; exit 130' INT; trap '$(SG_RESTORE) >> $(SG_LOG) 2>&1; exit 143' TERM;
+SG_TRAP = trap '$(SG_RESTORE) >> $(SG_LOG) 2>&1; exit 129' HUP; trap '$(SG_RESTORE) >> $(SG_LOG) 2>&1; exit 130' INT; trap '$(SG_RESTORE) >> $(SG_LOG) 2>&1; exit 131' QUIT; trap '$(SG_RESTORE) >> $(SG_LOG) 2>&1; exit 143' TERM;
 SG_CHECK = check() { \
 		label="$$1"; expected="$$2"; status="$$3"; \
 		{ echo "=== $$label (exit $$status, expecting $$expected cases)"; cat $(SG_STEP_LOG); } >> $(SG_LOG); \
@@ -1003,9 +1008,11 @@ SGI_LOG := build/snapshot_global_identity.log
 SGI_TEST := tests/manual/test_snapshot_disabled_identity.py
 
 tests-snapshot-global-identity:
-	@mkdir -p build; : > build/.snapshot_global_identity_status; \
-	{ $(PYTHON) $(SGI_TEST); echo $$? > build/.snapshot_global_identity_status; } 2>&1 | tee $(SGI_LOG); \
+	@mkdir -p build; : > build/.snapshot_global_identity_status; : > build/.snapshot_global_identity_tee; \
+	{ { $(PYTHON) $(SGI_TEST); echo $$? > build/.snapshot_global_identity_status; } 2>&1 | tee $(SGI_LOG); echo $$? > build/.snapshot_global_identity_tee; }; \
 	rc=$$(cat build/.snapshot_global_identity_status 2>/dev/null); rc=$${rc:-1}; \
+	tee_rc=$$(cat build/.snapshot_global_identity_tee 2>/dev/null); tee_rc=$${tee_rc:-1}; \
+	if [ "$$tee_rc" -ne 0 ]; then echo "FAIL: tests-snapshot-global-identity could not capture its log (tee exited $$tee_rc)"; rc=1; fi; \
 	if grep -q '^MIMIC_RESULT: SKIP' $(SGI_LOG); then echo "FAIL: tests-snapshot-global-identity skipped a case"; rc=1; fi; \
 	if [ "$$rc" -ne 0 ]; then echo "FAIL: tests-snapshot-global-identity (see $(SGI_LOG))"; \
 	else echo "PASS: tests-snapshot-global-identity (see $(SGI_LOG))"; fi; \
