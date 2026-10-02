@@ -1,6 +1,6 @@
 {
   "_comment": "Line anchors cited in the plan's 'Repository Evidence and Design Decisions' section, with the identifiers each cited range must contain at the planning baseline. A miss means the plan's anchor drifted and the receipt should be re-read before execution. Refreshed for revisions 2/3 with the anchors those revisions added (Makefile SOURCES, discovery, test registry, harness, generator/check_generated hashes, parameter helpers, strict parser, event emission, execute_phase, reserved keys, virial mass).",
-  "planning_baseline": "d87089b25c6f4137747b9aa0e89b36603a0741d4",
+  "planning_baseline": "a74fea44352912cd8d523dd9b776f80d3e8b5a76",
   "anchors": [
     {
       "path": "src/core/horizontal_driver.c",
