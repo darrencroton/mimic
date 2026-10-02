@@ -17,11 +17,14 @@ class RuntimeRoutesTests(unittest.TestCase):
         rows = {(r.simulation, r.source_format): r for r in runtime_routes.ROUTES}
         self.assertEqual(len(runtime_routes.ROUTES), 5)
         self.assertEqual(len(rows), 5)
-        for key in (("mini-Millennium", "lhalo_binary"), ("micro-Uchuu", "lhalo_binary")):
+        for key in (
+            ("mini-Millennium", "lhalo_binary"),
+            ("micro-Uchuu", "lhalo_binary"),
+            ("micro-Uchuu", "consistent_trees_hdf5"),
+            ("Millennium", "lhalo_binary"),
+            ("mini-Uchuu", "lhalo_binary"),
+        ):
             self.assertEqual(rows[key].coverage, "complete")
-        self.assertEqual(rows[("micro-Uchuu", "consistent_trees_hdf5")].coverage, "complete")
-        for name in ("Millennium", "mini-Uchuu"):
-            self.assertEqual(rows[(name, "lhalo_binary")].coverage, "files 0-15 only")
         self.assertEqual(rows[("mini-Millennium", "lhalo_binary")].models, ("halos-only", "sage16"))
         others = [r for r in runtime_routes.ROUTES if r.simulation != "mini-Millennium"]
         self.assertTrue(all(r.models == ("halos-only",) for r in others))

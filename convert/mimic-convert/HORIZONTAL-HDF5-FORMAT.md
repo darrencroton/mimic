@@ -512,13 +512,12 @@ Mimic reads and runs version 3 (from 2026-09-29). Being able to read the format 
 | `mini-millennium-horizontal` | `lhalo_binary` | complete real data, gapped (29,291 gapped `Descendant` links) | `halos-only` and `sage16`, fixed and dynamic | against vertical `lhalo_binary` on the same 8 files: `halos-only` 292,163 galaxies over 8 output snapshots in all 20 fields, fixed and dynamic; `sage16` 187,832 (fixed) and 187,817 (dynamic) galaxies in all 42 fields |
 | `micro-uchuu-horizontal` | `lhalo_binary` | complete real data, adjacent | `halos-only`, fixed and dynamic | files 0–3: 4,409,643 galaxies over 8 output snapshots in all 20 fields, fixed and dynamic |
 | `micro-uchuu-hdf5-horizontal` | `consistent_trees_hdf5` | complete real data, adjacent | `halos-only`, fixed and dynamic | forests-HDF5 source, one `FileN` group (file 0 only): 4,409,643 galaxies over 8 output snapshots in all 20 fields, fixed and dynamic |
-| `millennium-horizontal` | `lhalo_binary` | **sampled subset**: `trees_063.0`–`.15` only, gapped | `halos-only`, fixed and dynamic, on files 0–15 only | files 0–15: 4,662,552 galaxies over 8 output snapshots in all 20 fields, fixed and dynamic, across 470,782 gapped `Descendant` links (longest span 2) |
-| `mini-uchuu-horizontal` | `lhalo_binary` | **sampled subset**: `Uchuu400_Planck_lhalo_binary.0`–`.15` only, adjacent | `halos-only`, fixed and dynamic, on files 0–15 only | files 0–15: 37,332,916 galaxies over 8 output snapshots in all 20 fields, fixed and dynamic |
+| `millennium-horizontal` | `lhalo_binary` | complete real data, all 512 files (`trees_063.0`–`.511`), gapped | `halos-only`, fixed and dynamic | against vertical `lhalo_binary` over the same 512 files: 148,798,431 galaxies over 8 output snapshots in all 20 fields, fixed and dynamic, across 15,026,757 gapped `Descendant` links (longest span 2) |
+| `mini-uchuu-horizontal` | `lhalo_binary` | complete real data, all 128 files (`Uchuu400_Planck_lhalo_binary.0`–`.127`), adjacent | `halos-only`, fixed and dynamic | against vertical `lhalo_binary` over the same 128 files: 299,185,269 galaxies over 8 output snapshots in all 20 fields, fixed and dynamic |
 
 No other route, model or file range is claimed. In particular:
 
 - **No cross-source-format identity is promised.** Each route is compared against its own source format's vertical reader, never against another source format assumed equivalent (see [V3 Source Identity](#v3-source-identity)).
-- **Millennium and mini-Uchuu are sampled.** Nothing is claimed for their whole simulations; that needs the remaining source files (Millennium 16–511, mini-Uchuu 16–127).
 - **`sage16` is gated only on mini-Millennium.**
 - **Full Uchuu is not runnable.** Its largest snapshot cannot be held with whole slabs resident on any host this project has; running it needs chunked slab streaming, which Mimic does not implement. It has no version 3 package.
 

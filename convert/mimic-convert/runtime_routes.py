@@ -20,9 +20,6 @@ SPEC_ANCHOR = "convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md#v3-runtime-suppor
 #: The coverage label of a route whose source data is the whole simulation.
 COMPLETE = "complete"
 
-#: The coverage label of a route gated on a sampled range of a larger simulation.
-SAMPLED = "files 0-15 only"
-
 FULL_UCHUU_NOT_RUNNABLE = (
     "Full Uchuu is not runnable: it exceeds whole-slab memory and needs chunked slab "
     "streaming, which Mimic does not implement."
@@ -43,8 +40,8 @@ ROUTES: Tuple[Route, ...] = (
     Route("mini-Millennium", "lhalo_binary", COMPLETE, ("halos-only", "sage16")),
     Route("micro-Uchuu", "lhalo_binary", COMPLETE, ("halos-only",)),
     Route("micro-Uchuu", "consistent_trees_hdf5", COMPLETE, ("halos-only",)),
-    Route("Millennium", "lhalo_binary", SAMPLED, ("halos-only",)),
-    Route("mini-Uchuu", "lhalo_binary", SAMPLED, ("halos-only",)),
+    Route("Millennium", "lhalo_binary", COMPLETE, ("halos-only",)),
+    Route("mini-Uchuu", "lhalo_binary", COMPLETE, ("halos-only",)),
 )
 
 

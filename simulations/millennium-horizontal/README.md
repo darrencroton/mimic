@@ -74,7 +74,7 @@ make MODEL=halos-only SIMULATION=millennium-horizontal
 make MODEL=halos-only SIMULATION=millennium-horizontal tests-scientific
 ```
 
-It is `halos-only` evidence for this route against its own source format only: no identity with any other micro-Uchuu, Millennium or Uchuu packaging is claimed, and no `sage16` parity is claimed.
+The recorded gate of 2026-10-02 (at commit `8d1e6908952ff9f46c62e4d346b36e8aecd4c59f`, 15 minutes in all) passed: over all 512 files (15,026,757 gapped `Descendant` links, longest span 2), 148,798,431 galaxies over output snapshots 16, 18, 20, 23, 27, 32, 37 and 63, bitwise identical per `UniqueGalaxyID` in all 20 fields with no tolerance, under fixed and dynamic timesteps. Each leg's runs took 153 s (vertical) and 188 s (horizontal) at fixed timesteps, and the horizontal run's retention pool held at most 33.5 GB. It is `halos-only` evidence for this route against its own source format only: no identity with any other micro-Uchuu, Millennium or Uchuu packaging is claimed, and no `sage16` parity is claimed.
 
 ## Related packages
 
