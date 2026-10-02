@@ -83,7 +83,7 @@ Use existing Mimic naming where it is already established and works well. Treat 
 - Struct types use `struct Name` rather than typedef aliases for project-owned structs.
 - Enums and macros use uppercase names where they represent constants, modes, or logging/test helpers, such as `PROCESSING_MODE_BY_GALAXY`, `ERROR_LOG`, and `TEST_ASSERT`.
 - Generated property fields keep their metadata names. Do not rename properties merely to fit C naming style.
-- Runtime module lifecycle functions use `<module_name>_init`, `<module_name>_process`, and `<module_name>_cleanup`.
+- Runtime module lifecycle functions use `<module_name>_init`, `<module_name>_cleanup`, and the processing callback for each advertised mode family: `<module_name>_process` for the FoF modes and `<module_name>_process_snapshot` for the snapshot mode. A module implements only the callbacks for the families it advertises.
 
 ### Python
 
@@ -95,7 +95,7 @@ Use existing Mimic naming where it is already established and works well. Treat 
 ### Metadata
 
 - Module names are lowercase `snake_case`.
-- Processing mode strings use the established configuration names: `process_full_halo`, `process_per_event`, and `process_by_galaxy`.
+- Processing mode strings use the established configuration names: the FoF modes `process_full_halo`, `process_per_event`, and `process_by_galaxy`, and the snapshot mode `process_snapshot`.
 - Property names follow the existing scientific/output schema names, often `PascalCase` or legacy SAGE-compatible names such as `Mvir`, `dT`, and `ColdGas`. Preserve these names because they are part of the generated API and output schema.
 - Parameter names follow the model package convention and should match the user-facing run YAML exactly.
 

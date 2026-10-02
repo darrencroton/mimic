@@ -47,7 +47,7 @@ Then rename the lifecycle functions from `template_module_*` to `my_module_*`. S
 
 ## What You Need to Implement
 
-**Three functions** (naming convention strictly enforced):
+**Three functions for the FoF modes** (naming convention strictly enforced):
 
 ```c
 int my_module_init(void);           // Load parameters, initialize
@@ -56,6 +56,8 @@ int my_module_cleanup(void);        // Free memory
 ```
 
 **That's it.** Registration is automatic.
+
+This template is the FoF family: `process` serves `process_full_halo`, `process_per_event` and `process_by_galaxy`, and a standalone `.c` module always advertises exactly those three modes. A module that needs a whole snapshot population instead (the `process_snapshot` mode, run from `modules.post_snapshot` under the horizontal driver) must be a directory module that declares `process_snapshot` in `supported_processing_modes` and implements `my_module_process_snapshot(const struct SnapshotContext *ctx, const struct Halo *halos, int64_t count)` in place of, or alongside, `my_module_process`. `init` and `cleanup` are required either way. See the [snapshot callback contract](../../../docs/DEVELOPER-GUIDE.md#snapshot-callback-contract).
 
 ---
 
