@@ -41,7 +41,7 @@ For a small package-local prototype, copy only the C file:
 cp src/module_system/template/template_module.c models/<model>/modules/my_module.c
 ```
 
-Then rename the lifecycle functions from `template_module_*` to `my_module_*`. Standalone modules are discovered only from `models/<model>/modules/*.c`; the old `src/modules/` root is not searched. They inherit all processing modes and have no metadata-driven dependency, test, docs, or event validation, so convert them to directory modules once the module becomes maintained model code.
+Then rename the lifecycle functions from `template_module_*` to `my_module_*`. Standalone modules are discovered only from `models/<model>/modules/*.c`; the old `src/modules/` root is not searched. They get exactly the three FoF modes (never `process_snapshot`) and have no metadata-driven dependency, test, docs, or event validation, so convert them to directory modules once the module becomes maintained model code.
 
 ---
 

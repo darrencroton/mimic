@@ -60,7 +60,7 @@ Never hand-edit anything under `*/generated/` — edit the YAML/metadata source 
 
 ### Module startup failures (pipeline validation at `module_system_init`)
 
-All of these fail fast at startup, before any tree is processed — that is by design (no parameter defaults, no silent fallbacks).
+All of these except the last row (a mid-run callback failure) fail fast at startup, before any tree is processed — that is by design (no parameter defaults, no silent fallbacks).
 
 | Symptom | Likely cause | First command |
 |---|---|---|
@@ -74,10 +74,10 @@ All of these fail fast at startup, before any tree is processed — that is by d
 | `modules.post_snapshot lists N module(s) (first: '<m>'), but it runs only under the horizontal driver ...` | Non-empty `post_snapshot` with a vertical `tree_type`; the vertical driver never holds a complete snapshot | use a horizontal package/run file, or remove the phase (absent, `null` and `[]` are accepted) |
 | `Phase 'post_snapshot': module '<m>' is listed more than once` (or `Configuration error in phase 'post_snapshot': Module ... is listed more than once`) | Duplicate module in `post_snapshot`; each entry runs once per snapshot | list the module once |
 | `Phase 'post_snapshot': entry N lists M modules (...); each entry must be exactly one 'name: mode' pair` | Two `name: mode` pairs in one sequence item, which would silently drop one | give each module its own `- name: process_snapshot` item |
-| `Unknown module '<m>' in phase 'post_snapshot' of the pipeline configuration` | Typo, or the module is not in the compiled `MODEL`'s registry | `make info`; check the module directory and `module_info.yaml` under the compiled model |
+| `Unknown module '<m>' in phase 'post_snapshot' of the pipeline configuration` | Typo, or the module is not in the compiled `MODEL`'s registry (core test fixtures such as `test_snapshot_fixture` live under `src/module_system/` and exist only in a `TEST_BUILD`) | `make info`; check the module directory and `module_info.yaml` under the compiled model |
 | `sham_global_rank must be configured exactly once in modules.post_snapshot as process_snapshot (found N)` | The module is missing from `post_snapshot` or listed twice (a FoF-phase placement is rejected earlier, by the `process_snapshot ... not a FoF mode` row above) | fix the run file; see `models/sham/modules/sham_global_rank/README.md` |
 | `sham_global_rank and sham_assign_stellar_mass are independent stellar-mass prescriptions ...` | Both SHAM stellar-mass prescriptions configured in any phase | remove one of them from the run file |
-| `sham_global_rank` init rejects a parameter (`ShamGlobalMassScale`/`ShamGlobalNumberDensity`/`ShamGlobalSlope` not finite, malformed or outside its range; or `BoxSize` not finite and positive) | Domains are `(0, 100000]` internal units, `[1e-12, 1e3]` `(Mpc/h)^-3` and `[0.1, 10]`; `nan`/`inf` are rejected explicitly | read the named parameter in the ERROR line; compare with the shipped `sham_global_micro-uchuu-ascii-horizontal.yaml` |
+| `sham_global_rank` init rejects a parameter (`ShamGlobalMassScale`/`ShamGlobalNumberDensity`/`ShamGlobalSlope` not finite, malformed or outside its range; or `BoxSize` not finite and positive, or with a non-finite or non-positive cube) | Domains are `(0, 100000]` internal units, `[1e-12, 1e3]` `(Mpc/h)^-3` and `[0.1, 10]`; `nan`/`inf` are rejected explicitly | read the named parameter in the ERROR line; compare with the shipped `sham_global_micro-uchuu-ascii-horizontal.yaml` |
 | Run stops mid-run naming a snapshot and a non-zero `process_snapshot` return, or `sham_global_rank: ... failed; no stellar mass is ...` | A snapshot callback returned an error (for `sham_global_rank`: invalid ID/Type/peak, mass above the cap or rounding to zero); no master file is left behind (it is written only after the driver returns), and partition files of snapshots already closed are kept | the ERROR lines before the FATAL name the rank/`UniqueGalaxyID` and values |
 
 ### YAML config failures

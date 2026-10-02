@@ -22,7 +22,7 @@ The architectural direction is governed by `docs/VISION.md`: Mimic is a physics-
 
 ## The Work In One Picture
 
-Six pieces remain, steps 3 to 8 (steps 1 and 2 are complete; step 2 landed on 2026-10-03 and stays in the diagram because its couplings still constrain the later steps). Most are worth building on their own — distributed operation is the exception, having nothing to distribute until a snapshot-global contract exists — but the reason to sequence them deliberately is that several are worth considerably more in combination than apart.
+Six pieces remain, steps 3 to 8 (steps 1 and 2 are complete; step 2 landed on 2026-10-03 and stays in the diagram because its couplings still constrain the later steps). Most are worth building on their own — distributed operation is the exception, had nothing to distribute until a snapshot-global contract exists — but the reason to sequence them deliberately is that several are worth considerably more in combination than apart.
 
 ```mermaid
 flowchart TD
