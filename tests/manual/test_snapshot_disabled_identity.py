@@ -467,12 +467,20 @@ def relative_files(root: Path) -> list[str]:
     return sorted(path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_file())
 
 
-def attribute_signature(value) -> tuple:
-    """(dtype, shape, bytes) of an attribute, with variable-length strings made canonical."""
+def attribute_signature(value, stored=None) -> tuple:
+    """(dtype, shape, bytes) of an attribute, with variable-length strings made canonical.
+
+    With ``stored`` (the attribute's HDF5 id) the dtype and shape are the stored ones, not those
+    of the value as numpy returns it: a scalar fixed-length string comes back sized to its
+    content, which would make two same-typed attributes look differently typed.
+    """
     array = numpy.asarray(value)
     if array.dtype.kind == "O":
         items = [item.encode() if isinstance(item, str) else bytes(item) for item in array.ravel()]
-        return ("O", array.shape, b"\0".join(items))
+        payload = b"\0".join(items)
+        return ("O", tuple(stored.shape) if stored is not None else array.shape, payload)
+    if stored is not None:
+        return (stored.dtype.str, tuple(stored.shape), array.tobytes())
     return (array.dtype.str, array.shape, array.tobytes())
 
 
@@ -538,7 +546,8 @@ def compare_attributes(where: str, path: str, a, b, base: OutputRun, other: Outp
             f"only candidate {sorted(names_b - names_a)})"
         )
     for name in sorted(names_a & names_b):
-        left, right = attribute_signature(a.attrs[name]), attribute_signature(b.attrs[name])
+        left = attribute_signature(a.attrs[name], a.attrs.get_id(name))
+        right = attribute_signature(b.attrs[name], b.attrs.get_id(name))
         if left == right:
             continue
         shape_differs = left[:2] != right[:2]
