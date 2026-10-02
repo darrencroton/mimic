@@ -913,7 +913,8 @@ tests-snapshot-global-sham:
 # mini-Millennium fixtures, the typed callback unit and schema tests, and
 # tests-snapshot-global-sham. Each step builds its pair as a test build, runs the
 # declared tests by path, and fails on a build or test exit status, on any
-# `MIMIC_RESULT: FAIL`, `ERROR` or `SKIP`, and on a PASS count that is not the
+# `MIMIC_RESULT: FAIL`, `ERROR`, `SKIP` or `WARN` (a warning fails the step: the
+# conservative rule for a battery that expects every case to pass), and on a PASS count that is not the
 # number of cases the test files declare (`def test_` or `TEST_RUN(`), so a case
 # dropped or duplicated cannot pass silently; the sham step is gated on its
 # declared 18 + 9 cases the same way. Logs go to $(SG_LOG). It runs no real-data
@@ -948,10 +949,10 @@ SG_CHECK = check() { \
 		label="$$1"; expected="$$2"; status="$$3"; \
 		{ echo "=== $$label (exit $$status, expecting $$expected cases)"; cat $(SG_STEP_LOG); } >> $(SG_LOG); \
 		passes=$$(grep -c '^MIMIC_RESULT: PASS' $(SG_STEP_LOG)); \
-		bad=$$(grep -E '^MIMIC_RESULT: (FAIL|ERROR|SKIP)' $(SG_STEP_LOG)); \
+		bad=$$(grep -E '^MIMIC_RESULT: (FAIL|ERROR|SKIP|WARN)' $(SG_STEP_LOG)); \
 		if [ "$$status" -ne 0 ]; then echo "FAIL: $$label exited $$status"; echo 1 > $(SG_RC); fi; \
-		if [ -n "$$bad" ]; then echo "FAIL: $$label reported non-PASS cases:"; echo "$$bad"; echo 1 > $(SG_RC); fi; \
-		if [ "$$passes" -ne "$$expected" ]; then echo "FAIL: $$label ran $$passes PASS cases, expected $$expected"; echo 1 > $(SG_RC); fi; \
+		if [ -n "$$bad" ]; then echo "FAIL: $$label reported FAIL, ERROR, SKIP or WARN cases (a WARN fails the step):"; echo "$$bad"; echo 1 > $(SG_RC); \
+		elif [ "$$passes" -ne "$$expected" ]; then echo "FAIL: $$label ran $$passes PASS cases, expected $$expected"; echo 1 > $(SG_RC); fi; \
 		echo "  $$label: $$passes/$$expected cases"; echo $$(( $$(cat $(SG_TOTAL)) + passes )) > $(SG_TOTAL); \
 	};
 

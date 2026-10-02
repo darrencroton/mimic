@@ -474,8 +474,20 @@ def attribute_text(signature: tuple) -> str:
 
 
 def dtype_signature(dtype: numpy.dtype):
-    """Field names, order, base types and shapes of a compound dtype; the string for others."""
-    return comparator.schema_signature(dtype) if dtype.names else dtype.str
+    """The full layout of a dtype: for a compound, its record size and each field's name, base
+    type, shape and byte offset in order; the type string for anything else.
+
+    Dataset values are compared field by field (padding bytes legitimately differ between
+    identical runs), so the layout is what makes "the same bytes" mean the same record.
+    """
+    if not dtype.names:
+        return dtype.str
+    fields = []
+    for name in dtype.names:
+        field, offset = dtype.fields[name][:2]
+        base, shape = field.subdtype if field.subdtype is not None else (field, ())
+        fields.append((name, base.str, tuple(shape), offset))
+    return (dtype.itemsize, tuple(fields))
 
 
 def canonical_bytes(array: numpy.ndarray) -> bytes:
@@ -496,7 +508,10 @@ def objects_of(handle: h5py.File) -> dict[str, h5py.HLObject]:
 
 
 def is_permitted_attribute(path: str, name: str) -> str | None:
-    """The permitted-difference label of an attribute, or None when it must be identical."""
+    """The permitted-difference label of an attribute, or None when it must be identical.
+
+    A permitted attribute may differ in value only: its dtype and shape are always compared.
+    """
     if path == "RunProperties/Version" and name in VERSION_ATTRIBUTES:
         return f"RunProperties/Version@{name}"
     if path == "RunProperties" and name == RUN_END_TIME:
@@ -513,15 +528,23 @@ def compare_attributes(where: str, path: str, a, b, base: OutputRun, other: Outp
         )
     for name in sorted(names_a & names_b):
         left, right = attribute_signature(a.attrs[name]), attribute_signature(b.attrs[name])
-        label = is_permitted_attribute(path, name)
         if left == right:
             continue
-        if label is not None:
+        shape_differs = left[:2] != right[:2]
+        label = is_permitted_attribute(path, name)
+        if label is not None and not shape_differs:
             report.allow(label)
+            continue
+        if label is not None:
+            report.error(
+                f"{where}:{path}@{name}: permitted attribute changed dtype or shape "
+                f"({left[:2]} != {right[:2]}); only its value may differ"
+            )
             continue
         text_a, text_b = attribute_text(left), attribute_text(right)
         if (
-            text_a
+            path == "RunProperties"
+            and text_a
             and text_b
             and base.embeds_prefix(text_a)
             and other.embeds_prefix(text_b)
@@ -1088,6 +1111,38 @@ def rewrite_galaxies(path: Path, snap: int, transform) -> None:
             created.attrs.create(key, data=value, dtype=dtype)
 
 
+def change_attribute_value(obj, name: str, value: bytes) -> None:
+    """Give an attribute a new value, keeping its stored dtype and shape."""
+    stored = obj.attrs.get_id(name)
+    obj.attrs.create(name, data=numpy.array([value], dtype=stored.dtype), dtype=stored.dtype)
+
+
+def relayout_dataset(path: Path, name: str) -> None:
+    """Rewrite a compound dataset with identical values but a different record layout."""
+    with h5py.File(path, "r+") as handle:
+        dataset = handle[name]
+        values = dataset[()]
+        attributes = [
+            (key, dataset.attrs[key], dataset.attrs.get_id(key).dtype) for key in dataset.attrs
+        ]
+        old = values.dtype
+        layout = numpy.dtype(
+            {
+                "names": list(old.names),
+                "formats": [old.fields[field][0] for field in old.names],
+                "offsets": [old.fields[field][1] + 8 for field in old.names],
+                "itemsize": old.itemsize + 16,
+            }
+        )
+        moved = numpy.zeros(values.shape, dtype=layout)
+        for field in old.names:
+            moved[field] = values[field]
+        del handle[name]
+        created = handle.create_dataset(name, data=moved, dtype=layout)
+        for key, value, dtype in attributes:
+            created.attrs.create(key, data=value, dtype=dtype)
+
+
 def populated_snapshots(run: OutputRun) -> list[int]:
     return sorted(snap for snap, rows in load_galaxies(run).items() if len(rows) >= 2)
 
@@ -1247,8 +1302,8 @@ def run_mutation_checks(source: OutputRun, scratch: Path) -> None:
     # Permitted differences are accepted, and named.
     provenance = candidate("provenance")
     with h5py.File(provenance.directory / master, "r+") as handle:
-        handle["RunProperties/Version"].attrs.create("git_commit", data=b"f" * 40, dtype="S40")
-        handle["RunProperties"].attrs.create(RUN_END_TIME, data=b"1999-01-01T00:00:00", dtype="S19")
+        change_attribute_value(handle["RunProperties/Version"], "git_commit", b"f" * 40)
+        change_attribute_value(handle["RunProperties"], RUN_END_TIME, b"1999-01-01T00:00:00")
     info = provenance.directory / "metadata" / "version_info.json"
     info.write_text(info.read_text().replace('"run_date"', '"run_date_changed"'))
     expect_accepted(
@@ -1259,6 +1314,47 @@ def run_mutation_checks(source: OutputRun, scratch: Path) -> None:
             f"RunProperties@{RUN_END_TIME}",
             "metadata/version_info.json",
         ],
+    )
+
+    for label, mutate in (
+        (
+            "a permitted attribute with a changed dtype",
+            lambda handle: handle["RunProperties/Version"].attrs.create(
+                "git_commit", data=numpy.array([b"f" * 40], dtype="S64"), dtype="S64"
+            ),
+        ),
+        (
+            "a permitted attribute with a changed shape",
+            lambda handle: handle["RunProperties/Version"].attrs.create(
+                "git_commit",
+                data=numpy.array([b"f" * 40, b"x"], dtype="S128"),
+                dtype=handle["RunProperties/Version"].attrs.get_id("git_commit").dtype,
+            ),
+        ),
+        (
+            "RunEndTime with a changed dtype",
+            lambda handle: handle["RunProperties"].attrs.create(
+                RUN_END_TIME, data=numpy.array([b"1999-01-01T00:00:00"], dtype="S19"), dtype="S19"
+            ),
+        ),
+    ):
+        mutated = candidate(f"attr_shape_{label.replace(' ', '_')}")
+        with h5py.File(mutated.directory / master, "r+") as handle:
+            mutate(handle)
+        expect_failure(label, mutated, "only its value may differ")
+
+    relaid = candidate("relayout")
+    relayout_dataset(relaid.directory / master, "RunProperties/FieldMetadata")
+    with h5py.File(relaid.directory / master, "r") as handle:
+        moved = handle["RunProperties/FieldMetadata"][()]
+    with h5py.File(base.directory / master, "r") as original:
+        kept = original["RunProperties/FieldMetadata"][()]
+    assert all(moved[f].tobytes() == kept[f].tobytes() for f in kept.dtype.names)
+    assert moved.dtype != kept.dtype, "the relayout produced the same dtype"
+    expect_failure(
+        "a compound dataset with identical values but a different layout",
+        relaid,
+        "RunProperties/FieldMetadata: dataset dtype differs",
     )
 
     prefixed_base = copy_run(
@@ -1273,6 +1369,31 @@ def run_mutation_checks(source: OutputRun, scratch: Path) -> None:
         raise AssertionError(f"a path-prefix-only difference was not accepted: {report.errors[:3]}")
     results.append("a path-prefix-only metadata difference")
     log("  control accepted: a path-prefix-only metadata difference")
+
+    # A path-valued string attribute is tolerated on RunProperties only.
+    for where, accepted in (("RunProperties", True), ("RunProperties/Version", False)):
+        for run in (prefixed_base, prefixed):
+            with h5py.File(run.directory / master, "r+") as handle:
+                handle[where].attrs.create(
+                    "PathNote", data=f"{run.prefixes[0]}/x".encode(), dtype="S1024"
+                )
+        report = compare_outputs(prefixed_base, prefixed)
+        label = "path-valued attribute RunProperties@PathNote (path prefix only)"
+        if accepted and (
+            label not in report.permitted or any("PathNote" in e for e in report.errors)
+        ):
+            raise AssertionError(
+                f"a RunProperties path-prefix attribute was rejected: {report.errors[:3]}"
+            )
+        if not accepted and not any(f"{where}@PathNote" in e for e in report.errors):
+            raise AssertionError(f"a path-prefix attribute on {where} was accepted")
+        for run in (prefixed_base, prefixed):
+            with h5py.File(run.directory / master, "r+") as handle:
+                del handle[where].attrs["PathNote"]
+        results.append(f"a path-prefix string attribute on {where}")
+        log(
+            f"  {'control accepted' if accepted else 'mutation rejected'}: path-prefix attribute on {where}"
+        )
 
     # The empty-list line is accepted only in the explicit-empty leg, and only when present.
     listed = candidate("empty_list")
