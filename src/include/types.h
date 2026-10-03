@@ -1,6 +1,7 @@
 #ifndef TYPES_H
 #define TYPES_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "constants.h"
@@ -25,6 +26,29 @@ struct HaloInputView {
   const struct RawHalo *halos;
   int64_t count;
 };
+
+/* Created-record identity space a driver publishes for the processing unit it is
+ * about to process (galaxy_id.h, mimic_encode_created_galaxy_id()).
+ *
+ * The vertical driver publishes unit = GlobalForestOffset + unit index and the
+ * run-wide largest forest (or MimicConfig.UniqueGalaxyIDMultiplier when a reader
+ * cannot report it) as rows_per_unit; the horizontal driver publishes unit =
+ * snapshot number and the largest slab as rows_per_unit. `fits` is the run's
+ * startup verdict, mimic_created_record_space_fits(units, rows_per_unit) over the
+ * run's whole unit count; it is the same for every unit of a run. A space that
+ * does not fit never stops a run: only creating a record in it fails. */
+struct RecordIdentitySpace {
+  int64_t unit;
+  int64_t rows_per_unit;
+  bool fits;
+};
+
+/* The vertical driver's currently published identity space
+ * (src/core/vertical_driver.c). Between run_vertical_driver()'s startup scan and
+ * its first unit, and after a run that processed no unit, `unit` is -1 while
+ * rows_per_unit and fits carry the run's evaluation; before any vertical run it
+ * is {-1, 0, true}. */
+struct RecordIdentitySpace vertical_driver_record_identity_space(void);
 
 #define MIMIC_DEFAULT_TARGET_FILE_SIZE (4LL * 1024LL * 1024LL * 1024LL)
 #define MIMIC_DEFAULT_FORESTS_PER_FILE 0LL

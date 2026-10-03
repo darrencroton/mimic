@@ -49,6 +49,15 @@ static int current_output_path_count = 0;
 
 volatile sig_atomic_t VerticalDriverGotXCPU = 0;
 
+/* Created-record identity space currently published (types.h). The startup scan
+ * sets rows_per_unit and fits for the whole run with unit = -1; process_partition()
+ * then publishes each unit's own number just before loading it. */
+static struct RecordIdentitySpace published_identity_space = {-1, 0, true};
+
+struct RecordIdentitySpace vertical_driver_record_identity_space(void) {
+  return published_identity_space;
+}
+
 void vertical_driver_clear_current_output_paths(void) {
   for (int i = 0; i < current_output_path_count; i++) {
     current_output_paths[i][0] = '\0';
@@ -146,6 +155,63 @@ static int64_t reader_count_partition_units(const struct VerticalReader *reader,
   return units;
 }
 
+/* Largest unit of one present partition, or -1 when the reader cannot know it. */
+static int64_t reader_max_partition_unit_halos(const struct VerticalReader *reader, int partition) {
+  REQUIRE_READER_HOOK(reader, max_partition_unit_halos);
+  const int64_t max_halos = reader->max_partition_unit_halos(partition);
+  if (max_halos < -1) {
+    const int output_id =
+        reader->partition_output_id != NULL ? reader->partition_output_id(partition) : partition;
+    FATAL_ERROR("Vertical reader '%s' reported largest unit size %" PRId64
+                " for partition %d; the hook answers a halo count or -1 for unknown",
+                reader->name, max_halos, output_id);
+  }
+  return max_halos;
+}
+
+/* Fold one partition's largest unit into the run-wide value, where -1 (unknown)
+ * absorbs everything: one partition the reader cannot size makes the whole run's
+ * largest unit unknown. */
+static int64_t fold_max_unit_halos(int64_t run_max, int64_t partition_max) {
+  if (run_max < 0 || partition_max < 0) {
+    return -1;
+  }
+  return partition_max > run_max ? partition_max : run_max;
+}
+
+/**
+ * @brief   Evaluate and record the run's created-record identity space.
+ * @param   reader          Active reader, named in the log line.
+ * @param   total_units     Run-wide forest count (every partition, every rank).
+ * @param   max_unit_halos  Run-wide largest forest, or -1 when unknown.
+ *
+ * rows_per_unit is the largest forest, or the configured forest multiplier when
+ * the largest forest is unknown (every in-forest HaloNr is below it by the tree
+ * identity's own range check). The verdict is logged and recorded, never acted
+ * on: a run whose space does not fit proceeds, and only a record creation in it
+ * fails. Every rank evaluates the same inputs, so every rank records the same
+ * space.
+ */
+static void evaluate_record_identity_space(const struct VerticalReader *reader, int64_t total_units,
+                                           int64_t max_unit_halos) {
+  const int known = max_unit_halos >= 0;
+  const int64_t rows_per_unit = known ? max_unit_halos : MimicConfig.UniqueGalaxyIDMultiplier;
+  const bool fits = mimic_created_record_space_fits(total_units, rows_per_unit);
+
+  published_identity_space = (struct RecordIdentitySpace){
+      .unit = -1,
+      .rows_per_unit = rows_per_unit,
+      .fits = fits,
+  };
+
+  INFO_LOG("Created-record identity space (vertical, reader '%s'): units=%" PRId64
+           ", rows_per_unit=%" PRId64 " (%s), radix=%d: %s",
+           reader->name, total_units, rows_per_unit,
+           known ? "largest forest" : "largest forest unknown, unique_galaxy_id_multiplier",
+           MAX_CREATED_RECORDS_PER_HOST,
+           fits ? "fits int64" : "does not fit int64; this run cannot create records");
+}
+
 static void log_missing_per_file_partition(const struct VerticalReader *reader, int partition) {
   char tree_path[MAX_PATH_BUF_SIZE + 1];
   const int output_id = reader->partition_output_id(partition);
@@ -160,8 +226,10 @@ static void log_missing_per_file_partition(const struct VerticalReader *reader, 
 }
 
 static int64_t *build_partition_file_offsets(const struct VerticalReader *reader,
-                                             const int npartitions, int64_t *total_out) {
+                                             const int npartitions, int64_t *total_out,
+                                             int64_t *max_unit_halos_out) {
   int64_t total_forests = 0;
+  int64_t max_unit_halos = 0;
   int64_t *offsets = mymalloc_cat(sizeof(*offsets) * npartitions, MEM_TREES);
   const int64_t multiplier = MimicConfig.UniqueGalaxyIDMultiplier;
 
@@ -177,6 +245,8 @@ static int64_t *build_partition_file_offsets(const struct VerticalReader *reader
     }
 
     const int64_t partition_trees = reader_count_partition_units(reader, partition);
+    max_unit_halos =
+        fold_max_unit_halos(max_unit_halos, reader_max_partition_unit_halos(reader, partition));
     if (partition_trees > LLONG_MAX - total_forests) {
       FATAL_ERROR("L-Halo total forest count would overflow int64 after partition %d", output_id);
     }
@@ -190,6 +260,8 @@ static int64_t *build_partition_file_offsets(const struct VerticalReader *reader
 
   if (total_out)
     *total_out = total_forests;
+  if (max_unit_halos_out)
+    *max_unit_halos_out = max_unit_halos;
   return offsets;
 }
 
@@ -226,6 +298,7 @@ static void process_partition(int output_id, ProgressBar *ext_bar, int64_t tree_
     progress_bar_update(bar, tree_base + unit);
 
     TreeID = unit;
+    published_identity_space.unit = GlobalForestOffset + unit;
     load_unit(unit);
 
     NumProcessedHalos = 0;
@@ -315,6 +388,7 @@ static int claim_and_process_partition(int output_id, ProgressBar *ext_bar, int6
 static void run_per_file_driver(const struct VerticalReader *reader) {
   REQUIRE_READER_HOOK(reader, num_partitions);
   REQUIRE_READER_HOOK(reader, partition_output_id);
+  REQUIRE_READER_HOOK(reader, max_partition_unit_halos);
 
   reader_prepare_run(reader);
 
@@ -322,7 +396,10 @@ static void run_per_file_driver(const struct VerticalReader *reader) {
 
   const int npartitions = reader->num_partitions();
   int64_t total_trees = 0;
-  int64_t *global_forest_offsets = build_partition_file_offsets(reader, npartitions, &total_trees);
+  int64_t max_unit_halos = 0;
+  int64_t *global_forest_offsets =
+      build_partition_file_offsets(reader, npartitions, &total_trees, &max_unit_halos);
+  evaluate_record_identity_space(reader, total_trees, max_unit_halos);
 
 #ifdef MPI
   for (int partition = ThisTask; partition < npartitions; partition += NTask) {
@@ -360,8 +437,10 @@ static void run_per_file_driver(const struct VerticalReader *reader) {
 }
 
 static int64_t *build_enumerated_progress_offsets(const struct VerticalReader *reader,
-                                                  int npartitions, int64_t *total_out) {
+                                                  int npartitions, int64_t *total_out,
+                                                  int64_t *max_unit_halos_out) {
   int64_t total_units = 0;
+  int64_t max_unit_halos = 0;
   int64_t *unit_offsets = mymalloc_cat(sizeof(*unit_offsets) * npartitions, MEM_TREES);
 
   for (int partition = 0; partition < npartitions; partition++) {
@@ -370,6 +449,8 @@ static int64_t *build_enumerated_progress_offsets(const struct VerticalReader *r
       continue;
     }
     const int64_t units = reader_count_partition_units(reader, partition);
+    max_unit_halos =
+        fold_max_unit_halos(max_unit_halos, reader_max_partition_unit_halos(reader, partition));
     if (units > LLONG_MAX - total_units) {
       FATAL_ERROR("Enumerated partition unit count would overflow after partition %d", partition);
     }
@@ -378,6 +459,8 @@ static int64_t *build_enumerated_progress_offsets(const struct VerticalReader *r
 
   if (total_out != NULL)
     *total_out = total_units;
+  if (max_unit_halos_out != NULL)
+    *max_unit_halos_out = max_unit_halos;
   return unit_offsets;
 }
 
@@ -431,6 +514,7 @@ static void run_enumerated_driver(const struct VerticalReader *reader) {
   REQUIRE_READER_HOOK(reader, partition_output_id);
   REQUIRE_READER_HOOK(reader, partition_exists);
   REQUIRE_READER_HOOK(reader, count_partition_units);
+  REQUIRE_READER_HOOK(reader, max_partition_unit_halos);
   REQUIRE_READER_HOOK(reader, global_forest_offset);
   REQUIRE_READER_HOOK(reader, partition_cost);
 
@@ -469,7 +553,10 @@ static void run_enumerated_driver(const struct VerticalReader *reader) {
   }
 
   int64_t total_units = 0;
-  int64_t *unit_offsets = build_enumerated_progress_offsets(reader, npartitions, &total_units);
+  int64_t max_unit_halos = 0;
+  int64_t *unit_offsets =
+      build_enumerated_progress_offsets(reader, npartitions, &total_units, &max_unit_halos);
+  evaluate_record_identity_space(reader, total_units, max_unit_halos);
   int *task_of_partition = assign_enumerated_partitions(reader, npartitions, ntasks);
 
 #ifdef MPI

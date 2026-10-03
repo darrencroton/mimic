@@ -67,6 +67,85 @@ static int64_t count_partition_units_binary(int partition) {
   return (int64_t)ntrees;
 }
 
+/* Halo counts read per fread() by max_partition_unit_halos_binary(): a bounded
+ * stack block, so the scan allocates nothing however many trees a file holds. */
+#define BINARY_TREE_COUNT_BLOCK 4096
+
+/**
+ * @brief   Largest tree in a present partition, from its header alone.
+ *
+ * Reads Ntrees, totNHalos and the InputTreeNHalos[Ntrees] table that precede
+ * the halo records, in bounded blocks, and never touches a halo row.
+ */
+static int64_t max_partition_unit_halos_binary(int partition) {
+  int ntrees = 0, tot_nhalos = 0;
+  int counts[BINARY_TREE_COUNT_BLOCK];
+  char buf[MAX_BUF_SIZE + 1];
+  const int output_id = tree_partition_per_file_output_id(partition);
+
+  snprintf(buf, MAX_BUF_SIZE, "%s/%s.%d%s", MimicConfig.SimulationDir, MimicConfig.TreeName,
+           output_id, MimicConfig.TreeExtension);
+
+  FILE *fd = fopen(buf, "r");
+  if (fd == NULL) {
+    FATAL_ERROR("Failed to open binary tree file '%s' (filenr %d)", buf, output_id);
+  }
+
+  /* Scan with the handle open, close it once, then report: no early exit leaks
+   * or double-closes the handle. */
+  enum { SCAN_OK, SCAN_BAD_HEADER, SCAN_NEGATIVE_NTREES, SCAN_SHORT_TABLE, SCAN_NEGATIVE_COUNT };
+  int scan_status = SCAN_OK;
+  int bad_tree = -1, bad_count = 0;
+  int64_t max_halos = 0;
+
+  if (fread(&ntrees, sizeof(int), 1, fd) != 1 || fread(&tot_nhalos, sizeof(int), 1, fd) != 1) {
+    scan_status = SCAN_BAD_HEADER;
+  } else if (ntrees < 0) {
+    scan_status = SCAN_NEGATIVE_NTREES;
+  }
+  for (int done = 0; scan_status == SCAN_OK && done < ntrees;) {
+    const int block =
+        ntrees - done < BINARY_TREE_COUNT_BLOCK ? ntrees - done : BINARY_TREE_COUNT_BLOCK;
+    if (fread(counts, sizeof(int), (size_t)block, fd) != (size_t)block) {
+      scan_status = SCAN_SHORT_TABLE;
+      break;
+    }
+    for (int i = 0; i < block; i++) {
+      if (counts[i] < 0) {
+        scan_status = SCAN_NEGATIVE_COUNT;
+        bad_tree = done + i;
+        bad_count = counts[i];
+        break;
+      }
+      if (counts[i] > max_halos) {
+        max_halos = counts[i];
+      }
+    }
+    done += block;
+  }
+  fclose(fd);
+
+  switch (scan_status) {
+  case SCAN_BAD_HEADER:
+    FATAL_ERROR("Failed to read the Ntrees/totNHalos header from file '%s'", buf);
+    break;
+  case SCAN_NEGATIVE_NTREES:
+    FATAL_ERROR("Binary tree file '%s' reports negative Ntrees=%d", buf, ntrees);
+    break;
+  case SCAN_SHORT_TABLE:
+    FATAL_ERROR("Failed to read tree halo counts from file '%s'", buf);
+    break;
+  case SCAN_NEGATIVE_COUNT:
+    FATAL_ERROR("Binary tree file '%s' reports negative halo count %d for tree %d", buf, bad_count,
+                bad_tree);
+    break;
+  default:
+    break;
+  }
+
+  return max_halos;
+}
+
 /**
  * @brief   Open binary partition file and read its tree-count header.
  * @param   output_id   Output id of the partition (the L-Halo filenr).
@@ -142,6 +221,7 @@ const struct VerticalReader LHaloBinaryReader = {
     .partition_exists = tree_partition_per_file_exists,
     .format_partition_path = NULL,
     .count_partition_units = count_partition_units_binary,
+    .max_partition_unit_halos = max_partition_unit_halos_binary,
     .open_partition = open_partition_binary,
     .load_unit = load_unit_binary,
     .close_partition = close_partition_binary,

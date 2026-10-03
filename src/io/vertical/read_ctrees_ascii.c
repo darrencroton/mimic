@@ -607,6 +607,13 @@ static int64_t count_partition_units_ctrees_ascii(int partition) {
   return CT.chunk_plan.chunks[partition].nforests;
 }
 
+/* The ASCII catalogues carry no per-forest halo count: a forest's size is known
+   only once its rows have been parsed, so the largest forest is unknown here. */
+static int64_t max_partition_unit_halos_ctrees_ascii(int partition) {
+  (void)partition;
+  return -1;
+}
+
 static int64_t global_forest_offset_ctrees_ascii(int partition) {
   if (!partition_exists_ctrees_ascii(partition)) {
     FATAL_ERROR("Consistent-Trees ASCII: chunk id %d is outside [0, %" PRId64 ")", partition,
@@ -736,6 +743,7 @@ const struct VerticalReader CTreesAsciiReader = {
     .partition_exists = partition_exists_ctrees_ascii,
     .format_partition_path = NULL,
     .count_partition_units = count_partition_units_ctrees_ascii,
+    .max_partition_unit_halos = max_partition_unit_halos_ctrees_ascii,
     .global_forest_offset = global_forest_offset_ctrees_ascii,
     .partition_cost = partition_cost_ctrees_ascii,
     .open_partition = open_partition_ctrees_ascii,

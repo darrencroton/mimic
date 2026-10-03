@@ -37,6 +37,13 @@
 /* UniqueGalaxyID encoding constants */
 #define TREE_MUL_FAC (1000000000LL) /* Global forest multiplier: 10^9 */
 
+/* Created-record identity radix: the number of ordinals each host row owns in
+ * the negative created-record UniqueGalaxyID namespace (see
+ * mimic_encode_created_galaxy_id() in galaxy_id.h). It is an identity radix, not
+ * a physics cap: it fixes the ID layout, and a host that needs more records
+ * fails rather than clipping. Changing it changes every created ID. */
+#define MAX_CREATED_RECORDS_PER_HOST 1024
+
 /* Memory allocation parameters */
 #define HALO_ARRAY_GROWTH_FACTOR 1.5         /* Factor to grow arrays by (1.5 = 50% growth) */
 #define MIN_HALO_ARRAY_GROWTH 1000           /* Minimum growth increment regardless of factor */

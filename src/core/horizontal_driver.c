@@ -246,6 +246,11 @@ struct HorizontalDriverState {
 
   struct OutputBufferSegment *segments;
   int64_t segment_capacity;
+
+  /* Created-record identity space: rows_per_unit and fits are evaluated once at
+   * open over the whole run, and unit is the snapshot being processed (-1 before
+   * the first). */
+  struct RecordIdentitySpace identity;
 };
 
 /* ------------------------------------------------------------------------- */
@@ -549,6 +554,38 @@ static int64_t horizontal_make_unique_galaxy_id(const struct SnapshotSlab *slab,
   }
 
   return mimic_encode_unique_galaxy_id(multiplier, rank_in_forest, forestnr_global);
+}
+
+/*
+ * Evaluate and record the run's created-record identity space at open.
+ *
+ * A unit is one snapshot, so rows_per_unit is the largest slab over every
+ * snapshot of the run, read from the reader's per-snapshot halo counts without
+ * loading a slab, and the run has snapshot_count units. The verdict is logged and
+ * recorded, never acted on: a run whose space does not fit proceeds, and only a
+ * record creation in it fails.
+ */
+static void horizontal_evaluate_record_identity_space(struct HorizontalDriverState *state,
+                                                      const struct HorizontalRunInfo *info) {
+  int64_t rows_per_unit = 0;
+  for (int64_t snapnum = 0; snapnum < info->snapshot_count; snapnum++) {
+    const int64_t nhalos = horizontal_reader_halo_count(state->reader, snapnum);
+    if (nhalos > rows_per_unit) {
+      rows_per_unit = nhalos;
+    }
+  }
+  const bool fits = mimic_created_record_space_fits(info->snapshot_count, rows_per_unit);
+
+  state->identity = (struct RecordIdentitySpace){
+      .unit = -1,
+      .rows_per_unit = rows_per_unit,
+      .fits = fits,
+  };
+
+  INFO_LOG("Created-record identity space (horizontal, reader '%s'): units=%" PRId64
+           ", rows_per_unit=%" PRId64 " (largest snapshot slab), radix=%d: %s",
+           state->reader->name, info->snapshot_count, rows_per_unit, MAX_CREATED_RECORDS_PER_HOST,
+           fits ? "fits int64" : "does not fit int64; this run cannot create records");
 }
 
 /* ------------------------------------------------------------------------- */
@@ -1566,6 +1603,7 @@ void run_horizontal_driver(void) {
            state.reader->name, info.snapshot_count, info.snapshot_count == 1 ? "" : "s",
            info.format_version, info.links_adjacent, info.n_forests_total,
            info.n_forests_total == 1 ? "" : "s", info.max_halo_rank_in_forest);
+  horizontal_evaluate_record_identity_space(&state, &info);
 
   log_phase_banner(PHASE_TREE_PROCESSING);
   enable_debug_log_rate_limiting();
@@ -1596,6 +1634,7 @@ void run_horizontal_driver(void) {
 
   for (int64_t snapnum = 0; snapnum < info.snapshot_count; snapnum++) {
     progress_bar_update(&bar, snapnum);
+    state.identity.unit = snapnum;
 
     struct HorizontalGeneration *cur =
         horizontal_acquire_generation(&state, snapnum, info.links_adjacent);

@@ -91,6 +91,15 @@ struct VerticalReader {
      can build run-scoped global forest offsets; required for PARTITION_ENUMERATED
      readers so serial progress can span assigned chunks. */
   int64_t (*count_partition_units)(int partition);
+  /* Largest halo count of any unit in a present partition, or -1 when the reader
+     cannot know it without reading halo rows. Required for every reader: the
+     driver calls it in the same startup scan as count_partition_units, on every
+     rank, to size the created-record identity space (struct RecordIdentitySpace
+     in types.h); a -1 from any partition makes the run-wide value unknown and
+     the driver falls back to MimicConfig.UniqueGalaxyIDMultiplier. Like
+     count_partition_units it stages nothing and holds no open handle. A
+     partition with no units answers 0. */
+  int64_t (*max_partition_unit_halos)(int partition);
   /* Global forest offset for a reader-enumerated partition. Required for
      PARTITION_ENUMERATED readers; ignored for other models. */
   int64_t (*global_forest_offset)(int partition);

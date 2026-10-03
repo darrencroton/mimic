@@ -1793,6 +1793,139 @@ static int64_t count_partition_units_ctrees_hdf5(int partition) {
   return CTH.chunk_plan.chunks[partition].nforests;
 }
 
+/* ForestNhalos values read per hyperslab by max_forest_nhalos_in_rows_ctrees_hdf5(): a
+   bounded stack block, so the startup scan allocates nothing. */
+#define CTREES_FOREST_NHALOS_BLOCK 4096
+
+/* Largest ForestNhalos over rows [row_start, row_start + nrows) of one file's
+   "ForestInfo" index, read in bounded hyperslab blocks. Reads the index only,
+   never a halo row. */
+static int max_forest_nhalos_in_rows_ctrees_hdf5(const int ifile, const int64_t row_start,
+                                                 const int64_t nrows, int64_t *max_out) {
+  int file_status = CT_H5_ERR;
+  hid_t finfo_dset = -1;
+  hid_t finfo_fspace = -1;
+  hid_t nhalos_dtype = -1;
+  char dataset_name[MAX_STRING_LEN];
+  int64_t block_nhalos[CTREES_FOREST_NHALOS_BLOCK];
+  int64_t max_nhalos = 0;
+
+  snprintf(dataset_name, sizeof(dataset_name), "File%d/ForestInfo", ifile);
+  finfo_dset = H5Dopen2(CTH.meta_fd, dataset_name, H5P_DEFAULT);
+  if (finfo_dset < 0) {
+    ERROR_LOG("Could not open 'ForestInfo' in file %d", ifile);
+    goto max_nhalos_cleanup;
+  }
+  finfo_fspace = H5Dget_space(finfo_dset);
+  if (finfo_fspace < 0) {
+    ERROR_LOG("Could not get 'ForestInfo' space in file %d", ifile);
+    goto max_nhalos_cleanup;
+  }
+  hsize_t finfo_length = 0;
+  if (ct_h5_get_1d_extent(finfo_fspace, "ForestInfo", &finfo_length) != EXIT_SUCCESS) {
+    goto max_nhalos_cleanup;
+  }
+  if (row_start < 0 || nrows < 0 || (hsize_t)(row_start + nrows) > finfo_length) {
+    ERROR_LOG("file %d 'ForestInfo' rows [%" PRId64 ", %" PRId64 ") lie outside its %llu rows",
+              ifile, row_start, row_start + nrows, (unsigned long long)finfo_length);
+    goto max_nhalos_cleanup;
+  }
+  nhalos_dtype = H5Tcreate(H5T_COMPOUND, sizeof(int64_t));
+  if (nhalos_dtype < 0) {
+    ERROR_LOG("Could not create compound type (file %d)", ifile);
+    goto max_nhalos_cleanup;
+  }
+  if (H5Tinsert(nhalos_dtype, "ForestNhalos", 0, H5T_NATIVE_INT64) < 0) {
+    ERROR_LOG("Could not insert 'ForestNhalos' field (file %d)", ifile);
+    goto max_nhalos_cleanup;
+  }
+
+  for (int64_t done = 0; done < nrows;) {
+    const int64_t block =
+        nrows - done < CTREES_FOREST_NHALOS_BLOCK ? nrows - done : CTREES_FOREST_NHALOS_BLOCK;
+    const hsize_t offset = (hsize_t)(row_start + done);
+    const hsize_t count = (hsize_t)block;
+    if (H5Sselect_hyperslab(finfo_fspace, H5S_SELECT_SET, &offset, NULL, &count, NULL) < 0) {
+      ERROR_LOG("Could not select 'ForestInfo' rows in file %d", ifile);
+      goto max_nhalos_cleanup;
+    }
+    const hid_t block_memspace = H5Screate_simple(1, &count, NULL);
+    if (block_memspace < 0) {
+      ERROR_LOG("Could not create 'ForestInfo' memspace");
+      goto max_nhalos_cleanup;
+    }
+    const herr_t read_status =
+        H5Dread(finfo_dset, nhalos_dtype, block_memspace, finfo_fspace, H5P_DEFAULT, block_nhalos);
+    H5Sclose(block_memspace);
+    if (read_status < 0) {
+      ERROR_LOG("Could not read 'ForestNhalos' (file %d)", ifile);
+      goto max_nhalos_cleanup;
+    }
+    for (int64_t i = 0; i < block; i++) {
+      if (block_nhalos[i] < 0) {
+        ERROR_LOG("file %d ForestInfo row %" PRId64 " has negative ForestNhalos=%" PRId64 "", ifile,
+                  row_start + done + i, block_nhalos[i]);
+        goto max_nhalos_cleanup;
+      }
+      if (block_nhalos[i] > max_nhalos) {
+        max_nhalos = block_nhalos[i];
+      }
+    }
+    done += block;
+  }
+  *max_out = max_nhalos;
+  file_status = EXIT_SUCCESS;
+
+max_nhalos_cleanup:
+  if (nhalos_dtype >= 0)
+    H5Tclose(nhalos_dtype);
+  if (finfo_fspace >= 0)
+    H5Sclose(finfo_fspace);
+  if (finfo_dset >= 0)
+    H5Dclose(finfo_dset);
+  return file_status;
+}
+
+/**
+ * @brief   Largest forest in one chunk, from the per-file "ForestInfo" index.
+ *
+ * The index carries every forest's halo count, so the answer needs no halo row:
+ * the chunk's global forest range is split across the files it spans and each
+ * file's slice of ForestNhalos is scanned.
+ */
+static int64_t max_partition_unit_halos_ctrees_hdf5(int partition) {
+  if (!partition_exists_ctrees_hdf5(partition)) {
+    FATAL_ERROR("Consistent-Trees HDF5: chunk id %d is outside [0, %" PRId64 ")", partition,
+                CTH.chunk_plan.nchunks);
+  }
+
+  const struct ChunkPlanRange *range = &CTH.chunk_plan.chunks[partition];
+  const int64_t chunk_start = range->start_forest;
+  const int64_t chunk_end = range->start_forest + range->nforests;
+  int64_t max_nhalos = 0;
+
+  for (int ifile = CTH.firstfile; ifile <= CTH.lastfile; ifile++) {
+    const int64_t file_start = CTH.first_forest_in_file[ifile];
+    const int64_t file_end = file_start + CTH.nforests_per_file[ifile];
+    const int64_t lo = chunk_start > file_start ? chunk_start : file_start;
+    const int64_t hi = chunk_end < file_end ? chunk_end : file_end;
+    if (lo >= hi) {
+      continue;
+    }
+    int64_t file_max = 0;
+    if (max_forest_nhalos_in_rows_ctrees_hdf5(ifile, lo - file_start, hi - lo, &file_max) !=
+        EXIT_SUCCESS) {
+      FATAL_ERROR("Consistent-Trees HDF5: could not read the forest halo counts of chunk %d "
+                  "from file %d",
+                  partition, ifile);
+    }
+    if (file_max > max_nhalos) {
+      max_nhalos = file_max;
+    }
+  }
+  return max_nhalos;
+}
+
 static int64_t global_forest_offset_ctrees_hdf5(int partition) {
   if (!partition_exists_ctrees_hdf5(partition)) {
     FATAL_ERROR("Consistent-Trees HDF5: chunk id %d is outside [0, %" PRId64 ")", partition,
@@ -1920,6 +2053,7 @@ const struct VerticalReader CTreesHDF5Reader = {
     .partition_exists = partition_exists_ctrees_hdf5,
     .format_partition_path = NULL,
     .count_partition_units = count_partition_units_ctrees_hdf5,
+    .max_partition_unit_halos = max_partition_unit_halos_ctrees_hdf5,
     .global_forest_offset = global_forest_offset_ctrees_hdf5,
     .partition_cost = partition_cost_ctrees_hdf5,
     .open_partition = open_partition_ctrees_hdf5,

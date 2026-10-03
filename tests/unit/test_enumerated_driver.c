@@ -28,12 +28,15 @@ static int synthetic_exists[MAX_SYNTH_PARTITIONS];
 static int synthetic_output_ids[MAX_SYNTH_PARTITIONS];
 static int64_t synthetic_offsets[MAX_SYNTH_PARTITIONS];
 static double synthetic_costs[MAX_SYNTH_PARTITIONS];
+static int64_t synthetic_max_unit_halos[MAX_SYNTH_PARTITIONS];
 static int prepare_calls;
 static int teardown_calls;
 static int open_calls;
 static int close_calls;
 static int opened_partitions[MAX_OPEN_RECORDS];
 static int64_t opened_offsets[MAX_OPEN_RECORDS];
+static int load_calls;
+static struct RecordIdentitySpace loaded_identity[MAX_OPEN_RECORDS];
 
 static void reset_synthetic_state(void) {
   synthetic_npartitions = 0;
@@ -44,12 +47,15 @@ static void reset_synthetic_state(void) {
   }
   memset(synthetic_offsets, 0, sizeof(synthetic_offsets));
   memset(synthetic_costs, 0, sizeof(synthetic_costs));
+  memset(synthetic_max_unit_halos, 0, sizeof(synthetic_max_unit_halos));
   prepare_calls = 0;
   teardown_calls = 0;
   open_calls = 0;
   close_calls = 0;
   memset(opened_partitions, -1, sizeof(opened_partitions));
   memset(opened_offsets, 0, sizeof(opened_offsets));
+  load_calls = 0;
+  memset(loaded_identity, 0, sizeof(loaded_identity));
 }
 
 static void synthetic_prepare_run(void) { prepare_calls++; }
@@ -63,6 +69,10 @@ static int synthetic_partition_output_id(int partition) { return synthetic_outpu
 static int synthetic_partition_exists(int partition) { return synthetic_exists[partition]; }
 
 static int64_t synthetic_count_partition_units(int partition) { return synthetic_units[partition]; }
+
+static int64_t synthetic_max_partition_unit_halos(int partition) {
+  return synthetic_max_unit_halos[partition];
+}
 
 static int64_t synthetic_global_forest_offset(int partition) {
   return synthetic_offsets[partition];
@@ -100,6 +110,10 @@ static void synthetic_open_partition(int output_id) {
 
 static void synthetic_load_unit(int unit) {
   (void)unit;
+  if (load_calls >= MAX_OPEN_RECORDS) {
+    FATAL_ERROR("Too many synthetic unit loads");
+  }
+  loaded_identity[load_calls++] = vertical_driver_record_identity_space();
   /* The shared load_unit() wrapper allocates HaloAux after this callback. */
   InputTreeHalos = mymalloc_cat(sizeof(struct RawHalo), MEM_TREES);
 }
@@ -118,6 +132,7 @@ static const struct VerticalReader SyntheticEnumeratedReader = {
     .partition_exists = synthetic_partition_exists,
     .format_partition_path = NULL,
     .count_partition_units = synthetic_count_partition_units,
+    .max_partition_unit_halos = synthetic_max_partition_unit_halos,
     .global_forest_offset = synthetic_global_forest_offset,
     .partition_cost = synthetic_partition_cost,
     .open_partition = synthetic_open_partition,
@@ -145,6 +160,7 @@ static void set_partition(int partition, int units, double cost, int64_t offset)
   synthetic_units[partition] = units;
   synthetic_costs[partition] = cost;
   synthetic_offsets[partition] = offset;
+  synthetic_max_unit_halos[partition] = 1; /* synthetic_open_partition loads one halo per unit */
 }
 
 static void set_partition_output_id(int partition, int output_id) {
@@ -350,6 +366,56 @@ static int test_skip_existing_output_preserves_lifecycle(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_unknown_largest_unit_falls_back_to_multiplier
+ * @brief   One partition answering -1 makes the run-wide largest unit unknown, so every unit
+ *          is published with rows_per_unit = UniqueGalaxyIDMultiplier and its global forest
+ */
+static int test_unknown_largest_unit_falls_back_to_multiplier(void) {
+  char dir_template[] = "/tmp/mimic_enumerated_driver_identity_XXXXXX";
+  char output_path[512];
+
+  configure_driver_defaults();
+  reset_synthetic_state();
+  TEST_ASSERT(create_temp_output_dir(dir_template) == TEST_PASS,
+              "temporary output directory should be configured");
+  MimicConfig.UniqueGalaxyIDMultiplier = 1000000000LL;
+  MimicConfig.NOUT = 1;
+  MimicConfig.ListOutputSnaps[0] = 0;
+  MimicConfig.ZZ[0] = 0.0;
+
+  /* A known answer first, then the unknown one: unknown must absorb a larger
+   * known value scanned before it. */
+  synthetic_npartitions = 2;
+  set_partition(0, 2, 1.0, 70);
+  synthetic_max_unit_halos[0] = 5000;
+  set_partition(1, 1, 1.0, 72);
+  synthetic_max_unit_halos[1] = -1;
+
+  run_vertical_driver();
+
+  TEST_ASSERT_EQUAL(load_calls, 3, "driver should load every unit of both partitions");
+  const int64_t expected_units[3] = {70, 71, 72};
+  for (int i = 0; i < 3; i++) {
+    TEST_ASSERT_EQUAL(loaded_identity[i].unit, expected_units[i],
+                      "published unit should be GlobalForestOffset + unit index");
+    TEST_ASSERT_EQUAL(loaded_identity[i].rows_per_unit, MimicConfig.UniqueGalaxyIDMultiplier,
+                      "unknown largest unit should fall back to the forest multiplier");
+    TEST_ASSERT(loaded_identity[i].fits, "3 units of 10^9 rows should fit int64");
+  }
+
+  const struct RecordIdentitySpace after = vertical_driver_record_identity_space();
+  TEST_ASSERT_EQUAL(after.rows_per_unit, MimicConfig.UniqueGalaxyIDMultiplier,
+                    "run-wide rows_per_unit should stay the multiplier after the run");
+
+  for (int output_id = 0; output_id < 2; output_id++) {
+    output_path_binary(output_path, sizeof(output_path), output_id, 0);
+    unlink(output_path);
+  }
+  rmdir(dir_template);
+  return TEST_PASS;
+}
+
 /** @brief Main test runner */
 int main(void) {
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
@@ -367,6 +433,7 @@ int main(void) {
   TEST_RUN(test_idle_rank_runs_lifecycle_without_opening_partition);
   TEST_RUN(test_skip_existing_output_preserves_lifecycle);
   TEST_RUN(test_output_claim_forward_path_creates_and_clears_file);
+  TEST_RUN(test_unknown_largest_unit_falls_back_to_multiplier);
 
   TEST_SUMMARY();
 

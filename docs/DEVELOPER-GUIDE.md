@@ -979,6 +979,7 @@ struct VerticalReader {
   int (*partition_exists)(int partition);
   void (*format_partition_path)(char *buf, size_t size, int output_id);
   int64_t (*count_partition_units)(int partition);
+  int64_t (*max_partition_unit_halos)(int partition); /* largest unit, or -1 if unknown */
   int64_t (*global_forest_offset)(int partition);
   double (*partition_cost)(int partition);
 
@@ -989,6 +990,8 @@ struct VerticalReader {
 ```
 
 The vtable is deliberately minimal — fields exist only because a wired reader uses them. Do not add speculative callbacks; fold setup/teardown into `open_partition`/`close_partition`.
+
+`max_partition_unit_halos(partition)` is required of every reader (`REQUIRE_READER_HOOK` fails a run whose reader leaves it `NULL`). It answers the largest halo count of any unit in a present partition, `0` for a partition with no units, or `-1` when the reader cannot know it without reading halo rows. Like `count_partition_units` it stages nothing and holds no open handle. The driver calls it in the same startup scan as `count_partition_units`, on every rank, and folds the answers into a run-wide largest unit, where one `-1` makes the whole run's value unknown. That value sizes the created-record identity space (`struct RecordIdentitySpace` in `src/include/types.h`, encoded by `mimic_encode_created_galaxy_id()` in `src/include/galaxy_id.h`): `rows_per_unit` is the run-wide largest unit, or `MimicConfig.UniqueGalaxyIDMultiplier` when it is unknown, and `units` is the run's total forest count. The driver logs `units`, `rows_per_unit`, the radix `MAX_CREATED_RECORDS_PER_HOST` (1024) and whether `1024 * units * rows_per_unit` fits int64 once at INFO, then publishes `(unit = GlobalForestOffset + unit index, rows_per_unit, fits)` before loading each unit (`vertical_driver_record_identity_space()`). A space that does not fit never stops a run. The shipped answers: `lhalo_binary` reads the `InputTreeNHalos` table in the file header, `lhalo_hdf5` the `/Header` `InputTreeNHalos` attribute, `consistent_trees_hdf5` the `ForestNhalos` column of each file's `ForestInfo` index over the chunk's forest range, and `consistent_trees_ascii` answers `-1` because its catalogues carry no per-forest halo count.
 
 ### Partition and unit model
 
@@ -1043,7 +1046,7 @@ The run path is `read_parameter_file()` → `init()` → `run_processing_driver(
 
 #### The horizontal reader interface
 
-`struct HorizontalReader` (`src/io/horizontal/reader.h`) is a separate, small vtable rather than a widening of `struct VerticalReader`, whose twelve hooks are partition/unit-shaped and carry no meaning for horizontal input. `enum InputProcessingOrder` and `input_processing_order_name()` are shared with the vertical side, because the processing order is a property of the run rather than of one reader family:
+`struct HorizontalReader` (`src/io/horizontal/reader.h`) is a separate, small vtable rather than a widening of `struct VerticalReader`, whose thirteen hooks are partition/unit-shaped and carry no meaning for horizontal input. `enum InputProcessingOrder` and `input_processing_order_name()` are shared with the vertical side, because the processing order is a property of the run rather than of one reader family:
 
 ```c
 struct HorizontalReader {
