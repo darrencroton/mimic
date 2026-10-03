@@ -5,21 +5,8 @@
  * @file    fof_workspace.h
  * @brief   The FoF workspace descriptor both drivers hand to physics and marshalling
  *
- * A FoF workspace is the contiguous struct Halo array one FoF group is
- * assembled into by inheritance, evolved in place by the module pipeline, and
- * marshalled from into the driver's output buffer. struct FoFWorkspace carries
- * that array together with what the code operating on it needs to know about
- * where its rows come from: the galaxy pool their galaxies are allocated from
- * and the created-record identity space the driver published for the unit
- * being processed.
- *
- * Ownership: each driver owns exactly one descriptor for the whole of its
- * processing (the vertical driver's is sized per unit by load_unit() and
- * released by free_unit_halos(); the horizontal driver's lives in its
- * per-run state). The descriptor owns `halos` (a tracked MEM_HALOS
- * allocation); it borrows `pool`, whose owner resets and destroys it.
- * fof_workspace_reserve() is the only function that grows `halos`, so any
- * pointer into the array must be re-read from the descriptor after a call
+ * fof_workspace_reserve() is the only function that grows a workspace's rows,
+ * so any pointer into them must be re-read from the descriptor after a call
  * that may reserve.
  */
 
@@ -29,6 +16,27 @@
 
 struct GalaxyPool; /* opaque; defined in galaxy_pool.c */
 
+/**
+ * @brief   One FoF group's processing rows and what they belong to
+ *
+ * The contiguous struct Halo array a FoF group is assembled into by
+ * inheritance, evolved in place by the module pipeline, and marshalled from
+ * into the driver's output buffer, together with where its galaxies live and
+ * how records created in it are identified.
+ *
+ * - `halos` is owned: a tracked MEM_HALOS allocation, grown only by
+ *   fof_workspace_reserve() and freed by fof_workspace_destroy().
+ * - `pool` is borrowed: the galaxy pool the rows' galaxies come from; its
+ *   owner resets and destroys it, never the workspace.
+ * - `identity` is a per-unit snapshot of the driver's published
+ *   created-record identity space, copied in by the driver for the unit
+ *   (vertical) or snapshot (horizontal) being processed.
+ * - Rows [0, count) are live, and 0 <= count <= capacity always.
+ *
+ * Each driver owns exactly one descriptor: the vertical driver's rows are
+ * sized per unit by load_unit() and released by free_unit_halos(); the
+ * horizontal driver's live in its per-run state.
+ */
 struct FoFWorkspace {
   struct Halo *halos;                  /* [capacity]; rows [0, count) are live */
   int64_t count;                       /* rows assembled for the current FoF group */

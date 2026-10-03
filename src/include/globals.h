@@ -48,7 +48,9 @@ extern char *ThisNode;
  *      unit's published created-record identity space, which process_partition()
  *      sets after each load.
  *    - Source: Filled during FoF processing in build_halo_tree()
- *    - Lifetime: Per-tree, grows dynamically during processing
+ *    - Lifetime: The rows are per unit (seeded in load_unit(), grown during
+ *      processing, released in free_unit_halos()); the descriptor itself is a
+ *      run-lifetime static that free_unit_halos() zeroes
  *    - Ownership: Temporary working space, contents copied to ProcessedHalos
  *    - Size: `capacity` rows (grows as needed via fof_workspace_reserve())
  *    - Purpose: Accumulates halos during recursive tree building
@@ -109,8 +111,10 @@ extern char *ThisNode;
  * risk.
  */
 
-/* halo data pointers (the vertical FoF workspace is the driver-owned descriptor
-   above, not a global) */
+/*
+ * halo data pointers (the vertical FoF workspace is the driver-owned descriptor
+ * above, not a global)
+ */
 extern struct Halo *ProcessedHalos;
 extern struct RawHalo *InputTreeHalos;
 extern struct HaloAuxData *HaloAux;

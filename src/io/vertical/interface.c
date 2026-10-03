@@ -168,6 +168,9 @@ void load_unit(int unit) {
   const int64_t fof_from_processed = (int64_t)(0.1 * (double)MaxProcessedHalos);
   if (fof_from_processed > fof_capacity)
     fof_capacity = fof_from_processed;
+  /* Never seed above the ceiling fof_workspace_reserve() enforces on growth. */
+  if (fof_capacity > MAX_HALO_ARRAY_SIZE)
+    fof_capacity = MAX_HALO_ARRAY_SIZE;
 
   HaloAux = mymalloc_cat(sizeof(struct HaloAuxData) * InputTreeNHalos[unit], MEM_HALOS);
 
