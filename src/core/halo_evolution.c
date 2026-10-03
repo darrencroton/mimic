@@ -182,6 +182,10 @@ void process_halo_evolution(struct HaloInputView view, struct FoFWorkspace *ws, 
   /* Setup module execution context */
   setup_module_context(&ctx, view, workspace, halonr, centralgal);
 
+  /* Every row from here on is a record created by the pipeline; the marshaller
+   * places each one after its host's subhalo slice (output_buffer.c). */
+  ws->base_count = ws->count;
+
   /* Run the configured module lifecycle over this FoF workspace */
   execute_module_pipeline(&ctx, ws);
 }

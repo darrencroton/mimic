@@ -188,7 +188,10 @@ int module_system_init(void);
  * ws->halos and ws->count are read at the start of each callback, never from a
  * copy taken earlier in the phase. Per-event consumers address rows through
  * the phase's event-dispatch view, set from the descriptor when the phase
- * begins.
+ * begins. When a full-halo callback returns, records it created through
+ * module_create_record() are appended to the workspace before its pending
+ * events are delivered or the next module runs, and the event-dispatch view
+ * and ctx->central_galaxy are refreshed.
  *
  * @param   phase_config   Array of module configurations for this phase
  * @param   num_modules    Number of modules in this phase (0 = skip phase)
@@ -239,6 +242,16 @@ void execute_post_snapshot(const struct SnapshotContext *ctx, const struct Halo 
  * @param   ws      FoF workspace to evolve (fof_workspace.h); ws->count rows
  */
 void execute_module_pipeline(struct ModuleContext *ctx, struct FoFWorkspace *ws);
+
+/**
+ * @brief   Release the record-creation scratch (module_create_record())
+ *
+ * Frees the run-persistent staging blocks, staged-host map and per-host
+ * ordinal array. Each driver calls it at teardown (the vertical driver through
+ * free_vertical_driver_scratch(), the horizontal driver in its own teardown);
+ * a run that created nothing holds none of them. Safe to call repeatedly.
+ */
+void module_release_record_creation_scratch(void);
 
 /**
  * @brief   Cleanup the module system

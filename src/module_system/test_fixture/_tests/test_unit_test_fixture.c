@@ -13,6 +13,9 @@
  * - Parameter reading works
  * - Property access works
  * - Snapshot callback (dual mode) writes every entry and accepts count zero
+ * - The optional TestFixtureCreateRecords parameter: absent, zero and positive
+ *   initialise, negative is refused (record creation itself is exercised by
+ *   tests/unit/test_record_creation.c)
  * - No memory leaks
  */
 
@@ -265,6 +268,44 @@ int test_snapshot_callback(void) {
 }
 
 /**
+ * @test    test_create_records_parameter_is_optional
+ * @brief   TestFixtureCreateRecords may be absent; when present it must be >= 0
+ *
+ * Expected: init succeeds without the parameter and with 0 or 2, and fails with -1
+ */
+int test_create_records_parameter_is_optional(void) {
+  const char *values[] = {NULL, "0", "2", "-1"};
+  const int expected[] = {0, 0, 0, -1};
+
+  for (int v = 0; v < 4; v++) {
+    /* ===== SETUP ===== */
+    reset_config();
+    init_memory_system(0);
+    ensure_modules_registered();
+    set_test_fixture_params(0.5, 0);
+    if (values[v] != NULL) {
+      const int idx = MimicConfig.NumModelParams++;
+      strcpy(MimicConfig.ModelParams[idx].param_name, "TestFixtureCreateRecords");
+      snprintf(MimicConfig.ModelParams[idx].value, MAX_STRING_LEN, "%s", values[v]);
+    }
+    test_pre_timestep_add("test_fixture", PROCESSING_MODE_FULL_HALO);
+    MimicConfig.SubSteps = 1;
+
+    /* ===== EXECUTE ===== */
+    const int result = module_system_init();
+
+    /* ===== VALIDATE ===== */
+    TEST_ASSERT_EQUAL(result, expected[v], "init accepts an absent or non-negative value only");
+
+    /* ===== CLEANUP ===== */
+    module_system_cleanup(); /* also frees the phase configuration after a failed init */
+    check_memory_leaks();
+  }
+
+  return TEST_PASS;
+}
+
+/**
  * @brief   Main test runner
  */
 int main(void) {
@@ -281,6 +322,7 @@ int main(void) {
   TEST_RUN(test_property_access);
   TEST_RUN(test_memory_safety);
   TEST_RUN(test_snapshot_callback);
+  TEST_RUN(test_create_records_parameter_is_optional);
 
   /* Print summary */
   TEST_SUMMARY();

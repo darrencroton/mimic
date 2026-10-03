@@ -2,7 +2,7 @@
  * @file    inheritance.c
  * @brief   Format-neutral descendant-galaxy inheritance service
  *
- * Builds a FoFWorkspace slice for one descendant subhalo from the driver-supplied
+ * Builds the FoF workspace rows for one descendant subhalo from the driver-supplied
  * progenitor list: deep-copies progenitor galaxies, applies descendant halo
  * properties, promotes/demotes Type 0/1/2 as required, discards Type 3 strays,
  * and creates a new central galaxy when no progenitor galaxy survives.
@@ -76,7 +76,7 @@ static void apply_descendant_properties(struct Halo *halo,
   }
 }
 
-static void make_orphan(struct Halo *halo) {
+void make_orphan(struct Halo *halo) {
   double previous_mvir = halo->Mvir;
   double previous_vvir = halo->Vvir;
   double previous_vmax = halo->Vmax;

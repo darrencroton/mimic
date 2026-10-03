@@ -54,6 +54,8 @@ FoF-only modules implement `process` only, snapshot-only modules `process_snapsh
 
 `process_snapshot` borrows the current snapshot population for the call only: `count` may be 0 (with `halos` possibly `NULL`); for a positive count `halos` and every `halos[i].galaxy` are non-`NULL`; index with `int64_t`; write only galaxy properties through `halos[i].galaxy`. The `const` is shallow and `-Wcast-qual` is not in the warning set, so **casting away `const`, retaining the pointer in static/heap storage, and indexing by `CentralHalo` compile silently but are forbidden** — check for all three in every snapshot-callback review. The horizontal driver dispatches it from `modules.post_snapshot` (`execute_post_snapshot()`), once per snapshot, after the FoF sweep and before publication, release and output; the population is the current generation's processed buffer only (no Type 3, no older generation), writes are seen by the next entry, descendants and the snapshot's output, `module_emit_event()` returns `-1` during the call, and a non-zero return is fatal with module, snapshot and code. Full contract: `struct Module.process_snapshot` in `src/core/module_interface.h` and the DEVELOPER-GUIDE "Snapshot Callback Contract".
 
+**Creating records.** A `process_full_halo` module can add galaxy records to its FoF group with `int module_create_record(struct ModuleContext *ctx, int host_index, struct Halo **row)` (`src/core/module_interface.h`; full contract in the DEVELOPER-GUIDE "Record Creation Contract"). The host must be a committed Type 0/1 row with a galaxy that was present when the pipeline started (created rows cannot host). On success it returns the row's future index (at least `ngal`) and a staged row: a copy of the host through `make_orphan()` (Type 2, `Mvir`/`Len` zero, infall set from a Type 0 host), a fresh pool galaxy from `init_galaxy_defaults()`, and a negative `UniqueGalaxyID` from `mimic_encode_created_galaxy_id()`. Fill it before returning and never keep the pointer. The core appends staged rows when the callback returns, before its events are delivered and the next module runs; later modules, phases, substeps and by-galaxy passes see them, and the marshaller writes them after their host's subhalo slice so the next snapshot inherits them as orphans. It returns `-1` with an `ERROR_LOG` (and stages nothing) from any other callback or `init()`, for a bad host, past 1024 records per host per FoF step, or when the run's identity space does not fit int64; propagate it as a non-zero `process()` return. A module cannot tell its dispatch mode, so a creating module must be configured `process_full_halo`; in a substep phase it creates once per substep unless it guards on `ctx->substep_number`; retiring a slice's only Type 0/1 row while its created rows survive makes the next inheritance fatal. `test_fixture`'s optional `TestFixtureCreateRecords` parameter exercises all of this in tests.
+
 Return-code semantics: `init` non-zero aborts startup (before any tree is processed); `process` non-zero exits the run with failure — log an `ERROR_LOG()` with the physics reason first, because the core only knows the module and substep; `cleanup` non-zero is logged and cleanup continues for other modules.
 
 ## 3. module_info.yaml schema
@@ -110,7 +112,7 @@ if (module_emit_event(ctx, SAGE_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
 }
 ```
 
-`module_emit_event(ctx, event_id, source_index, target_index, value0, value1)` (declared in `src/core/module_interface.h`) validates that the emitting module declared the event and that indices are in bounds. Consumers read `ctx->active_event->value0/value1/source_index/target_index`; subscription routing guarantees only subscribed events arrive. Startup validation fails fast on: a per-event module with no `events.consumes`, a consumed producer/event that is not declared, or a producer not configured as `process_full_halo` in the same phase. Resolved contracts are recorded in HDF5 output under `RunProperties/EventContracts`.
+`module_emit_event(ctx, event_id, source_index, target_index, value0, value1)` (declared in `src/core/module_interface.h`) validates that the emitting module declared the event and that indices are in bounds: both must name committed rows, so a row the running callback created with `module_create_record()` cannot be named until a later callback. Consumers read `ctx->active_event->value0/value1/source_index/target_index`; subscription routing guarantees only subscribed events arrive. Startup validation fails fast on: a per-event module with no `events.consumes`, a consumed producer/event that is not declared, or a producer not configured as `process_full_halo` in the same phase. Resolved contracts are recorded in HDF5 output under `RunProperties/EventContracts`.
 
 ## 6. Parameters
 
@@ -171,7 +173,7 @@ rc=$?; echo "exit_code=$rc"
 
 ## Provenance and maintenance
 
-Verified against the live repo 2026-07-04; processing-mode and lifecycle sections re-verified 2026-10-02. Re-verify drift-prone specifics:
+Verified against the live repo 2026-07-04; processing-mode and lifecycle sections re-verified 2026-10-02; record creation added 2026-10-04. Re-verify drift-prone specifics:
 
 ```bash
 grep -n "^#define LOAD\|^#define VALIDATE" src/module_system/parameter_helpers.h   # macro set
@@ -184,6 +186,7 @@ grep -n "standalone" scripts/generate_module_registry.py | head -5              
 ls src/module_system/template/                                                    # template files
 cat models/sage16/modules/sage_apply_cooling/module_info.yaml                     # reference metadata
 grep -rn "MAX_SUBSTEP_PHASES" src/ | head -3                                      # phase cap (32)
+grep -n "module_create_record" src/core/module_interface.h src/core/module_registry.c  # creation API
 ```
 
 The schema tables (sections 3–6) drift only when the generator/validator scripts change; the ordering law and lifecycle contract are architectural and durable (see `mimic-architecture-contract`).

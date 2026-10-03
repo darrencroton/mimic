@@ -49,6 +49,7 @@ module:
     parameters:
       - TestFixtureDummyParameter
       - TestFixtureEnableLogging
+      - TestFixtureCreateRecords  # optional: absent means 0 (no record creation)
 
   # ===========================================================================
   # Tests

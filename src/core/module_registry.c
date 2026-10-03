@@ -28,11 +28,15 @@
 #include "constants.h"
 #include "error.h"
 #include "fof_workspace.h"
+#include "galaxy_id.h"
+#include "galaxy_pool.h"
 #include "globals.h"
+#include "inheritance.h"
 #include "memory.h"
 #include "module_interface.h"
 #include "module_registry.h"
 #include "numeric.h"
+#include "vertical/reader.h" /* enum InputProcessingOrder only, to name the driver */
 #include "generated/parameter_unit_conversions.h"
 
 /** Maximum number of modules that can be registered */
@@ -99,6 +103,95 @@ static struct PhaseEventDispatchState phase_event_state = {.events = NULL,
                                                            .active = false,
                                                            .emission_allowed = false,
                                                            .current_producer_module_id = 0};
+
+/**
+ * @brief   Kind of module callback the registry is currently running
+ *
+ * Tracked so module_create_record() can name the module and the kind of
+ * callback that called it when it refuses. Saved and restored around every
+ * nested call (a per-event consumer runs inside its producer's full-halo
+ * callback).
+ */
+enum RunningCallbackKind {
+  RUNNING_CALLBACK_NONE,
+  RUNNING_CALLBACK_INIT,
+  RUNNING_CALLBACK_FULL_HALO,
+  RUNNING_CALLBACK_PER_EVENT,
+  RUNNING_CALLBACK_BY_GALAXY,
+  RUNNING_CALLBACK_SNAPSHOT,
+  RUNNING_CALLBACK_CLEANUP,
+};
+
+struct RunningCallback {
+  enum RunningCallbackKind kind;
+  const char *module_name; /**< Registered module name; NULL outside any callback */
+};
+
+static struct RunningCallback running_callback = {RUNNING_CALLBACK_NONE, NULL};
+
+/** @brief Mark a module callback as running; returns the state to restore afterwards */
+static struct RunningCallback enter_callback(enum RunningCallbackKind kind,
+                                             const char *module_name) {
+  const struct RunningCallback prior = running_callback;
+  running_callback.kind = kind;
+  running_callback.module_name = module_name;
+  return prior;
+}
+
+static void leave_callback(struct RunningCallback prior) { running_callback = prior; }
+
+/** Staged rows per staging block; blocks never move once allocated */
+#define RECORD_STAGING_BLOCK_ROWS 256
+
+/**
+ * @brief   Record-creation state (module_create_record())
+ *
+ * `allowed` is true only while a process_full_halo callback is running, and
+ * is cleared while that callback's emitted events are delivered to per-event
+ * consumers. Records a callback creates are staged here and appended to the
+ * workspace by commit_created_records() when the callback returns.
+ *
+ * Staged rows live in fixed blocks of RECORD_STAGING_BLOCK_ROWS rows that are
+ * never reallocated, so every row pointer module_create_record() hands out
+ * stays valid until its callback returns, however many records it creates
+ * after it. `staged_host` holds each staged row's host index. `ordinals` holds
+ * each host row's created-record count for the current FoF step, indexed by
+ * workspace row in [0, base_count); it is cleared lazily by the step's first
+ * creation, so a FoF step that creates nothing never touches it.
+ *
+ * All of it is run-persistent, grow-to-high-water scratch in MEM_HALOS that a
+ * run allocates only once a module creates a record, released by
+ * module_release_record_creation_scratch() at driver teardown.
+ */
+struct RecordCreationState {
+  bool allowed;
+  struct ModuleContext *ctx;
+  struct FoFWorkspace *ws;
+
+  struct Halo **blocks; /**< [block_slots]; the first block_count are allocated */
+  int64_t block_count;
+  int64_t block_slots;
+  int64_t *staged_host; /**< [staged_host_capacity] */
+  int64_t staged_host_capacity;
+  int64_t staged_count; /**< Rows staged by the running callback */
+
+  int *ordinals; /**< [ordinal_capacity] */
+  int64_t ordinal_capacity;
+  bool ordinals_ready; /**< ordinals[0, base_count) were cleared for this FoF step */
+};
+
+static struct RecordCreationState record_creation = {.allowed = false,
+                                                     .ctx = NULL,
+                                                     .ws = NULL,
+                                                     .blocks = NULL,
+                                                     .block_count = 0,
+                                                     .block_slots = 0,
+                                                     .staged_host = NULL,
+                                                     .staged_host_capacity = 0,
+                                                     .staged_count = 0,
+                                                     .ordinals = NULL,
+                                                     .ordinal_capacity = 0,
+                                                     .ordinals_ready = false};
 
 /* The processing-mode table and its lookups live in processing_modes.c. */
 
@@ -715,7 +808,9 @@ int module_system_init(void) {
     struct Module *mod = execution_pipeline[i];
     DEBUG_LOG("Initializing module: %s", mod->name);
 
+    const struct RunningCallback prior = enter_callback(RUNNING_CALLBACK_INIT, mod->name);
     int result = mod->init();
+    leave_callback(prior);
     if (result != 0) {
       ERROR_LOG("Module '%s' initialization failed with code %d", mod->name, result);
       return result;
@@ -838,6 +933,10 @@ static void dispatch_events_range(int start_index, int end_index) {
   bool prior_emission_allowed = phase_event_state.emission_allowed;
   phase_event_state.emission_allowed = false;
 
+  /* A per-event consumer may not create records either (module_create_record()). */
+  const bool prior_creation_allowed = record_creation.allowed;
+  record_creation.allowed = false;
+
   for (int event_index = start_index; event_index < end_index; event_index++) {
     const struct ModuleEvent *event = &phase_event_state.events[event_index];
 
@@ -881,7 +980,9 @@ static void dispatch_events_range(int start_index, int end_index) {
                 event->target_index, phase_event_state.ctx->substep_number + 1,
                 phase_event_state.ctx->num_substeps, phase_event_state.ctx->redshift);
 
+      const struct RunningCallback prior = enter_callback(RUNNING_CALLBACK_PER_EVENT, mod->name);
       int result = mod->process(phase_event_state.ctx, target_halo, 1);
+      leave_callback(prior);
       if (result != 0) {
         FATAL_ERROR("Module '%s' failed on event %d (event_id=%d, substep %d)", mod->name,
                     event_index, event->event_id, phase_event_state.ctx->substep_number);
@@ -891,6 +992,7 @@ static void dispatch_events_range(int start_index, int end_index) {
     phase_event_state.ctx->active_event = NULL;
   }
 
+  record_creation.allowed = prior_creation_allowed;
   phase_event_state.emission_allowed = prior_emission_allowed;
   phase_event_state.last_dispatched_event = end_index;
 }
@@ -969,15 +1071,19 @@ int module_emit_event(struct ModuleContext *ctx, int event_id, int source_index,
     return -1;
   }
 
+  /* ngal is the committed row count: records created by the running callback
+   * are appended only when it returns, so an event cannot name one of them. */
   if (source_index < 0 || source_index >= phase_event_state.ngal) {
-    ERROR_LOG("module_emit_event invalid source_index=%d (ngal=%d)", source_index,
-              phase_event_state.ngal);
+    ERROR_LOG("module_emit_event invalid source_index=%d: outside the %d committed rows (a "
+              "record created in the running callback cannot be named until it returns)",
+              source_index, phase_event_state.ngal);
     return -1;
   }
 
   if (target_index < 0 || target_index >= phase_event_state.ngal) {
-    ERROR_LOG("module_emit_event invalid target_index=%d (ngal=%d)", target_index,
-              phase_event_state.ngal);
+    ERROR_LOG("module_emit_event invalid target_index=%d: outside the %d committed rows (a "
+              "record created in the running callback cannot be named until it returns)",
+              target_index, phase_event_state.ngal);
     return -1;
   }
 
@@ -1012,11 +1118,266 @@ static int workspace_callback_count(const struct FoFWorkspace *ws) {
   return narrow_int64_to_int_checked(ws->count, "FoF workspace galaxy count");
 }
 
+/* ==============================================================================
+ * RECORD CREATION
+ * ============================================================================== */
+
+/** @brief Capacity after growing @p capacity to hold at least @p required entries */
+static int64_t grown_capacity(int64_t capacity, int64_t required) {
+  int64_t new_capacity = (int64_t)(capacity * HALO_ARRAY_GROWTH_FACTOR);
+  if (new_capacity - capacity < MIN_HALO_ARRAY_GROWTH)
+    new_capacity = capacity + MIN_HALO_ARRAY_GROWTH;
+  return new_capacity < required ? required : new_capacity;
+}
+
+/** @brief Staged row @p k of the running callback (k < staged_count or the next slot) */
+static struct Halo *staged_row(int64_t k) {
+  return &record_creation.blocks[k / RECORD_STAGING_BLOCK_ROWS][k % RECORD_STAGING_BLOCK_ROWS];
+}
+
+/** @brief Make staging slot @p k addressable, allocating a new block when needed */
+static void reserve_staging_slot(int64_t k) {
+  const int64_t block = k / RECORD_STAGING_BLOCK_ROWS;
+  if (block >= record_creation.block_count) {
+    if (record_creation.block_count == record_creation.block_slots) {
+      const int64_t slots = grown_capacity(record_creation.block_slots, block + 1);
+      record_creation.blocks = myrealloc_cat(
+          record_creation.blocks, (size_t)slots * sizeof(*record_creation.blocks), MEM_HALOS);
+      record_creation.block_slots = slots;
+    }
+    record_creation.blocks[record_creation.block_count++] =
+        mymalloc_cat(RECORD_STAGING_BLOCK_ROWS * sizeof(struct Halo), MEM_HALOS);
+  }
+
+  if (k >= record_creation.staged_host_capacity) {
+    const int64_t capacity = grown_capacity(record_creation.staged_host_capacity, k + 1);
+    record_creation.staged_host =
+        myrealloc_cat(record_creation.staged_host,
+                      (size_t)capacity * sizeof(*record_creation.staged_host), MEM_HALOS);
+    record_creation.staged_host_capacity = capacity;
+  }
+}
+
+/** @brief Clear the per-host ordinals for this FoF step on its first creation */
+static void ready_creation_ordinals(const struct FoFWorkspace *ws) {
+  if (record_creation.ordinals_ready) {
+    return;
+  }
+  if (ws->base_count > record_creation.ordinal_capacity) {
+    const int64_t capacity = grown_capacity(record_creation.ordinal_capacity, ws->base_count);
+    record_creation.ordinals = myrealloc_cat(
+        record_creation.ordinals, (size_t)capacity * sizeof(*record_creation.ordinals), MEM_HALOS);
+    record_creation.ordinal_capacity = capacity;
+  }
+  if (ws->base_count > 0) {
+    memset(record_creation.ordinals, 0, (size_t)ws->base_count * sizeof(*record_creation.ordinals));
+  }
+  record_creation.ordinals_ready = true;
+}
+
+/** @brief "from init()", "from a process_by_galaxy callback", ... for refusals */
+static const char *running_callback_description(void) {
+  switch (running_callback.kind) {
+  case RUNNING_CALLBACK_INIT:
+    return "from init()";
+  case RUNNING_CALLBACK_FULL_HALO:
+    return "from a process_full_halo callback whose creation window is closed";
+  case RUNNING_CALLBACK_PER_EVENT:
+    return "from a process_per_event callback";
+  case RUNNING_CALLBACK_BY_GALAXY:
+    return "from a process_by_galaxy callback";
+  case RUNNING_CALLBACK_SNAPSHOT:
+    return "from a process_snapshot callback";
+  case RUNNING_CALLBACK_CLEANUP:
+    return "from cleanup()";
+  case RUNNING_CALLBACK_NONE:
+    break;
+  }
+  return "outside any module callback";
+}
+
+int module_create_record(struct ModuleContext *ctx, int host_index, struct Halo **row) {
+  const char *module =
+      running_callback.module_name != NULL ? running_callback.module_name : "(none running)";
+
+  if (row != NULL) {
+    *row = NULL;
+  }
+
+  if (!record_creation.allowed) {
+    ERROR_LOG("module_create_record refused for module '%s': called %s; records can only be "
+              "created from a running process_full_halo callback",
+              module, running_callback_description());
+    return -1;
+  }
+
+  if (row == NULL) {
+    ERROR_LOG("module_create_record refused for module '%s': row pointer is NULL", module);
+    return -1;
+  }
+
+  if (ctx != record_creation.ctx) {
+    ERROR_LOG("module_create_record refused for module '%s': mismatched ModuleContext", module);
+    return -1;
+  }
+
+  struct FoFWorkspace *ws = record_creation.ws;
+  const int64_t committed = ws->count;
+
+  /* Core invariants, not module errors: base_count comes from
+   * process_halo_evolution() and every row past it has a recorded host. */
+  if (ws->base_count < 0 || ws->base_count > committed ||
+      committed - ws->base_count > ws->created_capacity || ws->pool == NULL) {
+    FATAL_ERROR("module_create_record: FoF workspace is not set up for creation (count=%" PRId64
+                ", base_count=%" PRId64 ", created_capacity=%" PRId64 ", pool=%p); "
+                "process_halo_evolution() sets base_count before the pipeline",
+                committed, ws->base_count, ws->created_capacity, (void *)ws->pool);
+  }
+
+  if (host_index < 0 || host_index >= committed) {
+    ERROR_LOG("module_create_record refused for module '%s': host_index=%d is outside the %" PRId64
+              " committed rows",
+              module, host_index, committed);
+    return -1;
+  }
+
+  if (host_index >= ws->base_count) {
+    ERROR_LOG("module_create_record refused for module '%s': host_index=%d is a record created "
+              "in this FoF step (created rows start at %" PRId64 "); created rows cannot host",
+              module, host_index, ws->base_count);
+    return -1;
+  }
+
+  const struct Halo *host = &ws->halos[host_index];
+  if (host->Type != 0 && host->Type != 1) {
+    ERROR_LOG("module_create_record refused for module '%s': host row %d (UniqueGalaxyID %lld) "
+              "is Type %d; only a Type 0 or 1 row can host",
+              module, host_index, host->UniqueGalaxyID, host->Type);
+    return -1;
+  }
+
+  if (host->galaxy == NULL) {
+    ERROR_LOG("module_create_record refused for module '%s': host row %d (UniqueGalaxyID %lld) "
+              "has no galaxy",
+              module, host_index, host->UniqueGalaxyID);
+    return -1;
+  }
+
+  if (!ws->identity.fits) {
+    ERROR_LOG("module_create_record refused for module '%s': the %s driver's created-record "
+              "identity space does not fit int64 (units=%" PRId64 ", rows_per_unit=%" PRId64
+              ", radix=%d), so this run cannot create records",
+              module,
+              input_processing_order_name((enum InputProcessingOrder)MimicConfig.ProcessingOrder),
+              ws->identity.units, ws->identity.rows_per_unit, MAX_CREATED_RECORDS_PER_HOST);
+    return -1;
+  }
+
+  ready_creation_ordinals(ws);
+  const int ordinal = record_creation.ordinals[host_index];
+  if (ordinal >= MAX_CREATED_RECORDS_PER_HOST) {
+    ERROR_LOG("module_create_record refused for module '%s': host row %d (UniqueGalaxyID %lld) "
+              "already has %d created records in this FoF step, the identity radix",
+              module, host_index, host->UniqueGalaxyID, MAX_CREATED_RECORDS_PER_HOST);
+    return -1;
+  }
+
+  /* The encoder's preconditions are live assert()s; a breach here means the
+   * driver published a space that does not cover its own rows. */
+  if (ws->identity.unit < 0 || ws->identity.unit >= ws->identity.units || host->HaloNr < 0 ||
+      host->HaloNr >= ws->identity.rows_per_unit) {
+    FATAL_ERROR("module_create_record: host HaloNr=%lld at unit %" PRId64
+                " lies outside the published identity space (units=%" PRId64
+                ", rows_per_unit=%" PRId64 ")",
+                host->HaloNr, ws->identity.unit, ws->identity.units, ws->identity.rows_per_unit);
+  }
+
+  const int64_t k = record_creation.staged_count;
+  const int index = narrow_int64_to_int_checked(committed + k, "created record index");
+  reserve_staging_slot(k);
+
+  struct Halo *staged = staged_row(k);
+  *staged = *host;
+  make_orphan(staged);
+  staged->UniqueGalaxyID = mimic_encode_created_galaxy_id(ws->identity.unit, host->HaloNr,
+                                                          ws->identity.rows_per_unit, ordinal);
+  staged->galaxy = galaxy_pool_alloc(ws->pool);
+  init_galaxy_defaults(staged->galaxy);
+
+  record_creation.staged_host[k] = host_index;
+  record_creation.ordinals[host_index] = ordinal + 1;
+  record_creation.staged_count = k + 1;
+
+  *row = staged;
+  return index;
+}
+
+/**
+ * @brief   Append the rows the returning full-halo callback staged
+ *
+ * Runs after the callback returns and before its pending events are
+ * delivered or the next module runs: the rows join the workspace tail in
+ * creation order, their hosts are recorded in ws->created_host, and every
+ * cache of the workspace's address or count the phase holds is refreshed
+ * (ctx->central_galaxy and the event-dispatch view), since growing the rows
+ * may move them.
+ */
+static void commit_created_records(struct ModuleContext *ctx, struct FoFWorkspace *ws) {
+  const int64_t staged = record_creation.staged_count;
+  if (staged == 0) {
+    return;
+  }
+
+  const int64_t first = ws->count;
+  fof_workspace_reserve(ws, first + staged);
+  fof_workspace_reserve_created(ws, first + staged - ws->base_count);
+
+  for (int64_t k = 0; k < staged; k++) {
+    ws->halos[first + k] = *staged_row(k);
+    ws->created_host[first + k - ws->base_count] = record_creation.staged_host[k];
+  }
+  ws->count = first + staged;
+  record_creation.staged_count = 0;
+
+  ctx->central_galaxy = &ws->halos[ctx->central_index];
+  phase_event_state.halos = ws->halos;
+  phase_event_state.ngal = workspace_callback_count(ws);
+}
+
+/** @brief Start a FoF step: per-host ordinals count from zero again */
+static void begin_record_creation_step(void) {
+  if (record_creation.staged_count != 0) {
+    FATAL_ERROR("Record creation: %" PRId64 " staged rows were never committed",
+                record_creation.staged_count);
+  }
+  record_creation.ordinals_ready = false;
+}
+
+void module_release_record_creation_scratch(void) {
+  for (int64_t b = 0; b < record_creation.block_count; b++) {
+    myfree(record_creation.blocks[b]);
+  }
+  myfree(record_creation.blocks);
+  myfree(record_creation.staged_host);
+  myfree(record_creation.ordinals);
+
+  record_creation.blocks = NULL;
+  record_creation.block_count = 0;
+  record_creation.block_slots = 0;
+  record_creation.staged_host = NULL;
+  record_creation.staged_host_capacity = 0;
+  record_creation.staged_count = 0;
+  record_creation.ordinals = NULL;
+  record_creation.ordinal_capacity = 0;
+  record_creation.ordinals_ready = false;
+}
+
 /**
  * @brief   Execute modules in a specific phase
  *
  * Core execution engine for multi-phase pipeline:
- * 1. PROCESSING_MODE_FULL_HALO modules
+ * 1. PROCESSING_MODE_FULL_HALO modules, each followed by the commit of the
+ *    records it created (commit_created_records())
  * 2. Event dispatch to PROCESSING_MODE_PER_EVENT modules
  * 3. PROCESSING_MODE_BY_GALAXY modules (galaxy-major loop)
  *
@@ -1057,13 +1418,23 @@ void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
     ctx->active_event = NULL;
     phase_event_state.current_producer_module_id = mod->module_id;
     phase_event_state.emission_allowed = true;
+    record_creation.ctx = ctx;
+    record_creation.ws = ws;
+    record_creation.allowed = true;
+    const struct RunningCallback prior = enter_callback(RUNNING_CALLBACK_FULL_HALO, mod->name);
     int result = mod->process(ctx, halos, ngal);
+    leave_callback(prior);
+    record_creation.allowed = false;
     phase_event_state.emission_allowed = false;
     phase_event_state.current_producer_module_id = 0;
 
     if (result != 0) {
       FATAL_ERROR("Module '%s' failed (substep %d)", mod->name, ctx->substep_number);
     }
+
+    /* Records the callback created join the workspace now, before its pending
+     * events are delivered and before the next module runs. */
+    commit_created_records(ctx, ws);
 
     /* Safety dispatch for any events not yet dispatched during emission. */
     dispatch_events_range(phase_event_state.last_dispatched_event, phase_event_state.event_count);
@@ -1091,7 +1462,9 @@ void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
                 mod->name, g, ws->count, ctx->substep_number + 1, ctx->num_substeps, ctx->redshift);
 
       ctx->active_event = NULL;
+      const struct RunningCallback prior = enter_callback(RUNNING_CALLBACK_BY_GALAXY, mod->name);
       int result = mod->process(ctx, &ws->halos[g], 1);
+      leave_callback(prior);
       if (result != 0) {
         FATAL_ERROR("Module '%s' failed on galaxy %" PRId64 " (substep %d)", mod->name, g,
                     ctx->substep_number);
@@ -1134,7 +1507,9 @@ void execute_post_snapshot(const struct SnapshotContext *ctx, const struct Halo 
               ctx->snapshot_number, count, ctx->redshift);
 
     snapshot_dispatch_active = true;
+    const struct RunningCallback prior = enter_callback(RUNNING_CALLBACK_SNAPSHOT, mod->name);
     const int result = mod->process_snapshot(ctx, halos, count);
+    leave_callback(prior);
     snapshot_dispatch_active = false;
 
     if (result != 0) {
@@ -1172,6 +1547,9 @@ static void update_context_for_substep(struct ModuleContext *ctx, int step) {
  */
 void execute_module_pipeline(struct ModuleContext *ctx, struct FoFWorkspace *ws) {
   const struct MimicConfig *config = ctx->params;
+
+  /* One pipeline run is one FoF step for created-record ordinals. */
+  begin_record_creation_step();
 
   /* Pre-timestep phase (runs once before substeps) */
   execute_phase(config->pre_timestep, config->num_pre_timestep, ctx, ws);
@@ -1274,7 +1652,9 @@ int module_system_cleanup(void) {
     struct Module *mod = execution_pipeline[i];
     DEBUG_LOG("Cleaning up module: %s", mod->name);
 
+    const struct RunningCallback prior = enter_callback(RUNNING_CALLBACK_CLEANUP, mod->name);
     int cleanup_result = mod->cleanup();
+    leave_callback(prior);
     if (cleanup_result != 0) {
       ERROR_LOG("Module '%s' cleanup failed with code %d", mod->name, cleanup_result);
       result = cleanup_result;

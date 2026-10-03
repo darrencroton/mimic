@@ -53,7 +53,7 @@ volatile sig_atomic_t VerticalDriverGotXCPU = 0;
 /* Created-record identity space currently published (types.h). The startup scan
  * sets rows_per_unit and fits for the whole run with unit = -1; process_partition()
  * then publishes each unit's own number just before loading it. */
-static struct RecordIdentitySpace published_identity_space = {-1, 0, true};
+static struct RecordIdentitySpace published_identity_space = {-1, 0, true, 0};
 
 struct RecordIdentitySpace vertical_driver_record_identity_space(void) {
   return published_identity_space;
@@ -203,6 +203,7 @@ static void evaluate_record_identity_space(const struct VerticalReader *reader, 
       .unit = -1,
       .rows_per_unit = rows_per_unit,
       .fits = fits,
+      .units = total_units,
   };
 
   INFO_LOG("Created-record identity space (vertical, reader '%s'): units=%" PRId64

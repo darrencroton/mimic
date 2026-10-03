@@ -140,8 +140,8 @@ const char *processing_mode_to_string(enum ProcessingMode mode);
 struct ModuleEvent {
   int producer_module_id; /**< Generated ID of the emitting module */
   int event_id;           /**< Generated per-producer event ID */
-  int source_index;       /**< Source halo index in FoFWorkspace */
-  int target_index;       /**< Target halo index in FoFWorkspace */
+  int source_index;       /**< Source halo index in the FoF workspace */
+  int target_index;       /**< Target halo index in the FoF workspace */
   double value0;          /**< Primary scalar payload */
   double value1;          /**< Secondary scalar payload */
 };
@@ -245,7 +245,7 @@ struct ModuleContext {
   /* ===== Halo Information ===== */
 
   /**
-   * @brief Index of central halo in FoFWorkspace array
+   * @brief Index of central halo in the FoF workspace array
    *
    * Index of the Type 0 central galaxy for this FOF group.
    * All galaxies in the array belong to the same FOF group.
@@ -255,9 +255,11 @@ struct ModuleContext {
   /**
    * @brief Pointer to central galaxy for this FOF group
    *
-   * Direct access to the Type 0 central galaxy (FoFWorkspace[central_index]).
+   * Direct access to the Type 0 central galaxy (workspace row central_index).
    * This allows process_by_galaxy modules to access central galaxy properties
-   * when processing satellites.
+   * when processing satellites. The core re-points it whenever records created
+   * by module_create_record() are committed (the rows may move), so read it
+   * afresh in every callback rather than keeping a copy.
    *
    * Use cases:
    * - Access central's Vvir for ejection calculations
@@ -327,13 +329,15 @@ struct SnapshotContext {
  * @param ctx           Module context from current process() call
  * @param event_id      Generated per-producer event ID (e.g.,
  *                      SAGE_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER)
- * @param source_index  Source halo index in FoFWorkspace
- * @param target_index  Target halo index in FoFWorkspace
+ * @param source_index  Source halo index in the FoF workspace (a committed row)
+ * @param target_index  Target halo index in the FoF workspace (a committed row)
  * @param value0        Primary scalar payload
  * @param value1        Secondary scalar payload
  * @return 0 on success, non-zero on failure
  *
- * Failure cases: invalid context, invalid halo indices, calling outside
+ * Failure cases: invalid context, invalid halo indices (including a row created
+ * by module_create_record() during the running callback, which is not committed
+ * until the callback returns), calling outside
  * PROCESSING_MODE_FULL_HALO dispatch, or calling during post_snapshot dispatch
  * (a snapshot callback can neither emit nor consume FoF events). The phase event buffer grows to
  * fit whatever is emitted (module_registry.c); only its structural ceiling (MAX_HALO_ARRAY_SIZE) is
@@ -345,6 +349,84 @@ struct SnapshotContext {
  */
 int module_emit_event(struct ModuleContext *ctx, int event_id, int source_index, int target_index,
                       double value0, double value1);
+
+/**
+ * @brief   Create a galaxy record hosted by a workspace row (record-creation contract)
+ *
+ * Lets a PROCESSING_MODE_FULL_HALO module add records to the FoF group it is
+ * processing, so that every later module, phase, substep and by-galaxy pass of
+ * the same snapshot, the output, and the next snapshot's inheritance see them
+ * as ordinary rows. docs/DEVELOPER-GUIDE.md "Record Creation Contract" carries
+ * the same contract.
+ *
+ * API. Legal only while a process_full_halo callback is running, the same gate
+ * as module_emit_event(). @p host_index must name a committed workspace row of
+ * Type 0 or 1 with a non-NULL galaxy that was present when the pipeline
+ * started: created rows cannot host. On success the function returns the new
+ * row's future logical index (>= the committed row count, i.e. the @p ngal the
+ * callback received) and sets *@p row to a staged row the caller may fill until
+ * its callback returns. The pointer stays valid across further creations in the
+ * same callback and must not be used after it returns.
+ *
+ * Initialisation. The staged row is a struct copy of the host passed through
+ * make_orphan() (inheritance.h): Type 2, Mvir and Len zero, deltaMvir = -host
+ * Mvir, Rvir and Vvir kept, and the infall fields set to the host's current
+ * Mvir, Vvir and Vmax for a Type 0 host or kept as the host's recorded infall
+ * values for a Type 1 host. HaloNr, CentralHalo, CentralMvir,
+ * UniqueCentralGalaxyID, SnapNum, dT, Pos and Vel start as the host's.
+ * UniqueGalaxyID is the created ID below, and galaxy is a fresh slot from the
+ * workspace's galaxy pool initialised by init_galaxy_defaults(). The module then
+ * sets whatever physics it owns.
+ *
+ * Commit. When the callback returns, before its pending events are delivered
+ * and before the next module runs, the core appends every staged row in
+ * creation order to the end of the workspace, records each row's host, and
+ * refreshes ctx->central_galaxy and the event-dispatch view. The next module
+ * receives the complete array; by-galaxy passes visit created rows like any
+ * other; later phases and substeps see them. An event cannot name a row created
+ * in the same callback (module_emit_event() rejects it); later callbacks may.
+ *
+ * Output. The marshaller emits each subhalo slice's surviving rows followed by
+ * the surviving rows created on hosts in that slice, in creation order, so the
+ * created rows are inherited at the next snapshot as Type 2 rows of the host's
+ * descendant, with their UniqueGalaxyID unchanged. A created row retired to
+ * Type 3 before output is dropped like any other.
+ *
+ * Identity. UniqueGalaxyID = -(1 + ordinal + MAX_CREATED_RECORDS_PER_HOST *
+ * (host HaloNr + rows_per_unit * unit)) (mimic_encode_created_galaxy_id(),
+ * galaxy_id.h), with (unit, rows_per_unit) the driver's published identity
+ * space and `ordinal` the host's created-record count within the FoF step, in
+ * creation order. Created IDs are negative, unique run-wide and deterministic
+ * for a fixed dataset and run file; they are not identical across drivers.
+ *
+ * Memory. Created galaxies come from the workspace's pool and created rows end
+ * in the output buffer; the staging and per-host ordinal scratch is
+ * run-persistent, grow-to-high-water MEM_HALOS memory released at driver
+ * teardown (module_release_record_creation_scratch(), module_registry.h).
+ *
+ * Footguns. A module creating in a substep phase creates once per substep
+ * unless it guards on ctx->substep_number. The staged row pointer is
+ * callback-scoped. Retiring a subhalo slice's only Type 0/1 row while leaving
+ * created dependants makes the next snapshot's inheritance fatal, as it does
+ * for tree orphans. A module cannot tell its dispatch mode from ModuleContext:
+ * a module that creates must be configured as process_full_halo, and any other
+ * configuration fails at its first creation call.
+ *
+ * @param ctx         Module context from the running process() call
+ * @param host_index  Workspace index of the host row (a committed Type 0/1 row)
+ * @param row         Receives the staged row on success, NULL on failure
+ * @return The future logical index (>= 0) on success; -1 with an ERROR_LOG
+ *         naming the module and the reason when called outside a running
+ *         process_full_halo callback (including from by-galaxy, per-event and
+ *         snapshot callbacks and from init()), when @p host_index is outside the
+ *         committed rows or names a created row, when the host is not Type 0 or 1
+ *         or has no galaxy, when the host already has MAX_CREATED_RECORDS_PER_HOST
+ *         created records in this FoF step, or when the run's identity space
+ *         does not fit int64 (the message carries units, rows_per_unit, the
+ *         radix and the driver name). A failed call stages no row and allocates
+ *         no galaxy. A workspace the core did not set up for creation is fatal.
+ */
+int module_create_record(struct ModuleContext *ctx, int host_index, struct Halo **row);
 
 /**
  * @brief   Galaxy physics module interface
@@ -392,8 +474,10 @@ struct Module {
    * - With one event target halo (ngal = 1, process_per_event)
    * - With single galaxy (ngal = 1, process_by_galaxy)
    *
-   * The halos array is in FoFWorkspace (temporary processing space). All
-   * halos in the array belong to the same FOF group at the same snapshot.
+   * The halos array is the FoF workspace (temporary processing space). All
+   * halos in the array belong to the same FOF group at the same snapshot. It
+   * may move between callbacks when created records are committed (see
+   * module_create_record()), never during one.
    *
    * Modules should:
    * - Update galaxy properties (halos[i].galaxy->SomeProperty)
@@ -403,7 +487,7 @@ struct Module {
    * - Use substep context or model-local helpers for time integration
    *
    * @param ctx   Module execution context (redshift, time, substep info, params)
-   * @param halos Array of halos in the FOF group (FoFWorkspace)
+   * @param halos Array of halos in the FOF group (the FoF workspace)
    * @param ngal  Number of halos in the array (1 if process_by_galaxy or
    *              process_per_event, >1 if process_full_halo)
    * @return 0 on success, non-zero on failure

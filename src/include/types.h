@@ -38,11 +38,17 @@ struct HaloInputView {
  * startup verdict, mimic_created_record_space_fits(units, rows_per_unit) over the
  * run's whole unit count; it is the same for every unit of a run. A space that
  * does not fit never stops a run: only creating a record in it fails.
+ *
+ * `units` is the run's unit count that verdict was evaluated with (the total
+ * forest count under the vertical driver, the dataset's snapshot count under the
+ * horizontal driver), carried so a refused creation can report both numbers. It
+ * is the last member so positional initialisers of the first three stay valid.
  */
 struct RecordIdentitySpace {
   int64_t unit;
   int64_t rows_per_unit;
   bool fits;
+  int64_t units;
 };
 
 #define MIMIC_DEFAULT_TARGET_FILE_SIZE (4LL * 1024LL * 1024LL * 1024LL)

@@ -29,7 +29,7 @@ struct InheritanceProgenitorGalaxy {
 };
 
 /*
- * Build the FoFWorkspace slice [start, return value) for one descendant
+ * Build the FoF workspace rows [start, return value) for one descendant
  * subhalo. The caller owns workspace capacity, progenitor lookup, and the
  * galaxy pool `pool` that every inherited or newly created galaxy is
  * allocated from.
@@ -54,5 +54,18 @@ int64_t inherit_descendant_halos(struct GalaxyPool *pool, struct Halo *workspace
                                  int64_t capacity, const struct InheritanceDescendant *descendant,
                                  const struct InheritanceProgenitorGalaxy *progenitors,
                                  int64_t nprogenitors);
+
+/*
+ * Turn a Type 0 or 1 row into a Type 2 orphan of the halo it occupies: Mvir and
+ * Len become zero, deltaMvir becomes -Mvir, Rvir and Vvir are kept, and a Type 0
+ * row records its Mvir, Vvir and Vmax as the infall values (a Type 1 row keeps
+ * the infall values it already has). Every other field, including the galaxy
+ * pointer, is left unchanged.
+ *
+ * Used by inheritance for a non-main-branch progenitor, and by
+ * module_create_record() (module_registry.c) to initialise a created record
+ * from a struct copy of its host.
+ */
+void make_orphan(struct Halo *halo);
 
 #endif /* CORE_INHERITANCE_H */

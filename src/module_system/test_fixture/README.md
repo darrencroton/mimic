@@ -53,6 +53,16 @@ param_file = create_test_param_file(
     phase_config={"post_snapshot": [("test_fixture", "process_snapshot")]},
     model_params={"TestFixtureDummyParameter": "0.25", "TestFixtureEnableLogging": "1"}
 )
+
+# Record creation: with TestFixtureCreateRecords set the fixture must be process_full_halo
+param_file = create_test_param_file(
+    phase_config={"pre_timestep": [("test_fixture", "process_full_halo")]},
+    model_params={
+        "TestFixtureDummyParameter": "0.25",
+        "TestFixtureEnableLogging": "0",
+        "TestFixtureCreateRecords": "2",
+    },
+)
 ```
 
 ### NEVER Use in Production
@@ -74,6 +84,7 @@ This module should **NEVER** appear in:
 **Parameters**:
 - `TestFixtureDummyParameter` (double): Dummy parameter for testing parameter API
 - `TestFixtureEnableLogging` (int): Enable verbose logging for test validation (0=minimal, 1=verbose)
+- `TestFixtureCreateRecords` (int, **optional**): Records to create per Type 0 host on every `process()` call through `module_create_record()`. Absent means `0`, so every configuration written before the parameter existed is unchanged; a negative value fails `init()`. Creation is legal only from `process_full_halo`, so a configuration that sets it must place the fixture there: any other placement fails at the first creation call. See the [Record Creation Contract](../../../docs/DEVELOPER-GUIDE.md#record-creation-contract)
 
 **Properties Provided**:
 - `TestDummyProperty` (float): Test property for infrastructure testing (not written to output)
@@ -84,7 +95,7 @@ This module should **NEVER** appear in:
 
 The module performs minimal operations:
 1. **Init**: Reads parameters, logs configuration
-2. **Process** (FoF family): Sets `TestDummyProperty = DummyParameter` on every Type 0 galaxy in the array
+2. **Process** (FoF family): Sets `TestDummyProperty = DummyParameter` on every Type 0 galaxy in the array. When `TestFixtureCreateRecords > 0` it also creates that many records on each of those Type 0 rows, sets `TestDummyProperty = DummyParameter` on each, and logs `TEST_FIXTURE_CREATE: host=<UniqueGalaxyID> created=<n>` once per host (whatever `TestFixtureEnableLogging` says); a refused creation makes the call fail
 3. **Process snapshot** (snapshot family, dispatched from `modules.post_snapshot`): Checks the borrowed-view contract, then sets `TestDummyProperty = DummyParameter` on every entry of any Type through `halos[i].galaxy`. When `TestFixtureEnableLogging=1` it logs `TEST_FIXTURE_SNAPSHOT_EXEC: count=<n> snapshot=<s> n=<count> z=<z> seen_min=<v> seen_max=<v>` per call, where `seen_min`/`seen_max` are the smallest and largest `TestDummyProperty` it found before writing (what an earlier `post_snapshot` entry wrote). A non-empty population with `DummyParameter` outside `TestDummyProperty`'s declared `[0, 1]` range is refused with return code 2 before anything is written — the fixture's way to make a real run's snapshot callback fail; an empty population succeeds
 4. **Cleanup**: No resources to free
 

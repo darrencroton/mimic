@@ -335,6 +335,9 @@ void free_vertical_driver_scratch(void) {
     OutputSegmentScratch = NULL;
     OutputSegmentScratchCapacity = 0;
   }
+
+  /* Record-creation staging and ordinal scratch (module_create_record()). */
+  module_release_record_creation_scratch();
 }
 
 static void gather_progenitor_galaxies(struct HaloInputView view, int64_t halonr,

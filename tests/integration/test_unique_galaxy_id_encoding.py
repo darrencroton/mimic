@@ -12,6 +12,12 @@ Two contracts are checked:
 
 The second test applies only when the selected simulation uses lhalo_binary trees;
 it is skipped automatically for other tree types.
+
+Tree rows carry these positive IDs. Records a module creates during processing
+(module_create_record()) use a separate, strictly negative namespace
+(mimic_encode_created_galaxy_id() in src/include/galaxy_id.h); that contract is tested
+in tests/integration/test_record_creation.py. The positivity assertion below holds
+because these tests run the empty pipeline, in which no module creates a record.
 """
 
 import shutil

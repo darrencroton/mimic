@@ -14,6 +14,12 @@
  * and process_snapshot (test_fixture_process_snapshot), so tests can exercise
  * a module that registers both typed callbacks.
  *
+ * With the optional TestFixtureCreateRecords parameter set above zero it also
+ * creates records through module_create_record(), so tests can drive the
+ * record-creation contract through a real run. Creation is legal only from
+ * process_full_halo, so a configuration that sets the parameter must place the
+ * fixture there; any other placement fails at the first creation call.
+ *
  * Vision Principle #1: Physics-Agnostic Core Infrastructure
  * - Infrastructure tests MUST use this fixture, not production modules
  * - This prevents production module changes from breaking infrastructure tests
@@ -24,7 +30,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include <string.h>
+
 #include "error.h"
+#include "globals.h"
 #include "module_interface.h"
 #include "module_registry.h"
 #include "types.h"
@@ -44,6 +53,14 @@ static double DUMMY_PARAMETER;
  * 0 = minimal logging, 1 = verbose logging for test validation
  */
 static int ENABLE_LOGGING;
+
+/**
+ * @brief   Records to create per Type 0 host on every process() call
+ *
+ * Read from the optional TestFixtureCreateRecords parameter; absent means 0,
+ * so every configuration written before the parameter existed is unchanged.
+ */
+static int CREATE_RECORDS = 0;
 
 /**
  * @brief   Execution counter for tracking module calls
@@ -80,10 +97,28 @@ int test_fixture_init(void) {
     return -1;
   }
 
+  /* Optional: check presence first, since model_get_int() treats a missing
+   * parameter as an error. */
+  CREATE_RECORDS = 0;
+  for (int i = 0; i < MimicConfig.NumModelParams; i++) {
+    if (strcmp(MimicConfig.ModelParams[i].param_name, "TestFixtureCreateRecords") == 0) {
+      if (model_get_int("TestFixtureCreateRecords", &CREATE_RECORDS) != 0) {
+        ERROR_LOG("Failed to read TestFixtureCreateRecords from model_parameters");
+        return -1;
+      }
+      if (CREATE_RECORDS < 0) {
+        ERROR_LOG("TestFixtureCreateRecords = %d must be >= 0", CREATE_RECORDS);
+        return -1;
+      }
+      break;
+    }
+  }
+
   INFO_LOG("Test fixture module initialized");
   INFO_LOG("  ⚠️  WARNING: Testing infrastructure only - NOT FOR PRODUCTION");
   INFO_LOG("  DummyParameter = %.3f", DUMMY_PARAMETER);
   INFO_LOG("  EnableLogging = %d", ENABLE_LOGGING);
+  INFO_LOG("  CreateRecords = %d", CREATE_RECORDS);
 
   return 0;
 }
@@ -94,6 +129,10 @@ int test_fixture_init(void) {
  * Performs minimal processing:
  * - Sets TestDummyProperty = DUMMY_PARAMETER on all galaxies
  * - Logs processing if EnableLogging=1
+ * - When CREATE_RECORDS > 0, creates that many records on every Type 0 row
+ *   through module_create_record(), sets TestDummyProperty = DUMMY_PARAMETER on
+ *   each, and logs one TEST_FIXTURE_CREATE line per host (regardless of
+ *   EnableLogging). Only rows present when the call began are hosts.
  *
  * This validates the module system can execute modules and access properties.
  *
@@ -104,9 +143,9 @@ int test_fixture_init(void) {
  * - Galaxy processing (for ordering tests)
  *
  * @param   ctx     Module execution context (provides redshift, time, params)
- * @param   halos   Array of halos in the FOF group (FoFWorkspace)
+ * @param   halos   Array of halos in the FOF group (the FoF workspace)
  * @param   ngal    Number of halos in the array
- * @return  0 on success, -1 on error
+ * @return  0 on success, -1 on error (including a refused creation)
  */
 int test_fixture_process(struct ModuleContext *ctx, struct Halo *halos, int ngal) {
   if (halos == NULL || ngal <= 0) {
@@ -144,6 +183,20 @@ int test_fixture_process(struct ModuleContext *ctx, struct Halo *halos, int ngal
 
     if (ENABLE_LOGGING) {
       DEBUG_LOG("  Halo %d: Set TestDummyProperty = %.3f", i, DUMMY_PARAMETER);
+    }
+
+    for (int n = 0; n < CREATE_RECORDS; n++) {
+      struct Halo *created = NULL;
+      if (module_create_record(ctx, i, &created) < 0) {
+        ERROR_LOG("test_fixture: creating record %d on host %d (UniqueGalaxyID %lld) failed", n, i,
+                  halos[i].UniqueGalaxyID);
+        return -1;
+      }
+      created->galaxy->TestDummyProperty = (float)DUMMY_PARAMETER;
+    }
+    if (CREATE_RECORDS > 0) {
+      INFO_LOG("TEST_FIXTURE_CREATE: host=%lld created=%d", halos[i].UniqueGalaxyID,
+               CREATE_RECORDS);
     }
   }
 

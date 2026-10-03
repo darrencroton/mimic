@@ -553,6 +553,7 @@ static void horizontal_evaluate_record_identity_space(struct HorizontalDriverSta
       .unit = -1,
       .rows_per_unit = rows_per_unit,
       .fits = fits,
+      .units = info->snapshot_count,
   };
 
   INFO_LOG("Created-record identity space (horizontal, reader '%s'): units=%" PRId64
@@ -640,7 +641,8 @@ static int64_t horizontal_process_fof_group(struct HorizontalDriverState *state,
   int64_t fofhalo = central;
 
   /* This group's galaxies live in its generation's pool, and any record it
-   * creates is identified in the snapshot's published space. */
+   * creates is identified in the run's published space: only .unit is this
+   * snapshot's; rows_per_unit, fits and units are run-wide. */
   ws->pool = cur->pool;
   ws->identity = state->identity;
   ws->count = 0;
@@ -1418,6 +1420,7 @@ static void horizontal_teardown(struct HorizontalDriverState *state, int record_
   myfree(state->progenitor_scratch);
   state->progenitor_scratch = NULL;
   fof_workspace_destroy(&state->workspace);
+  module_release_record_creation_scratch(); /* staging of module_create_record() */
 
   /* Already cleared after each output call and at each release; repeated here
    * so the driver cannot return with them set under any path. */

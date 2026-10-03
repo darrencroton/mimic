@@ -38,6 +38,13 @@ struct OutputBufferSegment {
  * address rows of ws->halos; the descriptor itself is not modified (a Type 3
  * row's galaxy pointer and every emitted row's SnapNum are written in place).
  *
+ * Per segment, in segment order, the slice's surviving rows are emitted first,
+ * then the surviving records created during the pipeline whose host lies in
+ * that slice (ws->created_host), in creation order; output_count counts both.
+ * A source halo's output range therefore stays contiguous, and FirstHalo/NHalos
+ * and next-snapshot gathering need no knowledge of created records. A created
+ * record whose host lies in no segment is fatal.
+ *
  * The buffer may be grown by myrealloc_cat when count reaches capacity.
  * CONTRACT: buffer->halos must be a heap allocation tracked by mymalloc_cat or
  * myrealloc_cat — stack arrays will FATAL on overflow. After calling this

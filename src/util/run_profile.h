@@ -13,7 +13,8 @@
  *       seeded from the halo count and grows geometrically whenever the output
  *       population exceeds it, so it overshoots what is actually filled.
  *   P - the largest output population any one live buffer reached, in records:
- *       the galaxies emitted plus the orphans carried forward. This is a separate
+ *       the galaxies emitted plus the orphans carried forward, including records
+ *       a module created (module_create_record()). This is a separate
  *       measurement from C, and it is what MAX_HALO_ARRAY_SIZE must be checked
  *       against -- that ceiling is enforced on the live buffer during growth, so
  *       checking it against a slab count or against C misstates the headroom. P
@@ -27,9 +28,9 @@
  *       about its headroom. Under the horizontal driver the two scopes
  *       coincide and P does bound it.
  *   G - the galaxy pool's allocation high-water, in galaxies. The pool serves
- *       every inherited progenitor galaxy and every newly initialised halo,
- *       including Type 3 galaxies that are never emitted, so the output count
- *       does not bound it.
+ *       every inherited progenitor galaxy, every newly initialised halo and every
+ *       record a module creates, including Type 3 galaxies that are never
+ *       emitted, so the output count does not bound it.
  *
  * A fourth term belongs to the horizontal driver alone:
  *
