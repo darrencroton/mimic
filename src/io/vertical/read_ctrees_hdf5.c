@@ -1863,7 +1863,7 @@ static int max_forest_nhalos_in_rows_ctrees_hdf5(const int ifile, const int64_t 
     }
     for (int64_t i = 0; i < block; i++) {
       if (block_nhalos[i] < 0) {
-        ERROR_LOG("file %d ForestInfo row %" PRId64 " has negative ForestNhalos=%" PRId64 "", ifile,
+        ERROR_LOG("file %d ForestInfo row %" PRId64 " has negative ForestNhalos=%" PRId64, ifile,
                   row_start + done + i, block_nhalos[i]);
         goto max_nhalos_cleanup;
       }

@@ -19,7 +19,7 @@
  * contracts this interface consumes.
  *
  * This is deliberately a second, small vtable rather than a widening of
- * struct VerticalReader, whose twelve hooks are partition/unit-shaped and carry no
+ * struct VerticalReader, whose thirteen hooks are partition/unit-shaped and carry no
  * meaning for horizontal input. Readers register in horizontal/registry.c
  * and are dispatched through the thin wrappers below (horizontal/interface.c),
  * which verify at each point of use that the hook they need is implemented.

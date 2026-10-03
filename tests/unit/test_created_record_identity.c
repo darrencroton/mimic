@@ -146,7 +146,8 @@ static int test_predicate_zero_and_negative(void) {
 
 /**
  * @test    test_predicate_declared_package_verdicts
- * @brief   The verdicts the plan states from the packages' declared values
+ * @brief   Verdicts for the packages' declared sizes: full Millennium fits vertically and
+ *          horizontally; Shin-Uchuu ASCII, whose largest forest is unknown, does not
  */
 static int test_predicate_declared_package_verdicts(void) {
   /* Full Millennium, vertical: 14329882 forests, largest 514194 halos -> 7.5e15. */

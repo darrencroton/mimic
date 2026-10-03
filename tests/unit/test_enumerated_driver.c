@@ -370,6 +370,7 @@ static int test_skip_existing_output_preserves_lifecycle(void) {
  * @test    test_unknown_largest_unit_falls_back_to_multiplier
  * @brief   One partition answering -1 makes the run-wide largest unit unknown, so every unit
  *          is published with rows_per_unit = UniqueGalaxyIDMultiplier and its global forest
+ *          number as its unit
  */
 static int test_unknown_largest_unit_falls_back_to_multiplier(void) {
   char dir_template[] = "/tmp/mimic_enumerated_driver_identity_XXXXXX";
