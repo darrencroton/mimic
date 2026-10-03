@@ -1,0 +1,44 @@
+module:
+  name: hod_populate
+  description: >-
+    Populates each FoF group's Type 0 host with a five-parameter threshold-sample halo occupation
+    distribution (central gating, Poisson satellites at NFW radii created as galaxy records) and
+    audits the realised whole-box population against the analytic expectation.
+
+  supported_processing_modes: [process_full_halo, process_snapshot]
+
+  # hod_populate.c is implicit; the header is documentary and declares the occupation, placement
+  # and draw helpers the unit tests call directly.
+  additional_files:
+    - hod_populate.h
+
+  dependencies:
+    properties:
+      - Type
+      - Mvir
+      - Rvir
+      - Vvir
+      - Pos
+      - Vel
+      - UniqueGalaxyID
+      # Read by the snapshot audit only, to attribute each satellite to its host's mass bin.
+      - UniqueCentralGalaxyID
+      - HODGhost
+    parameters:
+      - HODLogMmin
+      - HODSigmaLogM
+      - HODLogM0
+      - HODLogM1
+      - HODAlpha
+      - HODSeed
+      - HODConcA
+      - HODConcLogMpivot
+      - HODConcB
+      - HODConcC
+
+  tests:
+    unit: _tests/test_unit_hod_populate.c
+    scientific: []
+
+  docs:
+    physics: README.md
