@@ -27,8 +27,7 @@ static int failed = 0;
 static void setup_workspace(struct Halo *workspace, struct GalaxyData *galaxy) {
   memset(workspace, 0, sizeof(struct Halo));
   memset(galaxy, 0, sizeof(struct GalaxyData));
-  FoFWorkspace = workspace;
-  FoFWorkspace[0].galaxy = galaxy;
+  workspace[0].galaxy = galaxy;
 }
 
 /**

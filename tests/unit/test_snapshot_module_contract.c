@@ -30,6 +30,7 @@
 
 #include "framework/test_framework.h"
 #include "framework/child_capture.h"
+#include "../../core/fof_workspace.h"
 #include "../../core/module_registry.h"
 #include "framework/test_phase_config.h"
 #include "../../core/module_interface.h"
@@ -1160,7 +1161,8 @@ int test_post_snapshot_population_excludes_type3(void) {
                                         .workspace_count = 4,
                                         .output_first = -1,
                                         .output_count = 0};
-  marshal_workspace_to_output_buffer(workspace, &buffer, &segment, 1);
+  const struct FoFWorkspace ws = {.halos = workspace, .count = 4, .capacity = 4};
+  marshal_workspace_to_output_buffer(&ws, &buffer, &segment, 1);
   struct SnapshotContext ctx = make_snapshot_context();
 
   /* ===== EXECUTE ===== */

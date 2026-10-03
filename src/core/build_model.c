@@ -34,6 +34,7 @@
 #include <unistd.h>
 
 #include "config.h"
+#include "fof_workspace.h"
 #include "galaxy_id.h"
 #include "globals.h"
 #include "inheritance.h"
@@ -96,7 +97,7 @@ void build_halo_tree(int64_t halonr, int unit, int depth) {
  * accessor and virial call below reads the halos this unit actually loaded. */
 static void build_halo_tree_from_view(struct HaloInputView view, int64_t halonr, int unit,
                                       int depth) {
-  int64_t prog, fofhalo, ngal;
+  int64_t prog, fofhalo;
 
   /* Check recursion depth */
   if (depth > MimicConfig.MaxTreeDepth) {
@@ -137,7 +138,8 @@ static void build_halo_tree_from_view(struct HaloInputView view, int64_t halonr,
 
   fofhalo = mimic_tree_get_FirstHaloInFOFgroup(view, halonr);
   if (HaloAux[fofhalo].HaloFlag == 1) {
-    ngal = 0;
+    struct FoFWorkspace *ws = vertical_fof_workspace();
+    ws->count = 0;
     HaloAux[fofhalo].HaloFlag = 2;
 
     int64_t nsegments = count_fof_subhalos(view, fofhalo);
@@ -145,9 +147,9 @@ static void build_halo_tree_from_view(struct HaloInputView view, int64_t halonr,
     int64_t segment_index = 0;
 
     while (fofhalo >= 0) {
-      int64_t workspace_start = ngal;
+      int64_t workspace_start = ws->count;
       int64_t source_halo = fofhalo;
-      ngal = join_progenitor_halos(view, fofhalo, ngal, unit);
+      ws->count = join_progenitor_halos(view, fofhalo, ws->count, unit);
 
       /*
        * Stamp the FoF-central catalog virial mass onto every member of this
@@ -160,14 +162,14 @@ static void build_halo_tree_from_view(struct HaloInputView view, int64_t halonr,
        */
       double central_mvir =
           get_virial_mass(view, mimic_tree_get_FirstHaloInFOFgroup(view, source_halo));
-      for (int64_t p = workspace_start; p < ngal; p++) {
-        FoFWorkspace[p].CentralMvir = central_mvir;
+      for (int64_t p = workspace_start; p < ws->count; p++) {
+        ws->halos[p].CentralMvir = central_mvir;
       }
 
       segments[segment_index].source_id = source_halo;
       segments[segment_index].snapshot_number = mimic_tree_get_SnapNum(view, source_halo);
       segments[segment_index].workspace_start = workspace_start;
-      segments[segment_index].workspace_count = ngal - workspace_start;
+      segments[segment_index].workspace_count = ws->count - workspace_start;
       segments[segment_index].output_first = -1;
       segments[segment_index].output_count = 0;
       segment_index++;
@@ -176,11 +178,10 @@ static void build_halo_tree_from_view(struct HaloInputView view, int64_t halonr,
     }
 
     /* Vertical driver: run physics, then marshal the workspace to output. */
-    process_halo_evolution(view, FoFWorkspace, mimic_tree_get_FirstHaloInFOFgroup(view, halonr),
-                           ngal);
+    process_halo_evolution(view, ws, mimic_tree_get_FirstHaloInFOFgroup(view, halonr));
 
     struct OutputBuffer output_buffer = {ProcessedHalos, NumProcessedHalos, MaxProcessedHalos};
-    marshal_workspace_to_output_buffer(FoFWorkspace, &output_buffer, segments, segment_index);
+    marshal_workspace_to_output_buffer(ws, &output_buffer, segments, segment_index);
     NumProcessedHalos = output_buffer.count;
     ProcessedHalos = output_buffer.halos;
     MaxProcessedHalos = output_buffer.capacity;
@@ -274,38 +275,6 @@ static int64_t count_progenitor_galaxies(struct HaloInputView view, int64_t halo
   return count;
 }
 
-/* MaxFoFWorkspace (allvars.c) stays int: growth is capped at MAX_HALO_ARRAY_SIZE,
- * below INT_MAX, and an int64_t request above that cap reaches the fatal below. */
-static void ensure_fof_workspace_capacity(int64_t required) {
-  /* Refuse an over-cap request up front, before the loop reallocates to the cap. */
-  if (required > MAX_HALO_ARRAY_SIZE) {
-    FATAL_ERROR("FoF workspace requires %" PRId64 " halos but maximum allowed size is %d", required,
-                MAX_HALO_ARRAY_SIZE);
-  }
-
-  while (required > MaxFoFWorkspace) {
-    int old_size = MaxFoFWorkspace;
-    int new_size = (int)(MaxFoFWorkspace * HALO_ARRAY_GROWTH_FACTOR);
-
-    if (new_size - MaxFoFWorkspace < MIN_HALO_ARRAY_GROWTH)
-      new_size = MaxFoFWorkspace + MIN_HALO_ARRAY_GROWTH;
-
-    if (new_size > MAX_HALO_ARRAY_SIZE)
-      new_size = MAX_HALO_ARRAY_SIZE;
-
-    if (new_size <= MaxFoFWorkspace) {
-      FATAL_ERROR("FoF workspace requires %" PRId64 " halos but maximum allowed size is %d",
-                  required, MAX_HALO_ARRAY_SIZE);
-    }
-
-    INFO_LOG("Growing halo array from %d to %d elements", MaxFoFWorkspace, new_size);
-
-    MaxFoFWorkspace = new_size;
-    FoFWorkspace = myrealloc_cat(FoFWorkspace, MaxFoFWorkspace * sizeof(struct Halo), MEM_HALOS);
-    memset(&FoFWorkspace[old_size], 0, (new_size - old_size) * sizeof(struct Halo));
-  }
-}
-
 static int64_t make_unique_galaxy_id(int64_t halonr, int unit) {
   if (unit < 0 || GlobalForestOffset > LLONG_MAX - (int64_t)unit) {
     FATAL_ERROR("UniqueGalaxyID forest index overflow: GlobalForestOffset=%" PRId64 ", unit=%d",
@@ -329,7 +298,7 @@ static int64_t make_unique_galaxy_id(int64_t halonr, int unit) {
  * descendant subhalo. Grown monotonically and kept for the whole run so the
  * depth-first tree hot path does not allocate per subhalo. Freed at shutdown by
  * free_vertical_driver_scratch(). The non-LIFO allocator (see memory.c) makes
- * whole-run persistence safe alongside the per-tree FoFWorkspace.
+ * whole-run persistence safe alongside the per-unit FoF workspace.
  */
 static struct InheritanceProgenitorGalaxy *ProgenitorScratch = NULL;
 static int64_t ProgenitorScratchCapacity = 0;
@@ -413,6 +382,7 @@ int64_t join_progenitor_halos(struct HaloInputView view, int64_t halonr, int64_t
                               int unit) {
   int current_snap;
   int64_t first_occupied, ngal, nprogenitors, required;
+  struct FoFWorkspace *ws = vertical_fof_workspace();
   struct InheritanceDescendant descendant;
   struct InheritanceProgenitorGalaxy *progenitors = NULL;
 
@@ -424,7 +394,7 @@ int64_t join_progenitor_halos(struct HaloInputView view, int64_t halonr, int64_t
   if (nprogenitors == 0 && halonr == mimic_tree_get_FirstHaloInFOFgroup(view, halonr)) {
     required++;
   }
-  ensure_fof_workspace_capacity(required);
+  fof_workspace_reserve(ws, required);
 
   if (nprogenitors > 0) {
     progenitors = ensure_progenitor_scratch(nprogenitors);
@@ -443,8 +413,8 @@ int64_t join_progenitor_halos(struct HaloInputView view, int64_t halonr, int64_t
   descendant.unique_galaxy_id = make_unique_galaxy_id(halonr, unit);
   descendant.halo_payload = make_halo_init_payload(view, halonr);
 
-  ngal = inherit_descendant_halos(VerticalGalaxyPool, FoFWorkspace, ngalstart, MaxFoFWorkspace,
-                                  &descendant, progenitors, nprogenitors);
+  ngal = inherit_descendant_halos(ws->pool, ws->halos, ngalstart, ws->capacity, &descendant,
+                                  progenitors, nprogenitors);
 
   return ngal;
 }

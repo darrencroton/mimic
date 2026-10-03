@@ -171,6 +171,8 @@ Key directories:
 
 Mimic processes each snapshot interval by building FoF workspaces. A FoF workspace is an array of `struct Halo` entries for one FoF system: the Type 0 central and any Type 1/Type 2 satellites. The same workspace is passed to all modules in a phase.
 
+Both drivers hold their workspace in one `struct FoFWorkspace` descriptor (`src/core/fof_workspace.h`): the rows (`halos`, `count`, `capacity`), the galaxy pool those rows' galaxies come from (borrowed, never owned), and the created-record identity space the driver published for the unit being processed. The vertical driver owns one descriptor, sized per unit by `load_unit()` and released by `free_unit_halos()`, whose pool is `VerticalGalaxyPool` and whose identity `process_partition()` sets after each load; the horizontal driver owns one for the run, and sets its pool to the current generation's and its identity to the snapshot's published space before each FoF group. Both grow it through the one `fof_workspace_reserve()` (factor `HALO_ARRAY_GROWTH_FACTOR`, at least `MIN_HALO_ARRAY_GROWTH` rows, capped at `MAX_HALO_ARRAY_SIZE`, `myrealloc_cat` in `MEM_HALOS`, new rows zeroed) and hand the descriptor itself to `process_halo_evolution()`, `execute_module_pipeline()`, `execute_phase()` and `marshal_workspace_to_output_buffer()`. `execute_phase()` reads `ws->halos` and `ws->count` at the start of every full-halo and by-galaxy callback, never from a copy taken earlier, so no pointer into the rows is ever held across a call that may grow them; the module `process()` ABI still receives a plain `(halos, ngal)` pair.
+
 Galaxy types:
 
 | Type | Meaning |
@@ -185,7 +187,7 @@ Core data structures:
 | Structure | Role |
 | --- | --- |
 | `InputTreeHalos` / `struct RawHalo` | Immutable input merger tree data (`struct RawHalo` is generated from the simulation's `halo_properties.yaml`) |
-| `FoFWorkspace` / `struct Halo` | Temporary processing workspace modified by modules |
+| `struct FoFWorkspace` / `struct Halo` | Temporary processing workspace modified by modules, carried by its descriptor |
 | `ProcessedHalos` / `struct Halo` | Vertical-driver output buffer and processed progenitor state |
 | `OutputBufferSegment` | Driver-supplied range/snapshot metadata for shared output marshalling |
 | `struct GalaxyData` | Generated galaxy/model property storage attached to `struct Halo` |
@@ -197,11 +199,11 @@ Galaxy inheritance copies previous processed galaxy state into the current works
 
 Four arrays are allocated per unit and freed together by `free_unit_halos()` after output is written:
 
-| Global | Category | Lifetime note |
+| Array | Category | Lifetime note |
 | --- | --- | --- |
 | `InputTreeHalos` | `MEM_TREES` | Fixed size: `InputTreeNHalos[treenr]` entries; immutable after load |
 | `HaloAux` | `MEM_HALOS` | Fixed size: parallel to `InputTreeHalos`; tracks per-halo processing flags |
-| `FoFWorkspace` | `MEM_HALOS` | Grows dynamically via `myrealloc_cat` as deep or wide FoF groups are encountered |
+| FoF workspace rows (`struct FoFWorkspace.halos`) | `MEM_HALOS` | Not a global: the vertical driver's descriptor, reached through `vertical_fof_workspace()`. Seeded at the larger of `INITIAL_FOF_HALOS` and a tenth of `MaxProcessedHalos`; grows through `fof_workspace_reserve()` as deep or wide FoF groups are encountered; released by `fof_workspace_destroy()` |
 | `ProcessedHalos` | `MEM_HALOS` | Grows dynamically via `myrealloc_cat`; see below |
 
 `GalaxyData` is not in this table because it is pool-managed: `galaxy_pool_alloc()` hands out slots from a chunk pool, and the whole pool is reset in one call rather than per-halo. The pool API takes an explicit `struct GalaxyPool *` handle (`src/core/galaxy_pool.h`) rather than reaching into file-static state, so each driver owns its own instance(s) with the same chunked-allocation, stable-pointer, and bulk-reset discipline: the vertical driver holds one pool, reset per tree; the horizontal driver holds one per retained snapshot generation, recycling released pools through a spare stack (see [The Horizontal Driver](#the-horizontal-driver)).
@@ -210,7 +212,7 @@ Four arrays are allocated per unit and freed together by `free_unit_halos()` aft
 
 `ProcessedHalos` accumulates every marshalled output halo across all snapshot intervals for the entire tree. Each time a FoF group is processed, `marshal_workspace_to_output_buffer` appends the surviving workspace entries. The initial allocation is `MAXHALOFAC (5) × InputTreeNHalos`, but this is only an estimate. Orphan halos (Type 2) persist across snapshots and produce one new output record per snapshot they survive; in deep simulations with many snapshots (e.g., full Millennium at 64 snapshots), a single catalog subhalo that disappears early can generate dozens of output records. The actual count therefore scales with simulation depth and cannot be bounded by a fixed multiple of the tree input size.
 
-`marshal_workspace_to_output_buffer` grows the buffer using the same factor / minimum / cap policy as `FoFWorkspace` (`HALO_ARRAY_GROWTH_FACTOR`, `MIN_HALO_ARRAY_GROWTH`, `MAX_HALO_ARRAY_SIZE`). After each marshal call, `build_halo_tree` syncs the global `ProcessedHalos` pointer and `MaxProcessedHalos` back from the `OutputBuffer` struct. `myfree(ProcessedHalos)` in `free_unit_halos()` correctly frees the final (possibly grown) allocation because the custom allocator tracks the pointer through every `myrealloc_cat` call.
+`marshal_workspace_to_output_buffer` grows the buffer using the same factor / minimum / cap policy as `fof_workspace_reserve()` (`HALO_ARRAY_GROWTH_FACTOR`, `MIN_HALO_ARRAY_GROWTH`, `MAX_HALO_ARRAY_SIZE`). After each marshal call, `build_halo_tree` syncs the global `ProcessedHalos` pointer and `MaxProcessedHalos` back from the `OutputBuffer` struct. `myfree(ProcessedHalos)` in `free_unit_halos()` correctly frees the final (possibly grown) allocation because the custom allocator tracks the pointer through every `myrealloc_cat` call.
 
 **OutputBuffer contract**
 

@@ -3,6 +3,7 @@
  * @brief   Unit tests for driver-neutral output buffer marshalling
  */
 
+#include "../../src/core/fof_workspace.h"
 #include "../../src/core/galaxy_pool.h"
 #include "../../src/core/output_buffer.h"
 #include "../../src/include/proto.h"
@@ -15,6 +16,13 @@
 
 static int passed = 0;
 static int failed = 0;
+
+/* A workspace descriptor over a test-owned row array; the marshaller reads rows
+ * only through the segments, and never grows the workspace. */
+#define WORKSPACE_OVER(rows)                                                                       \
+  ((struct FoFWorkspace){.halos = (rows),                                                          \
+                         .count = (int64_t)(sizeof(rows) / sizeof((rows)[0])),                     \
+                         .capacity = (int64_t)(sizeof(rows) / sizeof((rows)[0]))})
 
 static void init_halo(struct Halo *halo, int type, int64_t halo_nr) {
   memset(halo, 0, sizeof(*halo));
@@ -52,7 +60,8 @@ int test_copies_non_type3_and_sets_segment_fields(void) {
   for (int i = 0; i < 3; i++)
     workspace[i].CentralMvir = 123.5f;
 
-  marshal_workspace_to_output_buffer(workspace, &buffer, &segment, 1);
+  const struct FoFWorkspace ws = WORKSPACE_OVER(workspace);
+  marshal_workspace_to_output_buffer(&ws, &buffer, &segment, 1);
 
   TEST_ASSERT(buffer.count == 3, "All non-Type-3 halos should be copied");
   TEST_ASSERT(segment.output_first == 0, "Segment output_first should use starting buffer count");
@@ -95,7 +104,8 @@ int test_skips_type3_and_clears_galaxy_pointer(void) {
   workspace[0].galaxy = galaxy_pool_alloc(pool);
   memset(workspace[0].galaxy, 0, sizeof(struct GalaxyData));
 
-  marshal_workspace_to_output_buffer(workspace, &buffer, &segment, 1);
+  const struct FoFWorkspace ws = WORKSPACE_OVER(workspace);
+  marshal_workspace_to_output_buffer(&ws, &buffer, &segment, 1);
 
   TEST_ASSERT(buffer.count == 1, "Type 3 halo should not be copied");
   TEST_ASSERT(segment.output_first == 0, "Segment output_first should be set");
@@ -130,7 +140,8 @@ int test_empty_segment_records_zero_count(void) {
   memset(workspace, 0, sizeof(workspace));
   memset(output, 0, sizeof(output));
 
-  marshal_workspace_to_output_buffer(workspace, &buffer, &segment, 1);
+  const struct FoFWorkspace ws = WORKSPACE_OVER(workspace);
+  marshal_workspace_to_output_buffer(&ws, &buffer, &segment, 1);
 
   TEST_ASSERT(buffer.count == 0, "Empty segment should not copy halos");
   TEST_ASSERT(segment.output_first == 0, "Empty segment should record current buffer count");
@@ -177,7 +188,8 @@ int test_multiple_segments_accumulate_into_one_buffer(void) {
   init_halo(&workspace[2], 1, 11);
   init_halo(&workspace[3], 2, 11);
 
-  marshal_workspace_to_output_buffer(workspace, &buffer, segments, 2);
+  const struct FoFWorkspace ws = WORKSPACE_OVER(workspace);
+  marshal_workspace_to_output_buffer(&ws, &buffer, segments, 2);
 
   TEST_ASSERT(buffer.count == 3, "Three non-Type-3 halos across both segments");
   TEST_ASSERT(segments[0].output_first == 0, "First segment starts at buffer index 0");
@@ -229,7 +241,8 @@ int test_buffer_grows_when_capacity_exceeded(void) {
   for (int i = 0; i < 5; i++)
     init_halo(&workspace[i], i % 2, i); /* alternating Type 0/1, none Type 3 */
 
-  marshal_workspace_to_output_buffer(workspace, &buffer, segments, 2);
+  const struct FoFWorkspace ws = WORKSPACE_OVER(workspace);
+  marshal_workspace_to_output_buffer(&ws, &buffer, segments, 2);
 
   TEST_ASSERT(buffer.count == 5, "All 5 halos should be present after growth");
   TEST_ASSERT(buffer.capacity > initial_capacity, "Buffer capacity should have grown");
@@ -276,7 +289,8 @@ int test_halo_index_above_int32_survives_marshalling(void) {
   init_halo(&workspace[0], 0, wide_halo_nr);
   init_halo(&workspace[1], 1, wide_halo_nr);
 
-  marshal_workspace_to_output_buffer(workspace, &buffer, &segment, 1);
+  const struct FoFWorkspace ws = WORKSPACE_OVER(workspace);
+  marshal_workspace_to_output_buffer(&ws, &buffer, &segment, 1);
 
   TEST_ASSERT(segment.source_id == wide_halo_nr, "The segment's source halo index is unchanged");
   TEST_ASSERT(segment.output_count == 2, "Both halos are copied");

@@ -30,10 +30,10 @@
 #include <unistd.h>
 
 #include "config.h"
+#include "fof_workspace.h"
 #include "galaxy_pool.h"
 #include "globals.h"
 #include "types.h"
-#include "numeric.h"
 #include "proto.h"
 #include "run_profile.h"
 #include "vertical/interface.h"
@@ -120,13 +120,25 @@ void close_partition(void) {
   MimicConfig.vertical_reader->close_partition();
 }
 
+/*
+ * The vertical driver's one FoF workspace descriptor (fof_workspace.h). It lives
+ * here, beside the per-unit lifecycle that sizes and releases it, so every
+ * harness that links load_unit() links its storage too. load_unit() allocates
+ * its rows and borrows VerticalGalaxyPool; the driver (process_partition() in
+ * vertical_driver.c) sets its identity to the unit's published space after each
+ * load; free_unit_halos() releases it.
+ */
+static struct FoFWorkspace VerticalFoFWorkspace;
+
+struct FoFWorkspace *vertical_fof_workspace(void) { return &VerticalFoFWorkspace; }
+
 /**
  * @brief   Load one unit (merger tree) into memory and allocate processing structures.
  * @param   unit   Unit index within the open partition.
  *
  * After the format-specific loader populates InputTreeHalos, allocates HaloAux,
- * ProcessedHalos, and FoFWorkspace. See the LIFECYCLE comment below and globals.h
- * for the complete data-structure lifetime.
+ * ProcessedHalos, and the vertical FoF workspace's rows. See the LIFECYCLE
+ * comment below and globals.h for the complete data-structure lifetime.
  */
 void load_unit(int unit) {
   int32_t i;
@@ -142,8 +154,8 @@ void load_unit(int unit) {
    * - We now allocate the processing structures:
    *   1. HaloAux: Parallel metadata for each InputTreeHalo
    *   2. ProcessedHalos: Storage for processed halos
-   *   3. FoFWorkspace: Temporary workspace for FoF processing (grows
-   * dynamically)
+   *   3. The vertical FoF workspace (struct FoFWorkspace): temporary rows for
+   *      FoF processing (grows dynamically through fof_workspace_reserve())
    *
    * All allocations use MEM_HALOS except InputTreeHalos (MEM_TREES).
    */
@@ -152,11 +164,10 @@ void load_unit(int unit) {
   if (MaxProcessedHalos < MIN_HALO_ARRAY_GROWTH)
     MaxProcessedHalos = MIN_HALO_ARRAY_GROWTH;
 
-  MaxFoFWorkspace = INITIAL_FOF_HALOS;
-  const int fof_from_processed = narrow_int64_to_int_checked(
-      (int64_t)(0.1 * (double)MaxProcessedHalos), "initial MaxFoFWorkspace estimate");
-  if (fof_from_processed > MaxFoFWorkspace)
-    MaxFoFWorkspace = fof_from_processed;
+  int64_t fof_capacity = INITIAL_FOF_HALOS;
+  const int64_t fof_from_processed = (int64_t)(0.1 * (double)MaxProcessedHalos);
+  if (fof_from_processed > fof_capacity)
+    fof_capacity = fof_from_processed;
 
   HaloAux = mymalloc_cat(sizeof(struct HaloAuxData) * InputTreeNHalos[unit], MEM_HALOS);
 
@@ -168,8 +179,12 @@ void load_unit(int unit) {
    * marshals nothing. */
   run_profile_note_output_buffer(0, MaxProcessedHalos, sizeof(struct Halo));
 
-  FoFWorkspace = mymalloc_cat(sizeof(struct Halo) * MaxFoFWorkspace, MEM_HALOS);
-  memset(FoFWorkspace, 0, sizeof(struct Halo) * MaxFoFWorkspace); /* NULL galaxy pointers */
+  struct FoFWorkspace *ws = &VerticalFoFWorkspace;
+  memset(ws, 0, sizeof(*ws));
+  ws->capacity = fof_capacity;
+  ws->halos = mymalloc_cat(sizeof(struct Halo) * (size_t)ws->capacity, MEM_HALOS);
+  memset(ws->halos, 0, sizeof(struct Halo) * (size_t)ws->capacity); /* NULL galaxy pointers */
+  ws->pool = VerticalGalaxyPool;
 
   for (i = 0; i < InputTreeNHalos[unit]; i++) {
     HaloAux[i].DoneFlag = 0;
@@ -181,7 +196,7 @@ void load_unit(int unit) {
 /**
  * @brief   Free the current unit's halo and processing memory (LIFECYCLE: Deallocation Phase).
  *
- * Frees in reverse allocation order: FoFWorkspace, ProcessedHalos, HaloAux,
+ * Frees in reverse allocation order: the FoF workspace, ProcessedHalos, HaloAux,
  * InputTreeHalos. Galaxy data is reclaimed via galaxy_pool_reset(pool) first,
  * unless `pool` is NULL (the caller allocated no galaxies, so there is nothing
  * to reset). See globals.h for the complete data-structure lifetime.
@@ -195,7 +210,7 @@ void free_unit_halos(struct GalaxyPool *pool) {
   }
 
   /* Reverse allocation order — see load_unit() */
-  myfree(FoFWorkspace);
+  fof_workspace_destroy(&VerticalFoFWorkspace);
   myfree(ProcessedHalos);
   myfree(HaloAux);
   myfree(InputTreeHalos);

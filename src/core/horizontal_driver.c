@@ -33,7 +33,8 @@
  * vertical driver unchanged, and so are the module-context setup, the halo-evolution
  * dispatch, the FoF subhalo count and the halo init payload — this driver calls
  * process_halo_evolution(), count_fof_subhalos() and make_halo_init_payload()
- * in src/core/halo_evolution.c directly, passing its own workspace.
+ * in src/core/halo_evolution.c directly, passing its own workspace descriptor,
+ * which grows through the same fof_workspace_reserve() as the vertical driver's.
  *
  * What remains replicated here is only the code that crosses generations:
  * progenitor lookup, count and gather resolve each link through its
@@ -59,6 +60,7 @@
 
 #include "config.h"
 #include "error.h"
+#include "fof_workspace.h"
 #include "galaxy_id.h"
 #include "galaxy_pool.h"
 #include "globals.h"
@@ -218,7 +220,9 @@ struct HorizontalGeneration {
  * The workspace and the two scratch buffers are grown monotonically and kept for
  * the whole run (as the vertical driver's equivalents are), then freed before the
  * driver returns. Their capacities are int64_t like every slab index and count
- * they are sized from.
+ * they are sized from. The workspace descriptor's pool and identity are set
+ * before each FoF group is processed: the pool is the current generation's, and
+ * the identity is the snapshot's published space below.
  */
 struct HorizontalDriverState {
   const struct HorizontalReader *reader;
@@ -238,8 +242,7 @@ struct HorizontalDriverState {
   int64_t spare_count;
   int64_t spare_capacity;
 
-  struct Halo *workspace;
-  int64_t workspace_capacity;
+  struct FoFWorkspace workspace;
 
   struct InheritanceProgenitorGalaxy *progenitor_scratch;
   int64_t progenitor_capacity;
@@ -256,36 +259,6 @@ struct HorizontalDriverState {
 /* ------------------------------------------------------------------------- */
 /* Scratch growth                                                             */
 /* ------------------------------------------------------------------------- */
-
-/* Mirrors ensure_fof_workspace_capacity() in build_model.c: same growth
- * factor, same minimum increment, same ceiling, same fatal. */
-static void horizontal_ensure_workspace_capacity(struct HorizontalDriverState *state,
-                                                 int64_t required) {
-  while (required > state->workspace_capacity) {
-    const int64_t old_size = state->workspace_capacity;
-    int64_t new_size = (int64_t)(state->workspace_capacity * HALO_ARRAY_GROWTH_FACTOR);
-
-    if (new_size - state->workspace_capacity < MIN_HALO_ARRAY_GROWTH)
-      new_size = state->workspace_capacity + MIN_HALO_ARRAY_GROWTH;
-
-    if (new_size > MAX_HALO_ARRAY_SIZE)
-      new_size = MAX_HALO_ARRAY_SIZE;
-
-    if (new_size <= state->workspace_capacity) {
-      FATAL_ERROR("Snapshot FoF workspace requires %" PRId64
-                  " halos but maximum allowed size is %d",
-                  required, MAX_HALO_ARRAY_SIZE);
-    }
-
-    INFO_LOG("Growing snapshot halo workspace from %" PRId64 " to %" PRId64 " elements",
-             state->workspace_capacity, new_size);
-
-    state->workspace_capacity = new_size;
-    state->workspace =
-        myrealloc_cat(state->workspace, (size_t)new_size * sizeof(struct Halo), MEM_HALOS);
-    memset(&state->workspace[old_size], 0, (size_t)(new_size - old_size) * sizeof(struct Halo));
-  }
-}
 
 static struct InheritanceProgenitorGalaxy *
 horizontal_ensure_progenitor_scratch(struct HorizontalDriverState *state, int64_t required) {
@@ -619,7 +592,7 @@ static int64_t horizontal_join_progenitor_halos(struct HorizontalDriverState *st
   if (nprogenitors == 0 && halonr == mimic_tree_get_FirstHaloInFOFgroup(view, halonr)) {
     required++;
   }
-  horizontal_ensure_workspace_capacity(state, required);
+  fof_workspace_reserve(&state->workspace, required);
 
   if (nprogenitors > 0) {
     progenitors = horizontal_ensure_progenitor_scratch(state, nprogenitors);
@@ -638,8 +611,9 @@ static int64_t horizontal_join_progenitor_halos(struct HorizontalDriverState *st
   descendant.unique_galaxy_id = horizontal_make_unique_galaxy_id(&cur->slab, halonr);
   descendant.halo_payload = make_halo_init_payload(view, halonr);
 
-  return inherit_descendant_halos(cur->pool, state->workspace, ngalstart, state->workspace_capacity,
-                                  &descendant, progenitors, nprogenitors);
+  return inherit_descendant_halos(state->workspace.pool, state->workspace.halos, ngalstart,
+                                  state->workspace.capacity, &descendant, progenitors,
+                                  nprogenitors);
 }
 
 /*
@@ -661,31 +635,37 @@ static int64_t horizontal_process_fof_group(struct HorizontalDriverState *state,
   const struct HaloInputView view = {cur->slab.halos, cur->slab.nhalos};
   const int64_t nsegments = count_fof_subhalos(view, central);
   struct OutputBufferSegment *segments = horizontal_ensure_segment_scratch(state, nsegments);
+  struct FoFWorkspace *ws = &state->workspace;
   int64_t segment_index = 0;
   int64_t fofhalo = central;
-  int64_t ngal = 0;
+
+  /* This group's galaxies live in its generation's pool, and any record it
+   * creates is identified in the snapshot's published space. */
+  ws->pool = cur->pool;
+  ws->identity = state->identity;
+  ws->count = 0;
 
   /* Cycle safety: count_fof_subhalos() above already walked this exact chain
    * over the same immutable slab with a bounded-iteration guard, so this second
    * traversal cannot loop. */
   while (fofhalo >= 0) {
-    const int64_t workspace_start = ngal;
+    const int64_t workspace_start = ws->count;
     const int64_t source_halo = fofhalo;
 
-    ngal = horizontal_join_progenitor_halos(state, cur, lookup, fofhalo, ngal);
+    ws->count = horizontal_join_progenitor_halos(state, cur, lookup, fofhalo, ws->count);
 
     /* Stamp the FoF-central catalog virial mass onto every member of this
      * subhalo slice before physics runs, exactly as the tree FoF block in build_model.c. */
     const double central_mvir =
         get_virial_mass(view, mimic_tree_get_FirstHaloInFOFgroup(view, source_halo));
-    for (int64_t p = workspace_start; p < ngal; p++) {
-      state->workspace[p].CentralMvir = central_mvir;
+    for (int64_t p = workspace_start; p < ws->count; p++) {
+      ws->halos[p].CentralMvir = central_mvir;
     }
 
     segments[segment_index].source_id = source_halo;
     segments[segment_index].snapshot_number = mimic_tree_get_SnapNum(view, source_halo);
     segments[segment_index].workspace_start = workspace_start;
-    segments[segment_index].workspace_count = ngal - workspace_start;
+    segments[segment_index].workspace_count = ws->count - workspace_start;
     segments[segment_index].output_first = -1;
     segments[segment_index].output_count = 0;
     segment_index++;
@@ -693,9 +673,9 @@ static int64_t horizontal_process_fof_group(struct HorizontalDriverState *state,
     fofhalo = mimic_tree_get_NextHaloInFOFgroup(view, fofhalo);
   }
 
-  process_halo_evolution(view, state->workspace, central, ngal);
+  process_halo_evolution(view, ws, central);
 
-  marshal_workspace_to_output_buffer(state->workspace, &cur->processed, segments, segment_index);
+  marshal_workspace_to_output_buffer(ws, &cur->processed, segments, segment_index);
 
   for (int64_t i = 0; i < segment_index; i++) {
     cur->aux[segments[i].source_id].FirstHalo = segments[i].output_first;
@@ -1437,8 +1417,7 @@ static void horizontal_teardown(struct HorizontalDriverState *state, int record_
   state->segments = NULL;
   myfree(state->progenitor_scratch);
   state->progenitor_scratch = NULL;
-  myfree(state->workspace);
-  state->workspace = NULL;
+  fof_workspace_destroy(&state->workspace);
 
   /* Already cleared after each output call and at each release; repeated here
    * so the driver cannot return with them set under any path. */
@@ -1624,9 +1603,10 @@ void run_horizontal_driver(void) {
   state.slab_row_bytes = info.slab_row_bytes;
   horizontal_allocate_retention(&state, info.snapshot_count);
 
-  state.workspace_capacity = INITIAL_FOF_HALOS;
-  state.workspace = mymalloc_cat((size_t)state.workspace_capacity * sizeof(struct Halo), MEM_HALOS);
-  memset(state.workspace, 0, (size_t)state.workspace_capacity * sizeof(struct Halo));
+  state.workspace.capacity = INITIAL_FOF_HALOS;
+  state.workspace.halos =
+      mymalloc_cat((size_t)state.workspace.capacity * sizeof(struct Halo), MEM_HALOS);
+  memset(state.workspace.halos, 0, (size_t)state.workspace.capacity * sizeof(struct Halo));
 
   INFO_LOG("Processing %" PRId64 " snapshot%s → %d output file%s", info.snapshot_count,
            info.snapshot_count == 1 ? "" : "s", npartitions, npartitions == 1 ? "" : "s");

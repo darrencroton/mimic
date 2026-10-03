@@ -21,6 +21,7 @@
 
 #include "config.h"
 #include "core/vertical_driver.h"
+#include "fof_workspace.h"
 #include "galaxy_id.h"
 #include "galaxy_pool.h"
 #include "globals.h"
@@ -300,6 +301,7 @@ static void process_partition(int output_id, ProgressBar *ext_bar, int64_t tree_
     TreeID = unit;
     published_identity_space.unit = GlobalForestOffset + unit;
     load_unit(unit);
+    vertical_fof_workspace()->identity = published_identity_space;
 
     NumProcessedHalos = 0;
 

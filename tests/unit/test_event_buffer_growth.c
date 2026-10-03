@@ -18,6 +18,7 @@
  */
 
 #include "../framework/test_framework.h"
+#include "../../src/core/fof_workspace.h"
 #include "../../src/core/module_registry.h"
 #include "../framework/test_phase_config.h"
 #include "../../src/core/module_interface.h"
@@ -55,7 +56,7 @@ static int failed = 0;
 #define BUFFER_GROWTH_MARKER "Growing phase event buffer"
 
 /* Workspace owned by the test for the duration of one case */
-static struct Halo *workspace = NULL;
+static struct FoFWorkspace workspace;
 static struct GalaxyData *galaxies = NULL;
 
 /**
@@ -66,16 +67,19 @@ static struct GalaxyData *galaxies = NULL;
  * central; the rest are satellites, matching how the drivers lay a workspace out.
  */
 static void build_workspace(int ngal) {
-  workspace = mymalloc_cat((size_t)ngal * sizeof(struct Halo), MEM_HALOS);
+  memset(&workspace, 0, sizeof(workspace));
+  workspace.halos = mymalloc_cat((size_t)ngal * sizeof(struct Halo), MEM_HALOS);
+  workspace.count = ngal;
+  workspace.capacity = ngal;
   galaxies = mymalloc_cat((size_t)ngal * sizeof(struct GalaxyData), MEM_GALAXIES);
-  memset(workspace, 0, (size_t)ngal * sizeof(struct Halo));
+  memset(workspace.halos, 0, (size_t)ngal * sizeof(struct Halo));
   memset(galaxies, 0, (size_t)ngal * sizeof(struct GalaxyData));
 
   for (int i = 0; i < ngal; i++) {
-    workspace[i].Type = (i == 0) ? 0 : 1;
-    workspace[i].HaloNr = i;
-    workspace[i].SnapNum = 1;
-    workspace[i].galaxy = &galaxies[i];
+    workspace.halos[i].Type = (i == 0) ? 0 : 1;
+    workspace.halos[i].HaloNr = i;
+    workspace.halos[i].SnapNum = 1;
+    workspace.halos[i].galaxy = &galaxies[i];
   }
 }
 
@@ -84,10 +88,7 @@ static void free_workspace(void) {
     myfree(galaxies);
     galaxies = NULL;
   }
-  if (workspace != NULL) {
-    myfree(workspace);
-    workspace = NULL;
-  }
+  fof_workspace_destroy(&workspace);
 }
 
 /** @brief Set the two test_event_producer parameters in MimicConfig.ModelParams */
@@ -113,7 +114,7 @@ static void build_context(struct ModuleContext *ctx) {
   ctx->substep_number = 0;
   ctx->num_substeps = 1;
   ctx->central_index = 0;
-  ctx->central_galaxy = &workspace[0];
+  ctx->central_galaxy = &workspace.halos[0];
   ctx->active_event = NULL;
   ctx->params = &MimicConfig;
 }
@@ -173,7 +174,7 @@ int test_event_buffer_grows_past_legacy_cap(void) {
   /* ===== EXECUTE ===== */
   /* Before the fix this call aborted the process inside execute_phase(). */
   execute_phase(MimicConfig.substep_phases[0].modules, MimicConfig.substep_phases[0].num_modules,
-                &ctx, workspace, EVENTS_TO_EMIT);
+                &ctx, &workspace);
 
   set_log_output(prior_output);
   set_log_level(prior_level);
@@ -234,14 +235,14 @@ int test_event_buffer_capacity_is_reused_across_phases(void) {
   /* ===== EXECUTE ===== */
   /* First call sizes the buffer; only the second is under test. */
   execute_phase(MimicConfig.substep_phases[0].modules, MimicConfig.substep_phases[0].num_modules,
-                &ctx, workspace, EVENTS_TO_EMIT);
+                &ctx, &workspace);
 
   int growths_after_first = count_marker_lines(log, BUFFER_GROWTH_MARKER);
   int delivered_after_first = count_marker_lines(log, CONSUMER_EVENT_MARKER);
 
   fseek(log, 0, SEEK_END);
   execute_phase(MimicConfig.substep_phases[0].modules, MimicConfig.substep_phases[0].num_modules,
-                &ctx, workspace, EVENTS_TO_EMIT);
+                &ctx, &workspace);
 
   set_log_output(prior_output);
   set_log_level(prior_level);

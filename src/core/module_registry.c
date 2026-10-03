@@ -27,10 +27,12 @@
 
 #include "constants.h"
 #include "error.h"
+#include "fof_workspace.h"
 #include "globals.h"
 #include "memory.h"
 #include "module_interface.h"
 #include "module_registry.h"
+#include "numeric.h"
 #include "generated/parameter_unit_conversions.h"
 
 /** Maximum number of modules that can be registered */
@@ -727,7 +729,7 @@ int module_system_init(void) {
 /**
  * @brief   Ensure the phase event buffer can hold at least `required` events
  *
- * Growth arithmetic mirrors ensure_fof_workspace_capacity() in build_model.c
+ * Growth arithmetic mirrors fof_workspace_reserve() in fof_workspace.c
  * (same factor, same minimum increment, same ceiling, same fatal), which is the
  * established pattern for buffers whose size follows the FoF workspace being
  * processed. Nothing in the module contract limits a producer to one event per
@@ -1000,6 +1002,16 @@ int module_emit_event(struct ModuleContext *ctx, int event_id, int source_index,
   return 0;
 }
 
+/*
+ * The FoF workspace row count as a module callback receives it. The process()
+ * ABI counts a workspace in int while the descriptor counts in int64_t; the
+ * workspace is bounded by MAX_HALO_ARRAY_SIZE, below INT_MAX, so this never
+ * fires on a valid run.
+ */
+static int workspace_callback_count(const struct FoFWorkspace *ws) {
+  return narrow_int64_to_int_checked(ws->count, "FoF workspace galaxy count");
+}
+
 /**
  * @brief   Execute modules in a specific phase
  *
@@ -1011,16 +1023,17 @@ int module_emit_event(struct ModuleContext *ctx, int event_id, int source_index,
  * @param   phase_config   Array of module configurations for this phase
  * @param   num_modules    Number of modules in this phase (0 = skip)
  * @param   ctx            Module execution context
- * @param   halos          Array of halos in the FOF group (FoFWorkspace)
- * @param   ngal           Number of halos in the array
+ * @param   ws             FoF workspace; its halos and count are read afresh at
+ *                         the start of every full-halo and by-galaxy callback
  */
 void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
-                   struct ModuleContext *ctx, struct Halo *halos, int ngal) {
-  if (num_modules == 0 || ctx == NULL || halos == NULL || ngal <= 0) {
+                   struct ModuleContext *ctx, struct FoFWorkspace *ws) {
+  if (num_modules == 0 || ctx == NULL || ws == NULL || ws->halos == NULL || ws->count <= 0) {
     return; /* Empty phase or nothing to process */
   }
 
-  begin_phase_event_dispatch(phase_config, num_modules, ctx, halos, ngal);
+  begin_phase_event_dispatch(phase_config, num_modules, ctx, ws->halos,
+                             workspace_callback_count(ws));
 
   /* PASS 1: PROCESSING_MODE_FULL_HALO modules (always first) */
   for (int i = 0; i < num_modules; i++) {
@@ -1034,6 +1047,9 @@ void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
                   "before execute_phase()",
                   phase_config[i].module_name);
     }
+
+    struct Halo *halos = ws->halos;
+    const int ngal = workspace_callback_count(ws);
 
     DEBUG_LOG("Executing module: %s (full array, ngal=%d, substep %d/%d, z=%.3f)", mod->name, ngal,
               ctx->substep_number + 1, ctx->num_substeps, ctx->redshift);
@@ -1054,8 +1070,8 @@ void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
   }
 
   /* PASS 2: PROCESSING_MODE_BY_GALAXY modules (after full-halo/event work) */
-  for (int g = 0; g < ngal; g++) {
-    if (halos[g].galaxy == NULL || halos[g].Type == 3) {
+  for (int64_t g = 0; g < ws->count; g++) {
+    if (ws->halos[g].galaxy == NULL || ws->halos[g].Type == 3) {
       continue;
     }
 
@@ -1071,13 +1087,13 @@ void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
                     phase_config[i].module_name);
       }
 
-      DEBUG_LOG("Executing module: %s (galaxy %d/%d, substep %d/%d, z=%.3f)", mod->name, g, ngal,
-                ctx->substep_number + 1, ctx->num_substeps, ctx->redshift);
+      DEBUG_LOG("Executing module: %s (galaxy %" PRId64 "/%" PRId64 ", substep %d/%d, z=%.3f)",
+                mod->name, g, ws->count, ctx->substep_number + 1, ctx->num_substeps, ctx->redshift);
 
       ctx->active_event = NULL;
-      int result = mod->process(ctx, &halos[g], 1);
+      int result = mod->process(ctx, &ws->halos[g], 1);
       if (result != 0) {
-        FATAL_ERROR("Module '%s' failed on galaxy %d (substep %d)", mod->name, g,
+        FATAL_ERROR("Module '%s' failed on galaxy %" PRId64 " (substep %d)", mod->name, g,
                     ctx->substep_number);
       }
     }
@@ -1152,14 +1168,13 @@ static void update_context_for_substep(struct ModuleContext *ctx, int step) {
  * makes no assumptions about which driver populated it.
  *
  * @param   ctx     Module execution context (already populated by the caller)
- * @param   halos   Array of halos to evolve (e.g. FoFWorkspace)
- * @param   ngal    Number of halos in the array
+ * @param   ws      FoF workspace to evolve; every phase reads it afresh
  */
-void execute_module_pipeline(struct ModuleContext *ctx, struct Halo *halos, int ngal) {
+void execute_module_pipeline(struct ModuleContext *ctx, struct FoFWorkspace *ws) {
   const struct MimicConfig *config = ctx->params;
 
   /* Pre-timestep phase (runs once before substeps) */
-  execute_phase(config->pre_timestep, config->num_pre_timestep, ctx, halos, ngal);
+  execute_phase(config->pre_timestep, config->num_pre_timestep, ctx, ws);
 
   /* Substep loop: each user-named phase runs once per substep, in order */
   for (int step = 0; step < ctx->num_substeps; step++) {
@@ -1167,12 +1182,12 @@ void execute_module_pipeline(struct ModuleContext *ctx, struct Halo *halos, int 
 
     for (int p = 0; p < config->num_substep_phases; p++) {
       execute_phase(config->substep_phases[p].modules, config->substep_phases[p].num_modules, ctx,
-                    halos, ngal);
+                    ws);
     }
   }
 
   /* Post-timestep phase (runs once after substeps) */
-  execute_phase(config->post_timestep, config->num_post_timestep, ctx, halos, ngal);
+  execute_phase(config->post_timestep, config->num_post_timestep, ctx, ws);
 }
 
 /**

@@ -2,9 +2,9 @@
  * @file    halo_evolution.c
  *
  * Driver-neutral FoF evolution adapters shared by the vertical and horizontal
- * drivers. Both drivers assemble a FoF workspace their own way (tree traversal
- * over the FoFWorkspace global; snapshot sweep over a per-run buffer) and then
- * hand it to the functions here, which own the module-context setup, the
+ * drivers. Both drivers assemble their struct FoFWorkspace their own way (tree
+ * traversal per unit; snapshot sweep over a per-run descriptor) and then hand
+ * it to the functions here, which own the module-context setup, the
  * physics-execution dispatch, the FoF chain count, and the halo-init payload.
  *
  * These live in their own file so build_model.c stays vertical-driver-specific and
@@ -19,6 +19,7 @@
 #include <inttypes.h>
 
 #include "config.h"
+#include "fof_workspace.h"
 #include "globals.h"
 #include "inheritance.h"
 #include "module_registry.h"
@@ -74,12 +75,12 @@ int64_t count_fof_subhalos(struct HaloInputView view, int64_t first_fof_halo) {
  *
  * @param   ctx          Module context to populate
  * @param   view         Input view over this unit's raw halos
- * @param   workspace    FoF workspace holding this group's galaxies
+ * @param   workspace    FoF workspace rows holding this group's galaxies
  * @param   halonr       Index of main halo in the input view
  * @param   centralgal   Index of central galaxy in the workspace
  *
- * Shared by the vertical and horizontal drivers, which own different workspaces (the
- * FoFWorkspace global and the horizontal driver's per-run buffer respectively).
+ * Shared by the vertical and horizontal drivers, which own different workspace
+ * descriptors (sized per unit and per run respectively).
  */
 static void setup_module_context(struct ModuleContext *ctx, struct HaloInputView view,
                                  struct Halo *workspace, int64_t halonr, int centralgal) {
@@ -131,9 +132,8 @@ static void setup_module_context(struct ModuleContext *ctx, struct HaloInputView
  * @brief   Evolve one FoF workspace through the physics-execution engine
  *
  * @param   view       Input view over this unit's raw halos
- * @param   workspace  FoF workspace holding this group's galaxies
+ * @param   ws         FoF workspace descriptor; ws->count rows hold this group
  * @param   halonr     Index of the FOF-background subhalo (main halo)
- * @param   ngal_total Total number of halos to process
  *
  * Driver adapter for physics execution: selects the FOF Type 0 central,
  * propagates the stable central unique ID, builds the module context, and hands
@@ -141,20 +141,20 @@ static void setup_module_context(struct ModuleContext *ctx, struct HaloInputView
  * marshalling is a separate, driver-owned step performed by the caller through
  * the shared output-buffer marshaller.
  *
- * Shared by the vertical and horizontal drivers, which pass their own workspaces.
+ * Shared by the vertical and horizontal drivers, which pass their own descriptors.
  *
  * Phase assignments and loop modes are configured in the input YAML file.
  * TimestepScheme and SubSteps together determine the active substep count.
  */
-void process_halo_evolution(struct HaloInputView view, struct Halo *workspace, int64_t halonr,
-                            int64_t ngal_total) {
+void process_halo_evolution(struct HaloInputView view, struct FoFWorkspace *ws, int64_t halonr) {
   int centralgal, i;
   struct ModuleContext ctx;
+  struct Halo *workspace = ws->halos;
 
-  /* The module pipeline counts a FoF workspace in int (struct ModuleContext's
-   * central_index and execute_module_pipeline()'s ngal). The workspace is bounded
-   * by MAX_HALO_ARRAY_SIZE, so this never fires on a valid run. */
-  const int ngal = narrow_int64_to_int_checked(ngal_total, "FoF workspace galaxy count");
+  /* struct ModuleContext's central_index and the process() ABI count a FoF
+   * workspace in int. The workspace is bounded by MAX_HALO_ARRAY_SIZE, so this
+   * never fires on a valid run. */
+  const int ngal = narrow_int64_to_int_checked(ws->count, "FoF workspace galaxy count");
 
   /* Identify the FOF Type 0 central used for global module context. */
   centralgal = -1;
@@ -183,5 +183,5 @@ void process_halo_evolution(struct HaloInputView view, struct Halo *workspace, i
   setup_module_context(&ctx, view, workspace, halonr, centralgal);
 
   /* Run the configured module lifecycle over this FoF workspace */
-  execute_module_pipeline(&ctx, workspace, ngal);
+  execute_module_pipeline(&ctx, ws);
 }

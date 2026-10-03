@@ -8,6 +8,7 @@
 
 #include "constants.h"
 #include "error.h"
+#include "fof_workspace.h"
 #include "memory.h"
 #include "output_buffer.h"
 #include "run_profile.h"
@@ -19,9 +20,11 @@ static void validate_segment(const struct OutputBufferSegment *segment) {
   }
 }
 
-void marshal_workspace_to_output_buffer(struct Halo *workspace, struct OutputBuffer *buffer,
+void marshal_workspace_to_output_buffer(const struct FoFWorkspace *ws, struct OutputBuffer *buffer,
                                         struct OutputBufferSegment *segments, int64_t nsegments) {
-  assert(workspace != NULL);
+  assert(ws != NULL);
+  assert(ws->halos != NULL);
+  struct Halo *workspace = ws->halos;
   assert(buffer != NULL);
   assert(buffer->halos != NULL);
   assert(segments != NULL || nsegments == 0);
@@ -43,7 +46,7 @@ void marshal_workspace_to_output_buffer(struct Halo *workspace, struct OutputBuf
       }
 
       if (buffer->count >= buffer->capacity) {
-        /* Growth arithmetic mirrors ensure_fof_workspace_capacity in build_model.c. */
+        /* Growth arithmetic mirrors fof_workspace_reserve() in fof_workspace.c. */
         int64_t new_capacity = (int64_t)(buffer->capacity * HALO_ARRAY_GROWTH_FACTOR);
         if (new_capacity - buffer->capacity < MIN_HALO_ARRAY_GROWTH)
           new_capacity = buffer->capacity + MIN_HALO_ARRAY_GROWTH;

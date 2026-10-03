@@ -10,15 +10,21 @@
    int64_t on both drivers: a horizontal slab index can exceed int32, and the
    vertical driver shares these types so there is one index type throughout. */
 
+struct FoFWorkspace; /* core/fof_workspace.h */
+
 /* Shared driver adapters (src/core/halo_evolution.c); each driver passes its
-   own FoF workspace. */
-void process_halo_evolution(struct HaloInputView view, struct Halo *workspace, int64_t halonr,
-                            int64_t ngal);
+   own FoF workspace descriptor, whose count is the FoF group's row count. */
+void process_halo_evolution(struct HaloInputView view, struct FoFWorkspace *ws, int64_t halonr);
 int64_t count_fof_subhalos(struct HaloInputView view, int64_t first_fof_halo);
 struct HaloInitPayload make_halo_init_payload(struct HaloInputView view, int64_t halonr);
 
 /* Vertical driver (src/core/build_model.c) */
 void build_halo_tree(int64_t halonr, int unit, int depth);
+/* The vertical driver's one FoF workspace descriptor. Defined beside the unit
+   lifecycle in src/io/vertical/interface.c, which sizes it in load_unit() and
+   releases it in free_unit_halos(); the driver sets its identity space after
+   each load. */
+struct FoFWorkspace *vertical_fof_workspace(void);
 int64_t join_progenitor_halos(struct HaloInputView view, int64_t halonr, int64_t nstart, int unit);
 int64_t find_most_massive_progenitor(struct HaloInputView view, int64_t halonr);
 void free_vertical_driver_scratch(void);

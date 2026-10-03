@@ -25,8 +25,10 @@
 /* Global configuration structure */
 struct MimicConfig MimicConfig;
 
-/* Halo data arrays */
-struct Halo *FoFWorkspace, *ProcessedHalos;
+/* Halo data arrays. The vertical FoF workspace is not a global: it is one
+ * struct FoFWorkspace descriptor (fof_workspace.h) owned by the vertical driver,
+ * sized in load_unit() and released in free_unit_halos(); see globals.h. */
+struct Halo *ProcessedHalos;
 
 struct RawHalo *InputTreeHalos;
 
@@ -47,7 +49,6 @@ hid_t HDF5_current_file_id = -1; /* -1 means no file currently open */
 #endif
 
 int64_t MaxProcessedHalos;
-int MaxFoFWorkspace;
 int Ntrees;                /*  number of trees in current file  */
 int64_t NumProcessedHalos; /*  Total number of halos stored for current tree  */
 

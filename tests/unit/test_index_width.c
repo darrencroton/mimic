@@ -19,6 +19,7 @@
  */
 
 #include "../framework/test_framework.h"
+#include "../../src/core/fof_workspace.h"
 #include "../../src/core/inheritance.h"
 #include "../../src/core/output_buffer.h"
 #include "../../src/include/proto.h"
@@ -146,8 +147,13 @@ int test_seam_signatures_are_int64(void) {
                             struct HaloInitPayload (*)(struct HaloInputView, int64_t)),
               "make_halo_init_payload takes an int64_t halo index");
   TEST_ASSERT(HAS_SIGNATURE(process_halo_evolution,
-                            void (*)(struct HaloInputView, struct Halo *, int64_t, int64_t)),
-              "process_halo_evolution takes int64_t halo index and count");
+                            void (*)(struct HaloInputView, struct FoFWorkspace *, int64_t)),
+              "process_halo_evolution takes an int64_t halo index and the workspace descriptor");
+  const struct FoFWorkspace workspace_probe = {0};
+  TEST_ASSERT(IS_INT64(workspace_probe.count) && IS_INT64(workspace_probe.capacity),
+              "The FoF workspace descriptor carries int64_t count and capacity");
+  TEST_ASSERT(HAS_SIGNATURE(fof_workspace_reserve, void (*)(struct FoFWorkspace *, int64_t)),
+              "fof_workspace_reserve takes an int64_t row requirement");
   TEST_ASSERT(HAS_SIGNATURE(get_virial_mass, double (*)(struct HaloInputView, int64_t)),
               "get_virial_mass takes an int64_t halo index");
   TEST_ASSERT(HAS_SIGNATURE(get_virial_radius, double (*)(struct HaloInputView, int64_t)),
@@ -178,7 +184,7 @@ int test_seam_signatures_are_int64(void) {
                                         const struct InheritanceProgenitorGalaxy *, int64_t)),
               "inherit_descendant_halos takes and returns int64_t workspace offsets");
   TEST_ASSERT(HAS_SIGNATURE(marshal_workspace_to_output_buffer,
-                            void (*)(struct Halo *, struct OutputBuffer *,
+                            void (*)(const struct FoFWorkspace *, struct OutputBuffer *,
                                      struct OutputBufferSegment *, int64_t)),
               "marshal_workspace_to_output_buffer takes an int64_t segment count");
 

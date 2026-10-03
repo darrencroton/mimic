@@ -35,6 +35,8 @@
 
 #include "module_interface.h"
 
+struct FoFWorkspace; /* fof_workspace.h */
+
 /**
  * @brief   Phase module configuration entry
  *
@@ -182,14 +184,19 @@ int module_system_init(void);
  *
  * Called from execute_module_pipeline() for each phase.
  *
+ * Full-halo and by-galaxy callbacks receive the workspace's current rows:
+ * ws->halos and ws->count are read at the start of each callback, never from a
+ * copy taken earlier in the phase. Per-event consumers address rows through
+ * the phase's event-dispatch view, set from the descriptor when the phase
+ * begins.
+ *
  * @param   phase_config   Array of module configurations for this phase
  * @param   num_modules    Number of modules in this phase (0 = skip phase)
  * @param   ctx            Module execution context (redshift, time, substep info)
- * @param   halos          Array of halos in the FOF group (FoFWorkspace)
- * @param   ngal           Number of halos in the array
+ * @param   ws             FoF workspace holding the group's rows (fof_workspace.h)
  */
 void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
-                   struct ModuleContext *ctx, struct Halo *halos, int ngal);
+                   struct ModuleContext *ctx, struct FoFWorkspace *ws);
 
 /**
  * @brief   Run the post_snapshot phase over one snapshot's processed population
@@ -219,7 +226,7 @@ void execute_post_snapshot(const struct SnapshotContext *ctx, const struct Halo 
  * Format-neutral physics-execution engine: the shared entry point that runs the
  * configured module lifecycle (pre-timestep phase, the substep loop with its
  * user-named phases, then the post-timestep phase) over a halo workspace. It
- * operates purely on (ctx, halos, ngal), reading its phase configuration from
+ * operates purely on (ctx, ws), reading its phase configuration from
  * ctx->params rather than any global; it carries no tree-index, output-array,
  * or traversal-order assumptions, so any driver can call it once its
  * ModuleContext is populated.
@@ -229,10 +236,9 @@ void execute_post_snapshot(const struct SnapshotContext *ctx, const struct Halo 
  * afterwards; this engine only executes physics.
  *
  * @param   ctx     Module execution context (already populated by the caller)
- * @param   halos   Array of halos to evolve (e.g. FoFWorkspace)
- * @param   ngal    Number of halos in the array
+ * @param   ws      FoF workspace to evolve (fof_workspace.h); ws->count rows
  */
-void execute_module_pipeline(struct ModuleContext *ctx, struct Halo *halos, int ngal);
+void execute_module_pipeline(struct ModuleContext *ctx, struct FoFWorkspace *ws);
 
 /**
  * @brief   Cleanup the module system

@@ -25,11 +25,11 @@ extern char *ThisNode;
  *
  * Mimic uses a three-tier architecture for halo tracking through merger trees.
  * The vertical driver gathers already-processed progenitor galaxies, the shared
- * inheritance service deep-copies them into FoFWorkspace, physics mutates the
- * workspace in place, and output marshalling transfers surviving workspace
+ * inheritance service deep-copies them into the FoF workspace, physics mutates
+ * the workspace in place, and output marshalling transfers surviving workspace
  * entries into a driver-owned output buffer.
  *
- * Data Flow: InputTreeHalos → FoFWorkspace → output buffer
+ * Data Flow: InputTreeHalos → FoF workspace → output buffer
  *
  * 1. InputTreeHalos (struct RawHalo*) - IMMUTABLE INPUT
  *    - Source: Read from merger tree files (binary or HDF5)
@@ -40,16 +40,22 @@ extern char *ThisNode;
  *    - Purpose: Provides immutable snapshot of halo properties from simulation
  *    - Memory: Allocated via mymalloc_cat(..., MEM_TREES)
  *
- * 2. FoFWorkspace (struct Halo*) - TEMPORARY PROCESSING
- *    - Source: Created during FoF processing in build_halo_tree()
+ * 2. FoF workspace (struct FoFWorkspace, fof_workspace.h) - TEMPORARY PROCESSING
+ *    - Not a global: one descriptor owned by the vertical driver, defined beside
+ *      load_unit() in io/vertical/interface.c and reached through
+ *      vertical_fof_workspace() (proto.h). It carries the rows (halos, count,
+ *      capacity), the borrowed galaxy pool (VerticalGalaxyPool, below) and the
+ *      unit's published created-record identity space, which process_partition()
+ *      sets after each load.
+ *    - Source: Filled during FoF processing in build_halo_tree()
  *    - Lifetime: Per-tree, grows dynamically during processing
  *    - Ownership: Temporary working space, contents copied to ProcessedHalos
- *    - Size: MaxFoFWorkspace elements (grows as needed via myrealloc_cat)
+ *    - Size: `capacity` rows (grows as needed via fof_workspace_reserve())
  *    - Purpose: Accumulates halos during recursive tree building
  *    - Memory: Allocated via mymalloc_cat(..., MEM_HALOS)
  *
  * 3. ProcessedHalos (struct Halo*) - VERTICAL-DRIVER OUTPUT BUFFER
- *    - Source: Final halos copied from FoFWorkspace after physics execution
+ *    - Source: Final halos copied from the FoF workspace after physics execution
  *    - Lifetime: Per-tree (allocated in load_unit(), freed in
  * free_unit_halos())
  *    - Ownership: Vertical-driver output buffer, indexed by NumProcessedHalos
@@ -71,10 +77,13 @@ extern char *ThisNode;
  *     InputTreeHalos = mymalloc_cat(InputTreeNHalos[treenr] * sizeof(RawHalo), MEM_TREES)
  *     HaloAux        = mymalloc_cat(InputTreeNHalos[treenr] * sizeof(HaloAuxData), MEM_HALOS)
  *     ProcessedHalos = mymalloc_cat(MaxProcessedHalos * sizeof(Halo), MEM_HALOS)
- *     FoFWorkspace   = mymalloc_cat(MaxFoFWorkspace   * sizeof(Halo), MEM_HALOS)
+ *     ws->halos      = mymalloc_cat(ws->capacity      * sizeof(Halo), MEM_HALOS)
+ *     ws->pool       = VerticalGalaxyPool
+ *   process_partition(), after load_unit():
+ *     ws->identity   = the unit's published identity space
  *
  *   During tree processing:
- *     FoFWorkspace   may grow via myrealloc_cat (see ensure_fof_workspace_capacity)
+ *     ws->halos      may grow via myrealloc_cat (see fof_workspace_reserve)
  *     ProcessedHalos may grow via myrealloc_cat (see marshal_workspace_to_output_buffer);
  *       build_halo_tree syncs ProcessedHalos and MaxProcessedHalos back from the
  *       OutputBuffer struct after each marshal call
@@ -83,7 +92,7 @@ extern char *ThisNode;
  *     galaxy_pool_reset(pool) // reclaim all galaxy slots for the next tree
  *                             // (a NULL pool means no galaxy was allocated;
  *                             // the reset is skipped)
- *     myfree(FoFWorkspace)   // frees the final (possibly grown) pointer
+ *     fof_workspace_destroy(ws) // frees the final (possibly grown) rows
  *     myfree(ProcessedHalos) // frees the final (possibly grown) pointer
  *     myfree(HaloAux)
  *     myfree(InputTreeHalos)
@@ -96,11 +105,13 @@ extern char *ThisNode;
  * pointers) into ProcessedHalos by struct copy; the pool's slots stay valid
  * because chunks never move. No per-halo galaxy frees occur — free_unit_halos()
  * resets the pool in one step, which is why the same galaxy pointer can be held
- * by both a FoFWorkspace and a ProcessedHalos slot without any double-free risk.
+ * by both a FoF workspace row and a ProcessedHalos slot without any double-free
+ * risk.
  */
 
-/* halo data pointers */
-extern struct Halo *FoFWorkspace, *ProcessedHalos;
+/* halo data pointers (the vertical FoF workspace is the driver-owned descriptor
+   above, not a global) */
+extern struct Halo *ProcessedHalos;
 extern struct RawHalo *InputTreeHalos;
 extern struct HaloAuxData *HaloAux;
 
@@ -114,7 +125,6 @@ extern struct GalaxyPool *VerticalGalaxyPool;
 extern int Ntrees;                /* number of trees in current file  */
 extern int64_t NumProcessedHalos; /* Total number of halos stored for current tree */
 extern int64_t MaxProcessedHalos; /* Maximum number of halos allowed for current tree */
-extern int MaxFoFWorkspace;
 
 /* halo information */
 extern int64_t TotHalosPerSnap[ABSOLUTEMAXSNAPS];

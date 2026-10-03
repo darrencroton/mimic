@@ -62,7 +62,8 @@ run YAML
                                            galaxies via the galaxy pool; applies Type
                                            transitions; resets snapshot accumulators
       → process_halo_evolution()          src/core/halo_evolution.c — shared driver adapter;
-                                           the horizontal driver calls the same function
+                                           the horizontal driver calls the same function;
+                                           takes the driver's struct FoFWorkspace
           → execute_module_pipeline()      pre_timestep once → for each substep, each named
                                            phase in YAML order → post_timestep once.
                                            Within a phase: full-halo modules first (YAML
@@ -81,7 +82,7 @@ Two structures carry the state and are easy to confuse:
 
 | Structure | Role | Lifetime |
 |---|---|---|
-| `FoFWorkspace` | Per-FoF-group processing scratch: the halos and galaxies modules actually operate on | One FoF group at one snapshot |
+| `struct FoFWorkspace` (src/core/fof_workspace.h) | Per-FoF-group processing scratch: the halos and galaxies modules actually operate on, with the borrowed galaxy pool and the published created-record identity space. One descriptor per driver, grown only by `fof_workspace_reserve()`; the four workspace functions (`process_halo_evolution`, `execute_module_pipeline`, `execute_phase`, `marshal_workspace_to_output_buffer`) take the descriptor, and `execute_phase` re-reads `ws->halos`/`ws->count` at every full-halo and by-galaxy callback | Rows: one FoF group at one snapshot. Descriptor: one unit (vertical, `load_unit()`/`free_unit_halos()`) or one run (horizontal) |
 | `ProcessedHalos` | Per-tree output buffer AND the source of already-processed progenitor state for inheritance | One tree |
 
 `ProcessedHalos` is dual-purpose by design: the driver backs the output buffer with it, and `inherit_descendant_halos` reads progenitor galaxies back out of it. Any change to one role must preserve the other.
@@ -114,7 +115,7 @@ All allocation goes through `mymalloc_cat` / `myrealloc_cat` / `myfree` (src/uti
 |---|---|---|
 | Input tree halos (raw reader output) | `MEM_TREES` | Vertical driver: freed per tree/partition. Horizontal: a reader-owned slab per snapshot (plus reader-owned `ForestIndex`/`HaloRankInForest` and, for version 3, target-snapshot and `SourceHaloID` arrays), held in the driver's retention pool and released through `release_slab` at the generation's horizon |
 | Horizontal retained generation (raw slab, aux, processed output buffer, galaxy pool) | several | The horizontal driver alone, in a pool keyed by snapshot number; released once the snapshot at its retention horizon (largest `DescendantSnapshot` its halos name) is processed, and on the failure path by an `atexit` handler. The reader holds no retention state |
-| `HaloAux`, `FoFWorkspace`, `ProcessedHalos` | `MEM_HALOS` | Driver, freed per tree |
+| `HaloAux`, FoF workspace rows (`struct FoFWorkspace.halos`), `ProcessedHalos` | `MEM_HALOS` | Driver, freed per tree (the horizontal driver's workspace descriptor lives for the run and is released by `fof_workspace_destroy()` at teardown) |
 | `GalaxyData` | pool-managed | Galaxy pool; bulk-reset per tree, never individually freed |
 | Module-private allocations | module's choice of category | The module itself — allocate in `init()`/`process()`, free in `cleanup()`; nothing outlives `cleanup()` |
 | Snapshot-callback scratch | module's choice of category | The module, like any module-private allocation (freed before `process_snapshot()` returns or in `cleanup()`); outside the horizontal retention-pool accounting and `input.retention_memory_ceiling_mb`, and bounded by nothing in the core |
