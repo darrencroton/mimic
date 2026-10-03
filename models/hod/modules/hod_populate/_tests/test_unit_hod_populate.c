@@ -19,7 +19,7 @@
  *   over hand-built FoF workspaces): Type 2 retirement, the ghost reset, the
  *   central gating, created satellites placed exactly as the helpers predict,
  *   the output-snapshot gate against MimicConfig, the identity-radix errors,
- *   placement at a tiny concentration normalisation,
+ *   placement at a tiny and at an extreme (1e308) concentration normalisation,
  *   bitwise repeat identity, and invariance under row and FoF permutation
  * - statistics over 40,000 independently keyed hosts (central frequency,
  *   satellite count mean and variance, radial CDF, velocity variance), each
@@ -983,6 +983,81 @@ int test_small_concentration_placement(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test   test_large_concentration_placement
+ * @brief  At c = 1e308 every placement is finite, inside Rvir and inside the box
+ *
+ * At an extreme accepted concentration the NFW inverse returns x up to ~1e308;
+ * Rvir * x would overflow to infinity (and fmod would then store NaN), so the
+ * radius must be formed as Rvir * (x / c). The case reproduces the reviewer's
+ * draw (seed 1, snapshot 49, host UniqueGalaxyID 4, M = 1e16 Msun/h, Rvir = 3),
+ * whose satellite 92 has x = 7.7e307, first directly and then through the
+ * dispatch with HODConcA = 1e308 and no mass or redshift slope.
+ */
+int test_large_concentration_placement(void) {
+  const double c = 1e308;
+  const double rvir = 3.0;
+  const uint64_t key = hod_random_key(1, 49, 4);
+  int overflowing = 0;
+  for (int s = 0; s < 200; s++) {
+    struct HodSatellite sat;
+    TEST_ASSERT(hod_populate_draw_satellite(key, s, c, rvir, 300.0, 0.0, &sat) == 0,
+                "a draw at c = 1e308 succeeds");
+    overflowing += isinf(rvir * sat.x);
+    TEST_ASSERT(isfinite(sat.r_phys) && sat.r_phys >= 0.0 && sat.r_phys <= rvir,
+                "r_phys is finite and at most Rvir");
+    TEST_ASSERT(isfinite(sat.r_com), "r_com is finite");
+    for (int j = 0; j < 3; j++) {
+      TEST_ASSERT(isfinite(sat.offset[j]) && isfinite(sat.velocity[j]),
+                  "the offset and velocity are finite");
+      const float stored = hod_populate_store_position(
+          hod_populate_wrap(50.0 + sat.offset[j], HOD_TEST_BOX_SIZE), HOD_TEST_BOX_SIZE);
+      TEST_ASSERT(isfinite(stored) && stored >= 0.0f && (double)stored < HOD_TEST_BOX_SIZE,
+                  "the stored position is finite and in the box");
+    }
+  }
+  TEST_ASSERT(overflowing > 0, "the case reaches an x for which Rvir * x overflows");
+
+  configure_run(false);
+  MimicConfig.NOUT = 1;
+  MimicConfig.ListOutputSnaps[0] = 49;
+  snprintf(MimicConfig.ModelParams[6].value, MAX_STRING_LEN, "%s", "1e308"); /* HODConcA */
+  snprintf(MimicConfig.ModelParams[8].value, MAX_STRING_LEN, "%s", "0");     /* HODConcB */
+  snprintf(MimicConfig.ModelParams[9].value, MAX_STRING_LEN, "%s", "0");     /* HODConcC */
+  TEST_ASSERT_EQUAL(module_system_init(), 0, "HODConcA = 1e308 initialises");
+  const struct RowSpec rows[2] = {
+      {0, 4, 7, 1.0e6, {99.5f, 0.5f, 50.0f}, {0.0f, 0.0f, 0.0f}, false},
+      {2, 5, 8, 0.0, {99.5f, 0.5f, 50.0f}, {0.0f, 0.0f, 0.0f}, false},
+  };
+  build_workspace(rows, 2, 0, 49, 0.0);
+  workspace.halos[0].Rvir = rvir;
+  const struct Halo host = workspace.halos[0];
+  execute_module_pipeline(&context, &workspace);
+
+  struct HodOccupation occupation;
+  hod_populate_draw_occupation(&default_params, key, row_mass(&host), &occupation);
+  TEST_ASSERT(occupation.num_satellites > 92, "the host draws satellite 92");
+  TEST_ASSERT_EQUAL(workspace.count - workspace.base_count, (int64_t)occupation.num_satellites,
+                    "every drawn satellite is created");
+  for (int64_t r = workspace.base_count; r < workspace.count; r++) {
+    double distance_sq = 0.0;
+    for (int j = 0; j < 3; j++) {
+      const float pos = workspace.halos[r].Pos[j];
+      TEST_ASSERT(isfinite(pos) && pos >= 0.0f && (double)pos < HOD_TEST_BOX_SIZE,
+                  "a created position is finite and in the box");
+      TEST_ASSERT(isfinite(workspace.halos[r].Vel[j]), "a created velocity is finite");
+      double d = (double)pos - (double)host.Pos[j];
+      d -= HOD_TEST_BOX_SIZE * round(d / HOD_TEST_BOX_SIZE); /* nearest periodic image */
+      distance_sq += d * d;
+    }
+    TEST_ASSERT(sqrt(distance_sq) <= rvir * (1.0 + 1e-6),
+                "a created satellite lies within Rvir of its host (z = 0)");
+  }
+  TEST_ASSERT_EQUAL(release_case(), 0, "release succeeds");
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
 /* ============================================================================
  * DETERMINISM AND PERMUTATION INVARIANCE
  * ============================================================================ */
@@ -1446,6 +1521,7 @@ int main(void) {
   TEST_RUN(test_output_snapshot_gating);
   TEST_RUN(test_satellite_limit_errors);
   TEST_RUN(test_small_concentration_placement);
+  TEST_RUN(test_large_concentration_placement);
   TEST_RUN(test_determinism_and_permutation);
   TEST_RUN(test_statistics_central_frequency);
   TEST_RUN(test_statistics_satellite_counts);

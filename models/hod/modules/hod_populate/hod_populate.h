@@ -75,7 +75,7 @@ struct HodOccupation {
 struct HodSatellite {
   double u_radius;    /**< Radius uniform u, kept for diagnostics */
   double x;           /**< NFW scaled radius r / r_s, solving m(x)/m(c) = u */
-  double r_phys;      /**< Physical radius Rvir x / c */
+  double r_phys;      /**< Physical radius Rvir (x / c), at most Rvir */
   double r_com;       /**< Comoving radius r_phys (1 + z) */
   double offset[3];   /**< Comoving offset r_com n, before wrapping */
   double velocity[3]; /**< Velocity offset (g1, g2, g3) Vvir / sqrt(2), km/s */
@@ -127,7 +127,8 @@ double hod_populate_nfw_fraction(double x, double c);
  * bracket stops shrinking in double precision with the residual still above
  * the tolerance.
  *
- * @param   u  Target enclosed fraction in (0, 1)
+ * @param   u  Target enclosed fraction in [0, 1] (the draws supply (0, 1)); NaN or a value
+ *             outside [0, 1] is refused
  * @param   c  Concentration
  * @param   x  Receives the radius in [0, c] on success; untouched on failure
  * @return  0 on success, -1 on failure (the caller reports it)

@@ -196,7 +196,8 @@ int hod_populate_draw_satellite(uint64_t key, int s, double concentration, doubl
   if (hod_populate_nfw_inverse(out->u_radius, concentration, &out->x) != 0) {
     return -1;
   }
-  out->r_phys = rvir * out->x / concentration;
+  // The ratio x / c lies in [0, 1]; forming rvir * x first overflows for x near DBL_MAX.
+  out->r_phys = rvir * (out->x / concentration);
   out->r_com = out->r_phys * (1.0 + redshift);
 
   const double cos_theta = 2.0 * hod_random_uniform(key, base + 1) - 1.0;
@@ -421,12 +422,26 @@ int hod_populate_init(void) {
   return 0;
 }
 
+/** @brief Whether a drawn placement is finite in every field the module writes from */
+static bool satellite_is_finite(const struct HodSatellite *sat) {
+  if (!isfinite(sat->r_phys) || !isfinite(sat->r_com)) {
+    return false;
+  }
+  for (int j = 0; j < 3; j++) {
+    if (!isfinite(sat->offset[j]) || !isfinite(sat->velocity[j])) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /**
  * @brief Validate a host and draw it in full before anything is written
  *
  * Fills the occupation and, for each satellite, its placement in
  * hod_satellites[]; any failure (bad proxies, identity radix, concentration,
- * an NFW radius that cannot meet its tolerance) returns -1 with nothing written.
+ * an NFW radius that cannot meet its tolerance, a non-finite placement)
+ * returns -1 with nothing written.
  */
 static int prepare_host_draw(const struct ModuleContext *ctx, const struct Halo *host,
                              struct HodOccupation *occupation) {
@@ -488,6 +503,13 @@ static int prepare_host_draw(const struct ModuleContext *ctx, const struct Halo 
                 "concentration c=%.17g cannot meet |m(x)/m(c) - u| <= %g",
                 HOD_MODULE_NAME, host->UniqueGalaxyID, s, hod_satellites[s].u_radius, concentration,
                 HOD_NFW_TOLERANCE);
+      return -1;
+    }
+    if (!satellite_is_finite(&hod_satellites[s])) {
+      ERROR_LOG("%s: host UniqueGalaxyID %lld satellite %d at concentration c=%.17g has a "
+                "non-finite radius, offset or velocity (r_phys=%.17g, r_com=%.17g)",
+                HOD_MODULE_NAME, host->UniqueGalaxyID, s, concentration, hod_satellites[s].r_phys,
+                hod_satellites[s].r_com);
       return -1;
     }
   }
