@@ -22,7 +22,6 @@
 #include <math.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <string.h>
 
 #include "error.h"
 #include "globals.h"
@@ -61,12 +60,15 @@ static int sham_target_ready = 0;
  * @brief One population entry in sort scratch
  *
  * Scratch is the only thing ever sorted: the borrowed population keeps its
- * order. index is the entry's position in that population.
+ * order. index is the entry's position in that population. vpeak and mpeak are
+ * the validated updated peaks, kept so the write phase stores exactly what was
+ * validated; mass is the rank's stellar mass (0 for an ineligible entry).
  */
 struct ShamRankRecord {
   long long id;
   int64_t index;
   float vpeak;
+  float mpeak;
   float mass;
 };
 
@@ -86,20 +88,6 @@ static int check_finite_parameter(const char *name, double value) {
     return -1;
   }
   return 0;
-}
-
-/** Number of post_snapshot entries naming this module with process_snapshot */
-static int post_snapshot_configuration_count(void) {
-  int found = 0;
-  for (int i = 0; i < MimicConfig.num_post_snapshot; i++) {
-    const struct PhaseModuleConfig *entry = &MimicConfig.post_snapshot[i];
-    if (entry->module_name != NULL &&
-        strcmp(entry->module_name, SHAM_GLOBAL_RANK_MODULE_NAME) == 0 &&
-        entry->processing_mode == PROCESSING_MODE_SNAPSHOT) {
-      found++;
-    }
-  }
-  return found;
 }
 
 /**
@@ -195,8 +183,11 @@ static int compare_by_rank(const void *a, const void *b) {
  * Forms the bracket ln(r + 0.5) - 3 ln BoxSize - ln n0, divides it by alpha and
  * subtracts the result from ln M0. The rank density, the volume and their
  * ratio to n0 are never formed: they overflow or underflow for admitted
- * parameters whose final mass is representable. Separate statements keep the
- * compiler from contracting the steps into a fused multiply-add.
+ * parameters whose final mass is representable. The steps are separate
+ * statements for readability only: the build sets no -ffp-contract, so GCC's
+ * default (-ffp-contract=fast) may still fuse across statements. Results are
+ * deterministic within one build; bits may differ across platforms by rounding,
+ * within the two-ULP bound the oracle tests assert.
  */
 static double log_mass_at_rank(const struct ShamGlobalRankTarget *target, int64_t rank) {
   const double log_rank = log((double)rank + 0.5);
@@ -250,8 +241,10 @@ static void reset_stellar_fields(struct GalaxyData *gal) {
 /**
  * @brief Validate, rank and price every entry into scratch, writing nothing
  *
- * On success records[0, *num_ranked) hold the eligible entries in rank order
- * with their masses. Uniqueness covers every entry, eligible or not.
+ * On success records[0, count) hold every entry in rank order: the eligible
+ * entries (updated peak above zero) come first, records[0, *num_ranked), with
+ * their masses; ineligible entries follow with mass 0. Every record carries its
+ * validated updated peaks. Uniqueness covers every entry, eligible or not.
  */
 static int rank_into_scratch(const struct ShamGlobalRankTarget *target, const struct Halo *halos,
                              int64_t count, struct ShamRankRecord *records, int64_t *num_ranked) {
@@ -264,6 +257,7 @@ static int rank_into_scratch(const struct ShamGlobalRankTarget *target, const st
     records[i].id = halos[i].UniqueGalaxyID;
     records[i].index = i;
     records[i].vpeak = vpeak;
+    records[i].mpeak = mpeak;
     records[i].mass = 0.0f;
   }
 
@@ -277,13 +271,12 @@ static int rank_into_scratch(const struct ShamGlobalRankTarget *target, const st
     }
   }
 
+  // Peaks are nonnegative, so descending ShamVpeak puts every eligible entry first.
+  qsort(records, (size_t)count, sizeof(*records), compare_by_rank);
   int64_t eligible = 0;
-  for (int64_t i = 0; i < count; i++) {
-    if (records[i].vpeak > 0.0f) {
-      records[eligible++] = records[i];
-    }
+  while (eligible < count && records[eligible].vpeak > 0.0f) {
+    eligible++;
   }
-  qsort(records, (size_t)eligible, sizeof(*records), compare_by_rank);
   for (int64_t rank = 0; rank < eligible; rank++) {
     if (mass_at_rank(target, rank, records[rank].id, &records[rank].mass) != 0) {
       return -1;
@@ -317,21 +310,17 @@ int sham_global_rank_assign(const struct ShamGlobalRankTarget *target, const str
     return -1;
   }
 
-  // Validation passed for every entry: only now write peaks, resets and masses. The peaks
-  // are recomputed from the unchanged inputs rather than kept in scratch; this cannot fail.
-  for (int64_t i = 0; i < count; i++) {
-    struct GalaxyData *gal = halos[i].galaxy;
-    float vpeak;
-    float mpeak;
-    (void)updated_peaks(&halos[i], i, &vpeak, &mpeak);
-    gal->ShamVpeak = vpeak;
-    gal->ShamMpeak = mpeak;
+  // Validation passed for every entry: only now write. Every entry, eligible or not, takes
+  // its validated peaks and has its stellar fields reset; ranked entries then take their mass.
+  for (int64_t k = 0; k < count; k++) {
+    struct GalaxyData *gal = halos[records[k].index].galaxy;
+    gal->ShamVpeak = records[k].vpeak;
+    gal->ShamMpeak = records[k].mpeak;
     reset_stellar_fields(gal);
-  }
-  for (int64_t rank = 0; rank < num_ranked; rank++) {
-    struct GalaxyData *gal = halos[records[rank].index].galaxy;
-    gal->StellarMass = records[rank].mass;
-    gal->ShamStellarMassNoScatter = records[rank].mass;
+    if (k < num_ranked) {
+      gal->StellarMass = records[k].mass;
+      gal->ShamStellarMassNoScatter = records[k].mass;
+    }
   }
 
   myfree(records);
@@ -345,11 +334,11 @@ int sham_global_rank_assign(const struct ShamGlobalRankTarget *target, const str
 int sham_global_rank_init(void) {
   sham_target_ready = 0;
 
-  const int configured = post_snapshot_configuration_count();
-  if (configured != 1) {
-    ERROR_LOG("%s must be configured exactly once in modules.post_snapshot as process_snapshot "
-              "(found %d)",
-              SHAM_GLOBAL_RANK_MODULE_NAME, configured);
+  // Duplicate entries are rejected before init(), so presence is all that is checked here.
+  if (!module_configured_in_phase(SHAM_GLOBAL_RANK_MODULE_NAME, MimicConfig.post_snapshot,
+                                  MimicConfig.num_post_snapshot, PROCESSING_MODE_SNAPSHOT)) {
+    ERROR_LOG("%s must be configured in modules.post_snapshot as process_snapshot",
+              SHAM_GLOBAL_RANK_MODULE_NAME);
     return -1;
   }
   if (module_configured_anywhere(SHAM_LEGACY_MODULE_NAME)) {

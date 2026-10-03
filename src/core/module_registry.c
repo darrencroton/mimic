@@ -98,73 +98,7 @@ static struct PhaseEventDispatchState phase_event_state = {.events = NULL,
                                                            .emission_allowed = false,
                                                            .current_producer_module_id = 0};
 
-/**
- * @brief   One processing mode: its configuration name and callback family
- */
-struct ProcessingModeDescriptor {
-  enum ProcessingMode mode;
-  const char *name;
-  enum ModuleCallbackFamily family;
-};
-
-/**
- * @brief   The single C table of processing modes
- *
- * Every lookup (string parsing, naming, dispatch-family) goes through this
- * table, and scripts/module_modes.py mirrors it for metadata generation and
- * validation. A mode absent from the table fails closed everywhere; adding a
- * mode or family needs an explicit entry here and in that script.
- */
-static const struct ProcessingModeDescriptor processing_mode_descriptors[] = {
-    {PROCESSING_MODE_FULL_HALO, "process_full_halo", MODULE_CALLBACK_FAMILY_FOF},
-    {PROCESSING_MODE_PER_EVENT, "process_per_event", MODULE_CALLBACK_FAMILY_FOF},
-    {PROCESSING_MODE_BY_GALAXY, "process_by_galaxy", MODULE_CALLBACK_FAMILY_FOF},
-    {PROCESSING_MODE_SNAPSHOT, "process_snapshot", MODULE_CALLBACK_FAMILY_SNAPSHOT},
-};
-
-#define NUM_PROCESSING_MODE_DESCRIPTORS                                                            \
-  ((int)(sizeof(processing_mode_descriptors) / sizeof(processing_mode_descriptors[0])))
-
-/**
- * @brief   Find the descriptor for a processing mode
- *
- * @return  The descriptor, or NULL for a value outside the table
- */
-static const struct ProcessingModeDescriptor *find_mode_descriptor(enum ProcessingMode mode) {
-  for (int i = 0; i < NUM_PROCESSING_MODE_DESCRIPTORS; i++) {
-    if (processing_mode_descriptors[i].mode == mode) {
-      return &processing_mode_descriptors[i];
-    }
-  }
-  return NULL;
-}
-
-const char *processing_mode_to_string(enum ProcessingMode mode) {
-  const struct ProcessingModeDescriptor *descriptor = find_mode_descriptor(mode);
-  return (descriptor != NULL) ? descriptor->name : "unknown";
-}
-
-int processing_mode_from_string(const char *name, enum ProcessingMode *out_mode) {
-  if (name == NULL || out_mode == NULL) {
-    return -1;
-  }
-  for (int i = 0; i < NUM_PROCESSING_MODE_DESCRIPTORS; i++) {
-    if (strcmp(processing_mode_descriptors[i].name, name) == 0) {
-      *out_mode = processing_mode_descriptors[i].mode;
-      return 0;
-    }
-  }
-  return -1;
-}
-
-int processing_mode_family(enum ProcessingMode mode, enum ModuleCallbackFamily *out_family) {
-  const struct ProcessingModeDescriptor *descriptor = find_mode_descriptor(mode);
-  if (descriptor == NULL || out_family == NULL) {
-    return -1;
-  }
-  *out_family = descriptor->family;
-  return 0;
-}
+/* The processing-mode table and its lookups live in processing_modes.c. */
 
 /**
  * @brief   Find a registered module by name
@@ -573,10 +507,11 @@ static int validate_phase_processing_modes(struct PhaseModuleConfig *config, int
 /**
  * @brief   Validate the post_snapshot phase against module constraints
  *
- * Every entry must use process_snapshot, name a module that advertises it and
- * carries its typed process_snapshot() callback, and appear only once: the
- * phase runs each entry once per snapshot, so a repeat would silently run a
- * module twice. Unregistered modules are reported by add_module_to_pipeline().
+ * Every entry must use process_snapshot, name a module that advertises it
+ * (registration guarantees its typed process_snapshot() callback), and appear
+ * only once: the phase runs each entry once per snapshot, so a repeat would
+ * silently run a module twice. Unregistered modules are reported by
+ * add_module_to_pipeline().
  *
  * @param   config       post_snapshot configuration array
  * @param   num_modules  Number of entries
@@ -584,6 +519,7 @@ static int validate_phase_processing_modes(struct PhaseModuleConfig *config, int
  */
 static int validate_post_snapshot_entries(const struct PhaseModuleConfig *config, int num_modules) {
   for (int i = 0; i < num_modules; i++) {
+    /* The single home of the duplicate check: it covers run files and C-built configurations. */
     for (int j = 0; j < i; j++) {
       if (strcmp(config[j].module_name, config[i].module_name) == 0) {
         ERROR_LOG("Configuration error in phase '%s':", POST_SNAPSHOT_PHASE_NAME);
@@ -616,15 +552,8 @@ static int validate_post_snapshot_entries(const struct PhaseModuleConfig *config
       ERROR_LOG("  Supported modes: %s", format_supported_modes(mod));
       return -1;
     }
-
-    /* Registration already requires the callback of every advertised family;
-     * checked again because a NULL here would be dereferenced on dispatch. */
-    if (mod->process_snapshot == NULL) {
-      ERROR_LOG("Configuration error in phase '%s':", POST_SNAPSHOT_PHASE_NAME);
-      ERROR_LOG("  Module '%s' advertises process_snapshot but has no process_snapshot callback",
-                mod->name);
-      return -1;
-    }
+    /* No process_snapshot != NULL check: registration requires the callback of
+     * every advertised family, and execute_post_snapshot() still FATALs on NULL. */
   }
   return 0;
 }

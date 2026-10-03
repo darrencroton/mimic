@@ -32,6 +32,7 @@ SKIP_DIRS = {
     "archive",
     "build",
     "mimic_venv",
+    "output",
     "sage-code",
 }
 

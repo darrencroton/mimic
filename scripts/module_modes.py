@@ -5,7 +5,7 @@ Processing Mode Descriptors for Mimic
 Single Python source of truth for module processing modes, shared by the module
 registry generator (scripts/generate_module_registry.py) and the metadata
 validator (scripts/validate_modules.py). It mirrors the C descriptor table in
-src/core/module_registry.c: each mode names its configuration string, its C
+src/core/processing_modes.c: each mode names its configuration string, its C
 enumerator and the callback family it dispatches to.
 
 Lookups fail closed. A mode string absent from PROCESSING_MODES is invalid

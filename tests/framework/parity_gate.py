@@ -487,6 +487,80 @@ def scratch_parent() -> Path:
     return output if output.is_dir() else Path(tempfile.gettempdir())
 
 
+# --------------------------------------------------------------------------
+# Worktree services (shared with tests/manual/test_snapshot_disabled_identity.py)
+# --------------------------------------------------------------------------
+
+
+def run_logged(cmd, cwd, env, log_path: Path, what: str, timeout: int, show_tail: int = 0) -> float:
+    """Run a command with its output captured to a file; fail loudly on error or timeout.
+
+    Returns the elapsed wall time in seconds.
+    """
+    log(f"  -> {what}")
+    started = time.monotonic()
+    with log_path.open("wb") as handle:
+        try:
+            completed = subprocess.run(
+                cmd, cwd=cwd, env=env, stdout=handle, stderr=subprocess.STDOUT, timeout=timeout
+            )
+        except subprocess.TimeoutExpired:
+            raise AssertionError(
+                f"{what} timed out after {timeout}s\n  log: {log_path}\n"
+                f"--- last lines ---\n{tail(log_path)}"
+            ) from None
+    elapsed = time.monotonic() - started
+    if completed.returncode != 0:
+        raise AssertionError(
+            f"{what} failed with exit status {completed.returncode}\n"
+            f"  command: {' '.join(str(part) for part in cmd)}\n"
+            f"  cwd: {cwd}\n"
+            f"  log: {log_path}\n--- last lines ---\n{tail(log_path)}"
+        )
+    log(f"     done in {elapsed:.0f}s (log: {log_path})")
+    if show_tail:
+        for line in tail(log_path, show_tail).splitlines():
+            log(f"     | {line}")
+    return elapsed
+
+
+def build_pair(
+    worktree: Path, model: str, simulation: str, env: dict, logs: Path, key: str, timeout: int
+) -> None:
+    """Run ``make generate`` then ``make`` for one model/simulation pair inside a worktree."""
+    selectors = [f"MODEL={model}", f"SIMULATION={simulation}"]
+    run_logged(
+        ["make", *selectors, "generate"],
+        worktree,
+        env,
+        logs / f"{key}-generate.log",
+        f"{key}: make generate",
+        timeout,
+    )
+    run_logged(
+        ["make", *selectors, f"-j{os.cpu_count() or 4}"],
+        worktree,
+        env,
+        logs / f"{key}-build.log",
+        f"{key}: make",
+        timeout,
+    )
+    if not (worktree / "mimic").is_file():
+        raise AssertionError(f"{key}: build produced no executable at {worktree / 'mimic'}")
+
+
+def point_output_at(worktree: Path, output_root: Path) -> None:
+    """Point the worktree's ``output`` at a per-run scratch root.
+
+    Run files name a relative output_directory, so redirecting ``output`` selects a scratch
+    root while the run file stays byte for byte the one tested.
+    """
+    link = worktree / "output"
+    if link.is_symlink() or link.exists():
+        link.unlink()
+    link.symlink_to(output_root)
+
+
 def assert_dataset_present(package: str, required_files) -> Path:
     """Fail -- never skip -- when a package's machine-local dataset is absent."""
     link = package_path(package, "snapshots")
@@ -773,31 +847,8 @@ class ParityGate:
     def run_logged(
         self, cmd, cwd, env, log_path: Path, what: str, timeout: int, show_tail: int = 0
     ) -> None:
-        """Run a command with its output captured to a file; fail loudly on error or timeout."""
-        log(f"  -> {what}")
-        started = time.monotonic()
-        with log_path.open("wb") as handle:
-            try:
-                completed = subprocess.run(
-                    cmd, cwd=cwd, env=env, stdout=handle, stderr=subprocess.STDOUT, timeout=timeout
-                )
-            except subprocess.TimeoutExpired:
-                raise AssertionError(
-                    f"{what} timed out after {timeout}s\n  log: {log_path}\n"
-                    f"--- last lines ---\n{tail(log_path)}"
-                ) from None
-        elapsed = time.monotonic() - started
-        if completed.returncode != 0:
-            raise AssertionError(
-                f"{what} failed with exit status {completed.returncode}\n"
-                f"  command: {' '.join(str(part) for part in cmd)}\n"
-                f"  cwd: {cwd}\n"
-                f"  log: {log_path}\n--- last lines ---\n{tail(log_path)}"
-            )
-        log(f"     done in {elapsed:.0f}s (log: {log_path})")
-        if show_tail:
-            for line in tail(log_path, show_tail).splitlines():
-                log(f"     | {line}")
+        """Run a command with its output captured to a file (see the module-level run_logged)."""
+        run_logged(cmd, cwd, env, log_path, what, timeout, show_tail)
 
     def head_bytes(self, path: Path) -> bytes:
         """The committed bytes of a repository file at ``self.head``."""
@@ -1175,27 +1226,8 @@ class ParityGate:
             )
         self.worktrees[key] = worktree
         self.link_machine_local(worktree)
-
         env = self.worktree_env(worktree, model, simulation)
-        selectors = [f"MODEL={model}", f"SIMULATION={simulation}"]
-        self.run_logged(
-            ["make", *selectors, "generate"],
-            worktree,
-            env,
-            logs / f"{key}-generate.log",
-            f"{key}: make generate",
-            timeout=pkg.build_timeout_s,
-        )
-        self.run_logged(
-            ["make", *selectors, f"-j{os.cpu_count() or 4}"],
-            worktree,
-            env,
-            logs / f"{key}-build.log",
-            f"{key}: make",
-            timeout=pkg.build_timeout_s,
-        )
-        if not (worktree / "mimic").is_file():
-            raise AssertionError(f"{key}: build produced no executable at {worktree / 'mimic'}")
+        build_pair(worktree, model, simulation, env, logs, key, pkg.build_timeout_s)
         return worktree
 
     def stage_builds(self) -> None:
@@ -1216,14 +1248,8 @@ class ParityGate:
         """Run ``run_file`` with the worktree's executable into its own scratch output root."""
         declared_directory, basename = read_run_file_output(run_file)
 
-        # The run file's output_directory is relative to the working directory,
-        # so a per-run scratch root is selected by pointing the worktree's
-        # `output` at it, keeping the run file byte for byte the one tested.
         output_root = self.scratch_dir("runs", key)
-        link = worktree / "output"
-        if link.is_symlink() or link.exists():
-            link.unlink()
-        link.symlink_to(output_root)
+        point_output_at(worktree, output_root)
 
         log(f"  run {key}: {run_file}")
         self.run_logged(

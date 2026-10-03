@@ -10,6 +10,11 @@ Usage:
     python3 scripts/validate_modules.py path/to/module/    # Validate specific module
     python3 scripts/validate_modules.py --verbose          # Verbose output
 
+Under MIMIC_TEST_BUILD=1 (``TEST_BUILD=yes``) the framework test fixtures under
+src/module_system/test_* are validated too, and the test-only galaxy properties they own
+(``test_property_files()``, e.g. TestDummyProperty) are loaded into the property metadata so
+the fixtures' declared dependencies resolve. Production runs load none of them.
+
 Exit codes:
     0 - All validations passed
     1 - Schema error (missing fields, wrong types)
@@ -38,6 +43,7 @@ from discovery import (
     module_metadata_files,
     rel,
     standalone_module_files,
+    test_property_files,
 )
 from generate_properties import load_parameter_units
 from module_modes import STANDALONE_FALLBACK_MODES, mode_list_errors
@@ -199,8 +205,9 @@ def load_property_metadata() -> Dict[str, Dict[str, Any]]:
     """
     properties = {}
 
-    # Load galaxy properties
-    for path in model_property_files():
+    # Load galaxy properties (test_property_files() adds fixture-owned properties for test
+    # builds; it is empty for production builds)
+    for path in model_property_files() + test_property_files():
         try:
             with open(path, "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f)

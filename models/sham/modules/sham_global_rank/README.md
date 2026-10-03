@@ -6,7 +6,7 @@ Whole-snapshot rank abundance matching: at every snapshot it ranks every galaxy 
 
 - Supported mode: `process_snapshot` only, configured exactly once under `modules.post_snapshot`. That phase runs only under the horizontal driver, once per snapshot after every FoF group is processed and before the snapshot is published for inheritance or written.
 - Receives the borrowed current-generation population (Types 0/1/2 of every FoF group). Every entry must have a non-NULL galaxy and a positive `UniqueGalaxyID` unique within the snapshot. A violation fails the snapshot (and the run); entries are never dropped and IDs are never invented.
-- The population is never reordered: ranking sorts module-owned scratch (one 24-byte record per entry, tracked under `MEM_UTILITY`), which is released before the callback returns. Scratch scales with the current population, not with the number of snapshots. An empty snapshot allocates nothing.
+- The population is never reordered: ranking sorts module-owned scratch (one 32-byte record per entry, tracked under `MEM_UTILITY`), which is released before the callback returns. The record carries the validated updated peaks and the ranked mass, so the write phase stores exactly what was validated. Scratch scales with the current population, not with the number of snapshots. An empty snapshot allocates nothing.
 - All validation runs before any write, so a failed snapshot leaves its galaxies untouched.
 
 ## Ordering
@@ -24,6 +24,8 @@ Whole-snapshot rank abundance matching: at every snapshot it ranks every galaxy 
 - **Target.** `n(>M) = n0 (M / M0)^(-alpha)` evaluated at the rank density `n = (r + 0.5) / BoxSize^3`, so `ln M_r = ln M0 - [ln(r + 0.5) - 3 ln BoxSize - ln n0] / alpha`. It is evaluated in double logarithms only: the rank density, the volume and their ratio to `n0` are never formed, because they overflow or underflow for admitted parameters whose mass is representable. There is no table, extrapolation, or normalisation to the candidate count.
 - **Range.** A rank with `ln M_r > ln(100000)` (decided on the computed double, before exponentiation) fails the snapshot; so does a float mass that is not finite, rounds to zero, or exceeds `100000`. Nothing is clipped; a mass that rounds to a positive float subnormal is stored as that subnormal. The diagnostic names the rank, `UniqueGalaxyID`, `ln M_r` and the four parameters.
 - **Writes.** Every entry has `StellarMass`, `ShamStellarMassNoScatter`, `ShamScatterDex`, `BulgeMass`, `MetalsStellarMass`, `MetalsBulgeMass` and `StarFormationRate` reset to zero; ranked entries then receive the float `M_r` in `StellarMass` and `ShamStellarMassNoScatter`. `ShamOrphanAge`, `Type` and every halo field are left unchanged: the module neither ages nor removes orphans.
+
+**Practical limits.** With `alpha` near its lower bound of 0.1, `M_r` falls as `(r + 0.5)^-10`, so a population of roughly 10^4 or more ranks rounds to a float zero and the run aborts by design (the module fails rather than clips). Raise `alpha`, or reduce `n0 * BoxSize^3` relative to the population, to keep every rank representable.
 
 The upper-bound decision follows the double computation, including its platform roundoff, and does not promise an exact-real classification arbitrarily close to the boundary. The exact endpoint (`M0 = 100000`, `n0 * BoxSize^3 = 0.5`, `alpha = 1`, rank 0) is accepted and stores exactly `100000.0f`.
 

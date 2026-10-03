@@ -81,6 +81,7 @@ galaxy_properties:
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
+    # Tracks the catalogue Mvir range: the peak ratchets up from Mvir, so it cannot exceed it.
     range: [0.0, 1000000.0]
     sentinels: [0.0]
 
@@ -92,6 +93,7 @@ galaxy_properties:
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
+    # Tracks the catalogue Vmax range: the peak ratchets up from Vmax, so it cannot exceed it.
     range: [0.0, 5000.0]
     sentinels: [0.0]
 

@@ -1030,6 +1030,7 @@ def generate_module_sources_list(
 
     # Module source files for unit testing, one per line
     lines.append("src/core/module_registry.c")
+    lines.append("src/core/processing_modes.c")
     for module in runtime_modules:
         module_dir = module.get("_module_dir")
         if module_dir:

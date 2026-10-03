@@ -13,11 +13,14 @@
  * - FoF phases reject a snapshot-family mode, so a snapshot callback is never
  *   skipped silently or a NULL FoF callback dereferenced
  * - The post_snapshot phase: lifecycle collection, phase visiting order and
- *   cleanup; startup validation of its entries; execute_post_snapshot() calling
- *   each entry once in YAML order with the caller's population (count zero with a
- *   non-NULL buffer included), writes visible to the next entry, the event guard,
- *   fatal callback failure, and a real marshalled buffer that never contains a
- *   Type 3 entry
+ *   cleanup; startup validation of its entries (and of process_snapshot in the
+ *   fixed FoF phases) before any init(), with the diagnostic naming phase and
+ *   module; execute_post_snapshot() calling each entry once in YAML order (also
+ *   when a FoF placement makes pipeline order differ) with the caller's
+ *   population (count zero with a non-NULL buffer included), writes visible to
+ *   the next entry, the event guard, fatal callback failure, its own fatal
+ *   argument and state guards, and a real marshalled buffer that never contains
+ *   a Type 3 entry
  *
  * Registration aborts through FATAL_ERROR and the registry has no unregister, so
  * each hand-built registration case runs in a forked child (child_capture.h).
@@ -118,70 +121,103 @@ static const enum ProcessingMode fof_only_modes[] = {PROCESSING_MODE_BY_GALAXY,
 static const enum ProcessingMode dual_modes[] = {PROCESSING_MODE_FULL_HALO,
                                                  PROCESSING_MODE_SNAPSHOT};
 static const enum ProcessingMode count_mode[] = {PROCESSING_MODE_COUNT};
+static const enum ProcessingMode unknown_mode[] = {(enum ProcessingMode)99};
+
+/** Lifecycle of the snapshot-only fixture, shared by most registration cases */
+#define SNAPSHOT_LIFECYCLE                                                                         \
+  .init = test_snapshot_fixture_init, .cleanup = test_snapshot_fixture_cleanup
+
+/** Lifecycle of the dual-mode test_fixture */
+#define FIXTURE_LIFECYCLE .init = test_fixture_init, .cleanup = test_fixture_cleanup
 
 /**
- * @brief   Construct the Module for a named registration case
+ * @brief   Every hand-built registration case, by name
  *
- * Accepted cases bind the fixtures' real callbacks; rejected cases differ from
- * an accepted one by exactly the defect named in the case.
+ * Accepted cases bind the fixtures' real callbacks; each rejected case differs
+ * from an accepted one by exactly the defect its name states.
+ */
+static const struct Module registration_cases[] = {
+    {.name = "snapshot_only",
+     SNAPSHOT_LIFECYCLE,
+     .process_snapshot = test_snapshot_fixture_process_snapshot,
+     .supported_processing_modes = snapshot_only_modes,
+     .num_supported_modes = 1},
+    {.name = "snapshot_missing_callback",
+     SNAPSHOT_LIFECYCLE,
+     .supported_processing_modes = snapshot_only_modes,
+     .num_supported_modes = 1},
+    {.name = "fof_only",
+     FIXTURE_LIFECYCLE,
+     .process = test_fixture_process,
+     .supported_processing_modes = fof_only_modes,
+     .num_supported_modes = 2},
+    {.name = "fof_missing_callback",
+     FIXTURE_LIFECYCLE,
+     .supported_processing_modes = fof_only_modes,
+     .num_supported_modes = 2},
+    {.name = "dual",
+     FIXTURE_LIFECYCLE,
+     .process = test_fixture_process,
+     .process_snapshot = test_fixture_process_snapshot,
+     .supported_processing_modes = dual_modes,
+     .num_supported_modes = 2},
+    {.name = "dual_missing_fof",
+     FIXTURE_LIFECYCLE,
+     .process_snapshot = test_fixture_process_snapshot,
+     .supported_processing_modes = dual_modes,
+     .num_supported_modes = 2},
+    {.name = "dual_missing_snapshot",
+     FIXTURE_LIFECYCLE,
+     .process = test_fixture_process,
+     .supported_processing_modes = dual_modes,
+     .num_supported_modes = 2},
+    {.name = "empty_modes",
+     SNAPSHOT_LIFECYCLE,
+     .process_snapshot = test_snapshot_fixture_process_snapshot,
+     .supported_processing_modes = snapshot_only_modes,
+     .num_supported_modes = 0},
+    {.name = "null_modes",
+     SNAPSHOT_LIFECYCLE,
+     .process_snapshot = test_snapshot_fixture_process_snapshot,
+     .supported_processing_modes = NULL,
+     .num_supported_modes = 1},
+    {.name = "unknown_mode_value",
+     SNAPSHOT_LIFECYCLE,
+     .process = test_fixture_process,
+     .process_snapshot = test_snapshot_fixture_process_snapshot,
+     .supported_processing_modes = unknown_mode,
+     .num_supported_modes = 1},
+    {.name = "count_mode_value",
+     SNAPSHOT_LIFECYCLE,
+     .process = test_fixture_process,
+     .process_snapshot = test_snapshot_fixture_process_snapshot,
+     .supported_processing_modes = count_mode,
+     .num_supported_modes = 1},
+    {.name = "missing_init",
+     .init = NULL,
+     .cleanup = test_snapshot_fixture_cleanup,
+     .process_snapshot = test_snapshot_fixture_process_snapshot,
+     .supported_processing_modes = snapshot_only_modes,
+     .num_supported_modes = 1},
+};
+
+#undef SNAPSHOT_LIFECYCLE
+#undef FIXTURE_LIFECYCLE
+
+/**
+ * @brief   Look up the Module for a named registration case
+ *
+ * Runs only in a forked child; an unknown name exits the child non-zero so a
+ * mistyped case can never pass as an accepted registration.
  */
 static struct Module make_case_module(const char *which) {
-  static enum ProcessingMode unknown_mode[1];
-  struct Module mod = {.name = which,
-                       .init = test_snapshot_fixture_init,
-                       .process = NULL,
-                       .process_snapshot = NULL,
-                       .cleanup = test_snapshot_fixture_cleanup,
-                       .supported_processing_modes = NULL,
-                       .num_supported_modes = 0};
-
-  if (strcmp(which, "snapshot_only") == 0 || strcmp(which, "snapshot_missing_callback") == 0) {
-    mod.supported_processing_modes = snapshot_only_modes;
-    mod.num_supported_modes = 1;
-    if (strcmp(which, "snapshot_only") == 0) {
-      mod.process_snapshot = test_snapshot_fixture_process_snapshot;
+  for (size_t i = 0; i < sizeof(registration_cases) / sizeof(registration_cases[0]); i++) {
+    if (strcmp(registration_cases[i].name, which) == 0) {
+      return registration_cases[i];
     }
-  } else if (strcmp(which, "fof_only") == 0 || strcmp(which, "fof_missing_callback") == 0) {
-    mod.init = test_fixture_init;
-    mod.cleanup = test_fixture_cleanup;
-    mod.supported_processing_modes = fof_only_modes;
-    mod.num_supported_modes = 2;
-    if (strcmp(which, "fof_only") == 0) {
-      mod.process = test_fixture_process;
-    }
-  } else if (strncmp(which, "dual", 4) == 0) {
-    mod.init = test_fixture_init;
-    mod.cleanup = test_fixture_cleanup;
-    mod.supported_processing_modes = dual_modes;
-    mod.num_supported_modes = 2;
-    mod.process = (strcmp(which, "dual_missing_fof") == 0) ? NULL : test_fixture_process;
-    mod.process_snapshot =
-        (strcmp(which, "dual_missing_snapshot") == 0) ? NULL : test_fixture_process_snapshot;
-  } else if (strcmp(which, "empty_modes") == 0) {
-    mod.process_snapshot = test_snapshot_fixture_process_snapshot;
-    mod.supported_processing_modes = snapshot_only_modes;
-    mod.num_supported_modes = 0;
-  } else if (strcmp(which, "null_modes") == 0) {
-    mod.process_snapshot = test_snapshot_fixture_process_snapshot;
-    mod.num_supported_modes = 1;
-  } else if (strcmp(which, "unknown_mode_value") == 0) {
-    unknown_mode[0] = (enum ProcessingMode)99;
-    mod.process = test_fixture_process;
-    mod.process_snapshot = test_snapshot_fixture_process_snapshot;
-    mod.supported_processing_modes = unknown_mode;
-    mod.num_supported_modes = 1;
-  } else if (strcmp(which, "count_mode_value") == 0) {
-    mod.process = test_fixture_process;
-    mod.process_snapshot = test_snapshot_fixture_process_snapshot;
-    mod.supported_processing_modes = count_mode;
-    mod.num_supported_modes = 1;
-  } else if (strcmp(which, "missing_init") == 0) {
-    mod.init = NULL;
-    mod.process_snapshot = test_snapshot_fixture_process_snapshot;
-    mod.supported_processing_modes = snapshot_only_modes;
-    mod.num_supported_modes = 1;
   }
-  return mod;
+  fprintf(stderr, "no registration case named '%s'\n", which);
+  exit(3);
 }
 
 /**
@@ -399,24 +435,15 @@ int test_generated_fixtures_register(void) {
   return TEST_PASS;
 }
 
-/** @brief Configure post_snapshot as the given module list (all process_snapshot) and init */
-static int init_post_snapshot_phase(const char *const *modules, int nmodules) {
-  reset_config();
-  init_memory_system(0);
-  ensure_modules_registered();
-  set_test_fixture_params(0.75);
-  MimicConfig.SubSteps = 1;
-  for (int i = 0; i < nmodules; i++) {
-    test_post_snapshot_add(modules[i], PROCESSING_MODE_SNAPSHOT);
-  }
-  return module_system_init();
-}
+/* Phase setup helpers, defined with the snapshot probe below. */
+static void prepare_phase_config(double dummy_param);
+static int init_probe_phase(const char *const *modules, int nmodules);
 
 /** @brief Child body: dispatch the snapshot fixture with a NULL galaxy pointer */
 static void snapshot_fixture_null_galaxy_body(const char *unused) {
   (void)unused;
   static const char *const modules[] = {"test_snapshot_fixture"};
-  if (init_post_snapshot_phase(modules, 1) != 0) {
+  if (init_probe_phase(modules, 1) != 0) {
     exit(2);
   }
   static struct Halo halos[POPULATION_SIZE];
@@ -455,7 +482,7 @@ int test_snapshot_fixture_callback_contract(void) {
   TEST_ASSERT_EQUAL(test_snapshot_fixture_cleanup(), 0, "snapshot fixture cleanup succeeds");
 
   /* ===== EXECUTE / VALIDATE: through execute_post_snapshot() ===== */
-  TEST_ASSERT_EQUAL(init_post_snapshot_phase(modules, 1), 0, "snapshot-only phase initialises");
+  TEST_ASSERT_EQUAL(init_probe_phase(modules, 1), 0, "snapshot-only phase initialises");
   execute_post_snapshot(&ctx, NULL, 0);
   execute_post_snapshot(&ctx, halos, 0);
   TEST_ASSERT(galaxies[0].TestDummyProperty == 0.0f, "count zero writes nothing");
@@ -485,13 +512,9 @@ int test_snapshot_fixture_callback_contract(void) {
  */
 int test_dual_fixture_snapshot_callback(void) {
   /* ===== SETUP ===== */
-  reset_config();
-  init_memory_system(0);
-  ensure_modules_registered();
-  set_test_fixture_params(0.75);
+  prepare_phase_config(0.75);
   test_pre_timestep_add("test_fixture", PROCESSING_MODE_FULL_HALO);
   test_phase_add("galaxy_physics", "test_fixture", PROCESSING_MODE_BY_GALAXY);
-  MimicConfig.SubSteps = 1;
 
   struct Halo halos[POPULATION_SIZE];
   struct GalaxyData galaxies[POPULATION_SIZE];
@@ -542,12 +565,8 @@ int test_fof_phase_rejects_snapshot_family(void) {
 
   for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
     /* ===== SETUP ===== */
-    reset_config();
-    init_memory_system(0);
-    ensure_modules_registered();
-    set_test_fixture_params(0.5);
+    prepare_phase_config(0.5);
     test_phase_add("galaxy_physics", cases[i].module, cases[i].mode);
-    MimicConfig.SubSteps = 1;
 
     /* ===== EXECUTE / VALIDATE ===== */
     TEST_ASSERT_EQUAL(module_system_init(), -1, "FoF phase rejects an unsupported family/mode");
@@ -584,6 +603,7 @@ static int probe_ncalls = 0;
 static int probe_sequence = 0;
 static int probe_return_code = 0;
 static int probe_init_calls = 0;
+static int probe_reenter = 0; /**< Non-zero: the callback re-enters execute_post_snapshot() */
 
 static void reset_probe(void) {
   memset(probe_calls, 0, sizeof(probe_calls));
@@ -591,6 +611,7 @@ static void reset_probe(void) {
   probe_sequence = 0;
   probe_return_code = 0;
   probe_init_calls = 0;
+  probe_reenter = 0;
 }
 
 static int probe_init(void) {
@@ -605,6 +626,9 @@ static int probe_cleanup(void) { return 0; }
  */
 static int probe_process_snapshot(const struct SnapshotContext *ctx, const struct Halo *halos,
                                   int64_t count) {
+  if (probe_reenter) {
+    execute_post_snapshot(ctx, halos, count); /* must be fatal: dispatch is already active */
+  }
   if (probe_ncalls < PROBE_MAX_CALLS) {
     struct ProbeCall *call = &probe_calls[probe_ncalls];
     call->sequence = ++probe_sequence;
@@ -650,14 +674,24 @@ static void ensure_probe_registered(void) {
   }
 }
 
-/** @brief Configure post_snapshot from a module list, register the probe, and init */
-static int init_probe_phase(const char *const *modules, int nmodules) {
+/**
+ * @brief   Start a fresh configuration: register the generated modules and the
+ *          probe, reset the probe record, and set the fixture parameters
+ *
+ * @param   dummy_param  Value test_fixture writes (TestFixtureDummyParameter)
+ */
+static void prepare_phase_config(double dummy_param) {
   reset_config();
   init_memory_system(0);
   ensure_probe_registered();
   reset_probe();
-  set_test_fixture_params(0.75);
+  set_test_fixture_params(dummy_param);
   MimicConfig.SubSteps = 1;
+}
+
+/** @brief Configure post_snapshot from a module list (all process_snapshot) and init */
+static int init_probe_phase(const char *const *modules, int nmodules) {
+  prepare_phase_config(0.75);
   for (int i = 0; i < nmodules; i++) {
     test_post_snapshot_add(modules[i], PROCESSING_MODE_SNAPSHOT);
   }
@@ -820,6 +854,124 @@ int test_post_snapshot_callback_failure_is_fatal(void) {
 }
 
 /**
+ * @brief   Child body: call execute_post_snapshot() in the named invalid way
+ *
+ * Every case must abort inside execute_post_snapshot(); reaching the final
+ * message means a guard let the call through.
+ */
+static void dispatch_guard_body(const char *which) {
+  static struct Halo halos[POPULATION_SIZE];
+  static struct GalaxyData galaxies[POPULATION_SIZE];
+  static const char *const probe_only[] = {"snapshot_probe"};
+  struct SnapshotContext ctx = make_snapshot_context();
+  prepare_phase_config(0.75);
+  build_population(halos, galaxies, POPULATION_SIZE);
+
+  if (strcmp(which, "null_ctx") == 0) {
+    execute_post_snapshot(NULL, halos, POPULATION_SIZE);
+  } else if (strcmp(which, "null_params") == 0) {
+    ctx.params = NULL;
+    execute_post_snapshot(&ctx, halos, POPULATION_SIZE);
+  } else if (strcmp(which, "negative_count") == 0) {
+    execute_post_snapshot(&ctx, halos, -1);
+  } else if (strcmp(which, "null_halos") == 0) {
+    execute_post_snapshot(&ctx, NULL, POPULATION_SIZE);
+  } else if (strcmp(which, "nested_dispatch") == 0) {
+    if (init_probe_phase(probe_only, 1) != 0) {
+      exit(2);
+    }
+    probe_reenter = 1;
+    execute_post_snapshot(&ctx, halos, POPULATION_SIZE);
+  } else if (strcmp(which, "unresolved_entry") == 0) {
+    /* Configured but never passed through module_system_init(): resolved stays NULL. */
+    test_post_snapshot_add("test_snapshot_fixture", PROCESSING_MODE_SNAPSHOT);
+    execute_post_snapshot(&ctx, halos, POPULATION_SIZE);
+  }
+  fprintf(stderr, "execute_post_snapshot returned for case %s\n", which);
+}
+
+/**
+ * @test    test_post_snapshot_dispatch_guards_are_fatal
+ * @brief   execute_post_snapshot() aborts on a missing context or parameters, an
+ *          invalid population, a nested dispatch and an unresolved entry
+ */
+int test_post_snapshot_dispatch_guards_are_fatal(void) {
+  struct {
+    const char *which;
+    const char *needle_a;
+    const char *needle_b;
+  } cases[] = {
+      {"null_ctx", "execute_post_snapshot called without a snapshot context", NULL},
+      {"null_params", "execute_post_snapshot called without a snapshot context", NULL},
+      {"negative_count", "invalid population at snapshot 5", "count=-1"},
+      {"null_halos", "invalid population at snapshot 5", "count=3"},
+      {"nested_dispatch", "called at snapshot 5 while another phase dispatch is active", NULL},
+      {"unresolved_entry",
+       "Module 'test_snapshot_fixture' in phase 'post_snapshot' was not resolved",
+       "module_system_init() must run before execute_post_snapshot()"},
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+    int ok =
+        expect_fatal(cases[i].which, dispatch_guard_body, cases[i].needle_a, cases[i].needle_b);
+    if (ok != 1) {
+      fprintf(stderr, "  guard case: %s\n", cases[i].which);
+    }
+    TEST_ASSERT_EQUAL(ok, 1, "an invalid execute_post_snapshot() call is fatal with its reason");
+  }
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_post_snapshot_runs_in_yaml_order_not_pipeline_order
+ * @brief   With test_fixture configured in a FoF phase and again second in
+ *          post_snapshot, the snapshot phase runs its own YAML order
+ *
+ * The pipeline lists test_fixture first (its FoF phase is visited before
+ * post_snapshot), so in the first case pipeline order would run test_fixture
+ * before test_snapshot_fixture and leave SNAPSHOT_FIXTURE_VALUE behind; YAML
+ * order runs test_fixture last and leaves its parameter value. The reversed
+ * list is the control: same pipeline, opposite surviving value.
+ */
+int test_post_snapshot_runs_in_yaml_order_not_pipeline_order(void) {
+  struct {
+    const char *first;
+    const char *second;
+    float survivor; /* value the second (last) entry writes */
+  } cases[] = {
+      {"test_snapshot_fixture", "test_fixture", 0.75f},
+      {"test_fixture", "test_snapshot_fixture", SNAPSHOT_FIXTURE_VALUE},
+  };
+  struct Halo halos[POPULATION_SIZE];
+  struct GalaxyData galaxies[POPULATION_SIZE];
+  struct SnapshotContext ctx = make_snapshot_context();
+
+  for (size_t c = 0; c < sizeof(cases) / sizeof(cases[0]); c++) {
+    /* ===== SETUP ===== */
+    prepare_phase_config(0.75);
+    test_phase_add("galaxy_physics", "test_fixture", PROCESSING_MODE_BY_GALAXY);
+    test_post_snapshot_add(cases[c].first, PROCESSING_MODE_SNAPSHOT);
+    test_post_snapshot_add(cases[c].second, PROCESSING_MODE_SNAPSHOT);
+    TEST_ASSERT_EQUAL(module_system_init(), 0, "FoF and snapshot phases initialise together");
+    TEST_ASSERT_EQUAL(module_system_pipeline_count(), 2, "each module joins the pipeline once");
+
+    /* ===== EXECUTE ===== */
+    build_population(halos, galaxies, POPULATION_SIZE);
+    execute_post_snapshot(&ctx, halos, POPULATION_SIZE);
+
+    /* ===== VALIDATE ===== */
+    for (int i = 0; i < POPULATION_SIZE; i++) {
+      TEST_ASSERT(galaxies[i].TestDummyProperty == cases[c].survivor,
+                  "the entry listed last in post_snapshot runs last");
+    }
+
+    /* ===== CLEANUP ===== */
+    TEST_ASSERT_EQUAL(module_system_cleanup(), 0, "cleanup succeeds");
+  }
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
+/**
  * @test    test_post_snapshot_lifecycle
  * @brief   Snapshot-only and dual-mode modules join the pipeline once, appear in
  *          dependency queries and provenance order, and are cleaned up with the
@@ -827,11 +979,7 @@ int test_post_snapshot_callback_failure_is_fatal(void) {
  */
 int test_post_snapshot_lifecycle(void) {
   /* ===== SETUP ===== */
-  reset_config();
-  init_memory_system(0);
-  ensure_probe_registered();
-  set_test_fixture_params(0.75);
-  MimicConfig.SubSteps = 1;
+  prepare_phase_config(0.75);
   test_phase_add("galaxy_physics", "test_fixture", PROCESSING_MODE_BY_GALAXY);
   test_post_snapshot_add("test_snapshot_fixture", PROCESSING_MODE_SNAPSHOT);
   test_post_snapshot_add("test_fixture", PROCESSING_MODE_SNAPSHOT);
@@ -880,64 +1028,96 @@ static void unknown_module_body(const char *unused) {
   init_probe_phase(modules, 1);
 }
 
+/** One illegal configuration: the bad entry, where it goes, and what startup must say */
+struct ValidationCase {
+  const char *what;         /**< Description printed if the case is accepted */
+  const char *phase;        /**< pre_timestep, post_timestep or post_snapshot */
+  const char *module;       /**< Module of the bad entry */
+  enum ProcessingMode mode; /**< Mode of the bad entry */
+  const char *reason;       /**< Diagnostic text following "Module '<module>' " */
+};
+
+/** The case validation_case_body() runs; set by the parent before each fork */
+static const struct ValidationCase *current_validation_case = NULL;
+
+/**
+ * @brief   Child body: configure the snapshot probe as a valid first
+ *          post_snapshot entry plus one bad entry, and run startup validation
+ *
+ * Exits 1 only when module_system_init() rejected the configuration before
+ * calling any init() (the probe's own init() counts calls) and cleanup then
+ * released the configuration; any other outcome returns, so the child exits 0
+ * and expect_fatal() prints the reason and the captured diagnostics.
+ */
+static void validation_case_body(const char *unused) {
+  (void)unused;
+  const struct ValidationCase *c = current_validation_case;
+  prepare_phase_config(0.75);
+  test_post_snapshot_add("snapshot_probe", PROCESSING_MODE_SNAPSHOT);
+  if (strcmp(c->phase, POST_SNAPSHOT_PHASE_NAME) == 0) {
+    test_post_snapshot_add(c->module, c->mode);
+  } else if (strcmp(c->phase, "pre_timestep") == 0) {
+    test_pre_timestep_add(c->module, c->mode);
+  } else {
+    MimicConfig.post_timestep = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+    MimicConfig.post_timestep[0].module_name = strdup(c->module);
+    MimicConfig.post_timestep[0].processing_mode = c->mode;
+    MimicConfig.post_timestep[0].resolved = NULL;
+    MimicConfig.num_post_timestep = 1;
+  }
+
+  if (module_system_init() != -1) {
+    fprintf(stderr, "case accepted: %s\n", c->what);
+    return;
+  }
+  if (probe_init_calls != 0) {
+    fprintf(stderr, "case %s: a module init() ran before the rejection\n", c->what);
+    return;
+  }
+  module_system_cleanup();
+  if (MimicConfig.post_snapshot != NULL) {
+    fprintf(stderr, "case %s: configuration not released after rejection\n", c->what);
+    return;
+  }
+  exit(1);
+}
+
 /**
  * @test    test_post_snapshot_validation
- * @brief   Startup rejects every illegal post_snapshot entry before any init(),
- *          and process_snapshot in every FoF phase
+ * @brief   Startup rejects every illegal post_snapshot entry, and process_snapshot
+ *          in each fixed FoF phase, before any init(), naming phase and module
  */
 int test_post_snapshot_validation(void) {
-  struct {
-    const char *what;
-    const char *first;
-    enum ProcessingMode first_mode;
-    const char *second; /* NULL for one entry */
-  } cases[] = {
-      {"FoF mode in post_snapshot", "test_fixture", PROCESSING_MODE_FULL_HALO, NULL},
-      {"module without the snapshot mode", "test_event_producer", PROCESSING_MODE_SNAPSHOT, NULL},
-      {"duplicate entry", "snapshot_probe", PROCESSING_MODE_SNAPSHOT, "snapshot_probe"},
+  static const struct ValidationCase cases[] = {
+      {"FoF mode in post_snapshot", POST_SNAPSHOT_PHASE_NAME, "test_fixture",
+       PROCESSING_MODE_FULL_HALO, "is configured with processing mode 'process_full_halo'"},
+      {"module without the snapshot mode", POST_SNAPSHOT_PHASE_NAME, "test_event_producer",
+       PROCESSING_MODE_SNAPSHOT, "does not support processing mode 'process_snapshot'"},
+      {"duplicate entry", POST_SNAPSHOT_PHASE_NAME, "snapshot_probe", PROCESSING_MODE_SNAPSHOT,
+       "is listed more than once"},
+      {"process_snapshot in pre_timestep", "pre_timestep", "test_fixture", PROCESSING_MODE_SNAPSHOT,
+       "is configured with processing mode 'process_snapshot'"},
+      {"process_snapshot in post_timestep", "post_timestep", "test_fixture",
+       PROCESSING_MODE_SNAPSHOT, "is configured with processing mode 'process_snapshot'"},
   };
 
   for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
     /* ===== SETUP ===== */
-    reset_config();
-    init_memory_system(0);
-    ensure_probe_registered();
-    reset_probe();
-    set_test_fixture_params(0.75);
-    MimicConfig.SubSteps = 1;
-    test_post_snapshot_add(cases[i].first, cases[i].first_mode);
-    if (cases[i].second != NULL) {
-      test_post_snapshot_add(cases[i].second, PROCESSING_MODE_SNAPSHOT);
-    }
+    char phase_needle[128];
+    char module_needle[192];
+    snprintf(phase_needle, sizeof(phase_needle), "Configuration error in phase '%s'",
+             cases[i].phase);
+    snprintf(module_needle, sizeof(module_needle), "Module '%s' %s", cases[i].module,
+             cases[i].reason);
+    current_validation_case = &cases[i];
 
     /* ===== EXECUTE / VALIDATE ===== */
-    int result = module_system_init();
-    if (result != -1) {
-      fprintf(stderr, "  case accepted: %s\n", cases[i].what);
+    int ok = expect_fatal(cases[i].what, validation_case_body, phase_needle, module_needle);
+    if (ok != 1) {
+      fprintf(stderr, "  rejected case: %s\n", cases[i].what);
     }
-    TEST_ASSERT_EQUAL(result, -1, "an illegal post_snapshot entry is rejected");
-    TEST_ASSERT_EQUAL(probe_init_calls, 0, "rejection happens before any module init()");
-    module_system_cleanup();
-    TEST_ASSERT(MimicConfig.post_snapshot == NULL, "configuration released after rejection");
-  }
-
-  /* process_snapshot is illegal in each fixed FoF phase */
-  for (int phase = 0; phase < 2; phase++) {
-    reset_config();
-    init_memory_system(0);
-    set_test_fixture_params(0.75);
-    MimicConfig.SubSteps = 1;
-    if (phase == 0) {
-      test_pre_timestep_add("test_fixture", PROCESSING_MODE_SNAPSHOT);
-    } else {
-      MimicConfig.post_timestep = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-      MimicConfig.post_timestep[0].module_name = strdup("test_fixture");
-      MimicConfig.post_timestep[0].processing_mode = PROCESSING_MODE_SNAPSHOT;
-      MimicConfig.num_post_timestep = 1;
-    }
-    TEST_ASSERT_EQUAL(module_system_init(), -1,
-                      "process_snapshot is rejected in pre_timestep and post_timestep");
-    module_system_cleanup();
+    TEST_ASSERT_EQUAL(ok, 1,
+                      "an illegal entry is rejected before any init(), naming phase and module");
   }
 
   int ok = expect_fatal("unknown_module", unknown_module_body,
@@ -1026,6 +1206,8 @@ int main(void) {
   TEST_RUN(test_post_snapshot_zero_count_is_a_real_call);
   TEST_RUN(test_post_snapshot_rejects_event_emission);
   TEST_RUN(test_post_snapshot_callback_failure_is_fatal);
+  TEST_RUN(test_post_snapshot_dispatch_guards_are_fatal);
+  TEST_RUN(test_post_snapshot_runs_in_yaml_order_not_pipeline_order);
   TEST_RUN(test_post_snapshot_lifecycle);
   TEST_RUN(test_post_snapshot_validation);
   TEST_RUN(test_post_snapshot_population_excludes_type3);

@@ -75,7 +75,7 @@
  * @brief   Processing modes for module execution
  *
  * Each mode belongs to exactly one callback family (enum ModuleCallbackFamily);
- * module_registry.c owns the one table mapping modes to their configuration
+ * processing_modes.c owns the one table mapping modes to their configuration
  * names and families, and scripts/module_modes.py mirrors it for the metadata
  * generator and validator.
  *

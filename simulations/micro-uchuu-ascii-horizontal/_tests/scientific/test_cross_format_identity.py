@@ -36,8 +36,9 @@ rules are specific to this package:
 Stage 8, vertical-path preservation, is this file's own: the same vertical run
 built from the BASELINE_COMMIT reference commit, whose galaxy records must be
 byte-identical to HEAD's and whose HDF5 metadata must differ in exactly the
-permitted deltas (empty at the current anchor) beyond five provenance
-attributes that carry no scientific content.
+permitted deltas (empty at the current anchor) beyond six provenance
+attributes that carry no scientific content (the build-provenance strings under
+``/RunProperties/Version`` and the run end time).
 
 Worktrees and scratch outputs are removed on every exit path.
 """
@@ -109,7 +110,15 @@ BASELINE_COMMIT = "aedded2f"
 #: silently dropped -- but excused only where they belong: the same name
 #: appearing anywhere else is a real difference, and excusing it by name alone
 #: would let a genuine metadata change hide behind a provenance label.
+#:
+#: ``version`` is the ``git describe`` release string. A BASELINE_COMMIT that
+#: predates its introduction (commit 99ee3055, src/io/output/metadata_hdf5.c)
+#: lacks the attribute entirely, so it appears as "added" rather than as a
+#: changed value; classify() keys on the attribute name and path alone, so an
+#: attribute that is added, removed or changed at a provenance path is excluded
+#: the same way.
 PROVENANCE_ATTR_PATHS = {
+    "version": ("/RunProperties/Version",),
     "git_commit": ("/RunProperties/Version",),
     "git_branch": ("/RunProperties/Version",),
     "git_date": ("/RunProperties/Version",),

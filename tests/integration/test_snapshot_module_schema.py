@@ -142,7 +142,7 @@ def test_descriptors_mirror_c_mode_table():
     assert enumerators[-1] == "PROCESSING_MODE_COUNT", enumerators
     assert [m.enum for m in module_modes.PROCESSING_MODES] == enumerators[:-1], enumerators
 
-    registry = (REPO_ROOT / "src" / "core" / "module_registry.c").read_text(encoding="utf-8")
+    registry = (REPO_ROOT / "src" / "core" / "processing_modes.c").read_text(encoding="utf-8")
     rows = re.findall(
         r"\{(PROCESSING_MODE_[A-Z_]+), \"([a-z_]+)\", MODULE_CALLBACK_FAMILY_([A-Z]+)\}", registry
     )

@@ -110,7 +110,7 @@ void for_each_phase(PhaseVisitor visit, void *userdata);
  * PROCESSING MODE LOOKUP
  * ==============================================================================
  *
- * module_registry.c holds the single C table of processing modes: each entry
+ * processing_modes.c holds the single C table of processing modes: each entry
  * names a mode's configuration string and its callback family. Lookups fail
  * closed on any value outside that table rather than defaulting to a family.
  * processing_mode_to_string() (module_interface.h) uses the same table.

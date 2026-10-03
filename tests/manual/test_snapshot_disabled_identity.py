@@ -2,83 +2,38 @@
 """
 Disabled-mode identity of the snapshot-global feature against its pre-feature reference.
 
-Not an auto-discovered test: scripts/generate_test_registry.py globs only tests/unit,
-tests/integration and tests/scientific, so this file under tests/manual/ never enters
-``make tests``. Invoke it explicitly::
+A manual acceptance test (tests/manual/ is never globbed into ``make tests``)::
 
     make tests-snapshot-global-identity [REFERENCE_COMMIT=<hash>]
 
-It proves that the snapshot-global feature, with ``modules.post_snapshot`` absent or an
-explicit empty list, changes nothing a pre-feature build produces. Three builds' worth of
-evidence per leg, on the committed fixtures only:
+It proves that, with ``modules.post_snapshot`` absent or an explicit empty list, HEAD produces
+what the pinned pre-feature reference commit produces. Per leg, on committed fixtures only: a
+baseline run of the reference build, a feature-absent run of the HEAD build on the very same run
+file, and a feature-empty run with ``post_snapshot: []`` added under ``modules:``. The matrix is
+{halos-only, sage16} x {vertical mini-Millennium, version 2 horizontal, gapped version 3
+horizontal} x {fixed, dynamic}: twelve legs, each derived from the shipped
+``models/sage16/input/sage16_mini-millennium.yaml`` with only its selectors substituted.
 
-  baseline         the reference commit, run file WITHOUT ``modules.post_snapshot`` (the
-                   reference rejects that key as unknown)
-  feature-absent   HEAD, the very same run file
-  feature-empty    HEAD, the same run file plus ``post_snapshot: []`` under ``modules:``
+Each feature leg must match the baseline: per-ID byte identity of every Galaxies field (through
+the unchanged scripts/compare_cross_format_identity.py), the same files, HDF5 objects, master-file
+links and attributes, byte-equal datasets and ``metadata/output_schema.json``. The only permitted
+differences are named provenance (``RunProperties/Version`` build attributes, ``RunEndTime``,
+``metadata/version_info.json``, worktree or scratch path prefixes) and, in the feature-empty leg,
+the one added run-YAML line. A mutation self-check proves the comparator rejects each defect.
 
-Both feature legs are compared with the baseline output. The matrix is
-{halos-only, sage16} x {committed vertical mini-Millennium trees, committed version 2
-horizontal fixture, committed gapped version 3 horizontal fixture} x {fixed, dynamic}: twelve
-legs, each scheme against its own baseline. The SAGE pipeline and parameters are the
-shipped ``models/sage16/input/sage16_mini-millennium.yaml`` (metal enrichment included). The
-harness substitutes, and asserts it substituted, only: the model name, the simulation name and
-config, ``output.output_directory``, ``output.snapshot_list`` (``[]``, all snapshots), and the
-added ``MaxDynamicSubsteps`` and ``TimestepScheme`` keys; the ``modules`` mapping and every
-parameter stay identical to the shipped file. Halos-only replaces only its ``modules`` mapping
-with an empty pipeline.
+Build worktrees are cached by commit under ``output/snapshot-global-identity/worktrees/`` (the
+gates' scratch parent); runs, logs, mutations and ``evidence.json`` are archived under
+``archive/snapshot-global-identity/<stamp>/``. Nothing is ever removed by this test. The
+console output is also written to ``build/snapshot_global_identity.log``.
 
-Reference commit
-----------------
-``REFERENCE_COMMIT=<hash>`` or, without it, derived as the parent of the first commit,
-walking ``git log --first-parent --reverse`` from the commit that last changed the plan, that
-changes any path outside the planning surface (the plan, the development pathway, the two
-planning records and ``docs/dev/snapshot-global-checks/``). No hash is embedded. Either way the
-commit must be an ancestor of HEAD, contain no feature symbol under src/, scripts/ and
-models/, and contain every simulation package and run-file selector the legs use. An explicit
-value must equal the derived one or differ from it only in planning-surface paths.
-
-What is compared
-----------------
-For each feature leg against the baseline, by an independent comparator in this file (the
-existing cross-format comparator is neither modified nor weakened; no tolerance exists
-anywhere here):
-
-  * the same ID set and no duplicate ID at every output snapshot, and every Galaxies field
-    byte-identical per ID (raw bytes, so NaN payloads and signed zeros count);
-  * the same set of files, the same HDF5 objects, and the same attributes everywhere;
-  * byte-equal ``RunProperties/Parameters``, ``FieldMetadata``, ``EnabledModules``,
-    ``EventContracts`` and ``Redshifts`` datasets where present (field by field, so compound
-    padding is not compared) and, for every other dataset, the same bytes;
-  * a byte-identical ``metadata/output_schema.json``.
-
-The only permitted differences, each named in the evidence when it occurs, are the provenance
-records two builds and two runs necessarily differ in: the ``RunProperties/Version`` attributes
-``version``, ``git_commit``, ``git_branch``, ``git_date`` and ``build_date``; the
-``RunProperties`` attribute ``RunEndTime``; ``metadata/version_info.json``; path-valued string
-attributes and copied ``metadata/`` files whose content differs only by the reference-worktree
-or scratch-output path prefix; and, in the feature-empty leg only, the single added
-``post_snapshot: []`` line of the copied run YAML.
-
-Self-check
-----------
-``test_comparator_rejects_mutations`` copies real output and proves the comparator fails on a
-dropped or duplicated ID, a perturbed field, a galaxy in the wrong snapshot, payloads swapped
-between two IDs, a missing or extra dataset, altered datasets and attributes, and an altered
-output schema, while accepting the permitted differences.
-
-Scratch material (worktrees, run files, outputs, logs, evidence.json) lives under
-``archive/snapshot-global-identity/<stamp>/`` and is never deleted. Needs the local Python
-environment (h5py, numpy, PyYAML), git, make and a C compiler. ``--fixtures``, ``--models``
-and ``--schemes`` run a development subset; a subset run reports SKIP for the stages it cannot
-complete (the comparator self-check needs the sage16 v2 fixed leg, the verdicts need all twelve)
-and so cannot satisfy the target.
+Contract: Slice 4 of the snapshot-global modules implementation plan (docs/dev, at acceptance).
 """
 
 from __future__ import annotations
 
-import argparse
+import contextlib
 import datetime
+import io
 import json
 import os
 import re
@@ -88,6 +43,7 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 import h5py
 import numpy
@@ -98,40 +54,43 @@ REPO_ROOT = TESTS_DIR.parent
 sys.path.insert(0, str(TESTS_DIR))
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
+# The per-ID Galaxies comparison is the one cross-format implementation, imported unchanged.
 import compare_cross_format_identity as comparator  # noqa: E402
-from framework import TestSkipped, check_no_memory_leaks, run_test_suite  # noqa: E402
-from framework.parity_gate import ParityGate  # noqa: E402
-
-PLAN = "docs/dev/MIMIC-SNAPSHOT-GLOBAL-MODULES-PLAN.md"
-PLANNING_FILES = frozenset(
-    {
-        PLAN,
-        "docs/dev/MIMIC-DEVELOPMENT-PATHWAY.md",
-        "docs/dev/MIMIC-SNAPSHOT-GLOBAL-MODULES-PLAN-REVIEW.md",
-        "docs/dev/MIMIC-SNAPSHOT-GLOBAL-MODULES-PLAN-CHECKS.md",
-    }
+from framework import check_no_memory_leaks, run_test_suite  # noqa: E402
+from framework.parity_gate import (  # noqa: E402
+    ParityGate,
+    build_pair,
+    point_output_at,
+    run_logged,
 )
-PLANNING_DIRECTORY = "docs/dev/snapshot-global-checks/"
+
+#: The pre-feature reference: the last commit before the snapshot-global feature touched a
+#: runtime path. Re-anchor procedure: only when a validated, deliberate change to the shipped
+#: template or the fixtures makes the old reference unusable, pick the new commit, confirm it
+#: is an ancestor of HEAD that `git grep -E "$FEATURE_SYMBOLS" <commit> -- src scripts models`
+#: does not match, run this test with REFERENCE_COMMIT=<new> until it passes, then replace
+#: this full 40-character hash and record the move (old -> new, date, reason) here.
+REFERENCE_COMMIT_DEFAULT = "501bac12f654d9622b797bc9b26c536e5385aca2"
 
 FEATURE_PATHS = ("src", "scripts", "models")
+FEATURE_SYMBOLS = r"process_snapshot|PROCESSING_MODE_SNAPSHOT|SnapshotContext|post_snapshot"
 
 #: Everything a leg's worktree builds or reads, for the uncommitted-edit check.
 RUNTIME_PATHS = (*FEATURE_PATHS, "simulations", "Makefile")
-FEATURE_SYMBOLS = r"process_snapshot|PROCESSING_MODE_SNAPSHOT|SnapshotContext|post_snapshot"
 
 #: The shipped SAGE run file every leg derives from.
 TEMPLATE = "models/sage16/input/sage16_mini-millennium.yaml"
 
-#: Run-file name and output location shared by every run. The copied run YAML in
-#: ``metadata/`` takes its name from the run file, and the run file's relative
-#: output_directory is redirected per run through the worktree's ``output`` symlink, so the
-#: baseline and feature-absent copies are byte-identical.
+#: Run-file name and output location shared by every run, so the copied run YAML in
+#: ``metadata/`` of the baseline and feature-absent runs is byte-identical.
 RUN_FILE_NAME = "identity.yaml"
 OUTPUT_DIRECTORY = "output/identity"
 OUTPUT_BASENAME = "model"
+MASTER = f"{OUTPUT_BASENAME}.hdf5"
 
 MODELS = ("halos-only", "sage16")
 SCHEMES = ("fixed", "dynamic")
+TREES = ("reference", "feature")
 
 #: Datasets the contract names for byte equality, relative to ``RunProperties``.
 NAMED_DATASETS = ("Parameters", "FieldMetadata", "EnabledModules", "EventContracts", "Redshifts")
@@ -142,17 +101,26 @@ VERSION_ATTRIBUTES = ("version", "git_commit", "git_branch", "git_date", "build_
 #: ``RunProperties`` attribute that necessarily differs between two runs.
 RUN_END_TIME = "RunEndTime"
 
-#: Added to the copied run YAML by the feature-empty leg, and nothing else.
-EMPTY_LIST_LINE = "  post_snapshot: []"
+#: The modules line and the one line the feature-empty leg adds after it.
+MODULES_LINE = b"\nmodules:\n"
+EMPTY_LIST_LINE = b"  post_snapshot: []\n"
+EMPTY_LIST_LABEL = f"metadata/{RUN_FILE_NAME}: added 'post_snapshot: []' line"
 
 #: Errors kept per comparison in evidence.json and logged per failed leg; the count is exact.
 ERROR_CAP = 200
+
+#: Worktree registrations of this test above which a clean-up reminder is raised.
+REGISTRATION_WARNING = 50
 
 BUILD_TIMEOUT_S = 3600
 RUN_TIMEOUT_S = 3600
 GIT_TIMEOUT_S = 600
 
-TREES = ("reference", "feature")
+# Always under the repository's gitignored output/ (created if absent): the documented cache
+# location and clean-up procedure assume it, so no fallback to the system tmp directory.
+WORKTREE_ROOT = REPO_ROOT / "output" / "snapshot-global-identity" / "worktrees"
+ARCHIVE_ROOT = REPO_ROOT / "archive" / "snapshot-global-identity"
+LOG_PATH = REPO_ROOT / "build" / "snapshot_global_identity.log"
 
 STARTED = time.monotonic()
 
@@ -164,7 +132,7 @@ def log(message: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Fixtures and legs
+# Fixtures, git and the reference commit
 # ---------------------------------------------------------------------------
 
 
@@ -175,27 +143,19 @@ class Fixture:
     name: str
     simulation: str
     config: str
-    description: str
 
 
 FIXTURES = (
-    Fixture(
-        "default",
-        "mini-millennium",
-        "tests/data/test_simulation.yaml",
-        "committed mini-Millennium trees (L-Halo binary, vertical driver)",
-    ),
+    Fixture("default", "mini-millennium", "tests/data/test_simulation.yaml"),
     Fixture(
         "v2",
         "micro-uchuu-ascii-horizontal",
         "simulations/micro-uchuu-ascii-horizontal/_tests/input/test_simulation.yaml",
-        "committed version 2 generic fixture (horizontal driver, adjacent links)",
     ),
     Fixture(
         "v3-gapped",
         "mini-millennium-horizontal",
         "simulations/mini-millennium-horizontal/_tests/input/test_simulation.yaml",
-        "committed version 3 worked_graph fixture (horizontal driver, gapped links)",
     ),
 )
 
@@ -204,56 +164,13 @@ def leg_name(model: str, fixture: Fixture, scheme: str) -> str:
     return f"{model}__{fixture.name}__{scheme}".replace("-", "_")
 
 
-# ---------------------------------------------------------------------------
-# git helpers and reference-commit resolution
-# ---------------------------------------------------------------------------
-
-
 def git(*args: str, check: bool = True, cwd: Path = REPO_ROOT) -> subprocess.CompletedProcess:
     completed = subprocess.run(
-        ["git", *args],
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-        timeout=GIT_TIMEOUT_S,
+        ["git", *args], cwd=cwd, capture_output=True, text=True, timeout=GIT_TIMEOUT_S
     )
     if check and completed.returncode != 0:
         raise AssertionError(f"git {' '.join(args)} failed: {completed.stderr.strip()}")
     return completed
-
-
-def is_planning_path(path: str) -> bool:
-    return path in PLANNING_FILES or path.startswith(PLANNING_DIRECTORY)
-
-
-def non_planning_changes(older: str, newer: str) -> list[str]:
-    """Paths outside the planning surface that differ between two commits."""
-    changed = git("diff", "--name-only", older, newer).stdout.split()
-    return [path for path in changed if not is_planning_path(path)]
-
-
-def derive_reference_commit() -> str:
-    """The parent of the first post-plan commit that changes a non-planning path."""
-    plan_commit = git("log", "-1", "--format=%H", "--", PLAN).stdout.strip()
-    if not plan_commit:
-        raise AssertionError(f"{PLAN} has no commit to walk from")
-    walk = git("rev-list", "--first-parent", "--reverse", f"{plan_commit}^..HEAD").stdout.split()
-    for commit in walk:
-        parents = git("rev-list", "--parents", "-n", "1", commit).stdout.split()[1:]
-        if parents and non_planning_changes(parents[0], commit):
-            return parents[0]
-    raise AssertionError(
-        f"no commit after {plan_commit} changes a path outside the planning surface"
-    )
-
-
-@dataclass
-class Reference:
-    commit: str
-    derived: str
-    explicit: str | None
-    plan_commit: str
-    head: str
 
 
 def has_feature_symbols(commit: str) -> bool:
@@ -264,72 +181,103 @@ def has_feature_symbols(commit: str) -> bool:
     return completed.returncode == 0
 
 
-def required_paths() -> list[str]:
-    """Every path the legs select by name, which both trees must contain."""
-    paths = [TEMPLATE]
-    for model in MODELS:
-        paths.append(f"models/{model}/model_properties.yaml")
+def required_paths(commit: str) -> list[str]:
+    """Every path the legs select by name or through a fixture config, at ``commit``."""
+    paths = [TEMPLATE, *(f"models/{model}/model_properties.yaml" for model in MODELS)]
     for fixture in FIXTURES:
-        paths.append(f"simulations/{fixture.simulation}/simulation_info.yaml")
-        paths.append(fixture.config)
-    return paths
-
-
-def selector_paths(commit: str) -> list[str]:
-    """Input paths the fixtures' simulation configs name, which must exist at the commit."""
-    paths = []
-    for fixture in FIXTURES:
+        paths += [f"simulations/{fixture.simulation}/simulation_info.yaml", fixture.config]
         text = git("show", f"{commit}:{fixture.config}").stdout
         section = (yaml.safe_load(text) or {}).get("input") or {}
-        for key in ("simulation_dir", "snapshot_list_file"):
-            paths.append(os.path.normpath(section[key]))
+        paths += [
+            os.path.normpath(section[key]) for key in ("simulation_dir", "snapshot_list_file")
+        ]
     return paths
 
 
-def check_reference(commit: str, head: str) -> None:
-    """Raise unless the commit is a valid pre-feature reference for this run."""
-    if git("merge-base", "--is-ancestor", commit, head, check=False).returncode != 0:
-        raise AssertionError(f"reference {commit} is not an ancestor of HEAD {head}")
-    if has_feature_symbols(commit):
-        raise AssertionError(f"reference {commit} already contains a feature symbol")
-    for path in required_paths() + selector_paths(commit):
-        if git("cat-file", "-e", f"{commit}:{path}", check=False).returncode != 0:
-            raise AssertionError(f"reference {commit} lacks {path}, which the legs select")
-
-
-def resolve_reference(explicit: str | None) -> Reference:
-    head = git("rev-parse", "HEAD").stdout.strip()
-    plan_commit = git("log", "-1", "--format=%H", "--", PLAN).stdout.strip()
-    derived = derive_reference_commit()
-    chosen = derived
-    if explicit:
-        completed = git("rev-parse", "--verify", f"{explicit}^{{commit}}", check=False)
-        if completed.returncode != 0:
-            raise AssertionError(f"REFERENCE_COMMIT {explicit!r} is not a commit")
-        chosen = completed.stdout.strip()
-        if chosen != derived:
-            extra = non_planning_changes(chosen, derived)
-            if extra:
-                raise AssertionError(
-                    f"REFERENCE_COMMIT {chosen} differs from the derived reference {derived} "
-                    f"in non-planning paths: {extra[:10]}"
-                )
-    check_reference(chosen, head)
-    for path in required_paths() + selector_paths(head):
-        if git("cat-file", "-e", f"{head}:{path}", check=False).returncode != 0:
-            raise AssertionError(f"HEAD {head} lacks {path}, which the legs select")
-    return Reference(chosen, derived, explicit, plan_commit, head)
+def resolve_reference() -> tuple[str, str, str]:
+    """(reference, HEAD, source) after every check that protects the result."""
+    explicit = os.environ.get("REFERENCE_COMMIT") or None
+    value = explicit or REFERENCE_COMMIT_DEFAULT
+    completed = git("rev-parse", "--verify", f"{value}^{{commit}}", check=False)
+    if completed.returncode != 0:
+        raise AssertionError(f"reference {value!r} is not a commit in this repository")
+    reference, head = completed.stdout.strip(), git("rev-parse", "HEAD").stdout.strip()
+    if git("merge-base", "--is-ancestor", reference, head, check=False).returncode != 0:
+        raise AssertionError(f"reference {reference} is not an ancestor of HEAD {head}")
+    if has_feature_symbols(reference):
+        raise AssertionError(f"reference {reference} already contains a feature symbol")
+    if not has_feature_symbols(head):
+        raise AssertionError(f"HEAD {head} contains no feature symbol; it is not a feature tree")
+    for commit in (reference, head):
+        for path in required_paths(commit):
+            if git("cat-file", "-e", f"{commit}:{path}", check=False).returncode != 0:
+                raise AssertionError(f"{commit} lacks {path}, which the legs select")
+    return reference, head, "REFERENCE_COMMIT" if explicit else "pinned default"
 
 
 def runtime_tree_differences() -> list[str]:
-    """Uncommitted edits to anything the worktree builds and runs from.
+    """Uncommitted or untracked edits to anything the worktrees build and run from.
 
-    Covers src/, scripts/, models/ (module test envelopes excluded), simulations/ (fixtures
-    included) and the Makefile: the legs build HEAD in worktrees, so an uncommitted edit to
-    any of these would not be tested.
+    The legs build HEAD, so such an edit would not be tested. Module test envelopes are excluded.
     """
     changed = git("diff", "--name-only", "HEAD", "--", *RUNTIME_PATHS).stdout.split()
-    return [path for path in changed if not (path.startswith("models/") and "/_tests/" in path)]
+    untracked = git(
+        "ls-files", "--others", "--exclude-standard", "--", *RUNTIME_PATHS
+    ).stdout.split()
+    return [
+        path
+        for path in changed + untracked
+        if not (path.startswith("models/") and "/_tests/" in path)
+    ]
+
+
+def worktree_env(worktree: Path, model: str, simulation: str) -> dict:
+    """The gates' worktree environment, minus the caller's make state.
+
+    ``make TEST_BUILD=yes tests-snapshot-global-identity`` would otherwise reach both worktree
+    builds through MAKEFLAGS, and the evidence would describe a build other than the one claimed.
+    """
+    env = ParityGate.worktree_env(worktree, model, simulation)
+    for key in ("MAKEFLAGS", "MFLAGS", "MAKELEVEL"):
+        env.pop(key, None)
+    return env
+
+
+def cached_worktree(commit: str, model: str, simulation: str) -> Path:
+    """The worktree for one commit and pair, created only when missing and never removed."""
+    path = WORKTREE_ROOT / f"{commit[:12]}__{model}__{simulation}"
+    if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        git("worktree", "add", "--detach", str(path), commit)
+        ParityGate.link_machine_local(path)
+        log(f"  created worktree {path}")
+    else:
+        log(f"  reusing worktree {path}")
+    head = git("rev-parse", "HEAD", cwd=path, check=False)
+    dirty = git("diff", "--quiet", "HEAD", cwd=path, check=False).returncode
+    if head.returncode != 0 or head.stdout.strip() != commit or dirty != 0:
+        raise AssertionError(
+            f"FATAL: cached worktree {path} is not a clean checkout of {commit} "
+            f"(HEAD {head.stdout.strip() or 'unreadable'}, tracked edits: {dirty != 0}); it is not "
+            "reused. Move it to cold storage, run `git worktree prune`, and re-run."
+        )
+    return path
+
+
+def registration_warning() -> str | None:
+    """A clean-up reminder when this test's worktree registrations pile up."""
+    listing = git("worktree", "list", "--porcelain").stdout.splitlines()
+    count = sum(
+        1 for line in listing if line.startswith("worktree ") and "snapshot-global-identity" in line
+    )
+    log(f"  {count} snapshot-global-identity worktree registration(s)")
+    if count <= REGISTRATION_WARNING:
+        return None
+    return (
+        f"{count} snapshot-global-identity worktree registrations (more than "
+        f"{REGISTRATION_WARNING}): move old directories under {WORKTREE_ROOT} to cold storage, "
+        "then run `git worktree prune`"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -344,69 +292,52 @@ def substitute_once(text: str, pattern: str, replacement: str, what: str) -> str
     return result
 
 
+def with_empty_list(raw: bytes) -> bytes:
+    """``raw`` with ``post_snapshot: []`` added as the first key under ``modules:``."""
+    return raw.replace(MODULES_LINE, MODULES_LINE + EMPTY_LIST_LINE, 1)
+
+
 def run_file_text(template: str, model: str, fixture: Fixture, scheme: str) -> str:
     """The leg's run file: the shipped SAGE file with only its selectors changed.
 
-    The ``modules`` mapping and every parameter of the SAGE run are kept verbatim; halos-only
-    replaces the mapping with an empty pipeline. The result is parsed back and the claim
-    checked, so a template edit that defeats a substitution fails loudly.
+    The ``modules`` mapping and every parameter stay verbatim; halos-only replaces the mapping
+    with an empty pipeline.
     """
-    text = substitute_once(
-        template, r"^model:\n  name: sage16\n", f"model:\n  name: {model}\n", "model"
-    )
-    text = substitute_once(
-        text,
-        r"^simulation:\n  name: mini-millennium\n",
-        f"simulation:\n  name: {fixture.simulation}\n  config: {fixture.config}\n",
-        "simulation",
-    )
-    text = substitute_once(
-        text, r"^  output_directory: .*$", f"  output_directory: {OUTPUT_DIRECTORY}", "output"
-    )
-    text = substitute_once(text, r"^  snapshot_list: .*$", "  snapshot_list: []", "snapshots")
-    text = substitute_once(
-        text,
-        r"^SubSteps: 10\n",
-        f"SubSteps: 10\nMaxDynamicSubsteps: 200\nTimestepScheme: {scheme}\n",
-        "substeps",
-    )
+    text = template
+    for pattern, replacement, what in (
+        (r"^model:\n  name: sage16\n", f"model:\n  name: {model}\n", "model"),
+        (
+            r"^simulation:\n  name: mini-millennium\n",
+            f"simulation:\n  name: {fixture.simulation}\n  config: {fixture.config}\n",
+            "simulation",
+        ),
+        (r"^  output_directory: .*$", f"  output_directory: {OUTPUT_DIRECTORY}", "output"),
+        (r"^  snapshot_list: .*$", "  snapshot_list: []", "snapshots"),
+        (
+            r"^SubSteps: 10\n",
+            f"SubSteps: 10\nMaxDynamicSubsteps: 200\nTimestepScheme: {scheme}\n",
+            "substeps",
+        ),
+    ):
+        text = substitute_once(text, pattern, replacement, what)
+    if text.encode().count(MODULES_LINE) != 1:
+        raise AssertionError("shipped run file does not carry exactly one modules: line")
     if model == "halos-only":
-        start = text.index("\nmodules:\n")
-        text = text[: start + 1] + "modules:\n  phases: {}\n  parameters: {}\n"
+        text = text[: text.index("\nmodules:\n") + 1] + "modules:\n  phases: {}\n  parameters: {}\n"
+    return text
 
-    parsed, shipped = yaml.safe_load(text), yaml.safe_load(template)
-    assert parsed["model"] == {"name": model}
-    assert parsed["simulation"] == {"name": fixture.simulation, "config": fixture.config}
-    assert parsed["output"]["snapshot_list"] == []
-    assert parsed["TimestepScheme"] == scheme and parsed["SubSteps"] == 10
+
+def check_run_file(text: str, shipped: dict, model: str) -> None:
+    """Nothing but the selectors and the two scheme keys changed, and no post_snapshot key."""
+    parsed = yaml.safe_load(text)
     assert "post_snapshot" not in parsed["modules"], "the baseline run file must not carry the key"
     expected_keys = set(shipped) | {"MaxDynamicSubsteps", "TimestepScheme"}
-    assert set(parsed) == expected_keys, (
-        f"top-level keys {sorted(parsed)} are not the shipped file's plus the scheme keys "
-        f"{sorted(expected_keys)}; a key was dropped or added"
-    )
+    keys_message = f"top-level keys {sorted(parsed)} != {sorted(expected_keys)}"
+    assert set(parsed) == expected_keys, keys_message
     if model == "sage16":
         assert parsed["modules"] == shipped["modules"], "the SAGE modules mapping was altered"
     else:
         assert parsed["modules"] == {"phases": {}, "parameters": {}}
-    return text
-
-
-def empty_list_text(text: str) -> str:
-    """The run file with ``post_snapshot: []`` added as the first key under ``modules:``."""
-    marker = "\nmodules:\n"
-    if text.count(marker) != 1:
-        raise AssertionError("run file does not carry exactly one modules: line")
-    variant = text.replace(marker, f"{marker}{EMPTY_LIST_LINE}\n", 1)
-    assert yaml.safe_load(variant)["modules"]["post_snapshot"] == []
-    assert variant.splitlines() == sorted_insert(text.splitlines(), EMPTY_LIST_LINE)
-    return variant
-
-
-def sorted_insert(lines: list[str], added: str) -> list[str]:
-    """``lines`` with ``added`` placed straight after the modules: line."""
-    index = lines.index("modules:")
-    return lines[: index + 1] + [added] + lines[index + 1 :]
 
 
 # ---------------------------------------------------------------------------
@@ -438,10 +369,11 @@ class Report:
     permitted: list[str] = field(default_factory=list)
     datasets_compared: list[str] = field(default_factory=list)
     files: int = 0
+    links: int = 0
     snapshots: int = 0
     galaxies: int = 0
     fields: int = 0
-    id_mismatches: int = 0
+    galaxy_differences: int = 0
 
     def error(self, message: str) -> None:
         self.errors.append(message)
@@ -456,10 +388,11 @@ class Report:
             "permitted_differences": sorted(self.permitted),
             "named_datasets_compared": sorted(set(self.datasets_compared)),
             "files": self.files,
+            "master_links": self.links,
             "output_snapshots": self.snapshots,
             "galaxies": self.galaxies,
             "fields": self.fields,
-            "per_id_mismatches": self.id_mismatches,
+            "galaxy_differences": self.galaxy_differences,
         }
 
 
@@ -468,43 +401,39 @@ def relative_files(root: Path) -> list[str]:
 
 
 def attribute_signature(value, stored=None) -> tuple:
-    """(dtype, shape, bytes) of an attribute, with variable-length strings made canonical.
+    """(dtype, shape, bytes) of an attribute; strings carry their HDF5 encoding.
 
-    With ``stored`` (the attribute's HDF5 id) the dtype and shape are the stored ones, not those
-    of the value as numpy returns it: a scalar fixed-length string comes back sized to its
-    content, which would make two same-typed attributes look differently typed.
+    With ``stored`` (the attribute's HDF5 id) the dtype and shape are the stored ones: a scalar
+    fixed-length string otherwise comes back sized to its content.
     """
     array = numpy.asarray(value)
+    shape = tuple(stored.shape) if stored is not None else array.shape
+    info = h5py.check_string_dtype(stored.dtype) if stored is not None else None
+    encoding = f":{info.encoding}" if info is not None else ""
     if array.dtype.kind == "O":
         items = [item.encode() if isinstance(item, str) else bytes(item) for item in array.ravel()]
-        payload = b"\0".join(items)
-        return ("O", tuple(stored.shape) if stored is not None else array.shape, payload)
-    if stored is not None:
-        return (stored.dtype.str, tuple(stored.shape), array.tobytes())
-    return (array.dtype.str, array.shape, array.tobytes())
+        return ("O" + encoding, shape, b"\0".join(items))
+    dtype = stored.dtype.str if stored is not None else array.dtype.str
+    return (dtype + encoding, shape, array.tobytes())
 
 
 def attribute_text(signature: tuple) -> str:
     """The attribute's text when it is a string, else empty (for path-prefix reasoning)."""
     dtype, _shape, payload = signature
-    if dtype == "O" or dtype.startswith(("|S", "<U")):
+    if dtype.startswith(("O", "|S", "<U")):
         return payload.decode(errors="replace").rstrip("\0")
     return ""
 
 
 def dtype_signature(dtype: numpy.dtype):
-    """The full layout of a dtype: for a compound, its record size and each field's name, base
-    type, shape and byte offset in order; the type string for anything else.
-
-    Dataset values are compared field by field (padding bytes legitimately differ between
-    identical runs), so the layout is what makes "the same bytes" mean the same record.
-    """
+    """A dtype's full layout: for a compound, its size and each field's name, base type, shape
+    and offset, so field-by-field byte equality means the same record."""
     if not dtype.names:
         return dtype.str
     fields = []
     for name in dtype.names:
-        field, offset = dtype.fields[name][:2]
-        base, shape = field.subdtype if field.subdtype is not None else (field, ())
+        item, offset = dtype.fields[name][:2]
+        base, shape = item.subdtype if item.subdtype is not None else (item, ())
         fields.append((name, base.str, tuple(shape), offset))
     return (dtype.itemsize, tuple(fields))
 
@@ -526,11 +455,23 @@ def objects_of(handle: h5py.File) -> dict[str, h5py.HLObject]:
     return found
 
 
-def is_permitted_attribute(path: str, name: str) -> str | None:
-    """The permitted-difference label of an attribute, or None when it must be identical.
+def links_of(handle: h5py.File) -> dict[str, tuple]:
+    """Every link by name: its type, and for soft and external links its target."""
+    found: dict[str, tuple] = {}
 
-    A permitted attribute may differ in value only: its dtype and shape are always compared.
-    """
+    def visit(name, link):
+        found[name] = (
+            type(link).__name__,
+            getattr(link, "filename", ""),
+            getattr(link, "path", ""),
+        )
+
+    handle.visititems_links(visit)
+    return found
+
+
+def permitted_attribute(path: str, name: str) -> str | None:
+    """The label of an attribute that may differ in value (never in dtype or shape), or None."""
     if path == "RunProperties/Version" and name in VERSION_ATTRIBUTES:
         return f"RunProperties/Version@{name}"
     if path == "RunProperties" and name == RUN_END_TIME:
@@ -550,21 +491,21 @@ def compare_attributes(where: str, path: str, a, b, base: OutputRun, other: Outp
         right = attribute_signature(b.attrs[name], b.attrs.get_id(name))
         if left == right:
             continue
-        shape_differs = left[:2] != right[:2]
-        label = is_permitted_attribute(path, name)
-        if label is not None and not shape_differs:
-            report.allow(label)
-            continue
+        same_type = left[:2] == right[:2]
+        label = permitted_attribute(path, name)
         if label is not None:
-            report.error(
-                f"{where}:{path}@{name}: permitted attribute changed dtype or shape "
-                f"({left[:2]} != {right[:2]}); only its value may differ"
-            )
+            if same_type:
+                report.allow(label)
+            else:
+                report.error(
+                    f"{where}:{path}@{name}: permitted attribute changed dtype or shape "
+                    f"({left[:2]} != {right[:2]}); only its value may differ"
+                )
             continue
         text_a, text_b = attribute_text(left), attribute_text(right)
         if (
             path == "RunProperties"
-            and not shape_differs
+            and same_type
             and text_a
             and text_b
             and base.embeds_prefix(text_a)
@@ -578,14 +519,23 @@ def compare_attributes(where: str, path: str, a, b, base: OutputRun, other: Outp
         )
 
 
-def compare_hdf5_file(rel: str, a_path: Path, b_path: Path, base, other, report) -> None:
-    """Structure, attributes and non-Galaxies dataset bytes of one HDF5 file pair."""
-    with h5py.File(a_path, "r") as fa, h5py.File(b_path, "r") as fb:
+def compare_hdf5_file(rel: str, base: OutputRun, other: OutputRun, report: Report) -> None:
+    """Links, objects, attributes and non-Galaxies dataset bytes of one HDF5 file pair."""
+    with h5py.File(base.directory / rel, "r") as fa, h5py.File(other.directory / rel, "r") as fb:
+        links_a, links_b = links_of(fa), links_of(fb)
+        report.links += sum(1 for kind, _, _ in links_a.values() if kind == "ExternalLink")
+        for name in sorted(set(links_a) | set(links_b)):
+            if links_a.get(name) != links_b.get(name):
+                report.error(
+                    f"{rel}:{name}: external link or link type differs "
+                    f"({links_a.get(name)} != {links_b.get(name)})"
+                )
         objects_a, objects_b = objects_of(fa), objects_of(fb)
         if set(objects_a) != set(objects_b):
             report.error(
-                f"{rel}: HDF5 objects differ (only baseline {sorted(set(objects_a) - set(objects_b))}, "
-                f"only candidate {sorted(set(objects_b) - set(objects_a))})"
+                f"{rel}: HDF5 objects differ (only baseline "
+                f"{sorted(set(objects_a) - set(objects_b))}, only candidate "
+                f"{sorted(set(objects_b) - set(objects_a))})"
             )
         for path in sorted(set(objects_a) & set(objects_b)):
             left, right = objects_a[path], objects_b[path]
@@ -597,98 +547,75 @@ def compare_hdf5_file(rel: str, a_path: Path, b_path: Path, base, other, report)
                 continue
             if dtype_signature(left.dtype) != dtype_signature(right.dtype):
                 report.error(f"{rel}:{path}: dataset dtype differs")
-                continue
-            if left.shape != right.shape:
+            elif left.shape != right.shape:
                 report.error(f"{rel}:{path}: shape {left.shape} != {right.shape}")
-                continue
-            if path.endswith("/Galaxies"):
-                continue  # compared per ID across all partitions
-            same = canonical_bytes(left[()]) == canonical_bytes(right[()])
-            leaf = path.removeprefix("RunProperties/")
-            if path.startswith("RunProperties/") and leaf in NAMED_DATASETS:
-                report.datasets_compared.append(leaf)
-            if not same:
-                report.error(f"{rel}:{path}: dataset bytes differ")
-
-
-def load_galaxies(run: OutputRun) -> dict[int, numpy.ndarray]:
-    """Every output snapshot's Galaxies rows, aggregated across the run's partitions."""
-    pieces: dict[int, list[numpy.ndarray]] = {}
-    for partition in comparator.partition_files(str(run.directory / OUTPUT_BASENAME)):
-        with h5py.File(partition, "r") as handle:
-            for name in handle:
-                match = comparator.SNAP_GROUP_RE.match(name)
-                if match and "Galaxies" in handle[name]:
-                    pieces.setdefault(int(match.group(1)), []).append(handle[name]["Galaxies"][()])
-    return {snap: numpy.concatenate(rows) for snap, rows in pieces.items()}
-
-
-def field_bytes(rows: numpy.ndarray, name: str) -> numpy.ndarray:
-    """A field as one row of raw bytes per record."""
-    if len(rows) == 0:
-        return numpy.zeros((0, 0), dtype=numpy.uint8)
-    column = numpy.ascontiguousarray(rows[name])
-    return column.view(numpy.uint8).reshape(len(rows), -1)
+            elif not path.endswith("/Galaxies"):  # Galaxies are compared per ID
+                leaf = path.removeprefix("RunProperties/")
+                if path.startswith("RunProperties/") and leaf in NAMED_DATASETS:
+                    report.datasets_compared.append(leaf)
+                if canonical_bytes(left[()]) != canonical_bytes(right[()]):
+                    report.error(f"{rel}:{path}: dataset bytes differ")
 
 
 def compare_galaxies(base: OutputRun, other: OutputRun, report: Report) -> None:
-    left_all, right_all = load_galaxies(base), load_galaxies(other)
-    if set(left_all) != set(right_all):
-        report.error(
-            f"output snapshots differ (only baseline {sorted(set(left_all) - set(right_all))}, "
-            f"only candidate {sorted(set(right_all) - set(left_all))})"
+    """Per-ID byte identity through the cross-format comparator; its report lines are errors."""
+    left = comparator.scan_run(str(base.directory / OUTPUT_BASENAME))
+    right = comparator.scan_run(str(other.directory / OUTPUT_BASENAME))
+    labels = ("baseline", "candidate")
+
+    def captured(call) -> tuple[int, str]:
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            failures = call()
+        return failures, " | ".join(line.strip() for line in buffer.getvalue().splitlines())
+
+    for label, index in zip(labels, (left, right)):
+        failures, text = captured(
+            lambda i=index, n=label: comparator.report_run_duplicates(n, i, ERROR_CAP)
         )
-    report.snapshots = len(set(left_all) & set(right_all))
-    for snap in sorted(set(left_all) & set(right_all)):
-        left, right = left_all[snap], right_all[snap]
-        where = f"Snap{snap:03d}"
-        if comparator.schema_signature(left.dtype) != comparator.schema_signature(right.dtype):
-            report.error(f"{where}: Galaxies record schema differs")
-            continue
-        ids_left, ids_right = left[comparator.ID_FIELD], right[comparator.ID_FIELD]
-        duplicates = False
-        for label, ids in (("baseline", ids_left), ("candidate", ids_right)):
-            if len(numpy.unique(ids)) != len(ids):
-                report.error(f"{where}: duplicate UniqueGalaxyID in {label}")
-                duplicates = True
-        if duplicates:
-            continue
-        order_left, order_right = numpy.argsort(ids_left), numpy.argsort(ids_right)
-        sorted_left, sorted_right = ids_left[order_left], ids_right[order_right]
-        common = numpy.intersect1d(sorted_left, sorted_right)
-        missing, added = len(sorted_left) - len(common), len(sorted_right) - len(common)
-        if missing or added:
-            report.error(
-                f"{where}: ID sets differ ({missing} only in baseline, {added} only in candidate)"
+        if failures:
+            report.error(f"galaxies: {text}")
+            report.galaxy_differences += failures
+    if report.galaxy_differences:
+        return
+    if left.signature != right.signature:
+        report.error("galaxies: Galaxies record schema differs")
+        return
+    if left.snapshots != right.snapshots:
+        report.error(
+            f"galaxies: output snapshots differ (only baseline "
+            f"{sorted(left.snapshots - right.snapshots)}, only candidate "
+            f"{sorted(right.snapshots - left.snapshots)})"
+        )
+    shared = sorted(left.snapshots & right.snapshots)
+    report.snapshots, report.fields = len(shared), len(left.dtype.names)
+    for snap in shared:
+        records_left = comparator.read_snapshot(left, snap)
+        records_right = comparator.read_snapshot(right, snap)
+        failures, text = captured(
+            lambda s=snap, a=records_left, b=records_right: comparator.compare_snapshot(
+                s, a, b, labels, ERROR_CAP
             )
-            report.id_mismatches += missing + added
-        keep_left = order_left[numpy.isin(sorted_left, common)]
-        keep_right = order_right[numpy.isin(sorted_right, common)]
-        left, right = left[keep_left], right[keep_right]
-        report.galaxies += len(common)
-        report.fields = len(left.dtype.names)
-        differing = numpy.zeros(len(common), dtype=bool)
-        for name in left.dtype.names:
-            changed = (field_bytes(left, name) != field_bytes(right, name)).any(axis=1)
-            if changed.any():
-                report.error(f"{where}: field {name} differs for {int(changed.sum())} ID(s)")
-            differing |= changed
-        report.id_mismatches += int(differing.sum())
+        )
+        if failures:
+            report.error(f"galaxies: {text}")
+            report.galaxy_differences += failures
+        else:
+            report.galaxies += records_left.size
 
 
 def compare_metadata_file(rel: str, base: OutputRun, other: OutputRun, empty_leg: bool, report):
     left, right = (base.directory / rel).read_bytes(), (other.directory / rel).read_bytes()
     if rel == "metadata/version_info.json":
         if left != right:
-            report.allow("metadata/version_info.json")
+            report.allow(rel)
         for label, raw in (("baseline", left), ("candidate", right)):
             if not isinstance(json.loads(raw), dict):
                 report.error(f"{rel}: {label} is not a JSON object")
         return
     if rel == f"metadata/{RUN_FILE_NAME}" and empty_leg:
-        lines_left = left.decode().splitlines()
-        if right.decode().splitlines() == sorted_insert(lines_left, EMPTY_LIST_LINE):
-            report.allow(f"{rel}: added '{EMPTY_LIST_LINE.strip()}' line")
+        if MODULES_LINE in left and right == with_empty_list(left):
+            report.allow(EMPTY_LIST_LABEL)
         else:
             report.error(f"{rel}: differs from the baseline in more than the added empty list")
         return
@@ -723,7 +650,7 @@ def compare_outputs(base: OutputRun, other: OutputRun, empty_leg: bool = False) 
         report.error(f"the empty-list leg has no copied run YAML metadata/{RUN_FILE_NAME}")
     for rel in shared:
         if rel.endswith(".hdf5"):
-            compare_hdf5_file(rel, base.directory / rel, other.directory / rel, base, other, report)
+            compare_hdf5_file(rel, base, other, report)
         elif rel.startswith("metadata/"):
             compare_metadata_file(rel, base, other, empty_leg, report)
         elif (base.directory / rel).read_bytes() != (other.directory / rel).read_bytes():
@@ -732,6 +659,8 @@ def compare_outputs(base: OutputRun, other: OutputRun, empty_leg: bool = False) 
         compare_galaxies(base, other, report)
     except comparator.ComparisonError as error:
         report.error(f"galaxy comparison could not read an output: {error}")
+    if report.galaxies <= 0 and not report.errors:
+        report.error("no galaxies compared")
     return report
 
 
@@ -745,7 +674,6 @@ class RunRecord:
     tree: str
     variant: str
     output: OutputRun
-    log_path: Path
     elapsed_s: float
     attributes: dict
 
@@ -753,29 +681,17 @@ class RunRecord:
 class Identity:
     """State and stages of one identity run. Nothing it creates is ever deleted."""
 
-    def __init__(self, args: argparse.Namespace):
-        self.args = args
-        self.models = tuple(args.models)
-        self.fixtures = tuple(fixture for fixture in FIXTURES if fixture.name in args.fixtures)
-        self.schemes = tuple(args.schemes)
-        self.partial = (
-            set(self.models) != set(MODELS)
-            or len(self.fixtures) != len(FIXTURES)
-            or set(self.schemes) != set(SCHEMES)
-        )
-        self.reference: Reference | None = None
+    def __init__(self):
         self.root: Path | None = None
-        self.worktrees: dict[tuple[str, str, str], Path] = {}
         self.commits: dict[str, str] = {}
+        self.worktrees: dict[tuple[str, str, str], Path] = {}
         self.template: str | None = None
         self.verdicts: dict[str, str] = {}
         self.mutation_source: OutputRun | None = None
         self.evidence: dict = {"legs": {}, "timings_s": {}}
 
-    # ---- services ---------------------------------------------------------
-
     def scratch(self, *parts: str) -> Path:
-        assert self.root is not None, "the reference stage has not created the scratch root"
+        assert self.root is not None, "the reference stage has not created the archive root"
         path = self.root.joinpath(*parts)
         path.mkdir(parents=True, exist_ok=True)
         return path
@@ -784,204 +700,89 @@ class Identity:
         if self.root is not None:
             (self.root / "evidence.json").write_text(json.dumps(self.evidence, indent=2) + "\n")
 
-    def run_logged(
-        self, cmd, cwd: Path, env: dict, log_path: Path, what: str, timeout: int
-    ) -> float:
-        log(f"  -> {what}")
-        started = time.monotonic()
-        with log_path.open("wb") as handle:
-            try:
-                completed = subprocess.run(
-                    cmd, cwd=cwd, env=env, stdout=handle, stderr=subprocess.STDOUT, timeout=timeout
-                )
-            except subprocess.TimeoutExpired:
-                raise AssertionError(
-                    f"{what} timed out after {timeout}s (log: {log_path})"
-                ) from None
-        elapsed = time.monotonic() - started
-        if completed.returncode != 0:
-            tail = "\n".join(log_path.read_text(errors="replace").splitlines()[-30:])
-            raise AssertionError(
-                f"{what} failed with exit status {completed.returncode} (log: {log_path})\n{tail}"
-            )
-        log(f"     done in {elapsed:.0f}s (log: {log_path})")
-        return elapsed
-
-    # ---- stage: reference -------------------------------------------------
-
     def test_reference_commit_resolution(self) -> None:
-        """The reference commit is valid, pre-feature, and the feature tree is the HEAD tree."""
-        explicit = os.environ.get("REFERENCE_COMMIT") or None
-        self.reference = resolve_reference(explicit)
-        ref = self.reference
-        log(f"HEAD (feature tree): {ref.head}")
-        log(f"plan last changed by: {ref.plan_commit}")
-        log(f"derived reference: {ref.derived}")
-        log(f"explicit REFERENCE_COMMIT: {ref.explicit or '(none)'}")
-        log(f"resolved reference: {ref.commit}")
-        if not has_feature_symbols(ref.head):
-            raise AssertionError("HEAD contains no feature symbol; it is not a feature tree")
+        """The reference is a valid pre-feature ancestor and the HEAD tree is what is built."""
+        reference, head, source = resolve_reference()
+        log(f"HEAD (feature tree): {head}")
+        log(f"reference ({source}): {reference}")
         edits = runtime_tree_differences()
         if edits:
             raise AssertionError(f"runtime paths differ from HEAD (uncommitted): {edits}")
-        shipped_reference = git("show", f"{ref.commit}:{TEMPLATE}").stdout
-        shipped_feature = git("show", f"{ref.head}:{TEMPLATE}").stdout
-        if shipped_reference != shipped_feature:
+        shipped = {
+            commit: git("show", f"{commit}:{TEMPLATE}").stdout for commit in (reference, head)
+        }
+        if shipped[reference] != shipped[head]:
             raise AssertionError(f"{TEMPLATE} differs between the reference and the feature tree")
-        self.template = shipped_feature
+        self.template = shipped[head]
+        self.commits = {"reference": reference, "feature": head}
         stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        self.root = (
-            REPO_ROOT
-            / "archive"
-            / "snapshot-global-identity"
-            / f"{stamp}-ref{ref.commit[:8]}-head{ref.head[:8]}"
-        )
+        self.root = ARCHIVE_ROOT / f"{stamp}-ref{reference[:8]}-head{head[:8]}"
         self.root.mkdir(parents=True, exist_ok=False)
-        self.commits = {"reference": ref.commit, "feature": ref.head}
         self.evidence.update(
             {
-                "head": ref.head,
-                "plan_commit": ref.plan_commit,
-                "derived_reference": ref.derived,
-                "explicit_reference": ref.explicit,
-                "reference": ref.commit,
-                "scratch": str(self.root),
-                "partial_run": self.partial,
+                "head": head,
+                "reference": reference,
+                "reference_source": source,
+                "archive": str(self.root),
+                "worktrees": str(WORKTREE_ROOT),
             }
         )
         self.save_evidence()
-        log(f"scratch (archived, never deleted): {self.root}")
+        log(f"archive (runs, logs, evidence): {self.root}")
+        log(f"worktree cache: {WORKTREE_ROOT}")
 
-    def test_reference_resolution_rejects_bad_values(self) -> None:
-        """An explicit value that is not the derived reference is refused for each defect."""
-        ref = self.reference
-        assert ref is not None, "reference resolution did not complete"
-        refusals = {
-            "a feature commit (HEAD)": ref.head,
-            "a value that is not a commit": "0" * 40,
-        }
-        refusals["a commit older than the derived reference"] = self.older_with_changes(ref)
-        for what, value in refusals.items():
-            try:
-                resolve_reference(value)
-            except AssertionError as error:
-                log(f"  refused {what}: {str(error).splitlines()[0][:110]}")
-            else:
-                raise AssertionError(f"REFERENCE_COMMIT naming {what} was accepted")
-
-    @staticmethod
-    def older_with_changes(ref: Reference) -> str:
-        """An ancestor of the derived reference that differs from it outside the planning surface."""
-        for commit in git("rev-list", "--first-parent", "-n", "50", ref.derived).stdout.split()[1:]:
-            if non_planning_changes(commit, ref.derived):
-                return commit
-        raise AssertionError("no older commit with non-planning changes to use as a negative case")
-
-    # ---- stage: builds ----------------------------------------------------
-
-    def build_all(self) -> None:
-        """One detached worktree per tree x model x simulation, each built at its commit."""
-        assert self.reference is not None, "reference resolution did not complete"
-        pairs = [(model, fixture.simulation) for model in self.models for fixture in self.fixtures]
+    def test_builds_name_their_commits(self) -> str | None:
+        """One cached worktree per tree x model x simulation, built incrementally at its commit."""
+        if not self.commits:
+            raise AssertionError("prerequisite stage (reference) did not complete")
+        logs = self.scratch("logs")
         for tree in TREES:
             commit = self.commits[tree]
-            for model, simulation in pairs:
-                key = (tree, model, simulation)
-                name = f"{tree}__{model}__{simulation}"
-                worktree = self.scratch("worktrees") / name
-                logs = self.scratch("logs")
-                log(f"worktree {name} at {commit}")
-                git("worktree", "add", "--detach", str(worktree), commit)
-                self.worktrees[key] = worktree
-                ParityGate.link_machine_local(worktree)
-                head = git("rev-parse", "HEAD", cwd=worktree).stdout.strip()
-                if head != commit:
-                    raise AssertionError(f"{name}: worktree is at {head}, expected {commit}")
-                env = ParityGate.worktree_env(worktree, model, simulation)
-                selectors = [f"MODEL={model}", f"SIMULATION={simulation}"]
-                started = time.monotonic()
-                self.run_logged(
-                    ["make", *selectors, "generate"],
-                    worktree,
-                    env,
-                    logs / f"{name}-generate.log",
-                    f"{name}: make generate",
-                    BUILD_TIMEOUT_S,
-                )
-                self.run_logged(
-                    ["make", *selectors, f"-j{os.cpu_count() or 4}"],
-                    worktree,
-                    env,
-                    logs / f"{name}-build.log",
-                    f"{name}: make",
-                    BUILD_TIMEOUT_S,
-                )
-                if not (worktree / "mimic").is_file():
-                    raise AssertionError(f"{name}: build produced no executable")
-                self.evidence["timings_s"][f"build:{name}"] = round(time.monotonic() - started, 1)
+            for model in MODELS:
+                for simulation in (fixture.simulation for fixture in FIXTURES):
+                    worktree = cached_worktree(commit, model, simulation)
+                    key = f"{tree}__{model}__{simulation}"
+                    started = time.monotonic()
+                    env = worktree_env(worktree, model, simulation)
+                    build_pair(worktree, model, simulation, env, logs, key, BUILD_TIMEOUT_S)
+                    self.evidence["timings_s"][f"build:{key}"] = round(
+                        time.monotonic() - started, 1
+                    )
+                    self.worktrees[(tree, model, simulation)] = worktree
         self.save_evidence()
+        return registration_warning()
 
-    def test_builds_name_their_commits(self) -> None:
-        assert self.reference is not None, "reference resolution did not complete"
-        self.build_all()
-
-    # ---- stage: legs ------------------------------------------------------
-
-    def execute(
-        self, tree: str, model: str, fixture: Fixture, leg: str, variant: str, run_file: Path
-    ):
-        """Run one executable from its worktree into its own scratch output root."""
+    def execute(self, tree: str, model: str, fixture: Fixture, leg: str, variant: str, run_file):
+        """Run one executable from its worktree into its own archived output root."""
         worktree = self.worktrees[(tree, model, fixture.simulation)]
         output_root = self.scratch("runs", f"{tree}__{leg}__{variant}")
-        link = worktree / "output"
-        if link.is_symlink() or link.exists():
-            link.unlink()
-        link.symlink_to(output_root)
+        point_output_at(worktree, output_root)
         log_path = self.scratch("logs") / f"{tree}__{leg}__{variant}-run.log"
-        elapsed = self.run_logged(
+        elapsed = run_logged(
             ["./mimic", str(run_file)],
             worktree,
-            ParityGate.worktree_env(worktree, model, fixture.simulation),
+            worktree_env(worktree, model, fixture.simulation),
             log_path,
             f"{tree}/{variant} {leg}: mimic run",
             RUN_TIMEOUT_S,
         )
-        text = log_path.read_text(errors="replace")
-        if not check_no_memory_leaks(text):
+        if not check_no_memory_leaks(log_path.read_text(errors="replace")):
             raise AssertionError(f"{tree}/{variant} {leg}: the run reported a memory leak")
         directory = output_root / Path(OUTPUT_DIRECTORY).name
-        output = OutputRun(
-            directory,
-            tuple(
-                {
-                    str(worktree),
-                    str(worktree.resolve()),
-                    str(output_root),
-                    str(output_root.resolve()),
-                }
-            ),
-        )
-        master = directory / f"{OUTPUT_BASENAME}.hdf5"
-        if not master.is_file():
-            raise AssertionError(f"{tree}/{variant} {leg}: no master file at {master}")
-        with h5py.File(master, "r") as handle:
-            properties = handle["RunProperties"]
-            attributes = {
-                "git_commit": attribute_text(
-                    attribute_signature(properties["Version"].attrs["git_commit"])
-                ),
-                "version": attribute_text(
-                    attribute_signature(properties["Version"].attrs["version"])
-                ),
-                "TimestepScheme": attribute_text(
-                    attribute_signature(properties.attrs["TimestepScheme"])
-                ),
-                "ModelName": attribute_text(attribute_signature(properties.attrs["ModelName"])),
-                "SimulationName": attribute_text(
-                    attribute_signature(properties.attrs["SimulationName"])
-                ),
-            }
-        return RunRecord(tree, variant, output, log_path, elapsed, attributes)
+        prefixes = {str(worktree), str(worktree.resolve()), str(output_root)}
+        prefixes.add(str(output_root.resolve()))
+        if not (directory / MASTER).is_file():
+            raise AssertionError(f"{tree}/{variant} {leg}: no master file at {directory / MASTER}")
+        attributes = {}
+        with h5py.File(directory / MASTER, "r") as handle:
+            for path, name in (
+                ("RunProperties/Version", "git_commit"),
+                ("RunProperties", "TimestepScheme"),
+                ("RunProperties", "ModelName"),
+                ("RunProperties", "SimulationName"),
+            ):
+                attributes[name] = attribute_text(attribute_signature(handle[path].attrs[name]))
+        return RunRecord(tree, variant, OutputRun(directory, tuple(prefixes)), elapsed, attributes)
 
     def check_provenance(self, record: RunRecord, model, fixture, scheme) -> None:
         """The run came from the intended commit, model, simulation and timestepping scheme."""
@@ -1000,60 +801,70 @@ class Identity:
 
     def leg(self, model: str, fixture: Fixture, scheme: str) -> None:
         name = leg_name(model, fixture, scheme)
-        if self.template is None or not self.worktrees:
-            raise AssertionError("prerequisite stages (reference, builds) did not complete")
+        try:
+            self.run_leg(name, model, fixture, scheme)
+        except BaseException as error:
+            first = str(error).splitlines()[0] if str(error) else type(error).__name__
+            self.verdicts[name] = f"FAIL: {first}"
+            raise
+        finally:
+            self.evidence["legs"].setdefault(name, {})["verdict"] = self.verdicts.get(name)
+            self.save_evidence()
+
+    def run_leg(self, name: str, model: str, fixture: Fixture, scheme: str) -> None:
+        missing = [
+            tree for tree in TREES if (tree, model, fixture.simulation) not in self.worktrees
+        ]
+        if self.template is None or missing:
+            raise AssertionError(f"prerequisite stages did not complete (no {missing} build)")
         text = run_file_text(self.template, model, fixture, scheme)
+        check_run_file(text, yaml.safe_load(self.template), model)
         files = {}
-        for variant, body in (("absent", text), ("empty", empty_list_text(text))):
-            directory = self.scratch("run-files", name, variant)
-            files[variant] = directory / RUN_FILE_NAME
+        for variant, body in (("absent", text), ("empty", with_empty_list(text.encode()).decode())):
+            files[variant] = self.scratch("run-files", name, variant) / RUN_FILE_NAME
             files[variant].write_text(body)
-        leg_evidence = self.evidence["legs"].setdefault(name, {})
-        leg_evidence.update({"model": model, "fixture": fixture.name, "scheme": scheme})
+        assert yaml.safe_load(files["empty"].read_text())["modules"]["post_snapshot"] == []
+        evidence = self.evidence["legs"].setdefault(name, {})
+        evidence.update({"model": model, "fixture": fixture.name, "scheme": scheme})
         started = time.monotonic()
         baseline = self.execute("reference", model, fixture, name, "baseline", files["absent"])
         absent = self.execute("feature", model, fixture, name, "absent", files["absent"])
         empty = self.execute("feature", model, fixture, name, "empty", files["empty"])
         for record in (baseline, absent, empty):
             self.check_provenance(record, model, fixture, scheme)
-        leg_evidence["commits"] = {
-            "baseline": baseline.attributes["git_commit"],
-            "feature": absent.attributes["git_commit"],
+        evidence["run_seconds"] = {
+            r.variant: round(r.elapsed_s, 1) for r in (baseline, absent, empty)
         }
-        leg_evidence["run_seconds"] = {
-            record.variant: round(record.elapsed_s, 1) for record in (baseline, absent, empty)
-        }
-        if fixture.name == "v2" and model == "sage16" and scheme == "fixed":
+        if (model, fixture.name, scheme) == ("sage16", "v2", "fixed"):
             self.mutation_source = absent.output
         failures = []
         for record, empty_leg in ((absent, False), (empty, True)):
             report = compare_outputs(baseline.output, record.output, empty_leg=empty_leg)
-            leg_evidence[f"compare_{record.variant}"] = report.summary()
-            leg_evidence[f"compare_{record.variant}"]["error_lines"] = report.errors[:ERROR_CAP]
+            evidence[f"compare_{record.variant}"] = {
+                **report.summary(),
+                "error_lines": report.errors[:ERROR_CAP],
+            }
             log(
                 f"  {name} {record.variant}: {report.galaxies} galaxies over {report.snapshots} "
-                f"snapshot(s), {report.fields} fields, {report.id_mismatches} per-ID mismatches, "
-                f"{len(report.errors)} error(s); permitted: {sorted(report.permitted)}"
+                f"snapshot(s), {report.fields} fields, {report.links} external link(s), "
+                f"{report.galaxy_differences} galaxy difference(s), {len(report.errors)} "
+                f"error(s); permitted: {sorted(report.permitted)}"
             )
-            failures.extend(f"{record.variant}: {error}" for error in report.errors)
-            if report.galaxies <= 0 and not report.errors:
-                failures.append(f"{record.variant}: no galaxies were compared")
-        leg_evidence["elapsed_s"] = round(time.monotonic() - started, 1)
-        self.verdicts[name] = "PASS" if not failures else f"FAIL: {failures[0]}"
-        leg_evidence["verdict"] = self.verdicts[name]
-        self.save_evidence()
+            failures += [f"{record.variant}: {error}" for error in report.errors]
+        evidence["elapsed_s"] = round(time.monotonic() - started, 1)
         if failures:
             for line in failures[:ERROR_CAP]:
                 log(f"  {name} FAILURE: {line}")
             if len(failures) > ERROR_CAP:
                 log(f"  {name}: {len(failures) - ERROR_CAP} further failure(s) not logged")
             raise AssertionError(f"{name}: {len(failures)} failure(s); first: {failures[0]}")
+        self.verdicts[name] = "PASS"
 
-    def leg_stages(self):
+    def leg_stages(self) -> list[Callable[[], None]]:
         stages = []
-        for model in self.models:
-            for fixture in self.fixtures:
-                for scheme in self.schemes:
+        for model in MODELS:
+            for fixture in FIXTURES:
+                for scheme in SCHEMES:
 
                     def stage(m=model, f=fixture, s=scheme):
                         self.leg(m, f, s)
@@ -1062,44 +873,30 @@ class Identity:
                     stages.append(stage)
         return stages
 
-    # ---- stage: comparator self-check ------------------------------------
-
     def test_comparator_rejects_mutations(self) -> None:
         """The comparator fails on every injected defect and accepts only the permitted ones."""
         if self.mutation_source is None:
-            raise TestSkipped(
-                "development subset: the sage16 v2 fixed leg did not run, so there is no real "
-                "output to mutate"
-            )
-        run_mutation_checks(self.mutation_source, self.scratch("mutations"))
-
-    # ---- stage: verdicts --------------------------------------------------
+            raise AssertionError("the sage16 v2 fixed leg produced no output to mutate")
+        count = run_mutation_checks(self.mutation_source, self.scratch("mutations"))
+        self.evidence["mutation_cases"] = count
+        self.save_evidence()
 
     def test_leg_verdicts(self) -> None:
-        expected = [
-            leg_name(m, f, s) for m in self.models for f in self.fixtures for s in self.schemes
-        ]
-        for name in expected:
-            log(f"  {name}: {self.verdicts.get(name, 'did not run')}")
-        bad = [name for name in expected if self.verdicts.get(name) != "PASS"]
-        self.evidence["verdicts"] = {
-            name: self.verdicts.get(name, "did not run") for name in expected
-        }
+        expected = [leg_name(m, f, s) for m in MODELS for f in FIXTURES for s in SCHEMES]
+        verdicts = {name: self.verdicts.get(name, "did not run") for name in expected}
+        for name, verdict in verdicts.items():
+            log(f"  {name}: {verdict}")
+        self.evidence["verdicts"] = verdicts
         self.evidence["total_elapsed_s"] = round(time.monotonic() - STARTED, 1)
         self.save_evidence()
+        bad = [name for name, verdict in verdicts.items() if verdict != "PASS"]
         if bad:
             raise AssertionError(f"{len(bad)} of {len(expected)} legs did not pass: {bad}")
-        if self.partial:
-            raise TestSkipped(
-                f"development subset ({len(expected)} of {len(MODELS) * len(FIXTURES) * len(SCHEMES)} "
-                "legs); the full matrix has not been run"
-            )
         log(f"all {len(expected)} legs passed; evidence: {self.root}/evidence.json")
 
-    def stages(self):
+    def stages(self) -> list[Callable[[], None]]:
         return [
             self.test_reference_commit_resolution,
-            self.test_reference_resolution_rejects_bad_values,
             self.test_builds_name_their_commits,
             *self.leg_stages(),
             self.test_comparator_rejects_mutations,
@@ -1111,120 +908,192 @@ class Identity:
 # Comparator self-check (mutations of real output)
 # ---------------------------------------------------------------------------
 
-
-def copy_run(source: OutputRun, destination: Path, token: str) -> OutputRun:
-    """A copy of a run's output directory, with its own path prefix token."""
-    shutil.copytree(source.directory, destination)
-    return OutputRun(destination, (token,))
+#: A change applied to fresh (base, candidate) copies of the mutation source.
+Change = Callable[[OutputRun, OutputRun], None]
 
 
 def snapshot_partition(run: OutputRun, snap: int) -> Path:
     return run.directory / f"{OUTPUT_BASENAME}_{snap:03d}.hdf5"
 
 
-def rewrite_galaxies(path: Path, snap: int, transform) -> None:
-    """Replace a snapshot's Galaxies dataset with ``transform(rows)``, keeping its attributes."""
-    with h5py.File(path, "r+") as handle:
+def with_master(run: OutputRun, change: Callable[[h5py.File], None]) -> None:
+    """Apply ``change`` to a run's master file, opened for writing."""
+    with h5py.File(run.directory / MASTER, "r+") as handle:
+        change(handle)
+
+
+def recreate_dataset(handle: h5py.File, name: str, data, dtype=None) -> None:
+    """Replace a dataset with ``data``, keeping its attributes and their stored dtypes."""
+    dataset = handle[name]
+    attributes = [
+        (key, dataset.attrs[key], dataset.attrs.get_id(key).dtype) for key in dataset.attrs
+    ]
+    del handle[name]
+    created = handle.create_dataset(name, data=data, dtype=dtype)
+    for key, value, stored in attributes:
+        created.attrs.create(key, data=value, dtype=stored)
+
+
+def rewrite_galaxies(run: OutputRun, snap: int, transform) -> None:
+    """Replace a snapshot's Galaxies dataset with ``transform(rows)``."""
+    with h5py.File(snapshot_partition(run, snap), "r+") as handle:
         name = f"Snap{snap:03d}/Galaxies"
-        dataset = handle[name]
-        rows = dataset[()]
-        attributes = [
-            (key, dataset.attrs[key], dataset.attrs.get_id(key).dtype) for key in dataset.attrs
-        ]
-        new_rows = transform(rows)
-        del handle[name]
-        created = handle.create_dataset(name, data=new_rows)
-        for key, value, dtype in attributes:
-            created.attrs.create(key, data=value, dtype=dtype)
+        recreate_dataset(handle, name, transform(handle[name][()]))
 
 
-def change_attribute_value(obj, name: str, value: bytes) -> None:
-    """Give an attribute a new value, keeping its stored dtype and shape."""
-    stored = obj.attrs.get_id(name)
-    obj.attrs.create(name, data=numpy.array([value], dtype=stored.dtype), dtype=stored.dtype)
+def on_master(change: Callable[[h5py.File], None]) -> Change:
+    return lambda _base, run: with_master(run, change)
 
 
-def relayout_dataset(path: Path, name: str) -> None:
-    """Rewrite a compound dataset with identical values but a different record layout."""
-    with h5py.File(path, "r+") as handle:
-        dataset = handle[name]
-        values = dataset[()]
-        attributes = [
-            (key, dataset.attrs[key], dataset.attrs.get_id(key).dtype) for key in dataset.attrs
-        ]
-        old = values.dtype
-        layout = numpy.dtype(
-            {
-                "names": list(old.names),
-                "formats": [old.fields[field][0] for field in old.names],
-                "offsets": [old.fields[field][1] + 8 for field in old.names],
-                "itemsize": old.itemsize + 16,
-            }
-        )
-        moved = numpy.zeros(values.shape, dtype=layout)
-        for field in old.names:
-            moved[field] = values[field]
-        del handle[name]
-        created = handle.create_dataset(name, data=moved, dtype=layout)
-        for key, value, dtype in attributes:
-            created.attrs.create(key, data=value, dtype=dtype)
+def on_galaxies(snap: int, transform) -> Change:
+    return lambda _base, run: rewrite_galaxies(run, snap, transform)
 
 
-def populated_snapshots(run: OutputRun) -> list[int]:
-    return sorted(snap for snap, rows in load_galaxies(run).items() if len(rows) >= 2)
+def on_text(rel: str, edit: Callable[[str], str]) -> Change:
+    def change(_base: OutputRun, run: OutputRun) -> None:
+        path = run.directory / rel
+        path.write_text(edit(path.read_text()))
+
+    return change
 
 
-def run_mutation_checks(source: OutputRun, scratch: Path) -> None:
-    """Prove each assertion of the comparator fails on the defect it exists to catch."""
-    base = copy_run(source, scratch / "base", str(scratch / "base_prefix"))
-    snaps = populated_snapshots(base)
-    if len(snaps) < 2:
-        raise AssertionError(f"mutation source has fewer than two populated snapshots: {snaps}")
-    first, second = snaps[0], snaps[1]
-    results: list[str] = []
+def set_attribute(path: str, name: str, value: bytes, dtype=None, count: int = 1):
+    """A master-file change giving an attribute a new value (by default, same dtype and shape)."""
 
-    def candidate(name: str) -> OutputRun:
-        return copy_run(base, scratch / name, str(scratch / f"{name}_prefix"))
+    def change(handle):
+        width = dtype or handle[path].attrs.get_id(name).dtype
+        handle[path].attrs.create(name, data=numpy.array([value] * count, dtype=width), dtype=width)
 
-    def expect_failure(name: str, run: OutputRun, needle: str, **kwargs) -> None:
-        report = compare_outputs(base, run, **kwargs)
-        if not any(needle in error for error in report.errors):
-            raise AssertionError(
-                f"mutation {name!r} was not rejected with {needle!r}: errors {report.errors[:4]}"
-            )
-        results.append(name)
-        log(f"  mutation rejected: {name} ({len(report.errors)} error(s))")
+    return change
 
-    def expect_accepted(name: str, run: OutputRun, expected_permitted: list[str], **kwargs) -> None:
-        report = compare_outputs(base, run, **kwargs)
-        if report.errors:
-            raise AssertionError(f"control {name!r} was rejected: {report.errors[:4]}")
-        missing = [label for label in expected_permitted if label not in report.permitted]
-        if missing:
-            raise AssertionError(f"control {name!r} did not name {missing}: {report.permitted}")
-        results.append(name)
-        log(f"  control accepted: {name} (permitted: {sorted(report.permitted)})")
 
-    expect_accepted("an untouched copy", candidate("control"), [])
-    rewritten = candidate("control_rewrite")
-    rewrite_galaxies(snapshot_partition(rewritten, first), first, lambda rows: rows)
-    expect_accepted("a dataset rewritten with identical rows", rewritten, [])
+def alter_dataset(name: str):
+    """A master-file change altering the first byte, or first field, of a named dataset."""
 
-    dropped = candidate("drop_id")
-    rewrite_galaxies(snapshot_partition(dropped, first), first, lambda rows: rows[:-1])
-    expect_failure("a dropped ID", dropped, "ID sets differ")
+    def change(handle):
+        data = handle[f"RunProperties/{name}"]
+        values = data[()]
+        if values.dtype.names:
+            column = values[values.dtype.names[0]]
+            head = column[0]
+            if isinstance(head, (bytes, str)):
+                column[0] = head[:0] + (b"X" if isinstance(head, bytes) else "X") + head[1:]
+            else:
+                column[0] = head + 1
+        else:
+            values.view(numpy.uint8).reshape(-1)[0] ^= 1
+        data[...] = values
 
-    duplicated = candidate("duplicate_id")
+    return change
+
+
+def relayout(handle: h5py.File) -> None:
+    """Rewrite FieldMetadata with identical values but a different record layout."""
+    name = "RunProperties/FieldMetadata"
+    values = handle[name][()]
+    old = values.dtype
+    layout = numpy.dtype(
+        {
+            "names": list(old.names),
+            "formats": [old.fields[item][0] for item in old.names],
+            "offsets": [old.fields[item][1] + 8 for item in old.names],
+            "itemsize": old.itemsize + 16,
+        }
+    )
+    moved = numpy.zeros(values.shape, dtype=layout)
+    for item in old.names:
+        moved[item] = values[item]
+    recreate_dataset(handle, name, moved, dtype=layout)
+    stored = handle[name][()]
+    assert all(stored[item].tobytes() == values[item].tobytes() for item in old.names)
+    assert stored.dtype != old, "the relayout produced the same dtype"
+
+
+def retarget_link(handle: h5py.File) -> None:
+    """Point the first external Galaxies link at the second one's target."""
+    links = sorted((n, t) for n, t in links_of(handle).items() if t[0] == "ExternalLink")
+    if len(links) < 2:
+        raise AssertionError(f"the master file has {len(links)} external link(s); need two")
+    (name, _), (_, (_, filename, path)) = links[0], links[1]
+    del handle[name]
+    handle[name] = h5py.ExternalLink(filename, path)
+
+
+def path_note(where: str, widths=(1024, 1024)) -> Change:
+    """Both runs gain a path-valued string attribute embedding their own prefix."""
+
+    def change(base: OutputRun, run: OutputRun) -> None:
+        for target, width in zip((base, run), widths):
+            note = f"{target.prefixes[0]}/x".encode()
+            with_master(target, set_attribute(where, "PathNote", note, dtype=f"S{width}"))
+
+    return change
+
+
+def prefixed_metadata(base: OutputRun, run: OutputRun) -> None:
+    """Both runs' copied simulation config gains a line embedding their own prefix."""
+    for target in (base, run):
+        path = target.directory / "metadata" / "test_simulation.yaml"
+        path.write_text(path.read_text() + f"# built in {target.prefixes[0]}/x\n")
+
+
+def provenance(_base: OutputRun, run: OutputRun) -> None:
+    with_master(run, set_attribute("RunProperties/Version", "git_commit", b"f" * 40))
+    with_master(run, set_attribute("RunProperties", RUN_END_TIME, b"1999-01-01T00:00:00"))
+    info = run.directory / "metadata" / "version_info.json"
+    info.write_text(info.read_text().replace('"run_date"', '"run_date_changed"'))
+
+
+def unchanged(_base: OutputRun, _run: OutputRun) -> None:
+    pass
+
+
+@dataclass(frozen=True)
+class Case:
+    """One self-check row. With ``needle`` the comparison must fail with an error containing it
+    (and name no permitted label containing ``unpermitted``); without, it must pass and name
+    every label in ``permitted``."""
+
+    name: str
+    change: Change
+    needle: str | None = None
+    empty_leg: bool = False
+    permitted: tuple[str, ...] = ()
+    unpermitted: str = ""
+
+
+def galaxy_rows(source: OutputRun) -> dict[int, numpy.ndarray]:
+    """The UniqueGalaxyID column of every output snapshot of a run."""
+    index = comparator.scan_run(str(source.directory / OUTPUT_BASENAME))
+    return {
+        snap: comparator.read_snapshot(index, snap, field=comparator.ID_FIELD)
+        for snap in sorted(index.snapshots)
+    }
+
+
+def mutation_cases(source: OutputRun) -> list[Case]:
+    """Every mutation and control, built from the source output's own snapshots and datasets."""
+    ids = galaxy_rows(source)
+    populated = [snap for snap, column in ids.items() if len(column) >= 2]
+    if not populated:
+        raise AssertionError("the mutation source has no snapshot with two galaxies")
+    first = populated[0]
+    # A galaxy moved to a snapshot that lacks its ID (IDs persist across snapshots, so a move
+    # onto a snapshot already holding it would be reported as a duplicate instead).
+    moves = [
+        (a, b, row)
+        for a, b in zip(populated, populated[1:])
+        for row in range(len(ids[a]))
+        if ids[a][row] not in set(ids[b])
+    ]
+    if not moves:
+        raise AssertionError("no galaxy ID is absent from the next populated snapshot")
+    origin, target, moved_row = moves[0]
 
     def duplicate(rows):
         rows = rows.copy()
-        rows["UniqueGalaxyID"][1] = rows["UniqueGalaxyID"][0]
+        rows[comparator.ID_FIELD][1] = rows[comparator.ID_FIELD][0]
         return rows
-
-    rewrite_galaxies(snapshot_partition(duplicated, first), first, duplicate)
-    expect_failure("a duplicated ID", duplicated, "duplicate UniqueGalaxyID")
-
-    perturbed = candidate("perturb_field")
 
     def perturb(rows):
         rows = rows.copy()
@@ -1233,244 +1102,139 @@ def run_mutation_checks(source: OutputRun, scratch: Path) -> None:
         rows["Mvir"] = column
         return rows
 
-    rewrite_galaxies(snapshot_partition(perturbed, first), first, perturb)
-    expect_failure("a field perturbed by one bit", perturbed, "field Mvir differs for 1 ID(s)")
-
-    swapped = candidate("swap_payload")
-
     def swap(rows):
         rows = rows.copy()
         for name in rows.dtype.names:
-            if name != "UniqueGalaxyID":
+            if name != comparator.ID_FIELD:
                 rows[name][[0, 1]] = rows[name][[1, 0]]
         return rows
 
-    rewrite_galaxies(snapshot_partition(swapped, first), first, swap)
-    expect_failure("payloads swapped between two IDs", swapped, "differs for")
+    def wrong_snapshot(_base: OutputRun, run: OutputRun) -> None:
+        with h5py.File(snapshot_partition(run, origin), "r") as handle:
+            row = handle[f"Snap{origin:03d}/Galaxies"][()][moved_row : moved_row + 1]
+        rewrite_galaxies(run, origin, lambda rows: numpy.delete(rows, moved_row))
+        rewrite_galaxies(run, target, lambda rows: numpy.concatenate([rows, row]))
 
-    moved = candidate("wrong_snapshot")
-    with h5py.File(snapshot_partition(moved, first), "r") as handle:
-        row = handle[f"Snap{first:03d}/Galaxies"][()][-1:]
-    rewrite_galaxies(snapshot_partition(moved, first), first, lambda rows: rows[:-1])
-    rewrite_galaxies(
-        snapshot_partition(moved, second), second, lambda rows: numpy.concatenate([rows, row])
+    def remove_metadata(_base: OutputRun, run: OutputRun) -> None:
+        (run.directory / "metadata" / "test_simulation.yaml").unlink()
+
+    run_yaml, prop, ver = f"metadata/{RUN_FILE_NAME}", "RunProperties", "RunProperties/Version"
+    commit, end_time, sim_yaml = b"f" * 40, b"1999-01-01T00:00:00", "metadata/test_simulation.yaml"
+    add_empty = on_text(run_yaml, lambda text: with_empty_list(text.encode()).decode())
+    substeps = on_text(run_yaml, lambda text: text.replace("SubSteps: 10", "SubSteps: 11"))
+    schema = on_text("metadata/output_schema.json", lambda text: text.replace('"', "'", 1))
+    sim_changed = on_text(sim_yaml, lambda text: text + "# changed\n")
+    extra = on_master(lambda h: h[prop].create_dataset("EventContractsExtra", data=numpy.zeros(1)))
+    substeps_attr = on_master(lambda h: h[prop].attrs.__setitem__("SubSteps", 11))
+    added_attr = on_master(lambda h: h[prop].attrs.__setitem__("Extra", 1))
+    model_name = on_master(set_attribute(prop, "ModelName", b"sage16x", "S7"))
+    commit_dtype = on_master(set_attribute(ver, "git_commit", commit, "S64"))
+    commit_shape = on_master(set_attribute(ver, "git_commit", commit, count=2))
+    end_dtype = on_master(set_attribute(prop, RUN_END_TIME, end_time, "S19"))
+    provenance_labels = (
+        f"{ver}@git_commit",
+        f"{prop}@{RUN_END_TIME}",
+        "metadata/version_info.json",
     )
-    expect_failure("a galaxy in the wrong snapshot", moved, f"Snap{first:03d}: ID sets differ")
-
-    master = "model.hdf5"
-    for dataset in NAMED_DATASETS:
-        with h5py.File(base.directory / master, "r") as handle:
-            if f"RunProperties/{dataset}" not in handle:
-                continue
-        missing = candidate(f"missing_{dataset}")
-        with h5py.File(missing.directory / master, "r+") as handle:
-            del handle[f"RunProperties/{dataset}"]
-        expect_failure(f"missing dataset {dataset}", missing, "HDF5 objects differ")
-
-        altered = candidate(f"altered_{dataset}")
-        with h5py.File(altered.directory / master, "r+") as handle:
-            data = handle[f"RunProperties/{dataset}"]
-            values = data[()]
-            if values.size == 0:
-                log(f"  dataset {dataset} is empty here; no byte to alter")
-                continue
-            if values.dtype.names:
-                column = values[values.dtype.names[0]]
-                head = column[0]
-                if isinstance(head, bytes):
-                    column[0] = b"X" + head[1:]
-                elif isinstance(head, str):
-                    column[0] = "X" + head[1:]
-                else:
-                    column[0] = head + 1
-            else:
-                values.view(numpy.uint8).reshape(-1)[0] ^= 1
-            data[...] = values
-        expect_failure(
-            f"altered dataset {dataset}", altered, f"RunProperties/{dataset}: dataset bytes differ"
-        )
-
-    extra = candidate("extra_dataset")
-    with h5py.File(extra.directory / master, "r+") as handle:
-        handle["RunProperties"].create_dataset("EventContractsExtra", data=numpy.zeros(1))
-    expect_failure("an extra dataset", extra, "HDF5 objects differ")
-
-    attribute = candidate("attribute")
-    with h5py.File(attribute.directory / master, "r+") as handle:
-        handle["RunProperties"].attrs["SubSteps"] = 11
-    expect_failure("an altered RunProperties attribute", attribute, "RunProperties@SubSteps")
-
-    renamed = candidate("name_attribute")
-    with h5py.File(renamed.directory / master, "r+") as handle:
-        handle["RunProperties"].attrs.create("ModelName", data=b"sage16x", dtype="S7")
-    expect_failure("an altered non-permitted string attribute", renamed, "RunProperties@ModelName")
-
-    added = candidate("added_attribute")
-    with h5py.File(added.directory / master, "r+") as handle:
-        handle["RunProperties"].attrs["Extra"] = 1
-    expect_failure("an added attribute", added, "attribute names differ")
-
-    schema = candidate("schema")
-    path = schema.directory / "metadata" / "output_schema.json"
-    path.write_text(path.read_text().replace('"', "'", 1))
-    expect_failure("an altered output schema", schema, "output schema differs")
-
-    metadata = candidate("metadata")
-    path = metadata.directory / "metadata" / "test_simulation.yaml"
-    path.write_text(path.read_text() + "# changed\n")
-    expect_failure(
-        "a metadata file changed beyond its path prefix", metadata, "differs beyond the path prefix"
+    label = f"path-valued attribute {prop}@PathNote (path prefix only)"
+    note_ver, note_prop, prefix_only = (
+        f"{ver}@PathNote",
+        f"{prop}@PathNote",
+        f"{sim_yaml}: path prefix only",
     )
-
-    removed = candidate("file_set")
-    (removed.directory / "metadata" / "test_simulation.yaml").unlink()
-    expect_failure("a missing metadata file", removed, "file sets differ")
-
-    # Permitted differences are accepted, and named.
-    provenance = candidate("provenance")
-    with h5py.File(provenance.directory / master, "r+") as handle:
-        change_attribute_value(handle["RunProperties/Version"], "git_commit", b"f" * 40)
-        change_attribute_value(handle["RunProperties"], RUN_END_TIME, b"1999-01-01T00:00:00")
-    info = provenance.directory / "metadata" / "version_info.json"
-    info.write_text(info.read_text().replace('"run_date"', '"run_date_changed"'))
-    expect_accepted(
-        "permitted provenance differences",
-        provenance,
-        [
-            "RunProperties/Version@git_commit",
-            f"RunProperties@{RUN_END_TIME}",
-            "metadata/version_info.json",
-        ],
-    )
-
-    for label, mutate in (
+    narrow_note, relaid = path_note(prop, (1024, 512)), on_master(relayout)
+    layout_needle = f"{prop}/FieldMetadata: dataset dtype differs"
+    more, only_value = "more than the added empty list", "only its value may differ"
+    rows = [
+        ("an untouched copy", unchanged, None),
+        ("a dataset rewritten with identical rows", on_galaxies(first, lambda rows: rows), None),
+        ("a dropped ID", on_galaxies(first, lambda rows: rows[:-1]), "UniqueGalaxyID sets differ"),
+        ("a duplicated ID", on_galaxies(first, duplicate), "duplicated UniqueGalaxyID"),
+        ("a field perturbed by one bit", on_galaxies(first, perturb), "Mvir: 1 record(s) differ"),
+        ("payloads swapped between two IDs", on_galaxies(first, swap), "record(s) differ"),
+        ("a galaxy in the wrong snapshot", wrong_snapshot, f"Snap{origin:03d}: UniqueGalaxyID"),
+    ]
+    with h5py.File(source.directory / MASTER, "r") as handle:
+        sizes = {n: handle[f"{prop}/{n}"].size for n in NAMED_DATASETS if f"{prop}/{n}" in handle}
+    for name, size in sizes.items():
+        delete = on_master(lambda h, n=name: h.__delitem__(f"{prop}/{n}"))
+        rows.append((f"missing dataset {name}", delete, "HDF5 objects differ"))
+        if size:
+            needle = f"{prop}/{name}: dataset bytes differ"
+            rows.append((f"altered dataset {name}", on_master(alter_dataset(name)), needle))
+        else:
+            log(f"  dataset {name} is empty here; no byte to alter")
+    rows += [
+        ("an extra dataset", extra, "HDF5 objects differ"),
+        ("an altered RunProperties attribute", substeps_attr, f"{prop}@SubSteps"),
+        ("an altered non-permitted string attribute", model_name, f"{prop}@ModelName"),
+        ("an added attribute", added_attr, "attribute names differ"),
+        ("an external link retargeted", on_master(retarget_link), "external link or link type"),
+        ("an altered output schema", schema, "output schema differs"),
+        ("a metadata file changed beyond its path prefix", sim_changed, "beyond the path prefix"),
+        ("a missing metadata file", remove_metadata, "file sets differ"),
+        ("permitted provenance differences", provenance, None, False, provenance_labels),
+        ("a permitted attribute with a changed dtype", commit_dtype, only_value),
+        ("a permitted attribute with a changed shape", commit_shape, only_value),
+        ("RunEndTime with a changed dtype", end_dtype, only_value),
+        ("a compound dataset with identical values but a different layout", relaid, layout_needle),
+        ("a path-prefix-only metadata difference", prefixed_metadata, None, False, (prefix_only,)),
+        ("a path-prefix string attribute on RunProperties", path_note(prop), None, False, (label,)),
+        ("a path-prefix string attribute on RunProperties/Version", path_note(ver), note_ver),
         (
-            "a permitted attribute with a changed dtype",
-            lambda handle: handle["RunProperties/Version"].attrs.create(
-                "git_commit", data=numpy.array([b"f" * 40], dtype="S64"), dtype="S64"
-            ),
+            "a path-prefix attribute with a changed dtype",
+            narrow_note,
+            note_prop,
+            False,
+            (),
+            "PathNote",
         ),
         (
-            "a permitted attribute with a changed shape",
-            lambda handle: handle["RunProperties/Version"].attrs.create(
-                "git_commit",
-                data=numpy.array([b"f" * 40, b"x"], dtype="S128"),
-                dtype=handle["RunProperties/Version"].attrs.get_id("git_commit").dtype,
-            ),
+            "the added post_snapshot: [] line (empty-list leg)",
+            add_empty,
+            None,
+            True,
+            (EMPTY_LIST_LABEL,),
         ),
-        (
-            "RunEndTime with a changed dtype",
-            lambda handle: handle["RunProperties"].attrs.create(
-                RUN_END_TIME, data=numpy.array([b"1999-01-01T00:00:00"], dtype="S19"), dtype="S19"
-            ),
-        ),
-    ):
-        mutated = candidate(f"attr_shape_{label.replace(' ', '_')}")
-        with h5py.File(mutated.directory / master, "r+") as handle:
-            mutate(handle)
-        expect_failure(label, mutated, "only its value may differ")
+        ("the added empty list outside the empty-list leg", add_empty, "beyond the path prefix"),
+        ("an empty-list leg without the added line", unchanged, more, True),
+        ("another run-file change in the empty-list leg", substeps, more, True),
+    ]
+    return [Case(*row) for row in rows]
 
-    relaid = candidate("relayout")
-    relayout_dataset(relaid.directory / master, "RunProperties/FieldMetadata")
-    with h5py.File(relaid.directory / master, "r") as handle:
-        moved = handle["RunProperties/FieldMetadata"][()]
-    with h5py.File(base.directory / master, "r") as original:
-        kept = original["RunProperties/FieldMetadata"][()]
-    assert all(moved[f].tobytes() == kept[f].tobytes() for f in kept.dtype.names)
-    assert moved.dtype != kept.dtype, "the relayout produced the same dtype"
-    expect_failure(
-        "a compound dataset with identical values but a different layout",
-        relaid,
-        "RunProperties/FieldMetadata: dataset dtype differs",
-    )
 
-    prefixed_base = copy_run(
-        source, scratch / "prefixed_base", str(scratch / "prefixed_base_prefix")
-    )
-    prefixed = copy_run(source, scratch / "prefixed", str(scratch / "prefixed_prefix"))
-    for run in (prefixed_base, prefixed):
-        path = run.directory / "metadata" / "test_simulation.yaml"
-        path.write_text(path.read_text() + f"# built in {run.prefixes[0]}/x\n")
-    report = compare_outputs(prefixed_base, prefixed)
-    if report.errors or "metadata/test_simulation.yaml: path prefix only" not in report.permitted:
-        raise AssertionError(f"a path-prefix-only difference was not accepted: {report.errors[:3]}")
-    results.append("a path-prefix-only metadata difference")
-    log("  control accepted: a path-prefix-only metadata difference")
+def run_mutation_checks(source: OutputRun, scratch: Path) -> int:
+    """Prove each assertion of the comparator fails on the defect it exists to catch.
 
-    # A path-valued string attribute is tolerated on RunProperties only.
-    for where, accepted in (("RunProperties", True), ("RunProperties/Version", False)):
-        for run in (prefixed_base, prefixed):
-            with h5py.File(run.directory / master, "r+") as handle:
-                handle[where].attrs.create(
-                    "PathNote", data=f"{run.prefixes[0]}/x".encode(), dtype="S1024"
+    Every case compares fresh copies of the source output, each with its own path-prefix token.
+    Returns the number of cases that behaved as required.
+    """
+    cases = mutation_cases(source)
+    for number, case in enumerate(cases):
+        runs = []
+        for role in ("base", "candidate"):
+            directory = scratch / f"{number:02d}_{role}"
+            shutil.copytree(source.directory, directory)
+            runs.append(OutputRun(directory, (f"{directory}_prefix",)))
+        case.change(*runs)
+        report = compare_outputs(*runs, empty_leg=case.empty_leg)
+        if case.needle is None:
+            missing = [label for label in case.permitted if label not in report.permitted]
+            if report.errors or missing:
+                raise AssertionError(
+                    f"control {case.name!r}: errors {report.errors[:4]}, unnamed {missing}"
                 )
-        report = compare_outputs(prefixed_base, prefixed)
-        label = "path-valued attribute RunProperties@PathNote (path prefix only)"
-        if accepted and (
-            label not in report.permitted or any("PathNote" in e for e in report.errors)
-        ):
+            log(f"  control accepted: {case.name} (permitted: {sorted(report.permitted)})")
+            continue
+        if not any(case.needle in error for error in report.errors):
             raise AssertionError(
-                f"a RunProperties path-prefix attribute was rejected: {report.errors[:3]}"
+                f"mutation {case.name!r} not rejected with {case.needle!r}: {report.errors[:4]}"
             )
-        if not accepted and not any(f"{where}@PathNote" in e for e in report.errors):
-            raise AssertionError(f"a path-prefix attribute on {where} was accepted")
-        for run in (prefixed_base, prefixed):
-            with h5py.File(run.directory / master, "r+") as handle:
-                del handle[where].attrs["PathNote"]
-        results.append(f"a path-prefix string attribute on {where}")
-        log(
-            f"  {'control accepted' if accepted else 'mutation rejected'}: path-prefix attribute on {where}"
-        )
-
-    # The prefix substitution also needs the same dtype and shape on both sides.
-    for run, width in ((prefixed_base, 1024), (prefixed, 512)):
-        with h5py.File(run.directory / master, "r+") as handle:
-            handle["RunProperties"].attrs.create(
-                "PathNote", data=f"{run.prefixes[0]}/x".encode(), dtype=f"S{width}"
-            )
-    report = compare_outputs(prefixed_base, prefixed)
-    if not any("RunProperties@PathNote" in error for error in report.errors) or any(
-        "PathNote" in label for label in report.permitted
-    ):
-        raise AssertionError(f"a prefix difference with a changed dtype was accepted: {report}")
-    for run in (prefixed_base, prefixed):
-        with h5py.File(run.directory / master, "r+") as handle:
-            del handle["RunProperties"].attrs["PathNote"]
-    results.append("a path-prefix attribute with a changed dtype")
-    log("  mutation rejected: path-prefix attribute with a changed dtype")
-
-    # The empty-list line is accepted only in the explicit-empty leg, and only when present.
-    listed = candidate("empty_list")
-    yaml_path = listed.directory / "metadata" / RUN_FILE_NAME
-    yaml_path.write_text(empty_list_text(yaml_path.read_text()))
-    expect_accepted(
-        "the added post_snapshot: [] line (empty-list leg)",
-        listed,
-        [f"metadata/{RUN_FILE_NAME}: added '{EMPTY_LIST_LINE.strip()}' line"],
-        empty_leg=True,
-    )
-    expect_failure(
-        "the added empty list outside the empty-list leg",
-        listed,
-        "content differs beyond the path prefix",
-    )
-    expect_failure(
-        "an empty-list leg without the added line",
-        candidate("empty_missing"),
-        "more than the added empty list",
-        empty_leg=True,
-    )
-    other_line = candidate("empty_other")
-    yaml_path = other_line.directory / "metadata" / RUN_FILE_NAME
-    yaml_path.write_text(yaml_path.read_text().replace("SubSteps: 10", "SubSteps: 11"))
-    expect_failure(
-        "another run-file change in the empty-list leg",
-        other_line,
-        "more than the added empty list",
-        empty_leg=True,
-    )
-
-    log(f"comparator self-check: {len(results)} mutation/control cases behaved as required")
+        if case.unpermitted and any(case.unpermitted in label for label in report.permitted):
+            raise AssertionError(f"mutation {case.name!r} was also named as permitted")
+        log(f"  mutation rejected: {case.name} ({len(report.errors)} error(s))")
+    log(f"comparator self-check: {len(cases)} mutation/control cases behaved as required")
+    return len(cases)
 
 
 # ---------------------------------------------------------------------------
@@ -1478,27 +1242,44 @@ def run_mutation_checks(source: OutputRun, scratch: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def parse_args(argv=None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--models", nargs="+", choices=MODELS, default=list(MODELS))
-    parser.add_argument(
-        "--fixtures",
-        nargs="+",
-        choices=[f.name for f in FIXTURES],
-        default=[f.name for f in FIXTURES],
-    )
-    parser.add_argument("--schemes", nargs="+", choices=SCHEMES, default=list(SCHEMES))
-    return parser.parse_args(argv)
+class Tee(io.TextIOBase):
+    """Write to the console and the log file at once."""
+
+    def __init__(self, *streams):
+        self.streams = streams
+
+    def write(self, text: str) -> int:
+        for stream in self.streams:
+            stream.write(text)
+            stream.flush()
+        return len(text)
+
+    def flush(self) -> None:
+        for stream in self.streams:
+            stream.flush()
 
 
 def main() -> int:
-    identity = Identity(parse_args())
-    # Ordered stages: each needs the one before it, so a failure stops the chain
-    # (the remaining stages report SKIP, which fails the make target) rather than
-    # cascading into errors that bury the cause.
-    return run_test_suite(
-        identity.stages(), "Snapshot-global disabled-mode identity", abort_on_failure=True
-    )
+    """Run every stage; fail on any FAIL, ERROR or SKIP marker (a WARN is surfaced, not fatal)."""
+    LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    console = sys.stdout
+    with LOG_PATH.open("w") as handle:
+        buffer = io.StringIO()
+        sys.stdout = Tee(console, handle, buffer)
+        try:
+            # No abort_on_failure: once the builds succeed the legs are independent, each
+            # checks its own prerequisites, and the verdict stage names every leg's outcome.
+            status = run_test_suite(Identity().stages(), "Snapshot-global disabled-mode identity")
+            if re.search(r"^MIMIC_RESULT: SKIP", buffer.getvalue(), flags=re.MULTILINE):
+                print("FAIL: a stage was skipped; this test has no legitimate skip")
+                status = 1
+            if "MIMIC_RESULT: WARN" in buffer.getvalue():
+                print("WARN: see the MIMIC_RESULT: WARN line(s) above (not a failure)")
+            verdict = "PASS" if status == 0 else "FAIL"
+            print(f"{verdict}: tests-snapshot-global-identity (log: {LOG_PATH})")
+        finally:
+            sys.stdout = console
+    return status
 
 
 if __name__ == "__main__":

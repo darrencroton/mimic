@@ -28,8 +28,9 @@ n0 = 1e-6 (Mpc/h)^-3, alpha = 1, so n0 * BoxSize^3 = 1 and rank r receives
 
 Run directly with MODEL=sham SIMULATION=micro-uchuu-ascii-horizontal after building
 that pair with TEST_BUILD=yes (make tests-snapshot-global-sham does both). Every case
-reports a configuration SKIP under any other simulation package: the default sham
-pair, mini-millennium, is vertical and cannot run a post_snapshot module.
+except the pure-Python Decimal cross-check reports a configuration SKIP under any other
+simulation package: the default sham pair, mini-millennium, is vertical and cannot run
+a post_snapshot module.
 """
 
 import json
@@ -55,7 +56,7 @@ from framework import (  # noqa: E402
     run_test_suite,
     selected_package_is_horizontal,
 )
-from sham_global_rank_reference import edge_table  # noqa: E402
+from sham_global_rank_reference import EDGE_CASES, edge_table  # noqa: E402
 
 TEMP_DIR = None
 
@@ -224,6 +225,33 @@ def galaxy_field_bytes(rows):
     return tuple((name, rows[name].tobytes()) for name in rows.dtype.names)
 
 
+def hdf5_contents(path):
+    """Every object's attributes and (dtype, shape, bytes) data in an HDF5 file, by name."""
+    import h5py
+    import numpy as np
+
+    found = {}
+    with h5py.File(path, "r") as handle:
+
+        def visit(item_name, item):
+            attrs = tuple(sorted((k, np.asarray(v).tobytes()) for k, v in item.attrs.items()))
+            data = None
+            if isinstance(item, h5py.Dataset):
+                data = (item.dtype.str, item.shape, item[()].tobytes())
+            found[item_name] = (attrs, data)
+
+        handle.visititems(visit)
+        found["/"] = tuple(sorted((k, np.asarray(v).tobytes()) for k, v in handle.attrs.items()))
+    return found
+
+
+def assert_early_snapshots_unchanged(rows, base, what):
+    """Snapshots 0-4 of a snapshot-5-only derivative match the committed-fixture run bytewise."""
+    for snap in range(FINAL_SNAPSHOT):
+        unchanged = galaxy_field_bytes(rows[snap]) == galaxy_field_bytes(base[snap])
+        assert unchanged, f"{what}: snapshot {snap} must not change"
+
+
 def make_derivative(name, edits):
     """Copy the committed fixture into the temp dir and edit snapshot 5 Vmax values only.
 
@@ -244,29 +272,12 @@ def make_derivative(name, edits):
             assert len(matches) == 1, f"derivative: Vmax {old} must appear once at snapshot 5"
             vmax[int(matches[0])] = np.float32(new)
 
-    def contents(path):
-        found = {}
-        with h5py.File(path, "r") as handle:
-
-            def visit(item_name, item):
-                attrs = tuple(sorted((k, np.asarray(v).tobytes()) for k, v in item.attrs.items()))
-                data = None
-                if isinstance(item, h5py.Dataset):
-                    data = (item.dtype.str, item.shape, item[()].tobytes())
-                found[item_name] = (attrs, data)
-
-            handle.visititems(visit)
-            found["/"] = tuple(
-                sorted((k, np.asarray(v).tobytes()) for k, v in handle.attrs.items())
-            )
-        return found
-
     for original in sorted(FIXTURE_DIR.iterdir()):
         copy = derivative / original.name
         if original.suffix != ".h5":
             assert copy.read_bytes() == original.read_bytes(), f"derivative: {original.name}"
             continue
-        before, after = contents(original), contents(copy)
+        before, after = hdf5_contents(original), hdf5_contents(copy)
         assert before.keys() == after.keys(), f"derivative: {original.name} object set changed"
         changed = sorted(key for key in before if before[key] != after[key])
         allowed = ["halos/Vmax"] if original.name == f"snapshot_{FINAL_SNAPSHOT:03d}.h5" else []
@@ -287,7 +298,8 @@ def test_example_ranks_every_snapshot_globally():
               StellarMass per UniqueGalaxyID equals 8 / (r + 0.5) for its brute-force
               rank within two float ULPs (zero for unranked entries); the final snapshot
               matches the hand-ranked oracle (two Type 2 orphans ranked); EnabledModules
-              and Parameters record the module and its three parameters.
+              and Parameters record the module and its three parameters; the run logs
+              "Loaded snapshot" (the positive control for the startup-rejection checks).
     """
     import h5py
 
@@ -295,6 +307,9 @@ def test_example_ranks_every_snapshot_globally():
     run_file, output_dir, stem = write_run("example")
     stdout = run_ok(run_file, "example run")
     assert "SHAM global rank initialized" in stdout, "the module must initialize"
+    # Positive control: the startup-rejection tests assert this string is absent, which is
+    # only meaningful if a successful run under the same harness does print it.
+    assert "Loaded snapshot" in stdout, "a successful run must log each loaded snapshot"
 
     rows = all_snapshot_rows(output_dir, stem)
     assert len(rows[0]) == 0, "snapshot 0 of the fixture is empty"
@@ -335,8 +350,11 @@ def test_peaks_persist_and_are_inherited():
 
     Expected: a galaxy's first Type 0/1 appearance has ShamVpeak = Vmax; later Type 0/1
               appearances have max(previous ShamVpeak, Vmax); Type 2 keeps its previous
-              peak exactly; ShamMpeak never decreases and is unchanged for Type 2.
+              peak exactly; Type 0/1 ShamMpeak is float32(max(previous ShamMpeak, Mvir))
+              (float32(Mvir) at first appearance); Type 2 ShamMpeak is unchanged.
     """
+    import numpy as np
+
     require_fixture_package()
     run_file, output_dir, stem = write_run("peaks")
     run_ok(run_file, "peaks run")
@@ -350,6 +368,10 @@ def test_peaks_persist_and_are_inherited():
             if galaxy_id not in previous:
                 assert int(row["Type"]) in (0, 1), f"snapshot {snap}: ID {galaxy_id} new orphan"
                 assert vpeak == float(row["Vmax"]), f"snapshot {snap}: ID {galaxy_id} first peak"
+                first_mpeak = (
+                    f"snapshot {snap}: ID {galaxy_id} first ShamMpeak {mpeak} != float32(Mvir)"
+                )
+                assert mpeak == float(np.float32(row["Mvir"])), first_mpeak
                 continue
             old = previous[galaxy_id]
             if int(row["Type"]) == 2:
@@ -359,7 +381,12 @@ def test_peaks_persist_and_are_inherited():
             else:
                 expected = max(float(old["ShamVpeak"]), float(row["Vmax"]))
                 assert vpeak == expected, f"snapshot {snap}: ID {galaxy_id} ShamVpeak {vpeak}"
-                assert mpeak >= float(old["ShamMpeak"]), f"snapshot {snap}: ID {galaxy_id} Mpeak"
+                previous_mpeak = float(old["ShamMpeak"])
+                expected_mpeak = float(np.float32(max(previous_mpeak, float(row["Mvir"]))))
+                assert mpeak == expected_mpeak, (
+                    f"snapshot {snap}: ID {galaxy_id} ShamMpeak {mpeak} != float32(max(previous "
+                    f"{previous_mpeak}, Mvir {float(row['Mvir'])}))"
+                )
         previous = current
     assert checked_orphans >= 2, "the fixture's final snapshot carries two orphans"
     assert float(previous[1000000006]["ShamVpeak"]) == 195.0, "orphan keeps its snapshot 3 peak"
@@ -400,9 +427,7 @@ def test_derivative_cross_fof_tie_goes_to_lower_id():
 
     rows = all_snapshot_rows(output_dir, stem)
     base = all_snapshot_rows(base_dir, stem)
-    for snap in range(FINAL_SNAPSHOT):
-        unchanged = galaxy_field_bytes(rows[snap]) == galaxy_field_bytes(base[snap])
-        assert unchanged, f"snapshot {snap} must not change"
+    assert_early_snapshots_unchanged(rows, base, "tie")
     final = per_id(rows[FINAL_SNAPSHOT])
     assert float(final[1000000005]["ShamVpeak"]) == float(final[2000000002]["ShamVpeak"]) == 214.0
     assert_snapshot_ranked(rows[FINAL_SNAPSHOT], "tie snapshot 5")
@@ -417,14 +442,19 @@ def test_derivative_higher_proxy_moves_other_fofs():
 
     Expected: with the snapshot 5 Vmax of ID 1000000003 (forest 0) raised from 191 to
               300, it takes rank 0 and every other galaxy, including forest 1's
-              ID 2000000002, moves down exactly one rank.
+              ID 2000000002, moves down exactly one rank; snapshots 0-4 are bitwise
+              identical to the committed-fixture run.
     """
     require_fixture_package()
     derivative = make_derivative("fixture_higher", {191.0: 300.0})
     run_file, output_dir, stem = write_run("higher", simulation_dir=derivative)
     run_ok(run_file, "higher-proxy run")
+    base_file, base_dir, _ = write_run("higher_base")
+    run_ok(base_file, "higher-proxy base run")
 
-    final = per_id(snapshot_rows(output_dir, stem, FINAL_SNAPSHOT))
+    rows = all_snapshot_rows(output_dir, stem)
+    assert_early_snapshots_unchanged(rows, all_snapshot_rows(base_dir, stem), "higher proxy")
+    final = per_id(rows[FINAL_SNAPSHOT])
     assert float(final[1000000003]["StellarMass"]) == 16.0, "the raised galaxy takes rank 0"
     for galaxy_id, (_type, _vpeak, rank) in FINAL_SNAPSHOT_ORACLE.items():
         if galaxy_id == 1000000003:
@@ -507,21 +537,38 @@ def test_decimal_reference_matches_unit_table():
     Test that the unit test's numerical edge table is the 60-digit Decimal reference.
 
     Expected: every row of the C table between its SHAM_DECIMAL_REFERENCE markers has
-              the outcome and float32 bits sham_global_rank_reference.py computes.
+              the case name, all four parameters (M0, n0 and alpha as strings parsed
+              with float(), BoxSize as a double literal) equal to the reference's
+              EDGE_CASES values, and the outcome and float32 bits that
+              sham_global_rank_reference.py computes. Pure Python: it needs no
+              executable, so it runs under every simulation pair.
     """
-    require_fixture_package()
     source = UNIT_TEST_SOURCE.read_text()
     block = source.split("SHAM_DECIMAL_REFERENCE_BEGIN")[1].split("SHAM_DECIMAL_REFERENCE_END")[0]
     rows = re.findall(
-        r'\{"(\w+)", "[^"]*", "[^"]*", "[^"]*", [^,]+, (\d), (0x[0-9A-F]+|0)u\}', block
+        r'\{"(\w+)", "([^"]*)", "([^"]*)", "([^"]*)", ([^,]+), (\d), (0x[0-9A-F]+|0)u\}', block
     )
-    table = {name: ("pass" if flag == "1" else "fail", int(bits, 16)) for name, flag, bits in rows}
+    table = {
+        name: {
+            "params": tuple(float(value) for value in (m0, n0, alpha, box)),
+            "outcome": "pass" if flag == "1" else "fail",
+            "bits": int(bits, 16),
+        }
+        for name, m0, n0, alpha, box, flag, bits in rows
+    }
     reference = edge_table()
+    reference_params = {name: tuple(params) for name, *params, rank in EDGE_CASES}
+    assert all(rank == 0 for *_head, rank in EDGE_CASES), "the C table evaluates rank 0 only"
     assert table.keys() == reference.keys(), f"edge cases {sorted(table)} != {sorted(reference)}"
     for name, (outcome, bits) in reference.items():
-        assert table[name][0] == outcome, f"{name}: C table says {table[name][0]}"
+        params_message = (
+            f"{name}: C parameters {table[name]['params']} != reference {reference_params[name]}"
+        )
+        assert table[name]["params"] == reference_params[name], params_message
+        assert table[name]["outcome"] == outcome, f"{name}: C table says {table[name]['outcome']}"
         if outcome == "pass":
-            assert table[name][1] == bits, f"{name}: C bits {table[name][1]:#x} != {bits:#x}"
+            c_bits = table[name]["bits"]
+            assert c_bits == bits, f"{name}: C bits {c_bits:#x} != {bits:#x}"
     print(json.dumps({name: f"{o} {b}" for name, (o, b) in reference.items()}))
 
 

@@ -45,10 +45,12 @@
   } while (0)
 
 /**
- * @brief Load an internal double parameter (with automatic error handling)
+ * @brief Load a double parameter converted to internal units (with automatic error handling)
  *
- * Uses `model_get_double_internal` for parameters not declared in the user-facing
- * YAML (e.g. computed cosmology constants set during init). Returns -1 on failure.
+ * Reads the required run-file value like LOAD_PARAM_DOUBLE, then applies the
+ * conversion to Mimic internal units declared for it in the model package's
+ * parameter_units.yaml (via `model_get_double_internal`); a parameter with no
+ * entry there is returned unchanged. Returns -1 on failure.
  */
 #define LOAD_PARAM_DOUBLE_INTERNAL(name, var)                                                      \
   do {                                                                                             \

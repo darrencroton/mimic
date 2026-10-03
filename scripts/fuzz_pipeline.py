@@ -21,6 +21,13 @@ Two sampling modes are available:
   ordering validation. "Valid" here means structurally executable under the
   encoded ordering contracts, not scientifically complete or recommended.
 
+Horizontal packages (simulation_info.yaml declares input.processing_order: horizontal)
+also get the fixed snapshot-wide phase: random runs may list each module that supports
+process_snapshot once under modules.post_snapshot, and valid-subset runs sample the base
+run file's post_snapshot entries. Vertical packages never receive the phase, and a
+horizontal run writes HDF5 output with the base run file's output snapshot list, since the
+horizontal driver cannot write binary output.
+
 Two failure modes (controlled by --strict):
 
   Default (non-strict): module-ordering validation errors are counted separately as
@@ -91,6 +98,9 @@ NON_EVENT_MODES = frozenset({"process_full_halo", "process_by_galaxy"})
 SAMPLING_RANDOM = "random"
 SAMPLING_VALID_SUBSET = "valid-subset"
 
+# Snapshot-wide mode, allowed only under modules.post_snapshot on the horizontal driver.
+SNAPSHOT_MODE = "process_snapshot"
+
 # Pool of names for randomly generated substep phases.
 _PHASE_NAME_POOL = [
     "physics",
@@ -117,8 +127,10 @@ _ERROR_PREFIXES = ("ERROR:", "FATAL:")
 # Pattern that identifies deliberate inter-module ordering validation messages.
 # These are intentional contract checks — "module A requires module B to precede it"
 # — not runtime or infrastructure failures. Filtered in non-strict mode.
+# The SHAM stellar-mass exclusion is the same kind of deliberate contract check.
 _VALIDATION_PATTERN = re.compile(
-    r"ERROR: sage_\w.*(?:requires|must run after)\s+sage_",
+    r"ERROR: sage_\w.*(?:requires|must run after)\s+sage_"
+    r"|ERROR: sham_global_rank and sham_assign_stellar_mass are independent",
     re.IGNORECASE,
 )
 
@@ -128,11 +140,23 @@ _VALIDATION_PATTERN = re.compile(
 # ---------------------------------------------------------------------------
 
 
-def discover_modules(model: str) -> List[Dict[str, Any]]:
+def is_horizontal_package(simulation: str) -> bool:
+    """Return True when the simulation package selects the horizontal driver."""
+    info_path = REPO_ROOT / "simulations" / simulation / "simulation_info.yaml"
+    if not info_path.exists():
+        return False
+    with info_path.open() as fh:
+        data = yaml.safe_load(fh) or {}
+    return (data.get("input") or {}).get("processing_order") == "horizontal"
+
+
+def discover_modules(model: str, horizontal: bool = False) -> List[Dict[str, Any]]:
     """Return a list of fuzzable modules for the given model.
 
-    Each entry: {"name": str, "modes": List[str]} where modes contains only
-    non-event processing modes the module supports.
+    Each entry: {"name": str, "modes": List[str], "snapshot": bool} where modes
+    contains only non-event processing modes the module supports (possibly none)
+    and snapshot is True when the module supports process_snapshot and the run
+    is horizontal, the only driver that runs the post_snapshot phase.
     """
     modules_dir = REPO_ROOT / "models" / model / "modules"
     if not modules_dir.exists():
@@ -153,9 +177,10 @@ def discover_modules(model: str) -> List[Dict[str, Any]]:
         if not name or not all_modes:
             continue
         eligible_modes = [m for m in all_modes if m in NON_EVENT_MODES]
-        if not eligible_modes:
+        snapshot = horizontal and SNAPSHOT_MODE in all_modes
+        if not eligible_modes and not snapshot:
             continue
-        result.append({"name": name, "modes": eligible_modes})
+        result.append({"name": name, "modes": eligible_modes, "snapshot": snapshot})
 
     if not result:
         sys.exit(f"ERROR: no fuzzable modules found for model '{model}'")
@@ -168,10 +193,21 @@ def discover_modules(model: str) -> List[Dict[str, Any]]:
 
 
 def load_base_config(model: str, simulation: str) -> Dict[str, Any]:
-    """Load the canonical run YAML for the given model/simulation pair."""
-    yaml_path = REPO_ROOT / "models" / model / "input" / f"{model}_{simulation}.yaml"
+    """Load the canonical run YAML for the given model/simulation pair.
+
+    The canonical name is models/<model>/input/<model>_<simulation>.yaml. When that file
+    does not exist but exactly one other run file in the directory ends in
+    ``_<simulation>.yaml`` (for example sham_global_micro-uchuu-ascii-horizontal.yaml),
+    that file is used; several candidates are an error rather than a guess.
+    """
+    input_dir = REPO_ROOT / "models" / model / "input"
+    yaml_path = input_dir / f"{model}_{simulation}.yaml"
     if not yaml_path.exists():
-        sys.exit(f"ERROR: base config not found: {yaml_path}")
+        candidates = sorted(input_dir.glob(f"*_{simulation}.yaml"))
+        if len(candidates) != 1:
+            found = ", ".join(str(c) for c in candidates) or "none"
+            sys.exit(f"ERROR: base config not found: {yaml_path} (other candidates: {found})")
+        yaml_path = candidates[0]
     with yaml_path.open() as fh:
         return yaml.safe_load(fh)
 
@@ -179,6 +215,27 @@ def load_base_config(model: str, simulation: str) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Config generation
 # ---------------------------------------------------------------------------
+
+
+def _output_block(base_config: Dict[str, Any], output_dir: Path) -> Dict[str, Any]:
+    """Return the fuzz run's output section.
+
+    Vertical runs write binary output for the single FUZZ_SNAPSHOT_LIST snapshot. Horizontal
+    runs are HDF5-only and take the base run file's output snapshot list, because snapshot
+    63 need not exist in a horizontal package.
+    """
+    output = {
+        "output_filename": "fuzz",
+        "output_directory": str(output_dir),
+        "output_format": "binary",
+        "snapshot_list": FUZZ_SNAPSHOT_LIST,
+    }
+    if is_horizontal_package((base_config.get("simulation") or {}).get("name", "")):
+        output["output_format"] = "hdf5"
+        output["snapshot_list"] = (base_config.get("output") or {}).get(
+            "snapshot_list", FUZZ_SNAPSHOT_LIST
+        )
+    return output
 
 
 def _slot_entries(bucket: List[Tuple[str, str]]) -> Optional[List[Dict[str, str]]]:
@@ -208,7 +265,7 @@ def generate_config(
 
     # Occasionally include duplicates (one extra copy of a randomly chosen module)
     # to exercise the "duplicate modules are valid" path.
-    module_pool = list(all_modules)
+    module_pool = [m for m in all_modules if m["modes"]]
     if module_pool and rng.random() < 0.15:
         extra = rng.choice(module_pool)
         module_pool.append(extra)
@@ -245,6 +302,14 @@ def generate_config(
     for bucket in slot_buckets.values():
         rng.shuffle(bucket)
 
+    # Snapshot-wide modules (horizontal runs only; none are discovered otherwise). Each is
+    # listed at most once, as its own single name: mode entry, in random order. These draws
+    # come last so vertical-package seeds replay exactly as before.
+    snapshot_bucket = [
+        (m["name"], SNAPSHOT_MODE) for m in all_modules if m["snapshot"] and rng.random() < density
+    ]
+    rng.shuffle(snapshot_bucket)
+
     # Build the phases sub-block (only include phases that have entries)
     phases_block: Optional[Dict[str, Any]] = {}
     for phase_name in phase_names:
@@ -267,17 +332,15 @@ def generate_config(
     post_entries = _slot_entries(slot_buckets["post_timestep"])
     if post_entries is not None:
         modules_block["post_timestep"] = post_entries
+    snapshot_entries = _slot_entries(snapshot_bucket)
+    if snapshot_entries is not None:
+        modules_block["post_snapshot"] = snapshot_entries
     modules_block["parameters"] = (base_config.get("modules") or {}).get("parameters")
 
     return {
         "model": base_config["model"],
         "simulation": base_config["simulation"],
-        "output": {
-            "output_filename": "fuzz",
-            "output_directory": str(output_dir),
-            "output_format": "binary",
-            "snapshot_list": FUZZ_SNAPSHOT_LIST,
-        },
+        "output": _output_block(base_config, output_dir),
         "SubSteps": FUZZ_SUBSTEPS,
         "modules": modules_block,
     }
@@ -319,6 +382,7 @@ def _canonical_non_event_entries(
     while still producing randomized subsets for stress testing.
     """
     eligible_modes = {m["name"]: set(m["modes"]) for m in all_modules}
+    snapshot_names = {m["name"] for m in all_modules if m["snapshot"]}
     modules = base_config.get("modules") or {}
     result: List[CanonicalEntry] = []
 
@@ -334,6 +398,10 @@ def _canonical_non_event_entries(
     for name, mode in _module_entry_items(modules.get("post_timestep") or []):
         if mode in eligible_modes.get(name, set()):
             result.append(("post_timestep", name, mode))
+
+    for name, mode in _module_entry_items(modules.get("post_snapshot") or []):
+        if mode == SNAPSHOT_MODE and name in snapshot_names:
+            result.append(("post_snapshot", name, mode))
 
     if not result:
         sys.exit(
@@ -457,7 +525,7 @@ def _build_config_from_phase_entries(
 
     phases_block: Dict[str, Any] = {}
     for phase_name, entries in grouped.items():
-        if phase_name in ("pre_timestep", "post_timestep"):
+        if phase_name in ("pre_timestep", "post_timestep", "post_snapshot"):
             continue
         phase_entries = _slot_entries(entries)
         if phase_entries is not None:
@@ -469,17 +537,16 @@ def _build_config_from_phase_entries(
     if post_entries is not None:
         modules_block["post_timestep"] = post_entries
 
+    snapshot_entries = _slot_entries(grouped.get("post_snapshot", []))
+    if snapshot_entries is not None:
+        modules_block["post_snapshot"] = snapshot_entries
+
     modules_block["parameters"] = (base_config.get("modules") or {}).get("parameters")
 
     return {
         "model": base_config["model"],
         "simulation": base_config["simulation"],
-        "output": {
-            "output_filename": "fuzz",
-            "output_directory": str(output_dir),
-            "output_format": "binary",
-            "snapshot_list": FUZZ_SNAPSHOT_LIST,
-        },
+        "output": _output_block(base_config, output_dir),
         "SubSteps": FUZZ_SUBSTEPS,
         "modules": modules_block,
     }
@@ -541,7 +608,7 @@ def _count_modules(config: Dict[str, Any]) -> int:
     """Count total module entries in a fuzz config."""
     modules = config.get("modules") or {}
     count = 0
-    for key in ("pre_timestep", "post_timestep"):
+    for key in ("pre_timestep", "post_timestep", "post_snapshot"):
         count += len(modules.get(key) or [])
     for entries in (modules.get("phases") or {}).values():
         count += len(entries or [])
@@ -815,7 +882,7 @@ def main() -> None:
     if not MIMIC_BIN.exists():
         sys.exit(f"ERROR: mimic binary not found at {MIMIC_BIN}. Run 'make' first.")
 
-    all_modules = discover_modules(args.model)
+    all_modules = discover_modules(args.model, is_horizontal_package(args.simulation))
     base_config = load_base_config(args.model, args.simulation)
 
     print(f"Mimic pipeline fuzzer")

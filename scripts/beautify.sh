@@ -104,6 +104,7 @@ if $FORMAT_C; then
     if check_tool "${CLANG_FORMAT}" "pip install 'clang-format>=20,<21'"; then
         # -exec ... + not `| xargs`: xargs splits paths containing spaces.
         if (cd "${ROOT_DIR}" && find . \( -path ./build -o -path ./mimic_venv -o -path ./sage-code \
+                -o -path ./archive -o -path ./output \
                 -o -name "generated" \) -prune \
                 -o \( -name "*.c" -o -name "*.h" \) \
                 -exec "${CLANG_FORMAT}" -i {} +) > /dev/null 2>&1; then
@@ -112,6 +113,7 @@ if $FORMAT_C; then
             echo -e "${RED}✗${NC}"
             echo -e "${RED}Error formatting C code. See details below:${NC}"
             (cd "${ROOT_DIR}" && find . \( -path ./build -o -path ./mimic_venv -o -path ./sage-code \
+                -o -path ./archive -o -path ./output \
                 -o -name "generated" \) -prune \
                 -o \( -name "*.c" -o -name "*.h" \) \
                 -exec "${CLANG_FORMAT}" -i {} +)

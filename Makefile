@@ -504,7 +504,7 @@ help:
 	@echo "  make tests-horizontal-v3 - Run the version 3 reader, retention and identity battery and the mini-millennium-horizontal package tests on committed fixtures"
 	@echo "  make tests-snapshot-global - Run the post_snapshot phase, typed callback/schema and sham_global_rank batteries on the committed horizontal fixtures"
 	@echo "  make tests-snapshot-global-sham - Run the sham_global_rank unit and end-to-end tests under MODEL=sham on the micro-uchuu-ascii-horizontal fixture"
-	@echo "  make tests-snapshot-global-identity - Compare disabled-mode post_snapshot output with the pre-feature reference commit (builds worktrees; slow; REFERENCE_COMMIT=<hash> optional)"
+	@echo "  make tests-snapshot-global-identity - Compare disabled-mode post_snapshot output with the pinned pre-feature reference commit (cached worktrees; about a minute; REFERENCE_COMMIT=<hash> overrides)"
 	@echo "  make tests-converter    - Run the ctrees->horizontal-HDF5 converter self-tests"
 	@echo "  make check-horizontal-fixture - Check the committed horizontal fixture against the format spec"
 	@echo "  make tests summary     - Run all tests with concise warning/failure/skip output"
@@ -623,7 +623,8 @@ check-docs:
 
 check-format:
 	@echo "Checking C formatting..."
-	@find . \( -path ./build -o -path ./mimic_venv -o -path ./sage-code -o -name "generated" \) -prune \
+	@find . \( -path ./build -o -path ./mimic_venv -o -path ./sage-code -o -path ./archive \
+	    -o -path ./output -o -name "generated" \) -prune \
 	    -o \( -name "*.c" -o -name "*.h" \) -print \
 	    | xargs $(CLANG_FORMAT) --dry-run --Werror
 	@echo "Checking Python formatting..."
@@ -813,10 +814,13 @@ tests-unit:
 	printf "$${BLUE}============================================================$${NC}\n"; \
 	printf "$${BLUE}RUNNING UNIT TESTS$${NC}\n"; \
 	printf "$${BLUE}============================================================$${NC}\n"
-	$(call RUN_SUMMARY_AWARE,MODEL='$(MODEL)' SIMULATION='$(SIMULATION)' $(PYTHON) scripts/generate_test_registry.py --strict,generate-test-registry)
+	$(call RUN_SUMMARY_AWARE,MIMIC_TEST_BUILD=1 MODEL='$(MODEL)' SIMULATION='$(SIMULATION)' $(PYTHON) scripts/generate_test_registry.py --strict,generate-test-registry)
 	$(call RUN_SUMMARY_AWARE,MODEL='$(MODEL)' SIMULATION='$(SIMULATION)' $(PYTHON) scripts/generate_test_inputs.py,generate-test-inputs)
 	@cd tests/unit && MIMIC_RECORD_TEST_FAILURES=1 ./run_tests.sh
 
+# The tiers run the TEST_BUILD executable, so their registries are generated with
+# MIMIC_TEST_BUILD=1: that is what admits the framework fixtures' own tests under
+# src/module_system/test_*/_tests (tests/unit/run_tests.sh sets it for the unit tier itself).
 # One canned recipe for the Python test tiers: $(1) registry name (also the
 # TLDR label uppercased via $(3)), $(2) banner text.
 define RUN_PYTHON_TIER
@@ -826,7 +830,7 @@ define RUN_PYTHON_TIER
 	printf "$${BLUE}============================================================$${NC}\n"; \
 	printf "$${BLUE}RUNNING $(2) TESTS$${NC}\n"; \
 	printf "$${BLUE}============================================================$${NC}\n"
-	$(call RUN_SUMMARY_AWARE,MODEL='$(MODEL)' SIMULATION='$(SIMULATION)' $(PYTHON) scripts/generate_test_registry.py --strict,generate-test-registry)
+	$(call RUN_SUMMARY_AWARE,MIMIC_TEST_BUILD=1 MODEL='$(MODEL)' SIMULATION='$(SIMULATION)' $(PYTHON) scripts/generate_test_registry.py --strict,generate-test-registry)
 	$(call RUN_SUMMARY_AWARE,MODEL='$(MODEL)' SIMULATION='$(SIMULATION)' $(PYTHON) scripts/generate_test_inputs.py,generate-test-inputs)
 	@if [ "$(TEST_SUMMARY)" != "1" ]; then echo ""; fi
 	$(call RUN_PYTHON_TEST_REGISTRY,$(1),$(1),$(3))
@@ -874,149 +878,21 @@ tests-horizontal-v3:
 	@echo "Generated code restored for MODEL=$(MODEL) SIMULATION=$(SIMULATION); rebuild the executable with 'make'."
 	@test "$$(cat build/.horizontal_v3_status)" = 0
 
-# sham_global_rank battery. Model tests are not registered for horizontal
-# packages (FULL_MODEL_TEST_SIMULATIONS in scripts/discovery.py), and the
-# module runs only in post_snapshot under the horizontal driver, so this target
-# builds MODEL=sham on the committed micro-uchuu-ascii-horizontal fixture as a
-# test build and invokes the module's declared C and Python tests by path. Any
-# non-zero exit or any `MIMIC_RESULT: SKIP` fails it; no skip is expected here.
-# Needs no real dataset and runs no parity gate. As in tests-horizontal-v3, the
-# generated code is restored for the caller's MODEL/SIMULATION on every path;
-# rebuild the executable with `make`.
-GSHAM_MODEL := sham
-GSHAM_SIMULATION := micro-uchuu-ascii-horizontal
-GSHAM_LOG := build/snapshot_global_sham_tests.log
-GSHAM_TEST_DIR := models/$(GSHAM_MODEL)/modules/sham_global_rank/_tests
-GSHAM_UNIT_TESTS := $(GSHAM_TEST_DIR)/test_unit_sham_global_rank.c
-GSHAM_PY_TESTS := $(GSHAM_TEST_DIR)/test_integration_sham_global_rank.py
-
-tests-snapshot-global-sham:
-	$(MAKE) MODEL=$(GSHAM_MODEL) SIMULATION=$(GSHAM_SIMULATION) TEST_BUILD=yes generate validate-build $(EXEC) \
-		|| { $(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) generate; exit 1; }
-	@mkdir -p build; : > $(GSHAM_LOG); rc=0; \
-	(cd tests/unit && MODEL='$(GSHAM_MODEL)' SIMULATION='$(GSHAM_SIMULATION)' ./run_tests.sh $(GSHAM_UNIT_TESTS)) >> $(GSHAM_LOG) 2>&1 || rc=1; \
-	for test in $(GSHAM_PY_TESTS); do \
-		MODEL='$(GSHAM_MODEL)' SIMULATION='$(GSHAM_SIMULATION)' $(PYTHON) $$test >> $(GSHAM_LOG) 2>&1 || rc=1; \
-	done; \
-	skips=$$(grep '^MIMIC_RESULT: SKIP' $(GSHAM_LOG)); \
-	if [ -n "$$skips" ]; then echo "Unexpected skips:"; echo "$$skips"; rc=1; fi; \
-	passes=$$(grep -c '^MIMIC_RESULT: PASS' $(GSHAM_LOG)); \
-	if [ $$rc -ne 0 ]; then echo "FAIL: tests-snapshot-global-sham (see $(GSHAM_LOG))"; \
-	else echo "PASS: tests-snapshot-global-sham ($$passes cases in $(words $(GSHAM_UNIT_TESTS)) C and $(words $(GSHAM_PY_TESTS)) Python tests, no skips)"; fi; \
-	echo $$rc > build/.snapshot_global_sham_status
-	$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) generate
-	@echo "Generated code restored for MODEL=$(MODEL) SIMULATION=$(SIMULATION); rebuild the executable with 'make'."
-	@test "$$(cat build/.snapshot_global_sham_status)" = 0
-
-# Complete fixture acceptance for the snapshot-global feature, in sequence: the
-# neutral post_snapshot phase tests under the v2 micro-Uchuu and the v3
-# mini-Millennium fixtures, the typed callback unit and schema tests, and
-# tests-snapshot-global-sham. Each step builds its pair as a test build, runs the
-# declared tests by path, and fails on a build or test exit status, on any
-# `MIMIC_RESULT: FAIL`, `ERROR`, `SKIP` or `WARN` (a warning fails the step: the
-# conservative rule for a battery that expects every case to pass), and on a PASS count that is not the
-# number of cases the test files declare (`def test_` or `TEST_RUN(`), so a case
-# dropped or duplicated cannot pass silently; the sham step is gated on its
-# declared 18 + 9 cases the same way. Logs go to $(SG_LOG). It runs no real-data
-# gate and no reference-commit comparison, and it does not touch model
-# discovery.
-#
-# The recipe is split as tests-horizontal-v3 is: the build steps are their own
-# recipe lines holding only the sub-make, and the shell that runs tests holds no
-# literal $(MAKE), so `make -n tests-snapshot-global` prints the test commands
-# without running any. State passes between lines through files under build/.
-# The caller's generated selectors are restored by the last step and, on an
-# interrupt, by the trap every step installs; both reach the restore through the
-# variable $(SG_RESTORE), which keeps those lines free of a literal $(MAKE). A
-# failed restore makes the target fail. Residual: a signal that arrives between
-# recipe lines, or SIGKILL, cannot be trapped and may leave the test-build
-# selectors in place, and a HUP or QUIT sent only to make (not to its process
-# group, as a terminal hangup or Ctrl-backslash does) may not reach the running
-# step; `make generate` (with the caller's MODEL and SIMULATION) restores them.
-# Rebuild the executable with `make`.
-SG_MODEL := halos-only
-SG_V2 := micro-uchuu-ascii-horizontal
-SG_V3 := mini-millennium-horizontal
-SG_LOG := build/snapshot_global_tests.log
-SG_STEP_LOG := build/snapshot_global_step.log
-SG_RC := build/.snapshot_global_status
-SG_TOTAL := build/.snapshot_global_total
-SG_BUILD_STATUS := build/.snapshot_global_build_status
-SG_PHASE_TEST := tests/integration/test_snapshot_phase.py
-SG_SCHEMA_TEST := tests/integration/test_snapshot_module_schema.py
-SG_CONTRACT_TEST := test_snapshot_module_contract
-SG_CONTRACT_SOURCE := tests/unit/$(SG_CONTRACT_TEST).c
-SG_VENV_PATH := $(if $(findstring /,$(PYTHON)),$(abspath $(dir $(PYTHON))):)
-SG_RESTORE_TARGET := generate
-SG_RESTORE = $(MAKE) --no-print-directory MODEL='$(MODEL)' SIMULATION='$(SIMULATION)' $(SG_RESTORE_TARGET)
-SG_TRAP = trap '$(SG_RESTORE) >> $(SG_LOG) 2>&1; exit 129' HUP; trap '$(SG_RESTORE) >> $(SG_LOG) 2>&1; exit 130' INT; trap '$(SG_RESTORE) >> $(SG_LOG) 2>&1; exit 131' QUIT; trap '$(SG_RESTORE) >> $(SG_LOG) 2>&1; exit 143' TERM;
-SG_CHECK = check() { \
-		label="$$1"; expected="$$2"; status="$$3"; \
-		{ echo "=== $$label (exit $$status, expecting $$expected cases)"; cat $(SG_STEP_LOG); } >> $(SG_LOG); \
-		passes=$$(grep -c '^MIMIC_RESULT: PASS' $(SG_STEP_LOG)); \
-		bad=$$(grep -E '^MIMIC_RESULT: (FAIL|ERROR|SKIP|WARN)' $(SG_STEP_LOG)); \
-		if [ "$$status" -ne 0 ]; then echo "FAIL: $$label exited $$status"; echo 1 > $(SG_RC); fi; \
-		if [ -n "$$bad" ]; then echo "FAIL: $$label reported FAIL, ERROR, SKIP or WARN cases (a WARN fails the step):"; echo "$$bad"; echo 1 > $(SG_RC); \
-		elif [ "$$passes" -ne "$$expected" ]; then echo "FAIL: $$label ran $$passes PASS cases, expected $$expected"; echo 1 > $(SG_RC); fi; \
-		echo "  $$label: $$passes/$$expected cases"; echo $$(( $$(cat $(SG_TOTAL)) + passes )) > $(SG_TOTAL); \
-	};
+# Snapshot-global fixture battery (tests/manual/run_snapshot_global_battery.py has the steps,
+# the marker policy and the restore of the caller's generated code; rebuild with `make` after).
+# The -sham target runs only the sham_global_rank group. Needs no real dataset.
+SG_RUNNER := MODEL='$(MODEL)' SIMULATION='$(SIMULATION)' $(PYTHON) tests/manual/run_snapshot_global_battery.py
 
 tests-snapshot-global:
-	@mkdir -p build; : > $(SG_LOG); echo 0 > $(SG_RC); echo 0 > $(SG_TOTAL)
-	@mkdir -p build; $(SG_TRAP) echo "--- $(SG_MODEL) x $(SG_V2)"; $(MAKE) --no-print-directory MODEL=$(SG_MODEL) SIMULATION=$(SG_V2) TEST_BUILD=yes generate validate-build $(EXEC) > $(SG_STEP_LOG) 2>&1; echo $$? > $(SG_BUILD_STATUS)
-	@$(SG_TRAP) $(SG_CHECK) \
-	check "build $(SG_V2)" 0 "$$(cat $(SG_BUILD_STATUS))"; \
-	if [ "$$(cat $(SG_BUILD_STATUS))" = 0 ]; then \
-		PATH="$(SG_VENV_PATH)$$PATH" MODEL='$(SG_MODEL)' SIMULATION='$(SG_V2)' $(PYTHON) $(SG_PHASE_TEST) > $(SG_STEP_LOG) 2>&1; \
-		status=$$?; check "post_snapshot phase tests on $(SG_V2)" "$$(grep -c '^def test_' $(SG_PHASE_TEST))" "$$status"; \
-		(cd tests/unit && MODEL='$(SG_MODEL)' SIMULATION='$(SG_V2)' ./run_tests.sh $(SG_CONTRACT_TEST)) > $(SG_STEP_LOG) 2>&1; \
-		status=$$?; check "typed callback unit tests" "$$(grep -c 'TEST_RUN(' $(SG_CONTRACT_SOURCE))" "$$status"; \
-		PATH="$(SG_VENV_PATH)$$PATH" MODEL='$(SG_MODEL)' SIMULATION='$(SG_V2)' $(PYTHON) $(SG_SCHEMA_TEST) > $(SG_STEP_LOG) 2>&1; \
-		status=$$?; check "typed callback schema tests" "$$(grep -c '^def test_' $(SG_SCHEMA_TEST))" "$$status"; \
-	fi
-	@mkdir -p build; $(SG_TRAP) echo "--- $(SG_MODEL) x $(SG_V3)"; $(MAKE) --no-print-directory MODEL=$(SG_MODEL) SIMULATION=$(SG_V3) TEST_BUILD=yes generate validate-build $(EXEC) > $(SG_STEP_LOG) 2>&1; echo $$? > $(SG_BUILD_STATUS)
-	@$(SG_TRAP) $(SG_CHECK) \
-	check "build $(SG_V3)" 0 "$$(cat $(SG_BUILD_STATUS))"; \
-	if [ "$$(cat $(SG_BUILD_STATUS))" = 0 ]; then \
-		PATH="$(SG_VENV_PATH)$$PATH" MODEL='$(SG_MODEL)' SIMULATION='$(SG_V3)' $(PYTHON) $(SG_PHASE_TEST) > $(SG_STEP_LOG) 2>&1; \
-		status=$$?; check "post_snapshot phase tests on $(SG_V3)" "$$(grep -c '^def test_' $(SG_PHASE_TEST))" "$$status"; \
-	fi
-	@$(SG_TRAP) echo "--- tests-snapshot-global-sham"; : > $(GSHAM_LOG); $(MAKE) --no-print-directory MODEL='$(MODEL)' SIMULATION='$(SIMULATION)' tests-snapshot-global-sham > $(SG_STEP_LOG) 2>&1; echo $$? > $(SG_BUILD_STATUS)
-	@$(SG_TRAP) $(SG_CHECK) \
-	status=$$(cat $(SG_BUILD_STATUS)); \
-	{ echo "=== tests-snapshot-global-sham (exit $$status)"; cat $(SG_STEP_LOG); } >> $(SG_LOG); \
-	if [ "$$status" -ne 0 ]; then echo "FAIL: tests-snapshot-global-sham exited $$status"; echo 1 > $(SG_RC); fi; \
-	cp -f $(GSHAM_LOG) $(SG_STEP_LOG); \
-	expected=$$(( $$(grep -c 'TEST_RUN(' $(GSHAM_UNIT_TESTS)) + $$(grep -c '^def test_' $(GSHAM_PY_TESTS)) )); \
-	check "sham_global_rank battery" "$$expected" 0
-	@$(SG_RESTORE) >> $(SG_LOG) 2>&1 \
-		&& echo "Generated code restored for MODEL=$(MODEL) SIMULATION=$(SIMULATION); rebuild the executable with 'make'." \
-		|| { echo "FAIL: could not restore generated code for MODEL=$(MODEL) SIMULATION=$(SIMULATION) (see $(SG_LOG))"; echo 1 > $(SG_RC); }
-	@rc=$$(cat $(SG_RC)); \
-	if [ "$$rc" -ne 0 ]; then echo "FAIL: tests-snapshot-global (see $(SG_LOG))"; \
-	else echo "PASS: tests-snapshot-global ($$(cat $(SG_TOTAL)) cases, every step gated on its declared count, no skips)"; fi; \
-	exit $$rc
+	@$(SG_RUNNER)
 
-# Disabled-mode identity against the pre-feature reference commit. The manual
-# test lives outside the auto-discovered tiers (tests/manual/ is never globbed by
-# scripts/generate_test_registry.py), builds the reference and HEAD in detached
-# worktrees under archive/snapshot-global-identity/, and never touches this
-# checkout's generated code. Slow (it builds twelve worktrees and runs thirty-six
-# fixture runs); REFERENCE_COMMIT=<hash> overrides the derived reference. Any
-# non-zero exit or any `MIMIC_RESULT: SKIP` (a development subset) fails it.
-SGI_LOG := build/snapshot_global_identity.log
-SGI_TEST := tests/manual/test_snapshot_disabled_identity.py
+tests-snapshot-global-sham:
+	@$(SG_RUNNER) --only sham
 
+# Manual disabled-mode identity against the pinned pre-feature reference commit
+# (REFERENCE_COMMIT=<hash> overrides it); writes build/snapshot_global_identity.log itself.
 tests-snapshot-global-identity:
-	@mkdir -p build; : > build/.snapshot_global_identity_status; : > build/.snapshot_global_identity_tee; \
-	{ { $(PYTHON) $(SGI_TEST); echo $$? > build/.snapshot_global_identity_status; } 2>&1 | tee $(SGI_LOG); echo $$? > build/.snapshot_global_identity_tee; }; \
-	rc=$$(cat build/.snapshot_global_identity_status 2>/dev/null); rc=$${rc:-1}; \
-	tee_rc=$$(cat build/.snapshot_global_identity_tee 2>/dev/null); tee_rc=$${tee_rc:-1}; \
-	if [ "$$tee_rc" -ne 0 ]; then echo "FAIL: tests-snapshot-global-identity could not capture its log (tee exited $$tee_rc)"; rc=1; fi; \
-	if grep -q '^MIMIC_RESULT: SKIP' $(SGI_LOG); then echo "FAIL: tests-snapshot-global-identity skipped a case"; rc=1; fi; \
-	if [ "$$rc" -ne 0 ]; then echo "FAIL: tests-snapshot-global-identity (see $(SGI_LOG))"; \
-	else echo "PASS: tests-snapshot-global-identity (see $(SGI_LOG))"; fi; \
-	exit $$rc
+	@$(PYTHON) tests/manual/test_snapshot_disabled_identity.py
 
 # Reference-topology dump harness: read-only, loads forests through the existing
 # consistent_trees_ascii reader and dumps their literal link fields for

@@ -10,7 +10,7 @@ Tracks each galaxy branch's peak virial mass (`ShamMpeak`) and peak maximum circ
 
 ## Ordering
 
-No ordering constraints. This module has no upstream budget producers or downstream consumers within the SHAM pipeline.
+No ordering constraints. This module has no upstream budget producers or downstream consumers within the SHAM pipeline. It is mutually exclusive with `sham_global_rank`, whose `init()` rejects a run configuring both.
 
 ## Properties
 

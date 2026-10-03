@@ -8,6 +8,7 @@ module:
 
   name: template_module                    # REQUIRED: Module name (lowercase_with_underscores)
 
+  # process_snapshot (snapshot family, horizontal post_snapshot phase) is also a valid mode; see README.md
   supported_processing_modes:              # REQUIRED: Which modes this module supports (usually just one)
     - process_by_galaxy                    #   process_by_galaxy: Per-galaxy processing (ngal=1)
     - process_per_event                    #   process_per_event: Per-event processing (ngal=1, ctx->active_event set)

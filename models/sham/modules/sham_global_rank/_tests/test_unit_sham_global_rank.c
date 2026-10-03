@@ -8,8 +8,9 @@
  * invariance in exact float bytes, the global (cross-FoF) nature of the rank,
  * peak tracking and its float storage bound, Type 2 inclusion, the reset of
  * every stellar field, all-or-nothing failure on malformed entries, empty and
- * all-ineligible populations, scratch release and no allocation growth, and a
- * numerical edge battery against an independent 60-digit Decimal reference.
+ * all-ineligible populations, no net or retained MEM_UTILITY allocation (the tracker
+ * reports net bytes, so a transient allocation freed before return is not observable),
+ * and a numerical edge battery against an independent 60-digit Decimal reference.
  *
  * Float tolerance policy. Same-build repeats and permutations must match in
  * exact float bytes. Independent formula checks (a direct double evaluation of
@@ -143,21 +144,36 @@ static int64_t find_id(int64_t count, long long id) {
 /** Oracle target with n0 * BoxSize^3 = 1 exactly in logarithms, so M_r = M0 / (r + 0.5) */
 static const struct ShamGlobalRankTarget unit_volume_target = {8.0, 1.0, 1.0, 1.0};
 
-/** Fisher-Yates shuffle of halos/galaxies [0, count) by a fixed LCG; repoints galaxies */
+/**
+ * Reorder halos/galaxies [0, count) so that new entry i is old entry order[i], then repoint
+ * every halo at the galaxy now at its own index. order must be a permutation of [0, count).
+ */
+static void permute_population(int64_t count, const int64_t *order) {
+  static struct Halo halos_old[MAX_POPULATION];
+  static struct GalaxyData galaxies_old[MAX_POPULATION];
+  memcpy(halos_old, halos, (size_t)count * sizeof(halos[0]));
+  memcpy(galaxies_old, galaxies, (size_t)count * sizeof(galaxies[0]));
+  for (int64_t i = 0; i < count; i++) {
+    halos[i] = halos_old[order[i]];
+    galaxies[i] = galaxies_old[order[i]];
+    halos[i].galaxy = &galaxies[i];
+  }
+}
+
+/** Fisher-Yates shuffle of halos/galaxies [0, count) by a fixed LCG */
 static void shuffle_population(int64_t count, uint64_t seed) {
+  int64_t order[MAX_POPULATION] = {0};
+  for (int64_t i = 0; i < count; i++) {
+    order[i] = i;
+  }
   for (int64_t i = count - 1; i > 0; i--) {
     seed = seed * UINT64_C(6364136223846793005) + UINT64_C(1442695040888963407);
     const int64_t j = (int64_t)((seed >> 33) % (uint64_t)(i + 1));
-    struct Halo halo = halos[i];
-    halos[i] = halos[j];
-    halos[j] = halo;
-    struct GalaxyData galaxy = galaxies[i];
-    galaxies[i] = galaxies[j];
-    galaxies[j] = galaxy;
+    const int64_t swap = order[i];
+    order[i] = order[j];
+    order[j] = swap;
   }
-  for (int64_t i = 0; i < count; i++) {
-    halos[i].galaxy = &galaxies[i];
-  }
+  permute_population(count, order);
 }
 
 /**
@@ -204,7 +220,7 @@ static int64_t brute_force_rank(int64_t count, int64_t i) {
 
 /**
  * @test   test_init_requires_single_post_snapshot_configuration
- * @brief  init() succeeds only when configured once in post_snapshot as process_snapshot
+ * @brief  init() needs the module in post_snapshot as process_snapshot; startup rejects repeats
  */
 int test_init_requires_single_post_snapshot_configuration(void) {
   init_memory_system(0);
@@ -215,11 +231,20 @@ int test_init_requires_single_post_snapshot_configuration(void) {
   TEST_ASSERT(init_configured(1.0, "8", "1", "1") == 0, "init should succeed when configured");
   TEST_ASSERT(sham_global_rank_cleanup() == 0, "cleanup should succeed");
 
-  configure_run(1.0, "8", "1", "1");
+  /* A duplicate entry never reaches init(): the registry rejects it during startup validation,
+     before any module is initialized, so init() itself only checks presence. */
+  ensure_modules_registered();
+  reset_config();
+  set_test_model_parameters();
+  MimicConfig.BoxSize = 1.0;
+  add_parameter("ShamGlobalMassScale", "8");
+  add_parameter("ShamGlobalNumberDensity", "1");
+  add_parameter("ShamGlobalSlope", "1");
+  MimicConfig.SubSteps = 1;
   test_post_snapshot_add("sham_global_rank", PROCESSING_MODE_SNAPSHOT);
   test_post_snapshot_add("sham_global_rank", PROCESSING_MODE_SNAPSHOT);
-  TEST_ASSERT(sham_global_rank_init() != 0, "init must fail when configured twice");
-  test_free_post_snapshot();
+  TEST_ASSERT(module_system_init() != 0, "startup must fail when configured twice");
+  module_system_cleanup();
 
   check_memory_leaks();
   return TEST_PASS;
@@ -498,17 +523,11 @@ int test_permutation_and_repeat_are_bitwise_identical(void) {
 
   /* Reversal moves every FoF group and every tie partner. */
   const int64_t m = build_mixed_population();
-  for (int64_t i = 0; i < m / 2; i++) {
-    struct Halo halo = halos[i];
-    halos[i] = halos[m - 1 - i];
-    halos[m - 1 - i] = halo;
-    struct GalaxyData galaxy = galaxies[i];
-    galaxies[i] = galaxies[m - 1 - i];
-    galaxies[m - 1 - i] = galaxy;
-  }
+  int64_t reversed[MAX_POPULATION] = {0};
   for (int64_t i = 0; i < m; i++) {
-    halos[i].galaxy = &galaxies[i];
+    reversed[i] = m - 1 - i;
   }
+  permute_population(m, reversed);
   TEST_ASSERT(sham_global_rank_assign(&unit_volume_target, halos, m) == 0, "reversed assignment");
   for (int64_t k = 0; k < ref_n; k++) {
     const int64_t i = find_id(m, ref_ids[k]);
@@ -770,7 +789,7 @@ int test_malformed_entries_fail_without_writes(void) {
       TEST_ASSERT(0, "a failed call must write nothing");
     }
     TEST_ASSERT((int64_t)memory_category_bytes(MEM_UTILITY) == before,
-                "scratch must be released on a returned failure");
+                "a returned failure must leave no net MEM_UTILITY bytes");
   }
 
   /* Control: the valid population itself succeeds. */
@@ -792,7 +811,8 @@ int test_malformed_entries_fail_without_writes(void) {
 
 /**
  * @test   test_empty_and_all_ineligible_populations
- * @brief  Empty succeeds without allocating; all-ineligible updates peaks and resets only
+ * @brief  Empty succeeds with no net MEM_UTILITY allocation; all-ineligible updates peaks and
+ *         resets only
  */
 int test_empty_and_all_ineligible_populations(void) {
   init_memory_system(0);
@@ -802,7 +822,8 @@ int test_empty_and_all_ineligible_populations(void) {
               "an empty population with a NULL pointer succeeds");
   TEST_ASSERT(sham_global_rank_assign(&unit_volume_target, halos, 0) == 0,
               "an empty population with a non-NULL pointer succeeds");
-  TEST_ASSERT(memory_category_bytes(MEM_UTILITY) == before, "an empty population allocates");
+  TEST_ASSERT(memory_category_bytes(MEM_UTILITY) == before,
+              "an empty population must leave no net MEM_UTILITY bytes");
 
   /* Type 0 with zero Vmax but positive Mvir, and a Type 2 with zero inherited peak. */
   set_entry(0, 0, 3, 0.0f, 12.5, 0);
@@ -819,7 +840,8 @@ int test_empty_and_all_ineligible_populations(void) {
     TEST_ASSERT(galaxies[i].StellarMass == 0.0f && galaxies[i].ShamStellarMassNoScatter == 0.0f,
                 "ineligible entries are reset to zero");
   }
-  TEST_ASSERT(memory_category_bytes(MEM_UTILITY) == before, "scratch is released");
+  TEST_ASSERT(memory_category_bytes(MEM_UTILITY) == before,
+              "all-ineligible call must leave no net MEM_UTILITY bytes");
 
   /* Uniqueness still applies to all-ineligible populations. */
   set_entry(0, 0, 3, 0.0f, 1.0, 0);
@@ -833,7 +855,7 @@ int test_empty_and_all_ineligible_populations(void) {
 
 /**
  * @test   test_no_allocation_growth_across_snapshots
- * @brief  Repeated callbacks leave tracked memory exactly where it started
+ * @brief  Repeated callbacks leave net MEM_UTILITY bytes exactly where they started
  */
 int test_no_allocation_growth_across_snapshots(void) {
   init_memory_system(0);
@@ -851,7 +873,7 @@ int test_no_allocation_growth_across_snapshots(void) {
     TEST_ASSERT(sham_global_rank_process_snapshot(&ctx, n > 0 ? halos : NULL, n) == 0,
                 "every snapshot should succeed");
     TEST_ASSERT(memory_category_bytes(MEM_UTILITY) == before,
-                "no allocation may outlive or accumulate across callbacks");
+                "no MEM_UTILITY allocation may be retained or accumulate across callbacks");
   }
 
   TEST_ASSERT(sham_global_rank_cleanup() == 0, "cleanup should succeed");

@@ -514,6 +514,7 @@ def create_test_param_file(
                             }
                             Each tuple is (module_name, processing_mode) where processing_mode is
                             'process_full_halo', 'process_per_event', or 'process_by_galaxy'
+                            ('process_snapshot' is used only under 'post_snapshot')
         model_params (dict): Dict of {parameter_name: value} for modules.parameters section
         first_file (int): First file to process (default: keep reference simulation config)
         last_file (int): Last file to process (default: keep reference simulation config)

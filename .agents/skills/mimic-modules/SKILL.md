@@ -85,7 +85,7 @@ Real example — `models/sage16/modules/sage_apply_cooling/module_info.yaml` dec
 | `process_by_galaxy` | One galaxy, `ngal == 1` | Local per-galaxy physics and time integration |
 | `process_snapshot` | Borrowed whole-snapshot population via `process_snapshot` (snapshot family) | Snapshot-wide calculations; accepted only in `modules.post_snapshot` (horizontal driver), and FoF phases reject it at startup |
 
-The first three modes are the FoF family (`process`). Mode → name → family lives in one C table (`processing_mode_descriptors` in `src/core/module_registry.c`) mirrored by `scripts/module_modes.py`; lookups fail closed, and a new family needs explicit entries in both plus an implementation.
+The first three modes are the FoF family (`process`). Mode → name → family lives in one C table (`processing_mode_descriptors` in `src/core/processing_modes.c`, with a `_Static_assert` that every enumerator has an entry) mirrored by `scripts/module_modes.py`; lookups fail closed, and a new family needs explicit entries in both plus an implementation.
 
 Choose the narrowest mode that gives enough context. Validate the expectation at the top of `process()` (e.g. `if (ngal != 1) { ERROR_LOG(...); return -1; }`) and skip `halos[i].galaxy == NULL` and `Type == 3` entries.
 
@@ -178,7 +178,7 @@ grep -n "^#define LOAD\|^#define VALIDATE" src/module_system/parameter_helpers.h
 grep -n "module_precedes_in_substep_phase\|modules_in_same_substep_phase" src/core/module_registry.h
 sed -n '1,45p' src/module_system/generated/event_contracts.h                      # ID naming pattern
 grep -n "PROCESSING_MODES\|STANDALONE_FALLBACK_MODES" scripts/module_modes.py          # mode descriptors
-grep -n "processing_mode_descriptors" -A6 src/core/module_registry.c               # C mode table
+grep -n "processing_mode_descriptors" -A6 src/core/processing_modes.c              # C mode table
 grep -n "VALID_COMPILATION_FEATURES" scripts/validate_modules.py
 grep -n "standalone" scripts/generate_module_registry.py | head -5                # prototype semantics
 ls src/module_system/template/                                                    # template files

@@ -1092,6 +1092,29 @@ static void parse_simulation_config_file(const char *fname) {
 }
 
 /**
+ * @brief   Format every processing-mode name for a diagnostic
+ *
+ * Writes "'a', 'b', 'c' or 'd'" in enum order, taking each name from the
+ * processing-mode table so the message can never disagree with the parser.
+ *
+ * @param   buffer  Destination; always NUL-terminated (truncated if too small)
+ * @param   size    Size of @p buffer in bytes
+ */
+static void format_processing_mode_names(char *buffer, size_t size) {
+  size_t used = 0;
+  buffer[0] = '\0';
+  for (int mode = 0; mode < PROCESSING_MODE_COUNT && used < size; mode++) {
+    const char *separator = (mode == 0) ? "" : (mode == PROCESSING_MODE_COUNT - 1) ? " or " : ", ";
+    const int written = snprintf(buffer + used, size - used, "%s'%s'", separator,
+                                 processing_mode_to_string((enum ProcessingMode)mode));
+    if (written < 0) {
+      break;
+    }
+    used += (size_t)written;
+  }
+}
+
+/**
  * @brief   Parse a single module phase configuration
  *
  * Parses YAML like:
@@ -1099,28 +1122,27 @@ static void parse_simulation_config_file(const char *fname) {
  *     - module_a: process_full_halo
  *     - module_b: process_by_galaxy
  *
- * This maps mode names only. Whether a mode is legal in its phase (FoF modes
- * in pre_timestep, the named substep phases and post_timestep; only
+ * Every entry must be a mapping of exactly one 'name: mode' pair, in every
+ * phase: an entry listing a second module is rejected rather than read up to
+ * its first pair, which would silently drop the rest (VISION Principle 2).
+ *
+ * Mode names are mapped through the processing-mode table
+ * (processing_mode_from_string(), processing_modes.c), so the parser keeps no
+ * name list of its own. Whether a mode is legal in its phase (FoF modes in
+ * pre_timestep, the named substep phases and post_timestep; only
  * process_snapshot in post_snapshot) and whether the module supports it are
- * checked by module_system_init() against the registry's mode table, before
- * any module init(). The parser cannot call that table: the topology-dump
- * harness (tests/unit/tools/build_topology_dump.sh) links this file without
- * the module system.
+ * checked by module_system_init(), before any module init().
  *
  * @param   doc         YAML document
  * @param   phase_node  Node for this phase (sequence of module:loop pairs)
  * @param   config      Output: array of PhaseModuleConfig
  * @param   num_modules Output: number of modules in phase
  * @param   phase_name  Phase name for error messages
- * @param   single_pair_entries  Non-zero to reject an entry mapping with more than
- *                      one 'name: mode' pair instead of reading only its first
- *                      (post_snapshot only; the FoF phases keep their existing
- *                      first-pair behaviour)
  * @return  0 on success, -1 on error
  */
 static int parse_phase_config(yaml_document_t *doc, yaml_node_t *phase_node,
                               struct PhaseModuleConfig **config, int *num_modules,
-                              const char *phase_name, int single_pair_entries) {
+                              const char *phase_name) {
   if (!phase_node) {
     *config = NULL;
     *num_modules = 0;
@@ -1191,7 +1213,7 @@ static int parse_phase_config(yaml_document_t *doc, yaml_node_t *phase_node,
 
     /* A second pair would otherwise be dropped silently, and with it a module. */
     const ptrdiff_t npairs = module_node->data.mapping.pairs.top - pair;
-    if (single_pair_entries && npairs > 1) {
+    if (npairs > 1) {
       const char *first = get_scalar_value(yaml_document_get_node(doc, pair[0].key));
       const char *second = get_scalar_value(yaml_document_get_node(doc, pair[1].key));
       ERROR_LOG("Phase '%s': entry %d lists %td modules ('%s', '%s'%s); each entry must be "
@@ -1218,19 +1240,11 @@ static int parse_phase_config(yaml_document_t *doc, yaml_node_t *phase_node,
 
     /* Parse processing mode */
     enum ProcessingMode processing_mode;
-    if (strcmp(processing_mode_str, "process_full_halo") == 0) {
-      processing_mode = PROCESSING_MODE_FULL_HALO;
-    } else if (strcmp(processing_mode_str, "process_per_event") == 0) {
-      processing_mode = PROCESSING_MODE_PER_EVENT;
-    } else if (strcmp(processing_mode_str, "process_by_galaxy") == 0) {
-      processing_mode = PROCESSING_MODE_BY_GALAXY;
-    } else if (strcmp(processing_mode_str, "process_snapshot") == 0) {
-      processing_mode = PROCESSING_MODE_SNAPSHOT;
-    } else {
-      ERROR_LOG("Phase '%s': module '%s' has invalid processing mode '%s' (must be "
-                "'process_full_halo', 'process_per_event', 'process_by_galaxy' or "
-                "'process_snapshot')",
-                phase_name, module_name, processing_mode_str);
+    if (processing_mode_from_string(processing_mode_str, &processing_mode) != 0) {
+      char valid_modes[MAX_STRING_LEN];
+      format_processing_mode_names(valid_modes, sizeof(valid_modes));
+      ERROR_LOG("Phase '%s': module '%s' has invalid processing mode '%s' (must be %s)", phase_name,
+                module_name, processing_mode_str, valid_modes);
       myfree(*config);
       *config = NULL;
       return -1;
@@ -1295,7 +1309,7 @@ static void add_substep_phase(yaml_document_t *doc, const char *name, yaml_node_
   if (phase->name == NULL) {
     FATAL_ERROR("Failed to allocate substep phase name '%s'", name);
   }
-  if (parse_phase_config(doc, phase_node, &phase->modules, &phase->num_modules, name, 0) != 0) {
+  if (parse_phase_config(doc, phase_node, &phase->modules, &phase->num_modules, name) != 0) {
     FATAL_ERROR("Failed to parse substep phase '%s'", name);
   }
   MimicConfig.num_substep_phases++;
@@ -1319,33 +1333,24 @@ static void parse_modules_section(yaml_document_t *doc, yaml_node_t *section) {
   /* Fixed lifecycle phases */
   node = get_mapping_value(doc, section, "pre_timestep");
   if (parse_phase_config(doc, node, &MimicConfig.pre_timestep, &MimicConfig.num_pre_timestep,
-                         "pre_timestep", 0) != 0) {
+                         "pre_timestep") != 0) {
     FATAL_ERROR("Failed to parse pre_timestep phase");
   }
 
   node = get_mapping_value(doc, section, "post_timestep");
   if (parse_phase_config(doc, node, &MimicConfig.post_timestep, &MimicConfig.num_post_timestep,
-                         "post_timestep", 0) != 0) {
+                         "post_timestep") != 0) {
     FATAL_ERROR("Failed to parse post_timestep phase");
   }
 
   /* Snapshot-wide phase: absent, null and [] all mean no snapshot modules.
    * Whether the selected driver can run it is checked in
-   * validate_and_postprocess(), once the reader is known. */
+   * validate_and_postprocess(), once the reader is known; a repeated entry is
+   * rejected by module_system_init() (validate_post_snapshot_entries()). */
   node = get_mapping_value(doc, section, POST_SNAPSHOT_PHASE_NAME);
   if (parse_phase_config(doc, node, &MimicConfig.post_snapshot, &MimicConfig.num_post_snapshot,
-                         POST_SNAPSHOT_PHASE_NAME, 1) != 0) {
+                         POST_SNAPSHOT_PHASE_NAME) != 0) {
     FATAL_ERROR("Failed to parse %s phase", POST_SNAPSHOT_PHASE_NAME);
-  }
-  /* Each entry runs once per snapshot; a repeated module would silently run twice. */
-  for (int i = 0; i < MimicConfig.num_post_snapshot; i++) {
-    for (int j = 0; j < i; j++) {
-      if (strcmp(MimicConfig.post_snapshot[j].module_name,
-                 MimicConfig.post_snapshot[i].module_name) == 0) {
-        FATAL_ERROR("Phase '%s': module '%s' is listed more than once", POST_SNAPSHOT_PHASE_NAME,
-                    MimicConfig.post_snapshot[i].module_name);
-      }
-    }
   }
 
   /* Reject any unrecognised key under modules: so stale or mistyped pipelines

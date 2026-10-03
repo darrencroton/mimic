@@ -9,6 +9,17 @@ Usage:
     python3 scripts/generate_test_registry.py           # Warn on missing tests
     python3 scripts/generate_test_registry.py --strict  # Fail on missing tests
 
+Framework fixture tests: the test fixture modules under src/module_system/test_*
+are discovered through scripts/discovery.py only for test builds, i.e. when
+MIMIC_TEST_BUILD is set in the environment (the Makefile exports it for
+TEST_BUILD=yes, and tests/unit/run_tests.sh sets it unconditionally). Their
+module_info.yaml ``tests:`` entries (currently test_fixture's unit and
+integration tests under src/module_system/test_fixture/_tests/) are then
+registered by the same module loop as model-module tests, with no separate
+glob. A registry generated without MIMIC_TEST_BUILD omits them, as it omits the
+fixture modules themselves, so a caller that runs the registered tests against
+a TEST_BUILD=yes executable must export MIMIC_TEST_BUILD=1 to this script.
+
 Generates:
     build/generated/unit_tests.txt        - Unit test paths
     build/generated/integration_tests.txt - Integration test paths

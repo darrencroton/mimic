@@ -6,22 +6,29 @@ Validates, through the real executable:
 
   - configuration: an absent, null or empty post_snapshot means no snapshot modules and
     leaves the pipeline and its provenance exactly as before; every malformed or illegal
-    entry (non-sequence phase, non-mapping entry, unknown mode, FoF mode in post_snapshot,
-    process_snapshot in a FoF phase, duplicate entry, unknown module, a module without the
-    snapshot mode, post_snapshot as a substep phase name) fails at startup, naming the
-    phase or module, before any module init() and before the dataset is opened;
+    entry (non-sequence phase, non-mapping entry, an entry naming two modules in any
+    phase, unknown mode, FoF mode in post_snapshot, process_snapshot in a FoF phase,
+    duplicate entry, unknown module, a module without the snapshot mode, post_snapshot as
+    a substep phase name) fails at startup, naming the phase or module, before any module
+    init() and before the dataset is opened;
   - the driver seam: a non-empty post_snapshot is rejected under the vertical driver and
     keeps the horizontal driver's HDF5-only and no-resume restrictions;
   - horizontal execution, on the selected package's committed fixture: every configured
     callback runs exactly once per input snapshot, in YAML order (proven by the two
-    fixtures' log markers), after the snapshot's FoF sweep and before any generation is
-    released or the snapshot is written, for empty, non-output and final snapshots alike
-    and whatever the substep scheme; its population is exactly the snapshot's own output
-    (Types 0/1/2, never Type 3, never an older retained generation); its writes to
+    fixtures' log markers, also when a FoF placement of test_fixture puts it first in the
+    pipeline), after the snapshot's FoF sweep and before any generation is released or the
+    snapshot is written, for empty, non-output and final snapshots alike and whatever the
+    substep scheme; its population is exactly the snapshot's own output (Types 0/1/2,
+    never an older retained generation); its writes to
     TestDummyProperty reach the next callback and the galaxies descendants inherit,
     across adjacent links and across an empty-snapshot gap; FoF event emission from a
     callback is rejected; EnabledModules records the phase; a failing callback aborts the
     run with module, snapshot and return code and leaves no master file behind.
+
+Type 3 exclusion is not proven here: MODEL=halos-only creates no Type 3 galaxy, so the
+"no Type 3" checks below are sanity checks only. The proof is the unit test
+test_post_snapshot_population_excludes_type3 (tests/unit/test_snapshot_module_contract.c),
+which runs the real marshaller over a workspace that contains a Type 3 entry.
 
 Parser and vertical-rejection cases run on every package. The horizontal-execution cases
 need a horizontal package with a committed fixture and report a configuration SKIP
@@ -96,13 +103,17 @@ HORIZONTAL_INPUT = {
     ),
 }
 
-#: Log lines that show a module was initialised or the dataset was opened.
+#: Log lines that show a module was initialised or the dataset was opened. The last three
+#: are the vertical driver's: its "Processing N input file(s) (first_file=..." banner, a
+#: completed input file, and a skipped missing tree file (src/core/vertical_driver.c).
 INIT_OR_PROCESSING_MARKERS = (
     "Test snapshot fixture module initialized",
     "Test fixture module initialized",
     "Opened horizontal run",
     "Loaded snapshot",
-    "Processing tree file",
+    "(first_file=",
+    "Completed input file",
+    "Missing tree",
 )
 
 _SNAPSHOT_FIXTURE_PATTERN = re.compile(
@@ -447,6 +458,41 @@ def _malformed_cases():
             ],
         ),
         (
+            "pre_timestep entry mapping with two modules",
+            {
+                "pre_timestep": [
+                    {
+                        "test_fixture": "process_full_halo",
+                        "test_event_producer": "process_full_halo",
+                    }
+                ]
+            },
+            [
+                "Phase 'pre_timestep': entry 1 lists 2 modules ('test_fixture', "
+                "'test_event_producer'); each entry must be exactly one 'name: mode' pair",
+                "Failed to parse pre_timestep phase",
+            ],
+        ),
+        (
+            "named substep phase entry mapping with two modules",
+            {
+                "phases": {
+                    "galaxy_physics": [
+                        {"test_fixture": "process_by_galaxy"},
+                        {
+                            "test_event_producer": "process_full_halo",
+                            "test_fixture": "process_full_halo",
+                        },
+                    ]
+                }
+            },
+            [
+                "Phase 'galaxy_physics': entry 2 lists 2 modules ('test_event_producer', "
+                "'test_fixture'); each entry must be exactly one 'name: mode' pair",
+                "Failed to parse substep phase 'galaxy_physics'",
+            ],
+        ),
+        (
             "unknown mode",
             {"post_snapshot": [{"test_snapshot_fixture": "process_global"}]},
             [
@@ -488,7 +534,11 @@ def _malformed_cases():
                     {"test_snapshot_fixture": "process_snapshot"},
                 ]
             },
-            ["Phase 'post_snapshot': module 'test_snapshot_fixture' is listed more than once"],
+            [
+                "Configuration error in phase 'post_snapshot'",
+                "Module 'test_snapshot_fixture' is listed more than once",
+                "Module system initialization failed",
+            ],
         ),
         (
             "reserved substep phase name",
@@ -515,12 +565,14 @@ def test_malformed_entries_fail_at_startup():
     """
     Test every illegal phase shape and entry fails before module init and dataset open.
 
-    Includes an entry mapping that names two modules, which must be rejected rather than
-    silently reduced to its first pair (that would drop the second module).
+    Includes entry mappings that name two modules, in post_snapshot, pre_timestep and a
+    named substep phase, which must be rejected rather than silently reduced to their
+    first pair (that would drop the second module).
 
     Expected: non-zero exit with the named phase/module diagnostic; no module init() line,
               no dataset opened, no snapshot loaded. Shape and mode-name errors stop the
-              parser; phase/mode legality, unknown modules and unsupported modes stop
+              parser (a two-module entry included); phase/mode legality, duplicate
+              post_snapshot entries, unknown modules and unsupported modes stop
               module_system_init(), which runs before any init(). Every case runs under the
               horizontal driver's configuration, so a non-empty post_snapshot reaches those
               checks: a vertical package is pointed at the committed v2 fixture's input
@@ -651,8 +703,27 @@ def test_horizontal_restrictions_still_apply():
 # ---------------------------------------------------------------------------
 
 
+#: Runs shared by more than one test, keyed by run name (see shared_run()).
+_SHARED_RUNS = {}
+
+
+def shared_run(name, **make_run_kwargs):
+    """Run one configuration through the executable once per suite and cache the result.
+
+    Tests whose configurations are identical share the run and each makes its own
+    assertions on the cached (returncode, stdout, stderr, output_dir, param_file). A name
+    always maps to one configuration: only the fixed helpers below call this.
+    """
+    if name not in _SHARED_RUNS:
+        param_file, output_dir = make_run(name, **make_run_kwargs)
+        returncode, stdout, stderr = run_mimic(param_file)
+        _SHARED_RUNS[name] = (returncode, stdout, stderr, output_dir, param_file)
+    return _SHARED_RUNS[name]
+
+
 def _two_callback_run(name, snapshot_list):
-    param_file, output_dir = make_run(
+    """post_snapshot [test_snapshot_fixture, test_fixture], writing `snapshot_list`."""
+    return shared_run(
         name,
         phase_config={
             "post_snapshot": [
@@ -661,10 +732,32 @@ def _two_callback_run(name, snapshot_list):
             ]
         },
         model_params=fixture_params(),
-        snapshot_list=snapshot_list,
+        snapshot_list=list(snapshot_list),
     )
-    returncode, stdout, stderr = run_mimic(param_file)
-    return returncode, stdout, stderr, output_dir, param_file
+
+
+def order_output_snapshots():
+    """The output snapshots of the shared ordering run: the middle and the final one."""
+    nsnap = len(fixture_scale_factors())
+    return sorted({nsnap // 2, nsnap - 1})
+
+
+def _order_run():
+    """The two-callback run shared by the ordering and provenance tests."""
+    return _two_callback_run("order", order_output_snapshots())
+
+
+def _population_run():
+    """post_snapshot [test_snapshot_fixture], every snapshot written.
+
+    Shared by the population and gapped-inheritance tests.
+    """
+    nsnap = len(fixture_scale_factors())
+    return shared_run(
+        "population",
+        phase_config={"post_snapshot": [("test_snapshot_fixture", "process_snapshot")]},
+        snapshot_list=list(range(nsnap)),
+    )
 
 
 def test_callbacks_run_once_per_snapshot_in_yaml_order():
@@ -684,8 +777,8 @@ def test_callbacks_run_once_per_snapshot_in_yaml_order():
     scale_factors = fixture_scale_factors()
     nsnap = len(scale_factors)
     halo_counts = fixture_halo_counts()
-    selected = sorted({nsnap // 2, nsnap - 1})
-    returncode, stdout, stderr, output_dir, _ = _two_callback_run("order", selected)
+    selected = order_output_snapshots()
+    returncode, stdout, stderr, _output_dir, _ = _order_run()
     assert_ok(returncode, stdout, stderr, "two-callback run")
 
     first = snapshot_markers(stdout)
@@ -719,6 +812,52 @@ def test_callbacks_run_once_per_snapshot_in_yaml_order():
     assert f"TEST_FIXTURE_SNAPSHOT_CLEANUP: total_snapshot_executions={nsnap}" in stdout
     assert (stdout + stderr).count(_EMIT_REJECTION) == nsnap, "emission rejected at every call"
     print(f"  ✓ {nsnap} snapshots × 2 callbacks in YAML order at the post-sweep seam")
+
+
+def test_snapshot_phase_runs_yaml_order_not_pipeline_order():
+    """
+    Test post_snapshot runs its own YAML order when the pipeline order differs.
+
+    Setup: test_fixture process_by_galaxy in galaxy_physics, so it joins the pipeline
+           first, and post_snapshot [test_snapshot_fixture, test_fixture], which lists it
+           second; only the final snapshot written.
+    Expected: at every snapshot, test_snapshot_fixture's marker precedes test_fixture's
+              TEST_FIXTURE_SNAPSHOT_EXEC marker inside that snapshot's block; test_fixture is
+              initialised once; EnabledModules records the FoF row and then the two
+              post_snapshot rows in YAML order.
+    """
+    require_horizontal_fixture("the YAML-versus-pipeline order case")
+    nsnap = len(fixture_scale_factors())
+    param_file, output_dir = make_run(
+        "pipeline_order",
+        phase_config={
+            "galaxy_physics": [("test_fixture", "process_by_galaxy")],
+            "post_snapshot": [
+                ("test_snapshot_fixture", "process_snapshot"),
+                ("test_fixture", "process_snapshot"),
+            ],
+        },
+        model_params=fixture_params(),
+        snapshot_list=[nsnap - 1],
+    )
+    returncode, stdout, stderr = run_mimic(param_file)
+    assert_ok(returncode, stdout, stderr, "FoF-plus-snapshot run")
+
+    first = snapshot_markers(stdout)
+    second = dual_markers(stdout)
+    assert [m["snapshot"] for m in first] == list(range(nsnap)), [m["snapshot"] for m in first]
+    assert [m["snapshot"] for m in second] == list(range(nsnap)), [m["snapshot"] for m in second]
+    for snap, (start, end) in enumerate(snapshot_blocks(stdout, nsnap)):
+        message = f"snapshot {snap}: test_snapshot_fixture must run before test_fixture"
+        assert start < first[snap]["pos"] < second[snap]["pos"] < end, message
+    assert stdout.count("Test fixture module initialized") == 1, "dual-mode init once"
+    master = Path(output_dir) / "model.hdf5"
+    assert enabled_modules(master) == [
+        ("test_fixture", "galaxy_physics", "process_by_galaxy"),
+        ("test_snapshot_fixture", "post_snapshot", "process_snapshot"),
+        ("test_fixture", "post_snapshot", "process_snapshot"),
+    ], f"EnabledModules {enabled_modules(master)}"
+    print(f"  ✓ {nsnap} snapshots run post_snapshot in YAML order, not pipeline order")
 
 
 def test_writes_reach_the_next_callback_and_descendants():
@@ -767,17 +906,14 @@ def test_population_is_the_current_generation():
     Expected: per snapshot, the marker's count, Type 0/1/2 counts and UniqueGalaxyID sum equal
               the written rows; no entry of another Type; every entry's SnapNum is the
               snapshot's own, including while an older generation is still retained (its
-              release is logged after the callback); Type 2 galaxies are included somewhere;
-              no Type 3 is ever handed over or written.
+              release is logged after the callback); Type 2 galaxies are included somewhere.
+              The "no Type 3" checks are a sanity check only: halos-only never creates a
+              Type 3 galaxy, so they cannot fail here. Type 3 exclusion is proven by the unit
+              test test_post_snapshot_population_excludes_type3 over the real marshaller.
     """
     require_horizontal_fixture("the current-generation population case")
     nsnap = len(fixture_scale_factors())
-    param_file, output_dir = make_run(
-        "population",
-        phase_config={"post_snapshot": [("test_snapshot_fixture", "process_snapshot")]},
-        snapshot_list=range(nsnap),
-    )
-    returncode, stdout, stderr = run_mimic(param_file)
+    returncode, stdout, stderr, output_dir, _ = _population_run()
     assert_ok(returncode, stdout, stderr, "population run")
     markers = snapshot_markers(stdout)
     assert [m["snapshot"] for m in markers] == list(range(nsnap))
@@ -789,6 +925,7 @@ def test_population_is_the_current_generation():
         rows = output_rows(output_dir, snap)
         types = [int(value) for value in rows["Type"]]
         marker = markers[snap]
+        # Sanity check only (halos-only creates no Type 3); see the docstring.
         assert 3 not in types, f"snapshot {snap}: a Type 3 galaxy was written"
         assert marker["count"] == len(rows), f"snapshot {snap}: count {marker['count']}"
         assert (marker["t0"], marker["t1"], marker["t2"]) == (
@@ -820,9 +957,12 @@ def test_gapped_inheritance_skips_the_empty_snapshot():
     """
     Test inheritance across an empty-snapshot gap, from the right generation.
 
-    Setup: post_snapshot [test_snapshot_fixture]; every snapshot written. Applies to a
-           fixture with links_adjacent = 0 (the v3 worked graph); on an adjacent fixture the
-           adjacent case is the whole of test_writes_reach_the_next_callback_and_descendants.
+    Setup: the population test's shared run (post_snapshot [test_snapshot_fixture]; every
+           snapshot written). Applies to a fixture with links_adjacent = 0 (the v3 worked
+           graph). On an adjacent fixture there is no gap to cross, and inheritance from each
+           predecessor is asserted at every snapshot by
+           test_writes_reach_the_next_callback_and_descendants, so this case has nothing
+           further to check and says so.
     Expected: the empty snapshot is called with count 0; the first populated snapshot after it
               finds every inherited galaxy carrying 0.5 (written at the snapshot before the
               gap, the only earlier write), with every entry's SnapNum its own while the
@@ -833,25 +973,18 @@ def test_gapped_inheritance_skips_the_empty_snapshot():
 
     with h5py.File(fixture[0] / "snapshot_000.h5", "r") as handle:
         adjacent = int(handle["header"].attrs["links_adjacent"])
+    if adjacent:
+        print(
+            "  ✓ adjacent fixture: no gap to cross; per-predecessor inheritance is asserted by "
+            "test_writes_reach_the_next_callback_and_descendants"
+        )
+        return
+
     nsnap = len(fixture_scale_factors())
     counts = fixture_halo_counts()
-    param_file, output_dir = make_run(
-        "gapped",
-        phase_config={"post_snapshot": [("test_snapshot_fixture", "process_snapshot")]},
-        snapshot_list=range(nsnap),
-    )
-    returncode, stdout, stderr = run_mimic(param_file)
+    returncode, stdout, stderr, output_dir, _ = _population_run()
     assert_ok(returncode, stdout, stderr, "gapped run")
     markers = snapshot_markers(stdout)
-    if adjacent:
-        # Adjacent: each populated snapshot after the first inherits from its predecessor.
-        for snap in range(1, nsnap):
-            previous = {int(v) for v in output_rows(output_dir, snap - 1)["UniqueGalaxyID"]}
-            current = [int(v) for v in output_rows(output_dir, snap)["UniqueGalaxyID"]]
-            if any(value in previous for value in current):
-                assert markers[snap]["seen_max"] == SNAPSHOT_FIXTURE_VALUE
-        print("  ✓ adjacent fixture: inheritance from each predecessor carries the write")
-        return
 
     gaps = [snap for snap in range(1, nsnap - 1) if counts[snap] == 0]
     assert gaps, "a gapped fixture must have an empty interior snapshot"
@@ -931,17 +1064,17 @@ def test_provenance_records_the_phase():
     """
     Test EnabledModules and the copied run file record the configured snapshot modules.
 
-    Expected: every partition and the master carry EnabledModules
+    Setup: the ordering test's shared two-callback run (final snapshot among its outputs).
+    Expected: the final partition and the master carry EnabledModules
               [(test_snapshot_fixture, post_snapshot, process_snapshot),
                (test_fixture, post_snapshot, process_snapshot)] in that order, and the copied
               run YAML under metadata/ carries the same post_snapshot list.
     """
     require_horizontal_fixture("the provenance case")
     nsnap = len(fixture_scale_factors())
-    returncode, stdout, stderr, output_dir, param_file = _two_callback_run(
-        "provenance", [nsnap - 1]
-    )
+    returncode, stdout, stderr, output_dir, param_file = _order_run()
     assert_ok(returncode, stdout, stderr, "provenance run")
+    assert nsnap - 1 in order_output_snapshots(), "the shared run writes the final snapshot"
     expected = [
         ("test_snapshot_fixture", "post_snapshot", "process_snapshot"),
         ("test_fixture", "post_snapshot", "process_snapshot"),
@@ -1001,6 +1134,9 @@ def test_failing_callback_aborts_and_cleans_up():
     assert f"Loaded snapshot {failing + 1} (" not in stdout, "the run stops at the failure"
     assert "Horizontal driver exiting early: releasing" in stdout, f"no failure cleanup:\n{output}"
     assert "Closed horizontal run 'horizontal_hdf5' with no slab loaded" in stdout
+    # The two log lines above are the evidence that the failure cleanup ran. The output-file
+    # checks below hold by construction (a snapshot's partition is written only after its
+    # callbacks, and the master only at the end), so they are not cleanup proof.
     assert not (Path(output_dir) / "model.hdf5").exists(), "no master file after a failure"
     left = sorted(int(p.stem.split("_")[-1]) for p in Path(output_dir).glob("model_*.hdf5"))
     assert all(snap < failing for snap in left), f"partitions left at/after the failure: {left}"
@@ -1017,6 +1153,7 @@ def main():
             test_vertical_driver_rejects_non_empty_phase,
             test_horizontal_restrictions_still_apply,
             test_callbacks_run_once_per_snapshot_in_yaml_order,
+            test_snapshot_phase_runs_yaml_order_not_pipeline_order,
             test_writes_reach_the_next_callback_and_descendants,
             test_population_is_the_current_generation,
             test_gapped_inheritance_skips_the_empty_snapshot,

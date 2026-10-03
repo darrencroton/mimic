@@ -92,7 +92,9 @@ UTIL_SRCS="${SRC_DIR}/util/memory.c ${SRC_DIR}/util/error.c ${SRC_DIR}/util/nume
 # loop (reader hooks + vertical/interface.c), never calls build_halo_tree() or any
 # output writer, and registers no physics modules. Excluding them keeps the
 # harness's dependency surface exactly as small as what it actually calls.
-CORE_SRCS="${SRC_DIR}/core/allvars.c ${SRC_DIR}/core/read_parameter_file.c ${SRC_DIR}/core/init.c ${SRC_DIR}/core/galaxy_pool.c"
+# core/processing_modes.c is the one module-system file it links: the run-file parser
+# maps mode names through its table, which needs nothing beyond the module headers.
+CORE_SRCS="${SRC_DIR}/core/allvars.c ${SRC_DIR}/core/read_parameter_file.c ${SRC_DIR}/core/init.c ${SRC_DIR}/core/galaxy_pool.c ${SRC_DIR}/core/processing_modes.c"
 # io/horizontal/registry.c is built without -DHDF5: read_parameter_file.c calls
 # horizontal_reader_lookup() when resolving tree_type against both registries, but
 # this harness reads vertical input only, so an empty snapshot table is

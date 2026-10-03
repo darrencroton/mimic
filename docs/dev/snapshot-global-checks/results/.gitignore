@@ -1,4 +1,0 @@
-# Run outputs are machine-local evidence; the committed summary lives in
-# docs/dev/MIMIC-SNAPSHOT-GLOBAL-MODULES-PLAN-CHECKS.md.
-*
-!.gitignore
