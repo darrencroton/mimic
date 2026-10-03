@@ -189,9 +189,10 @@ int module_system_init(void);
  * copy taken earlier in the phase. Per-event consumers address rows through
  * the phase's event-dispatch view, set from the descriptor when the phase
  * begins. When a full-halo callback returns, records it created through
- * module_create_record() are appended to the workspace before its pending
- * events are delivered or the next module runs, and the event-dispatch view
- * and ctx->central_galaxy are refreshed.
+ * module_create_record() are appended to the workspace before the next module
+ * runs and before the safety dispatch of any undelivered event (its events
+ * were delivered as it emitted them, against the committed rows), and the
+ * event-dispatch view and ctx->central_galaxy are refreshed.
  *
  * @param   phase_config   Array of module configurations for this phase
  * @param   num_modules    Number of modules in this phase (0 = skip phase)
@@ -252,6 +253,15 @@ void execute_module_pipeline(struct ModuleContext *ctx, struct FoFWorkspace *ws)
  * a run that created nothing holds none of them. Safe to call repeatedly.
  */
 void module_release_record_creation_scratch(void);
+
+/**
+ * @brief   Staging blocks the record-creation scratch holds (diagnostic)
+ *
+ * Block b holds 256 << b rows and blocks are kept at their high water, so the
+ * count is logarithmic in the most rows any one callback staged. For tests and
+ * diagnostics; zero after module_release_record_creation_scratch().
+ */
+int64_t module_record_creation_staging_blocks(void);
 
 /**
  * @brief   Cleanup the module system

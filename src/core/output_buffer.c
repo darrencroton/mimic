@@ -50,6 +50,84 @@ static void emit_workspace_row(struct Halo *halo, struct OutputBuffer *buffer,
   segment->output_count++;
 }
 
+/*
+ * Order the created rows for emission: grouped by the segment whose slice holds
+ * their host, in creation order within each segment (a stable counting sort,
+ * linear in rows, segments and created rows). On return (*placement)[0,
+ * ncreated) holds created-row offsets (row - base_count) in emission order and
+ * segment s owns (*placement)[(*bucket)[s], (*bucket)[s + 1]). Both are
+ * MEM_HALOS allocations the caller frees. A segment reaching into the created
+ * rows, two segments sharing a row, or a host in no segment is fatal, before
+ * anything is emitted.
+ */
+static void order_created_rows(const struct FoFWorkspace *ws,
+                               const struct OutputBufferSegment *segments, int64_t nsegments,
+                               int64_t ncreated, int64_t **placement, int64_t **bucket) {
+  int64_t *segment_of_row =
+      mymalloc_cat((size_t)ws->base_count * sizeof(*segment_of_row), MEM_HALOS);
+  for (int64_t r = 0; r < ws->base_count; r++) {
+    segment_of_row[r] = -1;
+  }
+  for (int64_t s = 0; s < nsegments; s++) {
+    const int64_t end = segments[s].workspace_start + segments[s].workspace_count;
+    if (end > ws->base_count) {
+      FATAL_ERROR("Output segment for source %" PRId64 " ends at row %" PRId64
+                  ", inside the created records starting at %" PRId64,
+                  segments[s].source_id, end, ws->base_count);
+    }
+    for (int64_t r = segments[s].workspace_start; r < end; r++) {
+      if (segment_of_row[r] >= 0) {
+        FATAL_ERROR("Output segments for sources %" PRId64 " and %" PRId64
+                    " share workspace row %" PRId64,
+                    segments[segment_of_row[r]].source_id, segments[s].source_id, r);
+      }
+      segment_of_row[r] = s;
+    }
+  }
+
+  int64_t *counts = mymalloc_cat((size_t)(nsegments + 1) * sizeof(*counts), MEM_HALOS);
+  int64_t *segment_of_created =
+      mymalloc_cat((size_t)ncreated * sizeof(*segment_of_created), MEM_HALOS);
+  for (int64_t s = 0; s <= nsegments; s++) {
+    counts[s] = 0;
+  }
+  int64_t placed = 0;
+  for (int64_t c = 0; c < ncreated; c++) {
+    const int64_t host = ws->created_host[c];
+    const int64_t s = (host >= 0 && host < ws->base_count) ? segment_of_row[host] : -1;
+    segment_of_created[c] = s;
+    if (s >= 0) {
+      counts[s + 1]++;
+      placed++;
+    }
+  }
+  if (placed != ncreated) {
+    FATAL_ERROR("Marshalled %" PRId64 " of %" PRId64 " created records: a created record's host "
+                "lies in no output segment",
+                placed, ncreated);
+  }
+
+  /* counts becomes the bucket starts; segment_of_row is reused as each
+   * segment's fill cursor (nsegments may exceed base_count, so it is resized). */
+  for (int64_t s = 0; s < nsegments; s++) {
+    counts[s + 1] += counts[s];
+  }
+  int64_t *cursor =
+      myrealloc_cat(segment_of_row, (size_t)(nsegments + 1) * sizeof(*cursor), MEM_HALOS);
+  for (int64_t s = 0; s < nsegments; s++) {
+    cursor[s] = counts[s];
+  }
+  int64_t *order = mymalloc_cat((size_t)ncreated * sizeof(*order), MEM_HALOS);
+  for (int64_t c = 0; c < ncreated; c++) {
+    order[cursor[segment_of_created[c]]++] = c;
+  }
+
+  myfree(cursor);
+  myfree(segment_of_created);
+  *placement = order;
+  *bucket = counts;
+}
+
 void marshal_workspace_to_output_buffer(const struct FoFWorkspace *ws, struct OutputBuffer *buffer,
                                         struct OutputBufferSegment *segments, int64_t nsegments) {
   assert(ws != NULL);
@@ -67,11 +145,20 @@ void marshal_workspace_to_output_buffer(const struct FoFWorkspace *ws, struct Ou
                 ", base_count=%" PRId64 ", created_capacity=%" PRId64,
                 ws->count, ws->base_count, ws->created_capacity);
   }
-  int64_t created_placed = 0;
+
+  /* Validated up front so a bad segment is reported before it is mapped. */
+  for (int64_t s = 0; s < nsegments; s++) {
+    validate_segment(&segments[s]);
+  }
+
+  int64_t *placement = NULL;
+  int64_t *bucket = NULL;
+  if (ncreated > 0) {
+    order_created_rows(ws, segments, nsegments, ncreated, &placement, &bucket);
+  }
 
   for (int64_t s = 0; s < nsegments; s++) {
     struct OutputBufferSegment *segment = &segments[s];
-    validate_segment(segment);
 
     segment->output_first = buffer->count;
     segment->output_count = 0;
@@ -83,22 +170,16 @@ void marshal_workspace_to_output_buffer(const struct FoFWorkspace *ws, struct Ou
 
     /* Then the records created on hosts in this slice, in creation order, so
      * the source halo's output range stays contiguous and next-snapshot
-     * gathering inherits them with it. The scan is over every created row
-     * per segment, which costs nothing when no record was created. */
-    for (int64_t c = 0; c < ncreated; c++) {
-      const int64_t host = ws->created_host[c];
-      if (host >= segment->workspace_start && host < end) {
-        emit_workspace_row(&workspace[ws->base_count + c], buffer, segment);
-        created_placed++;
+     * gathering inherits them with it. */
+    if (ncreated > 0) {
+      for (int64_t i = bucket[s]; i < bucket[s + 1]; i++) {
+        emit_workspace_row(&workspace[ws->base_count + placement[i]], buffer, segment);
       }
     }
   }
 
-  if (created_placed != ncreated) {
-    FATAL_ERROR("Marshalled %" PRId64 " of %" PRId64 " created records: a created record's host "
-                "lies in no output segment (or in more than one)",
-                created_placed, ncreated);
-  }
+  myfree(placement);
+  myfree(bucket);
 
   /* Record the capacity this buffer actually reached, for the run memory
    * profile. Noted after the loop rather than inside the growth branch so a

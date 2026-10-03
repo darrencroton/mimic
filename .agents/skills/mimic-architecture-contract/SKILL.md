@@ -72,7 +72,9 @@ run YAML
                                            modules galaxy-major. Records a full-halo
                                            module creates (module_create_record()) are
                                            appended to the workspace when its callback
-                                           returns, before its events are delivered.
+                                           returns, before the next module (its events
+                                           were delivered as emitted, against committed
+                                           rows only).
       → marshal_workspace_to_output_buffer()  each subhalo slice, then the records created
                                            on hosts in that slice
       (horizontal driver only, once per snapshot after every FoF group:

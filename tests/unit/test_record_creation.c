@@ -11,7 +11,9 @@
  *   galaxy, the per-host identity radix and a synthetic identity space that does
  *   not fit int64; a refused call stages no row and allocates no galaxy
  * - staged-row initialisation field by field for a Type 0 and a Type 1 host,
- *   and staged-row pointers that stay valid across later creations
+ *   staged-row pointers that stay valid across later creations, staging blocks
+ *   that grow geometrically (logarithmic block count), and created galaxies
+ *   independent of their host's and of each other (pointer and mutation)
  * - visibility: the next full-halo module of the phase, the by-galaxy pass,
  *   every substep phase and post_timestep see created rows, with
  *   ctx->central_galaxy re-pointed; the test_fixture by-galaxy execution log
@@ -300,6 +302,25 @@ static void free_workspace(void) {
   }
 }
 
+/**
+ * @brief   Release everything a pipeline case may hold
+ *
+ * Safe to repeat and after a failed assertion: restores logging if a capture
+ * is open, cleans up the module system, frees the workspace and its pool, and
+ * releases the record-creation scratch.
+ *
+ * @return  module_system_cleanup()'s return code
+ */
+static int release_case(void) {
+  if (log_file != NULL) {
+    (void)captured_log();
+  }
+  const int cleanup_rc = module_system_cleanup();
+  free_workspace();
+  module_release_record_creation_scratch();
+  return cleanup_rc;
+}
+
 static int64_t pool_high_water(void) {
   struct GalaxyPoolStats stats;
   galaxy_pool_stats(pool, &stats);
@@ -387,11 +408,8 @@ static int emit_then_return(struct ModuleContext *ctx, struct Halo *halos, int n
   return module_emit_event(ctx, CREATOR_EVENT_ID, 0, 1, 0.0, 0.0);
 }
 
-/**
- * @test    test_refused_outside_full_halo
- * @brief   Creation is refused outside a running process_full_halo callback
- */
-int test_refused_outside_full_halo(void) {
+/** @brief Body of test_refused_outside_full_halo; the wrapper releases its resources */
+static int refused_outside_full_halo_body(void) {
   const int types[] = {0, 1, 2};
 
   /* No callback running at all. */
@@ -438,11 +456,17 @@ int test_refused_outside_full_halo(void) {
               "the snapshot refusal names the module and its mode");
   TEST_ASSERT_EQUAL(workspace.count, 3, "no row was added");
   TEST_ASSERT_EQUAL(pool_high_water(), high_water, "no galaxy was allocated");
-
-  TEST_ASSERT_EQUAL(module_system_cleanup(), 0, "cleanup succeeds");
-  free_workspace();
-  module_release_record_creation_scratch();
   return TEST_PASS;
+}
+
+/**
+ * @test    test_refused_outside_full_halo
+ * @brief   Creation is refused outside a running process_full_halo callback
+ */
+int test_refused_outside_full_halo(void) {
+  const int result = refused_outside_full_halo_body();
+  TEST_ASSERT_EQUAL(release_case(), 0, "cleanup succeeds");
+  return result;
 }
 
 /** Return codes of the refusal sequence, in order */
@@ -463,7 +487,7 @@ static int refuse_bad_hosts(struct ModuleContext *ctx, struct Halo *halos, int n
     }
     refusal_high_water[1] = pool_high_water();
 
-    /* Fill host 0 to the identity radix, then one more. */
+    /* Fill host 0 to the identity radix (MAX_CREATED_RECORDS_PER_HOST), then one more. */
     struct Halo *row = NULL;
     for (int n = 0; n < MAX_CREATED_RECORDS_PER_HOST; n++) {
       if (module_create_record(ctx, 0, &row) < 0) {
@@ -482,11 +506,8 @@ static int refuse_bad_hosts(struct ModuleContext *ctx, struct Halo *halos, int n
   return 0;
 }
 
-/**
- * @test    test_refused_bad_hosts
- * @brief   Bad hosts and the identity radix are refused without staging anything
- */
-int test_refused_bad_hosts(void) {
+/** @brief Body of test_refused_bad_hosts; the wrapper releases its resources */
+static int refused_bad_hosts_body(void) {
   /* Row 4 is a Type 1 with no galaxy. */
   const int types[] = {0, 1, 2, 3, 1};
 
@@ -517,8 +538,12 @@ int test_refused_bad_hosts(void) {
               "a Type 3 host is refused");
   TEST_ASSERT(strstr(log, "host row 4 (UniqueGalaxyID 1004) has no galaxy") != NULL,
               "a host without a galaxy is refused");
-  TEST_ASSERT_EQUAL(radix_rc, -1, "the 1025th record on one host is refused");
-  TEST_ASSERT(strstr(log, "already has 1024 created records") != NULL, "names the radix");
+  TEST_ASSERT_EQUAL(radix_rc, -1,
+                    "a record past MAX_CREATED_RECORDS_PER_HOST on one host is refused");
+  char radix_text[64];
+  snprintf(radix_text, sizeof(radix_text), "already has %d created records",
+           MAX_CREATED_RECORDS_PER_HOST);
+  TEST_ASSERT(strstr(log, radix_text) != NULL, "names the radix");
   TEST_ASSERT_EQUAL(created_host_rc, -1, "a created row cannot host");
   TEST_ASSERT(strstr(log, "created rows cannot host") != NULL, "names the created-host rule");
   TEST_ASSERT(strstr(log, "module 'rc_creator'") != NULL, "refusals name the module");
@@ -526,11 +551,17 @@ int test_refused_bad_hosts(void) {
                     "only the successful creations were committed");
   TEST_ASSERT_EQUAL(pool_high_water(), refusal_high_water[0] + MAX_CREATED_RECORDS_PER_HOST,
                     "one galaxy per successful creation");
-
-  TEST_ASSERT_EQUAL(module_system_cleanup(), 0, "cleanup succeeds");
-  free_workspace();
-  module_release_record_creation_scratch();
   return TEST_PASS;
+}
+
+/**
+ * @test    test_refused_bad_hosts
+ * @brief   Bad hosts and the identity radix are refused without staging anything
+ */
+int test_refused_bad_hosts(void) {
+  const int result = refused_bad_hosts_body();
+  TEST_ASSERT_EQUAL(release_case(), 0, "cleanup succeeds");
+  return result;
 }
 
 static int fits_rc = 0;
@@ -556,7 +587,7 @@ int test_refused_when_identity_space_does_not_fit(void) {
   test_pre_timestep_add("rc_creator", PROCESSING_MODE_FULL_HALO);
   TEST_ASSERT_EQUAL(module_system_init(), 0, "pipeline initialises");
   build_workspace(types, 1);
-  /* 1024 * 2^40 * 2^14 = 2^64 > INT64_MAX: does not fit. */
+  /* MAX_CREATED_RECORDS_PER_HOST (2^10) * 2^40 * 2^14 = 2^64 > INT64_MAX: does not fit. */
   workspace.identity = (struct RecordIdentitySpace){
       .unit = 0, .rows_per_unit = INT64_C(1) << 14, .fits = false, .units = INT64_C(1) << 40};
   TEST_ASSERT(
@@ -569,8 +600,12 @@ int test_refused_when_identity_space_does_not_fit(void) {
   const char *log = captured_log();
 
   TEST_ASSERT_EQUAL(fits_rc, -1, "creation is refused");
-  TEST_ASSERT(strstr(log, "the horizontal driver's created-record identity space does not fit "
-                          "int64 (units=1099511627776, rows_per_unit=16384, radix=1024)") != NULL,
+  char expected[256];
+  snprintf(expected, sizeof(expected),
+           "the horizontal driver's created-record identity space does not fit int64 "
+           "(units=1099511627776, rows_per_unit=16384, radix=%d)",
+           MAX_CREATED_RECORDS_PER_HOST);
+  TEST_ASSERT(strstr(log, expected) != NULL,
               "the refusal carries units, rows_per_unit, the radix and the driver name");
   TEST_ASSERT_EQUAL(workspace.count, 1, "nothing was committed");
   TEST_ASSERT_EQUAL(pool_high_water(), high_water, "no galaxy was allocated");
@@ -584,6 +619,16 @@ int test_refused_when_identity_space_does_not_fit(void) {
 /* ==========================================================================
  * Initialisation
  * ========================================================================== */
+
+/**
+ * Records created after the first one in test_staged_row_initialisation. With
+ * the two hosts' first records that stages 1902 rows, which span the first
+ * three staging blocks (256 + 512 + 1024 = 1792 rows; module_registry.c's
+ * RECORD_STAGING_BLOCK_ROWS doubling per block), so the first row's pointer
+ * must survive two later block allocations. Each host gets 951 records, below
+ * MAX_CREATED_RECORDS_PER_HOST.
+ */
+#define LATER_CREATIONS 1900
 
 static struct Halo host_copies[2];
 static int created_index[2];
@@ -604,7 +649,7 @@ static int create_from_both_hosts(struct ModuleContext *ctx, struct Halo *halos,
   created_index[1] = module_create_record(ctx, 1, &row);
 
   /* Cross several staging blocks; the first row must not move. */
-  for (int n = 0; n < 600; n++) {
+  for (int n = 0; n < LATER_CREATIONS; n++) {
     if (module_create_record(ctx, (n % 2 == 0) ? 0 : 1, &row) < 0) {
       return -1;
     }
@@ -668,7 +713,7 @@ int test_staged_row_initialisation(void) {
   TEST_ASSERT_EQUAL(created_index[0], 2, "the first record's future index is the committed count");
   TEST_ASSERT_EQUAL(created_index[1], 3, "indices continue in creation order");
   TEST_ASSERT(first_row_survived, "a staged row pointer survives later creations");
-  TEST_ASSERT_EQUAL(workspace.count, 2 + 602, "every record was committed");
+  TEST_ASSERT_EQUAL(workspace.count, 2 + 2 + LATER_CREATIONS, "every record was committed");
   TEST_ASSERT_EQUAL(workspace.base_count, 2, "base_count is untouched by the commit");
   TEST_ASSERT(check_created_row(&workspace.halos[2], &host_copies[0], 0) == TEST_PASS,
               "Type 0 host's record initialised by contract");
@@ -681,7 +726,7 @@ int test_staged_row_initialisation(void) {
   TEST_ASSERT_EQUAL(workspace.created_host[0], 0, "created_host records host 0");
   TEST_ASSERT_EQUAL(workspace.created_host[1], 1, "created_host records host 1");
 
-  /* Encoder round trip and per-host ordinals over all 602 created rows. */
+  /* Encoder round trip and per-host ordinals over every created row. */
   int next_ordinal[2] = {0, 0};
   for (int64_t r = workspace.base_count; r < workspace.count; r++) {
     const int64_t host = workspace.created_host[r - workspace.base_count];
@@ -698,6 +743,127 @@ int test_staged_row_initialisation(void) {
   TEST_ASSERT_EQUAL(module_system_cleanup(), 0, "cleanup succeeds");
   free_workspace();
   module_release_record_creation_scratch();
+  return TEST_PASS;
+}
+
+/** Rows in the first staging block (RECORD_STAGING_BLOCK_ROWS in module_registry.c) */
+#define FIRST_STAGING_BLOCK_ROWS 256
+
+/** Records one callback stages in test_staging_blocks_are_logarithmic, over five hosts */
+#define MANY_CREATIONS 5000
+#define MANY_HOSTS 5
+
+static struct Halo *many_first_row = NULL;
+static bool many_first_row_survived = false;
+
+static int create_many(struct ModuleContext *ctx, struct Halo *halos, int ngal, int call) {
+  (void)halos;
+  (void)ngal;
+  (void)call;
+  struct Halo *row = NULL;
+  for (int n = 0; n < MANY_CREATIONS; n++) {
+    if (module_create_record(ctx, n % MANY_HOSTS, &row) < 0) {
+      return -1;
+    }
+    if (n == 0) {
+      many_first_row = row;
+      many_first_row->galaxy->TestDummyProperty = 0.75f;
+    }
+  }
+  many_first_row_survived =
+      many_first_row->galaxy->TestDummyProperty == 0.75f && many_first_row->UniqueGalaxyID < 0;
+  return 0;
+}
+
+/** @brief Body of test_staging_blocks_are_logarithmic; the wrapper releases its resources */
+static int staging_blocks_body(void) {
+  const int types[MANY_HOSTS] = {0, 1, 1, 1, 1};
+  prepare_config(0);
+  creator_action = create_many;
+  test_pre_timestep_add("rc_creator", PROCESSING_MODE_FULL_HALO);
+  TEST_ASSERT_EQUAL(module_system_init(), 0, "pipeline initialises");
+  build_workspace(types, MANY_HOSTS);
+
+  execute_module_pipeline(&context, &workspace);
+
+  /* Blocks double, so b blocks hold FIRST_STAGING_BLOCK_ROWS * (2^b - 1) rows. */
+  int64_t expected_blocks = 0;
+  while (FIRST_STAGING_BLOCK_ROWS * ((INT64_C(1) << expected_blocks) - 1) < MANY_CREATIONS) {
+    expected_blocks++;
+  }
+  TEST_ASSERT_EQUAL(workspace.count, MANY_HOSTS + MANY_CREATIONS, "every record was committed");
+  TEST_ASSERT_EQUAL(module_record_creation_staging_blocks(), expected_blocks,
+                    "staging thousands of rows allocates a logarithmic handful of blocks");
+  TEST_ASSERT(many_first_row_survived, "the first staged row survives every later creation");
+  TEST_ASSERT(workspace.halos[MANY_HOSTS].galaxy->TestDummyProperty == 0.75f,
+              "what was written through the first staged row was committed");
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_staging_blocks_are_logarithmic
+ * @brief   One callback staging thousands of rows holds only a few never-moving blocks
+ */
+int test_staging_blocks_are_logarithmic(void) {
+  const int result = staging_blocks_body();
+  TEST_ASSERT_EQUAL(release_case(), 0, "cleanup succeeds");
+  TEST_ASSERT_EQUAL(module_record_creation_staging_blocks(), 0, "release frees every block");
+  return result;
+}
+
+/** Records created on each of the two hosts in test_created_galaxies_are_independent */
+#define PER_HOST_INDEPENDENT 3
+
+static int create_on_both_hosts(struct ModuleContext *ctx, struct Halo *halos, int ngal, int call) {
+  (void)halos;
+  (void)ngal;
+  (void)call;
+  struct Halo *row = NULL;
+  for (int n = 0; n < 2 * PER_HOST_INDEPENDENT; n++) {
+    if (module_create_record(ctx, n % 2, &row) < 0) {
+      return -1;
+    }
+  }
+  return 0;
+}
+
+/**
+ * @test    test_created_galaxies_are_independent
+ * @brief   Every created galaxy is its own pool slot: no pointer or write is shared
+ *
+ * The in-memory half of the contract's "galaxy deep-copied" requirement (the
+ * HDF5 half is in tests/integration/test_record_creation.py): each created row's
+ * galaxy differs from its host's and from every other created row's, and a
+ * write to one changes no other.
+ */
+int test_created_galaxies_are_independent(void) {
+  const int types[] = {0, 1};
+  prepare_config(0);
+  creator_action = create_on_both_hosts;
+  test_pre_timestep_add("rc_creator", PROCESSING_MODE_FULL_HALO);
+  TEST_ASSERT_EQUAL(module_system_init(), 0, "pipeline initialises");
+  build_workspace(types, 2);
+
+  execute_module_pipeline(&context, &workspace);
+
+  const int64_t rows = workspace.count;
+  TEST_ASSERT_EQUAL(rows, 2 + 2 * PER_HOST_INDEPENDENT, "every record was committed");
+  for (int64_t a = 0; a < rows; a++) {
+    for (int64_t b = a + 1; b < rows; b++) {
+      TEST_ASSERT(workspace.halos[a].galaxy != workspace.halos[b].galaxy,
+                  "no two rows (hosts or created) share a galaxy");
+    }
+  }
+  for (int64_t a = 2; a < rows; a++) {
+    workspace.halos[a].galaxy->TestDummyProperty = 0.125f * (float)(a - 1);
+  }
+  for (int64_t a = 0; a < rows; a++) {
+    const float expected = (a < 2) ? 0.0f : 0.125f * (float)(a - 1);
+    TEST_ASSERT(workspace.halos[a].galaxy->TestDummyProperty == expected,
+                "a write to one created galaxy changes no other galaxy");
+  }
+
+  TEST_ASSERT_EQUAL(release_case(), 0, "cleanup succeeds");
   return TEST_PASS;
 }
 
@@ -755,8 +921,9 @@ static int observe(struct ModuleContext *ctx, struct Halo *halos, int ngal, int 
  * pre_timestep: rc_creator (full halo), rc_observer (full halo), rc_observer (by galaxy);
  * substep phase "evolve" x 2 substeps: rc_observer (full halo);
  * post_timestep: test_fixture (by galaxy, logging on, no creation parameter).
+ * The caller releases the case (release_case()) after reading the probes.
  *
- * @return  The number of TEST_FIXTURE_EXEC lines the fixture logged
+ * @return  The number of TEST_FIXTURE_EXEC lines the fixture logged, or -1
  */
 static int run_visibility_pipeline(int per_type0) {
   const int types[] = {0, 1, 2};
@@ -784,21 +951,14 @@ static int run_visibility_pipeline(int per_type0) {
   capture_log();
   execute_module_pipeline(&context, &workspace);
   const char *log = captured_log();
-  const int executions = count_occurrences(log, "TEST_FIXTURE_EXEC:");
-
-  module_system_cleanup();
-  return executions;
+  return count_occurrences(log, "TEST_FIXTURE_EXEC:");
 }
 
-/**
- * @test    test_visibility_across_modules_phases_and_substeps
- * @brief   Committed records reach the next module, the by-galaxy pass, substeps and later phases
- */
-int test_visibility_across_modules_phases_and_substeps(void) {
+/** @brief Body of test_visibility_across_modules_phases_and_substeps; the wrapper cleans up */
+static int visibility_body(void) {
   const int baseline_executions = run_visibility_pipeline(0);
   TEST_ASSERT_EQUAL(baseline_executions, 3, "without creation the fixture visits three rows");
-  free_workspace();
-  module_release_record_creation_scratch();
+  (void)release_case();
 
   const int executions = run_visibility_pipeline(CREATED_PER_TYPE0);
   TEST_ASSERT_EQUAL(executions - baseline_executions, CREATED_PER_TYPE0,
@@ -815,11 +975,18 @@ int test_visibility_across_modules_phases_and_substeps(void) {
                     "the by-galaxy pass visits the created rows");
   TEST_ASSERT(central_pointer_current,
               "ctx->central_galaxy addresses the current central row after the commit");
-  TEST_ASSERT(workspace.count == 3 + CREATED_PER_TYPE0, "the workspace holds the created rows");
-
-  free_workspace();
-  module_release_record_creation_scratch();
+  TEST_ASSERT_EQUAL(workspace.count, 3 + CREATED_PER_TYPE0, "the workspace holds the created rows");
   return TEST_PASS;
+}
+
+/**
+ * @test    test_visibility_across_modules_phases_and_substeps
+ * @brief   Committed records reach the next module, the by-galaxy pass, substeps and later phases
+ */
+int test_visibility_across_modules_phases_and_substeps(void) {
+  const int result = visibility_body();
+  TEST_ASSERT_EQUAL(release_case(), 0, "cleanup succeeds");
+  return result;
 }
 
 /**
@@ -963,6 +1130,10 @@ int test_event_rule(void) {
  * Marshal merge
  * ========================================================================== */
 
+static struct Halo marshal_rows[11];
+static int64_t marshal_hosts[5] = {4, 0, 2, 0, 4};
+static struct GalaxyData marshal_galaxies[11];
+
 /**
  * @brief   Three segments of two rows with created rows in the tail
  *
@@ -970,10 +1141,6 @@ int test_event_rule(void) {
  * hosts {4, 0, 2, 0, 4}: the first created row's host is in the last segment,
  * and row 10 is retired to Type 3.
  */
-static struct Halo marshal_rows[11];
-static int64_t marshal_hosts[5] = {4, 0, 2, 0, 4};
-static struct GalaxyData marshal_galaxies[11];
-
 static void build_marshal_workspace(struct FoFWorkspace *ws, struct OutputBufferSegment *segments) {
   memset(marshal_rows, 0, sizeof(marshal_rows));
   memset(marshal_galaxies, 0, sizeof(marshal_galaxies));
@@ -1023,12 +1190,14 @@ int test_marshal_merge(void) {
     TEST_ASSERT_EQUAL(buffer.halos[i].SnapNum, expected_snap[i],
                       "a created row takes its host segment's snapshot number");
   }
-  TEST_ASSERT(segments[0].output_first == 0 && segments[0].output_count == 4,
-              "first segment's range counts its created rows");
-  TEST_ASSERT(segments[1].output_first == 4 && segments[1].output_count == 3,
-              "middle segment's range counts its created row");
-  TEST_ASSERT(segments[2].output_first == 7 && segments[2].output_count == 3,
-              "last segment's range counts its surviving created row");
+  const int64_t expected_first[3] = {0, 4, 7};
+  const int64_t expected_count[3] = {4, 3, 3};
+  for (int s = 0; s < 3; s++) {
+    TEST_ASSERT_EQUAL(segments[s].output_first, expected_first[s],
+                      "each segment's range starts after the previous one's created rows");
+    TEST_ASSERT_EQUAL(segments[s].output_count, expected_count[s],
+                      "each segment's range counts its surviving created rows");
+  }
   TEST_ASSERT(marshal_rows[10].galaxy == NULL, "a Type 3 created row's galaxy is released");
 
   /* A descriptor without a created-host map has no created rows. */
@@ -1093,7 +1262,8 @@ int test_memory_high_water_and_release(void) {
                     "no creation, no record-creation allocation");
   TEST_ASSERT(workspace.created_host == NULL, "no created-host map without creation");
 
-  /* Step 1: 300 records (two staging blocks). */
+  /* Step 1: 300 records: more than the first staging block's 256 rows, so the
+   * scratch reaches two blocks (256 + 512 rows) and later steps stay inside them. */
   creator_creates_per_type0 = 300;
   execute_module_pipeline(&context, &workspace);
   TEST_ASSERT_EQUAL(workspace.count, 303, "300 records committed");
@@ -1146,6 +1316,8 @@ int main(void) {
   TEST_RUN(test_refused_bad_hosts);
   TEST_RUN(test_refused_when_identity_space_does_not_fit);
   TEST_RUN(test_staged_row_initialisation);
+  TEST_RUN(test_staging_blocks_are_logarithmic);
+  TEST_RUN(test_created_galaxies_are_independent);
   TEST_RUN(test_visibility_across_modules_phases_and_substeps);
   TEST_RUN(test_fixture_creates_records);
   TEST_RUN(test_fixture_by_galaxy_creation_fails);

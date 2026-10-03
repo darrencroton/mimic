@@ -122,6 +122,12 @@ enum RunningCallbackKind {
   RUNNING_CALLBACK_CLEANUP,
 };
 
+/**
+ * @brief   The module callback the registry is running, if any
+ *
+ * Read only by module_create_record() to name the caller in a refusal; set and
+ * restored by enter_callback()/leave_callback() around every module call.
+ */
 struct RunningCallback {
   enum RunningCallbackKind kind;
   const char *module_name; /**< Registered module name; NULL outside any callback */
@@ -138,10 +144,18 @@ static struct RunningCallback enter_callback(enum RunningCallbackKind kind,
   return prior;
 }
 
+/** @brief Restore the running-callback state enter_callback() returned */
 static void leave_callback(struct RunningCallback prior) { running_callback = prior; }
 
-/** Staged rows per staging block; blocks never move once allocated */
+/** Rows in the first staging block; block b holds RECORD_STAGING_BLOCK_ROWS << b rows */
 #define RECORD_STAGING_BLOCK_ROWS 256
+
+/**
+ * Staging blocks a run can hold. The blocks double, so block b ends at row
+ * RECORD_STAGING_BLOCK_ROWS * (2^(b+1) - 1): 22 blocks already exceed
+ * MAX_HALO_ARRAY_SIZE staged rows, which reserve_staging_slot() refuses first.
+ */
+#define RECORD_STAGING_MAX_BLOCKS 32
 
 /**
  * @brief   Record-creation state (module_create_record())
@@ -151,10 +165,12 @@ static void leave_callback(struct RunningCallback prior) { running_callback = pr
  * consumers. Records a callback creates are staged here and appended to the
  * workspace by commit_created_records() when the callback returns.
  *
- * Staged rows live in fixed blocks of RECORD_STAGING_BLOCK_ROWS rows that are
- * never reallocated, so every row pointer module_create_record() hands out
- * stays valid until its callback returns, however many records it creates
- * after it. `staged_host` holds each staged row's host index. `ordinals` holds
+ * Staged rows live in blocks that are never reallocated, so every row pointer
+ * module_create_record() hands out stays valid until its callback returns,
+ * however many records it creates after it. Block b holds
+ * RECORD_STAGING_BLOCK_ROWS << b rows, so the number of blocks (each one
+ * tracked allocation) grows only logarithmically with the staged-row
+ * high-water. `staged_host` holds each staged row's host index. `ordinals` holds
  * each host row's created-record count for the current FoF step, indexed by
  * workspace row in [0, base_count); it is cleared lazily by the step's first
  * creation, so a FoF step that creates nothing never touches it.
@@ -168,9 +184,8 @@ struct RecordCreationState {
   struct ModuleContext *ctx;
   struct FoFWorkspace *ws;
 
-  struct Halo **blocks; /**< [block_slots]; the first block_count are allocated */
+  struct Halo *blocks[RECORD_STAGING_MAX_BLOCKS]; /**< The first block_count are allocated */
   int64_t block_count;
-  int64_t block_slots;
   int64_t *staged_host; /**< [staged_host_capacity] */
   int64_t staged_host_capacity;
   int64_t staged_count; /**< Rows staged by the running callback */
@@ -183,9 +198,8 @@ struct RecordCreationState {
 static struct RecordCreationState record_creation = {.allowed = false,
                                                      .ctx = NULL,
                                                      .ws = NULL,
-                                                     .blocks = NULL,
+                                                     .blocks = {NULL},
                                                      .block_count = 0,
-                                                     .block_slots = 0,
                                                      .staged_host = NULL,
                                                      .staged_host_capacity = 0,
                                                      .staged_count = 0,
@@ -1122,35 +1136,61 @@ static int workspace_callback_count(const struct FoFWorkspace *ws) {
  * RECORD CREATION
  * ============================================================================== */
 
-/** @brief Capacity after growing @p capacity to hold at least @p required entries */
-static int64_t grown_capacity(int64_t capacity, int64_t required) {
+/**
+ * @brief   Capacity after growing @p capacity to hold at least @p required entries
+ *
+ * The workspace growth policy (fof_workspace_reserve()): factor
+ * HALO_ARRAY_GROWTH_FACTOR, at least MIN_HALO_ARRAY_GROWTH more, never past
+ * MAX_HALO_ARRAY_SIZE; a requirement above that ceiling is fatal.
+ */
+static int64_t grown_capacity(int64_t capacity, int64_t required, const char *what) {
+  if (required > MAX_HALO_ARRAY_SIZE) {
+    FATAL_ERROR("Record creation %s requires %" PRId64 " entries but maximum allowed size is %d",
+                what, required, MAX_HALO_ARRAY_SIZE);
+  }
   int64_t new_capacity = (int64_t)(capacity * HALO_ARRAY_GROWTH_FACTOR);
   if (new_capacity - capacity < MIN_HALO_ARRAY_GROWTH)
     new_capacity = capacity + MIN_HALO_ARRAY_GROWTH;
-  return new_capacity < required ? required : new_capacity;
+  if (new_capacity < required)
+    new_capacity = required;
+  return new_capacity > MAX_HALO_ARRAY_SIZE ? MAX_HALO_ARRAY_SIZE : new_capacity;
+}
+
+/** @brief Staging block holding staged row @p k, and the row's offset within it */
+static int64_t staging_block_of(int64_t k, int64_t *offset) {
+  /* Block b covers rows [R (2^b - 1), R (2^(b+1) - 1)), so b = floor(log2(k / R + 1)). */
+  int64_t block = 0;
+  for (int64_t units = k / RECORD_STAGING_BLOCK_ROWS + 1; units > 1; units >>= 1) {
+    block++;
+  }
+  *offset = k - RECORD_STAGING_BLOCK_ROWS * ((INT64_C(1) << block) - 1);
+  return block;
 }
 
 /** @brief Staged row @p k of the running callback (k < staged_count or the next slot) */
 static struct Halo *staged_row(int64_t k) {
-  return &record_creation.blocks[k / RECORD_STAGING_BLOCK_ROWS][k % RECORD_STAGING_BLOCK_ROWS];
+  int64_t offset = 0;
+  const int64_t block = staging_block_of(k, &offset);
+  return &record_creation.blocks[block][offset];
 }
 
-/** @brief Make staging slot @p k addressable, allocating a new block when needed */
+/** @brief Make staging slot @p k addressable, allocating its block when needed */
 static void reserve_staging_slot(int64_t k) {
-  const int64_t block = k / RECORD_STAGING_BLOCK_ROWS;
-  if (block >= record_creation.block_count) {
-    if (record_creation.block_count == record_creation.block_slots) {
-      const int64_t slots = grown_capacity(record_creation.block_slots, block + 1);
-      record_creation.blocks = myrealloc_cat(
-          record_creation.blocks, (size_t)slots * sizeof(*record_creation.blocks), MEM_HALOS);
-      record_creation.block_slots = slots;
-    }
+  if (k >= MAX_HALO_ARRAY_SIZE) {
+    FATAL_ERROR("Record creation: one callback staged more than %d records", MAX_HALO_ARRAY_SIZE);
+  }
+
+  int64_t offset = 0;
+  const int64_t block = staging_block_of(k, &offset);
+  while (record_creation.block_count <= block) {
+    const int64_t rows = (int64_t)RECORD_STAGING_BLOCK_ROWS << record_creation.block_count;
     record_creation.blocks[record_creation.block_count++] =
-        mymalloc_cat(RECORD_STAGING_BLOCK_ROWS * sizeof(struct Halo), MEM_HALOS);
+        mymalloc_cat((size_t)rows * sizeof(struct Halo), MEM_HALOS);
   }
 
   if (k >= record_creation.staged_host_capacity) {
-    const int64_t capacity = grown_capacity(record_creation.staged_host_capacity, k + 1);
+    const int64_t capacity =
+        grown_capacity(record_creation.staged_host_capacity, k + 1, "staged-host map");
     record_creation.staged_host =
         myrealloc_cat(record_creation.staged_host,
                       (size_t)capacity * sizeof(*record_creation.staged_host), MEM_HALOS);
@@ -1164,7 +1204,8 @@ static void ready_creation_ordinals(const struct FoFWorkspace *ws) {
     return;
   }
   if (ws->base_count > record_creation.ordinal_capacity) {
-    const int64_t capacity = grown_capacity(record_creation.ordinal_capacity, ws->base_count);
+    const int64_t capacity =
+        grown_capacity(record_creation.ordinal_capacity, ws->base_count, "per-host ordinals");
     record_creation.ordinals = myrealloc_cat(
         record_creation.ordinals, (size_t)capacity * sizeof(*record_creation.ordinals), MEM_HALOS);
     record_creation.ordinal_capacity = capacity;
@@ -1315,8 +1356,10 @@ int module_create_record(struct ModuleContext *ctx, int host_index, struct Halo 
 /**
  * @brief   Append the rows the returning full-halo callback staged
  *
- * Runs after the callback returns and before its pending events are
- * delivered or the next module runs: the rows join the workspace tail in
+ * Runs after the callback returns, before the next module and the phase's
+ * safety dispatch of any undelivered event (events emitted during the callback
+ * were delivered as they were emitted, against the committed rows): the rows
+ * join the workspace tail in
  * creation order, their hosts are recorded in ws->created_host, and every
  * cache of the workspace's address or count the phase holds is refreshed
  * (ctx->central_galaxy and the event-dispatch view), since growing the rows
@@ -1353,17 +1396,17 @@ static void begin_record_creation_step(void) {
   record_creation.ordinals_ready = false;
 }
 
+int64_t module_record_creation_staging_blocks(void) { return record_creation.block_count; }
+
 void module_release_record_creation_scratch(void) {
   for (int64_t b = 0; b < record_creation.block_count; b++) {
     myfree(record_creation.blocks[b]);
+    record_creation.blocks[b] = NULL;
   }
-  myfree(record_creation.blocks);
   myfree(record_creation.staged_host);
   myfree(record_creation.ordinals);
 
-  record_creation.blocks = NULL;
   record_creation.block_count = 0;
-  record_creation.block_slots = 0;
   record_creation.staged_host = NULL;
   record_creation.staged_host_capacity = 0;
   record_creation.staged_count = 0;
@@ -1432,8 +1475,8 @@ void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
       FATAL_ERROR("Module '%s' failed (substep %d)", mod->name, ctx->substep_number);
     }
 
-    /* Records the callback created join the workspace now, before its pending
-     * events are delivered and before the next module runs. */
+    /* Records the callback created join the workspace now, before the safety
+     * dispatch below and before the next module runs. */
     commit_created_records(ctx, ws);
 
     /* Safety dispatch for any events not yet dispatched during emission. */

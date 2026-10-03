@@ -3,8 +3,9 @@
  * @brief   Growth and release of the FoF workspace descriptor
  *
  * The one row-growth function both drivers' workspaces go through, and the
- * grower of the created-host map the record-creation commit fills (see
- * fof_workspace.h for the descriptor's ownership contract). Kept in its own
+ * grower of the created-host map that commit_created_records()
+ * (module_registry.c) fills (see fof_workspace.h for the descriptor's
+ * ownership contract). Kept in its own
  * translation unit so every harness that links a driver's workspace lifecycle
  * (the unit-test runner and the topology dump tool) links the same body.
  */

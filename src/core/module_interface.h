@@ -378,13 +378,15 @@ int module_emit_event(struct ModuleContext *ctx, int event_id, int source_index,
  * workspace's galaxy pool initialised by init_galaxy_defaults(). The module then
  * sets whatever physics it owns.
  *
- * Commit. When the callback returns, before its pending events are delivered
- * and before the next module runs, the core appends every staged row in
- * creation order to the end of the workspace, records each row's host, and
- * refreshes ctx->central_galaxy and the event-dispatch view. The next module
- * receives the complete array; by-galaxy passes visit created rows like any
- * other; later phases and substeps see them. An event cannot name a row created
- * in the same callback (module_emit_event() rejects it); later callbacks may.
+ * Commit. When the callback returns, before the next module runs and before
+ * the phase's post-callback safety dispatch of any undelivered event, the core
+ * appends every staged row in creation order to the end of the workspace,
+ * records each row's host, and refreshes ctx->central_galaxy and the
+ * event-dispatch view. Events the callback emitted were already delivered as it
+ * emitted them, against the committed rows only, so none can name a row it
+ * created (module_emit_event() rejects such an index); later callbacks may. The
+ * next module receives the complete array; by-galaxy passes visit created rows
+ * like any other; later phases and substeps see them.
  *
  * Output. The marshaller emits each subhalo slice's surviving rows followed by
  * the surviving rows created on hosts in that slice, in creation order, so the
@@ -424,7 +426,12 @@ int module_emit_event(struct ModuleContext *ctx, int event_id, int source_index,
  *         created records in this FoF step, or when the run's identity space
  *         does not fit int64 (the message carries units, rows_per_unit, the
  *         radix and the driver name). A failed call stages no row and allocates
- *         no galaxy. A workspace the core did not set up for creation is fatal.
+ *         no galaxy. Two core-invariant breaches abort the run (FATAL_ERROR)
+ *         instead of returning, because no module can cause or handle them: a
+ *         workspace the core did not set up for creation (base_count, the
+ *         created-host map or the pool), and a host whose HaloNr or unit lies
+ *         outside the identity space the driver published (a driver defect,
+ *         unlike the recoverable fits == false refusal above).
  */
 int module_create_record(struct ModuleContext *ctx, int host_index, struct Halo **row);
 

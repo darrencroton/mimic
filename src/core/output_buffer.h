@@ -42,8 +42,11 @@ struct OutputBufferSegment {
  * then the surviving records created during the pipeline whose host lies in
  * that slice (ws->created_host), in creation order; output_count counts both.
  * A source halo's output range therefore stays contiguous, and FirstHalo/NHalos
- * and next-snapshot gathering need no knowledge of created records. A created
- * record whose host lies in no segment is fatal.
+ * and next-snapshot gathering need no knowledge of created records. Placement
+ * is linear in rows, segments and created rows, using call-local MEM_HALOS
+ * scratch only when records were created. A created record whose host lies in
+ * no segment, a segment reaching into the created rows, or two segments
+ * sharing a row is fatal.
  *
  * The buffer may be grown by myrealloc_cat when count reaches capacity.
  * CONTRACT: buffer->halos must be a heap allocation tracked by mymalloc_cat or
