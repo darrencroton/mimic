@@ -14,6 +14,8 @@
  *   staged-row pointers that stay valid across later creations, staging blocks
  *   that grow geometrically (logarithmic block count), and created galaxies
  *   independent of their host's and of each other (pointer and mutation)
+ * - per-host ordinals counted across every callback of one FoF step (two
+ *   pre_timestep entries and post_timestep) and restarted by the next step
  * - inheritance of created rows: marshalled and passed through
  *   inherit_descendant_halos() into a second workspace and pool, they keep
  *   their ID and Type 2 and their galaxies are deep copies (value carried,
@@ -1016,6 +1018,89 @@ int test_created_rows_are_inherited_by_deep_copy(void) {
   return result;
 }
 
+/** Records each callback of one FoF step creates on host 0 in test_ordinals_span_the_fof_step:
+ * the two pre_timestep entries, then post_timestep */
+static const int step_records_per_call[3] = {3, 2, 2};
+
+static int create_per_call_on_host0(struct ModuleContext *ctx, struct Halo *halos, int ngal,
+                                    int call) {
+  (void)halos;
+  (void)ngal;
+  struct Halo *row = NULL;
+  for (int n = 0; n < step_records_per_call[call % 3]; n++) {
+    if (module_create_record(ctx, 0, &row) < 0) {
+      return -1;
+    }
+  }
+  return 0;
+}
+
+/** @brief Body of test_ordinals_span_the_fof_step; the wrapper releases its resources */
+static int ordinals_span_step_body(void) {
+  const int types[] = {0, 1};
+  prepare_config(0);
+  creator_action = create_per_call_on_host0;
+  test_pre_timestep_add("rc_creator", PROCESSING_MODE_FULL_HALO);
+  test_pre_timestep_add("rc_creator", PROCESSING_MODE_FULL_HALO);
+  add_post_timestep("rc_creator", PROCESSING_MODE_FULL_HALO);
+  TEST_ASSERT_EQUAL(module_system_init(), 0, "pipeline initialises");
+  build_workspace(types, 2);
+
+  /* One FoF step: three callbacks each commit records on host 0. */
+  execute_module_pipeline(&context, &workspace);
+  TEST_ASSERT_EQUAL(creator_calls, 3, "two pre_timestep entries and one post_timestep entry");
+  const int64_t total =
+      step_records_per_call[0] + step_records_per_call[1] + step_records_per_call[2];
+  TEST_ASSERT_EQUAL(workspace.count, 2 + total, "every callback's records were committed");
+
+  int64_t first_step_ids[16];
+  for (int64_t i = 0; i < total; i++) {
+    const int64_t r = workspace.base_count + i;
+    int64_t unit = 0;
+    int64_t row = 0;
+    int ordinal = 0;
+    decode_created_id(workspace.halos[r].UniqueGalaxyID, TEST_ROWS_PER_UNIT, &unit, &row, &ordinal);
+    TEST_ASSERT_EQUAL(row, workspace.halos[0].HaloNr, "every record is host 0's");
+    TEST_ASSERT_EQUAL(ordinal, i,
+                      "ordinals continue across callbacks: the second callback's first record "
+                      "is one past the first callback's last, and so on");
+    first_step_ids[i] = workspace.halos[r].UniqueGalaxyID;
+    for (int64_t j = 0; j < i; j++) {
+      TEST_ASSERT(first_step_ids[j] != first_step_ids[i], "every ID in the step is distinct");
+    }
+  }
+
+  /* The next FoF step over the same group (as a driver rebuilds it) restarts at 0. */
+  workspace.count = workspace.base_count;
+  creator_calls = 0;
+  execute_module_pipeline(&context, &workspace);
+  TEST_ASSERT_EQUAL(workspace.count, 2 + total, "the next step commits the same records");
+  for (int64_t i = 0; i < total; i++) {
+    int64_t unit = 0;
+    int64_t row = 0;
+    int ordinal = 0;
+    decode_created_id(workspace.halos[workspace.base_count + i].UniqueGalaxyID, TEST_ROWS_PER_UNIT,
+                      &unit, &row, &ordinal);
+    TEST_ASSERT_EQUAL(ordinal, i, "a fresh pipeline run restarts the host's ordinals at 0");
+    TEST_ASSERT_EQUAL(workspace.halos[workspace.base_count + i].UniqueGalaxyID, first_step_ids[i],
+                      "so the same step reproduces the same IDs");
+  }
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_ordinals_span_the_fof_step
+ * @brief   One host's ordinals count across every callback of a FoF step, then restart
+ *
+ * Guards against ordinals reset per callback, which would emit duplicate negative
+ * IDs for a host that receives records from more than one callback.
+ */
+int test_ordinals_span_the_fof_step(void) {
+  const int result = ordinals_span_step_body();
+  TEST_ASSERT_EQUAL(release_case(), 0, "cleanup succeeds");
+  return result;
+}
+
 /* ==========================================================================
  * Visibility
  * ========================================================================== */
@@ -1468,6 +1553,7 @@ int main(void) {
   TEST_RUN(test_staging_blocks_are_logarithmic);
   TEST_RUN(test_created_galaxies_are_independent);
   TEST_RUN(test_created_rows_are_inherited_by_deep_copy);
+  TEST_RUN(test_ordinals_span_the_fof_step);
   TEST_RUN(test_visibility_across_modules_phases_and_substeps);
   TEST_RUN(test_fixture_creates_records);
   TEST_RUN(test_fixture_by_galaxy_creation_fails);

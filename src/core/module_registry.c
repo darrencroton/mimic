@@ -1182,6 +1182,12 @@ static void reserve_staging_slot(int64_t k) {
 
   int64_t offset = 0;
   const int64_t block = staging_block_of(k, &offset);
+  /* The row ceiling above keeps block below the table size; guard it explicitly. */
+  if (block >= RECORD_STAGING_MAX_BLOCKS) {
+    FATAL_ERROR("Record creation: staged row %" PRId64 " needs staging block %" PRId64
+                " but only %d exist",
+                k, block, RECORD_STAGING_MAX_BLOCKS);
+  }
   while (record_creation.block_count <= block) {
     const int64_t rows = (int64_t)RECORD_STAGING_BLOCK_ROWS << record_creation.block_count;
     record_creation.blocks[record_creation.block_count++] =
