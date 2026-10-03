@@ -14,6 +14,10 @@
  *   staged-row pointers that stay valid across later creations, staging blocks
  *   that grow geometrically (logarithmic block count), and created galaxies
  *   independent of their host's and of each other (pointer and mutation)
+ * - inheritance of created rows: marshalled and passed through
+ *   inherit_descendant_halos() into a second workspace and pool, they keep
+ *   their ID and Type 2 and their galaxies are deep copies (value carried,
+ *   pointer and mutation independent of source and siblings)
  * - visibility: the next full-halo module of the phase, the by-galaxy pass,
  *   every substep phase and post_timestep see created rows, with
  *   ctx->central_galaxy re-pointed; the test_fixture by-galaxy execution log
@@ -32,6 +36,7 @@
 #include "framework/child_capture.h"
 #include "core/fof_workspace.h"
 #include "core/galaxy_pool.h"
+#include "core/inheritance.h"
 #include "core/module_interface.h"
 #include "core/module_registry.h"
 #include "core/output_buffer.h"
@@ -867,6 +872,150 @@ int test_created_galaxies_are_independent(void) {
   return TEST_PASS;
 }
 
+/** Second-generation state of test_created_rows_are_inherited_by_deep_copy, released by its
+ * wrapper on every path */
+static struct OutputBuffer inherited_buffer = {NULL, 0, 0};
+static struct Halo *descendant_rows = NULL;
+static struct GalaxyPool *descendant_pool = NULL;
+
+/** @brief Release the second generation built by inherited_by_deep_copy_body() */
+static void release_descendant(void) {
+  myfree(inherited_buffer.halos);
+  inherited_buffer = (struct OutputBuffer){NULL, 0, 0};
+  myfree(descendant_rows);
+  descendant_rows = NULL;
+  if (descendant_pool != NULL) {
+    galaxy_pool_destroy(descendant_pool);
+    descendant_pool = NULL;
+  }
+}
+
+/** @brief Distinct, non-default TestDummyProperty for created row @p r */
+static float written_value(int64_t r) { return 0.2f + 0.1f * (float)r; }
+
+/** @brief Body of test_created_rows_are_inherited_by_deep_copy; the wrapper releases */
+static int inherited_by_deep_copy_body(void) {
+  /* First generation: a Type 0 host (segment 0) and a Type 1 host (segment 1),
+   * PER_HOST_INDEPENDENT records each, created through the pipeline. */
+  const int types[] = {0, 1};
+  prepare_config(0);
+  creator_action = create_on_both_hosts;
+  test_pre_timestep_add("rc_creator", PROCESSING_MODE_FULL_HALO);
+  TEST_ASSERT_EQUAL(module_system_init(), 0, "pipeline initialises");
+  build_workspace(types, 2);
+  execute_module_pipeline(&context, &workspace);
+  TEST_ASSERT_EQUAL(workspace.count, 2 + 2 * PER_HOST_INDEPENDENT, "every record was committed");
+
+  /* Non-default values, so inheriting defaults instead of copying would fail. */
+  for (int64_t r = workspace.base_count; r < workspace.count; r++) {
+    workspace.halos[r].galaxy->TestDummyProperty = written_value(r);
+  }
+
+  /* Marshal both slices; each host's records follow its own row. */
+  struct OutputBufferSegment segments[2];
+  for (int s = 0; s < 2; s++) {
+    segments[s] = (struct OutputBufferSegment){.source_id = s,
+                                               .snapshot_number = 5,
+                                               .workspace_start = s,
+                                               .workspace_count = 1,
+                                               .output_first = -1,
+                                               .output_count = 0};
+  }
+  inherited_buffer.halos = mymalloc_cat(4 * sizeof(struct Halo), MEM_HALOS);
+  inherited_buffer.capacity = 4;
+  marshal_workspace_to_output_buffer(&workspace, &inherited_buffer, segments, 2);
+  const int64_t nrows = inherited_buffer.count;
+  TEST_ASSERT_EQUAL(nrows, workspace.count, "every row was marshalled");
+  TEST_ASSERT_EQUAL(segments[0].output_count, 1 + PER_HOST_INDEPENDENT,
+                    "the Type 0 host's segment carries its records");
+
+  /* Next snapshot: one FoF-central descendant whose progenitors are both
+   * marshalled segments, the Type 0 host's on the main branch (as the drivers
+   * gather them), inherited into a second workspace from a second pool. */
+  struct InheritanceProgenitorGalaxy progenitors[2 + 2 * PER_HOST_INDEPENDENT];
+  for (int64_t i = 0; i < nrows; i++) {
+    progenitors[i].source = &inherited_buffer.halos[i];
+    progenitors[i].source_time = 14.0;
+    progenitors[i].is_main_branch = (i < segments[0].output_count);
+  }
+  struct InheritanceDescendant descendant;
+  memset(&descendant, 0, sizeof(descendant));
+  descendant.halo_nr = 7;
+  descendant.current_snap = 6;
+  descendant.current_time = 10.0;
+  descendant.new_halo_dt = 2.5;
+  descendant.virial_mass = 150.0;
+  descendant.virial_radius = 1.5;
+  descendant.virial_velocity = 250.0;
+  descendant.is_fof_central = 1;
+  descendant.unique_galaxy_id = 111000222LL;
+
+  descendant_pool = galaxy_pool_create(16);
+  descendant_rows = mymalloc_cat((size_t)nrows * sizeof(struct Halo), MEM_HALOS);
+  memset(descendant_rows, 0, (size_t)nrows * sizeof(struct Halo));
+  const int64_t end = inherit_descendant_halos(descendant_pool, descendant_rows, 0, nrows,
+                                               &descendant, progenitors, nrows);
+  TEST_ASSERT_EQUAL(end, nrows, "every progenitor row was inherited");
+
+  int inherited_records = 0;
+  for (int64_t i = 0; i < end; i++) {
+    const struct Halo *source = progenitors[i].source;
+    const struct Halo *inherited = &descendant_rows[i];
+    TEST_ASSERT_EQUAL(inherited->UniqueGalaxyID, source->UniqueGalaxyID,
+                      "an inherited row keeps its UniqueGalaxyID");
+    TEST_ASSERT(inherited->galaxy != NULL && inherited->galaxy != source->galaxy,
+                "an inherited galaxy is a new slot, not the source's");
+    for (int64_t j = 0; j < end; j++) {
+      TEST_ASSERT(j == i || inherited->galaxy != descendant_rows[j].galaxy,
+                  "no two inherited rows share a galaxy");
+      TEST_ASSERT(inherited->galaxy != inherited_buffer.halos[j].galaxy,
+                  "no inherited galaxy is any source row's galaxy");
+    }
+    if (source->UniqueGalaxyID < 0) {
+      TEST_ASSERT(inherited->UniqueGalaxyID < 0, "a created ID stays negative");
+      TEST_ASSERT_EQUAL(inherited->Type, 2, "an inherited created row is Type 2");
+      TEST_ASSERT(inherited->galaxy->TestDummyProperty == source->galaxy->TestDummyProperty &&
+                      source->galaxy->TestDummyProperty != 0.0f,
+                  "the inherited galaxy carries the value written, not defaults");
+      inherited_records++;
+    }
+  }
+  TEST_ASSERT_EQUAL(inherited_records, 2 * PER_HOST_INDEPENDENT, "every created row was inherited");
+
+  /* Mutating one inherited created galaxy changes no source and no sibling. The
+   * last inherited row is the Type 1 host's last record (marshal order). */
+  const int64_t mutated = end - 1;
+  TEST_ASSERT(descendant_rows[mutated].UniqueGalaxyID < 0, "the last inherited row is created");
+  const float before = descendant_rows[mutated].galaxy->TestDummyProperty;
+  descendant_rows[mutated].galaxy->TestDummyProperty = 0.95f;
+  for (int64_t i = 0; i < end; i++) {
+    TEST_ASSERT(inherited_buffer.halos[i].galaxy->TestDummyProperty != 0.95f,
+                "a write to an inherited galaxy does not reach any source galaxy");
+    if (i != mutated) {
+      TEST_ASSERT(descendant_rows[i].galaxy->TestDummyProperty != 0.95f,
+                  "a write to an inherited galaxy does not reach a sibling");
+    }
+  }
+  TEST_ASSERT(progenitors[mutated].source->galaxy->TestDummyProperty == before,
+              "the mutated row's source keeps the value written");
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_created_rows_are_inherited_by_deep_copy
+ * @brief   Created rows survive marshal and inheritance with deep-copied galaxies
+ *
+ * The in-memory proof of the contract's "galaxy deep-copied" at inheritance,
+ * which the HDF5 output cannot show (tests/integration/test_record_creation.py
+ * keeps the output-side inheritance assertions).
+ */
+int test_created_rows_are_inherited_by_deep_copy(void) {
+  const int result = inherited_by_deep_copy_body();
+  release_descendant();
+  TEST_ASSERT_EQUAL(release_case(), 0, "cleanup succeeds");
+  return result;
+}
+
 /* ==========================================================================
  * Visibility
  * ========================================================================== */
@@ -1318,6 +1467,7 @@ int main(void) {
   TEST_RUN(test_staged_row_initialisation);
   TEST_RUN(test_staging_blocks_are_logarithmic);
   TEST_RUN(test_created_galaxies_are_independent);
+  TEST_RUN(test_created_rows_are_inherited_by_deep_copy);
   TEST_RUN(test_visibility_across_modules_phases_and_substeps);
   TEST_RUN(test_fixture_creates_records);
   TEST_RUN(test_fixture_by_galaxy_creation_fails);

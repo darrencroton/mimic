@@ -290,6 +290,13 @@ def _host_blocks(galaxies, snapnum, driver, rows_per_unit, multiplier):
     publishes for the host (its forest, read from its tree ID, under the vertical driver; the
     snapshot under the horizontal driver); the rows between the host and them must be Type 2;
     and the whole block must carry the host's UniqueCentralGalaxyID.
+
+    Assumption: a host's Type 0 row begins its subhalo slice in the output, so its segment
+    runs from it to the next Type 0/1 row. That holds for these fixtures because inheritance
+    gathers the main (most massive, occupied) progenitor's rows first and their central
+    leads (L-Halo progenitor chains are mass-ordered, and the horizontal format keeps the
+    reference vertical order). A fixture ordered otherwise fails the "does not end in
+    records" assertion below, whose message names this assumption.
     """
     ids = galaxies["UniqueGalaxyID"].astype(np.int64)
     types = galaxies["Type"]
@@ -303,7 +310,11 @@ def _host_blocks(galaxies, snapnum, driver, rows_per_unit, multiplier):
         start = end - CREATE_PER_HOST
         where = f"snapshot {snapnum}: host {host_id}"
         assert start > host, f"{where}: its segment has no room for its records"
-        assert np.all(ids[start:end] < 0), f"{where}: its segment does not end in records"
+        message = (
+            f"{where}: its segment does not end in records (or the host row does not begin its "
+            "subhalo slice, which this check assumes)"
+        )
+        assert np.all(ids[start:end] < 0), message
         unit, row, ordinal = _decode(ids[start:end], rows_per_unit)
         keys = set(zip(unit.tolist(), row.tolist()))
         assert len(keys) == 1, f"{where}: its records decode to several hosts {sorted(keys)}"
