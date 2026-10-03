@@ -48,6 +48,9 @@
 /** Width of the audit's occupation bins in log10(M / (Msun/h)) */
 #define HOD_AUDIT_BIN_DEX 0.2
 
+/** Below this argument the NFW mass shape is summed as a series, avoiding cancellation */
+#define HOD_NFW_SERIES_LIMIT 0.1
+
 // ============================================================================
 // MODULE STATE
 // ============================================================================
@@ -57,6 +60,13 @@ static struct HodParameters hod_params;
 
 /** Whether init() completed; process() and process_snapshot() refuse to run otherwise */
 static bool hod_ready = false;
+
+/**
+ * One host's satellite placements, drawn in full before process() writes
+ * anything so a draw that fails leaves the workspace untouched (80 KB, static
+ * because one FoF step is processed at a time)
+ */
+static struct HodSatellite hod_satellites[HOD_MAX_SATELLITES];
 
 // ============================================================================
 // OCCUPATION AND PLACEMENT
@@ -82,19 +92,59 @@ double hod_populate_concentration(const struct HodParameters *p, double mass, do
          pow(1.0 + redshift, p->conc_c);
 }
 
-double hod_populate_nfw_mass(double x) { return log1p(x) - x / (1.0 + x); }
+/**
+ * @brief m(t) / t^2 by its series sum_{n>=2} (-1)^n (n - 1)/n t^(n-2), for 0 <= t < 0.1
+ *
+ * Each term is at most a tenth of the one before, so the sum stops once the
+ * next power of t is below 1e-17 (at most about 17 terms).
+ */
+static double nfw_scaled_mass_series(double t) {
+  double sum = 0.0;
+  double power = 1.0;
+  for (int n = 2; n < 64 && power >= 1.0e-17; n++) {
+    const double term = (double)(n - 1) / (double)n * power;
+    sum += (n % 2 == 0) ? term : -term;
+    power *= t;
+  }
+  return sum;
+}
 
-double hod_populate_nfw_inverse(double u, double c) {
-  const double m_c = hod_populate_nfw_mass(c);
+/** @brief m(t) = ln(1 + t) - t / (1 + t), from the series below HOD_NFW_SERIES_LIMIT */
+static double nfw_mass(double t) {
+  if (t < HOD_NFW_SERIES_LIMIT) {
+    return t * t * nfw_scaled_mass_series(t);
+  }
+  return log1p(t) - t / (1.0 + t);
+}
+
+double hod_populate_nfw_fraction(double x, double c) {
+  if (c < HOD_NFW_SERIES_LIMIT) {
+    const double ratio = x / c;
+    return ratio * ratio * nfw_scaled_mass_series(x) / nfw_scaled_mass_series(c);
+  }
+  return nfw_mass(x) / nfw_mass(c);
+}
+
+int hod_populate_nfw_inverse(double u, double c, double *x) {
+  if (!isfinite(c) || !(c > 0.0) || !(u >= 0.0 && u <= 1.0)) {
+    return -1;
+  }
+  const double denominator = (c < HOD_NFW_SERIES_LIMIT) ? nfw_scaled_mass_series(c) : nfw_mass(c);
+  if (!isfinite(denominator) || !(denominator > 0.0)) {
+    return -1;
+  }
   double lo = 0.0;
   double hi = c;
-  double mid = 0.5 * (lo + hi);
   // Each step halves the bracket; it stops shrinking after about 1100 steps at the latest.
   for (int iteration = 0; iteration < 2000; iteration++) {
-    mid = 0.5 * (lo + hi);
-    const double residual = hod_populate_nfw_mass(mid) / m_c - u;
-    if (fabs(residual) <= HOD_NFW_TOLERANCE || mid <= lo || mid >= hi) {
-      break;
+    const double mid = 0.5 * (lo + hi);
+    const double residual = hod_populate_nfw_fraction(mid, c) - u;
+    if (fabs(residual) <= HOD_NFW_TOLERANCE) {
+      *x = mid;
+      return 0;
+    }
+    if (mid <= lo || mid >= hi || !isfinite(residual)) {
+      return -1;
     }
     if (residual < 0.0) {
       lo = mid;
@@ -102,7 +152,7 @@ double hod_populate_nfw_inverse(double u, double c) {
       hi = mid;
     }
   }
-  return mid;
+  return -1;
 }
 
 double hod_populate_wrap(double coordinate, double box) {
@@ -137,12 +187,15 @@ void hod_populate_draw_occupation(const struct HodParameters *p, uint64_t key, d
   }
 }
 
-void hod_populate_draw_satellite(uint64_t key, int s, double concentration, double rvir,
-                                 double vvir, double redshift, struct HodSatellite *out) {
+int hod_populate_draw_satellite(uint64_t key, int s, double concentration, double rvir, double vvir,
+                                double redshift, struct HodSatellite *out) {
   const uint64_t base =
       HOD_DRAW_FIRST_SATELLITE + (uint64_t)s * (uint64_t)HOD_DRAW_SATELLITE_STRIDE;
 
-  out->x = hod_populate_nfw_inverse(hod_random_uniform(key, base), concentration);
+  out->u_radius = hod_random_uniform(key, base);
+  if (hod_populate_nfw_inverse(out->u_radius, concentration, &out->x) != 0) {
+    return -1;
+  }
   out->r_phys = rvir * out->x / concentration;
   out->r_com = out->r_phys * (1.0 + redshift);
 
@@ -157,6 +210,7 @@ void hod_populate_draw_satellite(uint64_t key, int s, double concentration, doub
   for (int j = 0; j < 3; j++) {
     out->velocity[j] = sigma_1d * hod_random_gaussian(key, base + 3 + 2 * (uint64_t)j);
   }
+  return 0;
 }
 
 bool hod_populate_is_output_snapshot(int snapshot) {
@@ -175,14 +229,47 @@ bool hod_populate_is_output_snapshot(int snapshot) {
 // CONFIGURATION AND PARAMETERS
 // ============================================================================
 
+/** Entries naming this module in one FoF phase */
+static int count_fof_entries(const struct PhaseModuleConfig *phase, int num_modules) {
+  int entries = 0;
+  for (int i = 0; i < num_modules; i++) {
+    if (phase[i].module_name != NULL && strcmp(phase[i].module_name, HOD_MODULE_NAME) == 0) {
+      entries++;
+    }
+  }
+  return entries;
+}
+
 /**
- * @brief Require the module exactly once in post_timestep as process_full_halo and, when
- *        post_snapshot is configured, the snapshot audit there
+ * @brief Require the module exactly once in post_timestep as process_full_halo, in no
+ *        other FoF phase, and, when post_snapshot is configured, the snapshot audit there
  *
  * FoF phases accept repeated entries (the registry initialises a module once),
- * so the post_timestep entries are counted here.
+ * so entries are counted here. Any further FoF entry would retire and redraw
+ * the same FoF step again (per substep in a substep phase), and could exhaust
+ * the per-host identity radix with no hint of the cause.
  */
 static int check_configuration(void) {
+  int elsewhere = count_fof_entries(MimicConfig.pre_timestep, MimicConfig.num_pre_timestep);
+  if (elsewhere > 0) {
+    ERROR_LOG(
+        "%s is configured in modules.pre_timestep; it must run only in modules.post_timestep, "
+        "once per FoF step, or each extra entry retires and redraws the step again",
+        HOD_MODULE_NAME);
+    return -1;
+  }
+  for (int p = 0; p < MimicConfig.num_substep_phases; p++) {
+    const struct ModulePhaseConfig *phase = &MimicConfig.substep_phases[p];
+    elsewhere = count_fof_entries(phase->modules, phase->num_modules);
+    if (elsewhere > 0) {
+      ERROR_LOG("%s is configured in substep phase '%s'; it must run only in "
+                "modules.post_timestep, once per FoF step, or it retires and redraws the step "
+                "once per substep",
+                HOD_MODULE_NAME, phase->name != NULL ? phase->name : "(unnamed)");
+      return -1;
+    }
+  }
+
   int entries = 0;
   int full_halo_entries = 0;
   for (int i = 0; i < MimicConfig.num_post_timestep; i++) {
@@ -334,10 +421,15 @@ int hod_populate_init(void) {
   return 0;
 }
 
-/** Validate a host before anything is written; fills the draw for an output snapshot */
+/**
+ * @brief Validate a host and draw it in full before anything is written
+ *
+ * Fills the occupation and, for each satellite, its placement in
+ * hod_satellites[]; any failure (bad proxies, identity radix, concentration,
+ * an NFW radius that cannot meet its tolerance) returns -1 with nothing written.
+ */
 static int prepare_host_draw(const struct ModuleContext *ctx, const struct Halo *host,
-                             uint64_t *key, struct HodOccupation *occupation,
-                             double *concentration) {
+                             struct HodOccupation *occupation) {
   const double mass = host->Mvir * HOD_MASS_UNIT_MSUN;
   if (!isfinite(mass) || mass < 0.0) {
     ERROR_LOG("%s: host UniqueGalaxyID %lld has Mvir %.17g; it must be finite and nonnegative",
@@ -352,8 +444,8 @@ static int prepare_host_draw(const struct ModuleContext *ctx, const struct Halo 
     return -1;
   }
 
-  *key = hod_random_key(hod_params.seed, ctx->snapshot_number, host->UniqueGalaxyID);
-  hod_populate_draw_occupation(&hod_params, *key, mass, occupation);
+  const uint64_t key = hod_random_key(hod_params.seed, ctx->snapshot_number, host->UniqueGalaxyID);
+  hod_populate_draw_occupation(&hod_params, key, mass, occupation);
   if (occupation->num_satellites > HOD_MAX_SATELLITES) {
     ERROR_LOG("%s: host UniqueGalaxyID %lld (lambda=%.6g) drew more than %d satellites, the "
               "per-host identity radix",
@@ -382,12 +474,22 @@ static int prepare_host_draw(const struct ModuleContext *ctx, const struct Halo 
               ctx->snapshot_number, ctx->redshift);
     return -1;
   }
-  *concentration = hod_populate_concentration(&hod_params, mass, ctx->redshift);
-  if (!isfinite(*concentration) || !(*concentration > 0.0)) {
+  const double concentration = hod_populate_concentration(&hod_params, mass, ctx->redshift);
+  if (!isfinite(concentration) || !(concentration > 0.0)) {
     ERROR_LOG("%s: host UniqueGalaxyID %lld (M=%.6e Msun/h, z=%.4f) has concentration %.6g; it "
               "must be finite and positive",
-              HOD_MODULE_NAME, host->UniqueGalaxyID, mass, ctx->redshift, *concentration);
+              HOD_MODULE_NAME, host->UniqueGalaxyID, mass, ctx->redshift, concentration);
     return -1;
+  }
+  for (int s = 0; s < occupation->num_satellites; s++) {
+    if (hod_populate_draw_satellite(key, s, concentration, host->Rvir, host->Vvir, ctx->redshift,
+                                    &hod_satellites[s]) != 0) {
+      ERROR_LOG("%s: host UniqueGalaxyID %lld satellite %d: the NFW radius for u=%.17g at "
+                "concentration c=%.17g cannot meet |m(x)/m(c) - u| <= %g",
+                HOD_MODULE_NAME, host->UniqueGalaxyID, s, hod_satellites[s].u_radius, concentration,
+                HOD_NFW_TOLERANCE);
+      return -1;
+    }
   }
   return 0;
 }
@@ -427,10 +529,8 @@ int hod_populate_process(struct ModuleContext *ctx, struct Halo *halos, int ngal
 
   // Everything that can fail is decided before the first write.
   const bool draw = hod_populate_is_output_snapshot(ctx->snapshot_number);
-  uint64_t key = 0;
   struct HodOccupation occupation = {0};
-  double concentration = 0.0;
-  if (draw && prepare_host_draw(ctx, host, &key, &occupation, &concentration) != 0) {
+  if (draw && prepare_host_draw(ctx, host, &occupation) != 0) {
     return -1;
   }
 
@@ -457,14 +557,12 @@ int hod_populate_process(struct ModuleContext *ctx, struct Halo *halos, int ngal
                 HOD_MODULE_NAME, s, occupation.num_satellites, host->UniqueGalaxyID);
       return -1;
     }
-    struct HodSatellite satellite;
-    hod_populate_draw_satellite(key, s, concentration, host->Rvir, host->Vvir, ctx->redshift,
-                                &satellite);
+    const struct HodSatellite *satellite = &hod_satellites[s];
     for (int j = 0; j < 3; j++) {
       const double wrapped =
-          hod_populate_wrap((double)host->Pos[j] + satellite.offset[j], hod_params.box_size);
+          hod_populate_wrap((double)host->Pos[j] + satellite->offset[j], hod_params.box_size);
       row->Pos[j] = hod_populate_store_position(wrapped, hod_params.box_size);
-      row->Vel[j] = (float)((double)host->Vel[j] + satellite.velocity[j]);
+      row->Vel[j] = (float)((double)host->Vel[j] + satellite->velocity[j]);
     }
     row->galaxy->HODGhost = 0;
   }
@@ -540,6 +638,7 @@ static int fill_audit_bins(const struct Halo *halos, int64_t count, int64_t host
   }
   qsort(table, (size_t)n, sizeof(*table), compare_audit_hosts);
 
+  // The caller's first pass has already checked that every entry has a galaxy.
   for (int64_t i = 0; i < count; i++) {
     if (halos[i].galaxy->HODGhost != 0) {
       continue;
@@ -596,6 +695,12 @@ int hod_populate_process_snapshot(const struct SnapshotContext *ctx, const struc
   double log_max = -HUGE_VAL;
   for (int64_t i = 0; i < count; i++) {
     const struct Halo *h = &halos[i];
+    if (h->galaxy == NULL) {
+      ERROR_LOG("%s audit: UniqueGalaxyID %lld (entry %lld) has no galaxy; a snapshot population "
+                "row always carries one",
+                HOD_MODULE_NAME, h->UniqueGalaxyID, (long long)i);
+      return -1;
+    }
     const int ghost = h->galaxy->HODGhost;
     if (ghost != 0 && ghost != 1) {
       ERROR_LOG("%s audit: UniqueGalaxyID %lld has HODGhost %d outside [0, 1]", HOD_MODULE_NAME,

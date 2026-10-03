@@ -9,13 +9,17 @@
  *   inversion against hand cases, the overflow signal and a mean whose
  *   exp(-lambda) underflows
  * - the hand-checkable spot values of the occupation law, the concentration,
- *   the NFW inverse, the periodic wrap and the physical-to-comoving offset
- * - init(): the configuration guards and every parameter's domain, including
+ *   the NFW inverse, the periodic wrap and the physical-to-comoving offset;
+ *   small concentrations against a 60-digit reference, and refusal of a
+ *   degenerate concentration
+ * - init(): the configuration guards (exactly one post_timestep entry, none in
+ *   pre_timestep or a substep phase) and every parameter's domain, including
  *   the strings the strict parser accepts and the range checks would pass
  * - process(), driven through the registered dispatch (execute_module_pipeline()
  *   over hand-built FoF workspaces): Type 2 retirement, the ghost reset, the
  *   central gating, created satellites placed exactly as the helpers predict,
  *   the output-snapshot gate against MimicConfig, the identity-radix errors,
+ *   placement at a tiny concentration normalisation,
  *   bitwise repeat identity, and invariance under row and FoF permutation
  * - statistics over 40,000 independently keyed hosts (central frequency,
  *   satellite count mean and variance, radial CDF, velocity variance), each
@@ -63,7 +67,11 @@ extern int hod_populate_process_snapshot(const struct SnapshotContext *ctx,
                                          const struct Halo *halos, int64_t count);
 extern int hod_populate_cleanup(void);
 
-/** Hosts in every statistical test (the contract asks for at least 20,000) */
+/**
+ * Hosts in every statistical test: twice the 20,000 the HOD plan sets as a minimum, so the
+ * central frequency's 4-SE band is +-0.01 and the radial and velocity tests see about
+ * 215,000 satellites at 1e14 Msun/h
+ */
 #define STAT_HOSTS 40000
 
 /** Synthetic identity space: unit = snapshot, HaloNr below TEST_ROWS_PER_UNIT */
@@ -383,23 +391,90 @@ int test_concentration_spot_values(void) {
  * @brief  x(u, c) at the contract's points to 1e-9, and the residual tolerance everywhere
  */
 int test_nfw_inverse_spot_values(void) {
-  TEST_ASSERT(fabs(hod_populate_nfw_inverse(0.5, 5.0) - 2.2166041757) <= 1e-9,
+  double x = 0.0;
+  TEST_ASSERT(hod_populate_nfw_inverse(0.5, 5.0, &x) == 0 && fabs(x - 2.2166041757) <= 1e-9,
               "x(0.5, 5) = 2.2166041757");
-  TEST_ASSERT(fabs(hod_populate_nfw_inverse(0.1, 10.0) - 0.8223966449) <= 1e-9,
+  TEST_ASSERT(hod_populate_nfw_inverse(0.1, 10.0, &x) == 0 && fabs(x - 0.8223966449) <= 1e-9,
               "x(0.1, 10) = 0.8223966449");
-  TEST_ASSERT(fabs(hod_populate_nfw_inverse(0.9, 5.71) - 4.9207968140) <= 1e-9,
+  TEST_ASSERT(hod_populate_nfw_inverse(0.9, 5.71, &x) == 0 && fabs(x - 4.9207968140) <= 1e-9,
               "x(0.9, 5.71) = 4.9207968140");
 
   static const double us[] = {0x1.0p-53, 1e-6, 0.25, 0.75, 0.999999, 1.0 - 0x1.0p-53};
   static const double cs[] = {0.5, 4.110765, 30.0};
   for (size_t i = 0; i < sizeof(us) / sizeof(us[0]); i++) {
     for (size_t k = 0; k < sizeof(cs) / sizeof(cs[0]); k++) {
-      const double x = hod_populate_nfw_inverse(us[i], cs[k]);
+      TEST_ASSERT(hod_populate_nfw_inverse(us[i], cs[k], &x) == 0, "the inverse converges");
       const double residual = (log1p(x) - x / (1.0 + x)) / (log1p(cs[k]) - cs[k] / (1.0 + cs[k]));
       TEST_ASSERT(x >= 0.0 && x <= cs[k], "x stays in [0, c]");
       TEST_ASSERT(fabs(residual - us[i]) <= 1e-12, "|m(x)/m(c) - u| <= 1e-12");
     }
   }
+  return TEST_PASS;
+}
+
+/** One small-concentration reference: u, c and x/c from an independent 60-digit computation */
+struct NfwReference {
+  double u;
+  double c;
+  double x_over_c;
+};
+
+/**
+ * @test   test_nfw_small_concentration
+ * @brief  Small concentrations solve to the 60-digit reference; degenerate inputs are refused
+ *
+ * References: Python decimal at 60 significant digits, m(x) = ln(1 + x) - x/(1 + x)
+ * with exact decimal ln, bisection on [0, c] for 400 halvings (bracket below 1e-120 c):
+ *   c = 1e-6: x/c = 0.31622762186508335 (u 0.1), 0.70710664311541649 (0.5), 0.94868326559499083
+ * (0.9) c = 1e-3: x/c = 0.31608370353845688, 0.70696876639232642, 0.94865085153072204 c = 0.1:  x/c
+ * = 0.30264840236102647, 0.69383592092457724, 0.94552429531711990 (the small-c limit x/c -> sqrt(u)
+ * = 0.316228, 0.707107, 0.948683 is visible at c = 1e-6). The bisection stops at |m(x)/m(c) - u| <=
+ * 1e-12 and dF/d(x/c) is about 2 (x/c) >= 0.6 here, so x/c is within ~2e-12 of the reference; 1e-10
+ * is asserted. Directly evaluated, log1p(c) - c/(1 + c) loses all its digits near c = 1e-6 and the
+ * old bisection stalled with residual ~3e-10.
+ */
+int test_nfw_small_concentration(void) {
+  static const struct NfwReference refs[] = {
+      {0.1, 1e-6, 0.31622762186508335}, {0.5, 1e-6, 0.70710664311541649},
+      {0.9, 1e-6, 0.94868326559499083}, {0.1, 1e-3, 0.31608370353845688},
+      {0.5, 1e-3, 0.70696876639232642}, {0.9, 1e-3, 0.94865085153072204},
+      {0.1, 0.1, 0.30264840236102647},  {0.5, 0.1, 0.69383592092457724},
+      {0.9, 0.1, 0.94552429531711990},
+  };
+  for (size_t k = 0; k < sizeof(refs) / sizeof(refs[0]); k++) {
+    double x = -1.0;
+    TEST_ASSERT(hod_populate_nfw_inverse(refs[k].u, refs[k].c, &x) == 0,
+                "a small concentration converges");
+    TEST_ASSERT(fabs(x / refs[k].c - refs[k].x_over_c) <= 1e-10,
+                "x/c matches the 60-digit reference to 1e-10");
+    TEST_ASSERT(fabs(hod_populate_nfw_fraction(x, refs[k].c) - refs[k].u) <= 1e-12,
+                "the stable fraction meets the tolerance at the solution");
+  }
+
+  /* The fraction is continuous across the series switch at 0.1 (both forms agree there). */
+  TEST_ASSERT(fabs(hod_populate_nfw_fraction(0.0999999999, 0.2) -
+                   hod_populate_nfw_fraction(0.1000000001, 0.2)) <= 1e-8,
+              "the series and direct forms agree at the switch");
+  TEST_ASSERT(hod_populate_nfw_fraction(0.0, 1e-6) == 0.0, "the fraction is 0 at x = 0");
+  TEST_ASSERT(fabs(hod_populate_nfw_fraction(1e-300, 1e-300) - 1.0) <= 1e-15,
+              "a concentration far below double resolution of 1 neither cancels nor underflows");
+
+  static const double degenerate_c[] = {0.0, -1.0, NAN, INFINITY, -INFINITY};
+  for (size_t k = 0; k < sizeof(degenerate_c) / sizeof(degenerate_c[0]); k++) {
+    double x = -7.0;
+    TEST_ASSERT(hod_populate_nfw_inverse(0.5, degenerate_c[k], &x) != 0,
+                "a concentration that is not finite and positive is refused");
+    TEST_ASSERT(x == -7.0, "a refused inverse writes no radius");
+  }
+  double x = -7.0;
+  TEST_ASSERT(hod_populate_nfw_inverse(NAN, 5.0, &x) != 0 && x == -7.0, "a NaN u is refused");
+  TEST_ASSERT(hod_populate_nfw_inverse(1.5, 5.0, &x) != 0 && x == -7.0, "u > 1 is refused");
+
+  struct HodSatellite sat;
+  TEST_ASSERT(hod_populate_draw_satellite(hod_random_key(1, 5, 9), 0, 0.0, 0.3, 200.0, 0.0, &sat) !=
+                  0,
+              "a satellite draw at a degenerate concentration fails");
+  TEST_ASSERT(sat.u_radius > 0.0 && sat.u_radius < 1.0, "and reports its radius uniform");
   return TEST_PASS;
 }
 
@@ -439,8 +514,9 @@ int test_comoving_offset(void) {
   for (int s = 0; s < 16; s++) {
     struct HodSatellite at_z1;
     struct HodSatellite at_z0;
-    hod_populate_draw_satellite(key, s, c, 0.3, 300.0, 1.0, &at_z1);
-    hod_populate_draw_satellite(key, s, c, 0.3, 300.0, 0.0, &at_z0);
+    TEST_ASSERT(hod_populate_draw_satellite(key, s, c, 0.3, 300.0, 1.0, &at_z1) == 0 &&
+                    hod_populate_draw_satellite(key, s, c, 0.3, 300.0, 0.0, &at_z0) == 0,
+                "the draws succeed");
     const double norm = sqrt(at_z1.offset[0] * at_z1.offset[0] + at_z1.offset[1] * at_z1.offset[1] +
                              at_z1.offset[2] * at_z1.offset[2]);
     TEST_ASSERT(at_z1.r_com == 2.0 * at_z1.r_phys, "at z = 1, r_com = 2 r_phys exactly");
@@ -459,8 +535,8 @@ int test_comoving_offset(void) {
 
 /**
  * @test   test_init_configuration
- * @brief  Exactly one post_timestep process_full_halo entry; post_snapshot, if present, has the
- * audit
+ * @brief  One post_timestep process_full_halo entry, no other FoF entry; post_snapshot, if present,
+ * has the audit
  */
 int test_init_configuration(void) {
   ensure_modules_registered();
@@ -495,6 +571,17 @@ int test_init_configuration(void) {
   configure_run(false);
   add_post_timestep("hod_populate", PROCESSING_MODE_FULL_HALO);
   TEST_ASSERT(module_system_init() != 0, "two post_timestep entries are rejected");
+  module_system_cleanup();
+
+  /* Also in another FoF phase: an extra entry would retire and redraw the FoF step again. */
+  configure_run(false);
+  test_pre_timestep_add("hod_populate", PROCESSING_MODE_FULL_HALO);
+  TEST_ASSERT(module_system_init() != 0, "a pre_timestep entry as well is rejected");
+  module_system_cleanup();
+
+  configure_run(false);
+  test_phase_add("galaxy_physics", "hod_populate", PROCESSING_MODE_FULL_HALO);
+  TEST_ASSERT(module_system_init() != 0, "a substep-phase entry as well is rejected");
   module_system_cleanup();
 
   /* post_snapshot configured without this module (direct init: the registry would reject
@@ -674,7 +761,9 @@ static int check_created_rows(const struct Halo *host_before, int snapshot, doub
     const struct Halo *row = &workspace.halos[r];
     const int s = (int)(r - workspace.base_count);
     struct HodSatellite sat;
-    hod_populate_draw_satellite(key, s, c, host_before->Rvir, host_before->Vvir, redshift, &sat);
+    TEST_ASSERT(hod_populate_draw_satellite(key, s, c, host_before->Rvir, host_before->Vvir,
+                                            redshift, &sat) == 0,
+                "the helper-level draw succeeds");
     TEST_ASSERT(row->Type == 2, "a satellite is a Type 2 row");
     TEST_ASSERT(row->galaxy != NULL && row->galaxy->HODGhost == 0, "a satellite is in the sample");
     TEST_ASSERT(row->UniqueCentralGalaxyID == host_before->UniqueGalaxyID,
@@ -838,6 +927,57 @@ int test_satellite_limit_errors(void) {
   TEST_ASSERT(strstr(log, "lambda=1020") != NULL, "the message carries lambda");
   TEST_ASSERT(workspace_untouched(rows, 2), "a refused draw writes nothing");
 
+  TEST_ASSERT_EQUAL(release_case(), 0, "release succeeds");
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
+/**
+ * @test   test_small_concentration_placement
+ * @brief  With HODConcA = 1e-6 (and no mass or redshift slope) satellites are not placed at the
+ * host
+ *
+ * c = 1e-6 for every host, so x/c is about sqrt(u) and each satellite sits at a
+ * physical radius of order Rvir (0.25 here), not at zero; positions equal the
+ * helper-level draw at that concentration.
+ */
+int test_small_concentration_placement(void) {
+  configure_run(false);
+  snprintf(MimicConfig.ModelParams[6].value, MAX_STRING_LEN, "%s", "1e-6"); /* HODConcA */
+  snprintf(MimicConfig.ModelParams[8].value, MAX_STRING_LEN, "%s", "0");    /* HODConcB */
+  snprintf(MimicConfig.ModelParams[9].value, MAX_STRING_LEN, "%s", "0");    /* HODConcC */
+  TEST_ASSERT_EQUAL(module_system_init(), 0, "a tiny concentration normalisation initialises");
+  build_workspace(mixed_rows, 4, 0, 5, 0.0);
+  const struct Halo host = workspace.halos[0];
+  execute_module_pipeline(&context, &workspace);
+
+  struct HodParameters p = default_params;
+  p.conc_a = 1e-6;
+  p.conc_b = 0.0;
+  p.conc_c = 0.0;
+  const uint64_t key = hod_random_key(p.seed, 5, host.UniqueGalaxyID);
+  struct HodOccupation occupation;
+  hod_populate_draw_occupation(&p, key, row_mass(&host), &occupation);
+  TEST_ASSERT_EQUAL(workspace.count - workspace.base_count, (int64_t)occupation.num_satellites,
+                    "every drawn satellite is created");
+  TEST_ASSERT(occupation.num_satellites > 0, "M = 1e15 has satellites");
+  const double c = hod_populate_concentration(&p, row_mass(&host), 0.0);
+  TEST_ASSERT(fabs(c - 1e-6) <= 1e-18, "the concentration is 1e-6");
+  for (int64_t r = workspace.base_count; r < workspace.count; r++) {
+    const int s = (int)(r - workspace.base_count);
+    struct HodSatellite sat;
+    TEST_ASSERT(hod_populate_draw_satellite(key, s, c, host.Rvir, host.Vvir, 0.0, &sat) == 0,
+                "the helper draw at c = 1e-6 succeeds");
+    TEST_ASSERT(sat.r_phys > 0.01 * host.Rvir && sat.r_phys <= host.Rvir,
+                "the radius is of order Rvir, not collapsed onto the host");
+    for (int j = 0; j < 3; j++) {
+      const double wrapped =
+          hod_populate_wrap((double)host.Pos[j] + sat.offset[j], HOD_TEST_BOX_SIZE);
+      TEST_ASSERT(workspace.halos[r].Pos[j] ==
+                      hod_populate_store_position(wrapped, HOD_TEST_BOX_SIZE),
+                  "the created position is the helper's");
+    }
+  }
   TEST_ASSERT_EQUAL(release_case(), 0, "release succeeds");
   check_memory_leaks();
   return TEST_PASS;
@@ -1026,51 +1166,92 @@ int test_statistics_satellite_counts(void) {
   return TEST_PASS;
 }
 
+/** @brief The test's own NFW enclosed-mass shape, the forward profile (c here is ~4, no
+ * cancellation) */
+static double forward_nfw_mass(double x) { return log1p(x) - x / (1.0 + x); }
+
 /**
  * @test   test_statistics_radial_profile
- * @brief  The satellite radial CDF at M = 1e14 follows m(x)/m(c) at ten quantiles (DKW bound)
+ * @brief  The satellite radial CDF at M = 1e14 follows the forward NFW profile (DKW bound)
  *
  * Every satellite of the 40,000 hosts (about 215,000) is one independent draw
  * of x = r_phys c / Rvir. The Dvoretzky-Kiefer-Wolfowitz inequality bounds the
- * empirical CDF of n i.i.d. draws: P(sup |F_n - F| > eps) <= 2 exp(-2 n eps^2),
- * so eps = sqrt(ln(2 / 1e-6) / (2 n)) (about 0.0058 for n = 215,000) is
- * exceeded with probability below 1e-6. F is evaluated here from its own
- * formula at x_q = the q-quantile, for q = 0.05, 0.15, ..., 0.95.
+ * empirical CDF F_n of n i.i.d. draws uniformly in x: P(sup |F_n - F| > eps) <=
+ * 2 exp(-2 n eps^2), so eps = sqrt(ln(2 / 1e-6) / (2 n)) (about 0.0058 for
+ * n = 215,000) is exceeded anywhere with probability below 1e-6, which covers
+ * every point checked below at once. Three assertions, each proving one thing:
+ * - Fixed grid x_k = k c / 10, k = 1..9, against the test's own forward profile
+ *   F(x) = m(x)/m(c): the drawn radii follow the NFW profile. Neither the grid
+ *   nor F involves hod_populate_nfw_inverse(), so this holds only if the
+ *   module's inverse (and the radius uniform) are both right.
+ * - Quantile points x_q = hod_populate_nfw_inverse(q, c), q = 0.05 ... 0.95,
+ *   against q: the radius uniforms are uniform. For any monotone inverse,
+ *   x <= x_q exactly when u <= q, so this says nothing about the inverse itself
+ *   (test_nfw_inverse_spot_values pins that), only about the uniforms.
+ * - The same quantile points against the forward profile m(x_q)/m(c): the
+ *   inverse's outputs sit where the forward profile puts them, linking the two.
  */
 int test_statistics_radial_profile(void) {
   const double c = hod_populate_concentration(&default_params, 1e14, 0.0);
   const double rvir = 1.0;
-  double x_q[10];
-  double f_q[10];
-  const double m_c = log1p(c) - c / (1.0 + c);
-  for (int q = 0; q < 10; q++) {
-    x_q[q] = hod_populate_nfw_inverse(0.05 + 0.1 * q, c);
-    f_q[q] = (log1p(x_q[q]) - x_q[q] / (1.0 + x_q[q])) / m_c;
+  const double m_c = forward_nfw_mass(c);
+  double grid[9];
+  double grid_cdf[9];
+  for (int k = 0; k < 9; k++) {
+    grid[k] = c * (k + 1) / 10.0;
+    grid_cdf[k] = forward_nfw_mass(grid[k]) / m_c;
   }
+  double q_level[10];
+  double x_q[10];
+  double x_q_cdf[10];
+  for (int q = 0; q < 10; q++) {
+    q_level[q] = 0.05 + 0.1 * q;
+    TEST_ASSERT(hod_populate_nfw_inverse(q_level[q], c, &x_q[q]) == 0, "the inverse converges");
+    x_q_cdf[q] = forward_nfw_mass(x_q[q]) / m_c;
+  }
+
   int64_t n = 0;
-  int64_t below[10] = {0};
+  int64_t below_grid[9] = {0};
+  int64_t below_q[10] = {0};
   for (int i = 0; i < STAT_HOSTS; i++) {
     const uint64_t key = stat_key(i);
     struct HodOccupation o;
     hod_populate_draw_occupation(&default_params, key, 1e14, &o);
     for (int s = 0; s < o.num_satellites; s++) {
       struct HodSatellite sat;
-      hod_populate_draw_satellite(key, s, c, rvir, 200.0, 0.0, &sat);
+      TEST_ASSERT(hod_populate_draw_satellite(key, s, c, rvir, 200.0, 0.0, &sat) == 0,
+                  "every satellite draw succeeds");
       const double x = sat.r_phys * c / rvir;
+      for (int k = 0; k < 9; k++) {
+        below_grid[k] += (x <= grid[k]);
+      }
       for (int q = 0; q < 10; q++) {
-        below[q] += (x <= x_q[q]);
+        below_q[q] += (x <= x_q[q]);
       }
       n++;
     }
   }
+
   const double eps = sqrt(log(2.0 / 1e-6) / (2.0 * (double)n));
-  double worst = 0.0;
-  for (int q = 0; q < 10; q++) {
-    worst = fmax(worst, fabs((double)below[q] / (double)n - f_q[q]));
+  double worst_grid = 0.0;
+  for (int k = 0; k < 9; k++) {
+    worst_grid = fmax(worst_grid, fabs((double)below_grid[k] / (double)n - grid_cdf[k]));
   }
-  printf("[n = %lld, max |F_n - F| = %.5f, bound %.5f] ", (long long)n, worst, eps);
+  double worst_uniform = 0.0;
+  double worst_linked = 0.0;
+  for (int q = 0; q < 10; q++) {
+    const double empirical = (double)below_q[q] / (double)n;
+    worst_uniform = fmax(worst_uniform, fabs(empirical - q_level[q]));
+    worst_linked = fmax(worst_linked, fabs(empirical - x_q_cdf[q]));
+  }
+  printf("[n = %lld, max |F_n - F| grid %.5f, quantiles vs q %.5f, vs forward %.5f, bound %.5f] ",
+         (long long)n, worst_grid, worst_uniform, worst_linked, eps);
   TEST_ASSERT(n > 150000, "about 215,000 satellites were drawn");
-  TEST_ASSERT(worst <= eps, "the radial CDF agrees with m(x)/m(c) within the DKW bound");
+  TEST_ASSERT(worst_grid <= eps,
+              "on a fixed grid the radial CDF follows the forward profile within the DKW bound");
+  TEST_ASSERT(worst_uniform <= eps, "at the inverse's quantile points the CDF is q (uniforms)");
+  TEST_ASSERT(worst_linked <= eps,
+              "at the inverse's quantile points the CDF follows the forward profile");
   return TEST_PASS;
 }
 
@@ -1094,7 +1275,8 @@ int test_statistics_velocity_dispersion(void) {
     hod_populate_draw_occupation(&default_params, key, 1e14, &o);
     for (int s = 0; s < o.num_satellites; s++) {
       struct HodSatellite sat;
-      hod_populate_draw_satellite(key, s, c, 1.0, vvir, 0.0, &sat);
+      TEST_ASSERT(hod_populate_draw_satellite(key, s, c, 1.0, vvir, 0.0, &sat) == 0,
+                  "every satellite draw succeeds");
       for (int j = 0; j < 3; j++) {
         sum += sat.velocity[j];
         sum_sq += sat.velocity[j] * sat.velocity[j];
@@ -1253,6 +1435,7 @@ int main(void) {
   TEST_RUN(test_occupation_spot_values);
   TEST_RUN(test_concentration_spot_values);
   TEST_RUN(test_nfw_inverse_spot_values);
+  TEST_RUN(test_nfw_small_concentration);
   TEST_RUN(test_position_wrap);
   TEST_RUN(test_comoving_offset);
   TEST_RUN(test_init_configuration);
@@ -1262,6 +1445,7 @@ int main(void) {
   TEST_RUN(test_absent_central_creates_nothing);
   TEST_RUN(test_output_snapshot_gating);
   TEST_RUN(test_satellite_limit_errors);
+  TEST_RUN(test_small_concentration_placement);
   TEST_RUN(test_determinism_and_permutation);
   TEST_RUN(test_statistics_central_frequency);
   TEST_RUN(test_statistics_satellite_counts);

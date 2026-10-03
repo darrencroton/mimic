@@ -28,11 +28,16 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "constants.h"
+
 /** Mass unit of Mvir in Msun/h (internal 1e10 Msun/h) */
 #define HOD_MASS_UNIT_MSUN 1.0e10
 
-/** Largest satellite count per host: the created-record identity radix, never a clip */
-#define HOD_MAX_SATELLITES 1024
+/**
+ * Largest satellite count per host, never a clip: module_create_record()'s
+ * per-host limit, the created-record identity radix, so the two cannot diverge
+ */
+#define HOD_MAX_SATELLITES MAX_CREATED_RECORDS_PER_HOST
 
 /** Absolute tolerance of the NFW inverse: |m(x)/m(c) - u| <= HOD_NFW_TOLERANCE */
 #define HOD_NFW_TOLERANCE 1.0e-12
@@ -68,6 +73,7 @@ struct HodOccupation {
 
 /** One satellite's placement relative to its host */
 struct HodSatellite {
+  double u_radius;    /**< Radius uniform u, kept for diagnostics */
   double x;           /**< NFW scaled radius r / r_s, solving m(x)/m(c) = u */
   double r_phys;      /**< Physical radius Rvir x / c */
   double r_com;       /**< Comoving radius r_phys (1 + z) */
@@ -98,20 +104,35 @@ double hod_populate_lambda(const struct HodParameters *p, double mass);
  */
 double hod_populate_concentration(const struct HodParameters *p, double mass, double redshift);
 
-/** @brief NFW enclosed-mass shape m(x) = ln(1 + x) - x / (1 + x) */
-double hod_populate_nfw_mass(double x);
+/**
+ * @brief   NFW enclosed-mass fraction m(x) / m(c), m(x) = ln(1 + x) - x / (1 + x)
+ *
+ * Evaluated without cancellation for small arguments: m(t) = t^2 g(t) with
+ * g(t) = sum_{n>=2} (-1)^n (n - 1)/n t^(n-2) summed as a series for t < 0.1,
+ * and for c < 0.1 the fraction is formed as (x/c)^2 g(x)/g(c), which neither
+ * cancels nor underflows however small c is (the small-c limit is (x/c)^2).
+ *
+ * @param   x  Scaled radius in [0, c]
+ * @param   c  Concentration, finite and > 0
+ * @return  The fraction in [0, 1]; NaN or a non-positive denominator only for an invalid c
+ */
+double hod_populate_nfw_fraction(double x, double c);
 
 /**
  * @brief   Solve m(x) / m(c) = u for x by bisection on [0, c]
  *
- * Stops at the first midpoint with |m(x)/m(c) - u| <= HOD_NFW_TOLERANCE (or
- * once the bracket stops shrinking in double precision).
+ * Stops at the first midpoint with |m(x)/m(c) - u| <= HOD_NFW_TOLERANCE.
+ * Reports failure instead of returning an unconverged radius: when c is not
+ * finite and positive, when m(c) is not finite and positive, or when the
+ * bracket stops shrinking in double precision with the residual still above
+ * the tolerance.
  *
  * @param   u  Target enclosed fraction in (0, 1)
- * @param   c  Concentration, finite and > 0
- * @return  x in [0, c]
+ * @param   c  Concentration
+ * @param   x  Receives the radius in [0, c] on success; untouched on failure
+ * @return  0 on success, -1 on failure (the caller reports it)
  */
-double hod_populate_nfw_inverse(double u, double c);
+int hod_populate_nfw_inverse(double u, double c, double *x);
 
 /**
  * @brief   Wrap a coordinate into [0, box): exactly box (or any multiple) maps to 0
@@ -143,6 +164,8 @@ void hod_populate_draw_occupation(const struct HodParameters *p, uint64_t key, d
 /**
  * @brief   Draw satellite @p s of a host: NFW radius, isotropic direction, Gaussian velocity
  *
+ * out->u_radius is set even on failure, so the caller can name it.
+ *
  * @param   key           Host stream key
  * @param   s             Satellite ordinal within the host, 0-based
  * @param   concentration Host concentration (hod_populate_concentration())
@@ -150,16 +173,19 @@ void hod_populate_draw_occupation(const struct HodParameters *p, uint64_t key, d
  * @param   vvir          Host virial velocity, km/s
  * @param   redshift      Snapshot redshift, for the comoving conversion
  * @param   out           Receives the placement
+ * @return  0 on success, -1 when the NFW inverse cannot meet its tolerance
  */
-void hod_populate_draw_satellite(uint64_t key, int s, double concentration, double rvir,
-                                 double vvir, double redshift, struct HodSatellite *out);
+int hod_populate_draw_satellite(uint64_t key, int s, double concentration, double rvir, double vvir,
+                                double redshift, struct HodSatellite *out);
 
 /**
  * @brief   Whether @p snapshot is an output snapshot of the run
  *
  * True when it is in MimicConfig.ListOutputSnaps[0, NOUT), and for every
- * snapshot when the list is empty (NOUT == 0), matching an empty
- * output.snapshot_list.
+ * snapshot when the list is empty (NOUT == 0). In a run, core expands an
+ * empty output.snapshot_list to every snapshot before any module init()
+ * (read_parameter_file.c), so NOUT == 0 is reached only by direct calls such as
+ * the unit tests; the branch keeps them on the same meaning.
  */
 bool hod_populate_is_output_snapshot(int snapshot);
 

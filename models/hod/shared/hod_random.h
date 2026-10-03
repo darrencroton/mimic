@@ -9,7 +9,8 @@
  * within that stream (hod_populate.h documents the index layout).
  *
  * - splitmix64 finaliser (Steele, Lea & Flood 2014) as the mixing function,
- *   after the pattern of the legacy SHAM scatter generator
+ *   after the pattern of the legacy SHAM scatter generator; the draw index is
+ *   mixed non-linearly into the key, so distinct streams do not overlap
  * - uniforms strictly inside (0, 1): 52 random bits centred in their cells, so
  *   the extremes are 2^-53 and 1 - 2^-53 and a logarithm is always finite
  * - Box-Muller standard Gaussians from two uniforms at consecutive indices
@@ -32,6 +33,9 @@
 #define HOD_RANDOM_SALT_SEED UINT64_C(0x5d1a6b0c3f2e4987)
 #define HOD_RANDOM_SALT_SNAPSHOT UINT64_C(0xa3c59ac2f13b7e61)
 #define HOD_RANDOM_SALT_HOST UINT64_C(0x2f8b13d7c0e9a465)
+
+/** Salt of the draw index before it is mixed into the stream key */
+#define HOD_RANDOM_SALT_INDEX UINT64_C(0xc6a4a7935bd1e995)
 
 /** 2 pi, for the Box-Muller angle */
 #define HOD_RANDOM_TWO_PI 6.283185307179586476925286766559
@@ -70,11 +74,15 @@ static inline uint64_t hod_random_key(int64_t seed, int snapshot, long long host
 /**
  * @brief   Raw 64 random bits for draw @p index of stream @p key
  *
- * Counter mode: the index advances the splitmix64 Weyl sequence from the key,
- * and the mixer turns each position into an independent-looking value.
+ * Counter mode with a non-linear index: the salted index is mixed on its own
+ * and then folded into the key before the final mix. A linear form such as
+ * mix(key + index * golden) would make every stream a shifted window of one
+ * global Weyl sequence, so two hosts whose keys differ by a small multiple of
+ * the increment would share a stretch of draws; here two (key, index) pairs
+ * collide only through a 64-bit coincidence of key ^ mix(index + salt).
  */
 static inline uint64_t hod_random_bits(uint64_t key, uint64_t index) {
-  return hod_random_mix(key + index * HOD_RANDOM_GOLDEN);
+  return hod_random_mix(key ^ hod_random_mix(index + HOD_RANDOM_SALT_INDEX));
 }
 
 /**
