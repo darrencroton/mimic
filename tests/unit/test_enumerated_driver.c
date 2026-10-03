@@ -12,6 +12,7 @@
 #include "output/util.h"
 #include "vertical/reader.h"
 
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -417,6 +418,54 @@ static int test_unknown_largest_unit_falls_back_to_multiplier(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_non_fitting_identity_space_does_not_stop_the_run
+ * @brief   A space too large for int64 is published with fits == false on every unit, and the
+ *          driver still loads every unit and tears the reader down normally
+ */
+static int test_non_fitting_identity_space_does_not_stop_the_run(void) {
+  char dir_template[] = "/tmp/mimic_enumerated_driver_nofit_XXXXXX";
+  char output_path[512];
+
+  configure_driver_defaults();
+  reset_synthetic_state();
+  TEST_ASSERT(create_temp_output_dir(dir_template) == TEST_PASS,
+              "temporary output directory should be configured");
+  /* rows_per_unit falls back to 2^52 - 1, so 1024 * units * rows fits for two units
+   * and not for the three configured here. */
+  MimicConfig.UniqueGalaxyIDMultiplier = INT64_MAX / 2048;
+  MimicConfig.NOUT = 1;
+  MimicConfig.ListOutputSnaps[0] = 0;
+  MimicConfig.ZZ[0] = 0.0;
+
+  synthetic_npartitions = 2;
+  set_partition(0, 2, 1.0, 10);
+  synthetic_max_unit_halos[0] = -1;
+  set_partition(1, 1, 1.0, 12);
+  synthetic_max_unit_halos[1] = 5;
+
+  run_vertical_driver();
+
+  TEST_ASSERT_EQUAL(load_calls, 3, "driver should load every unit despite the verdict");
+  TEST_ASSERT_EQUAL(teardown_calls, 1, "driver should tear the reader down normally");
+  TEST_ASSERT_EQUAL(close_calls, 2, "driver should close both partitions");
+  const int64_t expected_units[3] = {10, 11, 12};
+  for (int i = 0; i < 3; i++) {
+    TEST_ASSERT_EQUAL(loaded_identity[i].unit, expected_units[i],
+                      "published unit should be GlobalForestOffset + unit index");
+    TEST_ASSERT_EQUAL(loaded_identity[i].rows_per_unit, MimicConfig.UniqueGalaxyIDMultiplier,
+                      "unknown largest unit should fall back to the forest multiplier");
+    TEST_ASSERT(!loaded_identity[i].fits, "3 units of 2^52 - 1 rows should not fit int64");
+  }
+
+  for (int output_id = 0; output_id < 2; output_id++) {
+    output_path_binary(output_path, sizeof(output_path), output_id, 0);
+    unlink(output_path);
+  }
+  rmdir(dir_template);
+  return TEST_PASS;
+}
+
 /** @brief Main test runner */
 int main(void) {
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
@@ -435,6 +484,7 @@ int main(void) {
   TEST_RUN(test_skip_existing_output_preserves_lifecycle);
   TEST_RUN(test_output_claim_forward_path_creates_and_clears_file);
   TEST_RUN(test_unknown_largest_unit_falls_back_to_multiplier);
+  TEST_RUN(test_non_fitting_identity_space_does_not_stop_the_run);
 
   TEST_SUMMARY();
 

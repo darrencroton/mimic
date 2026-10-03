@@ -159,6 +159,7 @@ struct ctrees_hdf5_partition {
   int64_t *first_forest_in_file; /* [totnfiles] global first forest in each file */
   struct ChunkPlan chunk_plan;   /* run-scoped output chunk ranges */
   double *chunk_costs;           /* [chunk_plan.nchunks] run-scoped LPT costs */
+  int64_t *chunk_max_nhalos;     /* [chunk_plan.nchunks] largest ForestNhalos per chunk */
 
   hid_t *h5_file_groups;                       /* [totnfiles] staged "File%d" groups */
   hid_t *h5_forests_group;                     /* [totnfiles] staged "File%d/Forests" groups */
@@ -1001,6 +1002,58 @@ static int read_nhalos_per_forest(const int firstfile, const int lastfile,
 }
 #endif
 
+/*
+ * Fold one planned file's per-forest halo counts into the per-chunk maxima.
+ *
+ * Called right after chunk_plan_builder_add_file_with_cost() has consumed the
+ * file, so every forest of the file lies either in a chunk the builder has
+ * already emitted (whose range is in builder->plan.chunks) or in the builder's
+ * still-open chunk, which will be emitted as chunk builder->plan.nchunks.
+ * Forests arrive in global order, so one cursor walks the chunks; a chunk that
+ * straddles files accumulates across calls. *chunk_max grows to cover the open
+ * chunk, new entries zeroed.
+ */
+static int fold_file_chunk_max_nhalos_ctrees_hdf5(const struct ChunkPlanBuilder *builder,
+                                                  const int64_t first_forest,
+                                                  const int64_t nforests,
+                                                  const int64_t *nhalos_per_forest,
+                                                  int64_t first_chunk, int64_t **chunk_max,
+                                                  int64_t *chunk_max_capacity) {
+  const int64_t needed = builder->plan.nchunks + 1;
+  if (needed > *chunk_max_capacity) {
+    if ((uint64_t)needed > (uint64_t)(SIZE_MAX / sizeof(**chunk_max))) {
+      ERROR_LOG("Consistent-Trees HDF5 chunk count %" PRId64 " is too large to track", needed);
+      return CT_H5_ERR;
+    }
+    *chunk_max = myrealloc_cat(*chunk_max, (size_t)needed * sizeof(**chunk_max), MEM_IO);
+    for (int64_t k = *chunk_max_capacity; k < needed; k++) {
+      (*chunk_max)[k] = 0;
+    }
+    *chunk_max_capacity = needed;
+  }
+
+  int64_t chunk = first_chunk;
+  for (int64_t i = 0; i < nforests; i++) {
+    const int64_t forest = first_forest + i;
+    while (chunk < builder->plan.nchunks && forest >= builder->plan.chunks[chunk].start_forest +
+                                                          builder->plan.chunks[chunk].nforests) {
+      chunk++;
+    }
+    const int64_t chunk_start = chunk < builder->plan.nchunks
+                                    ? builder->plan.chunks[chunk].start_forest
+                                    : builder->current_start;
+    if (forest < chunk_start) {
+      ERROR_LOG("Consistent-Trees HDF5 forest %" PRId64 " precedes its planned chunk %" PRId64,
+                forest, chunk);
+      return CT_H5_ERR;
+    }
+    if (nhalos_per_forest[i] > (*chunk_max)[chunk]) {
+      (*chunk_max)[chunk] = nhalos_per_forest[i];
+    }
+  }
+  return EXIT_SUCCESS;
+}
+
 static int build_chunk_plan_ctrees_hdf5(void) {
   XRETURN(
       CTH.totnforests >= 1 && CTH.nforests_per_file != NULL, CT_H5_ERR,
@@ -1016,11 +1069,16 @@ static int build_chunk_plan_ctrees_hdf5(void) {
 
   const enum ForestDistributionScheme scheme =
       (enum ForestDistributionScheme)MimicConfig.ForestDistributionScheme;
+  /* Largest ForestNhalos per chunk, gathered in this same pass from the counts the
+     planner already reads, for max_partition_unit_halos_ctrees_hdf5(). */
+  int64_t *chunk_max_nhalos = NULL;
+  int64_t chunk_max_capacity = 0;
   for (int ifile = CTH.firstfile; ifile <= CTH.lastfile; ifile++) {
     const int64_t nforests_this_file = CTH.nforests_per_file[ifile];
     if ((uint64_t)nforests_this_file > (uint64_t)(SIZE_MAX / sizeof(double))) {
       ERROR_LOG("file %d has too many forests to stage planning buffers", ifile);
       chunk_plan_free(&builder.plan);
+      myfree(chunk_max_nhalos);
       return CT_H5_ERR;
     }
 
@@ -1042,11 +1100,17 @@ static int build_chunk_plan_ctrees_hdf5(void) {
         file_status = CT_H5_ERR;
       }
     }
+    const int64_t first_chunk_of_file = builder.plan.nchunks;
     if (file_status == EXIT_SUCCESS &&
         chunk_plan_builder_add_file_with_cost(&builder, nforests_this_file, size_per_forest,
                                               cost_per_forest) != 0) {
       ERROR_LOG("failed to feed file %d into Consistent-Trees HDF5 chunk planner", ifile);
       file_status = CT_H5_ERR;
+    }
+    if (file_status == EXIT_SUCCESS) {
+      file_status = fold_file_chunk_max_nhalos_ctrees_hdf5(
+          &builder, CTH.first_forest_in_file[ifile], nforests_this_file, nhalos_per_forest,
+          first_chunk_of_file, &chunk_max_nhalos, &chunk_max_capacity);
     }
 
     myfree(cost_per_forest);
@@ -1054,12 +1118,14 @@ static int build_chunk_plan_ctrees_hdf5(void) {
     myfree(nhalos_per_forest);
     if (file_status != EXIT_SUCCESS) {
       chunk_plan_free(&builder.plan);
+      myfree(chunk_max_nhalos);
       return CT_H5_ERR;
     }
   }
 
   if (chunk_plan_builder_finish(&builder, &CTH.chunk_plan) != 0) {
     chunk_plan_free(&builder.plan);
+    myfree(chunk_max_nhalos);
     XRETURN(0, CT_H5_ERR,
             "Error: failed to build Consistent-Trees HDF5 chunk plan (target_file_size=%" PRId64
             ", forests_per_file=%" PRId64 ")\n",
@@ -1072,6 +1138,17 @@ static int build_chunk_plan_ctrees_hdf5(void) {
           "Error: Consistent-Trees HDF5 chunk count %" PRId64
           " cannot be represented by the reader interface\n",
           CTH.chunk_plan.nchunks);
+
+  /* The still-open chunk after the last file was the one finish() emitted, so every
+     chunk has an entry; a capacity short of nchunks would mean the fold lost track. */
+  if (chunk_max_capacity < CTH.chunk_plan.nchunks) {
+    myfree(chunk_max_nhalos);
+    XRETURN(0, CT_H5_ERR,
+            "Error: Consistent-Trees HDF5 tracked %" PRId64 " chunk maxima for %" PRId64
+            " chunks\n",
+            chunk_max_capacity, CTH.chunk_plan.nchunks);
+  }
+  CTH.chunk_max_nhalos = chunk_max_nhalos;
 
   CTH.chunk_costs = mymalloc_cat((size_t)CTH.chunk_plan.nchunks * sizeof(*CTH.chunk_costs), MEM_IO);
   for (int64_t chunk = 0; chunk < CTH.chunk_plan.nchunks; chunk++) {
@@ -1149,6 +1226,10 @@ static void teardown_run_ctrees_hdf5_state(void) {
   if (CTH.chunk_costs != NULL) {
     myfree(CTH.chunk_costs);
     CTH.chunk_costs = NULL;
+  }
+  if (CTH.chunk_max_nhalos != NULL) {
+    myfree(CTH.chunk_max_nhalos);
+    CTH.chunk_max_nhalos = NULL;
   }
   chunk_plan_free(&CTH.chunk_plan);
   if (CTH.first_forest_in_file != NULL) {
@@ -1793,137 +1874,22 @@ static int64_t count_partition_units_ctrees_hdf5(int partition) {
   return CTH.chunk_plan.chunks[partition].nforests;
 }
 
-/* ForestNhalos values read per hyperslab by max_forest_nhalos_in_rows_ctrees_hdf5(): a
-   bounded stack block, so the startup scan allocates nothing. */
-#define CTREES_FOREST_NHALOS_BLOCK 4096
-
-/* Largest ForestNhalos over rows [row_start, row_start + nrows) of one file's
-   "ForestInfo" index, read in bounded hyperslab blocks. Reads the index only,
-   never a halo row. */
-static int max_forest_nhalos_in_rows_ctrees_hdf5(const int ifile, const int64_t row_start,
-                                                 const int64_t nrows, int64_t *max_out) {
-  int file_status = CT_H5_ERR;
-  hid_t finfo_dset = -1;
-  hid_t finfo_fspace = -1;
-  hid_t nhalos_dtype = -1;
-  char dataset_name[MAX_STRING_LEN];
-  int64_t block_nhalos[CTREES_FOREST_NHALOS_BLOCK];
-  int64_t max_nhalos = 0;
-
-  snprintf(dataset_name, sizeof(dataset_name), "File%d/ForestInfo", ifile);
-  finfo_dset = H5Dopen2(CTH.meta_fd, dataset_name, H5P_DEFAULT);
-  if (finfo_dset < 0) {
-    ERROR_LOG("Could not open 'ForestInfo' in file %d", ifile);
-    goto max_nhalos_cleanup;
-  }
-  finfo_fspace = H5Dget_space(finfo_dset);
-  if (finfo_fspace < 0) {
-    ERROR_LOG("Could not get 'ForestInfo' space in file %d", ifile);
-    goto max_nhalos_cleanup;
-  }
-  hsize_t finfo_length = 0;
-  if (ct_h5_get_1d_extent(finfo_fspace, "ForestInfo", &finfo_length) != EXIT_SUCCESS) {
-    goto max_nhalos_cleanup;
-  }
-  if (row_start < 0 || nrows < 0 || (hsize_t)(row_start + nrows) > finfo_length) {
-    ERROR_LOG("file %d 'ForestInfo' rows [%" PRId64 ", %" PRId64 ") lie outside its %llu rows",
-              ifile, row_start, row_start + nrows, (unsigned long long)finfo_length);
-    goto max_nhalos_cleanup;
-  }
-  nhalos_dtype = H5Tcreate(H5T_COMPOUND, sizeof(int64_t));
-  if (nhalos_dtype < 0) {
-    ERROR_LOG("Could not create compound type (file %d)", ifile);
-    goto max_nhalos_cleanup;
-  }
-  if (H5Tinsert(nhalos_dtype, "ForestNhalos", 0, H5T_NATIVE_INT64) < 0) {
-    ERROR_LOG("Could not insert 'ForestNhalos' field (file %d)", ifile);
-    goto max_nhalos_cleanup;
-  }
-
-  for (int64_t done = 0; done < nrows;) {
-    const int64_t block =
-        nrows - done < CTREES_FOREST_NHALOS_BLOCK ? nrows - done : CTREES_FOREST_NHALOS_BLOCK;
-    const hsize_t offset = (hsize_t)(row_start + done);
-    const hsize_t count = (hsize_t)block;
-    if (H5Sselect_hyperslab(finfo_fspace, H5S_SELECT_SET, &offset, NULL, &count, NULL) < 0) {
-      ERROR_LOG("Could not select 'ForestInfo' rows in file %d", ifile);
-      goto max_nhalos_cleanup;
-    }
-    const hid_t block_memspace = H5Screate_simple(1, &count, NULL);
-    if (block_memspace < 0) {
-      ERROR_LOG("Could not create 'ForestInfo' memspace");
-      goto max_nhalos_cleanup;
-    }
-    const herr_t read_status =
-        H5Dread(finfo_dset, nhalos_dtype, block_memspace, finfo_fspace, H5P_DEFAULT, block_nhalos);
-    H5Sclose(block_memspace);
-    if (read_status < 0) {
-      ERROR_LOG("Could not read 'ForestNhalos' (file %d)", ifile);
-      goto max_nhalos_cleanup;
-    }
-    for (int64_t i = 0; i < block; i++) {
-      if (block_nhalos[i] < 0) {
-        ERROR_LOG("file %d ForestInfo row %" PRId64 " has negative ForestNhalos=%" PRId64, ifile,
-                  row_start + done + i, block_nhalos[i]);
-        goto max_nhalos_cleanup;
-      }
-      if (block_nhalos[i] > max_nhalos) {
-        max_nhalos = block_nhalos[i];
-      }
-    }
-    done += block;
-  }
-  *max_out = max_nhalos;
-  file_status = EXIT_SUCCESS;
-
-max_nhalos_cleanup:
-  if (nhalos_dtype >= 0)
-    H5Tclose(nhalos_dtype);
-  if (finfo_fspace >= 0)
-    H5Sclose(finfo_fspace);
-  if (finfo_dset >= 0)
-    H5Dclose(finfo_dset);
-  return file_status;
-}
-
 /**
  * @brief   Largest forest in one chunk, from the per-file "ForestInfo" index.
  *
- * The index carries every forest's halo count, so the answer needs no halo row:
- * the chunk's global forest range is split across the files it spans and each
- * file's slice of ForestNhalos is scanned.
+ * The index carries every forest's halo count; build_chunk_plan_ctrees_hdf5()
+ * reads it once per file to plan chunks and records each chunk's largest count
+ * in the same pass, so this answer reads nothing and never touches a halo row.
  */
 static int64_t max_partition_unit_halos_ctrees_hdf5(int partition) {
   if (!partition_exists_ctrees_hdf5(partition)) {
     FATAL_ERROR("Consistent-Trees HDF5: chunk id %d is outside [0, %" PRId64 ")", partition,
                 CTH.chunk_plan.nchunks);
   }
-
-  const struct ChunkPlanRange *range = &CTH.chunk_plan.chunks[partition];
-  const int64_t chunk_start = range->start_forest;
-  const int64_t chunk_end = range->start_forest + range->nforests;
-  int64_t max_nhalos = 0;
-
-  for (int ifile = CTH.firstfile; ifile <= CTH.lastfile; ifile++) {
-    const int64_t file_start = CTH.first_forest_in_file[ifile];
-    const int64_t file_end = file_start + CTH.nforests_per_file[ifile];
-    const int64_t lo = chunk_start > file_start ? chunk_start : file_start;
-    const int64_t hi = chunk_end < file_end ? chunk_end : file_end;
-    if (lo >= hi) {
-      continue;
-    }
-    int64_t file_max = 0;
-    if (max_forest_nhalos_in_rows_ctrees_hdf5(ifile, lo - file_start, hi - lo, &file_max) !=
-        EXIT_SUCCESS) {
-      FATAL_ERROR("Consistent-Trees HDF5: could not read the forest halo counts of chunk %d "
-                  "from file %d",
-                  partition, ifile);
-    }
-    if (file_max > max_nhalos) {
-      max_nhalos = file_max;
-    }
+  if (CTH.chunk_max_nhalos == NULL) {
+    FATAL_ERROR("Consistent-Trees HDF5: per-chunk forest sizes were not recorded at planning");
   }
-  return max_nhalos;
+  return CTH.chunk_max_nhalos[partition];
 }
 
 static int64_t global_forest_offset_ctrees_hdf5(int partition) {

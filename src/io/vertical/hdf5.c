@@ -54,6 +54,9 @@ static void format_lhalo_hdf5_partition_path(char *buf, size_t size, int output_
 static int32_t fill_metadata_names(struct METADATA_NAMES *metadata_names);
 static int32_t read_attribute_int(hid_t my_hdf5_file, char *groupname, char *attr_name,
                                   int *attribute);
+static int32_t read_attribute_int_checked(hid_t my_hdf5_file, const char *file_path,
+                                          const char *groupname, const char *attr_name,
+                                          int *attribute, int64_t expected_count);
 static int32_t read_dataset(char *dataset_name, enum ReadDatatype datatype, void *buffer);
 static int64_t count_partition_units_hdf5(int partition);
 static int64_t max_partition_unit_halos_hdf5(int partition);
@@ -85,9 +88,13 @@ void open_partition_hdf5(int output_id) {
     FATAL_ERROR("Failed to fill HDF5 tree metadata names");
   }
 
-  status = read_attribute_int(hdf5_file, "/Header", metadata_names.name_NTrees, &Ntrees);
+  status =
+      read_attribute_int_checked(hdf5_file, buf, "/Header", metadata_names.name_NTrees, &Ntrees, 1);
   if (status != EXIT_SUCCESS) {
     FATAL_ERROR("Error %d while reading NTrees attribute from file '%s'", status, buf);
+  }
+  if (Ntrees < 0) {
+    FATAL_ERROR("HDF5 tree file '%s' reports negative NTrees=%d", buf, Ntrees);
   }
 
   status = read_attribute_int(hdf5_file, "/Header", metadata_names.name_totNHalos, &totNHalos);
@@ -99,8 +106,8 @@ void open_partition_hdf5(int output_id) {
 
   InputTreeNHalos = mymalloc_cat(sizeof(int) * Ntrees, MEM_TREES);
 
-  status = read_attribute_int(hdf5_file, "/Header", metadata_names.name_InputTreeNHalos,
-                              InputTreeNHalos);
+  status = read_attribute_int_checked(hdf5_file, buf, "/Header",
+                                      metadata_names.name_InputTreeNHalos, InputTreeNHalos, Ntrees);
   if (status != EXIT_SUCCESS) {
     IO_FATAL_ERROR(IO_ERROR_HDF5, "read_attribute", buf,
                    "Failed to read InputTreeNHalos attribute (status=%d)", status);
@@ -300,7 +307,8 @@ static int64_t max_partition_unit_halos_hdf5(int partition) {
     FATAL_ERROR("Failed to fill HDF5 tree metadata names");
   }
 
-  status = read_attribute_int(count_file, "/Header", metadata_names.name_NTrees, &ntrees);
+  status = read_attribute_int_checked(count_file, buf, "/Header", metadata_names.name_NTrees,
+                                      &ntrees, 1);
   if (status != EXIT_SUCCESS) {
     H5Fclose(count_file);
     FATAL_ERROR("Error %d while reading NTrees attribute from file '%s'", status, buf);
@@ -315,8 +323,8 @@ static int64_t max_partition_unit_halos_hdf5(int partition) {
   }
 
   int *tree_nhalos = mymalloc_cat(sizeof(int) * (size_t)ntrees, MEM_TREES);
-  status =
-      read_attribute_int(count_file, "/Header", metadata_names.name_InputTreeNHalos, tree_nhalos);
+  status = read_attribute_int_checked(count_file, buf, "/Header",
+                                      metadata_names.name_InputTreeNHalos, tree_nhalos, ntrees);
   H5Fclose(count_file);
   if (status != EXIT_SUCCESS) {
     myfree(tree_nhalos);
@@ -405,6 +413,59 @@ static int32_t read_attribute_int(hid_t my_hdf5_file, char *groupname, char *att
   }
 
   return EXIT_SUCCESS;
+}
+
+/**
+ * @brief   Read a native-int attribute whose element count must equal expected_count.
+ * @param   file_path       Path of the open file, named in the error.
+ * @param   expected_count  Required number of elements (1 for a scalar or 1-element attribute).
+ * @return  EXIT_SUCCESS on success, -1 on any failure (logged with the file, attribute,
+ *          expected and actual counts on a size mismatch).
+ *
+ * read_attribute_int() reads whatever the attribute holds into the caller's buffer, so a
+ * larger attribute overruns it and a smaller one leaves its tail uninitialised. This
+ * reader checks the dataspace's element count first and reads nothing on a mismatch.
+ */
+static int32_t read_attribute_int_checked(hid_t my_hdf5_file, const char *file_path,
+                                          const char *groupname, const char *attr_name,
+                                          int *attribute, int64_t expected_count) {
+  int32_t result = -1;
+  hid_t space_id = -1;
+  hssize_t actual_count = -1;
+
+  const hid_t attr_id =
+      H5Aopen_by_name(my_hdf5_file, groupname, attr_name, H5P_DEFAULT, H5P_DEFAULT);
+  if (attr_id < 0) {
+    ERROR_LOG("Could not open the attribute %s in group %s of file '%s'", attr_name, groupname,
+              file_path);
+    return -1;
+  }
+
+  space_id = H5Aget_space(attr_id);
+  if (space_id < 0) {
+    ERROR_LOG("Could not get the dataspace of attribute %s in group %s of file '%s'", attr_name,
+              groupname, file_path);
+    goto checked_attribute_cleanup;
+  }
+  actual_count = H5Sget_simple_extent_npoints(space_id);
+  if (actual_count < 0 || (int64_t)actual_count != expected_count) {
+    ERROR_LOG("Attribute %s in group %s of file '%s' has %lld element(s); expected %lld", attr_name,
+              groupname, file_path, (long long)actual_count, (long long)expected_count);
+    goto checked_attribute_cleanup;
+  }
+  if (expected_count > 0 && H5Aread(attr_id, H5T_NATIVE_INT, attribute) < 0) {
+    ERROR_LOG("Could not read the attribute %s in group %s of file '%s'", attr_name, groupname,
+              file_path);
+    goto checked_attribute_cleanup;
+  }
+  result = EXIT_SUCCESS;
+
+checked_attribute_cleanup:
+  if (space_id >= 0) {
+    H5Sclose(space_id);
+  }
+  H5Aclose(attr_id);
+  return result;
 }
 
 /**
