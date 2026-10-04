@@ -1,0 +1,40 @@
+inherits:
+  - default.yaml
+
+mode: exploration
+
+simulation: micro-uchuu-horizontal
+
+axes:
+  halo_mass_function:
+    xmin: 8.5
+    xmax: 15.0
+  stellar_mass_function:
+    xmin: 8.0           # log10(M* / Msun) at h_sim
+    xmax: 12.5
+    ymin: -6.0          # log10 of phi [Mpc^-3 dex^-1]
+    ymax: -1.0
+  sham_stellar_halo_mpeak:
+    xmin: 10.0          # log10(Mpeak / Msun)
+    xmax: 15.0
+    ymin: 7.5           # log10(M* / Msun)
+    ymax: 12.2
+  sham_stellar_halo_vpeak:
+    xmin: 1.7           # log10(Vpeak / [km/s])
+    xmax: 3.5
+    ymin: 7.5
+    ymax: 12.2
+  sham_satellite_fraction:
+    xmin: 8.0           # log10(M* / Msun)
+    xmax: 12.0
+    ymin: 0.0           # linear
+    ymax: 1.0
+  sham_correlation_function:
+    xmin: 0.1           # comoving Mpc/h; at most half the 100 Mpc/h box
+    xmax: 20.0
+    ymin: -2.0          # log10 of xi
+    ymax: 4.0
+    mass_thresholds: [10.0, 10.5]   # log10(M* / Msun) lower limits of the samples
+  spatial_distribution:
+    xlim: [0.0, 100.0]
+    ylim: [0.0, 100.0]

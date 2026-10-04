@@ -83,7 +83,7 @@ No parameter is converted through `parameter_units.yaml`; the package has none.
 - `input/sham_micro-uchuu-horizontal.yaml`: the real 100 Mpc/h micro-Uchuu box (horizontal HDF5 version 3) with `snapshot_list: [49]` (`z = 0.0005`), `ShamTargetRedshiftMax 0.1` and `ShamMinVpeak 80`. Snapshot 49 is the single output epoch chosen for the first real-data measurement: it has the lowest redshift and is closest to the GAMA sample. Snapshots 46, 47 and 48 (`z = 0.093`, `0.046` and `0.022`) also satisfy the window and could be listed, so one epoch is a choice, not a consequence of the window. The peak history is still accumulated over every processed snapshot.
 - `modules/sham_rank_match/`: the module, its README, its unit and integration tests and the independent reference `_tests/sham_rank_match_reference.py`.
 - `modules/_tests/sham_test_fixtures.h`: the package's C test fixture (shipped parameters, `BoxSize` and `h` of the fixture).
-- `plots/`: diagnostic figures for `mimic-plot.py`. They predate `sham_rank_match` and are being rewritten; some still read properties this package no longer declares.
+- `plots/`: eight snapshot figures for `mimic-plot.py` (no evolution figures; the registry in `plots/figures/__init__.py` is the source of truth), run with `mimic_venv/bin/python plot/mimic-plot/mimic-plot.py --param-file models/sham/input/sham_micro-uchuu-horizontal.yaml --snapshot-plots` on that run's output (see [Plots](#plots)).
 
 ## Build, Run, and Test
 
@@ -115,6 +115,25 @@ The real-box run needs the micro-Uchuu horizontal dataset (`simulations/micro-uc
 make MODEL=sham SIMULATION=micro-uchuu-horizontal
 ./mimic models/sham/input/sham_micro-uchuu-horizontal.yaml
 ```
+
+## Plots
+
+The package registers eight snapshot figures and no evolution figures (`plots/figures/__init__.py` is the source of truth). Every SHAM figure selects the sample with `ShamGhost == 0` and reads stellar mass as `log10(StellarMass * 1e10 / h)` in physical `Msun`. Run them on the real-box output (the shipped run writes one epoch, and `mimic-plot.py` requires two snapshots for the evolution stage, so ask for the snapshot figures only):
+
+```bash
+mimic_venv/bin/python plot/mimic-plot/mimic-plot.py \
+  --param-file models/sham/input/sham_micro-uchuu-horizontal.yaml --snapshot-plots
+```
+
+| Figure | Content |
+|---|---|
+| `stellar_mass_function` | The sample's stellar mass function against the configured double Schechter target (read from `modules.parameters` and converted to the simulation's `h` exactly as the module converts it), the Baldry et al. (2008) band and a dotted line at `ShamTargetLogMassFloor` |
+| `sham_stellar_halo_relation` | Stellar mass against `ShamMpeak` and `ShamVpeak`, centrals (Type 0) and satellites (Type 1) separately, with the running median and 16th-84th percentile band |
+| `sham_satellite_fraction` | The Type 1 fraction of the sample against stellar mass (the model keeps no Type 2 rows) |
+| `sham_correlation_function` | `xi(r)` by stellar-mass threshold (profile key `mass_thresholds`, default `10^10` and `10^10.5 Msun`) from the shared `correlation_function` helper, each sample labelled with its number density; needs the whole box |
+| `halo_mass_function`, `spin_distribution`, `velocity_distribution`, `spatial_distribution` | Halo diagnostics, unchanged |
+
+The earlier `smf_evolution`, `stellar_mass_density_evolution` and `hmf_evolution` figures are removed because the shipped run writes one epoch and evolution figures have nothing to show; `halo_occupation` is removed because the occupation figure belongs to the `hod` package. The profiles are `plots/profiles/default.yaml` and `micro-uchuu-horizontal_plot_profile.yaml`.
 
 ## First Real-Data Measurement
 

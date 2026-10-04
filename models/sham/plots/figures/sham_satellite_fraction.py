@@ -1,15 +1,26 @@
 #!/usr/bin/env python
 
-"""SHAM satellite fraction diagnostic."""
+"""
+SHAM satellite fraction diagnostic.
+
+The fraction of the SHAM sample (ShamGhost == 0) that is a satellite, as a function of stellar
+mass, with binomial error bars. The satellite population is Type 1 only: the model keeps no
+Type 2 rows. The profile key axes.sham_satellite_fraction sets the stellar-mass range.
+"""
 
 import numpy as np
+from figures import SAMPLE_LABEL
 from output_utils import (
     check_required_fields,
     get_profile_axes,
+    make_bin_edges,
     save_and_close_figure,
     setup_figure,
     validate_filtered_data,
 )
+
+BIN_WIDTH = 0.25  # dex
+MIN_PER_BIN = 5  # bins with fewer sample members are not drawn
 
 
 def plot(
@@ -21,26 +32,31 @@ def plot(
     output_format=".png",
     verbose=False,
 ):
-    """Plot satellite fraction as a function of SHAM stellar mass."""
+    """Plot the Type 1 fraction of the SHAM sample as a function of stellar mass."""
     del volume
 
     success, _, msg = check_required_fields(
         galaxies,
-        required_fields=["StellarMass", "Type"],
+        required_fields=["StellarMass", "ShamGhost", "Type"],
         plot_name="SHAM Satellite Fraction",
     )
     if not success:
         return None, f"Required fields missing: {msg}"
 
     h = metadata["hubble_h"]
-    w = np.where((galaxies.StellarMass > 0.0) & np.isfinite(galaxies.StellarMass))[0]
+    w = np.where(
+        (galaxies.ShamGhost == 0) & (galaxies.StellarMass > 0.0) & np.isfinite(galaxies.StellarMass)
+    )[0]
     is_valid, skip_msg = validate_filtered_data(w, "SHAM Satellite Fraction", verbose)
     if not is_valid:
         return None, skip_msg
 
     log_mstar = np.log10(galaxies.StellarMass[w] * 1.0e10 / h)
-    is_satellite = galaxies.Type[w] != 0
-    bins = np.arange(8.0, 12.4, 0.25)
+    is_satellite = galaxies.Type[w] == 1
+    x_min, x_max, y_min, y_max = get_profile_axes(
+        params, "sham_satellite_fraction", (8.0, 12.2), (0.0, 1.0)
+    )
+    bins = make_bin_edges(x_min, x_max, BIN_WIDTH)
     centers = 0.5 * (bins[:-1] + bins[1:])
     frac = np.full(len(centers), np.nan)
     err = np.full(len(centers), np.nan)
@@ -48,7 +64,7 @@ def plot(
     for i in range(len(centers)):
         in_bin = (log_mstar >= bins[i]) & (log_mstar < bins[i + 1])
         n = np.count_nonzero(in_bin)
-        if n < 5:
+        if n < MIN_PER_BIN:
             continue
         f = np.count_nonzero(is_satellite[in_bin]) / n
         frac[i] = f
@@ -65,10 +81,8 @@ def plot(
         lw=1.8,
     )
     ax.set_xlabel(r"log$_{10}$ M$_*$ [M$_{\odot}$]")
-    ax.set_ylabel("Satellite fraction")
-    x_min, x_max, y_min, y_max = get_profile_axes(
-        params, "sham_satellite_fraction", (8.0, 12.2), (0.0, 1.0)
-    )
+    ax.set_ylabel("Satellite (Type 1) fraction")
+    ax.set_title(SAMPLE_LABEL)
     ax.set_xlim(x_min, x_max)
     ax.set_ylim(y_min, y_max)
     ax.grid(True, color="0.9", lw=0.8)

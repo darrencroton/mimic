@@ -1,16 +1,27 @@
 #!/usr/bin/env python
 
-"""SHAM stellar mass relation diagnostics."""
+"""
+SHAM stellar-to-halo relation diagnostics.
+
+Stellar mass against the peak halo mass and the peak maximum circular velocity for the SHAM
+sample (ShamGhost == 0), centrals (Type 0) and satellites (Type 1) shown separately, with the
+running median and 16th-84th percentile band. The bins come from the profile keys
+axes.sham_stellar_halo_mpeak and axes.sham_stellar_halo_vpeak (x range) at fixed bin widths.
+"""
 
 import matplotlib.pyplot as plt
 import numpy as np
-from figures import setup_plot_fonts
+from figures import SAMPLE_LABEL, setup_plot_fonts
 from output_utils import (
     check_required_fields,
     get_profile_axes,
+    make_bin_edges,
     save_and_close_figure,
     validate_filtered_data,
 )
+
+MPEAK_BIN_WIDTH = 0.2  # dex
+VPEAK_BIN_WIDTH = 0.08  # dex
 
 
 def _median_relation(x, y, bins):
@@ -38,12 +49,12 @@ def plot(
     output_format=".png",
     verbose=False,
 ):
-    """Plot SHAM-assigned stellar mass against Mpeak and Vpeak."""
+    """Plot SHAM-assigned stellar mass against Mpeak and Vpeak for the sample (ShamGhost == 0)."""
     del volume
 
     success, _, msg = check_required_fields(
         galaxies,
-        required_fields=["StellarMass", "ShamMpeak", "ShamVpeak", "Type"],
+        required_fields=["StellarMass", "ShamMpeak", "ShamVpeak", "ShamGhost", "Type"],
         plot_name="SHAM Stellar-Halo Relation",
     )
     if not success:
@@ -51,7 +62,8 @@ def plot(
 
     h = metadata["hubble_h"]
     w = np.where(
-        (galaxies.StellarMass > 0.0)
+        (galaxies.ShamGhost == 0)
+        & (galaxies.StellarMass > 0.0)
         & (galaxies.ShamMpeak > 0.0)
         & (galaxies.ShamVpeak > 0.0)
         & np.isfinite(galaxies.StellarMass)
@@ -63,7 +75,7 @@ def plot(
     log_mstar = np.log10(galaxies.StellarMass[w] * 1.0e10 / h)
     log_mpeak = np.log10(galaxies.ShamMpeak[w] * 1.0e10 / h)
     log_vpeak = np.log10(galaxies.ShamVpeak[w])
-    is_sat = galaxies.Type[w] != 0
+    is_sat = galaxies.Type[w] == 1
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 5), constrained_layout=True)
     for ax in axes:
@@ -75,7 +87,7 @@ def plot(
         s=3,
         c="0.15",
         alpha=0.25,
-        label="Centrals",
+        label="Centrals (Type 0)",
     )
     axes[0].scatter(
         log_mpeak[is_sat],
@@ -83,18 +95,18 @@ def plot(
         s=3,
         c="#c44e52",
         alpha=0.25,
-        label="Satellites",
+        label="Satellites (Type 1)",
     )
-    bins = np.arange(10.0, 15.2, 0.2)
+    x_min_0, x_max_0, y_min_0, y_max_0 = get_profile_axes(
+        params, "sham_stellar_halo_mpeak", (10.0, 15.0), (7.5, 12.2)
+    )
+    bins = make_bin_edges(x_min_0, x_max_0, MPEAK_BIN_WIDTH)
     xmid, med, p16, p84 = _median_relation(log_mpeak, log_mstar, bins)
     good = np.isfinite(med)
     axes[0].plot(xmid[good], med[good], color="#0173b2", lw=2, label="Median")
     axes[0].fill_between(xmid[good], p16[good], p84[good], color="#0173b2", alpha=0.18, lw=0)
     axes[0].set_xlabel(r"log$_{10}$ M$_{\rm peak}$ [M$_{\odot}$]")
     axes[0].set_ylabel(r"log$_{10}$ M$_*$ [M$_{\odot}$]")
-    x_min_0, x_max_0, y_min_0, y_max_0 = get_profile_axes(
-        params, "sham_stellar_halo_mpeak", (10.0, 15.0), (7.5, 12.2)
-    )
     axes[0].set_xlim(x_min_0, x_max_0)
     axes[0].set_ylim(y_min_0, y_max_0)
     axes[0].legend(frameon=False, loc="lower right")
@@ -105,7 +117,7 @@ def plot(
         s=3,
         c="0.15",
         alpha=0.25,
-        label="Centrals",
+        label="Centrals (Type 0)",
     )
     axes[1].scatter(
         log_vpeak[is_sat],
@@ -113,20 +125,22 @@ def plot(
         s=3,
         c="#c44e52",
         alpha=0.25,
-        label="Satellites",
+        label="Satellites (Type 1)",
     )
-    vbins = np.arange(1.7, 3.5, 0.08)
+    x_min_1, x_max_1, y_min_1, y_max_1 = get_profile_axes(
+        params, "sham_stellar_halo_vpeak", (1.7, 3.5), (7.5, 12.2)
+    )
+    vbins = make_bin_edges(x_min_1, x_max_1, VPEAK_BIN_WIDTH)
     xmid, med, p16, p84 = _median_relation(log_vpeak, log_mstar, vbins)
     good = np.isfinite(med)
     axes[1].plot(xmid[good], med[good], color="#0173b2", lw=2, label="Median")
     axes[1].fill_between(xmid[good], p16[good], p84[good], color="#0173b2", alpha=0.18, lw=0)
     axes[1].set_xlabel(r"log$_{10}$ V$_{\rm peak}$ [km/s]")
     axes[1].set_ylabel(r"log$_{10}$ M$_*$ [M$_{\odot}$]")
-    x_min_1, x_max_1, y_min_1, y_max_1 = get_profile_axes(
-        params, "sham_stellar_halo_vpeak", (1.7, 3.5), (7.5, 12.2)
-    )
     axes[1].set_xlim(x_min_1, x_max_1)
     axes[1].set_ylim(y_min_1, y_max_1)
+    axes[1].legend(frameon=False, loc="lower right")
+    fig.suptitle(SAMPLE_LABEL)
 
     return (
         save_and_close_figure(fig, output_dir, "ShamStellarHaloRelation", output_format, verbose),

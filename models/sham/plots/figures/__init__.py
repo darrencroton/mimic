@@ -1,10 +1,21 @@
-"""Mimic SHAM figure modules."""
+"""Mimic SHAM figure modules.
+
+Registry of the figures for the sham model package: the stellar mass function against the
+configured target, the sample-filtered stellar-to-halo relations, the satellite fraction, the
+correlation function by stellar-mass threshold, and four halo diagnostics copied unchanged
+from the halo catalogue figures. Every SHAM-specific figure selects the sample with
+ShamGhost == 0. The shipped run writes one epoch, so the package registers no evolution
+figures.
+"""
 
 # Standard figure settings for consistent appearance across all plots.
 AXIS_LABEL_SIZE = 16
 TICK_LABEL_SIZE = 12
 LEGEND_FONT_SIZE = 12
 IN_FIGURE_TEXT_SIZE = 12
+
+# Sample definition, repeated in every SHAM figure's labels.
+SAMPLE_LABEL = r"sample: ShamGhost = 0"
 
 
 def setup_plot_fonts(ax):
@@ -44,21 +55,6 @@ def get_halo_mass_label():
     return r"log$_{10}$ M$_{\rm halo}$ [M$_{\odot}$]"
 
 
-def get_spin_parameter_label():
-    """Return consistent x-axis label for spin parameter plots."""
-    return r"Spin Parameter"
-
-
-def get_redshift_label():
-    """Return consistent x-axis label for redshift plots."""
-    return r"redshift"
-
-
-def get_vmax_label():
-    """Return consistent x-axis label for Vmax plots."""
-    return r"log$_{10}$ V$_{\rm max}$ [km/s]"
-
-
 def get_stellar_mass_label():
     """Return consistent x-axis label for stellar mass plots."""
     return r"log$_{10}$ M$_{*}$ [M$_{\odot}$]"
@@ -80,66 +76,54 @@ def check_required_properties(galaxies, required_properties):
     return len(missing) == 0, missing
 
 
-from . import (
+from . import (  # noqa: E402  (the helpers above must exist before the figures import them)
     halo_mass_function,
-    halo_occupation,
-    hmf_evolution,
+    sham_correlation_function,
     sham_satellite_fraction,
     sham_stellar_halo_relation,
-    smf_evolution,
     spatial_distribution,
     spin_distribution,
-    stellar_mass_density_evolution,
     stellar_mass_function,
     velocity_distribution,
 )
 
 SNAPSHOT_PLOTS = [
     "halo_mass_function",
-    "halo_occupation",
     "spin_distribution",
     "velocity_distribution",
     "spatial_distribution",
     "stellar_mass_function",
     "sham_stellar_halo_relation",
     "sham_satellite_fraction",
+    "sham_correlation_function",
 ]
 
-EVOLUTION_PLOTS = [
-    "hmf_evolution",
-    "smf_evolution",
-    "stellar_mass_density_evolution",
-]
+EVOLUTION_PLOTS = []
 
 PLOT_REQUIREMENTS = {
     "halo_mass_function": [],
-    "halo_occupation": [],
-    "hmf_evolution": [],
     "spin_distribution": [],
     "velocity_distribution": [],
     "spatial_distribution": [],
-    "stellar_mass_function": ["StellarMass"],
-    "smf_evolution": ["StellarMass"],
-    "stellar_mass_density_evolution": ["StellarMass"],
+    "stellar_mass_function": ["StellarMass", "ShamGhost"],
     "sham_stellar_halo_relation": [
         "StellarMass",
         "ShamMpeak",
         "ShamVpeak",
+        "ShamGhost",
         "Type",
     ],
-    "sham_satellite_fraction": ["StellarMass", "Type"],
+    "sham_satellite_fraction": ["StellarMass", "ShamGhost", "Type"],
+    "sham_correlation_function": ["StellarMass", "ShamGhost", "Pos"],
 }
 
 PLOT_FUNCS = {
     "halo_mass_function": halo_mass_function.plot,
-    "halo_occupation": halo_occupation.plot,
-    "hmf_evolution": hmf_evolution.plot,
     "spin_distribution": spin_distribution.plot,
     "velocity_distribution": velocity_distribution.plot,
     "spatial_distribution": spatial_distribution.plot,
     "stellar_mass_function": stellar_mass_function.plot,
-    "smf_evolution": smf_evolution.plot,
-    "stellar_mass_density_evolution": stellar_mass_density_evolution.plot,
     "sham_stellar_halo_relation": sham_stellar_halo_relation.plot,
     "sham_satellite_fraction": sham_satellite_fraction.plot,
+    "sham_correlation_function": sham_correlation_function.plot,
 }
