@@ -515,7 +515,7 @@ help:
 	@echo ""
 	@echo "Options:"
 	@echo "  Defaults: MODEL=sage16 SIMULATION=mini-millennium"
-	@echo "  make MODEL=sham SIMULATION=mini-millennium  - Build SHAM against mini-Millennium"
+	@echo "  make MODEL=sham SIMULATION=micro-uchuu-ascii-horizontal - Build the SHAM example (horizontal only)"
 	@echo "  make SIM=mini-millennium                    - Shorthand for SIMULATION=<name>"
 	@echo "  make USE-HDF5=no                       - Disable HDF5 support"
 	@echo "  make USE-MPI=yes                       - Enable MPI support"
