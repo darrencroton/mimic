@@ -28,6 +28,15 @@
 static int passed = 0;
 static int failed = 0;
 
+/** Box side of every synthetic SHAM run, Mpc/h (the micro-Uchuu fixture's) */
+#define SHAM_TEST_BOX_SIZE 100.0
+
+/** Simulation Hubble parameter of every synthetic SHAM run (the micro-Uchuu fixture's) */
+#define SHAM_TEST_HUBBLE 0.6774
+
+/** Number of sham_rank_match parameters */
+#define SHAM_NUM_PARAMETERS 9
+
 /* Test fixture: reset configuration state */
 static inline void reset_config(void) { memset(&MimicConfig, 0, sizeof(MimicConfig)); }
 
@@ -40,38 +49,51 @@ static inline void ensure_modules_registered(void) {
   }
 }
 
-/* Test fixture: set all SHAM model parameters, with the knobs unit tests vary
- * exposed as arguments. Fixed values are the canonical Moster et al. (2013)
- * z=0 SMHM parameters from models/sham/input/sham_mini-millennium.yaml. */
-static inline void set_sham_test_parameters(int use_scatter, double scatter_dex,
-                                            double max_baryon_fraction, double orphan_max_age_myr) {
-  int idx = 0;
-
-/* Parameter names deliberately avoid struct member names (macro substitution) */
-#define SHAM_TEST_PARAM(pname, pfmt, pval)                                                         \
-  do {                                                                                             \
-    snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "%s", (pname));              \
-    snprintf(MimicConfig.ModelParams[idx].value, MAX_STRING_LEN, pfmt, (pval));                    \
-    idx++;                                                                                         \
-  } while (0)
-
-  SHAM_TEST_PARAM("ShamLogM1", "%.10g", 11.590);
-  SHAM_TEST_PARAM("ShamN", "%.10g", 0.0351);
-  SHAM_TEST_PARAM("ShamBeta", "%.10g", 1.376);
-  SHAM_TEST_PARAM("ShamGamma", "%.10g", 0.608);
-  SHAM_TEST_PARAM("ShamScatterDex", "%.10g", scatter_dex);
-  SHAM_TEST_PARAM("ShamMinMpeak", "%.10g", 0.10);
-  SHAM_TEST_PARAM("ShamMinVpeak", "%.10g", 80.0);
-  SHAM_TEST_PARAM("ShamMaxStellarBaryonFraction", "%.10g", max_baryon_fraction);
-  SHAM_TEST_PARAM("ShamOrphanMaxAgeMyr", "%.10g", orphan_max_age_myr);
-  SHAM_TEST_PARAM("ShamUseScatter", "%d", use_scatter);
-
-#undef SHAM_TEST_PARAM
-
-  MimicConfig.NumModelParams = idx;
+/** Append one module parameter as a string, exactly as the run-file parser stores it */
+static inline void sham_add_parameter(const char *name, const char *value) {
+  const int i = MimicConfig.NumModelParams++;
+  snprintf(MimicConfig.ModelParams[i].param_name, MAX_STRING_LEN, "%s", name);
+  snprintf(MimicConfig.ModelParams[i].value, MAX_STRING_LEN, "%s", value);
 }
 
-/* Test fixture: canonical defaults (scatter on, production cap, orphans kept) */
-static inline void set_test_model_parameters(void) { set_sham_test_parameters(1, 0.20, 0.17, 0.0); }
+/** The nine sham_rank_match parameters in run-file order */
+static const char *const sham_parameter_names[SHAM_NUM_PARAMETERS] = {
+    "ShamTargetLogMstar",     "ShamTargetPhi1",        "ShamTargetAlpha1",
+    "ShamTargetPhi2",         "ShamTargetAlpha2",      "ShamTargetHubble",
+    "ShamTargetLogMassFloor", "ShamTargetRedshiftMax", "ShamMinVpeak",
+};
+
+/**
+ * Shipped values: the Baldry et al. (2012) GAMA double Schechter fit at h = 0.7
+ * with the fixture's window and completeness floor, as in
+ * models/sham/input/sham_micro-uchuu-ascii-horizontal.yaml.
+ */
+static const char *const sham_default_values[SHAM_NUM_PARAMETERS] = {
+    "10.66", "3.96e-3", "-0.35", "0.79e-3", "-1.47", "0.7", "8.0", "0.2", "80",
+};
+
+/**
+ * Test fixture: reset the configuration and set every SHAM parameter to its
+ * shipped value, except that parameter @p override_name (when non-NULL) takes
+ * @p override_value, or is omitted when @p override_value is NULL. BoxSize is
+ * SHAM_TEST_BOX_SIZE, Hubble_h SHAM_TEST_HUBBLE and SubSteps 1; no output list
+ * is set, so every snapshot is an output snapshot and the redshift window has
+ * nothing to check.
+ */
+static inline void set_sham_test_parameters(const char *override_name, const char *override_value) {
+  reset_config();
+  MimicConfig.BoxSize = SHAM_TEST_BOX_SIZE;
+  MimicConfig.Hubble_h = SHAM_TEST_HUBBLE;
+  MimicConfig.SubSteps = 1;
+  for (int k = 0; k < SHAM_NUM_PARAMETERS; k++) {
+    if (override_name != NULL && strcmp(override_name, sham_parameter_names[k]) == 0) {
+      if (override_value != NULL) {
+        sham_add_parameter(sham_parameter_names[k], override_value);
+      }
+      continue;
+    }
+    sham_add_parameter(sham_parameter_names[k], sham_default_values[k]);
+  }
+}
 
 #endif /* SHAM_TEST_FIXTURES_H */

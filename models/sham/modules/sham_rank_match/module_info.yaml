@@ -1,0 +1,42 @@
+module:
+  name: sham_rank_match
+  description: >-
+    Ranks the resolved halos and subhalos of each output snapshot by peak circular velocity and
+    assigns stellar mass by matching their rank densities to the Baldry et al. (2012) double
+    Schechter stellar mass function, converted to the simulation's h (zero scatter).
+
+  supported_processing_modes: [process_full_halo, process_snapshot]
+
+  # sham_rank_match.c is implicit; the header is documentary and declares the target, inversion
+  # and rank helpers the unit tests call directly.
+  additional_files:
+    - sham_rank_match.h
+
+  dependencies:
+    properties:
+      - Type
+      - UniqueGalaxyID
+      - Mvir
+      - Vmax
+      - StellarMass
+      - ShamVpeak
+      - ShamMpeak
+      - ShamGhost
+    parameters:
+      - ShamTargetLogMstar
+      - ShamTargetPhi1
+      - ShamTargetAlpha1
+      - ShamTargetPhi2
+      - ShamTargetAlpha2
+      - ShamTargetHubble
+      - ShamTargetLogMassFloor
+      - ShamTargetRedshiftMax
+      - ShamMinVpeak
+
+  tests:
+    unit: _tests/test_unit_sham_rank_match.c
+    integration: _tests/test_integration_sham_rank_match.py
+    scientific: []
+
+  docs:
+    physics: README.md

@@ -1,0 +1,62 @@
+# Mimic SHAM on the micro-Uchuu horizontal fixture Run Configuration
+#
+# A framework demonstration of the sham_rank_match module, not a science run. The
+# population is the committed synthetic fixture of three forests over six
+# snapshots (BoxSize 100 Mpc/h, h = 0.6774), which is not a complete cosmological
+# volume: its few halos take the top ranks of a 100 Mpc/h box, so their stellar
+# masses say nothing about the observed stellar mass function.
+#
+# sham_rank_match runs once per FoF step in pre_timestep: it retires carried
+# Type 2 rows, ratchets the peak proxies ShamVpeak/ShamMpeak of every Type 0/1
+# row, and resets every row to a non-member (ShamGhost = 1, StellarMass = 0).
+# In post_snapshot it ranks the whole snapshot's Type 0/1 rows with
+# ShamVpeak >= ShamMinVpeak (descending ShamVpeak, ties by ascending
+# UniqueGalaxyID) and gives rank r the stellar mass at which the Baldry et al.
+# (2012) GAMA double Schechter function, converted from h = 0.7 to the
+# simulation's h, has n(>M) = (r + 0.5) / BoxSize^3 * h^3; ranks denser than
+# n(>10^8 Msun) are masked. It logs one "SHAM audit" line per output snapshot.
+# Sample members have ShamGhost == 0.
+#
+# Redshift window: the fixture's six scale factors 0.83728 to 0.99951 span
+# z = 0.1943 to 0.0005, so ShamTargetRedshiftMax 0.2 admits every snapshot and
+# every snapshot is assigned. This stretches the z < 0.06 target on purpose to
+# exercise the rank at every fixture snapshot; the real-data run file uses 0.1.
+# Run it from the repository root (simulation.config is repository-relative)
+# with a build of MODEL=sham SIMULATION=micro-uchuu-ascii-horizontal.
+
+model:
+  name: sham
+
+simulation:
+  name: micro-uchuu-ascii-horizontal
+  config: simulations/micro-uchuu-ascii-horizontal/_tests/input/test_simulation.yaml
+
+output:
+  output_filename: sham
+  output_directory: output/sham-micro-uchuu-ascii-horizontal
+  output_format: hdf5                               # Horizontal runs write HDF5 only
+  snapshot_list: []                                 # Every fixture snapshot
+
+SubSteps: 1
+
+modules:
+
+  # Retirement, peak tracking and the non-member reset, before any other module.
+  pre_timestep:
+    - sham_rank_match: process_full_halo
+
+  # The whole-snapshot rank match on each output snapshot.
+  post_snapshot:
+    - sham_rank_match: process_snapshot
+
+  parameters:
+    # Baldry et al. (2012) GAMA z < 0.06 double Schechter (physical Msun, Mpc^-3 at h = 0.7)
+    ShamTargetLogMstar: 10.66      # log10 Ms [Msun]
+    ShamTargetPhi1: 3.96e-3        # phi1 [Mpc^-3]
+    ShamTargetAlpha1: -0.35        # alpha1 [dimensionless]
+    ShamTargetPhi2: 0.79e-3        # phi2 [Mpc^-3]
+    ShamTargetAlpha2: -1.47        # alpha2 [dimensionless]
+    ShamTargetHubble: 0.7          # h of the published fit
+    ShamTargetLogMassFloor: 8.0    # log10 lowest assignable mass [Msun at the simulation's h]
+    ShamTargetRedshiftMax: 0.2     # largest output redshift (fixture only; real data uses 0.1)
+    ShamMinVpeak: 80               # candidate completeness floor on ShamVpeak [km/s]

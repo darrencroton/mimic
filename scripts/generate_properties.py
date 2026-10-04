@@ -623,8 +623,8 @@ def attach_output_conversions(
         dimension = _unit_info(prop.get("units", "dimensionless"))["dimension"]
         if dimension == "time":
             # Time output fields are written verbatim: either the producing module
-            # already stores them in their label unit (e.g. ShamOrphanAge in Myr/h)
-            # or they declare an explicit output_convert (e.g. dT). The reference
+            # already stores them in their label unit or they declare an explicit
+            # output_convert (e.g. dT, TimeOfLastMajorMerger). The reference
             # time unit is derived, so metadata-driven linear time conversion is
             # intentionally never generated; _linear_conversion_expr rejects it as a
             # safeguard against catalog/parameter time conversions.

@@ -1,11 +1,15 @@
 # Mimic SHAM Galaxy Properties Metadata
 #
-# This file defines all galaxy properties required by the SHAM model package.
+# The subhalo abundance matching package declares the stellar mass it assigns,
+# the two peak proxies it accumulates along each resolved branch, and the flag
+# that marks rows outside the matched sample. Every other output field
+# (positions, velocities, masses, identities) is core or simulation catalogue
+# data.
 
 galaxy_properties:
 
   # =============================================================================
-  # STELLAR COMPONENTS
+  # STELLAR MASS
   # =============================================================================
 
   - name: StellarMass
@@ -19,58 +23,8 @@ galaxy_properties:
     range: [0.0, 100000.0]  # 0 to 10^15 Msun/h (generous upper bound)
     sentinels: [0.0]  # Legitimate to have no stars yet
 
-  - name: BulgeMass
-    type: float
-    units: 1e10 Msun/h
-    description: Stellar mass in bulge component
-    output: true
-    init_source: default
-    init_value: 0.0
-    output_source: galaxy_property
-    range: [0.0, 100000.0]  # Must be <= StellarMass
-    sentinels: [0.0]  # Can be zero for pure disk galaxies
-
-  - name: StarFormationRate
-    type: float
-    units: Msun/yr
-    description: Average star formation rate over snapshot (total stars formed / dT)
-    output: true
-    init_source: default
-    init_value: 0.0
-    init_repeat: true  # Reset each snapshot
-    output_source: galaxy_property
-    output_convert: MimicConfig.UnitMass_in_g / MimicConfig.UnitTime_in_s * SEC_PER_YEAR / SOLAR_MASS
-    range: [0.0, 10000.0]  # Up to 10^4 Msun/yr (extreme starbursts)
-    sentinels: [0.0]  # Zero when no star formation
-
   # =============================================================================
-  # CHEMICAL COMPOSITION
-  # =============================================================================
-
-  - name: MetalsStellarMass
-    type: float
-    units: 1e10 Msun/h
-    description: Metal mass in stellar component
-    output: true
-    init_source: default
-    init_value: 0.0
-    output_source: galaxy_property
-    range: [0.0, 100000.0]  # Must be <= StellarMass
-    sentinels: [0.0]  # Primordial stars (Pop III) would have zero metals
-
-  - name: MetalsBulgeMass
-    type: float
-    units: 1e10 Msun/h
-    description: Metal mass in bulge component
-    output: true
-    init_source: default
-    init_value: 0.0
-    output_source: galaxy_property
-    range: [0.0, 100000.0]  # Must be <= BulgeMass
-    sentinels: [0.0]  # Can be zero
-
-  # =============================================================================
-  # SHAM PROXIES AND DIAGNOSTICS
+  # SHAM PROXIES AND SAMPLE FLAG
   # =============================================================================
 
   - name: ShamMpeak
@@ -97,36 +51,18 @@ galaxy_properties:
     range: [0.0, 5000.0]
     sentinels: [0.0]
 
-  - name: ShamStellarMassNoScatter
-    type: float
-    units: 1e10 Msun/h
-    description: SHAM stellar mass before deterministic log-normal scatter is applied
+  - name: ShamGhost
+    type: int
+    units: dimensionless
+    description: SHAM sample flag (1 = not a sample member, StellarMass 0; 0 = rank-matched member)
     output: true
     init_source: default
-    init_value: 0.0
+    init_value: 0
     output_source: galaxy_property
-    range: [0.0, 100000.0]
-    sentinels: [0.0]
-
-  - name: ShamScatterDex
-    type: float
-    units: dex
-    description: Deterministic stellar-mass scatter applied by the SHAM assignment
-    output: true
-    init_source: default
-    init_value: 0.0
-    output_source: galaxy_property
-    range: [-5.0, 5.0]
-    sentinels: [0.0]
-
-  - name: ShamOrphanAge
-    type: float
-    units: Myr/h
-    description: Time since a SHAM galaxy became an unresolved Type 2 orphan
-    output: true
-    init_source: default
-    init_value: 0.0
-    output_source: galaxy_property
-    range: [0.0, 20000.0]
-    sentinels: [0.0]
-    notes: Accumulated as dT * UnitTime_in_s / SEC_PER_MEGAYEAR without dividing by Hubble_h, so it carries the h-convention (Myr/h), consistent with the simulation's h-scaled time units
+    range: [0, 1]
+    notes: >-
+      sham_rank_match sets 1 on every row in pre_timestep, then 0 on each candidate it assigns a
+      stellar mass at an output snapshot. Rows below the ShamMinVpeak completeness floor, masked
+      candidates below the target's mass floor, and every row of a non-output snapshot keep 1.
+      Consumers select the sample with ShamGhost == 0; the other rows stay in output so halo
+      catalogues remain complete.
