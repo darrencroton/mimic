@@ -441,10 +441,32 @@ def select_scatter_sample(x, y_arrays, x_min, x_max, y_min, y_max, dilute, rng=N
 # when r_edges[-1] is tiny compared to the box. Cells never shrink below r_edges[-1].
 _MAX_PAIR_COUNT_CELLS_PER_AXIS = 32
 
-# Most point-pair separations periodic_pair_counts() evaluates at once. A block holds
+# Most point-pair separations periodic_pair_counts() evaluates at once. A tile holds
 # 3 float64 values per pair, so the default bounds the temporaries at about 24 MB however
 # many points share a cell.
 _PAIR_COUNT_BLOCK_PAIRS = 1_000_000
+
+
+def _separations_sq(points_a, points_b, box_size):
+    """Return the (len(a), len(b)) squared minimum-image separations of two (n, 3) point sets."""
+    delta = points_a[:, None, :] - points_b[None, :, :]
+    delta -= box_size * np.round(delta / box_size)
+    return np.einsum("ijk,ijk->ij", delta, delta)
+
+
+def _tiles(nrows, ncols):
+    """
+    Yield (row_lo, row_hi, col_lo, col_hi) tiles covering an nrows x ncols grid.
+
+    Both dimensions are tiled, so no tile has more than _PAIR_COUNT_BLOCK_PAIRS entries
+    however large either dimension is.
+    """
+    budget = max(1, _PAIR_COUNT_BLOCK_PAIRS)
+    tile_cols = min(ncols, budget)
+    tile_rows = max(1, budget // max(tile_cols, 1))
+    for row_lo in range(0, nrows, tile_rows):
+        for col_lo in range(0, ncols, tile_cols):
+            yield row_lo, min(row_lo + tile_rows, nrows), col_lo, min(col_lo + tile_cols, ncols)
 
 
 def _validate_pair_count_inputs(positions, box_size, r_edges):
@@ -504,8 +526,8 @@ def periodic_pair_counts(positions, box_size, r_edges):
     Uses a cell grid whose cells are at least r_edges[-1] wide, so every pair closer than
     r_edges[-1] lies in the same or a neighbouring cell, and the minimum-image convention
     for the separation. Numpy only. Cost scales with the number of near-neighbour pairs
-    rather than N^2, and evaluates pairs in bounded blocks so memory does not grow
-    with the occupancy of a cell.
+    rather than N^2, and evaluates pairs in tiles of at most _PAIR_COUNT_BLOCK_PAIRS separations
+    so memory does not grow with the occupancy of a cell.
 
     Each unordered pair is counted once and no point is paired with itself (two distinct
     points at the same position are a pair at separation 0). Bins are half-open,
@@ -555,18 +577,14 @@ def periodic_pair_counts(positions, box_size, r_edges):
         block = sorted_pos[lo:hi]
         npts = hi - lo
 
-        # Pairs inside the cell, each once: row i against the points after it, in blocks of
-        # rows so that no block evaluates more than _PAIR_COUNT_BLOCK_PAIRS separations.
-        i0 = 0
-        while i0 < npts - 1:
-            width = npts - i0
-            rows = min(max(1, _PAIR_COUNT_BLOCK_PAIRS // width), npts - 1 - i0)
-            delta = block[i0 : i0 + rows, None, :] - block[None, i0:, :]
-            delta -= box_size * np.round(delta / box_size)
-            r_sq = np.einsum("ijk,ijk->ij", delta, delta)
-            later = np.arange(width)[None, :] > np.arange(rows)[:, None]
+        # Pairs inside the cell, each once: tile the upper triangle (column index > row index),
+        # skipping tiles that lie wholly on or below the diagonal.
+        for r_lo, r_hi, c_lo, c_hi in _tiles(npts - 1, npts - 1):
+            if c_hi <= r_lo:  # largest column point index c_hi, smallest row index r_lo
+                continue
+            r_sq = _separations_sq(block[r_lo:r_hi], block[c_lo + 1 : c_hi + 1], box_size)
+            later = (np.arange(c_lo + 1, c_hi + 1)[None, :]) > np.arange(r_lo, r_hi)[:, None]
             accumulate(r_sq[later])
-            i0 += rows
 
         # Pairs with each distinct neighbouring cell of larger id, so a cell pair is visited
         # once (per-axis offsets that wrap onto each other on a coarse grid are deduplicated).
@@ -580,11 +598,8 @@ def periodic_pair_counts(positions, box_size, r_edges):
                         continue
                     nlo, nhi = extent[nid]
                     other = sorted_pos[nlo:nhi]
-                    rows = max(1, _PAIR_COUNT_BLOCK_PAIRS // len(other))
-                    for r0 in range(0, npts, rows):
-                        delta = block[r0 : r0 + rows, None, :] - other[None, :, :]
-                        delta -= box_size * np.round(delta / box_size)
-                        accumulate(np.einsum("ijk,ijk->ij", delta, delta).ravel())
+                    for r_lo, r_hi, c_lo, c_hi in _tiles(npts, len(other)):
+                        accumulate(_separations_sq(block[r_lo:r_hi], other[c_lo:c_hi], box_size))
 
     return counts
 

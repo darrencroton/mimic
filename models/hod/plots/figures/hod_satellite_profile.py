@@ -17,11 +17,14 @@ own NFW enclosed-mass fraction at its concentration c:
 
 with c = HODConcA (M / 10^HODConcLogMpivot)^HODConcB (1 + z)^HODConcC from the run file and
 M the host's draw-time Mvir in Msun/h (the satellite row's infallMvir). Averaging each
-satellite's own host profile, rather than using one concentration, keeps the prediction exact for a population spanning a wide host-mass range.
+satellite's own host profile, rather than using one concentration, keeps the prediction
+exact for a population spanning a wide host-mass range.
 
 Right: the histogram of every component of the satellite-minus-host velocity offset divided
 by Vvir_sat / sqrt(2) (the host's draw-time Vvir carried by the satellite row), against the
-unit Gaussian.
+unit Gaussian. The histograms are normalised by the whole per-component sample, so a profile
+window (axes.hod_satellite_profile xmin/xmax) that cuts the tails leaves them comparable with
+the unconditional Gaussian; ymin/ymax set the velocity panel's y range.
 
 The snapshot redshift comes from the package's a_list through SnapshotRedshiftMapper.
 """
@@ -46,7 +49,7 @@ from snapshot_redshift_mapper import SnapshotRedshiftMapper
 
 PLOT_KEY = "hod_satellite_profile"
 PLOT_XLIM = (-4.0, 4.0)  # Velocity panel, offset / (Vvir / sqrt(2))
-PLOT_YLIM = (0.0, 0.5)
+PLOT_YLIM = (0.0, 0.5)  # Velocity panel, probability density per unit offset
 VELOCITY_BINWIDTH = 0.25
 RADIUS_GRID_POINTS = 201
 PREDICTION_CHUNK = 20000  # Satellites per block when averaging the host profiles
@@ -229,7 +232,12 @@ def plot(
     empirical = np.arange(1, len(s) + 1) / len(s)
     ks = float(np.max(np.abs(empirical - np.interp(s_sorted, grid, predicted))))
     if verbose:
-        print(f"  z={redshift:.4f}, satellites={len(s)}, max |F_emp - F_pred|={ks:.4f}")
+        n_created = int(np.count_nonzero((galaxies.Type == 2) & (galaxies.HODGhost == 0)))
+        print(
+            f"  z={redshift:.4f}, satellites={len(s)} of {n_created} created "
+            f"({n_created - len(s)} dropped: no Type 0 host found or a non-positive "
+            f"Rvir/Vvir/infallMvir), max |F_emp - F_pred|={ks:.4f}"
+        )
         print(f"  velocity ratio mean={v_ratio.mean():+.4f}, std={v_ratio.std():.4f}")
 
     fig, (ax_r, ax_v) = plt.subplots(1, 2, figsize=(13, 5.5))
@@ -254,13 +262,16 @@ def plot(
     )
     setup_legend(ax_r, loc="lower right")
 
-    x_min, x_max, _y0, _y1 = get_profile_axes(params, PLOT_KEY, PLOT_XLIM, PLOT_YLIM)
+    x_min, x_max, y_min, y_max = get_profile_axes(params, PLOT_KEY, PLOT_XLIM, PLOT_YLIM)
     edges = make_bin_edges(x_min, x_max, VELOCITY_BINWIDTH)
+    # Weight by the whole per-component sample and the bin width, not density=True: a profile
+    # window narrower than the data must not renormalise the retained values to unit area.
+    weights = np.full(len(v_ratio), 1.0 / (len(v_ratio) * (edges[1] - edges[0])))
     for axis, name, colour in zip(range(3), "xyz", ("tab:blue", "tab:green", "tab:orange")):
         ax_v.hist(
             v_ratio[:, axis],
             bins=edges,
-            density=True,
+            weights=weights,
             histtype="step",
             lw=1.5,
             color=colour,
@@ -275,6 +286,7 @@ def plot(
         label="unit Gaussian",
     )
     ax_v.set_xlim(x_min, x_max)
+    ax_v.set_ylim(y_min, y_max)
     ax_v.set_xlabel(
         r"$(v_{\rm sat} - v_{\rm host})\,/\,(V_{\rm vir,sat}/\sqrt{2})$  [dimensionless]",
         fontsize=AXIS_LABEL_SIZE,

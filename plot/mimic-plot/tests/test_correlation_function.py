@@ -56,23 +56,36 @@ def test_coarse_grid_matches_brute_force():
 
 
 def test_blocked_evaluation_matches_brute_force():
-    """A tiny block budget forces many row blocks in every cell and cell pair; counts agree."""
+    """A tiny tile budget forces many tiles in both dimensions; counts agree and tiles obey it."""
     rng = np.random.default_rng(99)
     positions = rng.uniform(0.0, BOX, size=(400, 3))
     # r_max = box/2 gives a 2-cell grid, so each cell holds ~50 points and ~1250 pairs.
     r_edges = np.linspace(0.0, 0.5 * BOX, 7)
     brute = brute_force_counts(positions, BOX, r_edges)
     default_counts = periodic_pair_counts(positions, BOX, r_edges)
-    original = output_utils._PAIR_COUNT_BLOCK_PAIRS
-    try:
-        for block_pairs in (1, 7, 100):
-            output_utils._PAIR_COUNT_BLOCK_PAIRS = block_pairs
-            counts = periodic_pair_counts(positions, BOX, r_edges)
-            assert np.array_equal(counts, brute), f"block={block_pairs}: {counts} != {brute}"
-    finally:
-        output_utils._PAIR_COUNT_BLOCK_PAIRS = original
-    assert np.array_equal(default_counts, brute)
     assert brute.sum() > 10000, "Test is vacuous: too few pairs counted"
+    assert np.array_equal(default_counts, brute)
+
+    original_budget = output_utils._PAIR_COUNT_BLOCK_PAIRS
+    original_kernel = output_utils._separations_sq
+    largest = []
+
+    def spy(points_a, points_b, box_size):
+        largest.append(len(points_a) * len(points_b))
+        return original_kernel(points_a, points_b, box_size)
+
+    try:
+        output_utils._separations_sq = spy
+        for budget in (1, 7, 100):
+            output_utils._PAIR_COUNT_BLOCK_PAIRS = budget
+            largest.clear()
+            counts = periodic_pair_counts(positions, BOX, r_edges)
+            assert np.array_equal(counts, brute), f"budget={budget}: {counts} != {brute}"
+            assert len(largest) > 50, f"budget={budget}: expected many tiles, got {len(largest)}"
+            assert max(largest) <= budget, f"budget={budget}: a tile held {max(largest)} pairs"
+    finally:
+        output_utils._PAIR_COUNT_BLOCK_PAIRS = original_budget
+        output_utils._separations_sq = original_kernel
 
 
 def test_uniform_random_xi_consistent_with_zero():

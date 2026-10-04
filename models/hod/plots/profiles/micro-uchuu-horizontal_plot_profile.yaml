@@ -15,8 +15,10 @@ axes:
     ymin: -3.0          # log10 of <N> per host
     ymax: 2.5
   hod_satellite_profile:
-    xmin: -4.0          # velocity offset / (Vvir / sqrt(2))
+    xmin: -4.0          # velocity panel: offset / (Vvir / sqrt(2))
     xmax: 4.0
+    ymin: 0.0           # velocity panel: probability density (linear)
+    ymax: 0.5
   hod_correlation_function:
     xmin: 0.1           # comoving Mpc/h; at most half the 100 Mpc/h box
     xmax: 20.0
