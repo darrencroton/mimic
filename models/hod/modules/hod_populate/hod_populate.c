@@ -34,8 +34,8 @@
 #include "memory.h"
 #include "module_interface.h"
 #include "module_registry.h"
-#include "proto.h"
 #include "types.h"
+#include "virial.h"
 
 #include "module_system/parameter_helpers.h"
 

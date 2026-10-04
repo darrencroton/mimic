@@ -1468,8 +1468,9 @@ int test_statistics_velocity_dispersion(void) {
  * (the comoving offset is r_com n, so its direction is n), with cos(theta) its z component and
  * phi = atan2(y, x), and the velocity offset is row Vel - host Vel. The host sits at the box
  * centre with a current Rvir of about 0.75 Mpc/h at z = 0, so no offset wraps; storing Pos as a
- * float (4e-6 near 50) perturbs a direction by at most 4e-6 / r, negligible for all but about
- * 1e-3 of the satellites (those inside 0.01 Mpc/h), whose perturbation stays below 4e-4 rad.
+ * float (4e-6 near 50) perturbs a direction by at most 4e-6 / r: below 4e-4 rad for every
+ * satellite outside 0.01 Mpc/h, and larger only for the roughly 1e-3 of them inside that
+ * radius, a fraction well below the DKW tolerance.
  * - Uniformity: for n i.i.d. draws the Dvoretzky-Kiefer-Wolfowitz inequality gives
  *   P(sup |F_n - F| > eps) <= 2 exp(-2 n eps^2), so eps = sqrt(ln(2 / 1e-6) / (2 n)) (about
  *   0.0058) bounds the empirical CDF of (cos(theta) + 1) / 2 and of phi / 2 pi against the

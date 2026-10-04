@@ -203,7 +203,7 @@ PROPERTY_HASH_FILE = BUILD_GENERATED_DIR / "property_hash.txt"
 # ==============================================================================
 
 # FieldMetadata.description is char[256] in the generated code and 256 bytes in the HDF5 table,
-# so a description may hold at most 255 characters plus the terminating NUL. A longer one would
+# so a description may hold at most 255 UTF-8 bytes plus the terminating NUL. A longer one would
 # be silently truncated in every run's FieldMetadata and output_schema.json.
 MAX_DESCRIPTION_LENGTH = 255
 
@@ -217,10 +217,10 @@ def validate_property(prop: Dict[str, Any], category: str) -> None:
         if field not in prop:
             raise ValueError(f"{category} property missing required field '{field}': {prop}")
 
-    description = prop["description"]
-    if len(str(description)) > MAX_DESCRIPTION_LENGTH:
+    description_bytes = len(str(prop["description"]).encode("utf-8"))
+    if description_bytes > MAX_DESCRIPTION_LENGTH:
         raise ValueError(
-            f"Property '{prop['name']}' has a description of {len(str(description))} characters; "
+            f"Property '{prop['name']}' has a description of {description_bytes} UTF-8 bytes; "
             f"the limit is {MAX_DESCRIPTION_LENGTH} (FieldMetadata.description is char[256])"
         )
 

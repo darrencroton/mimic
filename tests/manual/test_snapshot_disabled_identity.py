@@ -373,10 +373,13 @@ def check_run_file(text: str, shipped: dict, model: str) -> None:
 
 @dataclass(frozen=True)
 class OutputRun:
-    """A finished run's output directory and the path prefixes its files may embed."""
+    """A finished run's output directory, the path prefixes its files may embed, and the
+    property-metadata digest its build generated (``build/generated/property_hash.txt`` of
+    the producing worktree), which its ``output_schema.json`` must carry as ``source_md5``."""
 
     directory: Path
     prefixes: tuple[str, ...]
+    source_md5: str | None = None
 
     def normalized(self, text: str) -> str:
         for prefix in sorted(self.prefixes, key=len, reverse=True):
@@ -565,14 +568,21 @@ def pinned_description_delta(left: numpy.ndarray, right: numpy.ndarray) -> bool:
     )
 
 
-def pinned_schema_delta(left: bytes, right: bytes) -> bool:
-    """Two output_schema.json texts that differ only in the pinned description and source_md5."""
+def pinned_schema_delta(left: bytes, right: bytes, base: OutputRun, other: OutputRun) -> bool:
+    """Two output_schema.json texts that differ only in the pinned description and source_md5.
+
+    ``source_md5`` is the digest of the generator's inputs, so it moves with the description;
+    each side's value must be the digest its own build generated, never an arbitrary one.
+    """
     try:
         before, after = json.loads(left), json.loads(right)
     except ValueError:
         return False
     if not isinstance(before, dict) or not isinstance(after, dict):
         return False
+    for schema, run in ((before, base), (after, other)):
+        if run.source_md5 is None or schema.get("source_md5") != run.source_md5:
+            return False
     pinned = [
         [f for f in schema.get("fields", []) if f.get("name") == PINNED_DESCRIPTION_FIELD]
         for schema in (before, after)
@@ -695,7 +705,7 @@ def compare_metadata_file(rel: str, base: OutputRun, other: OutputRun, empty_leg
     if left == right:
         return
     if rel == "metadata/output_schema.json":
-        if pinned_schema_delta(left, right):
+        if pinned_schema_delta(left, right, base, other):
             report.allow(SCHEMA_DESCRIPTION_LABEL)
         else:
             report.error(f"{rel}: output schema differs")
@@ -858,7 +868,11 @@ class Identity:
                 ("RunProperties", "SimulationName"),
             ):
                 attributes[name] = attribute_text(attribute_signature(handle[path].attrs[name]))
-        return RunRecord(tree, variant, OutputRun(directory, tuple(prefixes)), elapsed, attributes)
+        digest_file = worktree / "build" / "generated" / "property_hash.txt"
+        if not digest_file.is_file():
+            raise AssertionError(f"{tree}/{variant} {leg}: no generated digest at {digest_file}")
+        output = OutputRun(directory, tuple(prefixes), digest_file.read_text().strip())
+        return RunRecord(tree, variant, output, elapsed, attributes)
 
     def check_provenance(self, record: RunRecord, model, fixture, scheme) -> None:
         """The run came from the intended commit, model, simulation and timestepping scheme."""
@@ -1156,7 +1170,16 @@ def pinned_description_on_base(base: OutputRun, _run: OutputRun) -> None:
     if len(pinned) != 1:
         raise AssertionError(f"output_schema.json names {len(pinned)} {PINNED_DESCRIPTION_FIELD}")
     pinned[0]["description"] = UNIQUE_ID_DESCRIPTION_BEFORE
-    schema["source_md5"] = "0" * 32
+    schema["source_md5"] = base.source_md5 = "0" * 32
+    schema_path.write_text(json.dumps(schema, indent=2) + "\n")
+
+
+def pinned_description_wrong_digest(base: OutputRun, run: OutputRun) -> None:
+    """The pinned delta beside a candidate digest that is not the one its build generated."""
+    pinned_description_on_base(base, run)
+    schema_path = run.directory / "metadata" / "output_schema.json"
+    schema = json.loads(schema_path.read_text())
+    schema["source_md5"] = "f" * 32
     schema_path.write_text(json.dumps(schema, indent=2) + "\n")
 
 
@@ -1315,6 +1338,11 @@ def mutation_cases(source: OutputRun) -> list[Case]:
             (DESCRIPTION_LABEL, SCHEMA_DESCRIPTION_LABEL),
         ),
         (
+            "the pinned description beside a digest its build did not generate",
+            pinned_description_wrong_digest,
+            "output schema differs",
+        ),
+        (
             "a description changed on another field",
             on_master(other_description_changed),
             bytes_needle,
@@ -1368,7 +1396,7 @@ def run_mutation_checks(source: OutputRun, scratch: Path) -> int:
         for role in ("base", "candidate"):
             directory = scratch / f"{number:02d}_{role}"
             shutil.copytree(source.directory, directory)
-            runs.append(OutputRun(directory, (f"{directory}_prefix",)))
+            runs.append(OutputRun(directory, (f"{directory}_prefix",), source.source_md5))
         case.change(*runs)
         report = compare_outputs(*runs, empty_leg=case.empty_leg)
         if case.needle is None:

@@ -309,13 +309,15 @@ def report_run_duplicates(label, index, max_report):
 
 
 def tree_rows(records):
-    """Split one snapshot's records into its tree rows and its created-row count.
+    """Split one snapshot's records into tree rows, created-row count and zero-id count.
 
-    Tree rows carry positive ids; records created during the run carry strictly
-    negative ones (and no row carries 0).
+    Tree rows carry positive ids and records created during the run strictly
+    negative ones; no encoder produces 0, so a zero id is a defect the caller
+    reports rather than a row to skip.
     """
-    tree = records[ID_FIELD] > 0
-    return records[tree], int(tree.size - numpy.count_nonzero(tree))
+    ids = records[ID_FIELD]
+    tree = ids > 0
+    return records[tree], int(numpy.count_nonzero(ids < 0)), int(numpy.count_nonzero(ids == 0))
 
 
 def report_created(snap, created, labels):
@@ -341,9 +343,15 @@ def compare_snapshot(snap, left, right, labels, max_report):
     left_label, right_label = labels
     failures = 0
 
-    left, left_created = tree_rows(left)
-    right, right_created = tree_rows(right)
+    left, left_created, left_zero = tree_rows(left)
+    right, right_created, right_zero = tree_rows(right)
     report_created(snap, (left_created, right_created), labels)
+    if left_zero or right_zero:
+        print(
+            f"  FAIL Snap{snap:03d}: {ID_FIELD} 0 is neither a tree id nor a created id -- "
+            f"{left_label} {left_zero}, {right_label} {right_zero} row(s)"
+        )
+        failures += 1
 
     left_ids = left[ID_FIELD]
     right_ids = right[ID_FIELD]

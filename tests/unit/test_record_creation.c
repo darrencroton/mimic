@@ -1256,6 +1256,7 @@ static bool visibility_rows_moved = false;
 static int create_per_type0(struct ModuleContext *ctx, struct Halo *halos, int ngal, int call) {
   (void)call;
   struct Halo *row = NULL;
+  int created = 0;
   for (int i = 0; i < ngal; i++) {
     if (halos[i].Type != 0) {
       continue;
@@ -1264,7 +1265,15 @@ static int create_per_type0(struct ModuleContext *ctx, struct Halo *halos, int n
       if (module_create_record(ctx, i, &row) < 0) {
         return -1;
       }
+      created++;
     }
+  }
+  /* Poison the cached central pointer once something was created: only the
+   * commit's refresh can restore it, whether or not realloc moved the rows, so
+   * the observer's check below proves the refresh ran rather than relying on
+   * the allocator to relocate the array. */
+  if (created > 0) {
+    ctx->central_galaxy = NULL;
   }
   return 0;
 }
@@ -1322,9 +1331,9 @@ static int run_visibility_pipeline(int per_type0) {
   build_workspace(types, 3);
   context.num_substeps = 2;
 
-  /* A live allocation right after the three rows keeps realloc from extending
-   * them in place, so the commit's growth moves them and the
-   * ctx->central_galaxy refresh is exercised rather than vacuous. */
+  /* A live allocation right after the three rows makes it likely that the
+   * commit's growth moves them, so the moved-pointer path is usually exercised
+   * too; the proof of the refresh itself is the poisoned pointer above. */
   void *blocker = mymalloc_cat(sizeof(struct Halo), MEM_UTILITY);
   const uintptr_t rows_before = (uintptr_t)workspace.halos;
 
@@ -1358,11 +1367,7 @@ static int visibility_body(void) {
   TEST_ASSERT(central_pointer_current,
               "ctx->central_galaxy addresses the current central row after the commit");
   TEST_ASSERT_EQUAL(workspace.count, 3 + CREATED_PER_TYPE0, "the workspace holds the created rows");
-  if (!visibility_rows_moved) {
-    return TEST_SKIP_WITH("realloc grew the workspace rows in place despite a live allocation "
-                          "after them, so the ctx->central_galaxy refresh after a move was not "
-                          "exercised");
-  }
+  printf("  [commit %s the workspace rows] ", visibility_rows_moved ? "moved" : "grew in place");
   return TEST_PASS;
 }
 

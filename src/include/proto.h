@@ -92,27 +92,9 @@ double get_virial_velocity(struct HaloInputView view, int64_t halonr);
 double get_virial_radius(struct HaloInputView view, int64_t halonr);
 double get_virial_mass(struct HaloInputView view, int64_t halonr);
 
-/**
- * @brief   Virial radius of a halo of mass @p mvir at @p redshift
- *
- * The radius enclosing a mean density of 200 times the critical density at
- * @p redshift for the run's cosmology (MimicConfig), the definition
- * get_virial_radius() applies to a catalogue halo.
- *
- * @param   mvir      Virial mass in 1e10 Msun/h
- * @param   redshift  Redshift at which the critical density is taken
- * @return  Virial radius in Mpc/h (0 when the critical density is not positive)
- */
-double virial_radius_for_mass(double mvir, double redshift);
-
-/**
- * @brief   Circular velocity at the virial radius, sqrt(G Mvir / Rvir)
- *
- * @param   mvir  Virial mass in 1e10 Msun/h
- * @param   rvir  Virial radius in Mpc/h
- * @return  Virial velocity in km/s, or 0 when @p rvir is not positive
- */
-double virial_velocity_for(double mvir, double rvir);
+/* The mass-based virial helpers the catalogue functions above delegate to live
+ * in the module-facing core/virial.h, so a module reaches them without proto.h. */
+#include "virial.h"
 
 /* Horizontal driver (src/core/horizontal_driver.c) */
 struct InheritanceProgenitorGalaxy; /* core/inheritance.h */
