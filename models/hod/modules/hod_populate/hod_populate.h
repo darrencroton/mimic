@@ -48,7 +48,11 @@
 #define HOD_DRAW_FIRST_SATELLITE 2
 #define HOD_DRAW_SATELLITE_STRIDE 16
 
-/** The ten run-file parameters and the box size, validated by hod_populate_init() */
+/**
+ * The ten run-file parameters and the box size, validated by hod_populate_init(), plus three
+ * powers of ten derived from them. Whoever builds one by hand sets the run-file fields and then
+ * calls hod_populate_cache_powers().
+ */
 struct HodParameters {
   double log_mmin;        /**< HODLogMmin, log10(Msun/h) */
   double sigma_logm;      /**< HODSigmaLogM, dex, > 0 */
@@ -61,6 +65,9 @@ struct HodParameters {
   double conc_b;          /**< HODConcB, mass slope */
   double conc_c;          /**< HODConcC, redshift slope */
   double box_size;        /**< BoxSize, Mpc/h, finite and > 0 */
+  double mass_m0;         /**< Derived: 10^HODLogM0, Msun/h */
+  double mass_m1;         /**< Derived: 10^HODLogM1, Msun/h */
+  double mass_pivot;      /**< Derived: 10^HODConcLogMpivot, Msun/h */
 };
 
 /** One host's occupation draw */
@@ -80,6 +87,15 @@ struct HodSatellite {
   double offset[3];   /**< Comoving offset r_com n, before wrapping */
   double velocity[3]; /**< Velocity offset (g1, g2, g3) Vvir / sqrt(2), km/s */
 };
+
+/**
+ * @brief   Set the derived powers of ten from HODLogM0, HODLogM1 and HODConcLogMpivot
+ *
+ * Each is the same pow(10.0, x) the helpers would otherwise evaluate per call, so
+ * cached and uncached results are bit-identical. Call it whenever one of those
+ * three fields changes.
+ */
+void hod_populate_cache_powers(struct HodParameters *p);
 
 /**
  * @brief   Mean central occupation 0.5 [1 + erf((log10 M - HODLogMmin) / HODSigmaLogM)]

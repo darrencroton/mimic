@@ -79,17 +79,21 @@ double hod_populate_mean_ncen(const struct HodParameters *p, double mass) {
   return 0.5 * (1.0 + erf((log10(mass) - p->log_mmin) / p->sigma_logm));
 }
 
+void hod_populate_cache_powers(struct HodParameters *p) {
+  p->mass_m0 = pow(10.0, p->log_m0);
+  p->mass_m1 = pow(10.0, p->log_m1);
+  p->mass_pivot = pow(10.0, p->conc_log_mpivot);
+}
+
 double hod_populate_lambda(const struct HodParameters *p, double mass) {
-  const double m0 = pow(10.0, p->log_m0);
-  if (!(mass > m0)) {
+  if (!(mass > p->mass_m0)) {
     return 0.0;
   }
-  return pow((mass - m0) / pow(10.0, p->log_m1), p->alpha);
+  return pow((mass - p->mass_m0) / p->mass_m1, p->alpha);
 }
 
 double hod_populate_concentration(const struct HodParameters *p, double mass, double redshift) {
-  return p->conc_a * pow(mass / pow(10.0, p->conc_log_mpivot), p->conc_b) *
-         pow(1.0 + redshift, p->conc_c);
+  return p->conc_a * pow(mass / p->mass_pivot, p->conc_b) * pow(1.0 + redshift, p->conc_c);
 }
 
 /**
@@ -137,7 +141,8 @@ int hod_populate_nfw_inverse(double u, double c, double *x) {
   double hi = c;
   // Each step halves the bracket; it stops shrinking after about 1100 steps at the latest.
   for (int iteration = 0; iteration < 2000; iteration++) {
-    const double mid = 0.5 * (lo + hi);
+    // lo + (hi - lo) / 2 stays finite for hi up to DBL_MAX, where lo + hi overflows.
+    const double mid = lo + 0.5 * (hi - lo);
     const double residual = hod_populate_nfw_fraction(mid, c) - u;
     if (fabs(residual) <= HOD_NFW_TOLERANCE) {
       *x = mid;
@@ -299,27 +304,58 @@ static int check_configuration(void) {
   return 0;
 }
 
+/** Domain a finite double parameter must also satisfy */
+enum HodDomain {
+  HOD_DOMAIN_ANY,         /**< Any finite value */
+  HOD_DOMAIN_POSITIVE,    /**< Strictly positive */
+  HOD_DOMAIN_NONNEGATIVE, /**< Zero or positive */
+  HOD_DOMAIN_LOG_MASS,    /**< log10 of a mass whose power of ten is a finite positive normal */
+};
+
+/** One double parameter's validation: its name, loaded value, domain and meaning for errors */
+struct HodDoubleCheck {
+  const char *name;
+  const double *value;
+  enum HodDomain domain;
+  const char *meaning; /**< Quoted by the positive and nonnegative errors, else unused */
+};
+
 /**
- * @brief Fail a parameter that is NaN or infinite
+ * @brief Fail a double parameter that is not finite or outside its domain
  *
  * The strict parser accepts "nan" and "inf" and range comparisons pass NaN, so
- * every value is checked here before its range check.
+ * finiteness is checked before the domain.
  */
-static int check_finite(const char *name, double value) {
+static int check_double_parameter(const struct HodDoubleCheck *check) {
+  const double value = *check->value;
   if (!isfinite(value)) {
-    ERROR_LOG("%s = %g is not finite", name, value);
+    ERROR_LOG("%s = %g is not finite", check->name, value);
     return -1;
   }
-  return 0;
-}
-
-/** Fail a log10 mass whose power of ten is not a finite positive normal double */
-static int check_log_mass(const char *name, double log_mass) {
-  const double mass = pow(10.0, log_mass);
-  if (!isfinite(mass) || mass < DBL_MIN) {
-    ERROR_LOG("%s = %g gives 10^%g = %g Msun/h, which is not a finite positive normal double", name,
-              log_mass, log_mass, mass);
-    return -1;
+  switch (check->domain) {
+  case HOD_DOMAIN_ANY:
+    break;
+  case HOD_DOMAIN_POSITIVE:
+    if (!(value > 0.0)) {
+      ERROR_LOG("%s = %g must be > 0 (%s)", check->name, value, check->meaning);
+      return -1;
+    }
+    break;
+  case HOD_DOMAIN_NONNEGATIVE:
+    if (value < 0.0) {
+      ERROR_LOG("%s = %g must be >= 0 (%s)", check->name, value, check->meaning);
+      return -1;
+    }
+    break;
+  case HOD_DOMAIN_LOG_MASS: {
+    const double mass = pow(10.0, value);
+    if (!isfinite(mass) || mass < DBL_MIN) {
+      ERROR_LOG("%s = %g gives 10^%g = %g Msun/h, which is not a finite positive normal double",
+                check->name, value, value, mass);
+      return -1;
+    }
+    break;
+  }
   }
   return 0;
 }
@@ -336,71 +372,43 @@ int hod_populate_init(void) {
   }
 
   struct HodParameters p;
+  memset(&p, 0, sizeof(p));
 
+  // The names stay literal at each load so scripts/lint_parameter_usage.py can match them
+  // against module_info.yaml; the table below carries only the validation.
   LOAD_PARAM_DOUBLE("HODLogMmin", p.log_mmin);
-  if (check_finite("HODLogMmin", p.log_mmin) != 0) {
-    return -1;
-  }
-
   LOAD_PARAM_DOUBLE("HODSigmaLogM", p.sigma_logm);
-  if (check_finite("HODSigmaLogM", p.sigma_logm) != 0) {
-    return -1;
-  }
-  if (!(p.sigma_logm > 0.0)) {
-    ERROR_LOG("HODSigmaLogM = %g must be > 0 (dex width of the central occupation step)",
-              p.sigma_logm);
-    return -1;
-  }
-
   LOAD_PARAM_DOUBLE("HODLogM0", p.log_m0);
-  if (check_finite("HODLogM0", p.log_m0) != 0 || check_log_mass("HODLogM0", p.log_m0) != 0) {
-    return -1;
-  }
-
   LOAD_PARAM_DOUBLE("HODLogM1", p.log_m1);
-  if (check_finite("HODLogM1", p.log_m1) != 0 || check_log_mass("HODLogM1", p.log_m1) != 0) {
-    return -1;
-  }
-
   LOAD_PARAM_DOUBLE("HODAlpha", p.alpha);
-  if (check_finite("HODAlpha", p.alpha) != 0) {
-    return -1;
-  }
-  if (p.alpha < 0.0) {
-    ERROR_LOG("HODAlpha = %g must be >= 0 (satellite occupation slope)", p.alpha);
-    return -1;
-  }
-
   LOAD_PARAM_INT("HODSeed", p.seed);
+  LOAD_PARAM_DOUBLE("HODConcA", p.conc_a);
+  LOAD_PARAM_DOUBLE("HODConcLogMpivot", p.conc_log_mpivot);
+  LOAD_PARAM_DOUBLE("HODConcB", p.conc_b);
+  LOAD_PARAM_DOUBLE("HODConcC", p.conc_c);
+
+  const struct HodDoubleCheck checks[] = {
+      {"HODLogMmin", &p.log_mmin, HOD_DOMAIN_ANY, NULL},
+      {"HODSigmaLogM", &p.sigma_logm, HOD_DOMAIN_POSITIVE,
+       "dex width of the central occupation step"},
+      {"HODLogM0", &p.log_m0, HOD_DOMAIN_LOG_MASS, NULL},
+      {"HODLogM1", &p.log_m1, HOD_DOMAIN_LOG_MASS, NULL},
+      {"HODAlpha", &p.alpha, HOD_DOMAIN_NONNEGATIVE, "satellite occupation slope"},
+      {"HODConcA", &p.conc_a, HOD_DOMAIN_POSITIVE, "concentration normalisation"},
+      {"HODConcLogMpivot", &p.conc_log_mpivot, HOD_DOMAIN_LOG_MASS, NULL},
+      {"HODConcB", &p.conc_b, HOD_DOMAIN_ANY, NULL},
+      {"HODConcC", &p.conc_c, HOD_DOMAIN_ANY, NULL},
+  };
+  for (size_t k = 0; k < sizeof(checks) / sizeof(checks[0]); k++) {
+    if (check_double_parameter(&checks[k]) != 0) {
+      return -1;
+    }
+  }
   if (p.seed < 0) {
     ERROR_LOG("HODSeed = %d must be >= 0", p.seed);
     return -1;
   }
-
-  LOAD_PARAM_DOUBLE("HODConcA", p.conc_a);
-  if (check_finite("HODConcA", p.conc_a) != 0) {
-    return -1;
-  }
-  if (!(p.conc_a > 0.0)) {
-    ERROR_LOG("HODConcA = %g must be > 0 (concentration normalisation)", p.conc_a);
-    return -1;
-  }
-
-  LOAD_PARAM_DOUBLE("HODConcLogMpivot", p.conc_log_mpivot);
-  if (check_finite("HODConcLogMpivot", p.conc_log_mpivot) != 0 ||
-      check_log_mass("HODConcLogMpivot", p.conc_log_mpivot) != 0) {
-    return -1;
-  }
-
-  LOAD_PARAM_DOUBLE("HODConcB", p.conc_b);
-  if (check_finite("HODConcB", p.conc_b) != 0) {
-    return -1;
-  }
-
-  LOAD_PARAM_DOUBLE("HODConcC", p.conc_c);
-  if (check_finite("HODConcC", p.conc_c) != 0) {
-    return -1;
-  }
+  hod_populate_cache_powers(&p);
 
   p.box_size = MimicConfig.BoxSize;
   const double volume = p.box_size * p.box_size * p.box_size;
@@ -607,14 +615,46 @@ static int compare_audit_hosts(const void *a, const void *b) {
   return (id_a > id_b) - (id_a < id_b);
 }
 
+/** Totals of the audit's first pass over the population */
+struct HodAuditTotals {
+  int64_t hosts;        /**< Type 0 rows */
+  int64_t realised_all; /**< Sample members (HODGhost == 0) */
+  int64_t realised_sat; /**< Sample members that are Type 2 satellites */
+  double expected_all;  /**< Sum over Type 0 rows of <Ncen> (1 + lambda) */
+  double expected_sat;  /**< Sum over Type 0 rows of <Ncen> lambda */
+  double log_min;       /**< Smallest log10(M) over hosts with a positive mass; HUGE_VAL if none */
+  double log_max;       /**< Largest log10(M) over hosts with a positive mass; -HUGE_VAL if none */
+};
+
 /** Per-bin sums of the audit: hosts, expected and realised galaxies */
 struct HodAuditBins {
   int count;
-  double log_lo; /**< Lower edge of bin 0, a multiple of HOD_AUDIT_BIN_DEX */
-  int64_t *hosts;
-  double *expected;
-  int64_t *realised;
+  double log_lo;     /**< Lower edge of bin 0, a multiple of HOD_AUDIT_BIN_DEX */
+  int64_t *hosts;    /**< [count]; owns the counts block that `realised` continues */
+  double *expected;  /**< [count]; its own allocation */
+  int64_t *realised; /**< [count]; the second half of the `hosts` block */
 };
+
+/** @brief Allocate zeroed bins: one counts block (hosts, then realised) and the expected sums */
+static void audit_bins_allocate(struct HodAuditBins *bins, int count, double log_lo) {
+  const size_t entries = (size_t)count;
+  bins->count = count;
+  bins->log_lo = log_lo;
+  bins->hosts = mymalloc_cat(2 * entries * sizeof(int64_t), MEM_UTILITY);
+  memset(bins->hosts, 0, 2 * entries * sizeof(int64_t));
+  bins->realised = bins->hosts + entries;
+  bins->expected = mymalloc_cat(entries * sizeof(double), MEM_UTILITY);
+  memset(bins->expected, 0, entries * sizeof(double));
+}
+
+/** @brief Release the bins' allocations; safe on bins that were never allocated */
+static void audit_bins_release(struct HodAuditBins *bins) {
+  if (bins->hosts != NULL) {
+    myfree(bins->hosts);
+    myfree(bins->expected);
+  }
+  *bins = (struct HodAuditBins){0};
+}
 
 static int audit_bin(const struct HodAuditBins *bins, double mass) {
   if (!(mass > 0.0)) {
@@ -631,90 +671,14 @@ static int audit_bin(const struct HodAuditBins *bins, double mass) {
 }
 
 /**
- * @brief Attribute every sample galaxy to its host's occupation bin
+ * @brief Validate the population and total the expectation and the sample
  *
- * A central counts in its own bin; a satellite in the bin of the Type 0 row
- * whose UniqueGalaxyID is its UniqueCentralGalaxyID, found in an ID-sorted
- * scratch table. A sample satellite with no such host breaks the module's own
- * contract and fails the audit.
+ * Pass 1 of the audit: every row must carry a galaxy and a binary ghost flag,
+ * a Type 0 row must have a finite nonnegative mass, and a sample member must be
+ * a Type 0 central or a Type 2 satellite.
  */
-static int fill_audit_bins(const struct Halo *halos, int64_t count, int64_t hosts,
-                           struct HodAuditBins *bins) {
-  struct HodAuditHost *table =
-      mymalloc_cat((size_t)hosts * sizeof(struct HodAuditHost), MEM_UTILITY);
-  int64_t n = 0;
-  for (int64_t i = 0; i < count; i++) {
-    if (halos[i].Type != 0) {
-      continue;
-    }
-    const double mass = halos[i].Mvir * HOD_MASS_UNIT_MSUN;
-    const int bin = audit_bin(bins, mass);
-    table[n].id = halos[i].UniqueGalaxyID;
-    table[n].bin = bin;
-    n++;
-    if (bin >= 0) {
-      const double ncen = hod_populate_mean_ncen(&hod_params, mass);
-      bins->hosts[bin]++;
-      bins->expected[bin] += ncen * (1.0 + hod_populate_lambda(&hod_params, mass));
-    }
-  }
-  qsort(table, (size_t)n, sizeof(*table), compare_audit_hosts);
-
-  // The caller's first pass has already checked that every entry has a galaxy.
-  for (int64_t i = 0; i < count; i++) {
-    if (halos[i].galaxy->HODGhost != 0) {
-      continue;
-    }
-    int bin = -1;
-    if (halos[i].Type == 0) {
-      const struct HodAuditHost key = {halos[i].UniqueGalaxyID, 0};
-      const struct HodAuditHost *found =
-          bsearch(&key, table, (size_t)n, sizeof(*table), compare_audit_hosts);
-      bin = (found != NULL) ? found->bin : -1;
-    } else {
-      const struct HodAuditHost key = {halos[i].UniqueCentralGalaxyID, 0};
-      const struct HodAuditHost *found =
-          bsearch(&key, table, (size_t)n, sizeof(*table), compare_audit_hosts);
-      bin = (found != NULL) ? found->bin : -1;
-    }
-    if (bin < 0) {
-      ERROR_LOG("%s audit: sample row UniqueGalaxyID %lld (Type %d) has no Type 0 host with a "
-                "positive mass under UniqueCentralGalaxyID %lld in this snapshot",
-                HOD_MODULE_NAME, halos[i].UniqueGalaxyID, halos[i].Type,
-                halos[i].UniqueCentralGalaxyID);
-      myfree(table);
-      return -1;
-    }
-    bins->realised[bin]++;
-  }
-  myfree(table);
-  return 0;
-}
-
-int hod_populate_process_snapshot(const struct SnapshotContext *ctx, const struct Halo *halos,
-                                  int64_t count) {
-  if (ctx == NULL || !hod_ready) {
-    ERROR_LOG("%s: process_snapshot called %s", HOD_MODULE_NAME,
-              ctx == NULL ? "without a snapshot context" : "before a successful init()");
-    return -1;
-  }
-  if (!hod_populate_is_output_snapshot(ctx->snapshot_number)) {
-    return 0;
-  }
-  if (count < 0 || (count > 0 && halos == NULL)) {
-    ERROR_LOG("%s audit: invalid population (halos=%p, count=%lld)", HOD_MODULE_NAME,
-              (const void *)halos, (long long)count);
-    return -1;
-  }
-
-  // Pass 1: validate, total the expectation over Type 0 hosts and count the sample.
-  int64_t hosts = 0;
-  int64_t realised_all = 0;
-  int64_t realised_sat = 0;
-  double expected_all = 0.0;
-  double expected_sat = 0.0;
-  double log_min = HUGE_VAL;
-  double log_max = -HUGE_VAL;
+static int audit_scan(const struct Halo *halos, int64_t count, struct HodAuditTotals *totals) {
+  *totals = (struct HodAuditTotals){.log_min = HUGE_VAL, .log_max = -HUGE_VAL};
   for (int64_t i = 0; i < count; i++) {
     const struct Halo *h = &halos[i];
     if (h->galaxy == NULL) {
@@ -739,79 +703,150 @@ int hod_populate_process_snapshot(const struct SnapshotContext *ctx, const struc
       }
       const double ncen = hod_populate_mean_ncen(&hod_params, mass);
       const double lambda = hod_populate_lambda(&hod_params, mass);
-      hosts++;
-      expected_all += ncen + ncen * lambda;
-      expected_sat += ncen * lambda;
+      totals->hosts++;
+      totals->expected_all += ncen + ncen * lambda;
+      totals->expected_sat += ncen * lambda;
       if (mass > 0.0) {
-        log_min = fmin(log_min, log10(mass));
-        log_max = fmax(log_max, log10(mass));
+        totals->log_min = fmin(totals->log_min, log10(mass));
+        totals->log_max = fmax(totals->log_max, log10(mass));
       }
     }
     if (ghost == 0) {
       if (h->Type == 2) {
-        realised_sat++;
+        totals->realised_sat++;
       } else if (h->Type != 0) {
         ERROR_LOG("%s audit: UniqueGalaxyID %lld is a sample member of Type %d; only Type 0 "
                   "centrals and Type 2 created satellites can be",
                   HOD_MODULE_NAME, h->UniqueGalaxyID, h->Type);
         return -1;
       }
-      realised_all++;
+      totals->realised_all++;
     }
-  }
-
-  // Pass 2: <N(M)> realised versus expected in HOD_AUDIT_BIN_DEX bins over the host mass range.
-  struct HodAuditBins bins = {0, 0.0, NULL, NULL, NULL};
-  if (log_max >= log_min) {
-    bins.log_lo = floor(log_min / HOD_AUDIT_BIN_DEX) * HOD_AUDIT_BIN_DEX;
-    bins.count = (int)floor((log_max - bins.log_lo) / HOD_AUDIT_BIN_DEX) + 1;
-    bins.hosts = mymalloc_cat((size_t)bins.count * sizeof(int64_t), MEM_UTILITY);
-    bins.expected = mymalloc_cat((size_t)bins.count * sizeof(double), MEM_UTILITY);
-    bins.realised = mymalloc_cat((size_t)bins.count * sizeof(int64_t), MEM_UTILITY);
-    for (int b = 0; b < bins.count; b++) {
-      bins.hosts[b] = 0;
-      bins.expected[b] = 0.0;
-      bins.realised[b] = 0;
-    }
-  }
-  if (realised_all > 0 && bins.count == 0) {
-    ERROR_LOG("%s audit: %lld sample rows but no Type 0 host with a positive mass", HOD_MODULE_NAME,
-              (long long)realised_all);
-    return -1;
-  }
-  if (bins.count > 0 && fill_audit_bins(halos, count, hosts, &bins) != 0) {
-    myfree(bins.realised);
-    myfree(bins.expected);
-    myfree(bins.hosts);
-    return -1;
-  }
-
-  const double volume = hod_params.box_size * hod_params.box_size * hod_params.box_size;
-  const double fsat_expected = (expected_all > 0.0) ? expected_sat / expected_all : 0.0;
-  const double fsat_realised =
-      (realised_all > 0) ? (double)realised_sat / (double)realised_all : 0.0;
-  INFO_LOG("HOD audit z=%.4f hosts=%lld n_gal expected=%.6e realised=%.6e f_sat expected=%.6f "
-           "realised=%.6f",
-           ctx->redshift, (long long)hosts, expected_all / volume, (double)realised_all / volume,
-           fsat_expected, fsat_realised);
-  for (int b = 0; b < bins.count; b++) {
-    if (bins.hosts[b] == 0) {
-      continue;
-    }
-    const double lo = bins.log_lo + b * HOD_AUDIT_BIN_DEX;
-    VERBOSE_LOG("HOD audit bin z=%.4f log10M=[%.2f, %.2f) hosts=%lld <N> expected=%.6f "
-                "realised=%.6f",
-                ctx->redshift, lo, lo + HOD_AUDIT_BIN_DEX, (long long)bins.hosts[b],
-                bins.expected[b] / (double)bins.hosts[b],
-                (double)bins.realised[b] / (double)bins.hosts[b]);
-  }
-
-  if (bins.count > 0) {
-    myfree(bins.realised);
-    myfree(bins.expected);
-    myfree(bins.hosts);
   }
   return 0;
+}
+
+/**
+ * @brief Attribute every sample galaxy to its host's occupation bin
+ *
+ * Pass 2 of the audit. Every row, a central and a satellite alike, is attributed
+ * through its UniqueCentralGalaxyID (core sets it to the Type 0 row's own
+ * UniqueGalaxyID for the central), looked up in an ID-sorted scratch table of
+ * the Type 0 rows. A sample row with no such host breaks the module's own
+ * contract and fails the audit.
+ */
+static int fill_audit_bins(const struct Halo *halos, int64_t count, int64_t hosts,
+                           struct HodAuditBins *bins) {
+  struct HodAuditHost *table =
+      mymalloc_cat((size_t)hosts * sizeof(struct HodAuditHost), MEM_UTILITY);
+  int64_t n = 0;
+  for (int64_t i = 0; i < count; i++) {
+    if (halos[i].Type != 0) {
+      continue;
+    }
+    const double mass = halos[i].Mvir * HOD_MASS_UNIT_MSUN;
+    const int bin = audit_bin(bins, mass);
+    table[n].id = halos[i].UniqueGalaxyID;
+    table[n].bin = bin;
+    n++;
+    if (bin >= 0) {
+      const double ncen = hod_populate_mean_ncen(&hod_params, mass);
+      bins->hosts[bin]++;
+      bins->expected[bin] += ncen * (1.0 + hod_populate_lambda(&hod_params, mass));
+    }
+  }
+  qsort(table, (size_t)n, sizeof(*table), compare_audit_hosts);
+
+  int status = 0;
+  // The caller's first pass has already checked that every entry has a galaxy.
+  for (int64_t i = 0; i < count && status == 0; i++) {
+    if (halos[i].galaxy->HODGhost != 0) {
+      continue;
+    }
+    const struct HodAuditHost key = {halos[i].UniqueCentralGalaxyID, 0};
+    const struct HodAuditHost *found =
+        bsearch(&key, table, (size_t)n, sizeof(*table), compare_audit_hosts);
+    if (found == NULL || found->bin < 0) {
+      ERROR_LOG("%s audit: sample row UniqueGalaxyID %lld (Type %d) has no Type 0 host with a "
+                "positive mass under UniqueCentralGalaxyID %lld in this snapshot",
+                HOD_MODULE_NAME, halos[i].UniqueGalaxyID, halos[i].Type,
+                halos[i].UniqueCentralGalaxyID);
+      status = -1;
+    } else {
+      bins->realised[found->bin]++;
+    }
+  }
+  myfree(table);
+  return status;
+}
+
+/** @brief Log the audit summary line and, with --verbose, one line per occupied bin */
+static void log_audit(const struct SnapshotContext *ctx, const struct HodAuditTotals *totals,
+                      const struct HodAuditBins *bins) {
+  const double volume = hod_params.box_size * hod_params.box_size * hod_params.box_size;
+  const double fsat_expected =
+      (totals->expected_all > 0.0) ? totals->expected_sat / totals->expected_all : 0.0;
+  const double fsat_realised = (totals->realised_all > 0)
+                                   ? (double)totals->realised_sat / (double)totals->realised_all
+                                   : 0.0;
+  INFO_LOG("HOD audit z=%.4f hosts=%lld n_gal expected=%.6e realised=%.6e f_sat expected=%.6f "
+           "realised=%.6f",
+           ctx->redshift, (long long)totals->hosts, totals->expected_all / volume,
+           (double)totals->realised_all / volume, fsat_expected, fsat_realised);
+  for (int b = 0; b < bins->count; b++) {
+    if (bins->hosts[b] == 0) {
+      continue;
+    }
+    const double lo = bins->log_lo + b * HOD_AUDIT_BIN_DEX;
+    VERBOSE_LOG("HOD audit bin z=%.4f log10M=[%.2f, %.2f) hosts=%lld <N> expected=%.6f "
+                "realised=%.6f",
+                ctx->redshift, lo, lo + HOD_AUDIT_BIN_DEX, (long long)bins->hosts[b],
+                bins->expected[b] / (double)bins->hosts[b],
+                (double)bins->realised[b] / (double)bins->hosts[b]);
+  }
+}
+
+int hod_populate_process_snapshot(const struct SnapshotContext *ctx, const struct Halo *halos,
+                                  int64_t count) {
+  if (ctx == NULL || !hod_ready) {
+    ERROR_LOG("%s: process_snapshot called %s", HOD_MODULE_NAME,
+              ctx == NULL ? "without a snapshot context" : "before a successful init()");
+    return -1;
+  }
+  if (!hod_populate_is_output_snapshot(ctx->snapshot_number)) {
+    return 0;
+  }
+  if (count < 0 || (count > 0 && halos == NULL)) {
+    ERROR_LOG("%s audit: invalid population (halos=%p, count=%lld)", HOD_MODULE_NAME,
+              (const void *)halos, (long long)count);
+    return -1;
+  }
+
+  struct HodAuditTotals totals;
+  if (audit_scan(halos, count, &totals) != 0) {
+    return -1;
+  }
+
+  // <N(M)> realised versus expected in HOD_AUDIT_BIN_DEX bins over the host mass range.
+  struct HodAuditBins bins = {0};
+  if (totals.log_max >= totals.log_min) {
+    const double log_lo = floor(totals.log_min / HOD_AUDIT_BIN_DEX) * HOD_AUDIT_BIN_DEX;
+    audit_bins_allocate(&bins, (int)floor((totals.log_max - log_lo) / HOD_AUDIT_BIN_DEX) + 1,
+                        log_lo);
+  }
+  int status = 0;
+  if (totals.realised_all > 0 && bins.count == 0) {
+    ERROR_LOG("%s audit: %lld sample rows but no Type 0 host with a positive mass", HOD_MODULE_NAME,
+              (long long)totals.realised_all);
+    status = -1;
+  } else if (bins.count > 0) {
+    status = fill_audit_bins(halos, count, totals.hosts, &bins);
+  }
+  if (status == 0) {
+    log_audit(ctx, &totals, &bins);
+  }
+  audit_bins_release(&bins);
+  return status;
 }
 
 int hod_populate_cleanup(void) {

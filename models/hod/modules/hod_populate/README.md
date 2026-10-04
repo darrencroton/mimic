@@ -8,7 +8,7 @@ Populates each FoF group's Type 0 host with a five-parameter threshold-sample ha
 - `process_full_halo` must be configured exactly once, in `modules.post_timestep`, and in no other FoF phase; init rejects a second `post_timestep` entry and any entry in `pre_timestep` or a substep phase. The module runs once per FoF step, so every processed snapshot sees one retirement, one reset and at most one draw per host; another entry would retire and redraw the step again (once per substep in a substep phase) and could exhaust the per-host identity radix.
 - `process_snapshot` must be configured in `modules.post_snapshot` whenever that phase exists. The phase exists only under the horizontal driver; a vertical run file has no `post_snapshot` and runs without the audit.
 - The host is the row at `ctx->central_index`, which must be a Type 0 row with a galaxy; `ngal >= 1` is required. Every non-Type 3 row must have a galaxy. Each satellite is created with `module_create_record()` on that host, so the module must stay `process_full_halo`.
-- All validation, the occupation draw and the identity-radix checks run before the first write, so a failed call leaves the FoF workspace untouched and the run stops with the module's error.
+- All validation, the occupation draw and the identity-radix checks run before the first write, so a call that fails any of them leaves the FoF workspace untouched and the run stops with the module's error. One refusal can still come after writes: `module_create_record()` declines when the driver's created-record identity space does not fit int64, at the first satellite, after the Type 2 retirement, the ghost reset and the central's flag clear have been written. That is the vertical driver on Shin-Uchuu ASCII and on full Uchuu: a pair whose created-record identity space does not fit int64 fails at the first satellite with the core's `does not fit int64` refusal (the User Guide's identity-space entry has the budgets); use the horizontal driver where a horizontal package exists.
 
 ## Phases and Lifecycle
 
@@ -50,11 +50,11 @@ With `--verbose` it also logs one line per occupied 0.2 dex host-mass bin over t
 HOD audit bin z=<z> log10M=[<lo>, <hi>) hosts=<n> <N> expected=<x> realised=<y>
 ```
 
-where `<N>` is the mean total occupation per host: a present central counts in its host's bin and a satellite in the bin of the Type 0 row whose `UniqueGalaxyID` is its `UniqueCentralGalaxyID`. A sample row that is neither a Type 0 central nor a Type 2 satellite, or a satellite with no such host, fails the audit. Scratch (the bins and an ID-sorted host table, `MEM_UTILITY`) is released before the callback returns.
+where `<N>` is the mean total occupation per host: every sample row is attributed to the bin of the Type 0 row whose `UniqueGalaxyID` is its `UniqueCentralGalaxyID` (core sets that to the Type 0 row's own ID for the central), so a present central counts in its own bin and a satellite in its host's. A sample row that is neither a Type 0 central nor a Type 2 satellite, or has no such host, fails the audit. Scratch (the bins in one block and an ID-sorted host table, `MEM_UTILITY`) is released before the callback returns.
 
 ## Properties
 
-- Reads: `Type`, `Mvir`, `Rvir`, `Vvir`, `Pos`, `Vel`, `UniqueGalaxyID`, `HODGhost`; the audit also reads `UniqueCentralGalaxyID` to attribute each satellite to its host's mass bin
+- Reads: `Type`, `Mvir`, `Rvir`, `Vvir`, `Pos`, `Vel`, `UniqueGalaxyID`, `HODGhost`; the audit also reads `UniqueCentralGalaxyID` to attribute each sample row to its host's mass bin
 - Writes: `Type` (Type 2 to Type 3), `HODGhost`; on created rows `Pos`, `Vel`, `HODGhost`
 
 ## Parameters
@@ -78,7 +78,7 @@ All ten are required in `modules.parameters`; every double must be finite (`nan`
 
 ## Tests
 
-`_tests/test_unit_hod_populate.c` (24 cases) checks the random-number header, the spot values of every formula, small concentrations against a 60-digit reference and refusal of a degenerate one, finite in-box placement at an extreme concentration (1e308), the init guards and parameter domains, the lifecycle through the registered dispatch over hand-built FoF workspaces (retirement, reset, gating, created rows equal to the helper-level draws, the output-snapshot gate, the identity-radix errors), bitwise repeat identity and row/FoF permutation invariance, statistics over 40,000 independently keyed hosts, and the audit against a hand sum. Run it by path with the selectors exported, for example:
+`_tests/test_unit_hod_populate.c` (25 cases) checks the random-number header, the spot values of every formula, small concentrations against a 60-digit reference and refusal of a degenerate one, finite in-box placement at an extreme concentration (1e308), the init guards and parameter domains, the lifecycle through the registered dispatch over hand-built FoF workspaces (retirement, reset, gating, created rows equal to the helper-level draws, the output-snapshot gate, the identity-radix errors), bitwise repeat identity and row/FoF permutation invariance, statistics over 40,000 independently keyed hosts (including, from the created rows' positions and velocities alone, uniformity of `cos theta` and `phi` and the independence of the direction and the three velocity components), and the audit against a hand sum with masses in the middle of its bins. Run it by path with the selectors exported, for example:
 
 ```bash
 MODEL=hod SIMULATION=micro-uchuu-ascii-horizontal tests/unit/run_tests.sh \

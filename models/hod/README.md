@@ -95,7 +95,7 @@ A figure whose data are absent returns a skip reason instead of failing: the thr
 - **Concentration**: the Duffy et al. (2008) relation is for 200c NFW fits over z 0-2; it is applied to the catalogue mass at any redshift.
 - **Consequence**: the output demonstrates the framework with published parameters; it is not a calibrated SDSS mock, and the audit's densities are not a measurement of the SDSS sample.
 - **Fixture**: `input/hod_micro-uchuu-ascii-horizontal.yaml` runs on the committed synthetic fixture (three forests over six snapshots in a 100 Mpc/h box), which is not a complete cosmological volume.
-- **Drivers**: the audit needs the horizontal driver; `input/hod_mini-millennium.yaml` runs vertically without it. Created `UniqueGalaxyID`s are not identical across drivers.
+- **Drivers**: the audit needs the horizontal driver; `input/hod_mini-millennium.yaml` runs vertically without it. Created `UniqueGalaxyID`s are not identical across drivers. A pair whose created-record identity space does not fit int64 (the vertical driver on Shin-Uchuu ASCII and on full Uchuu) fails at the first satellite with the core's refusal, after the retirement and ghost reset of that step have been written; use the horizontal driver where a horizontal package exists.
 
 ## Package Contents
 
@@ -127,7 +127,7 @@ MODEL=hod SIMULATION=micro-uchuu-ascii-horizontal tests/unit/run_tests.sh \
   models/hod/modules/hod_populate/_tests/test_unit_hod_populate.c
 ```
 
-Module tests register in the default tiers only for vertical simulations, so under `MODEL=hod SIMULATION=mini-millennium` the unit test also runs from `make tests-unit`, and `make MODEL=hod SIMULATION=mini-millennium tests-integration` runs the integration test's vertical cases on the eight tree files (its fixture cases report a configuration skip there). The fixture cases need the horizontal fixture build; `make tests-snapshot-global-hod` builds it as a test build and runs the unit test and those cases (also run by `make tests-snapshot-global`, which restores your generated code afterwards: rebuild with `make`).
+Module tests register in the default tiers only for the simulations in `FULL_MODEL_TEST_SIMULATIONS` (`scripts/discovery.py`: `mini-millennium`, `micro-uchuu`, `micro-uchuu-hdf5` and `micro-uchuu-ascii`), so under `MODEL=hod SIMULATION=mini-millennium` the unit test also runs from `make tests-unit`, and `make MODEL=hod SIMULATION=mini-millennium tests-integration` runs the integration test's vertical cases on the eight tree files (its fixture cases report a configuration skip there). The fixture cases need the horizontal fixture build; `make tests-snapshot-global-hod` builds it as a test build and runs the unit test and those cases (also run by `make tests-snapshot-global`, which restores your generated code afterwards: rebuild with `make`).
 
 The integration test (`modules/hod_populate/_tests/test_integration_hod_populate.py`) reads the HDF5 output per `UniqueGalaxyID` and checks that every created row is a Type 2 row with a negative ID, `HODGhost == 0` and a Type 0 `HODGhost == 0` host (so a host with `HODGhost == 1` has no satellite), that every Type 1 row is scaffold, that no Type 2 row survives from an earlier snapshot, that repeated runs are bitwise identical, that `HODSeed` changes the draws, that a run listing only the last fixture snapshot reproduces its rows bitwise, that conflicting phase configurations fail at startup and that every run is leak-free. The shipped Mr < -20 parameters give the fixture's low-mass hosts (10^11.2 to 10^12 Msun/h) almost no satellites, so the created-row cases run a temporary copy of the fixture run file with `HODLogMmin 11.8`, `HODLogM0 10.0` and `HODLogM1 10.8`; the shipped run file keeps the published values and has its own validity case. The fixture has no Type 1 rows, so the Type 1 assertion is exercised on mini-Millennium.
 
@@ -149,7 +149,7 @@ make MODEL=hod SIMULATION=micro-uchuu-horizontal -j$(sysctl -n hw.ncpu)
 | Written output | 3,114,016 `Galaxies` rows over the eight snapshots (the sum of the eight datasets in the recorded output, 10,986 of them sample members with `HODGhost == 0`) |
 | Created-record identity space | `units=50 rows_per_unit=621360 radix=1024`, fits int64 |
 
-Audit lines, with `V = 1e6 (Mpc/h)^3` so the expected and realised counts are `n_gal V`; the pull is `(realised - expected) / sqrt(expected)`, the Poisson scatter the expected count implies:
+Audit lines, with `V = 1e6 (Mpc/h)^3` so the expected and realised counts are `n_gal V`; the pull is `(realised - expected) / sqrt(expected)`. That normalisation is approximate: under central gating a host's variance is `p (1 - p) (1 + lambda)^2 + p lambda` with `p = <Ncen>`, not the Poisson `p (1 + lambda)` that `sqrt(expected)` assumes, so the scatter the expected count implies is only a guide:
 
 | z | hosts | expected N | realised N | f_sat expected | f_sat realised | pull |
 |---|---|---|---|---|---|---|
@@ -162,7 +162,7 @@ Audit lines, with `V = 1e6 (Mpc/h)^3` so the expected and realised counts are `n
 | 1.4259 | 538,694 | 3003.9 | 3034 | 0.101634 | 0.102505 | +0.55 |
 | 0.0005 | 496,374 | 5341.1 | 5359 | 0.181184 | 0.185482 | +0.25 |
 
-Every pull is within one Poisson standard deviation; the realised satellite fractions track the expectation where the counts are large (0.185 against 0.181 at z = 0.0005) and are noise where they are not. The z = 0.0005 row is the nearest to a population comparable to the SDSS sample, but see [Caveats](#caveats): the number density (5.3e-3 (Mpc/h)^-3) is the framework's output for the published parameters on this catalogue's masses, not a measurement of the SDSS sample.
+Every pull is within one approximate standard deviation; the realised satellite fractions track the expectation where the counts are large (0.185 against 0.181 at z = 0.0005) and are noise where they are not. The z = 0.0005 row is the nearest to a population comparable to the SDSS sample, but see [Caveats](#caveats): the number density (expected 5.34e-3, realised 5.36e-3 (Mpc/h)^-3) is the framework's output for the published parameters on this catalogue's masses, not a measurement of the SDSS sample.
 
 ## References
 

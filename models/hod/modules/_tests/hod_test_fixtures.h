@@ -65,6 +65,22 @@ static const char *const hod_default_values[10] = {
 };
 
 /**
+ * Overwrite the value of an already configured parameter, found by name so a test does not
+ * depend on the parameters' order in MimicConfig.ModelParams
+ *
+ * @return 0 when the parameter was found and set, -1 when it is not configured
+ */
+static inline int hod_set_test_parameter(const char *name, const char *value) {
+  for (int i = 0; i < MimicConfig.NumModelParams; i++) {
+    if (strcmp(MimicConfig.ModelParams[i].param_name, name) == 0) {
+      snprintf(MimicConfig.ModelParams[i].value, MAX_STRING_LEN, "%s", value);
+      return 0;
+    }
+  }
+  return -1;
+}
+
+/**
  * Test fixture: reset the configuration and set every HOD parameter to its
  * default, except that parameter @p override_name (when non-NULL) takes
  * @p override_value, or is omitted when @p override_value is NULL. BoxSize is

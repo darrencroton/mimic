@@ -22,8 +22,9 @@
  *   placement at a tiny and at an extreme (1e308) concentration normalisation,
  *   bitwise repeat identity, and invariance under row and FoF permutation
  * - statistics over 40,000 independently keyed hosts (central frequency,
- *   satellite count mean and variance, radial CDF, velocity variance), each
- *   bound derived where it is asserted
+ *   satellite count mean and variance, radial CDF, velocity variance, and, from the created
+ *   rows' positions and velocities alone, direction uniformity and the independence of the
+ *   direction and the three velocity components), each bound derived where it is asserted
  * - process_snapshot(): the audit line against a hand sum, the per-bin lines,
  *   silence on non-output snapshots, no property writes and no net allocation
  *
@@ -68,9 +69,8 @@ extern int hod_populate_process_snapshot(const struct SnapshotContext *ctx,
 extern int hod_populate_cleanup(void);
 
 /**
- * Hosts in every statistical test: twice the 20,000 the HOD plan sets as a minimum, so the
- * central frequency's 4-SE band is +-0.01 and the radial and velocity tests see about
- * 215,000 satellites at 1e14 Msun/h
+ * Hosts in every statistical test: enough that the central frequency's 4-SE band is +-0.01 and
+ * the radial and velocity tests see about 215,000 satellites at 1e14 Msun/h
  */
 #define STAT_HOSTS 40000
 
@@ -81,9 +81,13 @@ extern int hod_populate_cleanup(void);
 /** Largest workspace any dispatch test builds */
 #define MAX_ROWS 8
 
-/** Shipped default parameters as numbers, for the helper-level oracles */
-static const struct HodParameters default_params = {
+/**
+ * Shipped default parameters as numbers, for the helper-level oracles; main() sets the derived
+ * powers of ten before any case runs
+ */
+static struct HodParameters default_params = {
     12.02, 0.26, 11.38, 13.31, 1.06, 1, 5.71, 12.301030, -0.084, -0.47, HOD_TEST_BOX_SIZE,
+    0.0,   0.0,  0.0,
 };
 
 /* ============================================================================
@@ -161,6 +165,9 @@ static void build_workspace(const struct RowSpec *rows, int n, int central_index
     h->UniqueGalaxyID = rows[i].id;
     h->UniqueCentralGalaxyID = rows[central_index].id;
     h->HaloNr = rows[i].halonr;
+    /* Inheritance stamps each slice's Type 0/1 row into CentralHalo; the core's host
+     * check requires a host's CentralHalo to be its own row. */
+    h->CentralHalo = (rows[i].type == 0 || rows[i].type == 1) ? i : central_index;
     h->SnapNum = snapshot;
     h->Mvir = rows[i].mvir;
     h->Len = 100;
@@ -399,6 +406,13 @@ int test_nfw_inverse_spot_values(void) {
   TEST_ASSERT(hod_populate_nfw_inverse(0.9, 5.71, &x) == 0 && fabs(x - 4.9207968140) <= 1e-9,
               "x(0.9, 5.71) = 4.9207968140");
 
+  /* Near DBL_MAX a bracket midpoint formed as lo + hi overflows; lo + (hi - lo) / 2 does not. */
+  TEST_ASSERT(hod_populate_nfw_inverse(0.99995, 1e308, &x) == 0,
+              "the inverse converges at u = 0.99995, c = 1e308");
+  TEST_ASSERT(isfinite(x) && x >= 0.0 && x <= 1e308, "and returns a finite x in [0, c]");
+  TEST_ASSERT(fabs(hod_populate_nfw_fraction(x, 1e308) - 0.99995) <= 1e-12,
+              "that x meets the residual tolerance");
+
   static const double us[] = {0x1.0p-53, 1e-6, 0.25, 0.75, 0.999999, 1.0 - 0x1.0p-53};
   static const double cs[] = {0.5, 4.110765, 30.0};
   for (size_t i = 0; i < sizeof(us) / sizeof(us[0]); i++) {
@@ -424,16 +438,19 @@ struct NfwReference {
  * @brief  Small concentrations solve to the 60-digit reference; degenerate inputs are refused
  *
  * References: Python decimal at 60 significant digits, m(x) = ln(1 + x) - x/(1 + x)
- * with exact decimal ln, bisection on [0, c] for 400 halvings (bracket below 1e-120 c):
- *   c = 1e-6: x/c = 0.31622762186508335 (u 0.1), 0.70710664311541649 (0.5), 0.94868326559499083
- * (0.9) c = 1e-3: x/c = 0.31608370353845688, 0.70696876639232642, 0.94865085153072204 c = 0.1:  x/c
- * = 0.30264840236102647, 0.69383592092457724, 0.94552429531711990 (the small-c limit x/c -> sqrt(u)
- * = 0.316228, 0.707107, 0.948683 is visible at c = 1e-6). The bisection stops at |m(x)/m(c) - u| <=
- * 1e-12 and dF/d(x/c) is about 2 (x/c) >= 0.6 here, so x/c is within ~2e-12 of the reference; 1e-10
- * is asserted. Directly evaluated, log1p(c) - c/(1 + c) loses all its digits near c = 1e-6 and the
- * old bisection stalled with residual ~3e-10.
+ * with exact decimal ln, bisection on [0, c] for 400 halvings (bracket below 1e-120 c), x/c
+ * for u = 0.1, 0.5, 0.9:
+ *   c = 1e-6: 0.31622762186508335, 0.70710664311541649, 0.94868326559499083
+ *   c = 1e-3: 0.31608370353845688, 0.70696876639232642, 0.94865085153072204
+ *   c = 0.1:  0.30264840236102647, 0.69383592092457724, 0.94552429531711990
+ * The small-c limit x/c -> sqrt(u) = 0.316228, 0.707107, 0.948683 is visible at c = 1e-6. The
+ * bisection stops at |m(x)/m(c) - u| <= 1e-12 and dF/d(x/c) is about 2 (x/c) >= 0.6 here, so
+ * x/c is within ~2e-12 of the reference; 1e-10 is asserted. Directly evaluated,
+ * log1p(c) - c/(1 + c) loses all its digits near c = 1e-6, and a bisection on that form stalls
+ * with a residual of ~3e-10.
  */
 int test_nfw_small_concentration(void) {
+  // clang-format off
   static const struct NfwReference refs[] = {
       {0.1, 1e-6, 0.31622762186508335}, {0.5, 1e-6, 0.70710664311541649},
       {0.9, 1e-6, 0.94868326559499083}, {0.1, 1e-3, 0.31608370353845688},
@@ -441,6 +458,7 @@ int test_nfw_small_concentration(void) {
       {0.1, 0.1, 0.30264840236102647},  {0.5, 0.1, 0.69383592092457724},
       {0.9, 0.1, 0.94552429531711990},
   };
+  // clang-format on
   for (size_t k = 0; k < sizeof(refs) / sizeof(refs[0]); k++) {
     double x = -1.0;
     TEST_ASSERT(hod_populate_nfw_inverse(refs[k].u, refs[k].c, &x) == 0,
@@ -451,10 +469,14 @@ int test_nfw_small_concentration(void) {
                 "the stable fraction meets the tolerance at the solution");
   }
 
-  /* The fraction is continuous across the series switch at 0.1 (both forms agree there). */
-  TEST_ASSERT(fabs(hod_populate_nfw_fraction(0.0999999999, 0.2) -
-                   hod_populate_nfw_fraction(0.1000000001, 0.2)) <= 1e-8,
-              "the series and direct forms agree at the switch");
+  /* The fraction is continuous across the series switch at 0.1: the series form just below it
+     and the direct form at it differ by one ulp of the argument, about 1e-16 of the fraction. */
+  TEST_ASSERT(fabs(hod_populate_nfw_fraction(nextafter(0.1, 0.0), 0.2) -
+                   hod_populate_nfw_fraction(0.1, 0.2)) <= 1e-12,
+              "the series and direct forms agree at the switch in x");
+  TEST_ASSERT(fabs(hod_populate_nfw_fraction(0.05, nextafter(0.1, 0.0)) -
+                   hod_populate_nfw_fraction(0.05, 0.1)) <= 1e-12,
+              "the series and direct forms agree at the switch in c");
   TEST_ASSERT(hod_populate_nfw_fraction(0.0, 1e-6) == 0.0, "the fraction is 0 at x = 0");
   TEST_ASSERT(fabs(hod_populate_nfw_fraction(1e-300, 1e-300) - 1.0) <= 1e-15,
               "a concentration far below double resolution of 1 neither cancels nor underflows");
@@ -943,9 +965,10 @@ int test_satellite_limit_errors(void) {
  */
 int test_small_concentration_placement(void) {
   configure_run(false);
-  snprintf(MimicConfig.ModelParams[6].value, MAX_STRING_LEN, "%s", "1e-6"); /* HODConcA */
-  snprintf(MimicConfig.ModelParams[8].value, MAX_STRING_LEN, "%s", "0");    /* HODConcB */
-  snprintf(MimicConfig.ModelParams[9].value, MAX_STRING_LEN, "%s", "0");    /* HODConcC */
+  TEST_ASSERT(hod_set_test_parameter("HODConcA", "1e-6") == 0 &&
+                  hod_set_test_parameter("HODConcB", "0") == 0 &&
+                  hod_set_test_parameter("HODConcC", "0") == 0,
+              "the concentration parameters are configured");
   TEST_ASSERT_EQUAL(module_system_init(), 0, "a tiny concentration normalisation initialises");
   build_workspace(mixed_rows, 4, 0, 5, 0.0);
   const struct Halo host = workspace.halos[0];
@@ -989,10 +1012,10 @@ int test_small_concentration_placement(void) {
  *
  * At an extreme accepted concentration the NFW inverse returns x up to ~1e308;
  * Rvir * x would overflow to infinity (and fmod would then store NaN), so the
- * radius must be formed as Rvir * (x / c). The case reproduces the reviewer's
- * draw (seed 1, snapshot 49, host UniqueGalaxyID 4, M = 1e16 Msun/h, Rvir = 3),
- * whose satellite 92 has x = 7.7e307, first directly and then through the
- * dispatch with HODConcA = 1e308 and no mass or redshift slope.
+ * radius must be formed as Rvir * (x / c). The case uses seed 1, snapshot 49,
+ * host UniqueGalaxyID 4, M = 1e16 Msun/h and Rvir = 3, whose satellite 92 has
+ * x = 7.7e307, first directly and then through the dispatch with
+ * HODConcA = 1e308 and no mass or redshift slope.
  */
 int test_large_concentration_placement(void) {
   const double c = 1e308;
@@ -1021,9 +1044,10 @@ int test_large_concentration_placement(void) {
   configure_run(false);
   MimicConfig.NOUT = 1;
   MimicConfig.ListOutputSnaps[0] = 49;
-  snprintf(MimicConfig.ModelParams[6].value, MAX_STRING_LEN, "%s", "1e308"); /* HODConcA */
-  snprintf(MimicConfig.ModelParams[8].value, MAX_STRING_LEN, "%s", "0");     /* HODConcB */
-  snprintf(MimicConfig.ModelParams[9].value, MAX_STRING_LEN, "%s", "0");     /* HODConcC */
+  TEST_ASSERT(hod_set_test_parameter("HODConcA", "1e308") == 0 &&
+                  hod_set_test_parameter("HODConcB", "0") == 0 &&
+                  hod_set_test_parameter("HODConcC", "0") == 0,
+              "the concentration parameters are configured");
   TEST_ASSERT_EQUAL(module_system_init(), 0, "HODConcA = 1e308 initialises");
   const struct RowSpec rows[2] = {
       {0, 4, 7, 1.0e6, {99.5f, 0.5f, 50.0f}, {0.0f, 0.0f, 0.0f}, false},
@@ -1097,11 +1121,33 @@ static void run_fof(const struct RowSpec *rows, int n, int central_index, struct
   free_workspace();
 }
 
-/** @brief Whether two created sets are bitwise identical (halo-side and galaxy) */
+/** Whether member @p field of two structs has the same bits (NaN-safe, padding-free) */
+#define SAME_BITS(a, b, field) (memcmp(&(a)->field, &(b)->field, sizeof((a)->field)) == 0)
+
+/** @brief Whether two halo rows agree bitwise in every field except the galaxy pointer */
+static bool halos_identical(const struct Halo *a, const struct Halo *b) {
+  return SAME_BITS(a, b, SnapNum) && SAME_BITS(a, b, Type) && SAME_BITS(a, b, CentralHalo) &&
+         SAME_BITS(a, b, HaloNr) && SAME_BITS(a, b, UniqueGalaxyID) &&
+         SAME_BITS(a, b, UniqueCentralGalaxyID) && SAME_BITS(a, b, dT) && SAME_BITS(a, b, Len) &&
+         SAME_BITS(a, b, Mvir) && SAME_BITS(a, b, deltaMvir) && SAME_BITS(a, b, CentralMvir) &&
+         SAME_BITS(a, b, Rvir) && SAME_BITS(a, b, Vvir) && SAME_BITS(a, b, infallMvir) &&
+         SAME_BITS(a, b, infallVvir) && SAME_BITS(a, b, infallVmax) && SAME_BITS(a, b, Pos) &&
+         SAME_BITS(a, b, Vel) && SAME_BITS(a, b, Spin) && SAME_BITS(a, b, VelDisp) &&
+         SAME_BITS(a, b, Vmax) && SAME_BITS(a, b, MostBoundID);
+}
+
+/** @brief Whether two created sets are bitwise identical (halo-side and galaxy), field by field */
 static bool sets_identical(const struct CreatedSet *a, const struct CreatedSet *b) {
-  return a->count == b->count &&
-         memcmp(a->halos, b->halos, (size_t)a->count * sizeof(a->halos[0])) == 0 &&
-         memcmp(a->galaxies, b->galaxies, (size_t)a->count * sizeof(a->galaxies[0])) == 0;
+  if (a->count != b->count) {
+    return false;
+  }
+  for (int s = 0; s < a->count; s++) {
+    if (!halos_identical(&a->halos[s], &b->halos[s]) ||
+        !SAME_BITS(&a->galaxies[s], &b->galaxies[s], HODGhost)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /** @brief Whether two created sets carry the same draws: count, IDs, Pos, Vel bits, flags */
@@ -1162,7 +1208,7 @@ int test_determinism_and_permutation(void) {
   /* The seed is part of the key. */
   TEST_ASSERT_EQUAL(module_system_cleanup(), 0, "cleanup succeeds");
   configure_run(false);
-  snprintf(MimicConfig.ModelParams[5].value, MAX_STRING_LEN, "%s", "2"); /* HODSeed */
+  TEST_ASSERT(hod_set_test_parameter("HODSeed", "2") == 0, "HODSeed is configured");
   TEST_ASSERT_EQUAL(module_system_init(), 0, "pipeline initialises with seed 2");
   static struct CreatedSet a_seed2;
   run_fof(fof_a, 3, 0, &a_seed2);
@@ -1369,6 +1415,130 @@ int test_statistics_velocity_dispersion(void) {
   return TEST_PASS;
 }
 
+/** Number of cumulative-distribution checkpoints for a uniform variable (0.01 ... 1) */
+#define UNIFORM_GRID 100
+
+/** Variables of the independence test: three velocity offsets, cos(theta) and phi / 2 pi */
+#define NUM_INDEPENDENT 5
+
+/**
+ * @test   test_statistics_direction_and_velocity_independence
+ * @brief  From the created rows alone: cos(theta) and phi / 2 pi are uniform, and the direction
+ * and the three velocity offsets are mutually uncorrelated with zero-mean velocities
+ *
+ * Every host at M = 1e14 Msun/h (about 215,000 satellites over the 40,000 hosts of the other
+ * statistics) runs through the registered dispatch. Nothing here calls the module's own
+ * placement helper: the unit direction is (row Pos - host Pos) / |row Pos - host Pos|
+ * (the comoving offset is r_com n, so its direction is n), with cos(theta) its z component and
+ * phi = atan2(y, x), and the velocity offset is row Vel - host Vel. The host sits at the box
+ * centre with Rvir = 10 Mpc/h at z = 0, so no offset wraps; storing Pos as a float (4e-6 near
+ * 50) perturbs a direction by at most 4e-6 / r, negligible for all but about 1e-5 of the
+ * satellites (those inside 0.01 Mpc/h).
+ * - Uniformity: for n i.i.d. draws the Dvoretzky-Kiefer-Wolfowitz inequality gives
+ *   P(sup |F_n - F| > eps) <= 2 exp(-2 n eps^2), so eps = sqrt(ln(2 / 1e-6) / (2 n)) (about
+ *   0.0058) bounds the empirical CDF of (cos(theta) + 1) / 2 and of phi / 2 pi against the
+ *   uniform CDF at every checkpoint at once, with failure probability below 1e-6. It catches
+ *   cos(theta) drawn from [0, 1) or phi from [0, pi).
+ * - Independence: for independent variables the sample Pearson correlation has standard error
+ *   1 / sqrt(n), so all ten pairs among (v_x, v_y, v_z, cos(theta), phi / 2 pi) must lie within
+ *   4 / sqrt(n). One uniform shared between theta and phi (phi linear in cos(theta)), or three
+ *   Gaussians reading one stream index, give a correlation of 1.
+ * - Means: each velocity component has mean zero with standard error sigma / sqrt(n),
+ *   sigma^2 = Vvir^2 / 2, within 4 standard errors.
+ */
+int test_statistics_direction_and_velocity_independence(void) {
+  const double vvir = 200.0;
+  const double rvir = 10.0;
+
+  configure_run(false);
+  TEST_ASSERT_EQUAL(module_system_init(), 0, "pipeline initialises");
+
+  int64_t n = 0;
+  int64_t below_cos[UNIFORM_GRID] = {0};
+  int64_t below_phi[UNIFORM_GRID] = {0};
+  double sum[NUM_INDEPENDENT] = {0.0};
+  double sum_product[NUM_INDEPENDENT][NUM_INDEPENDENT] = {{0.0}};
+  for (int i = 0; i < STAT_HOSTS; i++) {
+    const struct RowSpec host_row = {
+        0, 1000000LL + i, 7, 1.0e4, {50.0f, 50.0f, 50.0f}, {100.0f, -50.0f, 25.0f}, false};
+    build_workspace(&host_row, 1, 0, 49, 0.0);
+    workspace.halos[0].Rvir = rvir;
+    workspace.halos[0].Vvir = vvir;
+    const struct Halo host = workspace.halos[0];
+    execute_module_pipeline(&context, &workspace);
+    for (int64_t r = workspace.base_count; r < workspace.count; r++) {
+      const struct Halo *row = &workspace.halos[r];
+      double offset[3];
+      double v[NUM_INDEPENDENT];
+      double length_sq = 0.0;
+      for (int j = 0; j < 3; j++) {
+        offset[j] = (double)row->Pos[j] - (double)host.Pos[j];
+        length_sq += offset[j] * offset[j];
+        v[j] = (double)row->Vel[j] - (double)host.Vel[j];
+      }
+      TEST_ASSERT(length_sq > 0.0, "a created satellite is displaced from its host");
+      const double cos_theta = offset[2] / sqrt(length_sq);
+      double phi = atan2(offset[1], offset[0]);
+      if (phi < 0.0) {
+        phi += HOD_RANDOM_TWO_PI;
+      }
+      v[3] = cos_theta;
+      v[4] = phi / HOD_RANDOM_TWO_PI;
+      for (int k = 0; k < UNIFORM_GRID; k++) {
+        const double checkpoint = (double)(k + 1) / UNIFORM_GRID;
+        below_cos[k] += (0.5 * (cos_theta + 1.0) <= checkpoint);
+        below_phi[k] += (v[4] <= checkpoint);
+      }
+      for (int a = 0; a < NUM_INDEPENDENT; a++) {
+        sum[a] += v[a];
+        for (int b = 0; b < NUM_INDEPENDENT; b++) {
+          sum_product[a][b] += v[a] * v[b];
+        }
+      }
+      n++;
+    }
+    free_workspace();
+  }
+  TEST_ASSERT_EQUAL(release_case(), 0, "release succeeds");
+  TEST_ASSERT(n > 150000, "about 215,000 satellites were created");
+
+  const double count = (double)n;
+  const double eps = sqrt(log(2.0 / 1e-6) / (2.0 * count));
+  double worst_cos = 0.0;
+  double worst_phi = 0.0;
+  for (int k = 0; k < UNIFORM_GRID; k++) {
+    const double checkpoint = (double)(k + 1) / UNIFORM_GRID;
+    worst_cos = fmax(worst_cos, fabs((double)below_cos[k] / count - checkpoint));
+    worst_phi = fmax(worst_phi, fabs((double)below_phi[k] / count - checkpoint));
+  }
+
+  const double sigma = vvir / sqrt(2.0);
+  double worst_mean = 0.0;
+  for (int j = 0; j < 3; j++) {
+    worst_mean = fmax(worst_mean, fabs(sum[j] / count) / (sigma / sqrt(count)));
+  }
+  double worst_correlation = 0.0;
+  for (int a = 0; a < NUM_INDEPENDENT; a++) {
+    for (int b = a + 1; b < NUM_INDEPENDENT; b++) {
+      const double covariance = sum_product[a][b] / count - (sum[a] / count) * (sum[b] / count);
+      const double variance_a = sum_product[a][a] / count - (sum[a] / count) * (sum[a] / count);
+      const double variance_b = sum_product[b][b] / count - (sum[b] / count) * (sum[b] / count);
+      worst_correlation = fmax(worst_correlation, fabs(covariance / sqrt(variance_a * variance_b)));
+    }
+  }
+  const double se_correlation = 1.0 / sqrt(count);
+  printf("[n = %lld, max |F_n - F| cos(theta) %.5f, phi %.5f, bound %.5f; max |mean| %.2f SE; "
+         "max |correlation| %.2f SE] ",
+         (long long)n, worst_cos, worst_phi, eps, worst_mean, worst_correlation / se_correlation);
+  TEST_ASSERT(worst_cos <= eps, "cos(theta) is uniform on [-1, 1] within the DKW bound");
+  TEST_ASSERT(worst_phi <= eps, "phi / 2 pi is uniform on [0, 1) within the DKW bound");
+  TEST_ASSERT(worst_mean <= 4.0, "each velocity component has mean zero within 4 SE");
+  TEST_ASSERT(worst_correlation <= 4.0 * se_correlation,
+              "direction and velocity components are pairwise uncorrelated within 4 SE");
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
 /* ============================================================================
  * SNAPSHOT AUDIT
  * ============================================================================ */
@@ -1389,24 +1559,29 @@ static void set_audit_row(int i, int type, long long id, long long central_id, d
 }
 
 /**
- * Hand population: host A (M = 1e15, central present, three satellites), host
+ * Hand population: host A (M = 1.2e15, central present, three satellites), host
  * B (M = 10^12.02, central absent, one Type 1 scaffold row), host C (M = 0) and
- * host D (M = 1e14, central present, no satellite).
- *   expected per host <Ncen> (1 + lambda): A 62.842859, B 0.5 x 1.0325706 =
- *   0.5162853, C 0, D 6.373959; total 69.733103 over V = 1e6 (Mpc/h)^3
- *   -> n_gal expected 6.973310e-05; satellites alone 61.842859 + 0.0162853 +
- *   5.373959 = 67.233103 -> f_sat expected 0.964149
+ * host D (M = 1.2e14, central present, no satellite). The masses sit mid-bin of
+ * the 0.2 dex bins: log10 M = 15.0792 in [15.0, 15.2), 12.02 in [12.0, 12.2) and
+ * 14.0792 in [14.0, 14.2), clear of every bin edge.
+ *   lambda = ((M - 10^11.38) / 10^13.31)^1.06: A 75.030888, B 0.0325706, D 6.522453
+ *   <Ncen> = 0.5 [1 + erf((log10 M - 12.02) / 0.26)]: A 1, B 0.5, D 1 (erf(8) = 1)
+ *   expected per host <Ncen> (1 + lambda): A 76.030888, B 0.5 x 1.0325706 =
+ *   0.5162853, C 0, D 7.522453; total 84.069626 over V = 1e6 (Mpc/h)^3
+ *   -> n_gal expected 8.406963e-05; satellites alone 75.030888 + 0.0162853 +
+ *   6.522453 = 81.569626 -> f_sat expected 81.569626 / 84.069626 = 0.970263
  *   realised: A, D and three satellites = 5 -> 5.000000e-06; f_sat 3/5 = 0.6
+ *   bin [14.0, 14.2): D, realised 1; bin [15.0, 15.2): A and three satellites, realised 4
  */
 static int build_audit_population(void) {
-  set_audit_row(0, 0, 101, 101, 1.0e5, 0);
+  set_audit_row(0, 0, 101, 101, 1.2e5, 0);
   set_audit_row(1, 2, -11, 101, 0.0, 0);
   set_audit_row(2, 2, -12, 101, 0.0, 0);
   set_audit_row(3, 2, -13, 101, 0.0, 0);
   set_audit_row(4, 0, 201, 201, pow(10.0, 2.02), 1);
   set_audit_row(5, 1, 202, 201, 50.0, 1);
   set_audit_row(6, 0, 301, 301, 0.0, 1);
-  set_audit_row(7, 0, 401, 401, 1.0e4, 0);
+  set_audit_row(7, 0, 401, 401, 1.2e4, 0);
   return 8;
 }
 
@@ -1449,9 +1624,9 @@ int test_snapshot_audit(void) {
                   sscanf(summary, "n_gal expected=%lf realised=%lf f_sat expected=%lf realised=%lf",
                          &n_expected, &n_realised, &fsat_expected, &fsat_realised) == 4,
               "the summary carries both densities and both satellite fractions");
-  TEST_ASSERT(fabs(n_expected - 6.973310e-05) <= 1e-11, "n_gal expected matches the hand sum");
+  TEST_ASSERT(fabs(n_expected - 8.406963e-05) <= 1e-11, "n_gal expected matches the hand sum");
   TEST_ASSERT(fabs(n_realised - 5.0e-06) <= 1e-12, "n_gal realised is 5 / V");
-  TEST_ASSERT(fabs(fsat_expected - 0.964149) <= 1e-6, "f_sat expected matches the hand sum");
+  TEST_ASSERT(fabs(fsat_expected - 0.970263) <= 1e-6, "f_sat expected matches the hand sum");
   TEST_ASSERT(fabs(fsat_realised - 0.6) <= 1e-6, "f_sat realised is 3 / 5");
   TEST_ASSERT_EQUAL(strstr(strstr(log, "HOD audit z=") + 1, "HOD audit z=") == NULL, 1,
                     "exactly one summary line");
@@ -1460,11 +1635,11 @@ int test_snapshot_audit(void) {
       strstr(log, "log10M=[12.00, 12.20) hosts=1 <N> expected=0.516285 realised=0.000000") != NULL,
       "the 10^12.02 bin holds host B: half a central expected, none realised");
   TEST_ASSERT(
-      strstr(log, "log10M=[14.00, 14.20) hosts=1 <N> expected=6.373959 realised=1.000000") != NULL,
-      "the 1e14 bin holds host D: one central realised");
+      strstr(log, "log10M=[14.00, 14.20) hosts=1 <N> expected=7.522453 realised=1.000000") != NULL,
+      "the 1.2e14 bin holds host D: one central realised");
   TEST_ASSERT(
-      strstr(log, "log10M=[15.00, 15.20) hosts=1 <N> expected=62.842859 realised=4.000000") != NULL,
-      "the 1e15 bin holds host A and its three satellites");
+      strstr(log, "log10M=[15.00, 15.20) hosts=1 <N> expected=76.030888 realised=4.000000") != NULL,
+      "the 1.2e15 bin holds host A and its three satellites");
 
   /* A non-output snapshot returns 0 without logging. */
   ctx.snapshot_number = 48;
@@ -1503,6 +1678,7 @@ int main(void) {
 
   init_memory_system(0);
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
+  hod_populate_cache_powers(&default_params);
 
   TEST_RUN(test_random_determinism);
   TEST_RUN(test_random_open_interval);
@@ -1527,6 +1703,7 @@ int main(void) {
   TEST_RUN(test_statistics_satellite_counts);
   TEST_RUN(test_statistics_radial_profile);
   TEST_RUN(test_statistics_velocity_dispersion);
+  TEST_RUN(test_statistics_direction_and_velocity_independence);
   TEST_RUN(test_snapshot_audit);
 
   TEST_SUMMARY();

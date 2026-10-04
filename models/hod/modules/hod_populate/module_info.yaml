@@ -21,7 +21,7 @@ module:
       - Pos
       - Vel
       - UniqueGalaxyID
-      # Read by the snapshot audit only, to attribute each satellite to its host's mass bin.
+      # Read by the snapshot audit only, to attribute each sample row to its host's mass bin.
       - UniqueCentralGalaxyID
       - HODGhost
     parameters:
