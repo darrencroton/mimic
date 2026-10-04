@@ -261,18 +261,6 @@ double sham_rank_match_rank_density(int64_t rank, double box_size, double hubble
   return ((double)rank + 0.5) * (ratio * ratio * ratio);
 }
 
-bool sham_rank_match_is_output_snapshot(int snapshot) {
-  if (MimicConfig.NOUT == 0) {
-    return true;
-  }
-  for (int n = 0; n < MimicConfig.NOUT; n++) {
-    if (MimicConfig.ListOutputSnaps[n] == snapshot) {
-      return true;
-    }
-  }
-  return false;
-}
-
 const struct ShamRankMatchTarget *sham_rank_match_active_target(void) {
   return sham_ready ? &sham_target : NULL;
 }
@@ -280,21 +268,6 @@ const struct ShamRankMatchTarget *sham_rank_match_active_target(void) {
 // ============================================================================
 // CONFIGURATION AND PARAMETERS
 // ============================================================================
-
-/** Entries naming this module in one FoF phase, and how many of them are process_full_halo */
-static int count_fof_entries(const struct PhaseModuleConfig *phase, int num_modules,
-                             int *full_halo_entries) {
-  int entries = 0;
-  for (int i = 0; i < num_modules; i++) {
-    if (phase[i].module_name != NULL && strcmp(phase[i].module_name, SHAM_MODULE_NAME) == 0) {
-      entries++;
-      if (full_halo_entries != NULL && phase[i].processing_mode == PROCESSING_MODE_FULL_HALO) {
-        (*full_halo_entries)++;
-      }
-    }
-  }
-  return entries;
-}
 
 /**
  * @brief Require the module exactly once in pre_timestep as process_full_halo, in no
@@ -308,15 +281,18 @@ static int count_fof_entries(const struct PhaseModuleConfig *phase, int num_modu
  */
 static int check_configuration(void) {
   int full_halo_entries = 0;
-  const int entries =
-      count_fof_entries(MimicConfig.pre_timestep, MimicConfig.num_pre_timestep, &full_halo_entries);
+  const int entries = module_count_phase_entries(SHAM_MODULE_NAME, MimicConfig.pre_timestep,
+                                                 MimicConfig.num_pre_timestep,
+                                                 PROCESSING_MODE_FULL_HALO, &full_halo_entries);
   if (entries != 1 || full_halo_entries != 1) {
     ERROR_LOG("%s must be configured exactly once in modules.pre_timestep as process_full_halo "
               "(found %d entries, %d as process_full_halo)",
               SHAM_MODULE_NAME, entries, full_halo_entries);
     return -1;
   }
-  if (count_fof_entries(MimicConfig.post_timestep, MimicConfig.num_post_timestep, NULL) > 0) {
+  if (module_count_phase_entries(SHAM_MODULE_NAME, MimicConfig.post_timestep,
+                                 MimicConfig.num_post_timestep, PROCESSING_MODE_FULL_HALO,
+                                 NULL) > 0) {
     ERROR_LOG("%s is configured in modules.post_timestep; its FoF step runs only in "
               "modules.pre_timestep, before every other module",
               SHAM_MODULE_NAME);
@@ -324,7 +300,8 @@ static int check_configuration(void) {
   }
   for (int p = 0; p < MimicConfig.num_substep_phases; p++) {
     const struct ModulePhaseConfig *phase = &MimicConfig.substep_phases[p];
-    if (count_fof_entries(phase->modules, phase->num_modules, NULL) > 0) {
+    if (module_count_phase_entries(SHAM_MODULE_NAME, phase->modules, phase->num_modules,
+                                   PROCESSING_MODE_FULL_HALO, NULL) > 0) {
       ERROR_LOG("%s is configured in substep phase '%s'; its FoF step runs only in "
                 "modules.pre_timestep, before every other module",
                 SHAM_MODULE_NAME, phase->name != NULL ? phase->name : "(unnamed)");
@@ -705,7 +682,7 @@ int sham_rank_match_process_snapshot(const struct SnapshotContext *ctx, const st
               ctx == NULL ? "without a snapshot context" : "before a successful init()");
     return -1;
   }
-  if (!sham_rank_match_is_output_snapshot(ctx->snapshot_number)) {
+  if (!mimic_is_output_snapshot(ctx->snapshot_number)) {
     return 0;
   }
   if (count < 0 || (count > 0 && halos == NULL)) {

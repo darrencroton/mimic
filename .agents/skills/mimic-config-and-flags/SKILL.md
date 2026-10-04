@@ -139,7 +139,7 @@ Optional per-model file `models/<model>/parameter_units.yaml` declaring physical
 - Schema: a `parameters:` list of `{name, type, units, h_convention}`; `type` is `double` only.
 - Modules read converted values via the `*_INTERNAL` macro variants in `src/module_system/parameter_helpers.h` (they apply `mimic_parameter_unit_factor` at load).
 - Any parameter NOT listed is assumed to already be in reference units — no conversion.
-- The file is needed only when a module loads a parameter through an `*_INTERNAL` macro. Currently no shipped model has it: sage16's parameters are reference-unit or dimensionless, and neither `hod` nor `sham` uses an `*_INTERNAL` loader (`hod` reads nine ordinary doubles plus the integer seed `HODSeed`, `sham` nine ordinary doubles, in the units their READMEs state) (masses in `Msun/h` or physical `Msun`, `ShamMinVpeak` in km/s), so a new package does not need one by default. Verify: `ls models/*/parameter_units.yaml` (no match means none).
+- The file is needed only when a module loads a parameter through an `*_INTERNAL` macro. Currently no shipped model has it: sage16's parameters are reference-unit or dimensionless, and neither `hod` nor `sham` uses an `*_INTERNAL` loader (`hod` reads nine ordinary doubles plus the integer seed `HODSeed`, `sham` nine ordinary doubles, in the units their READMEs state: masses in `Msun/h` or physical `Msun`, `ShamMinVpeak` in km/s), so a new package does not need one by default. Verify: `ls models/*/parameter_units.yaml` (no match means none).
 
 Generated conversion code lands in `src/include/generated/parameter_unit_conversions.h` via `make generate` — never hand-edit it. See the `mimic-properties` skill for the unit registry and h-convention machinery.
 

@@ -54,7 +54,7 @@ deactivate
 
 You'll find mass functions, scaling relations, star formation histories, and more under `output/sage16-mini-millennium/plots/`. Mimic also writes a ready-to-run analysis script (`example_Mvir_Len_plot.py`) into the output directory so you can start exploring the catalogue in Python straight away.
 
-Any other model + simulation pairing runs the same way — build with `make MODEL=<name> SIMULATION=<name>` and point `./mimic` at the matching run file. For dark-matter halo catalogues without galaxy physics, use `make MODEL=halos-only SIMULATION=mini-millennium` and `models/halos-only/input/halos-only_mini-millennium.yaml`. The `hod` package populates halos with a halo occupation distribution (creating its satellite galaxies at run time), and the `sham` package rank-matches halos to an observed stellar mass function; both run on the horizontal fixtures and the real micro-Uchuu box, and each package's README lists its run files.
+Any other model + simulation pairing runs the same way — build with `make MODEL=<name> SIMULATION=<name>` and point `./mimic` at the matching run file. For dark-matter halo catalogues without galaxy physics, use `make MODEL=halos-only SIMULATION=mini-millennium` and `models/halos-only/input/halos-only_mini-millennium.yaml`. The `hod` package populates halos with a halo occupation distribution, creating its satellite galaxies at run time. The `sham` package rank-matches halos to an observed stellar mass function. Both run on the horizontal fixtures and the real micro-Uchuu box, and each package's README lists its run files.
 
 **Prerequisites**: a C compiler (gcc or clang), GNU Make, and Python 3.9+. HDF5 libraries are recommended (build with `make USE-HDF5=no` without them); MPI is optional for parallel runs.
 

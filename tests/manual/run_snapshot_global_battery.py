@@ -5,16 +5,19 @@ Run the snapshot-global fixture battery and gate every step on its declared case
 Usage::
 
     MODEL=<caller model> SIMULATION=<caller simulation> \\
-        python tests/manual/run_snapshot_global_battery.py [--only sham|hod]
+        python tests/manual/run_snapshot_global_battery.py \\
+        [--only halos-only-v2|halos-only-v3|sham|hod]
 
 ``make tests-snapshot-global`` runs every group; ``make tests-snapshot-global-sham`` and
-``make tests-snapshot-global-hod`` run only the ``sham`` and ``hod`` groups. Each group builds its model/simulation pair as a test build, then runs its
-declared tests by path:
+``make tests-snapshot-global-hod`` run only the ``sham`` and ``hod`` groups. ``--only`` accepts
+``halos-only-v2``, ``halos-only-v3``, ``sham`` and ``hod`` and may be repeated. Each group builds
+its model/simulation pair as a test build, then runs its declared tests by path:
 
-  halos-only-v2  halos-only x micro-uchuu-ascii-horizontal: tests/integration/test_snapshot_phase.py,
-                 the C unit test test_snapshot_module_contract and
-                 tests/integration/test_snapshot_module_schema.py
-  halos-only-v3  halos-only x mini-millennium-horizontal: tests/integration/test_snapshot_phase.py
+  halos-only-v2  halos-only x micro-uchuu-ascii-horizontal:
+                 tests/integration/test_snapshot_phase.py, the C unit test
+                 test_snapshot_module_contract and tests/integration/test_snapshot_module_schema.py
+  halos-only-v3  halos-only x mini-millennium-horizontal:
+                 tests/integration/test_snapshot_phase.py
   sham           sham x micro-uchuu-ascii-horizontal: the sham_rank_match C unit test and the
                  cases of its Python integration test
   hod            hod x micro-uchuu-ascii-horizontal: the hod_populate C unit test and the fixture

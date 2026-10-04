@@ -36,9 +36,9 @@ rules are specific to this package:
 Stage 8, vertical-path preservation, is this file's own: the same vertical run
 built from the BASELINE_COMMIT reference commit, whose galaxy records must be
 byte-identical to HEAD's and whose HDF5 metadata must differ in exactly the
-permitted deltas (empty at the current anchor) beyond six provenance
-attributes that carry no scientific content (the build-provenance strings under
-``/RunProperties/Version`` and the run end time).
+permitted deltas (at the current anchor, the pinned UniqueGalaxyID description
+change) beyond six provenance attributes that carry no scientific content (the
+build-provenance strings under ``/RunProperties/Version`` and the run end time).
 
 Worktrees and scratch outputs are removed on every exit path.
 """
@@ -131,9 +131,27 @@ PROVENANCE_ATTR_PATHS = {
 #: every entry needs a matching classify() case pinning its exact object path
 #: and before/after transition. Add an entry only when a new, deliberate schema
 #: change needs pinning; when BASELINE_COMMIT next advances, reset this tuple,
-#: classify()'s special cases and assert_output_schema_delta's `expected` set
-#: back to empty -- a fresh anchor starts with nothing yet to permit.
-PERMITTED_DELTAS = ()
+#: classify()'s special cases, assert_output_schema_delta's `expected` set and the
+#: pinned texts below back to empty -- a fresh anchor starts with nothing yet to permit.
+#:
+#: "UniqueGalaxyID description": the core property's description gained the
+#: created-record namespace (strictly negative IDs), so the FieldMetadata row of
+#: every HDF5 file and the run-local output_schema.json field carry the text below
+#: instead of the baseline's. Nothing else about the property changed.
+PERMITTED_DELTAS = ("UniqueGalaxyID description",)
+
+#: The exact UniqueGalaxyID description text at BASELINE_COMMIT and at HEAD.
+UNIQUE_ID_DESCRIPTION_BEFORE = (
+    "Persistent run-scoped unique galaxy identifier across all snapshots "
+    "(creation_halonr + multiplier * (forestnr_global + 1), where multiplier is "
+    "simulation.unique_galaxy_id_multiplier, default 10^9, provenance attribute "
+    "UniqueGalaxyIDMultiplier)"
+)
+UNIQUE_ID_DESCRIPTION_AFTER = (
+    "Persistent run-scoped unique galaxy ID, creation_halonr + multiplier * "
+    "(forestnr_global + 1) for tree rows (multiplier = simulation.unique_galaxy_id_multiplier, "
+    "default 10^9) and strictly negative -(1 + ordinal + 1024 * host_key) for created records"
+)
 
 #: output_schema.json top-level keys excluded from assert_output_schema_delta.
 #: `source_md5` is a hash of the generator and its property/unit YAML inputs,
@@ -299,8 +317,16 @@ def field_metadata_delta(where, objpath, baseline: Path, head: Path) -> list[Del
             if before[index][column] == after[index][column]:
                 continue
             name = before[index]["field_name"].decode()
-            deltas.append(Delta(where, objpath, f"FieldMetadata {name}.{column}", "differs"))
+            old, new = (_cell_text(row[index][column]) for row in (before, after))
+            deltas.append(
+                Delta(where, objpath, f"FieldMetadata {name}.{column}", f"{old} -> {new}")
+            )
     return deltas
+
+
+def _cell_text(value) -> str:
+    """One FieldMetadata cell as text: byte strings decoded, anything else as its repr."""
+    return value.decode(errors="replace") if isinstance(value, bytes) else repr(value)
 
 
 def classify(delta: Delta) -> str | None:
@@ -311,8 +337,8 @@ def classify(delta: Delta) -> str | None:
     PERMITTED_DELTAS names it; each such case must bind the attribute (or
     metadata column), its exact object path, and its exact before/after
     transition -- matching on name alone would accept a version string moving
-    to any value, or a counter widening to any width. PERMITTED_DELTAS is empty
-    at the current anchor, so nothing below matches a permitted delta yet.
+    to any value, or a counter widening to any width. A FieldMetadata cell
+    delta carries the cell's old and new text, so a description case binds both.
     """
     item = delta.item
     if item.startswith("attr "):
@@ -321,6 +347,12 @@ def classify(delta: Delta) -> str | None:
         if provenance_paths is not None:
             return "provenance" if delta.objpath in provenance_paths else None
 
+    if (
+        item == "FieldMetadata UniqueGalaxyID.description"
+        and delta.objpath == "/RunProperties/FieldMetadata"
+        and delta.detail == f"{UNIQUE_ID_DESCRIPTION_BEFORE} -> {UNIQUE_ID_DESCRIPTION_AFTER}"
+    ):
+        return "UniqueGalaxyID description"
     return None
 
 
@@ -395,8 +427,9 @@ def assert_output_schema_delta(baseline: RunOutput, head: RunOutput) -> None:
     """The run-local output schema differs in exactly the permitted field changes.
 
     Kept in step with PERMITTED_DELTAS: a change that appears in one and not the
-    other means the schema writer and the HDF5 writer have diverged. Empty at
-    the current anchor; grows only alongside a new PERMITTED_DELTAS entry.
+    other means the schema writer and the HDF5 writer have diverged. At the
+    current anchor that is the UniqueGalaxyID description, whose before and after
+    text are pinned; it grows only alongside a new PERMITTED_DELTAS entry.
 
     SCHEMA_PROVENANCE_KEYS is excluded before that comparison: it names a hash
     of the generator and its YAML inputs, not of the schema, so it moves on its
@@ -429,12 +462,22 @@ def assert_output_schema_delta(baseline: RunOutput, head: RunOutput) -> None:
 
     differences = [path for path in differences if path not in SCHEMA_PROVENANCE_KEYS]
 
-    expected: set[str] = set()
+    expected = {".fields[UniqueGalaxyID].description"}
     if set(differences) != expected:
         raise AssertionError(
             f"{head.schema_path()} differs from the {BASELINE_COMMIT} baseline in "
             f"{sorted(differences)}, expected exactly {sorted(expected)}"
         )
+    for side, schema, text in (
+        ("baseline", before, UNIQUE_ID_DESCRIPTION_BEFORE),
+        ("HEAD", after, UNIQUE_ID_DESCRIPTION_AFTER),
+    ):
+        described = [f["description"] for f in schema["fields"] if f["name"] == "UniqueGalaxyID"]
+        if described != [text]:
+            raise AssertionError(
+                f"the {side} output_schema.json UniqueGalaxyID description is {described}, "
+                f"expected exactly [{text!r}]"
+            )
     log(f"  output_schema.json differs in exactly {sorted(expected)}")
 
 

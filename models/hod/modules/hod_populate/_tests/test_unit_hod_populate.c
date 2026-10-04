@@ -42,6 +42,7 @@
 #include "framework/test_phase_config.h"
 #include "include/constants.h"
 #include "include/globals.h"
+#include "include/proto.h"
 #include "include/types.h"
 #include "io/vertical/reader.h"
 #include "util/error.h"
@@ -142,9 +143,10 @@ static struct ModuleContext context;
 /**
  * @brief   Build a FoF workspace from row specs, the host at @p central_index
  *
- * Every row has the host's UniqueCentralGalaxyID, Rvir 0.25 and Vvir 200, and
- * HODGhost 0 so the reset is observable. The identity space has unit =
- * snapshot, so created IDs decode to (snapshot, host HaloNr, ordinal).
+ * Every row has the host's UniqueCentralGalaxyID, HODGhost 0 so the reset is observable,
+ * and the stale Rvir 0.25 and Vvir 200 of a branch past its peak: they differ from the
+ * virial values of the row's current mass, which the module must use instead. The identity space
+ * has unit = snapshot, so created IDs decode to (snapshot, host HaloNr, ordinal).
  */
 static void build_workspace(const struct RowSpec *rows, int n, int central_index, int snapshot,
                             double redshift) {
@@ -239,6 +241,12 @@ static int release_case(void) {
 
 /** @brief Mass in Msun/h of a workspace row */
 static double row_mass(const struct Halo *h) { return h->Mvir * HOD_MASS_UNIT_MSUN; }
+
+/** @brief The host's current virial radius (Mpc/h) and velocity (km/s) at @p redshift */
+static void current_virial(const struct Halo *host, double redshift, double *rvir, double *vvir) {
+  *rvir = virial_radius_for_mass(host->Mvir, redshift);
+  *vvir = virial_velocity_for(host->Mvir, *rvir);
+}
 
 /** @brief The helper-level draw the module must reproduce for a host at a snapshot */
 static void expected_occupation(const struct Halo *host, int snapshot, uint64_t *key,
@@ -756,6 +764,19 @@ int test_process_input_validation(void) {
   TEST_ASSERT(workspace_untouched(rows, 4), "and writes nothing");
   free_workspace();
 
+  /* Without a critical density the host's current virial radius is zero and no satellite can be
+   * placed; the host row's own (stale) Rvir and Vvir play no part. */
+  memcpy(rows, mixed_rows, sizeof(rows));
+  build_workspace(rows, 4, 0, 5, 0.0);
+  MimicConfig.Hubble = 0.0;
+  capture_log(0);
+  TEST_ASSERT(hod_populate_process(&context, workspace.halos, 4) != 0,
+              "a host with no finite positive virial radius fails");
+  TEST_ASSERT(strstr(captured_log(), "virial radius") != NULL, "the message names the radius");
+  TEST_ASSERT(workspace_untouched(rows, 4), "and writes nothing");
+  MimicConfig.Hubble = HOD_TEST_HUBBLE;
+  free_workspace();
+
   TEST_ASSERT_EQUAL(module_system_cleanup(), 0, "cleanup succeeds");
   build_workspace(mixed_rows, 4, 0, 5, 0.0);
   TEST_ASSERT(hod_populate_process(&context, workspace.halos, 4) != 0,
@@ -770,7 +791,8 @@ int test_process_input_validation(void) {
  *
  * Rows [base, count) must be Type 2 sample members with the host's
  * UniqueCentralGalaxyID, a created ID decoding to (snapshot, host HaloNr,
- * ordinal), and exactly the helper's wrapped position and velocity.
+ * ordinal), the host's current Rvir and Vvir, and exactly the helper's wrapped position and
+ * velocity at those values.
  */
 static int check_created_rows(const struct Halo *host_before, int snapshot, double redshift) {
   uint64_t key = 0;
@@ -779,13 +801,19 @@ static int check_created_rows(const struct Halo *host_before, int snapshot, doub
   TEST_ASSERT_EQUAL(workspace.count - workspace.base_count, (int64_t)occupation.num_satellites,
                     "the module creates exactly the drawn number of satellites");
   const double c = hod_populate_concentration(&default_params, row_mass(host_before), redshift);
+  double rvir = 0.0;
+  double vvir = 0.0;
+  current_virial(host_before, redshift, &rvir, &vvir);
+  TEST_ASSERT(rvir > 0.0 && vvir > 0.0 && rvir != host_before->Rvir && vvir != host_before->Vvir,
+              "the current virial values differ from the host row's stale ones");
   for (int64_t r = workspace.base_count; r < workspace.count; r++) {
     const struct Halo *row = &workspace.halos[r];
     const int s = (int)(r - workspace.base_count);
     struct HodSatellite sat;
-    TEST_ASSERT(hod_populate_draw_satellite(key, s, c, host_before->Rvir, host_before->Vvir,
-                                            redshift, &sat) == 0,
+    TEST_ASSERT(hod_populate_draw_satellite(key, s, c, rvir, vvir, redshift, &sat) == 0,
                 "the helper-level draw succeeds");
+    TEST_ASSERT(row->Rvir == rvir && row->Vvir == vvir,
+                "a satellite row carries the host's current virial radius and velocity");
     TEST_ASSERT(row->Type == 2, "a satellite is a Type 2 row");
     TEST_ASSERT(row->galaxy != NULL && row->galaxy->HODGhost == 0, "a satellite is in the sample");
     TEST_ASSERT(row->UniqueCentralGalaxyID == host_before->UniqueGalaxyID,
@@ -870,7 +898,7 @@ int test_absent_central_creates_nothing(void) {
 
 /**
  * @test   test_output_snapshot_gating
- * @brief  A list naming one snapshot draws only there; an empty list draws everywhere
+ * @brief  A list naming one snapshot draws only there; a list naming both draws at both
  */
 int test_output_snapshot_gating(void) {
   configure_run(false);
@@ -896,11 +924,13 @@ int test_output_snapshot_gating(void) {
   TEST_ASSERT(check_created_rows(&host_at_7, 7, 0.0) == TEST_PASS, "with the expected draws");
   free_workspace();
 
-  MimicConfig.NOUT = 0; /* an empty output.snapshot_list: every snapshot is an output */
+  MimicConfig.NOUT = 2; /* a list naming snapshots 5 and 7 */
+  MimicConfig.ListOutputSnaps[0] = 5;
+  MimicConfig.ListOutputSnaps[1] = 7;
   build_workspace(mixed_rows, 4, 0, 5, 0.0);
   const struct Halo host_at_5 = workspace.halos[0];
   execute_module_pipeline(&context, &workspace);
-  TEST_ASSERT(workspace.halos[0].galaxy->HODGhost == 0, "an empty list draws at snapshot 5");
+  TEST_ASSERT(workspace.halos[0].galaxy->HODGhost == 0, "a list naming snapshot 5 draws there");
   TEST_ASSERT(check_created_rows(&host_at_5, 5, 0.0) == TEST_PASS, "with the expected draws");
 
   TEST_ASSERT_EQUAL(release_case(), 0, "release succeeds");
@@ -960,7 +990,7 @@ int test_satellite_limit_errors(void) {
  * host
  *
  * c = 1e-6 for every host, so x/c is about sqrt(u) and each satellite sits at a
- * physical radius of order Rvir (0.25 here), not at zero; positions equal the
+ * physical radius of order the host's current Rvir, not at zero; positions equal the
  * helper-level draw at that concentration.
  */
 int test_small_concentration_placement(void) {
@@ -972,6 +1002,9 @@ int test_small_concentration_placement(void) {
   TEST_ASSERT_EQUAL(module_system_init(), 0, "a tiny concentration normalisation initialises");
   build_workspace(mixed_rows, 4, 0, 5, 0.0);
   const struct Halo host = workspace.halos[0];
+  double rvir = 0.0;
+  double vvir = 0.0;
+  current_virial(&host, 0.0, &rvir, &vvir);
   execute_module_pipeline(&context, &workspace);
 
   struct HodParameters p = default_params;
@@ -989,9 +1022,9 @@ int test_small_concentration_placement(void) {
   for (int64_t r = workspace.base_count; r < workspace.count; r++) {
     const int s = (int)(r - workspace.base_count);
     struct HodSatellite sat;
-    TEST_ASSERT(hod_populate_draw_satellite(key, s, c, host.Rvir, host.Vvir, 0.0, &sat) == 0,
+    TEST_ASSERT(hod_populate_draw_satellite(key, s, c, rvir, vvir, 0.0, &sat) == 0,
                 "the helper draw at c = 1e-6 succeeds");
-    TEST_ASSERT(sat.r_phys > 0.01 * host.Rvir && sat.r_phys <= host.Rvir,
+    TEST_ASSERT(sat.r_phys > 0.01 * rvir && sat.r_phys <= rvir,
                 "the radius is of order Rvir, not collapsed onto the host");
     for (int j = 0; j < 3; j++) {
       const double wrapped =
@@ -1013,9 +1046,9 @@ int test_small_concentration_placement(void) {
  * At an extreme accepted concentration the NFW inverse returns x up to ~1e308;
  * Rvir * x would overflow to infinity (and fmod would then store NaN), so the
  * radius must be formed as Rvir * (x / c). The case uses seed 1, snapshot 49,
- * host UniqueGalaxyID 4, M = 1e16 Msun/h and Rvir = 3, whose satellite 92 has
- * x = 7.7e307, first directly and then through the dispatch with
- * HODConcA = 1e308 and no mass or redshift slope.
+ * host UniqueGalaxyID 4 and M = 1e16 Msun/h, whose satellite 92 has x = 7.7e307, first
+ * directly with Rvir = 3 and then through the dispatch (at the host's current Rvir of about
+ * 3.5 Mpc/h) with HODConcA = 1e308 and no mass or redshift slope.
  */
 int test_large_concentration_placement(void) {
   const double c = 1e308;
@@ -1054,8 +1087,11 @@ int test_large_concentration_placement(void) {
       {2, 5, 8, 0.0, {99.5f, 0.5f, 50.0f}, {0.0f, 0.0f, 0.0f}, false},
   };
   build_workspace(rows, 2, 0, 49, 0.0);
-  workspace.halos[0].Rvir = rvir;
   const struct Halo host = workspace.halos[0];
+  double host_rvir = 0.0;
+  double host_vvir = 0.0;
+  current_virial(&host, 0.0, &host_rvir, &host_vvir);
+  TEST_ASSERT(host_rvir > 1.0 && host_rvir < 10.0, "the host's current Rvir is a few Mpc/h");
   execute_module_pipeline(&context, &workspace);
 
   struct HodOccupation occupation;
@@ -1074,8 +1110,8 @@ int test_large_concentration_placement(void) {
       d -= HOD_TEST_BOX_SIZE * round(d / HOD_TEST_BOX_SIZE); /* nearest periodic image */
       distance_sq += d * d;
     }
-    TEST_ASSERT(sqrt(distance_sq) <= rvir * (1.0 + 1e-6),
-                "a created satellite lies within Rvir of its host (z = 0)");
+    TEST_ASSERT(sqrt(distance_sq) <= host_rvir * (1.0 + 1e-6),
+                "a created satellite lies within the host's current Rvir (z = 0)");
   }
   TEST_ASSERT_EQUAL(release_case(), 0, "release succeeds");
   check_memory_leaks();
@@ -1431,9 +1467,9 @@ int test_statistics_velocity_dispersion(void) {
  * placement helper: the unit direction is (row Pos - host Pos) / |row Pos - host Pos|
  * (the comoving offset is r_com n, so its direction is n), with cos(theta) its z component and
  * phi = atan2(y, x), and the velocity offset is row Vel - host Vel. The host sits at the box
- * centre with Rvir = 10 Mpc/h at z = 0, so no offset wraps; storing Pos as a float (4e-6 near
- * 50) perturbs a direction by at most 4e-6 / r, negligible for all but about 1e-5 of the
- * satellites (those inside 0.01 Mpc/h).
+ * centre with a current Rvir of about 0.75 Mpc/h at z = 0, so no offset wraps; storing Pos as a
+ * float (4e-6 near 50) perturbs a direction by at most 4e-6 / r, negligible for all but about
+ * 1e-3 of the satellites (those inside 0.01 Mpc/h), whose perturbation stays below 4e-4 rad.
  * - Uniformity: for n i.i.d. draws the Dvoretzky-Kiefer-Wolfowitz inequality gives
  *   P(sup |F_n - F| > eps) <= 2 exp(-2 n eps^2), so eps = sqrt(ln(2 / 1e-6) / (2 n)) (about
  *   0.0058) bounds the empirical CDF of (cos(theta) + 1) / 2 and of phi / 2 pi against the
@@ -1444,12 +1480,9 @@ int test_statistics_velocity_dispersion(void) {
  *   4 / sqrt(n). One uniform shared between theta and phi (phi linear in cos(theta)), or three
  *   Gaussians reading one stream index, give a correlation of 1.
  * - Means: each velocity component has mean zero with standard error sigma / sqrt(n),
- *   sigma^2 = Vvir^2 / 2, within 4 standard errors.
+ *   sigma^2 = Vvir^2 / 2 at the host's current Vvir, within 4 standard errors.
  */
 int test_statistics_direction_and_velocity_independence(void) {
-  const double vvir = 200.0;
-  const double rvir = 10.0;
-
   configure_run(false);
   TEST_ASSERT_EQUAL(module_system_init(), 0, "pipeline initialises");
 
@@ -1462,8 +1495,6 @@ int test_statistics_direction_and_velocity_independence(void) {
     const struct RowSpec host_row = {
         0, 1000000LL + i, 7, 1.0e4, {50.0f, 50.0f, 50.0f}, {100.0f, -50.0f, 25.0f}, false};
     build_workspace(&host_row, 1, 0, 49, 0.0);
-    workspace.halos[0].Rvir = rvir;
-    workspace.halos[0].Vvir = vvir;
     const struct Halo host = workspace.halos[0];
     execute_module_pipeline(&context, &workspace);
     for (int64_t r = workspace.base_count; r < workspace.count; r++) {
@@ -1512,6 +1543,11 @@ int test_statistics_direction_and_velocity_independence(void) {
     worst_phi = fmax(worst_phi, fabs((double)below_phi[k] / count - checkpoint));
   }
 
+  double rvir = 0.0;
+  double vvir = 0.0;
+  const struct Halo host_mass = {.Mvir = 1.0e4};
+  current_virial(&host_mass, 0.0, &rvir, &vvir);
+  TEST_ASSERT(rvir > 0.7 && rvir < 0.8, "the hosts' current Rvir is about 0.75 Mpc/h");
   const double sigma = vvir / sqrt(2.0);
   double worst_mean = 0.0;
   for (int j = 0; j < 3; j++) {

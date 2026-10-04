@@ -34,6 +34,7 @@
 #include "memory.h"
 #include "module_interface.h"
 #include "module_registry.h"
+#include "proto.h"
 #include "types.h"
 
 #include "module_system/parameter_helpers.h"
@@ -219,32 +220,9 @@ int hod_populate_draw_satellite(uint64_t key, int s, double concentration, doubl
   return 0;
 }
 
-bool hod_populate_is_output_snapshot(int snapshot) {
-  if (MimicConfig.NOUT == 0) {
-    return true;
-  }
-  for (int n = 0; n < MimicConfig.NOUT; n++) {
-    if (MimicConfig.ListOutputSnaps[n] == snapshot) {
-      return true;
-    }
-  }
-  return false;
-}
-
 // ============================================================================
 // CONFIGURATION AND PARAMETERS
 // ============================================================================
-
-/** Entries naming this module in one FoF phase */
-static int count_fof_entries(const struct PhaseModuleConfig *phase, int num_modules) {
-  int entries = 0;
-  for (int i = 0; i < num_modules; i++) {
-    if (phase[i].module_name != NULL && strcmp(phase[i].module_name, HOD_MODULE_NAME) == 0) {
-      entries++;
-    }
-  }
-  return entries;
-}
 
 /**
  * @brief Require the module exactly once in post_timestep as process_full_halo, in no
@@ -256,7 +234,9 @@ static int count_fof_entries(const struct PhaseModuleConfig *phase, int num_modu
  * the per-host identity radix with no hint of the cause.
  */
 static int check_configuration(void) {
-  int elsewhere = count_fof_entries(MimicConfig.pre_timestep, MimicConfig.num_pre_timestep);
+  int elsewhere =
+      module_count_phase_entries(HOD_MODULE_NAME, MimicConfig.pre_timestep,
+                                 MimicConfig.num_pre_timestep, PROCESSING_MODE_FULL_HALO, NULL);
   if (elsewhere > 0) {
     ERROR_LOG(
         "%s is configured in modules.pre_timestep; it must run only in modules.post_timestep, "
@@ -266,7 +246,8 @@ static int check_configuration(void) {
   }
   for (int p = 0; p < MimicConfig.num_substep_phases; p++) {
     const struct ModulePhaseConfig *phase = &MimicConfig.substep_phases[p];
-    elsewhere = count_fof_entries(phase->modules, phase->num_modules);
+    elsewhere = module_count_phase_entries(HOD_MODULE_NAME, phase->modules, phase->num_modules,
+                                           PROCESSING_MODE_FULL_HALO, NULL);
     if (elsewhere > 0) {
       ERROR_LOG("%s is configured in substep phase '%s'; it must run only in "
                 "modules.post_timestep, once per FoF step, or it retires and redraws the step "
@@ -276,15 +257,10 @@ static int check_configuration(void) {
     }
   }
 
-  int entries = 0;
   int full_halo_entries = 0;
-  for (int i = 0; i < MimicConfig.num_post_timestep; i++) {
-    const struct PhaseModuleConfig *entry = &MimicConfig.post_timestep[i];
-    if (entry->module_name != NULL && strcmp(entry->module_name, HOD_MODULE_NAME) == 0) {
-      entries++;
-      full_halo_entries += (entry->processing_mode == PROCESSING_MODE_FULL_HALO);
-    }
-  }
+  const int entries = module_count_phase_entries(HOD_MODULE_NAME, MimicConfig.post_timestep,
+                                                 MimicConfig.num_post_timestep,
+                                                 PROCESSING_MODE_FULL_HALO, &full_halo_entries);
   if (entries != 1 || full_halo_entries != 1) {
     ERROR_LOG("%s must be configured exactly once in modules.post_timestep as process_full_halo "
               "(found %d entries, %d as process_full_halo)",
@@ -450,9 +426,15 @@ static bool satellite_is_finite(const struct HodSatellite *sat) {
  * hod_satellites[]; any failure (bad proxies, identity radix, concentration,
  * an NFW radius that cannot meet its tolerance, a non-finite placement)
  * returns -1 with nothing written.
+ *
+ * The placement scales with the host's current virial radius and velocity,
+ * from its current Mvir at the draw redshift, not with the host row's own
+ * Rvir and Vvir: inheritance keeps those at the largest value the branch ever
+ * had. When there are satellites, the values used are returned in *rvir and
+ * *vvir for the caller to write onto each created row.
  */
 static int prepare_host_draw(const struct ModuleContext *ctx, const struct Halo *host,
-                             struct HodOccupation *occupation) {
+                             struct HodOccupation *occupation, double *rvir, double *vvir) {
   const double mass = host->Mvir * HOD_MASS_UNIT_MSUN;
   if (!isfinite(mass) || mass < 0.0) {
     ERROR_LOG("%s: host UniqueGalaxyID %lld has Mvir %.17g; it must be finite and nonnegative",
@@ -479,12 +461,6 @@ static int prepare_host_draw(const struct ModuleContext *ctx, const struct Halo 
     return 0;
   }
 
-  if (!isfinite(host->Rvir) || host->Rvir < 0.0 || !isfinite(host->Vvir) || host->Vvir < 0.0) {
-    ERROR_LOG("%s: host UniqueGalaxyID %lld has Rvir=%.17g Vvir=%.17g; both must be finite and "
-              "nonnegative to place satellites",
-              HOD_MODULE_NAME, host->UniqueGalaxyID, host->Rvir, host->Vvir);
-    return -1;
-  }
   for (int j = 0; j < 3; j++) {
     if (!isfinite(host->Pos[j]) || !isfinite(host->Vel[j])) {
       ERROR_LOG("%s: host UniqueGalaxyID %lld has a non-finite position or velocity",
@@ -497,6 +473,14 @@ static int prepare_host_draw(const struct ModuleContext *ctx, const struct Halo 
               ctx->snapshot_number, ctx->redshift);
     return -1;
   }
+  *rvir = virial_radius_for_mass(host->Mvir, ctx->redshift);
+  *vvir = virial_velocity_for(host->Mvir, *rvir);
+  if (!isfinite(*rvir) || !(*rvir > 0.0) || !isfinite(*vvir) || !(*vvir > 0.0)) {
+    ERROR_LOG("%s: host UniqueGalaxyID %lld (Mvir=%.6e, z=%.4f) has virial radius %.17g Mpc/h and "
+              "velocity %.17g km/s; both must be finite and positive to place satellites",
+              HOD_MODULE_NAME, host->UniqueGalaxyID, host->Mvir, ctx->redshift, *rvir, *vvir);
+    return -1;
+  }
   const double concentration = hod_populate_concentration(&hod_params, mass, ctx->redshift);
   if (!isfinite(concentration) || !(concentration > 0.0)) {
     ERROR_LOG("%s: host UniqueGalaxyID %lld (M=%.6e Msun/h, z=%.4f) has concentration %.6g; it "
@@ -505,7 +489,7 @@ static int prepare_host_draw(const struct ModuleContext *ctx, const struct Halo 
     return -1;
   }
   for (int s = 0; s < occupation->num_satellites; s++) {
-    if (hod_populate_draw_satellite(key, s, concentration, host->Rvir, host->Vvir, ctx->redshift,
+    if (hod_populate_draw_satellite(key, s, concentration, *rvir, *vvir, ctx->redshift,
                                     &hod_satellites[s]) != 0) {
       ERROR_LOG("%s: host UniqueGalaxyID %lld satellite %d: the NFW radius for u=%.17g at "
                 "concentration c=%.17g cannot meet |m(x)/m(c) - u| <= %g",
@@ -558,9 +542,11 @@ int hod_populate_process(struct ModuleContext *ctx, struct Halo *halos, int ngal
   }
 
   // Everything that can fail is decided before the first write.
-  const bool draw = hod_populate_is_output_snapshot(ctx->snapshot_number);
+  const bool draw = mimic_is_output_snapshot(ctx->snapshot_number);
   struct HodOccupation occupation = {0};
-  if (draw && prepare_host_draw(ctx, host, &occupation) != 0) {
+  double host_rvir = 0.0;
+  double host_vvir = 0.0;
+  if (draw && prepare_host_draw(ctx, host, &occupation, &host_rvir, &host_vvir) != 0) {
     return -1;
   }
 
@@ -594,6 +580,9 @@ int hod_populate_process(struct ModuleContext *ctx, struct Halo *halos, int ngal
       row->Pos[j] = hod_populate_store_position(wrapped, hod_params.box_size);
       row->Vel[j] = (float)((double)host->Vel[j] + satellite->velocity[j]);
     }
+    // The row carries the virial values the placement used: the output keeps a Type 2 row's own.
+    row->Rvir = host_rvir;
+    row->Vvir = host_vvir;
     row->galaxy->HODGhost = 0;
   }
   return 0;
@@ -813,7 +802,7 @@ int hod_populate_process_snapshot(const struct SnapshotContext *ctx, const struc
               ctx == NULL ? "without a snapshot context" : "before a successful init()");
     return -1;
   }
-  if (!hod_populate_is_output_snapshot(ctx->snapshot_number)) {
+  if (!mimic_is_output_snapshot(ctx->snapshot_number)) {
     return 0;
   }
   if (count < 0 || (count > 0 && halos == NULL)) {

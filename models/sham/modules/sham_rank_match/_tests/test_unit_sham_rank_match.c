@@ -212,7 +212,8 @@ static double log10_physical_mass(float stellar_mass) {
   return log10((double)stellar_mass * SHAM_MASS_UNIT_MSUN / SHAM_TEST_HUBBLE);
 }
 
-/** Run process_snapshot() at an output snapshot (NOUT == 0) on entries [0, count) */
+/** Run process_snapshot() at snapshot 5, an output snapshot of the fixture, on entries [0, count)
+ */
 static int rank_population(int64_t count) {
   const struct SnapshotContext ctx = {5, 0.0, 0.0, &MimicConfig};
   return sham_rank_match_process_snapshot(&ctx, count > 0 ? halos : NULL, count);
@@ -1141,8 +1142,6 @@ int test_non_output_snapshot_is_silent(void) {
   const char *log = captured_log();
   TEST_ASSERT(strstr(log, "SHAM audit") == NULL, "and logs nothing");
   TEST_ASSERT(population_unchanged(2), "and writes nothing");
-  TEST_ASSERT(sham_rank_match_is_output_snapshot(5) && !sham_rank_match_is_output_snapshot(4),
-              "the output test follows output.snapshot_list");
 
   release_run();
   check_memory_leaks();

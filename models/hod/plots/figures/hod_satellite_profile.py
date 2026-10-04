@@ -7,21 +7,21 @@ Two-panel check of where hod_populate puts its satellites and how fast they move
 
 Left: the cumulative distribution of s = r_com / ((1 + z) Rvir_sat) for the created
 satellites, where r_com is the minimum-image distance from the satellite to its host in
-comoving Mpc/h and Rvir_sat is the virial radius the satellite row carries, the host's value
-at the time the satellite was drawn (so s is the physical radius in units of Rvir). The
-host row's own output Rvir is recomputed from its current Mvir and can differ, so it is not
-used. It is compared with the satellite-weighted average over hosts of each host's
+comoving Mpc/h and Rvir_sat is the virial radius the satellite row carries: hod_populate
+writes the host's current virial radius at the draw redshift onto every created row, the
+value it placed the satellite with (so s is the physical radius in units of Rvir and lies in
+[0, 1]). It is compared with the satellite-weighted average over hosts of each host's
 own NFW enclosed-mass fraction at its concentration c:
 
     F(s) = (1 / N_sat) sum over satellites of m(c s) / m(c),    m(x) = ln(1 + x) - x / (1 + x)
 
 with c = HODConcA (M / 10^HODConcLogMpivot)^HODConcB (1 + z)^HODConcC from the run file and
-M the host's draw-time Mvir in Msun/h (the satellite row's infallMvir). Averaging each
+M the host's Mvir at the draw in Msun/h (the satellite row's infallMvir). Averaging each
 satellite's own host profile, rather than using one concentration, keeps the prediction
 exact for a population spanning a wide host-mass range.
 
 Right: the histogram of every component of the satellite-minus-host velocity offset divided
-by Vvir_sat / sqrt(2) (the host's draw-time Vvir carried by the satellite row), against the
+by Vvir_sat / sqrt(2) (the host's current Vvir carried by the satellite row), against the
 unit Gaussian. The histograms are normalised by the whole per-component sample, so a profile
 window (axes.hod_satellite_profile xmin/xmax) that cuts the tails leaves them comparable with
 the unconditional Gaussian; ymin/ymax set the velocity panel's y range.
@@ -121,9 +121,8 @@ def satellite_phase_space(galaxies, box_size, redshift, par):
 
     The position and velocity offsets are taken from the host row (minimum-image distance,
     host bulk velocity). The normalisation uses the satellite's own row: a created row carries
-    the draw-time copies of the host's Rvir and Vvir (and, in infallMvir, its Mvir; the row's
-    own Mvir is zero), which are the values hod_populate drew with. The host row's output Rvir
-    and Vvir are recomputed from its current Mvir when written and can differ.
+    the host's current virial radius and velocity (and, in infallMvir, its Mvir; the row's own
+    Mvir is zero), which are the values hod_populate placed it with.
 
     Returns:
         (s, concentrations, velocity_ratio): s = physical radius / the satellite's Rvir, the

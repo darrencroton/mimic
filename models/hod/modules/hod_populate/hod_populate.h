@@ -9,8 +9,8 @@
  * is a statistic of the module's output.
  *
  * Units: masses passed here are in Msun/h (the module forms M = Mvir * 1e10);
- * Rvir is the host's physical virial radius and the comoving offset is in the
- * units of Pos (Mpc/h); velocities are km/s.
+ * Rvir is the host's current physical virial radius and the comoving offset is in
+ * the units of Pos (Mpc/h); velocities are km/s.
  *
  * Draw-index layout within one host's stream (hod_random.h):
  *   0                    central uniform u0
@@ -186,24 +186,13 @@ void hod_populate_draw_occupation(const struct HodParameters *p, uint64_t key, d
  * @param   key           Host stream key
  * @param   s             Satellite ordinal within the host, 0-based
  * @param   concentration Host concentration (hod_populate_concentration())
- * @param   rvir          Host physical virial radius
- * @param   vvir          Host virial velocity, km/s
+ * @param   rvir          Host current physical virial radius, Mpc/h
+ * @param   vvir          Host current virial velocity, km/s
  * @param   redshift      Snapshot redshift, for the comoving conversion
  * @param   out           Receives the placement
  * @return  0 on success, -1 when the NFW inverse cannot meet its tolerance
  */
 int hod_populate_draw_satellite(uint64_t key, int s, double concentration, double rvir, double vvir,
                                 double redshift, struct HodSatellite *out);
-
-/**
- * @brief   Whether @p snapshot is an output snapshot of the run
- *
- * True when it is in MimicConfig.ListOutputSnaps[0, NOUT), and for every
- * snapshot when the list is empty (NOUT == 0). In a run, core expands an
- * empty output.snapshot_list to every snapshot before any module init()
- * (read_parameter_file.c), so NOUT == 0 is reached only by direct calls such as
- * the unit tests; the branch keeps them on the same meaning.
- */
-bool hod_populate_is_output_snapshot(int snapshot);
 
 #endif /* HOD_POPULATE_H */

@@ -140,9 +140,6 @@ int sham_rank_match_mass_at_density(const struct ShamRankMatchTarget *target, do
  */
 double sham_rank_match_rank_density(int64_t rank, double box_size, double hubble_sim);
 
-/** @brief Whether @p snapshot is an output snapshot of MimicConfig (NOUT == 0 means all) */
-bool sham_rank_match_is_output_snapshot(int snapshot);
-
 /** @brief The target init() built, or NULL before a successful init() or after cleanup() */
 const struct ShamRankMatchTarget *sham_rank_match_active_target(void);
 

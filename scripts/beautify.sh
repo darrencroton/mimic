@@ -91,6 +91,12 @@ TOOLS_MISSING=false
 # shellcheck source=scripts/lib/colors.sh
 . "${ROOT_DIR}/scripts/lib/colors.sh"
 
+# The virtual environment may be a directory or a symlink (worktrees link it), and a tool that
+# does not find pyproject.toml would walk into it and rewrite third-party packages; exclude it
+# by name on every formatter's command line, whatever pyproject.toml says. isort takes the glob
+# form because a command-line --extend-skip would replace pyproject.toml's list, not extend it.
+VENV_NAME="mimic_venv"
+
 BLACK_ERRORS="$(mktemp "${TMPDIR:-/tmp}/mimic_black_errors.XXXXXX")"
 ISORT_ERRORS="$(mktemp "${TMPDIR:-/tmp}/mimic_isort_errors.XXXXXX")"
 trap 'rm -f "${BLACK_ERRORS}" "${ISORT_ERRORS}"' EXIT
@@ -103,7 +109,7 @@ if $FORMAT_C; then
     echo -n "Formatting C code... "
     if check_tool "${CLANG_FORMAT}" "pip install 'clang-format>=20,<21'"; then
         # -exec ... + not `| xargs`: xargs splits paths containing spaces.
-        if (cd "${ROOT_DIR}" && find . \( -path ./build -o -path ./mimic_venv -o -path ./sage-code \
+        if (cd "${ROOT_DIR}" && find . \( -path ./build -o -name mimic_venv -o -path ./sage-code \
                 -o -path ./archive -o -path ./output \
                 -o -name "generated" \) -prune \
                 -o \( -name "*.c" -o -name "*.h" \) \
@@ -112,7 +118,7 @@ if $FORMAT_C; then
         else
             echo -e "${RED}✗${NC}"
             echo -e "${RED}Error formatting C code. See details below:${NC}"
-            (cd "${ROOT_DIR}" && find . \( -path ./build -o -path ./mimic_venv -o -path ./sage-code \
+            (cd "${ROOT_DIR}" && find . \( -path ./build -o -name mimic_venv -o -path ./sage-code \
                 -o -path ./archive -o -path ./output \
                 -o -name "generated" \) -prune \
                 -o \( -name "*.c" -o -name "*.h" \) \
@@ -128,7 +134,7 @@ if $FORMAT_PY; then
     # Format with Black
     echo -n "Formatting Python code with Black... "
     if check_tool "${BLACK}" "mimic_venv/bin/pip install -r requirements.txt"; then
-        if "${BLACK}" --quiet "${ROOT_DIR}" 2> "${BLACK_ERRORS}"; then
+        if "${BLACK}" --quiet --extend-exclude "(^|/)${VENV_NAME}(/|\$)" "${ROOT_DIR}" 2> "${BLACK_ERRORS}"; then
             echo -e "${GREEN}✓${NC}"
         else
             echo -e "${RED}✗${NC}"
@@ -143,7 +149,8 @@ if $FORMAT_PY; then
     # Sort imports with isort
     echo -n "Sorting Python imports with isort... "
     if check_tool "${ISORT}" "mimic_venv/bin/pip install -r requirements.txt"; then
-        if "${ISORT}" --profile black --quiet "${ROOT_DIR}" 2> "${ISORT_ERRORS}"; then
+        if "${ISORT}" --profile black --quiet --skip-glob "**/${VENV_NAME}" --skip-glob "**/${VENV_NAME}/*" \
+            "${ROOT_DIR}" 2> "${ISORT_ERRORS}"; then
             echo -e "${GREEN}✓${NC}"
         else
             echo -e "${RED}✗${NC}"

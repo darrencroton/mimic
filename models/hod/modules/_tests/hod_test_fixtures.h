@@ -31,6 +31,15 @@ static int failed = 0;
 /** Box side of every synthetic HOD run, Mpc/h (the micro-Uchuu fixture's) */
 #define HOD_TEST_BOX_SIZE 100.0
 
+/** Snapshots 0 to HOD_TEST_NUM_SNAPSHOTS - 1 are the output snapshots of every synthetic run */
+#define HOD_TEST_NUM_SNAPSHOTS 100
+
+/** Cosmology of every synthetic HOD run, in code units: the virial radius and velocity of a host */
+#define HOD_TEST_HUBBLE 100.0      /* H0, (km/s) per Mpc/h */
+#define HOD_TEST_G 43.0071         /* (km/s)^2 Mpc / (1e10 Msun/h) */
+#define HOD_TEST_OMEGA 0.25        /* matter density */
+#define HOD_TEST_OMEGA_LAMBDA 0.75 /* dark-energy density */
+
 /* Test fixture: reset configuration state */
 static inline void reset_config(void) { memset(&MimicConfig, 0, sizeof(MimicConfig)); }
 
@@ -84,12 +93,21 @@ static inline int hod_set_test_parameter(const char *name, const char *value) {
  * Test fixture: reset the configuration and set every HOD parameter to its
  * default, except that parameter @p override_name (when non-NULL) takes
  * @p override_value, or is omitted when @p override_value is NULL. BoxSize is
- * HOD_TEST_BOX_SIZE and SubSteps 1.
+ * HOD_TEST_BOX_SIZE, SubSteps 1, the cosmology the HOD_TEST_* constants above and every
+ * snapshot below HOD_TEST_NUM_SNAPSHOTS an output snapshot (a test narrows the list itself).
  */
 static inline void set_hod_test_parameters(const char *override_name, const char *override_value) {
   reset_config();
   MimicConfig.BoxSize = HOD_TEST_BOX_SIZE;
   MimicConfig.SubSteps = 1;
+  MimicConfig.Hubble = HOD_TEST_HUBBLE;
+  MimicConfig.G = HOD_TEST_G;
+  MimicConfig.Omega = HOD_TEST_OMEGA;
+  MimicConfig.OmegaLambda = HOD_TEST_OMEGA_LAMBDA;
+  MimicConfig.NOUT = HOD_TEST_NUM_SNAPSHOTS;
+  for (int n = 0; n < HOD_TEST_NUM_SNAPSHOTS; n++) {
+    MimicConfig.ListOutputSnaps[n] = n;
+  }
   for (int k = 0; k < 10; k++) {
     if (override_name != NULL && strcmp(override_name, hod_parameter_names[k]) == 0) {
       if (override_value != NULL) {

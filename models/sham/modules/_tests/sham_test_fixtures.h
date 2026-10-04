@@ -34,6 +34,9 @@ static int failed = 0;
 /** Simulation Hubble parameter of every synthetic SHAM run (the micro-Uchuu fixture's) */
 #define SHAM_TEST_HUBBLE 0.6774
 
+/** Snapshots 0 to SHAM_TEST_NUM_SNAPSHOTS - 1 are the output snapshots of every synthetic run */
+#define SHAM_TEST_NUM_SNAPSHOTS 100
+
 /** Number of sham_rank_match parameters */
 #define SHAM_NUM_PARAMETERS 9
 
@@ -76,15 +79,19 @@ static const char *const sham_default_values[SHAM_NUM_PARAMETERS] = {
  * Test fixture: reset the configuration and set every SHAM parameter to its
  * shipped value, except that parameter @p override_name (when non-NULL) takes
  * @p override_value, or is omitted when @p override_value is NULL. BoxSize is
- * SHAM_TEST_BOX_SIZE, Hubble_h SHAM_TEST_HUBBLE and SubSteps 1; no output list
- * is set, so every snapshot is an output snapshot and the redshift window has
- * nothing to check.
+ * SHAM_TEST_BOX_SIZE, Hubble_h SHAM_TEST_HUBBLE and SubSteps 1. Every snapshot
+ * below SHAM_TEST_NUM_SNAPSHOTS is an output snapshot (a test narrows the list
+ * itself) and all redshifts are 0, so the redshift window has nothing to reject.
  */
 static inline void set_sham_test_parameters(const char *override_name, const char *override_value) {
   reset_config();
   MimicConfig.BoxSize = SHAM_TEST_BOX_SIZE;
   MimicConfig.Hubble_h = SHAM_TEST_HUBBLE;
   MimicConfig.SubSteps = 1;
+  MimicConfig.NOUT = SHAM_TEST_NUM_SNAPSHOTS;
+  for (int n = 0; n < SHAM_TEST_NUM_SNAPSHOTS; n++) {
+    MimicConfig.ListOutputSnaps[n] = n;
+  }
   for (int k = 0; k < SHAM_NUM_PARAMETERS; k++) {
     if (override_name != NULL && strcmp(override_name, sham_parameter_names[k]) == 0) {
       if (override_value != NULL) {

@@ -18,8 +18,10 @@ Each feature leg must match the baseline: per-ID byte identity of every Galaxies
 the unchanged scripts/compare_cross_format_identity.py), the same files, HDF5 objects, master-file
 links and attributes, byte-equal datasets and ``metadata/output_schema.json``. The only permitted
 differences are named provenance (``RunProperties/Version`` build attributes, ``RunEndTime``,
-``metadata/version_info.json``, worktree or scratch path prefixes) and, in the feature-empty leg,
-the one added run-YAML line. A mutation self-check proves the comparator rejects each defect.
+``metadata/version_info.json``, worktree or scratch path prefixes), in the feature-empty leg the
+one added run-YAML line, and one pinned content delta against the current reference: the
+``UniqueGalaxyID`` description text (``PINNED_DESCRIPTION_FIELD`` below), which is bound to its
+exact before and after wording. A mutation self-check proves the comparator rejects each defect.
 
 Build worktrees are cached by commit under ``output/snapshot-global-identity/worktrees/`` (the
 gates' scratch parent); runs, logs, mutations and ``evidence.json`` are archived under
@@ -69,7 +71,8 @@ from framework.parity_gate import (  # noqa: E402
 #: template or the fixtures makes the old reference unusable, pick the new commit, confirm it
 #: is an ancestor of HEAD that `git grep -E "$FEATURE_SYMBOLS" <commit> -- src scripts models`
 #: does not match, run this test with REFERENCE_COMMIT=<new> until it passes, then replace
-#: this full 40-character hash and record the move (old -> new, date, reason) here.
+#: this full 40-character hash, record the move (old -> new, date, reason) here, and reset the
+#: pinned description delta below (a fresh reference carries the current description).
 REFERENCE_COMMIT_DEFAULT = "501bac12f654d9622b797bc9b26c536e5385aca2"
 
 FEATURE_PATHS = ("src", "scripts", "models")
@@ -105,6 +108,29 @@ RUN_END_TIME = "RunEndTime"
 MODULES_LINE = b"\nmodules:\n"
 EMPTY_LIST_LINE = b"  post_snapshot: []\n"
 EMPTY_LIST_LABEL = f"metadata/{RUN_FILE_NAME}: added 'post_snapshot: []' line"
+
+#: The one pinned content delta against the current reference, recorded 2026-10-04: the core
+#: UniqueGalaxyID property's description gained the created-record namespace (strictly negative
+#: IDs), so every HDF5 file's FieldMetadata row and the run-local output_schema.json field carry
+#: the AFTER text where the reference carries the BEFORE text, and output_schema.json's
+#: ``source_md5`` (the digest of the property metadata) follows it. Nothing else about the
+#: property, the table or the schema may differ; both texts are bound exactly.
+PINNED_DESCRIPTION_FIELD = "UniqueGalaxyID"
+UNIQUE_ID_DESCRIPTION_BEFORE = (
+    "Persistent run-scoped unique galaxy identifier across all snapshots "
+    "(creation_halonr + multiplier * (forestnr_global + 1), where multiplier is "
+    "simulation.unique_galaxy_id_multiplier, default 10^9, provenance attribute "
+    "UniqueGalaxyIDMultiplier)"
+)
+UNIQUE_ID_DESCRIPTION_AFTER = (
+    "Persistent run-scoped unique galaxy ID, creation_halonr + multiplier * "
+    "(forestnr_global + 1) for tree rows (multiplier = simulation.unique_galaxy_id_multiplier, "
+    "default 10^9) and strictly negative -(1 + ordinal + 1024 * host_key) for created records"
+)
+DESCRIPTION_LABEL = "RunProperties/FieldMetadata: pinned UniqueGalaxyID description"
+SCHEMA_DESCRIPTION_LABEL = (
+    "metadata/output_schema.json: pinned UniqueGalaxyID description and its source_md5"
+)
 
 #: Errors kept per comparison in evidence.json and logged per failed leg; the count is exact.
 ERROR_CAP = 200
@@ -519,6 +545,50 @@ def compare_attributes(where: str, path: str, a, b, base: OutputRun, other: Outp
         )
 
 
+def pinned_description_delta(left: numpy.ndarray, right: numpy.ndarray) -> bool:
+    """Two FieldMetadata tables that differ only in the pinned description cell (before -> after)."""
+    if left.dtype != right.dtype or left.shape != right.shape or left.dtype.names is None:
+        return False
+    if set(left.dtype.names) != {"field_name", "units", "description"}:
+        return False
+    for column in ("field_name", "units"):
+        if canonical_bytes(left[column]) != canonical_bytes(right[column]):
+            return False
+    changed = [i for i in range(len(left)) if left["description"][i] != right["description"][i]]
+    if len(changed) != 1:
+        return False
+    row = changed[0]
+    return (
+        left["field_name"][row].rstrip(b"\0") == PINNED_DESCRIPTION_FIELD.encode()
+        and left["description"][row].rstrip(b"\0") == UNIQUE_ID_DESCRIPTION_BEFORE.encode()
+        and right["description"][row].rstrip(b"\0") == UNIQUE_ID_DESCRIPTION_AFTER.encode()
+    )
+
+
+def pinned_schema_delta(left: bytes, right: bytes) -> bool:
+    """Two output_schema.json texts that differ only in the pinned description and source_md5."""
+    try:
+        before, after = json.loads(left), json.loads(right)
+    except ValueError:
+        return False
+    if not isinstance(before, dict) or not isinstance(after, dict):
+        return False
+    pinned = [
+        [f for f in schema.get("fields", []) if f.get("name") == PINNED_DESCRIPTION_FIELD]
+        for schema in (before, after)
+    ]
+    if len(pinned[0]) != 1 or len(pinned[1]) != 1:
+        return False
+    if (
+        pinned[0][0].get("description") != UNIQUE_ID_DESCRIPTION_BEFORE
+        or pinned[1][0].get("description") != UNIQUE_ID_DESCRIPTION_AFTER
+    ):
+        return False
+    pinned[0][0]["description"] = pinned[1][0]["description"]
+    before["source_md5"] = after.get("source_md5")
+    return before == after
+
+
 def compare_hdf5_file(rel: str, base: OutputRun, other: OutputRun, report: Report) -> None:
     """Links, objects, attributes and non-Galaxies dataset bytes of one HDF5 file pair."""
     with h5py.File(base.directory / rel, "r") as fa, h5py.File(other.directory / rel, "r") as fb:
@@ -554,7 +624,10 @@ def compare_hdf5_file(rel: str, base: OutputRun, other: OutputRun, report: Repor
                 if path.startswith("RunProperties/") and leaf in NAMED_DATASETS:
                     report.datasets_compared.append(leaf)
                 if canonical_bytes(left[()]) != canonical_bytes(right[()]):
-                    report.error(f"{rel}:{path}: dataset bytes differ")
+                    if leaf == "FieldMetadata" and pinned_description_delta(left[()], right[()]):
+                        report.allow(DESCRIPTION_LABEL)
+                    else:
+                        report.error(f"{rel}:{path}: dataset bytes differ")
 
 
 def compare_galaxies(base: OutputRun, other: OutputRun, report: Report) -> None:
@@ -622,7 +695,10 @@ def compare_metadata_file(rel: str, base: OutputRun, other: OutputRun, empty_leg
     if left == right:
         return
     if rel == "metadata/output_schema.json":
-        report.error(f"{rel}: output schema differs")
+        if pinned_schema_delta(left, right):
+            report.allow(SCHEMA_DESCRIPTION_LABEL)
+        else:
+            report.error(f"{rel}: output schema differs")
         return
     text_left, text_right = left.decode(errors="replace"), right.decode(errors="replace")
     if (
@@ -1044,6 +1120,60 @@ def provenance(_base: OutputRun, run: OutputRun) -> None:
     info.write_text(info.read_text().replace('"run_date"', '"run_date_changed"'))
 
 
+def field_metadata_rows(handle: h5py.File, field_name: str) -> list[int]:
+    """Row indices of ``field_name`` in a file's RunProperties/FieldMetadata table."""
+    values = handle["RunProperties/FieldMetadata"][()]
+    return [
+        i
+        for i in range(len(values))
+        if values["field_name"][i].rstrip(b"\0") == field_name.encode()
+    ]
+
+
+def set_description(field_name: str, text: str) -> Callable[[h5py.File], None]:
+    """A master-file change giving one FieldMetadata row's description a new text."""
+
+    def change(handle):
+        rows = field_metadata_rows(handle, field_name)
+        if len(rows) != 1:
+            raise AssertionError(f"FieldMetadata holds {len(rows)} row(s) named {field_name}")
+        values = handle["RunProperties/FieldMetadata"][()]
+        values["description"][rows[0]] = text.encode()
+        handle["RunProperties/FieldMetadata"][...] = values
+
+    return change
+
+
+def pinned_description_on_base(base: OutputRun, _run: OutputRun) -> None:
+    """The baseline copy carries the reference's description and digest: the one pinned delta."""
+    for path in sorted(base.directory.glob("*.hdf5")):
+        with h5py.File(path, "r+") as handle:
+            if "RunProperties/FieldMetadata" in handle:
+                set_description(PINNED_DESCRIPTION_FIELD, UNIQUE_ID_DESCRIPTION_BEFORE)(handle)
+    schema_path = base.directory / "metadata" / "output_schema.json"
+    schema = json.loads(schema_path.read_text())
+    pinned = [f for f in schema["fields"] if f["name"] == PINNED_DESCRIPTION_FIELD]
+    if len(pinned) != 1:
+        raise AssertionError(f"output_schema.json names {len(pinned)} {PINNED_DESCRIPTION_FIELD}")
+    pinned[0]["description"] = UNIQUE_ID_DESCRIPTION_BEFORE
+    schema["source_md5"] = "0" * 32
+    schema_path.write_text(json.dumps(schema, indent=2) + "\n")
+
+
+def other_description_changed(handle: h5py.File) -> None:
+    """A description change on a field other than the pinned one."""
+    values = handle["RunProperties/FieldMetadata"][()]
+    others = [
+        i
+        for i in range(len(values))
+        if values["field_name"][i].rstrip(b"\0") != PINNED_DESCRIPTION_FIELD.encode()
+    ]
+    if not others:
+        raise AssertionError("FieldMetadata has no field other than the pinned one")
+    values["description"][others[0]] = b"X"
+    handle["RunProperties/FieldMetadata"][...] = values
+
+
 def unchanged(_base: OutputRun, _run: OutputRun) -> None:
     pass
 
@@ -1123,6 +1253,11 @@ def mutation_cases(source: OutputRun) -> list[Case]:
     add_empty = on_text(run_yaml, lambda text: with_empty_list(text.encode()).decode())
     substeps = on_text(run_yaml, lambda text: text.replace("SubSteps: 10", "SubSteps: 11"))
     schema = on_text("metadata/output_schema.json", lambda text: text.replace('"', "'", 1))
+    md5_only = on_text(
+        "metadata/output_schema.json",
+        lambda text: re.sub(r'"source_md5": "[0-9a-f]+"', '"source_md5": "' + "0" * 32 + '"', text),
+    )
+    bytes_needle = f"{prop}/FieldMetadata: dataset bytes differ"
     sim_changed = on_text(sim_yaml, lambda text: text + "# changed\n")
     extra = on_master(lambda h: h[prop].create_dataset("EventContractsExtra", data=numpy.zeros(1)))
     substeps_attr = on_master(lambda h: h[prop].attrs.__setitem__("SubSteps", 11))
@@ -1171,6 +1306,24 @@ def mutation_cases(source: OutputRun) -> list[Case]:
         ("an added attribute", added_attr, "attribute names differ"),
         ("an external link retargeted", on_master(retarget_link), "external link or link type"),
         ("an altered output schema", schema, "output schema differs"),
+        ("source_md5 changed alone", md5_only, "output schema differs"),
+        (
+            "the pinned UniqueGalaxyID description delta",
+            pinned_description_on_base,
+            None,
+            False,
+            (DESCRIPTION_LABEL, SCHEMA_DESCRIPTION_LABEL),
+        ),
+        (
+            "a description changed on another field",
+            on_master(other_description_changed),
+            bytes_needle,
+        ),
+        (
+            "the pinned field described with other text",
+            on_master(set_description(PINNED_DESCRIPTION_FIELD, "X")),
+            bytes_needle,
+        ),
         ("a metadata file changed beyond its path prefix", sim_changed, "beyond the path prefix"),
         ("a missing metadata file", remove_metadata, "file sets differ"),
         ("permitted provenance differences", provenance, None, False, provenance_labels),

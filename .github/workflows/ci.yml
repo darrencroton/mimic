@@ -93,7 +93,7 @@ jobs:
           tests/data/output/binary/metadata/
 
   horizontal-v3:
-    name: Horizontal v3 fixtures
+    name: Horizontal v3 fixtures and snapshot-global battery
     runs-on: ubuntu-latest
 
     steps:
