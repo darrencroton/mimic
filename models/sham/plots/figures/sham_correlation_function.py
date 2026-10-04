@@ -7,7 +7,9 @@ Real-space two-point correlation function xi(r) of the SHAM sample (ShamGhost ==
 stellar-mass thresholds, from the model-neutral pair counter in output_utils (periodic cell
 grid, analytic random term), on logarithmic bins from 0.1 to 20 Mpc/h by default. Each
 threshold selects the members with log10(M*/Msun) at or above it and is labelled with the
-number density of that sample. The profile key axes.sham_correlation_function sets xmin/xmax
+number density of that sample; a threshold with no positive xi in range is listed as not drawn,
+and bins with pairs but xi <= 0 (not representable on the log axis) are counted on the figure.
+The profile key axes.sham_correlation_function sets xmin/xmax
 (comoving Mpc/h, within the helper's domain: at most half the box), ymin/ymax (the log10 y
 range) and mass_thresholds (a list of log10 stellar masses in Msun at the simulation's h,
 default [10.0, 10.5]). Error bars are Poisson errors on the pair counts.
@@ -107,6 +109,7 @@ def plot(
     setup_plot_fonts(ax)
     drawn = 0
     skipped = []
+    hidden = []
     for threshold, colour in zip(thresholds, COLOURS * (len(thresholds) // len(COLOURS) + 1)):
         sample = member & (log_mstar >= threshold)
         n_sample = int(sample.sum())
@@ -128,8 +131,14 @@ def plot(
             skipped.append(f"log M* >= {threshold:g}: no separation bin contains a pair")
             continue
 
-        # A logarithmic axis can only show xi > 0.
+        # A logarithmic axis can only show xi > 0; count the bins with pairs that it cannot show.
         shown = (dd > 0) & (xi > 0.0)
+        n_hidden = int(np.count_nonzero((dd > 0) & (xi <= 0.0)))
+        if not np.any(shown):
+            skipped.append(f"log M* >= {threshold:g}: {n_hidden} bin(s) with pairs but xi <= 0")
+            continue
+        if n_hidden:
+            hidden.append(f"log M* >= {threshold:g}: {n_hidden}")
         lower = np.minimum(xi_err[shown], 0.999 * xi[shown])
         if verbose:
             print(f"  log M* >= {threshold:g}: sample={n_sample}, bins={nbins}")
@@ -139,10 +148,9 @@ def plot(
             r_centre[shown],
             xi[shown],
             yerr=[lower, xi_err[shown]],
-            fmt="o-",
+            fmt="o",
             c=colour,
             ms=5,
-            lw=1,
             capsize=2,
             label=(
                 f"$\\log M_* \\geq {threshold:g}$,  "
@@ -153,7 +161,7 @@ def plot(
 
     if drawn == 0:
         plt.close(fig)
-        return None, "No stellar-mass threshold has a pairable sample (" + "; ".join(skipped) + ")"
+        return None, "No stellar-mass threshold has a positive xi (" + "; ".join(skipped) + ")"
 
     ax.set_xscale("log")
     ax.set_yscale("log")
@@ -168,6 +176,15 @@ def plot(
             "not drawn: " + "; ".join(skipped),
             transform=ax.transAxes,
             fontsize=10,
+        )
+    if hidden:
+        ax.text(
+            0.96,
+            0.06,
+            "bin(s) with pairs but $\\xi \\leq 0$ not shown:\n" + "; ".join(hidden),
+            transform=ax.transAxes,
+            fontsize=10,
+            ha="right",
         )
     setup_legend(ax, loc="upper right")
 
