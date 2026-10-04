@@ -121,8 +121,9 @@ def require_vertical_package():
 def write_run(base_file, name, parameters=None, modules=None, snapshot_list=None):
     """Copy a shipped run file into the temp dir with a private output directory.
 
-    The copy keeps the shipped file's repository-relative simulation.config, so every run
-    starts from the repository root exactly as the file documents. ``modules`` replaces the
+    The copy keeps the shipped file's simulation selection (the fixture file's repository-relative
+    simulation.config, where it has one), so every run starts from the repository root exactly as
+    the file documents. ``modules`` replaces the
     module phases (the parameters block is kept); ``parameters`` updates single parameters.
     """
     with open(base_file, "r") as handle:
@@ -206,7 +207,8 @@ def rows_per_unit_of(stdout):
 def assert_output_contract(rows, what, rows_per_unit=None, snapshot=None):
     """Assert the scaffold/sample contract on one snapshot's rows; return created-row count.
 
-    With ``rows_per_unit`` and ``snapshot`` (horizontal runs, where the host key is
+    Created rows are those with a negative ID; each must be Type 2, and any Type 2 row with a
+    non-negative ID is a tree-born survivor. With ``rows_per_unit`` and ``snapshot`` (horizontal runs, where the host key is
     ``row + rows_per_unit * snapshot``) every created ID must also decode to this snapshot, which
     proves no created row of an earlier snapshot survived.
     """
@@ -220,12 +222,17 @@ def assert_output_contract(rows, what, rows_per_unit=None, snapshot=None):
     assert set(int(g) for g in np.unique(ghosts)) <= {0, 1}, f"{what}: HODGhost is 0 or 1"
     assert np.all(ghosts[types == 1] == 1), f"{what}: every Type 1 row is scaffold (HODGhost 1)"
 
+    survivors = ids[(types == 2) & (ids >= 0)]
+    assert len(survivors) == 0, (
+        f"{what}: Type 2 rows with non-negative IDs {[int(i) for i in survivors]} survived "
+        f"(tree-born orphans must be retired)"
+    )
     sample_hosts = {int(i) for i in ids[(types == 0) & (ghosts == 0)]}
-    created = rows[types == 2]
+    created = rows[ids < 0]
     per_host = {}
     for row in created:
         galaxy_id = int(row["UniqueGalaxyID"])
-        assert galaxy_id < 0, f"{what}: Type 2 row {galaxy_id} is not a created row (survivor)"
+        assert int(row["Type"]) == 2, f"{what}: created row {galaxy_id} has Type {row['Type']}"
         assert int(row["HODGhost"]) == 0, f"{what}: created row {galaxy_id} must be a sample row"
         host = int(row["UniqueCentralGalaxyID"])
         assert host in sample_hosts, (
@@ -295,8 +302,9 @@ def test_fixture_shipped_run_file_is_valid():
 
     Expected: the run succeeds without leaks; every snapshot satisfies the output contract
               (the fixture's low-mass hosts yield few or no satellites at these parameters, so
-              this does not require created rows); one audit line per snapshot with the
-              documented format; the two tree-born orphans of the last snapshot are gone.
+              this does not require created rows), including that no Type 2 row has a
+              non-negative ID (the tree-born orphans of the last snapshot are retired); one
+              audit line per snapshot with the documented format.
     """
     require_fixture_package()
     run_file, output_dir, stem = write_run(FIXTURE_RUN_FILE, "fixture_shipped")
@@ -306,8 +314,7 @@ def test_fixture_shipped_run_file_is_valid():
     populations = snapshots_of(read_galaxies(output_dir, stem))
     for snap, rows in populations.items():
         assert_output_contract(rows, f"snapshot {snap}", rows_per_unit, snap)
-    final = populations[FINAL_SNAPSHOT]
-    assert len(final) > 0 and bool((final["Type"] != 2).all()), "no orphan survives at snapshot 5"
+    assert len(populations[FINAL_SNAPSHOT]) > 0, "the last snapshot must be populated"
     audits = AUDIT_LINE.findall(stdout)
     assert len(audits) == NUM_SNAPSHOTS, f"one audit line per output snapshot: {audits}"
     print(f"  ✓ the shipped run file logs {len(audits)} audit lines and satisfies the contract")
@@ -441,8 +448,13 @@ def test_vertical_run_creates_rows_that_follow_the_output_contract():
     Expected: the run succeeds without leaks; every output snapshot of every file satisfies the
               contract (created rows are Type 2 with negative IDs, HODGhost 0 and a Type 0
               HODGhost 0 host; Type 1 rows are scaffold; no tree-born or inherited Type 2 row
-              survives); created rows exist at the last snapshot, where the box also has Type 1
-              rows and Type 0 hosts with HODGhost 1; there is no audit line (no post_snapshot).
+              survives); within each file the created IDs of consecutive written snapshots are
+              disjoint (a created ID encodes its host's halo index in the forest, so an
+              inherited satellite would repeat its ID; UniqueCentralGalaxyID cannot show this
+              because it is reassigned to the current central), for at least one file with
+              created rows at two or more snapshots; created rows exist at the last snapshot,
+              where the box also has Type 1 rows and Type 0 hosts with HODGhost 1; there is no
+              audit line (no post_snapshot).
     """
     require_vertical_package()
     run_file, output_dir, stem = write_run(VERTICAL_RUN_FILE, "vertical_contract")
@@ -455,6 +467,23 @@ def test_vertical_run_creates_rows_that_follow_the_output_contract():
     for (name, snap), rows in sorted(galaxies.items()):
         created_total += assert_output_contract(rows, f"{name} snapshot {snap}")
     assert created_total > 0, "the vertical run must create rows"
+
+    compared_files = 0
+    for name in sorted({name for name, _snap in galaxies}):
+        written = sorted(snap for file_name, snap in galaxies if file_name == name)
+        created_ids = {}
+        for snap in written:
+            rows = galaxies[(name, snap)]
+            created_ids[snap] = {int(i) for i in rows["UniqueGalaxyID"][rows["UniqueGalaxyID"] < 0]}
+        populated = [snap for snap in written if created_ids[snap]]
+        compared_files += len(populated) >= 2
+        for earlier, later in zip(written, written[1:]):
+            repeated = created_ids[earlier] & created_ids[later]
+            assert not repeated, (
+                f"{name}: created IDs {sorted(repeated)[:5]} appear at snapshots {earlier} and "
+                f"{later}, so a created row survived into the next written snapshot"
+            )
+    assert compared_files > 0, "no file has created rows at two or more snapshots (vacuous check)"
     final = snapshots_of(galaxies)[63]
     assert int((final["Type"] == 2).sum()) > 0, "the last snapshot must carry created rows"
     assert int((final["Type"] == 1).sum()) > 0, "the last snapshot must have Type 1 rows"

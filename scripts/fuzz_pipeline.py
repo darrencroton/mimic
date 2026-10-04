@@ -128,8 +128,8 @@ _ERROR_PREFIXES = ("ERROR:", "FATAL:")
 # Pattern that identifies deliberate inter-module ordering validation messages.
 # These are intentional contract checks — "module A requires module B to precede it"
 # — not runtime or infrastructure failures. Filtered in non-strict mode.
-# The SHAM stellar-mass exclusion and the HOD phase-placement and parameter rules are the same kind
-# of deliberate contract check.
+# The SHAM stellar-mass exclusion and the HOD phase-placement rules are the same kind of deliberate
+# contract check.
 _VALIDATION_PATTERN = re.compile(
     r"ERROR: sage_\w.*(?:requires|must run after)\s+sage_"
     r"|ERROR: sham_global_rank and sham_assign_stellar_mass are independent"

@@ -126,7 +126,8 @@ make MODEL=hod SIMULATION=micro-uchuu-horizontal -j$(sysctl -n hw.ncpu)
 |---|---|
 | Wall clock | 9.1 s (4.3 s user, 0.6 s system) |
 | Peak process RSS | 2.23 GB (the run's own memory profile line: `Peak process RSS: 2.230 GB`) |
-| Output population | 616,184 records over the eight snapshots (output buffer 652,428 records at 184 B) |
+| Output buffer | peak per-snapshot occupancy 616,184 records (the run profile's running maximum, retired rows included) in a 652,428-record buffer at 184 B |
+| Written output | 3,114,016 `Galaxies` rows over the eight snapshots (the sum of the eight datasets in the recorded output, 10,986 of them sample members with `HODGhost == 0`) |
 | Created-record identity space | `units=50 rows_per_unit=621360 radix=1024`, fits int64 |
 
 Audit lines, with `V = 1e6 (Mpc/h)^3` so the expected and realised counts are `n_gal V`; the pull is `(realised - expected) / sqrt(expected)`, the Poisson scatter the expected count implies:
