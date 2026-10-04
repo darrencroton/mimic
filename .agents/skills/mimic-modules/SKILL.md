@@ -120,7 +120,7 @@ Parameters come from `modules.parameters` in the run YAML. There are **no defaul
 
 `LOAD_PARAM_DOUBLE`, `LOAD_PARAM_DOUBLE_INTERNAL`, `LOAD_PARAM_INT`, `LOAD_PARAM_STRING`, `VALIDATE_RANGE_EXCLUSIVE`, `VALIDATE_RANGE_INCLUSIVE`, `VALIDATE_OPTION`, `LOAD_AND_VALIDATE_RANGE_EXCLUSIVE`, `LOAD_AND_VALIDATE_RANGE_INCLUSIVE`, `LOAD_AND_VALIDATE_RANGE_INCLUSIVE_INTERNAL`, `LOAD_AND_VALIDATE_OPTION`.
 
-The `*_INTERNAL` variants convert a dimensional parameter from the units declared in `models/<model>/parameter_units.yaml` into the internal reference basis on load (see `mimic-properties`; no shipped model declares one today, and `hod` and `sham` load every parameter as a plain double in the units their READMEs state). Declare every parameter in `dependencies.parameters`; `make lint-parameters` fails (exit 1) on used-but-undeclared and warns (exit 2) on declared-but-unused. Validate physical ranges locally — only the module knows its constraints.
+The `*_INTERNAL` variants convert a dimensional parameter from the units declared in `models/<model>/parameter_units.yaml` into the internal reference basis on load (see `mimic-properties`; no shipped model declares one today, and neither `hod` nor `sham` uses an `*_INTERNAL` loader: `hod` loads nine ordinary doubles plus the integer seed `HODSeed`, and `sham` loads its nine as ordinary doubles, in the units their READMEs state). Declare every parameter in `dependencies.parameters`; `make lint-parameters` fails (exit 1) on used-but-undeclared and warns (exit 2) on declared-but-unused. Validate physical ranges locally — only the module knows its constraints.
 
 ## 7. Ordering guards and the transport-property pattern
 

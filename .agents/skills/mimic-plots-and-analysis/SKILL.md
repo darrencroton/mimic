@@ -40,7 +40,7 @@ python plot/mimic-plot/mimic-plot.py --param-file=models/sage16/input/sage16_min
 
 `models/<model>/plots/figures/__init__.py` exports four structures the engine imports (plus shared styling helpers `setup_plot_fonts`, `setup_legend`, label getters, and `check_required_properties`):
 
-- `SNAPSHOT_PLOTS` / `EVOLUTION_PLOTS` — ordered name lists (sage16 ships 18 + 4; hod 5 + 0; sham 8 + 0; halos-only 4 + 1, halo-diagnostics only by design; hod and sham write one epoch, so they have no evolution figures).
+- `SNAPSHOT_PLOTS` / `EVOLUTION_PLOTS` — ordered name lists (sage16 ships 18 + 4; hod 5 + 0; sham 8 + 0; halos-only 4 + 1, halo-diagnostics only by design; the shipped hod and sham registries list no evolution figures: the SHAM real-box run writes a single epoch, so it has nothing to evolve, and the HOD registry is the figure inventory the package ships).
 - `PLOT_REQUIREMENTS` — dict name → required galaxy fields (`[]` = always available). This is the gate that makes physics-free runs skip galaxy plots cleanly.
 - `PLOT_FUNCS` — dict name → the figure module's `plot` callable.
 
@@ -73,7 +73,7 @@ def plot(galaxies, volume, metadata, params, output_dir="plots", output_format="
 def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=False):
 ```
 
-`galaxies` is a NumPy recarray (same shape from binary, HDF5, and sage-native readers — figures are format-agnostic); `volume` is (Mpc/h)³ already scaled by the file fraction processed; `metadata` carries `hubble_h`, `box_size`, `redshift`, `schema_units`. Masses arrive in code units (`1e10 Msun/h`); figures convert (`* 1.0e10 / hubble_h`) at plot time.
+`galaxies` is a NumPy recarray (same shape from binary, HDF5, and sage-native readers — figures are format-agnostic); `volume` is (Mpc/h)³ already scaled by the file fraction processed; `metadata` carries `hubble_h`, `box_size`, `redshift` (evolution path only), `schema_units`. Masses arrive in code units (`1e10 Msun/h`); figures convert (`* 1.0e10 / hubble_h`) at plot time.
 
 Validation-first pattern (the house style — see `stellar_mass_function.py`): `check_required_fields` → `check_field_has_values` → filter → `validate_filtered_data` (or `validate_evolution_snapshot` per snapshot) → only then `setup_figure()` → draw → `save_and_close_figure()`. Helpers live in `plot/mimic-plot/output_utils.py` (including `calculate_mass_function` for the standard φ = N/V/Δlog M) and the model `figures` package (fonts, legends, labels). Observational overlays are inline NumPy arrays inside the figure modules (Baldry 2008 SMF, etc.) with the run's `hubble_h` and, for sage16, `WhichIMF` corrections applied at plot time — there are no separate data files.
 
