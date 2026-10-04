@@ -29,7 +29,6 @@ from figures import (
     AXIS_LABEL_SIZE,
     SAMPLE_LABEL,
     host_lookup,
-    read_hod_parameters,
     setup_legend,
     setup_plot_fonts,
 )
@@ -37,6 +36,7 @@ from output_utils import (
     check_required_fields,
     get_profile_axes,
     make_bin_edges,
+    read_module_parameters,
     save_and_close_figure,
     validate_filtered_data,
 )
@@ -99,10 +99,12 @@ def realised_occupation(galaxies, edges, par):
     Returns:
         dict with arrays over bins: "centre", "hosts", and for each of "cen", "sat", "tot" the
         realised mean ("<k>"), the law averaged over the bin's own hosts ("<k>_law") and the
-        standard error under the law ("<k>_se").
+        standard error under the law ("<k>_se"); and "unmatched", the number of created
+        satellites whose host row was not found and so enter no bin.
     """
     # Mvir is in 1e10 Msun/h, so the mass in Msun/h is Mvir * 1e10 with no h factor.
-    host_rows, _sat_rows, sat_host = host_lookup(galaxies)
+    host_rows, sat_rows, sat_host = host_lookup(galaxies)
+    n_created = int(np.count_nonzero((galaxies.Type == 2) & (galaxies.HODGhost == 0)))
     host_rows = host_rows[galaxies.Mvir[host_rows] > 0.0]
     log_m = np.log10(galaxies.Mvir[host_rows].astype(np.float64) * 1.0e10)
 
@@ -118,7 +120,11 @@ def realised_occupation(galaxies, edges, par):
     bin_of[log_m == edges[-1]] = nbins - 1
     expected = law(log_m, par)
 
-    out = {"centre": 0.5 * (edges[1:] + edges[:-1]), "hosts": np.zeros(nbins, dtype=np.int64)}
+    out = {
+        "centre": 0.5 * (edges[1:] + edges[:-1]),
+        "hosts": np.zeros(nbins, dtype=np.int64),
+        "unmatched": n_created - len(sat_rows),
+    }
     for key in ("cen", "sat", "tot"):
         for suffix in ("", "_law", "_se"):
             out[key + suffix] = np.full(nbins, np.nan)
@@ -167,7 +173,7 @@ def plot(
     if not success:
         return None, f"Required fields missing: {msg}"
 
-    par, missing = read_hod_parameters(params, REQUIRED_PARAMETERS)
+    par, missing = read_module_parameters(params, REQUIRED_PARAMETERS)
     if missing:
         return None, "HOD parameters missing from the run file's modules.parameters: " + ", ".join(
             missing
@@ -192,7 +198,10 @@ def plot(
     if not np.any(drawn):
         return None, f"No host-mass bin has at least {MIN_HOSTS_PER_BIN} hosts"
 
+    unmatched = occ["unmatched"]
     if verbose:
+        if unmatched:
+            print(f"  {unmatched} created satellite(s) dropped: no Type 0 host found")
         for b in np.where(occ["hosts"] >= MIN_HOSTS_FOR_CHECK)[0]:
             pulls = ", ".join(
                 f"{k}={(occ[k][b] - occ[k + '_law'][b]) / occ[k + '_se'][b]:+.2f}"
@@ -234,11 +243,13 @@ def plot(
     ax.set_ylim(y_min, y_max)
     ax.set_xlabel(r"log$_{10}$ M$_{\rm vir}$ [M$_{\odot}$ h$^{-1}$]", fontsize=AXIS_LABEL_SIZE)
     ax.set_ylabel(r"$\langle N\rangle$ per host  (" + SAMPLE_LABEL + ")", fontsize=AXIS_LABEL_SIZE)
-    ax.set_title(
+    title = (
         f"Mean occupation, bins of {BINWIDTH_DEX:g} dex with >= {MIN_HOSTS_PER_BIN} hosts; "
-        "bars: expected sampling error",
-        fontsize=10,
+        "bars: expected sampling error"
     )
+    if unmatched:
+        title += f"\n{unmatched} satellite(s) with no Type 0 host not counted"
+    ax.set_title(title, fontsize=10)
     setup_legend(ax, loc="upper left")
 
     plot_path = save_and_close_figure(fig, output_dir, "HODOccupation", output_format, verbose)

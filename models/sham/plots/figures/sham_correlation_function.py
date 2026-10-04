@@ -20,9 +20,11 @@ import numpy as np
 from figures import AXIS_LABEL_SIZE, SAMPLE_LABEL, setup_legend, setup_plot_fonts
 from output_utils import (
     check_required_fields,
-    correlation_function,
     get_profile_axes,
+    log_radial_edges,
+    require_full_box,
     save_and_close_figure,
+    xi_series,
 )
 
 PLOT_KEY = "sham_correlation_function"
@@ -75,14 +77,10 @@ def plot(
         return None, f"Required fields missing: {msg}"
 
     box_size = metadata.get("box_size")
-    if not box_size or box_size <= 0:
-        return None, "metadata carries no positive box_size"
+    skip = require_full_box(volume, box_size)
+    if skip:
+        return None, skip
     box_volume = float(box_size) ** 3
-    if abs(volume - box_volume) > 1.0e-6 * box_volume:
-        return None, (
-            f"Only part of the box was read (volume {volume:.6g} of {box_volume:.6g} "
-            "(Mpc/h)^3): the analytic random-pair term needs the whole periodic box"
-        )
 
     try:
         thresholds = _read_thresholds(params)
@@ -94,10 +92,11 @@ def plot(
     r_min, r_max, y_min, y_max = get_profile_axes(
         params, PLOT_KEY, PLOT_XLIM, PLOT_YLIM, log_y=True
     )
-    if not 0.0 < r_min < r_max:
-        return None, f"Radial range must satisfy 0 < xmin < xmax, got [{r_min}, {r_max}]"
-    nbins = max(1, round(BINS_PER_DEX * np.log10(r_max / r_min)))
-    r_edges = np.geomspace(r_min, r_max, nbins + 1)
+    try:
+        r_edges = log_radial_edges(r_min, r_max, BINS_PER_DEX)
+    except ValueError as exc:
+        return None, str(exc)
+    nbins = len(r_edges) - 1
     r_centre = np.sqrt(r_edges[1:] * r_edges[:-1])
 
     member = galaxies.ShamGhost == 0
@@ -117,13 +116,8 @@ def plot(
             skipped.append(f"log M* >= {threshold:g}: {n_sample} members")
             continue
 
-        # Wrap into [0, box_size): a coordinate stored as exactly box_size (or rounded up to
-        # it by the output precision) is the same point as 0 in a periodic box.
-        with np.errstate(invalid="ignore"):
-            positions = np.mod(galaxies.Pos[sample].astype(np.float64), box_size)
-        positions[positions >= box_size] = 0.0
         try:
-            xi, xi_err, dd, _rr = correlation_function(positions, box_size, r_edges)
+            shown, n_hidden, xi, xi_err, dd = xi_series(galaxies.Pos[sample], box_size, r_edges)
         except ValueError as exc:
             plt.close(fig)
             return None, f"Correlation function input rejected: {exc}"
@@ -131,9 +125,6 @@ def plot(
             skipped.append(f"log M* >= {threshold:g}: no separation bin contains a pair")
             continue
 
-        # A logarithmic axis can only show xi > 0; count the bins with pairs that it cannot show.
-        shown = (dd > 0) & (xi > 0.0)
-        n_hidden = int(np.count_nonzero((dd > 0) & (xi <= 0.0)))
         if not np.any(shown):
             skipped.append(f"log M* >= {threshold:g}: {n_hidden} bin(s) with pairs but xi <= 0")
             continue

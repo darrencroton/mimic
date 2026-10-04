@@ -441,17 +441,28 @@ def select_scatter_sample(x, y_arrays, x_min, x_max, y_min, y_max, dilute, rng=N
 # when r_edges[-1] is tiny compared to the box. Cells never shrink below r_edges[-1].
 _MAX_PAIR_COUNT_CELLS_PER_AXIS = 32
 
-# Most point-pair separations periodic_pair_counts() evaluates at once. A tile holds
-# 3 float64 values per pair, so the default bounds the temporaries at about 24 MB however
-# many points share a cell.
+# Most point-pair separations periodic_pair_counts() evaluates at once. A tile is evaluated one
+# coordinate axis at a time in three float64 buffers of one value per pair (the running sum, the
+# axis separation and the wrapping scratch), so the default bounds the temporaries at about 24 MB
+# (measured with tracemalloc) however many points share a cell.
 _PAIR_COUNT_BLOCK_PAIRS = 1_000_000
 
 
 def _separations_sq(points_a, points_b, box_size):
     """Return the (len(a), len(b)) squared minimum-image separations of two (n, 3) point sets."""
-    delta = points_a[:, None, :] - points_b[None, :, :]
-    delta -= box_size * np.round(delta / box_size)
-    return np.einsum("ijk,ijk->ij", delta, delta)
+    shape = (len(points_a), len(points_b))
+    total = np.zeros(shape)
+    delta = np.empty(shape)
+    wrap = np.empty(shape)
+    for axis in range(3):
+        np.subtract(points_a[:, axis, None], points_b[None, :, axis], out=delta)
+        np.divide(delta, box_size, out=wrap)
+        np.round(wrap, out=wrap)
+        wrap *= box_size
+        delta -= wrap
+        np.multiply(delta, delta, out=delta)
+        total += delta
+    return total
 
 
 def _tiles(nrows, ncols):
@@ -643,3 +654,107 @@ def correlation_function(positions, box_size, r_edges):
     xi = dd / rr - 1.0
     xi_err = np.sqrt(dd) / rr
     return xi, xi_err, dd, rr
+
+
+def wrap_into_box(positions, box_size):
+    """
+    Wrap coordinates into [0, box_size) as float64.
+
+    A coordinate stored as exactly box_size (or rounded up to it by the output precision) is the
+    same point as 0 in a periodic box. NaN and Inf pass through unchanged for the validation in
+    correlation_function() to reject.
+
+    Args:
+        positions: (N, 3) array of coordinates in any real dtype.
+        box_size: Box side length, > 0.
+
+    Returns:
+        New (N, 3) float64 array inside [0, box_size).
+    """
+    with np.errstate(invalid="ignore"):
+        wrapped = np.mod(np.asarray(positions, dtype=np.float64), box_size)
+    wrapped[wrapped >= box_size] = 0.0
+    return wrapped
+
+
+def require_full_box(volume, box_size):
+    """
+    Check that the read volume is the whole periodic box, as the analytic random term needs.
+
+    Args:
+        volume: Volume that was read, in (box_size units)^3.
+        box_size: Box side length from the run metadata, or None when it is absent.
+
+    Returns:
+        None when the whole box was read, otherwise the skip message to return from the figure.
+    """
+    if not box_size or box_size <= 0:
+        return "metadata carries no positive box_size"
+    box_volume = float(box_size) ** 3
+    if abs(volume - box_volume) > 1.0e-6 * box_volume:
+        return (
+            f"Only part of the box was read (volume {volume:.6g} of {box_volume:.6g} "
+            "(Mpc/h)^3): the analytic random-pair term needs the whole periodic box"
+        )
+    return None
+
+
+def log_radial_edges(r_min, r_max, bins_per_dex):
+    """
+    Return logarithmic separation bin edges from r_min to r_max at about bins_per_dex per decade.
+
+    Raises:
+        ValueError: unless 0 < r_min < r_max.
+    """
+    if not 0.0 < r_min < r_max:
+        raise ValueError(f"Radial range must satisfy 0 < xmin < xmax, got [{r_min}, {r_max}]")
+    nbins = max(1, int(round(bins_per_dex * np.log10(r_max / r_min))))
+    return np.geomspace(r_min, r_max, nbins + 1)
+
+
+def xi_series(positions, box_size, edges):
+    """
+    Measure xi(r) for plotting on a logarithmic y axis.
+
+    Wraps the positions into the box, evaluates correlation_function() and selects the bins a
+    log axis can show: those with pairs and xi > 0.
+
+    Args:
+        positions: (N, 3) array of coordinates.
+        box_size: Box side length, finite and > 0.
+        edges: Separation bin edges (see correlation_function).
+
+    Returns:
+        (shown, n_hidden, xi, xi_err, dd): the boolean mask of drawable bins, the number of bins
+        with pairs but xi <= 0 (not drawable), and the arrays from correlation_function().
+
+    Raises:
+        ValueError: if the input violates the correlation_function() domain.
+    """
+    xi, xi_err, dd, _rr = correlation_function(wrap_into_box(positions, box_size), box_size, edges)
+    shown = (dd > 0) & (xi > 0.0)
+    n_hidden = int(np.count_nonzero((dd > 0) & (xi <= 0.0)))
+    return shown, n_hidden, xi, xi_err, dd
+
+
+def read_module_parameters(params, names):
+    """
+    Read runtime-module parameters from params["EnabledModules"]["parameters"].
+
+    Args:
+        params: Mimic params dict (the run file's modules section is EnabledModules).
+        names: Parameter names to read.
+
+    Returns:
+        (values, missing): dict name -> float for every parameter that is present and
+        numeric, and the list of names that are not.
+    """
+    module_params = ((params.get("EnabledModules") or {}).get("parameters")) or {}
+    values = {}
+    missing = []
+    for name in names:
+        try:
+            values[name] = float(module_params[name])
+        except (KeyError, TypeError, ValueError):
+            missing.append(name)
+    return values, missing

@@ -7,7 +7,7 @@ simulation: micro-uchuu-horizontal
 
 axes:
   halo_mass_function:
-    xmin: 8.5
+    xmin: 9.0
     xmax: 15.0
   hod_occupation:
     xmin: 10.8          # log10(M / [Msun/h]) of the host

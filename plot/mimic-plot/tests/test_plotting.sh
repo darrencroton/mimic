@@ -110,6 +110,12 @@ python3 "$SCRIPT_DIR/test_scatter_and_binning_helpers.py"
 echo "Test 12: Periodic pair-count and correlation-function helper unit tests"
 python3 "$SCRIPT_DIR/test_correlation_function.py"
 
+echo "Test 13: Engine snapshot and evolution stage unit tests"
+python3 "$SCRIPT_DIR/test_engine_stages.py"
+
+echo "Test 14: Figure package helper unit tests (hod occupation law, host lookup, NFW, SHAM target)"
+python3 "$SCRIPT_DIR/test_figure_helpers.py"
+
 echo ""
 echo "=========================================="
 echo "All tests passed successfully!"

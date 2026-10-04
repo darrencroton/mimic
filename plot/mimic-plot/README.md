@@ -148,7 +148,7 @@ helpers automatically skip plots that need them. To remove SAGE-native
 support, delete `sage_native_hdf5.py` and the `>>> SAGE-NATIVE-HDF5 >>>`
 ... `<<< SAGE-NATIVE-HDF5 <<<` blocks in `mimic-plot.py`.
 
-**Note:** By default, both snapshot and evolution plots are generated if neither `--evolution-plots` nor `--snapshot-plots` is specified.
+**Note:** By default, both snapshot and evolution plots are generated if neither `--evolution-plots` nor `--snapshot-plots` is specified. The evolution stage returns at once, reading no snapshots, when no registered evolution figure is selected (a model registry with no evolution figures, or `--plots` naming only snapshot figures). Snapshot figures receive `metadata["redshift"]`, the redshift of the plotted snapshot from the package's `a_list`, as evolution figures do.
 
 ### Output Verbosity
 
@@ -559,18 +559,25 @@ plot/mimic-plot/tests/test_plotting.sh
 
 ### Test Suite
 
-- **`test_validation_helpers.py`**: Unit tests for plot validation functions (13 tests covering edge cases, thresholds, and error handling)
-- **`test_correlation_function.py`**: Unit tests for the real-space correlation-function helpers `periodic_pair_counts()` and `correlation_function()` in `output_utils.py` (grid counts against a brute-force count, uniform-sample `xi`, periodic boundary, small-N guard, input domain)
-- **`test_plotting.sh`**: Integration tests for the plotting pipeline (5 tests covering different command-line options and plot types)
+- **`test_validation_helpers.py`**: Unit tests for plot validation functions (16 tests covering edge cases, thresholds, and error handling)
+- **`test_correlation_function.py`**: Unit tests for the real-space correlation-function helpers in `output_utils.py` (grid counts against a brute-force count on uniform, coarse-grid and capped-grid clustered samples, the tile memory bound, uniform-sample `xi`, periodic boundary, small-N guard, input domain) and the figure-support helpers listed under Shared Helpers
+- **`test_engine_stages.py`**: Unit tests for the engine's snapshot and evolution stages against a stub registry: an empty or unselected evolution registry returns without reading snapshots or exiting, and snapshot figures receive `metadata["redshift"]`
+- **`test_figure_helpers.py`**: Unit tests for the physics helpers in the hod and sham figure packages (the occupation `law()`, `host_lookup()`, the unmatched-satellite count, `nfw_enclosed_fraction()` and the SHAM `target_mass_function()` h conversion)
+- **`test_plotting.sh`**: Integration tests for the plotting pipeline (14 tests: five `mimic-plot.py` invocations with different command-line options and plot types, which need real output from a prior run of the default model, then the standalone Python unit-test files above and the SAGE-native reader, profile inheritance, redshift mapper and chunked-consumer suites)
 
 ## Shared Helpers
 
-`output_utils.py` also provides two model-neutral clustering helpers, numpy only:
+`output_utils.py` also provides model-neutral clustering helpers, numpy only, used by the `hod_correlation_function` and `sham_correlation_function` figures:
 
-- `periodic_pair_counts(positions, box_size, r_edges)`: pair counts per separation bin in a periodic cubic box, by a cell grid with the minimum-image convention; each pair is counted once and self-pairs are excluded.
+- `periodic_pair_counts(positions, box_size, r_edges)`: pair counts per separation bin in a periodic cubic box, by a cell grid with the minimum-image convention; each pair is counted once and self-pairs are excluded. Separations are evaluated in tiles of at most one million pairs, whose temporaries peak at about 24 MB.
 - `correlation_function(positions, box_size, r_edges)`: returns `(xi, xi_err, dd, rr)` with `xi = DD / RR - 1` and the analytic random term `RR = N (N - 1) / 2 * V_shell / box_size^3`; `xi_err = sqrt(DD) / RR` is the Poisson error on the pair counts.
+- `wrap_into_box(positions, box_size)`: float64 copy of the coordinates wrapped into `[0, box_size)`, a coordinate at `box_size` becoming 0.
+- `require_full_box(volume, box_size)`: `None` when the whole periodic box was read, otherwise the skip message a figure returns (the analytic random term needs the whole box).
+- `log_radial_edges(r_min, r_max, bins_per_dex)`: logarithmic separation bin edges; raises `ValueError` unless `0 < r_min < r_max`.
+- `xi_series(positions, box_size, edges)`: wraps the positions, runs `correlation_function()` and returns `(shown, n_hidden, xi, xi_err, dd)`, where `shown` marks the bins with pairs and `xi > 0` that a logarithmic axis can draw and `n_hidden` counts the bins with pairs but `xi <= 0`.
+- `read_module_parameters(params, names)`: reads runtime-module parameters from `params["EnabledModules"]["parameters"]` and returns `(values, missing)`, the floats found and the names absent or non-numeric.
 
-Inputs are validated with `ValueError`: finite `(N, 3)` coordinates inside `[0, box_size)`, `box_size > 0`, and strictly increasing non-negative `r_edges` with `r_edges[-1] <= box_size / 2`. With fewer than two points the counts are zero and `xi` is NaN (`xi_err` zero). The `hod` model's `hod_correlation_function` uses them.
+Inputs to the clustering helpers are validated with `ValueError`: finite `(N, 3)` coordinates inside `[0, box_size)`, `box_size > 0`, and strictly increasing non-negative `r_edges` with `r_edges[-1] <= box_size / 2`. With fewer than two points the counts are zero and `xi` is NaN (`xi_err` zero).
 
 ## Architecture
 

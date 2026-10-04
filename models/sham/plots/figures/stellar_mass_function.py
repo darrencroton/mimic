@@ -27,6 +27,7 @@ from output_utils import (
     check_field_has_values,
     check_required_fields,
     get_profile_axes,
+    read_module_parameters,
     save_and_close_figure,
     setup_figure,
     validate_filtered_data,
@@ -50,25 +51,6 @@ TARGET_PARAMETER_NAMES = (
 )
 
 
-def read_target_parameters(params):
-    """
-    Read the run's target parameters from params["EnabledModules"]["parameters"].
-
-    Returns:
-        (values, missing): dict name -> float for every parameter that is present and
-        numeric, and the list of names that are not.
-    """
-    module_params = ((params.get("EnabledModules") or {}).get("parameters")) or {}
-    values = {}
-    missing = []
-    for name in TARGET_PARAMETER_NAMES:
-        try:
-            values[name] = float(module_params[name])
-        except (KeyError, TypeError, ValueError):
-            missing.append(name)
-    return values, missing
-
-
 def target_mass_function(log_mass, target, hubble_sim):
     """
     Evaluate the double Schechter target per dex at the simulation's h.
@@ -79,7 +61,7 @@ def target_mass_function(log_mass, target, hubble_sim):
 
     Args:
         log_mass: Array of log10(M*/Msun) at h_sim
-        target: Dict from read_target_parameters()
+        target: Dict from read_module_parameters(params, TARGET_PARAMETER_NAMES)
         hubble_sim: The simulation's h
 
     Returns:
@@ -134,7 +116,7 @@ def plot(
         params, "stellar_mass_function", PLOT_XLIM, PLOT_YLIM, log_y=True
     )
 
-    target, missing = read_target_parameters(params)
+    target, missing = read_module_parameters(params, TARGET_PARAMETER_NAMES)
     if missing:
         return None, f"Target parameters missing from modules.parameters: {', '.join(missing)}"
 
@@ -187,11 +169,18 @@ def plot(
         lw=2,
         label="Target (double Schechter)",
     )
-    ax.axvline(target["ShamTargetLogMassFloor"], color="0.5", ls=":", lw=1.5)
+    ax.axvline(
+        target["ShamTargetLogMassFloor"],
+        color="0.5",
+        ls=":",
+        lw=1.5,
+        clip_on=False,
+        label="mass floor",
+    )
 
-    # Plot stellar mass function (empty bins have nothing to show on the log axis)
+    # Empty bins have nothing to show on the log axis: leave gaps rather than bridging them.
     populated = smf > 0.0
-    ax.plot(xaxis[populated], smf[populated], "k-", label="Model (" + SAMPLE_LABEL + ")")
+    ax.plot(xaxis, np.where(populated, smf, np.nan), "k-", label="Model (" + SAMPLE_LABEL + ")")
 
     # Baldry, Glazebrook & Driver (2008), MNRAS 388, 945: z~0.1 field stellar
     # mass function. Columns: log10(M*) (Salpeter IMF; shifted -0.26 dex to

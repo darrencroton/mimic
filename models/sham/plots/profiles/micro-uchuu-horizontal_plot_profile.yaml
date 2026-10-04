@@ -7,10 +7,10 @@ simulation: micro-uchuu-horizontal
 
 axes:
   halo_mass_function:
-    xmin: 8.5
+    xmin: 9.0
     xmax: 15.0
   stellar_mass_function:
-    xmin: 8.0           # log10(M* / Msun) at h_sim
+    xmin: 7.5           # log10(M* / Msun) at h_sim; below the shipped mass floor (8.0) so it shows
     xmax: 12.5
     ymin: -6.0          # log10 of phi [Mpc^-3 dex^-1]
     ymax: -1.0

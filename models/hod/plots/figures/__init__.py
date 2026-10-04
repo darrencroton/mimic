@@ -70,42 +70,6 @@ def check_required_properties(galaxies, required_properties):
     return len(missing) == 0, missing
 
 
-HOD_PARAMETER_NAMES = (
-    "HODLogMmin",
-    "HODSigmaLogM",
-    "HODLogM0",
-    "HODLogM1",
-    "HODAlpha",
-    "HODConcA",
-    "HODConcLogMpivot",
-    "HODConcB",
-    "HODConcC",
-)
-
-
-def read_hod_parameters(params, names=HOD_PARAMETER_NAMES):
-    """
-    Read the run's hod_populate parameters from params["EnabledModules"]["parameters"].
-
-    Args:
-        params: Mimic params dict (the run file's modules section is EnabledModules).
-        names: Parameter names to read.
-
-    Returns:
-        (values, missing): dict name -> float for every parameter that is present and
-        numeric, and the list of names that are not.
-    """
-    module_params = ((params.get("EnabledModules") or {}).get("parameters")) or {}
-    values = {}
-    missing = []
-    for name in names:
-        try:
-            values[name] = float(module_params[name])
-        except (KeyError, TypeError, ValueError):
-            missing.append(name)
-    return values, missing
-
-
 def host_lookup(galaxies):
     """
     Map each created satellite to the Type 0 host named by its UniqueCentralGalaxyID.
@@ -152,7 +116,6 @@ PLOT_REQUIREMENTS = {
     "hod_occupation": ["Type", "Mvir", "HODGhost", "UniqueGalaxyID", "UniqueCentralGalaxyID"],
     "hod_satellite_profile": [
         "Type",
-        "SnapNum",
         "Pos",
         "Vel",
         "Rvir",

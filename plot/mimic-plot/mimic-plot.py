@@ -1351,8 +1351,9 @@ def generate_snapshot_plots(params, args, output_dir, selected_plots):
     mapper_params["verbose"] = args.verbose
     mapper = SnapshotRedshiftMapper(args.param_file, mapper_params, model_path)
     redshift_str = mapper.get_redshift_str(snapshot)
+    redshift = mapper.get_redshift(snapshot)
     if args.verbose:
-        print(f"  Redshift string for snapshot {snapshot}: {redshift_str}")
+        print(f"  Redshift string for snapshot {snapshot}: {redshift_str} (z={redshift:.4f})")
 
     base_model_file = os.path.join(model_path, f"{file_name_base}{redshift_str}")
     if args.verbose:
@@ -1371,6 +1372,7 @@ def generate_snapshot_plots(params, args, output_dir, selected_plots):
             verbose=args.verbose,
             quiet=args.quiet,
         )
+        metadata["redshift"] = redshift
         if args.verbose:
             print(f"Read {len(galaxies)} galaxies from volume {volume:.2f} (Mpc/h)³")
     except Exception as e:
@@ -1434,6 +1436,8 @@ def resolve_evolution_read_fields(plot_modules, selected_plots, evolution_plot_f
 def generate_evolution_plots(params, args, output_dir, selected_plots):
     """Read every evolution snapshot and generate the evolution plots.
 
+    Returns at once, reading nothing, when no registered evolution figure is selected.
+
     Returns (created_paths, skipped_validation).
     """
     if not args.quiet:
@@ -1442,6 +1446,12 @@ def generate_evolution_plots(params, args, output_dir, selected_plots):
     plot_modules = get_available_plot_modules("evolution", args.verbose)
     if args.verbose:
         print(f"Available evolution plots: {', '.join(plot_modules.keys())}")
+    if selected_plots:
+        plot_modules = {k: v for k, v in plot_modules.items() if k in selected_plots}
+    if not plot_modules:
+        if not args.quiet:
+            print("No evolution plots are registered or selected; skipping the evolution stage.")
+        return [], {}
 
     mapper_params = params.params.copy()
     mapper_params["quiet"] = args.quiet

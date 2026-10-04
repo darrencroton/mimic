@@ -26,7 +26,7 @@ unit Gaussian. The histograms are normalised by the whole per-component sample, 
 window (axes.hod_satellite_profile xmin/xmax) that cuts the tails leaves them comparable with
 the unconditional Gaussian; ymin/ymax set the velocity panel's y range.
 
-The snapshot redshift comes from the package's a_list through SnapshotRedshiftMapper.
+The snapshot redshift is metadata["redshift"], which the engine maps from the package's a_list.
 """
 
 import matplotlib.pyplot as plt
@@ -35,7 +35,6 @@ from figures import (
     AXIS_LABEL_SIZE,
     SAMPLE_LABEL,
     host_lookup,
-    read_hod_parameters,
     setup_legend,
     setup_plot_fonts,
 )
@@ -43,9 +42,9 @@ from output_utils import (
     check_required_fields,
     get_profile_axes,
     make_bin_edges,
+    read_module_parameters,
     save_and_close_figure,
 )
-from snapshot_redshift_mapper import SnapshotRedshiftMapper
 
 PLOT_KEY = "hod_satellite_profile"
 PLOT_XLIM = (-4.0, 4.0)  # Velocity panel, offset / (Vvir / sqrt(2))
@@ -152,20 +151,6 @@ def satellite_phase_space(galaxies, box_size, redshift, par):
     return s, conc, dv / sigma_1d[:, None]
 
 
-def snapshot_redshift(galaxies, params):
-    """Return (redshift, None) for the single snapshot in galaxies, or (None, reason)."""
-    snapshots = np.unique(galaxies.SnapNum)
-    if len(snapshots) != 1:
-        return None, f"Expected one snapshot in the data, found SnapNum values {snapshots.tolist()}"
-    mapper_params = dict(params)
-    mapper_params["verbose"] = False
-    try:
-        mapper = SnapshotRedshiftMapper(None, mapper_params, params.get("OutputDir"))
-        return mapper.get_redshift(int(snapshots[0])), None
-    except SystemExit:
-        return None, f"Snapshot {int(snapshots[0])} is not in the package's a_list"
-
-
 def plot(
     galaxies,
     volume,
@@ -181,7 +166,7 @@ def plot(
     Args:
         galaxies: Halo recarray with the HOD sample flag
         volume: Simulation volume in (Mpc/h)^3
-        metadata: Dictionary with additional metadata (box_size)
+        metadata: Dictionary with additional metadata (box_size, redshift)
         params: Dictionary with Mimic parameters
         output_dir: Output directory for the plot
         output_format: File format for the output
@@ -194,7 +179,6 @@ def plot(
         galaxies,
         required_fields=[
             "Type",
-            "SnapNum",
             "Pos",
             "Vel",
             "Rvir",
@@ -209,7 +193,7 @@ def plot(
     if not success:
         return None, f"Required fields missing: {msg}"
 
-    par, missing = read_hod_parameters(params, REQUIRED_PARAMETERS)
+    par, missing = read_module_parameters(params, REQUIRED_PARAMETERS)
     if missing:
         return None, "HOD parameters missing from the run file's modules.parameters: " + ", ".join(
             missing
@@ -218,9 +202,9 @@ def plot(
     if not box_size or box_size <= 0:
         return None, "metadata carries no positive box_size"
 
-    redshift, reason = snapshot_redshift(galaxies, params)
+    redshift = metadata.get("redshift")
     if redshift is None:
-        return None, reason
+        return None, "Could not map the snapshot to a redshift: metadata carries no redshift"
 
     s, conc, v_ratio = satellite_phase_space(galaxies, box_size, redshift, par)
     if len(s) == 0:
