@@ -15,8 +15,8 @@ declared tests by path:
                  the C unit test test_snapshot_module_contract and
                  tests/integration/test_snapshot_module_schema.py
   halos-only-v3  halos-only x mini-millennium-horizontal: tests/integration/test_snapshot_phase.py
-  sham           sham x micro-uchuu-ascii-horizontal: the sham_global_rank C unit and Python
-                 integration tests
+  sham           sham x micro-uchuu-ascii-horizontal: the sham_rank_match C unit test and the
+                 cases of its Python integration test
   hod            hod x micro-uchuu-ascii-horizontal: the hod_populate C unit test and the fixture
                  cases of its Python integration test (the vertical mini-Millennium cases run in
                  the integration tier of a hod x mini-millennium build)
@@ -47,7 +47,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 UNIT_DIR = REPO_ROOT / "tests" / "unit"
-SHAM_TESTS = Path("models/sham/modules/sham_global_rank/_tests")
+SHAM_TESTS = Path("models/sham/modules/sham_rank_match/_tests")
 HOD_TESTS = Path("models/hod/modules/hod_populate/_tests")
 MARKER_RE = re.compile(r"^MIMIC_RESULT: (PASS|WARN|FAIL|ERROR|SKIP)\b.*$", re.MULTILINE)
 MAKE_STATE = ("MAKEFLAGS", "MFLAGS", "MAKELEVEL")
@@ -117,10 +117,10 @@ GROUPS = (
         "sham",
         "micro-uchuu-ascii-horizontal",
         (
-            Test("sham_global_rank unit tests", SHAM_TESTS / "test_unit_sham_global_rank.c"),
+            Test("sham_rank_match unit tests", SHAM_TESTS / "test_unit_sham_rank_match.c"),
             Test(
-                "sham_global_rank integration tests",
-                SHAM_TESTS / "test_integration_sham_global_rank.py",
+                "sham_rank_match integration tests",
+                SHAM_TESTS / "test_integration_sham_rank_match.py",
             ),
         ),
     ),

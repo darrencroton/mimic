@@ -128,11 +128,12 @@ _ERROR_PREFIXES = ("ERROR:", "FATAL:")
 # Pattern that identifies deliberate inter-module ordering validation messages.
 # These are intentional contract checks — "module A requires module B to precede it"
 # — not runtime or infrastructure failures. Filtered in non-strict mode.
-# The SHAM stellar-mass exclusion and the HOD phase-placement rules are the same kind of deliberate
-# contract check.
+# The SHAM and HOD phase-placement rules and the SHAM redshift window are the same kind of
+# deliberate contract check.
 _VALIDATION_PATTERN = re.compile(
     r"ERROR: sage_\w.*(?:requires|must run after)\s+sage_"
-    r"|ERROR: sham_global_rank and sham_assign_stellar_mass are independent"
+    r"|ERROR: sham_rank_match (?:must be configured |is configured in )"
+    r"|ERROR: sham_rank_match: output snapshot \d+ has z = "
     r"|ERROR: hod_populate (?:is configured in |must be configured exactly once )"
     r"|ERROR: hod_populate: modules\.post_snapshot is configured but does not contain",
     re.IGNORECASE,
@@ -199,10 +200,10 @@ def discover_modules(model: str, horizontal: bool = False) -> List[Dict[str, Any
 def load_base_config(model: str, simulation: str) -> Dict[str, Any]:
     """Load the canonical run YAML for the given model/simulation pair.
 
-    The canonical name is models/<model>/input/<model>_<simulation>.yaml. When that file
-    does not exist but exactly one other run file in the directory ends in
-    ``_<simulation>.yaml`` (for example sham_global_micro-uchuu-ascii-horizontal.yaml),
-    that file is used; several candidates are an error rather than a guess.
+    The canonical name is models/<model>/input/<model>_<simulation>.yaml (for example
+    sham_micro-uchuu-ascii-horizontal.yaml). When that file does not exist but exactly one
+    other run file in the directory ends in ``_<simulation>.yaml``, that file is used; several
+    candidates are an error rather than a guess.
     """
     input_dir = REPO_ROOT / "models" / model / "input"
     yaml_path = input_dir / f"{model}_{simulation}.yaml"

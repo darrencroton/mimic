@@ -42,9 +42,9 @@ Canonical build → run → check sequences (each uses one consistent selector p
 make
 ./mimic models/sage16/input/sage16_mini-millennium.yaml; echo "rc=$?"
 
-# SHAM model (same simulation)
-make MODEL=sham SIMULATION=mini-millennium
-./mimic models/sham/input/sham_mini-millennium.yaml; echo "rc=$?"
+# SHAM model (horizontal only: the rank needs a whole snapshot, so use the fixture pair)
+make MODEL=sham SIMULATION=micro-uchuu-ascii-horizontal
+./mimic models/sham/input/sham_micro-uchuu-ascii-horizontal.yaml; echo "rc=$?"
 
 # Halos-only: empty model package, halo tracking with no galaxy physics
 make MODEL=halos-only SIMULATION=mini-millennium

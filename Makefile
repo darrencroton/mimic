@@ -502,8 +502,8 @@ help:
 	@echo "  make tests-integration  - Run integration tests only"
 	@echo "  make tests-scientific   - Run scientific tests only"
 	@echo "  make tests-horizontal-v3 - Run the version 3 reader, retention and identity battery and the mini-millennium-horizontal package tests on committed fixtures"
-	@echo "  make tests-snapshot-global - Run the post_snapshot phase, typed callback/schema and sham_global_rank batteries on the committed horizontal fixtures"
-	@echo "  make tests-snapshot-global-sham - Run the sham_global_rank unit and end-to-end tests under MODEL=sham on the micro-uchuu-ascii-horizontal fixture"
+	@echo "  make tests-snapshot-global - Run the post_snapshot phase, typed callback/schema, sham_rank_match and hod_populate batteries on the committed horizontal fixtures"
+	@echo "  make tests-snapshot-global-sham - Run the sham_rank_match unit and end-to-end tests under MODEL=sham on the micro-uchuu-ascii-horizontal fixture"
 	@echo "  make tests-snapshot-global-hod - Run the hod_populate unit and end-to-end tests under MODEL=hod on the micro-uchuu-ascii-horizontal fixture"
 	@echo "  make tests-snapshot-global-identity - Compare disabled-mode post_snapshot output with the pinned pre-feature reference commit (cached worktrees; about a minute; REFERENCE_COMMIT=<hash> overrides)"
 	@echo "  make tests-converter    - Run the ctrees->horizontal-HDF5 converter self-tests"
@@ -881,7 +881,7 @@ tests-horizontal-v3:
 
 # Snapshot-global fixture battery (tests/manual/run_snapshot_global_battery.py has the steps,
 # the marker policy and the restore of the caller's generated code; rebuild with `make` after).
-# The -sham and -hod targets run only the sham_global_rank and hod_populate groups. Needs no real
+# The -sham and -hod targets run only the sham_rank_match and hod_populate groups. Needs no real
 # dataset.
 SG_RUNNER := MODEL='$(MODEL)' SIMULATION='$(SIMULATION)' $(PYTHON) tests/manual/run_snapshot_global_battery.py
 

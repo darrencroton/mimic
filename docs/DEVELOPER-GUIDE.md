@@ -2,7 +2,7 @@
 
 **Practical guide to extending Mimic with physics modules, properties, tests, and generated metadata.**
 
-This guide is for contributors and researchers modifying Mimic internals: writing a new physics module, adding properties, wiring up a new simulation, or working on the framework itself. It assumes you have already run Mimic successfully — if not, start with the [User Guide](USER-GUIDE.md). For the architectural principles and design rationale behind the structures described here, see [VISION.md](VISION.md). The shipped model packages are worked examples of everything in this guide: [models/sage16/](../models/sage16/README.md) is a mature production package, and [models/sham/](../models/sham/README.md) is the minimal pattern.
+This guide is for contributors and researchers modifying Mimic internals: writing a new physics module, adding properties, wiring up a new simulation, or working on the framework itself. It assumes you have already run Mimic successfully — if not, start with the [User Guide](USER-GUIDE.md). For the architectural principles and design rationale behind the structures described here, see [VISION.md](VISION.md). The shipped model packages are worked examples of everything in this guide: [models/sage16/](../models/sage16/README.md) is a mature production package, and [models/sham/](../models/sham/README.md) is a compact horizontal-only example with a whole-snapshot module.
 
 ---
 

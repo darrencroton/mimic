@@ -1,0 +1,68 @@
+# Mimic SHAM on the real micro-Uchuu horizontal box Run Configuration
+#
+# The real 100 Mpc/h micro-Uchuu box (horizontal HDF5 version 3, from the L-Halo
+# binary). Needs the horizontal driver and a build of
+# MODEL=sham SIMULATION=micro-uchuu-horizontal; run it from the repository root.
+# Single process, fully resident.
+#
+# sham_rank_match runs once per FoF step in pre_timestep at every processed
+# snapshot: it retires carried Type 2 rows, ratchets the peak proxies
+# ShamVpeak/ShamMpeak of every Type 0/1 row, and resets every row to a non-member
+# (ShamGhost = 1, StellarMass = 0). In post_snapshot it ranks the whole snapshot's
+# Type 0/1 rows with ShamVpeak >= ShamMinVpeak (descending ShamVpeak, ties by
+# ascending UniqueGalaxyID) and gives rank r the stellar mass at which the Baldry
+# et al. (2012) GAMA double Schechter function, converted from h = 0.7 to the
+# simulation's h, has n(>M) = (r + 0.5) / BoxSize^3 * h^3; ranks denser than
+# n(>10^8 Msun) are masked. It logs one "SHAM audit" line per output snapshot
+# with the candidate, assigned and masked counts. Sample members have
+# ShamGhost == 0; consumers filter on it.
+#
+# One output epoch: the target is cross-sectional (GAMA z < 0.06), so it is applied
+# only where it was observed. Snapshot 49 (z = 0.0005) is the only epoch of this box
+# inside the target's window, hence snapshot_list: [49] and ShamTargetRedshiftMax 0.1
+# (startup fails if any output snapshot lies above it). The peak history is still
+# accumulated over every processed snapshot: pre_timestep runs at all of them, so
+# ShamVpeak at snapshot 49 is the maximum Vmax along the whole branch, not the
+# snapshot-49 value. Only the output is restricted.
+#
+# ShamMinVpeak 80 km/s is the completeness floor on that peak proxy (halos with
+# fewer than about 100 particles are unreliable); the audit line reports how many
+# rows pass it and whether any rank is masked below the target's mass floor.
+# This is a calibrated-target rank match with zero scatter, not an observational
+# parity claim.
+
+model:
+  name: sham
+
+simulation:
+  name: micro-uchuu-horizontal
+
+output:
+  output_filename: sham
+  output_directory: output/sham-micro-uchuu-horizontal
+  output_format: hdf5                               # Horizontal runs write HDF5 only
+  snapshot_list: [49]                               # z = 0.0005, the only epoch inside the target's window
+
+SubSteps: 1
+
+modules:
+
+  # Retirement, peak tracking and the non-member reset, before any other module.
+  pre_timestep:
+    - sham_rank_match: process_full_halo
+
+  # The whole-snapshot rank match on each output snapshot.
+  post_snapshot:
+    - sham_rank_match: process_snapshot
+
+  parameters:
+    # Baldry et al. (2012) GAMA z < 0.06 double Schechter (physical Msun, Mpc^-3 at h = 0.7)
+    ShamTargetLogMstar: 10.66      # log10 Ms [Msun]
+    ShamTargetPhi1: 3.96e-3        # phi1 [Mpc^-3]
+    ShamTargetAlpha1: -0.35        # alpha1 [dimensionless]
+    ShamTargetPhi2: 0.79e-3        # phi2 [Mpc^-3]
+    ShamTargetAlpha2: -1.47        # alpha2 [dimensionless]
+    ShamTargetHubble: 0.7          # h of the published fit
+    ShamTargetLogMassFloor: 8.0    # log10 lowest assignable mass [Msun at the simulation's h]
+    ShamTargetRedshiftMax: 0.1     # largest output redshift (the target's z < 0.06, with margin)
+    ShamMinVpeak: 80               # candidate completeness floor on ShamVpeak [km/s]

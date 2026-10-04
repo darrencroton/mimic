@@ -90,8 +90,8 @@ make
 
 ```bash
 make                                   # defaults: MODEL=sage16 SIMULATION=mini-millennium
-make MODEL=sham SIMULATION=mini-millennium   # another pair; keep the SAME pair for
-                                             # generate / validate-modules / tests / run
+make MODEL=sham SIMULATION=micro-uchuu-ascii-horizontal   # another pair; keep the SAME pair for
+                                                          # generate / validate-modules / tests / run
 make SIM=mini-millennium               # SIM is shorthand for SIMULATION
 make USE-HDF5=no                       # binary output only (see consequences below)
 make USE-MPI=yes                       # requires mpicc (or CC=<mpi-wrapper>)

@@ -139,7 +139,7 @@ Optional per-model file `models/<model>/parameter_units.yaml` declaring physical
 - Schema: a `parameters:` list of `{name, type, units, h_convention}`; `type` is `double` only.
 - Modules read converted values via the `*_INTERNAL` macro variants in `src/module_system/parameter_helpers.h` (they apply `mimic_parameter_unit_factor` at load).
 - Any parameter NOT listed is assumed to already be in reference units — no conversion.
-- Currently `sham` has this file; `sage16` does not (all sage16 parameters are reference-unit or dimensionless). Verify: `ls models/*/parameter_units.yaml`.
+- Currently no shipped model has this file (sage16's parameters are reference-unit or dimensionless; sham's are read as plain doubles in the units its README states). Verify: `ls models/*/parameter_units.yaml` (no match means none).
 
 Generated conversion code lands in `src/include/generated/parameter_unit_conversions.h` via `make generate` — never hand-edit it. See the `mimic-properties` skill for the unit registry and h-convention machinery.
 

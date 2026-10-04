@@ -56,7 +56,7 @@ make
 
 ```bash
 make                                          # default: sage16 model + mini-Millennium simulation
-make MODEL=sham SIMULATION=mini-millennium    # build the SHAM example model instead
+make MODEL=sham SIMULATION=micro-uchuu-ascii-horizontal  # build the SHAM example model (horizontal only)
 make MODEL=halos-only SIMULATION=mini-millennium  # halo catalogue only, no galaxy physics
 make -j$(nproc)                               # parallel build (on macOS use e.g. make -j8)
 make USE-HDF5=no                              # build without HDF5 (binary output only)
@@ -300,10 +300,10 @@ Module parameters have no global defaults in the core. A module loads and valida
 ```yaml
 modules:
   post_snapshot:
-    - sham_global_rank: process_snapshot
+    - sham_rank_match: process_snapshot
 ```
 
-The shipped example is `models/sham/input/sham_global_micro-uchuu-ascii-horizontal.yaml`: it needs a build with `MODEL=sham SIMULATION=micro-uchuu-ascii-horizontal` and runs from the repository root. Its ranking target is an uncalibrated demonstration, not a science configuration.
+The shipped example is `models/sham/input/sham_micro-uchuu-ascii-horizontal.yaml`: it needs a build with `MODEL=sham SIMULATION=micro-uchuu-ascii-horizontal` and runs from the repository root. `sham_rank_match` also needs a `pre_timestep` entry for its per-FoF peak tracking. Its target is the Baldry et al. (2012) stellar mass function converted to the simulation's `h`; the fixture is not a complete volume, so that run demonstrates the framework, while `sham_micro-uchuu-horizontal.yaml` applies the same target to the real 100 Mpc/h box (see the [sham package README](../models/sham/README.md)). Neither is an observational parity claim.
 
 - It runs only under the horizontal driver: once per input snapshot (the empty, non-output and final snapshots included, whatever `SubSteps` and `TimestepScheme` say), after the snapshot's FoF sweep and before the snapshot is inherited from or written. A vertical run accepts an absent, `null` or empty (`[]`) `post_snapshot` and rejects a non-empty one at startup. All the horizontal restrictions in [Running Horizontal Input](#running-horizontal-input) still apply.
 - Each callback sees the current snapshot's processed population only — no Type 3 galaxies, no raw halos without a galaxy, nothing from earlier snapshots. Its galaxy-property writes are seen by the next `post_snapshot` entry, by descendants that inherit those galaxies (across skipped snapshots too), and by the snapshot's own output.
@@ -395,7 +395,7 @@ make MODEL=<model> SIMULATION=<simulation>
 ./mimic models/<model>/input/<run_file>.yaml
 ```
 
-For example, [sage16](../models/sage16/README.md) is the default complete galaxy-formation model, [sham](../models/sham/README.md) is a compact two-module example, and [halos-only](../models/halos-only/README.md) is the no-galaxy-physics package for exploring the dark-matter halo catalogue. Check `models/` for the current list, and each package's README before drawing scientific conclusions from it.
+For example, [sage16](../models/sage16/README.md) is the default complete galaxy-formation model, [sham](../models/sham/README.md) is a compact one-module abundance-matching example, and [halos-only](../models/halos-only/README.md) is the no-galaxy-physics package for exploring the dark-matter halo catalogue. Check `models/` for the current list, and each package's README before drawing scientific conclusions from it.
 
 Swapping the simulation under a fixed model is a workflow in its own right, not just a configuration detail: develop and calibrate on a small box, then rerun the identical physics on a larger volume for production statistics, or across catalogues with different resolutions or cosmologies to test how robust your conclusions are to the input simulation. The shipped [mini-Millennium package](../simulations/mini-millennium/README.md) is the small working example, and a [full Millennium package](../simulations/millennium/README.md) is provided for users with access to the complete tree data — check `simulations/` for the current list. Adding your own simulation is a developer task — see [Adding a New Simulation](DEVELOPER-GUIDE.md#adding-a-new-simulation).
 
@@ -704,7 +704,7 @@ make clean && make
 ./mimic --debug models/sage16/input/sage16_mini-millennium.yaml 2>&1 | tee debug.log
 ```
 
-**Run file rejected at startup (model/simulation mismatch)**: The executable was built for a different `MODEL`/`SIMULATION` pair than the run file selects. Rebuild with matching selectors, e.g. `make MODEL=sham SIMULATION=mini-millennium` for the SHAM run file.
+**Run file rejected at startup (model/simulation mismatch)**: The executable was built for a different `MODEL`/`SIMULATION` pair than the run file selects. Rebuild with matching selectors, e.g. `make MODEL=sham SIMULATION=micro-uchuu-ascii-horizontal` for the SHAM run file.
 
 **Cannot open input files**: Check `input.simulation_dir`, `input.tree_name`, `input.first_file`, `input.last_file`, and `input.snapshot_list_file`. Mimic creates output directories but does not create or download missing input data during a normal run.
 
@@ -714,7 +714,7 @@ make clean && make
 ./scripts/first_run.sh
 ```
 
-**Module-pipeline rejection at startup**: Mimic checks the module pipeline before any module is initialised, and the message names the phase or module. The snapshot-wide rejections are: `process_snapshot` placed in `pre_timestep`, `post_timestep` or a `phases:` entry (it belongs only under `modules.post_snapshot`); a FoF mode (`process_full_halo`, `process_per_event`, `process_by_galaxy`) listed under `post_snapshot` (use `process_snapshot`, which the module must advertise); a non-empty `post_snapshot` under a vertical reader (the vertical driver never holds a whole snapshot, so use a horizontal package or remove the phase; absent, `null` and `[]` are accepted); a module listed more than once in `post_snapshot`, or an entry with more than one `name: mode` pair in any phase (each module needs its own `- name: mode` item, otherwise the extra pair would be silently dropped); and `sham_global_rank` configured together with `sham_assign_stellar_mass`, which are independent stellar-mass prescriptions that would overwrite each other (configure only one).
+**Module-pipeline rejection at startup**: Mimic checks the module pipeline before any module is initialised, and the message names the phase or module. The snapshot-wide rejections are: `process_snapshot` placed in `pre_timestep`, `post_timestep` or a `phases:` entry (it belongs only under `modules.post_snapshot`); a FoF mode (`process_full_halo`, `process_per_event`, `process_by_galaxy`) listed under `post_snapshot` (use `process_snapshot`, which the module must advertise); a non-empty `post_snapshot` under a vertical reader (the vertical driver never holds a whole snapshot, so use a horizontal package or remove the phase; absent, `null` and `[]` are accepted); a module listed more than once in `post_snapshot`, or an entry with more than one `name: mode` pair in any phase (each module needs its own `- name: mode` item, otherwise the extra pair would be silently dropped); and `sham_rank_match` configured other than exactly once in `pre_timestep` as `process_full_halo` and once in `post_snapshot` as `process_snapshot` (it needs both phases, so it runs only under a horizontal package), in `post_timestep` or in a substep phase, or with an output snapshot above `ShamTargetRedshiftMax`.
 
 **Module not registered**: Run:
 
