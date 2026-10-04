@@ -387,23 +387,26 @@ static int test_unknown_largest_unit_falls_back_to_multiplier(void) {
   MimicConfig.ZZ[0] = 0.0;
 
   /* A known answer first, then the unknown one: unknown must absorb a larger
-   * known value scanned before it. */
+   * known value scanned before it. The offsets tile [0, 3), the run's three
+   * forests, as a reader's global_forest_offset() must. */
   synthetic_npartitions = 2;
-  set_partition(0, 2, 1.0, 70);
+  set_partition(0, 2, 1.0, 0);
   synthetic_max_unit_halos[0] = 5000;
-  set_partition(1, 1, 1.0, 72);
+  set_partition(1, 1, 1.0, 2);
   synthetic_max_unit_halos[1] = -1;
 
   run_vertical_driver();
 
   TEST_ASSERT_EQUAL(load_calls, 3, "driver should load every unit of both partitions");
-  const int64_t expected_units[3] = {70, 71, 72};
+  const int64_t expected_units[3] = {0, 1, 2};
   for (int i = 0; i < 3; i++) {
     TEST_ASSERT_EQUAL(loaded_identity[i].unit, expected_units[i],
                       "published unit should be GlobalForestOffset + unit index");
     TEST_ASSERT_EQUAL(loaded_identity[i].rows_per_unit, MimicConfig.UniqueGalaxyIDMultiplier,
                       "unknown largest unit should fall back to the forest multiplier");
     TEST_ASSERT(loaded_identity[i].fits, "3 units of 10^9 rows should fit int64");
+    TEST_ASSERT(loaded_identity[i].unit < loaded_identity[i].units,
+                "every published unit lies inside the space's unit count");
   }
 
   const struct RecordIdentitySpace after = vertical_driver_record_identity_space();

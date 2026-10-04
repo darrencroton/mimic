@@ -10,13 +10,51 @@
    int64_t on both drivers: a horizontal slab index can exceed int32, and the
    vertical driver shares these types so there is one index type throughout. */
 
-struct FoFWorkspace; /* core/fof_workspace.h */
+struct FoFWorkspace;        /* core/fof_workspace.h */
+struct OutputBufferSegment; /* core/output_buffer.h */
 
 /* Shared driver adapters (src/core/halo_evolution.c); each driver passes its
    own FoF workspace descriptor, whose count is the FoF group's row count. */
 void process_halo_evolution(struct HaloInputView view, struct FoFWorkspace *ws, int64_t halonr);
 int64_t count_fof_subhalos(struct HaloInputView view, int64_t first_fof_halo);
 struct HaloInitPayload make_halo_init_payload(struct HaloInputView view, int64_t halonr);
+
+/**
+ * @brief   Close one subhalo slice just joined into the workspace
+ *
+ * Stamps the FoF central's catalog virial mass (get_virial_mass()) as CentralMvir
+ * on workspace rows [workspace_start, ws->count) and fills @p segment for the
+ * output marshaller (source halo, its snapshot, the slice's workspace range, no
+ * output yet).
+ *
+ * @param   view             Input view the slice's source halo lives in
+ * @param   ws               Workspace whose count already includes the slice
+ * @param   workspace_start  First workspace row of the slice
+ * @param   source_halo      Input index of the slice's subhalo
+ * @param   segment          Output segment to fill
+ */
+void record_subhalo_slice(struct HaloInputView view, struct FoFWorkspace *ws,
+                          int64_t workspace_start, int64_t source_halo,
+                          struct OutputBufferSegment *segment);
+
+/**
+ * @brief   Evaluate a driver's created-record identity space and log the verdict
+ *
+ * Applies mimic_created_record_space_fits() (galaxy_id.h) and logs units,
+ * rows_per_unit, its source, the radix and the verdict at INFO, in the one
+ * format both drivers share. The verdict is recorded, never acted on.
+ *
+ * @param   driver                "vertical" or "horizontal" (a string literal; stored)
+ * @param   reader_name           Active reader's registered name, for the log line
+ * @param   units                 The run's unit count
+ * @param   rows_per_unit         Rows per unit the encoding reserves
+ * @param   rows_per_unit_source  Where rows_per_unit came from, for the log line
+ * @return  The space with unit = -1; the driver publishes each unit's number itself
+ */
+struct RecordIdentitySpace record_identity_space_evaluate(const char *driver,
+                                                          const char *reader_name, int64_t units,
+                                                          int64_t rows_per_unit,
+                                                          const char *rows_per_unit_source);
 
 /* Vertical driver (src/core/build_model.c) */
 void build_halo_tree(int64_t halonr, int unit, int depth);
@@ -53,6 +91,28 @@ void prepare_halo_for_output(struct HaloInputView view, const struct Halo *g, st
 double get_virial_velocity(struct HaloInputView view, int64_t halonr);
 double get_virial_radius(struct HaloInputView view, int64_t halonr);
 double get_virial_mass(struct HaloInputView view, int64_t halonr);
+
+/**
+ * @brief   Virial radius of a halo of mass @p mvir at @p redshift
+ *
+ * The radius enclosing a mean density of 200 times the critical density at
+ * @p redshift for the run's cosmology (MimicConfig), the definition
+ * get_virial_radius() applies to a catalogue halo.
+ *
+ * @param   mvir      Virial mass in 1e10 Msun/h
+ * @param   redshift  Redshift at which the critical density is taken
+ * @return  Virial radius in Mpc/h (0 when the critical density is not positive)
+ */
+double virial_radius_for_mass(double mvir, double redshift);
+
+/**
+ * @brief   Circular velocity at the virial radius, sqrt(G Mvir / Rvir)
+ *
+ * @param   mvir  Virial mass in 1e10 Msun/h
+ * @param   rvir  Virial radius in Mpc/h
+ * @return  Virial velocity in km/s, or 0 when @p rvir is not positive
+ */
+double virial_velocity_for(double mvir, double rvir);
 
 /* Horizontal driver (src/core/horizontal_driver.c) */
 struct InheritanceProgenitorGalaxy; /* core/inheritance.h */

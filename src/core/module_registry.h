@@ -330,6 +330,18 @@ int model_get_double_internal(const char *param_name, double *out_value);
 int model_get_int(const char *param_name, int *out_value);
 
 /**
+ * @brief   Whether the run file sets a model parameter, without reading it
+ *
+ * For optional parameters: the model_get_*() readers treat a missing parameter
+ * as an error and log it, so a module checks presence first and reads only
+ * what is there. Logs nothing.
+ *
+ * @param   param_name      Parameter name
+ * @return  true if model_parameters (MimicConfig.ModelParams) names it
+ */
+bool model_has_param(const char *param_name);
+
+/**
  * @brief   Get required model parameter as string
  *
  * @param   param_name      Parameter name
@@ -369,6 +381,24 @@ bool module_configured_in_phase(const char *name, const struct PhaseModuleConfig
                                 int num_modules, enum ProcessingMode mode);
 
 /**
+ * @brief   Count a module's entries in one phase, and how many use a given mode
+ *
+ * Phases accept repeated entries (the registry initialises a module once), so a
+ * module that must run a fixed number of times per FoF step counts its own
+ * entries rather than asking module_configured_in_phase() whether one exists.
+ *
+ * @param   module_name        Module name to count
+ * @param   phase              Phase config array (e.g. MimicConfig.post_timestep, or a
+ *                             substep phase's modules); NULL counts as empty
+ * @param   num_modules        Number of entries in the phase array
+ * @param   mode               Processing mode to count separately
+ * @param   matching_mode_out  Receives how many of the entries use @p mode; may be NULL
+ * @return  Number of entries naming @p module_name in any mode
+ */
+int module_count_phase_entries(const char *module_name, const struct PhaseModuleConfig *phase,
+                               int num_modules, enum ProcessingMode mode, int *matching_mode_out);
+
+/**
  * @brief   Check if a module is configured in any phase with any mode
  *
  * Covers the FoF phases and post_snapshot.
@@ -377,6 +407,23 @@ bool module_configured_in_phase(const char *name, const struct PhaseModuleConfig
  * @return  true if the module appears in any phase
  */
 bool module_configured_anywhere(const char *name);
+
+/* ==============================================================================
+ * RUN CONFIGURATION QUERIES
+ * ============================================================================== */
+
+/**
+ * @brief   Whether a snapshot is one of the run's requested output snapshots
+ *
+ * True when @p snapshot is in MimicConfig.ListOutputSnaps[0, NOUT). Configuration
+ * expands an empty output.snapshot_list to every snapshot before any module's
+ * init() runs (read_parameter_file.c), so at run time NOUT is never 0 and an
+ * empty list needs no special case. The list may be unsorted, so this scans it.
+ *
+ * @param   snapshot  Snapshot number (e.g. ModuleContext.snapshot_number)
+ * @return  true if the run writes output at @p snapshot
+ */
+bool mimic_is_output_snapshot(int snapshot);
 
 /* ==============================================================================
  * EVENT CONTRACT ENUMERATION

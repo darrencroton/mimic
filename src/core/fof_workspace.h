@@ -77,15 +77,34 @@ struct FoFWorkspace {
 void fof_workspace_reserve(struct FoFWorkspace *ws, int64_t required);
 
 /**
+ * @brief   Capacity after one growth step that holds at least @p required entries
+ *
+ * @param   capacity   Current capacity
+ * @param   required   Entries the caller needs (callers grow only when it exceeds @p capacity)
+ * @param   what       What is growing, named in the fatal message
+ * @return  `capacity * HALO_ARRAY_GROWTH_FACTOR`, at least MIN_HALO_ARRAY_GROWTH more
+ *          than @p capacity, raised to @p required when that is still short, and
+ *          capped at MAX_HALO_ARRAY_SIZE
+ *
+ * A single jump, with no loop and no log line, unlike fof_workspace_reserve(). A
+ * @p required above MAX_HALO_ARRAY_SIZE is fatal. Shared by
+ * fof_workspace_reserve_created() and the record-creation scratch
+ * (module_registry.c).
+ */
+int64_t fof_workspace_grown_capacity(int64_t capacity, int64_t required, const char *what);
+
+/**
  * @brief   Grow the created-host map until it holds at least @p required entries
  *
  * @param   ws         Workspace whose created_host map to grow
  * @param   required   Number of created rows the caller is about to record
  *
- * Same policy as fof_workspace_reserve() (growth factor, minimum increment,
- * MAX_HALO_ARRAY_SIZE ceiling, MEM_HALOS); new entries are not initialised,
- * since the caller fills every entry it records. Does nothing when the
- * capacity already suffices.
+ * Grows once, straight to fof_workspace_grown_capacity() (the growth factor
+ * and minimum increment, or @p required when that is larger, capped at
+ * MAX_HALO_ARRAY_SIZE), through myrealloc_cat in MEM_HALOS and without an
+ * INFO line; a request above MAX_HALO_ARRAY_SIZE is fatal. New entries are not
+ * initialised, since the caller fills every entry it records. Does nothing
+ * when the capacity already suffices.
  */
 void fof_workspace_reserve_created(struct FoFWorkspace *ws, int64_t required);
 

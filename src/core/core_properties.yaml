@@ -81,7 +81,7 @@ halo_properties:
   - name: UniqueGalaxyID
     type: long long
     units: dimensionless
-    description: Persistent run-scoped unique galaxy identifier across all snapshots (creation_halonr + multiplier * (forestnr_global + 1), where multiplier is simulation.unique_galaxy_id_multiplier, default 10^9, provenance attribute UniqueGalaxyIDMultiplier)
+    description: Persistent run-scoped unique galaxy ID, creation_halonr + multiplier * (forestnr_global + 1) for tree rows (multiplier = simulation.unique_galaxy_id_multiplier, default 10^9) and strictly negative -(1 + ordinal + 1024 * host_key) for created records
     output: true
     init_source: default  # Initialized to 0, then set in init_halo() after auto-gen code
     init_value: 0

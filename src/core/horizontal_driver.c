@@ -547,19 +547,9 @@ static void horizontal_evaluate_record_identity_space(struct HorizontalDriverSta
       rows_per_unit = nhalos;
     }
   }
-  const bool fits = mimic_created_record_space_fits(info->snapshot_count, rows_per_unit);
-
-  state->identity = (struct RecordIdentitySpace){
-      .unit = -1,
-      .rows_per_unit = rows_per_unit,
-      .fits = fits,
-      .units = info->snapshot_count,
-  };
-
-  INFO_LOG("Created-record identity space (horizontal, reader '%s'): units=%" PRId64
-           ", rows_per_unit=%" PRId64 " (largest snapshot slab), radix=%d: %s",
-           state->reader->name, info->snapshot_count, rows_per_unit, MAX_CREATED_RECORDS_PER_HOST,
-           fits ? "fits int64" : "does not fit int64; this run cannot create records");
+  state->identity =
+      record_identity_space_evaluate("horizontal", state->reader->name, info->snapshot_count,
+                                     rows_per_unit, "largest snapshot slab");
 }
 
 /* ------------------------------------------------------------------------- */
@@ -656,20 +646,8 @@ static int64_t horizontal_process_fof_group(struct HorizontalDriverState *state,
 
     ws->count = horizontal_join_progenitor_halos(state, cur, lookup, fofhalo, ws->count);
 
-    /* Stamp the FoF-central catalog virial mass onto every member of this
-     * subhalo slice before physics runs, exactly as the tree FoF block in build_model.c. */
-    const double central_mvir =
-        get_virial_mass(view, mimic_tree_get_FirstHaloInFOFgroup(view, source_halo));
-    for (int64_t p = workspace_start; p < ws->count; p++) {
-      ws->halos[p].CentralMvir = central_mvir;
-    }
-
-    segments[segment_index].source_id = source_halo;
-    segments[segment_index].snapshot_number = mimic_tree_get_SnapNum(view, source_halo);
-    segments[segment_index].workspace_start = workspace_start;
-    segments[segment_index].workspace_count = ws->count - workspace_start;
-    segments[segment_index].output_first = -1;
-    segments[segment_index].output_count = 0;
+    /* CentralMvir stamp and output segment, the same body as the tree FoF block. */
+    record_subhalo_slice(view, ws, workspace_start, source_halo, &segments[segment_index]);
     segment_index++;
 
     fofhalo = mimic_tree_get_NextHaloInFOFgroup(view, fofhalo);
@@ -1035,7 +1013,7 @@ static int64_t horizontal_retained_resident_bytes(const struct HorizontalDriverS
  * rows), so it is a warning. Both need chunked slab streaming to lift.
  */
 static void horizontal_require_slab_emittable(int64_t snapnum, int64_t nhalos) {
-  if (nhalos > INT_MAX && horizontal_output_snapshot_index(snapnum) >= 0) {
+  if (nhalos > INT_MAX && snapnum <= INT_MAX && mimic_is_output_snapshot((int)snapnum)) {
     FATAL_ERROR("Snapshot %" PRId64 " holds %" PRId64 " halos and is a requested output snapshot, "
                 "but the output path caps a snapshot's record count at INT_MAX "
                 "(output_increment_halo_counters_checked). Refused before allocation: "

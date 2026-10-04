@@ -6,6 +6,8 @@
  * - get_virial_mass(): Catalog or particle-count mass for one halo
  * - get_virial_velocity(): Circular velocity at the virial radius
  * - get_virial_radius(): 200c virial radius from Mvir and ρcrit(z)
+ * - virial_radius_for_mass(), virial_velocity_for(): the same two formulas for
+ *   any mass and redshift, which the catalogue helpers delegate to
  */
 
 #include <assert.h>
@@ -68,12 +70,13 @@ double get_virial_mass(struct HaloInputView view, int64_t halonr) {
  * Returns 0.0 if the virial radius is zero or negative.
  */
 double get_virial_velocity(struct HaloInputView view, int64_t halonr) {
-  double Rvir;
+  return virial_velocity_for(get_virial_mass(view, halonr), get_virial_radius(view, halonr));
+}
 
-  Rvir = get_virial_radius(view, halonr);
-
-  if (Rvir > 0.0)
-    return sqrt(MimicConfig.G * get_virial_mass(view, halonr) / Rvir);
+/* Same operation order as the catalogue path above, so both give identical bits. */
+double virial_velocity_for(double mvir, double rvir) {
+  if (rvir > 0.0)
+    return sqrt(MimicConfig.G * mvir / rvir);
   else
     return 0.0;
 }
@@ -104,9 +107,14 @@ double get_virial_radius(struct HaloInputView view, int64_t halonr) {
    * from the catalog, so all simulations share one virial definition
    * (catalogs like Bolshoi provide Rvir directly, but with varying
    * conventions). */
+  return virial_radius_for_mass(get_virial_mass(view, halonr),
+                                MimicConfig.ZZ[mimic_tree_get_SnapNum(view, halonr)]);
+}
+
+double virial_radius_for_mass(double mvir, double redshift) {
   double zplus1, hubble_of_z_sq, rhocrit, fac;
 
-  zplus1 = 1 + MimicConfig.ZZ[mimic_tree_get_SnapNum(view, halonr)];
+  zplus1 = 1 + redshift;
   hubble_of_z_sq = MimicConfig.Hubble * MimicConfig.Hubble *
                    (MimicConfig.Omega * zplus1 * zplus1 * zplus1 +
                     (1 - MimicConfig.Omega - MimicConfig.OmegaLambda) * zplus1 * zplus1 +
@@ -115,5 +123,5 @@ double get_virial_radius(struct HaloInputView view, int64_t halonr) {
   rhocrit = safe_div(3 * hubble_of_z_sq, 8 * M_PI * MimicConfig.G, 0.0);
   fac = safe_div(1.0, 200 * 4 * M_PI / 3.0 * rhocrit, 0.0);
 
-  return cbrt(get_virial_mass(view, halonr) * fac);
+  return cbrt(mvir * fac);
 }

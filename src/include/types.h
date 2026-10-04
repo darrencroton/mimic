@@ -41,14 +41,18 @@ struct HaloInputView {
  *
  * `units` is the run's unit count that verdict was evaluated with (the total
  * forest count under the vertical driver, the dataset's snapshot count under the
- * horizontal driver), carried so a refused creation can report both numbers. It
- * is the last member so positional initialisers of the first three stay valid.
+ * horizontal driver), carried so a refused creation can report both numbers.
+ * `driver` names the publishing driver ("vertical" or "horizontal", a string
+ * literal) for the same refusal, so module dispatch never needs the reader
+ * headers to name it; a hand-built space may leave it NULL. Members are only
+ * ever appended, so positional initialisers of the leading members stay valid.
  */
 struct RecordIdentitySpace {
   int64_t unit;
   int64_t rows_per_unit;
   bool fits;
   int64_t units;
+  const char *driver;
 };
 
 #define MIMIC_DEFAULT_TARGET_FILE_SIZE (4LL * 1024LL * 1024LL * 1024LL)

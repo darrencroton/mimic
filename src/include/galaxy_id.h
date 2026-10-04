@@ -124,4 +124,28 @@ static inline int64_t mimic_encode_created_galaxy_id(int64_t unit, int64_t row,
   return -(1 + (int64_t)ordinal + (int64_t)MAX_CREATED_RECORDS_PER_HOST * host_key);
 }
 
+/**
+ * @brief   Decode a created record's UniqueGalaxyID into the encoder's inputs.
+ * @param   id             A created ID (strictly negative).
+ * @param   rows_per_unit  The rows per unit it was encoded with (> 0), as the run logs it.
+ * @param   unit           Receives the processing unit.
+ * @param   row            Receives the host row (its HaloNr), `0 <= row < rows_per_unit`.
+ * @param   ordinal        Receives the host's created-record ordinal.
+ *
+ * The exact inverse of mimic_encode_created_galaxy_id() for any ID it produced.
+ * `-(id + 1)` is formed instead of `-id - 1`, so no step can overflow even for
+ * INT64_MIN. Preconditions (asserted): `id < 0` and `rows_per_unit > 0`.
+ */
+static inline void mimic_decode_created_galaxy_id(int64_t id, int64_t rows_per_unit, int64_t *unit,
+                                                  int64_t *row, int *ordinal) {
+  assert(id < 0);
+  assert(rows_per_unit > 0);
+
+  const int64_t k = -(id + 1);
+  const int64_t host_key = k / MAX_CREATED_RECORDS_PER_HOST;
+  *ordinal = (int)(k % MAX_CREATED_RECORDS_PER_HOST);
+  *row = host_key % rows_per_unit;
+  *unit = host_key / rows_per_unit;
+}
+
 #endif /* #ifndef GALAXY_ID_H */

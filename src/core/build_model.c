@@ -151,27 +151,8 @@ static void build_halo_tree_from_view(struct HaloInputView view, int64_t halonr,
       int64_t source_halo = fofhalo;
       ws->count = join_progenitor_halos(view, fofhalo, ws->count, unit);
 
-      /*
-       * Stamp the FoF-central catalog virial mass onto every member of this
-       * subhalo slice now, before physics runs, so CentralMvir is physically
-       * correct whenever a module could observe it on the workspace - not only
-       * at output time. CentralMvir is a structural per-FoF-group constant (the
-       * input-catalog Mvir of the FOF central); physics never writes it, so the
-       * value still reaches output unchanged and the shared marshaller no
-       * longer needs to know about this field.
-       */
-      double central_mvir =
-          get_virial_mass(view, mimic_tree_get_FirstHaloInFOFgroup(view, source_halo));
-      for (int64_t p = workspace_start; p < ws->count; p++) {
-        ws->halos[p].CentralMvir = central_mvir;
-      }
-
-      segments[segment_index].source_id = source_halo;
-      segments[segment_index].snapshot_number = mimic_tree_get_SnapNum(view, source_halo);
-      segments[segment_index].workspace_start = workspace_start;
-      segments[segment_index].workspace_count = ws->count - workspace_start;
-      segments[segment_index].output_first = -1;
-      segments[segment_index].output_count = 0;
+      /* CentralMvir stamp and output segment, as the horizontal driver does. */
+      record_subhalo_slice(view, ws, workspace_start, source_halo, &segments[segment_index]);
       segment_index++;
 
       fofhalo = mimic_tree_get_NextHaloInFOFgroup(view, fofhalo);

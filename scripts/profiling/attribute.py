@@ -76,6 +76,7 @@ CORE_SUBPART = {
     "main.c": "core: main",
     "module_registry.c": "core: module dispatch (module_registry.c)",
     "halo_evolution.c": "core: halo_evolution",
+    "fof_workspace.c": "core: fof_workspace",
     "timestep.c": "core: timestep",
     "virial.c": "core: virial",
 }

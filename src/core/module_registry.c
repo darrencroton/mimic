@@ -36,7 +36,6 @@
 #include "module_interface.h"
 #include "module_registry.h"
 #include "numeric.h"
-#include "vertical/reader.h" /* enum InputProcessingOrder only, to name the driver */
 #include "generated/parameter_unit_conversions.h"
 
 /** Maximum number of modules that can be registered */
@@ -160,9 +159,11 @@ static void leave_callback(struct RunningCallback prior) { running_callback = pr
 /**
  * @brief   Record-creation state (module_create_record())
  *
- * `allowed` is true only while a process_full_halo callback is running, and
- * is cleared while that callback's emitted events are delivered to per-event
- * consumers. Records a callback creates are staged here and appended to the
+ * Creation is legal exactly while the running callback is a process_full_halo
+ * one (running_callback.kind == RUNNING_CALLBACK_FULL_HALO): a per-event
+ * consumer its events reach runs as RUNNING_CALLBACK_PER_EVENT, so it cannot
+ * create. `ctx` and `ws` are the context and workspace execute_phase() handed
+ * that callback. Records a callback creates are staged here and appended to the
  * workspace by commit_created_records() when the callback returns.
  *
  * Staged rows live in blocks that are never reallocated, so every row pointer
@@ -180,7 +181,6 @@ static void leave_callback(struct RunningCallback prior) { running_callback = pr
  * module_release_record_creation_scratch() at driver teardown.
  */
 struct RecordCreationState {
-  bool allowed;
   struct ModuleContext *ctx;
   struct FoFWorkspace *ws;
 
@@ -195,8 +195,7 @@ struct RecordCreationState {
   bool ordinals_ready; /**< ordinals[0, base_count) were cleared for this FoF step */
 };
 
-static struct RecordCreationState record_creation = {.allowed = false,
-                                                     .ctx = NULL,
+static struct RecordCreationState record_creation = {.ctx = NULL,
                                                      .ws = NULL,
                                                      .blocks = {NULL},
                                                      .block_count = 0,
@@ -426,6 +425,33 @@ bool module_configured_in_phase(const char *name, const struct PhaseModuleConfig
   for (int i = 0; i < num_modules; i++) {
     if (phase[i].module_name != NULL && phase[i].processing_mode == mode &&
         strcmp(phase[i].module_name, name) == 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+int module_count_phase_entries(const char *module_name, const struct PhaseModuleConfig *phase,
+                               int num_modules, enum ProcessingMode mode, int *matching_mode_out) {
+  int entries = 0;
+  int matching_mode = 0;
+  if (module_name != NULL && phase != NULL) {
+    for (int i = 0; i < num_modules; i++) {
+      if (phase[i].module_name != NULL && strcmp(phase[i].module_name, module_name) == 0) {
+        entries++;
+        matching_mode += (phase[i].processing_mode == mode);
+      }
+    }
+  }
+  if (matching_mode_out != NULL) {
+    *matching_mode_out = matching_mode;
+  }
+  return entries;
+}
+
+bool mimic_is_output_snapshot(int snapshot) {
+  for (int n = 0; n < MimicConfig.NOUT; n++) {
+    if (MimicConfig.ListOutputSnaps[n] == snapshot) {
       return true;
     }
   }
@@ -947,10 +973,6 @@ static void dispatch_events_range(int start_index, int end_index) {
   bool prior_emission_allowed = phase_event_state.emission_allowed;
   phase_event_state.emission_allowed = false;
 
-  /* A per-event consumer may not create records either (module_create_record()). */
-  const bool prior_creation_allowed = record_creation.allowed;
-  record_creation.allowed = false;
-
   for (int event_index = start_index; event_index < end_index; event_index++) {
     const struct ModuleEvent *event = &phase_event_state.events[event_index];
 
@@ -1006,7 +1028,6 @@ static void dispatch_events_range(int start_index, int end_index) {
     phase_event_state.ctx->active_event = NULL;
   }
 
-  record_creation.allowed = prior_creation_allowed;
   phase_event_state.emission_allowed = prior_emission_allowed;
   phase_event_state.last_dispatched_event = end_index;
 }
@@ -1136,26 +1157,6 @@ static int workspace_callback_count(const struct FoFWorkspace *ws) {
  * RECORD CREATION
  * ============================================================================== */
 
-/**
- * @brief   Capacity after growing @p capacity to hold at least @p required entries
- *
- * The workspace growth policy (fof_workspace_reserve()): factor
- * HALO_ARRAY_GROWTH_FACTOR, at least MIN_HALO_ARRAY_GROWTH more, never past
- * MAX_HALO_ARRAY_SIZE; a requirement above that ceiling is fatal.
- */
-static int64_t grown_capacity(int64_t capacity, int64_t required, const char *what) {
-  if (required > MAX_HALO_ARRAY_SIZE) {
-    FATAL_ERROR("Record creation %s requires %" PRId64 " entries but maximum allowed size is %d",
-                what, required, MAX_HALO_ARRAY_SIZE);
-  }
-  int64_t new_capacity = (int64_t)(capacity * HALO_ARRAY_GROWTH_FACTOR);
-  if (new_capacity - capacity < MIN_HALO_ARRAY_GROWTH)
-    new_capacity = capacity + MIN_HALO_ARRAY_GROWTH;
-  if (new_capacity < required)
-    new_capacity = required;
-  return new_capacity > MAX_HALO_ARRAY_SIZE ? MAX_HALO_ARRAY_SIZE : new_capacity;
-}
-
 /** @brief Staging block holding staged row @p k, and the row's offset within it */
 static int64_t staging_block_of(int64_t k, int64_t *offset) {
   /* Block b covers rows [R (2^b - 1), R (2^(b+1) - 1)), so b = floor(log2(k / R + 1)). */
@@ -1195,8 +1196,8 @@ static void reserve_staging_slot(int64_t k) {
   }
 
   if (k >= record_creation.staged_host_capacity) {
-    const int64_t capacity =
-        grown_capacity(record_creation.staged_host_capacity, k + 1, "staged-host map");
+    const int64_t capacity = fof_workspace_grown_capacity(record_creation.staged_host_capacity,
+                                                          k + 1, "Record creation staged-host map");
     record_creation.staged_host =
         myrealloc_cat(record_creation.staged_host,
                       (size_t)capacity * sizeof(*record_creation.staged_host), MEM_HALOS);
@@ -1210,8 +1211,8 @@ static void ready_creation_ordinals(const struct FoFWorkspace *ws) {
     return;
   }
   if (ws->base_count > record_creation.ordinal_capacity) {
-    const int64_t capacity =
-        grown_capacity(record_creation.ordinal_capacity, ws->base_count, "per-host ordinals");
+    const int64_t capacity = fof_workspace_grown_capacity(
+        record_creation.ordinal_capacity, ws->base_count, "Record creation per-host ordinals");
     record_creation.ordinals = myrealloc_cat(
         record_creation.ordinals, (size_t)capacity * sizeof(*record_creation.ordinals), MEM_HALOS);
     record_creation.ordinal_capacity = capacity;
@@ -1227,8 +1228,6 @@ static const char *running_callback_description(void) {
   switch (running_callback.kind) {
   case RUNNING_CALLBACK_INIT:
     return "from init()";
-  case RUNNING_CALLBACK_FULL_HALO:
-    return "from a process_full_halo callback whose creation window is closed";
   case RUNNING_CALLBACK_PER_EVENT:
     return "from a process_per_event callback";
   case RUNNING_CALLBACK_BY_GALAXY:
@@ -1237,38 +1236,54 @@ static const char *running_callback_description(void) {
     return "from a process_snapshot callback";
   case RUNNING_CALLBACK_CLEANUP:
     return "from cleanup()";
+  case RUNNING_CALLBACK_FULL_HALO: /* creation is legal there, so it is never refused */
   case RUNNING_CALLBACK_NONE:
     break;
   }
   return "outside any module callback";
 }
 
-int module_create_record(struct ModuleContext *ctx, int host_index, struct Halo **row) {
-  const char *module =
-      running_callback.module_name != NULL ? running_callback.module_name : "(none running)";
-
-  if (row != NULL) {
-    *row = NULL;
-  }
-
-  if (!record_creation.allowed) {
+/**
+ * @brief   Caller check: a running process_full_halo callback, a row pointer, its own context
+ * @return  true when @p module may create; false after an ERROR_LOG naming the reason
+ */
+static bool creation_caller_allowed(const char *module, const struct ModuleContext *ctx,
+                                    struct Halo **row) {
+  if (running_callback.kind != RUNNING_CALLBACK_FULL_HALO) {
     ERROR_LOG("module_create_record refused for module '%s': called %s; records can only be "
               "created from a running process_full_halo callback",
               module, running_callback_description());
-    return -1;
+    return false;
   }
 
   if (row == NULL) {
     ERROR_LOG("module_create_record refused for module '%s': row pointer is NULL", module);
-    return -1;
+    return false;
   }
 
   if (ctx != record_creation.ctx) {
     ERROR_LOG("module_create_record refused for module '%s': mismatched ModuleContext", module);
-    return -1;
+    return false;
   }
+  return true;
+}
 
-  struct FoFWorkspace *ws = record_creation.ws;
+/**
+ * @brief   Host check: @p host_index names a row that may host a created record
+ *
+ * The host must be a committed row present when the pipeline started, of Type 0
+ * or 1, with a galaxy, and its subhalo slice's Type 0/1 row as inheritance
+ * assembled it: set_local_centrals() (inheritance.c) stamps that row's index
+ * into every row of the slice as CentralHalo, so CentralHalo == host_index
+ * holds for one row per slice. A row a module promoted to Type 1 fails it,
+ * which keeps two rows of one HaloNr from drawing the same created IDs from
+ * their separate per-row ordinals.
+ *
+ * @return  The host row, or NULL after an ERROR_LOG naming the reason. A
+ *          workspace the core did not set up for creation is fatal.
+ */
+static const struct Halo *creation_host(const char *module, const struct FoFWorkspace *ws,
+                                        int host_index) {
   const int64_t committed = ws->count;
 
   /* Core invariants, not module errors: base_count comes from
@@ -1285,14 +1300,14 @@ int module_create_record(struct ModuleContext *ctx, int host_index, struct Halo 
     ERROR_LOG("module_create_record refused for module '%s': host_index=%d is outside the %" PRId64
               " committed rows",
               module, host_index, committed);
-    return -1;
+    return NULL;
   }
 
   if (host_index >= ws->base_count) {
     ERROR_LOG("module_create_record refused for module '%s': host_index=%d is a record created "
               "in this FoF step (created rows start at %" PRId64 "); created rows cannot host",
               module, host_index, ws->base_count);
-    return -1;
+    return NULL;
   }
 
   const struct Halo *host = &ws->halos[host_index];
@@ -1300,23 +1315,45 @@ int module_create_record(struct ModuleContext *ctx, int host_index, struct Halo 
     ERROR_LOG("module_create_record refused for module '%s': host row %d (UniqueGalaxyID %lld) "
               "is Type %d; only a Type 0 or 1 row can host",
               module, host_index, host->UniqueGalaxyID, host->Type);
-    return -1;
+    return NULL;
   }
 
   if (host->galaxy == NULL) {
     ERROR_LOG("module_create_record refused for module '%s': host row %d (UniqueGalaxyID %lld) "
               "has no galaxy",
               module, host_index, host->UniqueGalaxyID);
-    return -1;
+    return NULL;
   }
+
+  if (host->CentralHalo != host_index) {
+    ERROR_LOG("module_create_record refused for module '%s': host row %d (UniqueGalaxyID %lld) "
+              "has CentralHalo %d; only the Type 0/1 row inheritance assembled for a subhalo "
+              "slice (CentralHalo equal to its own row) can host",
+              module, host_index, host->UniqueGalaxyID, host->CentralHalo);
+    return NULL;
+  }
+  return host;
+}
+
+/**
+ * @brief   Identity check: the host's next ordinal, in a space that can encode it
+ *
+ * @return  The ordinal (>= 0), or -1 after an ERROR_LOG when the run's space does
+ *          not fit int64 or the host has used up the radix. A host or unit
+ *          outside the published space, or a space published as fitting that
+ *          does not, is fatal: the encoder's preconditions are live assert()s,
+ *          and this guard keeps them unreachable.
+ */
+static int creation_ordinal(const char *module, const struct FoFWorkspace *ws, int host_index,
+                            const struct Halo *host) {
+  const char *driver = ws->identity.driver != NULL ? ws->identity.driver : "(unnamed)";
 
   if (!ws->identity.fits) {
     ERROR_LOG("module_create_record refused for module '%s': the %s driver's created-record "
               "identity space does not fit int64 (units=%" PRId64 ", rows_per_unit=%" PRId64
               ", radix=%d), so this run cannot create records",
-              module,
-              input_processing_order_name((enum InputProcessingOrder)MimicConfig.ProcessingOrder),
-              ws->identity.units, ws->identity.rows_per_unit, MAX_CREATED_RECORDS_PER_HOST);
+              module, driver, ws->identity.units, ws->identity.rows_per_unit,
+              MAX_CREATED_RECORDS_PER_HOST);
     return -1;
   }
 
@@ -1329,18 +1366,33 @@ int module_create_record(struct ModuleContext *ctx, int host_index, struct Halo 
     return -1;
   }
 
-  /* The encoder's preconditions are live assert()s; a breach here means the
-   * driver published a space that does not cover its own rows. */
+  /* The space is re-derived here rather than trusted from `fits`. A driver
+   * that measures its space covers its own rows; where the vertical driver
+   * falls back to the forest multiplier, the bound on HaloNr is the reader's
+   * own forest-size guard, and a reader without one stops here too. */
+  const bool space_fits =
+      mimic_created_record_space_fits(ws->identity.units, ws->identity.rows_per_unit);
   if (ws->identity.unit < 0 || ws->identity.unit >= ws->identity.units || host->HaloNr < 0 ||
-      host->HaloNr >= ws->identity.rows_per_unit) {
+      host->HaloNr >= ws->identity.rows_per_unit || !space_fits) {
     FATAL_ERROR("module_create_record: host HaloNr=%lld at unit %" PRId64
-                " lies outside the published identity space (units=%" PRId64
-                ", rows_per_unit=%" PRId64 ")",
-                host->HaloNr, ws->identity.unit, ws->identity.units, ws->identity.rows_per_unit);
+                " cannot be encoded in the %s driver's published identity space (units=%" PRId64
+                ", rows_per_unit=%" PRId64 ", fits int64: %s); the space must fit and cover "
+                "every unit and HaloNr handed to modules (rows_per_unit is the largest unit, or "
+                "the unique_galaxy_id_multiplier when a vertical reader cannot report it)",
+                host->HaloNr, ws->identity.unit, driver, ws->identity.units,
+                ws->identity.rows_per_unit, space_fits ? "yes" : "no");
   }
+  return ordinal;
+}
 
+/**
+ * @brief   Staging step: copy the host into the next staging slot as its created record
+ * @return  The record's future logical index; *@p row receives the staged row
+ */
+static int stage_created_record(const struct FoFWorkspace *ws, int host_index,
+                                const struct Halo *host, int ordinal, struct Halo **row) {
   const int64_t k = record_creation.staged_count;
-  const int index = narrow_int64_to_int_checked(committed + k, "created record index");
+  const int index = narrow_int64_to_int_checked(ws->count + k, "created record index");
   reserve_staging_slot(k);
 
   struct Halo *staged = staged_row(k);
@@ -1357,6 +1409,30 @@ int module_create_record(struct ModuleContext *ctx, int host_index, struct Halo 
 
   *row = staged;
   return index;
+}
+
+int module_create_record(struct ModuleContext *ctx, int host_index, struct Halo **row) {
+  const char *module =
+      running_callback.module_name != NULL ? running_callback.module_name : "(none running)";
+
+  if (row != NULL) {
+    *row = NULL;
+  }
+  if (!creation_caller_allowed(module, ctx, row)) {
+    return -1;
+  }
+
+  const struct FoFWorkspace *ws = record_creation.ws;
+  const struct Halo *host = creation_host(module, ws, host_index);
+  if (host == NULL) {
+    return -1;
+  }
+
+  const int ordinal = creation_ordinal(module, ws, host_index, host);
+  if (ordinal < 0) {
+    return -1;
+  }
+  return stage_created_record(ws, host_index, host, ordinal, row);
 }
 
 /**
@@ -1469,11 +1545,9 @@ void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
     phase_event_state.emission_allowed = true;
     record_creation.ctx = ctx;
     record_creation.ws = ws;
-    record_creation.allowed = true;
     const struct RunningCallback prior = enter_callback(RUNNING_CALLBACK_FULL_HALO, mod->name);
     int result = mod->process(ctx, halos, ngal);
     leave_callback(prior);
-    record_creation.allowed = false;
     phase_event_state.emission_allowed = false;
     phase_event_state.current_producer_module_id = 0;
 
@@ -1872,6 +1946,15 @@ int model_get_int(const char *param_name, int *out_value) {
 
   ERROR_LOG("Required model parameter '%s' not found in input file", param_name);
   return -1;
+}
+
+bool model_has_param(const char *param_name) {
+  for (int i = 0; i < MimicConfig.NumModelParams; i++) {
+    if (strcmp(MimicConfig.ModelParams[i].param_name, param_name) == 0) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**

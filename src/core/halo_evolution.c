@@ -5,7 +5,9 @@
  * drivers. Both drivers assemble their struct FoFWorkspace their own way (tree
  * traversal per unit; snapshot sweep over a per-run descriptor) and then hand
  * it to the functions here, which own the module-context setup, the
- * physics-execution dispatch, the FoF chain count, and the halo-init payload.
+ * physics-execution dispatch, the FoF chain count, the halo-init payload, the
+ * per-slice CentralMvir stamp and output segment, and the created-record
+ * identity-space verdict.
  *
  * These live in their own file so build_model.c stays vertical-driver-specific and
  * so the unit-test harness can link the shared adapters without pulling in the
@@ -20,10 +22,12 @@
 
 #include "config.h"
 #include "fof_workspace.h"
+#include "galaxy_id.h"
 #include "globals.h"
 #include "inheritance.h"
 #include "module_registry.h"
 #include "numeric.h"
+#include "output_buffer.h"
 #include "proto.h"
 #include "types.h"
 #include "generated/tree_property_accessors.h"
@@ -68,6 +72,62 @@ int64_t count_fof_subhalos(struct HaloInputView view, int64_t first_fof_halo) {
   }
 
   return count;
+}
+
+/*
+ * Shared by the vertical and horizontal drivers, after each subhalo slice is
+ * joined into the workspace.
+ *
+ * Stamps the FoF-central catalog virial mass onto every member of the slice
+ * before physics runs, so CentralMvir is physically correct whenever a module
+ * could observe it on the workspace - not only at output time. CentralMvir is a
+ * structural per-FoF-group constant (the input-catalog Mvir of the FOF central);
+ * physics never writes it, so the value reaches output unchanged and the shared
+ * marshaller does not need to know about this field. The segment then records
+ * the slice for the marshaller, whose merge relies on slices being contiguous
+ * and recorded in workspace order.
+ */
+void record_subhalo_slice(struct HaloInputView view, struct FoFWorkspace *ws,
+                          int64_t workspace_start, int64_t source_halo,
+                          struct OutputBufferSegment *segment) {
+  const double central_mvir =
+      get_virial_mass(view, mimic_tree_get_FirstHaloInFOFgroup(view, source_halo));
+  for (int64_t p = workspace_start; p < ws->count; p++) {
+    ws->halos[p].CentralMvir = central_mvir;
+  }
+
+  segment->source_id = source_halo;
+  segment->snapshot_number = mimic_tree_get_SnapNum(view, source_halo);
+  segment->workspace_start = workspace_start;
+  segment->workspace_count = ws->count - workspace_start;
+  segment->output_first = -1;
+  segment->output_count = 0;
+}
+
+/*
+ * Shared by the vertical and horizontal drivers at startup. The INFO line's
+ * format is relied on by tests/integration/test_record_creation.py, so both
+ * drivers log it through here.
+ */
+struct RecordIdentitySpace record_identity_space_evaluate(const char *driver,
+                                                          const char *reader_name, int64_t units,
+                                                          int64_t rows_per_unit,
+                                                          const char *rows_per_unit_source) {
+  const bool fits = mimic_created_record_space_fits(units, rows_per_unit);
+
+  INFO_LOG("Created-record identity space (%s, reader '%s'): units=%" PRId64
+           ", rows_per_unit=%" PRId64 " (%s), radix=%d: %s",
+           driver, reader_name, units, rows_per_unit, rows_per_unit_source,
+           MAX_CREATED_RECORDS_PER_HOST,
+           fits ? "fits int64" : "does not fit int64; this run cannot create records");
+
+  return (struct RecordIdentitySpace){
+      .unit = -1,
+      .rows_per_unit = rows_per_unit,
+      .fits = fits,
+      .units = units,
+      .driver = driver,
+  };
 }
 
 /**

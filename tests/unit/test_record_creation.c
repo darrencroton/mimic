@@ -8,30 +8,39 @@
  * - every refusal: outside a running process_full_halo callback (no callback,
  *   init(), by-galaxy, per-event and snapshot callbacks), a host outside the
  *   committed rows, a created row as host, a non-Type 0/1 host, a host without a
- *   galaxy, the per-host identity radix and a synthetic identity space that does
- *   not fit int64; a refused call stages no row and allocates no galaxy
+ *   galaxy, a host that is not its subhalo slice's assembled Type 0/1 row
+ *   (CentralHalo), the per-host identity radix and a synthetic identity space
+ *   that does not fit int64; a refused call stages no row and allocates no
+ *   galaxy
  * - staged-row initialisation field by field for a Type 0 and a Type 1 host,
  *   staged-row pointers that stay valid across later creations, staging blocks
  *   that grow geometrically (logarithmic block count), and created galaxies
  *   independent of their host's and of each other (pointer and mutation)
  * - per-host ordinals counted across every callback of one FoF step (two
- *   pre_timestep entries and post_timestep) and restarted by the next step
+ *   pre_timestep entries and post_timestep) and restarted by the next step, and
+ *   a creator in a substep phase creating once per substep with ordinals that
+ *   continue across substeps
  * - inheritance of created rows: marshalled and passed through
  *   inherit_descendant_halos() into a second workspace and pool, they keep
  *   their ID and Type 2 and their galaxies are deep copies (value carried,
  *   pointer and mutation independent of source and siblings)
  * - visibility: the next full-halo module of the phase, the by-galaxy pass,
  *   every substep phase and post_timestep see created rows, with
- *   ctx->central_galaxy re-pointed; the test_fixture by-galaxy execution log
- *   grows by exactly the rows created in pre_timestep
+ *   ctx->central_galaxy re-pointed after the commit moved the rows; the
+ *   test_fixture by-galaxy execution log grows by exactly the rows created in
+ *   pre_timestep
  * - the event rule: an event naming a row created in the same callback is
  *   rejected, a later callback may target it and the consumer receives it
  * - the marshal merge: created rows emitted after their host's slice, for hosts
  *   in the first, middle and last segment and out of workspace order, Type 3
- *   created rows dropped, and an unplaceable host fatal
+ *   created rows dropped, a host retired to Type 3 still owning its records'
+ *   place, and an unplaceable host fatal
+ * - the workspace growers: fof_workspace_reserve() growth with a zeroed tail,
+ *   fof_workspace_reserve_created() and the shared capacity arithmetic, reuse
+ *   after fof_workspace_destroy(), and the over-cap refusals
  * - memory: no allocation without creation, grow-to-high-water scratch, release
  *   at teardown and no leak; created IDs repeat across FoF steps
- * - the encoder round trip of every created ID
+ * - the encoder round trip of every created ID (mimic_decode_created_galaxy_id())
  */
 
 #include "framework/test_framework.h"
@@ -43,6 +52,7 @@
 #include "core/module_registry.h"
 #include "core/output_buffer.h"
 #include "framework/test_phase_config.h"
+#include "include/constants.h"
 #include "include/galaxy_id.h"
 #include "include/globals.h"
 #include "include/proto.h"
@@ -251,8 +261,10 @@ static struct ModuleContext context;
  * @brief   Build a FoF workspace of the given Types, every row with a galaxy
  *
  * Row i has HaloNr 10 + i and UniqueGalaxyID 1000 + i, and distinct halo-side
- * values so field copies are checkable. Capacity equals the row count, so the
- * first commit must grow (and may move) the rows.
+ * values so field copies are checkable. Each Type 0/1 row starts a subhalo
+ * slice and every row's CentralHalo is its slice's Type 0/1 row, as
+ * set_local_centrals() (inheritance.c) leaves them. Capacity equals the row
+ * count, so the first commit must grow (and may move) the rows.
  */
 static void build_workspace(const int *types, int n) {
   memset(&workspace, 0, sizeof(workspace));
@@ -262,17 +274,24 @@ static void build_workspace(const int *types, int n) {
   workspace.count = n;
   workspace.capacity = n;
   workspace.pool = pool;
-  workspace.identity = (struct RecordIdentitySpace){
-      .unit = TEST_UNIT, .rows_per_unit = TEST_ROWS_PER_UNIT, .fits = true, .units = TEST_UNITS};
+  workspace.identity = (struct RecordIdentitySpace){.unit = TEST_UNIT,
+                                                    .rows_per_unit = TEST_ROWS_PER_UNIT,
+                                                    .fits = true,
+                                                    .units = TEST_UNITS,
+                                                    .driver = "vertical"};
   workspace.base_count = n;
 
+  int slice_central = 0;
   for (int i = 0; i < n; i++) {
+    if (types[i] == 0 || types[i] == 1) {
+      slice_central = i;
+    }
     struct Halo *h = &workspace.halos[i];
     h->Type = types[i];
     h->HaloNr = 10 + i;
     h->UniqueGalaxyID = 1000 + i;
     h->UniqueCentralGalaxyID = 1000;
-    h->CentralHalo = 0;
+    h->CentralHalo = slice_central;
     h->SnapNum = 4;
     h->dT = 0.5 + i;
     h->Len = 100 + i;
@@ -375,16 +394,6 @@ static void add_post_timestep(const char *module_name, enum ProcessingMode mode)
   MimicConfig.post_timestep[i].module_name = strdup(module_name);
   MimicConfig.post_timestep[i].processing_mode = mode;
   MimicConfig.post_timestep[i].resolved = NULL;
-}
-
-/** @brief Decode a created ID into (unit, row, ordinal); the inverse of the encoder */
-static void decode_created_id(int64_t id, int64_t rows_per_unit, int64_t *unit, int64_t *row,
-                              int *ordinal) {
-  const int64_t k = -id - 1;
-  const int64_t host_key = k / MAX_CREATED_RECORDS_PER_HOST;
-  *ordinal = (int)(k % MAX_CREATED_RECORDS_PER_HOST);
-  *row = host_key % rows_per_unit;
-  *unit = host_key / rows_per_unit;
 }
 
 /* ==========================================================================
@@ -571,6 +580,61 @@ int test_refused_bad_hosts(void) {
   return result;
 }
 
+static int promoted_rc = 0;
+static int slice_central_rc = 0;
+
+static int create_on_promoted_row(struct ModuleContext *ctx, struct Halo *halos, int ngal,
+                                  int call) {
+  (void)ngal;
+  (void)call;
+  struct Halo *row = NULL;
+  /* Row 1 is a Type 2 row of row 0's slice; promote it, as a module may write Type. */
+  halos[1].Type = 1;
+  promoted_rc = module_create_record(ctx, 1, &row);
+  slice_central_rc = module_create_record(ctx, 0, &row);
+  return 0;
+}
+
+/** @brief Body of test_refused_host_not_slice_central; the wrapper releases its resources */
+static int refused_host_not_slice_central_body(void) {
+  const int types[] = {0, 2};
+  prepare_config(0);
+  creator_action = create_on_promoted_row;
+  test_pre_timestep_add("rc_creator", PROCESSING_MODE_FULL_HALO);
+  TEST_ASSERT_EQUAL(module_system_init(), 0, "pipeline initialises");
+  build_workspace(types, 2);
+  const int64_t high_water = pool_high_water();
+
+  capture_log();
+  execute_module_pipeline(&context, &workspace);
+  const char *log = captured_log();
+
+  TEST_ASSERT_EQUAL(promoted_rc, -1,
+                    "a row promoted to Type 1 inside another row's slice is "
+                    "refused");
+  TEST_ASSERT(strstr(log, "module 'rc_creator': host row 1 (UniqueGalaxyID 1001) has "
+                          "CentralHalo 0") != NULL,
+              "the refusal names the module, the row and its CentralHalo");
+  TEST_ASSERT_EQUAL(slice_central_rc, 2, "the slice's own Type 0 row still hosts");
+  TEST_ASSERT_EQUAL(workspace.count, 3, "only the slice central's record was committed");
+  TEST_ASSERT_EQUAL(pool_high_water(), high_water + 1, "the refusal allocated no galaxy");
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_refused_host_not_slice_central
+ * @brief   A Type 0/1 host must be its slice's assembled central (CentralHalo == host row)
+ *
+ * Per-host ordinals are kept per workspace row, so two Type 0/1 rows of one
+ * HaloNr would draw the same created IDs; the CentralHalo check refuses the
+ * second (here a Type 2 row a module promoted) before that can happen.
+ */
+int test_refused_host_not_slice_central(void) {
+  const int result = refused_host_not_slice_central_body();
+  TEST_ASSERT_EQUAL(release_case(), 0, "cleanup succeeds");
+  return result;
+}
+
 static int fits_rc = 0;
 
 static int create_once(struct ModuleContext *ctx, struct Halo *halos, int ngal, int call) {
@@ -589,14 +653,16 @@ static int create_once(struct ModuleContext *ctx, struct Halo *halos, int ngal, 
 int test_refused_when_identity_space_does_not_fit(void) {
   const int types[] = {0};
   prepare_config(0);
-  MimicConfig.ProcessingOrder = INPUT_PROCESSING_ORDER_HORIZONTAL;
   creator_action = create_once;
   test_pre_timestep_add("rc_creator", PROCESSING_MODE_FULL_HALO);
   TEST_ASSERT_EQUAL(module_system_init(), 0, "pipeline initialises");
   build_workspace(types, 1);
   /* MAX_CREATED_RECORDS_PER_HOST (2^10) * 2^40 * 2^14 = 2^64 > INT64_MAX: does not fit. */
-  workspace.identity = (struct RecordIdentitySpace){
-      .unit = 0, .rows_per_unit = INT64_C(1) << 14, .fits = false, .units = INT64_C(1) << 40};
+  workspace.identity = (struct RecordIdentitySpace){.unit = 0,
+                                                    .rows_per_unit = INT64_C(1) << 14,
+                                                    .fits = false,
+                                                    .units = INT64_C(1) << 40,
+                                                    .driver = "horizontal"};
   TEST_ASSERT(
       !mimic_created_record_space_fits(workspace.identity.units, workspace.identity.rows_per_unit),
       "the synthetic space really does not fit");
@@ -740,7 +806,8 @@ int test_staged_row_initialisation(void) {
     int64_t unit = 0;
     int64_t row = 0;
     int ordinal = 0;
-    decode_created_id(workspace.halos[r].UniqueGalaxyID, TEST_ROWS_PER_UNIT, &unit, &row, &ordinal);
+    mimic_decode_created_galaxy_id(workspace.halos[r].UniqueGalaxyID, TEST_ROWS_PER_UNIT, &unit,
+                                   &row, &ordinal);
     TEST_ASSERT_EQUAL(unit, TEST_UNIT, "decoded unit is the published unit");
     TEST_ASSERT_EQUAL(row, workspace.halos[host].HaloNr, "decoded row is the host's HaloNr");
     TEST_ASSERT_EQUAL(ordinal, next_ordinal[host], "ordinals count per host in creation order");
@@ -1059,7 +1126,8 @@ static int ordinals_span_step_body(void) {
     int64_t unit = 0;
     int64_t row = 0;
     int ordinal = 0;
-    decode_created_id(workspace.halos[r].UniqueGalaxyID, TEST_ROWS_PER_UNIT, &unit, &row, &ordinal);
+    mimic_decode_created_galaxy_id(workspace.halos[r].UniqueGalaxyID, TEST_ROWS_PER_UNIT, &unit,
+                                   &row, &ordinal);
     TEST_ASSERT_EQUAL(row, workspace.halos[0].HaloNr, "every record is host 0's");
     TEST_ASSERT_EQUAL(ordinal, i,
                       "ordinals continue across callbacks: the second callback's first record "
@@ -1079,8 +1147,8 @@ static int ordinals_span_step_body(void) {
     int64_t unit = 0;
     int64_t row = 0;
     int ordinal = 0;
-    decode_created_id(workspace.halos[workspace.base_count + i].UniqueGalaxyID, TEST_ROWS_PER_UNIT,
-                      &unit, &row, &ordinal);
+    mimic_decode_created_galaxy_id(workspace.halos[workspace.base_count + i].UniqueGalaxyID,
+                                   TEST_ROWS_PER_UNIT, &unit, &row, &ordinal);
     TEST_ASSERT_EQUAL(ordinal, i, "a fresh pipeline run restarts the host's ordinals at 0");
     TEST_ASSERT_EQUAL(workspace.halos[workspace.base_count + i].UniqueGalaxyID, first_step_ids[i],
                       "so the same step reproduces the same IDs");
@@ -1101,6 +1169,76 @@ int test_ordinals_span_the_fof_step(void) {
   return result;
 }
 
+/** Substeps and records per substep in test_creation_in_substep_phase */
+#define SUBSTEP_COUNT 3
+#define RECORDS_PER_SUBSTEP 2
+static int substep_seen[SUBSTEP_COUNT];
+
+static int create_per_substep_on_host0(struct ModuleContext *ctx, struct Halo *halos, int ngal,
+                                       int call) {
+  (void)halos;
+  (void)ngal;
+  (void)call;
+  if (ctx->substep_number >= 0 && ctx->substep_number < SUBSTEP_COUNT) {
+    substep_seen[ctx->substep_number]++;
+  }
+  struct Halo *row = NULL;
+  for (int n = 0; n < RECORDS_PER_SUBSTEP; n++) {
+    if (module_create_record(ctx, 0, &row) < 0) {
+      return -1;
+    }
+  }
+  return 0;
+}
+
+/** @brief Body of test_creation_in_substep_phase; the wrapper releases its resources */
+static int creation_in_substep_phase_body(void) {
+  const int types[] = {0, 1};
+  prepare_config(0);
+  MimicConfig.SubSteps = SUBSTEP_COUNT;
+  creator_action = create_per_substep_on_host0;
+  memset(substep_seen, 0, sizeof(substep_seen));
+  test_phase_add("evolve", "rc_creator", PROCESSING_MODE_FULL_HALO);
+  TEST_ASSERT_EQUAL(module_system_init(), 0, "pipeline initialises");
+  build_workspace(types, 2);
+  context.num_substeps = SUBSTEP_COUNT;
+
+  execute_module_pipeline(&context, &workspace);
+
+  TEST_ASSERT_EQUAL(creator_calls, SUBSTEP_COUNT, "a substep-phase creator runs once per substep");
+  for (int step = 0; step < SUBSTEP_COUNT; step++) {
+    TEST_ASSERT_EQUAL(substep_seen[step], 1, "each substep calls the creator once");
+  }
+  TEST_ASSERT_EQUAL(workspace.count, 2 + SUBSTEP_COUNT * RECORDS_PER_SUBSTEP,
+                    "every substep's records were committed: it creates once per substep");
+  for (int64_t i = 0; i < SUBSTEP_COUNT * RECORDS_PER_SUBSTEP; i++) {
+    const int64_t r = workspace.base_count + i;
+    int64_t unit = 0;
+    int64_t row = 0;
+    int ordinal = 0;
+    mimic_decode_created_galaxy_id(workspace.halos[r].UniqueGalaxyID, TEST_ROWS_PER_UNIT, &unit,
+                                   &row, &ordinal);
+    TEST_ASSERT_EQUAL(workspace.created_host[i], 0, "every record is host 0's");
+    TEST_ASSERT_EQUAL(row, workspace.halos[0].HaloNr, "every ID decodes to host 0's HaloNr");
+    TEST_ASSERT_EQUAL(ordinal, i, "ordinals continue across substeps rather than restarting");
+  }
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_creation_in_substep_phase
+ * @brief   A creator in a substep phase creates once per substep; ordinals span the substeps
+ *
+ * The contract's substep footgun: the module did not guard on
+ * ctx->substep_number, so every substep added records, and the step's IDs stay
+ * distinct because one FoF step's ordinals run across all of its substeps.
+ */
+int test_creation_in_substep_phase(void) {
+  const int result = creation_in_substep_phase_body();
+  TEST_ASSERT_EQUAL(release_case(), 0, "cleanup succeeds");
+  return result;
+}
+
 /* ==========================================================================
  * Visibility
  * ========================================================================== */
@@ -1112,6 +1250,8 @@ static int observed_full_calls = 0;
 static int observed_by_galaxy_rows = 0;
 static int observed_by_galaxy_created = 0;
 static bool central_pointer_current = true;
+/** Whether the visibility run's commit moved the workspace rows (the refresh was exercised) */
+static bool visibility_rows_moved = false;
 
 static int create_per_type0(struct ModuleContext *ctx, struct Halo *halos, int ngal, int call) {
   (void)call;
@@ -1182,9 +1322,17 @@ static int run_visibility_pipeline(int per_type0) {
   build_workspace(types, 3);
   context.num_substeps = 2;
 
+  /* A live allocation right after the three rows keeps realloc from extending
+   * them in place, so the commit's growth moves them and the
+   * ctx->central_galaxy refresh is exercised rather than vacuous. */
+  void *blocker = mymalloc_cat(sizeof(struct Halo), MEM_UTILITY);
+  const uintptr_t rows_before = (uintptr_t)workspace.halos;
+
   capture_log();
   execute_module_pipeline(&context, &workspace);
   const char *log = captured_log();
+  visibility_rows_moved = (uintptr_t)workspace.halos != rows_before;
+  myfree(blocker);
   return count_occurrences(log, "TEST_FIXTURE_EXEC:");
 }
 
@@ -1210,6 +1358,11 @@ static int visibility_body(void) {
   TEST_ASSERT(central_pointer_current,
               "ctx->central_galaxy addresses the current central row after the commit");
   TEST_ASSERT_EQUAL(workspace.count, 3 + CREATED_PER_TYPE0, "the workspace holds the created rows");
+  if (!visibility_rows_moved) {
+    return TEST_SKIP_WITH("realloc grew the workspace rows in place despite a live allocation "
+                          "after them, so the ctx->central_galaxy refresh after a move was not "
+                          "exercised");
+  }
   return TEST_PASS;
 }
 
@@ -1446,6 +1599,39 @@ int test_marshal_merge(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_marshal_retired_host_keeps_its_records
+ * @brief   A created row whose host was retired to Type 3 is still emitted in the host's segment
+ *
+ * Retiring the host drops only the host row; the record keeps its place after
+ * the host's slice, so next-snapshot inheritance (which then finds no Type 0/1
+ * row in that slice, a documented footgun) is the place this fails, not the
+ * marshal.
+ */
+int test_marshal_retired_host_keeps_its_records(void) {
+  struct FoFWorkspace ws;
+  struct OutputBufferSegment segments[3];
+  build_marshal_workspace(&ws, segments);
+  marshal_rows[4].Type = 3; /* host of created rows 6 and 10, retired after creating them */
+  struct OutputBuffer buffer = {mymalloc_cat(4 * sizeof(struct Halo), MEM_HALOS), 0, 4};
+
+  marshal_workspace_to_output_buffer(&ws, &buffer, segments, 3);
+
+  /* seg2 loses its host row 104 but keeps 105 and then created row 6 (-1). */
+  const long long expected[] = {100, 101, -2, -4, 102, 103, -3, 105, -1};
+  TEST_ASSERT_EQUAL(buffer.count, 9, "only the retired host and the Type 3 record are dropped");
+  for (int i = 0; i < 9; i++) {
+    TEST_ASSERT_EQUAL(buffer.halos[i].UniqueGalaxyID, expected[i],
+                      "the retired host's record still follows its slice");
+  }
+  TEST_ASSERT_EQUAL(segments[2].output_first, 7, "the host's segment starts after segment 1's");
+  TEST_ASSERT_EQUAL(segments[2].output_count, 2, "and counts the surviving row and the record");
+  TEST_ASSERT(marshal_rows[4].galaxy == NULL, "the retired host's galaxy is released");
+
+  myfree(buffer.halos);
+  return TEST_PASS;
+}
+
 static void marshal_with_unplaced_host(const char *arg) {
   (void)arg;
   struct FoFWorkspace ws;
@@ -1464,6 +1650,126 @@ int test_marshal_unplaced_host_is_fatal(void) {
   const int rc = expect_fatal(NULL, marshal_with_unplaced_host, "Marshalled 3 of 5 created records",
                               "lies in no output segment");
   TEST_ASSERT_EQUAL(rc, 1, "an unplaceable created row is fatal");
+  return TEST_PASS;
+}
+
+/* ==========================================================================
+ * Workspace growers (fof_workspace.c)
+ * ========================================================================== */
+
+/** @brief Whether rows [from, to) of @p ws are all-zero bytes */
+static bool rows_are_zero(const struct FoFWorkspace *ws, int64_t from, int64_t to) {
+  static const struct Halo zero;
+  for (int64_t r = from; r < to; r++) {
+    if (memcmp(&ws->halos[r], &zero, sizeof(zero)) != 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * @test    test_workspace_reserve_growth_and_reuse
+ * @brief   The growers apply the shared policy, zero new rows, keep old ones and reuse after
+ * destroy
+ */
+int test_workspace_reserve_growth_and_reuse(void) {
+  size_t start[MEM_MAX_CATEGORY];
+  for (int c = 0; c < MEM_MAX_CATEGORY; c++) {
+    start[c] = memory_category_bytes((MemoryCategory)c);
+  }
+
+  /* The shared single-jump arithmetic. */
+  TEST_ASSERT_EQUAL(fof_workspace_grown_capacity(0, 1, "test"), (int64_t)MIN_HALO_ARRAY_GROWTH,
+                    "an empty capacity grows by the minimum increment");
+  TEST_ASSERT_EQUAL(fof_workspace_grown_capacity(4000, 4001, "test"),
+                    (int64_t)(4000 * HALO_ARRAY_GROWTH_FACTOR),
+                    "a large capacity grows by the growth factor");
+  TEST_ASSERT_EQUAL(fof_workspace_grown_capacity(10, 50000, "test"), (int64_t)50000,
+                    "a requirement past one step is met in one jump");
+  TEST_ASSERT_EQUAL(
+      fof_workspace_grown_capacity(MAX_HALO_ARRAY_SIZE - 1, MAX_HALO_ARRAY_SIZE, "test"),
+      (int64_t)MAX_HALO_ARRAY_SIZE, "growth is capped at MAX_HALO_ARRAY_SIZE");
+
+  struct FoFWorkspace ws;
+  memset(&ws, 0, sizeof(ws));
+  fof_workspace_reserve(&ws, 10);
+  TEST_ASSERT_EQUAL(ws.capacity, (int64_t)MIN_HALO_ARRAY_GROWTH,
+                    "the first reserve grows by the minimum increment");
+  TEST_ASSERT(rows_are_zero(&ws, 0, ws.capacity), "every new row is zeroed");
+
+  for (int64_t r = 0; r < ws.capacity; r++) {
+    ws.halos[r].UniqueGalaxyID = r + 1;
+  }
+  const int64_t old_capacity = ws.capacity;
+  fof_workspace_reserve(&ws, old_capacity + 1);
+  TEST_ASSERT(ws.capacity > old_capacity, "a requirement past the capacity grows it");
+  bool kept = true;
+  for (int64_t r = 0; r < old_capacity; r++) {
+    kept = kept && ws.halos[r].UniqueGalaxyID == r + 1;
+  }
+  TEST_ASSERT(kept, "growth keeps every existing row");
+  TEST_ASSERT(rows_are_zero(&ws, old_capacity, ws.capacity), "only the grown tail is zeroed");
+
+  const struct Halo *rows = ws.halos;
+  const int64_t capacity = ws.capacity;
+  fof_workspace_reserve(&ws, capacity);
+  TEST_ASSERT(ws.halos == rows && ws.capacity == capacity, "a sufficient capacity is a no-op");
+
+  fof_workspace_reserve_created(&ws, 3);
+  TEST_ASSERT_EQUAL(ws.created_capacity, fof_workspace_grown_capacity(0, 3, "test"),
+                    "the created-host map grows by the shared arithmetic");
+  const int64_t created_capacity = ws.created_capacity;
+  fof_workspace_reserve_created(&ws, created_capacity + 1);
+  TEST_ASSERT_EQUAL(ws.created_capacity,
+                    fof_workspace_grown_capacity(created_capacity, created_capacity + 1, "test"),
+                    "in one jump per call");
+
+  fof_workspace_destroy(&ws);
+  TEST_ASSERT(ws.halos == NULL && ws.created_host == NULL && ws.count == 0 && ws.capacity == 0 &&
+                  ws.created_capacity == 0 && ws.pool == NULL,
+              "destroy empties the whole descriptor");
+
+  fof_workspace_reserve(&ws, 1);
+  TEST_ASSERT(ws.halos != NULL && ws.capacity == (int64_t)MIN_HALO_ARRAY_GROWTH,
+              "a destroyed descriptor can be reserved again");
+  TEST_ASSERT(rows_are_zero(&ws, 0, ws.capacity), "and its rows start zeroed");
+  fof_workspace_destroy(&ws);
+  fof_workspace_destroy(&ws); /* safe on an empty descriptor */
+
+  for (int c = 0; c < MEM_MAX_CATEGORY; c++) {
+    TEST_ASSERT_EQUAL(memory_category_bytes((MemoryCategory)c), start[c],
+                      "every category returns to its starting bytes: no leak");
+  }
+  return TEST_PASS;
+}
+
+static void reserve_rows_over_cap(const char *arg) {
+  (void)arg;
+  struct FoFWorkspace ws;
+  memset(&ws, 0, sizeof(ws));
+  fof_workspace_reserve(&ws, (int64_t)MAX_HALO_ARRAY_SIZE + 1);
+}
+
+static void reserve_created_over_cap(const char *arg) {
+  (void)arg;
+  struct FoFWorkspace ws;
+  memset(&ws, 0, sizeof(ws));
+  fof_workspace_reserve_created(&ws, (int64_t)MAX_HALO_ARRAY_SIZE + 1);
+}
+
+/**
+ * @test    test_workspace_reserve_over_cap_is_fatal
+ * @brief   A request above MAX_HALO_ARRAY_SIZE is refused before anything is allocated
+ */
+int test_workspace_reserve_over_cap_is_fatal(void) {
+  TEST_ASSERT_EQUAL(expect_fatal(NULL, reserve_rows_over_cap, "FoF workspace requires 1000000001",
+                                 "maximum allowed size is 1000000000"),
+                    1, "an over-cap row reserve is fatal");
+  TEST_ASSERT_EQUAL(expect_fatal(NULL, reserve_created_over_cap,
+                                 "FoF workspace created-host map requires 1000000001",
+                                 "maximum allowed size is 1000000000"),
+                    1, "an over-cap created-host reserve is fatal");
   return TEST_PASS;
 }
 
@@ -1548,18 +1854,23 @@ int main(void) {
 
   TEST_RUN(test_refused_outside_full_halo);
   TEST_RUN(test_refused_bad_hosts);
+  TEST_RUN(test_refused_host_not_slice_central);
   TEST_RUN(test_refused_when_identity_space_does_not_fit);
   TEST_RUN(test_staged_row_initialisation);
   TEST_RUN(test_staging_blocks_are_logarithmic);
   TEST_RUN(test_created_galaxies_are_independent);
   TEST_RUN(test_created_rows_are_inherited_by_deep_copy);
   TEST_RUN(test_ordinals_span_the_fof_step);
+  TEST_RUN(test_creation_in_substep_phase);
   TEST_RUN(test_visibility_across_modules_phases_and_substeps);
   TEST_RUN(test_fixture_creates_records);
   TEST_RUN(test_fixture_by_galaxy_creation_fails);
   TEST_RUN(test_event_rule);
   TEST_RUN(test_marshal_merge);
+  TEST_RUN(test_marshal_retired_host_keeps_its_records);
   TEST_RUN(test_marshal_unplaced_host_is_fatal);
+  TEST_RUN(test_workspace_reserve_growth_and_reuse);
+  TEST_RUN(test_workspace_reserve_over_cap_is_fatal);
   TEST_RUN(test_memory_high_water_and_release);
 
   TEST_SUMMARY();

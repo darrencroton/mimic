@@ -51,9 +51,10 @@ static int current_output_path_count = 0;
 volatile sig_atomic_t VerticalDriverGotXCPU = 0;
 
 /* Created-record identity space currently published (types.h). The startup scan
- * sets rows_per_unit and fits for the whole run with unit = -1; process_partition()
- * then publishes each unit's own number just before loading it. */
-static struct RecordIdentitySpace published_identity_space = {-1, 0, true, 0};
+ * sets rows_per_unit, fits and units for the whole run with unit = -1;
+ * process_partition() then publishes each unit's own number just before loading
+ * it, and the last one stays after the run. */
+static struct RecordIdentitySpace published_identity_space = {-1, 0, true, 0, "vertical"};
 
 struct RecordIdentitySpace vertical_driver_record_identity_space(void) {
   return published_identity_space;
@@ -187,31 +188,23 @@ static int64_t fold_max_unit_halos(int64_t run_max, int64_t partition_max) {
  * @param   max_unit_halos  Run-wide largest forest, or -1 when unknown.
  *
  * rows_per_unit is the largest forest, or the configured forest multiplier when
- * the largest forest is unknown (every in-forest HaloNr is below it by the tree
- * identity's own range check). The verdict is logged and recorded, never acted
- * on: a run whose space does not fit proceeds, and only a record creation in it
+ * the largest forest is unknown. Nothing here proves an in-forest HaloNr is
+ * below the multiplier: the one shipped reader that answers unknown
+ * (consistent_trees_ascii) refuses at load a forest of the multiplier's size or
+ * more, and for any other reader module_create_record() stops the run with a
+ * FATAL before encoding. The verdict is logged and recorded, never acted on: a
+ * run whose space does not fit proceeds, and only a record creation in it
  * fails. Every rank evaluates the same inputs, so every rank records the same
  * space.
  */
 static void evaluate_record_identity_space(const struct VerticalReader *reader, int64_t total_units,
                                            int64_t max_unit_halos) {
-  const int known = max_unit_halos >= 0;
+  const bool known = max_unit_halos >= 0;
   const int64_t rows_per_unit = known ? max_unit_halos : MimicConfig.UniqueGalaxyIDMultiplier;
-  const bool fits = mimic_created_record_space_fits(total_units, rows_per_unit);
 
-  published_identity_space = (struct RecordIdentitySpace){
-      .unit = -1,
-      .rows_per_unit = rows_per_unit,
-      .fits = fits,
-      .units = total_units,
-  };
-
-  INFO_LOG("Created-record identity space (vertical, reader '%s'): units=%" PRId64
-           ", rows_per_unit=%" PRId64 " (%s), radix=%d: %s",
-           reader->name, total_units, rows_per_unit,
-           known ? "largest forest" : "largest forest unknown, unique_galaxy_id_multiplier",
-           MAX_CREATED_RECORDS_PER_HOST,
-           fits ? "fits int64" : "does not fit int64; this run cannot create records");
+  published_identity_space = record_identity_space_evaluate(
+      "vertical", reader->name, total_units, rows_per_unit,
+      known ? "largest forest" : "largest forest unknown, unique_galaxy_id_multiplier");
 }
 
 static void log_missing_per_file_partition(const struct VerticalReader *reader, int partition) {

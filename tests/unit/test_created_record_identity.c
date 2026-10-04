@@ -211,6 +211,21 @@ static int64_t header_max_tree_nhalos(int filenr) {
   return max_halos;
 }
 
+/** @brief The header's Ntrees (the file's forest count), or -1 when unreadable */
+static int64_t header_ntrees(int filenr) {
+  char path[512];
+  int ntrees;
+  mini_millennium_tree_path(path, sizeof(path), filenr);
+
+  FILE *fp = fopen(path, "rb");
+  if (fp == NULL) {
+    return -1;
+  }
+  const int64_t result = (fread(&ntrees, sizeof(int), 1, fp) == 1 && ntrees >= 0) ? ntrees : -1;
+  fclose(fp);
+  return result;
+}
+
 /* Stand-ins for the per-partition hooks. The test pre-creates every partition's
  * output and runs with --skip semantics, so the driver runs its real startup scan
  * over the real headers and then skips every partition: none of these may run. */
@@ -246,7 +261,8 @@ static void configure_mini_millennium(const struct VerticalReader *reader) {
 /**
  * @test    test_lhalo_binary_hook_on_mini_millennium
  * @brief   Per file, the hook equals the largest TreeNHalos of that header; run-wide, the
- *          driver's startup scan publishes the largest over all eight headers
+ *          driver's startup scan publishes the largest over all eight headers and, as units,
+ *          the sum of their Ntrees
  */
 static int test_lhalo_binary_hook_on_mini_millennium(void) {
   if (!mini_millennium_present()) {
@@ -259,7 +275,11 @@ static int test_lhalo_binary_hook_on_mini_millennium(void) {
 
   configure_mini_millennium(&LHaloBinaryReader);
   int64_t expected_run_max = 0;
+  int64_t expected_units = 0;
   for (int filenr = MINI_MILLENNIUM_FIRST_FILE; filenr <= MINI_MILLENNIUM_LAST_FILE; filenr++) {
+    const int64_t ntrees = header_ntrees(filenr);
+    TEST_ASSERT(ntrees > 0, "test should read a positive Ntrees from the header");
+    expected_units += ntrees;
     const int64_t header_max = header_max_tree_nhalos(filenr);
     TEST_ASSERT(header_max > 0, "test should read a positive TreeNHalos maximum from the header");
     const int partition = filenr - MINI_MILLENNIUM_FIRST_FILE;
@@ -305,6 +325,8 @@ static int test_lhalo_binary_hook_on_mini_millennium(void) {
   const struct RecordIdentitySpace space = vertical_driver_record_identity_space();
   TEST_ASSERT_EQUAL(space.rows_per_unit, expected_run_max,
                     "run-wide rows_per_unit should be the largest TreeNHalos of the eight headers");
+  TEST_ASSERT_EQUAL(space.units, expected_units,
+                    "units should be the run's forest count, the sum of the eight headers' Ntrees");
   TEST_ASSERT(space.fits, "the mini-Millennium identity space should fit int64");
   TEST_ASSERT_EQUAL(space.unit, -1, "a run that processed no unit publishes no unit");
 

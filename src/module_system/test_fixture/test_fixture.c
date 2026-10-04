@@ -29,10 +29,8 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
 #include "error.h"
-#include "globals.h"
 #include "module_interface.h"
 #include "module_registry.h"
 #include "types.h"
@@ -99,17 +97,14 @@ int test_fixture_init(void) {
   /* Optional: check presence first, since model_get_int() treats a missing
    * parameter as an error. */
   CREATE_RECORDS = 0;
-  for (int i = 0; i < MimicConfig.NumModelParams; i++) {
-    if (strcmp(MimicConfig.ModelParams[i].param_name, "TestFixtureCreateRecords") == 0) {
-      if (model_get_int("TestFixtureCreateRecords", &CREATE_RECORDS) != 0) {
-        ERROR_LOG("Failed to read TestFixtureCreateRecords from model_parameters");
-        return -1;
-      }
-      if (CREATE_RECORDS < 0) {
-        ERROR_LOG("TestFixtureCreateRecords = %d must be >= 0", CREATE_RECORDS);
-        return -1;
-      }
-      break;
+  if (model_has_param("TestFixtureCreateRecords")) {
+    if (model_get_int("TestFixtureCreateRecords", &CREATE_RECORDS) != 0) {
+      ERROR_LOG("Failed to read TestFixtureCreateRecords from model_parameters");
+      return -1;
+    }
+    if (CREATE_RECORDS < 0) {
+      ERROR_LOG("TestFixtureCreateRecords = %d must be >= 0", CREATE_RECORDS);
+      return -1;
     }
   }
 

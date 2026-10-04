@@ -30,6 +30,13 @@ In this order:
    difference with counts, then **byte-identical fields** for every shared id,
    reported per field with a bounded sample of the ids that differ.
 
+Step 3's comparison covers **tree rows only** (``UniqueGalaxyID > 0``). Records
+a module created during the run carry strictly negative ids in a namespace each
+driver keys differently (its own processing unit and rows per unit), so they are
+not expected to match across drivers; they are counted per run and snapshot and
+reported separately, never as a difference. They still take part in step 1:
+created ids are unique run-wide too.
+
 Usage:
 
     compare_cross_format_identity.py <dir/basename> <dir/basename> [options]
@@ -301,8 +308,31 @@ def report_run_duplicates(label, index, max_report):
     return duplicated
 
 
+def tree_rows(records):
+    """Split one snapshot's records into its tree rows and its created-row count.
+
+    Tree rows carry positive ids; records created during the run carry strictly
+    negative ones (and no row carries 0).
+    """
+    tree = records[ID_FIELD] > 0
+    return records[tree], int(tree.size - numpy.count_nonzero(tree))
+
+
+def report_created(snap, created, labels):
+    """Report one snapshot's created-row counts, which are never compared."""
+    if any(created):
+        counts = ", ".join(f"{label} {count}" for label, count in zip(labels, created))
+        print(
+            f"  note Snap{snap:03d}: created rows ({ID_FIELD} < 0) are driver-specific and "
+            f"not compared -- {counts}"
+        )
+
+
 def compare_snapshot(snap, left, right, labels, max_report):
-    """Compare one output snapshot's shared records. Returns the failures found.
+    """Compare one output snapshot's shared tree rows. Returns the failures found.
+
+    Records created during a run (negative ids) are split off first, reported by
+    count and never compared; everything below sees tree rows only.
 
     Precondition: neither run carries duplicated ids — report_run_duplicates()
     has already run over both and the comparison stopped if it found any. That
@@ -310,6 +340,10 @@ def compare_snapshot(snap, left, right, labels, max_report):
     """
     left_label, right_label = labels
     failures = 0
+
+    left, left_created = tree_rows(left)
+    right, right_created = tree_rows(right)
+    report_created(snap, (left_created, right_created), labels)
 
     left_ids = left[ID_FIELD]
     right_ids = right[ID_FIELD]
@@ -460,12 +494,22 @@ def compare_runs(args):
     # One snapshot at a time: both runs' records for this snapshot are read,
     # compared, and released before the next snapshot is read.
     total = 0
+    created = [0, 0]
     for snap in sorted(left_snaps & right_snaps):
         left_records = read_snapshot(left, snap)
         right_records = read_snapshot(right, snap)
         failures += compare_snapshot(snap, left_records, right_records, labels, args.max_report)
-        total += left_records.size
+        left_tree = numpy.count_nonzero(left_records[ID_FIELD] > 0)
+        total += int(left_tree)
+        created[0] += int(left_records.size - left_tree)
+        created[1] += int(right_records.size - numpy.count_nonzero(right_records[ID_FIELD] > 0))
         del left_records, right_records
+
+    if any(created):
+        print(
+            f"\nCreated rows ({ID_FIELD} < 0), excluded from the comparison: "
+            f"{args.left_label} {created[0]}, {args.right_label} {created[1]}"
+        )
 
     shared = len(left_snaps & right_snaps)
     if failures:
@@ -476,6 +520,7 @@ def compare_runs(args):
     # compared rather than only that nothing differed: a reader (or a harness)
     # can check it against the run's own output schema without rerunning
     # anything.
+    # `total` counts tree rows only, the rows actually compared.
     print(
         f"\nPASSED: {total} galaxies over {shared} output snapshot(s) are bitwise identical "
         f"in all {len(left.dtype.names)} field(s), with identical {ID_FIELD} sets and "

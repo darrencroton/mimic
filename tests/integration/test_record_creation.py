@@ -30,7 +30,9 @@ Test cases:
     identical to the same run without creation; every negative ID is a unique Type 2 row
   - test_created_rows_follow_their_host: each host's records of a snapshot are the last rows
     of its output segment, decode to its own (unit, row) with ordinals 0..n-1, and carry the
-    host's UniqueCentralGalaxyID; keys are distinct per snapshot
+    host's UniqueCentralGalaxyID; keys are distinct per snapshot; under the horizontal driver
+    the logged space is the fixture's own (units = its snapshot count, rows_per_unit = its
+    largest per-snapshot halo count), read independently with h5py
   - test_created_rows_are_inherited: records created at the first output snapshot reappear
     at the next as Type 2 rows with the same ID, inside their host's descendant segment
   - test_repeat_runs_are_bitwise_identical: two runs with creation write identical galaxies
@@ -266,6 +268,28 @@ def _input_keys(param_file, driver, snapnum):
     return keys
 
 
+def _horizontal_fixture_space(param_file):
+    """(snapshot count, largest per-snapshot halo count) of a horizontal HDF5 input, or None.
+
+    Read straight from the fixture with h5py, independently of the driver: the snapshot
+    count is the length of the package's snapshot list, and each snapshot's halo count is
+    the length of its file's halos/MostBoundID column. These are the units and
+    rows_per_unit the horizontal driver must log for this input.
+    """
+    sim_input, sim_dir = _input_config(param_file)
+    if sim_input.get("tree_type") != "horizontal_hdf5":
+        return None
+    snapshot_list = Path(sim_input["snapshot_list_file"])
+    if not snapshot_list.is_absolute():
+        snapshot_list = REPO_ROOT / snapshot_list
+    snapshots = len([line for line in snapshot_list.read_text().split() if line.strip()])
+    largest = 0
+    for snapnum in range(snapshots):
+        with h5py.File(sim_dir / (sim_input["tree_name"] % snapnum), "r") as handle:
+            largest = max(largest, len(handle["halos"]["MostBoundID"]))
+    return snapshots, largest
+
+
 def _decode(ids, rows_per_unit):
     """Vectorised inverse of mimic_encode_created_galaxy_id(): (unit, row, ordinal) arrays.
 
@@ -366,9 +390,16 @@ def test_created_rows_follow_their_host():
     each key is further checked against the host's current halo, found by MostBoundID.
     """
     log, output_dir, param_file = _run("create", CREATE_PER_HOST)
-    driver, _units, rows_per_unit = _identity_space(log)
+    driver, units, rows_per_unit = _identity_space(log)
     assert driver == ("horizontal" if selected_package_is_horizontal() else "vertical")
     multiplier = _id_multiplier(output_dir)
+    if driver == "horizontal":
+        # Decoding below uses the logged rows_per_unit, so an inflated value would pass
+        # there; pin both logged numbers to the fixture's own.
+        expected = _horizontal_fixture_space(param_file)
+        if expected is not None:
+            message = f"logged (units, rows_per_unit) {(units, rows_per_unit)} is not {expected}"
+            assert (units, rows_per_unit) == expected, message
 
     hosts = 0
     for snapnum, arrays in _snapshots(output_dir).items():

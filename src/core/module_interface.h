@@ -356,27 +356,34 @@ int module_emit_event(struct ModuleContext *ctx, int event_id, int source_index,
  * Lets a PROCESSING_MODE_FULL_HALO module add records to the FoF group it is
  * processing, so that every later module, phase, substep and by-galaxy pass of
  * the same snapshot, the output, and the next snapshot's inheritance see them
- * as ordinary rows. docs/DEVELOPER-GUIDE.md "Record Creation Contract" carries
- * the same contract.
+ * as ordinary rows. This Doxygen is the normative statement of the contract;
+ * docs/DEVELOPER-GUIDE.md "Record Creation Contract" explains it and must agree.
  *
  * API. Legal only while a process_full_halo callback is running, the same gate
  * as module_emit_event(). @p host_index must name a committed workspace row of
  * Type 0 or 1 with a non-NULL galaxy that was present when the pipeline
- * started: created rows cannot host. On success the function returns the new
+ * started: created rows cannot host. The host is also its subhalo slice's
+ * Type 0/1 row as inheritance assembled it, whose index set_local_centrals()
+ * (inheritance.c) wrote into every row of the slice as CentralHalo, so a host
+ * must have CentralHalo == @p host_index; a row a module promoted to Type 1 is
+ * refused. "Per host" below means per such row. On success the function returns the new
  * row's future logical index (>= the committed row count, i.e. the @p ngal the
  * callback received) and sets *@p row to a staged row the caller may fill until
  * its callback returns. The pointer stays valid across further creations in the
  * same callback and must not be used after it returns.
  *
- * Initialisation. The staged row is a struct copy of the host passed through
- * make_orphan() (inheritance.h): Type 2, Mvir and Len zero, deltaMvir = -host
- * Mvir, Rvir and Vvir kept, and the infall fields set to the host's current
- * Mvir, Vvir and Vmax for a Type 0 host or kept as the host's recorded infall
- * values for a Type 1 host. HaloNr, CentralHalo, CentralMvir,
- * UniqueCentralGalaxyID, SnapNum, dT, Pos and Vel start as the host's.
- * UniqueGalaxyID is the created ID below, and galaxy is a fresh slot from the
- * workspace's galaxy pool initialised by init_galaxy_defaults(). The module then
- * sets whatever physics it owns.
+ * Initialisation. The staged row is a full struct copy of the host passed
+ * through make_orphan() (inheritance.h): Type 2, Mvir and Len zero, deltaMvir =
+ * -host Mvir, Rvir and Vvir kept, and the infall fields set to the host's
+ * current Mvir, Vvir and Vmax for a Type 0 host or kept as the host's recorded
+ * infall values for a Type 1 host. Every other halo-side field starts as the
+ * host's: HaloNr, CentralHalo, CentralMvir, UniqueCentralGalaxyID, SnapNum, dT,
+ * Pos and Vel, and equally the catalogue fields such as MostBoundID, Spin, Vmax
+ * and VelDisp, so a consumer must not match created rows to halos or to each
+ * other by MostBoundID (every created row shares its host's). UniqueGalaxyID
+ * is the created ID below, and galaxy is a fresh slot from the workspace's
+ * galaxy pool initialised by init_galaxy_defaults(). The module then sets
+ * whatever physics it owns.
  *
  * Commit. When the callback returns, before the next module runs and before
  * the phase's post-callback safety dispatch of any undelivered event, the core
@@ -398,8 +405,13 @@ int module_emit_event(struct ModuleContext *ctx, int event_id, int source_index,
  * (host HaloNr + rows_per_unit * unit)) (mimic_encode_created_galaxy_id(),
  * galaxy_id.h), with (unit, rows_per_unit) the driver's published identity
  * space and `ordinal` the host's created-record count within the FoF step, in
- * creation order. Created IDs are negative, unique run-wide and deterministic
- * for a fixed dataset and run file; they are not identical across drivers.
+ * creation order (mimic_decode_created_galaxy_id() inverts it). Created IDs are
+ * negative, unique run-wide and deterministic for a fixed dataset and run file;
+ * they are not identical across drivers. Under the vertical driver rows_per_unit
+ * is the largest forest over the run's first_file..last_file range, so a run
+ * over a subset of files can give the same host a different created ID when the
+ * largest forest lies outside the shared range, as positive IDs already shift
+ * with the forest offset in subset runs.
  *
  * Memory. Created galaxies come from the workspace's pool and created rows end
  * in the output buffer; the staging and per-host ordinal scratch is
@@ -421,8 +433,9 @@ int module_emit_event(struct ModuleContext *ctx, int event_id, int source_index,
  *         naming the module and the reason when called outside a running
  *         process_full_halo callback (including from by-galaxy, per-event and
  *         snapshot callbacks and from init()), when @p host_index is outside the
- *         committed rows or names a created row, when the host is not Type 0 or 1
- *         or has no galaxy, when the host already has MAX_CREATED_RECORDS_PER_HOST
+ *         committed rows or names a created row, when the host is not Type 0 or 1,
+ *         has no galaxy or is not its slice's assembled Type 0/1 row (CentralHalo
+ *         names another row), when the host already has MAX_CREATED_RECORDS_PER_HOST
  *         created records in this FoF step, or when the run's identity space
  *         does not fit int64 (the message carries units, rows_per_unit, the
  *         radix and the driver name). A failed call stages no row and allocates
@@ -430,8 +443,12 @@ int module_emit_event(struct ModuleContext *ctx, int event_id, int source_index,
  *         instead of returning, because no module can cause or handle them: a
  *         workspace the core did not set up for creation (base_count, the
  *         created-host map or the pool), and a host whose HaloNr or unit lies
- *         outside the identity space the driver published (a driver defect,
- *         unlike the recoverable fits == false refusal above).
+ *         outside the identity space the driver published, or a space published
+ *         as fitting that does not fit int64 (re-derived on every creation, so a
+ *         mis-built descriptor never reaches the encoder's assert()). Under the
+ *         vertical driver's multiplier fallback the HaloNr bound is the reader's
+ *         forest-size guard; otherwise this is a driver defect, unlike the
+ *         recoverable fits == false refusal above.
  */
 int module_create_record(struct ModuleContext *ctx, int host_index, struct Halo **row);
 

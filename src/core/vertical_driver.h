@@ -21,10 +21,13 @@ void run_vertical_driver(void);
 void run_processing_driver(void);
 
 /* The vertical driver's currently published identity space
- * (src/core/vertical_driver.c). Between run_vertical_driver()'s startup scan and
- * its first unit, and after a run that processed no unit, `unit` is -1 while
- * rows_per_unit and fits carry the run's evaluation; before any vertical run it
- * is {-1, 0, true}. */
+ * (src/core/vertical_driver.c), a read-only observation seam for tests: the
+ * driver itself hands each unit's space to its FoF workspace. Before any
+ * vertical run it is {.unit = -1, .rows_per_unit = 0, .fits = true, .units = 0,
+ * .driver = "vertical"}. run_vertical_driver()'s startup scan sets
+ * rows_per_unit, fits and units for the run, leaving unit at -1 until the first
+ * unit is loaded; after a run, unit keeps the last global forest number
+ * published, or -1 when the run processed no unit. */
 struct RecordIdentitySpace vertical_driver_record_identity_space(void);
 
 #endif /* CORE_VERTICAL_DRIVER_H */
