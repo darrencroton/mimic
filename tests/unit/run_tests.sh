@@ -285,6 +285,7 @@ compile_and_run_test() {
     local link_objs="$SHARED_OBJS"
     if [ "$test_name" = "test_ctrees_hdf5_reader" ] || \
        [ "$test_name" = "test_master_hdf5_partitions" ] || \
+       [ "$test_name" = "test_lhalo_hdf5_reader" ] || \
        [ "$test_name" = "test_unit_horizontal_reader_open" ] || \
        [ "$test_name" = "test_unit_horizontal_reader_realdata" ] || \
        [ "$test_name" = "test_horizontal_v3_reader" ] || \

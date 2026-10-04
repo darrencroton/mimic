@@ -1131,6 +1131,9 @@ static int build_chunk_plan_ctrees_hdf5(void) {
             ", forests_per_file=%" PRId64 ")\n",
             MimicConfig.TargetFileSize, MimicConfig.ForestsPerFile);
   }
+  /* CTH owns the maxima from here, so teardown_run_ctrees_hdf5_state() releases them on
+     every later return, as it does the plan. */
+  CTH.chunk_max_nhalos = chunk_max_nhalos;
   XRETURN(CTH.chunk_plan.nchunks > 0, CT_H5_ERR,
           "Error: Consistent-Trees HDF5 chunk planner emitted no chunks for %" PRId64 " forests\n",
           CTH.totnforests);
@@ -1141,14 +1144,9 @@ static int build_chunk_plan_ctrees_hdf5(void) {
 
   /* The still-open chunk after the last file was the one finish() emitted, so every
      chunk has an entry; a capacity short of nchunks would mean the fold lost track. */
-  if (chunk_max_capacity < CTH.chunk_plan.nchunks) {
-    myfree(chunk_max_nhalos);
-    XRETURN(0, CT_H5_ERR,
-            "Error: Consistent-Trees HDF5 tracked %" PRId64 " chunk maxima for %" PRId64
-            " chunks\n",
-            chunk_max_capacity, CTH.chunk_plan.nchunks);
-  }
-  CTH.chunk_max_nhalos = chunk_max_nhalos;
+  XRETURN(chunk_max_capacity >= CTH.chunk_plan.nchunks, CT_H5_ERR,
+          "Error: Consistent-Trees HDF5 tracked %" PRId64 " chunk maxima for %" PRId64 " chunks\n",
+          chunk_max_capacity, CTH.chunk_plan.nchunks);
 
   CTH.chunk_costs = mymalloc_cat((size_t)CTH.chunk_plan.nchunks * sizeof(*CTH.chunk_costs), MEM_IO);
   for (int64_t chunk = 0; chunk < CTH.chunk_plan.nchunks; chunk++) {
@@ -1516,17 +1514,19 @@ int ctrees_hdf5_test_prepare_and_stage_ranges(const char *simulation_dir, const 
   return status;
 }
 
+static int64_t max_partition_unit_halos_ctrees_hdf5(int partition);
+
 int ctrees_hdf5_test_prepare_chunk_plan(const char *simulation_dir, const char *tree_name,
-                                        const int64_t forests_per_file,
+                                        const int last_file, const int64_t forests_per_file,
                                         const int64_t target_file_size, const int max_chunks,
                                         int64_t *starts, int64_t *counts, double *costs,
-                                        int *nchunks) {
+                                        int64_t *max_nhalos, int *nchunks) {
   memset(&CTH, 0, sizeof(CTH));
   CTH.meta_fd = -1;
   snprintf(MimicConfig.SimulationDir, sizeof(MimicConfig.SimulationDir), "%s", simulation_dir);
   snprintf(MimicConfig.TreeName, sizeof(MimicConfig.TreeName), "%s", tree_name);
   MimicConfig.FirstFile = 0;
-  MimicConfig.LastFile = 2;
+  MimicConfig.LastFile = last_file;
   MimicConfig.TargetFileSize = target_file_size;
   MimicConfig.ForestsPerFile = forests_per_file;
   MimicConfig.ForestDistributionScheme = linear_in_nhalos;
@@ -1546,6 +1546,9 @@ int ctrees_hdf5_test_prepare_chunk_plan(const char *simulation_dir, const char *
     starts[i] = CTH.chunk_plan.chunks[i].start_forest;
     counts[i] = CTH.chunk_plan.chunks[i].nforests;
     costs[i] = CTH.chunk_costs[i];
+    if (max_nhalos != NULL) {
+      max_nhalos[i] = max_partition_unit_halos_ctrees_hdf5(i);
+    }
   }
 
   teardown_run_ctrees_hdf5_state();

@@ -53,10 +53,14 @@ struct ctrees_hdf5_test_stage_probe {
 int ctrees_hdf5_test_prepare_and_stage_ranges(const char *simulation_dir, const char *tree_name,
                                               const int64_t starts[2], const int64_t counts[2],
                                               struct ctrees_hdf5_test_stage_probe probes[2]);
+/* Plans files [0, last_file] of tree_name and copies out up to max_chunks chunks: each
+   chunk's first forest, forest count, cost and (when max_nhalos is non-NULL) the largest
+   forest the reader's max_partition_unit_halos hook reports for it. */
 int ctrees_hdf5_test_prepare_chunk_plan(const char *simulation_dir, const char *tree_name,
-                                        int64_t forests_per_file, int64_t target_file_size,
-                                        int max_chunks, int64_t *starts, int64_t *counts,
-                                        double *costs, int *nchunks);
+                                        int last_file, int64_t forests_per_file,
+                                        int64_t target_file_size, int max_chunks, int64_t *starts,
+                                        int64_t *counts, double *costs, int64_t *max_nhalos,
+                                        int *nchunks);
 int ctrees_hdf5_test_rejects_oversized_stage_range(void);
 
 #endif /* HDF5 && MIMIC_TEST_BUILD */

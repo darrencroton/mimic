@@ -14,10 +14,12 @@
  * - Easier extensibility for future enhancements
  *
  * Key functions:
+ * - open_lhalo_hdf5_header(): The one parser of the per-file /Header, shared by
+ *   the count, largest-tree and open hooks
  * - open_partition_hdf5(): Reads tree metadata from an HDF5 file
  * - load_unit_hdf5(): Loads a specific tree's halo data
  * - close_partition_hdf5(): Closes the HDF5 file
- * - read_attribute_int(): Helper for reading integer attributes
+ * - read_attribute_int_checked(): Extent-checked reader for integer attributes
  * - read_dataset(): Helper for reading datasets of various types
  */
 
@@ -41,19 +43,35 @@
 
 static hid_t hdf5_file = -1;
 
-struct METADATA_NAMES {
-  char name_NTrees[MAX_STRING_LEN + 1];
-  char name_totNHalos[MAX_STRING_LEN + 1];
-  char name_InputTreeNHalos[MAX_STRING_LEN + 1];
+/* The per-file /Header attributes of the L-Halo-tree HDF5 layout: the tree count,
+   the total halo count, and the per-tree halo counts. */
+#define LHALO_HDF5_HEADER_GROUP "/Header"
+#define LHALO_HDF5_NTREES "Ntrees"
+#define LHALO_HDF5_TOTNHALOS "totNHalos"
+#define LHALO_HDF5_TREE_NHALOS "InputTreeNHalos"
+
+#define LHALO_HDF5_PATH_LEN (3 * MAX_STRING_LEN + 15)
+
+/* How much of the /Header open_lhalo_hdf5_header() parses. */
+enum LHaloHDF5HeaderScope {
+  HDF5_HEADER_COUNTS, /* Ntrees and totNHalos only */
+  HDF5_HEADER_MAX,    /* plus InputTreeNHalos, reduced to its largest entry */
+  HDF5_HEADER_TABLE,  /* plus InputTreeNHalos, kept for load_unit_hdf5() */
+};
+
+/* What open_lhalo_hdf5_header() parsed; fields beyond the scope stay zero or NULL. */
+struct LHaloHDF5Header {
+  char path[LHALO_HDF5_PATH_LEN];
+  int ntrees;
+  int tot_nhalos;
+  int64_t max_halos; /* largest InputTreeNHalos entry; 0 for a file with no trees */
+  int *tree_nhalos;  /* MEM_TREES block of ntrees counts (HDF5_HEADER_TABLE only) */
 };
 
 /* How read_dataset() should interpret a dataset's elements */
 enum ReadDatatype { READ_AS_INT = 0, READ_AS_FLOAT = 1, READ_AS_LLONG = 2 };
 
 static void format_lhalo_hdf5_partition_path(char *buf, size_t size, int output_id);
-static int32_t fill_metadata_names(struct METADATA_NAMES *metadata_names);
-static int32_t read_attribute_int(hid_t my_hdf5_file, char *groupname, char *attr_name,
-                                  int *attribute);
 static int32_t read_attribute_int_checked(hid_t my_hdf5_file, const char *file_path,
                                           const char *groupname, const char *attr_name,
                                           int *attribute, int64_t expected_count);
@@ -62,62 +80,99 @@ static int64_t count_partition_units_hdf5(int partition);
 static int64_t max_partition_unit_halos_hdf5(int partition);
 
 /**
+ * @brief   Open an HDF5 partition file and parse its /Header.
+ * @param   output_id   Output id of the partition (the L-Halo filenr).
+ * @param   scope       How much of the header to parse.
+ * @param   header      Receives the file path and what was parsed.
+ * @return  The open read-only file. The caller closes it and, for HDF5_HEADER_TABLE,
+ *          owns header->tree_nhalos.
+ *
+ * Every attribute goes through the extent-checked reader: Ntrees and totNHalos must
+ * hold one element each and InputTreeNHalos exactly Ntrees. A file with no trees has
+ * no table to read, so every scope answers zero trees and a zero maximum whether it
+ * carries an empty InputTreeNHalos or none. A missing or mis-sized attribute, a
+ * negative Ntrees or a negative table entry is FATAL, after the file is closed and
+ * any table released.
+ */
+static hid_t open_lhalo_hdf5_header(int output_id, enum LHaloHDF5HeaderScope scope,
+                                    struct LHaloHDF5Header *header) {
+  memset(header, 0, sizeof(*header));
+  format_lhalo_hdf5_partition_path(header->path, sizeof(header->path), output_id);
+  const char *path = header->path;
+
+  const hid_t file = H5Fopen(path, H5F_ACC_RDONLY, H5P_DEFAULT);
+  if (file < 0) {
+    FATAL_ERROR("Failed to open HDF5 tree file '%s'", path);
+  }
+
+  if (read_attribute_int_checked(file, path, LHALO_HDF5_HEADER_GROUP, LHALO_HDF5_NTREES,
+                                 &header->ntrees, 1) != EXIT_SUCCESS) {
+    H5Fclose(file);
+    FATAL_ERROR("Failed to read the %s attribute from file '%s'", LHALO_HDF5_NTREES, path);
+  }
+  if (header->ntrees < 0) {
+    H5Fclose(file);
+    FATAL_ERROR("HDF5 tree file '%s' reports negative NTrees=%d", path, header->ntrees);
+  }
+  if (read_attribute_int_checked(file, path, LHALO_HDF5_HEADER_GROUP, LHALO_HDF5_TOTNHALOS,
+                                 &header->tot_nhalos, 1) != EXIT_SUCCESS) {
+    H5Fclose(file);
+    FATAL_ERROR("Failed to read the %s attribute from file '%s'", LHALO_HDF5_TOTNHALOS, path);
+  }
+  if (scope == HDF5_HEADER_COUNTS) {
+    return file;
+  }
+
+  int *table = mymalloc_cat(sizeof(int) * (size_t)header->ntrees, MEM_TREES);
+  if (header->ntrees > 0 &&
+      read_attribute_int_checked(file, path, LHALO_HDF5_HEADER_GROUP, LHALO_HDF5_TREE_NHALOS, table,
+                                 header->ntrees) != EXIT_SUCCESS) {
+    myfree(table);
+    H5Fclose(file);
+    IO_FATAL_ERROR(IO_ERROR_HDF5, "read_attribute", path,
+                   "Failed to read the %s attribute for %d trees", LHALO_HDF5_TREE_NHALOS,
+                   header->ntrees);
+  }
+  for (int i = 0; i < header->ntrees; i++) {
+    if (table[i] < 0) {
+      const int negative = table[i];
+      myfree(table);
+      H5Fclose(file);
+      FATAL_ERROR("HDF5 tree file '%s' reports negative halo count %d for tree %d", path, negative,
+                  i);
+    }
+    if (table[i] > header->max_halos) {
+      header->max_halos = table[i];
+    }
+  }
+
+  if (scope == HDF5_HEADER_TABLE) {
+    header->tree_nhalos = table;
+  } else {
+    myfree(table);
+  }
+  return file;
+}
+
+/**
  * @brief   Open the HDF5 partition file and read its /Header tree-count attributes.
  * @param   output_id   Output id of the partition (the L-Halo filenr).
  *
- * Reads NTrees, totNHalos, and InputTreeNHalos[NTrees] from the /Header group,
- * then builds InputTreeFirstHalo[]. Leaves the file handle open for load_unit_hdf5.
+ * Stages Ntrees and InputTreeNHalos[Ntrees] from the /Header group, then builds
+ * InputTreeFirstHalo[]. Leaves the file handle open for load_unit_hdf5.
  */
 void open_partition_hdf5(int output_id) {
+  struct LHaloHDF5Header header;
 
-  char buf[3 * MAX_STRING_LEN + 15];
-  int32_t totNHalos, i;
-  int32_t status;
-
-  struct METADATA_NAMES metadata_names;
-
-  format_lhalo_hdf5_partition_path(buf, sizeof(buf), output_id);
-  hdf5_file = H5Fopen(buf, H5F_ACC_RDONLY, H5P_DEFAULT);
-
-  if (hdf5_file < 0) {
-    FATAL_ERROR("Failed to open HDF5 tree file '%s'", buf);
-  }
-
-  status = fill_metadata_names(&metadata_names);
-  if (status != EXIT_SUCCESS) {
-    FATAL_ERROR("Failed to fill HDF5 tree metadata names");
-  }
-
-  status =
-      read_attribute_int_checked(hdf5_file, buf, "/Header", metadata_names.name_NTrees, &Ntrees, 1);
-  if (status != EXIT_SUCCESS) {
-    FATAL_ERROR("Error %d while reading NTrees attribute from file '%s'", status, buf);
-  }
-  if (Ntrees < 0) {
-    FATAL_ERROR("HDF5 tree file '%s' reports negative NTrees=%d", buf, Ntrees);
-  }
-
-  status = read_attribute_int(hdf5_file, "/Header", metadata_names.name_totNHalos, &totNHalos);
-  if (status != EXIT_SUCCESS) {
-    FATAL_ERROR("Error %d while reading totNHalos attribute from file '%s'", status, buf);
-  }
-
-  DEBUG_LOG("There are %d trees and %d total halos", Ntrees, totNHalos);
-
-  InputTreeNHalos = mymalloc_cat(sizeof(int) * Ntrees, MEM_TREES);
-
-  status = read_attribute_int_checked(hdf5_file, buf, "/Header",
-                                      metadata_names.name_InputTreeNHalos, InputTreeNHalos, Ntrees);
-  if (status != EXIT_SUCCESS) {
-    IO_FATAL_ERROR(IO_ERROR_HDF5, "read_attribute", buf,
-                   "Failed to read InputTreeNHalos attribute (status=%d)", status);
-  }
+  hdf5_file = open_lhalo_hdf5_header(output_id, HDF5_HEADER_TABLE, &header);
+  Ntrees = header.ntrees;
+  InputTreeNHalos = header.tree_nhalos;
+  DEBUG_LOG("There are %d trees and %d total halos", Ntrees, header.tot_nhalos);
 
   InputTreeFirstHalo = mymalloc_cat(sizeof(int) * Ntrees, MEM_TREES);
-
   if (Ntrees)
     InputTreeFirstHalo[0] = 0;
-  for (i = 1; i < Ntrees; i++)
+  for (int i = 1; i < Ntrees; i++)
     InputTreeFirstHalo[i] = InputTreeFirstHalo[i - 1] + InputTreeNHalos[i - 1];
 }
 
@@ -250,103 +305,31 @@ static void format_lhalo_hdf5_partition_path(char *buf, size_t size, int output_
   }
 }
 
+/** @brief Tree count of a present partition, from its /Header Ntrees alone. */
 static int64_t count_partition_units_hdf5(int partition) {
-  char buf[3 * MAX_STRING_LEN + 15];
-  int ntrees;
-  int32_t status;
-  struct METADATA_NAMES metadata_names;
-  const int output_id = tree_partition_per_file_output_id(partition);
-
-  format_lhalo_hdf5_partition_path(buf, sizeof(buf), output_id);
-  hid_t count_file = H5Fopen(buf, H5F_ACC_RDONLY, H5P_DEFAULT);
-  if (count_file < 0) {
-    FATAL_ERROR("Failed to open HDF5 tree file '%s'", buf);
+  struct LHaloHDF5Header header;
+  const hid_t file = open_lhalo_hdf5_header(tree_partition_per_file_output_id(partition),
+                                            HDF5_HEADER_COUNTS, &header);
+  if (H5Fclose(file) < 0) {
+    FATAL_ERROR("Failed to close HDF5 tree file '%s'", header.path);
   }
-
-  status = fill_metadata_names(&metadata_names);
-  if (status != EXIT_SUCCESS) {
-    H5Fclose(count_file);
-    FATAL_ERROR("Failed to fill HDF5 tree metadata names");
-  }
-
-  status = read_attribute_int(count_file, "/Header", metadata_names.name_NTrees, &ntrees);
-  if (status != EXIT_SUCCESS) {
-    H5Fclose(count_file);
-    FATAL_ERROR("Error %d while reading NTrees attribute from file '%s'", status, buf);
-  }
-  H5Fclose(count_file);
-
-  if (ntrees < 0) {
-    FATAL_ERROR("HDF5 tree file '%s' reports negative NTrees=%d", buf, ntrees);
-  }
-  return (int64_t)ntrees;
+  return (int64_t)header.ntrees;
 }
 
 /**
  * @brief   Largest tree in a present partition, from its /Header alone.
  *
- * Reads the Ntrees and InputTreeNHalos[Ntrees] header attributes into a
- * transient buffer released before returning; no tree group is opened.
+ * Reads the InputTreeNHalos[Ntrees] header attribute into a transient buffer
+ * released before returning; no tree group is opened.
  */
 static int64_t max_partition_unit_halos_hdf5(int partition) {
-  char buf[3 * MAX_STRING_LEN + 15];
-  int ntrees;
-  int32_t status;
-  struct METADATA_NAMES metadata_names;
-  const int output_id = tree_partition_per_file_output_id(partition);
-
-  format_lhalo_hdf5_partition_path(buf, sizeof(buf), output_id);
-  hid_t count_file = H5Fopen(buf, H5F_ACC_RDONLY, H5P_DEFAULT);
-  if (count_file < 0) {
-    FATAL_ERROR("Failed to open HDF5 tree file '%s'", buf);
+  struct LHaloHDF5Header header;
+  const hid_t file = open_lhalo_hdf5_header(tree_partition_per_file_output_id(partition),
+                                            HDF5_HEADER_MAX, &header);
+  if (H5Fclose(file) < 0) {
+    FATAL_ERROR("Failed to close HDF5 tree file '%s'", header.path);
   }
-
-  status = fill_metadata_names(&metadata_names);
-  if (status != EXIT_SUCCESS) {
-    H5Fclose(count_file);
-    FATAL_ERROR("Failed to fill HDF5 tree metadata names");
-  }
-
-  status = read_attribute_int_checked(count_file, buf, "/Header", metadata_names.name_NTrees,
-                                      &ntrees, 1);
-  if (status != EXIT_SUCCESS) {
-    H5Fclose(count_file);
-    FATAL_ERROR("Error %d while reading NTrees attribute from file '%s'", status, buf);
-  }
-  if (ntrees < 0) {
-    H5Fclose(count_file);
-    FATAL_ERROR("HDF5 tree file '%s' reports negative NTrees=%d", buf, ntrees);
-  }
-  if (ntrees == 0) {
-    H5Fclose(count_file);
-    return 0;
-  }
-
-  int *tree_nhalos = mymalloc_cat(sizeof(int) * (size_t)ntrees, MEM_TREES);
-  status = read_attribute_int_checked(count_file, buf, "/Header",
-                                      metadata_names.name_InputTreeNHalos, tree_nhalos, ntrees);
-  H5Fclose(count_file);
-  if (status != EXIT_SUCCESS) {
-    myfree(tree_nhalos);
-    IO_FATAL_ERROR(IO_ERROR_HDF5, "read_attribute", buf,
-                   "Failed to read InputTreeNHalos attribute (status=%d)", status);
-  }
-
-  int64_t max_halos = 0;
-  for (int i = 0; i < ntrees; i++) {
-    if (tree_nhalos[i] < 0) {
-      const int negative = tree_nhalos[i];
-      myfree(tree_nhalos);
-      FATAL_ERROR("HDF5 tree file '%s' reports negative halo count %d for tree %d", buf, negative,
-                  i);
-    }
-    if (tree_nhalos[i] > max_halos) {
-      max_halos = tree_nhalos[i];
-    }
-  }
-  myfree(tree_nhalos);
-
-  return max_halos;
+  return header.max_halos;
 }
 
 /* L-Halo-tree HDF5 merger trees: per-tree groups (tree_NNN/<field>) with a
@@ -369,62 +352,16 @@ const struct VerticalReader LHaloHDF5Reader = {
 };
 
 /**
- * @brief   Fills in the L-Halo HDF5 metadata attribute names
- *
- * @param   metadata_names    Pointer to metadata names structure to fill
- * @return  EXIT_SUCCESS on success
- *
- * These are the per-file header attributes of the L-Halo-tree HDF5 layout:
- * the tree count, the total halo count, and the per-tree halo counts.
- */
-static int32_t fill_metadata_names(struct METADATA_NAMES *metadata_names) {
-  snprintf(metadata_names->name_NTrees, MAX_STRING_LEN, "Ntrees");
-  snprintf(metadata_names->name_totNHalos, MAX_STRING_LEN, "totNHalos");
-  snprintf(metadata_names->name_InputTreeNHalos, MAX_STRING_LEN, "InputTreeNHalos");
-  return EXIT_SUCCESS;
-}
-
-/**
- * @brief   Read a native-int attribute from an HDF5 group by name.
- * @return  EXIT_SUCCESS on success, negative HDF5 error code on failure.
- */
-static int32_t read_attribute_int(hid_t my_hdf5_file, char *groupname, char *attr_name,
-                                  int *attribute) {
-
-  int32_t status;
-  hid_t attr_id;
-
-  attr_id = H5Aopen_by_name(my_hdf5_file, groupname, attr_name, H5P_DEFAULT, H5P_DEFAULT);
-  if (attr_id < 0) {
-    ERROR_LOG("Could not open the attribute %s in group %s", attr_name, groupname);
-    return attr_id;
-  }
-
-  status = H5Aread(attr_id, H5T_NATIVE_INT, attribute);
-  if (status < 0) {
-    ERROR_LOG("Could not read the attribute %s in group %s", attr_name, groupname);
-    return status;
-  }
-
-  status = H5Aclose(attr_id);
-  if (status < 0) {
-    ERROR_LOG("Error when closing the HDF5 attribute");
-    return status;
-  }
-
-  return EXIT_SUCCESS;
-}
-
-/**
  * @brief   Read a native-int attribute whose element count must equal expected_count.
  * @param   file_path       Path of the open file, named in the error.
  * @param   expected_count  Required number of elements (1 for a scalar or 1-element attribute).
  * @return  EXIT_SUCCESS on success, -1 on any failure (logged with the file, attribute,
  *          expected and actual counts on a size mismatch).
  *
- * read_attribute_int() reads whatever the attribute holds into the caller's buffer, so a
- * larger attribute overruns it and a smaller one leaves its tail uninitialised. This
- * reader checks the dataspace's element count first and reads nothing on a mismatch.
+ * An unchecked H5Aread() writes whatever the attribute holds into the caller's buffer, so
+ * a larger attribute overruns it and a smaller one leaves its tail uninitialised. This
+ * reader checks the dataspace's element count first and reads nothing on a mismatch; a
+ * failed close of the dataspace or attribute also fails the read.
  */
 static int32_t read_attribute_int_checked(hid_t my_hdf5_file, const char *file_path,
                                           const char *groupname, const char *attr_name,
@@ -461,10 +398,14 @@ static int32_t read_attribute_int_checked(hid_t my_hdf5_file, const char *file_p
   result = EXIT_SUCCESS;
 
 checked_attribute_cleanup:
-  if (space_id >= 0) {
-    H5Sclose(space_id);
+  if (space_id >= 0 && H5Sclose(space_id) < 0) {
+    result = -1;
   }
-  H5Aclose(attr_id);
+  if (H5Aclose(attr_id) < 0) {
+    ERROR_LOG("Could not close the attribute %s in group %s of file '%s'", attr_name, groupname,
+              file_path);
+    result = -1;
+  }
   return result;
 }
 

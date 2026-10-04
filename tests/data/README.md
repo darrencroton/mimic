@@ -10,6 +10,10 @@ tests/data/
 │   ├── mini-millennium.a_list 64-snapshot scale-factor list
 │   └── trees_063.0            Single-file mini-Millennium merger tree (18 MB),
 │                              shared by both LHaloTree simulation packages
+├── lhalo_hdf5/                L-Halo-tree HDF5 (lhalo_hdf5) reader fixture
+│   ├── generate_fixture.py    Writes the three files below and documents the layout
+│   ├── trees_fixture.{0,1}.hdf5   Two partitions: trees of 2, 5, 1 and 3, 6 halos
+│   └── trees_mismatch.0.hdf5  Header only: Ntrees = 3, InputTreeNHalos of 2 entries
 ├── horizontal_v3/             Horizontal-HDF5 format version 3 reader fixture
 │   ├── regenerate.sh          Rebuilds source/trees_fixture.0 and dataset/
 │   ├── source/                Committed converter inputs: generate_source.py,
@@ -34,6 +38,10 @@ Each baseline directory carries its own `metadata/` (including `output_schema.js
 - **The full-physics SAGE baseline** is model-owned: it lives under `models/sage16/modules/_tests/` (`test_scientific_sage_physics_baseline.py`) and writes its run output to `output/physics-binary/`.
 
 Both comparisons use the strict `1e-6` relative tolerance by default; CI relaxes the gate via `MIMIC_BASELINE_RTOL` only for cross-platform float noise, with diffs beyond the strict tolerance still reported as warnings.
+
+## The L-Halo HDF5 reader fixture
+
+No simulation package declares `tree_type: lhalo_hdf5`, so `lhalo_hdf5/` is the only input that exercises that reader. `generate_fixture.py` writes it with h5py and its docstring is the layout the reader expects: a `/Header` group whose `Ntrees`, `totNHalos` and `InputTreeNHalos` attributes describe the file, and one `tree_NNN/` group per tree holding one dataset per catalog field. It is read by `tests/unit/test_lhalo_hdf5_reader.c`, which checks the count and largest-tree hooks against each file's header table, opens a partition and loads a unit, and requires the extent-checked header reader to refuse `trees_mismatch.0.hdf5`. The tree datasets carry mini-Millennium's L-Halo record, so the load case runs only when every dataset the compiled package's catalog names is present in the fixture (as under the default pair) and skips otherwise; the header cases run under every package. Rerun the generator after changing it and commit the three files with it.
 
 ## The version 3 reader fixture
 

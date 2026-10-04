@@ -704,8 +704,10 @@ int test_prepare_builds_chunk_plan_from_forest_counts(void) {
   int64_t starts[4] = {0};
   int64_t counts[4] = {0};
   double costs[4] = {0.0};
-  TEST_ASSERT(ctrees_hdf5_test_prepare_chunk_plan(dir_template, tree_name, 3, 1024, 4, starts,
-                                                  counts, costs, &nchunks) == EXIT_SUCCESS,
+  int64_t max_nhalos[4] = {0};
+  TEST_ASSERT(ctrees_hdf5_test_prepare_chunk_plan(dir_template, tree_name, 2, 3, 1024, 4, starts,
+                                                  counts, costs, max_nhalos,
+                                                  &nchunks) == EXIT_SUCCESS,
               "run prepare should build a chunk plan from ForestInfo halo counts");
 
   TEST_ASSERT(nchunks == 3, "seven forests with forests_per_file=3 should produce three chunks");
@@ -714,9 +716,108 @@ int test_prepare_builds_chunk_plan_from_forest_counts(void) {
   TEST_ASSERT(starts[2] == 6 && counts[2] == 1, "chunk 2 should cover forests [6, 7)");
   TEST_ASSERT(costs[0] == 4.0 && costs[1] == 4.0 && costs[2] == 1.0,
               "linear chunk costs should sum ForestNhalos over each chunk");
+  /* Chunks 0 and 1 each straddle a file boundary, so their maxima fold across files. */
+  TEST_ASSERT(max_nhalos[0] == 2 && max_nhalos[1] == 2 && max_nhalos[2] == 1,
+              "each chunk's largest forest should be the largest ForestNhalos it covers");
 
   unlink(path);
   rmdir(dir_template);
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
+/* The committed micro-Uchuu Consistent-Trees HDF5 fixture: one file, three forests
+   (simulations/micro-uchuu-hdf5/_tests/input/create_test_fixture.py). */
+#define MICRO_UCHUU_HDF5_FIXTURE_DIR "simulations/micro-uchuu-hdf5/_tests/data"
+#define MICRO_UCHUU_HDF5_FIXTURE_NAME "MicroUchuu_test_mergertree_info.h5"
+#define MICRO_UCHUU_HDF5_FIXTURE_MAX_FORESTS 8
+
+/* Reads File0/ForestInfo's ForestNhalos column by member name; returns the forest count
+   or -1 on any failure. */
+static int read_fixture_forest_nhalos(const char *path, int64_t *nhalos, int max_forests) {
+  int nforests = -1;
+  hid_t file = H5Fopen(path, H5F_ACC_RDONLY, H5P_DEFAULT);
+  if (file < 0) {
+    return -1;
+  }
+  hid_t dset = H5Dopen2(file, "File0/ForestInfo", H5P_DEFAULT);
+  hid_t space = dset >= 0 ? H5Dget_space(dset) : -1;
+  hid_t member = H5Tcreate(H5T_COMPOUND, sizeof(int64_t));
+  if (space >= 0 && member >= 0 && H5Tinsert(member, "ForestNhalos", 0, H5T_NATIVE_INT64) >= 0) {
+    const hssize_t npoints = H5Sget_simple_extent_npoints(space);
+    if (npoints > 0 && npoints <= max_forests &&
+        H5Dread(dset, member, H5S_ALL, H5S_ALL, H5P_DEFAULT, nhalos) >= 0) {
+      nforests = (int)npoints;
+    }
+  }
+  if (member >= 0) {
+    H5Tclose(member);
+  }
+  if (space >= 0) {
+    H5Sclose(space);
+  }
+  if (dset >= 0) {
+    H5Dclose(dset);
+  }
+  H5Fclose(file);
+  return nforests;
+}
+
+/**
+ * @test    test_chunk_maxima_match_forest_nhalos_on_committed_fixture
+ * @brief   Every chunk's recorded largest forest is the true maximum of ForestNhalos over
+ *          its forests, on the committed micro-Uchuu fixture, for every forests_per_file
+ *          from one forest per chunk to all forests in one chunk (a target file size far
+ *          above the fixture's leaves forests_per_file the only chunk limit).
+ */
+int test_chunk_maxima_match_forest_nhalos_on_committed_fixture(void) {
+  init_memory_system(0);
+  MimicConfig.LastSnapshotNr = 49;
+
+  char path[512];
+  snprintf(path, sizeof(path), "%s/%s", MICRO_UCHUU_HDF5_FIXTURE_DIR,
+           MICRO_UCHUU_HDF5_FIXTURE_NAME);
+  int64_t forest_nhalos[MICRO_UCHUU_HDF5_FIXTURE_MAX_FORESTS] = {0};
+  const int nforests =
+      read_fixture_forest_nhalos(path, forest_nhalos, MICRO_UCHUU_HDF5_FIXTURE_MAX_FORESTS);
+  TEST_ASSERT(nforests >= 2, "the committed fixture's ForestInfo should be readable");
+
+  for (int per_chunk = 1; per_chunk <= nforests; per_chunk++) {
+    int nchunks = 0;
+    int64_t starts[MICRO_UCHUU_HDF5_FIXTURE_MAX_FORESTS] = {0};
+    int64_t counts[MICRO_UCHUU_HDF5_FIXTURE_MAX_FORESTS] = {0};
+    double costs[MICRO_UCHUU_HDF5_FIXTURE_MAX_FORESTS] = {0.0};
+    int64_t max_nhalos[MICRO_UCHUU_HDF5_FIXTURE_MAX_FORESTS] = {0};
+    TEST_ASSERT(ctrees_hdf5_test_prepare_chunk_plan(
+                    MICRO_UCHUU_HDF5_FIXTURE_DIR, MICRO_UCHUU_HDF5_FIXTURE_NAME, 0, per_chunk,
+                    (int64_t)1 << 30, MICRO_UCHUU_HDF5_FIXTURE_MAX_FORESTS, starts, counts, costs,
+                    max_nhalos, &nchunks) == EXIT_SUCCESS,
+                "run prepare should plan the committed fixture");
+    TEST_ASSERT(nchunks == (nforests + per_chunk - 1) / per_chunk,
+                "forests_per_file should set the chunk count");
+
+    int64_t covered = 0;
+    for (int chunk = 0; chunk < nchunks; chunk++) {
+      TEST_ASSERT(starts[chunk] == covered && counts[chunk] >= 1,
+                  "chunks should tile the fixture's forests in order");
+      int64_t expected = 0;
+      for (int64_t forest = starts[chunk]; forest < starts[chunk] + counts[chunk]; forest++) {
+        if (forest_nhalos[forest] > expected) {
+          expected = forest_nhalos[forest];
+        }
+      }
+      if (max_nhalos[chunk] != expected) {
+        printf("\n  forests_per_file=%d chunk %d: recorded %" PRId64 ", ForestNhalos max %" PRId64
+               "\n",
+               per_chunk, chunk, max_nhalos[chunk], expected);
+      }
+      TEST_ASSERT(max_nhalos[chunk] == expected,
+                  "a chunk's recorded maximum should equal its largest ForestNhalos");
+      covered += counts[chunk];
+    }
+    TEST_ASSERT(covered == nforests, "the chunks should cover every forest");
+  }
+
   check_memory_leaks();
   return TEST_PASS;
 }
@@ -883,6 +984,7 @@ int main(void) {
   TEST_RUN(test_giant_forest_uses_direct_read_path);
   TEST_RUN(test_run_prepare_survives_repeated_range_staging);
   TEST_RUN(test_prepare_builds_chunk_plan_from_forest_counts);
+  TEST_RUN(test_chunk_maxima_match_forest_nhalos_on_committed_fixture);
   TEST_RUN(test_stage_rejects_oversized_chunk);
   TEST_RUN(test_forest_slab_guard_honours_configured_multiplier);
   TEST_RUN(test_forestinfo_guard_honours_configured_multiplier);
