@@ -4,11 +4,11 @@
  *
  * Validates:
  * - the target converted to the simulation's h (h = 0.6774 and 0.73) and its
- *   tabulated n(>M) against the plan's reference values, and the inversion
- *   against the independent double-precision reference of
- *   sham_rank_match_reference.py (the table between the SHAM_DECIMAL_REFERENCE
- *   markers, which test_integration_sham_rank_match.py checks against it):
- *   log10 M* within 1e-4 and the mask/assign outcome exactly
+ *   tabulated n(>M) against reference values, and the inversion against the
+ *   independent double-precision reference of
+ *   _tests/sham_rank_match_reference.py (the table between the
+ *   SHAM_DECIMAL_REFERENCE markers, which test_integration_sham_rank_match.py
+ *   checks against it): log10 M* within 1e-4 and the mask/assign outcome exactly
  * - init(): the placement guards (exactly once in pre_timestep as
  *   process_full_halo, in no other FoF phase, and in post_snapshot as
  *   process_snapshot), every parameter's domain including the strings the
@@ -23,7 +23,9 @@
  *   the cross-FoF global rank, masking from the floor down, peak persistence
  *   through a masked snapshot, entry validation with no partial assignment,
  *   empty and all-ineligible populations, silence on non-output snapshots, the
- *   audit line, and no net allocation across snapshots
+ *   audit line, no net allocation across snapshots, and a rank whose stellar
+ *   mass overflows the float StellarMass storage failing the snapshot with
+ *   nothing written
  * - the registered dispatch of both callbacks (execute_module_pipeline() over a
  *   hand-built FoF workspace, then execute_post_snapshot()), with the fixture's
  *   rank 0 mass checked against the reference
@@ -1054,6 +1056,39 @@ int test_snapshot_validation_without_writes(void) {
 }
 
 /**
+ * @test   test_rank_mass_float_overflow
+ * @brief  A scale that puts every rank mass above FLT_MAX initialises, then fails the snapshot
+ *
+ * The target table depends on M / Ms only, so ShamTargetLogMstar = 60 initialises. The top
+ * rank's mass is then about 1e60 Msun, far above the float StellarMass limit, and the snapshot
+ * callback must fail with the rank named and write nothing.
+ */
+int test_rank_mass_float_overflow(void) {
+  TEST_ASSERT_EQUAL(init_run("ShamTargetLogMstar", "60"), 0,
+                    "init succeeds at ShamTargetLogMstar = 60: the table is scale invariant");
+  for (int64_t i = 0; i < 3; i++) {
+    set_ranked_entry(i, (int)(i % 2), 900 + i, (float)(300 - 10 * i), 0);
+    galaxies[i].StellarMass = 3.0f; /* stale: a failed snapshot must leave it alone */
+    galaxies[i].ShamGhost = 0;
+  }
+  save_population(3);
+  const size_t utility_before = memory_category_bytes(MEM_UTILITY);
+  capture_log();
+  TEST_ASSERT(rank_population(3) != 0, "a rank mass above FLT_MAX fails the snapshot");
+  const char *log = captured_log();
+  TEST_ASSERT(strstr(log, "ERROR") != NULL && strstr(log, "rank 0 (UniqueGalaxyID 900") != NULL &&
+                  strstr(log, "outside the float StellarMass range") != NULL,
+              "the error names the rank, the UniqueGalaxyID and the float limit");
+  TEST_ASSERT(population_unchanged(3), "a failed snapshot writes no StellarMass or ShamGhost");
+  TEST_ASSERT(memory_category_bytes(MEM_UTILITY) == utility_before,
+              "a failed snapshot releases its scratch");
+
+  release_run();
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
+/**
  * @test   test_empty_and_all_ineligible_populations
  * @brief  Both succeed, assign nothing, audit zero candidates and leave no net allocation
  */
@@ -1239,6 +1274,7 @@ int main(void) {
   TEST_RUN(test_masking_from_the_floor_down);
   TEST_RUN(test_peak_persists_through_masked_snapshot);
   TEST_RUN(test_snapshot_validation_without_writes);
+  TEST_RUN(test_rank_mass_float_overflow);
   TEST_RUN(test_empty_and_all_ineligible_populations);
   TEST_RUN(test_non_output_snapshot_is_silent);
   TEST_RUN(test_no_allocation_growth_across_snapshots);

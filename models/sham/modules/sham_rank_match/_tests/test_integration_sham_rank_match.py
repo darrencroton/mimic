@@ -17,6 +17,8 @@ models/sham/input/sham_micro-uchuu-ascii-horizontal.yaml:
   - no Type 2 row is ever written, and the galaxies the fixture's snapshot-4 halos 0 and 2
     lose to their snapshot-5 merger target (core demotes them to Type 2, the module retires
     them) are written at snapshot 4 and absent at snapshot 5;
+  - every written row's ShamVpeak equals the maximum Vmax along its branch, recomputed from the
+    fixture's own FirstProgenitor links and Vmax columns (the module's peak history, end to end);
   - repeating a run is bitwise identical on the Galaxies datasets;
   - exact ShamVpeak ties between different FoF groups rank by ascending UniqueGalaxyID, on a
     derivative copy of the fixture whose Vmax is flattened through h5py in the test's temp
@@ -274,7 +276,8 @@ def assert_population(rows, parameters, snapshot):
             continue
         assert int(rows["ShamGhost"][index]) == 1 and float(rows["StellarMass"][index]) == 0.0, (
             f"{what}: ID {int(ids[index])} is below the ShamMinVpeak floor "
-            f"(ShamVpeak {float(rows['ShamVpeak'][index])}) and must have ShamGhost 1, StellarMass 0"
+            f"(ShamVpeak {float(rows['ShamVpeak'][index])}) and must have ShamGhost 1 and "
+            f"StellarMass 0"
         )
     return len(ranked), assigned, masked
 
@@ -334,6 +337,52 @@ def tie_fixture(destination):
             if vmax.shape[0]:
                 vmax[...] = TIE_VMAX
     return Path(destination)
+
+
+def fixture_branch_peaks(galaxies):
+    """The maximum Vmax along each written row's branch, recomputed from the fixture's links.
+
+    Returns {(snapshot, row index): (maximum Vmax, own Vmax)}. A row is matched to its fixture
+    halo by its comoving Pos. Its branch is the FirstProgenitor chain of that halo, walked back
+    while the progenitor halo also has a written row: core gives a halo the galaxy of its main
+    progenitor only when that progenitor carried one, so the chain stops where the galaxy was
+    created (a first-snapshot central, or a satellite that became a central). Every snapshot of
+    the fixture run is an output snapshot, so "has a written row" is known for the whole chain.
+    """
+    import h5py
+
+    tables = {}
+    for snap in sorted(galaxies):
+        with h5py.File(FIXTURE_DIR / f"snapshot_{snap:03d}.h5", "r") as handle:
+            halos = handle["halos"]
+            tables[snap] = {
+                "pos": [tuple(float(v) for v in row) for row in halos["Pos"][()]],
+                "vmax": [float(v) for v in halos["Vmax"][()]],
+                "first_progenitor": [int(v) for v in halos["FirstProgenitor"][()]],
+            }
+    halo_of_row = {}
+    for snap, rows in galaxies.items():
+        positions = tables[snap]["pos"]
+        assert len(set(positions)) == len(positions), f"snapshot {snap}: halo positions repeat"
+        for index in range(len(rows)):
+            position = tuple(float(v) for v in rows["Pos"][index])
+            assert position in positions, f"snapshot {snap}: row {index} matches no fixture halo"
+            halo_of_row[(snap, index)] = positions.index(position)
+    has_row = {(snap, halo) for (snap, _index), halo in halo_of_row.items()}
+
+    peaks = {}
+    for (snap, index), halo in halo_of_row.items():
+        own = tables[snap]["vmax"][halo]
+        peak = own
+        step_snap, step_halo = snap, halo
+        while step_snap > 0:
+            progenitor = tables[step_snap]["first_progenitor"][step_halo]
+            if progenitor < 0 or (step_snap - 1, progenitor) not in has_row:
+                break
+            step_snap, step_halo = step_snap - 1, progenitor
+            peak = max(peak, tables[step_snap]["vmax"][step_halo])
+        peaks[(snap, index)] = (peak, own)
+    return peaks
 
 
 def test_reference_matches_unit_table():
@@ -432,7 +481,7 @@ def test_fixture_floors_mask_and_ghost_rows():
     below_floor = sum(len(rows) for rows in galaxies.values()) - sum(c for c, _a, _m in counts)
     assert below_floor > 0, "no written row lies below the completeness floor (vacuous)"
     assert sum(a for _c, a, _m in counts) > 0, "nothing is assigned (vacuous)"
-    print(f"  ✓ counts {counts}: {below_floor} rows below the floor, masking and ghost flags hold")
+    print(f"  ✓ counts {counts}: {below_floor} rows below the floor; masking and ghost flags hold")
 
 
 def test_fixture_merged_centrals_are_retired():
@@ -472,6 +521,37 @@ def test_fixture_merged_centrals_are_retired():
     for snap, rows in galaxies.items():
         assert 2 not in {int(t) for t in rows["Type"]}, f"snapshot {snap} wrote a Type 2 row"
     print(f"  ✓ the galaxies of snapshot-4 halos {demoted} are written at 4 and absent at 5")
+
+
+def test_fixture_peak_history_is_the_branch_maximum():
+    """
+    Test ShamVpeak end to end against the fixture's own merger-tree links.
+
+    Expected: the run succeeds without leaks; at every snapshot every written row's ShamVpeak
+              equals the maximum Vmax along its branch (the FirstProgenitor chain back to the
+              snapshot where its galaxy was created), recomputed from the fixture's Vmax and
+              link datasets rather than read from the module; the case is not vacuous: at least
+              one row's peak exceeds its own snapshot's Vmax, so the history, not just the
+              current value, is exercised. Covers the peak ratchet through core inheritance for
+              Type 0 rows; the fixture has no Type 1 galaxy.
+    """
+    require_fixture_package()
+    run_file, output_dir, stem, _parameters = write_run("peaks")
+    run_ok(run_file, "peak history run")
+    galaxies = read_galaxies(output_dir, stem)
+    peaks = fixture_branch_peaks(galaxies)
+
+    carried = 0
+    for (snap, index), (peak, own) in sorted(peaks.items()):
+        measured = float(galaxies[snap]["ShamVpeak"][index])
+        galaxy_id = int(galaxies[snap]["UniqueGalaxyID"][index])
+        assert measured == peak, (
+            f"snapshot {snap}: ID {galaxy_id} has ShamVpeak {measured}, but the maximum Vmax "
+            f"along its branch in the fixture is {peak}"
+        )
+        carried += peak > own
+    assert carried > 0, "no row carries a peak above its own Vmax (vacuous)"
+    print(f"  ✓ ShamVpeak equals the branch maximum for {len(peaks)} rows ({carried} carried)")
 
 
 def test_fixture_repeated_runs_are_bitwise_identical():
@@ -572,6 +652,7 @@ def main():
             test_fixture_assigned_masses_match_the_reference,
             test_fixture_floors_mask_and_ghost_rows,
             test_fixture_merged_centrals_are_retired,
+            test_fixture_peak_history_is_the_branch_maximum,
             test_fixture_repeated_runs_are_bitwise_identical,
             test_fixture_cross_fof_ties_rank_by_unique_id,
             test_fixture_invalid_configurations_are_rejected_at_startup,

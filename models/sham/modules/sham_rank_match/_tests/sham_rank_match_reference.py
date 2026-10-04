@@ -50,9 +50,9 @@ LOG_MASS_DECIMALS = 8
 
 #: Rank-density cases (name, h_sim, rank density [physical Mpc^-3]) the unit test fixes.
 #: fixture_rank0/5 are (r + 0.5) / 100^3 * 0.6774^3 for the committed micro-Uchuu
-#: fixture; floor_inside/outside sit 1e-4 (relative) either side of n(>10^8) =
-#: 3.031993e-2; tail_deep (M ~ 21 Ms) and tail_extreme (M ~ 70 Ms) lie in the
-#: exponential cutoff; the h = 0.73 pair checks the conversion on both sides of its floor.
+#: fixture; floor_inside/outside sit 1.30e-4 and 1.01e-4 (relative) either side of
+#: n(>10^8) = 3.031993e-2; tail_deep (M ~ 21 Ms) and tail_extreme (M ~ 62 Ms) lie in
+#: the exponential cutoff; the h = 0.73 pair checks the conversion on both sides of its floor.
 CASES = (
     ("fixture_rank0", 0.6774, 1.554195e-7),
     ("fixture_rank5", 0.6774, 1.709615e-6),

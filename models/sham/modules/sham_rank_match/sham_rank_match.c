@@ -24,6 +24,7 @@
  * velocity as the ranking proxy; Baldry et al. (2012) for the target.
  */
 
+#include <assert.h>
 #include <float.h>
 #include <math.h>
 #include <stdbool.h>
@@ -348,7 +349,7 @@ static int check_configuration(void) {
  */
 static int check_finite(const char *name, double value) {
   if (!isfinite(value)) {
-    ERROR_LOG("%s = %g is not finite", name, value);
+    ERROR_LOG("%s: %s = %g is not finite", SHAM_MODULE_NAME, name, value);
     return -1;
   }
   return 0;
@@ -393,47 +394,40 @@ int sham_rank_match_init(void) {
     return -1;
   }
 
-  // Every value is checked finite as soon as it is loaded, before any range check.
+  // Loaded by name so the parameter lint sees every key; every value is then checked finite
+  // before any range check.
   struct ShamRankMatchParameters p;
   LOAD_PARAM_DOUBLE("ShamTargetLogMstar", p.log_mstar);
-  if (check_finite("ShamTargetLogMstar", p.log_mstar) != 0) {
-    return -1;
-  }
   LOAD_PARAM_DOUBLE("ShamTargetPhi1", p.phi1);
-  if (check_finite("ShamTargetPhi1", p.phi1) != 0) {
-    return -1;
-  }
   LOAD_PARAM_DOUBLE("ShamTargetAlpha1", p.alpha1);
-  if (check_finite("ShamTargetAlpha1", p.alpha1) != 0) {
-    return -1;
-  }
   LOAD_PARAM_DOUBLE("ShamTargetPhi2", p.phi2);
-  if (check_finite("ShamTargetPhi2", p.phi2) != 0) {
-    return -1;
-  }
   LOAD_PARAM_DOUBLE("ShamTargetAlpha2", p.alpha2);
-  if (check_finite("ShamTargetAlpha2", p.alpha2) != 0) {
-    return -1;
-  }
   LOAD_PARAM_DOUBLE("ShamTargetHubble", p.hubble_obs);
-  if (check_finite("ShamTargetHubble", p.hubble_obs) != 0) {
-    return -1;
-  }
   LOAD_PARAM_DOUBLE("ShamTargetLogMassFloor", p.log_mass_floor);
-  if (check_finite("ShamTargetLogMassFloor", p.log_mass_floor) != 0) {
-    return -1;
-  }
   LOAD_PARAM_DOUBLE("ShamTargetRedshiftMax", p.redshift_max);
-  if (check_finite("ShamTargetRedshiftMax", p.redshift_max) != 0) {
-    return -1;
-  }
   LOAD_PARAM_DOUBLE("ShamMinVpeak", p.min_vpeak);
-  if (check_finite("ShamMinVpeak", p.min_vpeak) != 0) {
-    return -1;
+  const struct {
+    const char *name;
+    double value;
+  } finite_checks[] = {
+      {"ShamTargetLogMstar", p.log_mstar},
+      {"ShamTargetPhi1", p.phi1},
+      {"ShamTargetAlpha1", p.alpha1},
+      {"ShamTargetPhi2", p.phi2},
+      {"ShamTargetAlpha2", p.alpha2},
+      {"ShamTargetHubble", p.hubble_obs},
+      {"ShamTargetLogMassFloor", p.log_mass_floor},
+      {"ShamTargetRedshiftMax", p.redshift_max},
+      {"ShamMinVpeak", p.min_vpeak},
+  };
+  for (size_t k = 0; k < sizeof(finite_checks) / sizeof(finite_checks[0]); k++) {
+    if (check_finite(finite_checks[k].name, finite_checks[k].value) != 0) {
+      return -1;
+    }
   }
   if (!(p.phi1 > 0.0) || !(p.phi2 > 0.0)) {
-    ERROR_LOG("ShamTargetPhi1 = %g and ShamTargetPhi2 = %g must both be > 0 (Mpc^-3)", p.phi1,
-              p.phi2);
+    ERROR_LOG("%s: ShamTargetPhi1 = %g and ShamTargetPhi2 = %g must both be > 0 (Mpc^-3)",
+              SHAM_MODULE_NAME, p.phi1, p.phi2);
     return -1;
   }
   if (!(p.hubble_obs > 0.0 && p.hubble_obs < 2.0)) {
@@ -564,7 +558,10 @@ int sham_rank_match_process(struct ModuleContext *ctx, struct Halo *halos, int n
     if (h->Type <= 1) {
       float vpeak;
       float mpeak;
-      (void)updated_peaks(h, &vpeak, &mpeak);
+      // The validation pass ran this same pure function on these unchanged rows and succeeded.
+      const int status = updated_peaks(h, &vpeak, &mpeak);
+      assert(status == 0);
+      (void)status;
       h->galaxy->ShamVpeak = vpeak;
       h->galaxy->ShamMpeak = mpeak;
     }
@@ -674,12 +671,21 @@ static int rank_into_scratch(const struct Halo *halos, int64_t count,
     if (outcome == SHAM_RANK_MASKED) {
       break;
     }
-    const float mass = (float)(mass_phys * sham_target.hubble_sim / SHAM_MASS_UNIT_MSUN);
-    if (outcome != SHAM_RANK_ASSIGNED || !isfinite(mass) || !(mass > 0.0f)) {
+    const double mass_internal = mass_phys * sham_target.hubble_sim / SHAM_MASS_UNIT_MSUN;
+    if (outcome != SHAM_RANK_ASSIGNED || !isfinite(mass_internal) || !(mass_internal > 0.0)) {
       ERROR_LOG("%s: rank %lld (UniqueGalaxyID %lld, ShamVpeak %g) at density %.10g Mpc^-3 has "
                 "no representable stellar mass in the target table (n(>M) spans [%.10g, %.10g])",
                 SHAM_MODULE_NAME, (long long)rank, records[rank].id, (double)records[rank].vpeak,
                 density, sham_target.density[sham_target.num_points - 2], sham_target.density[0]);
+      return -1;
+    }
+    // Bound the double before narrowing: an out-of-range conversion to float is undefined.
+    const float mass = (mass_internal <= (double)FLT_MAX) ? (float)mass_internal : 0.0f;
+    if (!(mass > 0.0f)) {
+      ERROR_LOG("%s: rank %lld (UniqueGalaxyID %lld, ShamVpeak %g) has stellar mass %.10g "
+                "(1e10 Msun/h) outside the float StellarMass range (0, %.9g]",
+                SHAM_MODULE_NAME, (long long)rank, records[rank].id, (double)records[rank].vpeak,
+                mass_internal, (double)FLT_MAX);
       return -1;
     }
     records[rank].mass = mass;

@@ -10,7 +10,7 @@ The package has one module, `sham_rank_match`, and runs only under the horizonta
 
 - **Cross-sectional.** One observed target, measured at low redshift, is applied only to output snapshots inside a declared redshift window (`ShamTargetRedshiftMax`); startup fails if any output snapshot lies outside it. There is no redshift evolution of the target.
 - **Zero scatter.** Stellar mass is a monotonic function of rank; there is no intrinsic scatter between the proxy and stellar mass, and therefore no deconvolution.
-- **Resolved only.** Candidates are Type 0 (FoF central) and Type 1 (resolved subhalo) rows. Orphans (Type 2 rows whose subhalo is no longer resolved) are retired before every FoF step, so a galaxy leaves the sample when its subhalo does.
+- **Resolved only.** Candidates are Type 0 (FoF central) and Type 1 (resolved subhalo) rows. Orphans (Type 2 rows whose subhalo is no longer resolved) are retired before every FoF step, so a galaxy leaves the sample when its subhalo does. Core creates a galaxy only for an FoF central that has no surviving progenitor galaxy (`src/core/inheritance.c:182-186`), so a subhalo branch that never carried a galaxy never gets a row and never becomes a candidate. Measured on 2026-10-04 from the recorded real-box output `output/sham-micro-uchuu-horizontal/sham_049.hdf5` against the snapshot-49 catalogue: all 38,382 centrals with `Vmax >= 80 km/s` are present, but only 6,420 of the 6,596 such subhalos are, so 176 (2.7%) are never candidates; 3,597 of the catalogue's 561,266 rows have no output row. The rank shift this causes is at most a few hundred among the 74,596 candidates, so stellar masses barely move, while the satellite fraction and the clustering are biased low at the percent level. The candidate set is therefore not the complete catalogue above the completeness floor. This is the inherited galaxy-creation rule, not a module defect; seeding galaxies on galaxy-less subhalo branches is a recorded follow-up (see [Follow-ups](#follow-ups)).
 - **No observational parity claim.** The target is reproduced by construction on the ranked population; nothing here claims that the resulting clustering, satellite fractions or stellar-to-halo relation match observations. The fixture run file uses a small synthetic population that is not a complete cosmological volume; the real-box run is a target-recovery check on the ranked population (see [First Real-Data Measurement](#first-real-data-measurement)).
 
 The module README (`modules/sham_rank_match/README.md`) is the exact contract, including the numerical and failure rules.
@@ -43,11 +43,11 @@ A candidate is a Type 0 or Type 1 row with `ShamVpeak >= ShamMinVpeak`, a comple
 
 ## Masking Rule
 
-The target is not extrapolated below its validity floor. If a candidate's rank density exceeds `n(>10^ShamTargetLogMassFloor)` (the density at the floor mass, a physical mass at the simulation's `h`), that candidate and every lower rank are masked: they keep `StellarMass = 0` and `ShamGhost = 1`. The masked count is reported, never hidden. On a complete volume whose candidate density stays below the floor density, nothing is masked and the ranked population reaches down to the mass at which the target's cumulative density equals the candidate density.
+The target is not extrapolated below `ShamTargetLogMassFloor`. The published validity floor is `10^8 Msun` at `h = 0.7`, which is `10^8.0285 Msun` at `h_sim = 0.6774` (`2 log10(0.7 / 0.6774) = 0.0285` dex), so the shipped floor of 8.0 admits 0.0285 dex below the published validity. The floor is kept as a physical mass at the simulation's `h`, the reading under which `n(>10^8) = 3.031993e-2 Mpc^-3` holds; converting the floor like `Ms` (adding `2 log10(h_obs / h_sim)`) is the alternative, recorded and not adopted. If a candidate's rank density exceeds `n(>10^ShamTargetLogMassFloor)` (the density at the floor mass, a physical mass at the simulation's `h`), that candidate and every lower rank are masked: they keep `StellarMass = 0` and `ShamGhost = 1`. The masked count is reported, never hidden. On a run whose candidate density stays below the floor density, nothing is masked and the ranked population reaches down to the mass at which the target's cumulative density equals the candidate density.
 
 ## Output Contract
 
-Every row stays in output so halo catalogues remain complete. Consumers select the matched sample with `ShamGhost == 0`:
+Every row that exists stays in output, so the rank never drops a row (rows core never creates are described under [Scientific Status](#scientific-status)). Consumers select the matched sample with `ShamGhost == 0`:
 
 | Property | Units | Meaning |
 |---|---|---|
@@ -83,7 +83,7 @@ No parameter is converted through `parameter_units.yaml`; the package has none.
 - `input/sham_micro-uchuu-horizontal.yaml`: the real 100 Mpc/h micro-Uchuu box (horizontal HDF5 version 3) with `snapshot_list: [49]` (`z = 0.0005`), `ShamTargetRedshiftMax 0.1` and `ShamMinVpeak 80`. Snapshot 49 is the single output epoch chosen for the first real-data measurement: it has the lowest redshift and is closest to the GAMA sample. Snapshots 46, 47 and 48 (`z = 0.093`, `0.046` and `0.022`) also satisfy the window and could be listed, so one epoch is a choice, not a consequence of the window. The peak history is still accumulated over every processed snapshot.
 - `modules/sham_rank_match/`: the module, its README, its unit and integration tests and the independent reference `_tests/sham_rank_match_reference.py`.
 - `modules/_tests/sham_test_fixtures.h`: the package's C test fixture (shipped parameters, `BoxSize` and `h` of the fixture).
-- `plots/`: eight snapshot figures for `mimic-plot.py` (no evolution figures; the registry in `plots/figures/__init__.py` is the source of truth), run with `mimic_venv/bin/python plot/mimic-plot/mimic-plot.py --param-file models/sham/input/sham_micro-uchuu-horizontal.yaml --snapshot-plots` on that run's output (see [Plots](#plots)).
+- `plots/`: eight snapshot figures for `mimic-plot.py` (no evolution figures; the registry in `plots/figures/__init__.py` is the source of truth), run with `mimic_venv/bin/python plot/mimic-plot/mimic-plot.py --param-file models/sham/input/sham_micro-uchuu-horizontal.yaml` on that run's output (see [Plots](#plots)).
 
 ## Build, Run, and Test
 
@@ -107,7 +107,7 @@ MODEL=sham SIMULATION=micro-uchuu-ascii-horizontal \
 
 The selectors on the integration-test line are required: under the default selectors every fixture case reports a configuration skip and only the pure-Python table case runs.
 
-`make tests-snapshot-global` builds this pair and runs the unit test and the integration test by path (`make tests-snapshot-global-sham` runs only that group). The integration test runs the fixture run file from a temporary copy and checks, per `UniqueGalaxyID` in the HDF5 output: every assigned `log10 StellarMass` against the independent reference within `1e-4`; the `ShamGhost` and `StellarMass` rules for masked rows and rows below the completeness floor (a derivative run file with `ShamMinVpeak 194.5` and `ShamTargetLogMassFloor 11.6` exercises both); that no Type 2 row is written and that the two snapshot-4 FoF centrals the fixture merges into a snapshot-5 halo are written at snapshot 4 and absent at snapshot 5; bitwise-identical repeat runs; cross-FoF tie handling on a copy of the fixture whose `Vmax` is flattened through h5py; startup rejection of an output snapshot above `ShamTargetRedshiftMax` and of a missing `pre_timestep` entry; and leak-free runs. One case is pure Python (the unit test's reference table must equal what `sham_rank_match_reference.py` computes) and runs under any pair; the others report a configuration skip under any pair other than `sham` x `micro-uchuu-ascii-horizontal`.
+`make tests-snapshot-global` builds this pair and runs the unit test and the integration test by path (`make tests-snapshot-global-sham` runs only that group). The integration test runs the fixture run file from a temporary copy and checks, per `UniqueGalaxyID` in the HDF5 output: every assigned `log10 StellarMass` against the independent reference within `1e-4`; the `ShamGhost` and `StellarMass` rules for masked rows and rows below the completeness floor (a derivative run file with `ShamMinVpeak 194.5` and `ShamTargetLogMassFloor 11.6` exercises both); that no Type 2 row is written and that the two snapshot-4 FoF centrals the fixture merges into a snapshot-5 halo are written at snapshot 4 and absent at snapshot 5; that every row's `ShamVpeak` equals the maximum `Vmax` along its branch, recomputed from the fixture's own `FirstProgenitor` links; bitwise-identical repeat runs; cross-FoF tie handling on a copy of the fixture whose `Vmax` is flattened through h5py; startup rejection of an output snapshot above `ShamTargetRedshiftMax` and of a missing `pre_timestep` entry; and leak-free runs. The fixture has no Type 1 galaxies, so Type 1 inheritance is covered by the unit test's synthetic rows and by the non-automated real-box measurement (61,295 Type 1 rows, of which 16,540 are sample members), not by the integration test. One case is pure Python (the unit test's reference table must equal what `sham_rank_match_reference.py` computes) and runs under any pair; the others report a configuration skip under any pair other than `sham` x `micro-uchuu-ascii-horizontal`.
 
 The real-box run needs the micro-Uchuu horizontal dataset (`simulations/micro-uchuu-horizontal/snapshots`) and its own build:
 
@@ -118,11 +118,11 @@ make MODEL=sham SIMULATION=micro-uchuu-horizontal
 
 ## Plots
 
-The package registers eight snapshot figures and no evolution figures (`plots/figures/__init__.py` is the source of truth). Every SHAM figure selects the sample with `ShamGhost == 0` and reads stellar mass as `log10(StellarMass * 1e10 / h)` in physical `Msun`. Run them on the real-box output (the shipped run writes one epoch, and `mimic-plot.py` requires two snapshots for the evolution stage, so ask for the snapshot figures only):
+The package registers eight snapshot figures and no evolution figures (`plots/figures/__init__.py` is the source of truth). Every SHAM figure selects the sample with `ShamGhost == 0` and reads stellar mass as `log10(StellarMass * 1e10 / h)` in physical `Msun`. Run them on the real-box output:
 
 ```bash
 mimic_venv/bin/python plot/mimic-plot/mimic-plot.py \
-  --param-file models/sham/input/sham_micro-uchuu-horizontal.yaml --snapshot-plots
+  --param-file models/sham/input/sham_micro-uchuu-horizontal.yaml
 ```
 
 | Figure | Content |
@@ -150,7 +150,7 @@ Measured on 2026-10-04 on macOS (arm64), single process, from `models/sham/input
 | Highest assigned mass | `log10 M* = 11.655` |
 | Memory-leak lines | none |
 
-The candidate count, 74,596 rows with `ShamVpeak >= 80 km/s` (peak accumulated over all 50 processed snapshots), lies inside the bracket the catalogue implies (44,978 rows with `Vmax >= 80` at snapshot 49 and at most 75,117 by an all-ancestor bound). Every row with `ShamGhost == 0` has `ShamVpeak >= 80`, every one with `ShamGhost == 1` has `StellarMass == 0`, and the largest `ShamVpeak` among non-members is 79.99 km/s.
+The candidate count, 74,596 rows with `ShamVpeak >= 80 km/s` (peak accumulated over all 50 processed snapshots), lies inside the bracket the catalogue implies: at least 44,802 (the 44,978 catalogue rows with `Vmax >= 80` at snapshot 49, less the 176 subhalos whose branch never carried a galaxy and so are never candidates; a row's peak is never below its current `Vmax`) and at most 75,117 by an all-ancestor bound. Every row with `ShamGhost == 0` has `ShamVpeak >= 80`, every one with `ShamGhost == 1` has `StellarMass == 0`, and the largest `ShamVpeak` among non-members is 79.99 km/s.
 
 The stellar mass function of the sample, counted in 0.25 dex bins of physical `M*` and compared with the target's expectation for the same bins and volume, `V [n(>M_lo) - n(>M_hi)]` with `n(>M)` from the double-precision reference of `_tests/sham_rank_match_reference.py`:
 
@@ -178,6 +178,7 @@ Above the lowest assigned mass the counts follow the target to better than one g
 ## Follow-ups
 
 - **Scatter.** Intrinsic log-normal scatter between the proxy and stellar mass, with the target deconvolved so the scattered population still reproduces it, is the recorded next extension.
+- **Galaxy seeding.** An option, in core or in the package, to seed a galaxy on every subhalo branch that never carried one, so that no resolved subhalo above the completeness floor is missing from the candidate set (176 of 6,596 on the real box, see [Scientific Status](#scientific-status)). It is recorded here and not implemented.
 - **Orphans.** An orphan-inclusive mode would keep Type 2 rows as candidates for a limited time after their subhalo is lost, which matters for small-scale clustering in catalogues with limited resolution.
 
 ## References
