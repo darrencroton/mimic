@@ -374,7 +374,7 @@ def compare_snapshot(snap, left, right, labels, max_report):
 
     if left_ids.size == 0:
         print(f"  ok   Snap{snap:03d}: both runs are empty")
-        return 0
+        return failures
 
     # Byte-identical fields for every shared id, aligned by id.
     left_order = numpy.argsort(left_ids, kind="stable")
@@ -401,7 +401,7 @@ def compare_snapshot(snap, left, right, labels, max_report):
             f"  ok   Snap{snap:03d}: {left_ids.size} galaxies, "
             f"all {len(left.dtype.names)} fields byte-identical"
         )
-        return 0
+        return failures
 
     print(
         f"  FAIL Snap{snap:03d}: {len(differing_fields)} of {len(left.dtype.names)} field(s) "

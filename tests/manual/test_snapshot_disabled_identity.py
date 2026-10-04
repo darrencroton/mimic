@@ -1159,7 +1159,8 @@ def set_description(field_name: str, text: str) -> Callable[[h5py.File], None]:
 
 
 def pinned_description_on_base(base: OutputRun, _run: OutputRun) -> None:
-    """The baseline copy carries the reference's description and digest: the one pinned delta."""
+    """The baseline copy carries the reference's description: the one pinned delta. Both copies
+    keep the source digest their build generated, which the comparison binds each side to."""
     for path in sorted(base.directory.glob("*.hdf5")):
         with h5py.File(path, "r+") as handle:
             if "RunProperties/FieldMetadata" in handle:
@@ -1170,7 +1171,6 @@ def pinned_description_on_base(base: OutputRun, _run: OutputRun) -> None:
     if len(pinned) != 1:
         raise AssertionError(f"output_schema.json names {len(pinned)} {PINNED_DESCRIPTION_FIELD}")
     pinned[0]["description"] = UNIQUE_ID_DESCRIPTION_BEFORE
-    schema["source_md5"] = base.source_md5 = "0" * 32
     schema_path.write_text(json.dumps(schema, indent=2) + "\n")
 
 

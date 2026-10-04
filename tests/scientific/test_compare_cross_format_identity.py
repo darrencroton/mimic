@@ -266,6 +266,21 @@ def test_dropped_id_is_detected():
     print("  ✓ a dropped id is detected and named")
 
 
+def test_zero_id_is_a_failure():
+    """A UniqueGalaxyID of 0 is neither a tree id nor a created id, so it fails the comparison
+    even when both runs carry the identical row and every other field matches."""
+    print("Testing a zero id...")
+    with scratch() as root:
+        records = make_records([1_000_000_001, 0, -1_025])
+        left, right = build_pair(root, [{0: records}], [{0: records}])
+        status, report = compare(left, right)
+        assert_status(status, DIFFERENT, report, "zero id")
+        assert (
+            f"{comparator.ID_FIELD} 0 is neither" in report
+        ), f"the zero id was not reported\n{report}"
+    print("  ✓ a zero id fails the comparison; created ids stay uncompared")
+
+
 def test_duplicated_id_is_detected_before_anything_else():
     """A duplicated id fails, and stops the comparison rather than being described later.
 
@@ -475,6 +490,7 @@ def main():
             test_perturbed_float_field_is_detected,
             test_perturbation_in_the_last_field_of_a_later_snapshot_is_detected,
             test_dropped_id_is_detected,
+            test_zero_id_is_a_failure,
             test_duplicated_id_is_detected_before_anything_else,
             test_one_sided_duplicate_in_an_unshared_snapshot_is_detected,
             test_signed_zero_is_a_difference,
