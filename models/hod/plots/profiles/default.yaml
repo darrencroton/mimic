@@ -1,0 +1,14 @@
+# HOD figure profile: the occupation, satellite and clustering figures of the hod package
+# plus the two halo diagnostics that give them context. Axis keys are set per simulation in
+# <simulation>_plot_profile.yaml; every figure carries its own defaults.
+
+mode: exploration
+
+plots:
+  snapshot:
+    - halo_mass_function
+    - hod_occupation
+    - hod_satellite_profile
+    - hod_correlation_function
+    - spatial_distribution
+  evolution: []

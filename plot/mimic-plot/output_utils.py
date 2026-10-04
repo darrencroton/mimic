@@ -435,3 +435,181 @@ def select_scatter_sample(x, y_arrays, x_min, x_max, y_min, y_max, dilute, rng=N
     if len(indices) > dilute:
         indices = np.array(rng.sample(list(indices), dilute))
     return indices
+
+
+# Largest number of grid cells per axis used by periodic_pair_counts(); bounds the cell loop
+# when r_edges[-1] is tiny compared to the box. Cells never shrink below r_edges[-1].
+_MAX_PAIR_COUNT_CELLS_PER_AXIS = 32
+
+
+def _validate_pair_count_inputs(positions, box_size, r_edges):
+    """
+    Validate the input domain shared by periodic_pair_counts() and correlation_function().
+
+    Returns:
+        (positions, box_size, r_edges) as float64 arrays/scalar.
+
+    Raises:
+        ValueError: with an explicit message for each domain violation.
+    """
+    try:
+        box_size = float(box_size)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"box_size must be a number, got {box_size!r}") from exc
+    if not np.isfinite(box_size) or box_size <= 0.0:
+        raise ValueError(f"box_size must be finite and > 0, got {box_size}")
+
+    positions = np.asarray(positions, dtype=np.float64)
+    if positions.ndim != 2 or positions.shape[1] != 3:
+        raise ValueError(f"positions must have shape (N, 3), got {positions.shape}")
+    if not np.all(np.isfinite(positions)):
+        raise ValueError("positions must be finite (found NaN or Inf)")
+    if positions.size and (positions.min() < 0.0 or positions.max() >= box_size):
+        raise ValueError(
+            f"positions must lie inside [0, box_size) = [0, {box_size}); "
+            f"found range [{positions.min()}, {positions.max()}]"
+        )
+
+    r_edges = np.asarray(r_edges, dtype=np.float64)
+    if r_edges.ndim != 1 or r_edges.size < 2:
+        raise ValueError("r_edges must be a 1-D array of at least two edges")
+    if not np.all(np.isfinite(r_edges)):
+        raise ValueError("r_edges must be finite")
+    if r_edges[0] < 0.0:
+        raise ValueError(f"r_edges must be non-negative, got first edge {r_edges[0]}")
+    if np.any(np.diff(r_edges) <= 0.0):
+        raise ValueError("r_edges must be strictly increasing")
+    if r_edges[-1] > 0.5 * box_size:
+        raise ValueError(
+            f"r_edges[-1] = {r_edges[-1]} exceeds box_size / 2 = {0.5 * box_size}: "
+            "the minimum-image separation is not defined beyond half the box"
+        )
+    return positions, box_size, r_edges
+
+
+def _neighbour_offsets(ncell):
+    """Return the unique cell offsets {-1, 0, 1} along one axis for a grid of ncell cells."""
+    return sorted({(offset % ncell) for offset in (-1, 0, 1)})
+
+
+def periodic_pair_counts(positions, box_size, r_edges):
+    """
+    Count distinct pairs of points per separation bin in a periodic cubic box.
+
+    Uses a cell grid whose cells are at least r_edges[-1] wide, so every pair closer than
+    r_edges[-1] lies in the same or a neighbouring cell, and the minimum-image convention
+    for the separation. Numpy only. Cost scales with the number of near-neighbour pairs
+    rather than N^2.
+
+    Each unordered pair is counted once and no point is paired with itself (two distinct
+    points at the same position are a pair at separation 0). Bins are half-open,
+    [r_edges[i], r_edges[i+1]); a pair exactly at r_edges[-1] is not counted.
+
+    Args:
+        positions: (N, 3) array of finite coordinates inside [0, box_size).
+        box_size: Box side length, finite and > 0, in the same units as positions.
+        r_edges: 1-D strictly increasing, non-negative bin edges with
+            r_edges[-1] <= box_size / 2.
+
+    Returns:
+        Integer array of len(r_edges) - 1 pair counts. All zeros when N < 2.
+
+    Raises:
+        ValueError: if any input violates the domain above.
+    """
+    positions, box_size, r_edges = _validate_pair_count_inputs(positions, box_size, r_edges)
+    nbins = len(r_edges) - 1
+    counts = np.zeros(nbins, dtype=np.int64)
+    npoints = len(positions)
+    if npoints < 2:
+        return counts
+
+    edges_sq = r_edges**2
+    ncell = int(min(max(np.floor(box_size / r_edges[-1]), 1), _MAX_PAIR_COUNT_CELLS_PER_AXIS))
+    cell_width = box_size / ncell
+    cell_xyz = np.minimum((positions / cell_width).astype(np.int64), ncell - 1)
+    cell_id = (cell_xyz[:, 0] * ncell + cell_xyz[:, 1]) * ncell + cell_xyz[:, 2]
+
+    order = np.argsort(cell_id, kind="stable")
+    sorted_pos = positions[order]
+    sorted_cell = cell_id[order]
+    occupied, starts, sizes = np.unique(sorted_cell, return_index=True, return_counts=True)
+    extent = {int(cid): (int(s), int(s + n)) for cid, s, n in zip(occupied, starts, sizes)}
+
+    offsets = _neighbour_offsets(ncell)
+
+    def accumulate(r_sq):
+        idx = np.searchsorted(edges_sq, r_sq, side="right") - 1
+        idx = idx[(idx >= 0) & (idx < nbins)]
+        np.add(counts, np.bincount(idx, minlength=nbins), out=counts)
+
+    for cid, (lo, hi) in extent.items():
+        cx, rem = divmod(cid, ncell * ncell)
+        cy, cz = divmod(rem, ncell)
+        block = sorted_pos[lo:hi]
+
+        # Pairs inside the cell, each once.
+        if hi - lo > 1:
+            i_idx, j_idx = np.triu_indices(hi - lo, k=1)
+            delta = block[i_idx] - block[j_idx]
+            delta -= box_size * np.round(delta / box_size)
+            accumulate(np.einsum("ij,ij->i", delta, delta))
+
+        # Pairs with each distinct neighbouring cell of larger id, so a cell pair is visited
+        # once (per-axis offsets that wrap onto each other on a coarse grid are deduplicated).
+        for dx in offsets:
+            for dy in offsets:
+                for dz in offsets:
+                    nid = (((cx + dx) % ncell) * ncell + (cy + dy) % ncell) * ncell + (
+                        (cz + dz) % ncell
+                    )
+                    if nid <= cid or nid not in extent:
+                        continue
+                    nlo, nhi = extent[nid]
+                    other = sorted_pos[nlo:nhi]
+                    delta = block[:, None, :] - other[None, :, :]
+                    delta -= box_size * np.round(delta / box_size)
+                    accumulate(np.einsum("ijk,ijk->ij", delta, delta).ravel())
+
+    return counts
+
+
+def correlation_function(positions, box_size, r_edges):
+    """
+    Real-space two-point correlation function of a point set in a periodic cubic box.
+
+    xi = DD / RR_analytic - 1, where DD is periodic_pair_counts() and the random-pair
+    expectation in a periodic box is analytic: RR = N (N - 1) / 2 * V_shell / box_size^3
+    with V_shell = 4 pi / 3 (r_hi^3 - r_lo^3). No random catalogue is needed.
+
+    The error bar is the Poisson error on DD propagated through the estimator,
+    sqrt(DD) / RR = (1 + xi) / sqrt(DD). It is zero for a bin with no pairs; such a bin has
+    xi = -1 and carries no information. It treats pair counts as independent, so it is
+    approximate for strongly clustered samples.
+
+    Args:
+        positions: (N, 3) array of finite coordinates inside [0, box_size).
+        box_size: Box side length, finite and > 0.
+        r_edges: 1-D strictly increasing, non-negative bin edges with
+            r_edges[-1] <= box_size / 2.
+
+    Returns:
+        (xi, xi_err, dd, rr): float arrays xi and xi_err, integer pair counts dd, and the
+        analytic expected random pair counts rr, each of len(r_edges) - 1. With N < 2,
+        dd = 0, xi = NaN, xi_err = 0 and rr = 0 (no division by zero).
+
+    Raises:
+        ValueError: if any input violates the domain (see periodic_pair_counts).
+    """
+    positions, box_size, r_edges = _validate_pair_count_inputs(positions, box_size, r_edges)
+    dd = periodic_pair_counts(positions, box_size, r_edges)
+    npoints = len(positions)
+    nbins = len(r_edges) - 1
+    if npoints < 2:
+        return np.full(nbins, np.nan), np.zeros(nbins), dd, np.zeros(nbins)
+
+    shell_volume = 4.0 * np.pi / 3.0 * (r_edges[1:] ** 3 - r_edges[:-1] ** 3)
+    rr = 0.5 * npoints * (npoints - 1) * shell_volume / box_size**3
+    xi = dd / rr - 1.0
+    xi_err = np.sqrt(dd) / rr
+    return xi, xi_err, dd, rr

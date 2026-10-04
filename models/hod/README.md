@@ -70,6 +70,24 @@ HOD audit z=<z> hosts=<n> n_gal expected=<x> realised=<y> f_sat expected=<a> rea
 
 `hosts` is the number of Type 0 rows; `n_gal` is the sample number density in `(Mpc/h)^-3` over `V = BoxSize^3`, expected `sum <Ncen> (1 + lambda) / V` over the hosts and realised `count(HODGhost == 0) / V`; `f_sat` is the satellite fraction of the sample. With `--verbose`, one `HOD audit bin` line per occupied 0.2 dex host-mass bin compares the realised mean occupation `<N(M)>` with the expectation. The realised numbers scatter about the expected ones by the Poisson and binomial noise the host counts imply; on a small population they can differ substantially. The vertical driver has no `post_snapshot` phase, so a vertical run file omits it and runs without the audit.
 
+## Plots
+
+`mimic-plot` draws five snapshot figures for this package (no evolution figures); the registry is `plots/figures/__init__.py`, the list is `plots/profiles/default.yaml` and the axes for the real micro-Uchuu box are in `plots/profiles/micro-uchuu-horizontal_plot_profile.yaml`. Every HOD figure selects the sample with `HODGhost == 0` and says so in its labels.
+
+```bash
+source mimic_venv/bin/activate
+python plot/mimic-plot/mimic-plot.py --param-file models/hod/input/hod_micro-uchuu-horizontal.yaml
+```
+
+| Figure | What it shows |
+|---|---|
+| `hod_occupation` | Realised `<Ncen>`, `<Nsat>` and `<Ntot>` against `log10 Mvir [Msun/h]` in 0.2 dex host-mass bins (bins with at least 10 hosts), over the analytic curves computed from the run file's `modules.parameters`. The error bars are the standard error of the bin mean expected under the law: binomial for the central (`p (1 - p)` per host), and for satellites the Poisson-gated count (`Nsat ~ Poisson(lambda)` only for a host with a central), `Var(Nsat) = p lambda + p (1 - p) lambda^2`. |
+| `hod_satellite_profile` | Two panels. Left: the cumulative distribution of the satellites' physical radius in units of the host `Rvir` (`r_com / ((1 + z) Rvir)`, `r_com` the minimum-image distance to the host) against the satellite-weighted average of each host's own NFW enclosed-mass fraction at its concentration. Right: the three satellite-minus-host velocity components divided by the host's `Vvir / sqrt(2)` against the unit Gaussian. The snapshot redshift comes from the package's `a_list`. |
+| `hod_correlation_function` | Real-space `xi(r)` of the sample on logarithmic bins from 0.1 to 20 Mpc/h (profile keys `xmin`/`xmax`, at most half the box) from the engine's `correlation_function`, with Poisson error bars, annotated with the realised number density and satellite fraction. Real-space only: there is no projected `wp(rp)` and no observational overlay. |
+| `halo_mass_function`, `spatial_distribution` | Copied unchanged from `halos-only`: the halo mass function and the halo positions, which give the occupation and clustering figures their context. |
+
+A figure whose data are absent returns a skip reason instead of failing: the three HOD figures need `HODGhost`, `hod_satellite_profile` needs created satellites and one snapshot in the data, and `hod_correlation_function` needs the whole box. Check on the real micro-Uchuu run (z = 0.0005, 5,359 sample members): 14 bins have at least 50 hosts, and in all of them each of `<Ncen>`, `<Nsat>` and `<Ntot>` lies within 3 standard errors of the law averaged over the bin's own hosts (largest pull 1.82, largest absolute difference 0.097 in `<Nsat>` at `log10 M = 13.1`, 144 hosts).
+
 ## Caveats
 
 - **Mass definition**: the Zheng, Coil & Zehavi (2007) fit uses halo masses defined at 200 times the mean density. Mimic's `Mvir` is the catalogue's virial mass (M200c for Millennium, the Rockstar virial mass for Uchuu). No conversion is applied.
@@ -87,6 +105,7 @@ HOD audit z=<z> hosts=<n> n_gal expected=<x> realised=<y> f_sat expected=<a> rea
 - `shared/hod_random.h`: the model-private random-number generator (`shared/README.md`).
 - `input/hod_micro-uchuu-ascii-horizontal.yaml`: the fixture run file (horizontal driver, with the audit).
 - `input/hod_micro-uchuu-horizontal.yaml`: the real 100 Mpc/h micro-Uchuu box (horizontal driver, with the audit); needs `simulations/micro-uchuu-horizontal/snapshots`.
+- `plots/`: the figure registry, five figures and the plot profiles (see [Plots](#plots)).
 - `input/hod_mini-millennium.yaml`: the eight local mini-Millennium tree files (vertical driver, no `post_snapshot` phase and so no audit, HDF5 output).
 
 ## Build, Run, and Test

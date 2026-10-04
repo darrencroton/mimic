@@ -11,9 +11,10 @@ A centralized plotting tool for the Mimic physics-agnostic galaxy evolution fram
 5. [Working with Units](#working-with-units)
 6. [Adding New Plot Types](#adding-new-plot-types)
 7. [Testing](#testing)
-8. [Architecture](#architecture)
-9. [Documentation Directory](#documentation-directory)
-10. [License](#license)
+8. [Shared Helpers](#shared-helpers)
+9. [Architecture](#architecture)
+10. [Documentation Directory](#documentation-directory)
+11. [License](#license)
 
 ## Overview
 
@@ -159,7 +160,7 @@ The tool supports three verbosity levels:
 
 ## Available Plots
 
-The plot registry is model-specific: it lives in the active model package at `models/<MODEL>/plots/figures/__init__.py`, which is the source of truth for registered plot names. The lists below summarise the shipped sage16 registry (18 snapshot plots and 4 evolution plots); the sham package registers a smaller diagnostic set.
+The plot registry is model-specific: it lives in the active model package at `models/<MODEL>/plots/figures/__init__.py`, which is the source of truth for registered plot names. The lists below summarise the shipped sage16 registry (18 snapshot plots and 4 evolution plots); the sham package registers a smaller diagnostic set and the hod package registers 5 snapshot plots and no evolution plots (`halo_mass_function`, `spatial_distribution`, and the HOD figures `hod_occupation`, `hod_satellite_profile` and `hod_correlation_function`).
 
 ### Snapshot Plots (Single Redshift)
 
@@ -559,7 +560,17 @@ plot/mimic-plot/tests/test_plotting.sh
 ### Test Suite
 
 - **`test_validation_helpers.py`**: Unit tests for plot validation functions (13 tests covering edge cases, thresholds, and error handling)
+- **`test_correlation_function.py`**: Unit tests for the real-space correlation-function helpers `periodic_pair_counts()` and `correlation_function()` in `output_utils.py` (grid counts against a brute-force count, uniform-sample `xi`, periodic boundary, small-N guard, input domain)
 - **`test_plotting.sh`**: Integration tests for the plotting pipeline (5 tests covering different command-line options and plot types)
+
+## Shared Helpers
+
+`output_utils.py` also provides two model-neutral clustering helpers, numpy only:
+
+- `periodic_pair_counts(positions, box_size, r_edges)`: pair counts per separation bin in a periodic cubic box, by a cell grid with the minimum-image convention; each pair is counted once and self-pairs are excluded.
+- `correlation_function(positions, box_size, r_edges)`: returns `(xi, xi_err, dd, rr)` with `xi = DD / RR - 1` and the analytic random term `RR = N (N - 1) / 2 * V_shell / box_size^3`; `xi_err = sqrt(DD) / RR` is the Poisson error on the pair counts.
+
+Inputs are validated with `ValueError`: finite `(N, 3)` coordinates inside `[0, box_size)`, `box_size > 0`, and strictly increasing non-negative `r_edges` with `r_edges[-1] <= box_size / 2`. With fewer than two points the counts are zero and `xi` is NaN (`xi_err` zero). The `hod` model's `hod_correlation_function` uses them.
 
 ## Architecture
 

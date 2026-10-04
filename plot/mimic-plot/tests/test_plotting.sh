@@ -107,6 +107,9 @@ python3 "$SCRIPT_DIR/test_chunked_consumers.py"
 echo "Test 11: Scatter sampling and binning helper unit tests"
 python3 "$SCRIPT_DIR/test_scatter_and_binning_helpers.py"
 
+echo "Test 12: Periodic pair-count and correlation-function helper unit tests"
+python3 "$SCRIPT_DIR/test_correlation_function.py"
+
 echo ""
 echo "=========================================="
 echo "All tests passed successfully!"

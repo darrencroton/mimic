@@ -1,0 +1,27 @@
+inherits:
+  - default.yaml
+
+mode: exploration
+
+simulation: micro-uchuu-horizontal
+
+axes:
+  halo_mass_function:
+    xmin: 8.5
+    xmax: 15.0
+  hod_occupation:
+    xmin: 10.8          # log10(M / [Msun/h]) of the host
+    xmax: 15.0
+    ymin: -3.0          # log10 of <N> per host
+    ymax: 2.5
+  hod_satellite_profile:
+    xmin: -4.0          # velocity offset / (Vvir / sqrt(2))
+    xmax: 4.0
+  hod_correlation_function:
+    xmin: 0.1           # comoving Mpc/h; at most half the 100 Mpc/h box
+    xmax: 20.0
+    ymin: -2.0          # log10 of xi
+    ymax: 4.0
+  spatial_distribution:
+    xlim: [0.0, 100.0]
+    ylim: [0.0, 100.0]
