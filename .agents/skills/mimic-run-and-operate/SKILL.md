@@ -66,7 +66,7 @@ make MODEL=halos-only SIMULATION=mini-millennium
 ./mimic models/halos-only/input/halos-only_mini-millennium.yaml; echo "rc=$?"
 ```
 
-`hod` and `sham` runs are self-auditing: at INFO each output snapshot logs `HOD audit z=<z> hosts=<n> n_gal expected=<x> realised=<y> f_sat expected=<a> realised=<b>` or `SHAM audit z=<z> candidates=<n> assigned=<a> masked=<m>` (`--verbose` adds the per-bin HOD lines), and a creating run's startup log carries the `Created-record identity space (...)` verdict. Both packages keep every halo row in the output as scaffold, so select the sample with `HODGhost == 0` or `ShamGhost == 0` before analysing (the plots do). Plot the one-epoch SHAM run with `--snapshot-plots` (see `mimic-plots-and-analysis`).
+`sham` runs and `hod` runs configured with a `post_snapshot` callback (the horizontal run files; the vertical `hod_mini-millennium.yaml` has none, so it writes no audit) are self-auditing: at INFO each output snapshot logs `HOD audit z=<z> hosts=<n> n_gal expected=<x> realised=<y> f_sat expected=<a> realised=<b>` or `SHAM audit z=<z> candidates=<n> assigned=<a> masked=<m>` (`--verbose` adds the per-bin HOD lines), and a creating run's startup log carries the `Created-record identity space (...)` verdict. Both packages keep every halo row in the output as scaffold, so select the sample with `HODGhost == 0` or `ShamGhost == 0` before analysing (the plots do). Plot the one-epoch SHAM run with `--snapshot-plots` (see `mimic-plots-and-analysis`).
 
 ## Run-file walkthrough (sage16 on mini-millennium)
 
