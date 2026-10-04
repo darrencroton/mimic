@@ -56,7 +56,8 @@ make
 
 ```bash
 make                                          # default: sage16 model + mini-Millennium simulation
-make MODEL=sham SIMULATION=micro-uchuu-ascii-horizontal  # build the SHAM example model (horizontal only)
+make MODEL=sham SIMULATION=micro-uchuu-ascii-horizontal  # build the SHAM model (horizontal only)
+make MODEL=hod SIMULATION=micro-uchuu-ascii-horizontal   # build the HOD model (creates satellite records)
 make MODEL=halos-only SIMULATION=mini-millennium  # halo catalogue only, no galaxy physics
 make -j$(nproc)                               # parallel build (on macOS use e.g. make -j8)
 make USE-HDF5=no                              # build without HDF5 (binary output only)
@@ -293,9 +294,13 @@ modules:
 
 Module parameters have no global defaults in the core. A module loads and validates the parameters it needs during its `init()` function. If a required parameter is missing, startup fails before trees are processed — a few seconds, not after a long run.
 
+#### Creating galaxy records
+
+Most modules update galaxies the merger trees already supply. A `process_full_halo` module may also ask core to create new galaxy records, as the `hod` package does for its synthetic satellites. Core appends the created records to the FoF group when the creating module returns, so every later module, phase and substep of that snapshot sees them as ordinary galaxies, they are written beside their host's own galaxies, and the next snapshot inherits them as Type 2 orphans. Created records get a negative `UniqueGalaxyID`, deterministic for a fixed dataset and run file; tree galaxies keep their positive IDs. Nothing in a run file switches this on: a module either creates records or it does not, and a run whose modules create none is unchanged. The contract (who may create, what a created record starts as, identity, memory and the footguns) is the [Record Creation Contract](DEVELOPER-GUIDE.md#record-creation-contract) in the developer guide.
+
 #### Snapshot-wide modules
 
-`modules.post_snapshot` is an optional fixed phase for modules that need a whole snapshot at once, such as a global ranking. It uses the same list shape as the other phases, but every entry must be a single `module_name: process_snapshot` pair, and a module may appear in it only once:
+`modules.post_snapshot` is an optional fixed phase for modules that need a whole snapshot at once, such as a global ranking (the shipped `sham_rank_match`) or a whole-box audit (the shipped `hod_populate`, which also uses a `post_timestep` entry). It uses the same list shape as the other phases, but every entry must be a single `module_name: process_snapshot` pair, and a module may appear in it only once:
 
 ```yaml
 modules:
@@ -327,6 +332,24 @@ modules:
   phases: {}
   parameters: {}
 ```
+
+**Populate halos with a halo occupation distribution** using the `hod` package. The fixture run file (`models/hod/input/hod_micro-uchuu-ascii-horizontal.yaml`) demonstrates the framework on the small committed fixture; the real-box run file applies the published Zheng, Coil & Zehavi (2007) `Mr < -20` parameters to the 100 Mpc/h micro-Uchuu box:
+
+```bash
+make MODEL=hod SIMULATION=micro-uchuu-horizontal
+./mimic models/hod/input/hod_micro-uchuu-horizontal.yaml
+```
+
+Satellites are created records. The output keeps every FoF scaffold row, so select the sample with `HODGhost == 0`. The five occupation and five concentration parameters are all run-file parameters; the fit's halo mass definition and cosmology differ from the catalogue's, so read the [hod README](../models/hod/README.md) caveats before drawing scientific conclusions. The vertical driver can run it too, on a package whose identity space fits (`models/hod/input/hod_mini-millennium.yaml`).
+
+**Rank-match halos to an observed stellar mass function** using the `sham` package, which assigns stellar masses by matching the rank of each halo's peak maximum circular velocity to the Baldry et al. (2012) mass function, rescaled to the simulation's `h`:
+
+```bash
+make MODEL=sham SIMULATION=micro-uchuu-horizontal
+./mimic models/sham/input/sham_micro-uchuu-horizontal.yaml
+```
+
+It writes one output epoch (snapshot 49) while accumulating peak history over every processed snapshot, and runs under the horizontal driver only. Select the sample with `ShamGhost == 0`. The result is a recovery of the target by construction, not an observational parity claim; see the [sham README](../models/sham/README.md).
 
 **Disable a module** by removing or commenting its line. Check the surrounding modules before doing this: many SAGE modules pass transport properties to later modules in the same phase (e.g. `sage_calculate_supernova_feedback` computes masses that `sage_apply_star_formation_supernova` commits).
 
@@ -395,7 +418,7 @@ make MODEL=<model> SIMULATION=<simulation>
 ./mimic models/<model>/input/<run_file>.yaml
 ```
 
-For example, [sage16](../models/sage16/README.md) is the default complete galaxy-formation model, [sham](../models/sham/README.md) is a compact one-module abundance-matching example, and [halos-only](../models/halos-only/README.md) is the no-galaxy-physics package for exploring the dark-matter halo catalogue. Check `models/` for the current list, and each package's README before drawing scientific conclusions from it.
+For example, [sage16](../models/sage16/README.md) is the default complete galaxy-formation model, [sham](../models/sham/README.md) rank-matches resolved halos and subhalos to an observed stellar mass function (horizontal driver only), [hod](../models/hod/README.md) populates halos with a halo occupation distribution by creating its satellite galaxies at run time, and [halos-only](../models/halos-only/README.md) is the no-galaxy-physics package for exploring the dark-matter halo catalogue. Check `models/` for the current list, and each package's README before drawing scientific conclusions from it.
 
 Swapping the simulation under a fixed model is a workflow in its own right, not just a configuration detail: develop and calibrate on a small box, then rerun the identical physics on a larger volume for production statistics, or across catalogues with different resolutions or cosmologies to test how robust your conclusions are to the input simulation. The shipped [mini-Millennium package](../simulations/mini-millennium/README.md) is the small working example, and a [full Millennium package](../simulations/millennium/README.md) is provided for users with access to the complete tree data — check `simulations/` for the current list. Adding your own simulation is a developer task — see [Adding a New Simulation](DEVELOPER-GUIDE.md#adding-a-new-simulation).
 
@@ -672,7 +695,7 @@ deactivate
 
 Plots are written under the configured output directory, normally `output/sage16-mini-millennium/plots/` for the shipped example.
 
-The plot registry is model-specific — it lives in `models/<model>/plots/figures/` — so build Mimic with the same `MODEL` as the run file before plotting. The `halos-only` registry intentionally advertises only halo/catalogue diagnostics. The detailed plotting manual is [plot/mimic-plot/README.md](../plot/mimic-plot/README.md): command-line options, available plot names, skipped-plot diagnostics, plotting native SAGE output for comparison, and adding new plot types.
+The plot registry is model-specific — it lives in `models/<model>/plots/figures/` — so build Mimic with the same `MODEL` as the run file before plotting. The `halos-only` registry intentionally advertises only halo/catalogue diagnostics. The `hod` registry adds the mean occupation function with the analytic law overlaid (`hod_occupation`), the satellite radial and velocity profiles against their predictions (`hod_satellite_profile`) and the real-space correlation function (`hod_correlation_function`); the `sham` registry adds the stellar mass function against its target line, the stellar-to-halo mass relation and satellite fraction, and a correlation function by stellar-mass threshold (`sham_correlation_function`). Both sample-selected figures use `HODGhost == 0` or `ShamGhost == 0`. The SHAM run writes a single epoch, so plot it with `--snapshot-plots`. The detailed plotting manual is [plot/mimic-plot/README.md](../plot/mimic-plot/README.md): command-line options, available plot names, skipped-plot diagnostics, plotting native SAGE output for comparison, and adding new plot types.
 
 ---
 
@@ -715,6 +738,12 @@ make clean && make
 ```
 
 **Module-pipeline rejection at startup**: Mimic checks the module pipeline before any module is initialised, and the message names the phase or module. The snapshot-wide rejections are: `process_snapshot` placed in `pre_timestep`, `post_timestep` or a `phases:` entry (it belongs only under `modules.post_snapshot`); a FoF mode (`process_full_halo`, `process_per_event`, `process_by_galaxy`) listed under `post_snapshot` (use `process_snapshot`, which the module must advertise); a non-empty `post_snapshot` under a vertical reader (the vertical driver never holds a whole snapshot, so use a horizontal package or remove the phase; absent, `null` and `[]` are accepted); a module listed more than once in `post_snapshot`, or an entry with more than one `name: mode` pair in any phase (each module needs its own `- name: mode` item, otherwise the extra pair would be silently dropped). Separately, `sham_rank_match` checks its own placement in its `init()`, after that pipeline validation and still before any snapshot is loaded, and fails the run when it is configured other than exactly once in `pre_timestep` as `process_full_halo` and once in `post_snapshot` as `process_snapshot` (it needs both phases, so it runs only under a horizontal package), in `post_timestep` or in a substep phase, or with an output snapshot above `ShamTargetRedshiftMax`.
+
+**Record-creation refusals**: `module_create_record` returns an error (logged as `module_create_record refused for module '<name>': ...`) and the creating module fails the run. The reasons, each named in the message: it was called from `init()`, `cleanup()` or a `process_by_galaxy`, `process_per_event` or `process_snapshot` callback (only a running `process_full_halo` callback may create; configure a creating module as `process_full_halo`); the row pointer was NULL; the host index is outside the committed rows; the host is itself a created record (`created rows cannot host`); the host is not Type 0 or 1, or has no galaxy; or the host already has 1024 created records in this FoF step (the identity radix, a fixed number, not a physics cap). A module that creates in a substep phase creates once per substep unless it guards on `ctx->substep_number`. An event that names a row created in the same callback is rejected too: `module_emit_event invalid target_index=... outside the ... committed rows`; a later callback may name it.
+
+**Created-record identity space does not fit (`does not fit int64`)**: At startup each driver logs one line, `Created-record identity space (<driver>, ...): units=..., rows_per_unit=..., radix=1024: fits int64` or `...does not fit int64; this run cannot create records`. A run whose modules create nothing is never affected, whatever the verdict. When the space does not fit, the first `module_create_record` call fails with `the <driver> driver's created-record identity space does not fit int64 (units=..., rows_per_unit=..., radix=1024)`. The measured budgets: the committed fixtures, mini-Millennium, full Millennium (vertical and horizontal) and full Uchuu under the horizontal driver fit; the vertical driver on Shin-Uchuu ASCII and on full Uchuu does not, because the product of their forest count and per-forest identity range exceeds the budget (Shin-Uchuu's tree IDs already use about 61 bits). Those runs proceed as before but cannot run a record-creating module such as `hod_populate`; use the horizontal driver where the horizontal package exists. The developer guide records pair identity as the escape if a future dataset needs both.
+
+**HOD and SHAM startup errors**: `hod_populate` must be configured exactly once in `modules.post_timestep` as `process_full_halo` (`... must be configured exactly once in modules.post_timestep ...`), nowhere in `pre_timestep` or a substep phase, and, when a `post_snapshot` phase is present, once there as `process_snapshot`; the vertical driver has no `post_snapshot`, so a run file without it is valid and runs without the audit. It also rejects non-finite or out-of-range parameters (`HODSigmaLogM` must be above 0, `HODAlpha` and `HODSeed` at least 0, `HODConcA` above 0) and a host whose mean satellite count reaches the 1024 radix (`has satellite mean lambda=...`). `sham_rank_match`'s placement and redshift-window errors are in the module-pipeline entry above.
 
 **Module not registered**: Run:
 

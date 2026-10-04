@@ -135,7 +135,7 @@ Two keys, legal in both `simulation_info.yaml` (as catalog-scale defaults) and t
 
 ## 8. Adding a horizontal reader (different family, different vtable)
 
-Horizontal readers are a separate family with their own small vtable — `struct HorizontalReader` in `src/io/horizontal/reader.h`: `name`, `processing_order`, and the hooks `open_run`, `close_run`, `snapshot_halo_count`, `load_slab`, `release_slab`. There are no partitions and no units; the working set is one snapshot's halo population (a *slab* of `struct RawHalo`, `int64_t` counts throughout). Do NOT widen `struct VerticalReader` — its 13 hooks are partition/unit-shaped and its `REQUIRE_READER_HOOK` fail-fast would be defeated by two disjoint hook sets.
+Horizontal readers are a separate family with their own small vtable — `struct HorizontalReader` in `src/io/horizontal/reader.h`: `name`, `processing_order`, and the hooks `open_run`, `close_run`, `snapshot_halo_count`, `load_slab`, `release_slab`. There are no partitions and no units; the working set is one snapshot's halo population (a *slab* of `struct RawHalo`, `int64_t` counts throughout). Do NOT widen `struct VerticalReader` — its 13 hooks are partition/unit-shaped and its `REQUIRE_READER_HOOK` fail-fast would be defeated by two disjoint hook sets. The horizontal driver takes the largest `snapshot_halo_count()` over the run at open as the created-record identity space's `rows_per_unit` (units = `snapshot_count`), so that hook must stay cheap and header-only; the run logs the verdict and a non-fitting space never stops a run.
 
 1. Implement one `const struct HorizontalReader` in `src/io/horizontal/read_<format>.c`. **Filename rule (footgun):** an HDF5-dependent reader file *must* end in `hdf5.c` (`Makefile` drops that pattern from `USE-HDF5=no` builds), while `registry.c` and `interface.c` must *not*, because the configuration path calls `horizontal_reader_lookup()` in every build.
 2. Append one row to `horizontal_reader_table[]` in `src/io/horizontal/registry.c`, `#ifdef HDF5`-guarding both the `extern` and the row when needed; a non-HDF5 build then registers nothing and the lookup returns `NULL`. Keep the name disjoint from the vertical registry.
@@ -147,7 +147,7 @@ Full walkthrough, including what `open_run` checks and the identity multiplier: 
 
 ## Provenance and maintenance
 
-Verified against the live repo 2026-07-04; the horizontal-reader material added 2026-08-04; the horizontal driver and cross-format identity gate material added 2026-08-12. Converter-profile and format-version-3 facts added 2026-09-25 at the close of the converter generalisation. Re-verify drift-prone specifics:
+Verified against the live repo 2026-07-04; the `max_partition_unit_halos` hook and identity-space notes re-verified 2026-10-04; the horizontal-reader material added 2026-08-04; the horizontal driver and cross-format identity gate material added 2026-08-12. Converter-profile and format-version-3 facts added 2026-09-25 at the close of the converter generalisation. Re-verify drift-prone specifics:
 
 ```bash
 sed -n '16,31p' src/io/vertical/registry.c                                  # registered vertical readers

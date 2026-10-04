@@ -1,6 +1,6 @@
 ---
 name: mimic-sam-reference
-description: Domain theory pack for Mimic - semi-analytic galaxy modelling (SAM) concepts tied to this codebase. Load when a task mentions galaxy formation physics, merger trees, halos, subhalos, FoF groups, galaxy Types 0/1/2/3, baryon reservoirs (HotGas, ColdGas, EjectedGas, StellarMass, ICS), cooling, star formation, supernova or AGN feedback, black holes, metallicity, reionization, infall, reincorporation, mergers, orphans, dynamical friction, cosmology (Omega_m, h, redshift, scale factor), units like 1e10 Msun/h or Mpc/h, abundance matching / SHAM, or when interpreting what a physics plot or property value MEANS scientifically. Assume the reader has zero astrophysics background.
+description: Domain theory pack for Mimic - semi-analytic galaxy modelling (SAM) concepts tied to this codebase. Load when a task mentions galaxy formation physics, merger trees, halos, subhalos, FoF groups, galaxy Types 0/1/2/3, baryon reservoirs (HotGas, ColdGas, EjectedGas, StellarMass, ICS), cooling, star formation, supernova or AGN feedback, black holes, metallicity, reionization, infall, reincorporation, mergers, orphans, dynamical friction, cosmology (Omega_m, h, redshift, scale factor), units like 1e10 Msun/h or Mpc/h, abundance matching / SHAM, halo occupation distribution / HOD, or when interpreting what a physics plot or property value MEANS scientifically. Assume the reader has zero astrophysics background.
 ---
 
 # Mimic SAM Reference — the physics behind the code
@@ -42,7 +42,7 @@ What Mimic adds over legacy SAMs (e.g. original SAGE): a **physics-agnostic core
 
 ## 2. Halo and galaxy taxonomy; tree vocabulary
 
-- **FoF group**: a friends-of-friends group — the halo finder's top-level object, a cluster of dark matter that may contain several distinct bound clumps. Mimic processes one FoF group's members together in a `FoFWorkspace`.
+- **FoF group**: a friends-of-friends group — the halo finder's top-level object, a cluster of dark matter that may contain several distinct bound clumps. Mimic processes one FoF group's members together in one FoF workspace.
 - **Subhalo**: a bound clump inside a FoF group. The largest is the "central" subhalo; the rest are satellites that fell in earlier.
 - **Galaxy `Type`** (property in `src/core/core_properties.yaml`, output range 0–2):
   - **Type 0** — central galaxy of the FoF group's main subhalo. The only galaxy that receives fresh cosmological gas infall.
@@ -129,9 +129,11 @@ Verified from `simulations/<name>/simulation_info.yaml` (2026-07-04):
 
 The Uchuu family uses the Planck-2015 cosmology. **Rule of thumb (community convention, not a repo-enforced fact)**: a halo needs ≳20 particles to be minimally credible, so trust nothing below ~20 × particle_mass (≈1.7 code units for Millennium, ≈0.65 for Uchuu); statistical properties (mass functions) need more like 100+ particles. Running the *same* physics on Millennium and Uchuu boxes is a first-class robustness workflow: different cosmology, resolution, volume, and tree format expose resolution artefacts, cosmology hard-coding bugs, and reader bugs that a single simulation hides.
 
-## 6. SHAM in one paragraph
+## 6. SHAM and HOD in two paragraphs
 
 **Subhalo abundance matching (SHAM)** is the simplest way to paint galaxies onto halos: rank all (sub)halos in a volume by a mass/velocity proxy, rank observed galaxies by stellar mass, and match the two ranked lists so the N-th biggest halo hosts the N-th biggest galaxy — a *global* operation over a whole snapshot. Mimic's `models/sham` package ships one dual-mode module, **`sham_rank_match`**, because FoF physics sees one FoF workspace at a time and the rank needs the whole snapshot: its `process_full_halo` step in `pre_timestep` tracks the peak proxies `ShamVpeak` and `ShamMpeak` along each branch and retires carried Type 2 rows, and its `process_snapshot` step in `modules.post_snapshot` (horizontal driver only) ranks every Type 0/1 row with `ShamVpeak` at or above a completeness floor and gives rank `r` the stellar mass at which the Baldry et al. (2012) GAMA double Schechter function (converted to the simulation's `h`) has the rank's number density. It is a calibrated-target, cross-sectional, zero-scatter, resolved-only rank match: it reproduces its target on the ranked population by construction and makes no observational parity claim; the first real-box check is in `models/sham/README.md`.
+
+**Halo occupation distribution (HOD)** is the statistical counterpart: instead of ranking, it says how many galaxies a host halo of mass `M` contains, as a function of mass alone. Mimic's `models/hod` package ships one dual-mode module, **`hod_populate`**, that creates the galaxies as new records (`module_create_record()`), which is why it exists as a package at all. The occupation law is the five-parameter form of Zheng et al. (2005) as fitted by Zheng, Coil & Zehavi (2007) to the SDSS `Mr < -20` sample: a central is present with probability `<Ncen> = 0.5 [1 + erf((log10 M - HODLogMmin) / HODSigmaLogM)]`, and a present central above `10^HODLogM0` brings `Poisson(lambda)` satellites with `lambda = ((M - 10^HODLogM0) / 10^HODLogM1)^HODAlpha` (so no satellite exists without a central). Satellites are placed at NFW radii inside the host's virial radius with the Duffy et al. (2008) concentration, isotropic directions and a Gaussian velocity offset of `Vvir / sqrt(2)` per axis; `HODGhost == 0` marks the sample, every other halo row stays as scaffold. It assigns no stellar mass (a threshold HOD has none), draws from a counter-based random generator keyed by host ID so results do not depend on traversal order, and audits its realised density and satellite fraction against the law at every output snapshot. The published parameters were fitted with a different halo mass definition and cosmology than Mimic's catalogues carry, so the shipped runs are framework demonstrations, not a calibrated SDSS mock; the first real-box check is in `models/hod/README.md`.
 
 ## 7. Literature anchors (as the repo cites them)
 
@@ -151,5 +153,5 @@ All facts verified against the live repo on 2026-07-04. Re-verify before relying
 - Core halo properties and reference units: `sed -n '1,220p' src/core/core_properties.yaml`
 - Cosmology/box/particle mass: `grep -sA2 -E 'omega|hubble_h|box_size:|particle_mass:' simulations/*/simulation_info.yaml`
 - Figure inventory: `grep -A25 'SNAPSHOT_PLOTS' models/sage16/plots/figures/__init__.py`
-- Citations: `models/sage16/README.md` and `models/sham/README.md`
+- Citations: `models/sage16/README.md`, `models/sham/README.md` and `models/hod/README.md` (Zheng et al. 2005; Zheng, Coil & Zehavi 2007; Duffy et al. 2008; Berlind & Weinberg 2002)
 - SAGE parity quirks: `grep -rn 'SAGE parity' src/ models/sage16/ | wc -l`

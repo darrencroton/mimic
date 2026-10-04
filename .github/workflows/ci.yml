@@ -125,3 +125,11 @@ jobs:
     - name: Run integration tests on a horizontal package
       run: |
         make MODEL=halos-only SIMULATION=mini-millennium-horizontal tests-integration
+
+    # The snapshot-global battery on the committed horizontal fixtures: the post_snapshot
+    # phase and typed callback contract, and the sham_rank_match and hod_populate packages
+    # (the latter creates records). It builds every package pair it needs as a test build and
+    # needs no real dataset.
+    - name: Run snapshot-global battery
+      run: |
+        make tests-snapshot-global

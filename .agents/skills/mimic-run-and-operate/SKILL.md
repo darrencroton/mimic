@@ -46,10 +46,27 @@ make
 make MODEL=sham SIMULATION=micro-uchuu-ascii-horizontal
 ./mimic models/sham/input/sham_micro-uchuu-ascii-horizontal.yaml; echo "rc=$?"
 
+# SHAM on the real 100 Mpc/h micro-Uchuu box (needs simulations/micro-uchuu-horizontal/snapshots):
+# one output epoch (snapshot 49), HDF5 under output/sham-micro-uchuu-horizontal/
+make MODEL=sham SIMULATION=micro-uchuu-horizontal
+./mimic models/sham/input/sham_micro-uchuu-horizontal.yaml; echo "rc=$?"
+
+# HOD (creates satellite records; horizontal fixture with the audit, then the vertical run file)
+make MODEL=hod SIMULATION=micro-uchuu-ascii-horizontal
+./mimic models/hod/input/hod_micro-uchuu-ascii-horizontal.yaml; echo "rc=$?"
+make MODEL=hod SIMULATION=mini-millennium         # vertical driver, no post_snapshot, no audit
+./mimic models/hod/input/hod_mini-millennium.yaml; echo "rc=$?"
+
+# HOD on the real micro-Uchuu box (eight output snapshots, HDF5 under output/hod-micro-uchuu-horizontal/)
+make MODEL=hod SIMULATION=micro-uchuu-horizontal
+./mimic models/hod/input/hod_micro-uchuu-horizontal.yaml; echo "rc=$?"
+
 # Halos-only: empty model package, halo tracking with no galaxy physics
 make MODEL=halos-only SIMULATION=mini-millennium
 ./mimic models/halos-only/input/halos-only_mini-millennium.yaml; echo "rc=$?"
 ```
+
+`hod` and `sham` runs are self-auditing: at INFO each output snapshot logs `HOD audit z=<z> hosts=<n> n_gal expected=<x> realised=<y> f_sat expected=<a> realised=<b>` or `SHAM audit z=<z> candidates=<n> assigned=<a> masked=<m>` (`--verbose` adds the per-bin HOD lines), and a creating run's startup log carries the `Created-record identity space (...)` verdict. Both packages keep every halo row in the output as scaffold, so select the sample with `HODGhost == 0` or `ShamGhost == 0` before analysing (the plots do). Plot the one-epoch SHAM run with `--snapshot-plots` (see `mimic-plots-and-analysis`).
 
 ## Run-file walkthrough (sage16 on mini-millennium)
 

@@ -126,7 +126,7 @@ Summary table; full per-key semantics, parse behavior, and the simulation_info-v
 | `modules.phases` | ordered map | required for physics | User-named substep phases, executed in YAML order, max 32; each maps to module lists with modes `process_full_halo` / `process_per_event` / `process_by_galaxy` |
 | `modules.post_timestep` | list | optional | Modules run once per snapshot after substepping |
 | `modules.post_snapshot` | list | optional (horizontal only) | `process_snapshot` modules run once per snapshot over the whole population, after the FoF sweep and before inheritance/output; absent/`null`/`[]` = none; a non-empty list is rejected under a vertical reader |
-| `modules.parameters` | map | per model | Flat `name: value` map read by `model_get_double/int/string`; no defaults — a missing parameter fails module init |
+| `modules.parameters` | map | per model | Flat `name: value` map read by `model_get_double/int/string`; no defaults — a missing parameter fails module init. Parameters are model-local: `hod_populate` takes ten (`HODLogMmin`, `HODSigmaLogM`, `HODLogM0`, `HODLogM1`, `HODAlpha`, `HODSeed`, `HODConcA`, `HODConcLogMpivot`, `HODConcB`, `HODConcC`) and `sham_rank_match` nine (`ShamTargetLogMstar`, `ShamTargetPhi1`, `ShamTargetAlpha1`, `ShamTargetPhi2`, `ShamTargetAlpha2`, `ShamTargetHubble`, `ShamTargetLogMassFloor`, `ShamTargetRedshiftMax`, `ShamMinVpeak`), declared in the module's `module_info.yaml`, not framework keys; record creation itself adds no run-file key |
 
 **Unit scalar form** (`box_size`, `particle_mass`): either a bare number — interpreted as already in Mimic's reference units (mass 1e10 Msun/h, length Mpc/h) — or a map `{value: <num>, units: <label>, h_convention: <carried|free|none>}` converted at load. Only `value`, `units`, `h_convention` are accepted in the map (unknown keys fatal).
 
@@ -139,7 +139,7 @@ Optional per-model file `models/<model>/parameter_units.yaml` declaring physical
 - Schema: a `parameters:` list of `{name, type, units, h_convention}`; `type` is `double` only.
 - Modules read converted values via the `*_INTERNAL` macro variants in `src/module_system/parameter_helpers.h` (they apply `mimic_parameter_unit_factor` at load).
 - Any parameter NOT listed is assumed to already be in reference units — no conversion.
-- Currently no shipped model has this file (sage16's parameters are reference-unit or dimensionless; sham's are read as plain doubles in the units its README states). Verify: `ls models/*/parameter_units.yaml` (no match means none).
+- The file is needed only when a module loads a parameter through an `*_INTERNAL` macro. Currently no shipped model has it: sage16's parameters are reference-unit or dimensionless, and `hod` and `sham` read every parameter as a plain double in the units their READMEs state (masses in `Msun/h` or physical `Msun`, `ShamMinVpeak` in km/s), so a new package does not need one by default. Verify: `ls models/*/parameter_units.yaml` (no match means none).
 
 Generated conversion code lands in `src/include/generated/parameter_unit_conversions.h` via `make generate` — never hand-edit it. See the `mimic-properties` skill for the unit registry and h-convention machinery.
 

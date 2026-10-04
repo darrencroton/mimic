@@ -40,7 +40,7 @@ python plot/mimic-plot/mimic-plot.py --param-file=models/sage16/input/sage16_min
 
 `models/<model>/plots/figures/__init__.py` exports four structures the engine imports (plus shared styling helpers `setup_plot_fonts`, `setup_legend`, label getters, and `check_required_properties`):
 
-- `SNAPSHOT_PLOTS` / `EVOLUTION_PLOTS` — ordered name lists (sage16 ships 18 + 4; sham 8 + 3; halos-only 4 + 1, halo-diagnostics only by design).
+- `SNAPSHOT_PLOTS` / `EVOLUTION_PLOTS` — ordered name lists (sage16 ships 18 + 4; hod 5 + 0; sham 8 + 0; halos-only 4 + 1, halo-diagnostics only by design; hod and sham write one epoch, so they have no evolution figures).
 - `PLOT_REQUIREMENTS` — dict name → required galaxy fields (`[]` = always available). This is the gate that makes physics-free runs skip galaxy plots cleanly.
 - `PLOT_FUNCS` — dict name → the figure module's `plot` callable.
 
@@ -75,9 +75,11 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
 
 `galaxies` is a NumPy recarray (same shape from binary, HDF5, and sage-native readers — figures are format-agnostic); `volume` is (Mpc/h)³ already scaled by the file fraction processed; `metadata` carries `hubble_h`, `box_size`, `redshift`, `schema_units`. Masses arrive in code units (`1e10 Msun/h`); figures convert (`* 1.0e10 / hubble_h`) at plot time.
 
-Validation-first pattern (the house style — see `stellar_mass_function.py`): `check_required_fields` → `check_field_has_values` → filter → `validate_filtered_data` (or `validate_evolution_snapshot` per snapshot) → only then `setup_figure()` → draw → `save_and_close_figure()`. Helpers live in `plot/mimic-plot/output_utils.py` (including `calculate_mass_function` for the standard φ = N/V/Δlog M) and the model `figures` package (fonts, legends, labels). Observational overlays are inline NumPy arrays inside the figure modules (Baldry 2008 SMF, etc.) with the run's `hubble_h` and `WhichIMF` corrections applied at plot time — there are no separate data files.
+Validation-first pattern (the house style — see `stellar_mass_function.py`): `check_required_fields` → `check_field_has_values` → filter → `validate_filtered_data` (or `validate_evolution_snapshot` per snapshot) → only then `setup_figure()` → draw → `save_and_close_figure()`. Helpers live in `plot/mimic-plot/output_utils.py` (including `calculate_mass_function` for the standard φ = N/V/Δlog M) and the model `figures` package (fonts, legends, labels). Observational overlays are inline NumPy arrays inside the figure modules (Baldry 2008 SMF, etc.) with the run's `hubble_h` and, for sage16, `WhichIMF` corrections applied at plot time — there are no separate data files.
 
 **Binned figures**: derive the bin range from the same `get_profile_axes()` values used for the display axis (not a second hardcoded literal), so a profile override actually reaches the computed line, not just the canvas — see `halo_occupation.py`. Build the bin edges with `make_bin_edges(min, max, width)`, not `np.arange(min, max, width)`: `arange` silently excludes the stop value, dropping up to one bin width of data at the top of the range.
+
+**Sample-flag figures and clustering**: the `hod` and `sham` registries select the plotted population with the model's flag (`HODGhost == 0`, `ShamGhost == 0`; `SAMPLE_LABEL` in each `figures/__init__.py` carries the wording into every label), list the flag in `PLOT_REQUIREMENTS`, and read run parameters (HOD law, SHAM target) from `params["EnabledModules"]["parameters"]` so the overlaid analytic curve uses exactly the run's values. `hod` figures: `halo_mass_function`, `hod_occupation`, `hod_satellite_profile`, `hod_correlation_function`, `spatial_distribution`; `sham` figures: the four halo diagnostics plus `stellar_mass_function` (ranked sample against the configured Baldry et al. target, converted to the simulation's `h` as the module does), `sham_stellar_halo_relation`, `sham_satellite_fraction` and `sham_correlation_function`. Both clustering figures use the one model-neutral helper in `plot/mimic-plot/output_utils.py`: `periodic_pair_counts(positions, box_size, r_edges)` (cell grid, minimum image, numpy only) and `correlation_function(positions, box_size, r_edges)` returning `(xi, xi_err, dd, rr)` with the analytic random term `N (N - 1) / 2 * V_shell / box_size^3`; the domain is finite `(N, 3)` positions inside `[0, box_size)` and strictly increasing `r_edges` ending at or below `box_size / 2`, and a violation raises `ValueError`. Snapshot figures receive no redshift in `metadata`; use `SnapNum` with `SnapshotRedshiftMapper`. A one-epoch run (the SHAM real-box run writes only snapshot 49) has nothing for the evolution stage, which still demands two snapshots and reports an ERROR after the figures are made, so run it with `--snapshot-plots`.
 
 **Scatter figures** (`ax.scatter` + a `dilute` cap): compute every plotted axis (x and any y series) for the full resolution-filtered candidate set first, then call `select_scatter_sample(x, y_or_y_list, x_min, x_max, y_min, y_max, dilute)` to restrict to the display box *before* random-sampling down to `dilute`. Diluting first can spend nearly the whole sampling budget on points that fall outside a display window narrower than the candidate population, leaving the plot almost empty even with plenty of in-range data — see `specific_sfr.py`. Pass a list of y-arrays (not a single array) when several series share one x axis and one box (e.g. `mass_reservoir_scatter.py`'s stellar/cold/hot/ejected/ICS mass against halo mass) — a point is kept if x is in range and at least one series is.
 
@@ -107,11 +109,12 @@ For ad-hoc analysis, reuse the engine's readers rather than hand-rolling: `plot/
 
 ## Provenance and maintenance
 
-Verified against the live repo 2026-07-04. Re-verify drift-prone specifics:
+Verified against the live repo 2026-07-04; registry counts and the clustering helper re-verified 2026-10-04. Re-verify drift-prone specifics:
 
 ```bash
 grep -n '"--' plot/mimic-plot/mimic-plot.py | head -20                    # CLI flags
-grep -n "SNAPSHOT_PLOTS\s*=\|EVOLUTION_PLOTS\s*=" models/sage16/plots/figures/__init__.py
+grep -n "SNAPSHOT_PLOTS\s*=\|EVOLUTION_PLOTS\s*=" models/sage16/plots/figures/__init__.py   # repeat for hod, sham, halos-only
+grep -n "^def periodic_pair_counts\|^def correlation_function" plot/mimic-plot/output_utils.py
 sed -n '305,352p' plot/mimic-plot/mimic-plot.py                            # profile stack order
 sed -n '308,341p' plot/mimic-plot/output_utils.py                          # axis keys (xmin/xmax/ymin/ymax)
 grep -rn "xlim:\|ylim:" models/*/plots/profiles/*.yaml simulations/*/plot_profile.yaml | head -5   # every hit should be under spatial_distribution

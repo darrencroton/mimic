@@ -26,6 +26,8 @@ This guide is for contributors and researchers modifying Mimic internals: writin
 Common tasks:
 
 - Adding a module: [Creating Physics Modules](#creating-physics-modules)
+- Adding a model package: [Adding a New Model Package](#adding-a-new-model-package)
+- Creating galaxy records from a module: [Record Creation Contract](#record-creation-contract)
 - Choosing a processing mode: [Processing Modes and Phases](#processing-modes-and-phases)
 - Adding a property: [Property System](#property-system)
 - Working with units (different from Millennium): [Units and the Reference Basis](#units-and-the-reference-basis)
@@ -252,8 +254,8 @@ A module that advertises only FoF modes implements `process` and no snapshot cal
 Lifecycle behavior:
 
 - `init()` runs once at startup for each configured module, however many phases it appears in. Load and validate module parameters here.
-- `process()` runs during configured FoF phases. Return non-zero after logging an `ERROR_LOG()` message if the module cannot continue.
-- `process_snapshot()` runs once per snapshot from the `modules.post_snapshot` phase (horizontal driver only) and follows the [snapshot callback contract](#snapshot-callback-contract).
+- `process()` runs during configured FoF phases. Return non-zero after logging an `ERROR_LOG()` message if the module cannot continue. A `process_full_halo` callback is the only place a module may create galaxy records (`module_create_record()`); see the [Record Creation Contract](#record-creation-contract). `init()`, `cleanup()` and every other callback that tries it is refused.
+- `process_snapshot()` runs once per snapshot from the `modules.post_snapshot` phase (horizontal driver only) and follows the [snapshot callback contract](#snapshot-callback-contract); it can never create records, because the snapshot scope is topology-immutable.
 - `cleanup()` runs once during shutdown for each configured module. Free module-owned memory here.
 
 Return conventions:
@@ -449,6 +451,19 @@ Module READMEs should be short, local contracts rather than full papers. Include
 
 The concise README in `models/sage16/modules/sage_resolve_mergers_and_disruption/README.md` is a good model.
 
+### Adding a New Model Package
+
+A model package is discovered by directory under `models/`. The one mandatory file is `models/<model>/model_properties.yaml`; everything else is optional, and a package with an empty properties file and no modules is valid (`halos-only` is close to that). The conventions the `hod` and `sham` packages followed are the ones to copy:
+
+- **Layout.** `model_properties.yaml`, `README.md`, `input/<model>_<simulation>.yaml` run files, `modules/<module>/` directory modules (each with `module_info.yaml`, a README and `_tests/`), `shared/` for model-private headers (the HOD's counter-based RNG lives in `shared/hod_random.h`), and `plots/` for the model's registry. Name a run file `<model>_<simulation>.yaml`; `scripts/fuzz_pipeline.py` finds its base configuration by a single `*_<simulation>.yaml` match in `input/`.
+- **Properties.** Declare only the properties the model owns. There is no `bool` type: a flag such as `HODGhost` or `ShamGhost` is `type: int` with `init_value: 0` and `range: [0, 1]`. Do not add a `parameter_units.yaml` unless a parameter uses an `*_INTERNAL` loader.
+- **Ship what you document.** One run file for the committed fixture of the horizontal or vertical simulation the model targets, one for a real dataset, and a README that states the science scope, the parameters with units, the output contract, the caveats and what the first real-data run measured. A model that demonstrates a published prescription says so and makes no observational parity claim it has not tested.
+- **Dual-mode modules.** A module that needs both a per-FoF callback and a whole-snapshot callback advertises `[process_full_halo, process_snapshot]` and checks its own phase placement in `init()`, because the pipeline validator checks only each phase's own rules. `hod_populate` requires one `post_timestep` entry as `process_full_halo` and, when a `post_snapshot` phase is configured, one entry there as `process_snapshot`; `sham_rank_match` requires one `pre_timestep` and one `post_snapshot` entry. Validate every numeric parameter with `isfinite` before its range check, because the strict parser accepts `nan` and `inf`.
+- **Determinism.** Stochastic modules seed from stable per-halo keys, never a global stream (see [VISION](VISION.md) Principle 4). A module that creates records keys its draws on the host's `UniqueGalaxyID`.
+- **Tests.** Module tests registered through `module_info.yaml` join the default tiers only for the vertical simulations in `FULL_MODEL_TEST_SIMULATIONS` (`scripts/discovery.py`). A package that targets a horizontal simulation adds a group to `tests/manual/run_snapshot_global_battery.py`, which runs its tests by path under the right `MODEL`/`SIMULATION`; export both selectors when you run a test standalone, because `tests/unit/run_tests.sh` falls back to the defaults otherwise. The battery treats any `FAIL`, `ERROR` or `SKIP` as a failure.
+- **Plots.** The registry is model-local (`plots/figures/__init__.py`); register only figures whose required properties the model declares, and filter ghost or scaffold rows (`HODGhost == 0`, `ShamGhost == 0`) in the figure, not in the output.
+- **One pair per build.** Use the same `MODEL=` and `SIMULATION=` for `generate`, `validate-modules`, tests and `make`; `make check-generated`, `make validate-modules` and `make lint-parameters` must pass for each simulation you support, and the default pair's generated code must be restored before the default-tier run.
+
 ---
 
 ## Processing Modes and Phases
@@ -464,7 +479,7 @@ The concise README in `models/sage16/modules/sage_resolve_mergers_and_disruption
 
 The first three modes form the FoF callback family (`process`); `process_snapshot` is the snapshot family (`process_snapshot`). Each mode belongs to exactly one family, defined once in the C table in `src/core/processing_modes.c` (a `_Static_assert` makes an enumerator without an entry a compile error) and mirrored by `scripts/module_modes.py` for the generator and validator. A module may declare `process_snapshot` alone or alongside FoF modes. The FoF phases below accept only FoF modes, and `modules.post_snapshot` accepts only `process_snapshot`. The run-file parser maps mode names through the same table (`processing_mode_from_string()`) and rejects, in every phase, an entry mapping that names more than one module, and `module_system_init()` checks each entry's mode against its phase's family through the table, and against the module's supported modes and callbacks, before any `init()` runs.
 
-Choose the narrowest mode that gives the module the context it needs. A module that only modifies one galaxy at a time should usually use `process_by_galaxy`. A module that redistributes reservoirs across a FoF group or emits merger events should use `process_full_halo`.
+Choose the narrowest mode that gives the module the context it needs. A module that only modifies one galaxy at a time should usually use `process_by_galaxy`. A module that redistributes reservoirs across a FoF group or emits merger events should use `process_full_halo`. `process_full_halo` is also the only mode that may create galaxy records: a created record joins the FoF workspace when the creating callback returns, so the modules after it, the by-galaxy passes of the same phase and every later phase and substep receive it as an ordinary row (see the [Record Creation Contract](#record-creation-contract)). A module cannot tell its dispatch mode from `ModuleContext`, so a module that creates must be configured as `process_full_halo`; configured as `process_by_galaxy` or `process_per_event` it fails at its first creation call. By-galaxy, per-event and snapshot callbacks cannot create.
 
 ### Phase Order
 
@@ -607,6 +622,8 @@ A module should:
 2. Load parameters in `init()`.
 3. Validate physical ranges locally.
 4. Store validated values in module-private static variables.
+
+Parameters belong to the model package that declares them: `hod_populate`'s ten `HOD*` parameters and `sham_rank_match`'s nine `Sham*` parameters are listed in their `module_info.yaml` and set in the run file, and nothing in the core knows them. A parameter that needs a unit conversion uses the `*_INTERNAL` loaders and a model-local `parameter_units.yaml`; the `hod` and `sham` packages use no such loader and ship none. A module that creates records takes its draw parameters, such as the HOD's seed, from here too, so a run file fully determines the created rows.
 
 ```c
 #include "module_system/parameter_helpers.h"
@@ -1562,6 +1579,8 @@ Common fields:
 | `central_galaxy` | Pointer to Type 0 central |
 | `active_event` | Event payload for `process_per_event`; otherwise `NULL` |
 | `params` | Read-only pointer to `MimicConfig` |
+
+`struct ModuleContext` carries data, not operations: the one function a module calls through it is `module_create_record(ctx, host_index, &row)`, legal only inside a running `process_full_halo` callback (see the [Record Creation Contract](#record-creation-contract)). `central_galaxy` is refreshed when created records are committed, so a module must not cache it, or any row pointer, across a callback boundary.
 
 `num_substeps` is `SubSteps` under `TimestepScheme: fixed`, or computed per FoF group from the halo dynamical time under `TimestepScheme: dynamic` and capped by `MaxDynamicSubsteps` (`src/core/timestep.c`; default `DEFAULT_MAX_DYNAMIC_SUBSTEPS` in `src/include/constants.h`) — see `docs/USER-GUIDE.md` for the run-configuration view.
 
