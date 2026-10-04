@@ -5,10 +5,10 @@ Run the snapshot-global fixture battery and gate every step on its declared case
 Usage::
 
     MODEL=<caller model> SIMULATION=<caller simulation> \\
-        python tests/manual/run_snapshot_global_battery.py [--only sham]
+        python tests/manual/run_snapshot_global_battery.py [--only sham|hod]
 
-``make tests-snapshot-global`` runs every group; ``make tests-snapshot-global-sham`` runs only
-the ``sham`` group. Each group builds its model/simulation pair as a test build, then runs its
+``make tests-snapshot-global`` runs every group; ``make tests-snapshot-global-sham`` and
+``make tests-snapshot-global-hod`` run only the ``sham`` and ``hod`` groups. Each group builds its model/simulation pair as a test build, then runs its
 declared tests by path:
 
   halos-only-v2  halos-only x micro-uchuu-ascii-horizontal: tests/integration/test_snapshot_phase.py,
@@ -17,6 +17,9 @@ declared tests by path:
   halos-only-v3  halos-only x mini-millennium-horizontal: tests/integration/test_snapshot_phase.py
   sham           sham x micro-uchuu-ascii-horizontal: the sham_global_rank C unit and Python
                  integration tests
+  hod            hod x micro-uchuu-ascii-horizontal: the hod_populate C unit test and the fixture
+                 cases of its Python integration test (the vertical mini-Millennium cases run in
+                 the integration tier of a hod x mini-millennium build)
 
 Model tests are not registered for horizontal packages, which is why the tests are invoked by
 path. Marker policy, per step: a non-zero exit, any ``MIMIC_RESULT: FAIL``, ``ERROR`` or ``SKIP``
@@ -45,6 +48,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 UNIT_DIR = REPO_ROOT / "tests" / "unit"
 SHAM_TESTS = Path("models/sham/modules/sham_global_rank/_tests")
+HOD_TESTS = Path("models/hod/modules/hod_populate/_tests")
 MARKER_RE = re.compile(r"^MIMIC_RESULT: (PASS|WARN|FAIL|ERROR|SKIP)\b.*$", re.MULTILINE)
 MAKE_STATE = ("MAKEFLAGS", "MFLAGS", "MAKELEVEL")
 
@@ -56,17 +60,23 @@ class Test:
     label: str
     source: Path
     unit_name: str | None = None
+    #: A Python test file shared between packages names its cases ``test_<cases>_*`` and takes
+    #: ``--cases <cases>``; only that subset is run and counted, so the cases written for another
+    #: package (which would report a configuration SKIP here) stay out of this group.
+    cases: str | None = None
 
     def declared(self) -> int:
         text = (REPO_ROOT / self.source).read_text()
         if self.source.suffix == ".c":
             return text.count("TEST_RUN(")
-        return len(re.findall(r"^def test_", text, flags=re.MULTILINE))
+        prefix = f"test_{self.cases}_" if self.cases else "test_"
+        return len(re.findall(rf"^def {prefix}", text, flags=re.MULTILINE))
 
     def command(self) -> tuple[list[str], Path]:
         if self.source.suffix == ".c":
             return ["./run_tests.sh", self.unit_name or str(self.source)], UNIT_DIR
-        return [sys.executable, str(self.source)], REPO_ROOT
+        extra = ["--cases", self.cases] if self.cases else []
+        return [sys.executable, str(self.source), *extra], REPO_ROOT
 
 
 @dataclass(frozen=True)
@@ -111,6 +121,19 @@ GROUPS = (
             Test(
                 "sham_global_rank integration tests",
                 SHAM_TESTS / "test_integration_sham_global_rank.py",
+            ),
+        ),
+    ),
+    Group(
+        "hod",
+        "hod",
+        "micro-uchuu-ascii-horizontal",
+        (
+            Test("hod_populate unit tests", HOD_TESTS / "test_unit_hod_populate.c"),
+            Test(
+                "hod_populate integration tests",
+                HOD_TESTS / "test_integration_hod_populate.py",
+                cases="fixture",
             ),
         ),
     ),
@@ -200,7 +223,8 @@ def main(argv=None, groups=GROUPS) -> int:
     parser.add_argument("--only", choices=[group.name for group in groups], action="append")
     args = parser.parse_args(argv)
     selected = [group for group in groups if not args.only or group.name in args.only]
-    target = "tests-snapshot-global" + ("-sham" if args.only == ["sham"] else "")
+    only = args.only[0] if args.only and len(args.only) == 1 else None
+    target = "tests-snapshot-global" + (f"-{only}" if only in ("sham", "hod") else "")
     log_path = REPO_ROOT / "build" / f"{target.replace('tests-', '').replace('-', '_')}_tests.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.write_text("")

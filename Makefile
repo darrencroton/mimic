@@ -320,7 +320,7 @@ GIT_DIR := $(shell git rev-parse --git-dir 2>/dev/null)
 # -----------------------------------------------------------------------------
 # Build Targets
 # -----------------------------------------------------------------------------
-.PHONY: all clean tidy help info generate generate-modules generate-test-inputs check-generated check-docs check-format check-horizontal-fixture tests tests-unit tests-integration tests-scientific tests-horizontal-v3 tests-snapshot-global tests-snapshot-global-sham tests-snapshot-global-identity tests-converter test-clean validate-modules lint-parameters validate-build summary dump-ctrees-topology-tool
+.PHONY: all clean tidy help info generate generate-modules generate-test-inputs check-generated check-docs check-format check-horizontal-fixture tests tests-unit tests-integration tests-scientific tests-horizontal-v3 tests-snapshot-global tests-snapshot-global-sham tests-snapshot-global-hod tests-snapshot-global-identity tests-converter test-clean validate-modules lint-parameters validate-build summary dump-ctrees-topology-tool
 
 all: validate-build $(EXEC)
 
@@ -504,6 +504,7 @@ help:
 	@echo "  make tests-horizontal-v3 - Run the version 3 reader, retention and identity battery and the mini-millennium-horizontal package tests on committed fixtures"
 	@echo "  make tests-snapshot-global - Run the post_snapshot phase, typed callback/schema and sham_global_rank batteries on the committed horizontal fixtures"
 	@echo "  make tests-snapshot-global-sham - Run the sham_global_rank unit and end-to-end tests under MODEL=sham on the micro-uchuu-ascii-horizontal fixture"
+	@echo "  make tests-snapshot-global-hod - Run the hod_populate unit and end-to-end tests under MODEL=hod on the micro-uchuu-ascii-horizontal fixture"
 	@echo "  make tests-snapshot-global-identity - Compare disabled-mode post_snapshot output with the pinned pre-feature reference commit (cached worktrees; about a minute; REFERENCE_COMMIT=<hash> overrides)"
 	@echo "  make tests-converter    - Run the ctrees->horizontal-HDF5 converter self-tests"
 	@echo "  make check-horizontal-fixture - Check the committed horizontal fixture against the format spec"
@@ -880,7 +881,8 @@ tests-horizontal-v3:
 
 # Snapshot-global fixture battery (tests/manual/run_snapshot_global_battery.py has the steps,
 # the marker policy and the restore of the caller's generated code; rebuild with `make` after).
-# The -sham target runs only the sham_global_rank group. Needs no real dataset.
+# The -sham and -hod targets run only the sham_global_rank and hod_populate groups. Needs no real
+# dataset.
 SG_RUNNER := MODEL='$(MODEL)' SIMULATION='$(SIMULATION)' $(PYTHON) tests/manual/run_snapshot_global_battery.py
 
 tests-snapshot-global:
@@ -888,6 +890,9 @@ tests-snapshot-global:
 
 tests-snapshot-global-sham:
 	@$(SG_RUNNER) --only sham
+
+tests-snapshot-global-hod:
+	@$(SG_RUNNER) --only hod
 
 # Manual disabled-mode identity against the pinned pre-feature reference commit
 # (REFERENCE_COMMIT=<hash> overrides it); writes build/snapshot_global_identity.log itself.

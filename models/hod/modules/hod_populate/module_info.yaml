@@ -38,6 +38,7 @@ module:
 
   tests:
     unit: _tests/test_unit_hod_populate.c
+    integration: _tests/test_integration_hod_populate.py
     scientific: []
 
   docs:

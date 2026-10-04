@@ -77,14 +77,17 @@ HOD audit z=<z> hosts=<n> n_gal expected=<x> realised=<y> f_sat expected=<a> rea
 - **Concentration**: the Duffy et al. (2008) relation is for 200c NFW fits over z 0-2; it is applied to the catalogue mass at any redshift.
 - **Consequence**: the output demonstrates the framework with published parameters; it is not a calibrated SDSS mock, and the audit's densities are not a measurement of the SDSS sample.
 - **Fixture**: `input/hod_micro-uchuu-ascii-horizontal.yaml` runs on the committed synthetic fixture (three forests over six snapshots in a 100 Mpc/h box), which is not a complete cosmological volume.
+- **Drivers**: the audit needs the horizontal driver; `input/hod_mini-millennium.yaml` runs vertically without it. Created `UniqueGalaxyID`s are not identical across drivers.
 
 ## Package Contents
 
 - `model_properties.yaml`: the `HODGhost` galaxy property.
-- `modules/hod_populate/`: the dual-mode module (`module_info.yaml`, `hod_populate.c`, `hod_populate.h`, `README.md`, `_tests/test_unit_hod_populate.c`).
+- `modules/hod_populate/`: the dual-mode module (`module_info.yaml`, `hod_populate.c`, `hod_populate.h`, `README.md`, `_tests/test_unit_hod_populate.c`, `_tests/test_integration_hod_populate.py`).
 - `modules/_tests/hod_test_fixtures.h`: shared C unit-test fixtures (counters, configuration reset, default parameters).
 - `shared/hod_random.h`: the model-private random-number generator (`shared/README.md`).
-- `input/hod_micro-uchuu-ascii-horizontal.yaml`: the fixture run file.
+- `input/hod_micro-uchuu-ascii-horizontal.yaml`: the fixture run file (horizontal driver, with the audit).
+- `input/hod_micro-uchuu-horizontal.yaml`: the real 100 Mpc/h micro-Uchuu box (horizontal driver, with the audit); needs `simulations/micro-uchuu-horizontal/snapshots`.
+- `input/hod_mini-millennium.yaml`: the eight local mini-Millennium tree files (vertical driver, no `post_snapshot` phase and so no audit, HDF5 output).
 
 ## Build, Run, and Test
 
@@ -105,7 +108,41 @@ MODEL=hod SIMULATION=micro-uchuu-ascii-horizontal tests/unit/run_tests.sh \
   models/hod/modules/hod_populate/_tests/test_unit_hod_populate.c
 ```
 
-Module tests register in the default tiers only for vertical simulations, so under `MODEL=hod SIMULATION=mini-millennium` the unit test also runs from `make tests-unit`.
+Module tests register in the default tiers only for vertical simulations, so under `MODEL=hod SIMULATION=mini-millennium` the unit test also runs from `make tests-unit`, and `make MODEL=hod SIMULATION=mini-millennium tests-integration` runs the integration test's vertical cases on the eight tree files (its fixture cases report a configuration skip there). The fixture cases need the horizontal fixture build; `make tests-snapshot-global-hod` builds it as a test build and runs the unit test and those cases (also run by `make tests-snapshot-global`, which restores your generated code afterwards: rebuild with `make`).
+
+The integration test (`modules/hod_populate/_tests/test_integration_hod_populate.py`) reads the HDF5 output per `UniqueGalaxyID` and checks that every created row is a Type 2 row with a negative ID, `HODGhost == 0` and a Type 0 `HODGhost == 0` host (so a host with `HODGhost == 1` has no satellite), that every Type 1 row is scaffold, that no Type 2 row survives from an earlier snapshot, that repeated runs are bitwise identical, that `HODSeed` changes the draws, that a run listing only the last fixture snapshot reproduces its rows bitwise, that conflicting phase configurations fail at startup and that every run is leak-free. The shipped Mr < -20 parameters give the fixture's low-mass hosts (10^11.2 to 10^12 Msun/h) almost no satellites, so the created-row cases run a temporary copy of the fixture run file with `HODLogMmin 11.8`, `HODLogM0 10.0` and `HODLogM1 10.8`; the shipped run file keeps the published values and has its own validity case. The fixture has no Type 1 rows, so the Type 1 assertion is exercised on mini-Millennium.
+
+### Real-data runs
+
+```bash
+make MODEL=hod SIMULATION=micro-uchuu-horizontal generate validate-modules
+make MODEL=hod SIMULATION=micro-uchuu-horizontal -j$(sysctl -n hw.ncpu)
+./mimic models/hod/input/hod_micro-uchuu-horizontal.yaml
+```
+
+`input/hod_micro-uchuu-horizontal.yaml` runs the real 100 Mpc/h micro-Uchuu box (50 snapshots, `snapshot_list: [49, 28, 23, 16, 12, 10, 8, 7]` as in the `halos-only` sibling) under the horizontal driver, single process and fully resident. First real-data measurement (2026-10-04, macOS, default optimised build at the slice's starting commit plus this slice's files, `/usr/bin/time -l`):
+
+| Quantity | Value |
+|---|---|
+| Wall clock | 9.1 s (4.3 s user, 0.6 s system) |
+| Peak process RSS | 2.23 GB (the run's own memory profile line: `Peak process RSS: 2.230 GB`) |
+| Output population | 616,184 records over the eight snapshots (output buffer 652,428 records at 184 B) |
+| Created-record identity space | `units=50 rows_per_unit=621360 radix=1024`, fits int64 |
+
+Audit lines, with `V = 1e6 (Mpc/h)^3` so the expected and realised counts are `n_gal V`; the pull is `(realised - expected) / sqrt(expected)`, the Poisson scatter the expected count implies:
+
+| z | hosts | expected N | realised N | f_sat expected | f_sat realised | pull |
+|---|---|---|---|---|---|---|
+| 7.0257 | 82,192 | 0.03 | 0 | 0.003093 | 0 | -0.18 |
+| 6.3416 | 127,465 | 0.6 | 1 | 0.009054 | 0 | +0.56 |
+| 5.1546 | 240,822 | 22.0 | 26 | 0.028810 | 0 | +0.86 |
+| 4.2670 | 347,231 | 102.1 | 105 | 0.040028 | 0.066667 | +0.28 |
+| 3.1278 | 472,307 | 586.4 | 587 | 0.053399 | 0.054514 | +0.02 |
+| 2.0293 | 540,495 | 1893.3 | 1874 | 0.078751 | 0.076307 | -0.44 |
+| 1.4259 | 538,694 | 3003.9 | 3034 | 0.101634 | 0.102505 | +0.55 |
+| 0.0005 | 496,374 | 5341.1 | 5359 | 0.181184 | 0.185482 | +0.25 |
+
+Every pull is within one Poisson standard deviation; the realised satellite fractions track the expectation where the counts are large (0.185 against 0.181 at z = 0.0005) and are noise where they are not. The z = 0.0005 row is the nearest to a population comparable to the SDSS sample, but see [Caveats](#caveats): the number density (5.3e-3 (Mpc/h)^-3) is the framework's output for the published parameters on this catalogue's masses, not a measurement of the SDSS sample.
 
 ## References
 

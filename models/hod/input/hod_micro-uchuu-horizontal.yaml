@@ -1,0 +1,58 @@
+# Mimic HOD on the real micro-Uchuu horizontal box Run Configuration
+#
+# The real 100 Mpc/h micro-Uchuu box (horizontal HDF5 version 3, from the L-Halo
+# binary), with the output snapshots of the halos-only sibling. Needs the
+# horizontal driver and a build of MODEL=hod SIMULATION=micro-uchuu-horizontal;
+# run it from the repository root. Single process, fully resident.
+#
+# Sample: the Zheng, Coil & Zehavi (2007) SDSS Mr < -20 five-parameter fit with
+# the Duffy et al. (2008) full-sample concentration. hod_populate runs once per
+# FoF step in post_timestep (retire inherited Type 2 rows, mark every row as
+# scaffold with HODGhost = 1, and on output snapshots draw the Type 0 host and
+# create its Poisson satellites at NFW radii). In post_snapshot it logs one
+# "HOD audit" line per output snapshot: the realised whole-box number density and
+# satellite fraction against the analytic expectation (per-bin lines with
+# --verbose). Sample members have HODGhost == 0; consumers filter on it.
+#
+# Caveats: the fit's halo mass is 200 times the mean density and its cosmology
+# (Omega_m 0.3, sigma_8 0.9, h 0.7) differs from this catalogue's, whose Mvir is
+# the Rockstar virial mass. This demonstrates the framework; it is not a
+# calibrated SDSS mock.
+
+model:
+  name: hod
+
+simulation:
+  name: micro-uchuu-horizontal
+
+output:
+  output_filename: hod
+  output_directory: output/hod-micro-uchuu-horizontal
+  output_format: hdf5                               # Horizontal runs write HDF5 only
+  snapshot_list: [49, 28, 23, 16, 12, 10, 8, 7]
+
+SubSteps: 1
+
+modules:
+
+  # Draws happen once per FoF step, after any substep physics (there is none here).
+  post_timestep:
+    - hod_populate: process_full_halo
+
+  # Whole-box audit of the realised population against the analytic expectation.
+  post_snapshot:
+    - hod_populate: process_snapshot
+
+  parameters:
+    # Zheng, Coil & Zehavi (2007) SDSS Mr < -20 (masses in Msun/h, 200x mean density)
+    HODLogMmin: 12.02        # log10 Mmin [Msun/h]: <Ncen> = 0.5 here
+    HODSigmaLogM: 0.26       # sigma_logM [dex]: width of the central step
+    HODLogM0: 11.38          # log10 M0 [Msun/h]: satellite cutoff mass
+    HODLogM1: 13.31          # log10 M1' [Msun/h]: satellite normalisation mass
+    HODAlpha: 1.06           # alpha [dimensionless]: satellite slope
+    HODSeed: 1               # random-number seed [integer >= 0]
+    # Duffy et al. (2008) Table 1, NFW, full sample, 200c, z 0-2
+    HODConcA: 5.71           # concentration at the pivot mass and z = 0
+    HODConcLogMpivot: 12.301030  # log10 of the 2e12 Msun/h pivot
+    HODConcB: -0.084         # mass slope
+    HODConcC: -0.47          # (1 + z) slope

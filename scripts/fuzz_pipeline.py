@@ -48,6 +48,7 @@ Usage:
     python3 scripts/fuzz_pipeline.py --sampling valid-subset # random valid canonical subsets
     python3 scripts/fuzz_pipeline.py --strict               # treat all errors as failures
     python3 scripts/fuzz_pipeline.py --model sage16 --simulation mini-millennium
+    python3 scripts/fuzz_pipeline.py --model hod --simulation micro-uchuu-ascii-horizontal
     python3 scripts/fuzz_pipeline.py --help
 
 Failures are saved to archive/fuzz-logs/failures/<seed>/:
@@ -127,10 +128,13 @@ _ERROR_PREFIXES = ("ERROR:", "FATAL:")
 # Pattern that identifies deliberate inter-module ordering validation messages.
 # These are intentional contract checks — "module A requires module B to precede it"
 # — not runtime or infrastructure failures. Filtered in non-strict mode.
-# The SHAM stellar-mass exclusion is the same kind of deliberate contract check.
+# The SHAM stellar-mass exclusion and the HOD phase-placement and parameter rules are the same kind
+# of deliberate contract check.
 _VALIDATION_PATTERN = re.compile(
     r"ERROR: sage_\w.*(?:requires|must run after)\s+sage_"
-    r"|ERROR: sham_global_rank and sham_assign_stellar_mass are independent",
+    r"|ERROR: sham_global_rank and sham_assign_stellar_mass are independent"
+    r"|ERROR: hod_populate (?:is configured in |must be configured exactly once )"
+    r"|ERROR: hod_populate: modules\.post_snapshot is configured but does not contain",
     re.IGNORECASE,
 )
 

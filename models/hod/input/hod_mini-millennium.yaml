@@ -1,0 +1,51 @@
+# Mimic HOD on mini-Millennium Run Configuration (vertical driver)
+#
+# A framework demonstration of the hod_populate module under the vertical,
+# per-forest driver on the eight local mini-Millennium tree files (62.5 Mpc/h
+# box). The vertical driver has no post_snapshot phase, so this run has no
+# whole-box audit line: only the per-FoF draw in post_timestep runs. Use
+# hod_micro-uchuu-horizontal.yaml for the audited run.
+#
+# Sample: the Zheng, Coil & Zehavi (2007) SDSS Mr < -20 five-parameter fit with
+# the Duffy et al. (2008) full-sample concentration. The output keeps every
+# halo-side row as a scaffold (HODGhost = 1); sample members have HODGhost == 0,
+# and satellites are created rows (Type 2, negative UniqueGalaxyID).
+#
+# Caveats: the fit's halo mass is 200 times the mean density and its cosmology
+# (Omega_m 0.3, sigma_8 0.9, h 0.7) differs from the Millennium Simulation's,
+# whose Mvir is the M200c catalogue mass. This demonstrates the framework; it
+# is not a calibrated SDSS mock. Needs a build of MODEL=hod SIMULATION=mini-millennium.
+
+model:
+  name: hod
+
+simulation:
+  name: mini-millennium
+
+output:
+  output_filename: hod
+  output_directory: output/hod-mini-millennium
+  output_format: hdf5                               # Select binary or hdf5
+  snapshot_list: [63, 37, 32, 27, 23, 20, 18, 16]   # Leave empty for all snapshots
+
+SubSteps: 1
+
+modules:
+
+  # Draws happen once per FoF step, after any substep physics (there is none here).
+  post_timestep:
+    - hod_populate: process_full_halo
+
+  parameters:
+    # Zheng, Coil & Zehavi (2007) SDSS Mr < -20 (masses in Msun/h, 200x mean density)
+    HODLogMmin: 12.02        # log10 Mmin [Msun/h]: <Ncen> = 0.5 here
+    HODSigmaLogM: 0.26       # sigma_logM [dex]: width of the central step
+    HODLogM0: 11.38          # log10 M0 [Msun/h]: satellite cutoff mass
+    HODLogM1: 13.31          # log10 M1' [Msun/h]: satellite normalisation mass
+    HODAlpha: 1.06           # alpha [dimensionless]: satellite slope
+    HODSeed: 1               # random-number seed [integer >= 0]
+    # Duffy et al. (2008) Table 1, NFW, full sample, 200c, z 0-2
+    HODConcA: 5.71           # concentration at the pivot mass and z = 0
+    HODConcLogMpivot: 12.301030  # log10 of the 2e12 Msun/h pivot
+    HODConcB: -0.084         # mass slope
+    HODConcC: -0.47          # (1 + z) slope
