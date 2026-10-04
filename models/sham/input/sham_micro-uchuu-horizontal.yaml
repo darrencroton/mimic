@@ -18,9 +18,12 @@
 # ShamGhost == 0; consumers filter on it.
 #
 # One output epoch: the target is cross-sectional (GAMA z < 0.06), so it is applied
-# only where it was observed. Snapshot 49 (z = 0.0005) is the only epoch of this box
-# inside the target's window, hence snapshot_list: [49] and ShamTargetRedshiftMax 0.1
-# (startup fails if any output snapshot lies above it). The peak history is still
+# only where it was observed, and startup fails if any output snapshot lies above
+# ShamTargetRedshiftMax 0.1. Snapshot 49 (z = 0.0005) is the single output epoch chosen
+# for the first real-data measurement: it has the lowest redshift and is closest to the
+# GAMA sample. Snapshots 46, 47 and 48 (z = 0.093, 0.046 and 0.022) also satisfy the
+# window and could be listed (47 and 48 lie inside GAMA's z < 0.06); one epoch is a
+# choice, not a consequence of the window. The peak history is still
 # accumulated over every processed snapshot: pre_timestep runs at all of them, so
 # ShamVpeak at snapshot 49 is the maximum Vmax along the whole branch, not the
 # snapshot-49 value. Only the output is restricted.
@@ -41,7 +44,7 @@ output:
   output_filename: sham
   output_directory: output/sham-micro-uchuu-horizontal
   output_format: hdf5                               # Horizontal runs write HDF5 only
-  snapshot_list: [49]                               # z = 0.0005, the only epoch inside the target's window
+  snapshot_list: [49]                               # z = 0.0005, the lowest-redshift epoch (46-48 also satisfy the window)
 
 SubSteps: 1
 

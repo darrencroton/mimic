@@ -80,7 +80,7 @@ No parameter is converted through `parameter_units.yaml`; the package has none.
 
 - `model_properties.yaml`: `StellarMass`, `ShamVpeak`, `ShamMpeak` and `ShamGhost`.
 - `input/sham_micro-uchuu-ascii-horizontal.yaml`: the fixture run file (Baldry et al. 2012 target, `ShamTargetLogMassFloor 8.0`, `ShamMinVpeak 80`, and a widened `ShamTargetRedshiftMax 0.2` so every fixture snapshot, `z = 0.1943` to `0.0005`, is assigned).
-- `input/sham_micro-uchuu-horizontal.yaml`: the real 100 Mpc/h micro-Uchuu box (horizontal HDF5 version 3) with `snapshot_list: [49]` (`z = 0.0005`, the only epoch inside the target's window), `ShamTargetRedshiftMax 0.1` and `ShamMinVpeak 80`. A cross-sectional low-redshift target gives one output epoch; the peak history is still accumulated over every processed snapshot.
+- `input/sham_micro-uchuu-horizontal.yaml`: the real 100 Mpc/h micro-Uchuu box (horizontal HDF5 version 3) with `snapshot_list: [49]` (`z = 0.0005`), `ShamTargetRedshiftMax 0.1` and `ShamMinVpeak 80`. Snapshot 49 is the single output epoch chosen for the first real-data measurement: it has the lowest redshift and is closest to the GAMA sample. Snapshots 46, 47 and 48 (`z = 0.093`, `0.046` and `0.022`) also satisfy the window and could be listed, so one epoch is a choice, not a consequence of the window. The peak history is still accumulated over every processed snapshot.
 - `modules/sham_rank_match/`: the module, its README, its unit and integration tests and the independent reference `_tests/sham_rank_match_reference.py`.
 - `modules/_tests/sham_test_fixtures.h`: the package's C test fixture (shipped parameters, `BoxSize` and `h` of the fixture).
 - `plots/`: diagnostic figures for `mimic-plot.py`. They predate `sham_rank_match` and are being rewritten; some still read properties this package no longer declares.
@@ -101,8 +101,11 @@ make MODEL=sham SIMULATION=micro-uchuu-ascii-horizontal validate-modules lint-pa
 make MODEL=sham SIMULATION=micro-uchuu-ascii-horizontal TEST_BUILD=yes mimic
 MODEL=sham SIMULATION=micro-uchuu-ascii-horizontal tests/unit/run_tests.sh \
   models/sham/modules/sham_rank_match/_tests/test_unit_sham_rank_match.c
-mimic_venv/bin/python3 models/sham/modules/sham_rank_match/_tests/test_integration_sham_rank_match.py
+MODEL=sham SIMULATION=micro-uchuu-ascii-horizontal \
+  mimic_venv/bin/python3 models/sham/modules/sham_rank_match/_tests/test_integration_sham_rank_match.py
 ```
+
+The selectors on the integration-test line are required: under the default selectors every fixture case reports a configuration skip and only the pure-Python table case runs.
 
 `make tests-snapshot-global` builds this pair and runs the unit test and the integration test by path (`make tests-snapshot-global-sham` runs only that group). The integration test runs the fixture run file from a temporary copy and checks, per `UniqueGalaxyID` in the HDF5 output: every assigned `log10 StellarMass` against the independent reference within `1e-4`; the `ShamGhost` and `StellarMass` rules for masked rows and rows below the completeness floor (a derivative run file with `ShamMinVpeak 194.5` and `ShamTargetLogMassFloor 11.6` exercises both); that no Type 2 row is written and that the two snapshot-4 FoF centrals the fixture merges into a snapshot-5 halo are written at snapshot 4 and absent at snapshot 5; bitwise-identical repeat runs; cross-FoF tie handling on a copy of the fixture whose `Vmax` is flattened through h5py; startup rejection of an output snapshot above `ShamTargetRedshiftMax` and of a missing `pre_timestep` entry; and leak-free runs. One case is pure Python (the unit test's reference table must equal what `sham_rank_match_reference.py` computes) and runs under any pair; the others report a configuration skip under any pair other than `sham` x `micro-uchuu-ascii-horizontal`.
 
