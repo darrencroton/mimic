@@ -5,20 +5,23 @@ Mimic HOD Satellite Phase-Space Plot
 
 Two-panel check of where hod_populate puts its satellites and how fast they move.
 
-Left: the cumulative distribution of s = r_com / ((1 + z) Rvir_host) for the created
+Left: the cumulative distribution of s = r_com / ((1 + z) Rvir_sat) for the created
 satellites, where r_com is the minimum-image distance from the satellite to its host in
-comoving Mpc/h and Rvir is the host's physical virial radius (so s is the physical radius in
-units of Rvir). It is compared with the satellite-weighted average over hosts of each host's
+comoving Mpc/h and Rvir_sat is the virial radius the satellite row carries, the host's value
+at the time the satellite was drawn (so s is the physical radius in units of Rvir). The
+host row's own output Rvir is recomputed from its current Mvir and can differ, so it is not
+used. It is compared with the satellite-weighted average over hosts of each host's
 own NFW enclosed-mass fraction at its concentration c:
 
     F(s) = (1 / N_sat) sum over satellites of m(c s) / m(c),    m(x) = ln(1 + x) - x / (1 + x)
 
 with c = HODConcA (M / 10^HODConcLogMpivot)^HODConcB (1 + z)^HODConcC from the run file and
-M = Mvir in Msun/h. Averaging each host's own profile, rather than using one concentration,
-keeps the prediction exact for a population spanning a wide host-mass range.
+M the host's draw-time Mvir in Msun/h (the satellite row's infallMvir). Averaging each
+satellite's own host profile, rather than using one concentration, keeps the prediction exact for a population spanning a wide host-mass range.
 
 Right: the histogram of every component of the satellite-minus-host velocity offset divided
-by the host's Vvir / sqrt(2), against the unit Gaussian.
+by Vvir_sat / sqrt(2) (the host's draw-time Vvir carried by the satellite row), against the
+unit Gaussian.
 
 The snapshot redshift comes from the package's a_list through SnapshotRedshiftMapper.
 """
@@ -50,10 +53,46 @@ PREDICTION_CHUNK = 20000  # Satellites per block when averaging the host profile
 REQUIRED_PARAMETERS = ("HODConcA", "HODConcLogMpivot", "HODConcB", "HODConcC")
 
 
+NFW_SERIES_LIMIT = 0.1  # Below this argument m(t) is summed as a series (as hod_populate.c)
+NFW_SERIES_TERMS = 24  # Terms of the series; each is at most a tenth of the one before
+
+
+def _nfw_scaled_mass_series(t):
+    """Return m(t) / t^2 = sum over k >= 0 of (-1)^k (k + 1) / (k + 2) t^k, for 0 <= t < 0.1."""
+    t = np.asarray(t, dtype=float)
+    total = np.zeros_like(t)
+    power = np.ones_like(t)
+    for k in range(NFW_SERIES_TERMS):
+        term = (k + 1.0) / (k + 2.0) * power
+        total += -term if k % 2 else term
+        power = power * t
+    return total
+
+
+def _nfw_mass(t):
+    """Return m(t) = ln(1 + t) - t / (1 + t), from the series where the closed form cancels."""
+    t = np.asarray(t, dtype=float)
+    small = t < NFW_SERIES_LIMIT
+    closed = np.log1p(np.where(small, 1.0, t)) - np.where(small, 1.0, t) / (
+        1.0 + np.where(small, 1.0, t)
+    )
+    return np.where(small, t * t * _nfw_scaled_mass_series(np.where(small, t, 0.0)), closed)
+
+
 def nfw_enclosed_fraction(x, c):
-    """Return m(c x) / m(c) for x in [0, 1] and concentration c (broadcasts)."""
-    cx = c * x
-    return (np.log1p(cx) - cx / (1.0 + cx)) / (np.log1p(c) - c / (1.0 + c))
+    """
+    Return m(c x) / m(c) for x in [0, 1] and concentration c > 0 (broadcasts).
+
+    Finite, monotone in x, 0 at x = 0 and 1 at x = 1 for any finite c > 0: for
+    c < 0.1 it is x^2 S(c x) / S(c) with the series S = m / t^2 (the module's guard), where the
+    closed form ln(1 + t) - t / (1 + t) would cancel to noise or NaN.
+    """
+    x, c = np.broadcast_arrays(np.asarray(x, dtype=float), np.asarray(c, dtype=float))
+    series = x * x * _nfw_scaled_mass_series(np.where(c < NFW_SERIES_LIMIT, c * x, 0.0))
+    series = series / _nfw_scaled_mass_series(np.where(c < NFW_SERIES_LIMIT, c, 0.0))
+    safe_c = np.where(c < NFW_SERIES_LIMIT, 1.0, c)
+    closed = _nfw_mass(safe_c * x) / _nfw_mass(safe_c)
+    return np.where(c < NFW_SERIES_LIMIT, series, closed)
 
 
 def concentration(mass_msun_h, redshift, par):
@@ -78,28 +117,34 @@ def satellite_phase_space(galaxies, box_size, redshift, par):
     """
     Measure the created satellites relative to their hosts.
 
+    The position and velocity offsets are taken from the host row (minimum-image distance,
+    host bulk velocity). The normalisation uses the satellite's own row: a created row carries
+    the draw-time copies of the host's Rvir and Vvir (and, in infallMvir, its Mvir; the row's
+    own Mvir is zero), which are the values hod_populate drew with. The host row's output Rvir
+    and Vvir are recomputed from its current Mvir when written and can differ.
+
     Returns:
-        (s, concentrations, velocity_ratio): s = physical radius / Rvir_host for each
-        satellite, the host concentration at the run's parameters, and an (N, 3) array of the
-        velocity offset over Vvir_host / sqrt(2).
+        (s, concentrations, velocity_ratio): s = physical radius / the satellite's Rvir, the
+        concentration at the run's parameters from the draw-time host mass, and an (N, 3) array
+        of the velocity offset over the satellite's Vvir / sqrt(2).
     """
     _hosts, sats, sat_host = host_lookup(galaxies)
     usable = (
-        (galaxies.Rvir[sat_host] > 0.0)
-        & (galaxies.Vvir[sat_host] > 0.0)
-        & (galaxies.Mvir[sat_host] > 0.0)
+        (galaxies.Rvir[sats] > 0.0)
+        & (galaxies.Vvir[sats] > 0.0)
+        & (galaxies.infallMvir[sats] > 0.0)
     )
     sats, hosts = sats[usable], sat_host[usable]
 
     delta = galaxies.Pos[sats].astype(np.float64) - galaxies.Pos[hosts].astype(np.float64)
     delta -= box_size * np.round(delta / box_size)
     r_com = np.sqrt((delta**2).sum(axis=1))
-    s = r_com / ((1.0 + redshift) * galaxies.Rvir[hosts].astype(np.float64))
+    s = r_com / ((1.0 + redshift) * galaxies.Rvir[sats].astype(np.float64))
 
-    mass = galaxies.Mvir[hosts].astype(np.float64) * 1.0e10
+    mass = galaxies.infallMvir[sats].astype(np.float64) * 1.0e10
     conc = concentration(mass, redshift, par)
 
-    sigma_1d = galaxies.Vvir[hosts].astype(np.float64) / np.sqrt(2.0)
+    sigma_1d = galaxies.Vvir[sats].astype(np.float64) / np.sqrt(2.0)
     dv = galaxies.Vel[sats].astype(np.float64) - galaxies.Vel[hosts].astype(np.float64)
     return s, conc, dv / sigma_1d[:, None]
 
@@ -151,7 +196,7 @@ def plot(
             "Vel",
             "Rvir",
             "Vvir",
-            "Mvir",
+            "infallMvir",
             "HODGhost",
             "UniqueGalaxyID",
             "UniqueCentralGalaxyID",
@@ -196,7 +241,7 @@ def plot(
     ax_r.set_xlim(0.0, 1.0)
     ax_r.set_ylim(0.0, 1.02)
     ax_r.set_xlabel(
-        r"$r_{\rm com}\,/\,[(1+z)\,R_{\rm vir,host}]$  (physical radius / $R_{\rm vir}$)",
+        r"$r_{\rm com}\,/\,[(1+z)\,R_{\rm vir,sat}]$  (physical radius / $R_{\rm vir}$)",
         fontsize=AXIS_LABEL_SIZE,
     )
     ax_r.set_ylabel(r"cumulative fraction of satellites", fontsize=AXIS_LABEL_SIZE)
@@ -231,7 +276,7 @@ def plot(
     )
     ax_v.set_xlim(x_min, x_max)
     ax_v.set_xlabel(
-        r"$(v_{\rm sat} - v_{\rm host})\,/\,(V_{\rm vir,host}/\sqrt{2})$  [dimensionless]",
+        r"$(v_{\rm sat} - v_{\rm host})\,/\,(V_{\rm vir,sat}/\sqrt{2})$  [dimensionless]",
         fontsize=AXIS_LABEL_SIZE,
     )
     ax_v.set_ylabel(r"probability density", fontsize=AXIS_LABEL_SIZE)

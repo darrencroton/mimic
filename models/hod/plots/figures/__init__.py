@@ -157,7 +157,7 @@ PLOT_REQUIREMENTS = {
         "Vel",
         "Rvir",
         "Vvir",
-        "Mvir",
+        "infallMvir",
         "HODGhost",
         "UniqueGalaxyID",
         "UniqueCentralGalaxyID",

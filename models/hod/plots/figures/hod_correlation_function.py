@@ -83,15 +83,21 @@ def plot(
     nbins = max(1, round(BINS_PER_DEX * np.log10(r_max / r_min)))
     r_edges = np.geomspace(r_min, r_max, nbins + 1)
 
+    # Wrap into [0, box_size): a coordinate stored as exactly box_size (or rounded up to it by
+    # the output precision) is the same point as 0 in a periodic box.
+    with np.errstate(invalid="ignore"):
+        positions = np.mod(galaxies.Pos[sample].astype(np.float64), box_size)
+    positions[positions >= box_size] = 0.0
     try:
-        xi, xi_err, dd, _rr = correlation_function(galaxies.Pos[sample], box_size, r_edges)
+        xi, xi_err, dd, _rr = correlation_function(positions, box_size, r_edges)
     except ValueError as exc:
         return None, f"Correlation function input rejected: {exc}"
+    if dd.sum() == 0:
+        return None, "No separation bin contains a pair"
 
-    # A logarithmic axis can only show xi > 0 in bins that contain pairs.
+    # A logarithmic axis can only show xi > 0; count the bins with pairs that it cannot show.
     shown = (dd > 0) & (xi > 0.0)
-    if not np.any(shown):
-        return None, "No separation bin has pairs and a positive correlation function"
+    n_hidden = int(np.count_nonzero((dd > 0) & (xi <= 0.0)))
     r_centre = np.sqrt(r_edges[1:] * r_edges[:-1])
     lower = np.minimum(xi_err[shown], 0.999 * xi[shown])
 
@@ -106,7 +112,7 @@ def plot(
         r_centre[shown],
         xi[shown],
         yerr=[lower, xi_err[shown]],
-        fmt="o-",
+        fmt="o",
         c="k",
         ms=5,
         capsize=2,
@@ -127,6 +133,15 @@ def plot(
         transform=ax.transAxes,
         fontsize=12,
     )
+    if n_hidden:
+        ax.text(
+            0.96,
+            0.06,
+            f"{n_hidden} bin(s) with pairs but $\\xi \\leq 0$ not shown",
+            transform=ax.transAxes,
+            fontsize=10,
+            ha="right",
+        )
     setup_legend(ax, loc="upper right")
 
     plot_path = save_and_close_figure(

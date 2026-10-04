@@ -15,6 +15,7 @@ repo_root = os.path.dirname(os.path.dirname(parent_dir))
 sys.path.insert(0, parent_dir)
 sys.path.insert(0, os.path.join(repo_root, "tests"))
 
+import output_utils
 from framework import run_test_suite
 from output_utils import correlation_function, periodic_pair_counts
 
@@ -52,6 +53,26 @@ def test_coarse_grid_matches_brute_force():
     grid = periodic_pair_counts(positions, BOX, r_edges)
     brute = brute_force_counts(positions, BOX, r_edges)
     assert np.array_equal(grid, brute), f"grid {grid} != brute force {brute}"
+
+
+def test_blocked_evaluation_matches_brute_force():
+    """A tiny block budget forces many row blocks in every cell and cell pair; counts agree."""
+    rng = np.random.default_rng(99)
+    positions = rng.uniform(0.0, BOX, size=(400, 3))
+    # r_max = box/2 gives a 2-cell grid, so each cell holds ~50 points and ~1250 pairs.
+    r_edges = np.linspace(0.0, 0.5 * BOX, 7)
+    brute = brute_force_counts(positions, BOX, r_edges)
+    default_counts = periodic_pair_counts(positions, BOX, r_edges)
+    original = output_utils._PAIR_COUNT_BLOCK_PAIRS
+    try:
+        for block_pairs in (1, 7, 100):
+            output_utils._PAIR_COUNT_BLOCK_PAIRS = block_pairs
+            counts = periodic_pair_counts(positions, BOX, r_edges)
+            assert np.array_equal(counts, brute), f"block={block_pairs}: {counts} != {brute}"
+    finally:
+        output_utils._PAIR_COUNT_BLOCK_PAIRS = original
+    assert np.array_equal(default_counts, brute)
+    assert brute.sum() > 10000, "Test is vacuous: too few pairs counted"
 
 
 def test_uniform_random_xi_consistent_with_zero():
@@ -159,6 +180,7 @@ def main():
         [
             test_grid_counts_match_brute_force_bin_for_bin,
             test_coarse_grid_matches_brute_force,
+            test_blocked_evaluation_matches_brute_force,
             test_uniform_random_xi_consistent_with_zero,
             test_pair_across_periodic_boundary_uses_minimum_image,
             test_pairs_counted_once_and_self_pairs_excluded,

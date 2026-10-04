@@ -58,10 +58,17 @@ def mean_ncen(log_m, par):
 
 
 def mean_lambda(log_m, par):
-    """Return the Poisson mean of the satellite count of a host that has a central."""
+    """
+    Return the Poisson mean of the satellite count of a host that has a central.
+
+    Zero for M <= 10^HODLogM0, as in hod_populate.c (so HODAlpha = 0 gives 0 below the cutoff
+    and 1 above it); the power is evaluated only above the cutoff.
+    """
     mass = 10.0 ** np.asarray(log_m, dtype=float)
-    excess = np.maximum(mass - 10.0 ** par["HODLogM0"], 0.0)
-    return (excess / 10.0 ** par["HODLogM1"]) ** par["HODAlpha"]
+    m0 = 10.0 ** par["HODLogM0"]
+    above = mass > m0
+    ratio = np.where(above, (mass - m0) / 10.0 ** par["HODLogM1"], 1.0)
+    return np.where(above, ratio ** par["HODAlpha"], 0.0)
 
 
 def law(log_m, par):
