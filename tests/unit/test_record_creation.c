@@ -893,6 +893,51 @@ int test_row_offset_shifts_created_identity(void) {
   return TEST_PASS;
 }
 
+/** row_offset the guard-boundary child creates with, set before each expect_fatal() */
+static int64_t guard_row_offset = 0;
+
+static void create_at_guard_row_offset(const char *arg) {
+  (void)arg;
+  int64_t id = 0;
+  long long halonr = -1;
+  (void)create_with_row_offset(guard_row_offset, &id, &halonr);
+}
+
+/**
+ * @test    test_row_offset_guard_boundary
+ * @brief   The guard bounds the global row HaloNr + row_offset at rows_per_unit
+ *
+ * The host's HaloNr is 10 and rows_per_unit is TEST_ROWS_PER_UNIT (100): an
+ * offset of 89 puts the global row at 99, the last row of the unit, and is
+ * encoded; 90 puts it at 100, one past the unit, and is fatal; a negative
+ * offset is fatal whatever HaloNr is.
+ */
+int test_row_offset_guard_boundary(void) {
+  int64_t id = 0;
+  long long halonr = -1;
+  const int64_t last = TEST_ROWS_PER_UNIT - 1 - 10;
+
+  TEST_ASSERT(create_with_row_offset(last, &id, &halonr) == TEST_PASS,
+              "HaloNr + row_offset == rows_per_unit - 1 is accepted");
+  int64_t unit = 0, row = 0;
+  int ordinal = -1;
+  mimic_decode_created_galaxy_id(id, TEST_ROWS_PER_UNIT, &unit, &row, &ordinal);
+  TEST_ASSERT_EQUAL(row, TEST_ROWS_PER_UNIT - 1, "the accepted record encodes the unit's last row");
+
+  guard_row_offset = last + 1;
+  TEST_ASSERT_EQUAL(expect_fatal(NULL, create_at_guard_row_offset,
+                                 "host HaloNr=10 (unit row offset 90) at unit 3 cannot be encoded",
+                                 "rows_per_unit=100"),
+                    1, "HaloNr + row_offset == rows_per_unit is refused");
+
+  guard_row_offset = -1;
+  TEST_ASSERT_EQUAL(expect_fatal(NULL, create_at_guard_row_offset,
+                                 "host HaloNr=10 (unit row offset -1) at unit 3 cannot be encoded",
+                                 NULL),
+                    1, "a negative row_offset is refused");
+  return TEST_PASS;
+}
+
 /** Rows in the first staging block (RECORD_STAGING_BLOCK_ROWS in module_registry.c) */
 #define FIRST_STAGING_BLOCK_ROWS 256
 
@@ -1936,6 +1981,7 @@ int main(void) {
   TEST_RUN(test_refused_when_identity_space_does_not_fit);
   TEST_RUN(test_staged_row_initialisation);
   TEST_RUN(test_row_offset_shifts_created_identity);
+  TEST_RUN(test_row_offset_guard_boundary);
   TEST_RUN(test_staging_blocks_are_logarithmic);
   TEST_RUN(test_created_galaxies_are_independent);
   TEST_RUN(test_created_rows_are_inherited_by_deep_copy);

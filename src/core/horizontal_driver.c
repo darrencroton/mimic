@@ -303,6 +303,54 @@ horizontal_ensure_segment_scratch(struct HorizontalDriverState *state, int64_t r
 }
 
 /* ------------------------------------------------------------------------- */
+/* Diagnostics under distribution                                             */
+/* ------------------------------------------------------------------------- */
+
+/*
+ * The partition of a distributed run and this task's rank in it, as the
+ * diagnostics below read them; NULL in a serial run. Set once the partition is
+ * broadcast and cleared at teardown, and read only to word messages: a message
+ * that names a row or a count of a distributed run says it is a global row, or
+ * this task's share of the snapshot, while a serial run's messages keep exactly
+ * their serial bytes (every note below is empty and every row is its own
+ * global row there). The progenitor lookup structs are shared with the unit
+ * tests (types.h) and carry no row offset, hence driver-scoped state.
+ */
+static const struct HorizontalForestPartition *horizontal_diagnostic_partition = NULL;
+static int horizontal_diagnostic_task = 0;
+
+/* The snapshot (global) row of row `halonr` of this task's slab of `snapnum`:
+ * `halonr` itself in a serial run, or for an index the partition cannot place. */
+static int64_t horizontal_global_row(int64_t snapnum, int64_t halonr) {
+  const struct HorizontalForestPartition *partition = horizontal_diagnostic_partition;
+  if (partition == NULL || snapnum < 0 || snapnum >= partition->snapshot_count) {
+    return halonr;
+  }
+  return partition
+             ->row_cuts[snapnum * (int64_t)(partition->ntask + 1) + horizontal_diagnostic_task] +
+         halonr;
+}
+
+/* A count's qualifier in a message: empty in a serial run, else which rows of
+ * the snapshot this task holds. */
+struct HorizontalRowNote {
+  char text[128];
+};
+
+static struct HorizontalRowNote horizontal_task_rows_note(int64_t snapnum) {
+  struct HorizontalRowNote note = {""};
+  const struct HorizontalForestPartition *partition = horizontal_diagnostic_partition;
+  if (partition != NULL && snapnum >= 0 && snapnum < partition->snapshot_count) {
+    const int64_t *cuts = &partition->row_cuts[snapnum * (int64_t)(partition->ntask + 1)];
+    const int task = horizontal_diagnostic_task;
+    snprintf(note.text, sizeof(note.text),
+             " (this task's rows [%" PRId64 ", %" PRId64 ") of the snapshot's %" PRId64 ")",
+             cuts[task], cuts[task + 1], cuts[partition->ntask]);
+  }
+  return note;
+}
+
+/* ------------------------------------------------------------------------- */
 /* Progenitor lookup and gather (the parity-critical replications)            */
 /* ------------------------------------------------------------------------- */
 
@@ -329,10 +377,12 @@ struct HorizontalProgenitorCursor {
 static const struct HorizontalRetainedGeneration *
 horizontal_resolve_progenitor(const struct HorizontalGatherContext *lookup, int64_t target_snap,
                               int64_t prog, int64_t halonr, const char *link) {
+  /* Rows are printed as snapshot rows, which a distributed run's local rows are not. */
+  const int64_t global_halonr = horizontal_global_row(lookup->snapnum, halonr);
   if (target_snap < 0 || target_snap >= lookup->snapnum) {
     FATAL_ERROR("%s link of snapshot %" PRId64 " halo %" PRId64 " names snapshot %" PRId64
                 ", which is not an earlier snapshot of this run",
-                link, lookup->snapnum, halonr, target_snap);
+                link, lookup->snapnum, global_halonr, target_snap);
   }
 
   const struct HorizontalRetainedGeneration *generation = &lookup->generations[target_snap];
@@ -341,12 +391,14 @@ horizontal_resolve_progenitor(const struct HorizontalGatherContext *lookup, int6
                 ", whose generation is not retained: either the input's progenitor chain names "
                 "a generation its own DescendantSnapshot did not keep alive, or a generation "
                 "was released before its retention horizon",
-                link, lookup->snapnum, halonr, target_snap);
+                link, lookup->snapnum, global_halonr, target_snap);
   }
   if (prog >= generation->view.count) {
+    const struct HorizontalRowNote note = horizontal_task_rows_note(target_snap);
     FATAL_ERROR("%s link of snapshot %" PRId64 " halo %" PRId64 " names row %" PRId64
-                " of snapshot %" PRId64 ", which holds %" PRId64 " halos",
-                link, lookup->snapnum, halonr, prog, target_snap, generation->view.count);
+                " of snapshot %" PRId64 ", which holds %" PRId64 " halos%s",
+                link, lookup->snapnum, global_halonr, horizontal_global_row(target_snap, prog),
+                target_snap, generation->view.count, note.text);
   }
 
   return generation;
@@ -414,9 +466,11 @@ static void horizontal_check_chain_steps(const struct HorizontalGatherContext *l
   if (steps > lookup->retained_population) {
     FATAL_ERROR("Progenitor chain of snapshot %" PRId64 " halo %" PRId64
                 " visits more than the %" PRId64
-                " halos of every retained generation; the input's NextProgenitor links "
+                " halos%s of every retained generation; the input's NextProgenitor links "
                 "contain a cycle",
-                lookup->snapnum, halonr, lookup->retained_population);
+                lookup->snapnum, horizontal_global_row(lookup->snapnum, halonr),
+                lookup->retained_population,
+                horizontal_diagnostic_partition != NULL ? " this task holds" : "");
   }
 }
 
@@ -543,8 +597,8 @@ static int64_t horizontal_make_unique_galaxy_id(const struct SnapshotSlab *slab,
     FATAL_ERROR("UniqueGalaxyID components out of range at snapshot %" PRId64 " halo %" PRId64 ": "
                 "HaloRankInForest=%" PRId64 ", ForestIndex=%" PRId64 " (limits: rank < %" PRId64
                 ", forest index < %" PRId64 ")",
-                slab->snapnum, halonr, rank_in_forest, forestnr_global, multiplier,
-                mimic_unique_galaxy_id_max_forests(multiplier));
+                slab->snapnum, slab->row_offset + halonr, rank_in_forest, forestnr_global,
+                multiplier, mimic_unique_galaxy_id_max_forests(multiplier));
   }
 
   return mimic_encode_unique_galaxy_id(multiplier, rank_in_forest, forestnr_global);
@@ -604,6 +658,25 @@ static int horizontal_run_is_distributed(void) {
 static int64_t horizontal_row_cut(const struct HorizontalForestPartition *partition,
                                   int64_t snapnum, int task) {
   return partition->row_cuts[snapnum * (int64_t)(partition->ntask + 1) + task];
+}
+
+/**
+ * @brief   Bytes a distributed run's partition holds on every task for the whole run
+ * @param   partition  The run's partition, or NULL for a serial run (0 bytes)
+ * @return  The struct, its `ntask + 1` forest cuts and its `snapshot_count * (ntask + 1)` row
+ *          cuts, exactly as horizontal_partition_create() allocates them
+ *
+ * Not static so the unit tests can check the term directly; the retention
+ * accounting (horizontal_retained_resident_bytes()) adds it to every resident
+ * total of a distributed run, so the ceiling and the memory profile count it.
+ */
+int64_t horizontal_partition_resident_bytes(const struct HorizontalForestPartition *partition) {
+  if (partition == NULL) {
+    return 0;
+  }
+  const int64_t entries_per_snapshot = (int64_t)partition->ntask + 1;
+  return (int64_t)sizeof(*partition) + entries_per_snapshot * (int64_t)sizeof(int64_t) +
+         partition->snapshot_count * entries_per_snapshot * (int64_t)sizeof(int64_t);
 }
 
 /* The rows [*row_lo, *row_hi) of snapshot `snapnum` this task loads: its range
@@ -830,6 +903,14 @@ static void horizontal_compute_partition(const struct HorizontalDriverState *sta
              " (snapshot %" PRId64 " rows [%" PRId64 ", %" PRId64 "))",
              r, forest_lo, forest_hi, weight, widest, row_lo, row_hi);
   }
+  /* D11's partition terms: the tables stay resident on every task and are part of
+   * each task's retention accounting; the weights are task 0's alone and are
+   * freed here, before any generation is sized, so they are reported, not
+   * counted against the ceiling. */
+  INFO_LOG("Partition tables hold %" PRId64 " B on every task (counted in its retention "
+           "accounting); the forest weights held %" PRId64 " B on task 0 while it was cut",
+           horizontal_partition_resident_bytes(partition),
+           (n_forests > 0 ? n_forests : 1) * (int64_t)sizeof(int64_t));
 
   myfree(weights);
 }
@@ -871,6 +952,10 @@ static void horizontal_partition_run(struct HorizontalDriverState *state,
   MPI_Bcast(state->partition->forest_cuts, ntask + 1, MPI_INT64_T, 0, MPI_COMM_WORLD);
   MPI_Bcast(state->partition->row_cuts, (int)row_cut_count, MPI_INT64_T, 0, MPI_COMM_WORLD);
 #endif
+
+  /* Final on every task from here on: the diagnostics may now place rows. */
+  horizontal_diagnostic_partition = state->partition;
+  horizontal_diagnostic_task = state->task;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -1298,11 +1383,13 @@ static int64_t horizontal_pool_resident_bytes(const struct GalaxyPool *pool) {
  * Bytes resident across the retention pool right now: every retained
  * generation's slab and reader-owned arrays, aux array, output buffer at its
  * current (possibly marshaller-grown) capacity and galaxy pool, plus every reset
- * spare pool, whose chunks stay allocated until teardown. Each term is memory
- * this process already holds, so the plain sums below cannot overflow int64_t.
+ * spare pool, whose chunks stay allocated until teardown, plus -- in a
+ * distributed run -- the partition tables every task keeps for the whole run
+ * (D11; 0 in a serial run). Each term is memory this process already holds, so
+ * the plain sums below cannot overflow int64_t.
  */
 static int64_t horizontal_retained_resident_bytes(const struct HorizontalDriverState *state) {
-  int64_t resident = 0;
+  int64_t resident = horizontal_partition_resident_bytes(state->partition);
 
   for (int64_t k = 0; k < state->snapshot_count; k++) {
     const struct HorizontalGeneration *gen = &state->generations[k];
@@ -1338,10 +1425,11 @@ static int64_t horizontal_retained_resident_bytes(const struct HorizontalDriverS
  *
  * `snapshot_halos` is the snapshot's global halo count, which the INT_MAX refusal
  * judges; `nhalos` is the rows this task holds of it (the same number in a serial
- * run), which the marshaller and the FoF workspace see.
+ * run), which the marshaller and the FoF workspace see, and `rows_note` says so
+ * in the warning (empty in a serial run).
  */
 static void horizontal_require_slab_emittable(int64_t snapnum, int64_t snapshot_halos,
-                                              int64_t nhalos) {
+                                              int64_t nhalos, const char *rows_note) {
   if (snapshot_halos > INT_MAX && snapnum <= INT_MAX && mimic_is_output_snapshot((int)snapnum)) {
     FATAL_ERROR("Snapshot %" PRId64 " holds %" PRId64 " halos and is a requested output snapshot, "
                 "but the output path caps a snapshot's record count at INT_MAX "
@@ -1352,12 +1440,12 @@ static void horizontal_require_slab_emittable(int64_t snapnum, int64_t snapshot_
   }
 
   if (nhalos > MAX_HALO_ARRAY_SIZE) {
-    WARNING_LOG("Snapshot %" PRId64 " holds %" PRId64 " halos, above MAX_HALO_ARRAY_SIZE (%d). "
+    WARNING_LOG("Snapshot %" PRId64 " holds %" PRId64 " halos%s, above MAX_HALO_ARRAY_SIZE (%d). "
                 "The output marshaller cannot grow a buffer past that bound and a FoF workspace "
                 "is counted in int, so the sweep is likely to abort after the slab is loaded. "
                 "Running a slab this wide needs chunked slab streaming, a capability Mimic does "
                 "not implement",
-                snapnum, nhalos, (int)MAX_HALO_ARRAY_SIZE);
+                snapnum, nhalos, rows_note, (int)MAX_HALO_ARRAY_SIZE);
   }
 }
 
@@ -1384,44 +1472,48 @@ static void horizontal_require_generation_fits(const struct HorizontalDriverStat
                                                int64_t snapnum, int64_t snapshot_halos,
                                                int64_t nhalos,
                                                struct HorizontalGenerationFootprint *fp) {
+  /* Every count below is this task's rows; the note says so in a distributed run
+   * and is empty in a serial one, where each message keeps its serial bytes. */
+  const struct HorizontalRowNote note = horizontal_task_rows_note(snapnum);
   if (snapshot_halos < 0 || nhalos < 0) {
-    FATAL_ERROR("Reader '%s' reports %" PRId64 " halos for snapshot %" PRId64 " (%" PRId64
-                " in this task's range); a halo count cannot be negative",
-                state->reader->name, snapshot_halos, snapnum, nhalos);
+    FATAL_ERROR("Reader '%s' reports %" PRId64 " halos for snapshot %" PRId64
+                "; a halo count cannot be negative",
+                state->reader->name, snapshot_halos, snapnum);
   }
-  horizontal_require_slab_emittable(snapnum, snapshot_halos, nhalos);
+  horizontal_require_slab_emittable(snapnum, snapshot_halos, nhalos, note.text);
 
   const int64_t resident = horizontal_retained_resident_bytes(state);
   const int new_pool = (state->spare_count == 0);
   int64_t required = 0;
   if (!horizontal_generation_footprint(nhalos, state->slab_row_bytes, new_pool, fp) ||
       !horizontal_checked_sum(resident, fp->total_bytes, &required)) {
-    FATAL_ERROR("Snapshot %" PRId64 " holds %" PRId64 " halos, too many for its generation's "
+    FATAL_ERROR("Snapshot %" PRId64 " holds %" PRId64 " halos%s, too many for its generation's "
                 "resident size to be counted in 64-bit bytes. Refused before allocation: "
                 "whole-slab retention cannot hold a slab this wide, which needs chunked slab "
                 "streaming, a capability Mimic does not implement",
-                snapnum, nhalos);
+                snapnum, nhalos, note.text);
   }
 
   const int64_t ceiling = MimicConfig.RetentionMemoryCeiling;
   VERBOSE_LOG("Snapshot %" PRId64 " generation needs %" PRId64 " B for %" PRId64
-              " halos (slab and reader-owned arrays %" PRId64 " B, aux %" PRId64
+              " halos%s (slab and reader-owned arrays %" PRId64 " B, aux %" PRId64
               " B, output buffer seed %" PRId64 " records = %" PRId64 " B, galaxy pool %" PRId64
               " B%s); retention pool holds %" PRId64 " B, %" PRId64 " B with it; ceiling %" PRId64
               " B%s",
-              snapnum, fp->total_bytes, nhalos, fp->slab_bytes, fp->aux_bytes, fp->output_capacity,
-              fp->output_bytes, fp->pool_bytes, new_pool ? " new" : ", a resident spare reused",
-              resident, required, ceiling, ceiling > 0 ? "" : " (none set)");
+              snapnum, fp->total_bytes, nhalos, note.text, fp->slab_bytes, fp->aux_bytes,
+              fp->output_capacity, fp->output_bytes, fp->pool_bytes,
+              new_pool ? " new" : ", a resident spare reused", resident, required, ceiling,
+              ceiling > 0 ? "" : " (none set)");
 
   if (ceiling > 0 && required > ceiling) {
     FATAL_ERROR("Snapshot %" PRId64 " needs %" PRId64 " B (%.3f GB) resident for its %" PRId64
-                " halos, which would bring the retention pool to %" PRId64 " B (%.3f GB), above "
+                " halos%s, which would bring the retention pool to %" PRId64 " B (%.3f GB), above "
                 "the input.retention_memory_ceiling_mb ceiling of %" PRId64 " B (%.3f GB). "
                 "Refused before allocation: whole-slab retention cannot hold this snapshot "
                 "within the ceiling, and holding it in less memory needs chunked slab "
                 "streaming, a capability Mimic does not implement",
                 snapnum, fp->total_bytes, (double)fp->total_bytes / HORIZONTAL_BYTES_PER_GB, nhalos,
-                required, (double)required / HORIZONTAL_BYTES_PER_GB, ceiling,
+                note.text, required, (double)required / HORIZONTAL_BYTES_PER_GB, ceiling,
                 (double)ceiling / HORIZONTAL_BYTES_PER_GB);
   }
 }
@@ -1529,9 +1621,10 @@ horizontal_acquire_generation(struct HorizontalDriverState *state, int64_t snapn
   }
 
   if (gen->slab.nhalos != nhalos) {
+    const struct HorizontalRowNote note = horizontal_task_rows_note(snapnum);
     FATAL_ERROR("Reader '%s' loaded %" PRId64 " halos for snapshot %" PRId64
-                " after reporting %" PRId64 "; the generation was sized for the reported count",
-                state->reader->name, gen->slab.nhalos, snapnum, nhalos);
+                " after reporting %" PRId64 "%s; the generation was sized for the reported count",
+                state->reader->name, gen->slab.nhalos, snapnum, nhalos, note.text);
   }
   if (gen->slab.row_offset != row_lo) {
     FATAL_ERROR("Reader '%s' loaded snapshot %" PRId64 " from row %" PRId64
@@ -1740,6 +1833,8 @@ static void horizontal_teardown(struct HorizontalDriverState *state, int record_
   state->generations = NULL;
   state->snapshot_count = 0;
 
+  horizontal_diagnostic_partition = NULL;
+  horizontal_diagnostic_task = 0;
   horizontal_partition_destroy(state->partition);
   state->partition = NULL;
 
@@ -1972,8 +2067,10 @@ void run_horizontal_driver(void) {
         horizontal_acquire_generation(&state, snapnum, info.links_adjacent);
 
     const int64_t live_slabs = horizontal_count_live_slabs(&state);
-    VERBOSE_LOG("Loaded snapshot %" PRId64 " (%" PRId64 " halos); %" PRId64 " slab%s live", snapnum,
-                cur->slab.nhalos, live_slabs, live_slabs == 1 ? "" : "s");
+    const struct HorizontalRowNote loaded_note = horizontal_task_rows_note(snapnum);
+    VERBOSE_LOG("Loaded snapshot %" PRId64 " (%" PRId64 " halos%s); %" PRId64 " slab%s live",
+                snapnum, cur->slab.nhalos, loaded_note.text, live_slabs,
+                live_slabs == 1 ? "" : "s");
     VERBOSE_LOG("Snapshot %" PRId64 " retention horizon is snapshot %" PRId64, snapnum,
                 cur->horizon);
 
@@ -1999,9 +2096,10 @@ void run_horizontal_driver(void) {
     }
 
     if (members_processed != cur->slab.nhalos) {
+      const struct HorizontalRowNote note = horizontal_task_rows_note(snapnum);
       FATAL_ERROR("Snapshot %" PRId64 " FoF chains cover %" PRId64 " of %" PRId64
-                  " halos; the slab's FoF links are inconsistent",
-                  snapnum, members_processed, cur->slab.nhalos);
+                  " halos%s; the slab's FoF links are inconsistent",
+                  snapnum, members_processed, cur->slab.nhalos, note.text);
     }
 
     /* Snapshot-wide modules see the whole swept population, before it is

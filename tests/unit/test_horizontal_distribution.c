@@ -44,9 +44,10 @@ static int passed = 0;
 static int failed = 0;
 
 /* Defined in src/core/horizontal_driver.c, exported for these tests only; the
- * driver's prototypes header is not part of the slice that introduced it. */
+ * driver's prototypes header is not part of the slice that introduced them. */
 void horizontal_rebase_slab_links(struct SnapshotSlab *slab,
                                   const struct HorizontalForestPartition *partition, int task);
+int64_t horizontal_partition_resident_bytes(const struct HorizontalForestPartition *partition);
 
 /* This binary's path, so an abort case can re-execute it in child mode. */
 static const char *TestExecutablePath = NULL;
@@ -267,6 +268,39 @@ int test_row_offset_zero_leaves_slab_unchanged(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_partition_resident_bytes
+ * @brief   The partition term of the retention accounting (D11)
+ *
+ * Every task of a distributed run keeps the partition for the whole run, so the
+ * driver adds it to the resident total its ceiling check and memory profile
+ * use; a serial run has no partition and adds nothing. The term must be exactly
+ * what horizontal_partition_create() allocates: the struct, ntask + 1 forest
+ * cuts and snapshot_count * (ntask + 1) row cuts.
+ */
+int test_partition_resident_bytes(void) {
+  TEST_ASSERT_EQUAL(horizontal_partition_resident_bytes(NULL), 0,
+                    "a serial run (no partition) adds nothing");
+
+  struct HorizontalForestPartition *partition = make_fixture_partition();
+  const int64_t expected = (int64_t)sizeof(struct HorizontalForestPartition) +
+                           (FIXTURE_TASKS + 1) * (int64_t)sizeof(int64_t) +
+                           FIXTURE_SNAPSHOTS * (FIXTURE_TASKS + 1) * (int64_t)sizeof(int64_t);
+  TEST_ASSERT_EQUAL(horizontal_partition_resident_bytes(partition), expected,
+                    "the struct plus both tables");
+
+  /* Measured against the allocator: exactly what create() made resident. */
+  const int64_t before = (int64_t)memory_category_bytes(MEM_HALOS);
+  struct HorizontalForestPartition *wide = horizontal_partition_create(4, 50, 10);
+  const int64_t allocated = (int64_t)memory_category_bytes(MEM_HALOS) - before;
+  TEST_ASSERT_EQUAL(horizontal_partition_resident_bytes(wide), allocated,
+                    "the term equals the tracked bytes the partition allocated");
+
+  horizontal_partition_destroy(wide);
+  horizontal_partition_destroy(partition);
+  return TEST_PASS;
+}
+
 /* ------------------------------------------------------------------------- */
 /* Aborts, in a re-executed child                                            */
 /* ------------------------------------------------------------------------- */
@@ -389,6 +423,7 @@ int main(int argc, char **argv) {
   TEST_RUN(test_rebase_links_to_local_indices);
   TEST_RUN(test_row_offset_zero_leaves_slab_unchanged);
   TEST_RUN(test_link_outside_range_aborts);
+  TEST_RUN(test_partition_resident_bytes);
 
   TEST_SUMMARY();
   return TEST_RESULT();
