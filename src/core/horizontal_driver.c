@@ -821,10 +821,11 @@ static void horizontal_write_output(struct HorizontalGeneration *cur, int output
  * Index of `snapnum` in MimicConfig.ListOutputSnaps, or -1 if this snapshot was
  * not requested for output.
  *
- * The index is also the output partition this snapshot's galaxies belong to, so
- * a hit names both the requested-snapshot slot the writers stamp and the file
- * they write. output.snapshot_list may be unsorted, so this is a scan rather
- * than a search.
+ * A hit names the requested-snapshot slot the writers stamp. The output
+ * partition holding this snapshot's galaxies is that index for a serial run and
+ * task * NOUT + index under NTask > 1, where its file name also carries the
+ * task (the partition source, get_output_partition_source(), owns that mapping).
+ * output.snapshot_list may be unsorted, so this is a scan rather than a search.
  */
 static int horizontal_output_snapshot_index(int64_t snapnum) {
   for (int n = 0; n < MimicConfig.NOUT; n++) {

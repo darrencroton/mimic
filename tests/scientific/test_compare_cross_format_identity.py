@@ -563,18 +563,25 @@ def test_compare_created_detects_differing_created_rows():
 
 
 def test_compare_created_duplicate_created_id_is_detected():
-    """A duplicated created id fails the duplicate pass under --compare-created."""
+    """A duplicated created id fails the duplicate pass, with or without --compare-created.
+
+    The duplicate pass scans every id of both runs before anything else,
+    independently of the flag, which only decides whether created rows are then
+    compared. Both invocations are asserted so that stays true.
+    """
     print("Testing a duplicated created id under --compare-created...")
     with scratch() as root:
         duplicated = make_records([1_000_000_001, -1_025, -1_025])
         clean = make_records([1_000_000_001, -1_025])
         left, right = build_pair(root, [{0: duplicated}], [{0: clean}])
 
-        status, report = compare(left, right, "--compare-created")
-        assert_status(status, DIFFERENT, report, "duplicated created id")
-        assert "-1025 appears 2 times" in report, f"duplicated created id not named\n{report}"
-        assert "no further comparison is meaningful" in report, f"comparison continued\n{report}"
-    print("  ✓ a duplicated created id fails first under --compare-created")
+        for options in (("--compare-created",), ()):
+            status, report = compare(left, right, *options)
+            what = f"duplicated created id with options {options}"
+            assert_status(status, DIFFERENT, report, what)
+            assert "-1025 appears 2 times" in report, f"{what}: id not named\n{report}"
+            assert "no further comparison is meaningful" in report, f"{what}: continued\n{report}"
+    print("  ✓ a duplicated created id fails first, with or without --compare-created")
 
 
 # --------------------------------------------------------------------------

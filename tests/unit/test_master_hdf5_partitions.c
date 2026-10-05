@@ -817,6 +817,9 @@ static int assert_writer_opens_partition_path(const struct OutputPartitionSource
  * pinned against each other here through the real writer. Under NTask = 3 and
  * ThisTask = 1 the horizontal driver writes partition p = 1 * NOUT + index for
  * requested snapshot `index`; with NTask unset it writes p = index, untasked.
+ * A vertical run under NTask > 1 (which ships today) must stay untasked too:
+ * the writer reads NTask for every processing order, so only its horizontal
+ * guard keeps a vertical MPI run's file names unsuffixed.
  */
 static int test_writer_task_matches_partition_source(void) {
   char dir_template[] = "/tmp/mimic_writer_task_XXXXXX";
@@ -857,6 +860,25 @@ static int test_writer_task_matches_partition_source(void) {
                     "a serial run's partition carries no task component");
   TEST_ASSERT(assert_writer_opens_partition_path(&source, index) == TEST_PASS,
               "with NTask unset the writer keeps the unsuffixed name, as the source does");
+
+  /* A vertical multi-task run: task 1 of 3 writing an enumerated input chunk. */
+  const struct MimicConfig horizontal_config = MimicConfig;
+  reset_master_partitions();
+  master_npartitions = 1;
+  master_output_ids[0] = 4;
+  master_exists[0] = 1;
+  MimicConfig.ProcessingOrder = (int)INPUT_PROCESSING_ORDER_VERTICAL;
+  MimicConfig.vertical_reader = &EnumeratedMasterReader;
+  ThisTask = 1;
+  NTask = 3;
+  struct OutputPartitionSource vertical_source = get_output_partition_source();
+  TEST_ASSERT_EQUAL(vertical_source.partition_task(0), -1,
+                    "a vertical partition carries no task component under NTask = 3");
+  TEST_ASSERT(assert_writer_opens_partition_path(&vertical_source, 0) == TEST_PASS,
+              "under NTask = 3 a vertical run's file keeps the unsuffixed name, never _task001");
+  ThisTask = 0;
+  NTask = 0;
+  MimicConfig = horizontal_config;
 
   free_hdf5_ids();
   rmdir(dir_template);
