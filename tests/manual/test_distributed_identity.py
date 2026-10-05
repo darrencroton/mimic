@@ -17,10 +17,11 @@ no real dataset.
 Steps, each reported as ``MIMIC_RESULT:`` markers and gated:
 
 1. The MPI control test ``tests/mpi/test_snapshot_collectives_mpi.c``: compiled with
-   ``mpicc -DMPI`` and the house warning set against ``src/core/snapshot_collectives.c`` and the
-   util sources only, after refreshing ``build/generated/git_version.h`` (the test file stubs the
-   running-callback accessor as NONE; ``module_registry.c`` is not linked), and run at ``-np 3``
-   under a timeout; every case it declares (``TEST_RUN(``) must pass.
+   ``mpicc -DMPI -O2`` and the house warning set against ``src/core/snapshot_collectives.c`` and
+   the util sources only (none includes ``yaml.h``, so no libyaml flags), after refreshing
+   ``build/generated/git_version.h`` (the test file stubs the running-callback accessor as NONE;
+   ``module_registry.c`` is not linked), and run at ``-np 3`` under a timeout; all
+   ``CONTROL_CASES`` cases must pass, so a case removed from the test fails the gate.
 2. For each of ``halos-only``, ``sage16``, ``sham`` and ``hod`` on ``mini-millennium-horizontal``
    (the committed ``forest_blocks`` fixture, six forests over seven gapped snapshots, through
    ``simulations/mini-millennium-horizontal/_tests/input/forest_blocks_<model>.yaml``):
@@ -30,8 +31,11 @@ Steps, each reported as ``MIMIC_RESULT:`` markers and gated:
    unsuffixed partition names (``<base>_<snap>.hdf5``, master groups ``File<snap>``) and the log
    must hold no partition line. At every other count the master must hold, for every requested
    snapshot, exactly ``File<snap>_task<t>`` for t in [0, N) whose ``TotHalosPerSnap`` sum to the
-   serial master's, and the log must hold task 0's ``Distributed horizontal partition`` line
-   naming N tasks. Every count's output must pass
+   serial master's, every expected partition file ``<base>_<snap>_task<t>.hdf5`` must exist and
+   every master ``Galaxies`` external link must resolve, and the log must hold task 0's
+   ``Distributed horizontal partition`` line naming N tasks. Every leg is checked for vacuity: the
+   serial master must hold halos, and every count's comparison must report ``PASSED: N galaxies``
+   with N > 0. Every count's output must pass
    ``scripts/compare_cross_format_identity.py --compare-created`` against the serial output, and
    for ``hod`` the comparator must report created rows (``UniqueGalaxyID < 0``) on both sides, so
    the created-record path is never compared vacuously. Both binaries of a leg are production
@@ -42,7 +46,10 @@ Steps, each reported as ``MIMIC_RESULT:`` markers and gated:
    ``simulations/micro-uchuu-ascii-horizontal/_tests/data/generic/`` under ``-np 2`` must fail at
    startup with the format_version 2 message.
 
-Every build and launch runs in its own session (process group) under a timeout; on a timeout or an
+Every build and launch runs in its own session (process group) under a timeout (``RUN_TIMEOUT``
+for a run, short because the fixture runs take seconds; ``BUILD_TIMEOUT`` for a build). The first
+launch of a leg that times out is recorded as that leg's failure and ends the leg, so a collective
+deadlock costs one timeout per model rather than one per rank count. On a timeout or an
 interrupt the whole group (``mpirun`` and its ranks, or ``make`` and its compilers) gets SIGTERM
 and, after a short grace, SIGKILL whether or not its leader has exited, and is reaped before the
 gate continues or restores the generated code, so a hang fails the gate instead of stalling it or
@@ -68,6 +75,7 @@ import signal
 import subprocess
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 import h5py
 import yaml
@@ -84,6 +92,10 @@ COMPARATOR = Path("scripts") / "compare_cross_format_identity.py"
 CONTROL_SOURCE = Path("tests") / "mpi" / "test_snapshot_collectives_mpi.c"
 CONTROL_BINARY = REPO_ROOT / "build" / "test_snapshot_collectives_mpi"
 CONTROL_TASKS = 3
+# The TEST_RUN cases of tests/mpi/test_snapshot_collectives_mpi.c. A constant rather than a count
+# of the source's TEST_RUN( substrings (which also matches comments) or of the summary line (which
+# reports whatever ran): a case dropped from the test then fails the gate instead of passing it.
+CONTROL_CASES = 9
 GIT_VERSION_H = REPO_ROOT / "build" / "generated" / "git_version.h"
 # The house warning set (AGENTS.md: compile clean under these on Clang and GCC).
 HOUSE_WARNINGS = ["-Wall", "-Wextra", "-Wshadow", "-Wformat-security", "-Wundef"]
@@ -109,6 +121,7 @@ V2_A_LIST = V2_DATA / "micro-uchuu-fixture.a_list"
 V2_MESSAGE = "this is a format_version 2 dataset"
 
 PARTITION_LINE = "Distributed horizontal partition:"
+PASSED_RE = re.compile(r"^PASSED: (\d+) galaxies", re.MULTILINE)
 CREATED_RE = re.compile(
     r"^Created rows \(UniqueGalaxyID < 0\).*: \S+ (\d+), \S+ (\d+)$", re.MULTILINE
 )
@@ -118,7 +131,8 @@ MARKER_RE = re.compile(r"^MIMIC_RESULT: (PASS|WARN|FAIL|ERROR|SKIP)\b.*$", re.MU
 # and USE-MPI (an environment value would turn the serial reference into an MPI build).
 MAKE_STATE = ("MAKEFLAGS", "MFLAGS", "MAKELEVEL", "MIMIC_TEST_BUILD", "USE-MPI")
 BUILD_TIMEOUT = 900
-RUN_TIMEOUT = 300
+RUN_TIMEOUT = 60  # fixture runs take seconds; a hang must cost little of the CI job's budget
+TIMEOUT_STATUS = 124  # the status run() reports for a command it had to kill
 KILL_GRACE = 5  # seconds between SIGTERM and SIGKILL of a timed-out or interrupted group
 
 
@@ -165,7 +179,7 @@ class Gate:
             status = process.returncode
         except subprocess.TimeoutExpired:
             output = terminate_group(process) + f"\n[timed out after {timeout} s; group killed]\n"
-            status = 124
+            status = TIMEOUT_STATUS
         except BaseException:
             partial = terminate_group(process)
             self.log(f"=== {title} (interrupted; group killed)\n$ {shlex.join(cmd)}\n{partial}\n")
@@ -226,12 +240,10 @@ class Gate:
         if status != 0:
             self.marker(False, "mpi_control_test_build", f"generate_git_version.sh exited {status}")
             return
-        cmd = ["mpicc", "-DMPI", *HOUSE_WARNINGS]
+        cmd = ["mpicc", "-DMPI", "-O2", *HOUSE_WARNINGS]
         cmd += [f"-I{path}" for path in CONTROL_INCLUDES]
-        cmd += pkg_config("--cflags")
         cmd += [str(REPO_ROOT / CONTROL_SOURCE), *map(str, CONTROL_SOURCES)]
-        cmd += ["-lm", *pkg_config("--libs")]
-        cmd += ["-o", str(CONTROL_BINARY)]
+        cmd += ["-lm", "-o", str(CONTROL_BINARY)]
         status, _ = self.run(cmd, "compile the MPI control test", timeout=BUILD_TIMEOUT)
         if not self.marker(status == 0, "mpi_control_test_build", f"mpicc exited {status}"):
             return
@@ -240,13 +252,13 @@ class Gate:
             f"MPI control test at -np {CONTROL_TASKS}",
         )
         markers = [m.group(1) for m in MARKER_RE.finditer(output)]
-        declared = (REPO_ROOT / CONTROL_SOURCE).read_text().count("TEST_RUN(")
         passed = markers.count("PASS")
         bad = len(markers) - passed
         self.marker(
-            status == 0 and bad == 0 and passed == declared,
+            status == 0 and bad == 0 and passed == CONTROL_CASES,
             "mpi_control_test",
-            f"exit {status}, {passed}/{declared} cases passed, {bad} FAIL/ERROR/SKIP/WARN markers",
+            f"exit {status}, {passed}/{CONTROL_CASES} cases passed, "
+            f"{bad} FAIL/ERROR/SKIP/WARN markers",
         )
 
     def leg(self, model: str) -> None:
@@ -265,7 +277,14 @@ class Gate:
             return
         if model == "sham":
             self.check_sham_audit(output)
-        serial_totals = master_totals(serial_dir / f"{base}.hdf5", snapshots)
+        serial_totals = read_master(serial_dir / f"{base}.hdf5", snapshots).totals
+        serial_halos = sum(serial_totals.values())
+        self.marker(
+            serial_halos > 0,
+            f"serial_halos_{model}",
+            f"the serial master's TotHalosPerSnap sums to {serial_halos}; "
+            "every later comparison would be vacuous",
+        )
 
         if not self.build(model, SIMULATION, mpi=True):
             return
@@ -275,6 +294,8 @@ class Gate:
             status, output = self.launch(ntask, run_file, f"{model} at -np {ntask}")
             name = f"{model}_np{ntask}"
             if not self.marker(status == 0, f"mpi_run_{name}", f"exit {status}"):
+                if status == TIMEOUT_STATUS:
+                    break  # a hang repeats at every count; the recorded failure ends the leg
                 continue
             if ntask == 1:
                 self.check_serial_layout(name, run_dir, base, snapshots, output)
@@ -295,6 +316,15 @@ class Gate:
                 f"compare {model} serial with -np {ntask}",
             )
             self.marker(status == 0, f"identity_{name}", f"comparator exited {status}")
+            if status == TIMEOUT_STATUS:
+                break
+            passed = PASSED_RE.search(report)
+            compared = int(passed.group(1)) if passed else None
+            self.marker(
+                compared is not None and compared > 0,
+                f"galaxies_compared_{name}",
+                f"comparator reported {compared} galaxies compared (PASSED: N galaxies)",
+            )
             if model == "hod":
                 created = CREATED_RE.search(report)
                 counts = tuple(map(int, created.groups())) if created else None
@@ -315,12 +345,11 @@ class Gate:
 
     def check_serial_layout(self, name, run_dir, base, snapshots, output) -> None:
         """-np 1: today's unsuffixed partition names and no partition log."""
-        expected = {f"{base}_{snap:03d}.hdf5" for snap in snapshots}
-        found = {path.name for path in run_dir.glob(f"{base}_*.hdf5")}
-        groups = master_groups(run_dir / f"{base}.hdf5", snapshots)
-        want_groups = {snap: [f"File{snap:03d}"] for snap in snapshots}
+        want_files, want_groups = expected_layout(base, snapshots, 1)
+        found = partition_files(run_dir, base)
+        groups = read_master(run_dir / f"{base}.hdf5", snapshots).groups
         self.marker(
-            found == expected and groups == want_groups,
+            found == want_files and groups == want_groups,
             f"layout_{name}",
             f"partitions {sorted(found)}, master groups {groups}",
         )
@@ -329,16 +358,26 @@ class Gate:
         )
 
     def check_task_layout(self, name, run_dir, base, snapshots, ntask, serial_totals, output):
-        """-np N > 1: N task groups per snapshot summing to the serial count, and the log line."""
-        groups = master_groups(run_dir / f"{base}.hdf5", snapshots)
-        want_groups = {
-            snap: [f"File{snap:03d}_task{t:03d}" for t in range(ntask)] for snap in snapshots
-        }
-        totals = master_totals(run_dir / f"{base}.hdf5", snapshots)
+        """-np N > 1: every partition file, N resolving task groups per snapshot summing to the
+        serial count, and the log line."""
+        want_files, want_groups = expected_layout(base, snapshots, ntask)
+        found = partition_files(run_dir, base)
+        master = read_master(run_dir / f"{base}.hdf5", snapshots)
         self.marker(
-            groups == want_groups and totals == serial_totals,
+            found == want_files,
+            f"partition_files_{name}",
+            f"missing {sorted(want_files - found)}, unexpected {sorted(found - want_files)}",
+        )
+        self.marker(
+            master.groups == want_groups and master.totals == serial_totals,
             f"layout_{name}",
-            f"master groups {groups}, TotHalosPerSnap sums {totals} vs serial {serial_totals}",
+            f"master groups {master.groups}, TotHalosPerSnap sums {master.totals} "
+            f"vs serial {serial_totals}",
+        )
+        self.marker(
+            not master.dangling and bool(master.groups),
+            f"master_links_{name}",
+            f"unresolvable master Galaxies links: {master.dangling}",
         )
         line = next(
             (text for text in output.splitlines() if f"task 0: {PARTITION_LINE}" in text), ""
@@ -364,7 +403,9 @@ class Gate:
         run_file = write_run_file(config, WORK_ROOT / "version-2-refusal")
         status, output = self.launch(2, run_file, "version 2 refusal at -np 2")
         self.marker(
-            status not in (0, 124) and V2_MESSAGE in output and PARTITION_LINE not in output,
+            status not in (0, TIMEOUT_STATUS)
+            and V2_MESSAGE in output
+            and PARTITION_LINE not in output,
             "version_2_refused_at_np2",
             f"exit {status}; expected a startup failure naming '{V2_MESSAGE}'",
         )
@@ -410,17 +451,6 @@ def terminate_group(process: subprocess.Popen) -> str:
     return output or ""
 
 
-def pkg_config(flag: str) -> list[str]:
-    """libyaml's compile or link flags, falling back to -lyaml without pkg-config."""
-    try:
-        out = subprocess.run(
-            ["pkg-config", flag, "yaml-0.1"], capture_output=True, text=True, check=True
-        ).stdout
-        return shlex.split(out)
-    except (OSError, subprocess.CalledProcessError):
-        return ["-lyaml"] if flag == "--libs" else []
-
-
 def write_run_file(config: dict, run_dir: Path) -> Path:
     """Write the run file for one run into a fresh output directory and return its path."""
     if run_dir.exists():
@@ -433,31 +463,61 @@ def write_run_file(config: dict, run_dir: Path) -> Path:
     return run_file
 
 
-def master_groups(master: Path, snapshots: list[int]) -> dict[int, list[str]]:
-    """The File* group names under each requested Snap group of a master file."""
-    if not master.exists():
-        return {}
-    with h5py.File(master, "r") as handle:
-        return {
-            snap: sorted(key for key in handle.get(f"Snap{snap:03d}", {}) if key.startswith("File"))
-            for snap in snapshots
-        }
+def expected_layout(
+    base: str, snapshots: list[int], ntask: int
+) -> tuple[set[str], dict[int, list[str]]]:
+    """The partition file names and master File* groups a run at -np ntask must produce.
+
+    -np 1 keeps today's unsuffixed names (``<base>_<snap>.hdf5``, group ``File<snap>``); more
+    tasks write one ``<base>_<snap>_task<t>.hdf5`` per snapshot and task, group
+    ``File<snap>_task<t>``, a task holding no galaxies included.
+    """
+    suffixes = [""] if ntask == 1 else [f"_task{task:03d}" for task in range(ntask)]
+    files = {f"{base}_{snap:03d}{suffix}.hdf5" for snap in snapshots for suffix in suffixes}
+    groups = {snap: [f"File{snap:03d}{suffix}" for suffix in suffixes] for snap in snapshots}
+    return files, groups
 
 
-def master_totals(master: Path, snapshots: list[int]) -> dict[int, int]:
-    """Each requested snapshot's TotHalosPerSnap summed over the master's File* groups."""
+def partition_files(run_dir: Path, base: str) -> set[str]:
+    """The partition file names a run wrote (the master ``<base>.hdf5`` is not one)."""
+    return {path.name for path in run_dir.glob(f"{base}_*.hdf5")}
+
+
+class MasterSummary(NamedTuple):
+    """What the gate reads from a master file, in one pass."""
+
+    groups: dict[int, list[str]]  # snapshot -> sorted File* group names
+    totals: dict[int, int]  # snapshot -> TotHalosPerSnap summed over the File* groups
+    dangling: list[str]  # Snap*/File*/Galaxies paths whose external link does not resolve
+
+
+def read_master(master: Path, snapshots: list[int]) -> MasterSummary:
+    """Open a master file once and summarise each requested snapshot.
+
+    A missing master gives an empty summary, which fails every comparison made against it. A
+    master ``Galaxies`` link resolves when h5py can open the partition dataset it names; a
+    dangling external link makes ``handle.get`` return None.
+    """
+    groups: dict[int, list[str]] = {}
+    totals: dict[int, int] = {}
+    dangling: list[str] = []
     if not master.exists():
-        return {}
-    totals = {}
+        return MasterSummary(groups, totals, dangling)
     with h5py.File(master, "r") as handle:
         for snap in snapshots:
             group = handle.get(f"Snap{snap:03d}", {})
-            totals[snap] = sum(
-                int(group[key].attrs["TotHalosPerSnap"][0])
-                for key in group
-                if key.startswith("File")
-            )
-    return totals
+            names = sorted(key for key in group if key.startswith("File"))
+            groups[snap] = names
+            totals[snap] = sum(int(group[key].attrs["TotHalosPerSnap"][0]) for key in names)
+            for key in names:
+                link = f"Snap{snap:03d}/{key}/Galaxies"
+                try:
+                    resolved = handle.get(link) is not None
+                except OSError:
+                    resolved = False
+                if not resolved:
+                    dangling.append(link)
+    return MasterSummary(groups, totals, dangling)
 
 
 def raise_on_signal(signum, _frame):

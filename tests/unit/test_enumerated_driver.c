@@ -175,9 +175,17 @@ static int create_temp_output_dir(char *dir_template) {
   return TEST_PASS;
 }
 
+/* The driver's in-flight marker for a partition: <OutputDir>/.<base>_<NNN>.inflight. */
+static void inflight_marker_path(char *buf, size_t size, int output_id) {
+  snprintf(buf, size, "%s/.%s_%03d.inflight", MimicConfig.OutputDir, MimicConfig.OutputFileBaseName,
+           output_id);
+}
+
 static void remove_skip_fixture(const char *dir) {
   char path[512];
   output_path_binary(path, sizeof(path), 0, 0);
+  unlink(path);
+  inflight_marker_path(path, sizeof(path), 0);
   unlink(path);
   rmdir(dir);
 }
@@ -189,6 +197,7 @@ static void remove_skip_fixture(const char *dir) {
 static int test_output_claim_forward_path_creates_and_clears_file(void) {
   char dir_template[] = "/tmp/mimic_enumerated_driver_forward_XXXXXX";
   char output_path[512];
+  char marker_path[512];
 
   configure_driver_defaults();
   reset_synthetic_state();
@@ -211,6 +220,9 @@ static int test_output_claim_forward_path_creates_and_clears_file(void) {
   TEST_ASSERT_EQUAL(open_calls, 1, "forward run should open the partition");
   TEST_ASSERT_EQUAL(close_calls, 1, "forward run should close the partition");
   TEST_ASSERT(access(output_path, F_OK) == 0, "forward run should create the output file");
+  inflight_marker_path(marker_path, sizeof(marker_path), 0);
+  TEST_ASSERT(access(marker_path, F_OK) != 0,
+              "completed partition should leave no in-flight marker");
   vertical_driver_remove_incomplete_outputs();
   TEST_ASSERT(access(output_path, F_OK) == 0,
               "completed output should not remain registered for failure cleanup");
@@ -368,6 +380,52 @@ static int test_skip_existing_output_preserves_lifecycle(void) {
 }
 
 /**
+ * @test    test_skip_redoes_partition_left_in_flight
+ * @brief   Under --skip, an existing output file beside its in-flight marker is a partition a
+ *          stopped run left partial, so it is redone and its marker removed
+ */
+static int test_skip_redoes_partition_left_in_flight(void) {
+  char dir_template[] = "/tmp/mimic_enumerated_driver_inflight_XXXXXX";
+  char output_path[512];
+  char marker_path[512];
+
+  /* SETUP: a complete-looking output file plus the marker a killed run leaves behind */
+  configure_driver_defaults();
+  reset_synthetic_state();
+  TEST_ASSERT(create_temp_output_dir(dir_template) == TEST_PASS,
+              "temporary output directory should be configured");
+
+  synthetic_npartitions = 1;
+  set_partition(0, 1, 1.0, 300);
+  MimicConfig.NOUT = 1;
+  MimicConfig.ListOutputSnaps[0] = 0;
+  MimicConfig.ZZ[0] = 0.0;
+  MimicConfig.OverwriteOutputFiles = 0;
+
+  output_path_binary(output_path, sizeof(output_path), 0, 0);
+  inflight_marker_path(marker_path, sizeof(marker_path), 0);
+  FILE *fd = fopen(output_path, "w");
+  TEST_ASSERT(fd != NULL, "partial output file should be creatable");
+  fclose(fd);
+  fd = fopen(marker_path, "w");
+  TEST_ASSERT(fd != NULL, "in-flight marker should be creatable");
+  fclose(fd);
+
+  /* EXECUTE */
+  run_vertical_driver();
+
+  /* VALIDATE */
+  TEST_ASSERT_EQUAL(open_calls, 1, "marked partition should be opened again");
+  TEST_ASSERT_EQUAL(close_calls, 1, "redone partition should be closed");
+  TEST_ASSERT(access(output_path, F_OK) == 0, "redone partition should keep its output file");
+  TEST_ASSERT(access(marker_path, F_OK) != 0, "redone partition should leave no marker");
+
+  /* CLEANUP */
+  remove_skip_fixture(dir_template);
+  return TEST_PASS;
+}
+
+/**
  * @test    test_unknown_largest_unit_falls_back_to_multiplier
  * @brief   One partition answering -1 makes the run-wide largest unit unknown, so every unit
  *          is published with rows_per_unit = UniqueGalaxyIDMultiplier and its global forest
@@ -485,6 +543,7 @@ int main(void) {
   TEST_RUN(test_missing_partition_has_zero_lpt_cost);
   TEST_RUN(test_idle_rank_runs_lifecycle_without_opening_partition);
   TEST_RUN(test_skip_existing_output_preserves_lifecycle);
+  TEST_RUN(test_skip_redoes_partition_left_in_flight);
   TEST_RUN(test_output_claim_forward_path_creates_and_clears_file);
   TEST_RUN(test_unknown_largest_unit_falls_back_to_multiplier);
   TEST_RUN(test_non_fitting_identity_space_does_not_stop_the_run);

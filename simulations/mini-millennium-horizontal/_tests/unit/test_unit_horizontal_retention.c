@@ -137,7 +137,7 @@ static void retain(int snap) {
 /* The lookup at snapshot `snap`, over whatever is retained, with the population
  * counted from the retained generations plus the descendant slab itself. */
 static struct HorizontalGatherContext lookup_at(int snap) {
-  struct HorizontalGatherContext lookup;
+  struct HorizontalGatherContext lookup = {0}; /* partition and task stay NULL and 0 (serial) */
   int64_t population = generations[snap].nhalos;
 
   for (int k = 0; k < MAX_SNAPSHOTS; k++) {

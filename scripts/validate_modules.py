@@ -506,8 +506,8 @@ def validate_snapshot_distribution(
     """Validate the optional snapshot_distribution key.
 
     Accepted values are serial_only (the default when the key is omitted) and
-    collective, and only for a module whose supported_processing_modes include
-    process_snapshot. The rule lives in scripts/module_modes.py, which the
+    collective, and only for a non-utility module whose supported_processing_modes
+    include process_snapshot. The rule lives in scripts/module_modes.py, which the
     registry generator also uses, so the two tools accept the same metadata.
     """
 
@@ -741,8 +741,9 @@ def validate_module(
     # Check if this is a utility module (different validation rules)
     is_utility = module.get("is_utility", False)
 
-    # Checked before the utility shortcut: a utility module advertises no
-    # process_snapshot, so any snapshot_distribution key on it is an error.
+    # Checked before the utility shortcut: a utility module runs no process_snapshot
+    # callback, so snapshot_distribution_errors() rejects the key on it, whatever the
+    # value and even if its metadata lists process_snapshot.
     if not validate_snapshot_distribution(module, module_name, results):
         return False
 

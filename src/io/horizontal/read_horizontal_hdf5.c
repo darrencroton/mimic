@@ -1978,10 +1978,11 @@ static int64_t horizontal_h5_link_limit(enum horizontal_h5_link_domain domain, i
  * Diagnostics are bounded: each field contributes at most one counted summary
  * line carrying the offence count and the first offending halo index and value,
  * whatever the number of bad halos. A systematically broken snapshot therefore
- * costs five lines, not n_halos lines.
+ * costs five lines, not n_halos lines. Rows are named as snapshot rows: halos[i]
+ * is snapshot row `row_lo + i`, which differs from i for a range-loaded slab.
  */
-static void horizontal_h5_validate_links(const char *path, int64_t snapnum, int64_t n_halos,
-                                         const struct RawHalo *halos) {
+static void horizontal_h5_validate_links(const char *path, int64_t snapnum, int64_t row_lo,
+                                         int64_t n_halos, const struct RawHalo *halos) {
   int violated_fields = 0;
   const char *first_field = NULL;
   char first_range[64] = "";
@@ -2023,12 +2024,13 @@ static void horizontal_h5_validate_links(const char *path, int64_t snapnum, int6
     }
     /* One counted summary per field, never one line per halo. */
     ERROR_LOG("%s: snapshot %" PRId64 " has %" PRId64 " halo(s) whose '%s' is outside %s (bounded "
-              "by snapshot %" PRId64 "); first at halo %" PRId64 " with value %" PRId64,
-              path, snapnum, count, spec->name, range, bounding_snap, bad_index, bad_value);
+              "by snapshot %" PRId64 "); first at snapshot row %" PRId64 " with value %" PRId64,
+              path, snapnum, count, spec->name, range, bounding_snap, row_lo + bad_index,
+              bad_value);
     if (violated_fields == 0) {
       first_field = spec->name;
       snprintf(first_range, sizeof(first_range), "%s", range);
-      first_bad_index = bad_index;
+      first_bad_index = row_lo + bad_index;
       first_bad_value = bad_value;
     }
     violated_fields++;
@@ -2036,7 +2038,7 @@ static void horizontal_h5_validate_links(const char *path, int64_t snapnum, int6
 
   if (violated_fields > 0) {
     FATAL_ERROR("%s: snapshot %" PRId64 " has %d invalid link field(s); '%s' is %" PRId64
-                " at halo %" PRId64 ", outside %s",
+                " at snapshot row %" PRId64 ", outside %s",
                 path, snapnum, violated_fields, first_field, first_bad_value, first_bad_index,
                 first_range);
   }
@@ -2200,10 +2202,12 @@ static int horizontal_h5_v3_link_invalid(enum horizontal_h5_v3_link link, int64_
  * reader-owned target-snapshot arrays -- so it allocates nothing and re-reads
  * nothing. Diagnostics are bounded exactly as in version 2: each link field
  * contributes at most one counted summary line carrying the offence count and
- * the first offending halo, whatever the number of bad halos.
+ * the first offending halo, whatever the number of bad halos. Rows are named
+ * as snapshot rows: halos[i] is snapshot row `row_lo + i`, which differs from i
+ * for a range-loaded slab (a distributed run's task).
  */
 static void horizontal_h5_v3_validate_links(
-    const char *path, int64_t snapnum, int64_t n_halos, const struct RawHalo *halos,
+    const char *path, int64_t snapnum, int64_t row_lo, int64_t n_halos, const struct RawHalo *halos,
     const int32_t *const target_snaps[HORIZONTAL_H5_V3_TARGETED_LINKS]) {
   int violated_fields = 0;
   const char *first_field = NULL;
@@ -2239,19 +2243,19 @@ static void horizontal_h5_v3_validate_links(
     }
     /* One counted summary per field, never one line per halo. */
     ERROR_LOG("%s: snapshot %" PRId64 " has %" PRId64 " halo(s) with an invalid '%s'; first at "
-              "halo %" PRId64 ": %s",
-              path, snapnum, count, spec->name, bad_index, detail);
+              "snapshot row %" PRId64 ": %s",
+              path, snapnum, count, spec->name, row_lo + bad_index, detail);
     if (violated_fields == 0) {
       first_field = spec->name;
       snprintf(first_detail, sizeof(first_detail), "%s", detail);
-      first_bad_index = bad_index;
+      first_bad_index = row_lo + bad_index;
     }
     violated_fields++;
   }
 
   if (violated_fields > 0) {
-    FATAL_ERROR("%s: snapshot %" PRId64 " has %d invalid link field(s); '%s' at halo %" PRId64
-                ": %s",
+    FATAL_ERROR("%s: snapshot %" PRId64
+                " has %d invalid link field(s); '%s' at snapshot row %" PRId64 ": %s",
                 path, snapnum, violated_fields, first_field, first_bad_index, first_detail);
   }
 }
@@ -2792,9 +2796,9 @@ static void load_slab_horizontal_hdf5(int64_t snapnum, int64_t row_lo, int64_t r
     if (is_v3) {
       const int32_t *const targets[HORIZONTAL_H5_V3_TARGETED_LINKS] = {
           target_snaps[0], target_snaps[1], target_snaps[2]};
-      horizontal_h5_v3_validate_links(path, snapnum, n_halos, halos, targets);
+      horizontal_h5_v3_validate_links(path, snapnum, row_lo, n_halos, halos, targets);
     } else {
-      horizontal_h5_validate_links(path, snapnum, n_halos, halos);
+      horizontal_h5_validate_links(path, snapnum, row_lo, n_halos, halos);
     }
   }
 

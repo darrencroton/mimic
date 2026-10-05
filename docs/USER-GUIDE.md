@@ -395,11 +395,11 @@ make USE-MPI=yes
 mpirun -np 4 ./mimic models/sage16/input/sage16_mini-millennium.yaml
 ```
 
-Under more than one rank every log line carries a `task <n>:` prefix, run metadata is written once by rank 0, and a fatal error on any rank ends the whole job instead of leaving the other ranks waiting. If a multi-rank run is aborted, delete the in-progress output partitions before resuming with `--skip`: the abort stops the other ranks mid-write, and `--skip` checks only that a partition file exists. A horizontal run distributes differently (by forest, not by tree file); see [Running Horizontal Input](#running-horizontal-input).
+Under more than one rank every log line carries a `task <n>:` prefix, run metadata is written once by rank 0, and a fatal error on any rank ends the whole job instead of leaving the other ranks waiting. A vertical run marks each partition in flight with a hidden `.<basename>_<NNN>.inflight` file in the output directory from just before its files are created until they are closed, so a completed partition has no marker; `--skip` redoes any partition whose marker exists, which covers the partitions an aborted multi-rank run or a killed process left mid-write. A horizontal run distributes differently (by forest, not by tree file); see [Running Horizontal Input](#running-horizontal-input).
 
 For balanced work, choose a rank count that divides `last_file - first_file + 1`.
 
-**Resume an interrupted run** with `--skip`, which leaves existing output files in place:
+**Resume an interrupted run** with `--skip`, which leaves completed output files in place and redoes any partition still marked in flight:
 
 ```bash
 ./mimic --skip models/sage16/input/sage16_mini-millennium.yaml

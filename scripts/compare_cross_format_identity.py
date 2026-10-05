@@ -70,6 +70,7 @@ import contextlib
 import re
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 import h5py
 import numpy
@@ -330,17 +331,19 @@ def report_run_duplicates(label, index, max_report):
 
 
 def compared_rows(records, compare_created=False):
-    """Split one snapshot's records into compared rows, created-row count and zero-id count.
+    """Split one snapshot's records into compared rows and the tree, created and zero-id counts.
 
     Tree rows carry positive ids and records created during the run strictly
     negative ones; no encoder produces 0, so a zero id is a defect the caller
     reports rather than a row to skip. The compared rows are the tree rows, plus
-    the created rows when `compare_created` is set.
+    the created rows when `compare_created` is set. The counts are of ids
+    greater than, less than and equal to zero respectively.
     """
     ids = records[ID_FIELD]
     compared = ids != 0 if compare_created else ids > 0
     return (
         records[compared],
+        int(numpy.count_nonzero(ids > 0)),
         int(numpy.count_nonzero(ids < 0)),
         int(numpy.count_nonzero(ids == 0)),
     )
@@ -356,8 +359,22 @@ def report_created(snap, created, labels):
         )
 
 
+class SnapshotResult(NamedTuple):
+    """The outcome of comparing one output snapshot.
+
+    `failures` is the number of differences found. `tree_rows` is the first run's
+    count of tree rows (``UniqueGalaxyID > 0``) and `created_rows` each run's count
+    of created rows (``UniqueGalaxyID < 0``) as ``(first, second)``; zero ids are in
+    neither, so the caller's summary never counts a defective row as created.
+    """
+
+    failures: int
+    tree_rows: int
+    created_rows: tuple
+
+
 def compare_snapshot(snap, left, right, labels, max_report, compare_created=False):
-    """Compare one output snapshot's shared rows. Returns the failures found.
+    """Compare one output snapshot's shared rows. Returns a SnapshotResult.
 
     Records created during a run (negative ids) are split off first and
     reported by count, unless `compare_created` is set, in which case they are
@@ -371,10 +388,15 @@ def compare_snapshot(snap, left, right, labels, max_report, compare_created=Fals
     left_label, right_label = labels
     failures = 0
 
-    left, left_created, left_zero = compared_rows(left, compare_created)
-    right, right_created, right_zero = compared_rows(right, compare_created)
+    left, left_tree, left_created, left_zero = compared_rows(left, compare_created)
+    right, _, right_created, right_zero = compared_rows(right, compare_created)
+    created = (left_created, right_created)
+
+    def result(failures):
+        return SnapshotResult(failures, left_tree, created)
+
     if not compare_created:
-        report_created(snap, (left_created, right_created), labels)
+        report_created(snap, created, labels)
     if left_zero or right_zero:
         print(
             f"  FAIL Snap{snap:03d}: {ID_FIELD} 0 is neither a tree id nor a created id -- "
@@ -399,11 +421,11 @@ def compare_snapshot(snap, left, right, labels, max_report, compare_created=Fals
                 sample = ", ".join(str(int(v)) for v in values[:max_report])
                 suffix = "" if values.size <= max_report else f", ... (+{values.size - max_report})"
                 print(f"    only in {label}: {sample}{suffix}")
-        return failures + 1
+        return result(failures + 1)
 
     if left_ids.size == 0:
         print(f"  ok   Snap{snap:03d}: both runs are empty")
-        return failures
+        return result(failures)
 
     # Byte-identical fields for every shared id, aligned by id.
     left_order = numpy.argsort(left_ids, kind="stable")
@@ -430,7 +452,7 @@ def compare_snapshot(snap, left, right, labels, max_report, compare_created=Fals
             f"  ok   Snap{snap:03d}: {left_ids.size} galaxies, "
             f"all {len(left.dtype.names)} fields byte-identical"
         )
-        return failures
+        return result(failures)
 
     print(
         f"  FAIL Snap{snap:03d}: {len(differing_fields)} of {len(left.dtype.names)} field(s) "
@@ -451,7 +473,7 @@ def compare_snapshot(snap, left, right, labels, max_report, compare_created=Fals
             )
         if total > max_report:
             print(f"      ... and {total - max_report} more record(s)")
-    return failures + len(differing_fields)
+    return result(failures + len(differing_fields))
 
 
 def main(argv=None):
@@ -541,14 +563,13 @@ def compare_runs(args):
     for snap in sorted(left_snaps & right_snaps):
         left_records = read_snapshot(left, snap)
         right_records = read_snapshot(right, snap)
-        failures += compare_snapshot(
+        outcome = compare_snapshot(
             snap, left_records, right_records, labels, args.max_report, args.compare_created
         )
-        left_tree = numpy.count_nonzero(left_records[ID_FIELD] > 0)
-        left_created = numpy.count_nonzero(left_records[ID_FIELD] < 0)
-        total += int(left_tree) + (int(left_created) if args.compare_created else 0)
-        created[0] += int(left_records.size - left_tree)
-        created[1] += int(right_records.size - numpy.count_nonzero(right_records[ID_FIELD] > 0))
+        failures += outcome.failures
+        total += outcome.tree_rows + (outcome.created_rows[0] if args.compare_created else 0)
+        created[0] += outcome.created_rows[0]
+        created[1] += outcome.created_rows[1]
         del left_records, right_records
 
     if any(created):

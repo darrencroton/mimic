@@ -104,33 +104,34 @@ def make_records(ids, masses=None):
     return records
 
 
-def write_run(directory, basename, partitions):
+def numbered_filename(basename, index):
+    """The name of numbered partition `index`: ``<basename>_<index>.hdf5``."""
+    return f"{basename}_{index:03d}.hdf5"
+
+
+def task_filename(basename, key):
+    """The name of the partition for `key` = (snapshot, task): ``<basename>_<snap>_task<task>``."""
+    snap, task = key
+    return f"{basename}_{snap:03d}_task{task:03d}.hdf5"
+
+
+def write_run(directory, basename, partitions, filename=numbered_filename):
     """Write one run's partition files and return the comparator's spec string.
 
-    `partitions` is a list of dicts, one per numbered partition file, mapping a
-    snapshot number to that partition's records -- which is the layout the
-    comparator indexes: a vertical run spreads every snapshot across many
-    partitions, a horizontal run writes one snapshot per partition.
+    `partitions` is a list of dicts, one per partition file, mapping a snapshot
+    number to that partition's records -- which is the layout the comparator
+    indexes: a vertical run spreads every snapshot across many partitions, a
+    horizontal run writes one snapshot per partition. A dict of such dicts names
+    each partition by its own key instead of its list index, and `filename(basename,
+    key)` turns that key into the file name; ``task_filename`` with keys
+    (snapshot, task) is the layout a multi-task horizontal run produces.
     """
     directory.mkdir(parents=True, exist_ok=True)
-    for index, snapshots in enumerate(partitions):
-        with h5py.File(directory / f"{basename}_{index:03d}.hdf5", "w") as handle:
+    keyed = partitions.items() if isinstance(partitions, dict) else enumerate(partitions)
+    for key, snapshots in keyed:
+        with h5py.File(directory / filename(basename, key), "w") as handle:
             for snap, records in sorted(snapshots.items()):
                 handle.create_dataset(f"Snap{snap:03d}/Galaxies", data=records)
-    return str(directory / basename)
-
-
-def write_task_run(directory, basename, partitions):
-    """Write one multi-task run's partition files and return the comparator's spec string.
-
-    `partitions` maps (snapshot, task) to that partition's records, written as
-    ``<basename>_<snap>_task<task>.hdf5`` holding the one Snap group -- the layout
-    a multi-task horizontal run produces.
-    """
-    directory.mkdir(parents=True, exist_ok=True)
-    for (snap, task), records in partitions.items():
-        with h5py.File(directory / f"{basename}_{snap:03d}_task{task:03d}.hdf5", "w") as handle:
-            handle.create_dataset(f"Snap{snap:03d}/Galaxies", data=records)
     return str(directory / basename)
 
 
@@ -282,17 +283,23 @@ def test_dropped_id_is_detected():
 
 def test_zero_id_is_a_failure():
     """A UniqueGalaxyID of 0 is neither a tree id nor a created id, so it fails the comparison
-    even when both runs carry the identical row and every other field matches."""
+    with or without --compare-created, even when both runs carry the identical row and every
+    other field matches, and the created-row summary counts the negative id only."""
     print("Testing a zero id...")
     with scratch() as root:
         records = make_records([1_000_000_001, 0, -1_025])
         left, right = build_pair(root, [{0: records}], [{0: records}])
-        status, report = compare(left, right)
-        assert_status(status, DIFFERENT, report, "zero id")
-        assert (
-            f"{comparator.ID_FIELD} 0 is neither" in report
-        ), f"the zero id was not reported\n{report}"
-    print("  ✓ a zero id fails the comparison; created ids stay uncompared")
+        for options in ((), ("--compare-created",)):
+            what = f"zero id with options {options}"
+            status, report = compare(left, right, *options)
+            assert_status(status, DIFFERENT, report, what)
+            assert (
+                f"{comparator.ID_FIELD} 0 is neither" in report
+            ), f"{what}: the zero id was not reported\n{report}"
+            assert (
+                f"{comparator.ID_FIELD} < 0), " in report and ": left 1, right 1" in report
+            ), f"{what}: the created-row summary did not count the one negative id\n{report}"
+    print("  ✓ a zero id fails the comparison either way; created ids stay uncompared")
 
 
 def test_duplicated_id_is_detected_before_anything_else():
@@ -463,17 +470,18 @@ def test_task_suffixed_partitions_are_aggregated_in_snapshot_task_order():
         snap20 = make_records([2_000_000_001, 2_000_000_002])
 
         serial = write_run(root / "serial", "model", [{16: snap16}, {20: snap20}])
-        tasks = write_task_run(
+        tasks = write_run(
             root / "tasks",
             "model",
             {
-                (20, 10): snap20[1:],
-                (16, 1000): snap16[2:],
-                (16, 0): snap16[:2],
-                (20, 2): snap20[:1],
+                (20, 10): {20: snap20[1:]},
+                (16, 1000): {16: snap16[2:]},
+                (16, 0): {16: snap16[:2]},
+                (20, 2): {20: snap20[:1]},
                 # A task holding no galaxies at a snapshot still writes its partition.
-                (16, 999): snap16[:0],
+                (16, 999): {16: snap16[:0]},
             },
+            task_filename,
         )
 
         names = [path.name for path in comparator.partition_files(tasks)]
@@ -508,7 +516,7 @@ def test_mixed_suffixed_and_unsuffixed_partitions_are_an_input_error():
         records = make_records([1_000_000_001, 1_000_000_002])
         left = write_run(root / "left", "model", [{0: records}])
         mixed = write_run(root / "mixed", "model", [{0: records[:1]}])
-        write_task_run(root / "mixed", "model", {(1, 0): records[1:]})
+        write_run(root / "mixed", "model", {(1, 0): {1: records[1:]}}, task_filename)
 
         status, report = compare(left, mixed)
         assert_status(status, INPUT_ERROR, report, "mixed partition names")

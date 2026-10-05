@@ -111,7 +111,7 @@ All of these except the mid-run rows (the callback-failure row and the `module_c
 | Symptom | Likely cause | First command |
 |---|---|---|
 | Binary output "corrupt" / fields misaligned when read | Reading with the wrong schema — read ONLY via that run's own `metadata/output_schema.json`, never the current checkout's metadata | inspect `<output_dir>/metadata/output_schema.json` |
-| `--skip` run dies: `Partial output exists for partition <N> (<n> of <m> files)...` | `--skip` skips only when ALL files of a partition exist; partial → FATAL by design (`src/core/vertical_driver.c`) | remove the partial partition's output files (archive, don't delete, per repo rules), rerun |
+| `--skip` run dies: `Partial output exists for partition <N> (<n> of <m> files)...` | `--skip` skips only when ALL files of an unmarked partition exist; partial → FATAL by design (`src/core/vertical_driver.c`). A partition whose hidden `<OutputDir>/.<base>_<NNN>.inflight` marker exists was left mid-write by a kill or `MPI_Abort`, and a `--skip` resume redoes it instead of accepting its files | remove the partial partition's output files (archive, don't delete, per repo rules), rerun |
 
 See the `mimic-run-and-operate` skill for output layout and reading recipes.
 

@@ -166,7 +166,7 @@ static struct HorizontalGatherContext version2_lookup(struct HorizontalRetainedG
                                                       struct RawHalo *halos,
                                                       struct HorizontalHaloAux *aux,
                                                       struct Halo *processed) {
-  struct HorizontalGatherContext context;
+  struct HorizontalGatherContext context = {0}; /* partition and task stay NULL and 0 (serial) */
 
   for (int k = 0; k < FIXTURE_SNAPSHOTS; k++) {
     memset(&pool[k], 0, sizeof(pool[k]));

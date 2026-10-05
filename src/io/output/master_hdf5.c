@@ -24,6 +24,19 @@
 #include "output/util.h"
 #include "vertical/reader.h" /* enum InputProcessingOrder only (the ProcessingOrder field), never the active reader pointer */
 
+/** The master-file group name of a partition: File<NNN>, or File<NNN>_task<TTT> with a task. */
+static void partition_group_name(char *buf, size_t size, int filenr, int task) {
+  int written;
+  if (task < 0) {
+    written = snprintf(buf, size, "File%03d", filenr);
+  } else {
+    written = snprintf(buf, size, "File%03d_task%03d", filenr, task);
+  }
+  if (written < 0 || (size_t)written >= size) {
+    FATAL_ERROR("Master file group name too long (filenr %d, task %d)", filenr, task);
+  }
+}
+
 void write_master_file(void) {
   int filenr, n;
   int64_t ngal_in_core;
@@ -34,20 +47,10 @@ void write_master_file(void) {
   herr_t status;
   hsize_t dims;
   float redshift;
-  int ret;
   const int horizontal_run =
       (enum InputProcessingOrder)MimicConfig.ProcessingOrder == INPUT_PROCESSING_ORDER_HORIZONTAL;
 
-  ret = snprintf(master_file, sizeof(master_file), "%s/%s.hdf5", MimicConfig.OutputDir,
-                 MimicConfig.OutputFileBaseName);
-  if (ret < 0) {
-    FATAL_ERROR("Path formatting error for: %s/%s.hdf5", MimicConfig.OutputDir,
-                MimicConfig.OutputFileBaseName);
-  }
-  if (ret >= (int)sizeof(master_file)) {
-    FATAL_ERROR("Master file path too long: %s/%s.hdf5", MimicConfig.OutputDir,
-                MimicConfig.OutputFileBaseName);
-  }
+  output_master_path_hdf5(master_file, sizeof(master_file));
   DEBUG_LOG("Creating master HDF5 file '%s'", master_file);
   master_file_id = H5Fcreate(master_file, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
   if (master_file_id < 0) {
@@ -122,14 +125,8 @@ void write_master_file(void) {
       FATAL_ERROR("Failed to open output file '%s' while building master file", target_file);
     }
 
-    if (task < 0) {
-      sprintf(relative_target_file, "%s_%03d.hdf5", MimicConfig.OutputFileBaseName, filenr);
-      sprintf(file_group, "File%03d", filenr);
-    } else {
-      sprintf(relative_target_file, "%s_%03d_task%03d.hdf5", MimicConfig.OutputFileBaseName, filenr,
-              task);
-      sprintf(file_group, "File%03d_task%03d", filenr, task);
-    }
+    output_partition_basename(relative_target_file, sizeof(relative_target_file), filenr, task);
+    partition_group_name(file_group, sizeof(file_group), filenr, task);
 
     const struct OutputSnapshotSelection selection = source.partition_snapshots(partition);
 

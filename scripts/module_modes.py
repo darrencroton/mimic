@@ -16,7 +16,9 @@ an implementation.
 It also owns the one module_info.yaml key that qualifies a mode:
 ``snapshot_distribution`` (``serial_only`` or ``collective``, default
 ``serial_only``), valid only for a module whose supported_processing_modes
-include ``process_snapshot``. It mirrors enum SnapshotDistribution in
+include ``process_snapshot`` and never for a utility module (a utility
+collection runs no process_snapshot callback, even if its metadata lists the
+mode). It mirrors enum SnapshotDistribution in
 src/core/module_interface.h; the generator emits it into every module's
 registration as ``.snapshot_distribution`` and the validator checks it through
 snapshot_distribution_errors(). ``collective`` declares that the module's
@@ -188,10 +190,12 @@ def callback_families(modes: List[str]) -> List[CallbackFamily]:
 def snapshot_distribution_errors(module: Dict[str, Any]) -> List[str]:
     """Return every reason a module's snapshot_distribution value is invalid.
 
-    The key is optional. When present it must be one of SNAPSHOT_DISTRIBUTIONS
-    and the module's supported_processing_modes must include process_snapshot.
-    The generator and validator both report these messages, so the two agree on
-    which metadata is accepted.
+    The key is optional. When present it must be one of SNAPSHOT_DISTRIBUTIONS,
+    the module's supported_processing_modes must include process_snapshot, and
+    the module must not be a utility (is_utility true): utility modules never
+    reach the module registry, so the key would be silently dropped even where
+    their metadata lists process_snapshot. The generator and validator both
+    report these messages, so the two agree on which metadata is accepted.
 
     Args:
         module: The module metadata dict (module_info.yaml contents).
@@ -203,6 +207,12 @@ def snapshot_distribution_errors(module: Dict[str, Any]) -> List[str]:
         return []
 
     errors: List[str] = []
+    if module.get("is_utility", False):
+        errors.append(
+            f"'{SNAPSHOT_DISTRIBUTION_KEY}' is not allowed on a utility module: utility "
+            f"modules run no process_snapshot callback and may not declare it"
+        )
+
     modes = module.get("supported_processing_modes")
     if not isinstance(modes, list) or "process_snapshot" not in modes:
         errors.append(

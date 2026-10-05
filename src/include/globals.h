@@ -31,7 +31,8 @@ extern char *ThisNode;
  *
  * Data Flow: InputTreeHalos → FoF workspace → output buffer
  *
- * 1. InputTreeHalos (struct RawHalo*) - IMMUTABLE INPUT
+ * 1. InputTreeHalos (struct RawHalo*) - INPUT, never written by modules (the horizontal
+ *    driver rebases the link fields of its own range slab through the generated setters)
  *    - Source: Read from merger tree files (binary or HDF5)
  *    - Lifetime: Per-tree (allocated in load_unit(), freed in
  * free_unit_halos())

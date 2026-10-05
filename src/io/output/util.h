@@ -26,14 +26,31 @@
 void output_path_binary(char *buf, size_t size, int filenr, int snap_index);
 
 /**
+ * @brief   Build the bare file name of one HDF5 output partition (no directory)
+ *
+ * Single home for the HDF5 partition naming scheme: <base>_<NNN>.hdf5 for a
+ * partition with no task component (@p task < 0), and
+ * <base>_<NNN>_task<TTT>.hdf5 for one written by task @p task of a multi-task
+ * horizontal run. This is also the name an external link in the master file
+ * uses, relative to the master's directory. Fatal if the name does not fit in
+ * @p size.
+ */
+void output_partition_basename(char *buf, size_t size, int filenr, int task);
+
+/**
  * @brief   Build the path of one HDF5 output file (one file per output partition)
  *
- * Single home for the HDF5 output naming scheme: <dir>/<base>_<NNN>.hdf5 for a
- * partition with no task component (@p task < 0), and
- * <dir>/<base>_<NNN>_task<TTT>.hdf5 for one written by task @p task of a
- * multi-task horizontal run. Fatal if the path does not fit in @p size.
+ * <dir>/ followed by output_partition_basename(). Fatal if the path does not
+ * fit in @p size.
  */
 void output_path_hdf5(char *buf, size_t size, int filenr, int task);
+
+/**
+ * @brief   Build the path of the HDF5 master file: <dir>/<base>.hdf5
+ *
+ * Fatal if the path does not fit in @p size.
+ */
+void output_master_path_hdf5(char *buf, size_t size);
 
 /**
  * @brief   A partition's selection of requested output snapshots.
@@ -52,9 +69,11 @@ struct OutputSnapshotSelection {
  *
  * Binary: creates one empty file per requested snapshot. HDF5: creates the
  * per-filenr file with tables for @p selection's snapshots and leaves it open
- * for writing (HDF5_current_file_id).
+ * for writing (HDF5_current_file_id). @p task is the partition's task component
+ * (OutputPartitionSource.partition_task): the HDF5 file is named with it, or
+ * without one when it is -1; binary output has no task component and ignores it.
  */
-void prepare_output_files(int filenr, struct OutputSnapshotSelection selection);
+void prepare_output_files(int filenr, int task, struct OutputSnapshotSelection selection);
 
 /**
  * @brief   Increment per-file halo counters with the 32-bit output guard

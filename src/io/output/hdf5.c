@@ -25,7 +25,6 @@
 #include <unistd.h>
 
 #include "proto.h"
-#include "core/task_layout.h" /* effective_task_count(), current_task_id() */
 #include "output/hdf5.h"
 #include "output/util.h"
 #include "error.h"
@@ -130,16 +129,13 @@ void prep_hdf5_file(char *fname, struct OutputSnapshotSelection selection) {
  * assigns HDF5_current_file_id, so "per-file metadata" is a property of
  * opening a file rather than of a snapshot index. The handle is closed by the
  * driver after the filenr is finalized.
+ *
+ * @p task is the partition's task component, as the driver reads it from
+ * OutputPartitionSource.partition_task (-1 for a partition with none); the
+ * file is named with it, which is the name the master file links to.
  */
-void open_hdf5_output_file(int filenr, struct OutputSnapshotSelection selection) {
+void open_hdf5_output_file(int filenr, int task, struct OutputSnapshotSelection selection) {
   char buf[3 * MAX_STRING_LEN + 40];
-
-  /* The partition's task component (OutputPartitionSource.partition_task): a
-   * multi-task horizontal run writes only this task's own partitions, so the
-   * file being opened carries this task's id; every other partition has none. */
-  const int horizontal_run =
-      (enum InputProcessingOrder)MimicConfig.ProcessingOrder == INPUT_PROCESSING_ORDER_HORIZONTAL;
-  const int task = horizontal_run && effective_task_count() > 1 ? current_task_id() : -1;
 
   output_path_hdf5(buf, sizeof(buf), filenr, task);
   prep_hdf5_file(buf, selection);

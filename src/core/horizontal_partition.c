@@ -21,7 +21,8 @@
  * A range closes when the next forest would push it past the capacity, so a
  * zero-weight forest always joins the open range. `capacity` is at least the
  * largest weight, so no single forest overflows an empty range, and at most the
- * weight sum (checked by the caller), so the running total cannot overflow.
+ * weight sum (checked by the caller). The fit test compares against the room
+ * left, `capacity - filled`, so it cannot overflow however large the weights.
  * When `forest_cuts` is non-NULL the interior cuts are recorded as the ranges
  * close, `forest_cuts[1 .. ranges - 1]`; the caller owns the remaining entries.
  */
@@ -31,7 +32,7 @@ static int greedy_pack(const int64_t *weights, int64_t n_forests_total, int64_t 
   int64_t filled = 0;
 
   for (int64_t f = 0; f < n_forests_total; f++) {
-    if (filled + weights[f] > capacity) {
+    if (weights[f] > capacity - filled) { /* filled <= capacity, so this cannot overflow */
       if (forest_cuts != NULL) {
         forest_cuts[ranges] = f;
       }

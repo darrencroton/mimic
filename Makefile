@@ -506,6 +506,7 @@ help:
 	@echo "  make tests-snapshot-global-sham - Run the sham_rank_match unit and end-to-end tests under MODEL=sham on the micro-uchuu-ascii-horizontal fixture"
 	@echo "  make tests-snapshot-global-hod - Run the hod_populate unit and end-to-end tests under MODEL=hod on the micro-uchuu-ascii-horizontal fixture"
 	@echo "  make tests-snapshot-global-identity - Compare disabled-mode post_snapshot output with the pinned pre-feature reference commit (cached worktrees; about a minute; REFERENCE_COMMIT=<hash> overrides)"
+	@echo "  make tests-distributed  - Run the distributed horizontal gate: the MPI collectives control test and serial-versus-MPI identity at -np 1, 2, 3, 4 and 8 for halos-only, sage16, sham and hod, plus the version 2 refusal (needs mpicc/mpirun; MPIRUN=\"mpirun --oversubscribe\" for fewer cores; several minutes; rebuild with make afterwards)"
 	@echo "  make tests-converter    - Run the ctrees->horizontal-HDF5 converter self-tests"
 	@echo "  make check-horizontal-fixture - Check the committed horizontal fixture against the format spec"
 	@echo "  make tests summary     - Run all tests with concise warning/failure/skip output"

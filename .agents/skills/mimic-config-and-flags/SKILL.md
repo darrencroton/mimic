@@ -73,7 +73,7 @@ Guards and conventions:
 | `-v`, `--verbose` | Add context (timestamp, file:line) and enable `VERBOSE_LOG` |
 | `-d`, `--debug` | Most verbose: debug output plus context |
 | `-q`, `--quiet` | Warnings and errors only |
-| `--skip` | Skip a work partition if ALL of its output files already exist; a PARTIAL set of existing files is a fatal error (sets `OverwriteOutputFiles = 0`) |
+| `--skip` | Skip a work partition if ALL of its output files already exist and it has no in-flight marker (`<OutputDir>/.<base>_<NNN>.inflight`, present from just before the vertical driver claims a partition's files until it closes them); a marked partition is redone, and a PARTIAL set of files on an unmarked partition is a fatal error (sets `OverwriteOutputFiles = 0`) |
 | `--compress` | gzip HDF5 galaxy datasets (sets `HDF5CompressionLevel = 1`; default 0 = off) |
 
 `parse_cli` also seeds runtime defaults that YAML keys later override:
@@ -109,7 +109,7 @@ Summary table; full per-key semantics, parse behavior, and the simulation_info-v
 | `input.simulation_dir` | string | sim pkg | Directory holding the tree files |
 | `input.snapshot_list_file` | string | sim pkg | Path to the `.a_list` scale-factor file |
 | `input.max_tree_depth` | int | 500 | Recursion guard for `build_halo_tree` |
-| `input.retention_memory_ceiling_mb` | int64 (MB) | none | Horizontal runs only (rejected for a vertical reader). Optional ceiling, in whole MB of 1024² B, on the horizontal driver's retained-generation pool; stored in bytes as `MimicConfig.RetentionMemoryCeiling` (0 = none). Before allocating each snapshot generation the driver computes its struct-width bytes and aborts if the pool plus it would exceed the ceiling, naming the snapshot, bytes, ceiling and chunked slab streaming as the missing capability. Bounds retention admission only — not in-sweep output-buffer/galaxy-pool growth (warned once), run-wide workspace, or RSS. Zero, negative and non-integer values are fatal; omit the key for no ceiling. Not recorded in `RunProperties` |
+| `input.retention_memory_ceiling_mb` | int64 (MB) | none | Horizontal runs only (rejected for a vertical reader). Per rank under MPI. Optional ceiling, in whole MB of 1024² B, on the horizontal driver's retained-generation pool; stored in bytes as `MimicConfig.RetentionMemoryCeiling` (0 = none). Before allocating each snapshot generation the driver computes its struct-width bytes and aborts if the pool plus it would exceed the ceiling, naming the snapshot, bytes, ceiling and chunked slab streaming as the missing capability. Bounds retention admission only — not in-sweep output-buffer/galaxy-pool growth (warned once), run-wide workspace, or RSS. Zero, negative and non-integer values are fatal; omit the key for no ceiling. Not recorded in `RunProperties` |
 | `input.forest_distribution_scheme` | string | `uniform` | Forest→file balancing (ctrees readers): `uniform`, `linear`, `quadratic`, `exponent`, `generic_power` |
 | `input.exponent_forest_dist_scheme` | double | 0.7 | Exponent for the power-law schemes |
 | `output.output_filename` | string | required | Output file base name |

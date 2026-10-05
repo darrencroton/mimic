@@ -285,6 +285,8 @@ struct HorizontalRetainedGeneration {
   const int32_t *next_progenitor_snapshot; /* [view.count], or NULL (version 2) */
 };
 
+struct HorizontalForestPartition; /* opaque here; defined in core/horizontal_partition.h */
+
 /* Every progenitor generation a snapshot's lookup can reach.
  *
  * `generations` is the driver's retention pool, indexed by snapshot number: slot
@@ -297,12 +299,19 @@ struct HorizontalRetainedGeneration {
  * `retained_population` is the halo count summed over every retained
  * generation. A progenitor chain can visit each retained halo at most once, so
  * it bounds the chain walk's cycle guard; no single slab's count does once a
- * chain can span several snapshots. */
+ * chain can span several snapshots.
+ *
+ * `partition` and `task` let the lookup's diagnostics name global rows and this
+ * task's share of a snapshot under distribution; they only word messages, and a
+ * context that leaves them NULL and 0 (serial runs, unit tests) keeps the serial bytes. */
 struct HorizontalGatherContext {
   int64_t snapnum;                                        /* snapshot of the descendants */
   const int32_t *first_progenitor_snapshot;               /* [descendant slab], or NULL (v2) */
   const struct HorizontalRetainedGeneration *generations; /* [run snapshot count], by snapshot */
   int64_t retained_population;
+  const struct HorizontalForestPartition
+      *partition; /* distributed run's partition; NULL if serial */
+  int task;       /* this task's rank in `partition`; 0 if serial */
 };
 
 /* A progenitor named by its generation and its row there. A slab index alone no

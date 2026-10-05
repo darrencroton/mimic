@@ -577,7 +577,8 @@ def test_snapshot_distribution_rejects_unknown_values():
 
 def test_snapshot_distribution_rejected_on_utility_modules():
     """Utility metadata takes no snapshot_distribution: both tools reject the key (any value)
-    before their utility shortcuts, and still accept utility metadata without it."""
+    before their utility shortcuts, even on a utility that lists process_snapshot, and still
+    accept utility metadata without it."""
     with scratch_dir() as directory:
         module_dir = directory / "utility_collection"
         module_dir.mkdir()
@@ -595,6 +596,26 @@ def test_snapshot_distribution_rejected_on_utility_modules():
             assert not accepted, f"validator accepted utility metadata with {value!r}"
             for errors in (gen, val):
                 assert any("only valid for modules whose" in e for e in errors), (value, errors)
+
+        # A utility that lists process_snapshot passes the "include process_snapshot" rule,
+        # so only the utility rule rejects it: the key would otherwise be dropped silently.
+        for value in ("serial_only", "collective"):
+            module = {
+                "name": "utility_collection",
+                "is_utility": True,
+                "supported_processing_modes": ["process_snapshot"],
+                "snapshot_distribution": value,
+            }
+            gen, accepted, val = tools(module)
+            assert not accepted, f"validator accepted a snapshot-listing utility with {value!r}"
+            for errors in (gen, val):
+                assert any(
+                    "utility modules run no process_snapshot callback" in e for e in errors
+                ), (
+                    value,
+                    errors,
+                )
+                assert not any("only valid for modules whose" in e for e in errors), (value, errors)
 
         gen, accepted, val = tools({"name": "utility_collection", "is_utility": True})
         assert not gen, f"generator rejected plain utility metadata: {gen}"

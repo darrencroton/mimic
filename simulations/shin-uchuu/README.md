@@ -28,7 +28,7 @@ make MODEL=halos-only SIMULATION=shin-uchuu
 ./mimic models/halos-only/input/halos-only_shin-uchuu.yaml
 ```
 
-Horizontal runs are HDF5-only, serial-only (`NTask == 1`; multi-rank horizontal execution is not implemented), and do not support `--skip` — all three are rejected at configuration time. See [`docs/USER-GUIDE.md`](../../docs/USER-GUIDE.md) → "Running Horizontal Input" and [`docs/DEVELOPER-GUIDE.md`](../../docs/DEVELOPER-GUIDE.md) → "The Horizontal Driver".
+Horizontal runs are HDF5-only and do not support `--skip`; both are rejected at configuration time. A multi-rank horizontal configuration (`NTask > 1`) is accepted at configuration, but the horizontal driver refuses a version 2 dataset such as this one at startup (distribution needs a forest-blocked version 3 dataset), so run this package with one rank. See [`docs/USER-GUIDE.md`](../../docs/USER-GUIDE.md) → "Running Horizontal Input" and [`docs/DEVELOPER-GUIDE.md`](../../docs/DEVELOPER-GUIDE.md) → "The Horizontal Driver".
 
 ## Maintenance notes
 

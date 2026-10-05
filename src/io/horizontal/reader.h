@@ -133,7 +133,7 @@ struct HorizontalOpenOptions {
  * names the snapshot whose slab the matching RawHalo link indexes into, or is -1
  * exactly when that link is -1; load_slab has already validated both. They are
  * NULL for a version 2 slab, whose links are implicitly N+1 (Descendant), N-1
- * (FirstProgenitor) and N-1 (NextProgenitor), and for an empty snapshot.
+ * (FirstProgenitor) and N-1 (NextProgenitor), and for an empty snapshot or an empty row range.
  */
 struct SnapshotSlab {
   int64_t snapnum;                    /* loaded snapshot, or SNAPSHOT_SLAB_NO_SNAPSHOT */

@@ -18,8 +18,9 @@ void free_hdf5_ids(void);
 
 /** @brief Create one HDF5 file with empty tables for the given snapshot selection. */
 void prep_hdf5_file(char *fname, struct OutputSnapshotSelection selection);
-/** @brief Create and open this filenr's HDF5 output file; leaves it open for writes. */
-void open_hdf5_output_file(int filenr, struct OutputSnapshotSelection selection);
+/** @brief Create and open this filenr's HDF5 output file, named with partition task @p task
+ *         (-1 for none); leaves it open for writes. */
+void open_hdf5_output_file(int filenr, int task, struct OutputSnapshotSelection selection);
 
 /** @brief Buffer ProcessedHalos into the cross-tree write buffers for the snapshots in the
  *         supplied selection. */

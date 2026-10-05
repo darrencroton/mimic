@@ -42,11 +42,17 @@
 #define MAX_PATH_BUF_SIZE (3 * MAX_STRING_LEN + 25)
 
 /* Output paths of the partition currently being processed. Set before the
- * partition is claimed, cleared once it completes, and unlinked by bye() if the
- * program exits with a failure in between, so a crash never leaves partial
+ * partition is claimed, cleared once it completes, and unlinked by bye() (or by
+ * myexit() under NTask > 1, which makes the same removal calls before MPI_Abort)
+ * if the program exits with a failure in between, so a crash never leaves partial
  * output files behind and never deletes completed ones. Binary output has one
- * path per requested snapshot; HDF5 output has one path per partition. */
-static char current_output_paths[ABSOLUTEMAXSNAPS][MAX_PATH_BUF_SIZE + 1];
+ * path per requested snapshot; HDF5 output has one path per partition.
+ *
+ * The last entry is the partition's in-flight marker, <OutputDir>/.<base>_<NNN>.inflight,
+ * created before the outputs are claimed and unlinked once they are closed. A rank killed
+ * mid-write (by MPI_Abort or SIGKILL) cannot run the removal, so it leaves the marker beside
+ * its partial files, and a --skip resume redoes any partition whose marker exists. */
+static char current_output_paths[ABSOLUTEMAXSNAPS + 1][MAX_PATH_BUF_SIZE + 1];
 static int current_output_path_count = 0;
 
 volatile sig_atomic_t VerticalDriverGotXCPU = 0;
@@ -107,14 +113,26 @@ static int count_existing_current_outputs(void) {
   return existing;
 }
 
-static void claim_current_output_paths(int output_id) {
-  for (int i = 0; i < current_output_path_count; i++) {
+/* Claim the first noutputs registered paths, the partition's output files. */
+static void claim_current_output_paths(int output_id, int noutputs) {
+  for (int i = 0; i < noutputs; i++) {
     FILE *fd = fopen(current_output_paths[i], "w");
     if (fd == NULL) {
       FATAL_ERROR("Failed to claim output file '%s' for partition %d", current_output_paths[i],
                   output_id);
     }
     fclose(fd);
+  }
+}
+
+/* Path of the in-flight marker of partition output_id: one hidden file per partition,
+ * whatever the output format, numbered like the HDF5 partitions. */
+static void inflight_marker_path(char *buf, size_t size, int output_id) {
+  const int written = snprintf(buf, size, "%s/.%s_%03d.inflight", MimicConfig.OutputDir,
+                               MimicConfig.OutputFileBaseName, output_id);
+  if (written < 0 || (size_t)written >= size) {
+    FATAL_ERROR("In-flight marker path too long for partition %d: %s/.%s_%03d.inflight", output_id,
+                MimicConfig.OutputDir, MimicConfig.OutputFileBaseName, output_id);
   }
 }
 
@@ -267,7 +285,8 @@ static void process_partition(int output_id, ProgressBar *ext_bar, int64_t tree_
 
   FileNum = output_id;
   open_partition(output_id);
-  prepare_output_files(output_id, selection);
+  /* A vertical partition has no task component. */
+  prepare_output_files(output_id, -1, selection);
 
   ProgressBar local_bar;
   ProgressBar *bar = ext_bar;
@@ -353,28 +372,64 @@ static void process_partition(int output_id, ProgressBar *ext_bar, int64_t tree_
 
 /**
  * @brief   Claim and process one output partition, honoring --skip.
+ *
+ * The partition's in-flight marker exists from just before its outputs are claimed until
+ * they are closed, so a run stopped in between (killed, or aborted under MPI) leaves it
+ * behind. Under --skip a marked partition is redone whatever its files hold; an unmarked one
+ * is skipped when all its outputs exist and is fatal when only some do.
  */
 static int claim_and_process_partition(int output_id, ProgressBar *ext_bar, int64_t tree_base,
                                        struct OutputSnapshotSelection selection) {
+  char marker_path[MAX_PATH_BUF_SIZE + 1];
+
   set_current_output_paths(output_id);
-  int existing_outputs = count_existing_current_outputs();
+  inflight_marker_path(marker_path, sizeof(marker_path), output_id);
+  const int noutputs = current_output_path_count;
+  /* A partition with no output files has nothing a stopped run could leave partial. */
+  const int use_marker = noutputs > 0;
+
   if (!MimicConfig.OverwriteOutputFiles) {
-    if (existing_outputs == current_output_path_count) {
-      INFO_LOG("Output file %d already exists ... skipping", output_id);
-      vertical_driver_clear_current_output_paths();
-      return 0;
-    }
-    if (existing_outputs > 0) {
-      FATAL_ERROR("Partial output exists for partition %d (%d of %d files). Remove the partial "
-                  "files or rerun without --skip.",
-                  output_id, existing_outputs, current_output_path_count);
+    struct stat filestatus;
+    if (use_marker && stat(marker_path, &filestatus) == 0) {
+      INFO_LOG("Output file %d was left in flight by an earlier run (marker '%s') ... redoing it",
+               output_id, marker_path);
+    } else {
+      const int existing_outputs = count_existing_current_outputs();
+      if (existing_outputs == noutputs) {
+        INFO_LOG("Output file %d already exists ... skipping", output_id);
+        vertical_driver_clear_current_output_paths();
+        return 0;
+      }
+      if (existing_outputs > 0) {
+        FATAL_ERROR("Partial output exists for partition %d (%d of %d files). Remove the partial "
+                    "files or rerun without --skip.",
+                    output_id, existing_outputs, noutputs);
+      }
     }
   }
 
-  claim_current_output_paths(output_id);
+  if (use_marker) {
+    FILE *fd = fopen(marker_path, "w");
+    if (fd == NULL) {
+      FATAL_ERROR("Failed to create in-flight marker '%s' for partition %d", marker_path,
+                  output_id);
+    }
+    fclose(fd);
+    /* Registered after the outputs, so an orderly failure removes it with them. */
+    memcpy(current_output_paths[current_output_path_count], marker_path, sizeof(marker_path));
+    current_output_path_count++;
+  }
+
+  claim_current_output_paths(output_id, noutputs);
 
   process_partition(output_id, ext_bar, tree_base, selection);
 
+  /* process_partition() has closed the outputs: the partition is complete. */
+  if (use_marker && unlink(marker_path) != 0) {
+    WARNING_LOG("Failed to remove in-flight marker '%s' for completed partition %d; a --skip "
+                "resume will redo this partition",
+                marker_path, output_id);
+  }
   vertical_driver_clear_current_output_paths();
   return 1;
 }

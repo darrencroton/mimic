@@ -229,12 +229,69 @@ FILE *set_log_output(FILE *output_file) {
   return old_output;
 }
 
+/** Bytes of one log line assembled before it is written (longer lines take the multi-call path) */
+#define LOG_LINE_CAPACITY 4096
+
+/**
+ * One log line being assembled for a single write.
+ *
+ * Multi-rank runs share one stream, and a line written as several stdio calls
+ * (the task prefix, the header, the body, the newline) can be split by another
+ * rank's line on an unbuffered stream. Pieces are therefore collected in `text`
+ * and written together. A piece that does not fit is never truncated: what is
+ * collected so far is written, `direct` is set, and that piece and every later
+ * one of the line go straight to the stream as separate calls, exactly as a
+ * line written without this buffer.
+ */
+struct LogLine {
+  FILE *output;
+  size_t used;
+  int direct; /* the line outgrew `text`; pieces are written as they come */
+  char text[LOG_LINE_CAPACITY];
+};
+
+/** Write the collected bytes of @p line (not NUL-terminated: a body may hold any byte) */
+static void log_line_flush(struct LogLine *line) {
+  if (line->used > 0) {
+    fwrite(line->text, 1, line->used, line->output);
+    line->used = 0;
+  }
+}
+
+/** Add one printf-formatted piece to @p line; @p args is consumed as vfprintf() would */
+static void log_line_vappend(struct LogLine *line, const char *format, va_list args) {
+  if (!line->direct) {
+    va_list copy;
+    va_copy(copy, args);
+    const int needed =
+        vsnprintf(line->text + line->used, sizeof(line->text) - line->used, format, copy);
+    va_end(copy);
+    if (needed >= 0 && (size_t)needed < sizeof(line->text) - line->used) {
+      line->used += (size_t)needed;
+      return;
+    }
+    log_line_flush(line);
+    line->direct = 1;
+  }
+  vfprintf(line->output, format, args);
+}
+
+/** Add one printf-formatted piece to @p line */
+static void log_line_append(struct LogLine *line, const char *format, ...) {
+  va_list args;
+  va_start(args, format);
+  log_line_vappend(line, format, args);
+  va_end(args);
+}
+
 /**
  * @brief   Shared log emitter used by log_message() and log_io_error()
  *
  * Handles stream selection, the task prefix (`task <n>: ` when NTask > 1),
  * colour, the verbosity-dependent header, an optional context prefix (used
  * for I/O logs), the message body, trailing newline, and flushing for errors.
+ * The line is assembled in one buffer and written with a single call (see
+ * struct LogLine), so another rank's output cannot land inside it.
  * Level filtering is done by the callers.
  */
 static void emit_log(LogLevel level, const char *file, int line, const char *prefix,
@@ -262,10 +319,15 @@ static void emit_log(LogLevel level, const char *file, int line, const char *pre
     }
   }
 
+  struct LogLine text;
+  text.output = output;
+  text.used = 0;
+  text.direct = 0;
+
   /* Multi-task runs interleave every rank's lines on one stream: tag each with its rank.
    * Serial runs (NTask <= 1) emit exactly the bytes they always did. */
   if (NTask > 1) {
-    fprintf(output, "task %d: ", ThisTask);
+    log_line_append(&text, "task %d: ", ThisTask);
   }
 
   /* Print header - format depends on verbosity setting */
@@ -277,30 +339,31 @@ static void emit_log(LogLevel level, const char *file, int line, const char *pre
     strftime(time_str, sizeof(time_str), "%H:%M:%S", localtime(&now));
     const char *filename = strrchr(file, '/');
     filename = filename ? filename + 1 : file;
-    fprintf(output, "%s[%s] %s - %s:%d - ", colour_start, time_str, level_names[level], filename,
-            line);
+    log_line_append(&text, "%s[%s] %s - %s:%d - ", colour_start, time_str, level_names[level],
+                    filename, line);
   } else if (current_log_level >= LOG_LEVEL_WARNING || level >= LOG_LEVEL_WARNING) {
     /* Quiet mode or warnings/errors: show level prefix */
-    fprintf(output, "%s%s: ", colour_start, level_names[level]);
+    log_line_append(&text, "%s%s: ", colour_start, level_names[level]);
   } else {
     /* Normal mode (default): clean output, just the message */
-    fprintf(output, "%s", colour_start);
+    log_line_append(&text, "%s", colour_start);
   }
 
   if (prefix != NULL) {
-    fprintf(output, "%s", prefix);
+    log_line_append(&text, "%s", prefix);
   }
 
-  vfprintf(output, format, args);
+  log_line_vappend(&text, format, args);
 
   if (colour_end[0] != '\0') {
-    fprintf(output, "%s", colour_end);
+    log_line_append(&text, "%s", colour_end);
   }
 
   /* Add newline if not already present */
   if (format[strlen(format) - 1] != '\n') {
-    fprintf(output, "\n");
+    log_line_append(&text, "\n");
   }
+  log_line_flush(&text);
 
   /* Flush output immediately for errors and fatal messages */
   if (level >= LOG_LEVEL_ERROR) {

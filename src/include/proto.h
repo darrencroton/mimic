@@ -109,12 +109,22 @@ void run_horizontal_driver(void);
  * run_horizontal_driver() returns, so the master registration outlives the driver
  * and is disarmed by horizontal_driver_clear_output_paths() once
  * write_master_file() has succeeded; any failure before that point runs
- * horizontal_driver_remove_incomplete_outputs() from bye(), which removes whatever
- * is still armed — the in-flight partition and the master — while every partition
- * file that already closed survives as final output. Both are no-ops for a
- * vertical run, which registers nothing. */
+ * horizontal_driver_remove_incomplete_outputs() from bye(), or from myexit() under
+ * NTask > 1, which makes the same two removal calls before MPI_Abort (bye() does
+ * not run after it). It removes whatever is still armed — the in-flight partition
+ * and the master — while every partition file that already closed survives as
+ * final output. Both are no-ops for a vertical run, which registers nothing. */
 void horizontal_driver_remove_incomplete_outputs(void);
 void horizontal_driver_clear_output_paths(void);
+
+/* Exported from the horizontal driver for the unit tests only. */
+struct SnapshotSlab;              /* io/horizontal/reader.h */
+struct HorizontalForestPartition; /* core/horizontal_partition.h */
+/* Rebase a range-loaded slab's link fields from snapshot rows to slab-local rows. */
+void horizontal_rebase_slab_links(struct SnapshotSlab *slab,
+                                  const struct HorizontalForestPartition *partition, int task);
+/* Bytes the partition's cut and row tables hold resident on one task. */
+int64_t horizontal_partition_resident_bytes(const struct HorizontalForestPartition *partition);
 
 /* Horizontal-side counterparts of the vertical driver's progenitor lookup
  * (build_model.c). They take the retained generations as one bundle so the
@@ -139,7 +149,6 @@ void horizontal_gather_progenitor_galaxies(struct HaloInputView view,
  * names as its descendant's, or the slab's own snapshot when none of them has a
  * descendant (an empty snapshot included). The driver releases the generation
  * once that snapshot has been processed. Declared for the packages' unit tests. */
-struct SnapshotSlab; /* io/horizontal/reader.h */
 int64_t horizontal_generation_horizon(const struct SnapshotSlab *slab);
 
 #endif /* #ifndef CORE_PROTO_H */

@@ -260,8 +260,9 @@ def validate_processing_modes(modules: List[Dict[str, Any]]) -> List[str]:
 
     for module in modules:
         module_name = module["name"]
-        # Checked before the utility shortcut: a utility collection advertises no
-        # process_snapshot, so any snapshot_distribution key on it is an error.
+        # Checked before the utility shortcut: a utility collection runs no process_snapshot
+        # callback, so snapshot_distribution_errors() rejects the key on it, whatever the
+        # value and even if its metadata lists process_snapshot.
         for message in snapshot_distribution_errors(module):
             errors.append(f"{module_name}/module_info.yaml: {message}")
 

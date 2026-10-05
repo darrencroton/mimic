@@ -13,6 +13,7 @@
 #include "horizontal/reader.h"
 #include "vertical/reader.h"
 
+#include <dirent.h>
 #include <hdf5.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -32,9 +33,9 @@ static int master_prepare_calls;
 static int master_teardown_calls;
 
 /*
- * The real per-file HDF5 writer, compiled into this translation unit so the
- * writer-side task derivation in open_hdf5_output_file() can be checked against
- * the partition source (test_writer_task_matches_partition_source). The unit
+ * The real per-file HDF5 writer, compiled into this translation unit so that
+ * open_hdf5_output_file() can be checked to name a file by the task it is given
+ * (test_writer_names_file_by_given_task). The unit
  * runner links src/io/output/hdf5.c only for the tests it names
  * (tests/unit/run_tests.sh), and allvars.c is compiled without -DHDF5 there, so
  * this file supplies the per-file HDF5 globals and stubs the two metadata_hdf5.c
@@ -650,30 +651,37 @@ static int test_tree_output_partition_source_wraps_configured_reader(void) {
   return TEST_PASS;
 }
 
-/**
- * @test    test_multi_task_snapshot_partitions_and_master_carry_task
- * @brief   Under NTask > 1 the horizontal source and master name every partition by snapshot and
- *          task
- *
- * NTask = 3 and NOUT = 2 are set by hand (the driver itself still refuses
- * NTask > 1). The requested list is unsorted so that a partition's snapshot
- * index, snapshot number and partition index all disagree: partition p must
- * carry requested snapshot p % NOUT, be written by task p / NOUT, and be
- * named and linked with both. The vertical source under the same task count
- * must still report no task component, and the unsuffixed names must not
- * appear in the master.
+/* Remove a flat temporary directory and every file in it. */
+static void remove_temp_dir(const char *dir) {
+  DIR *handle = opendir(dir);
+  if (handle != NULL) {
+    const struct dirent *entry;
+    while ((entry = readdir(handle)) != NULL) {
+      if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+        continue;
+      }
+      char path[512];
+      snprintf(path, sizeof(path), "%s/%s", dir, entry->d_name);
+      unlink(path);
+    }
+    closedir(handle);
+  }
+  rmdir(dir);
+}
+
+/*
+ * The NTask = 3 case's checks, run against an existing temporary directory by
+ * test_multi_task_snapshot_partitions_and_master_carry_task(), which owns the
+ * cleanup: an assertion returning from here early still ends in that cleanup,
+ * so a failure never leaves NTask set for the cases that follow.
  */
-static int test_multi_task_snapshot_partitions_and_master_carry_task(void) {
-  char dir_template[] = "/tmp/mimic_master_tasks_XXXXXX";
+static int check_multi_task_snapshot_partitions(const char *dir_template) {
   const int requested[] = {7, 2};
   const int nout = (int)(sizeof(requested) / sizeof(requested[0]));
   const int ntask = 3;
   const int expected_ids[] = {7, 2, 7, 2, 7, 2};
   const int expected_tasks[] = {0, 0, 1, 1, 2, 2};
   hid_t master_file_id;
-
-  TEST_ASSERT(create_temp_output_dir(dir_template) == TEST_PASS,
-              "temporary output directory should be available");
 
   memset(&MimicConfig, 0, sizeof(MimicConfig));
   MimicConfig.ProcessingOrder = (int)INPUT_PROCESSING_ORDER_HORIZONTAL;
@@ -763,126 +771,123 @@ static int test_multi_task_snapshot_partitions_and_master_carry_task(void) {
   TEST_ASSERT_EQUAL(vertical_source.partition_task(1), -1,
                     "a tree partition carries no task component under NTask > 1");
   MimicConfig.ProcessingOrder = (int)INPUT_PROCESSING_ORDER_HORIZONTAL;
+  return TEST_PASS;
+}
 
-  for (int partition = 0; partition < nout * ntask; partition++) {
-    char path[512];
-    output_path_hdf5(path, sizeof(path), expected_ids[partition], expected_tasks[partition]);
-    unlink(path);
-  }
-  char master_path[512];
-  snprintf(master_path, sizeof(master_path), "%s/model.hdf5", dir_template);
-  unlink(master_path);
-  rmdir(dir_template);
+/**
+ * @test    test_multi_task_snapshot_partitions_and_master_carry_task
+ * @brief   Under NTask > 1 the horizontal source and master name every partition by snapshot and
+ *          task
+ *
+ * NTask = 3 and NOUT = 2 are set by hand: NTask > 1 is accepted at configuration
+ * time and the horizontal driver distributes, but this unit test drives the
+ * source and the master writer directly, without a driver. The requested list is
+ * unsorted so that a partition's snapshot index, snapshot number and partition
+ * index all disagree: partition p must carry requested snapshot p % NOUT, be
+ * written by task p / NOUT, and be named and linked with both. The vertical
+ * source under the same task count must still report no task component, and the
+ * unsuffixed names must not appear in the master.
+ *
+ * The checks live in check_multi_task_snapshot_partitions(); this wrapper runs
+ * them and then always resets ThisTask/NTask and removes the temporary directory,
+ * whatever the checks returned.
+ */
+static int test_multi_task_snapshot_partitions_and_master_carry_task(void) {
+  /* SETUP */
+  char dir_template[] = "/tmp/mimic_master_tasks_XXXXXX";
+  TEST_ASSERT(create_temp_output_dir(dir_template) == TEST_PASS,
+              "temporary output directory should be available");
 
+  /* EXECUTE and VALIDATE */
+  const int result = check_multi_task_snapshot_partitions(dir_template);
+
+  /* CLEANUP: the single path every outcome takes */
   ThisTask = 0;
   NTask = 0;
-  return TEST_PASS;
+  remove_temp_dir(dir_template);
+  return result;
 }
 
 /* Whether a file exists at @p path. */
 static int file_exists(const char *path) { return access(path, F_OK) == 0; }
 
-/* Open one partition through the real writer and assert it landed at exactly
- * output_path_hdf5(id, partition_task(p)), and nowhere else. */
-static int assert_writer_opens_partition_path(const struct OutputPartitionSource *source,
-                                              int partition) {
-  const int output_id = source->partition_output_id(partition);
-  const int task = source->partition_task(partition);
+/* Open one partition through the real writer with @p task and assert it landed at
+ * exactly output_path_hdf5(id, task), and at no other partition name. */
+static int assert_writer_names_file_by_task(int output_id, int task, int other_task) {
   char expected[512], other[512];
   output_path_hdf5(expected, sizeof(expected), output_id, task);
-  /* The name the writer would produce had it disagreed with the source: the
-   * unsuffixed one for a task partition, this task's suffix for an untasked one. */
-  output_path_hdf5(other, sizeof(other), output_id, task >= 0 ? -1 : current_task_id());
+  output_path_hdf5(other, sizeof(other), output_id, other_task);
 
-  open_hdf5_output_file(output_id, source->partition_snapshots(partition));
+  const int index = 0;
+  const struct OutputSnapshotSelection selection = {1, &index};
+  open_hdf5_output_file(output_id, task, selection);
   TEST_ASSERT(HDF5_current_file_id >= 0, "the writer should leave the partition file open");
   TEST_ASSERT(H5Fclose(HDF5_current_file_id) >= 0, "the partition file should close");
   HDF5_current_file_id = -1;
 
-  TEST_ASSERT(file_exists(expected),
-              "the writer creates output_path_hdf5(id, partition_task(p)) for partition p");
-  TEST_ASSERT(!file_exists(other), "the writer creates no file under any other partition name");
+  TEST_ASSERT(file_exists(expected), "the writer creates the file named by the task it is given");
+  TEST_ASSERT(!file_exists(other), "the writer creates no file under the other partition name");
   unlink(expected);
   return TEST_PASS;
 }
 
-/**
- * @test    test_writer_task_matches_partition_source
- * @brief   open_hdf5_output_file() names a partition exactly as the partition source does
- *
- * The writer derives the open file's task component itself (horizontal and
- * NTask > 1: this task's id; otherwise none), while the master derives it from
- * partition_task(p). A disagreement would make write_master_file() skip the
- * file as missing -- an INFO line and a successful exit -- so the two are
- * pinned against each other here through the real writer. Under NTask = 3 and
- * ThisTask = 1 the horizontal driver writes partition p = 1 * NOUT + index for
- * requested snapshot `index`; with NTask unset it writes p = index, untasked.
- * A vertical run under NTask > 1 (which ships today) must stay untasked too:
- * the writer reads NTask for every processing order, so only its horizontal
- * guard keeps a vertical MPI run's file names unsuffixed.
+/*
+ * The writer case's checks, run against an existing temporary directory by
+ * test_writer_names_file_by_given_task(), which owns the cleanup.
  */
-static int test_writer_task_matches_partition_source(void) {
-  char dir_template[] = "/tmp/mimic_writer_task_XXXXXX";
-  const int requested[] = {7, 2};
-  const int nout = (int)(sizeof(requested) / sizeof(requested[0]));
-  const int index = 1;
-
-  TEST_ASSERT(create_temp_output_dir(dir_template) == TEST_PASS,
-              "temporary output directory should be available");
+static int check_writer_names_file_by_given_task(const char *dir_template) {
+  const int snapnum = 4;
 
   memset(&MimicConfig, 0, sizeof(MimicConfig));
   MimicConfig.ProcessingOrder = (int)INPUT_PROCESSING_ORDER_HORIZONTAL;
-  MimicConfig.horizontal_reader = &HorizontalSourceReader;
   MimicConfig.OutputFormat = output_hdf5;
-  MimicConfig.NOUT = nout;
+  MimicConfig.NOUT = 1;
+  MimicConfig.ListOutputSnaps[0] = snapnum;
   snprintf(MimicConfig.OutputDir, sizeof(MimicConfig.OutputDir), "%s", dir_template);
   snprintf(MimicConfig.OutputFileBaseName, sizeof(MimicConfig.OutputFileBaseName), "%s", "model");
-  for (int n = 0; n < nout; n++) {
-    MimicConfig.ListOutputSnaps[n] = requested[n];
-  }
   calc_hdf5_props();
 
+  /* The task layout is set to disagree with the given task each time, so only the
+   * argument can be what names the file. */
   ThisTask = 1;
   NTask = 3;
-  struct OutputPartitionSource source = get_output_partition_source();
-  const int task_partition = 1 * nout + index;
-  TEST_ASSERT_EQUAL(source.partition_task(task_partition), 1,
-                    "task 1 writes partition NOUT + index");
-  TEST_ASSERT_EQUAL(source.partition_output_id(task_partition), requested[index],
-                    "task 1's partition carries the requested snapshot at that index");
-  TEST_ASSERT(assert_writer_opens_partition_path(&source, task_partition) == TEST_PASS,
-              "under NTask = 3 the writer names task 1's partition as the source does");
+  TEST_ASSERT(assert_writer_names_file_by_task(snapnum, -1, 1) == TEST_PASS,
+              "task -1 names an unsuffixed file whatever the run's task layout");
 
   ThisTask = 0;
   NTask = 0;
-  source = get_output_partition_source();
-  TEST_ASSERT_EQUAL(source.partition_task(index), -1,
-                    "a serial run's partition carries no task component");
-  TEST_ASSERT(assert_writer_opens_partition_path(&source, index) == TEST_PASS,
-              "with NTask unset the writer keeps the unsuffixed name, as the source does");
-
-  /* A vertical multi-task run: task 1 of 3 writing an enumerated input chunk. */
-  const struct MimicConfig horizontal_config = MimicConfig;
-  reset_master_partitions();
-  master_npartitions = 1;
-  master_output_ids[0] = 4;
-  master_exists[0] = 1;
-  MimicConfig.ProcessingOrder = (int)INPUT_PROCESSING_ORDER_VERTICAL;
-  MimicConfig.vertical_reader = &EnumeratedMasterReader;
-  ThisTask = 1;
-  NTask = 3;
-  struct OutputPartitionSource vertical_source = get_output_partition_source();
-  TEST_ASSERT_EQUAL(vertical_source.partition_task(0), -1,
-                    "a vertical partition carries no task component under NTask = 3");
-  TEST_ASSERT(assert_writer_opens_partition_path(&vertical_source, 0) == TEST_PASS,
-              "under NTask = 3 a vertical run's file keeps the unsuffixed name, never _task001");
-  ThisTask = 0;
-  NTask = 0;
-  MimicConfig = horizontal_config;
-
-  free_hdf5_ids();
-  rmdir(dir_template);
+  TEST_ASSERT(assert_writer_names_file_by_task(snapnum, 2, -1) == TEST_PASS,
+              "task 2 names a _task002 file whatever the run's task layout");
   return TEST_PASS;
+}
+
+/**
+ * @test    test_writer_names_file_by_given_task
+ * @brief   open_hdf5_output_file() names the partition file by the task it is given
+ *
+ * The horizontal driver passes the task it reads from partition_task(p) and the
+ * vertical driver passes -1, so the writer must name the file by that argument
+ * alone: a disagreement with the master's name would make write_master_file()
+ * skip the file as missing, an INFO line and a successful exit. Checked for task
+ * -1 and a positive task, each under a task layout that points the other way.
+ * The names themselves are pinned through output_path_hdf5() by the master cases.
+ */
+static int test_writer_names_file_by_given_task(void) {
+  /* SETUP */
+  char dir_template[] = "/tmp/mimic_writer_task_XXXXXX";
+  TEST_ASSERT(create_temp_output_dir(dir_template) == TEST_PASS,
+              "temporary output directory should be available");
+
+  /* EXECUTE and VALIDATE */
+  const int result = check_writer_names_file_by_given_task(dir_template);
+
+  /* CLEANUP: the single path every outcome takes */
+  ThisTask = 0;
+  NTask = 0;
+  HDF5_current_file_id = -1;
+  free_hdf5_ids();
+  remove_temp_dir(dir_template);
+  return result;
 }
 
 /** @brief Main test runner */
@@ -901,7 +906,7 @@ int main(void) {
   TEST_RUN(test_snapshot_master_links_each_snapshot_to_its_own_partition);
   TEST_RUN(test_tree_output_partition_source_wraps_configured_reader);
   TEST_RUN(test_multi_task_snapshot_partitions_and_master_carry_task);
-  TEST_RUN(test_writer_task_matches_partition_source);
+  TEST_RUN(test_writer_names_file_by_given_task);
 
   TEST_SUMMARY();
   return TEST_RESULT();

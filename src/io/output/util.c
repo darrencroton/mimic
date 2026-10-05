@@ -32,31 +32,50 @@ void output_path_binary(char *buf, size_t size, int filenr, int snap_index) {
   }
 }
 
-void output_path_hdf5(char *buf, size_t size, int filenr, int task) {
+void output_partition_basename(char *buf, size_t size, int filenr, int task) {
   int written;
   if (task < 0) {
-    written = snprintf(buf, size, "%s/%s_%03d.hdf5", MimicConfig.OutputDir,
-                       MimicConfig.OutputFileBaseName, filenr);
+    written = snprintf(buf, size, "%s_%03d.hdf5", MimicConfig.OutputFileBaseName, filenr);
   } else {
-    written = snprintf(buf, size, "%s/%s_%03d_task%03d.hdf5", MimicConfig.OutputDir,
-                       MimicConfig.OutputFileBaseName, filenr, task);
+    written =
+        snprintf(buf, size, "%s_%03d_task%03d.hdf5", MimicConfig.OutputFileBaseName, filenr, task);
   }
+  if (written < 0 || (size_t)written >= size) {
+    FATAL_ERROR("HDF5 output file name too long (filenr %d, task %d)", filenr, task);
+  }
+}
+
+void output_path_hdf5(char *buf, size_t size, int filenr, int task) {
+  char name[sizeof(MimicConfig.OutputFileBaseName) + 50];
+  output_partition_basename(name, sizeof(name), filenr, task);
+
+  const int written = snprintf(buf, size, "%s/%s", MimicConfig.OutputDir, name);
   if (written < 0 || (size_t)written >= size) {
     FATAL_ERROR("HDF5 output path too long (filenr %d, task %d)", filenr, task);
   }
 }
 
-void prepare_output_files(int filenr, struct OutputSnapshotSelection selection) {
+void output_master_path_hdf5(char *buf, size_t size) {
+  const int written =
+      snprintf(buf, size, "%s/%s.hdf5", MimicConfig.OutputDir, MimicConfig.OutputFileBaseName);
+  if (written < 0 || (size_t)written >= size) {
+    FATAL_ERROR("Master HDF5 output path too long: %s/%s.hdf5", MimicConfig.OutputDir,
+                MimicConfig.OutputFileBaseName);
+  }
+}
+
+void prepare_output_files(int filenr, int task, struct OutputSnapshotSelection selection) {
 #ifdef HDF5
   if (MimicConfig.OutputFormat == output_hdf5) {
-    open_hdf5_output_file(filenr, selection);
+    open_hdf5_output_file(filenr, task, selection);
     return;
   }
 #endif
   /* Binary output is vertical-only (rejected at configuration time for
-   * horizontal runs), so it always carries every requested snapshot; the
-   * selection is not consulted here. */
+   * horizontal runs), so it always carries every requested snapshot and has no
+   * task component; neither the selection nor the task is consulted here. */
   (void)selection;
+  (void)task;
   create_binary_output_files(filenr);
 }
 

@@ -806,14 +806,139 @@ static void log_audit(const struct SnapshotContext *ctx, const struct HodAuditTo
 }
 
 /**
+ * What one task's audit of its own population produced, before any reduction.
+ *
+ * `failed` is local: a failing task keeps going so that it still reaches every
+ * collective. `count` is the population the task audits, 0 when the population
+ * handed in was unusable. `bins` is empty until audit_fill_local() lays it out.
+ */
+struct HodAuditLocal {
+  int failed;    /**< This task's own audit failed (not yet agreed by any collective) */
+  int64_t count; /**< Rows this task audits; 0 after an invalid population */
+  struct HodAuditTotals totals; /**< Scan totals; the sums are global only after the reduction */
+  struct HodAuditBins bins;     /**< Per-bin sums; allocated by audit_fill_local() */
+};
+
+/**
+ * @brief Validate this task's population and run the first pass over it
+ *
+ * Step 1 of the audit. No collective is called here. A task whose population is
+ * unusable still takes part in the collectives, with nothing to audit
+ * (`local->count == 0`). On a scan failure `local->totals` holds the partial
+ * totals of the rows read before it, which the extent collective reduces
+ * regardless.
+ */
+static void audit_scan_local(const struct Halo *halos, int64_t count, struct HodAuditLocal *local) {
+  *local = (struct HodAuditLocal){0};
+  if (count < 0 || (count > 0 && halos == NULL)) {
+    ERROR_LOG("%s audit: invalid population (halos=%p, count=%lld)", HOD_MODULE_NAME,
+              (const void *)halos, (long long)count);
+    local->failed = 1;
+  }
+  local->count = local->failed ? 0 : count;
+  if (audit_scan(halos, local->count, &local->totals) != 0) {
+    local->failed = 1;
+  }
+}
+
+/**
+ * @brief Fix the bin layout from the reduced extent and attribute the sample to the bins
+ *
+ * Step 3 of the audit, after the extent collective. @p extent_failed is that
+ * collective's outcome; the extent (`local->totals.log_min`/`log_max`) is
+ * global only when it succeeded. The layout depends only on the reduced extent,
+ * so every task allocates the same `bins.count` (possibly 0). After a failed
+ * extent collective the layout is empty on every task and the failure is
+ * reported by the caller. No collective is called here; a failure sets
+ * `local->failed`.
+ */
+static void audit_fill_local(const struct Halo *halos, int extent_failed,
+                             struct HodAuditLocal *local) {
+  struct HodAuditTotals *totals = &local->totals;
+  // <N(M)> realised versus expected in HOD_AUDIT_BIN_DEX bins over the host mass range.
+  if (!extent_failed && totals->log_max >= totals->log_min) {
+    const double log_lo = floor(totals->log_min / HOD_AUDIT_BIN_DEX) * HOD_AUDIT_BIN_DEX;
+    audit_bins_allocate(&local->bins,
+                        (int)floor((totals->log_max - log_lo) / HOD_AUDIT_BIN_DEX) + 1, log_lo);
+  }
+  if (local->failed || extent_failed) {
+    return;
+  }
+  if (totals->realised_all > 0 && local->bins.count == 0) {
+    ERROR_LOG("%s audit: %lld sample rows but no Type 0 host with a positive mass", HOD_MODULE_NAME,
+              (long long)totals->realised_all);
+    local->failed = 1;
+  } else if (local->bins.count > 0 &&
+             fill_audit_bins(halos, local->count, totals->hosts, &local->bins) != 0) {
+    local->failed = 1;
+  }
+}
+
+/**
+ * @brief Reduce the bins and totals over every task, agree on failure and report
+ *
+ * Step 4 of the audit: the collectives that follow the layout. Every task makes
+ * every call, in the same order and with the same `n`, whatever its local state.
+ * @p collective_failed carries the extent collective's outcome. On success the
+ * root task logs the whole-population audit; on failure a task whose own audit
+ * did not fail logs that another task or a collective did.
+ *
+ * @return 0 when no task failed, -1 otherwise (the same on every task)
+ */
+static int audit_reduce_and_report(const struct SnapshotContext *ctx, struct HodAuditLocal *local,
+                                   int collective_failed) {
+  struct HodAuditTotals *totals = &local->totals;
+  struct HodAuditBins *bins = &local->bins;
+
+  // hosts[] and realised[] are one contiguous block of 2 * bins->count counts.
+  int64_t counts[3] = {totals->hosts, totals->realised_all, totals->realised_sat};
+  double sums[2] = {totals->expected_all, totals->expected_sat};
+  // Separate statements, not ||: every call is made even after one has failed.
+  if (module_snapshot_sum_i64(ctx, bins->hosts, 2 * bins->count) != 0) {
+    collective_failed = 1;
+  }
+  if (module_snapshot_sum_i64(ctx, counts, 3) != 0) {
+    collective_failed = 1;
+  }
+  if (module_snapshot_sum_f64(ctx, bins->expected, bins->count) != 0) {
+    collective_failed = 1;
+  }
+  if (module_snapshot_sum_f64(ctx, sums, 2) != 0) {
+    collective_failed = 1;
+  }
+
+  const int any_failed = module_snapshot_any(ctx, local->failed || collective_failed);
+  if (any_failed == 0) {
+    totals->hosts = counts[0];
+    totals->realised_all = counts[1];
+    totals->realised_sat = counts[2];
+    totals->expected_all = sums[0];
+    totals->expected_sat = sums[1];
+    if (module_snapshot_is_root_task()) {
+      log_audit(ctx, totals, bins);
+    }
+  } else if (!local->failed) {
+    ERROR_LOG("%s audit: snapshot %d (z=%.4f) failed on another task or in a snapshot collective",
+              HOD_MODULE_NAME, ctx->snapshot_number, ctx->redshift);
+  }
+  return any_failed == 0 ? 0 : -1;
+}
+
+/**
+ * Audit of an output snapshot: scan, extent collective, layout and fill, then
+ * the remaining collectives and the report.
+ *
  * Collectives, in the order every task reaches them on an output snapshot:
- * module_snapshot_min_max_f64() on the host log-mass extent (before the bin
- * layout is fixed), module_snapshot_sum_i64() on hosts[] and realised[] and then
- * on the scalar counts, module_snapshot_sum_f64() on expected[] and then on the
- * scalar sums, and module_snapshot_any() on the failure flag. A local failure
- * sets the flag instead of returning, so no call depends on a local count; the
- * bin layout depends only on the reduced extent, so every task passes the same
- * `n`.
+ * module_snapshot_min_max_f64() on the host log-mass extent (n = 1, before the
+ * bin layout is fixed), module_snapshot_sum_i64() on hosts[] and realised[]
+ * (n = 2 * bins.count) and then on the scalar counts (n = 3),
+ * module_snapshot_sum_f64() on expected[] (n = bins.count) and then on the
+ * scalar sums (n = 2), and module_snapshot_any() on the failure flag. A local
+ * failure sets the flag instead of returning, so no call depends on a local
+ * count; the bin layout depends only on the reduced extent, so every task passes
+ * the same `n`. The helpers keep that order: audit_scan_local() and
+ * audit_fill_local() call no collective, and audit_reduce_and_report() makes
+ * every call after the extent.
  */
 int hod_populate_process_snapshot(const struct SnapshotContext *ctx, const struct Halo *halos,
                                   int64_t count) {
@@ -826,77 +951,19 @@ int hod_populate_process_snapshot(const struct SnapshotContext *ctx, const struc
     return 0;
   }
 
-  int failed = 0;
-  int collective_failed = 0;
-  if (count < 0 || (count > 0 && halos == NULL)) {
-    ERROR_LOG("%s audit: invalid population (halos=%p, count=%lld)", HOD_MODULE_NAME,
-              (const void *)halos, (long long)count);
-    failed = 1;
-  }
-  // A task whose population is unusable still takes part, with nothing to audit.
-  const int64_t local_count = failed ? 0 : count;
-
-  struct HodAuditTotals totals;
-  if (audit_scan(halos, local_count, &totals) != 0) {
-    failed = 1;
-  }
+  struct HodAuditLocal local;
+  audit_scan_local(halos, count, &local);
 
   // The extent is seeded with +/-HUGE_VAL and folded with fmin/fmax, so it is NaN-free.
-  if (module_snapshot_min_max_f64(ctx, &totals.log_min, &totals.log_max, 1) != 0) {
-    collective_failed = 1;
+  int extent_failed = 0;
+  if (module_snapshot_min_max_f64(ctx, &local.totals.log_min, &local.totals.log_max, 1) != 0) {
+    extent_failed = 1;
   }
 
-  // <N(M)> realised versus expected in HOD_AUDIT_BIN_DEX bins over the host mass range.
-  struct HodAuditBins bins = {0};
-  if (!collective_failed && totals.log_max >= totals.log_min) {
-    const double log_lo = floor(totals.log_min / HOD_AUDIT_BIN_DEX) * HOD_AUDIT_BIN_DEX;
-    audit_bins_allocate(&bins, (int)floor((totals.log_max - log_lo) / HOD_AUDIT_BIN_DEX) + 1,
-                        log_lo);
-  }
-  // After a failed extent collective the layout is empty on every task; it is reported below.
-  if (!failed && !collective_failed) {
-    if (totals.realised_all > 0 && bins.count == 0) {
-      ERROR_LOG("%s audit: %lld sample rows but no Type 0 host with a positive mass",
-                HOD_MODULE_NAME, (long long)totals.realised_all);
-      failed = 1;
-    } else if (bins.count > 0 && fill_audit_bins(halos, local_count, totals.hosts, &bins) != 0) {
-      failed = 1;
-    }
-  }
-
-  // hosts[] and realised[] are one contiguous block of 2 * bins.count counts.
-  int64_t counts[3] = {totals.hosts, totals.realised_all, totals.realised_sat};
-  double sums[2] = {totals.expected_all, totals.expected_sat};
-  // Separate statements, not ||: every call is made even after one has failed.
-  if (module_snapshot_sum_i64(ctx, bins.hosts, 2 * bins.count) != 0) {
-    collective_failed = 1;
-  }
-  if (module_snapshot_sum_i64(ctx, counts, 3) != 0) {
-    collective_failed = 1;
-  }
-  if (module_snapshot_sum_f64(ctx, bins.expected, bins.count) != 0) {
-    collective_failed = 1;
-  }
-  if (module_snapshot_sum_f64(ctx, sums, 2) != 0) {
-    collective_failed = 1;
-  }
-
-  const int any_failed = module_snapshot_any(ctx, failed || collective_failed);
-  if (any_failed == 0) {
-    totals.hosts = counts[0];
-    totals.realised_all = counts[1];
-    totals.realised_sat = counts[2];
-    totals.expected_all = sums[0];
-    totals.expected_sat = sums[1];
-    if (module_snapshot_is_root_task()) {
-      log_audit(ctx, &totals, &bins);
-    }
-  } else if (!failed) {
-    ERROR_LOG("%s audit: snapshot %d (z=%.4f) failed on another task or in a snapshot collective",
-              HOD_MODULE_NAME, ctx->snapshot_number, ctx->redshift);
-  }
-  audit_bins_release(&bins);
-  return any_failed == 0 ? 0 : -1;
+  audit_fill_local(halos, extent_failed, &local);
+  const int status = audit_reduce_and_report(ctx, &local, extent_failed);
+  audit_bins_release(&local.bins);
+  return status;
 }
 
 int hod_populate_cleanup(void) {

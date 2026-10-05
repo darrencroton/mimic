@@ -41,7 +41,7 @@ rg -n "<PropertyName>" src models simulations plot tests \
 
 One compiled set at a time (`MODEL=` + `SIMULATION=`). A property name must be unique across all three files; incompatible duplicates fail at generation. A name that is both an on-disk field and a core property (e.g. `SnapNum`, `Len`) is bound via `provides_core_role`, not duplicated.
 
-The core `required_inputs` roles that a simulation package must bind with `provides_core_role`: `Descendant`, `FirstProgenitor`, `NextProgenitor`, `FirstHaloInFOFgroup`, `NextHaloInFOFgroup` (tree links), `SnapNum` (index), `Len` (count), `HaloMass` (mass). The generator emits `mimic_tree_get_<Role>()` accessors so core traversal never hard-codes catalog names.
+The core `required_inputs` roles that a simulation package must bind with `provides_core_role`: `Descendant`, `FirstProgenitor`, `NextProgenitor`, `FirstHaloInFOFgroup`, `NextHaloInFOFgroup` (tree links), `SnapNum` (index), `Len` (count), `HaloMass` (mass). The generator emits `mimic_tree_get_<Role>()` accessors so core traversal never hard-codes catalog names, and a `mimic_tree_set_<Role>()` setter for each of the five link roles beside the getters (driver-only: the horizontal driver uses them to rebase links to local rows).
 
 ## 2. The per-property schema (as the generator enforces it)
 

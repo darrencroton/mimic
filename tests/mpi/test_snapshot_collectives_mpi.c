@@ -33,8 +33,8 @@
  *
  * Build and run by hand from the repository root after `make generate` (the gate
  * does this): compile this file, src/core/snapshot_collectives.c and every
- * src/util source with `mpicc -DMPI`, the include paths of tests/unit/run_tests.sh
- * plus -Ibuild/generated, and libyaml and -lm; then run the binary under
+ * src/util source with `mpicc -DMPI -O2`, the include paths of tests/unit/run_tests.sh
+ * plus -Ibuild/generated, and -lm only (no libyaml); then run the binary under
  * `mpirun -np 3`.
  */
 

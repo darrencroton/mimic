@@ -458,15 +458,6 @@ cleanup:
  * Public collectives
  * ========================================================================== */
 
-/** @brief Whether this call takes the multi-task path (MPI build and NTask > 1) */
-static int distributed(void) {
-#ifdef MPI
-  return effective_task_count() > 1;
-#else
-  return 0;
-#endif
-}
-
 int module_snapshot_rank(const struct SnapshotContext *ctx, const struct SnapshotRankKey *keys,
                          int64_t count, int64_t *ranks) {
   (void)ctx;
@@ -475,7 +466,7 @@ int module_snapshot_rank(const struct SnapshotContext *ctx, const struct Snapsho
   }
 
 #ifdef MPI
-  if (distributed()) {
+  if (run_is_distributed()) {
     const int local_failed = validate_rank_keys(keys, count, ranks, INT_MAX) != 0;
     return rank_across_tasks(keys, count, ranks, local_failed);
   }
@@ -509,66 +500,100 @@ static int reduction_arguments_valid(const char *function, int n, const void *fi
   return 1;
 }
 
-int module_snapshot_sum_i64(const struct SnapshotContext *ctx, int64_t *values, int n) {
-  static const char function[] = "module_snapshot_sum_i64";
-  (void)ctx;
+/**
+ * @brief   Shared prologue of the reductions: gate, argument check, serial identity, agreement
+ *
+ * Serial runs and non-MPI builds reduce over one task, so the caller's values already are the
+ * result. Under distribution the tasks first agree on the arguments (see
+ * agree_reduction_arguments()), and every task then takes the same decision.
+ *
+ * @param   function  Collective being called, for the messages
+ * @param   n         Element count the caller passed
+ * @param   first     First array the caller passed (may be NULL when n == 0)
+ * @param   second    Second array the caller passed (may be NULL when n == 0)
+ * @param   agreed_n  Set to the element count to reduce: 0 when there is nothing to reduce
+ *                    (serial run, or n == 0 on every task), identically on every task
+ * @return  0 to carry on (reducing when *agreed_n > 0), -1 when the call is refused or invalid
+ */
+static int reduction_prepare(const char *function, int n, const void *first, const void *second,
+                             int *agreed_n) {
+  *agreed_n = 0;
   if (!collective_allowed(function)) {
     return -1;
   }
-  const int valid = reduction_arguments_valid(function, n, values, values);
-  if (!distributed()) {
-    return valid ? 0 : -1; /* the sum over one task is its own values */
+  const int valid = reduction_arguments_valid(function, n, first, second);
+  if (!run_is_distributed()) {
+    return valid ? 0 : -1; /* the reduction over one task is its own values */
   }
 #ifdef MPI
-  int agreed_n = 0;
-  if (agree_reduction_arguments(function, n, valid, &agreed_n) != 0) {
+  if (agree_reduction_arguments(function, n, valid, agreed_n) != 0) {
     return -1;
-  }
-  if (agreed_n > 0) { /* values may be NULL when n == 0 */
-    MPI_Allreduce(MPI_IN_PLACE, values, agreed_n, MPI_INT64_T, MPI_SUM, MPI_COMM_WORLD);
   }
 #endif
   return 0;
 }
 
-int module_snapshot_sum_f64(const struct SnapshotContext *ctx, double *values, int n) {
-  static const char function[] = "module_snapshot_sum_f64";
-  (void)ctx;
-  if (!collective_allowed(function)) {
+#ifdef MPI
+typedef MPI_Datatype ReductionType;
+typedef MPI_Op ReductionOp;
+#define REDUCTION_I64 MPI_INT64_T
+#define REDUCTION_F64 MPI_DOUBLE
+#define REDUCTION_SUM MPI_SUM
+#else
+/* Placeholders keeping reduce_in_place()'s signature the same without MPI, where they are unused.
+ */
+typedef int ReductionType;
+typedef int ReductionOp;
+#define REDUCTION_I64 0
+#define REDUCTION_F64 0
+#define REDUCTION_SUM 0
+#endif
+
+/**
+ * @brief   Reduce one array in place across tasks: the whole body of the scalar sums
+ *
+ * @param   function  Collective being called, for the messages
+ * @param   values    Array reduced in place; may be NULL when n == 0
+ * @param   n         Element count, the same on every task
+ * @param   type      Element datatype
+ * @param   op        Reduction operation
+ * @return  0 on success, -1 on every task when the call is refused, invalid or inconsistent
+ */
+static int reduce_in_place(const char *function, void *values, int n, ReductionType type,
+                           ReductionOp op) {
+  int agreed_n = 0;
+  if (reduction_prepare(function, n, values, values, &agreed_n) != 0) {
     return -1;
-  }
-  const int valid = reduction_arguments_valid(function, n, values, values);
-  if (!distributed()) {
-    return valid ? 0 : -1; /* the sum over one task is its own values */
   }
 #ifdef MPI
-  int agreed_n = 0;
-  if (agree_reduction_arguments(function, n, valid, &agreed_n) != 0) {
-    return -1;
+  if (agreed_n > 0) {
+    MPI_Allreduce(MPI_IN_PLACE, values, agreed_n, type, op, MPI_COMM_WORLD);
   }
-  if (agreed_n > 0) { /* values may be NULL when n == 0 */
-    MPI_Allreduce(MPI_IN_PLACE, values, agreed_n, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-  }
+#else
+  (void)type;
+  (void)op;
 #endif
   return 0;
+}
+
+int module_snapshot_sum_i64(const struct SnapshotContext *ctx, int64_t *values, int n) {
+  (void)ctx;
+  return reduce_in_place("module_snapshot_sum_i64", values, n, REDUCTION_I64, REDUCTION_SUM);
+}
+
+int module_snapshot_sum_f64(const struct SnapshotContext *ctx, double *values, int n) {
+  (void)ctx;
+  return reduce_in_place("module_snapshot_sum_f64", values, n, REDUCTION_F64, REDUCTION_SUM);
 }
 
 int module_snapshot_min_max_f64(const struct SnapshotContext *ctx, double *minima, double *maxima,
                                 int n) {
-  static const char function[] = "module_snapshot_min_max_f64";
   (void)ctx;
-  if (!collective_allowed(function)) {
+  int agreed_n = 0;
+  if (reduction_prepare("module_snapshot_min_max_f64", n, minima, maxima, &agreed_n) != 0) {
     return -1;
-  }
-  const int valid = reduction_arguments_valid(function, n, minima, maxima);
-  if (!distributed()) {
-    return valid ? 0 : -1; /* the extent over one task is its own values */
   }
 #ifdef MPI
-  int agreed_n = 0;
-  if (agree_reduction_arguments(function, n, valid, &agreed_n) != 0) {
-    return -1;
-  }
   if (agreed_n > 0) { /* the arrays may be NULL when n == 0 */
     MPI_Allreduce(MPI_IN_PLACE, minima, agreed_n, MPI_DOUBLE, MPI_MIN, MPI_COMM_WORLD);
     MPI_Allreduce(MPI_IN_PLACE, maxima, agreed_n, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
@@ -584,7 +609,7 @@ int module_snapshot_any(const struct SnapshotContext *ctx, int flag) {
   }
   int any = flag != 0;
 #ifdef MPI
-  if (distributed()) {
+  if (run_is_distributed()) {
     const int local = any;
     MPI_Allreduce(&local, &any, 1, MPI_INT, MPI_LOR, MPI_COMM_WORLD);
   }
@@ -592,4 +617,4 @@ int module_snapshot_any(const struct SnapshotContext *ctx, int flag) {
   return any ? 1 : 0;
 }
 
-int module_snapshot_is_root_task(void) { return !distributed() || current_task_id() == 0; }
+int module_snapshot_is_root_task(void) { return !run_is_distributed() || current_task_id() == 0; }

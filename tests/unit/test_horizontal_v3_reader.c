@@ -13,7 +13,9 @@
  * n_halos above INT32_MAX passes the header and shape checks; bounded link
  * diagnostics; row-range loads against whole loads, range-bound aborts, the
  * ForestIndex scan and open_run without its column scans (on this fixture and
- * the mini-millennium-horizontal worked graph); and freedom from leaks.
+ * the mini-millennium-horizontal worked graph); range reads and the ForestIndex
+ * scan across the reader's 8,192-row block boundary (the wide_slab fixture); and
+ * freedom from leaks.
  *
  * The fixture's /schema declares mini-Millennium L-Halo payload units, which
  * only the mini-millennium-horizontal package declares, so every test that
@@ -2004,6 +2006,125 @@ int test_v3_scan_forest_index_streams_column(void) {
   return TEST_PASS;
 }
 
+/* ---------------------------------------------------------------------------
+ * Multi-block reads (the wide_slab fixture)
+ * ------------------------------------------------------------------------- */
+
+#define WIDE_SLAB_DIR "simulations/mini-millennium-horizontal/_tests/data/wide_slab"
+#define WIDE_SLAB_A_LIST "wide_slab.a_list"
+#define WIDE_SLAB_ROWS 8600
+/* The reader's HORIZONTAL_HDF5_SCAN_BLOCK (private to read_horizontal_hdf5.c): the number of
+   rows it reads or streams at a time. wide_slab's snapshot 0 is wider than one block. */
+#define WIDE_SLAB_SCAN_BLOCK 8192
+#define WIDE_SLAB_MAX_BLOCKS 4
+
+/* What one scan_forest_index pass over wide_slab's snapshot 0 delivered. */
+struct wide_scan_record {
+  const int64_t *expected; /* the whole read's forest_index column */
+  int64_t first_rows[WIDE_SLAB_MAX_BLOCKS];
+  int64_t rows_seen;
+  int calls;
+  int mismatched;
+};
+
+static void record_wide_forest_index(int64_t first_row, const int64_t *values, int64_t count,
+                                     void *user) {
+  struct wide_scan_record *record = user;
+  if (record->calls < WIDE_SLAB_MAX_BLOCKS) {
+    record->first_rows[record->calls] = first_row;
+  }
+  record->calls++;
+  if (first_row != record->rows_seen || count <= 0 || first_row + count > WIDE_SLAB_ROWS ||
+      memcmp(values, record->expected + first_row, (size_t)count * sizeof(int64_t)) != 0) {
+    record->mismatched = 1;
+    return;
+  }
+  record->rows_seen += count;
+}
+
+/**
+ * @test  test_v3_multi_block_range_reads_match_whole_reads
+ * On the wide_slab fixture, whose snapshot 0 holds 8,600 halos in one forest
+ * and so spans two of the reader's 8,192-row blocks, a whole read follows the
+ * fixture's known chain (the FoF group and the progenitor chain are both
+ * row i -> row i + 1, and the mass falls along it), and a handful of ranges
+ * that cross the block boundary or start inside the second block -- [0, count),
+ * [8191, 8193), [100, 8300), [8192, count), [count - 5, count) and one range
+ * wholly inside the second block -- equal the whole read's rows in every
+ * column. scan_forest_index delivers the column in at least two blocks,
+ * starting at rows 0 and 8192, to the full count, equal to the loaded column.
+ * The whole-slab check matters as much as the range checks: a wrong block
+ * offset would corrupt both the same way, so only the known chain tells them
+ * apart from correct reads. Nothing leaks.
+ */
+int test_v3_multi_block_range_reads_match_whole_reads(void) {
+  REQUIRE_FIXTURE_PACKAGE();
+  static const struct v3_dataset wide_slab = {WIDE_SLAB_DIR, WIDE_SLAB_A_LIST, 1, WIDE_SLAB_ROWS};
+  struct HorizontalRunInfo info;
+  configure_for_dataset(&wide_slab);
+  horizontal_reader_open_run(reader(), &FULL_SCAN, &info);
+
+  const int64_t count = horizontal_reader_halo_count(reader(), 0);
+  TEST_ASSERT_EQUAL(count, WIDE_SLAB_ROWS, "wide_slab's snapshot 0 should hold 8,600 halos");
+  TEST_ASSERT(count > WIDE_SLAB_SCAN_BLOCK, "snapshot 0 should be wider than one scan block");
+  TEST_ASSERT_EQUAL(horizontal_reader_halo_count(reader(), 1), 1,
+                    "wide_slab's snapshot 1 should hold one halo");
+
+  struct SnapshotSlab whole = snapshot_slab_empty();
+  load_whole_slab(0, &whole);
+  TEST_ASSERT_EQUAL(whole.nhalos, count, "the whole read should hold every halo");
+
+  int chain_intact = 1;
+  for (int64_t i = 0; i < count && chain_intact; i++) {
+    const struct RawHalo *halo = &whole.halos[i];
+    const int64_t next = i + 1 < count ? i + 1 : -1;
+    chain_intact = halo->Descendant == 0 && halo->FirstProgenitor == -1 &&
+                   halo->NextProgenitor == next && halo->FirstHaloInFOFgroup == 0 &&
+                   halo->NextHaloInFOFgroup == next && halo->SnapNum == 0 &&
+                   whole.forest_index[i] == 0 && whole.descendant_snapshot[i] == 1 &&
+                   (next < 0 || halo->M_Crit200 > whole.halos[next].M_Crit200);
+    if (!chain_intact) {
+      fprintf(stderr, "  row %" PRId64 " departs from the fixture's chain\n", i);
+    }
+  }
+  TEST_ASSERT(chain_intact, "the whole read should follow the fixture's chain across every block");
+
+  const struct {
+    int64_t lo, hi;
+  } ranges[] = {
+      {0, count},         {WIDE_SLAB_SCAN_BLOCK - 1, WIDE_SLAB_SCAN_BLOCK + 1},
+      {100, 8300},        {WIDE_SLAB_SCAN_BLOCK, count},
+      {count - 5, count}, {8300, 8450},
+  };
+  for (size_t r = 0; r < sizeof(ranges) / sizeof(ranges[0]); r++) {
+    struct SnapshotSlab range = snapshot_slab_empty();
+    horizontal_reader_load_slab(reader(), 0, ranges[r].lo, ranges[r].hi, &range);
+    TEST_ASSERT_EQUAL(range.nhalos, ranges[r].hi - ranges[r].lo,
+                      "a range slab should hold row_hi - row_lo");
+    TEST_ASSERT_EQUAL(range.row_offset, ranges[r].lo, "a range slab should publish row_offset");
+    TEST_ASSERT(range_matches_whole(&whole, &range, ranges[r].lo),
+                "every column of a multi-block range read should equal the whole read's rows");
+    horizontal_reader_release_slab(reader(), &range);
+  }
+
+  struct wide_scan_record record;
+  memset(&record, 0, sizeof(record));
+  record.expected = whole.forest_index;
+  horizontal_reader_scan_forest_index(reader(), 0, record_wide_forest_index, &record);
+  TEST_ASSERT(!record.mismatched, "scanned blocks should be contiguous and equal the column");
+  TEST_ASSERT_EQUAL(record.rows_seen, count, "the scan should deliver every row once");
+  TEST_ASSERT(record.calls >= 2 && record.calls <= WIDE_SLAB_MAX_BLOCKS,
+              "the scan should deliver a wide snapshot in more than one block");
+  TEST_ASSERT_EQUAL(record.first_rows[0], 0, "the first block should start at row 0");
+  TEST_ASSERT_EQUAL(record.first_rows[1], WIDE_SLAB_SCAN_BLOCK,
+                    "the second block should start at the scan block size");
+
+  horizontal_reader_release_slab(reader(), &whole);
+  horizontal_reader_close_run(reader());
+  TEST_ASSERT(no_tracked_leaks(), "multi-block loads and scans should leave no allocation");
+  return TEST_PASS;
+}
+
 static const struct HorizontalOpenOptions NO_COLUMN_SCAN = {.validate_columns = 0};
 
 static void child_open_run_unscanned(const char *dir) {
@@ -2170,6 +2291,7 @@ int main(void) {
   TEST_RUN(test_v3_range_reads_match_whole_reads);
   TEST_RUN(test_v3_load_slab_rejects_bad_ranges);
   TEST_RUN(test_v3_scan_forest_index_streams_column);
+  TEST_RUN(test_v3_multi_block_range_reads_match_whole_reads);
   TEST_RUN(test_v3_open_without_column_scans);
   TEST_RUN(test_scan_forest_index_dispatch_fails_fast);
 

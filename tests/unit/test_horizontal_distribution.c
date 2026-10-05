@@ -24,6 +24,7 @@
 
 #include "../../src/core/horizontal_partition.h"
 #include "../../src/include/types.h"
+#include "../../src/include/proto.h"
 #include "../../src/io/horizontal/reader.h"
 #include "../../src/util/error.h"
 #include "../../src/util/memory.h"
@@ -42,12 +43,6 @@
 /* Test statistics (required for TEST_RUN macro) */
 static int passed = 0;
 static int failed = 0;
-
-/* Defined in src/core/horizontal_driver.c, exported for these tests only; the
- * driver's prototypes header is not part of the slice that introduced them. */
-void horizontal_rebase_slab_links(struct SnapshotSlab *slab,
-                                  const struct HorizontalForestPartition *partition, int task);
-int64_t horizontal_partition_resident_bytes(const struct HorizontalForestPartition *partition);
 
 /* This binary's path, so an abort case can re-execute it in child mode. */
 static const char *TestExecutablePath = NULL;

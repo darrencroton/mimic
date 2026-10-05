@@ -142,4 +142,17 @@ jobs:
       env:
         MPIRUN: "mpirun --oversubscribe"
       run: |
-        make tests-distributed || { cat build/distributed_tests.log; exit 1; }
+        make tests-distributed
+
+    # The gate writes its whole output to a log; print it in a separate step that runs
+    # whether the gate passed, failed or timed out, so a failure is diagnosable from the job.
+    - name: Print distributed gate log
+      if: always()
+      run: |
+        echo "::group::Distributed gate log"
+        if [ -f build/distributed_tests.log ]; then
+          cat build/distributed_tests.log
+        else
+          echo "build/distributed_tests.log was not written"
+        fi
+        echo "::endgroup::"

@@ -61,14 +61,15 @@ make MODEL=halos-only SIMULATION=mini-millennium-horizontal
 
 ## Test fixtures
 
-Four committed version 3 fixtures live under `_tests/data/`, each converted by `convert/mimic-convert/convert_trees.py` from a synthetic L-Halo source written by `_tests/data/source/generate_sources.py` (with mini-Millennium's cosmology, box and particle mass) and rebuilt together by `_tests/data/regenerate.sh`:
+Five committed version 3 fixtures live under `_tests/data/`, each converted by `convert/mimic-convert/convert_trees.py` from a synthetic L-Halo source written by `_tests/data/source/generate_sources.py` (with mini-Millennium's cosmology, box and particle mass) and rebuilt together by `_tests/data/regenerate.sh`:
 
 - `worked_graph/` — one forest of five halos over five snapshots with gapped links, a FoF satellite and an empty snapshot; the generic test tiers run on it (`_tests/input/test_simulation.yaml`).
 - `three_snapshot_chain/` — one progenitor chain spanning three snapshots.
 - `adjacent/` — an all-adjacent dataset (`links_adjacent = 1`).
 - `forest_blocks/` — six forests of unequal size (71 halos) over seven snapshots with snapshot 3 empty, gapped links, FoF satellites that merge and become orphans, and one forest holding 41% of the widest snapshot; the distributed identity gate (`make tests-distributed`) runs `halos-only`, `sage16`, `sham` and `hod` on it serially and under MPI through the `_tests/input/forest_blocks_<model>.yaml` run files.
+- `wide_slab/` — one forest over two snapshots whose snapshot 0 holds 8,600 halos (one FoF group and one progenitor chain), wider than the reader's 8,192-row block, so `tests/unit/test_horizontal_v3_reader.c` reads ranges and scans `ForestIndex` across a block boundary.
 
-The first three are used by `make tests-horizontal-v3`.
+The first three and `wide_slab` are used by `make tests-horizontal-v3`.
 
 ## Related packages
 

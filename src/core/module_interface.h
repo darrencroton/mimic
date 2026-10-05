@@ -422,12 +422,14 @@ int module_emit_event(struct ModuleContext *ctx, int event_id, int source_index,
  * Type 3 before output is dropped like any other.
  *
  * Identity. UniqueGalaxyID = -(1 + ordinal + MAX_CREATED_RECORDS_PER_HOST *
- * (host HaloNr + rows_per_unit * unit)) (mimic_encode_created_galaxy_id(),
- * galaxy_id.h), with (unit, rows_per_unit) the driver's published identity
- * space and `ordinal` the host's created-record count within the FoF step, in
- * creation order (mimic_decode_created_galaxy_id() inverts it). Created IDs are
- * negative, unique run-wide and deterministic for a fixed dataset and run file;
- * they are not identical across drivers. Under the vertical driver rows_per_unit
+ * (row + rows_per_unit * unit)) (mimic_encode_created_galaxy_id(), galaxy_id.h),
+ * with row = host HaloNr + row_offset (see struct RecordIdentitySpace), (unit,
+ * rows_per_unit) the driver's published identity space and `ordinal` the host's
+ * created-record count within the FoF step, in creation order
+ * (mimic_decode_created_galaxy_id() inverts it). Created IDs are negative,
+ * unique run-wide and deterministic for a fixed dataset and run file; they are
+ * identical across rank counts of one driver (row_offset makes a task's row its
+ * global row) but not identical across drivers. Under the vertical driver rows_per_unit
  * is the largest forest over the run's first_file..last_file range, so a run
  * over a subset of files can give the same host a different created ID when the
  * largest forest lies outside the shared range, as positive IDs already shift

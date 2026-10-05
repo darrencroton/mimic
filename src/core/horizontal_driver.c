@@ -157,23 +157,14 @@ void horizontal_driver_remove_incomplete_outputs(void) {
 
 /* Arm the master file for cleanup, once, at run start, on task 0 alone: only
  * task 0 writes the master, and each task's registry holds only files that task
- * writes, so another task's failure cleanup never removes it.
- *
- * The path is formatted the way write_master_file() formats it (master_hdf5.c)
- * rather than through a shared helper: adding one would mean editing an
- * output-writer seam this driver only consumes. */
+ * writes, so another task's failure cleanup never removes it. */
 static void horizontal_arm_master_output_path(void) {
   if (current_task_id() != 0) {
     return;
   }
 
-  const int written =
-      snprintf(horizontal_output_paths[HORIZONTAL_OUTPUT_PATH_MASTER], HORIZONTAL_PATH_BUF_SIZE,
-               "%s/%s.hdf5", MimicConfig.OutputDir, MimicConfig.OutputFileBaseName);
-  if (written < 0 || written >= HORIZONTAL_PATH_BUF_SIZE) {
-    FATAL_ERROR("Master HDF5 output path too long: %s/%s.hdf5", MimicConfig.OutputDir,
-                MimicConfig.OutputFileBaseName);
-  }
+  output_master_path_hdf5(horizontal_output_paths[HORIZONTAL_OUTPUT_PATH_MASTER],
+                          HORIZONTAL_PATH_BUF_SIZE);
 
   VERBOSE_LOG("Snapshot master output cleanup armed for '%s'",
               horizontal_output_paths[HORIZONTAL_OUTPUT_PATH_MASTER]);
@@ -307,28 +298,24 @@ horizontal_ensure_segment_scratch(struct HorizontalDriverState *state, int64_t r
 /* ------------------------------------------------------------------------- */
 
 /*
- * The partition of a distributed run and this task's rank in it, as the
- * diagnostics below read them; NULL in a serial run. Set once the partition is
- * broadcast and cleared at teardown, and read only to word messages: a message
- * that names a row or a count of a distributed run says it is a global row, or
- * this task's share of the snapshot, while a serial run's messages keep exactly
- * their serial bytes (every note below is empty and every row is its own
- * global row there). The progenitor lookup structs are shared with the unit
- * tests (types.h) and carry no row offset, hence driver-scoped state.
+ * The diagnostics below take the partition of a distributed run and this task's
+ * rank in it (NULL and 0 in a serial run) and read them only to word messages: a
+ * message that names a row or a count of a distributed run says it is a global
+ * row, or this task's share of the snapshot, while a serial run's messages keep
+ * exactly their serial bytes (every note below is empty and every row is its own
+ * global row there). The progenitor lookup carries the pair in its
+ * HorizontalGatherContext (types.h), zero-initialised wherever a test builds one;
+ * the driver's own diagnostics pass its state's.
  */
-static const struct HorizontalForestPartition *horizontal_diagnostic_partition = NULL;
-static int horizontal_diagnostic_task = 0;
 
 /* The snapshot (global) row of row `halonr` of this task's slab of `snapnum`:
  * `halonr` itself in a serial run, or for an index the partition cannot place. */
-static int64_t horizontal_global_row(int64_t snapnum, int64_t halonr) {
-  const struct HorizontalForestPartition *partition = horizontal_diagnostic_partition;
+static int64_t horizontal_global_row(const struct HorizontalForestPartition *partition, int task,
+                                     int64_t snapnum, int64_t halonr) {
   if (partition == NULL || snapnum < 0 || snapnum >= partition->snapshot_count) {
     return halonr;
   }
-  return partition
-             ->row_cuts[snapnum * (int64_t)(partition->ntask + 1) + horizontal_diagnostic_task] +
-         halonr;
+  return partition->row_cuts[snapnum * (int64_t)(partition->ntask + 1) + task] + halonr;
 }
 
 /* A count's qualifier in a message: empty in a serial run, else which rows of
@@ -337,12 +324,12 @@ struct HorizontalRowNote {
   char text[128];
 };
 
-static struct HorizontalRowNote horizontal_task_rows_note(int64_t snapnum) {
+static struct HorizontalRowNote
+horizontal_task_rows_note(const struct HorizontalForestPartition *partition, int task,
+                          int64_t snapnum) {
   struct HorizontalRowNote note = {""};
-  const struct HorizontalForestPartition *partition = horizontal_diagnostic_partition;
   if (partition != NULL && snapnum >= 0 && snapnum < partition->snapshot_count) {
     const int64_t *cuts = &partition->row_cuts[snapnum * (int64_t)(partition->ntask + 1)];
-    const int task = horizontal_diagnostic_task;
     snprintf(note.text, sizeof(note.text),
              " (this task's rows [%" PRId64 ", %" PRId64 ") of the snapshot's %" PRId64 ")",
              cuts[task], cuts[task + 1], cuts[partition->ntask]);
@@ -378,7 +365,8 @@ static const struct HorizontalRetainedGeneration *
 horizontal_resolve_progenitor(const struct HorizontalGatherContext *lookup, int64_t target_snap,
                               int64_t prog, int64_t halonr, const char *link) {
   /* Rows are printed as snapshot rows, which a distributed run's local rows are not. */
-  const int64_t global_halonr = horizontal_global_row(lookup->snapnum, halonr);
+  const int64_t global_halonr =
+      horizontal_global_row(lookup->partition, lookup->task, lookup->snapnum, halonr);
   if (target_snap < 0 || target_snap >= lookup->snapnum) {
     FATAL_ERROR("%s link of snapshot %" PRId64 " halo %" PRId64 " names snapshot %" PRId64
                 ", which is not an earlier snapshot of this run",
@@ -394,10 +382,12 @@ horizontal_resolve_progenitor(const struct HorizontalGatherContext *lookup, int6
                 link, lookup->snapnum, global_halonr, target_snap);
   }
   if (prog >= generation->view.count) {
-    const struct HorizontalRowNote note = horizontal_task_rows_note(target_snap);
+    const struct HorizontalRowNote note =
+        horizontal_task_rows_note(lookup->partition, lookup->task, target_snap);
     FATAL_ERROR("%s link of snapshot %" PRId64 " halo %" PRId64 " names row %" PRId64
                 " of snapshot %" PRId64 ", which holds %" PRId64 " halos%s",
-                link, lookup->snapnum, global_halonr, horizontal_global_row(target_snap, prog),
+                link, lookup->snapnum, global_halonr,
+                horizontal_global_row(lookup->partition, lookup->task, target_snap, prog),
                 target_snap, generation->view.count, note.text);
   }
 
@@ -468,9 +458,9 @@ static void horizontal_check_chain_steps(const struct HorizontalGatherContext *l
                 " visits more than the %" PRId64
                 " halos%s of every retained generation; the input's NextProgenitor links "
                 "contain a cycle",
-                lookup->snapnum, horizontal_global_row(lookup->snapnum, halonr),
-                lookup->retained_population,
-                horizontal_diagnostic_partition != NULL ? " this task holds" : "");
+                lookup->snapnum,
+                horizontal_global_row(lookup->partition, lookup->task, lookup->snapnum, halonr),
+                lookup->retained_population, lookup->partition != NULL ? " this task holds" : "");
   }
 }
 
@@ -646,13 +636,6 @@ static void horizontal_evaluate_record_identity_space(struct HorizontalDriverSta
  * non-MPI build and an MPI build at one task take none of these steps: they load
  * whole slabs (row_offset 0) and never rebase.
  */
-static int horizontal_run_is_distributed(void) {
-#ifdef MPI
-  return effective_task_count() > 1;
-#else
-  return 0;
-#endif
-}
 
 /* row_cuts[s][r] of the partition (row-major by snapshot). */
 static int64_t horizontal_row_cut(const struct HorizontalForestPartition *partition,
@@ -883,6 +866,15 @@ static void horizontal_compute_partition(const struct HorizontalDriverState *sta
                   snapnum, scan.violation_previous, scan.violation_row - 1, scan.violation_value,
                   scan.violation_row, ntask, info->source_format);
     }
+    /* Unreachable while the scan visits the whole column; cheap hardening that the cuts
+     * partition every row. */
+    const int64_t scanned_rows = horizontal_row_cut(partition, snapnum, ntask);
+    const int64_t reader_rows = horizontal_reader_halo_count(state->reader, snapnum);
+    if (scanned_rows != reader_rows) {
+      FATAL_ERROR("Snapshot %" PRId64 ": the partition's row cuts end at row %" PRId64
+                  " but the reader holds %" PRId64 " halos",
+                  snapnum, scanned_rows, reader_rows);
+    }
   }
 
   INFO_LOG("Distributed horizontal partition: %" PRId64 " forest%s over %d tasks, weighted by "
@@ -952,10 +944,6 @@ static void horizontal_partition_run(struct HorizontalDriverState *state,
   MPI_Bcast(state->partition->forest_cuts, ntask + 1, MPI_INT64_T, 0, MPI_COMM_WORLD);
   MPI_Bcast(state->partition->row_cuts, (int)row_cut_count, MPI_INT64_T, 0, MPI_COMM_WORLD);
 #endif
-
-  /* Final on every task from here on: the diagnostics may now place rows. */
-  horizontal_diagnostic_partition = state->partition;
-  horizontal_diagnostic_task = state->task;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -1144,7 +1132,7 @@ static void horizontal_write_output(struct HorizontalGeneration *cur, int output
   FileNum = output_id;
 
   horizontal_arm_partition_output_path(output_id, task);
-  prepare_output_files(output_id, selection);
+  prepare_output_files(output_id, task, selection);
 
   ProcessedHalos = cur->processed.halos;
   NumProcessedHalos = cur->processed.count;
@@ -1474,7 +1462,8 @@ static void horizontal_require_generation_fits(const struct HorizontalDriverStat
                                                struct HorizontalGenerationFootprint *fp) {
   /* Every count below is this task's rows; the note says so in a distributed run
    * and is empty in a serial one, where each message keeps its serial bytes. */
-  const struct HorizontalRowNote note = horizontal_task_rows_note(snapnum);
+  const struct HorizontalRowNote note =
+      horizontal_task_rows_note(state->partition, state->task, snapnum);
   if (snapshot_halos < 0 || nhalos < 0) {
     FATAL_ERROR("Reader '%s' reports %" PRId64 " halos for snapshot %" PRId64
                 "; a halo count cannot be negative",
@@ -1621,7 +1610,8 @@ horizontal_acquire_generation(struct HorizontalDriverState *state, int64_t snapn
   }
 
   if (gen->slab.nhalos != nhalos) {
-    const struct HorizontalRowNote note = horizontal_task_rows_note(snapnum);
+    const struct HorizontalRowNote note =
+        horizontal_task_rows_note(state->partition, state->task, snapnum);
     FATAL_ERROR("Reader '%s' loaded %" PRId64 " halos for snapshot %" PRId64
                 " after reporting %" PRId64 "%s; the generation was sized for the reported count",
                 state->reader->name, gen->slab.nhalos, snapnum, nhalos, note.text);
@@ -1833,8 +1823,6 @@ static void horizontal_teardown(struct HorizontalDriverState *state, int record_
   state->generations = NULL;
   state->snapshot_count = 0;
 
-  horizontal_diagnostic_partition = NULL;
-  horizontal_diagnostic_task = 0;
   horizontal_partition_destroy(state->partition);
   state->partition = NULL;
 
@@ -1998,7 +1986,7 @@ void run_horizontal_driver(void) {
   /* Under a distributed run only task 0 pays for the whole-column scans: it is
    * the one task that reads the identity columns before the partition broadcast,
    * which every other task waits on. */
-  const int distributed = horizontal_run_is_distributed();
+  const int distributed = run_is_distributed();
   const struct HorizontalOpenOptions open_options = {
       .validate_columns = distributed ? (current_task_id() == 0) : 1};
   horizontal_reader_open_run(state.reader, &open_options, &info);
@@ -2067,7 +2055,8 @@ void run_horizontal_driver(void) {
         horizontal_acquire_generation(&state, snapnum, info.links_adjacent);
 
     const int64_t live_slabs = horizontal_count_live_slabs(&state);
-    const struct HorizontalRowNote loaded_note = horizontal_task_rows_note(snapnum);
+    const struct HorizontalRowNote loaded_note =
+        horizontal_task_rows_note(state.partition, state.task, snapnum);
     VERBOSE_LOG("Loaded snapshot %" PRId64 " (%" PRId64 " halos%s); %" PRId64 " slab%s live",
                 snapnum, cur->slab.nhalos, loaded_note.text, live_slabs,
                 live_slabs == 1 ? "" : "s");
@@ -2079,6 +2068,8 @@ void run_horizontal_driver(void) {
     lookup.first_progenitor_snapshot = cur->slab.first_progenitor_snapshot;
     lookup.generations = state.lookup;
     lookup.retained_population = state.retained_population;
+    lookup.partition = state.partition;
+    lookup.task = state.task;
 
     /* Walk FoF groups in slab order, processing each group when its central is
      * first met. Every halo names a central whose own FirstHaloInFOFgroup is
@@ -2096,7 +2087,8 @@ void run_horizontal_driver(void) {
     }
 
     if (members_processed != cur->slab.nhalos) {
-      const struct HorizontalRowNote note = horizontal_task_rows_note(snapnum);
+      const struct HorizontalRowNote note =
+          horizontal_task_rows_note(state.partition, state.task, snapnum);
       FATAL_ERROR("Snapshot %" PRId64 " FoF chains cover %" PRId64 " of %" PRId64
                   " halos%s; the slab's FoF links are inconsistent",
                   snapnum, members_processed, cur->slab.nhalos, note.text);

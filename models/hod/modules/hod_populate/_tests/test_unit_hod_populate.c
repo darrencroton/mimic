@@ -26,7 +26,8 @@
  *   rows' positions and velocities alone, direction uniformity and the independence of the
  *   direction and the three velocity components), each bound derived where it is asserted
  * - process_snapshot(): the audit line against a hand sum, the per-bin lines,
- *   silence on non-output snapshots, no property writes and no net allocation
+ *   silence on non-output snapshots, no property writes and no net allocation, and the
+ *   failure paths (a sample row with no host; a host rejected part-way through the scan)
  *
  * Statistical bounds are fixed-seed: every draw is a pure function of its key,
  * so each statistic is one deterministic number. The bounds are stated at four
@@ -1696,6 +1697,30 @@ int test_snapshot_audit(void) {
               "an unattributable sample satellite fails the audit");
   TEST_ASSERT(memory_category_bytes(MEM_UTILITY) == utility_before,
               "a failed audit releases its scratch");
+
+  /*
+   * A scan that fails part-way still takes part in every collective. Host C (row 6) gets a NaN
+   * mass, which audit_scan() rejects after rows 0-5 have been totalled, so the partial extent
+   * (hosts A and B) is reduced and the bins are laid out and allocated before the failure
+   * reaches the final agreement. The module must return -1, write nothing, report the host and
+   * print no summary, and free the bins it allocated.
+   */
+  const int n_failed = build_audit_population();
+  set_audit_row(6, 0, 301, 301, NAN, 1);
+  memcpy(halos_before, audit_halos, sizeof(audit_halos));
+  memcpy(galaxies_before, audit_galaxies, sizeof(audit_galaxies));
+  capture_log(1);
+  TEST_ASSERT(hod_populate_process_snapshot(&ctx, audit_halos, n_failed) != 0,
+              "a host with a NaN mass fails the audit part-way through the scan");
+  log = captured_log();
+  TEST_ASSERT(strstr(log, "host UniqueGalaxyID 301 has Mvir") != NULL,
+              "the failure names the rejected host");
+  TEST_ASSERT(strstr(log, "HOD audit z=") == NULL, "a failed audit logs no summary");
+  TEST_ASSERT(memcmp(halos_before, audit_halos, sizeof(audit_halos)) == 0 &&
+                  memcmp(galaxies_before, audit_galaxies, sizeof(audit_galaxies)) == 0,
+              "a failed audit writes nothing");
+  TEST_ASSERT(memory_category_bytes(MEM_UTILITY) == utility_before,
+              "a part-way failure leaves no net MEM_UTILITY allocation");
 
   TEST_ASSERT_EQUAL(release_case(), 0, "release succeeds");
   check_memory_leaks();

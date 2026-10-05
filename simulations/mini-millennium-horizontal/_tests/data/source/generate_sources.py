@@ -49,6 +49,13 @@ that loses one fails here rather than in the gate. Masses span 1e11 to 2.5e13
 Msun/h and Vmax grows with mass, so ``sage16`` forms galaxies, ``sham`` has
 candidates above its Vpeak floor and ``hod`` draws satellites in the heaviest
 host.
+
+The fifth source, ``trees_wide_slab.0``, is the multi-block reader fixture: one L-Halo
+file holding one tree over two snapshots, where snapshot 0 holds ``WIDE_SLAB_ROWS`` halos
+(more than one ``HORIZONTAL_HDF5_SCAN_BLOCK`` of 8,192 rows, so range reads and the
+``ForestIndex`` scan cross a block boundary) and snapshot 1 holds one halo. Snapshot 0 is one
+FoF group chained through ``NextHaloInFOFgroup`` and every halo descends to the snapshot-1
+halo, whose progenitors are chained in index order with masses falling along the chain.
 """
 
 import os
@@ -141,6 +148,32 @@ FOREST_BLOCKS = [
         ("T", (4, 5, 6), 22.0, 26.0, {6: "Q"}, None),
     ],
 ]
+
+# The wide_slab fixture: snapshot 0 is wider than one reader scan block (8,192 rows).
+WIDE_SLAB_ROWS = 8600
+WIDE_SLAB_SNAPSHOTS = 2
+
+
+def wide_slab_tree(rows=WIDE_SLAB_ROWS):
+    """Build the wide_slab tree: ``rows`` snapshot-0 halos descending to one snapshot-1 halo.
+
+    Stored descendant-first, so index 0 is the snapshot-1 halo and indices 1..``rows`` are
+    the snapshot-0 halos. They form one FoF group (central index 1, members chained in index
+    order) and one progenitor chain, with the mass falling along the chain so the central is
+    the most massive halo and the most massive progenitor. Masses are M_Crit200 in
+    1e10 Msun/h, well inside the range every model's thresholds accept.
+    """
+    tree = [(1, (-1, 1, -1, 0, -1), 250.0)]
+    for index in range(1, rows + 1):
+        links = (
+            0,  # Descendant: the snapshot-1 halo
+            -1,  # FirstProgenitor
+            index + 1 if index < rows else -1,  # NextProgenitor
+            1,  # FirstHaloInFOFgroup: the central
+            index + 1 if index < rows else -1,  # NextHaloInFOFgroup
+        )
+        tree.append((0, links, 200.0 - 0.01 * index))
+    return tree
 
 
 def expand_branches(branches):
@@ -319,6 +352,7 @@ def main() -> int:
     forest_blocks = [expand_branches(branches) for branches in FOREST_BLOCKS]
     check_forest_blocks(forest_blocks)
     write_forest_blocks("trees_forest_blocks", forest_blocks)
+    write_forest_blocks("trees_wide_slab", [wide_slab_tree()])
     return 0
 
 
