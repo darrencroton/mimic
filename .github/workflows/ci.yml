@@ -95,6 +95,7 @@ jobs:
   horizontal-v3:
     name: Horizontal v3 fixtures and snapshot-global battery
     runs-on: ubuntu-latest
+    timeout-minutes: 45
 
     steps:
     - name: Checkout code
@@ -108,7 +109,7 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libhdf5-dev libyaml-dev pkg-config
+        sudo apt-get install -y libhdf5-dev libyaml-dev pkg-config libopenmpi-dev openmpi-bin
 
     - name: Install Python dependencies
       run: |
@@ -133,3 +134,12 @@ jobs:
     - name: Run snapshot-global battery
       run: |
         make tests-snapshot-global
+
+    # The distributed-snapshot gate: builds the MPI binaries and runs the fixture
+    # identity checks across rank counts and the MPI control test. --oversubscribe
+    # lets the 8-rank case run on the runner's few cores.
+    - name: Run distributed snapshot gate
+      env:
+        MPIRUN: "mpirun --oversubscribe"
+      run: |
+        make tests-distributed
