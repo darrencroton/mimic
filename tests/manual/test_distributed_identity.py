@@ -133,13 +133,14 @@ MARKER_RE = re.compile(r"^MIMIC_RESULT: (PASS|WARN|FAIL|ERROR|SKIP)\b.*$", re.MU
 # and USE-MPI (an environment value would turn the serial reference into an MPI build).
 MAKE_STATE = ("MAKEFLAGS", "MFLAGS", "MAKELEVEL", "MIMIC_TEST_BUILD", "USE-MPI")
 BUILD_TIMEOUT = 900
+RESTORE_TIMEOUT = 300  # `make generate` alone; the gate has already stopped if this is reached late
 RUN_TIMEOUT = 60  # fixture runs take seconds; a hang must cost little of the CI job's budget
 TIMEOUT_STATUS = 124  # the status run() reports for a command it had to kill
 KILL_GRACE = 5  # seconds between SIGTERM and SIGKILL of a timed-out or interrupted group
 
 
 class GateStopped(Exception):
-    """A build timed out: the gate records the failure and stops rather than repeat the hang."""
+    """A make or compile timed out: the gate records the failure and stops rather than repeat the hang."""
 
 
 class Gate:
@@ -211,6 +212,11 @@ class Gate:
         cmd = ["make", "--no-print-directory", *selectors, *targets]
         title = f"make {' '.join(selectors)} {' '.join(targets)}"
         status, _ = self.run(cmd, title, timeout=BUILD_TIMEOUT)
+        if status == TIMEOUT_STATUS:
+            # Every make of the gate stops it on a timeout: the same build would hang again for
+            # every later model, and the CI job's budget must leave room for the log step.
+            self.marker(False, "build_timeout", f"{title} timed out after {BUILD_TIMEOUT} s")
+            raise GateStopped(f"{title} timed out")
         return status
 
     def build(self, model: str, simulation: str, mpi: bool) -> bool:
@@ -219,14 +225,11 @@ class Gate:
         if status == 0:
             status = self.make(model, simulation, f"-j{os.cpu_count() or 4}", "mimic", mpi=mpi)
         kind = "mpi" if mpi else "serial"
-        ok = self.marker(
+        return self.marker(
             status == 0,
             f"build_{kind}_{model}_{simulation}",
             f"build exited {status} (see {LOG_PATH})",
         )
-        if status == TIMEOUT_STATUS:
-            raise GateStopped(f"the {kind} build of {model} timed out")
-        return ok
 
     def launch(self, ntask: int | None, run_file: Path, title: str) -> tuple[int, str]:
         """Run ./mimic serially (ntask None) or under the MPI launcher at -np ntask."""
@@ -427,7 +430,7 @@ class Gate:
             f"{key}={os.environ[key]}" for key in ("MODEL", "SIMULATION") if key in os.environ
         ]
         cmd = ["make", "--no-print-directory", *selectors, "generate"]
-        status, _ = self.run(cmd, "restore generated code", timeout=BUILD_TIMEOUT)
+        status, _ = self.run(cmd, "restore generated code", timeout=RESTORE_TIMEOUT)
         caller = " ".join(selectors) or "the Makefile defaults"
         if status != 0:
             self.failures.append(f"could not restore generated code for {caller}")
