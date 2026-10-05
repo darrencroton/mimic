@@ -122,11 +122,11 @@ make MODEL=halos-only SIMULATION=micro-uchuu-ascii-horizontal
 ./mimic models/halos-only/input/halos-only_micro-uchuu-ascii-horizontal.yaml; echo "rc=$?"
 ```
 
-Three restrictions are enforced at config time, before any snapshot file is opened (`validate_and_postprocess()`, `src/core/read_parameter_file.c`):
+Two restrictions are enforced at config time, before any snapshot file is opened (`validate_and_postprocess()`, `src/core/read_parameter_file.c`), and a third applies to multi-rank runs once the dataset has been opened:
 
 - **HDF5-only** — `output.output_format: binary` is rejected ("horizontal runs are HDF5-only").
 - **No `--skip`** — resume is not supported for horizontal runs in this phase; the flag is rejected rather than silently ignored.
-- **Serial only** — multi-rank horizontal operation is not implemented; `NTask > 1` is rejected at startup.
+- **Multi-rank needs a forest-blocked version 3 dataset** — `NTask > 1` is accepted at configuration; the driver then refuses, at startup after `open_run`, a `format_version 2` dataset and a version 3 dataset whose `ForestIndex` falls along any slab (the Consistent-Trees ASCII route), with a message saying to run it with one rank.
 
 The driver calls the reader's `open_run` before processing anything, so the dataset's open-time checks (structure, headers, a_list and physical agreement, identity bounds and, for version 3, `/schema` against the package) run up front and it aborts on any violation it detects; link ranges and target snapshots are checked as each slab loads, and chain topology, `SourceHaloID` order and `Len ≥ 0` are producer obligations it does not re-check. It then sweeps snapshots in increasing time order holding a pool of retained snapshot generations: each generation (raw slab, processed state, galaxies) stays live until the latest snapshot any of its halos names as a descendant has been processed. Adjacent input (every version 2 dataset, and version 3 with `links_adjacent = 1`) never holds more than two; gapped version 3 input can hold more, up to its longest descendant span plus one (mini-Millennium at most three, because its longest descendant span is 2). The run memory profile's `R` lines report the peak generations and bytes, and the optional `input.retention_memory_ceiling_mb` refuses a generation before allocation (see the `mimic-config-and-flags` skill). Output differences from a vertical run, all deliberate: no `Ntrees` attribute and no `TreeHalosPerSnap` dataset on any `Snap%03d/Galaxies` group (omitted entirely, not zero or empty); `TotHalosPerSnap` is `int64` rather than `int` (the same widened type a vertical run's output now also carries); a horizontal run writes one HDF5 partition file per requested output snapshot (named by that snapshot's number) plus the master, with per-partition cleanup — a closed partition file survives a later failure; `RunProperties/Version/hdf5_format_version` reads `1.2`. Full driver mechanics (the retention pool and its horizons, per-generation galaxy pools, the parity checklist, the output-partition seam): `docs/DEVELOPER-GUIDE.md` → "The Horizontal Driver".
 
@@ -233,7 +233,8 @@ mpirun -np 4 ./mimic models/sage16/input/sage16_mini-millennium.yaml
 - Parallelism is over input partitions (tree files for L-Halo formats, enumerated chunks for consistent-trees): ranks divide the partition list; there is no intra-tree parallelism.
 - **L-Halo binary guidance:** choose a rank count that divides the tree-file count (mini-millennium ships 8 files: 1, 2, 4, or 8 ranks) so no rank idles.
 - **Consistent-trees:** chunk identities are independent of the rank count (NTask), so output chunk numbering — and `--skip` resume — is stable if you rerun with a different `-np`.
-- Multi-rank logging: ranks other than 0 reduce console noise; if per-rank detail is missing from the console, check for per-rank log fallback files in the output directory. Verify current behavior with `grep -rn "ThisTask" src/util/error.c src/core/main.c`.
+- Multi-rank logging: every rank logs, each line prefixed `task <n>:`; there are no per-rank log fallback files. Run metadata is written once, by rank 0, and a fatal error on any rank ends the whole job (`MPI_Abort`). After an aborted multi-rank run delete the in-progress partitions before any `--skip` resume, which checks only that files exist.
+- **Horizontal runs distribute by forest, not by file.** Launch from the repository root (`mpirun --oversubscribe` on a machine with fewer cores than ranks). Under `NTask > 1` each rank writes `<base>_<snap:03d>_task<task:03d>.hdf5` per requested snapshot (an empty partition when it holds no galaxies there) and rank 0 writes the master with `Snap<snap>/File<snap>_task<task>` links; at `-np 1` the names are the serial ones. Rank 0 logs the partition at INFO. `retention_memory_ceiling_mb` is per rank. A `post_snapshot` module must declare `snapshot_distribution: collective` (`sham_rank_match` and `hod_populate` do). To prove a change, compare a serial and an MPI output with `scripts/compare_cross_format_identity.py --compare-created`, or run `make tests-distributed`.
 
 ## Chunked output
 
@@ -271,7 +272,7 @@ python plot/mimic-plot/mimic-plot.py --param-file=models/sage16/input/sage16_min
 
 Facts verified against the repo on 2026-07-04; the horizontal run mechanics added 2026-08-12 once `run_horizontal_driver()` landed. Re-verify before trusting anything volatile:
 
-- Horizontal config-time rejections: `grep -n "horizontal runs are HDF5-only\|resume is not supported for horizontal\|horizontal runs are serial" src/core/read_parameter_file.c`
+- Horizontal config-time rejections: `grep -n "horizontal runs are HDF5-only\|resume is not supported for horizontal" src/core/read_parameter_file.c`; the multi-rank refusals are in `src/core/horizontal_driver.c` (`grep -n "forest-blocked" src/core/horizontal_driver.c`)
 - Snapshot output schema differences: `grep -n "horizontal_run\|Ntrees\|TotHalosPerSnap" src/io/output/hdf5.c | head`
 
 - CLI flags and usage text: `grep -n "usage\|--skip\|--compress\|--quiet" src/core/main.c`

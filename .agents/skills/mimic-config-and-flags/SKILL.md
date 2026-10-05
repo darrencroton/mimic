@@ -105,7 +105,7 @@ Summary table; full per-key semantics, parse behavior, and the simulation_info-v
 | `input.last_file` | int | sim pkg | Last tree-file number |
 | `input.tree_name` | string | sim pkg | Reader-specific meaning, not a general pattern: filename base for `lhalo_binary`, a literal filename for the ctrees readers, an explicit name or `%d` pattern for `lhalo_hdf5`, and for `horizontal_hdf5` exactly the literal `snapshot_%03d.h5` (anything else rejected at startup) |
 | `input.tree_type` | string | sim pkg | On-disk reader format, resolved against two registries — forest-ordered (`src/io/vertical/registry.c`): `lhalo_binary`, `lhalo_hdf5`, `consistent_trees_ascii`, `consistent_trees_hdf5`; horizontal (`src/io/horizontal/registry.c`): `horizontal_hdf5`. Names are disjoint across the two |
-| `input.processing_order` | string | `vertical` | `vertical` or `horizontal`, validated against the resolved reader's declared order. A correctly paired `horizontal` run also clears three horizontal-only rejections at config time — `output_format: binary`, `--skip`, and `NTask > 1` — then reaches the live horizontal driver, which opens and fully validates its dataset before processing anything. Never overload `tree_type` with ordering meaning |
+| `input.processing_order` | string | `vertical` | `vertical` or `horizontal`, validated against the resolved reader's declared order. A correctly paired `horizontal` run also clears two horizontal-only rejections at config time — `output_format: binary` and `--skip` — then reaches the live horizontal driver, which opens and fully validates its dataset before processing anything (`NTask > 1` is accepted here; the driver refuses a version 2 or non-forest-blocked dataset at startup). Never overload `tree_type` with ordering meaning |
 | `input.simulation_dir` | string | sim pkg | Directory holding the tree files |
 | `input.snapshot_list_file` | string | sim pkg | Path to the `.a_list` scale-factor file |
 | `input.max_tree_depth` | int | 500 | Recursion guard for `build_halo_tree` |
@@ -153,7 +153,7 @@ Generated conversion code lands in `src/include/generated/parameter_unit_convers
 
 ## Adjacent configuration axes (owned by sibling skills)
 
-- Module metadata (`module_info.yaml` keys, `supported_processing_modes`, events, dependencies) → see the `mimic-modules` skill.
+- Module metadata (`module_info.yaml` keys, `supported_processing_modes`, `snapshot_distribution` — `serial_only` (default) or `collective`, which gates whether a `post_snapshot` module may run under `NTask > 1` — events, dependencies) → see the `mimic-modules` skill.
 - Plot profile stack and inline plotting overrides consumed by `mimic-plot.py` → see the `mimic-plots-and-analysis` skill.
 - Property YAML schemas (`core_properties.yaml`, `halo_properties.yaml`, `model_properties.yaml`) → see the `mimic-properties` skill.
 

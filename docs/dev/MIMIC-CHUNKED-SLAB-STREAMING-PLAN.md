@@ -4,6 +4,9 @@
 
 **Date:** 2026-09-04
 
+**Update 2026-10-06:** roadmap step 3 (distributed snapshot operations) has landed, so distribution no longer waits on this note; the reader's explicit row-range `load_slab` (decision D4 of the distributed plan) is the primitive a chunked reader will reuse.
+Output is now per `(snapshot, task)` partition under MPI, so any chunked design inherits that layout, not one file per snapshot.
+
 ---
 
 ## Goal

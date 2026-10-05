@@ -395,6 +395,8 @@ make USE-MPI=yes
 mpirun -np 4 ./mimic models/sage16/input/sage16_mini-millennium.yaml
 ```
 
+Under more than one rank every log line carries a `task <n>:` prefix, run metadata is written once by rank 0, and a fatal error on any rank ends the whole job instead of leaving the other ranks waiting. If a multi-rank run is aborted, delete the in-progress output partitions before resuming with `--skip`: the abort stops the other ranks mid-write, and `--skip` checks only that a partition file exists. A horizontal run distributes differently (by forest, not by tree file); see [Running Horizontal Input](#running-horizontal-input).
+
 For balanced work, choose a rank count that divides `last_file - first_file + 1`.
 
 **Resume an interrupted run** with `--skip`, which leaves existing output files in place:
@@ -456,13 +458,30 @@ input:
 
 ### Running Horizontal Input
 
-A `horizontal` run works like any other run — build for the package, point `./mimic` at its run file — with three deliberate restrictions enforced at startup, before any snapshot file is opened:
+A `horizontal` run works like any other run — build for the package, point `./mimic` at its run file — with three deliberate restrictions. The first two are enforced at configuration, before any snapshot file is opened; the third is enforced once the dataset has been opened:
 
 - **HDF5-only output.** `output.output_format: binary` is rejected with a message stating horizontal runs are HDF5-only; the binary writer's per-tree header has no meaning for snapshot-major output.
 - **No `--skip`.** Resume is not supported for horizontal runs; `--skip` is rejected at configuration rather than silently ignored.
 - **Multi-rank runs need a forest-blocked version 3 dataset.** Under `mpirun` with more than one rank, each rank processes its own range of forests; a version 2 dataset, or a version 3 dataset whose rows are not grouped by forest in ascending `ForestIndex`, is refused at startup with a message saying so; run such a dataset with a single rank.
 
 Only a horizontal run can run [snapshot-wide modules](#snapshot-wide-modules) (`modules.post_snapshot`); these restrictions hold for it unchanged.
+
+**Running a horizontal run across MPI ranks.** Build with `make USE-MPI=yes` and launch from the repository root:
+
+```bash
+make USE-MPI=yes
+mpirun -np 4 ./mimic models/sage16/input/sage16_micro-uchuu-horizontal.yaml
+```
+
+Each rank processes its own contiguous range of forests, holding only those forests' rows of every retained generation, and a snapshot module reaches whole-population quantities (a global rank, a total, an extent) through the core's snapshot collectives. The run file is unchanged and the galaxies are the ones a serial run produces: output is identical per `UniqueGalaxyID`, tree rows and created rows, at every rank count (checked at 1, 2, 3, 4 and 8 ranks by `make tests-distributed`, below).
+
+- **Which datasets qualify.** Only a *forest-blocked* version 3 dataset: one whose rows are grouped by forest, with `ForestIndex` non-decreasing along every snapshot's rows. Version 3 datasets converted from L-Halo binary or Consistent-Trees forests-HDF5 (`lhalo_binary`, `consistent_trees_hdf5`) are forest-blocked by construction, which covers the datasets of all five shipped version 3 packages (`mini-millennium-horizontal`, `micro-uchuu-horizontal`, `micro-uchuu-hdf5-horizontal`, `millennium-horizontal` and `mini-uchuu-horizontal`) as their READMEs convert them. A **version 2** dataset is refused at startup with a message that distribution needs a forest-blocked `format_version 3` dataset and that this version 2 dataset's rows are sorted by `MostBoundID`. A version 3 dataset converted from **Consistent-Trees ASCII** is refused at startup, naming the first snapshot and rows where `ForestIndex` falls and the dataset's `source_format`, because the ASCII route does not emit rows in `ForestIndex` order today. Both refusals say to run the dataset with a single rank, which always works. A serial run (one rank, with or without an MPI build) never performs the check.
+- **Output layout.** With more than one rank, every rank writes one HDF5 partition per requested output snapshot, named `<basename>_<snapnum>_task<rank>.hdf5` (both zero-padded to three digits, for example `model_049_task002.hdf5`); a rank that holds no galaxies at a snapshot still writes its empty partition. Rank 0 writes the master after all ranks finish, with one `Snap%03d` group per requested snapshot holding one `File%03d_task%03d` external link per rank, and `TotHalosPerSnap` republished per link. `RunProperties/NCores` records the rank count. With one rank, including an MPI build run under `mpirun -np 1`, the names and the master are exactly those of a serial run, and no partition is logged. The plotting tools read every `File*` group, so they need no change.
+- **Memory is per rank.** `input.retention_memory_ceiling_mb` and the retention accounting apply to each rank's own rows. Rank 0 logs the partition at startup (each rank's forest range and its weight in the widest snapshot). On `micro-uchuu-horizontal` at 4 ranks the widest slab splits into four ranges of 155,340 halos, and each rank's peak RSS was 0.53–0.73 GB against 2.24–2.45 GB for the serial runs of the same three models (`sage16`, `sham`, `hod`) before distribution existed, on one macOS host.
+- **The super-forest floor.** A forest is never split, so the largest forest's share of the widest snapshot bounds what any rank count can save. For micro-Uchuu that share is 1.60%, so it keeps splitting nearly linearly with rank count; a catalogue dominated by one very large forest, such as a percolation super-forest, cannot be brought below that forest's own rows on a single rank however many ranks are used.
+- **Snapshot modules.** Under more than one rank, a `post_snapshot` module must declare `snapshot_distribution: collective`; the shipped `sham_rank_match` and `hod_populate` do. A module that does not is refused at startup, naming it.
+- **Failure and resume.** A fatal error on any rank ends the whole job. `--skip` stays unsupported for horizontal runs.
+- **Checking it.** `make tests-distributed` runs the committed multi-forest fixture serially and under `mpirun` at 1, 2, 3, 4 and 8 ranks for `halos-only`, `sage16`, `sham` and `hod`, requires per-`UniqueGalaxyID` identity with the serial run, and runs the collectives' MPI control test and the version 2 refusal. It needs `mpicc` and `mpirun` (set `MPIRUN="mpirun --oversubscribe"` on a machine with fewer than eight cores) and no real dataset; it leaves an MPI build behind, so run `make` afterwards to restore the serial one.
 
 ```bash
 make MODEL=halos-only SIMULATION=micro-uchuu-ascii-horizontal
@@ -497,12 +516,13 @@ input:
 - It must be a positive whole number; zero, negative, fractional and non-numeric values are rejected at configuration. Omit the key for no ceiling.
 - It is rejected for vertical runs, which retain no generation.
 - It bounds only what is admitted to the retention pool: the struct-width payload of each generation (its figure can undercount real allocations by a few bytes of allocator rounding). It does **not** bound output buffers and galaxy pools growing during a snapshot's sweep (the driver warns once if that growth takes the pool past the ceiling), the driver's run-wide workspace, scratch memory a `post_snapshot` module allocates during its callback, or process RSS. Plan a large run against peak RSS, not against this key.
+- Under `mpirun` with more than one rank it applies **per rank**: each rank compares its own rows' footprint with the ceiling.
 
 **Reading horizontal-run output.** A horizontal run's HDF5 output differs from a vertical run's in a few specific, deliberate ways:
 
 - Each `Snap%03d/Galaxies` group carries no `Ntrees` attribute and no `TreeHalosPerSnap` dataset — they are omitted entirely (absent, not zero or empty), because a horizontal run has no per-tree structure to report.
 - `TotHalosPerSnap` is still the per-snapshot galaxy-count attribute, but stored as `int64` rather than `int` — the same widened type a vertical run's output now carries too.
-- A horizontal run writes one HDF5 partition file per requested output snapshot, named by that snapshot's number zero-padded to at least three digits (`model_<snapnum>.hdf5`, `%03d`-formatted — e.g. snapshot 5 is `model_005.hdf5` — filenames stay self-describing even for an unsorted `output.snapshot_list`), plus the master `<basename>.hdf5`. Each partition file holds exactly one `Snap%03d` group: its own. The master creates one `Snap%03d` group per requested output snapshot, each holding a single `File%03d` subgroup whose external link resolves into that snapshot's own partition file, and no per-tree table.
+- A horizontal run writes one HDF5 partition file per requested output snapshot, named by that snapshot's number zero-padded to at least three digits (`model_<snapnum>.hdf5`, `%03d`-formatted — e.g. snapshot 5 is `model_005.hdf5` — filenames stay self-describing even for an unsorted `output.snapshot_list`), plus the master `<basename>.hdf5`. Each partition file holds exactly one `Snap%03d` group: its own. The master creates one `Snap%03d` group per requested output snapshot, each holding a single `File%03d` subgroup whose external link resolves into that snapshot's own partition file, and no per-tree table. Under more than one MPI rank the partitions and master links are per `(snapshot, rank)`; see [Running Horizontal Input](#running-horizontal-input) above.
 - `RunProperties/Version/hdf5_format_version` reads `1.2`.
 
 Everything else in [Reading HDF5 Output](#reading-hdf5-output) below applies unchanged.
