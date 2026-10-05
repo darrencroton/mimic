@@ -20,7 +20,7 @@
  *   and more than 256 keys on a task (the regular-sample cap); also a case with
  *   fewer keys than tasks and one with every task empty;
  * - a NaN on one task and a duplicate id within one task each return -1 on every
- *   task;
+ *   task, each after a positive control that ranks the same keys unperturbed;
  * - sum_i64, sum_f64 and min_max_f64 against hand sums (exactly representable
  *   doubles, NaN-free, the empty task seeding its extents with +/-INFINITY), an
  *   n == 0 call of every reduction with NULL arrays, and module_snapshot_any()
@@ -199,6 +199,10 @@ static int test_rank_nan_on_one_task(void) {
   struct SnapshotRankKey keys[4];
   int64_t ranks[4];
   fill_tied_keys(keys, 4, 3);
+  /* Positive control: the unperturbed keys rank cleanly, so the failure below is the
+   * perturbation's alone. */
+  const int control = module_snapshot_rank(NULL, keys, 4, ranks);
+  TEST_ASSERT(all_tasks(control == 0), "the unperturbed keys rank on every task");
   if (ThisTask == 2) {
     keys[1].value = NAN;
   }
@@ -214,6 +218,10 @@ static int test_rank_duplicate_id_within_one_task(void) {
   struct SnapshotRankKey keys[4];
   int64_t ranks[4];
   fill_tied_keys(keys, 4, 3);
+  /* Positive control: the unperturbed keys rank cleanly, so the failure below is the
+   * perturbation's alone. */
+  const int control = module_snapshot_rank(NULL, keys, 4, ranks);
+  TEST_ASSERT(all_tasks(control == 0), "the unperturbed keys rank on every task");
   if (ThisTask == 0) {
     keys[3].id = keys[0].id;
   }

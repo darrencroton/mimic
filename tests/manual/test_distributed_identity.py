@@ -7,7 +7,9 @@ Usage::
     MODEL=<caller model> SIMULATION=<caller simulation> [MPIRUN="mpirun --oversubscribe"] \\
         python tests/manual/test_distributed_identity.py [--only halos-only|sage16|sham|hod]
 
-``make tests-distributed`` runs it. ``MPIRUN`` is the launcher command (default ``mpirun``;
+``make tests-distributed`` runs it. ``--only`` (repeatable) is a development aid: a filtered run
+is not the gate, so it ends with a ``PARTIAL:`` summary and exit status 3 even when every check
+it ran passed. ``MPIRUN`` is the launcher command (default ``mpirun``;
 CI uses ``mpirun --oversubscribe``), split with shell quoting rules and given ``-np <N>``.
 Needs Open MPI (or another MPI whose ``mpicc``/``mpirun`` are on PATH), HDF5 and libyaml; needs
 no real dataset.
@@ -29,13 +31,20 @@ Steps, each reported as ``MIMIC_RESULT:`` markers and gated:
    snapshot, exactly ``File<snap>_task<t>`` for t in [0, N) whose ``TotHalosPerSnap`` sum to the
    serial master's, and the log must hold task 0's ``Distributed horizontal partition`` line
    naming N tasks. Every count's output must pass
-   ``scripts/compare_cross_format_identity.py --compare-created`` against the serial output.
-   Both binaries of a leg are production builds (``TEST_BUILD=no``).
+   ``scripts/compare_cross_format_identity.py --compare-created`` against the serial output, and
+   for ``hod`` the comparator must report created rows (``UniqueGalaxyID < 0``) on both sides, so
+   the created-record path is never compared vacuously. Both binaries of a leg are production
+   builds (``TEST_BUILD=no``); the non-MPI one is built with ``USE-MPI=`` given explicitly and any
+   ``USE-MPI`` in the environment removed, so the serial reference is non-MPI whatever the caller
+   exported (the Makefile enables MPI for any non-empty value).
 3. The version 2 refusal: ``halos-only`` on the version 2 fixture
    ``simulations/micro-uchuu-ascii-horizontal/_tests/data/generic/`` under ``-np 2`` must fail at
    startup with the format_version 2 message.
 
-Every launch runs under a timeout, so a hang fails the gate instead of stalling it. Any FAIL,
+Every build and launch runs in its own session (process group) under a timeout; on a timeout
+or an interrupt the whole group (``mpirun`` and its ranks, or ``make`` and its compilers) gets
+SIGTERM, then SIGKILL after a short grace, and is reaped before the gate continues or restores
+the generated code, so a hang fails the gate instead of stalling it or leaving ranks behind. Any FAIL,
 ERROR or SKIP marker fails the run; the gate has no legitimate skip (a missing ``mpicc`` or
 ``mpirun`` is a failure). The whole output goes to ``build/distributed_tests.log``; run outputs go
 to ``output/distributed-identity/gate/`` (replaced on each run).
@@ -73,8 +82,8 @@ COMPARATOR = Path("scripts") / "compare_cross_format_identity.py"
 CONTROL_SOURCE = Path("tests") / "mpi" / "test_snapshot_collectives_mpi.c"
 CONTROL_BINARY = REPO_ROOT / "build" / "test_snapshot_collectives_mpi"
 CONTROL_TASKS = 3
-CONTROL_SOURCES = [Path("src/core/snapshot_collectives.c")] + sorted(
-    Path("src/util").glob("*.c"), key=str
+CONTROL_SOURCES = [REPO_ROOT / "src" / "core" / "snapshot_collectives.c"] + sorted(
+    (REPO_ROOT / "src" / "util").glob("*.c"), key=str
 )
 CONTROL_INCLUDES = [
     "src",
@@ -95,11 +104,17 @@ V2_A_LIST = V2_DATA / "micro-uchuu-fixture.a_list"
 V2_MESSAGE = "this is a format_version 2 dataset"
 
 PARTITION_LINE = "Distributed horizontal partition:"
+CREATED_RE = re.compile(
+    r"^Created rows \(UniqueGalaxyID < 0\).*: \S+ (\d+), \S+ (\d+)$", re.MULTILINE
+)
 SHAM_AUDIT_RE = re.compile(r"SHAM audit z=\S+ candidates=(\d+) assigned=(\d+) masked=(\d+)")
 MARKER_RE = re.compile(r"^MIMIC_RESULT: (PASS|WARN|FAIL|ERROR|SKIP)\b.*$", re.MULTILINE)
-MAKE_STATE = ("MAKEFLAGS", "MFLAGS", "MAKELEVEL", "MIMIC_TEST_BUILD")
+# Inherited state that must not reach the builds: make's recursion state, the test-build switch,
+# and USE-MPI (an environment value would turn the serial reference into an MPI build).
+MAKE_STATE = ("MAKEFLAGS", "MFLAGS", "MAKELEVEL", "MIMIC_TEST_BUILD", "USE-MPI")
 BUILD_TIMEOUT = 900
 RUN_TIMEOUT = 300
+KILL_GRACE = 5  # seconds between SIGTERM and SIGKILL of a timed-out or interrupted group
 
 
 class Gate:
@@ -121,26 +136,35 @@ class Gate:
     def run(self, cmd: list[str], title: str, timeout: int = RUN_TIMEOUT) -> tuple[int, str]:
         """Run one command from the repository root; log and return (status, output).
 
-        A timeout is status 124 with the partial output, so a hang fails its step.
+        The command runs in its own session, so it and every process it starts share one
+        process group. A timeout is status 124 with the partial output, so a hang fails its
+        step; on a timeout or an interrupt (the SystemExit raised for a signal) the whole group
+        is terminated and reaped first, and an interrupt is then re-raised.
         """
         try:
-            completed = subprocess.run(
+            process = subprocess.Popen(
                 cmd,
                 cwd=REPO_ROOT,
                 env=self.env,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
-                timeout=timeout,
+                start_new_session=True,
             )
-            status, output = completed.returncode, completed.stdout
-        except subprocess.TimeoutExpired as expired:
-            partial = expired.stdout or ""
-            if isinstance(partial, bytes):
-                partial = partial.decode(errors="replace")
-            status, output = 124, partial + f"\n[timed out after {timeout} s]\n"
         except OSError as error:
             status, output = 127, f"[could not run {cmd[0]}: {error}]\n"
+            self.log(f"=== {title} (exit {status})\n$ {shlex.join(cmd)}\n{output}\n")
+            return status, output
+        try:
+            output, _ = process.communicate(timeout=timeout)
+            status = process.returncode
+        except subprocess.TimeoutExpired:
+            output = terminate_group(process) + f"\n[timed out after {timeout} s; group killed]\n"
+            status = 124
+        except BaseException:
+            partial = terminate_group(process)
+            self.log(f"=== {title} (interrupted; group killed)\n$ {shlex.join(cmd)}\n{partial}\n")
+            raise
         self.log(f"=== {title} (exit {status})\n$ {shlex.join(cmd)}\n{output}\n")
         return status, output
 
@@ -158,8 +182,7 @@ class Gate:
 
     def make(self, model: str, simulation: str, *targets: str, mpi: bool = False) -> int:
         selectors = [f"MODEL={model}", f"SIMULATION={simulation}", "TEST_BUILD=no"]
-        if mpi:
-            selectors.append("USE-MPI=yes")
+        selectors.append("USE-MPI=yes" if mpi else "USE-MPI=")
         cmd = ["make", "--no-print-directory", *selectors, *targets]
         title = f"make {' '.join(selectors)} {' '.join(targets)}"
         status, _ = self.run(cmd, title, timeout=BUILD_TIMEOUT)
@@ -193,7 +216,8 @@ class Gate:
         cmd = ["mpicc", "-DMPI", "-Wall", "-Wextra", "-Wshadow"]
         cmd += [f"-I{path}" for path in CONTROL_INCLUDES]
         cmd += pkg_config("--cflags")
-        cmd += [str(CONTROL_SOURCE), *map(str, CONTROL_SOURCES), "-lm", *pkg_config("--libs")]
+        cmd += [str(REPO_ROOT / CONTROL_SOURCE), *map(str, CONTROL_SOURCES)]
+        cmd += ["-lm", *pkg_config("--libs")]
         cmd += ["-o", str(CONTROL_BINARY)]
         status, _ = self.run(cmd, "compile the MPI control test", timeout=BUILD_TIMEOUT)
         if not self.marker(status == 0, "mpi_control_test_build", f"mpicc exited {status}"):
@@ -243,7 +267,7 @@ class Gate:
                 self.check_serial_layout(name, run_dir, base, snapshots, output)
             else:
                 self.check_task_layout(name, run_dir, base, snapshots, ntask, serial_totals, output)
-            status, _ = self.run(
+            status, report = self.run(
                 [
                     sys.executable,
                     str(COMPARATOR),
@@ -258,6 +282,14 @@ class Gate:
                 f"compare {model} serial with -np {ntask}",
             )
             self.marker(status == 0, f"identity_{name}", f"comparator exited {status}")
+            if model == "hod":
+                created = CREATED_RE.search(report)
+                counts = tuple(map(int, created.groups())) if created else None
+                self.marker(
+                    counts is not None and min(counts) > 0,
+                    f"created_rows_compared_{name}",
+                    f"comparator reported created rows (serial, np{ntask}) = {counts}",
+                )
 
     def check_sham_audit(self, output: str) -> None:
         audits = [tuple(map(int, m.groups())) for m in SHAM_AUDIT_RE.finditer(output)]
@@ -337,6 +369,25 @@ class Gate:
             print(f"FAIL: could not restore generated code for {caller} (see {LOG_PATH})")
         else:
             print(f"Generated code restored for {caller}; rebuild the executable with 'make'.")
+
+
+def terminate_group(process: subprocess.Popen) -> str:
+    """SIGTERM, then after KILL_GRACE seconds SIGKILL, the process's group; reap it.
+
+    Returns whatever output the group wrote before it ended.
+    """
+    for signum, grace in ((signal.SIGTERM, KILL_GRACE), (signal.SIGKILL, None)):
+        try:
+            os.killpg(process.pid, signum)
+        except ProcessLookupError:
+            break
+        try:
+            output, _ = process.communicate(timeout=grace)
+            return output or ""
+        except subprocess.TimeoutExpired:
+            continue
+    output, _ = process.communicate()
+    return output or ""
 
 
 def pkg_config(flag: str) -> list[str]:
@@ -421,6 +472,12 @@ def main(argv=None) -> int:
         for failure in gate.failures:
             print(f"  {failure}")
         return 1
+    if args.only:
+        print(
+            f"PARTIAL: tests-distributed (models {', '.join(models)} only; {gate.passes} checks "
+            f"passed, but a filtered run is not the gate; log: {LOG_PATH})"
+        )
+        return 3
     print(
         f"PASS: tests-distributed ({gate.passes} checks: MPI control test, "
         f"{len(models)} model(s) at -np {', '.join(map(str, NP_COUNTS))}, version 2 refusal; "

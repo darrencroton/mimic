@@ -200,6 +200,16 @@ def expand_branches(branches):
     return tree
 
 
+def was_central(tree, index: int) -> bool:
+    """Whether a halo's main branch (its FirstProgenitor chain) holds an earlier FoF central."""
+    progenitor = tree[index][1][1]
+    while progenitor >= 0:
+        if tree[progenitor][1][3] == progenitor:
+            return True
+        progenitor = tree[progenitor][1][1]
+    return False
+
+
 def check_forest_blocks(trees) -> None:
     """Assert every property of the forest_blocks fixture the distributed gate relies on."""
     last = FOREST_BLOCKS_SNAPSHOTS - 1
@@ -212,9 +222,10 @@ def check_forest_blocks(trees) -> None:
             counts[t][snap] += 1
             if desc >= 0 and tree[desc][0] > snap + 1:
                 gapped += 1
-            # A FoF satellite that is not its descendant's main progenitor: its
-            # halo ends here and its galaxy continues as an orphan.
-            if fof != i and desc >= 0 and tree[desc][1][1] != i:
+            # A FoF satellite that is not its descendant's main progenitor and was
+            # its own FoF central earlier on its main branch, so it carries a
+            # galaxy: its halo ends here and that galaxy continues as an orphan.
+            if fof != i and desc >= 0 and tree[desc][1][1] != i and was_central(tree, i):
                 orphans += 1
             if snap == last and fof == i:
                 final_groups += 1

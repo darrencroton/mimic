@@ -22,7 +22,11 @@ At `-np 4` and `-np 8` the partition leaves trailing tasks idle (forest ranges `
 
 ## Real-data stage (`micro-uchuu-horizontal`)
 
-The dataset holds 440,651 forests and 22,580,924 halos over 50 snapshots. Each model was built with `make MODEL=<model> SIMULATION=micro-uchuu-horizontal TEST_BUILD=no USE-MPI=yes`, run from the repository root through its shipped run file `models/<model>/input/<model>_micro-uchuu-horizontal.yaml` (output directory redirected), and compared with the serial reference captured at run preparation (`archive/distributed-references/<model>/`, non-MPI builds at `fe0b9cad`):
+The dataset holds 440,651 forests and 22,580,924 halos over 50 snapshots. Each model was built with `make MODEL=<model> SIMULATION=micro-uchuu-horizontal TEST_BUILD=no USE-MPI=yes`, run from the repository root through its shipped run file `models/<model>/input/<model>_micro-uchuu-horizontal.yaml` (output directory redirected), and compared with the serial reference captured at run preparation (`archive/distributed-references/<model>/`, non-MPI builds at `fe0b9cad`).
+
+**The serial side of every table below is that run-preparation reference, built from `fe0b9cad`, the code before any slice of this plan; it was not re-run at `f2eb3155`.** The identity table is therefore a whole-feature parity result: pre-feature serial output against post-feature output at `-np 4`. The memory and wall-clock ratios likewise compare those two builds (the pre-feature serial binary and the post-feature MPI binary), not a serial and an MPI run of the same commit. (Serial output at the feature commits is held to pre-feature output separately: on the committed fixtures for `halos-only` and `sage16` by `make tests-snapshot-global-identity`, and on this dataset for these three models by Slice 8's serial bit-identity check against the same references.)
+
+Commands:
 
 ```bash
 /usr/bin/time -l -o launcher.txt mpirun -np 4 sh -c \
@@ -45,7 +49,7 @@ Every galaxy is bitwise identical in every field, with identical `UniqueGalaxyID
 
 ### Peak memory and wall-clock
 
-Peak RSS is `/usr/bin/time -l`'s maximum resident set size, per process (GB = 1e9 B).
+Peak RSS is `/usr/bin/time -l`'s maximum resident set size, per process (GB = 1e9 B). The serial columns are the `fe0b9cad` reference runs (their `time.txt`); the rank and `-np 4` columns are the `f2eb3155` MPI build.
 
 | Model | Serial peak RSS | Rank 0 | Rank 1 | Rank 2 | Rank 3 | Largest rank / serial | Serial wall-clock | `-np 4` wall-clock |
 |---|---|---|---|---|---|---|---|---|
