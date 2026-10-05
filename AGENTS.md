@@ -111,7 +111,7 @@ Full rules: `docs/STYLE-GUIDE.md` (human readability) and the formatter (mechani
 - `docs/STYLE-GUIDE.md` — naming, comments, metadata, tests, review conventions
 - `convert/mimic-convert/README.md` — merger-tree converter manual (producing horizontal HDF5 input)
 - `convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md` — horizontal HDF5 input contract (`format_version` ratchet)
-- `docs/dev/` — Mimic's own development pathway (plans and briefs); not user documentation
+- `docs/dev/` — Mimic's own development pathway (plans and briefs); not user documentation. **Reference rule:** documents inside `docs/dev/` may reference anything, but no document outside it (the guides, READMEs, CHANGELOG, skills, code comments, tests) may reference a `docs/dev/` document; completed plans leave the tree for the gitignored `archive/`, so such a reference would break for anyone who clones the repository
 - `plot/mimic-plot/README.md` — plotting manual · `tests/README.md` — test-suite quick reference
 - `models/<model>/README.md` — package science scope, pipeline, parameters, plots, references
 - `simulations/<sim>/README.md` — data, units, snapshot lists, maintenance notes
