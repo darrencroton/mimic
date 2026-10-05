@@ -26,12 +26,14 @@
 void output_path_binary(char *buf, size_t size, int filenr, int snap_index);
 
 /**
- * @brief   Build the path of one HDF5 output file (one file per filenr)
+ * @brief   Build the path of one HDF5 output file (one file per output partition)
  *
- * Single home for the HDF5 output naming scheme: <dir>/<base>_<NNN>.hdf5.
- * Fatal if the path does not fit in @p size.
+ * Single home for the HDF5 output naming scheme: <dir>/<base>_<NNN>.hdf5 for a
+ * partition with no task component (@p task < 0), and
+ * <dir>/<base>_<NNN>_task<TTT>.hdf5 for one written by task @p task of a
+ * multi-task horizontal run. Fatal if the path does not fit in @p size.
  */
-void output_path_hdf5(char *buf, size_t size, int filenr);
+void output_path_hdf5(char *buf, size_t size, int filenr, int task);
 
 /**
  * @brief   A partition's selection of requested output snapshots.
@@ -84,7 +86,12 @@ void output_increment_halo_counters_checked(int filenr, int snap_index, int snap
  * horizontal partition is one requested output snapshot and carries only
  * that one. A horizontal run therefore has MimicConfig.NOUT partitions,
  * each identified by its own snapshot number rather than by a dense index, so
- * every output filename names the snapshot it holds.
+ * every output filename names the snapshot it holds. Under NTask > 1 a
+ * horizontal run has NOUT x NTask partitions instead: partition p carries
+ * requested snapshot p % NOUT and is written by task p / NOUT alone, which
+ * partition_task() reports so the file and master names carry it. Every other
+ * partition (any vertical one, and every horizontal one of a serial run) has
+ * no task component and partition_task() returns -1.
  */
 struct OutputPartitionSource {
   /** Number of output partitions this run produces. */
@@ -95,6 +102,8 @@ struct OutputPartitionSource {
   int (*partition_exists)(int partition);
   /** Requested output snapshots carried by a given partition index. */
   struct OutputSnapshotSelection (*partition_snapshots)(int partition);
+  /** Task that writes a given partition, or -1 for a partition with no task component. */
+  int (*partition_task)(int partition);
   /** Optional run-scoped lifecycle hooks; NULL if the source keeps no state. */
   void (*prepare_run)(void);
   void (*teardown_run)(void);

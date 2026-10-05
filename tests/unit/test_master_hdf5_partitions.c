@@ -171,11 +171,12 @@ static int write_galaxies_dataset(hid_t group_id, int64_t total) {
 }
 
 /* One horizontal partition file: exactly its own Snap%03d group, with no
- * TreeHalosPerSnap dataset, which is what the snapshot writers produce. */
-static int create_snapshot_partition_file(int snapnum, int64_t total) {
+ * TreeHalosPerSnap dataset, which is what the snapshot writers produce. @p task
+ * is the partition's task component, -1 for none. */
+static int create_snapshot_partition_file(int snapnum, int task, int64_t total) {
   char path[512];
   char group_name[64];
-  output_path_hdf5(path, sizeof(path), snapnum);
+  output_path_hdf5(path, sizeof(path), snapnum, task);
 
   hid_t file_id = H5Fcreate(path, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
   TEST_ASSERT(file_id >= 0, "snapshot partition HDF5 file should be created");
@@ -194,7 +195,7 @@ static int create_snapshot_partition_file(int snapnum, int64_t total) {
 static int create_partition_file(int filenr, const int64_t *totals, int nout) {
   char path[512];
   char group_name[64];
-  output_path_hdf5(path, sizeof(path), filenr);
+  output_path_hdf5(path, sizeof(path), filenr, -1);
 
   hid_t file_id = H5Fcreate(path, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
   TEST_ASSERT(file_id >= 0, "partition HDF5 file should be created");
@@ -306,7 +307,7 @@ static int assert_external_link_target(hid_t file_id, const char *path, const ch
 static void cleanup_outputs(const int *filenrs, int nfiles) {
   char path[512];
   for (int i = 0; i < nfiles; i++) {
-    output_path_hdf5(path, sizeof(path), filenrs[i]);
+    output_path_hdf5(path, sizeof(path), filenrs[i], -1);
     unlink(path);
   }
   snprintf(path, sizeof(path), "%s/%s.hdf5", MimicConfig.OutputDir, MimicConfig.OutputFileBaseName);
@@ -459,6 +460,7 @@ static int test_horizontal_output_partition_source_is_one_partition_per_output_s
   struct OutputPartitionSource source = get_output_partition_source();
 
   TEST_ASSERT(source.num_partitions != NULL, "snapshot source must supply num_partitions");
+  TEST_ASSERT(source.partition_task != NULL, "snapshot source must supply partition_task");
   TEST_ASSERT(source.partition_output_id != NULL,
               "snapshot source must supply partition_output_id");
   TEST_ASSERT(source.partition_exists != NULL, "snapshot source must supply partition_exists");
@@ -472,6 +474,8 @@ static int test_horizontal_output_partition_source_is_one_partition_per_output_s
                       "a snapshot partition's output id is its own snapshot number");
     TEST_ASSERT(source.partition_exists(partition) != 0,
                 "every snapshot partition exists; the run creates all of them");
+    TEST_ASSERT_EQUAL(source.partition_task(partition), -1,
+                      "a serial run's snapshot partitions carry no task component");
 
     struct OutputSnapshotSelection selection = source.partition_snapshots(partition);
     TEST_ASSERT_EQUAL(selection.count, 1,
@@ -521,7 +525,7 @@ static int test_snapshot_master_links_each_snapshot_to_its_own_partition(void) {
   }
 
   for (int n = 0; n < nout; n++) {
-    TEST_ASSERT(create_snapshot_partition_file(requested[n], totals[n]) == TEST_PASS,
+    TEST_ASSERT(create_snapshot_partition_file(requested[n], -1, totals[n]) == TEST_PASS,
                 "each snapshot's partition fixture should be created");
   }
 
@@ -597,6 +601,8 @@ static int test_tree_output_partition_source_wraps_configured_reader(void) {
   TEST_ASSERT(source.partition_exists(1) == 0,
               "tree source honours a missing enumerated partition");
   TEST_ASSERT(source.partition_snapshots != NULL, "tree source must supply partition_snapshots");
+  TEST_ASSERT(source.partition_task != NULL, "tree source must supply partition_task");
+  TEST_ASSERT_EQUAL(source.partition_task(0), -1, "a tree partition carries no task component");
   struct OutputSnapshotSelection selection = source.partition_snapshots(0);
   TEST_ASSERT_EQUAL(selection.count, MimicConfig.NOUT,
                     "tree source's partition carries every requested snapshot");
@@ -618,6 +624,135 @@ static int test_tree_output_partition_source_wraps_configured_reader(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_multi_task_snapshot_partitions_and_master_carry_task
+ * @brief   Under NTask > 1 the horizontal source and master name every partition by snapshot and
+ *          task
+ *
+ * NTask = 3 and NOUT = 2 are set by hand (the driver itself still refuses
+ * NTask > 1). The requested list is unsorted so that a partition's snapshot
+ * index, snapshot number and partition index all disagree: partition p must
+ * carry requested snapshot p % NOUT, be written by task p / NOUT, and be
+ * named and linked with both. The vertical source under the same task count
+ * must still report no task component, and the unsuffixed names must not
+ * appear in the master.
+ */
+static int test_multi_task_snapshot_partitions_and_master_carry_task(void) {
+  char dir_template[] = "/tmp/mimic_master_tasks_XXXXXX";
+  const int requested[] = {7, 2};
+  const int nout = (int)(sizeof(requested) / sizeof(requested[0]));
+  const int ntask = 3;
+  const int expected_ids[] = {7, 2, 7, 2, 7, 2};
+  const int expected_tasks[] = {0, 0, 1, 1, 2, 2};
+  hid_t master_file_id;
+
+  TEST_ASSERT(create_temp_output_dir(dir_template) == TEST_PASS,
+              "temporary output directory should be available");
+
+  memset(&MimicConfig, 0, sizeof(MimicConfig));
+  MimicConfig.ProcessingOrder = (int)INPUT_PROCESSING_ORDER_HORIZONTAL;
+  MimicConfig.horizontal_reader = &HorizontalSourceReader;
+  MimicConfig.NOUT = nout;
+  snprintf(MimicConfig.OutputDir, sizeof(MimicConfig.OutputDir), "%s", dir_template);
+  snprintf(MimicConfig.OutputFileBaseName, sizeof(MimicConfig.OutputFileBaseName), "%s", "model");
+  for (int n = 0; n < nout; n++) {
+    MimicConfig.ListOutputSnaps[n] = requested[n];
+    MimicConfig.ZZ[requested[n]] = (double)(nout - n);
+  }
+  ThisTask = 0;
+  NTask = ntask;
+
+  struct OutputPartitionSource source = get_output_partition_source();
+  TEST_ASSERT(source.partition_task != NULL, "snapshot source must supply partition_task");
+  TEST_ASSERT_EQUAL(source.num_partitions(), nout * ntask,
+                    "a multi-task snapshot source has NOUT x NTask partitions");
+
+  for (int partition = 0; partition < nout * ntask; partition++) {
+    TEST_ASSERT_EQUAL(source.partition_output_id(partition), expected_ids[partition],
+                      "partition p's output id is requested snapshot p % NOUT");
+    TEST_ASSERT_EQUAL(source.partition_task(partition), expected_tasks[partition],
+                      "partition p is written by task p / NOUT");
+    TEST_ASSERT(source.partition_exists(partition) != 0,
+                "every task's snapshot partition exists, empty or not");
+
+    struct OutputSnapshotSelection selection = source.partition_snapshots(partition);
+    TEST_ASSERT_EQUAL(selection.count, 1,
+                      "a multi-task snapshot partition carries exactly one requested snapshot");
+    TEST_ASSERT_EQUAL(selection.indices[0], partition % nout,
+                      "a multi-task snapshot partition carries requested snapshot p % NOUT");
+
+    char path[512], expected_path[512];
+    output_path_hdf5(path, sizeof(path), expected_ids[partition], expected_tasks[partition]);
+    snprintf(expected_path, sizeof(expected_path), "%s/model_%03d_task%03d.hdf5", dir_template,
+             expected_ids[partition], expected_tasks[partition]);
+    TEST_ASSERT(strcmp(path, expected_path) == 0,
+                "a partition with a task component is named <base>_<snap>_task<task>.hdf5");
+
+    TEST_ASSERT(create_snapshot_partition_file(expected_ids[partition], expected_tasks[partition],
+                                               10 * partition + 1) == TEST_PASS,
+                "each task's snapshot partition fixture should be created");
+  }
+
+  char serial_path[512], expected_serial_path[512];
+  output_path_hdf5(serial_path, sizeof(serial_path), 7, -1);
+  snprintf(expected_serial_path, sizeof(expected_serial_path), "%s/model_007.hdf5", dir_template);
+  TEST_ASSERT(strcmp(serial_path, expected_serial_path) == 0,
+              "a partition with no task component keeps the unsuffixed name");
+
+  write_master_file();
+
+  TEST_ASSERT(open_master_file(&master_file_id) == TEST_PASS, "master file should be readable");
+  for (int partition = 0; partition < nout * ntask; partition++) {
+    char group_path[64], link_path[96], target_file[64], target_object[64];
+    snprintf(group_path, sizeof(group_path), "Snap%03d/File%03d_task%03d", expected_ids[partition],
+             expected_ids[partition], expected_tasks[partition]);
+    snprintf(link_path, sizeof(link_path), "%s/Galaxies", group_path);
+    snprintf(target_file, sizeof(target_file), "model_%03d_task%03d.hdf5", expected_ids[partition],
+             expected_tasks[partition]);
+    snprintf(target_object, sizeof(target_object), "Snap%03d/Galaxies", expected_ids[partition]);
+
+    TEST_ASSERT(assert_external_link_target(master_file_id, link_path, target_file,
+                                            target_object) == TEST_PASS,
+                "each task's partition is linked under its task-suffixed File group");
+    TEST_ASSERT(assert_total_attr(master_file_id, group_path, 10 * partition + 1) == TEST_PASS,
+                "each task-suffixed group republishes its own partition's TotHalosPerSnap");
+  }
+  for (int n = 0; n < nout; n++) {
+    char link_path[64];
+    snprintf(link_path, sizeof(link_path), "Snap%03d/File%03d", requested[n], requested[n]);
+    TEST_ASSERT(assert_link_exists(master_file_id, link_path, 0) == TEST_PASS,
+                "a multi-task master carries no unsuffixed File group");
+  }
+  H5Fclose(master_file_id);
+
+  /* The vertical source never carries a task component, whatever the task count. */
+  reset_master_partitions();
+  MimicConfig.ProcessingOrder = (int)INPUT_PROCESSING_ORDER_VERTICAL;
+  MimicConfig.vertical_reader = &EnumeratedMasterReader;
+  master_npartitions = 2;
+  struct OutputPartitionSource vertical_source = get_output_partition_source();
+  TEST_ASSERT(vertical_source.partition_task != NULL, "tree source must supply partition_task");
+  TEST_ASSERT_EQUAL(vertical_source.partition_task(0), -1,
+                    "a tree partition carries no task component under NTask > 1");
+  TEST_ASSERT_EQUAL(vertical_source.partition_task(1), -1,
+                    "a tree partition carries no task component under NTask > 1");
+  MimicConfig.ProcessingOrder = (int)INPUT_PROCESSING_ORDER_HORIZONTAL;
+
+  for (int partition = 0; partition < nout * ntask; partition++) {
+    char path[512];
+    output_path_hdf5(path, sizeof(path), expected_ids[partition], expected_tasks[partition]);
+    unlink(path);
+  }
+  char master_path[512];
+  snprintf(master_path, sizeof(master_path), "%s/model.hdf5", dir_template);
+  unlink(master_path);
+  rmdir(dir_template);
+
+  ThisTask = 0;
+  NTask = 0;
+  return TEST_PASS;
+}
+
 /** @brief Main test runner */
 int main(void) {
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
@@ -633,6 +768,7 @@ int main(void) {
   TEST_RUN(test_horizontal_output_partition_source_is_one_partition_per_output_snapshot);
   TEST_RUN(test_snapshot_master_links_each_snapshot_to_its_own_partition);
   TEST_RUN(test_tree_output_partition_source_wraps_configured_reader);
+  TEST_RUN(test_multi_task_snapshot_partitions_and_master_carry_task);
 
   TEST_SUMMARY();
   return TEST_RESULT();

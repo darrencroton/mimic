@@ -32,11 +32,17 @@ void output_path_binary(char *buf, size_t size, int filenr, int snap_index) {
   }
 }
 
-void output_path_hdf5(char *buf, size_t size, int filenr) {
-  int written = snprintf(buf, size, "%s/%s_%03d.hdf5", MimicConfig.OutputDir,
-                         MimicConfig.OutputFileBaseName, filenr);
+void output_path_hdf5(char *buf, size_t size, int filenr, int task) {
+  int written;
+  if (task < 0) {
+    written = snprintf(buf, size, "%s/%s_%03d.hdf5", MimicConfig.OutputDir,
+                       MimicConfig.OutputFileBaseName, filenr);
+  } else {
+    written = snprintf(buf, size, "%s/%s_%03d_task%03d.hdf5", MimicConfig.OutputDir,
+                       MimicConfig.OutputFileBaseName, filenr, task);
+  }
   if (written < 0 || (size_t)written >= size) {
-    FATAL_ERROR("HDF5 output path too long (filenr %d)", filenr);
+    FATAL_ERROR("HDF5 output path too long (filenr %d, task %d)", filenr, task);
   }
 }
 

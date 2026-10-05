@@ -20,6 +20,7 @@
 #endif
 
 #include "config.h"
+#include "core/task_layout.h"
 #include "core/vertical_driver.h"
 #include "fof_workspace.h"
 #include "galaxy_id.h"
@@ -80,7 +81,8 @@ static void set_current_output_paths(int output_id) {
 
 #ifdef HDF5
   if (MimicConfig.OutputFormat == output_hdf5) {
-    output_path_hdf5(current_output_paths[0], MAX_PATH_BUF_SIZE, output_id);
+    /* A vertical partition has no task component (vertical_partition_source_task). */
+    output_path_hdf5(current_output_paths[0], MAX_PATH_BUF_SIZE, output_id, -1);
     current_output_path_count = 1;
     return;
   }
@@ -115,10 +117,6 @@ static void claim_current_output_paths(int output_id) {
     fclose(fd);
   }
 }
-
-static int effective_task_count(void) { return NTask > 0 ? NTask : 1; }
-
-static int current_task_id(void) { return ThisTask >= 0 ? ThisTask : 0; }
 
 static void reader_prepare_run(const struct VerticalReader *reader) {
   if (reader->prepare_run != NULL) {
@@ -672,6 +670,13 @@ static struct OutputSnapshotSelection all_requested_snapshots(int partition) {
   };
 }
 
+/* A vertical partition is an input chunk whichever task processes it, so its
+ * output names carry no task component. */
+static int vertical_partition_source_task(int partition) {
+  (void)partition;
+  return -1;
+}
+
 /**
  * @brief   Wrap a vertical reader's partition hooks as a driver-neutral output partition source.
  */
@@ -683,20 +688,31 @@ vertical_reader_output_partition_source(const struct VerticalReader *reader) {
       .partition_output_id = reader->partition_output_id,
       .partition_exists = vertical_partition_source_partition_exists,
       .partition_snapshots = all_requested_snapshots,
+      .partition_task = vertical_partition_source_task,
       .prepare_run = reader->prepare_run,
       .teardown_run = reader->teardown_run,
       .format_name = reader->name,
   };
 }
 
-/* One partition per requested output snapshot: partition p carries requested
- * snapshot p and nothing else. */
-static int horizontal_output_partition_count(void) { return MimicConfig.NOUT; }
+/* One partition per requested output snapshot per task: partition p carries
+ * requested snapshot p % NOUT and nothing else, and is written by task p / NOUT.
+ * A serial run (one task) therefore has exactly NOUT partitions, partition p
+ * carrying requested snapshot p. */
+static int horizontal_output_partition_count(void) {
+  return MimicConfig.NOUT * effective_task_count();
+}
 
 /* The snapshot number itself, not a dense index, so every output filename names
  * the snapshot it holds even for an unsorted output.snapshot_list. */
 static int horizontal_output_partition_output_id(int partition) {
-  return MimicConfig.ListOutputSnaps[partition];
+  return MimicConfig.ListOutputSnaps[partition % MimicConfig.NOUT];
+}
+
+/* The writing task under NTask > 1; a serial run's partitions carry no task
+ * component, so its file and master names are exactly the single-task ones. */
+static int horizontal_output_partition_task(int partition) {
+  return effective_task_count() > 1 ? partition / MimicConfig.NOUT : -1;
 }
 
 static int horizontal_output_partition_exists(int partition) {
@@ -707,16 +723,17 @@ static int horizontal_output_partition_exists(int partition) {
 static struct OutputSnapshotSelection horizontal_output_partition_snapshots(int partition) {
   return (struct OutputSnapshotSelection){
       .count = 1,
-      .indices = &g_output_snapshot_indices[partition],
+      .indices = &g_output_snapshot_indices[partition % MimicConfig.NOUT],
   };
 }
 
 /**
  * @brief   The per-output-snapshot partition source for horizontal runs.
  *
- * One partition per requested output snapshot, each named by that snapshot's
- * number and carrying only its own snapshot, so the driver writes one file per
- * requested snapshot and never holds more than one of them open for writing.
+ * One partition per requested output snapshot per task, each named by that
+ * snapshot's number (and, under NTask > 1, its writing task) and carrying only
+ * its own snapshot, so each task writes one file per requested snapshot and
+ * never holds more than one of them open for writing.
  */
 static struct OutputPartitionSource horizontal_output_partition_source(void) {
   return (struct OutputPartitionSource){
@@ -724,6 +741,7 @@ static struct OutputPartitionSource horizontal_output_partition_source(void) {
       .partition_output_id = horizontal_output_partition_output_id,
       .partition_exists = horizontal_output_partition_exists,
       .partition_snapshots = horizontal_output_partition_snapshots,
+      .partition_task = horizontal_output_partition_task,
       .prepare_run = NULL,
       .teardown_run = NULL,
       .format_name = MimicConfig.horizontal_reader->name,

@@ -25,6 +25,7 @@
 #include <unistd.h>
 
 #include "proto.h"
+#include "core/task_layout.h" /* effective_task_count(), current_task_id() */
 #include "output/hdf5.h"
 #include "output/util.h"
 #include "error.h"
@@ -133,7 +134,14 @@ void prep_hdf5_file(char *fname, struct OutputSnapshotSelection selection) {
 void open_hdf5_output_file(int filenr, struct OutputSnapshotSelection selection) {
   char buf[3 * MAX_STRING_LEN + 40];
 
-  output_path_hdf5(buf, sizeof(buf), filenr);
+  /* The partition's task component (OutputPartitionSource.partition_task): a
+   * multi-task horizontal run writes only this task's own partitions, so the
+   * file being opened carries this task's id; every other partition has none. */
+  const int horizontal_run =
+      (enum InputProcessingOrder)MimicConfig.ProcessingOrder == INPUT_PROCESSING_ORDER_HORIZONTAL;
+  const int task = horizontal_run && effective_task_count() > 1 ? current_task_id() : -1;
+
+  output_path_hdf5(buf, sizeof(buf), filenr, task);
   prep_hdf5_file(buf, selection);
 
   HDF5_current_file_id = H5Fopen(buf, H5F_ACC_RDWR, H5P_DEFAULT);

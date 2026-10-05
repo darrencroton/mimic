@@ -120,11 +120,25 @@ def write_run(directory, basename, partitions):
     return str(directory / basename)
 
 
-def compare(left_spec, right_spec):
+def write_task_run(directory, basename, partitions):
+    """Write one multi-task run's partition files and return the comparator's spec string.
+
+    `partitions` maps (snapshot, task) to that partition's records, written as
+    ``<basename>_<snap>_task<task>.hdf5`` holding the one Snap group -- the layout
+    a multi-task horizontal run produces.
+    """
+    directory.mkdir(parents=True, exist_ok=True)
+    for (snap, task), records in partitions.items():
+        with h5py.File(directory / f"{basename}_{snap:03d}_task{task:03d}.hdf5", "w") as handle:
+            handle.create_dataset(f"Snap{snap:03d}/Galaxies", data=records)
+    return str(directory / basename)
+
+
+def compare(left_spec, right_spec, *options):
     """Run the comparator, returning its exit status and captured report."""
     captured = io.StringIO()
     with contextlib.redirect_stdout(captured), contextlib.redirect_stderr(captured):
-        status = comparator.main([left_spec, right_spec])
+        status = comparator.main([left_spec, right_spec, *options])
     return status, captured.getvalue()
 
 
@@ -429,6 +443,134 @@ def test_schema_mismatch_is_detected():
 
 
 # --------------------------------------------------------------------------
+# Multi-task partition names and created-row comparison
+# --------------------------------------------------------------------------
+
+
+def test_task_suffixed_partitions_are_aggregated_in_snapshot_task_order():
+    """A multi-task run's ``_task<digits>`` partitions are found, ordered, and aggregated.
+
+    The same galaxies split over three tasks per snapshot must compare equal to
+    a serial run writing one unsuffixed file per snapshot, and discovery must
+    order by (snapshot, task) numerically: task 10 sorts after task 2, which a
+    plain name sort would get wrong.
+    """
+    print("Testing task-suffixed partition names...")
+    with scratch() as root:
+        snap16 = make_records([1_000_000_001, 1_000_000_002, 1_000_000_003])
+        snap20 = make_records([2_000_000_001, 2_000_000_002])
+
+        serial = write_run(root / "serial", "model", [{16: snap16}, {20: snap20}])
+        tasks = write_task_run(
+            root / "tasks",
+            "model",
+            {
+                (20, 10): snap20[1:],
+                (16, 2): snap16[2:],
+                (16, 0): snap16[:2],
+                (20, 2): snap20[:1],
+                # A task holding no galaxies at a snapshot still writes its partition.
+                (16, 10): snap16[:0],
+            },
+        )
+
+        names = [path.name for path in comparator.partition_files(tasks)]
+        assert names == [
+            "model_016_task000.hdf5",
+            "model_016_task002.hdf5",
+            "model_016_task010.hdf5",
+            "model_020_task002.hdf5",
+            "model_020_task010.hdf5",
+        ], f"task-suffixed partitions are not in (snapshot, task) order: {names}"
+
+        status, report = compare(serial, tasks)
+        assert_status(status, IDENTICAL, report, "task-suffixed against serial")
+        assert "5 partition file(s)" in report, f"not every task partition was read\n{report}"
+    print("  ✓ task-suffixed partitions are discovered in (snapshot, task) order and aggregated")
+
+
+def test_mixed_suffixed_and_unsuffixed_partitions_are_an_input_error():
+    """One run holding both task-suffixed and unsuffixed partitions exits 2.
+
+    A run writes one kind or the other, so a mixture is stale or merged output;
+    aggregating both would double-count galaxies and be reported as a
+    difference -- or, worse, a duplicate -- that the physics never produced.
+    """
+    print("Testing mixed partition names...")
+    with scratch() as root:
+        records = make_records([1_000_000_001, 1_000_000_002])
+        left = write_run(root / "left", "model", [{0: records}])
+        mixed = write_run(root / "mixed", "model", [{0: records[:1]}])
+        write_task_run(root / "mixed", "model", {(1, 0): records[1:]})
+
+        status, report = compare(left, mixed)
+        assert_status(status, INPUT_ERROR, report, "mixed partition names")
+        assert "task-suffixed" in report, f"the mixture was not named\n{report}"
+    print("  ✓ mixing task-suffixed and unsuffixed partitions is an input error")
+
+
+def test_compare_created_accepts_equal_created_rows():
+    """Under --compare-created, identical created rows compare equal and are counted as compared."""
+    print("Testing --compare-created on equal created rows...")
+    with scratch() as root:
+        records = make_records([1_000_000_001, -1_025, -2_049])
+        left, right = build_pair(root, [{0: records}], [{0: records[::-1].copy()}])
+
+        status, report = compare(left, right, "--compare-created")
+        assert_status(status, IDENTICAL, report, "equal created rows under --compare-created")
+        assert "PASSED: 3 galaxies" in report, f"created rows were not compared\n{report}"
+        assert "included in the comparison" in report, f"created rows not reported\n{report}"
+    print("  ✓ equal created rows compare identical under --compare-created")
+
+
+def test_compare_created_detects_differing_created_rows():
+    """Under --compare-created a created row's field difference fails; by default it does not.
+
+    Both directions are asserted: the flag must catch the difference, and its
+    absence must leave the existing tree-rows-only verdict unchanged, which is
+    what every existing cross-driver gate relies on.
+    """
+    print("Testing --compare-created on differing created rows...")
+    with scratch() as root:
+        left_records = make_records([1_000_000_001, -1_025, -2_049])
+        right_records = left_records.copy()
+        right_records["StellarMass"][2] = numpy.nextafter(
+            right_records["StellarMass"][2], numpy.inf
+        )
+        left, right = build_pair(root, [{0: left_records}], [{0: right_records}])
+
+        status, report = compare(left, right, "--compare-created")
+        assert_status(status, DIFFERENT, report, "differing created rows under --compare-created")
+        assert "-2049" in report, f"the differing created id was not named\n{report}"
+
+        status, report = compare(left, right)
+        assert_status(status, IDENTICAL, report, "differing created rows by default")
+        assert "excluded from the comparison" in report, f"created rows not excluded\n{report}"
+
+        # A created id present in one run only is an id-set difference under the flag.
+        dropped = write_run(root / "dropped", "model", [{0: left_records[:2]}])
+        status, report = compare(left, dropped, "--compare-created")
+        assert_status(status, DIFFERENT, report, "dropped created id under --compare-created")
+        assert "-2049" in report, f"the missing created id was not named\n{report}"
+    print("  ✓ differing created rows fail only under --compare-created")
+
+
+def test_compare_created_duplicate_created_id_is_detected():
+    """A duplicated created id fails the duplicate pass under --compare-created."""
+    print("Testing a duplicated created id under --compare-created...")
+    with scratch() as root:
+        duplicated = make_records([1_000_000_001, -1_025, -1_025])
+        clean = make_records([1_000_000_001, -1_025])
+        left, right = build_pair(root, [{0: duplicated}], [{0: clean}])
+
+        status, report = compare(left, right, "--compare-created")
+        assert_status(status, DIFFERENT, report, "duplicated created id")
+        assert "-1025 appears 2 times" in report, f"duplicated created id not named\n{report}"
+        assert "no further comparison is meaningful" in report, f"comparison continued\n{report}"
+    print("  ✓ a duplicated created id fails first under --compare-created")
+
+
+# --------------------------------------------------------------------------
 # Unreadable input is an input error, never a difference
 # --------------------------------------------------------------------------
 
@@ -498,6 +640,11 @@ def main():
             test_differing_nan_payloads_are_a_difference,
             test_snapshot_set_mismatch_is_detected,
             test_schema_mismatch_is_detected,
+            test_task_suffixed_partitions_are_aggregated_in_snapshot_task_order,
+            test_mixed_suffixed_and_unsuffixed_partitions_are_an_input_error,
+            test_compare_created_accepts_equal_created_rows,
+            test_compare_created_detects_differing_created_rows,
+            test_compare_created_duplicate_created_id_is_detected,
             test_truncated_partition_is_an_input_error,
             test_missing_run_directory_is_an_input_error,
             test_directory_without_partitions_is_an_input_error,

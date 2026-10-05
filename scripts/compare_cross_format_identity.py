@@ -30,12 +30,16 @@ In this order:
    difference with counts, then **byte-identical fields** for every shared id,
    reported per field with a bounded sample of the ids that differ.
 
-Step 3's comparison covers **tree rows only** (``UniqueGalaxyID > 0``). Records
-a module created during the run carry strictly negative ids in a namespace each
-driver keys differently (its own processing unit and rows per unit), so they are
-not expected to match across drivers; they are counted per run and snapshot and
-reported separately, never as a difference. They still take part in step 1:
-created ids are unique run-wide too.
+Step 3's comparison covers **tree rows only** (``UniqueGalaxyID > 0``) by
+default. Records a module created during the run carry strictly negative ids in
+a namespace each driver keys differently (its own processing unit and rows per
+unit), so they are not expected to match across drivers; they are counted per
+run and snapshot and reported separately, never as a difference. They still
+take part in step 1: created ids are unique run-wide too. When both runs come
+from the same driver -- a serial and a multi-task run of one horizontal
+configuration, say -- created ids are expected to match, and
+``--compare-created`` includes them in step 3 under the same byte-exact per-id
+rule as tree rows.
 
 Usage:
 
@@ -44,8 +48,11 @@ Usage:
 where each argument is an output directory joined with the run's
 ``output_filename`` -- for example ``output/halos-only-micro-uchuu-ascii/halos``.
 Galaxies are aggregated across every numbered partition file
-``<basename>_<digits>.hdf5`` in ascending numeric order; the master
-``<basename>.hdf5`` is ignored, since it only links to those partitions.
+``<basename>_<digits>.hdf5`` -- or, for a multi-task horizontal run,
+``<basename>_<digits>_task<digits>.hdf5`` -- in ascending (number, task) order;
+the master ``<basename>.hdf5`` is ignored, since it only links to those
+partitions. One run's partitions are either all task-suffixed or none of them
+are; a mixture is an input error.
 
 Exit status is 0 when the two runs are identical under the rules above and 1 when
 they are not (2 for a usage or input error). Unreadable input is an input error,
@@ -103,10 +110,13 @@ def schema_signature(dtype):
 
 
 def partition_files(spec):
-    """Return the numbered partition files of one run, in ascending numeric order.
+    """Return the numbered partition files of one run, in ascending (number, task) order.
 
     `spec` is a directory path joined with the run's output basename, the same
-    string the run YAML's output_directory and output_filename produce.
+    string the run YAML's output_directory and output_filename produce. A
+    multi-task horizontal run writes ``<base>_<snap>_task<task>.hdf5`` and every
+    other run ``<base>_<number>.hdf5``; one run never writes both, so a directory
+    holding both is stale or mixed output and an input error.
     """
     path = Path(spec)
     directory, base = path.parent, path.name
@@ -115,16 +125,24 @@ def partition_files(spec):
     if not directory.is_dir():
         raise ComparisonError(f"{directory}: not a directory")
 
-    pattern = re.compile(r"^" + re.escape(base) + r"_(\d+)\.hdf5$")
+    pattern = re.compile(r"^" + re.escape(base) + r"_(\d+)(?:_task(\d+))?\.hdf5$")
     chunks = []
     for entry in directory.iterdir():
         match = pattern.match(entry.name)
         if match:
-            chunks.append((int(match.group(1)), entry))
+            task = -1 if match.group(2) is None else int(match.group(2))
+            chunks.append((int(match.group(1)), task, entry))
     chunks.sort()
     if not chunks:
         raise ComparisonError(f"{directory}: no partition files {base}_<digits>.hdf5 found")
-    return [entry for _, entry in chunks]
+    suffixed = sum(1 for _, task, _ in chunks if task >= 0)
+    if 0 < suffixed < len(chunks):
+        raise ComparisonError(
+            f"{directory}: mixes {suffixed} task-suffixed partition file(s) "
+            f"{base}_<digits>_task<digits>.hdf5 with {len(chunks) - suffixed} unsuffixed "
+            f"{base}_<digits>.hdf5; one run writes only one kind"
+        )
+    return [entry for _, _, entry in chunks]
 
 
 @contextlib.contextmanager
@@ -308,16 +326,21 @@ def report_run_duplicates(label, index, max_report):
     return duplicated
 
 
-def tree_rows(records):
-    """Split one snapshot's records into tree rows, created-row count and zero-id count.
+def compared_rows(records, compare_created=False):
+    """Split one snapshot's records into compared rows, created-row count and zero-id count.
 
     Tree rows carry positive ids and records created during the run strictly
     negative ones; no encoder produces 0, so a zero id is a defect the caller
-    reports rather than a row to skip.
+    reports rather than a row to skip. The compared rows are the tree rows, plus
+    the created rows when `compare_created` is set.
     """
     ids = records[ID_FIELD]
-    tree = ids > 0
-    return records[tree], int(numpy.count_nonzero(ids < 0)), int(numpy.count_nonzero(ids == 0))
+    compared = ids != 0 if compare_created else ids > 0
+    return (
+        records[compared],
+        int(numpy.count_nonzero(ids < 0)),
+        int(numpy.count_nonzero(ids == 0)),
+    )
 
 
 def report_created(snap, created, labels):
@@ -330,11 +353,13 @@ def report_created(snap, created, labels):
         )
 
 
-def compare_snapshot(snap, left, right, labels, max_report):
-    """Compare one output snapshot's shared tree rows. Returns the failures found.
+def compare_snapshot(snap, left, right, labels, max_report, compare_created=False):
+    """Compare one output snapshot's shared rows. Returns the failures found.
 
-    Records created during a run (negative ids) are split off first, reported by
-    count and never compared; everything below sees tree rows only.
+    Records created during a run (negative ids) are split off first and
+    reported by count, unless `compare_created` is set, in which case they are
+    compared exactly like tree rows; everything below sees the compared rows
+    only.
 
     Precondition: neither run carries duplicated ids — report_run_duplicates()
     has already run over both and the comparison stopped if it found any. That
@@ -343,9 +368,10 @@ def compare_snapshot(snap, left, right, labels, max_report):
     left_label, right_label = labels
     failures = 0
 
-    left, left_created, left_zero = tree_rows(left)
-    right, right_created, right_zero = tree_rows(right)
-    report_created(snap, (left_created, right_created), labels)
+    left, left_created, left_zero = compared_rows(left, compare_created)
+    right, right_created, right_zero = compared_rows(right, compare_created)
+    if not compare_created:
+        report_created(snap, (left_created, right_created), labels)
     if left_zero or right_zero:
         print(
             f"  FAIL Snap{snap:03d}: {ID_FIELD} 0 is neither a tree id nor a created id -- "
@@ -437,6 +463,12 @@ def main(argv=None):
         "--right-label", default="right", help="name for the second run in the report"
     )
     parser.add_argument(
+        "--compare-created",
+        action="store_true",
+        help=f"also compare created rows ({ID_FIELD} < 0) byte for byte, for two runs of the "
+        "same driver",
+    )
+    parser.add_argument(
         "--max-report",
         type=int,
         default=DEFAULT_MAX_REPORT,
@@ -506,16 +538,20 @@ def compare_runs(args):
     for snap in sorted(left_snaps & right_snaps):
         left_records = read_snapshot(left, snap)
         right_records = read_snapshot(right, snap)
-        failures += compare_snapshot(snap, left_records, right_records, labels, args.max_report)
+        failures += compare_snapshot(
+            snap, left_records, right_records, labels, args.max_report, args.compare_created
+        )
         left_tree = numpy.count_nonzero(left_records[ID_FIELD] > 0)
-        total += int(left_tree)
+        left_created = numpy.count_nonzero(left_records[ID_FIELD] < 0)
+        total += int(left_tree) + (int(left_created) if args.compare_created else 0)
         created[0] += int(left_records.size - left_tree)
         created[1] += int(right_records.size - numpy.count_nonzero(right_records[ID_FIELD] > 0))
         del left_records, right_records
 
     if any(created):
+        disposition = "included in" if args.compare_created else "excluded from"
         print(
-            f"\nCreated rows ({ID_FIELD} < 0), excluded from the comparison: "
+            f"\nCreated rows ({ID_FIELD} < 0), {disposition} the comparison: "
             f"{args.left_label} {created[0]}, {args.right_label} {created[1]}"
         )
 
@@ -528,7 +564,8 @@ def compare_runs(args):
     # compared rather than only that nothing differed: a reader (or a harness)
     # can check it against the run's own output schema without rerunning
     # anything.
-    # `total` counts tree rows only, the rows actually compared.
+    # `total` counts the rows actually compared: tree rows, plus created rows
+    # under --compare-created.
     print(
         f"\nPASSED: {total} galaxies over {shared} output snapshot(s) are bitwise identical "
         f"in all {len(left.dtype.names)} field(s), with identical {ID_FIELD} sets and "

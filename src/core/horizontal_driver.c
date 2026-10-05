@@ -59,6 +59,7 @@
 #include <unistd.h>
 
 #include "config.h"
+#include "core/task_layout.h"
 #include "error.h"
 #include "fof_workspace.h"
 #include "galaxy_id.h"
@@ -102,10 +103,11 @@
  *     moment that file closes cleanly, so a completed snapshot's output is never
  *     destroyed by a later failure. This is the vertical driver's own per-partition
  *     discipline (vertical_driver.c:311), applied to the horizontal side.
- *   slot MASTER - the run's master file. Armed once at run start and, unlike the
- *     vertical driver's registry, still armed when run_horizontal_driver() returns,
- *     because main.c writes the master afterwards; only a successful
- *     write_master_file() disarms it.
+ *   slot MASTER - the run's master file. Armed once at run start, on task 0 only
+ *     (the only task that writes it, so a failing other task never unlinks it),
+ *     and, unlike the vertical driver's registry, still armed when
+ *     run_horizontal_driver() returns, because main.c writes the master
+ *     afterwards; only a successful write_master_file() disarms it.
  *
  * An empty slot is skipped by both operations below, so the two lifetimes need
  * no bookkeeping beyond the strings themselves. */
@@ -148,12 +150,18 @@ void horizontal_driver_remove_incomplete_outputs(void) {
  * registry would let bye() unlink a completed earlier run's files on the way
  * out. */
 
-/* Arm the master file for cleanup, once, at run start.
+/* Arm the master file for cleanup, once, at run start, on task 0 alone: only
+ * task 0 writes the master, and each task's registry holds only files that task
+ * writes, so another task's failure cleanup never removes it.
  *
  * The path is formatted the way write_master_file() formats it (master_hdf5.c)
  * rather than through a shared helper: adding one would mean editing an
  * output-writer seam this driver only consumes. */
 static void horizontal_arm_master_output_path(void) {
+  if (current_task_id() != 0) {
+    return;
+  }
+
   const int written =
       snprintf(horizontal_output_paths[HORIZONTAL_OUTPUT_PATH_MASTER], HORIZONTAL_PATH_BUF_SIZE,
                "%s/%s.hdf5", MimicConfig.OutputDir, MimicConfig.OutputFileBaseName);
@@ -166,12 +174,13 @@ static void horizontal_arm_master_output_path(void) {
               horizontal_output_paths[HORIZONTAL_OUTPUT_PATH_MASTER]);
 }
 
-/* Arm the partition file about to be created for output id @p output_id. Armed
- * before H5Fcreate, so a failure that leaves a half-created file behind still
- * has that file registered for removal. */
-static void horizontal_arm_partition_output_path(int output_id) {
+/* Arm the partition file about to be created for output id @p output_id and
+ * task component @p task (-1 for none). Armed before H5Fcreate, so a failure
+ * that leaves a half-created file behind still has that file registered for
+ * removal. */
+static void horizontal_arm_partition_output_path(int output_id, int task) {
   output_path_hdf5(horizontal_output_paths[HORIZONTAL_OUTPUT_PATH_INFLIGHT],
-                   HORIZONTAL_PATH_BUF_SIZE, output_id);
+                   HORIZONTAL_PATH_BUF_SIZE, output_id, task);
 
   VERBOSE_LOG("Snapshot partition output cleanup armed for '%s'",
               horizontal_output_paths[HORIZONTAL_OUTPUT_PATH_INFLIGHT]);
@@ -708,9 +717,10 @@ static void horizontal_open_output(void) {
  * finish, and close it before returning.
  *
  * @param   cur            The generation holding this snapshot's processed halos.
- * @param   output_index   Index of this snapshot in MimicConfig.ListOutputSnaps,
- *                         which is also its partition index.
+ * @param   output_index   Index of this snapshot in MimicConfig.ListOutputSnaps.
  * @param   selection      That partition's selection — this one snapshot.
+ * @param   task           That partition's task component (partition_task()),
+ *                         -1 when it has none.
  *
  * The file is created, filled, stamped and closed inside this call, so a
  * finished snapshot's output is final the moment this returns and the driver
@@ -728,7 +738,7 @@ static void horizontal_open_output(void) {
  * memory.
  */
 static void horizontal_write_output(struct HorizontalGeneration *cur, int output_index,
-                                    struct OutputSnapshotSelection selection) {
+                                    struct OutputSnapshotSelection selection, int task) {
   const struct HaloInputView view = {cur->slab.halos, cur->slab.nhalos};
   const int output_id = MimicConfig.ListOutputSnaps[output_index];
 
@@ -736,7 +746,7 @@ static void horizontal_write_output(struct HorizontalGeneration *cur, int output
    * (vertical_driver.c:203). */
   FileNum = output_id;
 
-  horizontal_arm_partition_output_path(output_id);
+  horizontal_arm_partition_output_path(output_id, task);
   prepare_output_files(output_id, selection);
 
   ProcessedHalos = cur->processed.halos;
@@ -797,10 +807,11 @@ static void horizontal_write_output(struct HorizontalGeneration *cur, int output
 static void horizontal_open_output(void) { FATAL_ERROR(HORIZONTAL_NO_HDF5_MESSAGE); }
 
 static void horizontal_write_output(struct HorizontalGeneration *cur, int output_index,
-                                    struct OutputSnapshotSelection selection) {
+                                    struct OutputSnapshotSelection selection, int task) {
   (void)cur;
   (void)output_index;
   (void)selection;
+  (void)task;
   FATAL_ERROR(HORIZONTAL_NO_HDF5_MESSAGE);
 }
 
@@ -1575,8 +1586,9 @@ void run_horizontal_driver(void) {
   TreeID = 0;
   GlobalForestOffset = 0;
 
-  /* One partition per requested output snapshot, resolved through the shared
-   * seam so this driver never derives a partition's snapshot range itself. */
+  /* One partition per requested output snapshot (per task under NTask > 1),
+   * resolved through the shared seam so this driver never derives a partition's
+   * snapshot range or task itself. */
   const struct OutputPartitionSource output_source = get_output_partition_source();
   const int npartitions = output_source.num_partitions();
 
@@ -1675,9 +1687,19 @@ void run_horizontal_driver(void) {
      * still-live slab N. */
     horizontal_release_expired_generations(&state, snapnum);
 
+    /* Write every partition carrying this snapshot that this task owns: the one
+     * partition of a serial run, or this task's own partition under NTask > 1. */
     const int output_index = horizontal_output_snapshot_index(snapnum);
     if (output_index >= 0) {
-      horizontal_write_output(cur, output_index, output_source.partition_snapshots(output_index));
+      for (int partition = 0; partition < npartitions; partition++) {
+        const struct OutputSnapshotSelection selection =
+            output_source.partition_snapshots(partition);
+        const int task = output_source.partition_task(partition);
+        if (selection.indices[0] != output_index || (task >= 0 && task != current_task_id())) {
+          continue;
+        }
+        horizontal_write_output(cur, output_index, selection, task);
+      }
     }
 
     /* A generation nothing later links into is dead once its own output is

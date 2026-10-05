@@ -5,6 +5,10 @@
  * Builds the run-level master HDF5 file: external links into every per-filenr
  * output file, per-snapshot redshift attributes, per-file halo counts, and
  * the full RunProperties metadata group.
+ *
+ * Each partition is linked under Snap<SSS>/File<NNN> when it has no task
+ * component and under Snap<SSS>/File<NNN>_task<TTT> when it does (a multi-task
+ * horizontal run), matching its file name (output_path_hdf5()).
  */
 
 #include <hdf5.h>
@@ -25,6 +29,7 @@ void write_master_file(void) {
   int64_t ngal_in_core;
   char master_file[2 * MAX_STRING_LEN + 50], target_file[2 * MAX_STRING_LEN + 50];
   char relative_target_file[MAX_STRING_LEN + 50], target_group[100], source_ds[100];
+  char file_group[32];
   hid_t master_file_id, dataset_id, attribute_id, dataspace_id, group_id, target_file_id;
   herr_t status;
   hsize_t dims;
@@ -56,7 +61,7 @@ void write_master_file(void) {
   }
 
   if (source.num_partitions == NULL || source.partition_output_id == NULL ||
-      source.partition_snapshots == NULL) {
+      source.partition_snapshots == NULL || source.partition_task == NULL) {
     FATAL_ERROR("Output partition source '%s' cannot enumerate HDF5 master partitions",
                 source.format_name);
   }
@@ -99,13 +104,14 @@ void write_master_file(void) {
 
   for (int partition = 0; partition < npartitions; partition++) {
     filenr = source.partition_output_id(partition);
+    const int task = source.partition_task(partition);
 
     if (!source.partition_exists(partition)) {
       INFO_LOG("Skipping master-file links for missing input partition %d", partition);
       continue;
     }
 
-    output_path_hdf5(target_file, sizeof(target_file), filenr);
+    output_path_hdf5(target_file, sizeof(target_file), filenr, task);
     if (access(target_file, F_OK) != 0) {
       INFO_LOG("Skipping master-file links for missing output file %s", target_file);
       continue;
@@ -116,20 +122,27 @@ void write_master_file(void) {
       FATAL_ERROR("Failed to open output file '%s' while building master file", target_file);
     }
 
-    sprintf(relative_target_file, "%s_%03d.hdf5", MimicConfig.OutputFileBaseName, filenr);
+    if (task < 0) {
+      sprintf(relative_target_file, "%s_%03d.hdf5", MimicConfig.OutputFileBaseName, filenr);
+      sprintf(file_group, "File%03d", filenr);
+    } else {
+      sprintf(relative_target_file, "%s_%03d_task%03d.hdf5", MimicConfig.OutputFileBaseName, filenr,
+              task);
+      sprintf(file_group, "File%03d_task%03d", filenr, task);
+    }
 
     const struct OutputSnapshotSelection selection = source.partition_snapshots(partition);
 
     for (int idx = 0; idx < selection.count; idx++) {
       n = selection.indices[idx];
-      sprintf(target_group, "Snap%03d/File%03d", MimicConfig.ListOutputSnaps[n], filenr);
+      sprintf(target_group, "Snap%03d/%s", MimicConfig.ListOutputSnaps[n], file_group);
       group_id = H5Gcreate(master_file_id, target_group, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
       if (group_id < 0) {
         FATAL_ERROR("Failed to create group '%s' in master file '%s'", target_group, master_file);
       }
       H5Gclose(group_id);
 
-      sprintf(target_group, "Snap%03d/File%03d/Galaxies", MimicConfig.ListOutputSnaps[n], filenr);
+      sprintf(target_group, "Snap%03d/%s/Galaxies", MimicConfig.ListOutputSnaps[n], file_group);
       sprintf(source_ds, "Snap%03d/Galaxies", MimicConfig.ListOutputSnaps[n]);
       DEBUG_LOG("Creating external DS link - %s", target_group);
       status = H5Lcreate_external(relative_target_file, source_ds, master_file_id, target_group,
@@ -139,8 +152,8 @@ void write_master_file(void) {
       }
 
       if (!horizontal_run) {
-        sprintf(target_group, "Snap%03d/File%03d/TreeHalosPerSnap", MimicConfig.ListOutputSnaps[n],
-                filenr);
+        sprintf(target_group, "Snap%03d/%s/TreeHalosPerSnap", MimicConfig.ListOutputSnaps[n],
+                file_group);
         sprintf(source_ds, "Snap%03d/TreeHalosPerSnap", MimicConfig.ListOutputSnaps[n]);
         DEBUG_LOG("Creating external DS link - %s", target_group);
         status = H5Lcreate_external(relative_target_file, source_ds, master_file_id, target_group,
@@ -171,7 +184,7 @@ void write_master_file(void) {
                     "'%s'",
                     master_file);
       }
-      sprintf(target_group, "Snap%03d/File%03d", MimicConfig.ListOutputSnaps[n], filenr);
+      sprintf(target_group, "Snap%03d/%s", MimicConfig.ListOutputSnaps[n], file_group);
       group_id = H5Gopen(master_file_id, target_group, H5P_DEFAULT);
       if (group_id < 0) {
         FATAL_ERROR("Failed to open group '%s' in master file '%s'", target_group, master_file);
