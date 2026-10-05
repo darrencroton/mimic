@@ -48,7 +48,7 @@
  * output files behind and never deletes completed ones. Binary output has one
  * path per requested snapshot; HDF5 output has one path per partition.
  *
- * The last entry is the partition's in-flight marker, <OutputDir>/.<base>_<NNN>.inflight,
+ * The last entry is the partition's in-flight marker, <OutputDir>/<base>_<NNN>.inflight,
  * created before the outputs are claimed and unlinked once they are closed. A rank killed
  * mid-write (by MPI_Abort or SIGKILL) cannot run the removal, so it leaves the marker beside
  * its partial files, and a --skip resume redoes any partition whose marker exists. */
@@ -125,13 +125,14 @@ static void claim_current_output_paths(int output_id, int noutputs) {
   }
 }
 
-/* Path of the in-flight marker of partition output_id: one hidden file per partition,
- * whatever the output format, numbered like the HDF5 partitions. */
+/* Path of the in-flight marker of partition output_id: one file per partition, whatever
+ * the output format, named beside the outputs (so an output_filename with a directory
+ * component still resolves) and numbered like the HDF5 partitions. */
 static void inflight_marker_path(char *buf, size_t size, int output_id) {
-  const int written = snprintf(buf, size, "%s/.%s_%03d.inflight", MimicConfig.OutputDir,
+  const int written = snprintf(buf, size, "%s/%s_%03d.inflight", MimicConfig.OutputDir,
                                MimicConfig.OutputFileBaseName, output_id);
   if (written < 0 || (size_t)written >= size) {
-    FATAL_ERROR("In-flight marker path too long for partition %d: %s/.%s_%03d.inflight", output_id,
+    FATAL_ERROR("In-flight marker path too long for partition %d: %s/%s_%03d.inflight", output_id,
                 MimicConfig.OutputDir, MimicConfig.OutputFileBaseName, output_id);
   }
 }

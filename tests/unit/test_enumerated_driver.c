@@ -175,9 +175,9 @@ static int create_temp_output_dir(char *dir_template) {
   return TEST_PASS;
 }
 
-/* The driver's in-flight marker for a partition: <OutputDir>/.<base>_<NNN>.inflight. */
+/* The driver's in-flight marker for a partition: <OutputDir>/<base>_<NNN>.inflight. */
 static void inflight_marker_path(char *buf, size_t size, int output_id) {
-  snprintf(buf, size, "%s/.%s_%03d.inflight", MimicConfig.OutputDir, MimicConfig.OutputFileBaseName,
+  snprintf(buf, size, "%s/%s_%03d.inflight", MimicConfig.OutputDir, MimicConfig.OutputFileBaseName,
            output_id);
 }
 

@@ -678,7 +678,7 @@ def compare_galaxies(base: OutputRun, other: OutputRun, report: Report) -> None:
         failures, text = captured(
             lambda s=snap, a=records_left, b=records_right: comparator.compare_snapshot(
                 s, a, b, labels, ERROR_CAP
-            )
+            ).failures
         )
         if failures:
             report.error(f"galaxies: {text}")

@@ -73,7 +73,7 @@ Guards and conventions:
 | `-v`, `--verbose` | Add context (timestamp, file:line) and enable `VERBOSE_LOG` |
 | `-d`, `--debug` | Most verbose: debug output plus context |
 | `-q`, `--quiet` | Warnings and errors only |
-| `--skip` | Skip a work partition if ALL of its output files already exist and it has no in-flight marker (`<OutputDir>/.<base>_<NNN>.inflight`, present from just before the vertical driver claims a partition's files until it closes them); a marked partition is redone, and a PARTIAL set of files on an unmarked partition is a fatal error (sets `OverwriteOutputFiles = 0`) |
+| `--skip` | Skip a work partition if ALL of its output files already exist and it has no in-flight marker (`<OutputDir>/<base>_<NNN>.inflight`, present from just before the vertical driver claims a partition's files until it closes them); a marked partition is redone, and a PARTIAL set of files on an unmarked partition is a fatal error (sets `OverwriteOutputFiles = 0`) |
 | `--compress` | gzip HDF5 galaxy datasets (sets `HDF5CompressionLevel = 1`; default 0 = off) |
 
 `parse_cli` also seeds runtime defaults that YAML keys later override:

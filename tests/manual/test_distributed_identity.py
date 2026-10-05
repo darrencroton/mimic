@@ -49,7 +49,9 @@ Steps, each reported as ``MIMIC_RESULT:`` markers and gated:
 Every build and launch runs in its own session (process group) under a timeout (``RUN_TIMEOUT``
 for a run, short because the fixture runs take seconds; ``BUILD_TIMEOUT`` for a build). The first
 launch of a leg that times out is recorded as that leg's failure and ends the leg, so a collective
-deadlock costs one timeout per model rather than one per rank count. On a timeout or an
+deadlock costs one timeout per model rather than one per rank count; a build that times out is
+recorded and ends the whole gate, since the same build would hang again for every later model and
+the job's budget must leave room for the log step. On a timeout or an
 interrupt the whole group (``mpirun`` and its ranks, or ``make`` and its compilers) gets SIGTERM
 and, after a short grace, SIGKILL whether or not its leader has exited, and is reaped before the
 gate continues or restores the generated code, so a hang fails the gate instead of stalling it or
@@ -136,6 +138,10 @@ TIMEOUT_STATUS = 124  # the status run() reports for a command it had to kill
 KILL_GRACE = 5  # seconds between SIGTERM and SIGKILL of a timed-out or interrupted group
 
 
+class GateStopped(Exception):
+    """A build timed out: the gate records the failure and stops rather than repeat the hang."""
+
+
 class Gate:
     """Runs the steps in sequence, appending every command's output to one log."""
 
@@ -213,11 +219,14 @@ class Gate:
         if status == 0:
             status = self.make(model, simulation, f"-j{os.cpu_count() or 4}", "mimic", mpi=mpi)
         kind = "mpi" if mpi else "serial"
-        return self.marker(
+        ok = self.marker(
             status == 0,
             f"build_{kind}_{model}_{simulation}",
             f"build exited {status} (see {LOG_PATH})",
         )
+        if status == TIMEOUT_STATUS:
+            raise GateStopped(f"the {kind} build of {model} timed out")
+        return ok
 
     def launch(self, ntask: int | None, run_file: Path, title: str) -> tuple[int, str]:
         """Run ./mimic serially (ntask None) or under the MPI launcher at -np ntask."""
@@ -246,6 +255,8 @@ class Gate:
         cmd += ["-lm", "-o", str(CONTROL_BINARY)]
         status, _ = self.run(cmd, "compile the MPI control test", timeout=BUILD_TIMEOUT)
         if not self.marker(status == 0, "mpi_control_test_build", f"mpicc exited {status}"):
+            if status == TIMEOUT_STATUS:
+                raise GateStopped("the MPI control test compile timed out")
             return
         status, output = self.run(
             [*self.mpirun, "-np", str(CONTROL_TASKS), str(CONTROL_BINARY)],
@@ -544,6 +555,8 @@ def main(argv=None) -> int:
         for model in models:
             gate.leg(model)
         gate.version_2_refusal()
+    except GateStopped as stop:
+        print(f"Gate stopped early: {stop}; its failure marker is recorded", flush=True)
     finally:
         gate.restore()
 

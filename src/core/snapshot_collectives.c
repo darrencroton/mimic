@@ -554,7 +554,7 @@ typedef int ReductionOp;
  *
  * @param   function  Collective being called, for the messages
  * @param   values    Array reduced in place; may be NULL when n == 0
- * @param   n         Element count, the same on every task
+ * @param   n         Element count this task passed; the tasks agree on it before reducing
  * @param   type      Element datatype
  * @param   op        Reduction operation
  * @return  0 on success, -1 on every task when the call is refused, invalid or inconsistent
