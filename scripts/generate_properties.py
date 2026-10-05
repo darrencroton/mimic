@@ -947,6 +947,8 @@ def generate_tree_property_accessors_h(
     Every accessor takes its halo index as int64_t, and every tree-link accessor
     returns int64_t whatever the catalog stores (`int` or `long long`, per
     CORE_ROLE_STORAGE_TYPES), so no index computed from a link narrows to int.
+    Each tree-link role also gets a `mimic_tree_set_<role>` setter taking an
+    int64_t value, narrowed to the field's declared type on store.
     """
     virial = catalog_info["virial_mass_input"]
     index_type = HALO_INDEX_C_TYPE
@@ -977,6 +979,20 @@ def generate_tree_property_accessors_h(
         )
         code += f"  return ({c_type})({expr});\n"
         code += "}\n\n"
+        if required.get("role") == "tree_link":
+            field_c_type = TYPE_MAP[source["type"]]["c_type"]
+            code += (
+                f"static inline void mimic_tree_set_{role_name}"
+                f"(struct HaloInputView view, {index_type} halonr, {index_type} value) {{\n"
+            )
+            code += (
+                "  /* The driver owns the slab it rebases, so dropping const here is sound. */\n"
+            )
+            code += (
+                f"  ((struct RawHalo *)view.halos)[halonr].{source['name']} = "
+                f"({field_c_type})value;\n"
+            )
+            code += "}\n\n"
         emitted.add(role_name)
 
     for prop in halo_props:
