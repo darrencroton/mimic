@@ -232,9 +232,10 @@ FILE *set_log_output(FILE *output_file) {
 /**
  * @brief   Shared log emitter used by log_message() and log_io_error()
  *
- * Handles stream selection, colour, the verbosity-dependent header, an
- * optional context prefix (used for I/O logs), the message body, trailing
- * newline, and flushing for errors. Level filtering is done by the callers.
+ * Handles stream selection, the task prefix (`task <n>: ` when NTask > 1),
+ * colour, the verbosity-dependent header, an optional context prefix (used
+ * for I/O logs), the message body, trailing newline, and flushing for errors.
+ * Level filtering is done by the callers.
  */
 static void emit_log(LogLevel level, const char *file, int line, const char *prefix,
                      const char *format, va_list args) {
@@ -259,6 +260,12 @@ static void emit_log(LogLevel level, const char *file, int line, const char *pre
       colour_start = "\x1b[1;31m";
       colour_end = "\x1b[0m";
     }
+  }
+
+  /* Multi-task runs interleave every rank's lines on one stream: tag each with its rank.
+   * Serial runs (NTask <= 1) emit exactly the bytes they always did. */
+  if (NTask > 1) {
+    fprintf(output, "task %d: ", ThisTask);
   }
 
   /* Print header - format depends on verbosity setting */

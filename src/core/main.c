@@ -102,12 +102,18 @@ static int remove_arg(char **argv, int *argc, int index) {
  * @param   signum    Exit code to be passed to the OS
  *
  * This function prints a termination message and exits the program.
- * Different messages are displayed in MPI versus serial mode.
+ * Different messages are displayed in MPI versus serial mode. In an MPI run
+ * with more than one task, a non-zero exit code aborts the whole job: a rank
+ * that finalised alone would leave the others waiting at their next collective.
  */
 
 void myexit(int signum) {
 #ifdef MPI
   printf("Task: %d\tnode: %s\tis exiting\n\n\n", ThisTask, ThisNode);
+  if (NTask > 1 && signum != 0) {
+    fflush(stdout);
+    MPI_Abort(MPI_COMM_WORLD, signum);
+  }
 #else
   printf("We're exiting\n");
 #endif
@@ -494,7 +500,9 @@ int main(int argc, char **argv) {
   cleanup_memory_system();
 
   /* Snapshot the run configuration and provenance next to the output */
-  write_run_metadata(argv[1]);
+  if (ThisTask == 0) {
+    write_run_metadata(argv[1]);
+  }
   if (!get_verbose_format()) {
     INFO_LOG("Output written to %s/", MimicConfig.OutputDir);
   }
