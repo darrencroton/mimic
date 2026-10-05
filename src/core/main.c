@@ -105,12 +105,18 @@ static int remove_arg(char **argv, int *argc, int index) {
  * Different messages are displayed in MPI versus serial mode. In an MPI run
  * with more than one task, a non-zero exit code aborts the whole job: a rank
  * that finalised alone would leave the others waiting at their next collective.
+ * The aborting rank removes its own in-progress outputs because bye() does not run after
+ * MPI_Abort; ranks the abort kills cannot, exactly as after a SIGKILL.
  */
 
 void myexit(int signum) {
 #ifdef MPI
   printf("Task: %d\tnode: %s\tis exiting\n\n\n", ThisTask, ThisNode);
   if (NTask > 1 && signum != 0) {
+    /* MPI_Abort does not return, so bye() never runs: remove this rank's in-progress outputs
+     * here, with the same two calls bye() makes. */
+    vertical_driver_remove_incomplete_outputs();
+    horizontal_driver_remove_incomplete_outputs();
     fflush(stdout);
     MPI_Abort(MPI_COMM_WORLD, signum);
   }
