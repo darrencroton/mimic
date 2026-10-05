@@ -241,9 +241,12 @@ static int any_task_failed(const char *function, int local_failed) {
  * smallest `n`, which must agree for the reduction to be well formed. Every
  * task receives the same values and so takes the same decision.
  *
+ * @param   agreed_n  On success, the `n` every task passed; the caller skips its
+ *                    reduction when it is 0, identically on every task
  * @return  0 when every task may reduce, -1 on every task otherwise
  */
-static int agree_reduction_arguments(const char *function, int n, int locally_valid) {
+static int agree_reduction_arguments(const char *function, int n, int locally_valid,
+                                     int *agreed_n) {
   const int checked_n = n >= 0 ? n : 0;
   int local[3] = {locally_valid ? 0 : 1, checked_n, -checked_n};
   int global[3] = {0, 0, 0};
@@ -260,6 +263,7 @@ static int agree_reduction_arguments(const char *function, int n, int locally_va
               function, -global[2], global[1]);
     return -1;
   }
+  *agreed_n = global[1];
   return 0;
 }
 
@@ -516,10 +520,13 @@ int module_snapshot_sum_i64(const struct SnapshotContext *ctx, int64_t *values, 
     return valid ? 0 : -1; /* the sum over one task is its own values */
   }
 #ifdef MPI
-  if (agree_reduction_arguments(function, n, valid) != 0) {
+  int agreed_n = 0;
+  if (agree_reduction_arguments(function, n, valid, &agreed_n) != 0) {
     return -1;
   }
-  MPI_Allreduce(MPI_IN_PLACE, values, n, MPI_INT64_T, MPI_SUM, MPI_COMM_WORLD);
+  if (agreed_n > 0) { /* values may be NULL when n == 0 */
+    MPI_Allreduce(MPI_IN_PLACE, values, agreed_n, MPI_INT64_T, MPI_SUM, MPI_COMM_WORLD);
+  }
 #endif
   return 0;
 }
@@ -535,10 +542,13 @@ int module_snapshot_sum_f64(const struct SnapshotContext *ctx, double *values, i
     return valid ? 0 : -1; /* the sum over one task is its own values */
   }
 #ifdef MPI
-  if (agree_reduction_arguments(function, n, valid) != 0) {
+  int agreed_n = 0;
+  if (agree_reduction_arguments(function, n, valid, &agreed_n) != 0) {
     return -1;
   }
-  MPI_Allreduce(MPI_IN_PLACE, values, n, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+  if (agreed_n > 0) { /* values may be NULL when n == 0 */
+    MPI_Allreduce(MPI_IN_PLACE, values, agreed_n, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+  }
 #endif
   return 0;
 }
@@ -555,11 +565,14 @@ int module_snapshot_min_max_f64(const struct SnapshotContext *ctx, double *minim
     return valid ? 0 : -1; /* the extent over one task is its own values */
   }
 #ifdef MPI
-  if (agree_reduction_arguments(function, n, valid) != 0) {
+  int agreed_n = 0;
+  if (agree_reduction_arguments(function, n, valid, &agreed_n) != 0) {
     return -1;
   }
-  MPI_Allreduce(MPI_IN_PLACE, minima, n, MPI_DOUBLE, MPI_MIN, MPI_COMM_WORLD);
-  MPI_Allreduce(MPI_IN_PLACE, maxima, n, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+  if (agreed_n > 0) { /* the arrays may be NULL when n == 0 */
+    MPI_Allreduce(MPI_IN_PLACE, minima, agreed_n, MPI_DOUBLE, MPI_MIN, MPI_COMM_WORLD);
+    MPI_Allreduce(MPI_IN_PLACE, maxima, agreed_n, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+  }
 #endif
   return 0;
 }
@@ -579,4 +592,4 @@ int module_snapshot_any(const struct SnapshotContext *ctx, int flag) {
   return any ? 1 : 0;
 }
 
-int module_snapshot_is_root_task(void) { return current_task_id() == 0; }
+int module_snapshot_is_root_task(void) { return !distributed() || current_task_id() == 0; }

@@ -104,6 +104,11 @@ int module_snapshot_sum_i64(const struct SnapshotContext *ctx, int64_t *values, 
  * The result is identical on every task of one run; it may differ from a serial
  * sum of the same values in the last bits (reduction order).
  *
+ * NaN-free input is the caller's precondition, like cross-task id uniqueness
+ * for module_snapshot_rank(): no NaN check is made, and with a NaN input the
+ * result is unspecified and may differ between tasks, so a module branching on
+ * it would desynchronise the tasks. Exclude NaN before reducing.
+ *
  * @param   ctx     Snapshot context of the calling callback (not read; may be NULL)
  * @param   values  In: this task's values; out: the sums (may be NULL when @p n is 0)
  * @param   n       Number of values (>= 0, equal on every task)
@@ -113,6 +118,12 @@ int module_snapshot_sum_f64(const struct SnapshotContext *ctx, double *values, i
 
 /**
  * @brief   Element-wise minimum of @p minima and maximum of @p maxima over all tasks
+ *
+ * NaN-free input is the caller's precondition, like cross-task id uniqueness
+ * for module_snapshot_rank(): no NaN check is made, and with a NaN input the
+ * result is unspecified and may differ between tasks (MPI_MIN and MPI_MAX do
+ * not define NaN). Exclude NaN before reducing, e.g. by seeding the local
+ * extent with +/-INFINITY and folding values in with fmin()/fmax().
  *
  * @param   ctx     Snapshot context of the calling callback (not read; may be NULL)
  * @param   minima  In: this task's values; out: the minima (may be NULL when @p n is 0)
@@ -138,7 +149,8 @@ int module_snapshot_any(const struct SnapshotContext *ctx, int flag);
  * Use it to emit a whole-population log line once. Allowed in every callback
  * kind and outside any callback; it makes no collective call.
  *
- * @return  1 on task 0 and in a serial run, 0 on every other task
+ * @return  1 in a serial run (NTask <= 1) or a non-MPI build and on task 0 of a
+ *          distributed run, 0 on every other task
  */
 int module_snapshot_is_root_task(void);
 

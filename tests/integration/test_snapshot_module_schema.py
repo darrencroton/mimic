@@ -575,6 +575,33 @@ def test_snapshot_distribution_rejects_unknown_values():
     print("  ✓ unknown snapshot_distribution values rejected; the enum helper fails closed")
 
 
+def test_snapshot_distribution_rejected_on_utility_modules():
+    """Utility metadata takes no snapshot_distribution: both tools reject the key (any value)
+    before their utility shortcuts, and still accept utility metadata without it."""
+    with scratch_dir() as directory:
+        module_dir = directory / "utility_collection"
+        module_dir.mkdir()
+
+        def tools(module):
+            gen = generator.validate_processing_modes([module])
+            results = validator.ValidationResults()
+            accepted = validator.validate_module(module_dir, module, {}, results)
+            return gen, accepted, [str(error) for error in results.errors]
+
+        for value in ("serial_only", "collective", "distributed", True):
+            module = {"name": "utility_collection", "is_utility": True}
+            module["snapshot_distribution"] = value
+            gen, accepted, val = tools(module)
+            assert not accepted, f"validator accepted utility metadata with {value!r}"
+            for errors in (gen, val):
+                assert any("only valid for modules whose" in e for e in errors), (value, errors)
+
+        gen, accepted, val = tools({"name": "utility_collection", "is_utility": True})
+        assert not gen, f"generator rejected plain utility metadata: {gen}"
+        assert accepted and not val, f"validator rejected plain utility metadata: {val}"
+    print("  ✓ snapshot_distribution on utility modules rejected; plain utility metadata accepted")
+
+
 def test_snapshot_distribution_emitted_into_registration():
     """Generated registration carries .snapshot_distribution for every module, defaulting to
     SNAPSHOT_DISTRIBUTION_SERIAL_ONLY; the framework snapshot fixture stays serial_only."""
@@ -643,6 +670,7 @@ def main():
             test_snapshot_distribution_accepted_on_snapshot_modules,
             test_snapshot_distribution_rejected_on_non_snapshot_modules,
             test_snapshot_distribution_rejects_unknown_values,
+            test_snapshot_distribution_rejected_on_utility_modules,
             test_snapshot_distribution_emitted_into_registration,
         ],
         "Snapshot Module Schema (test_snapshot_module_schema.py)",

@@ -741,6 +741,11 @@ def validate_module(
     # Check if this is a utility module (different validation rules)
     is_utility = module.get("is_utility", False)
 
+    # Checked before the utility shortcut: a utility module advertises no
+    # process_snapshot, so any snapshot_distribution key on it is an error.
+    if not validate_snapshot_distribution(module, module_name, results):
+        return False
+
     # Utility modules have relaxed validation (only tests need to be specified)
     if is_utility:
         if verbose:
@@ -780,9 +785,6 @@ def validate_module(
         return False
 
     if not validate_supported_processing_modes(module, module_name, results):
-        return False
-
-    if not validate_snapshot_distribution(module, module_name, results):
         return False
 
     # File existence validation

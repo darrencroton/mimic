@@ -17,9 +17,11 @@
  *   registry (module_system_init(), execute_module_pipeline(),
  *   execute_post_snapshot(), module_system_cleanup()), never a test-only
  *   setter: every collective except module_snapshot_is_root_task() returns -1
- *   from init(), a process_full_halo call, a process_by_galaxy call and
- *   cleanup(), and succeeds from a process_snapshot call and with no callback
- *   running; module_snapshot_is_root_task() returns 1 in every state
+ *   from init(), a process_full_halo call, a process_per_event call nested in
+ *   that full-halo call (and from the full-halo call again once the nested
+ *   call returns, the registry having restored its kind), a process_by_galaxy
+ *   call and cleanup(), and succeeds from a process_snapshot call and with no
+ *   callback running; module_snapshot_is_root_task() returns 1 in every state
  * - with NTask = 2 set by hand, module_system_init() (through
  *   validate_post_snapshot_entries()) refuses a serial_only module configured
  *   under post_snapshot, naming the module and NTask, and accepts a collective
@@ -284,6 +286,20 @@ static struct CollectiveRound from_full_halo;
 static struct CollectiveRound from_by_galaxy;
 static struct CollectiveRound from_snapshot;
 static struct CollectiveRound from_cleanup;
+static struct CollectiveRound from_per_event;
+static struct CollectiveRound from_after_event;
+
+/** Producer ID and event of the gate probe (unused by generated modules) */
+#define GATE_PROBE_MODULE_ID 902
+#define GATE_PROBE_EVENT_ID 1
+
+/** What the full-halo call saw: its ngal, the emit result, and the kind around the event */
+static int full_halo_ngal = 0;
+static int full_halo_emit_rc = 0;
+static enum RunningCallbackKind consumer_kind = RUNNING_CALLBACK_NONE;
+static const char *consumer_module = NULL;
+static enum RunningCallbackKind after_event_kind = RUNNING_CALLBACK_NONE;
+static const char *after_event_module = NULL;
 
 static int gate_probe_init(void) {
   call_every_collective(&from_init);
@@ -296,14 +312,31 @@ static int gate_probe_cleanup(void) {
 }
 
 static int gate_probe_process(struct ModuleContext *ctx, struct Halo *halos, int ngal) {
-  (void)ctx;
   (void)halos;
   /* Full-halo and by-galaxy calls both pass one row here; the callback kind
-   * the registry is running tells them apart. */
-  call_every_collective(module_registry_running_callback(NULL) == RUNNING_CALLBACK_BY_GALAXY
-                            ? &from_by_galaxy
-                            : &from_full_halo);
-  return ngal == 1 ? 0 : 1;
+   * the registry is running tells them apart. Returns 0 whatever ngal is (a
+   * non-zero return is fatal); the test asserts on the recorded ngal. */
+  if (module_registry_running_callback(NULL) == RUNNING_CALLBACK_BY_GALAXY) {
+    call_every_collective(&from_by_galaxy);
+    return 0;
+  }
+  full_halo_ngal = ngal;
+  call_every_collective(&from_full_halo);
+  /* The consumer runs nested inside this call, as a per-event callback; once
+   * the emission returns, the registry must have restored this full-halo kind. */
+  full_halo_emit_rc = module_emit_event(ctx, GATE_PROBE_EVENT_ID, 0, 0, 0.0, 0.0);
+  after_event_kind = module_registry_running_callback(&after_event_module);
+  call_every_collective(&from_after_event);
+  return 0;
+}
+
+static int consumer_probe_process(struct ModuleContext *ctx, struct Halo *halos, int ngal) {
+  (void)ctx;
+  (void)halos;
+  (void)ngal;
+  consumer_kind = module_registry_running_callback(&consumer_module);
+  call_every_collective(&from_per_event);
+  return 0;
 }
 
 static int gate_probe_process_snapshot(const struct SnapshotContext *ctx, const struct Halo *halos,
@@ -328,15 +361,32 @@ static int probe_noop_snapshot(const struct SnapshotContext *ctx, const struct H
 static const enum ProcessingMode gate_modes[] = {
     PROCESSING_MODE_FULL_HALO, PROCESSING_MODE_BY_GALAXY, PROCESSING_MODE_SNAPSHOT};
 static const enum ProcessingMode snapshot_modes[] = {PROCESSING_MODE_SNAPSHOT};
+static const enum ProcessingMode per_event_modes[] = {PROCESSING_MODE_PER_EVENT};
+static const int gate_probe_events[] = {GATE_PROBE_EVENT_ID};
+static const struct EventSubscription consumer_subscriptions[] = {
+    {GATE_PROBE_MODULE_ID, GATE_PROBE_EVENT_ID, "sc_event", "sc_gate_probe"}};
 
-/** Advertises FoF and snapshot modes; records every collective's return in each callback */
+/** Advertises FoF and snapshot modes and emits one event; records every collective's return */
 static struct Module gate_probe_module = {.name = "sc_gate_probe",
                                           .init = gate_probe_init,
                                           .process = gate_probe_process,
                                           .process_snapshot = gate_probe_process_snapshot,
                                           .cleanup = gate_probe_cleanup,
                                           .supported_processing_modes = gate_modes,
-                                          .num_supported_modes = 3};
+                                          .num_supported_modes = 3,
+                                          .module_id = GATE_PROBE_MODULE_ID,
+                                          .emitted_event_ids = gate_probe_events,
+                                          .num_emitted_events = 1};
+
+/** Per-event consumer of the gate probe's event; records every collective's return */
+static struct Module consumer_probe_module = {.name = "sc_consumer_probe",
+                                              .init = probe_noop,
+                                              .process = consumer_probe_process,
+                                              .cleanup = probe_noop,
+                                              .supported_processing_modes = per_event_modes,
+                                              .num_supported_modes = 1,
+                                              .subscriptions = consumer_subscriptions,
+                                              .num_subscriptions = 1};
 
 /** Snapshot module left at the default (zero) distribution: serial_only */
 static struct Module serial_probe_module = {.name = "sc_serial_probe",
@@ -360,6 +410,7 @@ static void ensure_probes_registered(void) {
   static bool registered = false;
   if (!registered) {
     module_registry_add(&gate_probe_module);
+    module_registry_add(&consumer_probe_module);
     module_registry_add(&serial_probe_module);
     module_registry_add(&collective_probe_module);
     registered = true;
@@ -436,8 +487,17 @@ static int gate_body(void) {
   memset(&from_by_galaxy, 0, sizeof(from_by_galaxy));
   memset(&from_snapshot, 0, sizeof(from_snapshot));
   memset(&from_cleanup, 0, sizeof(from_cleanup));
+  memset(&from_per_event, 0, sizeof(from_per_event));
+  memset(&from_after_event, 0, sizeof(from_after_event));
+  full_halo_ngal = 0;
+  full_halo_emit_rc = -99;
+  consumer_kind = RUNNING_CALLBACK_NONE;
+  consumer_module = NULL;
+  after_event_kind = RUNNING_CALLBACK_NONE;
+  after_event_module = NULL;
   MimicConfig.SubSteps = 1;
   test_pre_timestep_add("sc_gate_probe", PROCESSING_MODE_FULL_HALO);
+  test_pre_timestep_add("sc_consumer_probe", PROCESSING_MODE_PER_EVENT);
   add_post_timestep("sc_gate_probe", PROCESSING_MODE_BY_GALAXY);
   test_post_snapshot_add("sc_gate_probe", PROCESSING_MODE_SNAPSHOT);
 
@@ -476,6 +536,19 @@ static int gate_body(void) {
 
   TEST_ASSERT(round_is(&from_init, -1), "init(): refused, is_root_task still 1");
   TEST_ASSERT(round_is(&from_full_halo, -1), "full-halo callback: refused, is_root_task 1");
+  TEST_ASSERT_EQUAL(full_halo_ngal, 1, "the full-halo call saw the fixture's one row");
+  TEST_ASSERT_EQUAL(full_halo_emit_rc, 0, "the gate probe's event was emitted");
+  TEST_ASSERT_EQUAL(consumer_kind, RUNNING_CALLBACK_PER_EVENT,
+                    "the consumer runs as a per-event callback nested in the full-halo call");
+  TEST_ASSERT(consumer_module != NULL && strcmp(consumer_module, "sc_consumer_probe") == 0,
+              "the nested callback is attributed to the consumer");
+  TEST_ASSERT(round_is(&from_per_event, -1), "per-event callback: refused, is_root_task 1");
+  TEST_ASSERT_EQUAL(after_event_kind, RUNNING_CALLBACK_FULL_HALO,
+                    "the full-halo kind is restored once the nested per-event call returns");
+  TEST_ASSERT(after_event_module != NULL && strcmp(after_event_module, "sc_gate_probe") == 0,
+              "the restored callback is attributed to the producer again");
+  TEST_ASSERT(round_is(&from_after_event, -1),
+              "full-halo callback after the nested event: still refused, is_root_task 1");
   TEST_ASSERT(round_is(&from_by_galaxy, -1), "by-galaxy callback: refused, is_root_task 1");
   TEST_ASSERT(round_is(&from_cleanup, -1), "cleanup(): refused, is_root_task still 1");
   TEST_ASSERT(round_is(&from_snapshot, 0), "process_snapshot callback: every collective succeeds");
@@ -485,6 +558,9 @@ static int gate_body(void) {
   TEST_ASSERT(strstr(log, "module_snapshot_any refused for module 'sc_gate_probe': called from "
                           "init()") != NULL,
               "the init refusal names the function, the module and init()");
+  TEST_ASSERT(strstr(log, "module_snapshot_sum_f64 refused for module 'sc_consumer_probe': called "
+                          "from a process_per_event callback") != NULL,
+              "the per-event refusal names the function, the consumer and the callback kind");
 
   /* Back outside every callback: allowed again. */
   memset(&direct, 0, sizeof(direct));
@@ -495,7 +571,7 @@ static int gate_body(void) {
 
 /**
  * @test    test_collectives_refused_outside_snapshot_dispatch
- * @brief   The gate refuses init/full-halo/by-galaxy/cleanup and allows snapshot and none
+ * @brief   The gate refuses init/FoF/cleanup callbacks and allows snapshot and none
  */
 static int test_collectives_refused_outside_snapshot_dispatch(void) {
   const int result = gate_body();

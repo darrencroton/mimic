@@ -260,6 +260,11 @@ def validate_processing_modes(modules: List[Dict[str, Any]]) -> List[str]:
 
     for module in modules:
         module_name = module["name"]
+        # Checked before the utility shortcut: a utility collection advertises no
+        # process_snapshot, so any snapshot_distribution key on it is an error.
+        for message in snapshot_distribution_errors(module):
+            errors.append(f"{module_name}/module_info.yaml: {message}")
+
         # Utility collections do not require
         # module-owned runtime processing-mode metadata.
         if module.get("is_utility", False):
@@ -274,8 +279,6 @@ def validate_processing_modes(modules: List[Dict[str, Any]]) -> List[str]:
 
         # Shared with scripts/validate_modules.py so both accept the same lists.
         for message in mode_list_errors(module["supported_processing_modes"]):
-            errors.append(f"{module_name}/module_info.yaml: {message}")
-        for message in snapshot_distribution_errors(module):
             errors.append(f"{module_name}/module_info.yaml: {message}")
 
     return errors
