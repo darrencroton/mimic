@@ -1,6 +1,6 @@
 # Distributed Snapshot Operations — Acceptance Record
 
-**Status:** Recorded 2026-10-06, for Slice 9 of [`MIMIC-DISTRIBUTED-SNAPSHOT-IMPLEMENTATION-PLAN.md`](MIMIC-DISTRIBUTED-SNAPSHOT-IMPLEMENTATION-PLAN.md) (decision D12, the acceptance predicate). This file records measurements; it is not a plan and makes no claim beyond the runs below.
+**Status:** Recorded 2026-10-06, for Slice 9 of `MIMIC-DISTRIBUTED-SNAPSHOT-IMPLEMENTATION-PLAN.md` (archived under `archive/dev-plans/` on merge) (decision D12, the acceptance predicate). This file records measurements; it is not a plan and makes no claim beyond the runs below.
 
 **Code under test:** branch `feature/distributed-snapshot` at `f2eb3155` (Slice 8). Slice 9 adds only the fixture, the gate, the MPI control test and this record, and changes no runtime source, so the runs measure the Slice 8 runtime.
 
