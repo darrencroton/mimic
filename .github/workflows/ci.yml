@@ -142,4 +142,4 @@ jobs:
       env:
         MPIRUN: "mpirun --oversubscribe"
       run: |
-        make tests-distributed
+        make tests-distributed || { cat build/distributed_tests.log; exit 1; }
