@@ -820,6 +820,79 @@ int test_staged_row_initialisation(void) {
   return TEST_PASS;
 }
 
+/** Global row of local row 0 in test_row_offset_shifts_created_identity */
+#define TEST_ROW_OFFSET 37
+
+/**
+ * @brief   Create one record on host 0 in a space with the given row_offset
+ * @param   created_id  Receives the created record's UniqueGalaxyID
+ * @param   created_halonr  Receives the created record's HaloNr
+ */
+static int create_with_row_offset(int64_t row_offset, int64_t *created_id,
+                                  long long *created_halonr) {
+  const int types[] = {0};
+  prepare_config(0);
+  creator_action = create_once;
+  test_pre_timestep_add("rc_creator", PROCESSING_MODE_FULL_HALO);
+  TEST_ASSERT_EQUAL(module_system_init(), 0, "pipeline initialises");
+  build_workspace(types, 1);
+  workspace.identity.row_offset = row_offset;
+
+  execute_module_pipeline(&context, &workspace);
+
+  TEST_ASSERT_EQUAL(fits_rc, 1, "the record is created at the committed count");
+  TEST_ASSERT_EQUAL(workspace.count, 2, "one record was committed");
+  *created_id = workspace.halos[1].UniqueGalaxyID;
+  *created_halonr = workspace.halos[1].HaloNr;
+
+  TEST_ASSERT_EQUAL(module_system_cleanup(), 0, "cleanup succeeds");
+  free_workspace();
+  module_release_record_creation_scratch();
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_row_offset_shifts_created_identity
+ * @brief   A non-zero row_offset shifts the encoded host row by exactly that amount
+ *
+ * The distributed horizontal driver hands modules local rows (HaloNr) and
+ * publishes the task's first global row as row_offset, so a created record's
+ * identity is the one the serial run gives the same host. The host's HaloNr is
+ * 10 in both runs (build_workspace()); only the published offset differs.
+ */
+int test_row_offset_shifts_created_identity(void) {
+  int64_t serial_id = 0;
+  int64_t shifted_id = 0;
+  long long serial_halonr = -1;
+  long long shifted_halonr = -1;
+
+  TEST_ASSERT(create_with_row_offset(0, &serial_id, &serial_halonr) == TEST_PASS,
+              "creation with row_offset 0 succeeds");
+  TEST_ASSERT(create_with_row_offset(TEST_ROW_OFFSET, &shifted_id, &shifted_halonr) == TEST_PASS,
+              "creation with a non-zero row_offset succeeds");
+
+  TEST_ASSERT_EQUAL(serial_id, mimic_encode_created_galaxy_id(TEST_UNIT, 10, TEST_ROWS_PER_UNIT, 0),
+                    "row_offset 0 encodes the host's HaloNr itself");
+  TEST_ASSERT_EQUAL(
+      shifted_id,
+      mimic_encode_created_galaxy_id(TEST_UNIT, 10 + TEST_ROW_OFFSET, TEST_ROWS_PER_UNIT, 0),
+      "a non-zero row_offset encodes HaloNr + row_offset");
+
+  int64_t serial_unit = 0, serial_row = 0, shifted_unit = 0, shifted_row = 0;
+  int serial_ordinal = -1, shifted_ordinal = -1;
+  mimic_decode_created_galaxy_id(serial_id, TEST_ROWS_PER_UNIT, &serial_unit, &serial_row,
+                                 &serial_ordinal);
+  mimic_decode_created_galaxy_id(shifted_id, TEST_ROWS_PER_UNIT, &shifted_unit, &shifted_row,
+                                 &shifted_ordinal);
+  TEST_ASSERT_EQUAL(shifted_row - serial_row, TEST_ROW_OFFSET,
+                    "the host key moves by exactly row_offset");
+  TEST_ASSERT_EQUAL(shifted_unit, serial_unit, "the unit is unchanged");
+  TEST_ASSERT_EQUAL(shifted_ordinal, serial_ordinal, "the ordinal is unchanged");
+  TEST_ASSERT_EQUAL(shifted_halonr, serial_halonr,
+                    "the created row keeps the host's local HaloNr; only the identity moves");
+  return TEST_PASS;
+}
+
 /** Rows in the first staging block (RECORD_STAGING_BLOCK_ROWS in module_registry.c) */
 #define FIRST_STAGING_BLOCK_ROWS 256
 
@@ -1862,6 +1935,7 @@ int main(void) {
   TEST_RUN(test_refused_host_not_slice_central);
   TEST_RUN(test_refused_when_identity_space_does_not_fit);
   TEST_RUN(test_staged_row_initialisation);
+  TEST_RUN(test_row_offset_shifts_created_identity);
   TEST_RUN(test_staging_blocks_are_logarithmic);
   TEST_RUN(test_created_galaxies_are_independent);
   TEST_RUN(test_created_rows_are_inherited_by_deep_copy);

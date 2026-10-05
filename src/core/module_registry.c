@@ -1377,18 +1377,23 @@ static int creation_ordinal(const char *module, const struct FoFWorkspace *ws, i
   /* The space is re-derived here rather than trusted from `fits`. A driver
    * that measures its space covers its own rows; where the vertical driver
    * falls back to the forest multiplier, the bound on HaloNr is the reader's
-   * own forest-size guard, and a reader without one stops here too. */
+   * own forest-size guard, and a reader without one stops here too. The row
+   * bounded is the host's global row in its unit, HaloNr + row_offset (the
+   * comparison is written without the sum, so it cannot overflow). */
   const bool space_fits =
       mimic_created_record_space_fits(ws->identity.units, ws->identity.rows_per_unit);
   if (ws->identity.unit < 0 || ws->identity.unit >= ws->identity.units || host->HaloNr < 0 ||
-      host->HaloNr >= ws->identity.rows_per_unit || !space_fits) {
-    FATAL_ERROR("module_create_record: host HaloNr=%lld at unit %" PRId64
+      ws->identity.row_offset < 0 ||
+      host->HaloNr >= ws->identity.rows_per_unit - ws->identity.row_offset || !space_fits) {
+    FATAL_ERROR("module_create_record: host HaloNr=%lld (unit row offset %" PRId64
+                ") at unit %" PRId64
                 " cannot be encoded in the %s driver's published identity space (units=%" PRId64
                 ", rows_per_unit=%" PRId64 ", fits int64: %s); the space must fit and cover "
-                "every unit and HaloNr handed to modules (rows_per_unit is the largest unit, or "
-                "the unique_galaxy_id_multiplier when a vertical reader cannot report it)",
-                host->HaloNr, ws->identity.unit, driver, ws->identity.units,
-                ws->identity.rows_per_unit, space_fits ? "yes" : "no");
+                "every unit and global row (HaloNr + row offset) handed to modules "
+                "(rows_per_unit is the largest unit, or the unique_galaxy_id_multiplier when a "
+                "vertical reader cannot report it)",
+                host->HaloNr, ws->identity.row_offset, ws->identity.unit, driver,
+                ws->identity.units, ws->identity.rows_per_unit, space_fits ? "yes" : "no");
   }
   return ordinal;
 }
@@ -1406,8 +1411,9 @@ static int stage_created_record(const struct FoFWorkspace *ws, int host_index,
   struct Halo *staged = staged_row(k);
   *staged = *host;
   make_orphan(staged);
-  staged->UniqueGalaxyID = mimic_encode_created_galaxy_id(ws->identity.unit, host->HaloNr,
-                                                          ws->identity.rows_per_unit, ordinal);
+  staged->UniqueGalaxyID =
+      mimic_encode_created_galaxy_id(ws->identity.unit, host->HaloNr + ws->identity.row_offset,
+                                     ws->identity.rows_per_unit, ordinal);
   staged->galaxy = galaxy_pool_alloc(ws->pool);
   init_galaxy_defaults(staged->galaxy);
 

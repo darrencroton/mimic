@@ -55,7 +55,7 @@ volatile sig_atomic_t VerticalDriverGotXCPU = 0;
  * sets rows_per_unit, fits and units for the whole run with unit = -1;
  * process_partition() then publishes each unit's own number just before loading
  * it, and the last one stays after the run. */
-static struct RecordIdentitySpace published_identity_space = {-1, 0, true, 0, "vertical"};
+static struct RecordIdentitySpace published_identity_space = {-1, 0, true, 0, "vertical", 0};
 
 struct RecordIdentitySpace vertical_driver_record_identity_space(void) {
   return published_identity_space;

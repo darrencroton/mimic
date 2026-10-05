@@ -58,7 +58,12 @@
 #include <string.h>
 #include <unistd.h>
 
+#ifdef MPI
+#include <mpi.h>
+#endif
+
 #include "config.h"
+#include "core/horizontal_partition.h"
 #include "core/task_layout.h"
 #include "error.h"
 #include "fof_workspace.h"
@@ -261,8 +266,15 @@ struct HorizontalDriverState {
 
   /* Created-record identity space: rows_per_unit and fits are evaluated once at
    * open over the whole run, and unit is the snapshot being processed (-1 before
-   * the first). */
+   * the first), with row_offset the first row of this task's range in it (0 for a
+   * serial run). */
   struct RecordIdentitySpace identity;
+
+  /* The forest-block partition of a distributed run (NTask > 1 in an MPI build),
+   * identical on every task after the startup broadcast, and this task's rank in
+   * it. NULL for a serial run, which loads whole slabs and never rebases. */
+  struct HorizontalForestPartition *partition;
+  int task;
 };
 
 /* ------------------------------------------------------------------------- */
@@ -559,6 +571,306 @@ static void horizontal_evaluate_record_identity_space(struct HorizontalDriverSta
   state->identity =
       record_identity_space_evaluate("horizontal", state->reader->name, info->snapshot_count,
                                      rows_per_unit, "largest snapshot slab");
+}
+
+/* ------------------------------------------------------------------------- */
+/* Distribution across tasks (NTask > 1)                                      */
+/* ------------------------------------------------------------------------- */
+
+/*
+ * A distributed run gives each task a contiguous range of forests and, in every
+ * snapshot slab, the one contiguous row range those forests occupy (the
+ * forest-block partition, src/core/horizontal_partition.h). Task 0 computes the
+ * partition at startup and broadcasts it; every task then loads only its rows,
+ * rebases their links to local indices, and runs the unchanged serial sweep on
+ * a slab that is locally self-consistent. Nothing a task processes needs a row
+ * another task holds, because progenitor, descendant and FoF links never leave
+ * a forest; a link that does leave the task's range is a dataset defect or a
+ * partition bug and aborts the run.
+ *
+ * Only an MPI build with more than one task distributes. A serial run, a
+ * non-MPI build and an MPI build at one task take none of these steps: they load
+ * whole slabs (row_offset 0) and never rebase.
+ */
+static int horizontal_run_is_distributed(void) {
+#ifdef MPI
+  return effective_task_count() > 1;
+#else
+  return 0;
+#endif
+}
+
+/* row_cuts[s][r] of the partition (row-major by snapshot). */
+static int64_t horizontal_row_cut(const struct HorizontalForestPartition *partition,
+                                  int64_t snapnum, int task) {
+  return partition->row_cuts[snapnum * (int64_t)(partition->ntask + 1) + task];
+}
+
+/* The rows [*row_lo, *row_hi) of snapshot `snapnum` this task loads: its range
+ * of a distributed run, or the whole slab. */
+static void horizontal_task_rows(const struct HorizontalDriverState *state, int64_t snapnum,
+                                 int64_t *row_lo, int64_t *row_hi) {
+  if (state->partition == NULL) {
+    *row_lo = 0;
+    *row_hi = horizontal_reader_halo_count(state->reader, snapnum);
+    return;
+  }
+  *row_lo = horizontal_row_cut(state->partition, snapnum, state->task);
+  *row_hi = horizontal_row_cut(state->partition, snapnum, state->task + 1);
+}
+
+/*
+ * One link of slab row `halonr`, rebased from its global row `value` in snapshot
+ * `target_snap` to the index the target's local slab gives that row: `value`
+ * minus row_cuts[target_snap][task], the first row of this task's range there
+ * (for a FoF link the target is the slab's own snapshot, where that is the
+ * slab's row_offset). Aborts when the target lies outside the run or the rebased
+ * row outside the task's range of the target (the forest is cut by the
+ * partition), so nothing out of range is ever written.
+ */
+static int64_t horizontal_rebase_link(const struct SnapshotSlab *slab,
+                                      const struct HorizontalForestPartition *partition, int task,
+                                      int64_t halonr, const char *link, int64_t value,
+                                      int64_t target_snap) {
+  const int64_t global_row = slab->row_offset + halonr;
+
+  if (target_snap < 0 || target_snap >= partition->snapshot_count) {
+    FATAL_ERROR("%s link of snapshot %" PRId64 " global row %" PRId64
+                " names target snapshot %" PRId64 ", outside the run's %" PRId64 " snapshots",
+                link, slab->snapnum, global_row, target_snap, partition->snapshot_count);
+  }
+
+  const int64_t base = horizontal_row_cut(partition, target_snap, task);
+  const int64_t local_count = horizontal_row_cut(partition, target_snap, task + 1) - base;
+  const int64_t local = value - base;
+  if (local < 0 || local >= local_count) {
+    FATAL_ERROR("%s link of snapshot %" PRId64 " global row %" PRId64 " names row %" PRId64
+                " of target snapshot %" PRId64 ", outside task %d's rows [%" PRId64 ", %" PRId64
+                ") there: the forest is cut by the partition. Every link must stay inside its "
+                "forest, so the dataset is not forest-blocked as the partition assumes, or the "
+                "partition is wrong",
+                link, slab->snapnum, global_row, value, target_snap, task, base,
+                base + local_count);
+  }
+
+  return local;
+}
+
+/**
+ * @brief   Rewrite a loaded range slab's five link fields to local row indices
+ *
+ * @param   slab       Rows [row_cuts[s][task], row_cuts[s][task + 1]) of snapshot s, as loaded,
+ *                     with its version 3 target-snapshot columns; links still global
+ * @param   partition  The run's partition
+ * @param   task       This task's rank in it
+ *
+ * FirstHaloInFOFgroup and NextHaloInFOFgroup name rows of the slab's own
+ * snapshot, so they are rebased by the slab's row_offset; FirstProgenitor,
+ * NextProgenitor and Descendant name rows of the snapshot their target column
+ * names, t, and are rebased by row_cuts[t][task]. A negative (null) link is left
+ * as it is. Every rebased value is range-checked against the task's range of its
+ * target before it is written through mimic_tree_set_<role>() (the setters have no
+ * range guard of their own); a value out of range aborts the run naming the
+ * link, the snapshot, the global row and the target snapshot. A partition whose cuts start
+ * at row 0 of every snapshot (task 0, or a single task) leaves the slab
+ * unchanged.
+ *
+ * Not static so the unit tests can drive it directly on a hand-built slab; the
+ * driver calls it only for a distributed run.
+ */
+void horizontal_rebase_slab_links(struct SnapshotSlab *slab,
+                                  const struct HorizontalForestPartition *partition, int task) {
+  if (task < 0 || task >= partition->ntask) {
+    FATAL_ERROR("Cannot rebase snapshot %" PRId64 " for task %d of a %d-task partition",
+                slab->snapnum, task, partition->ntask);
+  }
+  if (slab->snapnum < 0 || slab->snapnum >= partition->snapshot_count) {
+    FATAL_ERROR("Cannot rebase snapshot %" PRId64 ": the partition covers %" PRId64 " snapshots",
+                slab->snapnum, partition->snapshot_count);
+  }
+
+  const int64_t row_lo = horizontal_row_cut(partition, slab->snapnum, task);
+  const int64_t row_hi = horizontal_row_cut(partition, slab->snapnum, task + 1);
+  if (slab->row_offset != row_lo || slab->nhalos != row_hi - row_lo) {
+    FATAL_ERROR("Snapshot %" PRId64 " slab holds rows [%" PRId64 ", %" PRId64
+                "), but task %d's partition range there is [%" PRId64 ", %" PRId64 ")",
+                slab->snapnum, slab->row_offset, slab->row_offset + slab->nhalos, task, row_lo,
+                row_hi);
+  }
+  if (slab->nhalos > 0 &&
+      (slab->descendant_snapshot == NULL || slab->first_progenitor_snapshot == NULL ||
+       slab->next_progenitor_snapshot == NULL)) {
+    FATAL_ERROR("Snapshot %" PRId64 " slab carries no target-snapshot columns; a distributed "
+                "run rebases links through them and needs a format_version 3 dataset",
+                slab->snapnum);
+  }
+
+  const struct HaloInputView view = {slab->halos, slab->nhalos};
+  for (int64_t i = 0; i < slab->nhalos; i++) {
+    const int64_t first_fof = mimic_tree_get_FirstHaloInFOFgroup(view, i);
+    const int64_t next_fof = mimic_tree_get_NextHaloInFOFgroup(view, i);
+    const int64_t first_prog = mimic_tree_get_FirstProgenitor(view, i);
+    const int64_t next_prog = mimic_tree_get_NextProgenitor(view, i);
+    const int64_t descendant = mimic_tree_get_Descendant(view, i);
+
+    if (first_fof >= 0) {
+      mimic_tree_set_FirstHaloInFOFgroup(view, i,
+                                         horizontal_rebase_link(slab, partition, task, i,
+                                                                "FirstHaloInFOFgroup", first_fof,
+                                                                slab->snapnum));
+    }
+    if (next_fof >= 0) {
+      mimic_tree_set_NextHaloInFOFgroup(view, i,
+                                        horizontal_rebase_link(slab, partition, task, i,
+                                                               "NextHaloInFOFgroup", next_fof,
+                                                               slab->snapnum));
+    }
+    if (first_prog >= 0) {
+      mimic_tree_set_FirstProgenitor(view, i,
+                                     horizontal_rebase_link(slab, partition, task, i,
+                                                            "FirstProgenitor", first_prog,
+                                                            slab->first_progenitor_snapshot[i]));
+    }
+    if (next_prog >= 0) {
+      mimic_tree_set_NextProgenitor(view, i,
+                                    horizontal_rebase_link(slab, partition, task, i,
+                                                           "NextProgenitor", next_prog,
+                                                           slab->next_progenitor_snapshot[i]));
+    }
+    if (descendant >= 0) {
+      mimic_tree_set_Descendant(view, i,
+                                horizontal_rebase_link(slab, partition, task, i, "Descendant",
+                                                       descendant, slab->descendant_snapshot[i]));
+    }
+  }
+}
+
+/* scan_forest_index visitor: per-forest halo counts of one slab. */
+struct HorizontalWeightVisit {
+  int64_t *weights;
+  int64_t n_forests_total;
+};
+
+static void horizontal_visit_weights(int64_t first_row, const int64_t *values, int64_t count,
+                                     void *user) {
+  const struct HorizontalWeightVisit *visit = user;
+  (void)first_row;
+  horizontal_partition_accumulate_weights(visit->weights, visit->n_forests_total, values, count);
+}
+
+/* scan_forest_index visitor: one slab's forest-blocked check and row cuts. */
+static void horizontal_visit_scan(int64_t first_row, const int64_t *values, int64_t count,
+                                  void *user) {
+  horizontal_forest_scan_visit(user, first_row, values, count);
+}
+
+/*
+ * Task 0's half of the startup partition: weigh the forests by their halo counts
+ * in the widest slab (the largest snapshot, the lowest-numbered on a tie), cut
+ * them into contiguous ranges by D3, then scan every slab's ForestIndex column,
+ * verifying it is forest-blocked and recording its row cuts, and log the
+ * result. Every input the scans read was validated by this task's
+ * validate_columns open, which is why task 0 alone opens with it.
+ */
+static void horizontal_compute_partition(const struct HorizontalDriverState *state,
+                                         const struct HorizontalRunInfo *info) {
+  struct HorizontalForestPartition *partition = state->partition;
+  const int ntask = partition->ntask;
+
+  int64_t widest = 0;
+  int64_t widest_halos = -1;
+  for (int64_t snapnum = 0; snapnum < info->snapshot_count; snapnum++) {
+    const int64_t nhalos = horizontal_reader_halo_count(state->reader, snapnum);
+    if (nhalos > widest_halos) {
+      widest = snapnum;
+      widest_halos = nhalos;
+    }
+  }
+
+  const int64_t n_forests = partition->n_forests_total;
+  int64_t *weights =
+      mymalloc_cat((size_t)(n_forests > 0 ? n_forests : 1) * sizeof(int64_t), MEM_HALOS);
+  memset(weights, 0, (size_t)(n_forests > 0 ? n_forests : 1) * sizeof(int64_t));
+  if (info->snapshot_count > 0) {
+    struct HorizontalWeightVisit visit = {weights, n_forests};
+    horizontal_reader_scan_forest_index(state->reader, widest, horizontal_visit_weights, &visit);
+  }
+  horizontal_partition_cut_forests(weights, n_forests, ntask, partition->forest_cuts);
+
+  for (int64_t snapnum = 0; snapnum < info->snapshot_count; snapnum++) {
+    struct HorizontalForestScan scan;
+    horizontal_forest_scan_begin(&scan, partition, snapnum);
+    horizontal_reader_scan_forest_index(state->reader, snapnum, horizontal_visit_scan, &scan);
+    if (horizontal_forest_scan_end(&scan) != 0) {
+      FATAL_ERROR("Snapshot %" PRId64 " is not forest-blocked: ForestIndex falls from %" PRId64
+                  " at row %" PRId64 " to %" PRId64 " at row %" PRId64
+                  ". A distributed horizontal run (NTask = %d) needs every slab's rows grouped "
+                  "by forest in ascending ForestIndex, which this dataset (source_format '%s') "
+                  "does not have; run it with a single task",
+                  snapnum, scan.violation_previous, scan.violation_row - 1, scan.violation_value,
+                  scan.violation_row, ntask, info->source_format);
+    }
+  }
+
+  INFO_LOG("Distributed horizontal partition: %" PRId64 " forest%s over %d tasks, weighted by "
+           "the widest slab, snapshot %" PRId64 " (%" PRId64 " halo%s)",
+           n_forests, n_forests == 1 ? "" : "s", ntask, widest, widest_halos > 0 ? widest_halos : 0,
+           widest_halos == 1 ? "" : "s");
+  for (int r = 0; r < ntask; r++) {
+    const int64_t forest_lo = partition->forest_cuts[r];
+    const int64_t forest_hi = partition->forest_cuts[r + 1];
+    int64_t weight = 0;
+    for (int64_t f = forest_lo; f < forest_hi; f++) {
+      weight += weights[f];
+    }
+    const int64_t row_lo = info->snapshot_count > 0 ? horizontal_row_cut(partition, widest, r) : 0;
+    const int64_t row_hi =
+        info->snapshot_count > 0 ? horizontal_row_cut(partition, widest, r + 1) : 0;
+    INFO_LOG("Partition task %d: forests [%" PRId64 ", %" PRId64 "), widest-slab weight %" PRId64
+             " (snapshot %" PRId64 " rows [%" PRId64 ", %" PRId64 "))",
+             r, forest_lo, forest_hi, weight, widest, row_lo, row_hi);
+  }
+
+  myfree(weights);
+}
+
+/*
+ * The startup steps of a distributed run, on every task, after every task's
+ * open_run: refuse a dataset that cannot be distributed, have task 0 compute the
+ * partition, and broadcast it. Every task reaches the broadcast; a task 0 abort
+ * before it ends the whole job through myexit()'s MPI_Abort, so no task waits on
+ * a partition that will never come.
+ */
+static void horizontal_partition_run(struct HorizontalDriverState *state,
+                                     const struct HorizontalRunInfo *info) {
+  const int ntask = effective_task_count();
+
+  /* Identical on every task (every task read the same header), so every task
+   * aborts here together. */
+  if (info->format_version == 2) {
+    FATAL_ERROR("A distributed horizontal run (NTask = %d) needs a forest-blocked "
+                "format_version 3 dataset, whose slab rows are grouped by forest in ascending "
+                "ForestIndex; this is a format_version 2 dataset, whose rows are sorted by "
+                "MostBoundID, so it cannot be distributed. Run it with a single task",
+                ntask);
+  }
+
+  state->partition =
+      horizontal_partition_create(ntask, info->snapshot_count, info->n_forests_total);
+  state->task = current_task_id();
+
+  if (state->task == 0) {
+    horizontal_compute_partition(state, info);
+  }
+
+#ifdef MPI
+  const int64_t row_cut_count = info->snapshot_count * (int64_t)(ntask + 1);
+  if (row_cut_count > INT_MAX) {
+    FATAL_ERROR("The partition's %" PRId64 " row cuts exceed one MPI broadcast", row_cut_count);
+  }
+  MPI_Bcast(state->partition->forest_cuts, ntask + 1, MPI_INT64_T, 0, MPI_COMM_WORLD);
+  MPI_Bcast(state->partition->row_cuts, (int)row_cut_count, MPI_INT64_T, 0, MPI_COMM_WORLD);
+#endif
 }
 
 /* ------------------------------------------------------------------------- */
@@ -1023,15 +1335,20 @@ static int64_t horizontal_retained_resident_bytes(const struct HorizontalDriverS
  * is certain: a requested output snapshot above INT_MAX. Above the marshaller
  * cap the failure is only likely (the sweep may emit fewer records than it has
  * rows), so it is a warning. Both need chunked slab streaming to lift.
+ *
+ * `snapshot_halos` is the snapshot's global halo count, which the INT_MAX refusal
+ * judges; `nhalos` is the rows this task holds of it (the same number in a serial
+ * run), which the marshaller and the FoF workspace see.
  */
-static void horizontal_require_slab_emittable(int64_t snapnum, int64_t nhalos) {
-  if (nhalos > INT_MAX && snapnum <= INT_MAX && mimic_is_output_snapshot((int)snapnum)) {
+static void horizontal_require_slab_emittable(int64_t snapnum, int64_t snapshot_halos,
+                                              int64_t nhalos) {
+  if (snapshot_halos > INT_MAX && snapnum <= INT_MAX && mimic_is_output_snapshot((int)snapnum)) {
     FATAL_ERROR("Snapshot %" PRId64 " holds %" PRId64 " halos and is a requested output snapshot, "
                 "but the output path caps a snapshot's record count at INT_MAX "
                 "(output_increment_halo_counters_checked). Refused before allocation: "
                 "emitting a slab this wide needs chunked slab streaming, a capability Mimic "
                 "does not implement",
-                snapnum, nhalos);
+                snapnum, snapshot_halos);
   }
 
   if (nhalos > MAX_HALO_ARRAY_SIZE) {
@@ -1057,19 +1374,22 @@ static void horizontal_require_slab_emittable(int64_t snapnum, int64_t nhalos) {
  *
  * The figure checked is what the pool holds resident now plus this generation's
  * footprint, which includes a new galaxy pool whenever no spare one will be
- * reused. The only allocation for a generation not refused here is in-sweep
- * growth of its output buffer and galaxy pool, which happens after this check;
- * it is measured, and reported in the run memory profile.
+ * reused. Under a distributed run the footprint, the pool and the ceiling are
+ * this task's: `nhalos` is the rows of its range, and only the INT_MAX refusal
+ * judges the snapshot's global count, `snapshot_halos`. The only allocation for a generation not
+ * refused here is in-sweep growth of its output buffer and galaxy pool, which happens after this
+ * check; it is measured, and reported in the run memory profile.
  */
 static void horizontal_require_generation_fits(const struct HorizontalDriverState *state,
-                                               int64_t snapnum, int64_t nhalos,
+                                               int64_t snapnum, int64_t snapshot_halos,
+                                               int64_t nhalos,
                                                struct HorizontalGenerationFootprint *fp) {
-  if (nhalos < 0) {
-    FATAL_ERROR("Reader '%s' reports %" PRId64 " halos for snapshot %" PRId64
-                "; a halo count cannot be negative",
-                state->reader->name, nhalos, snapnum);
+  if (snapshot_halos < 0 || nhalos < 0) {
+    FATAL_ERROR("Reader '%s' reports %" PRId64 " halos for snapshot %" PRId64 " (%" PRId64
+                " in this task's range); a halo count cannot be negative",
+                state->reader->name, snapshot_halos, snapnum, nhalos);
   }
-  horizontal_require_slab_emittable(snapnum, nhalos);
+  horizontal_require_slab_emittable(snapnum, snapshot_halos, nhalos);
 
   const int64_t resident = horizontal_retained_resident_bytes(state);
   const int new_pool = (state->spare_count == 0);
@@ -1187,11 +1507,15 @@ horizontal_acquire_generation(struct HorizontalDriverState *state, int64_t snapn
    * ranges, the FoF and progenitor walks, and the workspace and scratch sizes) is
    * int64_t, and so is every byte count above. The int32 bound of a version 2
    * slab is the reader's, enforced at open (HORIZONTAL-HDF5-FORMAT.md invariant 2). */
-  const int64_t nhalos = horizontal_reader_halo_count(state->reader, snapnum);
+  const int64_t snapshot_halos = horizontal_reader_halo_count(state->reader, snapnum);
+  int64_t row_lo = 0;
+  int64_t row_hi = 0;
+  horizontal_task_rows(state, snapnum, &row_lo, &row_hi);
+  const int64_t nhalos = row_hi - row_lo;
   struct HorizontalGenerationFootprint footprint;
-  horizontal_require_generation_fits(state, snapnum, nhalos, &footprint);
+  horizontal_require_generation_fits(state, snapnum, snapshot_halos, nhalos, &footprint);
 
-  horizontal_reader_load_slab(state->reader, snapnum, 0, nhalos, &gen->slab);
+  horizontal_reader_load_slab(state->reader, snapnum, row_lo, row_hi, &gen->slab);
 
   /* Counted as retained together with the slot's snapnum, and by the slab's own
    * row count, so any failure from here on -- the count check below included --
@@ -1209,6 +1533,11 @@ horizontal_acquire_generation(struct HorizontalDriverState *state, int64_t snapn
                 " after reporting %" PRId64 "; the generation was sized for the reported count",
                 state->reader->name, gen->slab.nhalos, snapnum, nhalos);
   }
+  if (gen->slab.row_offset != row_lo) {
+    FATAL_ERROR("Reader '%s' loaded snapshot %" PRId64 " from row %" PRId64
+                " after being asked for rows [%" PRId64 ", %" PRId64 ")",
+                state->reader->name, snapnum, gen->slab.row_offset, row_lo, row_hi);
+  }
 
   /* A gapped dataset can only be walked through its target-snapshot columns;
    * without them every link would silently fall back to the adjacent version 2
@@ -1219,6 +1548,12 @@ horizontal_acquire_generation(struct HorizontalDriverState *state, int64_t snapn
     FATAL_ERROR("Snapshot %" PRId64 " belongs to a dataset with links_adjacent = 0 but its slab "
                 "carries no target-snapshot columns",
                 snapnum);
+  }
+
+  /* A distributed run's links are global rows until rebased onto this task's
+   * ranges; everything below and the whole sweep then index local rows. */
+  if (state->partition != NULL) {
+    horizontal_rebase_slab_links(&gen->slab, state->partition, state->task);
   }
 
   gen->horizon = horizontal_generation_horizon(&gen->slab);
@@ -1405,6 +1740,9 @@ static void horizontal_teardown(struct HorizontalDriverState *state, int record_
   state->generations = NULL;
   state->snapshot_count = 0;
 
+  horizontal_partition_destroy(state->partition);
+  state->partition = NULL;
+
   myfree(state->segments);
   state->segments = NULL;
   myfree(state->progenitor_scratch);
@@ -1562,7 +1900,12 @@ void run_horizontal_driver(void) {
 
   horizontal_probe_output_directory();
 
-  const struct HorizontalOpenOptions open_options = {.validate_columns = 1};
+  /* Under a distributed run only task 0 pays for the whole-column scans: it is
+   * the one task that reads the identity columns before the partition broadcast,
+   * which every other task waits on. */
+  const int distributed = horizontal_run_is_distributed();
+  const struct HorizontalOpenOptions open_options = {
+      .validate_columns = distributed ? (current_task_id() == 0) : 1};
   horizontal_reader_open_run(state.reader, &open_options, &info);
   state.run_open = 1;
   if (info.slab_row_bytes < (int64_t)sizeof(struct RawHalo)) {
@@ -1576,6 +1919,9 @@ void run_horizontal_driver(void) {
            state.reader->name, info.snapshot_count, info.snapshot_count == 1 ? "" : "s",
            info.format_version, info.links_adjacent, info.n_forests_total,
            info.n_forests_total == 1 ? "" : "s", info.max_halo_rank_in_forest);
+  if (distributed) {
+    horizontal_partition_run(&state, &info);
+  }
   horizontal_evaluate_record_identity_space(&state, &info);
 
   log_phase_banner(PHASE_TREE_PROCESSING);
@@ -1603,13 +1949,24 @@ void run_horizontal_driver(void) {
       mymalloc_cat((size_t)state.workspace.capacity * sizeof(struct Halo), MEM_HALOS);
   memset(state.workspace.halos, 0, (size_t)state.workspace.capacity * sizeof(struct Halo));
 
-  INFO_LOG("Processing %" PRId64 " snapshot%s → %d output file%s", info.snapshot_count,
-           info.snapshot_count == 1 ? "" : "s", npartitions, npartitions == 1 ? "" : "s");
+  if (distributed) {
+    /* The source enumerates every task's partitions; this task writes NOUT of them. */
+    INFO_LOG("Processing %" PRId64 " snapshot%s → %d output file%s across %d tasks, %d by this "
+             "task",
+             info.snapshot_count, info.snapshot_count == 1 ? "" : "s", npartitions,
+             npartitions == 1 ? "" : "s", effective_task_count(), MimicConfig.NOUT);
+  } else {
+    INFO_LOG("Processing %" PRId64 " snapshot%s → %d output file%s", info.snapshot_count,
+             info.snapshot_count == 1 ? "" : "s", npartitions, npartitions == 1 ? "" : "s");
+  }
   progress_bar_init(&bar, info.snapshot_count, "");
 
   for (int64_t snapnum = 0; snapnum < info.snapshot_count; snapnum++) {
     progress_bar_update(&bar, snapnum);
     state.identity.unit = snapnum;
+    if (state.partition != NULL) {
+      state.identity.row_offset = horizontal_row_cut(state.partition, snapnum, state.task);
+    }
 
     struct HorizontalGeneration *cur =
         horizontal_acquire_generation(&state, snapnum, info.links_adjacent);

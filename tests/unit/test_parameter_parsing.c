@@ -831,22 +831,30 @@ int test_explicit_vertical_processing_order(void) {
 }
 
 /**
- * @test    test_ntask_multi_rejects_horizontal_processing_order
- * @brief   Test that NTask > 1 rejects a horizontal configuration at config time.
+ * @test    test_ntask_multi_accepts_horizontal_processing_order
+ * @brief   Test that NTask > 1 no longer rejects a horizontal configuration at config time.
  *
- * Expected: FATAL with the serial-only message.
- * Validates: horizontal runs are serial; a vertical configuration is
+ * Expected: the configuration fails here only on what this harness cannot
+ *           provide (HDF5 output), never on NTask.
+ * Validates: multi-rank horizontal runs pass configuration; whether a dataset
+ *            can be distributed is the horizontal driver's startup decision, made
+ *            once it has opened the dataset. A vertical configuration is
  *            unaffected (see the paired test below).
+ *
+ * The run is re-executed with NTask forced to 2. This harness compiles without
+ * HDF5 output, so the horizontal fixture still fails on its binary output, as
+ * test_retention_ceiling_accepted_for_horizontal_runs() relies on; the
+ * assertions pin that this is the only failure and that nothing names NTask.
  *
  * Skips when no horizontal reader is registered: the fixture below declares
  * tree_type: horizontal_hdf5, and horizontal_reader_lookup() (like every horizontal
  * reader) is only compiled in under -DHDF5. Without it the lookup returns
  * NULL and read_parameter_file() FATALs with "Unknown tree_type" before ever
- * reaching the NTask check this test pins -- this file must still run without
+ * reaching the checks this test pins -- this file must still run without
  * HDF5, so it follows the runner's own skip-when-unavailable convention
  * rather than joining run_tests.sh's HDF5-only test list.
  */
-int test_ntask_multi_rejects_horizontal_processing_order(void) {
+int test_ntask_multi_accepts_horizontal_processing_order(void) {
   /* ===== SETUP ===== */
   char fixture_path[MAX_STRING_LEN];
 
@@ -859,14 +867,17 @@ int test_ntask_multi_rejects_horizontal_processing_order(void) {
               "Should create explicit horizontal fixture");
 
   /* ===== EXECUTE / VALIDATE ===== */
-  int result = read_parameter_file_fatal_message_contains_with_ntask(
-      fixture_path, 2,
-      "horizontal runs are serial: multi-rank (NTask > 1) horizontal execution is not "
-      "implemented");
-  TEST_ASSERT(result == 1,
-              "NTask=2 with a horizontal configuration should FATAL with the serial-only message");
+  TEST_ASSERT(read_parameter_file_fatal_message_contains_with_ntask(
+                  fixture_path, 2, "horizontal runs are HDF5-only") == 1,
+              "NTask=2 with a horizontal configuration should fail only on this harness's binary "
+              "output");
+  TEST_ASSERT(read_parameter_file_fatal_message_contains_with_ntask(fixture_path, 2, "NTask") == 0,
+              "NTask=2 with a horizontal configuration should raise nothing about NTask");
+  TEST_ASSERT(read_parameter_file_fatal_message_contains_with_ntask(
+                  fixture_path, 2, "horizontal runs are serial") == 0,
+              "The serial-only rejection should be gone");
 
-  printf("  NTask=2 + horizontal -> serial-only rejection confirmed\n");
+  printf("  NTask=2 + horizontal -> accepted at configuration\n");
 
   return TEST_PASS;
 }
@@ -876,8 +887,8 @@ int test_ntask_multi_rejects_horizontal_processing_order(void) {
  * @brief   Test that NTask > 1 leaves a vertical configuration's validation unchanged.
  *
  * Expected: validation passes exactly as it did before NTask gating existed.
- * Validates: the NTask > 1 rejection applies only to
- *            horizontal configurations.
+ * Validates: NTask > 1 changes nothing in a vertical configuration's
+ *            validation.
  */
 int test_ntask_multi_allows_vertical_processing_order(void) {
   /* ===== SETUP ===== */
@@ -1764,7 +1775,7 @@ int test_retention_ceiling_rejected_for_vertical_runs(void) {
  *          the key.
  *
  * Skips when no horizontal reader is registered, for the reason given on
- * test_ntask_multi_rejects_horizontal_processing_order().
+ * test_ntask_multi_accepts_horizontal_processing_order().
  */
 int test_retention_ceiling_accepted_for_horizontal_runs(void) {
   char fixture_path[MAX_STRING_LEN];
@@ -1873,7 +1884,7 @@ int main(int argc, char **argv) {
   TEST_RUN(test_basic_parsing);
   TEST_RUN(test_default_processing_order);
   TEST_RUN(test_explicit_vertical_processing_order);
-  TEST_RUN(test_ntask_multi_rejects_horizontal_processing_order);
+  TEST_RUN(test_ntask_multi_accepts_horizontal_processing_order);
   TEST_RUN(test_ntask_multi_allows_vertical_processing_order);
   TEST_RUN(test_default_timestep_scheme);
   TEST_RUN(test_explicit_timestep_scheme);

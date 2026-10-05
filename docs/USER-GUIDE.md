@@ -460,7 +460,7 @@ A `horizontal` run works like any other run — build for the package, point `./
 
 - **HDF5-only output.** `output.output_format: binary` is rejected with a message stating horizontal runs are HDF5-only; the binary writer's per-tree header has no meaning for snapshot-major output.
 - **No `--skip`.** Resume is not supported for horizontal runs; `--skip` is rejected at configuration rather than silently ignored.
-- **Serial only.** Multi-rank horizontal execution is not implemented; a horizontal configuration requires `NTask == 1` and is rejected at startup otherwise.
+- **Multi-rank runs need a forest-blocked version 3 dataset.** Under `mpirun` with more than one rank, each rank processes its own range of forests; a version 2 dataset, or a version 3 dataset whose rows are not grouped by forest in ascending `ForestIndex`, is refused at startup with a message saying so; run such a dataset with a single rank.
 
 Only a horizontal run can run [snapshot-wide modules](#snapshot-wide-modules) (`modules.post_snapshot`); these restrictions hold for it unchanged.
 

@@ -1558,9 +1558,12 @@ static void validate_and_postprocess(void) {
       errors++;
     }
 
-    /* The horizontal driver supports neither resume, nor the binary writer, nor
-       multiple ranks; reject each at config time rather than let a horizontal
-       run reach the driver and fail there, after the dataset has been opened. */
+    /* The horizontal driver supports neither resume nor the binary writer; reject
+       each at config time rather than let a horizontal run reach the driver and
+       fail there, after the dataset has been opened. Multiple ranks are accepted:
+       whether a dataset can be distributed (a forest-blocked version 3 dataset)
+       is only known once the driver has opened it, so the driver refuses the
+       rest at startup. */
     if (!is_vertical_reader && MimicConfig.OutputFormat == output_binary) {
       ERROR_LOG("output_format is 'binary', but horizontal runs are HDF5-only");
       errors++;
@@ -1577,12 +1580,6 @@ static void validate_and_postprocess(void) {
                 "the horizontal driver's retained generations and reader '%s' feeds the "
                 "vertical driver",
                 MimicConfig.RetentionMemoryCeiling, reader_name);
-      errors++;
-    }
-    if (!is_vertical_reader && NTask > 1) {
-      ERROR_LOG("NTask is %d, but horizontal runs are serial: multi-rank (NTask > 1) "
-                "horizontal execution is not implemented",
-                NTask);
       errors++;
     }
     /* Only the horizontal driver holds a whole snapshot's population at once;

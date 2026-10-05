@@ -46,6 +46,13 @@ struct HaloInputView {
  * literal) for the same refusal, so module dispatch never needs the reader
  * headers to name it; a hand-built space may leave it NULL. Members are only
  * ever appended, so positional initialisers of the leading members stay valid.
+ *
+ * `row_offset` is the unit's global row of the driver's local row 0: a created
+ * record is encoded with row = host HaloNr + row_offset, so its identity is the
+ * same whichever part of the unit a process holds. The distributed horizontal
+ * driver sets it to the first row of the task's range in the current snapshot;
+ * the vertical driver, a serial horizontal run and every hand-built space leave
+ * it 0, where the encoded row is HaloNr itself.
  */
 struct RecordIdentitySpace {
   int64_t unit;
@@ -53,6 +60,7 @@ struct RecordIdentitySpace {
   bool fits;
   int64_t units;
   const char *driver;
+  int64_t row_offset;
 };
 
 #define MIMIC_DEFAULT_TARGET_FILE_SIZE (4LL * 1024LL * 1024LL * 1024LL)
