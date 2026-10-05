@@ -31,6 +31,32 @@ static int master_prepared;
 static int master_prepare_calls;
 static int master_teardown_calls;
 
+/*
+ * The real per-file HDF5 writer, compiled into this translation unit so the
+ * writer-side task derivation in open_hdf5_output_file() can be checked against
+ * the partition source (test_writer_task_matches_partition_source). The unit
+ * runner links src/io/output/hdf5.c only for the tests it names
+ * (tests/unit/run_tests.sh), and allvars.c is compiled without -DHDF5 there, so
+ * this file supplies the per-file HDF5 globals and stubs the two metadata_hdf5.c
+ * symbols the writer calls -- the same pattern as test_hdf5_write_attrs.c.
+ */
+#include "../../src/io/output/hdf5.c"
+
+size_t HDF5_dst_size;
+size_t *HDF5_dst_offsets;
+size_t *HDF5_dst_sizes;
+const char **HDF5_field_names;
+hid_t *HDF5_field_types;
+int HDF5_n_props;
+hid_t HDF5_current_file_id = -1;
+
+void write_perfile_metadata(hid_t file_id) { (void)file_id; }
+
+void write_description_attr(hid_t obj_id, const char *text) {
+  (void)obj_id;
+  (void)text;
+}
+
 void store_run_properties(hid_t master_file_id) {
   hid_t group_id =
       H5Gcreate(master_file_id, "RunProperties", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
@@ -753,6 +779,90 @@ static int test_multi_task_snapshot_partitions_and_master_carry_task(void) {
   return TEST_PASS;
 }
 
+/* Whether a file exists at @p path. */
+static int file_exists(const char *path) { return access(path, F_OK) == 0; }
+
+/* Open one partition through the real writer and assert it landed at exactly
+ * output_path_hdf5(id, partition_task(p)), and nowhere else. */
+static int assert_writer_opens_partition_path(const struct OutputPartitionSource *source,
+                                              int partition) {
+  const int output_id = source->partition_output_id(partition);
+  const int task = source->partition_task(partition);
+  char expected[512], other[512];
+  output_path_hdf5(expected, sizeof(expected), output_id, task);
+  /* The name the writer would produce had it disagreed with the source: the
+   * unsuffixed one for a task partition, this task's suffix for an untasked one. */
+  output_path_hdf5(other, sizeof(other), output_id, task >= 0 ? -1 : current_task_id());
+
+  open_hdf5_output_file(output_id, source->partition_snapshots(partition));
+  TEST_ASSERT(HDF5_current_file_id >= 0, "the writer should leave the partition file open");
+  TEST_ASSERT(H5Fclose(HDF5_current_file_id) >= 0, "the partition file should close");
+  HDF5_current_file_id = -1;
+
+  TEST_ASSERT(file_exists(expected),
+              "the writer creates output_path_hdf5(id, partition_task(p)) for partition p");
+  TEST_ASSERT(!file_exists(other), "the writer creates no file under any other partition name");
+  unlink(expected);
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_writer_task_matches_partition_source
+ * @brief   open_hdf5_output_file() names a partition exactly as the partition source does
+ *
+ * The writer derives the open file's task component itself (horizontal and
+ * NTask > 1: this task's id; otherwise none), while the master derives it from
+ * partition_task(p). A disagreement would make write_master_file() skip the
+ * file as missing -- an INFO line and a successful exit -- so the two are
+ * pinned against each other here through the real writer. Under NTask = 3 and
+ * ThisTask = 1 the horizontal driver writes partition p = 1 * NOUT + index for
+ * requested snapshot `index`; with NTask unset it writes p = index, untasked.
+ */
+static int test_writer_task_matches_partition_source(void) {
+  char dir_template[] = "/tmp/mimic_writer_task_XXXXXX";
+  const int requested[] = {7, 2};
+  const int nout = (int)(sizeof(requested) / sizeof(requested[0]));
+  const int index = 1;
+
+  TEST_ASSERT(create_temp_output_dir(dir_template) == TEST_PASS,
+              "temporary output directory should be available");
+
+  memset(&MimicConfig, 0, sizeof(MimicConfig));
+  MimicConfig.ProcessingOrder = (int)INPUT_PROCESSING_ORDER_HORIZONTAL;
+  MimicConfig.horizontal_reader = &HorizontalSourceReader;
+  MimicConfig.OutputFormat = output_hdf5;
+  MimicConfig.NOUT = nout;
+  snprintf(MimicConfig.OutputDir, sizeof(MimicConfig.OutputDir), "%s", dir_template);
+  snprintf(MimicConfig.OutputFileBaseName, sizeof(MimicConfig.OutputFileBaseName), "%s", "model");
+  for (int n = 0; n < nout; n++) {
+    MimicConfig.ListOutputSnaps[n] = requested[n];
+  }
+  calc_hdf5_props();
+
+  ThisTask = 1;
+  NTask = 3;
+  struct OutputPartitionSource source = get_output_partition_source();
+  const int task_partition = 1 * nout + index;
+  TEST_ASSERT_EQUAL(source.partition_task(task_partition), 1,
+                    "task 1 writes partition NOUT + index");
+  TEST_ASSERT_EQUAL(source.partition_output_id(task_partition), requested[index],
+                    "task 1's partition carries the requested snapshot at that index");
+  TEST_ASSERT(assert_writer_opens_partition_path(&source, task_partition) == TEST_PASS,
+              "under NTask = 3 the writer names task 1's partition as the source does");
+
+  ThisTask = 0;
+  NTask = 0;
+  source = get_output_partition_source();
+  TEST_ASSERT_EQUAL(source.partition_task(index), -1,
+                    "a serial run's partition carries no task component");
+  TEST_ASSERT(assert_writer_opens_partition_path(&source, index) == TEST_PASS,
+              "with NTask unset the writer keeps the unsuffixed name, as the source does");
+
+  free_hdf5_ids();
+  rmdir(dir_template);
+  return TEST_PASS;
+}
+
 /** @brief Main test runner */
 int main(void) {
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
@@ -769,6 +879,7 @@ int main(void) {
   TEST_RUN(test_snapshot_master_links_each_snapshot_to_its_own_partition);
   TEST_RUN(test_tree_output_partition_source_wraps_configured_reader);
   TEST_RUN(test_multi_task_snapshot_partitions_and_master_carry_task);
+  TEST_RUN(test_writer_task_matches_partition_source);
 
   TEST_SUMMARY();
   return TEST_RESULT();

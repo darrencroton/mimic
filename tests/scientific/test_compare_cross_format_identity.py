@@ -450,10 +450,12 @@ def test_schema_mismatch_is_detected():
 def test_task_suffixed_partitions_are_aggregated_in_snapshot_task_order():
     """A multi-task run's ``_task<digits>`` partitions are found, ordered, and aggregated.
 
-    The same galaxies split over three tasks per snapshot must compare equal to
-    a serial run writing one unsuffixed file per snapshot, and discovery must
-    order by (snapshot, task) numerically: task 10 sorts after task 2, which a
-    plain name sort would get wrong.
+    The same galaxies split over several tasks per snapshot must compare equal
+    to a serial run writing one unsuffixed file per snapshot, and discovery must
+    order by (snapshot, task) numerically. ``%03d`` pads tasks below 1000 only,
+    so snapshot 16's tasks 999 and 1000 are named ``task999`` and ``task1000``:
+    a plain name sort puts ``task1000`` first, and this ordering assertion
+    fails under it.
     """
     print("Testing task-suffixed partition names...")
     with scratch() as root:
@@ -466,22 +468,27 @@ def test_task_suffixed_partitions_are_aggregated_in_snapshot_task_order():
             "model",
             {
                 (20, 10): snap20[1:],
-                (16, 2): snap16[2:],
+                (16, 1000): snap16[2:],
                 (16, 0): snap16[:2],
                 (20, 2): snap20[:1],
                 # A task holding no galaxies at a snapshot still writes its partition.
-                (16, 10): snap16[:0],
+                (16, 999): snap16[:0],
             },
         )
 
         names = [path.name for path in comparator.partition_files(tasks)]
-        assert names == [
+        expected = [
             "model_016_task000.hdf5",
-            "model_016_task002.hdf5",
-            "model_016_task010.hdf5",
+            "model_016_task999.hdf5",
+            "model_016_task1000.hdf5",
             "model_020_task002.hdf5",
             "model_020_task010.hdf5",
-        ], f"task-suffixed partitions are not in (snapshot, task) order: {names}"
+        ]
+        # Guard the premise: a name sort must disagree, or this stops testing it.
+        assert sorted(expected) != expected, "the fixture no longer defeats a plain name sort"
+        assert (
+            names == expected
+        ), f"task-suffixed partitions are not in (snapshot, task) order: {names}"
 
         status, report = compare(serial, tasks)
         assert_status(status, IDENTICAL, report, "task-suffixed against serial")

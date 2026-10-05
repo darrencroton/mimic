@@ -134,7 +134,10 @@ def partition_files(spec):
             chunks.append((int(match.group(1)), task, entry))
     chunks.sort()
     if not chunks:
-        raise ComparisonError(f"{directory}: no partition files {base}_<digits>.hdf5 found")
+        raise ComparisonError(
+            f"{directory}: no partition files {base}_<digits>.hdf5 or "
+            f"{base}_<digits>_task<digits>.hdf5 found"
+        )
     suffixed = sum(1 for _, task, _ in chunks if task >= 0)
     if 0 < suffixed < len(chunks):
         raise ComparisonError(
@@ -175,7 +178,7 @@ class RunIndex:
         self.files = files
         self.signature = signature
         self.dtype = dtype
-        #: snapshot -> [(path, rows)], partitions in ascending numeric order
+        #: snapshot -> [(path, rows)], partitions in ascending (number, task) order
         self.layout = layout
 
     @property
