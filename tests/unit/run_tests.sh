@@ -139,7 +139,7 @@ fi
 
 # Source files needed for tests (non-main files)
 UTIL_SRCS="${SRC_DIR}/util/memory.c ${SRC_DIR}/util/error.c ${SRC_DIR}/util/numeric.c ${SRC_DIR}/util/version.c ${SRC_DIR}/util/integration.c ${SRC_DIR}/util/io.c ${SRC_DIR}/util/run_log.c ${SRC_DIR}/util/progress.c ${SRC_DIR}/util/run_profile.c"
-CORE_SRCS="${SRC_DIR}/core/allvars.c ${SRC_DIR}/core/read_parameter_file.c ${SRC_DIR}/core/init.c ${SRC_DIR}/core/vertical_driver.c ${SRC_DIR}/core/horizontal_driver.c ${SRC_DIR}/core/halo_evolution.c ${SRC_DIR}/core/fof_workspace.c ${SRC_DIR}/core/virial.c ${SRC_DIR}/core/timestep.c ${SRC_DIR}/core/inheritance.c ${SRC_DIR}/core/output_buffer.c ${SRC_DIR}/core/galaxy_pool.c"
+CORE_SRCS="${SRC_DIR}/core/allvars.c ${SRC_DIR}/core/read_parameter_file.c ${SRC_DIR}/core/init.c ${SRC_DIR}/core/vertical_driver.c ${SRC_DIR}/core/horizontal_driver.c ${SRC_DIR}/core/halo_evolution.c ${SRC_DIR}/core/fof_workspace.c ${SRC_DIR}/core/virial.c ${SRC_DIR}/core/timestep.c ${SRC_DIR}/core/inheritance.c ${SRC_DIR}/core/output_buffer.c ${SRC_DIR}/core/galaxy_pool.c ${SRC_DIR}/core/horizontal_partition.c"
 IO_SRCS="${SRC_DIR}/io/vertical/interface.c ${SRC_DIR}/io/vertical/binary.c ${SRC_DIR}/io/vertical/registry.c ${SRC_DIR}/io/vertical/chunk_plan.c ${SRC_DIR}/io/vertical/read_ctrees_ascii.c ${SRC_DIR}/io/vertical/ctrees/ctrees_utils.c ${SRC_DIR}/io/vertical/ctrees/forest_utils.c ${SRC_DIR}/io/horizontal/interface.c ${SRC_DIR}/io/horizontal/registry.c ${SRC_DIR}/io/output/util.c ${SRC_DIR}/io/output/binary.c"
 if [ "$HDF5_AVAILABLE" = "1" ]; then
     IO_SRCS="${IO_SRCS} ${SRC_DIR}/io/vertical/hdf5.c ${SRC_DIR}/io/vertical/read_ctrees_hdf5.c ${SRC_DIR}/io/horizontal/read_horizontal_hdf5.c ${SRC_DIR}/io/output/master_hdf5.c"
