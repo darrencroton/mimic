@@ -10,11 +10,13 @@
 
 ## Fixture gate (`make tests-distributed`)
 
-Run in its CI form, `MPIRUN="mpirun --oversubscribe" make tests-distributed`, with log `build/distributed_tests.log`. It passed with 97 checks and no skips:
+Run in its CI form, `MPIRUN="mpirun --oversubscribe" make tests-distributed`, from a clean tree (after `make clean`, with no `build/generated/git_version.h`), with log `build/distributed_tests.log`. The final gate revision, committed in Slice 9's last commit (the child of `8babca3d`), passed with **102 checks**, no FAIL, ERROR, WARN or SKIP markers. Its summary line was `PASS: tests-distributed (102 checks: MPI control test, 4 model(s) at -np 1, 2, 3, 4, 8, version 2 refusal; no skips)`. The checks were:
 
 - the MPI control test `tests/mpi/test_snapshot_collectives_mpi.c` at `-np 3`: 9 of 9 cases;
-- `halos-only`, `sage16`, `sham` and `hod` on `mini-millennium-horizontal`'s committed `forest_blocks` fixture (six forests, 71 halos, seven snapshots with snapshot 3 empty, ten gapped `Descendant` links; the largest forest holds 7 of the widest snapshot's 17 halos, 41%): serial non-MPI output against the MPI build at `-np 1, 2, 3, 4, 8`, every count byte-identical per `UniqueGalaxyID` through `scripts/compare_cross_format_identity.py --compare-created` (for `hod` this includes 10 created rows), with the expected file layout at every count and the serial `sham` audit showing `candidates=7 assigned=4 masked=3` on every output snapshot;
+- `halos-only`, `sage16`, `sham` and `hod` on `mini-millennium-horizontal`'s committed `forest_blocks` fixture (six forests, 71 halos, seven snapshots with snapshot 3 empty, ten gapped `Descendant` links; the largest forest holds 7 of the widest snapshot's 17 halos, 41%): serial non-MPI output against the MPI build at `-np 1, 2, 3, 4, 8`, every count byte-identical per `UniqueGalaxyID` through `scripts/compare_cross_format_identity.py --compare-created` (for `hod` this includes 10 created rows, and the gate requires the comparator to report created rows on both sides at every count), with the expected file layout at every count and the serial `sham` audit showing `candidates=7 assigned=4 masked=3` on every output snapshot;
 - the version 2 refusal: `halos-only` on `simulations/micro-uchuu-ascii-horizontal/_tests/data/generic/` at `-np 2` stopped at startup with the format_version 2 message.
+
+Earlier revisions of the same gate also passed in CI form: the `c38cd1d9` gate with 97 checks (without the five `hod` created-row checks), and the `8babca3d` gate with 102 checks. The runtime under test is the same in every revision; the later revisions harden the gate itself (non-MPI serial builds whatever the environment, process-group timeouts, the created-row requirement, a clean-tree `git_version.h`).
 
 At `-np 4` and `-np 8` the partition leaves trailing tasks idle (forest ranges `[6, 6)`), so empty tasks take part in every collective and write empty partitions; at `-np 3` and above the dominant forest is alone on task 1.
 

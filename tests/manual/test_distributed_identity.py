@@ -17,9 +17,10 @@ no real dataset.
 Steps, each reported as ``MIMIC_RESULT:`` markers and gated:
 
 1. The MPI control test ``tests/mpi/test_snapshot_collectives_mpi.c``: compiled with
-   ``mpicc -DMPI`` against ``src/core/snapshot_collectives.c`` and the util sources only (the
-   test file stubs the running-callback accessor as NONE; ``module_registry.c`` is not linked)
-   and run at ``-np 3`` under a timeout; every case it declares (``TEST_RUN(``) must pass.
+   ``mpicc -DMPI`` and the house warning set against ``src/core/snapshot_collectives.c`` and the
+   util sources only, after refreshing ``build/generated/git_version.h`` (the test file stubs the
+   running-callback accessor as NONE; ``module_registry.c`` is not linked), and run at ``-np 3``
+   under a timeout; every case it declares (``TEST_RUN(``) must pass.
 2. For each of ``halos-only``, ``sage16``, ``sham`` and ``hod`` on ``mini-millennium-horizontal``
    (the committed ``forest_blocks`` fixture, six forests over seven gapped snapshots, through
    ``simulations/mini-millennium-horizontal/_tests/input/forest_blocks_<model>.yaml``):
@@ -41,13 +42,14 @@ Steps, each reported as ``MIMIC_RESULT:`` markers and gated:
    ``simulations/micro-uchuu-ascii-horizontal/_tests/data/generic/`` under ``-np 2`` must fail at
    startup with the format_version 2 message.
 
-Every build and launch runs in its own session (process group) under a timeout; on a timeout
-or an interrupt the whole group (``mpirun`` and its ranks, or ``make`` and its compilers) gets
-SIGTERM, then SIGKILL after a short grace, and is reaped before the gate continues or restores
-the generated code, so a hang fails the gate instead of stalling it or leaving ranks behind. Any FAIL,
-ERROR or SKIP marker fails the run; the gate has no legitimate skip (a missing ``mpicc`` or
-``mpirun`` is a failure). The whole output goes to ``build/distributed_tests.log``; run outputs go
-to ``output/distributed-identity/gate/`` (replaced on each run).
+Every build and launch runs in its own session (process group) under a timeout; on a timeout or an
+interrupt the whole group (``mpirun`` and its ranks, or ``make`` and its compilers) gets SIGTERM
+and, after a short grace, SIGKILL whether or not its leader has exited, and is reaped before the
+gate continues or restores the generated code, so a hang fails the gate instead of stalling it or
+leaving ranks behind. Any FAIL, ERROR or SKIP marker fails the run; the gate has no legitimate skip
+(a missing ``mpicc`` or ``mpirun`` is a failure). The whole output goes to
+``build/distributed_tests.log``; run outputs go to ``output/distributed-identity/gate/`` (replaced
+on each run).
 
 The caller's generated code (``MODEL``/``SIMULATION`` from the environment, else the Makefile
 defaults) is regenerated in a ``finally`` block, and SIGHUP/SIGINT/SIGQUIT/SIGTERM are converted
@@ -82,6 +84,9 @@ COMPARATOR = Path("scripts") / "compare_cross_format_identity.py"
 CONTROL_SOURCE = Path("tests") / "mpi" / "test_snapshot_collectives_mpi.c"
 CONTROL_BINARY = REPO_ROOT / "build" / "test_snapshot_collectives_mpi"
 CONTROL_TASKS = 3
+GIT_VERSION_H = REPO_ROOT / "build" / "generated" / "git_version.h"
+# The house warning set (AGENTS.md: compile clean under these on Clang and GCC).
+HOUSE_WARNINGS = ["-Wall", "-Wextra", "-Wshadow", "-Wformat-security", "-Wundef"]
 CONTROL_SOURCES = [REPO_ROOT / "src" / "core" / "snapshot_collectives.c"] + sorted(
     (REPO_ROOT / "src" / "util").glob("*.c"), key=str
 )
@@ -213,7 +218,15 @@ class Gate:
         if self.make("halos-only", SIMULATION, "generate") != 0:
             self.marker(False, "mpi_control_test_build", "make generate failed")
             return
-        cmd = ["mpicc", "-DMPI", "-Wall", "-Wextra", "-Wshadow"]
+        # version.c and run_log.c include git_version.h, which `make generate` does not write
+        # and a clean tree lacks; refresh it with the project's generator, as run_tests.sh does.
+        status, _ = self.run(
+            ["scripts/generate_git_version.sh", str(GIT_VERSION_H)], "generate git_version.h"
+        )
+        if status != 0:
+            self.marker(False, "mpi_control_test_build", f"generate_git_version.sh exited {status}")
+            return
+        cmd = ["mpicc", "-DMPI", *HOUSE_WARNINGS]
         cmd += [f"-I{path}" for path in CONTROL_INCLUDES]
         cmd += pkg_config("--cflags")
         cmd += [str(REPO_ROOT / CONTROL_SOURCE), *map(str, CONTROL_SOURCES)]
@@ -372,21 +385,28 @@ class Gate:
 
 
 def terminate_group(process: subprocess.Popen) -> str:
-    """SIGTERM, then after KILL_GRACE seconds SIGKILL, the process's group; reap it.
+    """SIGTERM the process's group, SIGKILL it after KILL_GRACE seconds, and reap the leader.
 
-    Returns whatever output the group wrote before it ended.
+    The SIGKILL is sent whether or not the leader has exited by then, so a descendant that
+    ignores SIGTERM and has closed its streams cannot outlive the group (the group id stays
+    valid while any member lives). Returns whatever output the group wrote before it ended.
     """
-    for signum, grace in ((signal.SIGTERM, KILL_GRACE), (signal.SIGKILL, None)):
-        try:
-            os.killpg(process.pid, signum)
-        except ProcessLookupError:
-            break
-        try:
-            output, _ = process.communicate(timeout=grace)
-            return output or ""
-        except subprocess.TimeoutExpired:
-            continue
-    output, _ = process.communicate()
+    output = None
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    try:
+        output, _ = process.communicate(timeout=KILL_GRACE)
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    if output is None:
+        output, _ = process.communicate()
+    process.wait()
     return output or ""
 
 
