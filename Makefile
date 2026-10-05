@@ -894,6 +894,16 @@ tests-snapshot-global-sham:
 tests-snapshot-global-hod:
 	@$(SG_RUNNER) --only hod
 
+# Distributed identity gate (tests/manual/test_distributed_identity.py has the steps): the MPI
+# control test of the snapshot collectives, then halos-only, sage16, sham and hod on the
+# committed forest_blocks fixture, serial against USE-MPI=yes at -np 1, 2, 3, 4 and 8, and the
+# version 2 refusal. Needs mpicc/mpirun; MPIRUN (environment, default mpirun) is the launcher,
+# e.g. MPIRUN="mpirun --oversubscribe" on a machine with fewer than 8 cores. Writes
+# build/distributed_tests.log, restores the caller's generated code; rebuild with `make` after.
+.PHONY: tests-distributed
+tests-distributed:
+	@MODEL='$(MODEL)' SIMULATION='$(SIMULATION)' $(PYTHON) tests/manual/test_distributed_identity.py
+
 # Manual disabled-mode identity against the pinned pre-feature reference commit
 # (REFERENCE_COMMIT=<hash> overrides it); writes build/snapshot_global_identity.log itself.
 tests-snapshot-global-identity:

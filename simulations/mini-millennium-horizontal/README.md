@@ -59,6 +59,17 @@ make MODEL=halos-only SIMULATION=mini-millennium-horizontal
 
 **This route is runnable and gated.** The dataset carries 29,291 gapped `Descendant` links (`links_adjacent = 0`, longest span 2). The horizontal driver keeps each generation until its descendants' snapshot has been processed, so this dataset holds at most three generations at once. Its package-local gate, `_tests/scientific/test_cross_format_identity.py`, shows horizontal output bitwise identical per `UniqueGalaxyID` to the vertical `lhalo_binary` reader over the same eight files, on all four `{halos-only, sage16} × {fixed, dynamic}` legs. The recorded gate of 2026-09-29 passed on real data with 29,291 gapped `Descendant` links: `halos-only` matched 292,163 galaxies over output snapshots 16, 18, 20, 23, 27, 32, 37 and 63 in all 20 fields under fixed and dynamic timesteps, and `sage16` matched 187,832 (fixed) and 187,817 (dynamic) galaxies in all 42 fields, every one bitwise identical per `UniqueGalaxyID` with no tolerance, compared by `scripts/compare_cross_format_identity.py`. Run it on a machine holding both datasets with `make MODEL=halos-only SIMULATION=mini-millennium-horizontal tests-scientific`.
 
+## Test fixtures
+
+Four committed version 3 fixtures live under `_tests/data/`, each converted by `convert/mimic-convert/convert_trees.py` from a synthetic L-Halo source written by `_tests/data/source/generate_sources.py` (with mini-Millennium's cosmology, box and particle mass) and rebuilt together by `_tests/data/regenerate.sh`:
+
+- `worked_graph/` — one forest of five halos over five snapshots with gapped links, a FoF satellite and an empty snapshot; the generic test tiers run on it (`_tests/input/test_simulation.yaml`).
+- `three_snapshot_chain/` — one progenitor chain spanning three snapshots.
+- `adjacent/` — an all-adjacent dataset (`links_adjacent = 1`).
+- `forest_blocks/` — six forests of unequal size (71 halos) over seven snapshots with snapshot 3 empty, gapped links, FoF satellites that merge and become orphans, and one forest holding 41% of the widest snapshot; the distributed identity gate (`make tests-distributed`) runs `halos-only`, `sage16`, `sham` and `hod` on it serially and under MPI through the `_tests/input/forest_blocks_<model>.yaml` run files.
+
+The first three are used by `make tests-horizontal-v3`.
+
 ## Related packages
 
 - `simulations/mini-millennium/` — the same halos in L-Halo binary, the conversion source and the cosmology reference

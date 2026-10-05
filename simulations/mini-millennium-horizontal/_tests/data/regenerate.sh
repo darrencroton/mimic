@@ -1,8 +1,9 @@
 #!/bin/bash
 ###############################################################################
-# regenerate.sh - Rebuild the committed gap-retention version 3 fixtures
+# regenerate.sh - Rebuild the committed gap-retention and forest-block version 3
+#                 fixtures
 #
-# Regenerates the three L-Halo sources under source/ from their generator,
+# Regenerates the four L-Halo sources under source/ from their generator,
 # converts each with convert/mimic-convert/convert_trees.py (ingest, transpose, write,
 # then report, which runs the producer validation battery) using the
 # mini-Millennium converter profile this package declares
@@ -13,6 +14,8 @@
 #   worked_graph/          the design review's worked five-halo mixed-gap graph
 #   three_snapshot_chain/  one progenitor chain spanning three snapshots
 #   adjacent/              an all-adjacent dataset (links_adjacent = 1)
+#   forest_blocks/         six forests of unequal size over seven gapped
+#                          snapshots, the distributed identity gate's fixture
 #
 # The converter is the only producer: nothing here edits a written file. Each
 # conversion report stays in its temporary workdir because it records that
@@ -45,7 +48,7 @@ trap 'rm -rf "$WORKROOT"' EXIT
 
 "$MIMIC_PYTHON" "${SOURCE_DIR}/generate_sources.py"
 
-for fixture in worked_graph three_snapshot_chain adjacent; do
+for fixture in worked_graph three_snapshot_chain adjacent forest_blocks; do
     workdir="${WORKROOT}/${fixture}"
     "$MIMIC_PYTHON" "$CONVERT" ingest --workdir "$workdir" --source-format lhalo_binary \
         --simulation-info "$SIM_INFO" --a-list "${SOURCE_DIR}/${fixture}.a_list" \
