@@ -1,6 +1,6 @@
 # Mimic Distributed Snapshot-Global Operations Plan
 
-**Status:** Requirements brief. Split out of `MIMIC-DUAL-DRIVER-PLAN.md` (its former Phase 7) in the 2026-07-02 joint review. The single-node horizontal driver passed its cross-format identity gate on 2026-08-12, so that precondition is met; now blocked only on at least one snapshot-global module contract existing (`MIMIC-SNAPSHOT-GLOBAL-MODULES-PLAN.md`) — there is nothing to distribute until then. Not scheduled.
+**Status:** Requirements brief, **planned on 2026-10-05**: the implementation plan is [`MIMIC-DISTRIBUTED-SNAPSHOT-IMPLEMENTATION-PLAN.md`](MIMIC-DISTRIBUTED-SNAPSHOT-IMPLEMENTATION-PLAN.md), which governs where the two differ. It chose the forest-sharded decomposition this brief names as one option, and recorded two measured limits this brief did not know: the decomposition needs a forest-blocked version 3 dataset (version 2 and ASCII-route version 3 data are refused), and the Shin-Uchuu percolation super-forest holds 61.86% of the widest slab, so forest sharding alone cannot put Shin-Uchuu on small-memory nodes; see the plan's "Outcome and Limits". Split out of `MIMIC-DUAL-DRIVER-PLAN.md` (its former Phase 7) in the 2026-07-02 joint review; the single-node horizontal driver passed its cross-format identity gate on 2026-08-12 and the snapshot-global module contract landed on 2026-10-03, so both preconditions are met.
 **Date:** 2026-07-02
 
 ---
