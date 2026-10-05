@@ -46,7 +46,11 @@ from discovery import (
     test_property_files,
 )
 from generate_properties import load_parameter_units
-from module_modes import STANDALONE_FALLBACK_MODES, mode_list_errors
+from module_modes import (
+    STANDALONE_FALLBACK_MODES,
+    mode_list_errors,
+    snapshot_distribution_errors,
+)
 
 # ==============================================================================
 # PATHS
@@ -496,6 +500,23 @@ def validate_supported_processing_modes(
     return not errors
 
 
+def validate_snapshot_distribution(
+    module: Dict[str, Any], module_name: str, results: ValidationResults
+) -> bool:
+    """Validate the optional snapshot_distribution key.
+
+    Accepted values are serial_only (the default when the key is omitted) and
+    collective, and only for a module whose supported_processing_modes include
+    process_snapshot. The rule lives in scripts/module_modes.py, which the
+    registry generator also uses, so the two tools accept the same metadata.
+    """
+
+    errors = snapshot_distribution_errors(module)
+    for message in errors:
+        results.add_error(module_name, 1, message)
+    return not errors
+
+
 # ==============================================================================
 # FILE EXISTENCE VALIDATION
 # ==============================================================================
@@ -759,6 +780,9 @@ def validate_module(
         return False
 
     if not validate_supported_processing_modes(module, module_name, results):
+        return False
+
+    if not validate_snapshot_distribution(module, module_name, results):
         return False
 
     # File existence validation

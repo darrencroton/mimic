@@ -17,6 +17,9 @@ contract (process_snapshot / PROCESSING_MODE_SNAPSHOT):
   - generation freshness covers the descriptor file's path and bytes
   - snapshot-only metadata cannot declare events; dual-mode FoF events stay valid
   - the snapshot fixtures register only in test builds
+  - snapshot_distribution (serial_only | collective, default serial_only) is accepted
+    only on process_snapshot modules and only with a known value, by both tools, mirrors
+    enum SnapshotDistribution, and is emitted into every module's registration
 
 Real callback invocations of the fixtures and family-aware registration in the
 C registry are covered by tests/unit/test_snapshot_module_contract.c.
@@ -116,6 +119,18 @@ def validator_mode_errors(modes):
     results = validator.ValidationResults()
     module = {"name": "synthetic", "supported_processing_modes": modes}
     validator.validate_supported_processing_modes(module, "synthetic", results)
+    return [str(error) for error in results.errors]
+
+
+def generator_distribution_errors(module):
+    """Run the generator's metadata validation (modes and snapshot_distribution) on one module."""
+    return generator.validate_processing_modes([module])
+
+
+def validator_distribution_errors(module):
+    """Run the validator's snapshot_distribution validation on one module."""
+    results = validator.ValidationResults()
+    validator.validate_snapshot_distribution(module, module["name"], results)
     return [str(error) for error in results.errors]
 
 
@@ -488,6 +503,124 @@ def test_fixtures_register_only_in_test_builds():
     print("  ✓ fixtures registered only for MIMIC_TEST_BUILD; Makefile lists both fixtures")
 
 
+def test_snapshot_distribution_mirrors_c_enum():
+    """module_modes.SNAPSHOT_DISTRIBUTIONS matches enum SnapshotDistribution, in order, with
+    serial_only first so a zero-initialised struct Module is serial_only."""
+    interface = (REPO_ROOT / "src" / "core" / "module_interface.h").read_text(encoding="utf-8")
+    enum_body = re.search(r"enum SnapshotDistribution \{(.*?)\};", interface, re.DOTALL).group(1)
+    enumerators = re.findall(r"^\s*(SNAPSHOT_DISTRIBUTION_[A-Z_]+)", enum_body, re.MULTILINE)
+    assert list(module_modes.SNAPSHOT_DISTRIBUTIONS.values()) == enumerators, enumerators
+    assert "SNAPSHOT_DISTRIBUTION_SERIAL_ONLY = 0" in enum_body, enum_body
+    assert module_modes.DEFAULT_SNAPSHOT_DISTRIBUTION == "serial_only"
+    assert "enum SnapshotDistribution snapshot_distribution;" in interface
+    print(f"  ✓ {len(enumerators)} distributions agree between C and Python, serial_only = 0")
+
+
+def test_snapshot_distribution_accepted_on_snapshot_modules():
+    """Both tools accept serial_only, collective and an omitted key on process_snapshot modules."""
+    cases = [
+        (["process_snapshot"], "serial_only"),
+        (["process_snapshot"], "collective"),
+        (["process_full_halo", "process_snapshot"], "collective"),
+        (["process_snapshot"], None),
+        (["process_by_galaxy"], None),
+    ]
+    for modes, value in cases:
+        module = synthetic_module("synthetic", modes)
+        if value is not None:
+            module["snapshot_distribution"] = value
+        gen, val = generator_distribution_errors(module), validator_distribution_errors(module)
+        assert not gen and not val, f"{modes}/{value} should be valid: {gen} {val}"
+    print(f"  ✓ {len(cases)} snapshot_distribution declarations accepted by both tools")
+
+
+def test_snapshot_distribution_rejected_on_non_snapshot_modules():
+    """Both tools reject the key, whatever its value, on a module without process_snapshot."""
+    for modes in (["process_full_halo"], ["process_by_galaxy", "process_per_event"]):
+        for value in ("serial_only", "collective"):
+            module = synthetic_module("synthetic", modes)
+            module["snapshot_distribution"] = value
+            gen, val = generator_distribution_errors(module), validator_distribution_errors(module)
+            for errors in (gen, val):
+                assert any("only valid for modules whose" in e for e in errors), (modes, errors)
+    # The whole validator run over a module directory reports it too.
+    with scratch_dir() as directory:
+        module_dir = directory / "fof_with_distribution"
+        module_dir.mkdir()
+        (module_dir / "fof_with_distribution.c").write_text("/* stub */\n", encoding="utf-8")
+        module = synthetic_module("fof_with_distribution", ["process_full_halo"])
+        module["snapshot_distribution"] = "collective"
+        results = validator.ValidationResults()
+        assert not validator.validate_module(module_dir, module, {}, results)
+        assert any("snapshot_distribution" in str(e) for e in results.errors), results.errors
+    print("  ✓ snapshot_distribution on FoF-only modules rejected by both tools")
+
+
+def test_snapshot_distribution_rejects_unknown_values():
+    """Both tools reject any value other than serial_only or collective."""
+    for value in ("distributed", "Collective", "", True, None, 1, ["collective"]):
+        module = synthetic_module("synthetic", ["process_snapshot"])
+        module["snapshot_distribution"] = value
+        gen, val = generator_distribution_errors(module), validator_distribution_errors(module)
+        for errors in (gen, val):
+            assert any("Invalid 'snapshot_distribution' value" in e for e in errors), (
+                value,
+                errors,
+            )
+        try:
+            module_modes.snapshot_distribution_enum(module)
+        except KeyError:
+            continue
+        raise AssertionError(f"snapshot_distribution_enum accepted {value!r}")
+    print("  ✓ unknown snapshot_distribution values rejected; the enum helper fails closed")
+
+
+def test_snapshot_distribution_emitted_into_registration():
+    """Generated registration carries .snapshot_distribution for every module, defaulting to
+    SNAPSHOT_DISTRIBUTION_SERIAL_ONLY; the framework snapshot fixture stays serial_only."""
+    collective = synthetic_module("demo_collective", ["process_snapshot"])
+    collective["snapshot_distribution"] = "collective"
+    explicit_serial = synthetic_module("demo_explicit_serial", ["process_snapshot"])
+    explicit_serial["snapshot_distribution"] = "serial_only"
+    modules = [
+        collective,
+        explicit_serial,
+        synthetic_module("demo_default_serial", ["process_snapshot"]),
+        synthetic_module("demo_fof", ["process_full_halo"]),
+    ]
+    event_info = {"producer_ids": {}, "emits": {}, "consumes": {}}
+    expected = {
+        "demo_collective": "SNAPSHOT_DISTRIBUTION_COLLECTIVE",
+        "demo_explicit_serial": "SNAPSHOT_DISTRIBUTION_SERIAL_ONLY",
+        "demo_default_serial": "SNAPSHOT_DISTRIBUTION_SERIAL_ONLY",
+        "demo_fof": "SNAPSHOT_DISTRIBUTION_SERIAL_ONLY",
+    }
+    with scratch_dir() as tmp:
+        init_c = tmp / "module_init.c"
+        assert generator.generate_module_init_c(modules, event_info, "0" * 32, init_c)
+        text = init_c.read_text(encoding="utf-8")
+    for name, enumerator in expected.items():
+        block = re.search(rf"static struct Module {name}_module = \{{(.*?)\}};", text, re.S)
+        assert block, f"{name} registration missing"
+        assert f".snapshot_distribution = {enumerator}," in block.group(1), block.group(1)
+
+    env = {k: v for k, v in os.environ.items() if k != "MIMIC_TEST_BUILD"}
+    env.setdefault("MODEL", "sage16")
+    env.setdefault("SIMULATION", "mini-millennium")
+    env["MIMIC_TEST_BUILD"] = "1"
+    script = str(REPO_ROOT / "scripts" / "generate_module_registry.py")
+    run = subprocess.run(
+        [sys.executable, script, "--dry-run"], capture_output=True, text=True, env=env
+    )
+    assert run.returncode == 0, run.stderr
+    fixture = re.search(
+        r"static struct Module test_snapshot_fixture_module = \{(.*?)\};", run.stdout, re.S
+    )
+    assert fixture, "test_snapshot_fixture registration missing from the test-build registry"
+    assert ".snapshot_distribution = SNAPSHOT_DISTRIBUTION_SERIAL_ONLY," in fixture.group(1)
+    print("  ✓ .snapshot_distribution emitted per module; default and fixture are serial_only")
+
+
 # ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
@@ -506,6 +639,11 @@ def main():
             test_descriptor_freshness_inputs,
             test_snapshot_metadata_cannot_declare_events,
             test_fixtures_register_only_in_test_builds,
+            test_snapshot_distribution_mirrors_c_enum,
+            test_snapshot_distribution_accepted_on_snapshot_modules,
+            test_snapshot_distribution_rejected_on_non_snapshot_modules,
+            test_snapshot_distribution_rejects_unknown_values,
+            test_snapshot_distribution_emitted_into_registration,
         ],
         "Snapshot Module Schema (test_snapshot_module_schema.py)",
     )

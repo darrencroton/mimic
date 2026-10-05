@@ -14,6 +14,12 @@ module:
     - process_per_event                    #   process_per_event: Per-event processing (ngal=1, ctx->active_event set)
     - process_full_halo                    #   process_full_halo: Array processing (ngal>1)
 
+  # process_snapshot modules only (rejected otherwise): how the callback reaches the whole population.
+  #   serial_only (default when omitted): assumes the complete snapshot population is resident;
+  #     startup refuses it under modules.post_snapshot when the run uses more than one MPI task.
+  #   collective: reaches every whole-population quantity through src/core/snapshot_collectives.h.
+  # snapshot_distribution: serial_only
+
   # ============================================================================
   # RECOMMENDED FIELDS (for production modules)
   # ============================================================================

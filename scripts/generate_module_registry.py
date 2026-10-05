@@ -56,6 +56,8 @@ from module_modes import (
     callback_families,
     enum_for_mode,
     mode_list_errors,
+    snapshot_distribution_enum,
+    snapshot_distribution_errors,
 )
 
 # ==============================================================================
@@ -249,7 +251,11 @@ def load_valid_properties() -> set:
 
 
 def validate_processing_modes(modules: List[Dict[str, Any]]) -> List[str]:
-    """Verify runtime modules declare a valid mode list (see scripts/module_modes.py)."""
+    """Verify runtime modules declare a valid mode list and snapshot_distribution.
+
+    Both checks are shared with scripts/validate_modules.py through
+    scripts/module_modes.py, so the two tools accept the same metadata.
+    """
     errors = []
 
     for module in modules:
@@ -268,6 +274,8 @@ def validate_processing_modes(modules: List[Dict[str, Any]]) -> List[str]:
 
         # Shared with scripts/validate_modules.py so both accept the same lists.
         for message in mode_list_errors(module["supported_processing_modes"]):
+            errors.append(f"{module_name}/module_info.yaml: {message}")
+        for message in snapshot_distribution_errors(module):
             errors.append(f"{module_name}/module_info.yaml: {message}")
 
     return errors
@@ -779,6 +787,7 @@ def generate_module_struct_definitions(
         lines.append(f"    .cleanup = {name}_cleanup,")
         lines.append(f"    .supported_processing_modes = {name}_supported_modes,")
         lines.append(f"    .num_supported_modes = {num_modes},")
+        lines.append(f"    .snapshot_distribution = {snapshot_distribution_enum(module)},")
         lines.append(f"    .module_id = {module_id},")
         lines.append(f"    .subscriptions = {subscriptions_val},")
         lines.append(f"    .num_subscriptions = {num_subscriptions},")

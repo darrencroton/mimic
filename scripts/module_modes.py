@@ -13,6 +13,18 @@ everywhere, and no mode is assigned to a family by default: adding a mode or a
 callback family needs an explicit descriptor here, a matching C table entry and
 an implementation.
 
+It also owns the one module_info.yaml key that qualifies a mode:
+``snapshot_distribution`` (``serial_only`` or ``collective``, default
+``serial_only``), valid only for a module whose supported_processing_modes
+include ``process_snapshot``. It mirrors enum SnapshotDistribution in
+src/core/module_interface.h; the generator emits it into every module's
+registration as ``.snapshot_distribution`` and the validator checks it through
+snapshot_distribution_errors(). ``collective`` declares that the module's
+process_snapshot reaches every whole-population quantity through the snapshot
+collectives (src/core/snapshot_collectives.h); ``serial_only`` means it assumes
+the complete population is resident, so startup refuses it under
+modules.post_snapshot when NTask > 1.
+
 This file is a generation input. compute_metadata_hash() in the generator and
 compute_module_metadata_hash() in scripts/check_generated.py both hash its path
 and bytes, and the Makefile module-generation stamp depends on it, so editing it
@@ -105,6 +117,20 @@ STANDALONE_FALLBACK_MODES: Tuple[str, ...] = (
 )
 
 # ==============================================================================
+# SNAPSHOT DISTRIBUTION
+# ==============================================================================
+
+SNAPSHOT_DISTRIBUTION_KEY = "snapshot_distribution"
+
+# Ordered as enum SnapshotDistribution (src/core/module_interface.h).
+SNAPSHOT_DISTRIBUTIONS: Dict[str, str] = {
+    "serial_only": "SNAPSHOT_DISTRIBUTION_SERIAL_ONLY",
+    "collective": "SNAPSHOT_DISTRIBUTION_COLLECTIVE",
+}
+
+DEFAULT_SNAPSHOT_DISTRIBUTION = "serial_only"
+
+# ==============================================================================
 # HELPERS
 # ==============================================================================
 
@@ -157,3 +183,50 @@ def callback_families(modes: List[str]) -> List[CallbackFamily]:
     """
     keys = {MODES_BY_NAME[mode].family for mode in modes}
     return [family for family in CALLBACK_FAMILIES if family.key in keys]
+
+
+def snapshot_distribution_errors(module: Dict[str, Any]) -> List[str]:
+    """Return every reason a module's snapshot_distribution value is invalid.
+
+    The key is optional. When present it must be one of SNAPSHOT_DISTRIBUTIONS
+    and the module's supported_processing_modes must include process_snapshot.
+    The generator and validator both report these messages, so the two agree on
+    which metadata is accepted.
+
+    Args:
+        module: The module metadata dict (module_info.yaml contents).
+
+    Returns:
+        Error messages; empty when the key is absent or valid.
+    """
+    if SNAPSHOT_DISTRIBUTION_KEY not in module:
+        return []
+
+    errors: List[str] = []
+    modes = module.get("supported_processing_modes")
+    if not isinstance(modes, list) or "process_snapshot" not in modes:
+        errors.append(
+            f"'{SNAPSHOT_DISTRIBUTION_KEY}' is only valid for modules whose "
+            f"'supported_processing_modes' include process_snapshot"
+        )
+
+    value = module[SNAPSHOT_DISTRIBUTION_KEY]
+    if not isinstance(value, str) or value not in SNAPSHOT_DISTRIBUTIONS:
+        errors.append(
+            f"Invalid '{SNAPSHOT_DISTRIBUTION_KEY}' value {value!r} "
+            f"(expected one of {sorted(SNAPSHOT_DISTRIBUTIONS)})"
+        )
+
+    return errors
+
+
+def snapshot_distribution_enum(module: Dict[str, Any]) -> str:
+    """Return the C enumerator of a module's snapshot_distribution.
+
+    The default applies when the key is absent. Raises KeyError for an invalid
+    value (fail closed; validate with snapshot_distribution_errors() first).
+    """
+    value = module.get(SNAPSHOT_DISTRIBUTION_KEY, DEFAULT_SNAPSHOT_DISTRIBUTION)
+    if not isinstance(value, str) or value not in SNAPSHOT_DISTRIBUTIONS:
+        raise KeyError(f"invalid {SNAPSHOT_DISTRIBUTION_KEY} value {value!r}")
+    return SNAPSHOT_DISTRIBUTIONS[value]

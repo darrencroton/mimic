@@ -59,6 +59,8 @@ int my_module_cleanup(void);        // Free memory
 
 This template is the FoF family: `process` serves `process_full_halo`, `process_per_event` and `process_by_galaxy`, and a standalone `.c` module always advertises exactly those three modes. A module that needs a whole snapshot population instead (the `process_snapshot` mode, run from `modules.post_snapshot` under the horizontal driver) must be a directory module that declares `process_snapshot` in `supported_processing_modes` and implements `my_module_process_snapshot(const struct SnapshotContext *ctx, const struct Halo *halos, int64_t count)` in place of, or alongside, `my_module_process`. `init` and `cleanup` are required either way. See the [snapshot callback contract](../../../docs/DEVELOPER-GUIDE.md#snapshot-callback-contract).
 
+A `process_snapshot` module may also declare `snapshot_distribution` in `module_info.yaml` (the key is rejected for a module without `process_snapshot`). The default, `serial_only`, means the callback assumes the snapshot's complete population is resident, so startup refuses the module under `modules.post_snapshot` when the run uses more than one MPI task. Declare `snapshot_distribution: collective` only when the callback obtains every whole-population quantity (global ranks, totals, extents, failure agreement) through the snapshot collectives in `src/core/snapshot_collectives.h`, and every task reaches every collective in the same order whatever its local population.
+
 ---
 
 ## Key Points

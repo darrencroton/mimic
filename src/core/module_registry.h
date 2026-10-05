@@ -264,6 +264,35 @@ void module_release_record_creation_scratch(void);
 int64_t module_record_creation_staging_blocks(void);
 
 /**
+ * @brief   Kind of module callback the registry is currently running
+ *
+ * Set and restored by the registry around every module call, including
+ * nested ones (a per-event consumer runs inside its producer's full-halo
+ * callback). Core APIs whose legality depends on the caller read it through
+ * module_registry_running_callback(): module_create_record() and the snapshot
+ * collectives (snapshot_collectives.h).
+ */
+enum RunningCallbackKind {
+  RUNNING_CALLBACK_NONE,      /**< No module callback is running */
+  RUNNING_CALLBACK_INIT,      /**< A module's init() */
+  RUNNING_CALLBACK_FULL_HALO, /**< A process_full_halo process() call */
+  RUNNING_CALLBACK_PER_EVENT, /**< A process_per_event process() call */
+  RUNNING_CALLBACK_BY_GALAXY, /**< A process_by_galaxy process() call */
+  RUNNING_CALLBACK_SNAPSHOT,  /**< A process_snapshot() call from execute_post_snapshot() */
+  RUNNING_CALLBACK_CLEANUP,   /**< A module's cleanup() */
+};
+
+/**
+ * @brief   The module callback the registry is running, if any
+ *
+ * @param   module_name  If non-NULL, receives the running module's registered
+ *                       name, or NULL when no callback is running
+ * @return  The kind of the innermost running callback (RUNNING_CALLBACK_NONE
+ *          outside any callback)
+ */
+enum RunningCallbackKind module_registry_running_callback(const char **module_name);
+
+/**
  * @brief   Cleanup the module system
  *
  * Calls cleanup() on all initialized modules in reverse order.

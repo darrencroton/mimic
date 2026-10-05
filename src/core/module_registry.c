@@ -36,6 +36,7 @@
 #include "module_interface.h"
 #include "module_registry.h"
 #include "numeric.h"
+#include "task_layout.h"
 #include "generated/parameter_unit_conversions.h"
 
 /** Maximum number of modules that can be registered */
@@ -104,28 +105,12 @@ static struct PhaseEventDispatchState phase_event_state = {.events = NULL,
                                                            .current_producer_module_id = 0};
 
 /**
- * @brief   Kind of module callback the registry is currently running
- *
- * Tracked so module_create_record() can name the module and the kind of
- * callback that called it when it refuses. Saved and restored around every
- * nested call (a per-event consumer runs inside its producer's full-halo
- * callback).
- */
-enum RunningCallbackKind {
-  RUNNING_CALLBACK_NONE,
-  RUNNING_CALLBACK_INIT,
-  RUNNING_CALLBACK_FULL_HALO,
-  RUNNING_CALLBACK_PER_EVENT,
-  RUNNING_CALLBACK_BY_GALAXY,
-  RUNNING_CALLBACK_SNAPSHOT,
-  RUNNING_CALLBACK_CLEANUP,
-};
-
-/**
  * @brief   The module callback the registry is running, if any
  *
- * Read only by module_create_record() to name the caller in a refusal; set and
- * restored by enter_callback()/leave_callback() around every module call.
+ * Read by module_create_record() to name the caller in a refusal, and by the
+ * snapshot collectives through module_registry_running_callback(); set and
+ * restored by enter_callback()/leave_callback() around every module call. The
+ * kinds (enum RunningCallbackKind) are declared in module_registry.h.
  */
 struct RunningCallback {
   enum RunningCallbackKind kind;
@@ -145,6 +130,13 @@ static struct RunningCallback enter_callback(enum RunningCallbackKind kind,
 
 /** @brief Restore the running-callback state enter_callback() returned */
 static void leave_callback(struct RunningCallback prior) { running_callback = prior; }
+
+enum RunningCallbackKind module_registry_running_callback(const char **module_name) {
+  if (module_name != NULL) {
+    *module_name = running_callback.module_name;
+  }
+  return running_callback.kind;
+}
 
 /** Rows in the first staging block; block b holds RECORD_STAGING_BLOCK_ROWS << b rows */
 #define RECORD_STAGING_BLOCK_ROWS 256
@@ -645,8 +637,10 @@ static int validate_phase_processing_modes(struct PhaseModuleConfig *config, int
  * Every entry must use process_snapshot, name a module that advertises it
  * (registration guarantees its typed process_snapshot() callback), and appear
  * only once: the phase runs each entry once per snapshot, so a repeat would
- * silently run a module twice. Unregistered modules are reported by
- * add_module_to_pipeline().
+ * silently run a module twice. When NTask > 1 every entry must also declare
+ * snapshot_distribution: collective; a serial_only module assumes the whole
+ * population is resident and is refused, naming the module and NTask.
+ * Unregistered modules are reported by add_module_to_pipeline().
  *
  * @param   config       post_snapshot configuration array
  * @param   num_modules  Number of entries
@@ -689,6 +683,20 @@ static int validate_post_snapshot_entries(const struct PhaseModuleConfig *config
     }
     /* No process_snapshot != NULL check: registration requires the callback of
      * every advertised family, and execute_post_snapshot() still FATALs on NULL. */
+
+    /* Across tasks each process_snapshot call sees only its task's part of the
+     * population, so only a module that reaches the whole population through the
+     * snapshot collectives may run. Fails closed on any value but collective. */
+    if (effective_task_count() > 1 &&
+        mod->snapshot_distribution != SNAPSHOT_DISTRIBUTION_COLLECTIVE) {
+      ERROR_LOG("Configuration error in phase '%s':", POST_SNAPSHOT_PHASE_NAME);
+      ERROR_LOG("  Module '%s' is snapshot_distribution: serial_only (it needs the whole "
+                "snapshot population on one task), but this run has NTask = %d",
+                mod->name, effective_task_count());
+      ERROR_LOG("  Fix: run with a single task, or port the module to the snapshot collectives "
+                "and declare 'snapshot_distribution: collective' in its module_info.yaml");
+      return -1;
+    }
   }
   return 0;
 }

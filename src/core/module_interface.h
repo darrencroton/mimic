@@ -118,6 +118,26 @@ enum ModuleCallbackFamily {
 };
 
 /**
+ * @brief   How a process_snapshot module reaches whole-population quantities
+ *
+ * Declared in module_info.yaml as `snapshot_distribution` (valid only for a
+ * module that advertises process_snapshot) and emitted into the module's
+ * generated registration; scripts/module_modes.py mirrors the names.
+ *
+ * - SNAPSHOT_DISTRIBUTION_SERIAL_ONLY (the default, and the value of a
+ *   zero-initialised struct Module): the module assumes the snapshot's complete
+ *   population is resident in its callback, so it can run only on one task.
+ *   Startup refuses it under modules.post_snapshot when NTask > 1.
+ * - SNAPSHOT_DISTRIBUTION_COLLECTIVE: the module obtains every whole-population
+ *   quantity through the snapshot collectives (src/core/snapshot_collectives.h),
+ *   so each task may hold only its own part of the population.
+ */
+enum SnapshotDistribution {
+  SNAPSHOT_DISTRIBUTION_SERIAL_ONLY = 0, /**< Needs the whole population resident (default) */
+  SNAPSHOT_DISTRIBUTION_COLLECTIVE,      /**< Reaches the population through the collectives */
+};
+
+/**
  * @brief   Configuration-string name for a processing mode (e.g. "process_full_halo")
  *
  * Returns "unknown" for a value outside the mode table; callers that must
@@ -602,6 +622,17 @@ struct Module {
    * module_registry_add() rejects an empty list.
    */
   int num_supported_modes;
+
+  /**
+   * @brief How this module's process_snapshot reaches the whole population
+   *
+   * Set via module_info.yaml (snapshot_distribution field, process_snapshot
+   * modules only); SNAPSHOT_DISTRIBUTION_SERIAL_ONLY when omitted and for every
+   * module without process_snapshot. module_system_init() refuses a module that
+   * is not SNAPSHOT_DISTRIBUTION_COLLECTIVE under modules.post_snapshot when
+   * NTask > 1. See enum SnapshotDistribution.
+   */
+  enum SnapshotDistribution snapshot_distribution;
 
   /* ===== Event System (generated from module_info.yaml events section) ===== */
 
