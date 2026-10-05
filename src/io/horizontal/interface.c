@@ -49,13 +49,18 @@
 
 /** @brief Open the configured dataset and publish run-scoped metadata. */
 void horizontal_reader_open_run(const struct HorizontalReader *reader,
+                                const struct HorizontalOpenOptions *options,
                                 struct HorizontalRunInfo *info) {
   REQUIRE_HORIZONTAL_READER_HOOK(reader, open_run);
+  if (options == NULL) {
+    FATAL_ERROR("Horizontal reader '%s': open_run requires HorizontalOpenOptions",
+                HORIZONTAL_READER_NAME(reader));
+  }
   if (info == NULL) {
     FATAL_ERROR("Horizontal reader '%s': open_run requires a destination HorizontalRunInfo",
                 HORIZONTAL_READER_NAME(reader));
   }
-  reader->open_run(info);
+  reader->open_run(options, info);
 }
 
 /** @brief Release every run-scoped resource acquired by open_run. */
@@ -70,15 +75,20 @@ int64_t horizontal_reader_halo_count(const struct HorizontalReader *reader, int6
   return reader->snapshot_halo_count(snapnum);
 }
 
-/** @brief Load one snapshot into a reader-owned slab. */
+/**
+ * @brief Load rows [row_lo, row_hi) of one snapshot into a reader-owned slab.
+ *
+ * The range is checked by the reader, which alone knows the snapshot's halo
+ * count.
+ */
 void horizontal_reader_load_slab(const struct HorizontalReader *reader, int64_t snapnum,
-                                 struct SnapshotSlab *slab) {
+                                 int64_t row_lo, int64_t row_hi, struct SnapshotSlab *slab) {
   REQUIRE_HORIZONTAL_READER_HOOK(reader, load_slab);
   if (slab == NULL) {
     FATAL_ERROR("Horizontal reader '%s': load_slab requires a destination slab handle",
                 HORIZONTAL_READER_NAME(reader));
   }
-  reader->load_slab(snapnum, slab);
+  reader->load_slab(snapnum, row_lo, row_hi, slab);
 }
 
 /** @brief Release a loaded slab and return the handle to its empty state. */
@@ -90,6 +100,17 @@ void horizontal_reader_release_slab(const struct HorizontalReader *reader,
                 HORIZONTAL_READER_NAME(reader));
   }
   reader->release_slab(slab);
+}
+
+/** @brief Stream one snapshot's ForestIndex column to a visitor, block by block. */
+void horizontal_reader_scan_forest_index(const struct HorizontalReader *reader, int64_t snapnum,
+                                         horizontal_forest_index_visitor visit, void *user) {
+  REQUIRE_HORIZONTAL_READER_HOOK(reader, scan_forest_index);
+  if (visit == NULL) {
+    FATAL_ERROR("Horizontal reader '%s': scan_forest_index requires a visitor",
+                HORIZONTAL_READER_NAME(reader));
+  }
+  reader->scan_forest_index(snapnum, visit, user);
 }
 
 /**

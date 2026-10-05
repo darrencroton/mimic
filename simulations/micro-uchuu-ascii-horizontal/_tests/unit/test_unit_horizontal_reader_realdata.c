@@ -110,7 +110,8 @@ int test_open_run_against_full_dataset(void) {
   TEST_ASSERT(reader != NULL, "horizontal_hdf5 should be registered");
 
   struct HorizontalRunInfo info;
-  horizontal_reader_open_run(reader, &info);
+  const struct HorizontalOpenOptions options = {.validate_columns = 1};
+  horizontal_reader_open_run(reader, &options, &info);
 
   TEST_ASSERT_EQUAL(info.snapshot_count, REALDATA_SNAPSHOTS,
                     "run info should publish fifty snapshots");

@@ -1179,7 +1179,7 @@ horizontal_acquire_generation(struct HorizontalDriverState *state, int64_t snapn
   struct HorizontalGenerationFootprint footprint;
   horizontal_require_generation_fits(state, snapnum, nhalos, &footprint);
 
-  horizontal_reader_load_slab(state->reader, snapnum, &gen->slab);
+  horizontal_reader_load_slab(state->reader, snapnum, 0, nhalos, &gen->slab);
 
   /* Counted as retained together with the slot's snapnum, and by the slab's own
    * row count, so any failure from here on -- the count check below included --
@@ -1550,7 +1550,8 @@ void run_horizontal_driver(void) {
 
   horizontal_probe_output_directory();
 
-  horizontal_reader_open_run(state.reader, &info);
+  const struct HorizontalOpenOptions open_options = {.validate_columns = 1};
+  horizontal_reader_open_run(state.reader, &open_options, &info);
   state.run_open = 1;
   if (info.slab_row_bytes < (int64_t)sizeof(struct RawHalo)) {
     FATAL_ERROR("Reader '%s' published a slab row width of %" PRId64

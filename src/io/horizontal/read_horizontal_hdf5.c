@@ -22,10 +22,12 @@
  *
  * open_run validates the whole dataset and publishes run-scoped metadata plus a
  * per-snapshot halo-count table, snapshot_halo_count serves that table, and
- * close_run releases it. load_slab reads one snapshot into a reader-owned
- * struct RawHalo array plus the reader-owned ForestIndex/HaloRankInForest
- * identity arrays, and validates the RawHalo links; release_slab returns the
- * handle to its empty state.
+ * close_run releases it. load_slab reads one contiguous row range of a snapshot
+ * (the whole of it for a serial run) into a reader-owned struct RawHalo array
+ * plus the reader-owned ForestIndex/HaloRankInForest identity arrays, and
+ * validates the RawHalo links against the dataset's global halo counts;
+ * release_slab returns the handle to its empty state. scan_forest_index streams
+ * one snapshot's ForestIndex column in fixed-size blocks.
  *
  * Validation order per file is structure first, data second: object set, header
  * attribute set and dtypes, header values, dataset set with dtypes and shapes,
@@ -57,8 +59,13 @@
  * closure -- is a producer obligation the converter's validation battery and
  * the topology gate already discharge, and is deliberately not re-derived here.
  *
- * Slabs are filled through fixed-size hyperslab blocks, so the only
- * allocations proportional to n_halos are the slab arrays themselves.
+ * Slabs are filled through hyperslab selections of exactly the requested rows
+ * (fixed-size blocks for the struct RawHalo members), so the only allocations
+ * proportional to the row count are the slab arrays themselves.
+ *
+ * open_run's per-snapshot data scans (SnapNum, HaloRankInForest, ForestIndex)
+ * can be skipped through HorizontalOpenOptions.validate_columns; every other
+ * check runs regardless.
  *
  * The small HDF5 helpers below are local by design rather than lifted out of
  * vertical/read_ctrees_hdf5.c, whose byte-identical output is this phase's gate and
@@ -1598,19 +1605,22 @@ static void horizontal_h5_v3_validate_package(const struct horizontal_h5_schema 
  * ------------------------------------------------------------------------- */
 
 /**
- * @brief   Read one whole validated /halos dataset into buf.
+ * @brief   Read rows [row_lo, row_lo + n_rows) of one validated /halos dataset
+ *          into buf.
  *
  * Extents are carried in hsize_t widened from int64_t; nothing on this path is
- * narrowed to int. The file dataspace is used whole (H5S_ALL) because
- * horizontal_h5_validate_halo_datasets() has already proven it is exactly
- * [n_halos] or [n_halos, ncols].
+ * narrowed to int. The file dataspace is narrowed to the requested rows (and
+ * every column) by a hyperslab selection; open_run's dataset validation has
+ * already proven it is exactly [n_halos] or [n_halos, ncols], and load_slab has
+ * bounded the range by n_halos.
  *
  * The memory type is the native type for the destination field, never the
  * on-disk type: HDF5 performs the byte-order and width conversion, so a
  * conforming file written on the other endianness reads correctly.
  */
 static void horizontal_h5_read_column(hid_t file, const char *path, const char *dataset_name,
-                                      hid_t mem_type, int64_t n_halos, int64_t ncols, void *buf) {
+                                      hid_t mem_type, int64_t row_lo, int64_t n_rows, int64_t ncols,
+                                      void *buf) {
   char full_name[MAX_STRING_LEN];
   const int written = snprintf(full_name, sizeof(full_name), "/halos/%s", dataset_name);
   if (written < 0 || (size_t)written >= sizeof(full_name)) {
@@ -1622,18 +1632,32 @@ static void horizontal_h5_read_column(hid_t file, const char *path, const char *
     FATAL_ERROR("%s: could not open dataset '%s'", path, full_name);
   }
 
-  const hsize_t dims[2] = {(hsize_t)n_halos, (hsize_t)ncols};
+  hid_t space = H5Dget_space(dset);
+  if (space < 0) {
+    FATAL_ERROR("%s: could not read the dataspace of '%s'", path, full_name);
+  }
+
+  const hsize_t start[2] = {(hsize_t)row_lo, 0};
+  const hsize_t dims[2] = {(hsize_t)n_rows, (hsize_t)ncols};
   const int rank = ncols > 1 ? 2 : 1;
+  if (H5Sselect_hyperslab(space, H5S_SELECT_SET, start, NULL, dims, NULL) < 0) {
+    FATAL_ERROR("%s: could not select halos [%" PRId64 ", %" PRId64 ") of '%s'", path, row_lo,
+                row_lo + n_rows, full_name);
+  }
   hid_t memspace = H5Screate_simple(rank, dims, NULL);
   if (memspace < 0) {
     FATAL_ERROR("%s: could not create a read buffer dataspace for '%s' (%" PRId64 " halos)", path,
-                full_name, n_halos);
+                full_name, n_rows);
   }
-  if (H5Dread(dset, mem_type, memspace, H5S_ALL, H5P_DEFAULT, buf) < 0) {
-    FATAL_ERROR("%s: could not read dataset '%s' (%" PRId64 " halos)", path, full_name, n_halos);
+  if (H5Dread(dset, mem_type, memspace, space, H5P_DEFAULT, buf) < 0) {
+    FATAL_ERROR("%s: could not read halos [%" PRId64 ", %" PRId64 ") of '%s'", path, row_lo,
+                row_lo + n_rows, full_name);
   }
   if (H5Sclose(memspace) < 0) {
     FATAL_ERROR("%s: could not close the read buffer dataspace for '%s'", path, full_name);
+  }
+  if (H5Sclose(space) < 0) {
+    FATAL_ERROR("%s: could not close the dataspace of '%s'", path, full_name);
   }
   if (H5Dclose(dset) < 0) {
     FATAL_ERROR("%s: could not close dataset '%s'", path, full_name);
@@ -1664,6 +1688,8 @@ static unsigned char
  *          /halos dataset, block by block.
  * @param   element_size   Bytes per element of the member (and of mem_type).
  * @param   ncols          1 for a scalar member, NDIM for a vector member.
+ * @param   row_lo         Snapshot row of halos[0].
+ * @param   n_halos        Rows to fill: halos[i] receives snapshot row row_lo + i.
  * @param   member_offset  offsetof(struct RawHalo, member).
  *
  * Each block of HORIZONTAL_HDF5_SCAN_BLOCK rows is read through the native
@@ -1674,7 +1700,7 @@ static unsigned char
  */
 static void horizontal_h5_fill_member(hid_t file, const char *path, const char *dataset_name,
                                       hid_t mem_type, size_t element_size, int ncols,
-                                      int64_t n_halos, struct RawHalo *halos,
+                                      int64_t row_lo, int64_t n_halos, struct RawHalo *halos,
                                       size_t member_offset) {
   if (H5Tget_size(mem_type) != element_size || element_size > HORIZONTAL_H5_MAX_ELEMENT_SIZE ||
       ncols < 1 || ncols > NDIM) {
@@ -1691,12 +1717,15 @@ static void horizontal_h5_fill_member(hid_t file, const char *path, const char *
     const int64_t remaining = n_halos - offset;
     const int64_t count =
         remaining < HORIZONTAL_HDF5_SCAN_BLOCK ? remaining : (int64_t)HORIZONTAL_HDF5_SCAN_BLOCK;
-    const hsize_t start[2] = {(hsize_t)offset, 0};
+    /* The file selection starts at the slab's first snapshot row; the memory
+       side (the staging buffer, then halos[offset + i]) is slab-relative. Every
+       column of a vector member is selected, so the row stride is unchanged. */
+    const hsize_t start[2] = {(hsize_t)(row_lo + offset), 0};
     const hsize_t block[2] = {(hsize_t)count, (hsize_t)ncols};
 
     if (H5Sselect_hyperslab(space, H5S_SELECT_SET, start, NULL, block, NULL) < 0) {
       FATAL_ERROR("%s: could not select halos [%" PRId64 ", %" PRId64 ") of '/halos/%s'", path,
-                  offset, offset + count, dataset_name);
+                  row_lo + offset, row_lo + offset + count, dataset_name);
     }
     hid_t memspace = H5Screate_simple(rank, block, NULL);
     if (memspace < 0) {
@@ -1705,7 +1734,7 @@ static void horizontal_h5_fill_member(hid_t file, const char *path, const char *
     }
     if (H5Dread(dset, mem_type, memspace, space, H5P_DEFAULT, horizontal_h5_fill_stage) < 0) {
       FATAL_ERROR("%s: could not read halos [%" PRId64 ", %" PRId64 ") of '/halos/%s'", path,
-                  offset, offset + count, dataset_name);
+                  row_lo + offset, row_lo + offset + count, dataset_name);
     }
     if (H5Sclose(memspace) < 0) {
       FATAL_ERROR("%s: could not close the read buffer dataspace for '/halos/%s'", path,
@@ -1733,23 +1762,24 @@ static void horizontal_h5_fill_member(hid_t file, const char *path, const char *
    (horizontal_h5_fill_member()). */
 #define READ_TREE_PROPERTY(field_name, hdf5_name, type_int, data_type)                             \
   horizontal_h5_fill_member(file, path, hdf5_name, HORIZONTAL_H5_MEMTYPE(type_int),                \
-                            sizeof(data_type), 1, n_halos, halos,                                  \
+                            sizeof(data_type), 1, row_lo, n_halos, halos,                          \
                             offsetof(struct RawHalo, field_name))
 
 #define READ_TREE_PROPERTY_MULTIPLEDIM(field_name, hdf5_name, type_int, data_type)                 \
   horizontal_h5_fill_member(file, path, hdf5_name, HORIZONTAL_H5_MEMTYPE(type_int),                \
-                            sizeof(data_type), NDIM, n_halos, halos,                               \
+                            sizeof(data_type), NDIM, row_lo, n_halos, halos,                       \
                             offsetof(struct RawHalo, field_name))
 
 /**
- * @brief   Fill a slab array from one snapshot file's /halos datasets.
+ * @brief   Fill a slab array from rows [row_lo, row_lo + n_halos) of one
+ *          snapshot file's /halos datasets.
  *
  * Every field of struct RawHalo is populated from the generated property list,
  * so a package that gains or renames a catalog field is followed automatically
  * with no edit here. Both format versions share this path; each has already
  * proven at open that every dataset the list names exists with the right shape.
  */
-static void horizontal_h5_fill_halos(hid_t file, const char *path, int64_t n_halos,
+static void horizontal_h5_fill_halos(hid_t file, const char *path, int64_t row_lo, int64_t n_halos,
                                      struct RawHalo *halos) {
 #include "../../include/generated/read_tree_hdf5_properties.inc"
 }
@@ -1822,7 +1852,8 @@ static void horizontal_h5_validate_read_list_against_format(void) {
 #undef READ_TREE_PROPERTY_MULTIPLEDIM
 
 /**
- * @brief   Fill the reader-owned identity arrays from one snapshot file.
+ * @brief   Fill the reader-owned identity arrays from rows
+ *          [row_lo, row_lo + n_halos) of one snapshot file.
  *
  * ForestIndex and HaloRankInForest are horizontal-format identity metadata
  * (convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md), not struct RawHalo members: they are
@@ -1830,17 +1861,19 @@ static void horizontal_h5_validate_read_list_against_format(void) {
  * halo_properties.yaml and the generated property list that fills struct
  * RawHalo above.
  */
-static void horizontal_h5_fill_identity(hid_t file, const char *path, int64_t n_halos,
-                                        int64_t *forest_index, int64_t *halo_rank_in_forest) {
+static void horizontal_h5_fill_identity(hid_t file, const char *path, int64_t row_lo,
+                                        int64_t n_halos, int64_t *forest_index,
+                                        int64_t *halo_rank_in_forest) {
   const struct horizontal_h5_dataset_spec *forest_spec =
       horizontal_h5_dataset_spec_by_name("ForestIndex");
   const struct horizontal_h5_dataset_spec *rank_spec =
       horizontal_h5_dataset_spec_by_name("HaloRankInForest");
 
   horizontal_h5_read_column(file, path, forest_spec->name,
-                            horizontal_h5_native_type(forest_spec->type), n_halos, 1, forest_index);
+                            horizontal_h5_native_type(forest_spec->type), row_lo, n_halos, 1,
+                            forest_index);
   horizontal_h5_read_column(file, path, rank_spec->name, horizontal_h5_native_type(rank_spec->type),
-                            n_halos, 1, halo_rank_in_forest);
+                            row_lo, n_halos, 1, halo_rank_in_forest);
 }
 
 /* ---------------------------------------------------------------------------
@@ -2284,13 +2317,25 @@ static int64_t horizontal_h5_slab_row_bytes(int is_v3) {
   return (int64_t)row;
 }
 
+/* The published source_format holds the version 3 header string exactly. */
+_Static_assert(sizeof(((struct HorizontalRunInfo *)0)->source_format) ==
+                   HORIZONTAL_H5_V3_SOURCE_FORMAT_LEN + 1,
+               "HorizontalRunInfo.source_format must hold a version 3 source_format string");
+
 /**
- * @brief   Open and fully validate the configured snapshot dataset.
+ * @brief   Open and validate the configured snapshot dataset.
  *
  * Publishes run-scoped metadata and builds the per-snapshot halo-count table
- * served by snapshot_halo_count().
+ * served by snapshot_halo_count(). With options->validate_columns zero the
+ * per-snapshot SnapNum, HaloRankInForest and ForestIndex data scans are skipped
+ * and the headers' identity bounds stand in for the measured maxima; every
+ * other check runs either way.
  */
-static void open_run_horizontal_hdf5(struct HorizontalRunInfo *info) {
+static void open_run_horizontal_hdf5(const struct HorizontalOpenOptions *options,
+                                     struct HorizontalRunInfo *info) {
+  if (options == NULL) {
+    FATAL_ERROR("horizontal_hdf5: open_run requires HorizontalOpenOptions");
+  }
   if (SNAP.is_open) {
     FATAL_ERROR("horizontal_hdf5: open_run called while a run is already open");
   }
@@ -2532,9 +2577,12 @@ static void open_run_horizontal_hdf5(struct HorizontalRunInfo *info) {
       }
     }
 
-    /* Invariant 5's measured-data component. Bounded block scans only. */
-    horizontal_h5_scan_snapnum(file, path, header.n_halos, header.snapshot_number);
-    if (header.n_halos > 0) {
+    /* Invariant 5's measured-data component. Bounded block scans only, and only
+       when the caller asked for them. */
+    if (options->validate_columns) {
+      horizontal_h5_scan_snapnum(file, path, header.n_halos, header.snapshot_number);
+    }
+    if (options->validate_columns && header.n_halos > 0) {
       /* Upper bound stays open here; it is checked below against the run-scoped measured max. */
       const int64_t file_max_rank =
           horizontal_h5_scan_i64_max(file, path, "HaloRankInForest", header.n_halos, 0, INT64_MAX);
@@ -2556,6 +2604,13 @@ static void open_run_horizontal_hdf5(struct HorizontalRunInfo *info) {
     }
   }
   horizontal_h5_v3_free_schema(&v3_reference_schema);
+
+  if (!options->validate_columns && total_halos > 0) {
+    /* No column was scanned: the headers' values are published as measured, so
+       the comparisons below hold by construction. */
+    measured_max_halo_rank = max_halo_rank_in_forest;
+    measured_max_forest_index = n_forests_total - 1;
+  }
 
   if (is_empty_dataset) {
     if (total_halos > 0) {
@@ -2582,6 +2637,7 @@ static void open_run_horizontal_hdf5(struct HorizontalRunInfo *info) {
      (convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md), verified before anything is published so
      an unencodable dataset never reaches a caller. */
   struct HorizontalRunInfo candidate;
+  memset(&candidate, 0, sizeof(candidate));
   candidate.snapshot_count = snapshot_count;
   candidate.format_version = format_version;
   candidate.links_adjacent = links_adjacent;
@@ -2589,6 +2645,10 @@ static void open_run_horizontal_hdf5(struct HorizontalRunInfo *info) {
       horizontal_h5_slab_row_bytes(format_version == HORIZONTAL_HDF5_FORMAT_VERSION_V3);
   candidate.n_forests_total = n_forests_total;
   candidate.max_halo_rank_in_forest = max_halo_rank_in_forest;
+  if (format_version == HORIZONTAL_HDF5_FORMAT_VERSION_V3) {
+    /* Already proven identical in every file; empty (zeroed above) for version 2. */
+    memcpy(candidate.source_format, v3_reference.source_format, sizeof(candidate.source_format));
+  }
 
   if (!horizontal_identity_bounds_valid(&candidate, MimicConfig.UniqueGalaxyIDMultiplier)) {
     FATAL_ERROR("The dataset under '%s' declares identity bounds (n_forests_total %" PRId64
@@ -2641,15 +2701,21 @@ static int64_t snapshot_halo_count_horizontal_hdf5(int64_t snapnum) {
 }
 
 /**
- * @brief   Load one snapshot into a reader-owned slab and validate its links.
+ * @brief   Load rows [row_lo, row_hi) of one snapshot into a reader-owned slab
+ *          and validate their links.
  *
  * The destination handle must be empty: overwriting a loaded one would leak the
- * arrays it holds, so that is an abort rather than a silent replacement. A
- * snapshot holding no halos is a legal result -- the handle then carries its
- * snapshot number with every array NULL, which snapshot_slab_is_empty()
- * correctly reports as loaded.
+ * arrays it holds, so that is an abort rather than a silent replacement. An
+ * empty range (including every range of a snapshot holding no halos) is a legal
+ * result -- the handle then carries its snapshot number and row_offset with
+ * every array NULL, which snapshot_slab_is_empty() correctly reports as loaded.
+ *
+ * Every column is read for exactly the requested rows. The links are validated
+ * against the dataset's global per-snapshot halo counts whatever the range, and
+ * are left as the global row indices the file stores.
  */
-static void load_slab_horizontal_hdf5(int64_t snapnum, struct SnapshotSlab *slab) {
+static void load_slab_horizontal_hdf5(int64_t snapnum, int64_t row_lo, int64_t row_hi,
+                                      struct SnapshotSlab *slab) {
   if (!SNAP.is_open) {
     FATAL_ERROR("horizontal_hdf5: load_slab called with no open run");
   }
@@ -2664,7 +2730,14 @@ static void load_slab_horizontal_hdf5(int64_t snapnum, struct SnapshotSlab *slab
                 slab->snapnum, snapnum);
   }
 
-  const int64_t n_halos = SNAP.halo_counts[snapnum];
+  if (row_lo < 0 || row_lo > row_hi || row_hi > SNAP.halo_counts[snapnum]) {
+    FATAL_ERROR("horizontal_hdf5: rows [%" PRId64 ", %" PRId64 ") of snapshot %" PRId64
+                " are not a range of its %" PRId64
+                " halos; load_slab requires 0 <= row_lo <= row_hi <= the snapshot's halo count",
+                row_lo, row_hi, snapnum, SNAP.halo_counts[snapnum]);
+  }
+
+  const int64_t n_halos = row_hi - row_lo;
   char path[HORIZONTAL_HDF5_PATH_LEN];
   horizontal_h5_format_path(path, sizeof(path), snapnum);
 
@@ -2678,9 +2751,10 @@ static void load_slab_horizontal_hdf5(int64_t snapnum, struct SnapshotSlab *slab
     /* Version 3 lifts the int32 ceiling on n_halos, so the byte counts below
        are checked before they are formed rather than trusted to fit. */
     if ((uint64_t)n_halos > SIZE_MAX / sizeof(struct RawHalo)) {
-      FATAL_ERROR("%s: snapshot %" PRId64 " holds %" PRId64 " halos, whose slab of %zu-byte "
-                  "records does not fit in this process's address space",
-                  path, snapnum, n_halos, sizeof(struct RawHalo));
+      FATAL_ERROR("%s: rows [%" PRId64 ", %" PRId64 ") of snapshot %" PRId64 " are %" PRId64
+                  " halos, whose slab of %zu-byte records does not fit in this process's address "
+                  "space",
+                  path, row_lo, row_hi, snapnum, n_halos, sizeof(struct RawHalo));
     }
 
     hid_t file = H5Fopen(path, H5F_ACC_RDONLY, H5P_DEFAULT);
@@ -2690,23 +2764,24 @@ static void load_slab_horizontal_hdf5(int64_t snapnum, struct SnapshotSlab *slab
     }
 
     halos = mymalloc_cat(sizeof(struct RawHalo) * (size_t)n_halos, MEM_TREES);
-    horizontal_h5_fill_halos(file, path, n_halos, halos);
+    horizontal_h5_fill_halos(file, path, row_lo, n_halos, halos);
 
     forest_index = mymalloc_cat(sizeof(int64_t) * (size_t)n_halos, MEM_TREES);
     halo_rank_in_forest = mymalloc_cat(sizeof(int64_t) * (size_t)n_halos, MEM_TREES);
-    horizontal_h5_fill_identity(file, path, n_halos, forest_index, halo_rank_in_forest);
+    horizontal_h5_fill_identity(file, path, row_lo, n_halos, forest_index, halo_rank_in_forest);
 
     if (is_v3) {
       /* The three target-snapshot columns and SourceHaloID are
-         format metadata held in reader-owned slab arrays, read whole straight
-         into those arrays -- they are the slab, so nothing is staged. */
+         format metadata held in reader-owned slab arrays, read for the slab's
+         rows straight into those arrays -- they are the slab, so nothing is
+         staged. */
       for (int link = 0; link < HORIZONTAL_H5_V3_TARGETED_LINKS; link++) {
         target_snaps[link] = mymalloc_cat(sizeof(int32_t) * (size_t)n_halos, MEM_TREES);
         horizontal_h5_read_column(file, path, HORIZONTAL_H5_V3_LINKS[link].target_name,
-                                  H5T_NATIVE_INT32, n_halos, 1, target_snaps[link]);
+                                  H5T_NATIVE_INT32, row_lo, n_halos, 1, target_snaps[link]);
       }
       source_halo_id = mymalloc_cat(sizeof(int64_t) * (size_t)n_halos, MEM_TREES);
-      horizontal_h5_read_column(file, path, "SourceHaloID", H5T_NATIVE_INT64, n_halos, 1,
+      horizontal_h5_read_column(file, path, "SourceHaloID", H5T_NATIVE_INT64, row_lo, n_halos, 1,
                                 source_halo_id);
     }
 
@@ -2725,6 +2800,7 @@ static void load_slab_horizontal_hdf5(int64_t snapnum, struct SnapshotSlab *slab
 
   slab->snapnum = snapnum;
   slab->nhalos = n_halos;
+  slab->row_offset = row_lo;
   slab->halos = halos;
   slab->forest_index = forest_index;
   slab->halo_rank_in_forest = halo_rank_in_forest;
@@ -2767,8 +2843,61 @@ static void release_slab_horizontal_hdf5(struct SnapshotSlab *slab) {
   }
 }
 
+/**
+ * @brief   Stream one snapshot's ForestIndex column to visit in fixed-size blocks.
+ *
+ * Reads blocks of at most HORIZONTAL_HDF5_SCAN_BLOCK rows, in ascending row
+ * order, into the reader's fixed scan buffer and hands each to visit, so the
+ * scan allocates nothing per halo whatever the snapshot's size. A snapshot with
+ * no halos opens no file and makes no call. The values are not validated here;
+ * open_run's ForestIndex scan (validate_columns set) is what bounds them.
+ */
+static void scan_forest_index_horizontal_hdf5(int64_t snapnum,
+                                              horizontal_forest_index_visitor visit, void *user) {
+  if (!SNAP.is_open) {
+    FATAL_ERROR("horizontal_hdf5: scan_forest_index called with no open run");
+  }
+  if (snapnum < 0 || snapnum >= SNAP.snapshot_count) {
+    FATAL_ERROR("horizontal_hdf5: snapshot %" PRId64 " is outside the open run's range [0, %" PRId64
+                ")",
+                snapnum, SNAP.snapshot_count);
+  }
+  if (visit == NULL) {
+    FATAL_ERROR("horizontal_hdf5: scan_forest_index requires a visitor");
+  }
+
+  const int64_t n_halos = SNAP.halo_counts[snapnum];
+  if (n_halos == 0) {
+    return;
+  }
+
+  char path[HORIZONTAL_HDF5_PATH_LEN];
+  horizontal_h5_format_path(path, sizeof(path), snapnum);
+  hid_t file = H5Fopen(path, H5F_ACC_RDONLY, H5P_DEFAULT);
+  if (file < 0) {
+    FATAL_ERROR("%s: could not open the file as HDF5 while scanning snapshot %" PRId64, path,
+                snapnum);
+  }
+
+  hid_t dset, space;
+  horizontal_h5_open_scan(file, path, "ForestIndex", &dset, &space);
+  for (int64_t offset = 0; offset < n_halos; offset += HORIZONTAL_HDF5_SCAN_BLOCK) {
+    const int64_t remaining = n_halos - offset;
+    const int64_t count =
+        remaining < HORIZONTAL_HDF5_SCAN_BLOCK ? remaining : (int64_t)HORIZONTAL_HDF5_SCAN_BLOCK;
+    horizontal_h5_read_block(dset, space, path, "ForestIndex", H5T_NATIVE_INT64, (hsize_t)offset,
+                             (hsize_t)count, horizontal_h5_scan_i64);
+    visit(offset, horizontal_h5_scan_i64, count, user);
+  }
+  horizontal_h5_close_scan(path, "ForestIndex", dset, space);
+
+  if (H5Fclose(file) < 0) {
+    FATAL_ERROR("%s: could not close the file after scanning snapshot %" PRId64, path, snapnum);
+  }
+}
+
 /* Horizontal HDF5: one file per snapshot, validated in full at open, read
-   one snapshot at a time into a reader-owned slab. */
+   one snapshot (or one row range of it) at a time into a reader-owned slab. */
 const struct HorizontalReader HorizontalHDF5Reader = {
     .name = "horizontal_hdf5",
     .processing_order = INPUT_PROCESSING_ORDER_HORIZONTAL,
@@ -2777,6 +2906,7 @@ const struct HorizontalReader HorizontalHDF5Reader = {
     .snapshot_halo_count = snapshot_halo_count_horizontal_hdf5,
     .load_slab = load_slab_horizontal_hdf5,
     .release_slab = release_slab_horizontal_hdf5,
+    .scan_forest_index = scan_forest_index_horizontal_hdf5,
 };
 
 #endif /* HDF5 */

@@ -25,8 +25,14 @@
  * which verify at each point of use that the hook they need is implemented.
  *
  * Lifecycle:
- *   open_run  -> [ load_slab / release_slab ]* -> close_run
+ *   open_run  -> [ load_slab / release_slab | scan_forest_index ]* -> close_run
  * with snapshot_halo_count queryable between open_run and close_run.
+ *
+ * A slab may hold any contiguous row range of its snapshot, not only the whole
+ * of it: load_slab reads exactly the rows asked for, so a caller that owns part
+ * of each snapshot never materialises the rest. Link values are never rewritten
+ * by the reader: they stay global row indices of their target snapshots,
+ * validated against the dataset's global halo counts, whatever range is loaded.
  */
 
 /* Populated per simulation package from halo_properties.yaml
@@ -55,6 +61,24 @@ struct HorizontalRunInfo {
                                       target-snapshot columns and SourceHaloID) */
   int64_t n_forests_total;         /* run-scoped forest count (identity bound) */
   int64_t max_halo_rank_in_forest; /* run-scoped maximum rank (identity bound) */
+  char source_format[33];          /* version 3 header 'source_format' (the source tree format
+                                      the dataset was converted from); empty for version 2 */
+};
+
+/**
+ * Caller's choices for open_run.
+ *
+ * validate_columns selects whether open_run reads the per-snapshot data columns
+ * it can otherwise take from the headers. Non-zero runs every check (the
+ * default a serial run uses). Zero skips the whole-column scans of SnapNum,
+ * HaloRankInForest and ForestIndex and publishes the headers'
+ * max_halo_rank_in_forest and n_forests_total as the measured values; every
+ * structural, header, schema and identity-bound check still runs. It exists so
+ * that only one of several processes opening the same dataset pays for those
+ * scans: a caller that skips them relies on another having run them.
+ */
+struct HorizontalOpenOptions {
+  int validate_columns;
 };
 
 /**
@@ -82,13 +106,19 @@ struct HorizontalRunInfo {
 #define SNAPSHOT_SLAB_NO_SNAPSHOT ((int64_t)-1)
 
 /** Static initializer for the empty slab state. */
-#define SNAPSHOT_SLAB_INIT {SNAPSHOT_SLAB_NO_SNAPSHOT, 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL}
+#define SNAPSHOT_SLAB_INIT                                                                         \
+  {SNAPSHOT_SLAB_NO_SNAPSHOT, 0, 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL}
 
 /**
- * One snapshot's halo population, owned by the reader between load_slab and
- * release_slab. Counts and indices are int64_t throughout: production slabs
- * reach hundreds of millions of halos, so the vertical driver's int idiom does not
- * carry over.
+ * One snapshot's halo population, or a contiguous row range of it, owned by the
+ * reader between load_slab and release_slab. Counts and indices are int64_t
+ * throughout: production slabs reach hundreds of millions of halos, so the
+ * vertical driver's int idiom does not carry over.
+ *
+ * Element i of every array is snapshot row row_offset + i. The link members of
+ * each struct RawHalo are left exactly as stored: global row indices of their
+ * target snapshots, not offsets into this slab. A whole-snapshot load has
+ * row_offset 0, so there the two coincide.
  *
  * forest_index/halo_rank_in_forest are the UniqueGalaxyID identity components
  * the frozen format carries explicitly (convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md).
@@ -107,7 +137,8 @@ struct HorizontalRunInfo {
  */
 struct SnapshotSlab {
   int64_t snapnum;                    /* loaded snapshot, or SNAPSHOT_SLAB_NO_SNAPSHOT */
-  int64_t nhalos;                     /* halos in this slab */
+  int64_t nhalos;                     /* halos in this slab: row_hi - row_lo of its load */
+  int64_t row_offset;                 /* snapshot row of element 0 (row_lo); 0 when empty */
   struct RawHalo *halos;              /* [nhalos], reader-owned */
   int64_t *forest_index;              /* [nhalos], reader-owned */
   int64_t *halo_rank_in_forest;       /* [nhalos], reader-owned */
@@ -133,6 +164,15 @@ static inline int snapshot_slab_is_empty(const struct SnapshotSlab *slab) {
   return slab->snapnum == SNAPSHOT_SLAB_NO_SNAPSHOT;
 }
 
+/**
+ * Visitor for scan_forest_index: receives `count` consecutive ForestIndex values
+ * of one snapshot, the first of which is snapshot row `first_row`. `values` is
+ * reader-owned and valid only for the duration of the call; the visitor must
+ * copy what it keeps and must not call back into the reader.
+ */
+typedef void (*horizontal_forest_index_visitor)(int64_t first_row, const int64_t *values,
+                                                int64_t count, void *user);
+
 struct HorizontalReader {
   const char *name; /* tree_type string in the input YAML */
 
@@ -140,8 +180,9 @@ struct HorizontalReader {
   enum InputProcessingOrder processing_order;
 
   /* Open the configured dataset, validate it, and publish run-scoped metadata.
-     Every validation failure aborts; nothing is repaired. */
-  void (*open_run)(struct HorizontalRunInfo *info);
+     Every validation failure aborts; nothing is repaired. options must be
+     non-NULL (see struct HorizontalOpenOptions); a NULL options aborts. */
+  void (*open_run)(const struct HorizontalOpenOptions *options, struct HorizontalRunInfo *info);
 
   /* Release every run-scoped resource acquired by open_run. */
   void (*close_run)(void);
@@ -150,12 +191,21 @@ struct HorizontalReader {
      index outside [0, snapshot_count). */
   int64_t (*snapshot_halo_count)(int64_t snapnum);
 
-  /* Load one snapshot into a reader-owned slab. The destination handle must be
-     in its empty state. */
-  void (*load_slab)(int64_t snapnum, struct SnapshotSlab *slab);
+  /* Load rows [row_lo, row_hi) of one snapshot into a reader-owned slab, with
+     0 <= row_lo <= row_hi <= snapshot_halo_count(snapnum) (aborts otherwise).
+     Publishes nhalos = row_hi - row_lo and row_offset = row_lo; an empty range
+     is a legal load holding no halos. The destination handle must be in its
+     empty state. */
+  void (*load_slab)(int64_t snapnum, int64_t row_lo, int64_t row_hi, struct SnapshotSlab *slab);
 
   /* Release a loaded slab and return the handle to its empty state. */
   void (*release_slab)(struct SnapshotSlab *slab);
+
+  /* Stream the whole ForestIndex column of one snapshot to visit, in ascending
+     row order, in consecutive blocks of bounded size, allocating nothing per
+     halo. A snapshot with no halos makes no call. The values are delivered as
+     stored; their validation is open_run's (with validate_columns set). */
+  void (*scan_forest_index)(int64_t snapnum, horizontal_forest_index_visitor visit, void *user);
 };
 
 /**
@@ -207,12 +257,15 @@ int horizontal_identity_bounds_valid(const struct HorizontalRunInfo *info, int64
    of the hooks implemented. The reader is passed explicitly rather than read
    from a global, so unit tests can drive any registered reader directly. */
 void horizontal_reader_open_run(const struct HorizontalReader *reader,
+                                const struct HorizontalOpenOptions *options,
                                 struct HorizontalRunInfo *info);
 void horizontal_reader_close_run(const struct HorizontalReader *reader);
 int64_t horizontal_reader_halo_count(const struct HorizontalReader *reader, int64_t snapnum);
 void horizontal_reader_load_slab(const struct HorizontalReader *reader, int64_t snapnum,
-                                 struct SnapshotSlab *slab);
+                                 int64_t row_lo, int64_t row_hi, struct SnapshotSlab *slab);
 void horizontal_reader_release_slab(const struct HorizontalReader *reader,
                                     struct SnapshotSlab *slab);
+void horizontal_reader_scan_forest_index(const struct HorizontalReader *reader, int64_t snapnum,
+                                         horizontal_forest_index_visitor visit, void *user);
 
 #endif /* IO_HORIZONTAL_READER_H */

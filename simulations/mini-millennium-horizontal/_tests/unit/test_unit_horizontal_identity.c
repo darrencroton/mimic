@@ -315,7 +315,8 @@ static int check_fixture(const struct IdentityFixture *fixture) {
   const struct HorizontalReader *reader = horizontal_reader_lookup("horizontal_hdf5");
   struct HorizontalRunInfo info;
   configure_horizontal(fixture);
-  horizontal_reader_open_run(reader, &info);
+  const struct HorizontalOpenOptions options = {.validate_columns = 1};
+  horizontal_reader_open_run(reader, &options, &info);
 
   snprintf(message, sizeof(message), "%s: n_forests_total horizontal=%" PRId64 " vertical=%" PRId64,
            fixture->dataset_dir, info.n_forests_total, vertical_forests);
@@ -328,7 +329,7 @@ static int check_fixture(const struct IdentityFixture *fixture) {
   int64_t rows_seen = 0;
   for (int64_t snap = 0; snap < info.snapshot_count; snap++) {
     struct SnapshotSlab slab = snapshot_slab_empty();
-    horizontal_reader_load_slab(reader, snap, &slab);
+    horizontal_reader_load_slab(reader, snap, 0, horizontal_reader_halo_count(reader, snap), &slab);
     for (int64_t row = 0; row < slab.nhalos; row++) {
       const struct RawHalo *halo = &slab.halos[row];
       const struct JoinKey key = {(int)snap, halo->Len, float_bits(halo->M_Crit200),

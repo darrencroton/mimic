@@ -214,7 +214,9 @@ static int64_t fake_slab_row_bytes(int32_t format_version) {
   return row;
 }
 
-static void fake_open_run(struct HorizontalRunInfo *info) {
+static void fake_open_run(const struct HorizontalOpenOptions *options,
+                          struct HorizontalRunInfo *info) {
+  (void)options;
   int64_t widest = 0;
   for (int64_t k = 0; k < Fake.snapshot_count; k++) {
     widest = Fake.halo_count[k] > widest ? Fake.halo_count[k] : widest;
@@ -231,7 +233,11 @@ static void fake_close_run(void) {}
 
 static int64_t fake_snapshot_halo_count(int64_t snapnum) { return Fake.halo_count[snapnum]; }
 
-static void fake_load_slab(int64_t snapnum, struct SnapshotSlab *slab) {
+static void fake_load_slab(int64_t snapnum, int64_t row_lo, int64_t row_hi,
+                           struct SnapshotSlab *slab) {
+  /* The driver always asks for the whole snapshot; the fake builds it whole. */
+  (void)row_lo;
+  (void)row_hi;
   if (Fake.load == FAKE_LOAD_EXITS) {
     /* Reached only once the driver has sized and accepted the generation. Ends
      * the run here, before anything the size describes is allocated. */
@@ -1202,7 +1208,8 @@ int test_slab_width_matches_the_real_v3_reader(void) {
   configure_v3_fixture();
   const struct HorizontalReader *reader = MimicConfig.horizontal_reader;
   struct HorizontalRunInfo info;
-  horizontal_reader_open_run(reader, &info);
+  const struct HorizontalOpenOptions options = {.validate_columns = 1};
+  horizontal_reader_open_run(reader, &options, &info);
   TEST_ASSERT(info.format_version == 3 && info.snapshot_count == V3_FIXTURE_SNAPSHOTS,
               "The fixture should open as a four-snapshot version 3 run");
 
@@ -1210,7 +1217,7 @@ int test_slab_width_matches_the_real_v3_reader(void) {
   for (int64_t snap = 0; snap < info.snapshot_count; snap++) {
     struct SnapshotSlab slab = snapshot_slab_empty();
     const size_t before = memory_category_bytes(MEM_TREES);
-    horizontal_reader_load_slab(reader, snap, &slab);
+    horizontal_reader_load_slab(reader, snap, 0, horizontal_reader_halo_count(reader, snap), &slab);
     const int64_t actual = (int64_t)(memory_category_bytes(MEM_TREES) - before);
     /* Exact, not a tolerance: the fixture's snapshots hold at most three halos,
        so any slack wide enough to cover block rounding would also hide a whole

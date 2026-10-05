@@ -601,11 +601,14 @@ static int read_halo_column(const char *file_path, const char *dataset, hid_t me
   return rc;
 }
 
+/* open_run's options for a full validation, as the serial driver opens a run. */
+static const struct HorizontalOpenOptions FULL_SCAN = {.validate_columns = 1};
+
 /** @brief Child body: configure for `dir` and open the dataset. */
 static void child_open_run(const char *dir) {
   struct HorizontalRunInfo info;
   configure_for_fixture(dir);
-  horizontal_reader_open_run(horizontal_reader_lookup("horizontal_hdf5"), &info);
+  horizontal_reader_open_run(horizontal_reader_lookup("horizontal_hdf5"), &FULL_SCAN, &info);
 }
 
 /** @brief Child body: configure for `dir`, open, and cleanly close. */
@@ -613,7 +616,7 @@ static void child_open_run_close(const char *dir) {
   const struct HorizontalReader *reader = horizontal_reader_lookup("horizontal_hdf5");
   struct HorizontalRunInfo info;
   configure_for_fixture(dir);
-  horizontal_reader_open_run(reader, &info);
+  horizontal_reader_open_run(reader, &FULL_SCAN, &info);
   horizontal_reader_close_run(reader);
 }
 
@@ -1030,7 +1033,7 @@ int test_open_run_publishes_run_metadata(void) {
   const struct HorizontalReader *reader = horizontal_reader_lookup("horizontal_hdf5");
   TEST_ASSERT(reader != NULL, "horizontal_hdf5 should be registered");
 
-  horizontal_reader_open_run(reader, &info);
+  horizontal_reader_open_run(reader, &FULL_SCAN, &info);
 
   TEST_ASSERT_EQUAL(info.snapshot_count, FIXTURE_SNAPSHOTS,
                     "run info should publish the snapshot count");
@@ -1055,7 +1058,7 @@ static void child_count_below_range(const char *dir) {
   const struct HorizontalReader *reader = horizontal_reader_lookup("horizontal_hdf5");
   struct HorizontalRunInfo info;
   configure_for_fixture(dir);
-  horizontal_reader_open_run(reader, &info);
+  horizontal_reader_open_run(reader, &FULL_SCAN, &info);
   (void)horizontal_reader_halo_count(reader, -1);
 }
 
@@ -1063,7 +1066,7 @@ static void child_count_above_range(const char *dir) {
   const struct HorizontalReader *reader = horizontal_reader_lookup("horizontal_hdf5");
   struct HorizontalRunInfo info;
   configure_for_fixture(dir);
-  horizontal_reader_open_run(reader, &info);
+  horizontal_reader_open_run(reader, &FULL_SCAN, &info);
   (void)horizontal_reader_halo_count(reader, info.snapshot_count);
 }
 
@@ -1171,7 +1174,7 @@ static const struct HorizontalReader IncompleteReader = {
 static void child_missing_open_run(const char *dir) {
   struct HorizontalRunInfo info;
   (void)dir;
-  horizontal_reader_open_run(&IncompleteReader, &info);
+  horizontal_reader_open_run(&IncompleteReader, &FULL_SCAN, &info);
 }
 
 static void child_missing_close_run(const char *dir) {
@@ -1187,7 +1190,7 @@ static void child_missing_halo_count(const char *dir) {
 static void child_missing_load_slab(const char *dir) {
   struct SnapshotSlab slab = snapshot_slab_empty();
   (void)dir;
-  horizontal_reader_load_slab(&IncompleteReader, 0, &slab);
+  horizontal_reader_load_slab(&IncompleteReader, 0, 0, 0, &slab);
 }
 
 static void child_missing_release_slab(const char *dir) {
@@ -1237,7 +1240,7 @@ int test_open_close_leaves_no_leak(void) {
   configure_for_fixture(dir);
 
   const struct HorizontalReader *reader = horizontal_reader_lookup("horizontal_hdf5");
-  horizontal_reader_open_run(reader, &info);
+  horizontal_reader_open_run(reader, &FULL_SCAN, &info);
   horizontal_reader_close_run(reader);
   remove_staged_fixture(dir);
 
@@ -1406,14 +1409,14 @@ int test_load_slab_matches_fixture(void) {
   configure_for_fixture(dir);
 
   const struct HorizontalReader *reader = horizontal_reader_lookup("horizontal_hdf5");
-  horizontal_reader_open_run(reader, &info);
+  horizontal_reader_open_run(reader, &FULL_SCAN, &info);
 
   for (int snap = 0; snap < FIXTURE_SNAPSHOTS; snap++) {
     char path[MAX_STRING_LEN];
     struct SnapshotSlab slab = snapshot_slab_empty();
     snapshot_path(path, sizeof(path), dir, snap);
 
-    horizontal_reader_load_slab(reader, snap, &slab);
+    horizontal_reader_load_slab(reader, snap, 0, horizontal_reader_halo_count(reader, snap), &slab);
 
     TEST_ASSERT_EQUAL(slab.snapnum, snap, "a loaded slab should carry its snapshot number");
     TEST_ASSERT_EQUAL(slab.nhalos, FIXTURE_HALO_COUNTS[snap],
@@ -1465,13 +1468,13 @@ int test_published_slab_row_width_matches_allocator_for_every_snapshot(void) {
   configure_for_fixture(dir);
 
   const struct HorizontalReader *reader = horizontal_reader_lookup("horizontal_hdf5");
-  horizontal_reader_open_run(reader, &info);
+  horizontal_reader_open_run(reader, &FULL_SCAN, &info);
   TEST_ASSERT(info.format_version == 2, "the committed fixture should open as a version 2 run");
 
   for (int snap = 0; snap < FIXTURE_SNAPSHOTS; snap++) {
     struct SnapshotSlab slab = snapshot_slab_empty();
     const size_t before = memory_category_bytes(MEM_TREES);
-    horizontal_reader_load_slab(reader, snap, &slab);
+    horizontal_reader_load_slab(reader, snap, 0, horizontal_reader_halo_count(reader, snap), &slab);
     const int64_t allocated = (int64_t)(memory_category_bytes(MEM_TREES) - before);
     /* Exact: a version 2 slab's three arrays (struct RawHalo rows and two int64
        columns) are multiples of the allocator's 8-byte block, so no rounding
@@ -1509,14 +1512,15 @@ int test_two_generation_rotation_holds_two_slabs_live(void) {
   configure_for_fixture(dir);
 
   const struct HorizontalReader *reader = horizontal_reader_lookup("horizontal_hdf5");
-  horizontal_reader_open_run(reader, &info);
+  horizontal_reader_open_run(reader, &FULL_SCAN, &info);
   TEST_ASSERT_EQUAL(info.snapshot_count, FIXTURE_SNAPSHOTS,
                     "run info should publish six snapshots");
 
   for (int64_t snap = 0; snap < info.snapshot_count; snap++) {
     const int slot = (int)(snap % 2);
 
-    horizontal_reader_load_slab(reader, snap, &slabs[slot]);
+    horizontal_reader_load_slab(reader, snap, 0, horizontal_reader_halo_count(reader, snap),
+                                &slabs[slot]);
     TEST_ASSERT_EQUAL(slabs[slot].snapnum, snap, "the just-loaded slab should carry its snapnum");
 
     if (snap > 0) {
@@ -1663,8 +1667,9 @@ static void child_load_slab(const char *dir) {
   struct HorizontalRunInfo info;
   struct SnapshotSlab slab = snapshot_slab_empty();
   configure_for_fixture(dir);
-  horizontal_reader_open_run(reader, &info);
-  horizontal_reader_load_slab(reader, load_target_snapshot, &slab);
+  horizontal_reader_open_run(reader, &FULL_SCAN, &info);
+  horizontal_reader_load_slab(reader, load_target_snapshot, 0,
+                              horizontal_reader_halo_count(reader, load_target_snapshot), &slab);
 }
 
 /**
@@ -1755,9 +1760,9 @@ static void child_load_into_loaded_slab(const char *dir) {
   struct HorizontalRunInfo info;
   struct SnapshotSlab slab = snapshot_slab_empty();
   configure_for_fixture(dir);
-  horizontal_reader_open_run(reader, &info);
-  horizontal_reader_load_slab(reader, 4, &slab);
-  horizontal_reader_load_slab(reader, 5, &slab);
+  horizontal_reader_open_run(reader, &FULL_SCAN, &info);
+  horizontal_reader_load_slab(reader, 4, 0, horizontal_reader_halo_count(reader, 4), &slab);
+  horizontal_reader_load_slab(reader, 5, 0, horizontal_reader_halo_count(reader, 5), &slab);
 }
 
 static void child_close_run_with_loaded_slab(const char *dir) {
@@ -1765,8 +1770,8 @@ static void child_close_run_with_loaded_slab(const char *dir) {
   struct HorizontalRunInfo info;
   struct SnapshotSlab slab = snapshot_slab_empty();
   configure_for_fixture(dir);
-  horizontal_reader_open_run(reader, &info);
-  horizontal_reader_load_slab(reader, 4, &slab);
+  horizontal_reader_open_run(reader, &FULL_SCAN, &info);
+  horizontal_reader_load_slab(reader, 4, 0, horizontal_reader_halo_count(reader, 4), &slab);
   horizontal_reader_close_run(reader);
 }
 
@@ -1775,8 +1780,8 @@ static void child_load_below_range(const char *dir) {
   struct HorizontalRunInfo info;
   struct SnapshotSlab slab = snapshot_slab_empty();
   configure_for_fixture(dir);
-  horizontal_reader_open_run(reader, &info);
-  horizontal_reader_load_slab(reader, -1, &slab);
+  horizontal_reader_open_run(reader, &FULL_SCAN, &info);
+  horizontal_reader_load_slab(reader, -1, 0, 0, &slab);
 }
 
 static void child_load_above_range(const char *dir) {
@@ -1784,8 +1789,8 @@ static void child_load_above_range(const char *dir) {
   struct HorizontalRunInfo info;
   struct SnapshotSlab slab = snapshot_slab_empty();
   configure_for_fixture(dir);
-  horizontal_reader_open_run(reader, &info);
-  horizontal_reader_load_slab(reader, info.snapshot_count, &slab);
+  horizontal_reader_open_run(reader, &FULL_SCAN, &info);
+  horizontal_reader_load_slab(reader, info.snapshot_count, 0, 0, &slab);
 }
 
 /**
@@ -1815,7 +1820,7 @@ int test_slab_lifecycle(void) {
      both defined as safe, so they must not abort. */
   configure_for_fixture(dir);
   const struct HorizontalReader *reader = horizontal_reader_lookup("horizontal_hdf5");
-  horizontal_reader_open_run(reader, &info);
+  horizontal_reader_open_run(reader, &FULL_SCAN, &info);
 
   struct SnapshotSlab empty = snapshot_slab_empty();
   TEST_ASSERT(empty.forest_index == NULL, "snapshot_slab_empty should carry a NULL forest_index");
@@ -1825,7 +1830,7 @@ int test_slab_lifecycle(void) {
   TEST_ASSERT(snapshot_slab_is_empty(&empty), "releasing an empty slab should be a no-op");
 
   struct SnapshotSlab slab = snapshot_slab_empty();
-  horizontal_reader_load_slab(reader, 4, &slab);
+  horizontal_reader_load_slab(reader, 4, 0, horizontal_reader_halo_count(reader, 4), &slab);
   horizontal_reader_release_slab(reader, &slab);
   horizontal_reader_release_slab(reader, &slab);
   TEST_ASSERT(snapshot_slab_is_empty(&slab), "a second release should leave the handle empty");
@@ -1851,10 +1856,10 @@ int test_load_release_leaves_no_leak(void) {
   configure_for_fixture(dir);
 
   const struct HorizontalReader *reader = horizontal_reader_lookup("horizontal_hdf5");
-  horizontal_reader_open_run(reader, &info);
+  horizontal_reader_open_run(reader, &FULL_SCAN, &info);
   for (int snap = 0; snap < FIXTURE_SNAPSHOTS; snap++) {
     struct SnapshotSlab slab = snapshot_slab_empty();
-    horizontal_reader_load_slab(reader, snap, &slab);
+    horizontal_reader_load_slab(reader, snap, 0, horizontal_reader_halo_count(reader, snap), &slab);
     horizontal_reader_release_slab(reader, &slab);
   }
   horizontal_reader_close_run(reader);
@@ -2006,7 +2011,7 @@ static void child_open_run_unencodable_multiplier(const char *dir) {
   struct HorizontalRunInfo info;
   configure_for_fixture(dir);
   MimicConfig.UniqueGalaxyIDMultiplier = FIXTURE_MAX_RANK;
-  horizontal_reader_open_run(horizontal_reader_lookup("horizontal_hdf5"), &info);
+  horizontal_reader_open_run(horizontal_reader_lookup("horizontal_hdf5"), &FULL_SCAN, &info);
 }
 
 /** @brief Child body: open the fixture with an unset (zero) multiplier. */
@@ -2014,7 +2019,7 @@ static void child_open_run_zero_multiplier(const char *dir) {
   struct HorizontalRunInfo info;
   configure_for_fixture(dir);
   MimicConfig.UniqueGalaxyIDMultiplier = 0;
-  horizontal_reader_open_run(horizontal_reader_lookup("horizontal_hdf5"), &info);
+  horizontal_reader_open_run(horizontal_reader_lookup("horizontal_hdf5"), &FULL_SCAN, &info);
 }
 
 /**

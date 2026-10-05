@@ -11,7 +11,9 @@
  * load-time invariant a consumer checks; rejection of soft and external links
  * under /halos and /schema whether or not the package declares the field; that
  * n_halos above INT32_MAX passes the header and shape checks; bounded link
- * diagnostics; and freedom from leaks.
+ * diagnostics; row-range loads against whole loads, range-bound aborts, the
+ * ForestIndex scan and open_run without its column scans (on this fixture and
+ * the mini-millennium-horizontal worked graph); and freedom from leaks.
  *
  * The fixture's /schema declares mini-Millennium L-Halo payload units, which
  * only the mini-millennium-horizontal package declares, so every test that
@@ -196,14 +198,15 @@ static int stage_fixture(char *dir, size_t dir_size) {
 }
 
 /**
- * @brief   Point MimicConfig at a staged fixture directory, as a run of the
- *          mini-millennium-horizontal package would configure it.
+ * @brief   Point MimicConfig at a version 3 dataset directory and its snapshot
+ *          list, as a run of the mini-millennium-horizontal package would
+ *          configure it.
  */
-static void configure_for_fixture(const char *dir) {
+static void configure_for_dataset_dir(const char *dir, const char *a_list) {
   memset(&MimicConfig, 0, sizeof(MimicConfig));
   snprintf(MimicConfig.SimulationDir, sizeof(MimicConfig.SimulationDir), "%s", dir);
   snprintf(MimicConfig.FileWithSnapList, sizeof(MimicConfig.FileWithSnapList), "%s/%s", dir,
-           FIXTURE_A_LIST);
+           a_list);
   read_snap_list();
   MimicConfig.MAXSNAPS = MimicConfig.Snaplistlen;
   MimicConfig.UniqueGalaxyIDMultiplier = (int64_t)TREE_MUL_FAC;
@@ -212,6 +215,11 @@ static void configure_for_fixture(const char *dir) {
   MimicConfig.OmegaLambda = FIXTURE_OMEGA_LAMBDA;
   MimicConfig.Hubble_h = FIXTURE_HUBBLE_H;
   MimicConfig.PartMass = FIXTURE_PART_MASS;
+}
+
+/** @brief Point MimicConfig at a staged copy of this suite's fixture. */
+static void configure_for_fixture(const char *dir) {
+  configure_for_dataset_dir(dir, FIXTURE_A_LIST);
 }
 
 /* ---------------------------------------------------------------------------
@@ -698,10 +706,19 @@ static const struct HorizontalReader *reader(void) {
   return horizontal_reader_lookup("horizontal_hdf5");
 }
 
+/* open_run's options for a full validation, as the serial driver opens a run. */
+static const struct HorizontalOpenOptions FULL_SCAN = {.validate_columns = 1};
+
+/** @brief Load the whole of one snapshot, as the serial driver does. */
+static void load_whole_slab(int64_t snapnum, struct SnapshotSlab *slab) {
+  horizontal_reader_load_slab(reader(), snapnum, 0, horizontal_reader_halo_count(reader(), snapnum),
+                              slab);
+}
+
 static void child_open_run(const char *dir) {
   struct HorizontalRunInfo info;
   configure_for_fixture(dir);
-  horizontal_reader_open_run(reader(), &info);
+  horizontal_reader_open_run(reader(), &FULL_SCAN, &info);
   horizontal_reader_close_run(reader());
 }
 
@@ -711,9 +728,9 @@ static int64_t child_load_snapnum = 0;
 static void child_load_slab(const char *dir) {
   struct HorizontalRunInfo info;
   configure_for_fixture(dir);
-  horizontal_reader_open_run(reader(), &info);
+  horizontal_reader_open_run(reader(), &FULL_SCAN, &info);
   struct SnapshotSlab slab = snapshot_slab_empty();
-  horizontal_reader_load_slab(reader(), child_load_snapnum, &slab);
+  load_whole_slab(child_load_snapnum, &slab);
   horizontal_reader_release_slab(reader(), &slab);
   horizontal_reader_close_run(reader());
 }
@@ -723,7 +740,7 @@ static void child_open_run_small_multiplier(const char *dir) {
   configure_for_fixture(dir);
   /* max_halo_rank_in_forest is 3, so a multiplier of 3 cannot encode rank 3. */
   MimicConfig.UniqueGalaxyIDMultiplier = FIXTURE_MAX_RANK;
-  horizontal_reader_open_run(reader(), &info);
+  horizontal_reader_open_run(reader(), &FULL_SCAN, &info);
 }
 
 /** @brief check_memory_leaks() output, captured through the log stream. */
@@ -769,7 +786,7 @@ int test_v3_open_run_publishes_run_metadata(void) {
   TEST_ASSERT(stage_fixture(dir, sizeof(dir)) == 0, "should stage a scratch copy of the fixture");
   configure_for_fixture(dir);
 
-  horizontal_reader_open_run(reader(), &info);
+  horizontal_reader_open_run(reader(), &FULL_SCAN, &info);
   TEST_ASSERT_EQUAL(info.format_version, 3, "open_run should publish format_version 3");
   TEST_ASSERT_EQUAL(info.links_adjacent, 0, "a gapped dataset should publish links_adjacent 0");
   TEST_ASSERT_EQUAL(info.snapshot_count, FIXTURE_SNAPSHOTS, "snapshot_count should be 4");
@@ -935,11 +952,11 @@ int test_v3_load_slab_matches_fixture(void) {
   struct HorizontalRunInfo info;
   TEST_ASSERT(stage_fixture(dir, sizeof(dir)) == 0, "should stage a scratch copy of the fixture");
   configure_for_fixture(dir);
-  horizontal_reader_open_run(reader(), &info);
+  horizontal_reader_open_run(reader(), &FULL_SCAN, &info);
 
   for (int snap = 0; snap < FIXTURE_SNAPSHOTS; snap++) {
     struct SnapshotSlab slab = snapshot_slab_empty();
-    horizontal_reader_load_slab(reader(), snap, &slab);
+    load_whole_slab(snap, &slab);
     TEST_ASSERT_EQUAL(slab.snapnum, snap, "the slab should carry its snapshot number");
     TEST_ASSERT_EQUAL(slab.nhalos, FIXTURE_HALO_COUNTS[snap], "the slab should hold n_halos");
 
@@ -1743,6 +1760,393 @@ int test_v3_link_diagnostics_are_bounded(void) {
   return TEST_PASS;
 }
 
+/* ---------------------------------------------------------------------------
+ * Row ranges, the ForestIndex scan and open options
+ *
+ * Run on both committed version 3 fixtures: this suite's gapped two-forest
+ * dataset and the one-forest worked graph of the mini-millennium-horizontal
+ * package, both converted from L-Halo binary. Both are read in place: these
+ * cases only read, so neither needs a scratch copy.
+ * ------------------------------------------------------------------------- */
+
+#define WORKED_GRAPH_DIR "simulations/mini-millennium-horizontal/_tests/data/worked_graph"
+#define WORKED_GRAPH_A_LIST "worked_graph.a_list"
+#define WORKED_GRAPH_N_FORESTS_TOTAL 1
+#define WORKED_GRAPH_MAX_RANK 4
+#define FIXTURE_SOURCE_FORMAT "lhalo_binary"
+
+struct v3_dataset {
+  const char *dir;
+  const char *a_list;
+  int64_t n_forests_total;
+  int64_t max_halo_rank_in_forest;
+};
+
+static const struct v3_dataset V3_DATASETS[] = {
+    {FIXTURE_DIR, FIXTURE_A_LIST, FIXTURE_N_FORESTS_TOTAL, FIXTURE_MAX_RANK},
+    {WORKED_GRAPH_DIR, WORKED_GRAPH_A_LIST, WORKED_GRAPH_N_FORESTS_TOTAL, WORKED_GRAPH_MAX_RANK},
+};
+#define V3_DATASET_COUNT (sizeof(V3_DATASETS) / sizeof(V3_DATASETS[0]))
+
+/** @brief Point MimicConfig at one of the committed datasets, in place. */
+static void configure_for_dataset(const struct v3_dataset *dataset) {
+  configure_for_dataset_dir(dataset->dir, dataset->a_list);
+}
+
+/* Compare every generated struct RawHalo member of two halos by value, member
+   by member, so padding never enters the comparison; vector members compare
+   all NDIM components through sizeof. Walks the same generated read list that
+   fills the slab, so a package's every catalog field is covered. */
+#define READ_TREE_PROPERTY(field_name, hdf5_name, type_int, data_type)                             \
+  if (memcmp(&a->field_name, &b->field_name, sizeof(a->field_name)) != 0) {                        \
+    fprintf(stderr, "  member '%s' differs\n", #field_name);                                       \
+    return 0;                                                                                      \
+  }
+#define READ_TREE_PROPERTY_MULTIPLEDIM(field_name, hdf5_name, type_int, data_type)                 \
+  READ_TREE_PROPERTY(field_name, hdf5_name, type_int, data_type)
+static int raw_halos_equal(const struct RawHalo *a, const struct RawHalo *b) {
+#include "../../src/include/generated/read_tree_hdf5_properties.inc"
+  return 1;
+}
+#undef READ_TREE_PROPERTY
+#undef READ_TREE_PROPERTY_MULTIPLEDIM
+
+/** @brief Does `range` hold exactly rows [lo, lo + range->nhalos) of `whole`, every column? */
+static int range_matches_whole(const struct SnapshotSlab *whole, const struct SnapshotSlab *range,
+                               int64_t lo) {
+  const size_t n = (size_t)range->nhalos;
+  for (int64_t i = 0; i < range->nhalos; i++) {
+    if (!raw_halos_equal(&whole->halos[lo + i], &range->halos[i])) {
+      fprintf(stderr, "  snapshot %" PRId64 " row %" PRId64 " differs from the whole read\n",
+              whole->snapnum, lo + i);
+      return 0;
+    }
+  }
+  return memcmp(whole->forest_index + lo, range->forest_index, n * sizeof(int64_t)) == 0 &&
+         memcmp(whole->halo_rank_in_forest + lo, range->halo_rank_in_forest, n * sizeof(int64_t)) ==
+             0 &&
+         memcmp(whole->descendant_snapshot + lo, range->descendant_snapshot, n * sizeof(int32_t)) ==
+             0 &&
+         memcmp(whole->first_progenitor_snapshot + lo, range->first_progenitor_snapshot,
+                n * sizeof(int32_t)) == 0 &&
+         memcmp(whole->next_progenitor_snapshot + lo, range->next_progenitor_snapshot,
+                n * sizeof(int32_t)) == 0 &&
+         memcmp(whole->source_halo_id + lo, range->source_halo_id, n * sizeof(int64_t)) == 0;
+}
+
+/** @brief Is every array of a loaded slab NULL, as an empty range leaves it? */
+static int slab_arrays_null(const struct SnapshotSlab *slab) {
+  return slab->halos == NULL && slab->forest_index == NULL && slab->halo_rank_in_forest == NULL &&
+         slab->descendant_snapshot == NULL && slab->first_progenitor_snapshot == NULL &&
+         slab->next_progenitor_snapshot == NULL && slab->source_halo_id == NULL;
+}
+
+/**
+ * @test  test_v3_range_reads_match_whole_reads
+ * On both fixtures, every row range [lo, hi) of every snapshot -- each empty
+ * range [k, k) included -- loads exactly hi - lo halos with row_offset lo, and
+ * every column (each generated RawHalo member, the vector members Pos, Vel and
+ * Spin among them, the two identity columns, the three target-snapshot columns
+ * and SourceHaloID) equals the matching rows of a whole read. Links stay the
+ * global rows the file stores. An empty range carries only NULL arrays and
+ * releases cleanly; nothing leaks.
+ */
+int test_v3_range_reads_match_whole_reads(void) {
+  REQUIRE_FIXTURE_PACKAGE();
+  for (size_t d = 0; d < V3_DATASET_COUNT; d++) {
+    struct HorizontalRunInfo info;
+    configure_for_dataset(&V3_DATASETS[d]);
+    horizontal_reader_open_run(reader(), &FULL_SCAN, &info);
+
+    for (int64_t snap = 0; snap < info.snapshot_count; snap++) {
+      const int64_t count = horizontal_reader_halo_count(reader(), snap);
+      struct SnapshotSlab whole = snapshot_slab_empty();
+      load_whole_slab(snap, &whole);
+      TEST_ASSERT_EQUAL(whole.row_offset, 0, "a whole-snapshot slab should have row_offset 0");
+      TEST_ASSERT_EQUAL(whole.nhalos, count, "a whole-snapshot slab should hold every halo");
+
+      for (int64_t lo = 0; lo <= count; lo++) {
+        for (int64_t hi = lo; hi <= count; hi++) {
+          struct SnapshotSlab range = snapshot_slab_empty();
+          horizontal_reader_load_slab(reader(), snap, lo, hi, &range);
+          TEST_ASSERT_EQUAL(range.snapnum, snap, "a range slab should carry its snapshot number");
+          TEST_ASSERT_EQUAL(range.nhalos, hi - lo, "a range slab should hold row_hi - row_lo");
+          TEST_ASSERT_EQUAL(range.row_offset, lo, "a range slab should publish row_offset");
+          if (hi == lo) {
+            TEST_ASSERT(!snapshot_slab_is_empty(&range), "an empty range is still a loaded slab");
+            TEST_ASSERT(slab_arrays_null(&range), "an empty range should carry only NULL arrays");
+          } else {
+            TEST_ASSERT(range_matches_whole(&whole, &range, lo),
+                        "every column of a range read should equal the whole read's rows");
+          }
+          horizontal_reader_release_slab(reader(), &range);
+          TEST_ASSERT(snapshot_slab_is_empty(&range) && range.row_offset == 0,
+                      "release should return a range slab to the empty state");
+        }
+      }
+      horizontal_reader_release_slab(reader(), &whole);
+    }
+    horizontal_reader_close_run(reader());
+  }
+  TEST_ASSERT(no_tracked_leaks(), "range loads and releases should leave no allocation");
+  return TEST_PASS;
+}
+
+/* Row range the range-bound children load; set by the parent before forking. */
+static int64_t child_range_snapnum = 0;
+static int64_t child_range_lo = 0;
+static int64_t child_range_hi = 0;
+
+static void child_load_range(const char *dir) {
+  struct HorizontalRunInfo info;
+  configure_for_fixture(dir);
+  horizontal_reader_open_run(reader(), &FULL_SCAN, &info);
+  struct SnapshotSlab slab = snapshot_slab_empty();
+  horizontal_reader_load_slab(reader(), child_range_snapnum, child_range_lo, child_range_hi, &slab);
+  horizontal_reader_release_slab(reader(), &slab);
+  horizontal_reader_close_run(reader());
+}
+
+/**
+ * @test  test_v3_load_slab_rejects_bad_ranges
+ * A range that is not inside [0, snapshot_halo_count(snapnum)] aborts naming
+ * the range and the count: row_hi above the count, row_lo above row_hi, and a
+ * negative row_lo. The full range [0, count] is the accepted edge.
+ */
+int test_v3_load_slab_rejects_bad_ranges(void) {
+  REQUIRE_FIXTURE_PACKAGE();
+  static const struct {
+    const char *label;
+    int64_t snapnum, lo, hi;
+    const char *needle;
+  } cases[] = {
+      {"row_hi above the count", 3, 0, 4, "rows [0, 4) of snapshot 3 are not a range of its 3"},
+      {"row_hi above an empty snapshot's count", 2, 0, 1,
+       "rows [0, 1) of snapshot 2 are not a range of its 0"},
+      {"row_lo above row_hi", 3, 2, 1, "rows [2, 1) of snapshot 3 are not a range of its 3"},
+      {"negative row_lo", 0, -1, 1, "rows [-1, 1) of snapshot 0 are not a range of its 2"},
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+    child_range_snapnum = cases[i].snapnum;
+    child_range_lo = cases[i].lo;
+    child_range_hi = cases[i].hi;
+    const int aborted = expect_fatal(FIXTURE_DIR, child_load_range, cases[i].needle,
+                                     "0 <= row_lo <= row_hi <= the snapshot's halo count");
+    if (aborted != 1) {
+      fprintf(stderr, "  case '%s' did not abort as expected\n", cases[i].label);
+    }
+    TEST_ASSERT(aborted == 1, "a range outside the snapshot should abort load_slab");
+  }
+  child_range_snapnum = 3;
+  child_range_lo = 0;
+  child_range_hi = FIXTURE_HALO_COUNTS[3];
+  TEST_ASSERT(expect_success(FIXTURE_DIR, child_load_range) == 1,
+              "the full range [0, count) should load");
+  return TEST_PASS;
+}
+
+/* What one scan_forest_index pass delivered. */
+struct forest_scan_record {
+  int64_t values[FIXTURE_MAX_HALOS];
+  int64_t rows_seen;
+  int calls;
+  int out_of_order;
+};
+
+static void record_forest_index(int64_t first_row, const int64_t *values, int64_t count,
+                                void *user) {
+  struct forest_scan_record *record = user;
+  record->calls++;
+  if (first_row != record->rows_seen || count <= 0 ||
+      record->rows_seen + count > FIXTURE_MAX_HALOS) {
+    record->out_of_order = 1;
+    return;
+  }
+  memcpy(record->values + first_row, values, (size_t)count * sizeof(int64_t));
+  record->rows_seen += count;
+}
+
+/**
+ * @test  test_v3_scan_forest_index_streams_column
+ * On both fixtures, scan_forest_index delivers each snapshot's whole
+ * ForestIndex column in ascending row order -- every block starting at the row
+ * after the last one delivered, from row 0 -- equal to a whole load's
+ * forest_index array; a snapshot with no halos makes no call; nothing leaks.
+ */
+int test_v3_scan_forest_index_streams_column(void) {
+  REQUIRE_FIXTURE_PACKAGE();
+  for (size_t d = 0; d < V3_DATASET_COUNT; d++) {
+    struct HorizontalRunInfo info;
+    configure_for_dataset(&V3_DATASETS[d]);
+    horizontal_reader_open_run(reader(), &FULL_SCAN, &info);
+
+    for (int64_t snap = 0; snap < info.snapshot_count; snap++) {
+      const int64_t count = horizontal_reader_halo_count(reader(), snap);
+      struct forest_scan_record record;
+      memset(&record, 0, sizeof(record));
+      horizontal_reader_scan_forest_index(reader(), snap, record_forest_index, &record);
+      TEST_ASSERT(!record.out_of_order, "blocks should arrive contiguous and in row order");
+      TEST_ASSERT_EQUAL(record.rows_seen, count, "the scan should deliver every row once");
+      if (count == 0) {
+        TEST_ASSERT_EQUAL(record.calls, 0, "a snapshot with no halos should make no call");
+        continue;
+      }
+
+      struct SnapshotSlab whole = snapshot_slab_empty();
+      load_whole_slab(snap, &whole);
+      TEST_ASSERT(memcmp(record.values, whole.forest_index, (size_t)count * sizeof(int64_t)) == 0,
+                  "the scanned column should equal the loaded ForestIndex column");
+      horizontal_reader_release_slab(reader(), &whole);
+    }
+    horizontal_reader_close_run(reader());
+  }
+  TEST_ASSERT(no_tracked_leaks(), "scanning should leave no allocation");
+  return TEST_PASS;
+}
+
+static const struct HorizontalOpenOptions NO_COLUMN_SCAN = {.validate_columns = 0};
+
+static void child_open_run_unscanned(const char *dir) {
+  struct HorizontalRunInfo info;
+  configure_for_fixture(dir);
+  horizontal_reader_open_run(reader(), &NO_COLUMN_SCAN, &info);
+  horizontal_reader_close_run(reader());
+}
+
+static void child_open_run_null_options(const char *dir) {
+  struct HorizontalRunInfo info;
+  configure_for_fixture(dir);
+  horizontal_reader_open_run(reader(), NULL, &info);
+}
+
+static void child_open_hook_null_options(const char *dir) {
+  struct HorizontalRunInfo info;
+  configure_for_fixture(dir);
+  /* Past the dispatcher, straight into the reader's own hook. */
+  reader()->open_run(NULL, &info);
+}
+
+/**
+ * @test  test_v3_open_without_column_scans
+ * On both fixtures, validate_columns = 0 opens a dataset the full scan also
+ * accepts and publishes exactly the full scan's run metadata: the headers'
+ * max_halo_rank_in_forest and n_forests_total, every snapshot count, and
+ * source_format "lhalo_binary". A SnapNum value the column scan rejects
+ * passes with the scan skipped, which shows the scan is what was skipped,
+ * while a header that disagrees across files still aborts. A NULL options
+ * aborts at the dispatcher and in the reader's own hook.
+ */
+int test_v3_open_without_column_scans(void) {
+  REQUIRE_FIXTURE_PACKAGE();
+  for (size_t d = 0; d < V3_DATASET_COUNT; d++) {
+    const struct v3_dataset *dataset = &V3_DATASETS[d];
+    struct HorizontalRunInfo scanned;
+    struct HorizontalRunInfo unscanned;
+    int64_t counts[FIXTURE_SNAPSHOTS + 1];
+
+    configure_for_dataset(dataset);
+    horizontal_reader_open_run(reader(), &FULL_SCAN, &scanned);
+    TEST_ASSERT(scanned.snapshot_count <= FIXTURE_SNAPSHOTS + 1, "fixture snapshot count bound");
+    for (int64_t snap = 0; snap < scanned.snapshot_count; snap++) {
+      counts[snap] = horizontal_reader_halo_count(reader(), snap);
+    }
+    horizontal_reader_close_run(reader());
+
+    configure_for_dataset(dataset);
+    horizontal_reader_open_run(reader(), &NO_COLUMN_SCAN, &unscanned);
+    TEST_ASSERT_EQUAL(unscanned.n_forests_total, dataset->n_forests_total,
+                      "an unscanned open should publish the header's n_forests_total");
+    TEST_ASSERT_EQUAL(unscanned.max_halo_rank_in_forest, dataset->max_halo_rank_in_forest,
+                      "an unscanned open should publish the header's max_halo_rank_in_forest");
+    TEST_ASSERT(strcmp(scanned.source_format, FIXTURE_SOURCE_FORMAT) == 0 &&
+                    strcmp(unscanned.source_format, FIXTURE_SOURCE_FORMAT) == 0,
+                "source_format should read lhalo_binary for the L-Halo fixtures");
+    TEST_ASSERT(unscanned.snapshot_count == scanned.snapshot_count &&
+                    unscanned.format_version == scanned.format_version &&
+                    unscanned.links_adjacent == scanned.links_adjacent &&
+                    unscanned.slab_row_bytes == scanned.slab_row_bytes &&
+                    unscanned.n_forests_total == scanned.n_forests_total &&
+                    unscanned.max_halo_rank_in_forest == scanned.max_halo_rank_in_forest,
+                "an unscanned open should publish the full scan's run metadata");
+    for (int64_t snap = 0; snap < unscanned.snapshot_count; snap++) {
+      TEST_ASSERT_EQUAL(horizontal_reader_halo_count(reader(), snap), counts[snap],
+                        "an unscanned open should serve the same halo counts");
+    }
+    horizontal_reader_close_run(reader());
+  }
+
+  char dir[MAX_STRING_LEN];
+  TEST_ASSERT(stage_fixture(dir, sizeof(dir)) == 0, "should stage a scratch copy of the fixture");
+  {
+    SNAP_FILE(dir, 1, p);
+    TEST_ASSERT(set_i32_element(p, "SnapNum", 0, 0) == 0, "the SnapNum mutation should apply");
+  }
+  TEST_ASSERT(expect_fatal(dir, child_open_run, "'/halos/SnapNum' is 0 at halo 0",
+                           "header snapshot_number is 1") == 1,
+              "the column scan should reject a SnapNum disagreeing with its header");
+  TEST_ASSERT(expect_success(dir, child_open_run_unscanned) == 1,
+              "with validate_columns = 0 the SnapNum scan should be skipped");
+  {
+    SNAP_FILE(dir, 3, p);
+    TEST_ASSERT(set_attr_i64(p, "n_forests_total", FIXTURE_N_FORESTS_TOTAL + 1) == 0,
+                "the header mutation should apply");
+  }
+  TEST_ASSERT(expect_fatal(dir, child_open_run_unscanned, "'n_forests_total' is 3",
+                           "must be identical in every file") == 1,
+              "header checks should still run with validate_columns = 0");
+  remove_staged_fixture(dir);
+
+  TEST_ASSERT(expect_fatal(FIXTURE_DIR, child_open_run_null_options,
+                           "open_run requires HorizontalOpenOptions", NULL) == 1,
+              "the dispatcher should abort on NULL options");
+  TEST_ASSERT(expect_fatal(FIXTURE_DIR, child_open_hook_null_options,
+                           "horizontal_hdf5: open_run requires HorizontalOpenOptions", NULL) == 1,
+              "the reader's hook should abort on NULL options");
+  return TEST_PASS;
+}
+
+/* A reader with every hook but scan_forest_index, to pin that dispatcher's
+   point-of-use check. */
+static const struct HorizontalReader NoScanReader = {
+    .name = "no_scan_test_reader",
+    .processing_order = INPUT_PROCESSING_ORDER_HORIZONTAL,
+    .open_run = NULL,
+    .close_run = NULL,
+    .snapshot_halo_count = NULL,
+    .load_slab = NULL,
+    .release_slab = NULL,
+    .scan_forest_index = NULL,
+};
+
+static void child_scan_missing_hook(const char *dir) {
+  struct forest_scan_record record;
+  (void)dir;
+  horizontal_reader_scan_forest_index(&NoScanReader, 0, record_forest_index, &record);
+}
+
+static void child_scan_null_visitor(const char *dir) {
+  struct HorizontalRunInfo info;
+  configure_for_fixture(dir);
+  horizontal_reader_open_run(reader(), &FULL_SCAN, &info);
+  horizontal_reader_scan_forest_index(reader(), 0, NULL, NULL);
+}
+
+/**
+ * @test  test_scan_forest_index_dispatch_fails_fast
+ * The scan_forest_index dispatcher aborts by name on a reader without the hook
+ * and on a NULL visitor, rather than dereferencing NULL.
+ */
+int test_scan_forest_index_dispatch_fails_fast(void) {
+  TEST_ASSERT(expect_fatal(NULL, child_scan_missing_hook, "no_scan_test_reader",
+                           "'scan_forest_index'") == 1,
+              "a missing scan_forest_index hook should abort naming the hook");
+  REQUIRE_FIXTURE_PACKAGE();
+  TEST_ASSERT(expect_fatal(FIXTURE_DIR, child_scan_null_visitor,
+                           "scan_forest_index requires a visitor", NULL) == 1,
+              "a NULL visitor should abort");
+  return TEST_PASS;
+}
+
 /** @brief Main test runner */
 int main(void) {
   printf("%s", BLUE);
@@ -1763,6 +2167,11 @@ int main(void) {
   TEST_RUN(test_v3_corrupt_links_abort);
   TEST_RUN(test_v3_links_bound_by_named_target);
   TEST_RUN(test_v3_link_diagnostics_are_bounded);
+  TEST_RUN(test_v3_range_reads_match_whole_reads);
+  TEST_RUN(test_v3_load_slab_rejects_bad_ranges);
+  TEST_RUN(test_v3_scan_forest_index_streams_column);
+  TEST_RUN(test_v3_open_without_column_scans);
+  TEST_RUN(test_scan_forest_index_dispatch_fails_fast);
 
   TEST_SUMMARY();
   return TEST_RESULT();
