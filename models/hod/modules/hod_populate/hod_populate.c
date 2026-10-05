@@ -12,7 +12,9 @@
  * direction converted from physical to comoving coordinates, a periodic wrap,
  * and a Gaussian velocity offset. In modules.post_snapshot (process_snapshot,
  * horizontal driver only) it audits the realised population against the
- * analytic expectation and writes nothing.
+ * analytic expectation and writes nothing; its totals, bins and failure
+ * agreement go through the snapshot collectives (snapshot_collectives.h), so a
+ * distributed horizontal run audits the whole snapshot across tasks.
  *
  * Draws come from hod_random.h, keyed by (HODSeed, snapshot number, host
  * UniqueGalaxyID, draw index), so each host's realisation is independent of
@@ -34,6 +36,7 @@
 #include "memory.h"
 #include "module_interface.h"
 #include "module_registry.h"
+#include "snapshot_collectives.h"
 #include "types.h"
 #include "virial.h"
 
@@ -795,6 +798,16 @@ static void log_audit(const struct SnapshotContext *ctx, const struct HodAuditTo
   }
 }
 
+/**
+ * Collectives, in the order every task reaches them on an output snapshot:
+ * module_snapshot_min_max_f64() on the host log-mass extent (before the bin
+ * layout is fixed), module_snapshot_sum_i64() on hosts[] and realised[] and then
+ * on the scalar counts, module_snapshot_sum_f64() on expected[] and then on the
+ * scalar sums, and module_snapshot_any() on the failure flag. A local failure
+ * sets the flag instead of returning, so no call depends on a local count; the
+ * bin layout depends only on the reduced extent, so every task passes the same
+ * `n`.
+ */
 int hod_populate_process_snapshot(const struct SnapshotContext *ctx, const struct Halo *halos,
                                   int64_t count) {
   if (ctx == NULL || !hod_ready) {
@@ -805,37 +818,77 @@ int hod_populate_process_snapshot(const struct SnapshotContext *ctx, const struc
   if (!mimic_is_output_snapshot(ctx->snapshot_number)) {
     return 0;
   }
+
+  int failed = 0;
+  int collective_failed = 0;
   if (count < 0 || (count > 0 && halos == NULL)) {
     ERROR_LOG("%s audit: invalid population (halos=%p, count=%lld)", HOD_MODULE_NAME,
               (const void *)halos, (long long)count);
-    return -1;
+    failed = 1;
   }
+  // A task whose population is unusable still takes part, with nothing to audit.
+  const int64_t local_count = failed ? 0 : count;
 
   struct HodAuditTotals totals;
-  if (audit_scan(halos, count, &totals) != 0) {
-    return -1;
+  if (audit_scan(halos, local_count, &totals) != 0) {
+    failed = 1;
+  }
+
+  // The extent is seeded with +/-HUGE_VAL and folded with fmin/fmax, so it is NaN-free.
+  if (module_snapshot_min_max_f64(ctx, &totals.log_min, &totals.log_max, 1) != 0) {
+    collective_failed = 1;
   }
 
   // <N(M)> realised versus expected in HOD_AUDIT_BIN_DEX bins over the host mass range.
   struct HodAuditBins bins = {0};
-  if (totals.log_max >= totals.log_min) {
+  if (!collective_failed && totals.log_max >= totals.log_min) {
     const double log_lo = floor(totals.log_min / HOD_AUDIT_BIN_DEX) * HOD_AUDIT_BIN_DEX;
     audit_bins_allocate(&bins, (int)floor((totals.log_max - log_lo) / HOD_AUDIT_BIN_DEX) + 1,
                         log_lo);
   }
-  int status = 0;
-  if (totals.realised_all > 0 && bins.count == 0) {
-    ERROR_LOG("%s audit: %lld sample rows but no Type 0 host with a positive mass", HOD_MODULE_NAME,
-              (long long)totals.realised_all);
-    status = -1;
-  } else if (bins.count > 0) {
-    status = fill_audit_bins(halos, count, totals.hosts, &bins);
+  if (!failed) {
+    if (totals.realised_all > 0 && bins.count == 0) {
+      ERROR_LOG("%s audit: %lld sample rows but no Type 0 host with a positive mass",
+                HOD_MODULE_NAME, (long long)totals.realised_all);
+      failed = 1;
+    } else if (bins.count > 0 && fill_audit_bins(halos, local_count, totals.hosts, &bins) != 0) {
+      failed = 1;
+    }
   }
-  if (status == 0) {
-    log_audit(ctx, &totals, &bins);
+
+  // hosts[] and realised[] are one contiguous block of 2 * bins.count counts.
+  int64_t counts[3] = {totals.hosts, totals.realised_all, totals.realised_sat};
+  double sums[2] = {totals.expected_all, totals.expected_sat};
+  // Separate statements, not ||: every call is made even after one has failed.
+  if (module_snapshot_sum_i64(ctx, bins.hosts, 2 * bins.count) != 0) {
+    collective_failed = 1;
+  }
+  if (module_snapshot_sum_i64(ctx, counts, 3) != 0) {
+    collective_failed = 1;
+  }
+  if (module_snapshot_sum_f64(ctx, bins.expected, bins.count) != 0) {
+    collective_failed = 1;
+  }
+  if (module_snapshot_sum_f64(ctx, sums, 2) != 0) {
+    collective_failed = 1;
+  }
+
+  const int any_failed = module_snapshot_any(ctx, failed || collective_failed);
+  if (any_failed == 0) {
+    totals.hosts = counts[0];
+    totals.realised_all = counts[1];
+    totals.realised_sat = counts[2];
+    totals.expected_all = sums[0];
+    totals.expected_sat = sums[1];
+    if (module_snapshot_is_root_task()) {
+      log_audit(ctx, &totals, &bins);
+    }
+  } else if (!failed) {
+    ERROR_LOG("%s audit: snapshot %d (z=%.4f) failed on another task or in a snapshot collective",
+              HOD_MODULE_NAME, ctx->snapshot_number, ctx->redshift);
   }
   audit_bins_release(&bins);
-  return status;
+  return any_failed == 0 ? 0 : -1;
 }
 
 int hod_populate_cleanup(void) {

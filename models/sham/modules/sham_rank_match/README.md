@@ -8,7 +8,8 @@ Subhalo abundance matching against a calibrated target: at each output snapshot 
 - `process_full_halo` must be configured exactly once, in `modules.pre_timestep`, and in no other FoF phase: its retirement of carried Type 2 rows must precede every other module, and a second entry would repeat the reset.
 - `process_snapshot` must be configured in `modules.post_snapshot`. That phase runs only under the horizontal driver, once per snapshot after every FoF group is processed, so the model is horizontal-only.
 - The FoF callback validates every row (Type in `[0, 3]`, a galaxy on every row of Type 0-2, finite nonnegative `Vmax`, `Mvir` and peaks, a storable mass peak) before its first write, so a failed FoF step leaves the workspace untouched. It never allocates.
-- The snapshot callback receives the borrowed population and never reorders or resizes it: ranking sorts module-owned scratch (one 32-byte record per entry, `MEM_UTILITY`), released before the callback returns on every path. All validation and every inversion run before the first write, so a failed snapshot assigns nothing. It retains no pointer and never indexes by `CentralHalo`.
+- The snapshot callback receives the borrowed population and never reorders or resizes it: ranking sorts module-owned scratch (one 40-byte record per entry, plus a 16-byte rank key and an 8-byte rank per candidate, `MEM_UTILITY`), released before the callback returns on every path. All validation and every inversion run before the first write, so a failed snapshot assigns nothing. It retains no pointer and never indexes by `CentralHalo`.
+- `module_info.yaml` declares `snapshot_distribution: collective`. The global rank goes through `module_snapshot_rank()` on the keys `{(double)ShamVpeak, UniqueGalaxyID}` (the widening is exact, so the order is the module's), the audit counts through `module_snapshot_sum_i64()`, and every task's failure flag through `module_snapshot_any()` before any write, so no task writes when any task failed; the audit line is logged by the root task. Every task reaches these three collectives in that order on each output snapshot, including a task with no candidates, so a distributed horizontal run (each task holding only its own forests' rows) assigns exactly the masses of a single-process run. The duplicate-`UniqueGalaxyID` check stays local: forests are disjoint, so ids are unique across tasks by construction.
 
 ## Phases and Lifecycle
 
@@ -21,9 +22,9 @@ Per FoF step (`pre_timestep`, every processed snapshot), on every row in this or
 Per snapshot (`post_snapshot`), on output snapshots only (non-output snapshots return 0 without ranking or logging):
 
 1. Every entry must be Type 0 or 1 (the FoF callback retired every Type 2 before marshal, so a Type 2 or 3 entry means it did not run), carry a galaxy and a positive `UniqueGalaxyID` that is unique in the snapshot (checked in an ID-sorted scratch pass), and have finite nonnegative peaks. Any violation fails the snapshot with the `UniqueGalaxyID` and value.
-2. Candidates are the entries with `ShamVpeak >= ShamMinVpeak`, sorted by descending `ShamVpeak`, exact ties by ascending `UniqueGalaxyID`. Zero-based rank `r` has the physical rank density `n_r = (r + 0.5) / BoxSize^3 * h_sim^3` in `Mpc^-3`.
+2. Candidates are the entries with `ShamVpeak >= ShamMinVpeak`, ranked across the whole snapshot (every task's candidates) by descending `ShamVpeak`, exact ties by ascending `UniqueGalaxyID`. Zero-based rank `r` has the physical rank density `n_r = (r + 0.5) / BoxSize^3 * h_sim^3` in `Mpc^-3`.
 3. If `n_r > n(>10^ShamTargetLogMassFloor)` the candidate and every lower rank are masked (`ShamGhost = 1`, `StellarMass = 0`). Otherwise `StellarMass = n^-1(n_r) * h_sim / 1e10` (internal `1e10 Msun/h`) and `ShamGhost = 0`. Entries below `ShamMinVpeak` are not written and keep the FoF callback's reset.
-4. One line at INFO: `SHAM audit z=<z> candidates=<n> assigned=<a> masked=<m>`.
+4. One line at INFO from the root task, with whole-snapshot counts: `SHAM audit z=<z> candidates=<n> assigned=<a> masked=<m>`.
 
 ## Prescription
 

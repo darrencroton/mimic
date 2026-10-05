@@ -7,6 +7,10 @@ module:
 
   supported_processing_modes: [process_full_halo, process_snapshot]
 
+  # The snapshot callback reaches every whole-population quantity through
+  # src/core/snapshot_collectives.h, so it may run across MPI tasks.
+  snapshot_distribution: collective
+
   # hod_populate.c is implicit; the header is documentary and declares the occupation, placement
   # and draw helpers the unit tests call directly.
   additional_files:

@@ -12,7 +12,10 @@
  * ascending UniqueGalaxyID) and gives zero-based rank r the stellar mass at
  * which the target's cumulative stellar mass function equals the rank density
  * (r + 0.5) / BoxSize^3 * h^3, masking every rank whose density lies above the
- * target's density at its mass floor.
+ * target's density at its mass floor. The rank, the audit totals and the
+ * failure agreement go through the snapshot collectives (snapshot_collectives.h),
+ * so under a distributed horizontal run each task ranks its own rows within the
+ * whole snapshot.
  *
  * The target is the Baldry et al. (2012) double Schechter form, published at
  * h_obs and converted once at init to the simulation's h (M ~ h^-2, n ~ h^3);
@@ -37,6 +40,7 @@
 #include "memory.h"
 #include "module_interface.h"
 #include "module_registry.h"
+#include "snapshot_collectives.h"
 #include "types.h"
 
 #include "module_system/parameter_helpers.h"
@@ -66,12 +70,14 @@ static bool sham_ready = false;
  * @brief One snapshot population entry in rank scratch
  *
  * Scratch is the only thing ever sorted: the borrowed population keeps its
- * order. index is the entry's position in that population; mass is the
- * candidate's internal stellar mass when assigned is SHAM_RANK_ASSIGNED.
+ * order. index is the entry's position in that population; rank is the
+ * candidate's global rank from module_snapshot_rank() (-1 until ranked); mass is
+ * the candidate's internal stellar mass when assigned is SHAM_RANK_ASSIGNED.
  */
 struct ShamRankRecord {
   long long id;
   int64_t index;
+  int64_t rank;
   float vpeak;
   float mass;
   int assigned;
@@ -556,17 +562,11 @@ static int compare_by_id(const void *a, const void *b) {
   return (id_a > id_b) - (id_a < id_b);
 }
 
-/** Rank order: descending ShamVpeak, then ascending UniqueGalaxyID for exact ties */
-static int compare_by_rank(const void *a, const void *b) {
-  const struct ShamRankRecord *rec_a = a;
-  const struct ShamRankRecord *rec_b = b;
-  if (rec_a->vpeak > rec_b->vpeak) {
-    return -1;
-  }
-  if (rec_a->vpeak < rec_b->vpeak) {
-    return 1;
-  }
-  return (rec_a->id > rec_b->id) - (rec_a->id < rec_b->id);
+/** Local order of ranked candidates: ascending global rank (ranks are unique) */
+static int compare_by_global_rank(const void *a, const void *b) {
+  const int64_t rank_a = ((const struct ShamRankRecord *)a)->rank;
+  const int64_t rank_b = ((const struct ShamRankRecord *)b)->rank;
+  return (rank_a > rank_b) - (rank_a < rank_b);
 }
 
 /** @brief Validate one snapshot entry: the contract the pre_timestep callback establishes */
@@ -600,20 +600,21 @@ static int validate_entry(const struct Halo *h, int64_t index) {
 }
 
 /**
- * @brief Validate, rank and price every candidate into scratch, writing nothing
+ * @brief Validate the local population and compact its candidates into scratch
  *
- * On success records[0, *num_candidates) hold the candidates in rank order
- * with their outcomes; *num_assigned of them, the leading ones, are assigned.
+ * The duplicate-id check covers this task's whole population, as the rank's
+ * cross-task id uniqueness is guaranteed by disjoint forests. On success
+ * records[0, *num_candidates) hold the candidates (ShamVpeak >= ShamMinVpeak).
  */
-static int rank_into_scratch(const struct Halo *halos, int64_t count,
-                             struct ShamRankRecord *records, int64_t *num_candidates,
-                             int64_t *num_assigned) {
+static int collect_candidates(const struct Halo *halos, int64_t count,
+                              struct ShamRankRecord *records, int64_t *num_candidates) {
   for (int64_t i = 0; i < count; i++) {
     if (validate_entry(&halos[i], i) != 0) {
       return -1;
     }
     records[i].id = halos[i].UniqueGalaxyID;
     records[i].index = i;
+    records[i].rank = -1;
     records[i].vpeak = halos[i].galaxy->ShamVpeak;
     records[i].mass = 0.0f;
     records[i].assigned = SHAM_RANK_MASKED;
@@ -629,18 +630,65 @@ static int rank_into_scratch(const struct Halo *halos, int64_t count,
     }
   }
 
-  // Compact the candidates to the front, then order them by rank.
   int64_t candidates = 0;
   for (int64_t i = 0; i < count; i++) {
     if ((double)records[i].vpeak >= sham_params.min_vpeak) {
       records[candidates++] = records[i];
     }
   }
-  qsort(records, (size_t)candidates, sizeof(*records), compare_by_rank);
+  *num_candidates = candidates;
+  return 0;
+}
 
-  // Rank densities rise with rank, so the first masked rank masks every lower one.
+/**
+ * @brief Give each candidate its global rank through module_snapshot_rank()
+ *
+ * Keys are {(double)ShamVpeak, UniqueGalaxyID}: the float-to-double widening
+ * is exact, so the collective's order (descending value, ascending id) is the
+ * module's rank order. Every task calls the collective, with no keys when it
+ * holds no candidates. On success the candidates are sorted by rank.
+ */
+static int rank_candidates(const struct SnapshotContext *ctx, struct ShamRankRecord *records,
+                           int64_t candidates) {
+  struct SnapshotRankKey *keys = NULL;
+  int64_t *ranks = NULL;
+  if (candidates > 0) {
+    keys = mymalloc_cat((size_t)candidates * sizeof(*keys), MEM_UTILITY);
+    ranks = mymalloc_cat((size_t)candidates * sizeof(*ranks), MEM_UTILITY);
+    for (int64_t k = 0; k < candidates; k++) {
+      keys[k].value = (double)records[k].vpeak;
+      keys[k].id = records[k].id;
+    }
+  }
+  const int status = module_snapshot_rank(ctx, keys, candidates, ranks);
+  if (status == 0) {
+    for (int64_t k = 0; k < candidates; k++) {
+      records[k].rank = ranks[k];
+    }
+    qsort(records, (size_t)candidates, sizeof(*records), compare_by_global_rank);
+  } else {
+    ERROR_LOG("%s: the global rank of %lld local candidates failed", SHAM_MODULE_NAME,
+              (long long)candidates);
+  }
+  if (keys != NULL) {
+    myfree(ranks);
+    myfree(keys);
+  }
+  return status;
+}
+
+/**
+ * @brief Price the rank-ordered candidates into scratch, writing nothing
+ *
+ * On success the leading *num_assigned candidates are assigned and the rest
+ * masked. Rank densities rise with the global rank, so the first masked
+ * candidate masks every later one on this task.
+ */
+static int price_candidates(struct ShamRankRecord *records, int64_t candidates,
+                            int64_t *num_assigned) {
   int64_t assigned = 0;
-  for (int64_t rank = 0; rank < candidates; rank++) {
+  for (int64_t k = 0; k < candidates; k++) {
+    const int64_t rank = records[k].rank;
     const double density =
         sham_rank_match_rank_density(rank, sham_box_size, sham_target.hubble_sim);
     double mass_phys = 0.0;
@@ -652,8 +700,8 @@ static int rank_into_scratch(const struct Halo *halos, int64_t count,
     if (outcome != SHAM_RANK_ASSIGNED || !isfinite(mass_internal) || !(mass_internal > 0.0)) {
       ERROR_LOG("%s: rank %lld (UniqueGalaxyID %lld, ShamVpeak %g) at density %.10g Mpc^-3 has "
                 "no representable stellar mass in the target table (n(>M) spans [%.10g, %.10g])",
-                SHAM_MODULE_NAME, (long long)rank, records[rank].id, (double)records[rank].vpeak,
-                density, sham_target.density[sham_target.num_points - 2], sham_target.density[0]);
+                SHAM_MODULE_NAME, (long long)rank, records[k].id, (double)records[k].vpeak, density,
+                sham_target.density[sham_target.num_points - 2], sham_target.density[0]);
       return -1;
     }
     // Bound the double before narrowing: an out-of-range conversion to float is undefined.
@@ -661,20 +709,53 @@ static int rank_into_scratch(const struct Halo *halos, int64_t count,
     if (!(mass > 0.0f)) {
       ERROR_LOG("%s: rank %lld (UniqueGalaxyID %lld, ShamVpeak %g) has stellar mass %.10g "
                 "(1e10 Msun/h) outside the float StellarMass range (0, %.9g]",
-                SHAM_MODULE_NAME, (long long)rank, records[rank].id, (double)records[rank].vpeak,
+                SHAM_MODULE_NAME, (long long)rank, records[k].id, (double)records[k].vpeak,
                 mass_internal, (double)FLT_MAX);
       return -1;
     }
-    records[rank].mass = mass;
-    records[rank].assigned = SHAM_RANK_ASSIGNED;
+    records[k].mass = mass;
+    records[k].assigned = SHAM_RANK_ASSIGNED;
     assigned++;
   }
-
-  *num_candidates = candidates;
   *num_assigned = assigned;
   return 0;
 }
 
+/**
+ * @brief Validate, rank and price this task's candidates into scratch, writing nothing
+ *
+ * Reaches module_snapshot_rank() on every task whatever its local state: a task
+ * whose population failed validation ranks no keys and reports the failure.
+ * On success records[0, *num_candidates) hold the candidates in rank order with
+ * their outcomes; *num_assigned of them, the leading ones, are assigned.
+ */
+static int rank_into_scratch(const struct SnapshotContext *ctx, const struct Halo *halos,
+                             int64_t count, struct ShamRankRecord *records, int64_t *num_candidates,
+                             int64_t *num_assigned) {
+  int failed = 0;
+  int64_t candidates = 0;
+  if (count > 0 && collect_candidates(halos, count, records, &candidates) != 0) {
+    failed = 1;
+    candidates = 0;
+  }
+  if (rank_candidates(ctx, records, candidates) != 0) {
+    failed = 1;
+  }
+  int64_t assigned = 0;
+  if (!failed && price_candidates(records, candidates, &assigned) != 0) {
+    failed = 1;
+  }
+  *num_candidates = candidates;
+  *num_assigned = assigned;
+  return failed ? -1 : 0;
+}
+
+/**
+ * Collectives, in the order every task reaches them on an output snapshot:
+ * module_snapshot_rank() (in rank_into_scratch()), module_snapshot_sum_i64()
+ * on the audit counts, module_snapshot_any() on the failure flag. None depends
+ * on a local count; a task writes only after every task has agreed success.
+ */
 int sham_rank_match_process_snapshot(const struct SnapshotContext *ctx, const struct Halo *halos,
                                      int64_t count) {
   if (ctx == NULL || !sham_ready) {
@@ -685,45 +766,63 @@ int sham_rank_match_process_snapshot(const struct SnapshotContext *ctx, const st
   if (!mimic_is_output_snapshot(ctx->snapshot_number)) {
     return 0;
   }
+
+  int failed = 0;
   if (count < 0 || (count > 0 && halos == NULL)) {
     ERROR_LOG("%s: invalid population (halos=%p, count=%lld)", SHAM_MODULE_NAME,
               (const void *)halos, (long long)count);
-    return -1;
-  }
-  if ((uint64_t)count > SIZE_MAX / sizeof(struct ShamRankRecord)) {
+    failed = 1;
+  } else if ((uint64_t)count > SIZE_MAX / sizeof(struct ShamRankRecord)) {
     ERROR_LOG("%s: population of %lld entries exceeds the addressable scratch size",
               SHAM_MODULE_NAME, (long long)count);
+    failed = 1;
+  }
+  // A task whose population is unusable still takes part, with nothing to rank.
+  const int64_t local_count = failed ? 0 : count;
+
+  struct ShamRankRecord *records = NULL;
+  if (local_count > 0) {
+    records = mymalloc_cat((size_t)local_count * sizeof(struct ShamRankRecord), MEM_UTILITY);
+  }
+  int64_t candidates = 0;
+  int64_t assigned = 0;
+  if (rank_into_scratch(ctx, halos, local_count, records, &candidates, &assigned) != 0) {
+    failed = 1;
+  }
+
+  int64_t audit[2] = {candidates, assigned};
+  if (module_snapshot_sum_i64(ctx, audit, 2) != 0) {
+    failed = 1;
+  }
+
+  // No task writes unless every task succeeded.
+  if (module_snapshot_any(ctx, failed) != 0) {
+    if (records != NULL) {
+      myfree(records);
+    }
+    ERROR_LOG("%s: snapshot %d (z=%.4f, %lld entries) failed; no stellar mass is assigned for it",
+              SHAM_MODULE_NAME, ctx->snapshot_number, ctx->redshift, (long long)count);
     return -1;
   }
 
-  int64_t candidates = 0;
-  int64_t assigned = 0;
-  if (count > 0) {
-    struct ShamRankRecord *records =
-        mymalloc_cat((size_t)count * sizeof(struct ShamRankRecord), MEM_UTILITY);
-    if (rank_into_scratch(halos, count, records, &candidates, &assigned) != 0) {
-      myfree(records);
-      ERROR_LOG("%s: snapshot %d (z=%.4f, %lld entries) failed; no stellar mass is assigned for "
-                "it",
-                SHAM_MODULE_NAME, ctx->snapshot_number, ctx->redshift, (long long)count);
-      return -1;
+  for (int64_t k = 0; k < candidates; k++) {
+    struct GalaxyData *gal = halos[records[k].index].galaxy;
+    if (records[k].assigned == SHAM_RANK_ASSIGNED) {
+      gal->StellarMass = records[k].mass;
+      gal->ShamGhost = 0;
+    } else {
+      gal->StellarMass = 0.0f;
+      gal->ShamGhost = 1;
     }
-    // Every candidate passed: only now write.
-    for (int64_t k = 0; k < candidates; k++) {
-      struct GalaxyData *gal = halos[records[k].index].galaxy;
-      if (records[k].assigned == SHAM_RANK_ASSIGNED) {
-        gal->StellarMass = records[k].mass;
-        gal->ShamGhost = 0;
-      } else {
-        gal->StellarMass = 0.0f;
-        gal->ShamGhost = 1;
-      }
-    }
+  }
+  if (records != NULL) {
     myfree(records);
   }
 
-  INFO_LOG("SHAM audit z=%.4f candidates=%lld assigned=%lld masked=%lld", ctx->redshift,
-           (long long)candidates, (long long)assigned, (long long)(candidates - assigned));
+  if (module_snapshot_is_root_task()) {
+    INFO_LOG("SHAM audit z=%.4f candidates=%lld assigned=%lld masked=%lld", ctx->redshift,
+             (long long)audit[0], (long long)audit[1], (long long)(audit[0] - audit[1]));
+  }
   return 0;
 }
 

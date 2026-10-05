@@ -36,7 +36,7 @@ Per snapshot (`post_snapshot`, output snapshots only): the audit below. Non-outp
 
 ## Audit
 
-On each output snapshot the snapshot callback reads the whole population (never writing) and logs at INFO:
+On each output snapshot the snapshot callback reads the whole population (never writing) and the root task logs at INFO:
 
 ```text
 HOD audit z=<z> hosts=<n> n_gal expected=<x> realised=<y> f_sat expected=<a> realised=<b>
@@ -52,6 +52,8 @@ HOD audit bin z=<z> log10M=[<lo>, <hi>) hosts=<n> <N> expected=<x> realised=<y>
 ```
 
 where `<N>` is the mean total occupation per host: every sample row is attributed to the bin of the Type 0 row whose `UniqueGalaxyID` is its `UniqueCentralGalaxyID` (core sets that to the Type 0 row's own ID for the central), so a present central counts in its own bin and a satellite in its host's. A sample row that is neither a Type 0 central nor a Type 2 satellite, or has no such host, fails the audit. Scratch (the bins in one block and an ID-sorted host table, `MEM_UTILITY`) is released before the callback returns.
+
+`module_info.yaml` declares `snapshot_distribution: collective`: the audit reaches every whole-population quantity through the snapshot collectives, so a distributed horizontal run (each task holding only its own forests' rows) audits the whole snapshot. A local validation failure (a malformed row, sample rows with no positive-mass host, an unattributable sample row) sets a flag instead of returning, and every task then reaches, in this order, `module_snapshot_min_max_f64()` on the host log-mass extent (so the bin layout is the same on every task), `module_snapshot_sum_i64()` on the per-bin host and realised counts and on the scalar counts, `module_snapshot_sum_f64()` on the per-bin expected sums and on the scalar expected sums, and `module_snapshot_any()` on the failure flag; the root task writes the log. A sample row's host is in its own forest, so attribution stays local. The integer counts are exact; the double sums are reduction-order dependent, so under several tasks the expected densities, fractions and per-bin `<N>` may differ from a single-process run in the last bits (a single-process run is unchanged).
 
 ## Properties
 

@@ -56,7 +56,7 @@ Every row that exists stays in output, so the rank never drops a row (rows core 
 | `ShamVpeak` | km/s | Peak `Vmax` along the branch (the ranking proxy) |
 | `ShamMpeak` | `1e10 Msun/h` | Peak `Mvir` along the branch |
 
-Each output snapshot logs one INFO line, `SHAM audit z=<z> candidates=<n> assigned=<a> masked=<m>`, so the completeness of the ranked population is read from the run rather than assumed.
+Each output snapshot logs one INFO line, `SHAM audit z=<z> candidates=<n> assigned=<a> masked=<m>`, so the completeness of the ranked population is read from the run rather than assumed. The module declares `snapshot_distribution: collective`: the rank, the audit counts and the failure agreement go through the snapshot collectives, so under several MPI tasks the rank is still taken over the whole snapshot, the masses are those of a single-process run, and the audit line (logged by the root task) carries whole-snapshot counts.
 
 ## Parameters
 
