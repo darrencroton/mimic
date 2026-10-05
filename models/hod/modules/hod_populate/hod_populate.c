@@ -725,7 +725,8 @@ static int audit_scan(const struct Halo *halos, int64_t count, struct HodAuditTo
  * through its UniqueCentralGalaxyID (core sets it to the Type 0 row's own
  * UniqueGalaxyID for the central), looked up in an ID-sorted scratch table of
  * the Type 0 rows. A sample row with no such host breaks the module's own
- * contract and fails the audit.
+ * contract and fails the audit. The table holds @p hosts entries; meeting more
+ * Type 0 rows than that fails the audit rather than writing past it.
  */
 static int fill_audit_bins(const struct Halo *halos, int64_t count, int64_t hosts,
                            struct HodAuditBins *bins) {
@@ -735,6 +736,12 @@ static int fill_audit_bins(const struct Halo *halos, int64_t count, int64_t host
   for (int64_t i = 0; i < count; i++) {
     if (halos[i].Type != 0) {
       continue;
+    }
+    if (n >= hosts) {
+      ERROR_LOG("%s audit: more Type 0 rows than the %lld the host table was sized for",
+                HOD_MODULE_NAME, (long long)hosts);
+      myfree(table);
+      return -1;
     }
     const double mass = halos[i].Mvir * HOD_MASS_UNIT_MSUN;
     const int bin = audit_bin(bins, mass);
@@ -846,7 +853,8 @@ int hod_populate_process_snapshot(const struct SnapshotContext *ctx, const struc
     audit_bins_allocate(&bins, (int)floor((totals.log_max - log_lo) / HOD_AUDIT_BIN_DEX) + 1,
                         log_lo);
   }
-  if (!failed) {
+  // After a failed extent collective the layout is empty on every task; it is reported below.
+  if (!failed && !collective_failed) {
     if (totals.realised_all > 0 && bins.count == 0) {
       ERROR_LOG("%s audit: %lld sample rows but no Type 0 host with a positive mass",
                 HOD_MODULE_NAME, (long long)totals.realised_all);

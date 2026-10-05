@@ -665,7 +665,10 @@ static int rank_candidates(const struct SnapshotContext *ctx, struct ShamRankRec
     for (int64_t k = 0; k < candidates; k++) {
       records[k].rank = ranks[k];
     }
-    qsort(records, (size_t)candidates, sizeof(*records), compare_by_global_rank);
+    // qsort with a NULL base is undefined even for zero elements; one record is already sorted.
+    if (candidates > 1) {
+      qsort(records, (size_t)candidates, sizeof(*records), compare_by_global_rank);
+    }
   } else {
     ERROR_LOG("%s: the global rank of %lld local candidates failed", SHAM_MODULE_NAME,
               (long long)candidates);
@@ -728,10 +731,14 @@ static int price_candidates(struct ShamRankRecord *records, int64_t candidates,
  * whose population failed validation ranks no keys and reports the failure.
  * On success records[0, *num_candidates) hold the candidates in rank order with
  * their outcomes; *num_assigned of them, the leading ones, are assigned.
+ *
+ * Returns -1 when this task's own population failed (validation or pricing)
+ * and 0 otherwise; a failed rank collective, which every task sees alike, sets
+ * *collective_failed instead.
  */
 static int rank_into_scratch(const struct SnapshotContext *ctx, const struct Halo *halos,
                              int64_t count, struct ShamRankRecord *records, int64_t *num_candidates,
-                             int64_t *num_assigned) {
+                             int64_t *num_assigned, int *collective_failed) {
   int failed = 0;
   int64_t candidates = 0;
   if (count > 0 && collect_candidates(halos, count, records, &candidates) != 0) {
@@ -739,10 +746,10 @@ static int rank_into_scratch(const struct SnapshotContext *ctx, const struct Hal
     candidates = 0;
   }
   if (rank_candidates(ctx, records, candidates) != 0) {
-    failed = 1;
+    *collective_failed = 1;
   }
   int64_t assigned = 0;
-  if (!failed && price_candidates(records, candidates, &assigned) != 0) {
+  if (!failed && !*collective_failed && price_candidates(records, candidates, &assigned) != 0) {
     failed = 1;
   }
   *num_candidates = candidates;
@@ -786,22 +793,31 @@ int sham_rank_match_process_snapshot(const struct SnapshotContext *ctx, const st
   }
   int64_t candidates = 0;
   int64_t assigned = 0;
-  if (rank_into_scratch(ctx, halos, local_count, records, &candidates, &assigned) != 0) {
+  int collective_failed = 0;
+  if (rank_into_scratch(ctx, halos, local_count, records, &candidates, &assigned,
+                        &collective_failed) != 0) {
     failed = 1;
   }
 
   int64_t audit[2] = {candidates, assigned};
   if (module_snapshot_sum_i64(ctx, audit, 2) != 0) {
-    failed = 1;
+    collective_failed = 1;
   }
 
   // No task writes unless every task succeeded.
-  if (module_snapshot_any(ctx, failed) != 0) {
+  if (module_snapshot_any(ctx, failed || collective_failed) != 0) {
     if (records != NULL) {
       myfree(records);
     }
-    ERROR_LOG("%s: snapshot %d (z=%.4f, %lld entries) failed; no stellar mass is assigned for it",
-              SHAM_MODULE_NAME, ctx->snapshot_number, ctx->redshift, (long long)count);
+    if (failed) {
+      ERROR_LOG("%s: snapshot %d (z=%.4f, %lld entries) failed; no stellar mass is assigned for "
+                "it",
+                SHAM_MODULE_NAME, ctx->snapshot_number, ctx->redshift, (long long)count);
+    } else {
+      ERROR_LOG("%s: snapshot %d (z=%.4f) failed on another task or in a snapshot collective; no "
+                "stellar mass is assigned for it",
+                SHAM_MODULE_NAME, ctx->snapshot_number, ctx->redshift);
+    }
     return -1;
   }
 
