@@ -1,6 +1,6 @@
 # Mimic Shin-Uchuu Version 3 Plan: the ASCII route, the super-forest and retiring version 2
 
-**Status:** Requirements brief, staged (2026-10-06). Not scheduled; no implementation plan exists yet. Four stages in a fixed order, with one measured decision gate (Stage B) whose outcome decides the shape of the two stages after it. Stage A and Stage B are specified well enough here to be promoted to implementation plans now; Stages C and D are stated as scope with their preconditions, to be frozen only once Stage B has reported. Independent of [chunked slab streaming](MIMIC-CHUNKED-SLAB-STREAMING-IMPLEMENTATION-PLAN.md), which runs first as the current focus; nothing here waits on it, and Stage A can run beside it.
+**Status:** Requirements brief, staged (2026-10-06). Not scheduled; no implementation plan exists yet. Four stages in a fixed order, with one measured decision gate (Stage B) whose outcome decides the shape of the two stages after it. Stage A and Stage B are specified well enough here to be promoted to implementation plans now; Stages C and D are stated as scope with their preconditions, to be frozen only once Stage B has reported. Independent of chunked slab streaming (implemented and merged 2026-10-07; its plan is archived and its evidence is [`MIMIC-CHUNKED-SLAB-STREAMING-ACCEPTANCE.md`](MIMIC-CHUNKED-SLAB-STREAMING-ACCEPTANCE.md)); nothing here waited on it, and Stage A can run now.
 
 **Date:** 2026-10-06
 
