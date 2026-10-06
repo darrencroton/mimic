@@ -861,7 +861,7 @@ HV3_MODEL := halos-only
 HV3_SIMULATION := mini-millennium-horizontal
 HV3_LOG := build/horizontal_v3_tests.log
 HV3_UNIT_TESTS := test_horizontal_v3_reader test_horizontal_retention_budget test_unit_horizontal_retention test_unit_horizontal_identity
-HV3_PY_TESTS := simulations/$(HV3_SIMULATION)/_tests/integration/test_gap_retention.py simulations/$(HV3_SIMULATION)/_tests/integration/test_schema_conformance.py
+HV3_PY_TESTS := simulations/$(HV3_SIMULATION)/_tests/integration/test_gap_retention.py simulations/$(HV3_SIMULATION)/_tests/integration/test_schema_conformance.py simulations/$(HV3_SIMULATION)/_tests/integration/test_chunked_sweep.py
 
 tests-horizontal-v3:
 	$(MAKE) MODEL=$(HV3_MODEL) SIMULATION=$(HV3_SIMULATION) TEST_BUILD=yes generate validate-build $(EXEC) \

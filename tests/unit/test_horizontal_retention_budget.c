@@ -406,6 +406,7 @@ static void configure_child(const struct HorizontalReader *reader, int64_t ceili
   MimicConfig.OverwriteOutputFiles = 1;
   MimicConfig.NOUT = 0;
   MimicConfig.RetentionMemoryCeiling = ceiling;
+  MimicConfig.ForestChunks = 1;
   MimicConfig.UniqueGalaxyIDMultiplier = (int64_t)TREE_MUL_FAC;
   MimicConfig.Omega = 0.25;
   MimicConfig.OmegaLambda = 0.75;
@@ -664,9 +665,9 @@ int test_wide_slab_is_sized_before_load(void) {
   TEST_ASSERT(!log_contains(&result, "FATAL"), "An unbounded wide slab should not abort");
   TEST_ASSERT(log_contains(&result, "Snapshot 0 holds 3000000000 halos, above "
                                     "MAX_HALO_ARRAY_SIZE (1000000000)") &&
-                  log_contains(&result, "chunked slab streaming"),
+                  log_contains(&result, "raise input.forest_chunks"),
               "A slab above MAX_HALO_ARRAY_SIZE should be warned about, naming the bound and "
-              "the missing chunked slab streaming");
+              "input.forest_chunks as the lever");
   printf("  %" PRId64 "-row version 3 slab: %" PRId64 " B reported before load\n", WIDE_SLAB_ROWS,
          bytes);
   print_log_line(&result, "Snapshot 0 generation needs ");
@@ -698,9 +699,10 @@ int test_wide_output_snapshot_is_refused_before_load(void) {
                                     "snapshot") &&
                   log_contains(&result, "caps a snapshot's record count at INT_MAX") &&
                   log_contains(&result, "Refused before allocation") &&
-                  log_contains(&result, "chunked slab streaming"),
+                  log_contains(&result, "neither input.forest_chunks nor distribution over MPI "
+                                        "tasks lifts it"),
               "The refusal should name the snapshot, the count, the INT_MAX record cap and "
-              "the missing chunked slab streaming");
+              "that neither chunking nor distribution lifts it");
   TEST_ASSERT(count_output_entries() == entries_before,
               "No output file should be created before the refusal");
   print_log_line(&result, "requested output snapshot");
@@ -753,9 +755,8 @@ int test_ceiling_refuses_retention_just_above(void) {
     snprintf(needle, sizeof(needle), "input.retention_memory_ceiling_mb ceiling of %" PRId64 " B",
              ceiling);
     TEST_ASSERT(log_contains(&result, needle), "The refusal should name the ceiling and its key");
-    TEST_ASSERT(log_contains(&result, "needs chunked slab streaming, a capability Mimic does "
-                                      "not implement"),
-                "The refusal should name chunked slab streaming as the missing capability");
+    TEST_ASSERT(log_contains(&result, "to hold it within the ceiling, raise input.forest_chunks"),
+                "The refusal should name input.forest_chunks as the lever");
     printf("  %" PRId64 " rows at a ceiling of %" PRId64 " B: refused before load\n", rows[i],
            ceiling);
     print_log_line(&result, "Snapshot 0 needs ");
@@ -854,8 +855,8 @@ int test_unrepresentable_slab_is_refused(void) {
     TEST_ASSERT(log_contains(&result, "too many for its generation's resident size to be "
                                       "counted in 64-bit bytes"),
                 "The refusal should say the size cannot be counted");
-    TEST_ASSERT(log_contains(&result, "chunked slab streaming"),
-                "The refusal should name chunked slab streaming as the missing capability");
+    TEST_ASSERT(log_contains(&result, "raise input.forest_chunks"),
+                "The refusal should name input.forest_chunks as the lever");
   }
   printf("  INT64_MAX rows: refused before load, never wrapped\n");
   return TEST_PASS;

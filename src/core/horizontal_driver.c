@@ -309,15 +309,22 @@ struct HorizontalDriverState {
 
   /* Created-record identity space: rows_per_unit and fits are evaluated once at
    * open over the whole run, and unit is the snapshot being processed (-1 before
-   * the first), with row_offset the first row of this task's range in it (0 for a
-   * serial run). */
+   * the first), with row_offset the first row in it of the range being swept (0
+   * for an unpartitioned run). */
   struct RecordIdentitySpace identity;
 
-  /* The forest-block partition of a distributed run (NTask > 1 in an MPI build),
-   * identical on every task after the startup broadcast, and this task's rank in
-   * it. NULL for a serial run, which loads whole slabs and never rebases. */
+  /* The forest-block partition of a distributed run (NTask > 1 in an MPI build)
+   * or a chunked one (input.forest_chunks > 1, on any number of tasks), identical
+   * on every task after the startup broadcast, and this task's rank in it. NULL
+   * for an unpartitioned run -- one task, one chunk -- which loads whole slabs and
+   * never rebases. `nchunk` is the partition's chunk count (1 without one), and
+   * `range` the range being swept, task * nchunk + chunk: every table lookup of
+   * the sweep and its diagnostics goes through it, never through `task`. */
   struct HorizontalForestPartition *partition;
   int task;
+  int nchunk;
+  int range;
+  int64_t widest_snapshot; /* the slab the partition is weighted by (chunk log lines) */
 };
 
 /* ------------------------------------------------------------------------- */
@@ -350,15 +357,15 @@ horizontal_ensure_segment_scratch(struct HorizontalDriverState *state, int64_t r
 /* ------------------------------------------------------------------------- */
 
 /*
- * The diagnostics below take the partition of a distributed run and this task's
- * range in it (NULL and 0 in a serial run; the range is the task's own index while
- * every task holds one chunk) and read them only to word messages: a
- * message that names a row or a count of a distributed run says it is a global
- * row, or this task's share of the snapshot, while a serial run's messages keep
- * exactly their serial bytes (every note below is empty and every row is its own
- * global row there). The progenitor lookup carries the pair in its
- * HorizontalGatherContext (types.h), zero-initialised wherever a test builds one;
- * the driver's own diagnostics pass its state's.
+ * The diagnostics below take the partition of a distributed or chunked run and
+ * the range being swept (NULL and 0 in an unpartitioned run; the range is the
+ * task's own index while every task holds one chunk) and read them only to word
+ * messages: a message that names a row or a count of a partitioned run says it
+ * is a global row, or this task's (chunk's) share of the snapshot, while an
+ * unpartitioned run's messages keep exactly their serial bytes (every note below
+ * is empty and every row is its own global row there). The progenitor lookup
+ * carries the pair in its HorizontalGatherContext (types.h), zero-initialised
+ * wherever a test builds one; the driver's own diagnostics pass its state's.
  */
 
 /* The snapshot (global) row of row `halonr` of this task's slab of `snapnum`:
@@ -372,10 +379,10 @@ static int64_t horizontal_global_row(const struct HorizontalForestPartition *par
   return partition->row_cuts[snapnum * ((int64_t)nranges + 1) + range] + halonr;
 }
 
-/* A count's qualifier in a message: empty in a serial run, else which rows of
- * the snapshot this task holds. */
+/* A count's qualifier in a message: empty in an unpartitioned run, else which
+ * rows of the snapshot this task holds, naming the chunk when it sweeps several. */
 struct HorizontalRowNote {
-  char text[128];
+  char text[160];
 };
 
 static struct HorizontalRowNote
@@ -385,9 +392,17 @@ horizontal_task_rows_note(const struct HorizontalForestPartition *partition, int
   if (partition != NULL && snapnum >= 0 && snapnum < partition->snapshot_count) {
     const int nranges = horizontal_partition_range_count(partition);
     const int64_t *cuts = &partition->row_cuts[snapnum * ((int64_t)nranges + 1)];
-    snprintf(note.text, sizeof(note.text),
-             " (this task's rows [%" PRId64 ", %" PRId64 ") of the snapshot's %" PRId64 ")",
-             cuts[range], cuts[range + 1], cuts[nranges]);
+    if (partition->nchunk > 1) {
+      snprintf(note.text, sizeof(note.text),
+               " (this task's chunk %d of %d, rows [%" PRId64 ", %" PRId64
+               ") of the snapshot's %" PRId64 ")",
+               range % partition->nchunk, partition->nchunk, cuts[range], cuts[range + 1],
+               cuts[nranges]);
+    } else {
+      snprintf(note.text, sizeof(note.text),
+               " (this task's rows [%" PRId64 ", %" PRId64 ") of the snapshot's %" PRId64 ")",
+               cuts[range], cuts[range + 1], cuts[nranges]);
+    }
   }
   return note;
 }
@@ -673,23 +688,28 @@ static void horizontal_evaluate_record_identity_space(struct HorizontalDriverSta
 }
 
 /* ------------------------------------------------------------------------- */
-/* Distribution across tasks (NTask > 1)                                      */
+/* Distribution across tasks (NTask > 1) and chunks (forest_chunks > 1)      */
 /* ------------------------------------------------------------------------- */
 
 /*
  * A distributed run gives each task a contiguous range of forests and, in every
  * snapshot slab, the one contiguous row range those forests occupy (the
- * forest-block partition, src/core/horizontal_partition.h). Task 0 computes the
- * partition at startup and broadcasts it; every task then loads only its rows,
- * rebases their links to local indices, and runs the unchanged serial sweep on
- * a slab that is locally self-consistent. Nothing a task processes needs a row
- * another task holds, because progenitor, descendant and FoF links never leave
- * a forest; a link that does leave the task's range is a dataset defect or a
- * partition bug and aborts the run.
+ * forest-block partition, src/core/horizontal_partition.h). A chunked run cuts
+ * each task's forests again into input.forest_chunks contiguous chunks, each of
+ * which is the same kind of range one level down. Task 0 computes the partition
+ * at startup and, in a distributed run, broadcasts it; every task then sweeps
+ * its chunks in turn, each chunk through every snapshot, loading only that
+ * chunk's rows, rebasing their links to local indices, and running the
+ * unchanged serial sweep on a slab that is locally self-consistent. Nothing a
+ * chunk processes needs a row another chunk or task holds, because progenitor,
+ * descendant and FoF links never leave a forest; a link that does leave the
+ * range is a dataset defect or a partition bug and aborts the run.
  *
- * Only an MPI build with more than one task distributes. A serial run, a
- * non-MPI build and an MPI build at one task take none of these steps: they load
- * whole slabs (row_offset 0) and never rebase.
+ * Only an MPI build with more than one task distributes, and only
+ * input.forest_chunks > 1 chunks; either one alone builds the partition. A run
+ * with one task and one chunk -- a serial run, a non-MPI build or an MPI build
+ * at one task -- takes none of these steps: it loads whole slabs (row_offset 0)
+ * and never rebases.
  */
 
 /* row_cuts[s][q] of the partition (row-major by snapshot), `q` a range index. */
@@ -719,8 +739,9 @@ int64_t horizontal_partition_resident_bytes(const struct HorizontalForestPartiti
          partition->snapshot_count * entries_per_snapshot * (int64_t)sizeof(int64_t);
 }
 
-/* The rows [*row_lo, *row_hi) of snapshot `snapnum` this task loads: its range
- * of a distributed run, or the whole slab. */
+/* The rows [*row_lo, *row_hi) of snapshot `snapnum` this task loads: the range
+ * being swept of a partitioned run (this task's current chunk), or the whole
+ * slab. */
 static void horizontal_task_rows(const struct HorizontalDriverState *state, int64_t snapnum,
                                  int64_t *row_lo, int64_t *row_hi) {
   if (state->partition == NULL) {
@@ -728,8 +749,8 @@ static void horizontal_task_rows(const struct HorizontalDriverState *state, int6
     *row_hi = horizontal_reader_halo_count(state->reader, snapnum);
     return;
   }
-  *row_lo = horizontal_row_cut(state->partition, snapnum, state->task);
-  *row_hi = horizontal_row_cut(state->partition, snapnum, state->task + 1);
+  *row_lo = horizontal_row_cut(state->partition, snapnum, state->range);
+  *row_hi = horizontal_row_cut(state->partition, snapnum, state->range + 1);
 }
 
 /*
@@ -879,13 +900,51 @@ static void horizontal_visit_scan(int64_t first_row, const int64_t *values, int6
   horizontal_forest_scan_visit(user, first_row, values, count);
 }
 
+/* The widest slab -- the largest snapshot, the lowest-numbered on a tie -- or 0
+ * for a run without snapshots, with its halo count in *halos (-1 then). Every
+ * task reads it from the counts the reader published at open, so every task
+ * names the same slab. */
+static int64_t horizontal_widest_snapshot(const struct HorizontalReader *reader,
+                                          int64_t snapshot_count, int64_t *halos) {
+  int64_t widest = 0;
+  int64_t widest_halos = -1;
+  for (int64_t snapnum = 0; snapnum < snapshot_count; snapnum++) {
+    const int64_t nhalos = horizontal_reader_halo_count(reader, snapnum);
+    if (nhalos > widest_halos) {
+      widest = snapnum;
+      widest_halos = nhalos;
+    }
+  }
+  *halos = widest_halos;
+  return widest;
+}
+
+/* Rows [*row_lo, *row_hi) of range `range` in the widest slab, both 0 for a run
+ * without snapshots. */
+static void horizontal_widest_rows(const struct HorizontalForestPartition *partition,
+                                   int64_t widest, int range, int64_t *row_lo, int64_t *row_hi) {
+  const int has_snapshots = partition->snapshot_count > 0;
+  *row_lo = has_snapshots ? horizontal_row_cut(partition, widest, range) : 0;
+  *row_hi = has_snapshots ? horizontal_row_cut(partition, widest, range + 1) : 0;
+}
+
+/* Widest-slab weight of forests [forest_lo, forest_hi). */
+static int64_t horizontal_forest_weight(const int64_t *weights, int64_t forest_lo,
+                                        int64_t forest_hi) {
+  int64_t weight = 0;
+  for (int64_t f = forest_lo; f < forest_hi; f++) {
+    weight += weights[f];
+  }
+  return weight;
+}
+
 /*
  * Task 0's half of the startup partition: weigh the forests by their halo counts
- * in the widest slab (the largest snapshot, the lowest-numbered on a tie), cut
- * them into contiguous ranges by D3, then scan every slab's ForestIndex column,
- * verifying it is forest-blocked and recording its row cuts, and log the
- * result. Every input the scans read was validated by this task's
- * validate_columns open, which is why task 0 alone opens with it.
+ * in the widest slab, cut them into contiguous task ranges by D3 and each task's
+ * range into its chunks, then scan every slab's ForestIndex column, verifying it
+ * is forest-blocked and recording its row cuts, and log the result. Every input
+ * the scans read was validated by this task's validate_columns open, which is
+ * why task 0 alone opens with it in a distributed run.
  */
 static void horizontal_compute_partition(const struct HorizontalDriverState *state,
                                          const struct HorizontalRunInfo *info) {
@@ -894,15 +953,9 @@ static void horizontal_compute_partition(const struct HorizontalDriverState *sta
   const int nchunk = partition->nchunk;
   const int nranges = horizontal_partition_range_count(partition);
 
-  int64_t widest = 0;
   int64_t widest_halos = -1;
-  for (int64_t snapnum = 0; snapnum < info->snapshot_count; snapnum++) {
-    const int64_t nhalos = horizontal_reader_halo_count(state->reader, snapnum);
-    if (nhalos > widest_halos) {
-      widest = snapnum;
-      widest_halos = nhalos;
-    }
-  }
+  const int64_t widest =
+      horizontal_widest_snapshot(state->reader, info->snapshot_count, &widest_halos);
 
   const int64_t n_forests = partition->n_forests_total;
   int64_t *weights =
@@ -922,11 +975,12 @@ static void horizontal_compute_partition(const struct HorizontalDriverState *sta
     if (horizontal_forest_scan_end(&scan) != 0) {
       FATAL_ERROR("Snapshot %" PRId64 " is not forest-blocked: ForestIndex falls from %" PRId64
                   " at row %" PRId64 " to %" PRId64 " at row %" PRId64
-                  ". A distributed horizontal run (NTask = %d) needs every slab's rows grouped "
-                  "by forest in ascending ForestIndex, which this dataset (source_format '%s') "
-                  "does not have; run it with a single task",
+                  ". A distributed or chunked horizontal run (NTask = %d, input.forest_chunks = "
+                  "%d) needs every slab's rows grouped by forest in ascending ForestIndex, which "
+                  "this dataset (source_format '%s') does not have; run it with a single task "
+                  "and input.forest_chunks: 1",
                   snapnum, scan.violation_previous, scan.violation_row - 1, scan.violation_value,
-                  scan.violation_row, ntask, info->source_format);
+                  scan.violation_row, ntask, nchunk, info->source_format);
     }
     /* Unreachable while the scan visits the whole column; cheap hardening that the cuts
      * partition every row. */
@@ -939,26 +993,44 @@ static void horizontal_compute_partition(const struct HorizontalDriverState *sta
     }
   }
 
-  INFO_LOG("Distributed horizontal partition: %" PRId64 " forest%s over %d tasks, weighted by "
+  /* "Distributed" whenever there are several tasks, so a distributed run at one
+   * chunk logs exactly the line it always has; a chunked run on one task is
+   * "Chunked", and any chunked run names its chunk count. */
+  char chunks_note[48] = "";
+  if (nchunk > 1) {
+    snprintf(chunks_note, sizeof(chunks_note), " in %d chunks each", nchunk);
+  }
+  INFO_LOG("%s horizontal partition: %" PRId64 " forest%s over %d task%s%s, weighted by "
            "the widest slab, snapshot %" PRId64 " (%" PRId64 " halo%s)",
-           n_forests, n_forests == 1 ? "" : "s", ntask, widest, widest_halos > 0 ? widest_halos : 0,
+           ntask > 1 ? "Distributed" : "Chunked", n_forests, n_forests == 1 ? "" : "s", ntask,
+           ntask == 1 ? "" : "s", chunks_note, widest, widest_halos > 0 ? widest_halos : 0,
            widest_halos == 1 ? "" : "s");
   for (int r = 0; r < ntask; r++) {
     /* Task r's own range spans its nchunk chunk ranges, which start at r * nchunk. */
     const int first_range = r * nchunk;
     const int64_t forest_lo = partition->forest_cuts[first_range];
     const int64_t forest_hi = partition->forest_cuts[first_range + nchunk];
-    int64_t weight = 0;
-    for (int64_t f = forest_lo; f < forest_hi; f++) {
-      weight += weights[f];
-    }
-    const int64_t row_lo =
-        info->snapshot_count > 0 ? horizontal_row_cut(partition, widest, first_range) : 0;
-    const int64_t row_hi =
-        info->snapshot_count > 0 ? horizontal_row_cut(partition, widest, first_range + nchunk) : 0;
+    /* The task's rows run from its first chunk's first row to its last chunk's end. */
+    int64_t row_lo = 0;
+    int64_t row_hi = 0;
+    int64_t unused = 0;
+    horizontal_widest_rows(partition, widest, first_range, &row_lo, &unused);
+    horizontal_widest_rows(partition, widest, first_range + nchunk - 1, &unused, &row_hi);
     INFO_LOG("Partition task %d: forests [%" PRId64 ", %" PRId64 "), widest-slab weight %" PRId64
              " (snapshot %" PRId64 " rows [%" PRId64 ", %" PRId64 "))",
-             r, forest_lo, forest_hi, weight, widest, row_lo, row_hi);
+             r, forest_lo, forest_hi, horizontal_forest_weight(weights, forest_lo, forest_hi),
+             widest, row_lo, row_hi);
+    for (int c = 0; nchunk > 1 && c < nchunk; c++) {
+      const int range = first_range + c;
+      const int64_t chunk_lo = partition->forest_cuts[range];
+      const int64_t chunk_hi = partition->forest_cuts[range + 1];
+      horizontal_widest_rows(partition, widest, range, &row_lo, &row_hi);
+      INFO_LOG("Partition task %d chunk %d: forests [%" PRId64 ", %" PRId64
+               "), widest-slab weight %" PRId64 " (snapshot %" PRId64 " rows [%" PRId64 ", %" PRId64
+               "))",
+               r, c, chunk_lo, chunk_hi, horizontal_forest_weight(weights, chunk_lo, chunk_hi),
+               widest, row_lo, row_hi);
+    }
   }
   /* D11's partition terms: the tables stay resident on every task and are part of
    * each task's retention accounting; the weights are task 0's alone and are
@@ -973,40 +1045,50 @@ static void horizontal_compute_partition(const struct HorizontalDriverState *sta
 }
 
 /*
- * The startup steps of a distributed run, on every task, after every task's
- * open_run: refuse a dataset that cannot be distributed, have task 0 compute the
- * partition, and broadcast it. Every task reaches the broadcast; a task 0 abort
- * before it ends the whole job through myexit()'s MPI_Abort, so no task waits on
- * a partition that will never come.
+ * The startup steps of a distributed or chunked run, on every task, after every
+ * task's open_run: refuse a dataset that cannot be partitioned, have task 0
+ * compute the partition of `effective_task_count()` tasks in `nchunk` chunks
+ * each, and, when `distributed`, broadcast it. Every task reaches the broadcast;
+ * a task 0 abort before it ends the whole job through myexit()'s MPI_Abort, so
+ * no task waits on a partition that will never come. A chunked run on one task
+ * is its own task 0 and has nothing to broadcast.
  */
 static void horizontal_partition_run(struct HorizontalDriverState *state,
-                                     const struct HorizontalRunInfo *info) {
+                                     const struct HorizontalRunInfo *info, int distributed,
+                                     int nchunk) {
   const int ntask = effective_task_count();
 
   /* Identical on every task (every task read the same header), so every task
    * aborts here together. */
   if (info->format_version == 2) {
-    FATAL_ERROR("A distributed horizontal run (NTask = %d) needs a forest-blocked "
-                "format_version 3 dataset, whose slab rows are grouped by forest in ascending "
-                "ForestIndex; this is a format_version 2 dataset, whose rows are sorted by "
-                "MostBoundID, so it cannot be distributed. Run it with a single task",
-                ntask);
+    FATAL_ERROR("A distributed or chunked horizontal run (NTask = %d, input.forest_chunks = %d) "
+                "needs a forest-blocked format_version 3 dataset, whose slab rows are grouped by "
+                "forest in ascending ForestIndex; this is a format_version 2 dataset, whose rows "
+                "are sorted by MostBoundID, so it can be neither distributed nor chunked. Run it "
+                "with a single task and input.forest_chunks: 1",
+                ntask, nchunk);
   }
 
   state->partition =
-      horizontal_partition_create(ntask, 1, info->snapshot_count, info->n_forests_total);
+      horizontal_partition_create(ntask, nchunk, info->snapshot_count, info->n_forests_total);
   state->task = current_task_id();
+  state->nchunk = nchunk;
 
   if (state->task == 0) {
     horizontal_compute_partition(state, info);
   }
 
 #ifdef MPI
-  const int nranges = horizontal_partition_range_count(state->partition);
-  const int64_t row_cut_count = info->snapshot_count * ((int64_t)nranges + 1);
-  /* horizontal_partition_create() guarantees the row-cut count fits an int for one broadcast. */
-  MPI_Bcast(state->partition->forest_cuts, nranges + 1, MPI_INT64_T, 0, MPI_COMM_WORLD);
-  MPI_Bcast(state->partition->row_cuts, (int)row_cut_count, MPI_INT64_T, 0, MPI_COMM_WORLD);
+  if (distributed) {
+    const int nranges = horizontal_partition_range_count(state->partition);
+    const int64_t row_cut_count = info->snapshot_count * ((int64_t)nranges + 1);
+    /* horizontal_partition_create() guarantees the row-cut count fits an int for one
+     * broadcast. */
+    MPI_Bcast(state->partition->forest_cuts, nranges + 1, MPI_INT64_T, 0, MPI_COMM_WORLD);
+    MPI_Bcast(state->partition->row_cuts, (int)row_cut_count, MPI_INT64_T, 0, MPI_COMM_WORLD);
+  }
+#else
+  (void)distributed; /* a non-MPI build never distributes: the partition is this task's own */
 #endif
 }
 
@@ -1471,9 +1553,9 @@ static int64_t horizontal_pool_resident_bytes(const struct GalaxyPool *pool) {
  * generation's slab and reader-owned arrays, aux array, output buffer at its
  * current (possibly marshaller-grown) capacity and galaxy pool, plus every reset
  * spare pool, whose chunks stay allocated until teardown, plus -- in a
- * distributed run -- the partition tables every task keeps for the whole run
- * (D11; 0 in a serial run). Each term is memory this process already holds, so
- * the plain sums below cannot overflow int64_t.
+ * distributed or chunked run -- the partition tables every task keeps for the
+ * whole run (D11; 0 in an unpartitioned run). Each term is memory this process
+ * already holds, so the plain sums below cannot overflow int64_t.
  */
 static int64_t horizontal_retained_resident_bytes(const struct HorizontalDriverState *state) {
   int64_t resident = horizontal_partition_resident_bytes(state->partition);
@@ -1498,6 +1580,13 @@ static int64_t horizontal_retained_resident_bytes(const struct HorizontalDriverS
   return resident;
 }
 
+/* What a width refusal or warning about the rows one sweep holds offers as the
+ * lever: more chunks (or tasks) hold fewer rows at once, down to the floor no
+ * setting passes, because a forest is never split. */
+#define HORIZONTAL_CHUNKS_LEVER                                                                    \
+  "raise input.forest_chunks (or distribute over more MPI tasks) so each sweep holds fewer of "    \
+  "the snapshot's rows, down to the rows of its largest forest, which no setting splits"
+
 /*
  * Apply the width policy for a slab of `nhalos` rows at snapshot `snapnum`,
  * before anything is allocated for it.
@@ -1508,21 +1597,27 @@ static int64_t horizontal_retained_resident_bytes(const struct HorizontalDriverS
  * and a FoF group's galaxy count is narrowed to int. Refusal is reserved for where failure
  * is certain: a requested output snapshot above INT_MAX. Above the marshaller
  * cap the failure is only likely (the sweep may emit fewer records than it has
- * rows), so it is a warning. Both need chunked slab streaming to lift.
+ * rows), so it is a warning. The two differ in what lifts them: the marshaller
+ * and the workspace see only the rows one sweep holds, which input.forest_chunks
+ * (or more tasks) reduces down to the largest forest; the record cap judges the
+ * snapshot's global count, which every chunk of a task appends to one partition
+ * and every task's partitions sum to, so neither chunking nor distribution lifts
+ * it.
  *
  * `snapshot_halos` is the snapshot's global halo count, which the INT_MAX refusal
- * judges; `nhalos` is the rows this task holds of it (the same number in a serial
- * run), which the marshaller and the FoF workspace see, and `rows_note` says so
- * in the warning (empty in a serial run).
+ * judges; `nhalos` is the rows the current chunk of this task holds of it (the
+ * same number in an unpartitioned run), which the marshaller and the FoF
+ * workspace see, and `rows_note` says so in the warning (empty in an
+ * unpartitioned run).
  */
 static void horizontal_require_slab_emittable(int64_t snapnum, int64_t snapshot_halos,
                                               int64_t nhalos, const char *rows_note) {
   if (snapshot_halos > INT_MAX && snapnum <= INT_MAX && mimic_is_output_snapshot((int)snapnum)) {
     FATAL_ERROR("Snapshot %" PRId64 " holds %" PRId64 " halos and is a requested output snapshot, "
                 "but the output path caps a snapshot's record count at INT_MAX "
-                "(output_increment_halo_counters_checked). Refused before allocation: "
-                "emitting a slab this wide needs chunked slab streaming, a capability Mimic "
-                "does not implement",
+                "(output_increment_halo_counters_checked). Refused before allocation: the record "
+                "cap is a limit of the output path, which counts the snapshot's global records, "
+                "so neither input.forest_chunks nor distribution over MPI tasks lifts it",
                 snapnum, snapshot_halos);
   }
 
@@ -1530,8 +1625,7 @@ static void horizontal_require_slab_emittable(int64_t snapnum, int64_t snapshot_
     WARNING_LOG("Snapshot %" PRId64 " holds %" PRId64 " halos%s, above MAX_HALO_ARRAY_SIZE (%d). "
                 "The output marshaller cannot grow a buffer past that bound and a FoF workspace "
                 "is counted in int, so the sweep is likely to abort after the slab is loaded. "
-                "Running a slab this wide needs chunked slab streaming, a capability Mimic does "
-                "not implement",
+                "To run it, " HORIZONTAL_CHUNKS_LEVER,
                 snapnum, nhalos, rows_note, (int)MAX_HALO_ARRAY_SIZE);
   }
 }
@@ -1549,9 +1643,10 @@ static void horizontal_require_slab_emittable(int64_t snapnum, int64_t snapshot_
  *
  * The figure checked is what the pool holds resident now plus this generation's
  * footprint, which includes a new galaxy pool whenever no spare one will be
- * reused. Under a distributed run the footprint, the pool and the ceiling are
- * this task's: `nhalos` is the rows of its range, and only the INT_MAX refusal
- * judges the snapshot's global count, `snapshot_halos`. The only allocation for a generation not
+ * reused. Under a distributed or chunked run the footprint, the pool and the
+ * ceiling are the current chunk's: `nhalos` is the rows of the range being swept,
+ * and only the INT_MAX refusal judges the snapshot's global count,
+ * `snapshot_halos`. The only allocation for a generation not
  * refused here is in-sweep growth of its output buffer and galaxy pool, which happens after this
  * check; it is measured, and reported in the run memory profile.
  */
@@ -1559,10 +1654,11 @@ static void horizontal_require_generation_fits(const struct HorizontalDriverStat
                                                int64_t snapnum, int64_t snapshot_halos,
                                                int64_t nhalos,
                                                struct HorizontalGenerationFootprint *fp) {
-  /* Every count below is this task's rows; the note says so in a distributed run
-   * and is empty in a serial one, where each message keeps its serial bytes. */
+  /* Every count below is the swept range's rows; the note says so in a
+   * partitioned run and is empty otherwise, where each message keeps its serial
+   * bytes. */
   const struct HorizontalRowNote note =
-      horizontal_task_rows_note(state->partition, state->task, snapnum);
+      horizontal_task_rows_note(state->partition, state->range, snapnum);
   if (snapshot_halos < 0 || nhalos < 0) {
     FATAL_ERROR("Reader '%s' reports %" PRId64 " halos for snapshot %" PRId64
                 "; a halo count cannot be negative",
@@ -1577,8 +1673,7 @@ static void horizontal_require_generation_fits(const struct HorizontalDriverStat
       !horizontal_checked_sum(resident, fp->total_bytes, &required)) {
     FATAL_ERROR("Snapshot %" PRId64 " holds %" PRId64 " halos%s, too many for its generation's "
                 "resident size to be counted in 64-bit bytes. Refused before allocation: "
-                "whole-slab retention cannot hold a slab this wide, which needs chunked slab "
-                "streaming, a capability Mimic does not implement",
+                "to hold it, " HORIZONTAL_CHUNKS_LEVER,
                 snapnum, nhalos, note.text);
   }
 
@@ -1594,15 +1689,14 @@ static void horizontal_require_generation_fits(const struct HorizontalDriverStat
               ceiling > 0 ? "" : " (none set)");
 
   if (ceiling > 0 && required > ceiling) {
-    FATAL_ERROR("Snapshot %" PRId64 " needs %" PRId64 " B (%.3f GB) resident for its %" PRId64
-                " halos%s, which would bring the retention pool to %" PRId64 " B (%.3f GB), above "
-                "the input.retention_memory_ceiling_mb ceiling of %" PRId64 " B (%.3f GB). "
-                "Refused before allocation: whole-slab retention cannot hold this snapshot "
-                "within the ceiling, and holding it in less memory needs chunked slab "
-                "streaming, a capability Mimic does not implement",
-                snapnum, fp->total_bytes, (double)fp->total_bytes / HORIZONTAL_BYTES_PER_GB, nhalos,
-                note.text, required, (double)required / HORIZONTAL_BYTES_PER_GB, ceiling,
-                (double)ceiling / HORIZONTAL_BYTES_PER_GB);
+    FATAL_ERROR(
+        "Snapshot %" PRId64 " needs %" PRId64 " B (%.3f GB) resident for its %" PRId64
+        " halos%s, which would bring the retention pool to %" PRId64 " B (%.3f GB), above "
+        "the input.retention_memory_ceiling_mb ceiling of %" PRId64 " B (%.3f GB). "
+        "Refused before allocation: to hold it within the ceiling, " HORIZONTAL_CHUNKS_LEVER,
+        snapnum, fp->total_bytes, (double)fp->total_bytes / HORIZONTAL_BYTES_PER_GB, nhalos,
+        note.text, required, (double)required / HORIZONTAL_BYTES_PER_GB, ceiling,
+        (double)ceiling / HORIZONTAL_BYTES_PER_GB);
   }
 }
 
@@ -1674,8 +1768,12 @@ horizontal_acquire_generation(struct HorizontalDriverState *state, int64_t snapn
                               int32_t links_adjacent) {
   struct HorizontalGeneration *gen = &state->generations[snapnum];
 
+  /* A chunked run loads each snapshot once per chunk, but each chunk's sweep
+   * releases every generation it loaded before the next chunk begins, so a slot
+   * is never loaded while it still holds a generation. */
   if (gen->snapnum != SNAPSHOT_SLAB_NO_SNAPSHOT) {
-    FATAL_ERROR("Snapshot %" PRId64 " is already retained; a generation is loaded exactly once",
+    FATAL_ERROR("Snapshot %" PRId64 " is already retained; a generation is loaded once per "
+                "chunk and released before the chunk's sweep ends",
                 snapnum);
   }
 
@@ -1710,7 +1808,7 @@ horizontal_acquire_generation(struct HorizontalDriverState *state, int64_t snapn
 
   if (gen->slab.nhalos != nhalos) {
     const struct HorizontalRowNote note =
-        horizontal_task_rows_note(state->partition, state->task, snapnum);
+        horizontal_task_rows_note(state->partition, state->range, snapnum);
     FATAL_ERROR("Reader '%s' loaded %" PRId64 " halos for snapshot %" PRId64
                 " after reporting %" PRId64 "%s; the generation was sized for the reported count",
                 state->reader->name, gen->slab.nhalos, snapnum, nhalos, note.text);
@@ -1732,10 +1830,10 @@ horizontal_acquire_generation(struct HorizontalDriverState *state, int64_t snapn
                 snapnum);
   }
 
-  /* A distributed run's links are global rows until rebased onto this task's
-   * ranges; everything below and the whole sweep then index local rows. */
+  /* A partitioned run's links are global rows until rebased onto the swept
+   * range; everything below and the whole sweep then index local rows. */
   if (state->partition != NULL) {
-    horizontal_rebase_slab_links(&gen->slab, state->partition, state->task);
+    horizontal_rebase_slab_links(&gen->slab, state->partition, state->range);
   }
 
   gen->horizon = horizontal_generation_horizon(&gen->slab);
@@ -1984,6 +2082,181 @@ static void horizontal_disarm_failure_cleanup(void) { horizontal_failure_state =
 /* ------------------------------------------------------------------------- */
 
 /*
+ * The line that opens chunk `chunk`'s sweep of a chunked run: the chunk, its
+ * forests and its rows of the widest slab (the rows the partition weighed it
+ * by). An idle chunk -- one the cut left without a forest -- says so; it still
+ * sweeps every snapshot, loading no rows, so it still takes its turn at every
+ * output partition.
+ */
+static void horizontal_log_chunk(const struct HorizontalDriverState *state, int chunk) {
+  const struct HorizontalForestPartition *partition = state->partition;
+  const int64_t forest_lo = partition->forest_cuts[state->range];
+  const int64_t forest_hi = partition->forest_cuts[state->range + 1];
+  int64_t row_lo = 0;
+  int64_t row_hi = 0;
+  horizontal_widest_rows(partition, state->widest_snapshot, state->range, &row_lo, &row_hi);
+  INFO_LOG("Sweeping this task's chunk %d of %d: forests [%" PRId64 ", %" PRId64
+           "), widest slab snapshot %" PRId64 " rows [%" PRId64 ", %" PRId64 ")%s",
+           chunk, state->nchunk, forest_lo, forest_hi, state->widest_snapshot, row_lo, row_hi,
+           forest_lo == forest_hi ? " (an idle chunk: no forest)" : "");
+}
+
+/*
+ * Sweep this task's chunk `chunk` (range task * nchunk + chunk of the partition,
+ * or the whole slab of an unpartitioned run) through every snapshot, in
+ * increasing time order: load the chunk's rows of each slab into the retention
+ * pool, process its FoF groups, publish, release at the horizons, write its rows
+ * of each requested snapshot into this task's partition, and release the
+ * generation itself once nothing later links into it.
+ *
+ * Every chunk starts from an empty retention pool and leaves one: a generation
+ * still retained after the last snapshot is a retention bug and aborts the run,
+ * naming the chunk. What carries over to the next chunk is only what is shared
+ * by construction -- the spare galaxy pools, the FoF workspace, the scratch and
+ * segment buffers, and the run's retention maxima -- none of which holds a row of
+ * this chunk once the sweep is over.
+ */
+static void horizontal_sweep_chunk(struct HorizontalDriverState *state,
+                                   const struct HorizontalRunInfo *info, ProgressBar *bar,
+                                   const struct OutputPartitionSource *output_source,
+                                   int npartitions, int chunk) {
+  state->range = state->task * state->nchunk + chunk;
+  if (state->nchunk > 1) {
+    horizontal_log_chunk(state, chunk);
+  }
+
+  for (int64_t snapnum = 0; snapnum < info->snapshot_count; snapnum++) {
+    progress_bar_update(bar, (int64_t)chunk * info->snapshot_count + snapnum);
+    state->identity.unit = snapnum;
+    if (state->partition != NULL) {
+      state->identity.row_offset = horizontal_row_cut(state->partition, snapnum, state->range);
+    }
+
+    struct HorizontalGeneration *cur =
+        horizontal_acquire_generation(state, snapnum, info->links_adjacent);
+
+    const int64_t live_slabs = horizontal_count_live_slabs(state);
+    const struct HorizontalRowNote loaded_note =
+        horizontal_task_rows_note(state->partition, state->range, snapnum);
+    VERBOSE_LOG("Loaded snapshot %" PRId64 " (%" PRId64 " halos%s); %" PRId64 " slab%s live",
+                snapnum, cur->slab.nhalos, loaded_note.text, live_slabs,
+                live_slabs == 1 ? "" : "s");
+    VERBOSE_LOG("Snapshot %" PRId64 " retention horizon is snapshot %" PRId64, snapnum,
+                cur->horizon);
+
+    struct HorizontalGatherContext lookup;
+    lookup.snapnum = snapnum;
+    lookup.first_progenitor_snapshot = cur->slab.first_progenitor_snapshot;
+    lookup.generations = state->lookup;
+    lookup.retained_population = state->retained_population;
+    lookup.partition = state->partition;
+    lookup.task = state->range;
+
+    /* Walk FoF groups in slab order, processing each group when its central is
+     * first met. Every halo names a central whose own FirstHaloInFOFgroup is
+     * itself (HORIZONTAL-HDF5-FORMAT.md invariant 6), so this visits every group
+     * exactly once; the member tally below proves it visited every halo. An
+     * empty snapshot has no group and is processed as empty. */
+    const struct HaloInputView view = {cur->slab.halos, cur->slab.nhalos};
+    const int64_t nhalos = cur->slab.nhalos;
+    int64_t members_processed = 0;
+
+    for (int64_t halonr = 0; halonr < nhalos; halonr++) {
+      if (mimic_tree_get_FirstHaloInFOFgroup(view, halonr) == halonr) {
+        members_processed += horizontal_process_fof_group(state, cur, &lookup, halonr);
+      }
+    }
+
+    if (members_processed != cur->slab.nhalos) {
+      const struct HorizontalRowNote note =
+          horizontal_task_rows_note(state->partition, state->range, snapnum);
+      FATAL_ERROR("Snapshot %" PRId64 " FoF chains cover %" PRId64 " of %" PRId64
+                  " halos%s; the slab's FoF links are inconsistent",
+                  snapnum, members_processed, cur->slab.nhalos, note.text);
+    }
+
+    /* Snapshot-wide modules see the whole swept population, before it is
+     * published for inheritance, before any generation is released and before
+     * it is written. */
+    horizontal_run_post_snapshot(cur);
+
+    /* The retention pool is at its largest for this snapshot now: the sweep has
+     * grown the output buffers and pools, and nothing has been released yet. */
+    const int64_t resident = horizontal_retained_resident_bytes(state);
+    if (resident > state->max_retained_bytes) {
+      state->max_retained_bytes = resident;
+    }
+    run_profile_note_retention(state->retained_count, resident);
+
+    /* The ceiling is enforced before each generation is allocated, from what is
+     * resident then plus the new generation's footprint (slab, aux, seeded output
+     * buffer and, when none is reused, a new galaxy pool). What remains is
+     * in-sweep growth of the output buffer and galaxy pool only -- the marshaller
+     * enlarging the buffer past its seed, the pool adding a chunk -- which the
+     * output-buffer and galaxy-pool services allocate mid-sweep, so it cannot be
+     * refused before allocation and is reported instead. Once per run: later
+     * overshoots are covered by the profile's peak. */
+    const int64_t ceiling = MimicConfig.RetentionMemoryCeiling;
+    if (ceiling > 0 && resident > ceiling && !state->warned_sweep_over_ceiling) {
+      state->warned_sweep_over_ceiling = 1;
+      WARNING_LOG("The retention pool grew to %" PRId64 " B during snapshot %" PRId64
+                  "'s sweep, above the input.retention_memory_ceiling_mb ceiling of %" PRId64
+                  " B. Only in-sweep growth of the output buffer and galaxy pool can pass the "
+                  "ceiling of the retention pool's admitted payload: it is allocated mid-sweep, so "
+                  "it is measured here rather than "
+                  "refused before allocation",
+                  resident, snapnum, ceiling);
+    }
+
+    horizontal_publish_generation(state, cur);
+
+    /* Every FoF group at N has now deep-copied whatever it inherits, so every
+     * earlier generation whose horizon is N (raw slab, aux, output buffer and
+     * galaxies) is dead. Snapshot N's own output is written afterwards, from the
+     * still-live slab N. */
+    horizontal_release_expired_generations(state, snapnum);
+
+    /* Write every partition carrying this snapshot that this task owns: the one
+     * partition of a serial run, or this task's own partition under NTask > 1;
+     * each chunk writes its own rows into it. */
+    const int output_index = horizontal_output_snapshot_index(snapnum);
+    if (output_index >= 0) {
+      for (int partition = 0; partition < npartitions; partition++) {
+        const struct OutputSnapshotSelection selection =
+            output_source->partition_snapshots(partition);
+        const int task = output_source->partition_task(partition);
+        if (selection.indices[0] != output_index || (task >= 0 && task != current_task_id())) {
+          continue;
+        }
+        /* One visit per chunk, empty chunks included: chunk 0 creates the
+         * partition and the last chunk stamps and finalises it, so its name,
+         * master link and TotHalosPerSnap are those of a one-chunk run. */
+        horizontal_write_output(cur, output_index, selection, task, chunk == 0,
+                                chunk == state->nchunk - 1);
+      }
+    }
+
+    /* A generation nothing later links into is dead once its own output is
+     * written. */
+    if (cur->horizon <= snapnum) {
+      horizontal_release_generation(state, cur);
+    }
+  }
+
+  /* Every horizon lies inside the run (checked at load), so the sweep released
+   * every generation at its horizon; one left over is a retention bug. */
+  if (state->retained_count != 0) {
+    char chunk_note[64] = "";
+    if (state->nchunk > 1) {
+      snprintf(chunk_note, sizeof(chunk_note), " of this task's chunk %d of %d", chunk,
+               state->nchunk);
+    }
+    FATAL_ERROR("%" PRId64 " generation%s still retained after the final snapshot%s",
+                state->retained_count, state->retained_count == 1 ? " is" : "s are", chunk_note);
+  }
+}
+
+/*
  * Prove the output directory is writable before the run starts.
  *
  * main.c:393 proves the directory can be *created*, which is not the same
@@ -2056,15 +2329,19 @@ static void horizontal_probe_output_directory(void) {
 /**
  * @brief   Run a horizontal configuration end to end.
  *
- * Proves the output directory writable, opens the configured dataset, then walks
- * every snapshot in increasing time order. For snapshot N: load slab N into the
+ * Proves the output directory writable, opens the configured dataset, builds the
+ * forest-block partition when the run is distributed or chunked, then sweeps
+ * each of this task's chunks in turn (one, the whole slab, in an unpartitioned
+ * run; see horizontal_sweep_chunk()), walking every snapshot in increasing time
+ * order. For snapshot N: load the chunk's rows of slab N into the
  * retention pool, process every FoF group against the retained generations its
  * progenitor links name, run the post_snapshot phase (when configured) over the
  * swept population, release every earlier generation whose horizon is N,
- * then — if snapshot N was requested for output — write it to its own partition
- * file and close that file, and finally release generation N itself if nothing
- * after N links back into it. After the final snapshot no generation remains,
- * and the dataset is closed; main.c writes the master file afterwards and only
+ * then — if snapshot N was requested for output — write the chunk's rows of it
+ * to its own partition file (the first chunk creates it, the last finalises it)
+ * and close that file, and finally release generation N itself if nothing after
+ * N links back into it. After each chunk's final snapshot no generation remains;
+ * after the last chunk the dataset is closed; main.c writes the master file afterwards and only
  * then disarms this driver's remaining output cleanup.
  *
  * An adjacent dataset (links_adjacent = 1, every version 2 dataset) never
@@ -2078,6 +2355,7 @@ void run_horizontal_driver(void) {
 
   memset(&state, 0, sizeof(state));
   state.reader = MimicConfig.horizontal_reader;
+  state.nchunk = 1;
   horizontal_arm_failure_cleanup(&state);
 
   horizontal_probe_output_directory();
@@ -2101,9 +2379,15 @@ void run_horizontal_driver(void) {
            state.reader->name, info.snapshot_count, info.snapshot_count == 1 ? "" : "s",
            info.format_version, info.links_adjacent, info.n_forests_total,
            info.n_forests_total == 1 ? "" : "s", info.max_halo_rank_in_forest);
-  if (distributed) {
-    horizontal_partition_run(&state, &info);
+  /* Either a task count above one or a chunk count above one builds the
+   * partition; a run with neither is today's unpartitioned run. */
+  const int chunked = MimicConfig.ForestChunks > 1;
+  if (distributed || chunked) {
+    horizontal_partition_run(&state, &info, distributed, chunked ? MimicConfig.ForestChunks : 1);
   }
+  int64_t widest_halos = 0;
+  state.widest_snapshot =
+      horizontal_widest_snapshot(state.reader, info.snapshot_count, &widest_halos);
   horizontal_evaluate_record_identity_space(&state, &info);
 
   log_phase_banner(PHASE_TREE_PROCESSING);
@@ -2141,131 +2425,14 @@ void run_horizontal_driver(void) {
     INFO_LOG("Processing %" PRId64 " snapshot%s → %d output file%s", info.snapshot_count,
              info.snapshot_count == 1 ? "" : "s", npartitions, npartitions == 1 ? "" : "s");
   }
-  progress_bar_init(&bar, info.snapshot_count, "");
+  progress_bar_init(&bar, info.snapshot_count * state.nchunk, "");
 
-  for (int64_t snapnum = 0; snapnum < info.snapshot_count; snapnum++) {
-    progress_bar_update(&bar, snapnum);
-    state.identity.unit = snapnum;
-    if (state.partition != NULL) {
-      state.identity.row_offset = horizontal_row_cut(state.partition, snapnum, state.task);
-    }
-
-    struct HorizontalGeneration *cur =
-        horizontal_acquire_generation(&state, snapnum, info.links_adjacent);
-
-    const int64_t live_slabs = horizontal_count_live_slabs(&state);
-    const struct HorizontalRowNote loaded_note =
-        horizontal_task_rows_note(state.partition, state.task, snapnum);
-    VERBOSE_LOG("Loaded snapshot %" PRId64 " (%" PRId64 " halos%s); %" PRId64 " slab%s live",
-                snapnum, cur->slab.nhalos, loaded_note.text, live_slabs,
-                live_slabs == 1 ? "" : "s");
-    VERBOSE_LOG("Snapshot %" PRId64 " retention horizon is snapshot %" PRId64, snapnum,
-                cur->horizon);
-
-    struct HorizontalGatherContext lookup;
-    lookup.snapnum = snapnum;
-    lookup.first_progenitor_snapshot = cur->slab.first_progenitor_snapshot;
-    lookup.generations = state.lookup;
-    lookup.retained_population = state.retained_population;
-    lookup.partition = state.partition;
-    lookup.task = state.task;
-
-    /* Walk FoF groups in slab order, processing each group when its central is
-     * first met. Every halo names a central whose own FirstHaloInFOFgroup is
-     * itself (HORIZONTAL-HDF5-FORMAT.md invariant 6), so this visits every group
-     * exactly once; the member tally below proves it visited every halo. An
-     * empty snapshot has no group and is processed as empty. */
-    const struct HaloInputView view = {cur->slab.halos, cur->slab.nhalos};
-    const int64_t nhalos = cur->slab.nhalos;
-    int64_t members_processed = 0;
-
-    for (int64_t halonr = 0; halonr < nhalos; halonr++) {
-      if (mimic_tree_get_FirstHaloInFOFgroup(view, halonr) == halonr) {
-        members_processed += horizontal_process_fof_group(&state, cur, &lookup, halonr);
-      }
-    }
-
-    if (members_processed != cur->slab.nhalos) {
-      const struct HorizontalRowNote note =
-          horizontal_task_rows_note(state.partition, state.task, snapnum);
-      FATAL_ERROR("Snapshot %" PRId64 " FoF chains cover %" PRId64 " of %" PRId64
-                  " halos%s; the slab's FoF links are inconsistent",
-                  snapnum, members_processed, cur->slab.nhalos, note.text);
-    }
-
-    /* Snapshot-wide modules see the whole swept population, before it is
-     * published for inheritance, before any generation is released and before
-     * it is written. */
-    horizontal_run_post_snapshot(cur);
-
-    /* The retention pool is at its largest for this snapshot now: the sweep has
-     * grown the output buffers and pools, and nothing has been released yet. */
-    const int64_t resident = horizontal_retained_resident_bytes(&state);
-    if (resident > state.max_retained_bytes) {
-      state.max_retained_bytes = resident;
-    }
-    run_profile_note_retention(state.retained_count, resident);
-
-    /* The ceiling is enforced before each generation is allocated, from what is
-     * resident then plus the new generation's footprint (slab, aux, seeded output
-     * buffer and, when none is reused, a new galaxy pool). What remains is
-     * in-sweep growth of the output buffer and galaxy pool only -- the marshaller
-     * enlarging the buffer past its seed, the pool adding a chunk -- which the
-     * output-buffer and galaxy-pool services allocate mid-sweep, so it cannot be
-     * refused before allocation and is reported instead. Once per run: later
-     * overshoots are covered by the profile's peak. */
-    const int64_t ceiling = MimicConfig.RetentionMemoryCeiling;
-    if (ceiling > 0 && resident > ceiling && !state.warned_sweep_over_ceiling) {
-      state.warned_sweep_over_ceiling = 1;
-      WARNING_LOG("The retention pool grew to %" PRId64 " B during snapshot %" PRId64
-                  "'s sweep, above the input.retention_memory_ceiling_mb ceiling of %" PRId64
-                  " B. Only in-sweep growth of the output buffer and galaxy pool can pass the "
-                  "ceiling of the retention pool's admitted payload: it is allocated mid-sweep, so "
-                  "it is measured here rather than "
-                  "refused before allocation",
-                  resident, snapnum, ceiling);
-    }
-
-    horizontal_publish_generation(&state, cur);
-
-    /* Every FoF group at N has now deep-copied whatever it inherits, so every
-     * earlier generation whose horizon is N (raw slab, aux, output buffer and
-     * galaxies) is dead. Snapshot N's own output is written afterwards, from the
-     * still-live slab N. */
-    horizontal_release_expired_generations(&state, snapnum);
-
-    /* Write every partition carrying this snapshot that this task owns: the one
-     * partition of a serial run, or this task's own partition under NTask > 1. */
-    const int output_index = horizontal_output_snapshot_index(snapnum);
-    if (output_index >= 0) {
-      for (int partition = 0; partition < npartitions; partition++) {
-        const struct OutputSnapshotSelection selection =
-            output_source.partition_snapshots(partition);
-        const int task = output_source.partition_task(partition);
-        if (selection.indices[0] != output_index || (task >= 0 && task != current_task_id())) {
-          continue;
-        }
-        /* One visit per partition: it is created, written, stamped and
-         * finalised in this one call. */
-        horizontal_write_output(cur, output_index, selection, task, 1, 1);
-      }
-    }
-
-    /* A generation nothing later links into is dead once its own output is
-     * written. */
-    if (cur->horizon <= snapnum) {
-      horizontal_release_generation(&state, cur);
-    }
+  for (int chunk = 0; chunk < state.nchunk; chunk++) {
+    horizontal_sweep_chunk(&state, &info, &bar, &output_source, npartitions, chunk);
   }
 
   progress_bar_finish(&bar);
 
-  /* Every horizon lies inside the run (checked at load), so the sweep released
-   * every generation at its horizon; one left over is a retention bug. */
-  if (state.retained_count != 0) {
-    FATAL_ERROR("%" PRId64 " generation%s still retained after the final snapshot",
-                state.retained_count, state.retained_count == 1 ? " is" : "s are");
-  }
   VERBOSE_LOG("Retained at most %" PRId64 " generation%s concurrently, holding at most %" PRId64
               " B resident",
               state.max_retained_count, state.max_retained_count == 1 ? "" : "s",
