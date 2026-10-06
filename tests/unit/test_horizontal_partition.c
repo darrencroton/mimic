@@ -38,7 +38,6 @@ static int failed = 0;
 #define MAX_TASKS 4
 #define MAX_CHUNKED_TASKS 3
 #define MAX_CHUNKS 3
-#define MAX_RANGES (MAX_CHUNKED_TASKS * MAX_CHUNKS)
 #define MAX_COLUMN_ROWS (MAX_FORESTS * 5) /* eight forests of the heaviest weight, 5 */
 #define WEIGHT_CHOICES 4
 

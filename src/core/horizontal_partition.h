@@ -165,6 +165,10 @@ void horizontal_partition_cut_forests(const int64_t *weights, int64_t n_forests_
  * makespan is the minimum over all contiguous `nchunk`-partitions of its range,
  * trailing chunks are idle when fewer are needed, and with `ntask == 1` the
  * chunks are the ranges `nchunk` tasks would own. `nchunk == 1` changes nothing.
+ * One-shot transform, not idempotent: call it exactly once, directly after
+ * horizontal_partition_cut_forests() has written the compact task cuts; a second
+ * call on the expanded table would treat the chunk cuts as task cuts. It takes a
+ * const partition but writes the `forest_cuts` table the partition points to.
  * Aborts as horizontal_partition_cut_forests() does.
  */
 void horizontal_partition_cut_chunks(const int64_t *weights,

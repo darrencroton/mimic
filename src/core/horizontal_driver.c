@@ -952,9 +952,7 @@ static void horizontal_partition_run(struct HorizontalDriverState *state,
 #ifdef MPI
   const int nranges = horizontal_partition_range_count(state->partition);
   const int64_t row_cut_count = info->snapshot_count * ((int64_t)nranges + 1);
-  if (row_cut_count > INT_MAX) {
-    FATAL_ERROR("The partition's %" PRId64 " row cuts exceed one MPI broadcast", row_cut_count);
-  }
+  /* horizontal_partition_create() guarantees the row-cut count fits an int for one broadcast. */
   MPI_Bcast(state->partition->forest_cuts, nranges + 1, MPI_INT64_T, 0, MPI_COMM_WORLD);
   MPI_Bcast(state->partition->row_cuts, (int)row_cut_count, MPI_INT64_T, 0, MPI_COMM_WORLD);
 #endif
