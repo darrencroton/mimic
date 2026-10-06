@@ -286,17 +286,22 @@ static int write_partition_in_visits(struct Halo *halos, int64_t count, int64_t 
 }
 
 /**
- * @brief   Read a partition's whole Galaxies table as its stored bytes and its
+ * @brief   Read a partition's whole Galaxies table as HaloOutput records and its
  *          TotHalosPerSnap stamp.
  * @param   path       The partition file.
- * @param   bytes      Receives a malloc'd copy of the table in the file's own
- *                     record type; the caller frees it.
- * @param   nbytes     Receives its size.
+ * @param   rows       Receives a calloc'd array of the table's records, read field by
+ *                     field into the memory layout; the caller frees it.
  * @param   nrows      Receives the table's row count.
  * @param   tot        Receives the TotHalosPerSnap attribute.
+ *
+ * Read through H5TBread_table() into zeroed memory, not as the stored bytes: the
+ * on-disk compound record is the struct's layout, padding included, and the
+ * writer's batch buffer leaves that padding uninitialised, so the stored bytes of
+ * two equal tables can differ (they did on Linux, not on macOS). Only the fields
+ * are the contract, and comparing zeroed records compares exactly those.
  */
-static int read_partition_table(const char *path, unsigned char **bytes, size_t *nbytes,
-                                hsize_t *nrows, int64_t *tot) {
+static int read_partition_table(const char *path, struct HaloOutput **rows, hsize_t *nrows,
+                                int64_t *tot) {
   hid_t file_id = H5Fopen(path, H5F_ACC_RDONLY, H5P_DEFAULT);
   TEST_ASSERT(file_id >= 0, "partition should open for reading");
   hid_t dataset_id = H5Dopen(file_id, "Snap005/Galaxies", H5P_DEFAULT);
@@ -304,16 +309,14 @@ static int read_partition_table(const char *path, unsigned char **bytes, size_t 
 
   hid_t space_id = H5Dget_space(dataset_id);
   TEST_ASSERT(H5Sget_simple_extent_dims(space_id, nrows, NULL) == 1, "the table is 1-D");
-  hid_t type_id = H5Dget_type(dataset_id);
-  *nbytes = (size_t)*nrows * H5Tget_size(type_id);
-  *bytes = malloc(*nbytes > 0 ? *nbytes : 1);
-  TEST_ASSERT(*bytes != NULL, "table buffer should allocate");
-  TEST_ASSERT(H5Dread(dataset_id, type_id, H5S_ALL, H5S_ALL, H5P_DEFAULT, *bytes) >= 0,
-              "the table should read in its stored type");
+  *rows = calloc(*nrows > 0 ? (size_t)*nrows : 1, sizeof(**rows));
+  TEST_ASSERT(*rows != NULL, "record buffer should allocate");
+  TEST_ASSERT(H5TBread_table(file_id, "Snap005/Galaxies", HDF5_dst_size, HDF5_dst_offsets,
+                             HDF5_dst_sizes, *rows) >= 0,
+              "the table should read as HaloOutput records");
   TEST_ASSERT(read_int64_attr(dataset_id, "TotHalosPerSnap", tot) == TEST_PASS,
               "TotHalosPerSnap should read");
 
-  H5Tclose(type_id);
   H5Sclose(space_id);
   H5Dclose(dataset_id);
   H5Fclose(file_id);
@@ -372,16 +375,16 @@ static int test_partition_written_in_two_visits_matches_one_visit(void) {
               "the one-visit partition should write");
   TEST_ASSERT_EQUAL(perfile_metadata_calls, 1, "a one-visit partition writes metadata once");
 
-  unsigned char *one_bytes = NULL;
-  size_t one_nbytes = 0;
-  hsize_t one_rows = 0;
+  struct HaloOutput *one_rows = NULL;
+  hsize_t one_count = 0;
   int64_t one_tot = -1;
-  TEST_ASSERT(read_partition_table(one_path, &one_bytes, &one_nbytes, &one_rows, &one_tot) ==
-                  TEST_PASS,
+  TEST_ASSERT(read_partition_table(one_path, &one_rows, &one_count, &one_tot) == TEST_PASS,
               "the one-visit table should read");
+  TEST_ASSERT_EQUAL((int64_t)one_count, (int64_t)TWO_VISIT_ROWS,
+                    "the one-visit table should hold every row");
 
   const int64_t splits[] = {TWO_VISIT_SPLIT, 0};
-  unsigned char *two_bytes = NULL;
+  struct HaloOutput *two_rows = NULL;
   for (size_t s = 0; s < sizeof(splits) / sizeof(splits[0]); s++) {
     unlink(two_path);
     snprintf(MimicConfig.OutputDir, sizeof(MimicConfig.OutputDir), "%s", two_dir);
@@ -391,47 +394,35 @@ static int test_partition_written_in_two_visits_matches_one_visit(void) {
     TEST_ASSERT_EQUAL(perfile_metadata_calls, 1,
                       "per-file metadata is written on the first visit, not on the reopen");
 
-    size_t two_nbytes = 0;
-    hsize_t two_rows = 0;
+    hsize_t two_count = 0;
     int64_t two_tot = -1;
-    TEST_ASSERT(read_partition_table(two_path, &two_bytes, &two_nbytes, &two_rows, &two_tot) ==
-                    TEST_PASS,
+    TEST_ASSERT(read_partition_table(two_path, &two_rows, &two_count, &two_tot) == TEST_PASS,
                 "the two-visit table should read");
 
-    TEST_ASSERT_EQUAL((int64_t)two_rows, (int64_t)TWO_VISIT_ROWS,
+    TEST_ASSERT_EQUAL((int64_t)two_count, (int64_t)TWO_VISIT_ROWS,
                       "the two-visit table should hold every row of both visits");
     TEST_ASSERT_EQUAL(two_tot, (int64_t)TWO_VISIT_ROWS,
                       "TotHalosPerSnap should accumulate across both visits");
     TEST_ASSERT_EQUAL(one_tot, two_tot, "both partitions should stamp the same count");
 
     /* Row order: the id column read back in file order is the buffer's order. */
-    struct HaloOutput *rows = malloc(TWO_VISIT_ROWS * sizeof(*rows));
-    TEST_ASSERT(rows != NULL, "row buffer should allocate");
-    hid_t file_id = H5Fopen(two_path, H5F_ACC_RDONLY, H5P_DEFAULT);
-    TEST_ASSERT(file_id >= 0, "the two-visit partition should reopen for reading");
-    TEST_ASSERT(H5TBread_table(file_id, "Snap005/Galaxies", HDF5_dst_size, HDF5_dst_offsets,
-                               HDF5_dst_sizes, rows) >= 0,
-                "the two-visit table should read as HaloOutput records");
-    H5Fclose(file_id);
     int64_t out_of_order = 0;
     for (int i = 0; i < TWO_VISIT_ROWS; i++) {
-      if (rows[i].UniqueGalaxyID != TWO_VISIT_FIRST_ID + i) {
+      if (two_rows[i].UniqueGalaxyID != TWO_VISIT_FIRST_ID + i) {
         out_of_order++;
       }
     }
-    free(rows);
     TEST_ASSERT_EQUAL(out_of_order, (int64_t)0,
                       "every row should be in the original order across the visit boundary");
 
-    TEST_ASSERT_EQUAL((int64_t)two_nbytes, (int64_t)one_nbytes,
-                      "both tables should hold the same number of bytes");
-    TEST_ASSERT(memcmp(one_bytes, two_bytes, one_nbytes) == 0,
-                "the two-visit table's bytes should equal the one-visit table's");
-    free(two_bytes);
-    two_bytes = NULL;
+    /* Every field of every record equals the one-visit file's (zeroed padding on both sides). */
+    TEST_ASSERT(memcmp(one_rows, two_rows, TWO_VISIT_ROWS * sizeof(*one_rows)) == 0,
+                "the two-visit table's records should equal the one-visit table's");
+    free(two_rows);
+    two_rows = NULL;
   }
 
-  free(one_bytes);
+  free(one_rows);
   free(halos);
   free(galaxy);
   free_hdf5_ids();
