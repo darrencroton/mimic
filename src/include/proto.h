@@ -120,9 +120,10 @@ void horizontal_driver_clear_output_paths(void);
 /* Exported from the horizontal driver for the unit tests only. */
 struct SnapshotSlab;              /* io/horizontal/reader.h */
 struct HorizontalForestPartition; /* core/horizontal_partition.h */
-/* Rebase a range-loaded slab's link fields from snapshot rows to slab-local rows. */
+/* Rebase a range-loaded slab's link fields from snapshot rows to slab-local rows; `range` is the
+ * partition range the slab holds (task * forest_chunks + chunk). */
 void horizontal_rebase_slab_links(struct SnapshotSlab *slab,
-                                  const struct HorizontalForestPartition *partition, int task);
+                                  const struct HorizontalForestPartition *partition, int range);
 /* Bytes the partition's cut and row tables hold resident on one task. */
 int64_t horizontal_partition_resident_bytes(const struct HorizontalForestPartition *partition);
 

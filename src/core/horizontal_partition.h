@@ -36,11 +36,8 @@
  *
  * 1. Stream the widest slab's `ForestIndex` column through
  *    horizontal_partition_accumulate_weights() to get per-forest weights.
- * 2. horizontal_partition_cut_forests() turns the weights into the task cuts,
- *    `ntask + 1` of them written to `forest_cuts[0 .. ntask]`; then
- *    horizontal_partition_cut_chunks() moves each task cut to its entry
- *    `t * nchunk` and fills the chunk cuts inside every task's range (a no-op
- *    when `nchunk == 1`, where the two layouts coincide).
+ * 2. horizontal_partition_cut() turns the weights into the task cuts and then each
+ *    task's chunk cuts, filling every entry of `forest_cuts`.
  * 3. For every slab, stream the `ForestIndex` column through a
  *    struct HorizontalForestScan to verify the slab is forest-blocked and fill
  *    its `row_cuts` row.
@@ -151,28 +148,20 @@ void horizontal_partition_cut_forests(const int64_t *weights, int64_t n_forests_
                                       int64_t *forest_cuts);
 
 /**
- * @brief   Cut each task's forest range into `nchunk` chunks of minimum makespan
- * @param   weights    `partition->n_forests_total` non-negative per-forest weights, the ones the
- *                     task cuts were made from (may be NULL when there are no forests)
- * @param   partition  Partition whose `forest_cuts[0 .. ntask]` hold the task cuts exactly as
- *                     horizontal_partition_cut_forests() wrote them; receives all
- *                     `ntask * nchunk + 1` cuts
+ * @brief   Cut the forests into `ntask` task ranges, then each task range into `nchunk` chunks
+ * @param   weights    `partition->n_forests_total` non-negative per-forest weights (may be NULL
+ *                     when there are no forests)
+ * @param   partition  Partition whose `forest_cuts` receive all `ntask * nchunk + 1` cuts
  *
- * Moves task cut `t` to entry `t * nchunk`, then for every task `t` applies
- * horizontal_partition_cut_forests() to the weights of the task's forests with
- * `nchunk` ranges and offsets the result into place, so the chunk cuts nest
- * inside the task cuts and every task cut keeps its value. A task's chunk
- * makespan is the minimum over all contiguous `nchunk`-partitions of its range,
- * trailing chunks are idle when fewer are needed, and with `ntask == 1` the
- * chunks are the ranges `nchunk` tasks would own. `nchunk == 1` changes nothing.
- * One-shot transform, not idempotent: call it exactly once, directly after
- * horizontal_partition_cut_forests() has written the compact task cuts; a second
- * call on the expanded table would treat the chunk cuts as task cuts. It takes a
- * const partition but writes the `forest_cuts` table the partition points to.
- * Aborts as horizontal_partition_cut_forests() does.
+ * Entry `t * nchunk` is task `t`'s first cut and range `t * nchunk + c` is task `t`'s
+ * chunk `c`. The task cuts are those horizontal_partition_cut_forests() makes over all
+ * forests with `ntask` ranges; each task's chunk makespan is then the minimum over all
+ * contiguous `nchunk`-partitions of its range, trailing chunks are idle when fewer are
+ * needed, and with `ntask == 1` the chunks are the ranges `nchunk` tasks would own.
+ * `nchunk == 1` yields the task cuts alone. Aborts as horizontal_partition_cut_forests()
+ * does.
  */
-void horizontal_partition_cut_chunks(const int64_t *weights,
-                                     const struct HorizontalForestPartition *partition);
+void horizontal_partition_cut(const int64_t *weights, struct HorizontalForestPartition *partition);
 
 /**
  * @brief   Add one to a forest's weight for each streamed `ForestIndex` value

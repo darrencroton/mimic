@@ -332,8 +332,10 @@ def _v3_limitations(measured: Mapping, schema) -> List[str]:
         limitations.append(
             "The largest snapshot holds {} halos, above INT32_MAX ({}); the reader and driver "
             "index it with int64; the driver refuses it as an output snapshot above INT32_MAX "
-            "and warns above 1e9 rows; whole-slab memory decides whether it can run "
-            "otherwise.".format(widest, _C_INT_MAX)
+            "and warns above 1e9 rows; otherwise, on forest-blocked output a chunk's memory "
+            "(bounded below by the largest forest) decides whether it can run, and on "
+            "consistent_trees_ascii output, which cannot be chunked, whole-slab memory "
+            "does.".format(widest, _C_INT_MAX)
         )
     if schema.extra_fields:
         limitations.append(

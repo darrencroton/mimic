@@ -210,7 +210,7 @@ class HelpTests(CliCase):
             self.assertIn(command, text)
         self.assertIn("format version 3", text)
         self.assertIn("validated route only where a recorded parity gate passed", text)
-        self.assertIn("full Uchuu is not runnable", text)
+        self.assertIn("full Uchuu is not claimed", text)
         self.assertIn("convert_ctrees.py", text)
 
     def test_runtime_notice_names_only_the_evidenced_routes(self):
@@ -220,7 +220,7 @@ class HelpTests(CliCase):
         for route in runtime_routes.ROUTES:
             self.assertIn(route.simulation, notice)
         self.assertIn(runtime_routes.SPEC_ANCHOR, notice)
-        self.assertIn(runtime_routes.FULL_UCHUU_NOT_RUNNABLE, notice)
+        self.assertIn(runtime_routes.FULL_UCHUU_NOT_CLAIMED, notice)
 
     def test_every_subcommand_has_help(self):
         for command in ("inspect", "ingest", "transpose", "write", "validate", "report"):

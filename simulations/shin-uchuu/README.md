@@ -28,7 +28,7 @@ make MODEL=halos-only SIMULATION=shin-uchuu
 ./mimic models/halos-only/input/halos-only_shin-uchuu.yaml
 ```
 
-Horizontal runs are HDF5-only and do not support `--skip`; both are rejected at configuration time. A multi-rank horizontal configuration (`NTask > 1`) is accepted at configuration, but the horizontal driver refuses a version 2 dataset such as this one at startup (distribution needs a forest-blocked version 3 dataset), so run this package with one rank. See [`docs/USER-GUIDE.md`](../../docs/USER-GUIDE.md) → "Running Horizontal Input" and [`docs/DEVELOPER-GUIDE.md`](../../docs/DEVELOPER-GUIDE.md) → "The Horizontal Driver".
+Horizontal runs are HDF5-only and do not support `--skip`; both are rejected at configuration time. A multi-rank horizontal configuration (`NTask > 1`) or a chunked one (`input.forest_chunks` above 1) is accepted at configuration, but the horizontal driver refuses a version 2 dataset such as this one at startup (distribution and chunking both need a forest-blocked version 3 dataset), so run this package with one rank and `forest_chunks: 1`. See [`docs/USER-GUIDE.md`](../../docs/USER-GUIDE.md) → "Running Horizontal Input" and [`docs/DEVELOPER-GUIDE.md`](../../docs/DEVELOPER-GUIDE.md) → "The Horizontal Driver".
 
 ## Maintenance notes
 
@@ -36,6 +36,10 @@ Horizontal runs are HDF5-only and do not support `--skip`; both are rejected at 
 - **`Spin` range `[-1000, 1000]`.** Measured over the full production dataset: max `|Spin|` = 416.69, zero non-finite.
 - **`deltaMvir` range `[-1000000.0, 1000000.0]`** (declared in `src/core/core_properties.yaml`, not this package; widened after a measured 4.77e4 on mini-Uchuu). Measured over the `sage16` production run: max `|deltaMvir|` = 12,432.
 - **`_tests/` ships a synthetic contract fixture, not a parity gate.** `_tests/data/` holds the committed version 2 fixture (three forests over six snapshots, rebuilt by `_tests/data/regenerate.sh` with the generator in `micro-uchuu-ascii-horizontal/_tests/input/`) and `_tests/input/test_simulation.yaml` points the generic test tiers at it. There is no package-local conformance check, schema test or cross-format identity gate yet; `make check-horizontal-fixture` covers only the `micro-uchuu-ascii-horizontal` fixture.
+
+### Largest forest in the widest slab
+
+Measured on 2026-10-05 from the `ForestIndex` column of the widest slab, snapshot 34, the largest snapshot of the production dataset, which holds 519,342,987 halos: the percolation super-forest (source forest id 26551468179 in the Consistent-Trees catalogue) holds 321,253,424 of them, 61.86%. This version 2 dataset can be neither distributed nor chunked; the figure bounds what a future forest-blocked version 3 conversion could gain, because a forest is never split across tasks or chunks: no `NTask` and no `input.forest_chunks` would put less than that share of the widest slab (about 321 million halos) in one process, so chunked sweeps alone would not bring a full Shin-Uchuu run onto a small-memory host.
 
 ## How the production dataset was made
 

@@ -228,9 +228,12 @@ static int test_horizontal_run_attrs_omit_ntrees_and_tree_halos_per_snap(void) {
 }
 
 /* The two-visit case's partition: output snapshot 5 at index 0, no task
- * component, so the file is <dir>/model_005.hdf5. 2,500 rows split 1,300 + 1,200
- * puts the visit boundary inside a 1,000-record table chunk, and the second
- * visit's first append lands in a chunk the first visit left partly filled. */
+ * component, so the file is <dir>/model_005.hdf5. Two splits of the 2,500 rows are
+ * written. 1,300 + 1,200 puts the visit boundary inside a 1,000-record table
+ * chunk, and the second visit's first append lands in a chunk the first visit left
+ * partly filled. 0 + 2,500 has the first visit create the file with an empty
+ * table (chunk 0 holds no rows of the output snapshot) and the second visit
+ * append every row. */
 #define TWO_VISIT_SNAPNUM 5
 #define TWO_VISIT_ROWS 2500
 #define TWO_VISIT_SPLIT 1300
@@ -322,7 +325,8 @@ static int read_partition_table(const char *path, unsigned char **bytes, size_t 
  * @brief   A partition reopened by reopen_hdf5_output_file() and appended to on a
  *          second visit holds every row in order, stamps the accumulated count
  *          once, writes per-file metadata only at creation, and stores the same
- *          table bytes as the same rows written in one visit
+ *          table bytes as the same rows written in one visit, whether the first
+ *          visit wrote 1,300 rows or none
  */
 static int test_partition_written_in_two_visits_matches_one_visit(void) {
   char one_dir[] = "/tmp/mimic_hdf5_one_visit_XXXXXX";
@@ -368,56 +372,66 @@ static int test_partition_written_in_two_visits_matches_one_visit(void) {
               "the one-visit partition should write");
   TEST_ASSERT_EQUAL(perfile_metadata_calls, 1, "a one-visit partition writes metadata once");
 
-  snprintf(MimicConfig.OutputDir, sizeof(MimicConfig.OutputDir), "%s", two_dir);
-  perfile_metadata_calls = 0;
-  TEST_ASSERT(write_partition_in_visits(halos, TWO_VISIT_ROWS, TWO_VISIT_SPLIT) == TEST_PASS,
-              "the two-visit partition should write");
-  TEST_ASSERT_EQUAL(perfile_metadata_calls, 1,
-                    "per-file metadata is written on the first visit, not on the reopen");
-
-  unsigned char *one_bytes = NULL, *two_bytes = NULL;
-  size_t one_nbytes = 0, two_nbytes = 0;
-  hsize_t one_rows = 0, two_rows = 0;
-  int64_t one_tot = -1, two_tot = -1;
+  unsigned char *one_bytes = NULL;
+  size_t one_nbytes = 0;
+  hsize_t one_rows = 0;
+  int64_t one_tot = -1;
   TEST_ASSERT(read_partition_table(one_path, &one_bytes, &one_nbytes, &one_rows, &one_tot) ==
                   TEST_PASS,
               "the one-visit table should read");
-  TEST_ASSERT(read_partition_table(two_path, &two_bytes, &two_nbytes, &two_rows, &two_tot) ==
-                  TEST_PASS,
-              "the two-visit table should read");
 
-  TEST_ASSERT_EQUAL((int64_t)two_rows, (int64_t)TWO_VISIT_ROWS,
-                    "the two-visit table should hold every row of both visits");
-  TEST_ASSERT_EQUAL(two_tot, (int64_t)TWO_VISIT_ROWS,
-                    "TotHalosPerSnap should accumulate across both visits");
-  TEST_ASSERT_EQUAL(one_tot, two_tot, "both partitions should stamp the same count");
+  const int64_t splits[] = {TWO_VISIT_SPLIT, 0};
+  unsigned char *two_bytes = NULL;
+  for (size_t s = 0; s < sizeof(splits) / sizeof(splits[0]); s++) {
+    unlink(two_path);
+    snprintf(MimicConfig.OutputDir, sizeof(MimicConfig.OutputDir), "%s", two_dir);
+    perfile_metadata_calls = 0;
+    TEST_ASSERT(write_partition_in_visits(halos, TWO_VISIT_ROWS, splits[s]) == TEST_PASS,
+                "the two-visit partition should write");
+    TEST_ASSERT_EQUAL(perfile_metadata_calls, 1,
+                      "per-file metadata is written on the first visit, not on the reopen");
 
-  /* Row order: the id column read back in file order is the buffer's order. */
-  struct HaloOutput *rows = malloc(TWO_VISIT_ROWS * sizeof(*rows));
-  TEST_ASSERT(rows != NULL, "row buffer should allocate");
-  hid_t file_id = H5Fopen(two_path, H5F_ACC_RDONLY, H5P_DEFAULT);
-  TEST_ASSERT(file_id >= 0, "the two-visit partition should reopen for reading");
-  TEST_ASSERT(H5TBread_table(file_id, "Snap005/Galaxies", HDF5_dst_size, HDF5_dst_offsets,
-                             HDF5_dst_sizes, rows) >= 0,
-              "the two-visit table should read as HaloOutput records");
-  H5Fclose(file_id);
-  int64_t out_of_order = 0;
-  for (int i = 0; i < TWO_VISIT_ROWS; i++) {
-    if (rows[i].UniqueGalaxyID != TWO_VISIT_FIRST_ID + i) {
-      out_of_order++;
+    size_t two_nbytes = 0;
+    hsize_t two_rows = 0;
+    int64_t two_tot = -1;
+    TEST_ASSERT(read_partition_table(two_path, &two_bytes, &two_nbytes, &two_rows, &two_tot) ==
+                    TEST_PASS,
+                "the two-visit table should read");
+
+    TEST_ASSERT_EQUAL((int64_t)two_rows, (int64_t)TWO_VISIT_ROWS,
+                      "the two-visit table should hold every row of both visits");
+    TEST_ASSERT_EQUAL(two_tot, (int64_t)TWO_VISIT_ROWS,
+                      "TotHalosPerSnap should accumulate across both visits");
+    TEST_ASSERT_EQUAL(one_tot, two_tot, "both partitions should stamp the same count");
+
+    /* Row order: the id column read back in file order is the buffer's order. */
+    struct HaloOutput *rows = malloc(TWO_VISIT_ROWS * sizeof(*rows));
+    TEST_ASSERT(rows != NULL, "row buffer should allocate");
+    hid_t file_id = H5Fopen(two_path, H5F_ACC_RDONLY, H5P_DEFAULT);
+    TEST_ASSERT(file_id >= 0, "the two-visit partition should reopen for reading");
+    TEST_ASSERT(H5TBread_table(file_id, "Snap005/Galaxies", HDF5_dst_size, HDF5_dst_offsets,
+                               HDF5_dst_sizes, rows) >= 0,
+                "the two-visit table should read as HaloOutput records");
+    H5Fclose(file_id);
+    int64_t out_of_order = 0;
+    for (int i = 0; i < TWO_VISIT_ROWS; i++) {
+      if (rows[i].UniqueGalaxyID != TWO_VISIT_FIRST_ID + i) {
+        out_of_order++;
+      }
     }
-  }
-  free(rows);
-  TEST_ASSERT_EQUAL(out_of_order, (int64_t)0,
-                    "every row should be in the original order across the visit boundary");
+    free(rows);
+    TEST_ASSERT_EQUAL(out_of_order, (int64_t)0,
+                      "every row should be in the original order across the visit boundary");
 
-  TEST_ASSERT_EQUAL((int64_t)two_nbytes, (int64_t)one_nbytes,
-                    "both tables should hold the same number of bytes");
-  TEST_ASSERT(memcmp(one_bytes, two_bytes, one_nbytes) == 0,
-              "the two-visit table's bytes should equal the one-visit table's");
+    TEST_ASSERT_EQUAL((int64_t)two_nbytes, (int64_t)one_nbytes,
+                      "both tables should hold the same number of bytes");
+    TEST_ASSERT(memcmp(one_bytes, two_bytes, one_nbytes) == 0,
+                "the two-visit table's bytes should equal the one-visit table's");
+    free(two_bytes);
+    two_bytes = NULL;
+  }
 
   free(one_bytes);
-  free(two_bytes);
   free(halos);
   free(galaxy);
   free_hdf5_ids();

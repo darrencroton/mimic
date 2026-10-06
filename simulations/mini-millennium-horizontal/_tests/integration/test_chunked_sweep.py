@@ -199,7 +199,7 @@ def test_every_chunk_count_writes_the_same_files():
     Expected: exit 0 at forest_chunks 1, 2, 3, 8 and 2 with --compress; each output directory
               holds exactly the master and the four partitions halos_<snap>.hdf5 of the
               requested snapshots, every generation released once per chunk, and no leak.
-    Validates: chunking changes neither file names nor the partition layout (C6).
+    Validates: chunking changes neither file names nor the per-(snapshot, task) partition layout.
     """
     _require_package()
     for name, (forest_chunks, _) in LEGS.items():
@@ -223,7 +223,7 @@ def test_comparator_reports_identity_with_one_chunk():
 
     Expected: compare_cross_format_identity.py --compare-created exits 0 against the G = 1 run
               and reports PASSED over a positive galaxy count.
-    Validates: the acceptance predicate C9 on the serial legs (created rows included).
+    Validates: byte-identity per UniqueGalaxyID to the forest_chunks: 1 run, created rows included.
     """
     _require_package()
     reference = _successful_leg("g1").output_dir / BASE
@@ -254,8 +254,8 @@ def test_partition_row_order_matches_one_chunk():
 
     Expected: the UniqueGalaxyID column of every partition, read in file order, equals the
               G = 1 run's, and each is non-empty for at least one snapshot.
-    Validates: chunks append ascending row ranges, so the file order is the G = 1 order (C6);
-               the comparator matches by id and cannot see order.
+    Validates: chunks append ascending row ranges to the partition, so the file order is the
+               G = 1 order; the comparator matches by id and cannot see order.
     """
     _require_package()
     reference = _successful_leg("g1").output_dir
@@ -300,7 +300,7 @@ def test_idle_chunks_are_logged():
 
     Expected: the G = 8 log holds exactly five idle chunk sweep lines (chunks 3 to 7, forests
               [6, 6)) and every chunk's sweep line; the G = 3 log holds none.
-    Validates: trailing idle chunks are allowed and still take their turn (C3, C6).
+    Validates: the task/chunk partition allows idle trailing chunks, which still take their turn.
     """
     _require_package()
     g8 = _successful_leg("g8").output
@@ -324,7 +324,7 @@ def test_two_chunk_log_lines():
               [10, 17); there are 2 x 7 "Loaded snapshot" lines, chunk 1's carrying its row note;
               all seven releases of chunk 0 precede chunk 1's sweep line and seven follow it;
               the G = 1 log holds no partition or chunk line.
-    Validates: the chunk logging of C10 and the per-chunk retention of C7.
+    Validates: each chunk is logged, and each chunk releases its slabs before the next loads.
     """
     _require_package()
     g2 = _successful_leg("g2").stdout
@@ -350,7 +350,8 @@ def test_two_chunk_log_lines():
         f"chunk 0 should release all {NSNAPSHOTS} generations before chunk 1 loads any "
         f"(found {before} before and {after} after chunk 1's sweep line):\n{g2}"
     )
-    assert g2.index("Loaded snapshot ", boundary) > boundary
+    first_after = g2[g2.index("Loaded snapshot ", boundary) :].splitlines()[0]
+    assert "this task's chunk 1 of 2" in first_after, first_after
 
     g1 = _successful_leg("g1").stdout
     for needle in ("horizontal partition:", "Partition task", "Sweeping this task's chunk"):
@@ -388,7 +389,7 @@ def test_failure_keeps_finalised_partitions_and_removes_the_rest():
               4 (finalised by chunk 1 before the fault) survive, row for row and with the
               TotHalosPerSnap of the G = 1 run; snapshots 5 and 6 (created by chunk 0, not yet
               final) and the master are removed.
-    Validates: the per-partition cleanup registry under G > 1 (C6).
+    Validates: the cleanup registry holds one slot per output snapshot under G > 1.
     """
     _require_package()
     dataset_dir = fixture_copy_with_broken_chunk_link(Path(TEMP_DIR) / "broken_forest_blocks")

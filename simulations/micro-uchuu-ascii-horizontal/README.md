@@ -59,7 +59,7 @@ make MODEL=halos-only SIMULATION=micro-uchuu-ascii-horizontal
 ./mimic models/halos-only/input/halos-only_micro-uchuu-ascii-horizontal.yaml
 ```
 
-Horizontal runs are HDF5-only and do not support `--skip`; both are rejected at configuration time. A multi-rank horizontal configuration (`NTask > 1`) is accepted at configuration, but the horizontal driver refuses a version 2 dataset such as this one at startup (distribution needs a forest-blocked version 3 dataset), so run this package with one rank. See [`docs/USER-GUIDE.md`](../../docs/USER-GUIDE.md) → "Running Horizontal Input" and [`docs/DEVELOPER-GUIDE.md`](../../docs/DEVELOPER-GUIDE.md) → "The Horizontal Driver".
+Horizontal runs are HDF5-only and do not support `--skip`; both are rejected at configuration time. A multi-rank horizontal configuration (`NTask > 1`) or a chunked one (`input.forest_chunks` above 1) is accepted at configuration, but the horizontal driver refuses a version 2 dataset such as this one at startup (distribution and chunking both need a forest-blocked version 3 dataset), so run this package with one rank and `forest_chunks: 1`. See [`docs/USER-GUIDE.md`](../../docs/USER-GUIDE.md) → "Running Horizontal Input" and [`docs/DEVELOPER-GUIDE.md`](../../docs/DEVELOPER-GUIDE.md) → "The Horizontal Driver".
 
 ## The cross-format identity gate
 

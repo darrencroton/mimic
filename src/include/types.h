@@ -307,17 +307,18 @@ struct HorizontalForestPartition; /* opaque here; defined in core/horizontal_par
  * it bounds the chain walk's cycle guard; no single slab's count does once a
  * chain can span several snapshots.
  *
- * `partition` and `task` let the lookup's diagnostics name global rows and this
- * task's share of a snapshot under distribution; they only word messages, and a
- * context that leaves them NULL and 0 (serial runs, unit tests) keeps the serial bytes. */
+ * `partition` and `range` let the lookup's diagnostics name global rows and the
+ * range's share of a snapshot in a partitioned (distributed or chunked) run; they only
+ * word messages, and a context that leaves them NULL and 0 (unpartitioned runs, unit
+ * tests) keeps the serial bytes. */
 struct HorizontalGatherContext {
   int64_t snapnum;                                        /* snapshot of the descendants */
   const int32_t *first_progenitor_snapshot;               /* [descendant slab], or NULL (v2) */
   const struct HorizontalRetainedGeneration *generations; /* [run snapshot count], by snapshot */
   int64_t retained_population;
   const struct HorizontalForestPartition
-      *partition; /* distributed run's partition; NULL if serial */
-  int task;       /* this task's rank in `partition`; 0 if serial */
+      *partition; /* the partitioned run's partition; NULL if unpartitioned */
+  int range; /* range of `partition` the slab holds (task * forest_chunks + chunk); 0 if none */
 };
 
 /* A progenitor named by its generation and its row there. A slab index alone no

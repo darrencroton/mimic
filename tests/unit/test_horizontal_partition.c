@@ -12,7 +12,7 @@
  * delivered in blocks of varying size, and against hand-built cases for zero-weight
  * forests, idle ranks, decreasing columns and empty columns.
  *
- * The two-level cut (horizontal_partition_cut_chunks()) is checked against the
+ * The two-level cut (horizontal_partition_cut()) is checked against the
  * same kind of oracle, applied to each task's sub-array over every contiguous
  * partition into `nchunk` chunks, and against two equality properties: one chunk
  * per task reproduces the task-only tables entry for entry, and on one task `G`
@@ -232,14 +232,13 @@ static int rows_agree_with_forest_ranges(const struct HorizontalForestPartition 
 
 /**
  * A partition of `ntask` tasks of `nchunk` chunks over `snapshots` slabs with its forest cuts
- * filled the way the driver fills them: the task cuts, then the chunk cuts.
+ * filled the way the driver fills them: one horizontal_partition_cut() call.
  */
 static struct HorizontalForestPartition *
 make_cut_partition(const int64_t *weights, int n, int ntask, int nchunk, int64_t snapshots) {
   struct HorizontalForestPartition *partition =
       horizontal_partition_create(ntask, nchunk, snapshots, n);
-  horizontal_partition_cut_forests(weights, n, ntask, partition->forest_cuts);
-  horizontal_partition_cut_chunks(weights, partition);
+  horizontal_partition_cut(weights, partition);
   return partition;
 }
 
@@ -294,8 +293,9 @@ static int check_chunk_vector(const int64_t *weights, int n, int ntask, int nchu
   }
 
   if (!ok) {
-    fprintf(stderr, "  cut_chunks disagrees with the oracle (ntask = %d, nchunk = %d)\n", ntask,
-            nchunk);
+    fprintf(stderr,
+            "  horizontal_partition_cut disagrees with the oracle (ntask = %d, nchunk = %d)\n",
+            ntask, nchunk);
     print_vector("weights", weights, n);
     print_vector("task cuts", task_cuts, ntask + 1);
     print_vector("forest cuts", cuts, nranges + 1);
@@ -470,7 +470,7 @@ int test_more_ranks_than_nonzero_forests_leaves_idle_ranges(void) {
 }
 
 /* ------------------------------------------------------------------------- */
-/* cut_chunks: the two-level cut                                             */
+/* horizontal_partition_cut: the two-level cut                               */
 /* ------------------------------------------------------------------------- */
 
 /**
@@ -523,12 +523,12 @@ int test_one_chunk_tables_equal_the_task_only_baseline(void) {
 }
 
 /**
- * @test    test_cut_chunks_matches_brute_force_over_all_small_vectors
+ * @test    test_cut_matches_brute_force_over_all_small_vectors
  * @brief   Each task's chunk makespan is the enumerated optimum; chunk cuts nest in task cuts
  *
  * Every weight vector of length 0..8 over {0, 1, 2, 5}, 1..3 tasks and 1..3 chunks.
  */
-int test_cut_chunks_matches_brute_force_over_all_small_vectors(void) {
+int test_cut_matches_brute_force_over_all_small_vectors(void) {
   int64_t weights[MAX_FORESTS];
   int64_t cases = 0;
 
@@ -538,8 +538,9 @@ int test_cut_chunks_matches_brute_force_over_all_small_vectors(void) {
       decode_weights(code, n, weights);
       for (int ntask = 1; ntask <= MAX_CHUNKED_TASKS; ntask++) {
         for (int nchunk = 1; nchunk <= MAX_CHUNKS; nchunk++) {
-          TEST_ASSERT(check_chunk_vector(weights, n, ntask, nchunk),
-                      "cut_chunks must match the brute-force optimum and keep the task cuts");
+          TEST_ASSERT(
+              check_chunk_vector(weights, n, ntask, nchunk),
+              "horizontal_partition_cut must match the brute-force optimum and keep the task cuts");
           cases++;
         }
       }
@@ -1074,7 +1075,7 @@ int main(void) {
   TEST_RUN(test_zero_weight_forests_are_assigned_and_never_cut_row_order);
   TEST_RUN(test_more_ranks_than_nonzero_forests_leaves_idle_ranges);
   TEST_RUN(test_one_chunk_tables_equal_the_task_only_baseline);
-  TEST_RUN(test_cut_chunks_matches_brute_force_over_all_small_vectors);
+  TEST_RUN(test_cut_matches_brute_force_over_all_small_vectors);
   TEST_RUN(test_one_task_chunks_equal_the_ranges_of_that_many_tasks);
   TEST_RUN(test_idle_trailing_chunks_have_equal_row_cuts);
   TEST_RUN(test_scan_row_cuts_equal_lower_bound_for_hand_built_columns);

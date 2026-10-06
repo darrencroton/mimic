@@ -149,36 +149,36 @@ void horizontal_partition_cut_forests(const int64_t *weights, int64_t n_forests_
   }
 }
 
-void horizontal_partition_cut_chunks(const int64_t *weights,
-                                     const struct HorizontalForestPartition *partition) {
+void horizontal_partition_cut(const int64_t *weights, struct HorizontalForestPartition *partition) {
   const int ntask = partition->ntask;
   const int nchunk = partition->nchunk;
   int64_t *forest_cuts = partition->forest_cuts;
 
-  if (nchunk == 1) {
-    return; /* the task cuts are already the only range level */
+  int64_t *task_cuts = mymalloc_cat((size_t)(ntask + 1) * sizeof(int64_t), MEM_HALOS);
+  horizontal_partition_cut_forests(weights, partition->n_forests_total, ntask, task_cuts);
+
+  for (int t = 0; t <= ntask; t++) {
+    forest_cuts[(int64_t)t * nchunk] = task_cuts[t];
   }
 
-  /* Spread the compact task cuts [0 .. ntask] to entries t * nchunk. Walking down, every
-   * write lands at or above the entry still to be read (t * nchunk >= t), so none is lost. */
-  for (int t = ntask; t >= 1; t--) {
-    forest_cuts[(int64_t)t * nchunk] = forest_cuts[t];
-  }
+  /* At one chunk per task the task cuts are the only range level. */
+  if (nchunk > 1) {
+    for (int t = 0; t < ntask; t++) {
+      const int64_t forest_lo = task_cuts[t];
+      const int64_t count = task_cuts[t + 1] - forest_lo;
+      int64_t *chunk_cuts = forest_cuts + (int64_t)t * nchunk;
 
-  for (int t = 0; t < ntask; t++) {
-    int64_t *task_cuts = forest_cuts + (int64_t)t * nchunk;
-    const int64_t forest_lo = task_cuts[0];
-    const int64_t forest_hi = forest_cuts[((int64_t)t + 1) * nchunk];
-    const int64_t count = forest_hi - forest_lo;
-
-    /* Writes entries [0 .. nchunk] of the task: the first is 0 and the last the sub-range's
-     * length, so offsetting restores both task cuts exactly. */
-    horizontal_partition_cut_forests(count > 0 ? weights + forest_lo : NULL, count, nchunk,
-                                     task_cuts);
-    for (int c = 0; c <= nchunk; c++) {
-      task_cuts[c] += forest_lo;
+      /* Writes entries [0 .. nchunk] of the task: the first is 0 and the last the sub-range's
+       * length, so offsetting restores both task cuts exactly. */
+      horizontal_partition_cut_forests(count > 0 ? weights + forest_lo : NULL, count, nchunk,
+                                       chunk_cuts);
+      for (int c = 0; c <= nchunk; c++) {
+        chunk_cuts[c] += forest_lo;
+      }
     }
   }
+
+  myfree(task_cuts);
 }
 
 void horizontal_partition_accumulate_weights(int64_t *weights, int64_t n_forests_total,

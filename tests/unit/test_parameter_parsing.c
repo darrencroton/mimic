@@ -269,9 +269,19 @@ static int add_post_snapshot_phase(const char *path) {
   fclose(dst);
   fclose(src);
   if (!injected || rename(tmp_path, path) != 0) {
+    unlink(tmp_path);
     return -1;
   }
   return 0;
+}
+
+/** @brief   Count the occurrences of @p needle in @p haystack, overlapping matches included. */
+static int count_occurrences(const char *haystack, const char *needle) {
+  int count = 0;
+  for (const char *at = strstr(haystack, needle); at != NULL; at = strstr(at + 1, needle)) {
+    count++;
+  }
+  return count;
 }
 
 static int write_timestep_scheme_fixture_with_label(char *path, size_t path_size, const char *label,
@@ -1979,17 +1989,11 @@ int test_forest_chunks_rejected_for_vertical_runs(void) {
   TEST_ASSERT(read_parameter_file_capture_fatal(phase_path, output, sizeof(output)) == 1,
               "The vertical fixture should be rejected");
   needle = "input.forest_chunks is 2,";
-  count = 0;
-  for (const char *at = strstr(output, needle); at != NULL; at = strstr(at + 1, needle)) {
-    count++;
-  }
+  count = count_occurrences(output, needle);
   TEST_ASSERT(count == 1, "The chunk count should be reported exactly once");
   needle = "modules.post_snapshot lists 1 module (first: 'sham_rank_match'), but it runs only "
            "under the horizontal driver";
-  count = 0;
-  for (const char *at = strstr(output, needle); at != NULL; at = strstr(at + 1, needle)) {
-    count++;
-  }
+  count = count_occurrences(output, needle);
   TEST_ASSERT(count == 1, "The existing phase rejection should be reported exactly once");
   TEST_ASSERT(strstr(output, "never holds a whole snapshot") == NULL,
               "The chunk snapshot rule should not add a second report for a vertical run");

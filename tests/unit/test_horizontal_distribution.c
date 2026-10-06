@@ -482,30 +482,30 @@ static void reexecute_abort_case(const char *name) {
 int test_link_outside_range_aborts(void) {
   TEST_ASSERT(expect_fatal("first_progenitor_below", reexecute_abort_case,
                            "FirstProgenitor link of snapshot 1 global row 3 names row 1 of target "
-                           "snapshot 0, outside task 1's rows [2, 5) there: the forest is cut by "
+                           "snapshot 0, outside range 1's rows [2, 5) there: the forest is cut by "
                            "the partition",
                            "after abort: FirstProgenitor = 1") == 1,
               "a progenitor below the task's range of its target aborts, unwritten");
   TEST_ASSERT(expect_fatal("next_fof_above", reexecute_abort_case,
                            "NextHaloInFOFgroup link of snapshot 1 global row 6 names row 7 of "
-                           "target snapshot 1, outside task 1's rows [3, 7) there: the forest is "
+                           "target snapshot 1, outside range 1's rows [3, 7) there: the forest is "
                            "cut by the partition",
                            "after abort: NextHaloInFOFgroup = 7") == 1,
               "a FoF link beyond the slab's own range aborts, unwritten");
   TEST_ASSERT(expect_fatal("descendant_above", reexecute_abort_case,
                            "Descendant link of snapshot 1 global row 4 names row 4 of target "
-                           "snapshot 2, outside task 1's rows [1, 4) there: the forest is cut by "
+                           "snapshot 2, outside range 1's rows [1, 4) there: the forest is cut by "
                            "the partition",
                            "after abort: Descendant = 4") == 1,
               "a descendant beyond the task's range of its target aborts, unwritten");
   TEST_ASSERT(expect_fatal("other_chunk_link", reexecute_abort_case,
                            "FirstProgenitor link of snapshot 1 global row 6 names row 2 of target "
-                           "snapshot 0, outside task 3's rows [3, 5) there: the forest is cut by "
+                           "snapshot 0, outside range 3's rows [3, 5) there: the forest is cut by "
                            "the partition",
                            "after abort: FirstProgenitor = 2") == 1,
               "a link into the task's other chunk aborts, unwritten");
   TEST_ASSERT(expect_fatal("range_mismatch", reexecute_abort_case,
-                           "slab holds rows [2, 6), but task 1's partition range there is [3, 7)",
+                           "slab holds rows [2, 6), but range 1 holds rows [3, 7) there",
                            NULL) == 1,
               "a slab that is not the task's range aborts before any link is touched");
   return TEST_PASS;

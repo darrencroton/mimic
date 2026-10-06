@@ -20,9 +20,11 @@ SPEC_ANCHOR = "convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md#v3-runtime-suppor
 #: The coverage label of a route whose source data is the whole simulation.
 COMPLETE = "complete"
 
-FULL_UCHUU_NOT_RUNNABLE = (
-    "Full Uchuu is not runnable: it exceeds whole-slab memory and needs chunked slab "
-    "streaming, which Mimic does not implement."
+FULL_UCHUU_NOT_CLAIMED = (
+    "Full Uchuu is not claimed: it exceeds whole-slab memory, and although Mimic's chunked "
+    "sweeps (input.forest_chunks) now bound a run's memory by a chunk, full Uchuu stays "
+    "unclaimed because it is storage-bound before it is memory-bound, and its largest forest "
+    "bounds any chunk."
 )
 
 
@@ -59,7 +61,7 @@ def runtime_notice() -> str:
         "and driver, but a conversion is not a validated route. The only evidenced routes "
         "(per-UniqueGalaxyID bitwise parity against the same source format's vertical reader, "
         "recorded at {}) are: {}. {}"
-    ).format(SPEC_ANCHOR, "; ".join(_route_clause(r) for r in ROUTES), FULL_UCHUU_NOT_RUNNABLE)
+    ).format(SPEC_ANCHOR, "; ".join(_route_clause(r) for r in ROUTES), FULL_UCHUU_NOT_CLAIMED)
 
 
 def cli_description() -> str:
@@ -67,7 +69,7 @@ def cli_description() -> str:
     return (
         "The current Mimic reads version 3, but converted output is a validated route only "
         "where a recorded parity gate passed ({}; see each stage's runtime-support line); "
-        "full Uchuu is not runnable."
+        "full Uchuu is not claimed."
     ).format("; ".join(_route_clause(r) for r in ROUTES))
 
 
@@ -80,5 +82,5 @@ def standing_limitations() -> Tuple[str, ...]:
         "UniqueGalaxyID, to the same source format's vertical reader over the same files "
         "({}).".format(SPEC_ANCHOR),
         "The only evidenced routes are: {}.".format("; ".join(_route_clause(r) for r in ROUTES)),
-        FULL_UCHUU_NOT_RUNNABLE,
+        FULL_UCHUU_NOT_CLAIMED,
     )

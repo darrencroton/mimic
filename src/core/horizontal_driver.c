@@ -129,7 +129,7 @@
  * output id 0", so the partition table means nothing until
  * horizontal_free_partition_output_paths() has run (at run start, from
  * horizontal_open_output(), or from the clear below); until then every entry is
- * treated as free. */
+ * treated as free, and arming one aborts. */
 struct HorizontalPartitionOutputEntry {
   int output_id; /* the partition's output id, -1 when the entry is free */
   int task;      /* its task component (partition_task()), -1 for none */
@@ -219,6 +219,12 @@ static void horizontal_arm_master_output_path(void) {
 static void horizontal_arm_partition_output_path(int output_index, int output_id, int task) {
   char path[HORIZONTAL_PATH_BUF_SIZE + 1];
 
+  if (!horizontal_partition_output_entries_ready) {
+    FATAL_ERROR("Output partition %d (snapshot index %d) cannot be armed for cleanup: the "
+                "partition cleanup registry was not reset by horizontal_open_output() before the "
+                "first partition was armed",
+                output_id, output_index);
+  }
   if (horizontal_partition_output_armed(output_index)) {
     FATAL_ERROR("Output partition %d (snapshot index %d) is already armed for cleanup: its first "
                 "visit ran twice before its last visit finalised it",
@@ -438,7 +444,7 @@ horizontal_resolve_progenitor(const struct HorizontalGatherContext *lookup, int6
                               int64_t prog, int64_t halonr, const char *link) {
   /* Rows are printed as snapshot rows, which a partitioned run's local rows are not. */
   const int64_t global_halonr =
-      horizontal_global_row(lookup->partition, lookup->task, lookup->snapnum, halonr);
+      horizontal_global_row(lookup->partition, lookup->range, lookup->snapnum, halonr);
   if (target_snap < 0 || target_snap >= lookup->snapnum) {
     FATAL_ERROR("%s link of snapshot %" PRId64 " halo %" PRId64 " names snapshot %" PRId64
                 ", which is not an earlier snapshot of this run",
@@ -455,11 +461,11 @@ horizontal_resolve_progenitor(const struct HorizontalGatherContext *lookup, int6
   }
   if (prog >= generation->view.count) {
     const struct HorizontalRowNote note =
-        horizontal_task_rows_note(lookup->partition, lookup->task, target_snap);
+        horizontal_task_rows_note(lookup->partition, lookup->range, target_snap);
     FATAL_ERROR("%s link of snapshot %" PRId64 " halo %" PRId64 " names row %" PRId64
                 " of snapshot %" PRId64 ", which holds %" PRId64 " halos%s",
                 link, lookup->snapnum, global_halonr,
-                horizontal_global_row(lookup->partition, lookup->task, target_snap, prog),
+                horizontal_global_row(lookup->partition, lookup->range, target_snap, prog),
                 target_snap, generation->view.count, note.text);
   }
 
@@ -531,7 +537,7 @@ static void horizontal_check_chain_steps(const struct HorizontalGatherContext *l
                 " halos%s of every retained generation; the input's NextProgenitor links "
                 "contain a cycle",
                 lookup->snapnum,
-                horizontal_global_row(lookup->partition, lookup->task, lookup->snapnum, halonr),
+                horizontal_global_row(lookup->partition, lookup->range, lookup->snapnum, halonr),
                 lookup->retained_population, lookup->partition != NULL ? " this task holds" : "");
   }
 }
@@ -759,10 +765,10 @@ static void horizontal_task_rows(const struct HorizontalDriverState *state, int6
 /*
  * One link of slab row `halonr`, rebased from its global row `value` in snapshot
  * `target_snap` to the index the target's local slab gives that row: `value`
- * minus row_cuts[target_snap][range], the first row of this task's range there
+ * minus row_cuts[target_snap][range], the first row of the swept range there
  * (for a FoF link the target is the slab's own snapshot, where that is the
  * slab's row_offset). Aborts when the target lies outside the run or the rebased
- * row outside the task's range of the target (the forest is cut by the
+ * row outside the range's rows of the target (the forest is cut by the
  * partition), so nothing out of range is ever written.
  */
 static int64_t horizontal_rebase_link(const struct SnapshotSlab *slab,
@@ -782,7 +788,7 @@ static int64_t horizontal_rebase_link(const struct SnapshotSlab *slab,
   const int64_t local = value - base;
   if (local < 0 || local >= local_count) {
     FATAL_ERROR("%s link of snapshot %" PRId64 " global row %" PRId64 " names row %" PRId64
-                " of target snapshot %" PRId64 ", outside task %d's rows [%" PRId64 ", %" PRId64
+                " of target snapshot %" PRId64 ", outside range %d's rows [%" PRId64 ", %" PRId64
                 ") there: the forest is cut by the partition. Every link must stay inside its "
                 "forest, so the dataset is not forest-blocked as the partition assumes, or the "
                 "partition is wrong",
@@ -806,7 +812,7 @@ static int64_t horizontal_rebase_link(const struct SnapshotSlab *slab,
  * snapshot, so they are rebased by the slab's row_offset; FirstProgenitor,
  * NextProgenitor and Descendant name rows of the snapshot their target column
  * names, t, and are rebased by row_cuts[t][range]. A negative (null) link is left
- * as it is. Every rebased value is range-checked against the task's range of its
+ * as it is. Every rebased value is range-checked against the swept range's rows of its
  * target before it is written through mimic_tree_set_<role>() (the setters have no
  * range guard of their own); a value out of range aborts the run naming the
  * link, the snapshot, the global row and the target snapshot. A partition whose cuts start
@@ -820,7 +826,8 @@ void horizontal_rebase_slab_links(struct SnapshotSlab *slab,
                                   const struct HorizontalForestPartition *partition, int range) {
   const int nranges = horizontal_partition_range_count(partition);
   if (range < 0 || range >= nranges) {
-    FATAL_ERROR("Cannot rebase snapshot %" PRId64 " for task %d of a %d-task partition",
+    FATAL_ERROR("Cannot rebase snapshot %" PRId64 " for range %d of a %d-range partition "
+                "(range = task * forest_chunks + chunk)",
                 slab->snapnum, range, nranges);
   }
   if (slab->snapnum < 0 || slab->snapnum >= partition->snapshot_count) {
@@ -832,7 +839,7 @@ void horizontal_rebase_slab_links(struct SnapshotSlab *slab,
   const int64_t row_hi = horizontal_row_cut(partition, slab->snapnum, range + 1);
   if (slab->row_offset != row_lo || slab->nhalos != row_hi - row_lo) {
     FATAL_ERROR("Snapshot %" PRId64 " slab holds rows [%" PRId64 ", %" PRId64
-                "), but task %d's partition range there is [%" PRId64 ", %" PRId64 ")",
+                "), but range %d holds rows [%" PRId64 ", %" PRId64 ") there",
                 slab->snapnum, slab->row_offset, slab->row_offset + slab->nhalos, range, row_lo,
                 row_hi);
   }
@@ -969,8 +976,7 @@ static void horizontal_compute_partition(const struct HorizontalDriverState *sta
     struct HorizontalWeightVisit visit = {weights, n_forests};
     horizontal_reader_scan_forest_index(state->reader, widest, horizontal_visit_weights, &visit);
   }
-  horizontal_partition_cut_forests(weights, n_forests, ntask, partition->forest_cuts);
-  horizontal_partition_cut_chunks(weights, partition); /* a no-op at one chunk per task */
+  horizontal_partition_cut(weights, partition);
 
   for (int64_t snapnum = 0; snapnum < info->snapshot_count; snapnum++) {
     struct HorizontalForestScan scan;
@@ -2154,7 +2160,7 @@ static void horizontal_sweep_chunk(struct HorizontalDriverState *state,
     lookup.generations = state->lookup;
     lookup.retained_population = state->retained_population;
     lookup.partition = state->partition;
-    lookup.task = state->range;
+    lookup.range = state->range;
 
     /* Walk FoF groups in slab order, processing each group when its central is
      * first met. Every halo names a central whose own FirstHaloInFOFgroup is
@@ -2391,6 +2397,16 @@ void run_horizontal_driver(void) {
   /* Either a task count above one or a chunk count above one builds the
    * partition; a run with neither is today's unpartitioned run. */
   const int chunked = MimicConfig.ForestChunks > 1;
+  /* Defence in depth for harnesses that fill MimicConfig without the parser, which refuses this. */
+  if (chunked && MimicConfig.num_post_snapshot > 0) {
+    FATAL_ERROR("modules.%s lists %d module%s (first: '%s') with input.forest_chunks %d, but a "
+                "chunked sweep never holds a whole snapshot's population at once, so the "
+                "snapshot scope needs forest_chunks: 1; configuration should already have "
+                "refused this run, so the parser was bypassed",
+                POST_SNAPSHOT_PHASE_NAME, MimicConfig.num_post_snapshot,
+                MimicConfig.num_post_snapshot == 1 ? "" : "s",
+                MimicConfig.post_snapshot[0].module_name, MimicConfig.ForestChunks);
+  }
   if (distributed || chunked) {
     horizontal_partition_run(&state, &info, distributed, chunked ? MimicConfig.ForestChunks : 1);
   }

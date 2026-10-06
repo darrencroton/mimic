@@ -45,22 +45,23 @@ Steps, each reported as ``MIMIC_RESULT:`` markers and gated:
 3. Chunked legs (``input.forest_chunks``, set by editing the parsed run file) for ``halos-only``,
    ``sage16`` and ``hod``: with the non-MPI binary, serial runs at ``forest_chunks`` 2, 3 and 8
    (run directories ``chunks<G>``), and with the MPI binary, ``-np 2`` at ``forest_chunks: 2`` and
-   ``-np 3`` at ``forest_chunks: 3`` (``np2_chunks2``, ``np3_chunks3``). Each is compared with
-   the serial ``forest_chunks: 1`` run through the comparator with the same identity,
-   ``galaxies_compared_`` and (for ``hod``) ``created_rows_compared_`` markers as the rank
-   counts; each serial chunked run must also hold, in every partition file, the reference's
-   ``UniqueGalaxyID`` column in the same file order (``row_order_``); each MPI chunked run gets the
-   task-layout checks above. Every chunked run's task 0 partition headline must name its task and
-   chunk counts (``Chunked horizontal partition: ... over 1 task in G chunks each`` serially,
-   ``Distributed horizontal partition: ... over N tasks in G chunks each`` under MPI;
+   ``-np 3`` at ``forest_chunks: 3`` (``np2_chunks2``, ``np3_chunks3``). Each is compared with the
+   serial ``forest_chunks: 1`` run through the comparator with the same identity,
+   ``galaxies_compared_`` and (for ``hod``) ``created_rows_compared_`` markers as the rank counts;
+   every chunked run must also hold, for every snapshot, the reference's ``UniqueGalaxyID`` column
+   in the same file order (``row_order_``; an MPI run's task partitions are concatenated in task
+   order, since tasks own ascending forest ranges); each MPI chunked run also gets the task-layout
+   checks above. Every chunked run's task 0 partition headline must name its task and chunk counts
+   (``Chunked horizontal partition: ... over 1 task in G chunks each`` serially, ``Distributed
+   horizontal partition: ... over N tasks in G chunks each`` with more than one rank;
    ``chunk_log_``), so a run that swept unchunked fails. The shipped ``hod`` fixture run file
    configures the snapshot audit, which chunking refuses, so ``hod``'s chunked legs run
    ``forest_blocks_hod_chunked.yaml`` (the same run without ``modules.post_snapshot``, so the
-   full-halo creation path is gated with created rows on both sides) against a serial reference
-   of that variant (``chunked_reference``, itself checked for halos). For ``sham`` and the
-   shipped ``hod`` run file, one serial launch at ``forest_chunks: 2`` must fail at configuration
-   with the snapshot-scope refusal (``never holds a whole snapshot`` and ``needs forest_chunks:
-   1``) and never log ``Opened horizontal run`` (``chunked_refused_``).
+   full-halo creation path is gated with created rows on both sides) against a serial reference of
+   that variant (``chunked_reference``, itself checked for halos). For ``sham`` and the shipped
+   ``hod`` run file, one serial launch at ``forest_chunks: 2`` must fail at configuration with the
+   snapshot-scope refusal (``never holds a whole snapshot`` and ``needs forest_chunks: 1``) and
+   never log ``Opened horizontal run`` (``chunked_refused_``).
 4. The version 2 refusal: ``halos-only`` on the version 2 fixture
    ``simulations/micro-uchuu-ascii-horizontal/_tests/data/generic/`` under ``-np 2`` must fail at
    startup with the format_version 2 message.
@@ -416,26 +417,16 @@ class Gate:
                 continue
             self.check_chunk_log(name, output, CHUNKED_PARTITION_LINE, 1, nchunk)
             self.compare(model, name, serial_dir / base, run_dir / base)
-            order = read_row_order(run_dir, base)
-            mismatched = sorted(
-                key
-                for key in reference_order.keys() | order.keys()
-                if reference_order.get(key) != order.get(key)
-            )
-            self.marker(
-                bool(reference_order) and not mismatched,
-                f"row_order_{name}",
-                f"partitions whose UniqueGalaxyID column differs in file order from the serial "
-                f"forest_chunks: 1 run (or are missing on one side): {mismatched}; reference "
-                f"partitions read: {len(reference_order)}",
-            )
+            self.check_row_order(name, reference_order, run_dir, base)
         return config, serial_dir, serial_totals
 
     def chunked_mpi(self, model, config, serial_dir, serial_totals) -> None:
         """MPI runs at each NP_CHUNK_PAIRS (rank count, forest_chunks) against the serial
-        forest_chunks: 1 run, with the task-layout checks."""
+        forest_chunks: 1 run, with the task-layout checks and the row order of every snapshot
+        (the task partitions concatenated in task order against the serial partition)."""
         base = config["output"]["output_filename"]
         snapshots = sorted(int(snap) for snap in config["output"]["snapshot_list"])
+        reference_order = read_row_order(serial_dir, base)
         for ntask, nchunk in NP_CHUNK_PAIRS:
             run_dir = WORK_ROOT / model / f"np{ntask}_chunks{nchunk}"
             run_file = write_run_file(with_forest_chunks(config, nchunk), run_dir)
@@ -449,6 +440,25 @@ class Gate:
                 name, run_dir, base, snapshots, ntask, serial_totals, output, nchunk=nchunk
             )
             self.compare(model, name, serial_dir / base, run_dir / base)
+            self.check_row_order(name, reference_order, run_dir, base)
+
+    def check_row_order(self, name, reference_order, run_dir: Path, base: str) -> None:
+        """Every snapshot's ``UniqueGalaxyID`` column, in file order (an MPI run's task
+        partitions concatenated in task order), equals the serial forest_chunks: 1 run's; the
+        comparator matches by id and cannot see order."""
+        order = read_row_order(run_dir, base)
+        mismatched = sorted(
+            key
+            for key in reference_order.keys() | order.keys()
+            if reference_order.get(key) != order.get(key)
+        )
+        self.marker(
+            bool(reference_order) and not mismatched,
+            f"row_order_{name}",
+            f"snapshots whose UniqueGalaxyID column differs in file order from the serial "
+            f"forest_chunks: 1 run (or are missing on one side): {mismatched}; reference "
+            f"snapshots read: {len(reference_order)}",
+        )
 
     def chunked_refusal(self, model: str, config: dict) -> None:
         """The fixture run file at forest_chunks: 2 fails at configuration, before the run opens."""
@@ -667,18 +677,24 @@ def with_forest_chunks(config: dict, nchunk: int) -> dict:
 
 
 def read_row_order(run_dir: Path, base: str) -> dict[str, list[int]]:
-    """Each partition file's ``UniqueGalaxyID`` column in file order, keyed by file name.
+    """Each snapshot's ``UniqueGalaxyID`` column in file order, keyed by snapshot number.
 
-    A partition holds one ``Snap<NNN>/Galaxies`` table; every such table in the file is read.
-    A run directory without partitions gives an empty mapping.
+    A serial run holds one ``<base>_<snap>.hdf5`` per snapshot; an MPI run holds one
+    ``<base>_<snap>_task<t>.hdf5`` per snapshot and task, whose columns are concatenated in task
+    order (the zero-padded task suffix sorts that way). A partition holds one
+    ``Snap<NNN>/Galaxies`` table; every such table in the file is read. A run directory without
+    partitions gives an empty mapping.
     """
+    pattern = re.compile(rf"{re.escape(base)}_(\d+)(?:_task\d+)?\.hdf5")
     order: dict[str, list[int]] = {}
     for path in sorted(run_dir.glob(f"{base}_*.hdf5")):
+        match = pattern.fullmatch(path.name)
+        if match is None:
+            continue
+        column = order.setdefault(match.group(1), [])
         with h5py.File(path, "r") as handle:
-            column: list[int] = []
             for group in sorted(key for key in handle if key.startswith("Snap")):
                 column.extend(int(uid) for uid in handle[group]["Galaxies"]["UniqueGalaxyID"])
-            order[path.name] = column
     return order
 
 

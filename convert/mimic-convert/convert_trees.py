@@ -347,9 +347,12 @@ def _print_topology(n_gapped: int, max_span: int, adjacent: bool, counts) -> Non
             "version 3 indices are int64; the horizontal driver refuses such a slab before "
             "loading it only when that snapshot is a requested output snapshot (the output "
             "path counts emitted records in int), warns above 1e9 rows where the output "
-            "marshaller cannot grow, and otherwise whole-slab retention must hold it in "
-            "memory (optionally bounded by input.retention_memory_ceiling_mb); chunked slab "
-            "streaming is not implemented".format(widest, _INT32_MAX)
+            "marshaller cannot grow, and otherwise at forest_chunks: 1 whole-slab retention "
+            "must hold it in memory (optionally bounded by input.retention_memory_ceiling_mb); "
+            "on forest-blocked output (lhalo_binary and consistent_trees_hdf5 sources) chunked "
+            "sweeps (input.forest_chunks) bound a run's memory by a chunk, down to the largest "
+            "forest's share of the widest slab, which no setting splits; consistent_trees_ascii "
+            "output is not forest-blocked and cannot be chunked".format(widest, _INT32_MAX)
         )
     else:
         print(

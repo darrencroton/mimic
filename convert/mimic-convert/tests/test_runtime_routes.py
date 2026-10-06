@@ -40,12 +40,12 @@ class RuntimeRoutesTests(unittest.TestCase):
                 self.assertIn("{} {}, {}".format(*route[:3]), text)
                 self.assertIn(" and ".join(route.models), text)
             self.assertIn(runtime_routes.SPEC_ANCHOR, text)
-            self.assertIn(runtime_routes.FULL_UCHUU_NOT_RUNNABLE, text)
+            self.assertIn(runtime_routes.FULL_UCHUU_NOT_CLAIMED, text)
         self.assertIn("a conversion is not a validated route", notice)
         description = runtime_routes.cli_description()
         for simulation in {r.simulation for r in runtime_routes.ROUTES}:
             self.assertIn(simulation, description)
-        self.assertIn("full Uchuu is not runnable", description)
+        self.assertIn("full Uchuu is not claimed", description)
 
 
 if __name__ == "__main__":
