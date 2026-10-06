@@ -90,7 +90,7 @@ Partition tables hold 2080 B on every task (counted in its retention accounting)
 
 The four chunks are exactly the four task ranges of the step 3 `-np 4` partition (`MIMIC-DISTRIBUTED-SNAPSHOT-ACCEPTANCE.md`), as decision C3 requires. At `-np 2 × G = 2` task 0 logged task 0 as forests `[0, 209418)` with chunks `[0, 101620)` and `[101620, 209418)`, and task 1 as forests `[209418, 440651)` with chunks `[209418, 314723)` and `[314723, 440651)`: the same four ranges.
 
-A separate, untimed `--verbose` rerun at serial `G = 8` for each model logged 56 `Appended ... (not yet final)` lines (seven later chunks times eight output snapshots), none of them `Appended 0 galaxies`. Chunk 0 loaded halos at every output snapshot (for example 10,915 of snapshot 7's 83,505), so on this dataset no partition's first visit was empty.
+A separate, untimed `--verbose` rerun at serial `G = 8` for each model logged 56 `Appended ... (not yet final)` lines (chunks 0 to 6, the seven non-final chunks, times eight output snapshots), none of them `Appended 0 galaxies`. Chunk 0 loaded halos at every output snapshot (for example 10,915 of snapshot 7's 83,505), so on this dataset no partition's first visit was empty.
 
 ### Largest-forest floor
 
