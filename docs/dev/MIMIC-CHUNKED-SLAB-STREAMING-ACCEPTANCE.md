@@ -2,7 +2,7 @@
 
 **Status:** Recorded 2026-10-07, for Slice 5 of `MIMIC-CHUNKED-SLAB-STREAMING-IMPLEMENTATION-PLAN.md` (decision C9, the acceptance predicate). This file records measurements; it is not a plan and makes no claim beyond the runs below.
 
-**Code under test:** branch `feature/chunked-slab-streaming` at `8306f224` (Slice 5's gate commit; the runtime is Slice 4's, `47b8db35`, since Slice 5 changes no runtime source). Every run below was built from `8306f224` (the run logs' `Commit` line), so the `G = 1` row of each memory table was measured at the same commit as the others. This record is committed in the next commit, which adds only this file.
+**Code under test:** branch `feature/chunked-slab-streaming`. The real-data stage was measured from binaries built at `8306f224`, Slice 5's first gate commit (the run logs' `Commit` line), so the `G = 1` row of each memory table was measured at the same commit as the others. The fixture gate below was run at `4fcd6174`, the gate's corrected revision. Neither `4fcd6174` nor any other Slice 5 commit changes runtime source, so the runtime under test is Slice 4's, `47b8db35`, throughout. This record is committed in descendant commits of those two, which change only this file.
 
 **Host:** macOS 27.0.1 (Darwin 27.0.0), 32 cores, 512 GB RAM; Open MPI 5.0.9; HDF5 1.14.6; `mimic_venv` Python 3.14 with h5py 3.15.1. Runs were strictly sequential: no build, test or other run overlapped any timed run.
 
@@ -10,15 +10,15 @@
 
 ## Fixture gate (`make tests-distributed`)
 
-Run in its CI form, `MPIRUN="mpirun --oversubscribe" make tests-distributed`, with log `build/distributed_tests.log`, on the gate committed at `8306f224`. It passed with **245 checks** (158 before Slice 5), no FAIL, ERROR, WARN or SKIP markers. Its summary line was `PASS: tests-distributed (245 checks: MPI control test, 4 model(s) at -np 1, 2, 3, 4, 8, chunked legs (halos-only, sage16, hod) at forest_chunks 2, 3, 8 serial and -np 2 x 2, -np 3 x 3, chunked refusal (sham, hod), version 2 refusal; no skips)`.
+Run in its CI form, `MPIRUN="mpirun --oversubscribe" make tests-distributed`, with log `build/distributed_tests.log`, on the gate committed at `4fcd6174`. It passed with **260 checks** (158 before Slice 5), no FAIL, ERROR, WARN or SKIP markers. Its summary line was `PASS: tests-distributed (260 checks: MPI control test, 4 model(s) at -np 1, 2, 3, 4, 8, chunked legs (halos-only, sage16, hod) at forest_chunks 2, 3, 8 serial and -np 2 x 2, -np 3 x 3, chunked refusal (sham, hod), version 2 refusal; no skips)`. The gate's first revision, at `8306f224`, had passed with 245 checks; `4fcd6174` adds the 15 `chunk_log_` checks and restores the gate's timeout bound, so the first launch or comparison of a model's leg that times out now ends that leg, chunked legs included.
 
-The 87 new checks come from 18 new launches of `./mimic` on the committed `forest_blocks` fixture (each a sub-second run) and 15 new comparator runs:
+The 102 new checks come from 18 new launches of `./mimic` on the committed `forest_blocks` fixture (each a sub-second run) and 15 new comparator runs:
 
-- `halos-only` and `sage16` (26 checks each): serial runs at `forest_chunks` 2, 3 and 8, each byte-identical per `UniqueGalaxyID` to the serial `forest_chunks: 1` run through `scripts/compare_cross_format_identity.py --compare-created` (47 or 49 galaxies compared) and holding every partition's `UniqueGalaxyID` column in the reference's file order; MPI runs at `-np 2` with `forest_chunks: 2` and `-np 3` with `forest_chunks: 3`, with the task-layout, master-link and partition-log checks and the same comparison.
-- `hod` (34 checks): the same legs on `simulations/mini-millennium-horizontal/_tests/input/forest_blocks_hod_chunked.yaml` (the fixture run file without `modules.post_snapshot`) against a serial `forest_chunks: 1` run of that variant (57 galaxies, of which 10 created rows on both sides at every leg), plus the shipped `forest_blocks_hod.yaml` refused at configuration at `forest_chunks: 2`.
+- `halos-only` and `sage16` (31 checks each): serial runs at `forest_chunks` 2, 3 and 8, each byte-identical per `UniqueGalaxyID` to the serial `forest_chunks: 1` run through `scripts/compare_cross_format_identity.py --compare-created` (47 or 49 galaxies compared) and holding every partition's `UniqueGalaxyID` column in the reference's file order; MPI runs at `-np 2` with `forest_chunks: 2` and `-np 3` with `forest_chunks: 3`, with the task-layout, master-link and partition-log checks and the same comparison. Every one of these five runs also has a `chunk_log_` check: task 0's partition headline must name the task count and `in G chunks each`, which an unchunked run's headline never does.
+- `hod` (39 checks): the same legs on `simulations/mini-millennium-horizontal/_tests/input/forest_blocks_hod_chunked.yaml` (the fixture run file without `modules.post_snapshot`) against a serial `forest_chunks: 1` run of that variant (57 galaxies, of which 10 created rows on both sides at every leg), plus the shipped `forest_blocks_hod.yaml` refused at configuration at `forest_chunks: 2`.
 - `sham` (1 check): the shipped run file refused at configuration at `forest_chunks: 2`, with the snapshot-scope message and no `Opened horizontal run` line.
 
-Every chunked run logged its chunked partition line (`Chunked horizontal partition: 6 forests over 1 task in G chunks each` serially, `Distributed horizontal partition: 6 forests over N tasks in G chunks each` under MPI); the `G = 8` and `-np 3 × G = 3` runs swept idle chunks.
+Every chunked run logged its chunked partition line, which the `chunk_log_` checks assert (`Chunked horizontal partition: 6 forests over 1 task in G chunks each` serially, `Distributed horizontal partition: 6 forests over N tasks in G chunks each` under MPI); the `G = 8` and `-np 3 × G = 3` runs swept idle chunks.
 
 ---
 
