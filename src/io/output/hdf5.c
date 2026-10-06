@@ -127,9 +127,11 @@ void prep_hdf5_file(char *fname, struct OutputSnapshotSelection selection) {
  * (prep_hdf5_file), then reopens it, stores the handle in
  * HDF5_current_file_id so subsequent batch writes are cheap, and writes the
  * per-file RunProperties metadata immediately: this is the only site that
- * assigns HDF5_current_file_id, so "per-file metadata" is a property of
- * opening a file rather than of a snapshot index. The handle is closed by the
- * driver after the filenr is finalized.
+ * creates a file and writes its per-file metadata, so "per-file metadata" is a
+ * property of creating a file rather than of a snapshot index
+ * (reopen_hdf5_output_file() assigns HDF5_current_file_id for a later visit
+ * without writing any). The handle is closed by the driver after the filenr is
+ * finalized.
  *
  * @p task is the partition's task component, as the driver reads it from
  * OutputPartitionSource.partition_task (-1 for a partition with none); the

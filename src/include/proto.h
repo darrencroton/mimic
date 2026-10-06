@@ -101,19 +101,19 @@ struct InheritanceProgenitorGalaxy; /* core/inheritance.h */
 
 void run_horizontal_driver(void);
 
-/* Incomplete-output cleanup for horizontal runs. The horizontal driver keeps
- * two registrations with independent lifetimes: the partition file currently
- * being written, armed just before that file is created and released as soon as
- * it closes cleanly (the vertical driver's own per-partition discipline), and the
- * master file, armed at run start. main.c writes the master only after
- * run_horizontal_driver() returns, so the master registration outlives the driver
- * and is disarmed by horizontal_driver_clear_output_paths() once
- * write_master_file() has succeeded; any failure before that point runs
- * horizontal_driver_remove_incomplete_outputs() from bye(), or from myexit() under
- * NTask > 1, which makes the same two removal calls before MPI_Abort (bye() does
- * not run after it). It removes whatever is still armed — the in-flight partition
- * and the master — while every partition file that already closed survives as
- * final output. Both are no-ops for a vertical run, which registers nothing. */
+/* Incomplete-output cleanup for horizontal runs. The horizontal driver keeps one
+ * registration per requested output snapshot, for the partition this task builds
+ * for it (armed just before the file is created on its first visit, released only
+ * after its last visit closes it cleanly), and one for the master file, armed at
+ * run start. main.c writes the master only after run_horizontal_driver() returns,
+ * so the master registration outlives the driver and is disarmed by
+ * horizontal_driver_clear_output_paths() once write_master_file() has succeeded;
+ * any failure before that point runs horizontal_driver_remove_incomplete_outputs()
+ * from bye(), or from myexit() under NTask > 1, which makes the same two removal
+ * calls before MPI_Abort (bye() does not run after it). It removes whatever is
+ * still armed — every partition of this task not yet final, and the master —
+ * while every finalised partition file survives as final output. Both are no-ops
+ * for a vertical run, which registers nothing. */
 void horizontal_driver_remove_incomplete_outputs(void);
 void horizontal_driver_clear_output_paths(void);
 
