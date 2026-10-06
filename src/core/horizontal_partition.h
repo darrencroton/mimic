@@ -13,21 +13,34 @@
  * file and never touches the driver, so the same code serves every rank count
  * and is testable against a brute-force oracle.
  *
- * Two tables describe a partition, both for `ntask` ranks:
+ * The partition is two-level: the forests are cut into `ntask` contiguous task
+ * ranges, then each task's range is cut again into `nchunk` contiguous chunks
+ * that the task sweeps one after another. Both levels are cuts of the same
+ * forest axis, so the tables hold `nranges = ntask * nchunk` ranges
+ * (horizontal_partition_range_count()); range `t * nchunk + c` is task `t`'s
+ * chunk `c`, and a run with `nchunk == 1` has exactly one range per task.
  *
- * - `forest_cuts[0 .. ntask]`: rank `r` owns the forests `f` with
- *   `forest_cuts[r] <= f < forest_cuts[r + 1]`. `forest_cuts[0] == 0`,
- *   `forest_cuts[ntask] == n_forests_total`, and the cuts never decrease.
- * - `row_cuts[s * (ntask + 1) + r]`: the first row of snapshot slab `s` whose
- *   `ForestIndex >= forest_cuts[r]` (a lower bound), so rank `r` owns the rows
- *   `[row_cuts[s][r], row_cuts[s][r + 1])` of slab `s` and
- *   `row_cuts[s][ntask]` is the slab's row count.
+ * Two tables describe a partition:
+ *
+ * - `forest_cuts[0 .. nranges]`: range `q` owns the forests `f` with
+ *   `forest_cuts[q] <= f < forest_cuts[q + 1]`. `forest_cuts[0] == 0`,
+ *   `forest_cuts[nranges] == n_forests_total`, and the cuts never decrease.
+ *   Entry `t * nchunk` is task `t`'s first cut, so every `nchunk`-th entry is a
+ *   task cut and the entries between two task cuts are that task's chunk cuts.
+ * - `row_cuts[s * (nranges + 1) + q]`: the first row of snapshot slab `s` whose
+ *   `ForestIndex >= forest_cuts[q]` (a lower bound), so range `q` owns the rows
+ *   `[row_cuts[s][q], row_cuts[s][q + 1])` of slab `s` and
+ *   `row_cuts[s][nranges]` is the slab's row count.
  *
  * Usage, in the order the distribution contract runs it:
  *
  * 1. Stream the widest slab's `ForestIndex` column through
  *    horizontal_partition_accumulate_weights() to get per-forest weights.
- * 2. horizontal_partition_cut_forests() turns the weights into `forest_cuts`.
+ * 2. horizontal_partition_cut_forests() turns the weights into the task cuts,
+ *    `ntask + 1` of them written to `forest_cuts[0 .. ntask]`; then
+ *    horizontal_partition_cut_chunks() moves each task cut to its entry
+ *    `t * nchunk` and fills the chunk cuts inside every task's range (a no-op
+ *    when `nchunk == 1`, where the two layouts coincide).
  * 3. For every slab, stream the `ForestIndex` column through a
  *    struct HorizontalForestScan to verify the slab is forest-blocked and fill
  *    its `row_cuts` row.
@@ -46,11 +59,14 @@
  *
  * Owned by the creator: allocate with horizontal_partition_create() and release
  * with horizontal_partition_destroy(). Both arrays are tracked MEM_HALOS
- * allocations, zero-filled at creation. `forest_cuts` has `ntask + 1` entries;
- * `row_cuts` has `snapshot_count * (ntask + 1)` entries, row-major by snapshot.
+ * allocations, zero-filled at creation. `forest_cuts` has `ntask * nchunk + 1`
+ * entries; `row_cuts` has `snapshot_count * (ntask * nchunk + 1)` entries,
+ * row-major by snapshot. Entry `t * nchunk` of `forest_cuts` is task `t`'s
+ * first cut and range `t * nchunk + c` is task `t`'s chunk `c`.
  */
 struct HorizontalForestPartition {
   int ntask;
+  int nchunk;
   int64_t snapshot_count;
   int64_t n_forests_total;
   int64_t *forest_cuts;
@@ -79,14 +95,32 @@ struct HorizontalForestScan {
 };
 
 /**
- * @brief   Allocate a zero-filled partition for `ntask` ranks and `snapshot_count` slabs
+ * @brief   Number of ranges the tables describe, `ntask * nchunk`
+ *
+ * The stride of `row_cuts` is this plus one and the length of `forest_cuts` is
+ * this plus one; every table index in the driver is a range index, `t * nchunk
+ * + c` for task `t`'s chunk `c`. horizontal_partition_create() guarantees the
+ * product (and the sum with one) fits an `int`.
+ */
+static inline int
+horizontal_partition_range_count(const struct HorizontalForestPartition *partition) {
+  return partition->ntask * partition->nchunk;
+}
+
+/**
+ * @brief   Allocate a zero-filled partition for `ntask` ranks of `nchunk` chunks each
  * @param   ntask            Number of ranks, at least 1
+ * @param   nchunk           Number of chunks each rank sweeps in turn, at least 1
  * @param   snapshot_count   Number of snapshot slabs, at least 0
  * @param   n_forests_total  The dataset's forest count, at least 0
  * @return  The partition; never NULL (an invalid argument or allocation failure aborts)
+ *
+ * Also aborts when a table size overflows `int64_t`, or when the range count plus
+ * one or the row-cut count (`snapshot_count * (ntask * nchunk + 1)`) overflows
+ * `int`, the latter because the row cuts travel in one `MPI_Bcast`.
  */
-struct HorizontalForestPartition *horizontal_partition_create(int ntask, int64_t snapshot_count,
-                                                              int64_t n_forests_total);
+struct HorizontalForestPartition *
+horizontal_partition_create(int ntask, int nchunk, int64_t snapshot_count, int64_t n_forests_total);
 
 /** @brief  Release a partition and its tables; NULL is ignored. */
 void horizontal_partition_destroy(struct HorizontalForestPartition *partition);
@@ -115,6 +149,26 @@ void horizontal_partition_destroy(struct HorizontalForestPartition *partition);
  */
 void horizontal_partition_cut_forests(const int64_t *weights, int64_t n_forests_total, int ntask,
                                       int64_t *forest_cuts);
+
+/**
+ * @brief   Cut each task's forest range into `nchunk` chunks of minimum makespan
+ * @param   weights    `partition->n_forests_total` non-negative per-forest weights, the ones the
+ *                     task cuts were made from (may be NULL when there are no forests)
+ * @param   partition  Partition whose `forest_cuts[0 .. ntask]` hold the task cuts exactly as
+ *                     horizontal_partition_cut_forests() wrote them; receives all
+ *                     `ntask * nchunk + 1` cuts
+ *
+ * Moves task cut `t` to entry `t * nchunk`, then for every task `t` applies
+ * horizontal_partition_cut_forests() to the weights of the task's forests with
+ * `nchunk` ranges and offsets the result into place, so the chunk cuts nest
+ * inside the task cuts and every task cut keeps its value. A task's chunk
+ * makespan is the minimum over all contiguous `nchunk`-partitions of its range,
+ * trailing chunks are idle when fewer are needed, and with `ntask == 1` the
+ * chunks are the ranges `nchunk` tasks would own. `nchunk == 1` changes nothing.
+ * Aborts as horizontal_partition_cut_forests() does.
+ */
+void horizontal_partition_cut_chunks(const int64_t *weights,
+                                     const struct HorizontalForestPartition *partition);
 
 /**
  * @brief   Add one to a forest's weight for each streamed `ForestIndex` value
@@ -158,8 +212,8 @@ void horizontal_forest_scan_visit(struct HorizontalForestScan *scan, int64_t fir
 
 /**
  * @brief   Finish the scan
- * @return  0 when the column was non-decreasing: `row_cuts[snapnum][0 .. ntask]` then holds the
- *          lower bound of each `forest_cuts[r]` in the column, with `row_cuts[snapnum][ntask]`
+ * @return  0 when the column was non-decreasing: `row_cuts[snapnum][0 .. nranges]` then holds the
+ *          lower bound of each `forest_cuts[q]` in the column, with `row_cuts[snapnum][nranges]`
  *          the number of rows seen (an empty column gives all zeros). -1 when a value was
  *          smaller than its predecessor: the first such pair is in the scan's `violation_*`
  *          members and the `row_cuts` row for `snapnum` is unspecified.

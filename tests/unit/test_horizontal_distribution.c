@@ -91,15 +91,37 @@ struct FixtureSlab {
 
 static struct HorizontalForestPartition *make_fixture_partition(void) {
   struct HorizontalForestPartition *partition =
-      horizontal_partition_create(FIXTURE_TASKS, FIXTURE_SNAPSHOTS, FIXTURE_FORESTS);
+      horizontal_partition_create(FIXTURE_TASKS, 1, FIXTURE_SNAPSHOTS, FIXTURE_FORESTS);
   partition->forest_cuts[0] = 0;
   partition->forest_cuts[1] = 2;
   partition->forest_cuts[2] = FIXTURE_FORESTS;
   for (int s = 0; s < FIXTURE_SNAPSHOTS; s++) {
-    for (int r = 0; r <= FIXTURE_TASKS; r++) {
+    for (int r = 0; r <= FIXTURE_TASKS; r++) { /* one chunk per task: range r is task r */
       partition->row_cuts[s * (FIXTURE_TASKS + 1) + r] = FIXTURE_ROW_CUTS[s][r];
     }
   }
+  return partition;
+}
+
+/*
+ * The same two tasks, each cut into two chunks (nchunk = 2), so range 2t + c is task
+ * t's chunk c. Every task cut of FIXTURE_ROW_CUTS is the entry at 2t:
+ *
+ *   snapshot 0: ranges [0, 1) [1, 2) | [2, 3) [3, 5)
+ *   snapshot 1: ranges [0, 1) [1, 3) | [3, 5) [5, 7)
+ *   snapshot 2: ranges [0, 1) [1, 1) | [1, 2) [2, 4)   (task 0's chunk 1 is idle there)
+ */
+#define CHUNKED_RANGES (FIXTURE_TASKS * 2)
+
+static const int64_t CHUNKED_ROW_CUTS[FIXTURE_SNAPSHOTS][CHUNKED_RANGES + 1] = {
+    {0, 1, 2, 3, 5}, {0, 1, 3, 5, 7}, {0, 1, 1, 2, 4}};
+
+static struct HorizontalForestPartition *make_chunked_fixture_partition(void) {
+  struct HorizontalForestPartition *partition =
+      horizontal_partition_create(FIXTURE_TASKS, 2, FIXTURE_SNAPSHOTS, FIXTURE_FORESTS);
+  const int64_t forest_cuts[CHUNKED_RANGES + 1] = {0, 1, 2, 3, FIXTURE_FORESTS};
+  memcpy(partition->forest_cuts, forest_cuts, sizeof(forest_cuts));
+  memcpy(partition->row_cuts, CHUNKED_ROW_CUTS, sizeof(CHUNKED_ROW_CUTS));
   return partition;
 }
 
@@ -240,7 +262,7 @@ int test_row_offset_zero_leaves_slab_unchanged(void) {
 
   /* One task owning every row: the whole-slab layout of a serial run. */
   struct HorizontalForestPartition *single =
-      horizontal_partition_create(1, FIXTURE_SNAPSHOTS, FIXTURE_FORESTS);
+      horizontal_partition_create(1, 1, FIXTURE_SNAPSHOTS, FIXTURE_FORESTS);
   single->forest_cuts[1] = FIXTURE_FORESTS;
   for (int s = 0; s < FIXTURE_SNAPSHOTS; s++) {
     single->row_cuts[s * 2 + 1] = FIXTURE_ROW_CUTS[s][FIXTURE_TASKS];
@@ -270,8 +292,8 @@ int test_row_offset_zero_leaves_slab_unchanged(void) {
  * Every task of a distributed run keeps the partition for the whole run, so the
  * driver adds it to the resident total its ceiling check and memory profile
  * use; a serial run has no partition and adds nothing. The term must be exactly
- * what horizontal_partition_create() allocates: the struct, ntask + 1 forest
- * cuts and snapshot_count * (ntask + 1) row cuts.
+ * what horizontal_partition_create() allocates: the struct, ntask * nchunk + 1
+ * forest cuts and snapshot_count * (ntask * nchunk + 1) row cuts.
  */
 int test_partition_resident_bytes(void) {
   TEST_ASSERT_EQUAL(horizontal_partition_resident_bytes(NULL), 0,
@@ -286,12 +308,81 @@ int test_partition_resident_bytes(void) {
 
   /* Measured against the allocator: exactly what create() made resident. */
   const int64_t before = (int64_t)memory_category_bytes(MEM_HALOS);
-  struct HorizontalForestPartition *wide = horizontal_partition_create(4, 50, 10);
+  struct HorizontalForestPartition *wide = horizontal_partition_create(4, 1, 50, 10);
   const int64_t allocated = (int64_t)memory_category_bytes(MEM_HALOS) - before;
   TEST_ASSERT_EQUAL(horizontal_partition_resident_bytes(wide), allocated,
                     "the term equals the tracked bytes the partition allocated");
 
+  /* The tables scale with the range count, ntask * nchunk. */
+  const int64_t before_chunked = (int64_t)memory_category_bytes(MEM_HALOS);
+  struct HorizontalForestPartition *chunked = horizontal_partition_create(4, 3, 50, 10);
+  const int64_t chunked_allocated = (int64_t)memory_category_bytes(MEM_HALOS) - before_chunked;
+  TEST_ASSERT_EQUAL(horizontal_partition_resident_bytes(chunked), chunked_allocated,
+                    "the term equals the tracked bytes a chunked partition allocated");
+  TEST_ASSERT_EQUAL(horizontal_partition_resident_bytes(chunked),
+                    (int64_t)sizeof(struct HorizontalForestPartition) +
+                        (4 * 3 + 1) * (int64_t)sizeof(int64_t) +
+                        50 * (4 * 3 + 1) * (int64_t)sizeof(int64_t),
+                    "the tables hold ntask * nchunk + 1 entries per row");
+
+  horizontal_partition_destroy(chunked);
   horizontal_partition_destroy(wide);
+  horizontal_partition_destroy(partition);
+  return TEST_PASS;
+}
+
+/*
+ * Task 1's chunk 1 (range 3), rows [5, 7) of snapshot 1: one FoF group (global
+ * central 5) with progenitors in snapshot 0 and descendants in snapshot 2, all
+ * inside task 1's chunk 1 of each target snapshot (rows [3, 5) of snapshot 0 and
+ * [2, 4) of snapshot 2).
+ */
+static const struct FixtureRow CHUNK1_ROWS[2] = {
+    /* global 5: FoF central of 5,6; NextProgenitor 3@s0; Descendant 2@s2 */
+    {5, 6, -1, -1, 3, 0, 2, 2},
+    /* global 6: FoF member; FirstProgenitor 4@s0; Descendant 3@s2 */
+    {5, -1, 4, 0, -1, -1, 3, 2},
+};
+
+/* The same rows rebased onto chunk 1's local indices of each target snapshot. */
+static const struct FixtureRow CHUNK1_LOCAL[2] = {
+    {0, 1, -1, -1, 0, 0, 0, 2},
+    {0, -1, 1, 0, -1, -1, 1, 2},
+};
+
+/**
+ * @test    test_rebase_against_a_chunk_range
+ * @brief   With nchunk = 2 a slab rebases against range t * nchunk + c, not the task's range
+ *
+ * Task 1's chunk 1 is range 3 of the four. Its links are rebased by that range's
+ * first row of every target snapshot (rows 3 and 2 of snapshots 0 and 2 here), not
+ * by the first row of task 1's whole range (rows 2 and 1).
+ */
+int test_rebase_against_a_chunk_range(void) {
+  struct HorizontalForestPartition *partition = make_chunked_fixture_partition();
+  static struct FixtureSlab fixture;
+  build_slab(&fixture, 1, 5, CHUNK1_ROWS, 2);
+
+  horizontal_rebase_slab_links(&fixture.slab, partition, 1 * 2 + 1);
+
+  const struct HaloInputView view = {fixture.halos, 2};
+  for (int64_t i = 0; i < 2; i++) {
+    char message[128];
+    snprintf(message, sizeof(message), "chunk row %" PRId64 " FirstHaloInFOFgroup", i);
+    TEST_ASSERT_EQUAL(mimic_tree_get_FirstHaloInFOFgroup(view, i), CHUNK1_LOCAL[i].first_fof,
+                      message);
+    snprintf(message, sizeof(message), "chunk row %" PRId64 " NextHaloInFOFgroup", i);
+    TEST_ASSERT_EQUAL(mimic_tree_get_NextHaloInFOFgroup(view, i), CHUNK1_LOCAL[i].next_fof,
+                      message);
+    snprintf(message, sizeof(message), "chunk row %" PRId64 " FirstProgenitor", i);
+    TEST_ASSERT_EQUAL(mimic_tree_get_FirstProgenitor(view, i), CHUNK1_LOCAL[i].first_prog, message);
+    snprintf(message, sizeof(message), "chunk row %" PRId64 " NextProgenitor", i);
+    TEST_ASSERT_EQUAL(mimic_tree_get_NextProgenitor(view, i), CHUNK1_LOCAL[i].next_prog, message);
+    snprintf(message, sizeof(message), "chunk row %" PRId64 " Descendant", i);
+    TEST_ASSERT_EQUAL(mimic_tree_get_Descendant(view, i), CHUNK1_LOCAL[i].descendant, message);
+  }
+  TEST_ASSERT_EQUAL(fixture.slab.row_offset, 5, "the slab's row_offset is left as loaded");
+
   horizontal_partition_destroy(partition);
   return TEST_PASS;
 }
@@ -330,6 +421,8 @@ static void run_abort_case(const char *name) {
   memcpy(rows, TASK1_ROWS, sizeof(rows));
   int64_t snapnum = 1;
   int64_t row_offset = 3;
+  int64_t nrows = 4;
+  int chunked = 0;
 
   if (strcmp(name, "first_progenitor_below") == 0) {
     /* Global row 1 of snapshot 0 belongs to task 0 ([0, 2)). */
@@ -346,6 +439,16 @@ static void run_abort_case(const char *name) {
     rows[1].descendant = 4;
     child_reported_row = 1;
     child_reported_role = "Descendant";
+  } else if (strcmp(name, "other_chunk_link") == 0) {
+    /* Task 1's chunk 1 (range 3, rows [5, 7) of snapshot 1): global row 2 of snapshot 0 is
+     * task 1's chunk 0 (range 2, rows [2, 3)), inside the task but outside this chunk. */
+    memcpy(rows, CHUNK1_ROWS, sizeof(CHUNK1_ROWS));
+    rows[1].first_prog = 2;
+    row_offset = 5;
+    nrows = 2;
+    chunked = 1;
+    child_reported_row = 1;
+    child_reported_role = "FirstProgenitor";
   } else if (strcmp(name, "range_mismatch") == 0) {
     /* A slab loaded from row 2 is not task 1's range of snapshot 1. */
     row_offset = 2;
@@ -354,11 +457,15 @@ static void run_abort_case(const char *name) {
     return;
   }
 
-  build_slab(&child_fixture, snapnum, row_offset, rows, 4);
+  build_slab(&child_fixture, snapnum, row_offset, rows, nrows);
   if (atexit(report_offending_field) != 0) {
     return;
   }
-  horizontal_rebase_slab_links(&child_fixture.slab, make_fixture_partition(), 1);
+  if (chunked) {
+    horizontal_rebase_slab_links(&child_fixture.slab, make_chunked_fixture_partition(), 3);
+  } else {
+    horizontal_rebase_slab_links(&child_fixture.slab, make_fixture_partition(), 1);
+  }
 }
 
 /* Body run in the forked child: replace it with a fresh image of this binary in
@@ -391,6 +498,12 @@ int test_link_outside_range_aborts(void) {
                            "the partition",
                            "after abort: Descendant = 4") == 1,
               "a descendant beyond the task's range of its target aborts, unwritten");
+  TEST_ASSERT(expect_fatal("other_chunk_link", reexecute_abort_case,
+                           "FirstProgenitor link of snapshot 1 global row 6 names row 2 of target "
+                           "snapshot 0, outside task 3's rows [3, 5) there: the forest is cut by "
+                           "the partition",
+                           "after abort: FirstProgenitor = 2") == 1,
+              "a link into the task's other chunk aborts, unwritten");
   TEST_ASSERT(expect_fatal("range_mismatch", reexecute_abort_case,
                            "slab holds rows [2, 6), but task 1's partition range there is [3, 7)",
                            NULL) == 1,
@@ -417,6 +530,7 @@ int main(int argc, char **argv) {
 
   TEST_RUN(test_rebase_links_to_local_indices);
   TEST_RUN(test_row_offset_zero_leaves_slab_unchanged);
+  TEST_RUN(test_rebase_against_a_chunk_range);
   TEST_RUN(test_link_outside_range_aborts);
   TEST_RUN(test_partition_resident_bytes);
 

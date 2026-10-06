@@ -11,6 +11,12 @@
  * The streaming scan is checked against a binary-search lower bound on columns
  * delivered in blocks of varying size, and against hand-built cases for zero-weight
  * forests, idle ranks, decreasing columns and empty columns.
+ *
+ * The two-level cut (horizontal_partition_cut_chunks()) is checked against the
+ * same kind of oracle, applied to each task's sub-array over every contiguous
+ * partition into `nchunk` chunks, and against two equality properties: one chunk
+ * per task reproduces the task-only tables entry for entry, and on one task `G`
+ * chunks are the ranges `G` tasks would own.
  */
 
 #include "../../src/core/horizontal_partition.h"
@@ -20,6 +26,7 @@
 #include "../framework/test_framework.h"
 
 #include <inttypes.h>
+#include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -29,6 +36,10 @@ static int failed = 0;
 
 #define MAX_FORESTS 8
 #define MAX_TASKS 4
+#define MAX_CHUNKED_TASKS 3
+#define MAX_CHUNKS 3
+#define MAX_RANGES (MAX_CHUNKED_TASKS * MAX_CHUNKS)
+#define MAX_COLUMN_ROWS (MAX_FORESTS * 5) /* eight forests of the heaviest weight, 5 */
 #define WEIGHT_CHOICES 4
 
 static const int64_t WEIGHT_VALUES[WEIGHT_CHOICES] = {0, 1, 2, 5};
@@ -197,16 +208,17 @@ static int check_cut_vector(const int64_t *weights, int n, int ntask) {
 }
 
 /**
- * Every rank's rows must hold exactly the forests its range names: row_cuts is
+ * Every range's rows must hold exactly the forests its range names: row_cuts is
  * monotone, brackets [0, rows], and each row's value lies in its rank's forest range.
  */
 static int rows_agree_with_forest_ranges(const struct HorizontalForestPartition *partition,
                                          int64_t snapnum, const int64_t *column, int64_t rows) {
-  const int64_t *row_cuts = partition->row_cuts + snapnum * (partition->ntask + 1);
-  if (row_cuts[0] != 0 || row_cuts[partition->ntask] != rows) {
+  const int nranges = horizontal_partition_range_count(partition);
+  const int64_t *row_cuts = partition->row_cuts + snapnum * (nranges + 1);
+  if (row_cuts[0] != 0 || row_cuts[nranges] != rows) {
     return 0;
   }
-  for (int r = 0; r < partition->ntask; r++) {
+  for (int r = 0; r < nranges; r++) {
     if (row_cuts[r] > row_cuts[r + 1]) {
       return 0;
     }
@@ -217,6 +229,80 @@ static int rows_agree_with_forest_ranges(const struct HorizontalForestPartition 
     }
   }
   return 1;
+}
+
+/**
+ * A partition of `ntask` tasks of `nchunk` chunks over `snapshots` slabs with its forest cuts
+ * filled the way the driver fills them: the task cuts, then the chunk cuts.
+ */
+static struct HorizontalForestPartition *
+make_cut_partition(const int64_t *weights, int n, int ntask, int nchunk, int64_t snapshots) {
+  struct HorizontalForestPartition *partition =
+      horizontal_partition_create(ntask, nchunk, snapshots, n);
+  horizontal_partition_cut_forests(weights, n, ntask, partition->forest_cuts);
+  horizontal_partition_cut_chunks(weights, partition);
+  return partition;
+}
+
+/**
+ * Check one weight vector, task count and chunk count of the two-level cut: the cuts are
+ * monotone, bracket [0, n] and keep every task cut at its `nchunk`-th entry, and each task's
+ * chunk makespan is the brute-force optimum over every contiguous `nchunk`-partition of that
+ * task's sub-array, with the chunk cuts the greedy packing at that optimum prescribes.
+ */
+static int check_chunk_vector(const int64_t *weights, int n, int ntask, int nchunk) {
+  int64_t prefix[MAX_FORESTS + 1];
+  int64_t task_cuts[MAX_TASKS + 1];
+  prefix[0] = 0;
+  for (int i = 0; i < n; i++) {
+    prefix[i + 1] = prefix[i] + weights[i];
+  }
+  horizontal_partition_cut_forests(weights, n, ntask, task_cuts);
+
+  struct HorizontalForestPartition *partition = make_cut_partition(weights, n, ntask, nchunk, 1);
+  const int64_t *cuts = partition->forest_cuts;
+  const int nranges = horizontal_partition_range_count(partition);
+
+  int ok = nranges == ntask * nchunk && cuts[0] == 0 && cuts[nranges] == n;
+  for (int q = 0; ok && q < nranges; q++) {
+    ok = cuts[q] <= cuts[q + 1];
+  }
+  for (int t = 0; ok && t <= ntask; t++) {
+    ok = cuts[t * nchunk] == task_cuts[t];
+  }
+  for (int t = 0; ok && t < ntask; t++) {
+    const int lo = (int)task_cuts[t];
+    const int n_sub = (int)(task_cuts[t + 1] - task_cuts[t]);
+    int64_t sub_prefix[MAX_FORESTS + 1] = {0};
+    int64_t reference[MAX_CHUNKS + 1] = {0};
+    for (int i = 0; i <= n_sub; i++) {
+      sub_prefix[i] = prefix[lo + i] - prefix[lo];
+    }
+    const int64_t optimum = oracle_best_makespan(sub_prefix, n_sub, 0, nchunk);
+    reference_greedy_cuts(weights + lo, n_sub, nchunk, optimum, reference);
+
+    int64_t worst = 0;
+    for (int c = 0; ok && c < nchunk; c++) {
+      const int64_t weight = prefix[cuts[t * nchunk + c + 1]] - prefix[cuts[t * nchunk + c]];
+      worst = weight > worst ? weight : worst;
+      /* chunk cuts nest inside the task's cuts */
+      ok = cuts[t * nchunk + c] >= task_cuts[t] && cuts[t * nchunk + c + 1] <= task_cuts[t + 1];
+    }
+    ok = ok && worst == optimum;
+    for (int c = 0; ok && c <= nchunk; c++) {
+      ok = cuts[t * nchunk + c] == lo + reference[c];
+    }
+  }
+
+  if (!ok) {
+    fprintf(stderr, "  cut_chunks disagrees with the oracle (ntask = %d, nchunk = %d)\n", ntask,
+            nchunk);
+    print_vector("weights", weights, n);
+    print_vector("task cuts", task_cuts, ntask + 1);
+    print_vector("forest cuts", cuts, nranges + 1);
+  }
+  horizontal_partition_destroy(partition);
+  return ok;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -304,7 +390,7 @@ int test_zero_weight_forests_are_assigned_and_never_cut_row_order(void) {
                   weights[0] + weights[2] + weights[3] + weights[5] == 0,
               "accumulate counts rows per forest");
 
-  struct HorizontalForestPartition *partition = horizontal_partition_create(2, 1, n_forests);
+  struct HorizontalForestPartition *partition = horizontal_partition_create(2, 1, 1, n_forests);
   horizontal_partition_cut_forests(weights, n_forests, 2, partition->forest_cuts);
   TEST_ASSERT(partition->forest_cuts[0] == 0 && partition->forest_cuts[1] == 4 &&
                   partition->forest_cuts[2] == 6,
@@ -357,7 +443,7 @@ int test_more_ranks_than_nonzero_forests_leaves_idle_ranges(void) {
     horizontal_partition_accumulate_weights(weights, cases[c].n_forests, cases[c].column,
                                             cases[c].rows);
     struct HorizontalForestPartition *partition =
-        horizontal_partition_create(4, 1, cases[c].n_forests);
+        horizontal_partition_create(4, 1, 1, cases[c].n_forests);
     horizontal_partition_cut_forests(weights, cases[c].n_forests, 4, partition->forest_cuts);
 
     struct HorizontalForestScan scan;
@@ -385,6 +471,174 @@ int test_more_ranks_than_nonzero_forests_leaves_idle_ranges(void) {
 }
 
 /* ------------------------------------------------------------------------- */
+/* cut_chunks: the two-level cut                                             */
+/* ------------------------------------------------------------------------- */
+
+/**
+ * @test    test_one_chunk_tables_equal_the_task_only_baseline
+ * @brief   nchunk == 1 leaves both whole tables exactly as the task-only computation made them
+ *
+ * Compared entry for entry (the forest cuts, then every row cut the scan fills), not by
+ * makespan, over every weight vector of length 0..8 and 1..4 tasks.
+ */
+int test_one_chunk_tables_equal_the_task_only_baseline(void) {
+  const int64_t block_sizes[1] = {3};
+  int64_t weights[MAX_FORESTS];
+  int64_t column[MAX_COLUMN_ROWS];
+  int64_t vectors = 0;
+
+  for (int n = 0; n <= MAX_FORESTS; n++) {
+    const int64_t count = power_of_choices(n);
+    for (int64_t code = 0; code < count; code++) {
+      decode_weights(code, n, weights);
+      const int64_t rows = build_column(weights, n, column);
+      for (int ntask = 1; ntask <= MAX_TASKS; ntask++) {
+        int64_t baseline[MAX_TASKS + 1];
+        horizontal_partition_cut_forests(weights, n, ntask, baseline);
+
+        struct HorizontalForestPartition *partition = make_cut_partition(weights, n, ntask, 1, 1);
+        struct HorizontalForestScan scan;
+        horizontal_forest_scan_begin(&scan, partition, 0);
+        scan_in_blocks(&scan, column, rows, block_sizes, 1);
+        TEST_ASSERT_EQUAL(horizontal_forest_scan_end(&scan), 0, "column is forest-blocked");
+
+        int ok = partition->nchunk == 1 && horizontal_partition_range_count(partition) == ntask;
+        for (int r = 0; ok && r <= ntask; r++) {
+          ok = partition->forest_cuts[r] == baseline[r] &&
+               partition->row_cuts[r] == lower_bound(column, rows, baseline[r]);
+        }
+        if (!ok) {
+          print_vector("weights", weights, n);
+          print_vector("baseline", baseline, ntask + 1);
+          print_vector("forest cuts", partition->forest_cuts,
+                       horizontal_partition_range_count(partition) + 1);
+        }
+        TEST_ASSERT(ok, "with one chunk every table entry equals the task-only baseline");
+        horizontal_partition_destroy(partition);
+        vectors++;
+      }
+    }
+  }
+  TEST_ASSERT_EQUAL(vectors, (int64_t)87381 * MAX_TASKS, "every vector and task count is covered");
+  return 0;
+}
+
+/**
+ * @test    test_cut_chunks_matches_brute_force_over_all_small_vectors
+ * @brief   Each task's chunk makespan is the enumerated optimum; chunk cuts nest in task cuts
+ *
+ * Every weight vector of length 0..8 over {0, 1, 2, 5}, 1..3 tasks and 1..3 chunks.
+ */
+int test_cut_chunks_matches_brute_force_over_all_small_vectors(void) {
+  int64_t weights[MAX_FORESTS];
+  int64_t cases = 0;
+
+  for (int n = 0; n <= MAX_FORESTS; n++) {
+    const int64_t count = power_of_choices(n);
+    for (int64_t code = 0; code < count; code++) {
+      decode_weights(code, n, weights);
+      for (int ntask = 1; ntask <= MAX_CHUNKED_TASKS; ntask++) {
+        for (int nchunk = 1; nchunk <= MAX_CHUNKS; nchunk++) {
+          TEST_ASSERT(check_chunk_vector(weights, n, ntask, nchunk),
+                      "cut_chunks must match the brute-force optimum and keep the task cuts");
+          cases++;
+        }
+      }
+    }
+  }
+  TEST_ASSERT_EQUAL(cases, (int64_t)87381 * MAX_CHUNKED_TASKS * MAX_CHUNKS,
+                    "every vector, task count and chunk count is covered");
+  return 0;
+}
+
+/**
+ * @test    test_one_task_chunks_equal_the_ranges_of_that_many_tasks
+ * @brief   ntask == 1 with G chunks cuts the forests exactly as G tasks of one chunk do
+ */
+int test_one_task_chunks_equal_the_ranges_of_that_many_tasks(void) {
+  int64_t weights[MAX_FORESTS];
+
+  for (int n = 0; n <= MAX_FORESTS; n++) {
+    const int64_t count = power_of_choices(n);
+    for (int64_t code = 0; code < count; code++) {
+      decode_weights(code, n, weights);
+      for (int g = 1; g <= MAX_TASKS; g++) {
+        struct HorizontalForestPartition *serial = make_cut_partition(weights, n, 1, g, 1);
+        struct HorizontalForestPartition *tasks = make_cut_partition(weights, n, g, 1, 1);
+
+        int ok = horizontal_partition_range_count(serial) == g &&
+                 horizontal_partition_range_count(tasks) == g;
+        for (int q = 0; ok && q <= g; q++) {
+          ok = serial->forest_cuts[q] == tasks->forest_cuts[q];
+        }
+        if (!ok) {
+          print_vector("weights", weights, n);
+          print_vector("one task, G chunks", serial->forest_cuts, g + 1);
+          print_vector("G tasks", tasks->forest_cuts, g + 1);
+        }
+        TEST_ASSERT(ok, "G chunks on one task are the ranges G tasks would own");
+        horizontal_partition_destroy(serial);
+        horizontal_partition_destroy(tasks);
+      }
+    }
+  }
+  return 0;
+}
+
+/**
+ * @test    test_idle_trailing_chunks_have_equal_row_cuts
+ * @brief   A chunk that owns no forest owns no row, in every slab; no forests cut at zero
+ */
+int test_idle_trailing_chunks_have_equal_row_cuts(void) {
+  /* Forest weights [2, 3, 1] on two tasks of three chunks: the task cuts are [0, 1, 3], task 0's
+   * single forest fills its first chunk (two idle) and task 1's two forests its first two. */
+  const int64_t weights[3] = {2, 3, 1};
+  const int64_t columns[2][6] = {{0, 0, 1, 1, 1, 2}, {0, 1, 1, 2, 2, 2}};
+  const int64_t rows[2] = {6, 6};
+  const int64_t expected_forest_cuts[7] = {0, 1, 1, 1, 2, 3, 3};
+  const int64_t sizes[2] = {2, 1};
+
+  struct HorizontalForestPartition *partition = make_cut_partition(weights, 3, 2, 3, 2);
+  for (int q = 0; q <= 6; q++) {
+    TEST_ASSERT_EQUAL(partition->forest_cuts[q], expected_forest_cuts[q],
+                      "forest cuts match the two-level packing");
+  }
+  for (int64_t snapnum = 0; snapnum < 2; snapnum++) {
+    struct HorizontalForestScan scan;
+    horizontal_forest_scan_begin(&scan, partition, snapnum);
+    scan_in_blocks(&scan, columns[snapnum], rows[snapnum], sizes, 2);
+    TEST_ASSERT_EQUAL(horizontal_forest_scan_end(&scan), 0, "the column is forest-blocked");
+
+    const int64_t *row_cuts = partition->row_cuts + snapnum * 7;
+    int idle_ranges = 0;
+    for (int q = 0; q < 6; q++) {
+      TEST_ASSERT_EQUAL(row_cuts[q],
+                        lower_bound(columns[snapnum], rows[snapnum], expected_forest_cuts[q]),
+                        "row cuts are the lower bounds of the chunk cuts");
+      if (partition->forest_cuts[q] == partition->forest_cuts[q + 1]) {
+        idle_ranges++;
+        TEST_ASSERT(row_cuts[q] == row_cuts[q + 1], "an idle chunk owns no rows");
+      }
+    }
+    TEST_ASSERT_EQUAL(idle_ranges, 3, "task 0's two trailing chunks and task 1's last are idle");
+    TEST_ASSERT_EQUAL(row_cuts[6], rows[snapnum], "the last row cut is the rows seen");
+  }
+  horizontal_partition_destroy(partition);
+
+  /* No forests at all: every cut is zero for any task and chunk count, with no weights. */
+  for (int ntask = 1; ntask <= 3; ntask++) {
+    for (int nchunk = 1; nchunk <= 3; nchunk++) {
+      struct HorizontalForestPartition *empty = make_cut_partition(NULL, 0, ntask, nchunk, 1);
+      for (int q = 0; q <= ntask * nchunk; q++) {
+        TEST_ASSERT_EQUAL(empty->forest_cuts[q], 0, "an empty dataset cuts at zero everywhere");
+      }
+      horizontal_partition_destroy(empty);
+    }
+  }
+  return 0;
+}
+
+/* ------------------------------------------------------------------------- */
 /* Streaming scan                                                            */
 /* ------------------------------------------------------------------------- */
 
@@ -402,7 +656,7 @@ int test_scan_row_cuts_equal_lower_bound_for_hand_built_columns(void) {
 
   for (int cs = 0; cs < 3; cs++) {
     for (int pattern = 0; pattern < 4; pattern++) {
-      struct HorizontalForestPartition *partition = horizontal_partition_create(3, 2, n_forests);
+      struct HorizontalForestPartition *partition = horizontal_partition_create(3, 1, 2, n_forests);
       memcpy(partition->forest_cuts, cut_sets[cs], sizeof(cut_sets[cs]));
       for (int r = 0; r < 4; r++) {
         partition->row_cuts[r] = 12345;     /* snapshot 0 must stay untouched */
@@ -442,7 +696,7 @@ int test_scan_row_cuts_equal_lower_bound_for_every_small_column(void) {
       const int64_t rows = build_column(weights, n, column);
       for (int ntask = 1; ntask <= MAX_TASKS; ntask++) {
         for (int b = 0; b < 4; b++) {
-          struct HorizontalForestPartition *partition = horizontal_partition_create(ntask, 1, n);
+          struct HorizontalForestPartition *partition = horizontal_partition_create(ntask, 1, 1, n);
           horizontal_partition_cut_forests(weights, n, ntask, partition->forest_cuts);
 
           struct HorizontalForestScan scan;
@@ -468,11 +722,99 @@ int test_scan_row_cuts_equal_lower_bound_for_every_small_column(void) {
 }
 
 /**
+ * @test    test_scan_row_cuts_equal_lower_bound_at_every_chunk_cut
+ * @brief   With nchunk > 1 the scan fills all ntask * nchunk + 1 row cuts, in blocks of any size
+ */
+int test_scan_row_cuts_equal_lower_bound_at_every_chunk_cut(void) {
+  /* Forests 2 and 4 are empty; forest 3's run (rows 5-8) and forest 0's (rows 0-2) straddle
+   * block boundaries for the sizes below. Two tasks of three chunks: seven cuts, with repeated
+   * values (idle chunks) and a cut at 0 and at the forest count. */
+  const int64_t column[10] = {0, 0, 0, 1, 1, 3, 3, 3, 3, 5};
+  const int64_t n_forests = 6;
+  const int64_t size_patterns[4][4] = {{1, 3, 2, 5}, {10, 1, 1, 1}, {4, 4, 4, 4}, {1, 1, 1, 1}};
+  const int64_t cut_sets[3][7] = {
+      {0, 1, 2, 2, 4, 6, 6}, {0, 0, 3, 3, 3, 6, 6}, {0, 2, 2, 4, 5, 5, 6}};
+
+  for (int cs = 0; cs < 3; cs++) {
+    for (int pattern = 0; pattern < 4; pattern++) {
+      struct HorizontalForestPartition *partition = horizontal_partition_create(2, 3, 2, n_forests);
+      memcpy(partition->forest_cuts, cut_sets[cs], sizeof(cut_sets[cs]));
+      for (int r = 0; r < 7; r++) {
+        partition->row_cuts[r] = 12345;     /* snapshot 0 must stay untouched */
+        partition->row_cuts[7 + r] = -7777; /* snapshot 1 must be fully overwritten */
+      }
+
+      struct HorizontalForestScan scan;
+      horizontal_forest_scan_begin(&scan, partition, 1);
+      scan_in_blocks(&scan, column, 10, size_patterns[pattern], 4);
+      TEST_ASSERT_EQUAL(horizontal_forest_scan_end(&scan), 0, "non-decreasing column is accepted");
+
+      for (int r = 0; r < 7; r++) {
+        TEST_ASSERT_EQUAL(partition->row_cuts[7 + r], lower_bound(column, 10, cut_sets[cs][r]),
+                          "row_cuts[s][q] is the lower bound of forest_cuts[q] for every range");
+        TEST_ASSERT_EQUAL(partition->row_cuts[r], 12345, "another snapshot's row is untouched");
+      }
+      TEST_ASSERT_EQUAL(partition->row_cuts[7 + 6], 10, "the last row cut is the rows seen");
+      horizontal_partition_destroy(partition);
+    }
+  }
+  return 0;
+}
+
+/**
+ * @test    test_scan_row_cuts_equal_lower_bound_for_every_small_chunked_column
+ * @brief   Sweep: every vector up to length 5, 1..3 tasks, 1..3 chunks; idle chunks own no rows
+ */
+int test_scan_row_cuts_equal_lower_bound_for_every_small_chunked_column(void) {
+  const int64_t block_sizes[3] = {1, 3, 7};
+  int64_t weights[5];
+  int64_t column[5 * 5];
+
+  for (int n = 0; n <= 5; n++) {
+    const int64_t count = power_of_choices(n);
+    for (int64_t code = 0; code < count; code++) {
+      decode_weights(code, n, weights);
+      const int64_t rows = build_column(weights, n, column);
+      for (int ntask = 1; ntask <= MAX_CHUNKED_TASKS; ntask++) {
+        for (int nchunk = 1; nchunk <= MAX_CHUNKS; nchunk++) {
+          for (int b = 0; b < 3; b++) {
+            struct HorizontalForestPartition *partition =
+                make_cut_partition(weights, n, ntask, nchunk, 1);
+            struct HorizontalForestScan scan;
+            horizontal_forest_scan_begin(&scan, partition, 0);
+            scan_in_blocks(&scan, column, rows, &block_sizes[b], 1);
+            TEST_ASSERT_EQUAL(horizontal_forest_scan_end(&scan), 0, "column is forest-blocked");
+
+            int ok = rows_agree_with_forest_ranges(partition, 0, column, rows);
+            for (int q = 0; ok && q <= ntask * nchunk; q++) {
+              ok = partition->row_cuts[q] == lower_bound(column, rows, partition->forest_cuts[q]);
+            }
+            for (int q = 0; ok && q < ntask * nchunk; q++) {
+              /* idle in forests implies idle in rows */
+              ok = partition->forest_cuts[q] != partition->forest_cuts[q + 1] ||
+                   partition->row_cuts[q] == partition->row_cuts[q + 1];
+            }
+            if (!ok) {
+              print_vector("weights", weights, n);
+              fprintf(stderr, "  ntask = %d, nchunk = %d, block size = %" PRId64 "\n", ntask,
+                      nchunk, block_sizes[b]);
+            }
+            TEST_ASSERT(ok, "streamed row_cuts must equal the lower bound of every range cut");
+            horizontal_partition_destroy(partition);
+          }
+        }
+      }
+    }
+  }
+  return 0;
+}
+
+/**
  * @test    test_scan_reports_decreasing_pair_with_row_and_values
  * @brief   The first descent is recorded across block boundaries; equal values are accepted
  */
 int test_scan_reports_decreasing_pair_with_row_and_values(void) {
-  struct HorizontalForestPartition *partition = horizontal_partition_create(2, 1, 6);
+  struct HorizontalForestPartition *partition = horizontal_partition_create(2, 1, 1, 6);
   partition->forest_cuts[1] = 3;
   partition->forest_cuts[2] = 6;
   struct HorizontalForestScan scan;
@@ -512,7 +854,7 @@ int test_scan_reports_decreasing_pair_with_row_and_values(void) {
  */
 int test_scan_of_empty_column_yields_zero_row_cuts(void) {
   for (int with_empty_block = 0; with_empty_block <= 1; with_empty_block++) {
-    struct HorizontalForestPartition *partition = horizontal_partition_create(3, 1, 9);
+    struct HorizontalForestPartition *partition = horizontal_partition_create(3, 1, 1, 9);
     const int64_t cuts[4] = {0, 3, 6, 9};
     memcpy(partition->forest_cuts, cuts, sizeof(cuts));
     for (int r = 0; r < 4; r++) {
@@ -561,7 +903,7 @@ int test_accumulate_weights_counts_rows_across_blocks(void) {
  */
 int test_partition_create_is_zeroed_sized_and_released(void) {
   const size_t before = memory_category_bytes(MEM_HALOS);
-  struct HorizontalForestPartition *partition = horizontal_partition_create(3, 5, 100);
+  struct HorizontalForestPartition *partition = horizontal_partition_create(3, 1, 5, 100);
 
   TEST_ASSERT(partition->ntask == 3 && partition->snapshot_count == 5 &&
                   partition->n_forests_total == 100,
@@ -579,9 +921,32 @@ int test_partition_create_is_zeroed_sized_and_released(void) {
   horizontal_partition_destroy(NULL); /* ignored */
 
   /* An empty dataset (no snapshots) still creates and destroys cleanly. */
-  struct HorizontalForestPartition *empty = horizontal_partition_create(1, 0, 0);
+  struct HorizontalForestPartition *empty = horizontal_partition_create(1, 1, 0, 0);
   horizontal_partition_destroy(empty);
   TEST_ASSERT(memory_category_bytes(MEM_HALOS) == before, "an empty partition leaks nothing");
+  return 0;
+}
+
+/**
+ * @test    test_partition_create_sizes_tables_by_range_count
+ * @brief   forest_cuts holds ntask * nchunk + 1 entries and row_cuts snapshot_count times that
+ */
+int test_partition_create_sizes_tables_by_range_count(void) {
+  const size_t before = memory_category_bytes(MEM_HALOS);
+  struct HorizontalForestPartition *partition = horizontal_partition_create(3, 2, 5, 100);
+
+  TEST_ASSERT(partition->ntask == 3 && partition->nchunk == 2 && partition->snapshot_count == 5 &&
+                  partition->n_forests_total == 100,
+              "the partition records its shape, chunk count included");
+  TEST_ASSERT_EQUAL(horizontal_partition_range_count(partition), 6, "ntask * nchunk ranges");
+  for (int q = 0; q <= 6; q++) {
+    TEST_ASSERT_EQUAL(partition->forest_cuts[q], 0, "forest_cuts starts zeroed (7 entries)");
+  }
+  for (int i = 0; i < 5 * 7; i++) {
+    TEST_ASSERT_EQUAL(partition->row_cuts[i], 0, "row_cuts starts zeroed (snapshot_count x 7)");
+  }
+  horizontal_partition_destroy(partition);
+  TEST_ASSERT(memory_category_bytes(MEM_HALOS) == before, "destroy releases every tracked block");
   return 0;
 }
 
@@ -611,9 +976,29 @@ static void child_cut_summing_to_int64_max(const char *unused) {
   }
 }
 
+static void child_create_with_chunk_count(const char *unused) {
+  (void)unused;
+  horizontal_partition_create(2, (int)child_value, 1, 4);
+}
+
+static void child_create_with_too_many_ranges(const char *unused) {
+  (void)unused;
+  horizontal_partition_create(65536, 65536, 1, 4); /* 2^32 ranges */
+}
+
+static void child_create_with_int64_overflowing_row_table(const char *unused) {
+  (void)unused;
+  horizontal_partition_create(2, 3, INT64_MAX, 4);
+}
+
+static void child_create_with_row_table_beyond_one_broadcast(const char *unused) {
+  (void)unused;
+  horizontal_partition_create(2, 1, INT_MAX / 2, 4); /* 3 * (INT_MAX / 2) > INT_MAX */
+}
+
 static void child_scan_with_gap(const char *unused) {
   (void)unused;
-  struct HorizontalForestPartition *partition = horizontal_partition_create(2, 1, 4);
+  struct HorizontalForestPartition *partition = horizontal_partition_create(2, 1, 1, 4);
   struct HorizontalForestScan scan;
   const int64_t values[2] = {0, 1};
   horizontal_forest_scan_begin(&scan, partition, 0);
@@ -623,14 +1008,15 @@ static void child_scan_with_gap(const char *unused) {
 
 static void child_scan_of_missing_snapshot(const char *unused) {
   (void)unused;
-  struct HorizontalForestPartition *partition = horizontal_partition_create(2, 3, 4);
+  struct HorizontalForestPartition *partition = horizontal_partition_create(2, 1, 3, 4);
   struct HorizontalForestScan scan;
   horizontal_forest_scan_begin(&scan, partition, 3);
 }
 
 /**
  * @test    test_defective_inputs_abort
- * @brief   Out-of-range forest index, weight-sum overflow, streaming gap, bad snapshot
+ * @brief   Out-of-range forest index, weight-sum overflow, streaming gap, bad snapshot, bad
+ *          chunk count or table size
  */
 int test_defective_inputs_abort(void) {
   child_value = 3;
@@ -645,6 +1031,26 @@ int test_defective_inputs_abort(void) {
               "a weight sum beyond int64_t aborts");
   TEST_ASSERT(expect_success(NULL, child_cut_summing_to_int64_max) == 1,
               "a weight sum of exactly INT64_MAX is accepted and cut correctly");
+  child_value = 0;
+  TEST_ASSERT(expect_fatal(NULL, child_create_with_chunk_count,
+                           "at least one chunk per rank (got "
+                           "nchunk = 0)",
+                           NULL) == 1,
+              "create rejects nchunk == 0");
+  child_value = -2;
+  TEST_ASSERT(expect_fatal(NULL, child_create_with_chunk_count,
+                           "at least one chunk per rank (got "
+                           "nchunk = -2)",
+                           NULL) == 1,
+              "create rejects a negative nchunk");
+  TEST_ASSERT(expect_fatal(NULL, child_create_with_too_many_ranges, "too many ranges", NULL) == 1,
+              "create rejects a range count beyond int");
+  TEST_ASSERT(
+      expect_fatal(NULL, child_create_with_int64_overflowing_row_table, "is too large", NULL) == 1,
+      "create rejects a row-cut table that overflows int64_t");
+  TEST_ASSERT(expect_fatal(NULL, child_create_with_row_table_beyond_one_broadcast,
+                           "exceeds one MPI broadcast", NULL) == 1,
+              "create rejects a row-cut count beyond one MPI_Bcast");
   TEST_ASSERT(expect_fatal(NULL, child_scan_with_gap, "expected the block to start at row 2",
                            "starts at row 3") == 1,
               "a block that skips rows aborts");
@@ -668,12 +1074,19 @@ int main(void) {
   TEST_RUN(test_cut_forests_single_rank_and_empty_dataset);
   TEST_RUN(test_zero_weight_forests_are_assigned_and_never_cut_row_order);
   TEST_RUN(test_more_ranks_than_nonzero_forests_leaves_idle_ranges);
+  TEST_RUN(test_one_chunk_tables_equal_the_task_only_baseline);
+  TEST_RUN(test_cut_chunks_matches_brute_force_over_all_small_vectors);
+  TEST_RUN(test_one_task_chunks_equal_the_ranges_of_that_many_tasks);
+  TEST_RUN(test_idle_trailing_chunks_have_equal_row_cuts);
   TEST_RUN(test_scan_row_cuts_equal_lower_bound_for_hand_built_columns);
   TEST_RUN(test_scan_row_cuts_equal_lower_bound_for_every_small_column);
+  TEST_RUN(test_scan_row_cuts_equal_lower_bound_at_every_chunk_cut);
+  TEST_RUN(test_scan_row_cuts_equal_lower_bound_for_every_small_chunked_column);
   TEST_RUN(test_scan_reports_decreasing_pair_with_row_and_values);
   TEST_RUN(test_scan_of_empty_column_yields_zero_row_cuts);
   TEST_RUN(test_accumulate_weights_counts_rows_across_blocks);
   TEST_RUN(test_partition_create_is_zeroed_sized_and_released);
+  TEST_RUN(test_partition_create_sizes_tables_by_range_count);
   TEST_RUN(test_defective_inputs_abort);
 
   TEST_SUMMARY();

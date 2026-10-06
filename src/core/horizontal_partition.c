@@ -8,7 +8,9 @@
  */
 
 #include <inttypes.h>
+#include <limits.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <string.h>
 
 #include "error.h"
@@ -44,10 +46,14 @@ static int greedy_pack(const int64_t *weights, int64_t n_forests_total, int64_t 
   return ranges;
 }
 
-struct HorizontalForestPartition *horizontal_partition_create(int ntask, int64_t snapshot_count,
+struct HorizontalForestPartition *horizontal_partition_create(int ntask, int nchunk,
+                                                              int64_t snapshot_count,
                                                               int64_t n_forests_total) {
   if (ntask < 1) {
     FATAL_ERROR("Horizontal partition needs at least one rank (got ntask = %d)", ntask);
+  }
+  if (nchunk < 1) {
+    FATAL_ERROR("Horizontal partition needs at least one chunk per rank (got nchunk = %d)", nchunk);
   }
   if (snapshot_count < 0 || n_forests_total < 0) {
     FATAL_ERROR("Horizontal partition counts must not be negative (snapshot_count = %" PRId64
@@ -55,16 +61,27 @@ struct HorizontalForestPartition *horizontal_partition_create(int ntask, int64_t
                 snapshot_count, n_forests_total);
   }
 
-  const int64_t entries_per_snapshot = (int64_t)ntask + 1;
+  /* ntask and nchunk are ints, so their product cannot overflow int64_t. */
+  const int64_t ranges = (int64_t)ntask * nchunk;
+  const int64_t entries_per_snapshot = ranges + 1;
+  if (entries_per_snapshot > INT_MAX) {
+    FATAL_ERROR("Horizontal partition has too many ranges (%d tasks x %d chunks)", ntask, nchunk);
+  }
   if (snapshot_count > (int64_t)(SIZE_MAX / sizeof(int64_t)) / entries_per_snapshot) {
     FATAL_ERROR("Horizontal partition row-cut table is too large (%" PRId64 " snapshots x %" PRId64
                 " entries)",
+                snapshot_count, entries_per_snapshot);
+  }
+  if (snapshot_count > INT_MAX / entries_per_snapshot) {
+    FATAL_ERROR("Horizontal partition row-cut table exceeds one MPI broadcast (%" PRId64
+                " snapshots x %" PRId64 " entries)",
                 snapshot_count, entries_per_snapshot);
   }
 
   struct HorizontalForestPartition *partition =
       mymalloc_cat(sizeof(*partition), MEM_HALOS); /* tracked; freed by _destroy */
   partition->ntask = ntask;
+  partition->nchunk = nchunk;
   partition->snapshot_count = snapshot_count;
   partition->n_forests_total = n_forests_total;
 
@@ -132,6 +149,38 @@ void horizontal_partition_cut_forests(const int64_t *weights, int64_t n_forests_
   }
 }
 
+void horizontal_partition_cut_chunks(const int64_t *weights,
+                                     const struct HorizontalForestPartition *partition) {
+  const int ntask = partition->ntask;
+  const int nchunk = partition->nchunk;
+  int64_t *forest_cuts = partition->forest_cuts;
+
+  if (nchunk == 1) {
+    return; /* the task cuts are already the only range level */
+  }
+
+  /* Spread the compact task cuts [0 .. ntask] to entries t * nchunk. Walking down, every
+   * write lands at or above the entry still to be read (t * nchunk >= t), so none is lost. */
+  for (int t = ntask; t >= 1; t--) {
+    forest_cuts[(int64_t)t * nchunk] = forest_cuts[t];
+  }
+
+  for (int t = 0; t < ntask; t++) {
+    int64_t *task_cuts = forest_cuts + (int64_t)t * nchunk;
+    const int64_t forest_lo = task_cuts[0];
+    const int64_t forest_hi = forest_cuts[((int64_t)t + 1) * nchunk];
+    const int64_t count = forest_hi - forest_lo;
+
+    /* Writes entries [0 .. nchunk] of the task: the first is 0 and the last the sub-range's
+     * length, so offsetting restores both task cuts exactly. */
+    horizontal_partition_cut_forests(count > 0 ? weights + forest_lo : NULL, count, nchunk,
+                                     task_cuts);
+    for (int c = 0; c <= nchunk; c++) {
+      task_cuts[c] += forest_lo;
+    }
+  }
+}
+
 void horizontal_partition_accumulate_weights(int64_t *weights, int64_t n_forests_total,
                                              const int64_t *values, int64_t count) {
   for (int64_t i = 0; i < count; i++) {
@@ -169,9 +218,9 @@ void horizontal_forest_scan_visit(struct HorizontalForestScan *scan, int64_t fir
   }
 
   const struct HorizontalForestPartition *partition = scan->partition;
-  const int ntask = partition->ntask;
+  const int nranges = horizontal_partition_range_count(partition);
   const int64_t *forest_cuts = partition->forest_cuts;
-  int64_t *row_cuts = partition->row_cuts + scan->snapnum * ((int64_t)ntask + 1);
+  int64_t *row_cuts = partition->row_cuts + scan->snapnum * ((int64_t)nranges + 1);
 
   for (int64_t i = 0; i < count; i++) {
     const int64_t value = values[i];
@@ -190,7 +239,7 @@ void horizontal_forest_scan_visit(struct HorizontalForestScan *scan, int64_t fir
      * the first row whose value reaches it; cuts are non-decreasing too, so one
      * forward pointer resolves them all. The final cut, n_forests_total, is
      * resolved at the end: it is the number of rows. */
-    while (scan->next_cut < ntask && value >= forest_cuts[scan->next_cut]) {
+    while (scan->next_cut < nranges && value >= forest_cuts[scan->next_cut]) {
       row_cuts[scan->next_cut++] = row;
     }
   }
@@ -201,11 +250,11 @@ int horizontal_forest_scan_end(struct HorizontalForestScan *scan) {
     return -1;
   }
 
-  const int ntask = scan->partition->ntask;
-  int64_t *row_cuts = scan->partition->row_cuts + scan->snapnum * ((int64_t)ntask + 1);
+  const int nranges = horizontal_partition_range_count(scan->partition);
+  int64_t *row_cuts = scan->partition->row_cuts + scan->snapnum * ((int64_t)nranges + 1);
 
   /* Cuts no row reached lie past every value: their lower bound is the row count. */
-  while (scan->next_cut <= ntask) {
+  while (scan->next_cut <= nranges) {
     row_cuts[scan->next_cut++] = scan->rows_seen;
   }
   return 0;
