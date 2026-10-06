@@ -294,11 +294,11 @@ static int write_partition_in_visits(struct Halo *halos, int64_t count, int64_t 
  * @param   nrows      Receives the table's row count.
  * @param   tot        Receives the TotHalosPerSnap attribute.
  *
- * Read through H5TBread_table() into zeroed memory, not as the stored bytes: the
- * on-disk compound record is the struct's layout, padding included, and the
- * writer's batch buffer leaves that padding uninitialised, so the stored bytes of
- * two equal tables can differ (they did on Linux, not on macOS). Only the fields
- * are the contract, and comparing zeroed records compares exactly those.
+ * Read through H5TBread_table(), and compare the result field by field (the
+ * caller does): the on-disk compound record is the struct's layout, padding
+ * included, and HDF5 copies whole records, padding and all, when the file and
+ * memory layouts match, so neither the stored bytes nor a whole-record compare
+ * of these buffers is a field comparison. Only the fields are the contract.
  */
 static int read_partition_table(const char *path, struct HaloOutput **rows, hsize_t *nrows,
                                 int64_t *tot) {
