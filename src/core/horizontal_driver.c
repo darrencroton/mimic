@@ -324,7 +324,8 @@ struct HorizontalDriverState {
   int task;
   int nchunk;
   int range;
-  int64_t widest_snapshot; /* the slab the partition is weighted by (chunk log lines) */
+  int64_t widest_snapshot; /* the slab a partition is weighted by, computed once at open */
+  int64_t widest_halos;    /* its halo count, -1 for a run without snapshots */
 };
 
 /* ------------------------------------------------------------------------- */
@@ -353,7 +354,7 @@ horizontal_ensure_segment_scratch(struct HorizontalDriverState *state, int64_t r
 }
 
 /* ------------------------------------------------------------------------- */
-/* Diagnostics under distribution                                             */
+/* Diagnostics under a partition                                              */
 /* ------------------------------------------------------------------------- */
 
 /*
@@ -369,7 +370,8 @@ horizontal_ensure_segment_scratch(struct HorizontalDriverState *state, int64_t r
  */
 
 /* The snapshot (global) row of row `halonr` of this task's slab of `snapnum`:
- * `halonr` itself in a serial run, or for an index the partition cannot place. */
+ * `halonr` itself in an unpartitioned run, or for an index the partition cannot
+ * place. */
 static int64_t horizontal_global_row(const struct HorizontalForestPartition *partition, int range,
                                      int64_t snapnum, int64_t halonr) {
   if (partition == NULL || snapnum < 0 || snapnum >= partition->snapshot_count) {
@@ -434,7 +436,7 @@ struct HorizontalProgenitorCursor {
 static const struct HorizontalRetainedGeneration *
 horizontal_resolve_progenitor(const struct HorizontalGatherContext *lookup, int64_t target_snap,
                               int64_t prog, int64_t halonr, const char *link) {
-  /* Rows are printed as snapshot rows, which a distributed run's local rows are not. */
+  /* Rows are printed as snapshot rows, which a partitioned run's local rows are not. */
   const int64_t global_halonr =
       horizontal_global_row(lookup->partition, lookup->task, lookup->snapnum, halonr);
   if (target_snap < 0 || target_snap >= lookup->snapnum) {
@@ -720,15 +722,16 @@ static int64_t horizontal_row_cut(const struct HorizontalForestPartition *partit
 }
 
 /**
- * @brief   Bytes a distributed run's partition holds on every task for the whole run
- * @param   partition  The run's partition, or NULL for a serial run (0 bytes)
+ * @brief   Bytes a partitioned run's partition holds on every task for the whole run
+ * @param   partition  The run's partition, or NULL for an unpartitioned run (0 bytes)
  * @return  The struct, its `ntask * nchunk + 1` forest cuts and its
  *          `snapshot_count * (ntask * nchunk + 1)` row cuts, exactly as
  *          horizontal_partition_create() allocates them
  *
  * Not static so the unit tests can check the term directly; the retention
  * accounting (horizontal_retained_resident_bytes()) adds it to every resident
- * total of a distributed run, so the ceiling and the memory profile count it.
+ * total of a distributed or chunked run, so the ceiling and the memory profile
+ * count it.
  */
 int64_t horizontal_partition_resident_bytes(const struct HorizontalForestPartition *partition) {
   if (partition == NULL) {
@@ -811,7 +814,7 @@ static int64_t horizontal_rebase_link(const struct SnapshotSlab *slab,
  * unchanged.
  *
  * Not static so the unit tests can drive it directly on a hand-built slab; the
- * driver calls it only for a distributed run.
+ * driver calls it only for a partitioned (distributed or chunked) run.
  */
 void horizontal_rebase_slab_links(struct SnapshotSlab *slab,
                                   const struct HorizontalForestPartition *partition, int range) {
@@ -836,8 +839,9 @@ void horizontal_rebase_slab_links(struct SnapshotSlab *slab,
   if (slab->nhalos > 0 &&
       (slab->descendant_snapshot == NULL || slab->first_progenitor_snapshot == NULL ||
        slab->next_progenitor_snapshot == NULL)) {
-    FATAL_ERROR("Snapshot %" PRId64 " slab carries no target-snapshot columns; a distributed "
-                "run rebases links through them and needs a format_version 3 dataset",
+    FATAL_ERROR("Snapshot %" PRId64 " slab carries no target-snapshot columns; a partitioned "
+                "(distributed or chunked) run rebases links through them and needs a "
+                "format_version 3 dataset",
                 slab->snapnum);
   }
 
@@ -940,11 +944,12 @@ static int64_t horizontal_forest_weight(const int64_t *weights, int64_t forest_l
 
 /*
  * Task 0's half of the startup partition: weigh the forests by their halo counts
- * in the widest slab, cut them into contiguous task ranges by D3 and each task's
- * range into its chunks, then scan every slab's ForestIndex column, verifying it
- * is forest-blocked and recording its row cuts, and log the result. Every input
- * the scans read was validated by this task's validate_columns open, which is
- * why task 0 alone opens with it in a distributed run.
+ * in the widest slab (state->widest_snapshot), cut them into contiguous task
+ * ranges by D3 and each task's range into its chunks, then scan every slab's
+ * ForestIndex column, verifying it is forest-blocked and recording its row cuts,
+ * and log the result. Every input the scans read was validated by this task's
+ * validate_columns open, which is why task 0 alone opens with it in a
+ * distributed run.
  */
 static void horizontal_compute_partition(const struct HorizontalDriverState *state,
                                          const struct HorizontalRunInfo *info) {
@@ -953,9 +958,8 @@ static void horizontal_compute_partition(const struct HorizontalDriverState *sta
   const int nchunk = partition->nchunk;
   const int nranges = horizontal_partition_range_count(partition);
 
-  int64_t widest_halos = -1;
-  const int64_t widest =
-      horizontal_widest_snapshot(state->reader, info->snapshot_count, &widest_halos);
+  const int64_t widest = state->widest_snapshot;
+  const int64_t widest_halos = state->widest_halos;
 
   const int64_t n_forests = partition->n_forests_total;
   int64_t *weights =
@@ -2379,15 +2383,17 @@ void run_horizontal_driver(void) {
            state.reader->name, info.snapshot_count, info.snapshot_count == 1 ? "" : "s",
            info.format_version, info.links_adjacent, info.n_forests_total,
            info.n_forests_total == 1 ? "" : "s", info.max_halo_rank_in_forest);
+  /* The widest slab, once, from the counts every task read at open: the partition
+   * is weighted by it and the chunk lines name its rows. */
+  state.widest_snapshot =
+      horizontal_widest_snapshot(state.reader, info.snapshot_count, &state.widest_halos);
+
   /* Either a task count above one or a chunk count above one builds the
    * partition; a run with neither is today's unpartitioned run. */
   const int chunked = MimicConfig.ForestChunks > 1;
   if (distributed || chunked) {
     horizontal_partition_run(&state, &info, distributed, chunked ? MimicConfig.ForestChunks : 1);
   }
-  int64_t widest_halos = 0;
-  state.widest_snapshot =
-      horizontal_widest_snapshot(state.reader, info.snapshot_count, &widest_halos);
   horizontal_evaluate_record_identity_space(&state, &info);
 
   log_phase_banner(PHASE_TREE_PROCESSING);
