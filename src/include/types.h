@@ -139,6 +139,12 @@ struct MimicConfig {
    * configuration. Not recorded in output metadata. */
   int64_t RetentionMemoryCeiling;
 
+  /* Number of contiguous forest sub-ranges (chunks) each task sweeps in turn
+   * (input.forest_chunks). Default 1: the task sweeps its whole range at once. A
+   * horizontal-reader option; a vertical run rejects a value above 1 at
+   * configuration. Not recorded in output metadata, as it changes no output. */
+  int ForestChunks;
+
   /* output parameters */
   int64_t TargetFileSize;
   int64_t ForestsPerFile;

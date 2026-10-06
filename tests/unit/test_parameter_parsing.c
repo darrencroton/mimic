@@ -234,6 +234,46 @@ static int write_input_fixture(char *path, size_t path_size, const char *label,
   return wrote_processing_order ? 0 : -1;
 }
 
+/**
+ * @brief   Rewrite a fixture so its modules: section lists one post_snapshot module.
+ *
+ * The module is only named, never resolved: configuration parsing and validation
+ * read the phase, and module resolution happens later in module_system_init().
+ * Returns 0 on success, -1 when the file has no bare "modules:" header to inject under.
+ */
+static int add_post_snapshot_phase(const char *path) {
+  char tmp_path[MAX_STRING_LEN];
+  char line[1024];
+  int injected = 0;
+  FILE *src;
+  FILE *dst;
+
+  snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", path);
+  src = fopen(path, "r");
+  if (src == NULL) {
+    return -1;
+  }
+  dst = fopen(tmp_path, "w");
+  if (dst == NULL) {
+    fclose(src);
+    return -1;
+  }
+  while (fgets(line, sizeof(line), src) != NULL) {
+    fputs(line, dst);
+    if (!injected && strncmp(line, "modules:", 8) == 0 &&
+        (line[8] == '\n' || line[8] == '\r' || line[8] == '\0')) {
+      fputs("  post_snapshot:\n    - sham_rank_match: process_snapshot\n", dst);
+      injected = 1;
+    }
+  }
+  fclose(dst);
+  fclose(src);
+  if (!injected || rename(tmp_path, path) != 0) {
+    return -1;
+  }
+  return 0;
+}
+
 static int write_timestep_scheme_fixture_with_label(char *path, size_t path_size, const char *label,
                                                     const char *scheme) {
   FILE *src;
@@ -1847,6 +1887,223 @@ int test_retention_ceiling_rejects_malformed_values(void) {
 }
 
 /**
+ * @test    test_forest_chunks_defaults_to_one
+ * @brief   input.forest_chunks is optional: absent means one chunk, whatever a
+ *          previous parse in the same process left behind.
+ */
+int test_forest_chunks_defaults_to_one(void) {
+  char fixture_path[MAX_STRING_LEN];
+
+  /* ===== SETUP ===== */
+  setup_test();
+  TEST_ASSERT(write_processing_order_fixture(fixture_path, sizeof(fixture_path), "vertical") == 0,
+              "Should create a vertical fixture without the key");
+  MimicConfig.ForestChunks = 7;
+
+  /* ===== EXECUTE ===== */
+  read_parameter_file(fixture_path);
+
+  /* ===== VALIDATE ===== */
+  TEST_ASSERT(MimicConfig.ForestChunks == 1,
+              "An omitted input.forest_chunks should mean one chunk");
+
+  /* ===== CLEANUP ===== */
+  teardown_test();
+
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_forest_chunks_value_is_parsed
+ * @brief   A valid value is stored as given, up to INT_MAX.
+ *
+ * Observed through the vertical-run rejection, which names the parsed value: no
+ * configuration in this harness both carries the key and passes validation (a
+ * vertical run rejects a count above 1, and a horizontal one fails on this
+ * harness's binary output), so the stored value is read from the message rather
+ * than MimicConfig.
+ */
+int test_forest_chunks_value_is_parsed(void) {
+  char small_path[MAX_STRING_LEN];
+  char largest_path[MAX_STRING_LEN];
+
+  TEST_ASSERT(write_input_fixture(small_path, sizeof(small_path), "forest_chunks_small", "vertical",
+                                  "  forest_chunks: 4\n") == 0,
+              "Should create a 4-chunk fixture");
+  TEST_ASSERT(write_input_fixture(largest_path, sizeof(largest_path), "forest_chunks_largest",
+                                  "vertical", "  forest_chunks: 2147483647\n") == 0,
+              "Should create a largest-accepted fixture");
+
+  TEST_ASSERT(read_parameter_file_fatal_message_contains(small_path, "input.forest_chunks is 4,") ==
+                  1,
+              "4 chunks should be stored as 4");
+  TEST_ASSERT(read_parameter_file_fatal_message_contains(largest_path,
+                                                         "input.forest_chunks is 2147483647,") == 1,
+              "INT_MAX chunks should be stored without overflow");
+
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_forest_chunks_rejected_for_vertical_runs
+ * @brief   A vertical run rejects a count above 1 at configuration, once, even
+ *          with a post_snapshot phase configured: the chunk-specific snapshot
+ *          rejection is horizontal-only, so the phase keeps its existing report.
+ */
+int test_forest_chunks_rejected_for_vertical_runs(void) {
+  char fixture_path[MAX_STRING_LEN];
+  char phase_path[MAX_STRING_LEN];
+  char one_path[MAX_STRING_LEN];
+  char output[4096];
+  const char *needle;
+  int count;
+
+  TEST_ASSERT(write_input_fixture(fixture_path, sizeof(fixture_path), "forest_chunks_vertical",
+                                  "vertical", "  forest_chunks: 2\n") == 0,
+              "Should create a vertical fixture carrying the key");
+  TEST_ASSERT(read_parameter_file_fatal_message_contains(
+                  fixture_path, "splits only the horizontal driver's slab sweep and reader "
+                                "'lhalo_binary' feeds the vertical driver") == 1,
+              "A vertical run should reject input.forest_chunks above 1");
+
+  TEST_ASSERT(write_input_fixture(one_path, sizeof(one_path), "forest_chunks_vertical_one",
+                                  "vertical", "  forest_chunks: 1\n") == 0,
+              "Should create a vertical fixture with one chunk");
+  TEST_ASSERT(read_parameter_file_capture_fatal(one_path, output, sizeof(output)) == 0,
+              "An explicit forest_chunks: 1 should be accepted by a vertical run");
+
+  TEST_ASSERT(write_input_fixture(phase_path, sizeof(phase_path), "forest_chunks_vertical_phase",
+                                  "vertical", "  forest_chunks: 2\n") == 0,
+              "Should create a vertical fixture carrying the key and the phase");
+  TEST_ASSERT(add_post_snapshot_phase(phase_path) == 0, "Should add the post_snapshot phase");
+  TEST_ASSERT(read_parameter_file_capture_fatal(phase_path, output, sizeof(output)) == 1,
+              "The vertical fixture should be rejected");
+  needle = "input.forest_chunks is 2,";
+  count = 0;
+  for (const char *at = strstr(output, needle); at != NULL; at = strstr(at + 1, needle)) {
+    count++;
+  }
+  TEST_ASSERT(count == 1, "The chunk count should be reported exactly once");
+  needle = "modules.post_snapshot lists 1 module (first: 'sham_rank_match'), but it runs only "
+           "under the horizontal driver";
+  count = 0;
+  for (const char *at = strstr(output, needle); at != NULL; at = strstr(at + 1, needle)) {
+    count++;
+  }
+  TEST_ASSERT(count == 1, "The existing phase rejection should be reported exactly once");
+  TEST_ASSERT(strstr(output, "never holds a whole snapshot") == NULL,
+              "The chunk snapshot rule should not add a second report for a vertical run");
+
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_forest_chunks_accepted_for_horizontal_runs
+ * @brief   A horizontal configuration accepts a valid count: its validation fails
+ *          here only on what this harness cannot provide (HDF5 output), never on
+ *          the key. With a post_snapshot phase, a count above 1 is rejected naming
+ *          the phase, the module and the count, and one chunk raises nothing.
+ *
+ * Skips when no horizontal reader is registered, for the reason given on
+ * test_ntask_multi_accepts_horizontal_processing_order().
+ */
+int test_forest_chunks_accepted_for_horizontal_runs(void) {
+  char fixture_path[MAX_STRING_LEN];
+  char phase_two_path[MAX_STRING_LEN];
+  char phase_one_path[MAX_STRING_LEN];
+  char output[4096];
+
+  if (horizontal_reader_count() == 0) {
+    return TEST_SKIP_WITH("no horizontal reader registered (HDF5 development library not "
+                          "available); tree_type: horizontal_hdf5 cannot resolve");
+  }
+
+  TEST_ASSERT(write_input_fixture(fixture_path, sizeof(fixture_path), "forest_chunks_horizontal",
+                                  "horizontal", "  forest_chunks: 4\n") == 0,
+              "Should create a horizontal fixture carrying the key");
+  TEST_ASSERT(read_parameter_file_capture_fatal(fixture_path, output, sizeof(output)) == 1,
+              "The horizontal fixture should still fail on this harness's binary output");
+  TEST_ASSERT(strstr(output, "horizontal runs are HDF5-only") != NULL,
+              "The failure should be the binary-output rejection");
+  TEST_ASSERT(strstr(output, "forest_chunks") == NULL,
+              "A horizontal configuration should raise nothing about a valid chunk count");
+
+  TEST_ASSERT(write_input_fixture(phase_two_path, sizeof(phase_two_path),
+                                  "forest_chunks_horizontal_phase_two", "horizontal",
+                                  "  forest_chunks: 2\n") == 0,
+              "Should create a horizontal fixture with two chunks and the phase");
+  TEST_ASSERT(add_post_snapshot_phase(phase_two_path) == 0, "Should add the post_snapshot phase");
+  TEST_ASSERT(read_parameter_file_capture_fatal(phase_two_path, output, sizeof(output)) == 1,
+              "The chunked snapshot-scope fixture should be rejected");
+  TEST_ASSERT(strstr(output, "modules.post_snapshot lists 1 module (first: 'sham_rank_match') "
+                             "with input.forest_chunks 2") != NULL,
+              "The rejection should name the phase, the module, the count and the chunk count");
+  TEST_ASSERT(strstr(output, "needs forest_chunks: 1") != NULL,
+              "The rejection should say the snapshot scope needs forest_chunks: 1");
+
+  TEST_ASSERT(write_input_fixture(phase_one_path, sizeof(phase_one_path),
+                                  "forest_chunks_horizontal_phase_one", "horizontal",
+                                  "  forest_chunks: 1\n") == 0,
+              "Should create a horizontal fixture with one chunk and the phase");
+  TEST_ASSERT(add_post_snapshot_phase(phase_one_path) == 0, "Should add the post_snapshot phase");
+  TEST_ASSERT(read_parameter_file_capture_fatal(phase_one_path, output, sizeof(output)) == 1,
+              "The horizontal fixture should still fail on this harness's binary output");
+  TEST_ASSERT(strstr(output, "horizontal runs are HDF5-only") != NULL,
+              "The failure should be the binary-output rejection");
+  TEST_ASSERT(strstr(output, "forest_chunks") == NULL && strstr(output, "post_snapshot") == NULL,
+              "One chunk with the phase should raise nothing about the key or the phase");
+
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_forest_chunks_rejects_malformed_values
+ * @brief   Zero, negative, non-integer, non-scalar and overflowing values, and a
+ *          misspelled key, are each rejected at configuration with a message
+ *          naming the key.
+ */
+int test_forest_chunks_rejects_malformed_values(void) {
+  static const struct {
+    const char *label;
+    const char *line;
+    const char *message;
+  } cases[] = {
+      {"forest_chunks_zero", "  forest_chunks: 0\n",
+       "input.forest_chunks must be a whole number from 1 to 2147483647, but it is 0; omit the "
+       "key for one chunk"},
+      {"forest_chunks_negative", "  forest_chunks: -1\n",
+       "input.forest_chunks must be a whole number from 1 to 2147483647, but it is -1; omit the "
+       "key for one chunk"},
+      {"forest_chunks_word", "  forest_chunks: two\n",
+       "input.forest_chunks must be a valid 64-bit integer"},
+      {"forest_chunks_fraction", "  forest_chunks: 1.5\n",
+       "input.forest_chunks must be a valid 64-bit integer"},
+      {"forest_chunks_suffix", "  forest_chunks: 4mb\n",
+       "input.forest_chunks must be a valid 64-bit integer"},
+      {"forest_chunks_sequence", "  forest_chunks: [4]\n",
+       "input.forest_chunks must be an integer scalar"},
+      {"forest_chunks_overflow", "  forest_chunks: 2147483648\n",
+       "input.forest_chunks must be a whole number from 1 to 2147483647, but it is 2147483648; "
+       "omit the key for one chunk"},
+      {"forest_chunks_misspelled", "  forest_chunk: 4\n", "Unknown key 'input.forest_chunk'"},
+  };
+  char fixture_path[MAX_STRING_LEN];
+
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+    TEST_ASSERT(write_input_fixture(fixture_path, sizeof(fixture_path), cases[i].label, "vertical",
+                                    cases[i].line) == 0,
+                "Should create the malformed-value fixture");
+    const int result = read_parameter_file_fatal_message_contains(fixture_path, cases[i].message);
+    TEST_ASSERT(result != -1, "The malformed-value child should not crash");
+    TEST_ASSERT(result == 1, "A malformed input.forest_chunks should FATAL with a message "
+                             "naming the key");
+    printf("  %s -> rejected\n", cases[i].label);
+  }
+
+  return TEST_PASS;
+}
+
+/**
  * @brief   Main test runner
  *
  * Executes all test cases and reports results.
@@ -1911,6 +2168,11 @@ int main(int argc, char **argv) {
   TEST_RUN(test_retention_ceiling_rejected_for_vertical_runs);
   TEST_RUN(test_retention_ceiling_accepted_for_horizontal_runs);
   TEST_RUN(test_retention_ceiling_rejects_malformed_values);
+  TEST_RUN(test_forest_chunks_defaults_to_one);
+  TEST_RUN(test_forest_chunks_value_is_parsed);
+  TEST_RUN(test_forest_chunks_rejected_for_vertical_runs);
+  TEST_RUN(test_forest_chunks_accepted_for_horizontal_runs);
+  TEST_RUN(test_forest_chunks_rejects_malformed_values);
   TEST_RUN(test_yaml_line_declares_horizontal_forms);
 
   /* Print summary and return result */

@@ -173,6 +173,9 @@ void read_parameter_file(const char *fname) {
   /* Seeded for the same reason: absent from both files means no ceiling. */
   MimicConfig.RetentionMemoryCeiling = 0;
 
+  /* Absent from both files means one chunk (the task sweeps its whole range). */
+  MimicConfig.ForestChunks = 1;
+
   /*
    * Load order: simulation config file first (provides defaults), then all
    * sections from the run file (may override those defaults). This means any
@@ -815,7 +818,8 @@ static void parse_input_section(yaml_document_t *doc, yaml_node_t *section) {
                                            "max_tree_depth",
                                            "forest_distribution_scheme",
                                            "exponent_forest_dist_scheme",
-                                           "retention_memory_ceiling_mb"};
+                                           "retention_memory_ceiling_mb",
+                                           "forest_chunks"};
 
   DEBUG_LOG("Parsing input section");
   reject_unknown_keys(doc, section, "input", valid_keys,
@@ -936,6 +940,21 @@ static void parse_input_section(yaml_document_t *doc, yaml_node_t *section) {
     MimicConfig.RetentionMemoryCeiling = mb * RETENTION_CEILING_BYTES_PER_MB;
     DEBUG_LOG("RetentionMemoryCeiling = %" PRId64 " B (from %" PRId64 " MB)",
               MimicConfig.RetentionMemoryCeiling, mb);
+  }
+
+  /* Optional number of contiguous forest sub-ranges each task sweeps in turn. A
+     whole number of at least 1 that fits in int; omitting the key is how a run
+     asks for one chunk, so zero is rejected rather than read as "none". */
+  node = get_mapping_value(doc, section, "forest_chunks");
+  if (node) {
+    const int64_t chunks = get_strict_int64_value(node, "input.forest_chunks");
+    if (chunks < 1 || chunks > INT_MAX) {
+      FATAL_ERROR("input.forest_chunks must be a whole number from 1 to %d, but it is %" PRId64
+                  "; omit the key for one chunk",
+                  INT_MAX, chunks);
+    }
+    MimicConfig.ForestChunks = (int)chunks;
+    DEBUG_LOG("ForestChunks = %d", MimicConfig.ForestChunks);
   }
 }
 
@@ -1580,6 +1599,27 @@ static void validate_and_postprocess(void) {
                 "the horizontal driver's retained generations and reader '%s' feeds the "
                 "vertical driver",
                 MimicConfig.RetentionMemoryCeiling, reader_name);
+      errors++;
+    }
+    /* Chunks are sub-ranges of the horizontal driver's slab sweep; a vertical run
+       sweeps no slab, so a count above 1 would promise a split nothing performs. */
+    if (is_vertical_reader && MimicConfig.ForestChunks > 1) {
+      ERROR_LOG("input.forest_chunks is %d, but it splits only the horizontal driver's slab "
+                "sweep and reader '%s' feeds the vertical driver; omit the key for one chunk",
+                MimicConfig.ForestChunks, reader_name);
+      errors++;
+    }
+    /* A chunked sweep never holds a whole snapshot's population at once, so the
+       snapshot scope cannot run under it. Horizontal readers only: a vertical run
+       with the phase is already reported once below. */
+    if (!is_vertical_reader && MimicConfig.ForestChunks > 1 && MimicConfig.num_post_snapshot > 0) {
+      ERROR_LOG("modules.%s lists %d module%s (first: '%s') with input.forest_chunks %d, but a "
+                "chunked sweep never holds a whole snapshot's population at once, so the "
+                "snapshot scope needs forest_chunks: 1 (distribute over MPI tasks to reduce "
+                "memory instead)",
+                POST_SNAPSHOT_PHASE_NAME, MimicConfig.num_post_snapshot,
+                MimicConfig.num_post_snapshot == 1 ? "" : "s",
+                MimicConfig.post_snapshot[0].module_name, MimicConfig.ForestChunks);
       errors++;
     }
     /* Only the horizontal driver holds a whole snapshot's population at once;
