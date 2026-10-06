@@ -42,7 +42,23 @@ Steps, each reported as ``MIMIC_RESULT:`` markers and gated:
    builds (``TEST_BUILD=no``); the non-MPI one is built with ``USE-MPI=`` given explicitly and any
    ``USE-MPI`` in the environment removed, so the serial reference is non-MPI whatever the caller
    exported (the Makefile enables MPI for any non-empty value).
-3. The version 2 refusal: ``halos-only`` on the version 2 fixture
+3. Chunked legs (``input.forest_chunks``, set by editing the parsed run file) for ``halos-only``,
+   ``sage16`` and ``hod``: with the non-MPI binary, serial runs at ``forest_chunks`` 2, 3 and 8
+   (run directories ``chunks<G>``), and with the MPI binary, ``-np 2`` at ``forest_chunks: 2`` and
+   ``-np 3`` at ``forest_chunks: 3`` (``np2_chunks2``, ``np3_chunks3``). Each is compared with
+   the serial ``forest_chunks: 1`` run through the comparator with the same identity,
+   ``galaxies_compared_`` and (for ``hod``) ``created_rows_compared_`` markers as the rank
+   counts; each serial chunked run must also hold, in every partition file, the reference's
+   ``UniqueGalaxyID`` column in the same file order (``row_order_``); each MPI chunked run gets the
+   task-layout checks above. The shipped ``hod`` fixture run file configures the snapshot audit,
+   which chunking refuses, so ``hod``'s chunked legs run
+   ``forest_blocks_hod_chunked.yaml`` (the same run without ``modules.post_snapshot``, so the
+   full-halo creation path is gated with created rows on both sides) against a serial reference
+   of that variant (``chunked_reference``, itself checked for halos). For ``sham`` and the
+   shipped ``hod`` run file, one serial launch at ``forest_chunks: 2`` must fail at configuration
+   with the snapshot-scope refusal (``never holds a whole snapshot`` and ``needs forest_chunks:
+   1``) and never log ``Opened horizontal run`` (``chunked_refused_``).
+4. The version 2 refusal: ``halos-only`` on the version 2 fixture
    ``simulations/micro-uchuu-ascii-horizontal/_tests/data/generic/`` under ``-np 2`` must fail at
    startup with the format_version 2 message.
 
@@ -86,6 +102,17 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SIMULATION = "mini-millennium-horizontal"
 MODELS = ("halos-only", "sage16", "sham", "hod")
 NP_COUNTS = (1, 2, 3, 4, 8)
+# Chunked legs: serial runs at each forest_chunks value, and (rank count, forest_chunks) MPI pairs.
+# The fixture's widest-slab weights [2, 1, 7, 2, 2, 3] give two distinct non-trivial chunkings
+# (G = 2, and every G >= 3), and idle chunks at G = 8.
+CHUNK_COUNTS = (2, 3, 8)
+NP_CHUNK_PAIRS = ((2, 2), (3, 3))
+# Models with chunked legs; models whose fixture run file is refused under chunking (it configures
+# modules.post_snapshot); and the variant run file whose chunked legs stand in for a refused one
+# (hod without its audit, so its full-halo creation path is gated). sham has no chunkable form.
+CHUNKED_MODELS = ("halos-only", "sage16", "hod")
+CHUNK_REFUSED_MODELS = ("sham", "hod")
+CHUNKED_RUN_FILE = {"hod": "forest_blocks_hod_chunked.yaml"}
 RUN_FILE_DIR = Path("simulations") / SIMULATION / "_tests" / "input"
 WORK_ROOT = REPO_ROOT / "output" / "distributed-identity" / "gate"
 LOG_PATH = REPO_ROOT / "build" / "distributed_tests.log"
@@ -123,6 +150,8 @@ V2_A_LIST = V2_DATA / "micro-uchuu-fixture.a_list"
 V2_MESSAGE = "this is a format_version 2 dataset"
 
 PARTITION_LINE = "Distributed horizontal partition:"
+CHUNK_REFUSAL_MESSAGES = ("never holds a whole snapshot", "needs forest_chunks: 1")
+OPENED_LINE = "Opened horizontal run"
 PASSED_RE = re.compile(r"^PASSED: (\d+) galaxies", re.MULTILINE)
 CREATED_RE = re.compile(
     r"^Created rows \(UniqueGalaxyID < 0\).*: \S+ (\d+), \S+ (\d+)$", re.MULTILINE
@@ -276,10 +305,10 @@ class Gate:
         )
 
     def leg(self, model: str) -> None:
-        """Serial reference, then the MPI build at every rank count, for one model."""
+        """Serial reference, the chunked serial runs, then the MPI build at every rank count and
+        every chunked rank count, for one model."""
         print(f"--- {model} x {SIMULATION}", flush=True)
-        base_file = REPO_ROOT / RUN_FILE_DIR / f"forest_blocks_{model}.yaml"
-        config = yaml.safe_load(base_file.read_text())
+        config = load_run_file(f"forest_blocks_{model}.yaml")
         base = config["output"]["output_filename"]
         snapshots = sorted(int(snap) for snap in config["output"]["snapshot_list"])
 
@@ -299,6 +328,11 @@ class Gate:
             f"the serial master's TotHalosPerSnap sums to {serial_halos}; "
             "every later comparison would be vacuous",
         )
+        if model in CHUNK_REFUSED_MODELS:
+            self.chunked_refusal(model, config)
+        chunked = None
+        if model in CHUNKED_MODELS:
+            chunked = self.chunked_serial(model, config, serial_dir, serial_totals)
 
         if not self.build(model, SIMULATION, mpi=True):
             return
@@ -315,38 +349,137 @@ class Gate:
                 self.check_serial_layout(name, run_dir, base, snapshots, output)
             else:
                 self.check_task_layout(name, run_dir, base, snapshots, ntask, serial_totals, output)
-            status, report = self.run(
-                [
-                    sys.executable,
-                    str(COMPARATOR),
-                    str(serial_dir / base),
-                    str(run_dir / base),
-                    "--left-label",
-                    "serial",
-                    "--right-label",
-                    f"np{ntask}",
-                    "--compare-created",
-                ],
-                f"compare {model} serial with -np {ntask}",
-            )
-            self.marker(status == 0, f"identity_{name}", f"comparator exited {status}")
-            if status == TIMEOUT_STATUS:
+            if self.compare(model, name, serial_dir / base, run_dir / base) == TIMEOUT_STATUS:
                 break
-            passed = PASSED_RE.search(report)
-            compared = int(passed.group(1)) if passed else None
-            self.marker(
-                compared is not None and compared > 0,
-                f"galaxies_compared_{name}",
-                f"comparator reported {compared} galaxies compared (PASSED: N galaxies)",
+        if chunked is not None:
+            self.chunked_mpi(model, *chunked)
+
+    def chunked_serial(self, model, config, serial_dir, serial_totals):
+        """Serial runs at every CHUNK_COUNTS value against the serial forest_chunks: 1 run.
+
+        Each must be identical per UniqueGalaxyID and hold every partition's rows in the
+        reference's order. A model whose fixture run file is refused under chunking runs its
+        variant instead, against its own serial reference (a non-vacuous one). Returns the
+        (config, reference directory, reference totals) the chunked MPI runs compare with, or None
+        when the variant's reference failed and the chunked legs are recorded as not run.
+        """
+        if model in CHUNKED_RUN_FILE:
+            config = load_run_file(CHUNKED_RUN_FILE[model])
+            base = config["output"]["output_filename"]
+            snapshots = sorted(int(snap) for snap in config["output"]["snapshot_list"])
+            serial_dir = WORK_ROOT / model / "chunked_reference"
+            status, _ = self.launch(
+                None, write_run_file(config, serial_dir), f"{model} chunked variant serial"
             )
-            if model == "hod":
-                created = CREATED_RE.search(report)
-                counts = tuple(map(int, created.groups())) if created else None
-                self.marker(
-                    counts is not None and min(counts) > 0,
-                    f"created_rows_compared_{name}",
-                    f"comparator reported created rows (serial, np{ntask}) = {counts}",
-                )
+            if not self.marker(status == 0, f"serial_run_{model}_chunked", f"exit {status}"):
+                return None
+            serial_totals = read_master(serial_dir / f"{base}.hdf5", snapshots).totals
+            serial_halos = sum(serial_totals.values())
+            self.marker(
+                serial_halos > 0,
+                f"serial_halos_{model}_chunked",
+                f"the variant's serial master's TotHalosPerSnap sums to {serial_halos}; "
+                "every chunked comparison would be vacuous",
+            )
+        base = config["output"]["output_filename"]
+        reference_order = read_row_order(serial_dir, base)
+        for nchunk in CHUNK_COUNTS:
+            run_dir = WORK_ROOT / model / f"chunks{nchunk}"
+            run_file = write_run_file(with_forest_chunks(config, nchunk), run_dir)
+            status, _ = self.launch(None, run_file, f"{model} serial at forest_chunks {nchunk}")
+            name = f"{model}_chunks{nchunk}"
+            if not self.marker(status == 0, f"serial_run_{name}", f"exit {status}"):
+                if status == TIMEOUT_STATUS:
+                    break
+                continue
+            if self.compare(model, name, serial_dir / base, run_dir / base) == TIMEOUT_STATUS:
+                break
+            order = read_row_order(run_dir, base)
+            mismatched = sorted(
+                key
+                for key in reference_order.keys() | order.keys()
+                if reference_order.get(key) != order.get(key)
+            )
+            self.marker(
+                bool(reference_order) and not mismatched,
+                f"row_order_{name}",
+                f"partitions whose UniqueGalaxyID column differs in file order from the serial "
+                f"forest_chunks: 1 run (or are missing on one side): {mismatched}; reference "
+                f"partitions read: {len(reference_order)}",
+            )
+        return config, serial_dir, serial_totals
+
+    def chunked_mpi(self, model, config, serial_dir, serial_totals) -> None:
+        """MPI runs at each NP_CHUNK_PAIRS (rank count, forest_chunks) against the serial
+        forest_chunks: 1 run, with the task-layout checks."""
+        base = config["output"]["output_filename"]
+        snapshots = sorted(int(snap) for snap in config["output"]["snapshot_list"])
+        for ntask, nchunk in NP_CHUNK_PAIRS:
+            run_dir = WORK_ROOT / model / f"np{ntask}_chunks{nchunk}"
+            run_file = write_run_file(with_forest_chunks(config, nchunk), run_dir)
+            status, output = self.launch(
+                ntask, run_file, f"{model} at -np {ntask} with forest_chunks {nchunk}"
+            )
+            name = f"{model}_np{ntask}_chunks{nchunk}"
+            if not self.marker(status == 0, f"mpi_run_{name}", f"exit {status}"):
+                if status == TIMEOUT_STATUS:
+                    break
+                continue
+            self.check_task_layout(name, run_dir, base, snapshots, ntask, serial_totals, output)
+            if self.compare(model, name, serial_dir / base, run_dir / base) == TIMEOUT_STATUS:
+                break
+
+    def chunked_refusal(self, model: str, config: dict) -> None:
+        """The fixture run file at forest_chunks: 2 fails at configuration, before the run opens."""
+        run_dir = WORK_ROOT / model / "chunked-refusal"
+        run_file = write_run_file(with_forest_chunks(config, 2), run_dir)
+        status, output = self.launch(None, run_file, f"{model} chunked refusal at forest_chunks 2")
+        self.marker(
+            status not in (0, TIMEOUT_STATUS)
+            and all(message in output for message in CHUNK_REFUSAL_MESSAGES)
+            and OPENED_LINE not in output,
+            f"chunked_refused_{model}",
+            f"exit {status}; expected a configuration failure naming "
+            f"{' and '.join(map(repr, CHUNK_REFUSAL_MESSAGES))} before '{OPENED_LINE}'",
+        )
+
+    def compare(self, model: str, name: str, reference: Path, output: Path) -> int:
+        """Compare one run with its serial reference: the identity, non-vacuity and (for hod)
+        created-row markers. Returns the comparator's status."""
+        label = name.removeprefix(f"{model}_")
+        status, report = self.run(
+            [
+                sys.executable,
+                str(COMPARATOR),
+                str(reference),
+                str(output),
+                "--left-label",
+                "serial",
+                "--right-label",
+                label,
+                "--compare-created",
+            ],
+            f"compare {model} serial with {label}",
+        )
+        self.marker(status == 0, f"identity_{name}", f"comparator exited {status}")
+        if status == TIMEOUT_STATUS:
+            return status
+        passed = PASSED_RE.search(report)
+        compared = int(passed.group(1)) if passed else None
+        self.marker(
+            compared is not None and compared > 0,
+            f"galaxies_compared_{name}",
+            f"comparator reported {compared} galaxies compared (PASSED: N galaxies)",
+        )
+        if model == "hod":
+            created = CREATED_RE.search(report)
+            counts = tuple(map(int, created.groups())) if created else None
+            self.marker(
+                counts is not None and min(counts) > 0,
+                f"created_rows_compared_{name}",
+                f"comparator reported created rows (serial, {label}) = {counts}",
+            )
+        return status
 
     def check_sham_audit(self, output: str) -> None:
         audits = [tuple(map(int, m.groups())) for m in SHAM_AUDIT_RE.finditer(output)]
@@ -477,6 +610,34 @@ def write_run_file(config: dict, run_dir: Path) -> Path:
     return run_file
 
 
+def load_run_file(name: str) -> dict:
+    """Parse one of the fixture's run files under RUN_FILE_DIR."""
+    return yaml.safe_load((REPO_ROOT / RUN_FILE_DIR / name).read_text())
+
+
+def with_forest_chunks(config: dict, nchunk: int) -> dict:
+    """A copy of a parsed run file with input.forest_chunks set (the original is not modified)."""
+    derived = dict(config)
+    derived["input"] = dict(config.get("input") or {}, forest_chunks=nchunk)
+    return derived
+
+
+def read_row_order(run_dir: Path, base: str) -> dict[str, list[int]]:
+    """Each partition file's ``UniqueGalaxyID`` column in file order, keyed by file name.
+
+    A partition holds one ``Snap<NNN>/Galaxies`` table; every such table in the file is read.
+    A run directory without partitions gives an empty mapping.
+    """
+    order: dict[str, list[int]] = {}
+    for path in sorted(run_dir.glob(f"{base}_*.hdf5")):
+        with h5py.File(path, "r") as handle:
+            column: list[int] = []
+            for group in sorted(key for key in handle if key.startswith("Snap")):
+                column.extend(int(uid) for uid in handle[group]["Galaxies"]["UniqueGalaxyID"])
+            order[path.name] = column
+    return order
+
+
 def expected_layout(
     base: str, snapshots: list[int], ntask: int
 ) -> tuple[set[str], dict[int, list[str]]]:
@@ -574,9 +735,13 @@ def main(argv=None) -> int:
             f"passed, but a filtered run is not the gate; log: {LOG_PATH})"
         )
         return 3
+    pairs = ", ".join(f"-np {ntask} x {nchunk}" for ntask, nchunk in NP_CHUNK_PAIRS)
     print(
         f"PASS: tests-distributed ({gate.passes} checks: MPI control test, "
-        f"{len(models)} model(s) at -np {', '.join(map(str, NP_COUNTS))}, version 2 refusal; "
+        f"{len(models)} model(s) at -np {', '.join(map(str, NP_COUNTS))}, "
+        f"chunked legs ({', '.join(CHUNKED_MODELS)}) at forest_chunks "
+        f"{', '.join(map(str, CHUNK_COUNTS))} serial and {pairs}, "
+        f"chunked refusal ({', '.join(CHUNK_REFUSED_MODELS)}), version 2 refusal; "
         f"no skips; log: {LOG_PATH})"
     )
     return 0

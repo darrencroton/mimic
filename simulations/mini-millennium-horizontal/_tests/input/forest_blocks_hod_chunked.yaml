@@ -1,0 +1,54 @@
+# Mimic hod on the forest_blocks fixture Run Configuration - chunked identity gate
+#
+# A variant of forest_blocks_hod.yaml with the post_snapshot phase (the
+# whole-box audit) omitted and its own output directory; nothing else differs. A
+# chunked sweep (input.forest_chunks > 1) never holds a whole snapshot's
+# population at once, so configuration refuses the snapshot scope under
+# chunking, and the shipped hod run files cannot be chunked. Without the phase
+# hod_populate runs only its full-halo population step, which hod_populate's
+# init() accepts and which is chunkable; it is the only shipped user of the
+# created-record row offset, so this file exists for
+# tests/manual/test_distributed_identity.py (make tests-distributed) to gate
+# created-record identity under chunking, serially at forest_chunks 2, 3 and 8
+# and under mpirun, against a serial forest_chunks: 1 run of this same file. The
+# gate sets input.forest_chunks and the output directory per run. Build
+# MODEL=hod SIMULATION=mini-millennium-horizontal and run it from the repository
+# root.
+
+model:
+  name: hod
+
+simulation:
+  name: mini-millennium-horizontal
+
+input:
+  simulation_dir: simulations/mini-millennium-horizontal/_tests/data/forest_blocks
+  snapshot_list_file: simulations/mini-millennium-horizontal/_tests/data/forest_blocks/forest_blocks.a_list
+
+output:
+  output_filename: hod
+  output_directory: output/distributed-identity/hod_chunked
+  output_format: hdf5                               # Horizontal runs write HDF5 only
+  snapshot_list: [6, 5, 4, 2]                       # the final two snapshots and two before them
+
+SubSteps: 1
+
+modules:
+
+  # Draws happen once per FoF step, after any substep physics (there is none here).
+  post_timestep:
+    - hod_populate: process_full_halo
+
+  parameters:
+    # Zheng, Coil & Zehavi (2007) SDSS Mr < -20 (masses in Msun/h, 200x mean density)
+    HODLogMmin: 12.02        # log10 Mmin [Msun/h]: <Ncen> = 0.5 here
+    HODSigmaLogM: 0.26       # sigma_logM [dex]: width of the central step
+    HODLogM0: 11.38          # log10 M0 [Msun/h]: satellite cutoff mass
+    HODLogM1: 13.31          # log10 M1' [Msun/h]: satellite normalisation mass
+    HODAlpha: 1.06           # alpha [dimensionless]: satellite slope
+    HODSeed: 1               # random-number seed [integer >= 0]
+    # Duffy et al. (2008) Table 1, NFW, full sample, 200c, z 0-2
+    HODConcA: 5.71           # concentration at the pivot mass and z = 0
+    HODConcLogMpivot: 12.301030  # log10 of the 2e12 Msun/h pivot
+    HODConcB: -0.084         # mass slope
+    HODConcC: -0.47          # (1 + z) slope
