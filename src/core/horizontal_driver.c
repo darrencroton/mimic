@@ -100,40 +100,75 @@
 /* Same bound as the vertical driver's MAX_PATH_BUF_SIZE in vertical_driver.c. */
 #define HORIZONTAL_PATH_BUF_SIZE (3 * MAX_STRING_LEN + 25)
 
-/* Output paths bye() unlinks if the program exits with a failure while they are
- * still armed. Two slots with independent lifetimes:
+/* Output files bye() unlinks if the program exits with a failure while they are
+ * still armed. Two kinds of registration with independent lifetimes:
  *
- *   slot INFLIGHT - the partition file currently being written. Armed when a
- *     requested output snapshot's file is about to be created and released the
- *     moment that file closes cleanly, so a completed snapshot's output is never
- *     destroyed by a later failure. This is the vertical driver's own per-partition
- *     discipline (vertical_driver.c:311), applied to the horizontal side.
- *   slot MASTER - the run's master file. Armed once at run start, on task 0 only
- *     (the only task that writes it, so a failing other task never unlinks it),
- *     and, unlike the vertical driver's registry, still armed when
+ *   partition entries - one per requested output snapshot, indexed like
+ *     MimicConfig.ListOutputSnaps, each holding the output id and task component
+ *     of the partition file this task is building for that snapshot (output id
+ *     -1 when the entry is free). An entry is armed just before its partition
+ *     file is created, on the partition's first visit, stays armed while later
+ *     visits reopen the file and append to it, and is released the moment the
+ *     last visit has stamped it and closed it cleanly. A failure therefore removes
+ *     every partition of this task that is not yet final, and never one that is:
+ *     a finalised snapshot's output survives any later failure. With one visit
+ *     per partition the window is the vertical driver's own per-partition
+ *     discipline (vertical_driver.c:311), creation to close.
+ *   the master path - the run's master file. Armed once at run start, on task 0
+ *     only (the only task that writes it, so a failing other task never unlinks
+ *     it), and, unlike the vertical driver's registry, still armed when
  *     run_horizontal_driver() returns, because main.c writes the master
  *     afterwards; only a successful write_master_file() disarms it.
  *
- * An empty slot is skipped by both operations below, so the two lifetimes need
- * no bookkeeping beyond the strings themselves. */
-#define HORIZONTAL_OUTPUT_PATH_INFLIGHT 0
-#define HORIZONTAL_OUTPUT_PATH_MASTER 1
-#define HORIZONTAL_OUTPUT_PATH_SLOTS 2
+ * Nothing here is allocated: the partition table is static and an entry's path
+ * is rebuilt at removal through output_path_hdf5(), which reads only MimicConfig,
+ * so the registry holds no memory for the leak check to find and needs no
+ * teardown beyond marking entries free. The path is also built once when an
+ * entry is armed, so a name too long for the buffer fails there rather than
+ * inside the failure handler. Zero-initialised storage would read as "armed for
+ * output id 0", so the partition table means nothing until
+ * horizontal_free_partition_output_paths() has run (at run start, from
+ * horizontal_open_output(), or from the clear below); until then every entry is
+ * treated as free. */
+struct HorizontalPartitionOutputEntry {
+  int output_id; /* the partition's output id, -1 when the entry is free */
+  int task;      /* its task component (partition_task()), -1 for none */
+};
 
-static char horizontal_output_paths[HORIZONTAL_OUTPUT_PATH_SLOTS][HORIZONTAL_PATH_BUF_SIZE + 1];
+static struct HorizontalPartitionOutputEntry horizontal_partition_output_entries[ABSOLUTEMAXSNAPS];
+static int horizontal_partition_output_entries_ready = 0;
 
-/* The fixed extent of the array above, not a running count of armed slots. */
-static const int horizontal_output_path_count = HORIZONTAL_OUTPUT_PATH_SLOTS;
+static char horizontal_master_output_path[HORIZONTAL_PATH_BUF_SIZE + 1];
 
-void horizontal_driver_clear_output_paths(void) {
+/* Whether partition entry @p output_index holds a partition not yet final. */
+static int horizontal_partition_output_armed(int output_index) {
+  return horizontal_partition_output_entries_ready &&
+         horizontal_partition_output_entries[output_index].output_id >= 0;
+}
+
+/* Free every partition entry and return how many were armed. */
+static int horizontal_free_partition_output_paths(void) {
   int armed = 0;
 
-  for (int i = 0; i < horizontal_output_path_count; i++) {
-    if (horizontal_output_paths[i][0] != '\0') {
+  for (int i = 0; i < ABSOLUTEMAXSNAPS; i++) {
+    if (horizontal_partition_output_armed(i)) {
       armed++;
     }
-    horizontal_output_paths[i][0] = '\0';
+    horizontal_partition_output_entries[i].output_id = -1;
+    horizontal_partition_output_entries[i].task = -1;
   }
+  horizontal_partition_output_entries_ready = 1;
+
+  return armed;
+}
+
+void horizontal_driver_clear_output_paths(void) {
+  int armed = horizontal_free_partition_output_paths();
+
+  if (horizontal_master_output_path[0] != '\0') {
+    armed++;
+  }
+  horizontal_master_output_path[0] = '\0';
 
   if (armed > 0) {
     VERBOSE_LOG("Disarming snapshot output cleanup for %d remaining path%s", armed,
@@ -142,10 +177,17 @@ void horizontal_driver_clear_output_paths(void) {
 }
 
 void horizontal_driver_remove_incomplete_outputs(void) {
-  for (int i = 0; i < horizontal_output_path_count; i++) {
-    if (horizontal_output_paths[i][0] != '\0') {
-      unlink(horizontal_output_paths[i]);
+  for (int i = 0; i < ABSOLUTEMAXSNAPS; i++) {
+    if (horizontal_partition_output_armed(i)) {
+      char path[HORIZONTAL_PATH_BUF_SIZE + 1];
+      output_path_hdf5(path, sizeof(path), horizontal_partition_output_entries[i].output_id,
+                       horizontal_partition_output_entries[i].task);
+      unlink(path);
     }
+  }
+
+  if (horizontal_master_output_path[0] != '\0') {
+    unlink(horizontal_master_output_path);
   }
 }
 
@@ -163,29 +205,39 @@ static void horizontal_arm_master_output_path(void) {
     return;
   }
 
-  output_master_path_hdf5(horizontal_output_paths[HORIZONTAL_OUTPUT_PATH_MASTER],
-                          HORIZONTAL_PATH_BUF_SIZE);
+  output_master_path_hdf5(horizontal_master_output_path, HORIZONTAL_PATH_BUF_SIZE);
 
-  VERBOSE_LOG("Snapshot master output cleanup armed for '%s'",
-              horizontal_output_paths[HORIZONTAL_OUTPUT_PATH_MASTER]);
+  VERBOSE_LOG("Snapshot master output cleanup armed for '%s'", horizontal_master_output_path);
 }
 
-/* Arm the partition file about to be created for output id @p output_id and
- * task component @p task (-1 for none). Armed before H5Fcreate, so a failure
- * that leaves a half-created file behind still has that file registered for
- * removal. */
-static void horizontal_arm_partition_output_path(int output_id, int task) {
-  output_path_hdf5(horizontal_output_paths[HORIZONTAL_OUTPUT_PATH_INFLIGHT],
-                   HORIZONTAL_PATH_BUF_SIZE, output_id, task);
+/* Arm partition entry @p output_index (the snapshot's index in
+ * MimicConfig.ListOutputSnaps) for the partition file about to be created with
+ * output id @p output_id and task component @p task (-1 for none). Armed before
+ * H5Fcreate, on the partition's first visit, so a failure that leaves a
+ * half-created file behind still has that file registered for removal; it stays
+ * armed until the last visit has finalised the file. */
+static void horizontal_arm_partition_output_path(int output_index, int output_id, int task) {
+  char path[HORIZONTAL_PATH_BUF_SIZE + 1];
 
-  VERBOSE_LOG("Snapshot partition output cleanup armed for '%s'",
-              horizontal_output_paths[HORIZONTAL_OUTPUT_PATH_INFLIGHT]);
+  if (horizontal_partition_output_armed(output_index)) {
+    FATAL_ERROR("Output partition %d (snapshot index %d) is already armed for cleanup: its first "
+                "visit ran twice before its last visit finalised it",
+                output_id, output_index);
+  }
+
+  output_path_hdf5(path, sizeof(path), output_id, task);
+  horizontal_partition_output_entries[output_index].output_id = output_id;
+  horizontal_partition_output_entries[output_index].task = task;
+
+  VERBOSE_LOG("Snapshot partition output cleanup armed for '%s'", path);
 }
 
-/* Release the in-flight partition slot after its file has closed cleanly: that
- * file is now final output and must survive any later failure. */
-static void horizontal_clear_partition_output_path(void) {
-  horizontal_output_paths[HORIZONTAL_OUTPUT_PATH_INFLIGHT][0] = '\0';
+/* Release partition entry @p output_index after its last visit has closed the
+ * file cleanly: that file is now final output and must survive any later
+ * failure. */
+static void horizontal_clear_partition_output_path(int output_index) {
+  horizontal_partition_output_entries[output_index].output_id = -1;
+  horizontal_partition_output_entries[output_index].task = -1;
 }
 #endif /* HDF5 */
 
@@ -1097,11 +1149,15 @@ static void horizontal_clear_output_globals(void) {
  * Prepare the run's output without creating any file yet.
  *
  * A partition file appears only when its own snapshot finishes, so
- * there is nothing to open here: this zeroes the per-snapshot output counters
- * the writers accumulate into and arms the master file for cleanup, and the rest
- * of the lifecycle belongs to horizontal_write_output() below.
+ * there is nothing to open here: this frees every partition entry of the cleanup
+ * registry, zeroes the per-snapshot output counters the writers accumulate into
+ * and arms the master file for cleanup, and the rest of the lifecycle belongs to
+ * horizontal_write_output() below. The counters are zeroed here, once per run,
+ * and never per visit: a partition written in several visits accumulates its
+ * TotHalosPerSnap entry across all of them.
  */
 static void horizontal_open_output(void) {
+  horizontal_free_partition_output_paths();
   horizontal_arm_master_output_path();
 
   for (int n = 0; n < MimicConfig.NOUT; n++) {
@@ -1110,20 +1166,31 @@ static void horizontal_open_output(void) {
 }
 
 /*
- * Write one requested output snapshot to its own partition file, start to
- * finish, and close it before returning.
+ * Write one visit's rows of a requested output snapshot to its partition file,
+ * and close the file before returning.
  *
- * @param   cur            The generation holding this snapshot's processed halos.
+ * @param   cur            The generation holding this visit's processed halos.
  * @param   output_index   Index of this snapshot in MimicConfig.ListOutputSnaps.
  * @param   selection      That partition's selection — this one snapshot.
  * @param   task           That partition's task component (partition_task()),
  *                         -1 when it has none.
+ * @param   first_visit    Non-zero on the partition's first visit: create it.
+ * @param   last_visit     Non-zero on its last visit: stamp and finalise it.
  *
- * The file is created, filled, stamped and closed inside this call, so a
- * finished snapshot's output is final the moment this returns and the driver
- * never holds a second writable output file open. Its cleanup registration is
- * armed before the file is created and released after it closes cleanly, so a
- * later failure removes only whatever was still in flight.
+ * A partition may receive its rows in several visits, in order: the first visit
+ * arms the partition's cleanup entry and creates the file (its empty Galaxies
+ * table and per-file RunProperties, through prepare_output_files()); every later
+ * visit reopens it read-write (reopen_hdf5_output_file(), which writes no
+ * metadata) and appends after the rows already there; the last visit stamps
+ * TotHalosPerSnap, which has accumulated across every visit, exactly once (a
+ * second H5Acreate of it would fail). Every visit closes the file before
+ * returning, so the driver never holds a second writable output file open, and a
+ * deferred write error fails that visit. The cleanup entry is released only after
+ * the last visit's close, so a failure at any point between the first visit and
+ * that close removes the partition, and every partition of this task not yet
+ * final with it, while a finalised partition survives any later failure. With
+ * first_visit and last_visit both set (one visit per partition) the sequence is
+ * create, write, stamp, close, release: the single-visit file.
  *
  * save_halos_hdf5() reads the driver's output buffer through the ProcessedHalos
  * globals and converts each record through the supplied view, so the globals
@@ -1135,16 +1202,22 @@ static void horizontal_open_output(void) {
  * memory.
  */
 static void horizontal_write_output(struct HorizontalGeneration *cur, int output_index,
-                                    struct OutputSnapshotSelection selection, int task) {
+                                    struct OutputSnapshotSelection selection, int task,
+                                    int first_visit, int last_visit) {
   const struct HaloInputView view = {cur->slab.halos, cur->slab.nhalos};
   const int output_id = MimicConfig.ListOutputSnaps[output_index];
+  const int64_t rows_before = TotHalosPerSnap[output_index];
 
   /* This partition's output id, as the vertical driver sets it per partition
    * (vertical_driver.c:203). */
   FileNum = output_id;
 
-  horizontal_arm_partition_output_path(output_id, task);
-  prepare_output_files(output_id, task, selection);
+  if (first_visit) {
+    horizontal_arm_partition_output_path(output_index, output_id, task);
+    prepare_output_files(output_id, task, selection);
+  } else {
+    reopen_hdf5_output_file(output_id, task);
+  }
 
   ProcessedHalos = cur->processed.halos;
   NumProcessedHalos = cur->processed.count;
@@ -1159,7 +1232,9 @@ static void horizontal_write_output(struct HorizontalGeneration *cur, int output
   /* This partition holds exactly one Snap%03d group, so it is stamped for its
    * own snapshot index alone; the other requested snapshots' groups do not
    * exist in this file. */
-  write_hdf5_attrs(output_index, output_id);
+  if (last_visit) {
+    write_hdf5_attrs(output_index, output_id);
+  }
 
   if (HDF5_current_file_id >= 0) {
     DEBUG_LOG("Closing HDF5 file (ID %lld) for horizontal partition %d",
@@ -1170,22 +1245,31 @@ static void horizontal_write_output(struct HorizontalGeneration *cur, int output
     const herr_t close_status = H5Fclose(HDF5_current_file_id);
     HDF5_current_file_id = -1;
     if (close_status < 0) {
+      char path[HORIZONTAL_PATH_BUF_SIZE + 1];
+      output_path_hdf5(path, sizeof(path), output_id, task);
       FATAL_ERROR("Failed to close the HDF5 output partition %d ('%s'); its galaxy data may be "
                   "truncated or unflushed (check free space and file permissions)",
-                  output_id, horizontal_output_paths[HORIZONTAL_OUTPUT_PATH_INFLIGHT]);
+                  output_id, path);
     }
   }
-
-  horizontal_clear_partition_output_path();
 
   /* VERBOSE_LOG, not DEBUG_LOG: this driver enables the vertical driver's debug
    * rate limiting for the physics phase, which caps each DEBUG_LOG site at
    * DEBUG_LOG_MAX_CALLS. These lifecycle lines are bounded by the snapshot
    * count, not by halo count, and are the operator's (and the integration
    * suite's) evidence of the retention schedule, so they must not be capped. */
-  VERBOSE_LOG("Wrote snapshot %" PRId64 " output (%" PRId64 " galax%s) to partition %d",
-              cur->snapnum, cur->processed.count, cur->processed.count == 1 ? "y" : "ies",
-              output_id);
+  if (last_visit) {
+    horizontal_clear_partition_output_path(output_index);
+
+    const int64_t rows = TotHalosPerSnap[output_index];
+    VERBOSE_LOG("Wrote snapshot %" PRId64 " output (%" PRId64 " galax%s) to partition %d",
+                cur->snapnum, rows, rows == 1 ? "y" : "ies", output_id);
+  } else {
+    const int64_t appended = TotHalosPerSnap[output_index] - rows_before;
+    VERBOSE_LOG("Appended %" PRId64 " galax%s of snapshot %" PRId64
+                " to partition %d (not yet final)",
+                appended, appended == 1 ? "y" : "ies", cur->snapnum, output_id);
+  }
 }
 
 #else /* !HDF5 */
@@ -1204,11 +1288,14 @@ static void horizontal_write_output(struct HorizontalGeneration *cur, int output
 static void horizontal_open_output(void) { FATAL_ERROR(HORIZONTAL_NO_HDF5_MESSAGE); }
 
 static void horizontal_write_output(struct HorizontalGeneration *cur, int output_index,
-                                    struct OutputSnapshotSelection selection, int task) {
+                                    struct OutputSnapshotSelection selection, int task,
+                                    int first_visit, int last_visit) {
   (void)cur;
   (void)output_index;
   (void)selection;
   (void)task;
+  (void)first_visit;
+  (void)last_visit;
   FATAL_ERROR(HORIZONTAL_NO_HDF5_MESSAGE);
 }
 
@@ -2158,7 +2245,9 @@ void run_horizontal_driver(void) {
         if (selection.indices[0] != output_index || (task >= 0 && task != current_task_id())) {
           continue;
         }
-        horizontal_write_output(cur, output_index, selection, task);
+        /* One visit per partition: it is created, written, stamped and
+         * finalised in this one call. */
+        horizontal_write_output(cur, output_index, selection, task, 1, 1);
       }
     }
 

@@ -9,6 +9,7 @@
  * Key functions:
  * - calc_hdf5_props(): field table setup from generated metadata
  * - prep_hdf5_file(): per-filenr file/group/table creation
+ * - reopen_hdf5_output_file(): reopen an existing per-filenr file to append to it
  * - save_halos_hdf5() / flush_hdf5_buffers(): cross-tree write buffer
  * - write_hdf5_attrs(): per-snapshot count attributes and per-tree dataset
  * - write_master_file(): run-level master file with external links
@@ -147,6 +148,34 @@ void open_hdf5_output_file(int filenr, int task, struct OutputSnapshotSelection 
   DEBUG_LOG("HDF5 file '%s' opened with ID %lld", buf, (long long)HDF5_current_file_id);
 
   write_perfile_metadata(HDF5_current_file_id);
+}
+
+/**
+ * @brief   Reopen this filenr's existing HDF5 output file read-write to append to it
+ *
+ * The later-visit counterpart of open_hdf5_output_file() for a partition that
+ * receives its rows in several visits (the horizontal driver's chunked sweep):
+ * the file was created, with its empty tables and per-file RunProperties, by
+ * open_hdf5_output_file() on the first visit and closed after it, so this only
+ * reopens it into HDF5_current_file_id, and the next save_halos_hdf5() /
+ * flush_hdf5_buffers() appends after the rows already in each table. It creates
+ * nothing and writes no metadata and no attribute: per-file metadata belongs to
+ * the file's creation, and the TotHalosPerSnap stamp to the driver's last visit
+ * (write_hdf5_attrs()). The handle is closed by the driver, as after an open.
+ *
+ * @p task is the partition's task component (-1 for none), so the path is the
+ * one open_hdf5_output_file() created.
+ */
+void reopen_hdf5_output_file(int filenr, int task) {
+  char buf[3 * MAX_STRING_LEN + 40];
+
+  output_path_hdf5(buf, sizeof(buf), filenr, task);
+
+  HDF5_current_file_id = H5Fopen(buf, H5F_ACC_RDWR, H5P_DEFAULT);
+  if (HDF5_current_file_id < 0) {
+    FATAL_ERROR("Failed to reopen HDF5 file '%s' to append to it", buf);
+  }
+  DEBUG_LOG("HDF5 file '%s' reopened with ID %lld", buf, (long long)HDF5_current_file_id);
 }
 
 /**
