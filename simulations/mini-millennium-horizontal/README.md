@@ -69,7 +69,7 @@ Five committed version 3 fixtures live under `_tests/data/`, each converted by `
 - `forest_blocks/` — six forests of unequal size (71 halos) over seven snapshots with snapshot 3 empty, gapped links, FoF satellites that merge and become orphans, and one forest holding 41% of the widest snapshot; the distributed identity gate (`make tests-distributed`) runs `halos-only`, `sage16`, `sham` and `hod` on it serially and under MPI through the `_tests/input/forest_blocks_<model>.yaml` run files, and `_tests/integration/test_chunked_sweep.py` runs `halos-only` on it at several `forest_chunks` values.
 - `wide_slab/` — one forest over two snapshots whose snapshot 0 holds 8,600 halos (one FoF group and one progenitor chain), wider than the reader's 8,192-row block, so `tests/unit/test_horizontal_v3_reader.c` reads ranges and scans `ForestIndex` across a block boundary.
 
-The first three and `wide_slab` are used by `make tests-horizontal-v3`.
+The first three and `wide_slab` are used by `make tests-horizontal-v3`, as is `forest_blocks` (through `test_chunked_sweep.py`).
 
 ## Related packages
 
