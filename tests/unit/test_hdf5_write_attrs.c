@@ -415,9 +415,38 @@ static int test_partition_written_in_two_visits_matches_one_visit(void) {
     TEST_ASSERT_EQUAL(out_of_order, (int64_t)0,
                       "every row should be in the original order across the visit boundary");
 
-    /* Every field of every record equals the one-visit file's (zeroed padding on both sides). */
-    TEST_ASSERT(memcmp(one_rows, two_rows, TWO_VISIT_ROWS * sizeof(*one_rows)) == 0,
-                "the two-visit table's records should equal the one-visit table's");
+    /* Every field of every record equals the one-visit file's, compared field by field so a
+     * failure names the row, the field and both values. */
+    char mismatch[256] = "";
+    int64_t mismatches = 0;
+    for (int i = 0; i < TWO_VISIT_ROWS; i++) {
+      for (int k = 0; k < HDF5_n_props; k++) {
+        const unsigned char *a = (const unsigned char *)&one_rows[i] + HDF5_dst_offsets[k];
+        const unsigned char *b = (const unsigned char *)&two_rows[i] + HDF5_dst_offsets[k];
+        if (memcmp(a, b, HDF5_dst_sizes[k]) != 0) {
+          if (mismatches == 0) {
+            int n = snprintf(mismatch, sizeof(mismatch),
+                             "split %" PRId64 ": row %d field %s (%zu B) one-visit", splits[s], i,
+                             HDF5_field_names[k], HDF5_dst_sizes[k]);
+            for (size_t byte = 0; byte < HDF5_dst_sizes[k] && n < (int)sizeof(mismatch) - 4;
+                 byte++) {
+              n += snprintf(mismatch + n, sizeof(mismatch) - (size_t)n, " %02x", a[byte]);
+            }
+            n += snprintf(mismatch + n, sizeof(mismatch) - (size_t)n, " two-visit");
+            for (size_t byte = 0; byte < HDF5_dst_sizes[k] && n < (int)sizeof(mismatch) - 4;
+                 byte++) {
+              n += snprintf(mismatch + n, sizeof(mismatch) - (size_t)n, " %02x", b[byte]);
+            }
+          }
+          mismatches++;
+        }
+      }
+    }
+    if (mismatches != 0) {
+      printf("  %" PRId64 " field mismatch(es); first: %s\n", mismatches, mismatch);
+    }
+    TEST_ASSERT_EQUAL(mismatches, (int64_t)0,
+                      "every field of every two-visit record should equal the one-visit record's");
     free(two_rows);
     two_rows = NULL;
   }
