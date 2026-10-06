@@ -50,8 +50,11 @@ Steps, each reported as ``MIMIC_RESULT:`` markers and gated:
    ``galaxies_compared_`` and (for ``hod``) ``created_rows_compared_`` markers as the rank
    counts; each serial chunked run must also hold, in every partition file, the reference's
    ``UniqueGalaxyID`` column in the same file order (``row_order_``); each MPI chunked run gets the
-   task-layout checks above. The shipped ``hod`` fixture run file configures the snapshot audit,
-   which chunking refuses, so ``hod``'s chunked legs run
+   task-layout checks above. Every chunked run's task 0 partition headline must name its task and
+   chunk counts (``Chunked horizontal partition: ... over 1 task in G chunks each`` serially,
+   ``Distributed horizontal partition: ... over N tasks in G chunks each`` under MPI;
+   ``chunk_log_``), so a run that swept unchunked fails. The shipped ``hod`` fixture run file
+   configures the snapshot audit, which chunking refuses, so ``hod``'s chunked legs run
    ``forest_blocks_hod_chunked.yaml`` (the same run without ``modules.post_snapshot``, so the
    full-halo creation path is gated with created rows on both sides) against a serial reference
    of that variant (``chunked_reference``, itself checked for halos). For ``sham`` and the
@@ -64,8 +67,9 @@ Steps, each reported as ``MIMIC_RESULT:`` markers and gated:
 
 Every build and launch runs in its own session (process group) under a timeout (``RUN_TIMEOUT``
 for a run, short because the fixture runs take seconds; ``BUILD_TIMEOUT`` for a build). The first
-launch of a leg that times out is recorded as that leg's failure and ends the leg, so a collective
-deadlock costs one timeout per model rather than one per rank count; a build that times out is
+launch or comparison of a leg that times out is recorded as that leg's failure and ends the leg
+(no further build or launch for that model, chunked legs included), so a collective deadlock costs
+one timeout per model rather than one per rank count or chunk count; a build that times out is
 recorded and ends the whole gate, since the same build would hang again for every later model and
 the job's budget must leave room for the log step. On a timeout or an
 interrupt the whole group (``mpirun`` and its ranks, or ``make`` and its compilers) gets SIGTERM
@@ -150,6 +154,7 @@ V2_A_LIST = V2_DATA / "micro-uchuu-fixture.a_list"
 V2_MESSAGE = "this is a format_version 2 dataset"
 
 PARTITION_LINE = "Distributed horizontal partition:"
+CHUNKED_PARTITION_LINE = "Chunked horizontal partition:"  # task 0's headline for a serial G > 1
 CHUNK_REFUSAL_MESSAGES = ("never holds a whole snapshot", "needs forest_chunks: 1")
 OPENED_LINE = "Opened horizontal run"
 PASSED_RE = re.compile(r"^PASSED: (\d+) galaxies", re.MULTILINE)
@@ -170,6 +175,11 @@ KILL_GRACE = 5  # seconds between SIGTERM and SIGKILL of a timed-out or interrup
 
 class GateStopped(Exception):
     """A make or compile timed out: the gate records the failure and stops rather than repeat the hang."""
+
+
+class LegStopped(Exception):
+    """A launch or comparison of one model's leg timed out: its failure marker is recorded and the
+    leg ends, so a hang costs one RUN_TIMEOUT per model."""
 
 
 class Gate:
@@ -306,8 +316,15 @@ class Gate:
 
     def leg(self, model: str) -> None:
         """Serial reference, the chunked serial runs, then the MPI build at every rank count and
-        every chunked rank count, for one model."""
+        every chunked rank count, for one model. The first launch or comparison that times out
+        ends the leg (LegStopped), with no further build or launch for the model."""
         print(f"--- {model} x {SIMULATION}", flush=True)
+        try:
+            self.leg_steps(model)
+        except LegStopped:
+            pass
+
+    def leg_steps(self, model: str) -> None:
         config = load_run_file(f"forest_blocks_{model}.yaml")
         base = config["output"]["output_filename"]
         snapshots = sorted(int(snap) for snap in config["output"]["snapshot_list"])
@@ -341,18 +358,23 @@ class Gate:
             run_file = write_run_file(config, run_dir)
             status, output = self.launch(ntask, run_file, f"{model} at -np {ntask}")
             name = f"{model}_np{ntask}"
-            if not self.marker(status == 0, f"mpi_run_{name}", f"exit {status}"):
-                if status == TIMEOUT_STATUS:
-                    break  # a hang repeats at every count; the recorded failure ends the leg
+            if not self.run_marker(status, f"mpi_run_{name}"):
                 continue
             if ntask == 1:
                 self.check_serial_layout(name, run_dir, base, snapshots, output)
             else:
                 self.check_task_layout(name, run_dir, base, snapshots, ntask, serial_totals, output)
-            if self.compare(model, name, serial_dir / base, run_dir / base) == TIMEOUT_STATUS:
-                break
+            self.compare(model, name, serial_dir / base, run_dir / base)
         if chunked is not None:
             self.chunked_mpi(model, *chunked)
+
+    def run_marker(self, status: int, name: str) -> bool:
+        """The PASS/FAIL marker for one launch's exit status; a timeout also ends the leg (a hang
+        repeats at every later launch of the model)."""
+        ok = self.marker(status == 0, name, f"exit {status}")
+        if status == TIMEOUT_STATUS:
+            raise LegStopped(name)
+        return ok
 
     def chunked_serial(self, model, config, serial_dir, serial_totals):
         """Serial runs at every CHUNK_COUNTS value against the serial forest_chunks: 1 run.
@@ -371,7 +393,7 @@ class Gate:
             status, _ = self.launch(
                 None, write_run_file(config, serial_dir), f"{model} chunked variant serial"
             )
-            if not self.marker(status == 0, f"serial_run_{model}_chunked", f"exit {status}"):
+            if not self.run_marker(status, f"serial_run_{model}_chunked"):
                 return None
             serial_totals = read_master(serial_dir / f"{base}.hdf5", snapshots).totals
             serial_halos = sum(serial_totals.values())
@@ -386,14 +408,14 @@ class Gate:
         for nchunk in CHUNK_COUNTS:
             run_dir = WORK_ROOT / model / f"chunks{nchunk}"
             run_file = write_run_file(with_forest_chunks(config, nchunk), run_dir)
-            status, _ = self.launch(None, run_file, f"{model} serial at forest_chunks {nchunk}")
+            status, output = self.launch(
+                None, run_file, f"{model} serial at forest_chunks {nchunk}"
+            )
             name = f"{model}_chunks{nchunk}"
-            if not self.marker(status == 0, f"serial_run_{name}", f"exit {status}"):
-                if status == TIMEOUT_STATUS:
-                    break
+            if not self.run_marker(status, f"serial_run_{name}"):
                 continue
-            if self.compare(model, name, serial_dir / base, run_dir / base) == TIMEOUT_STATUS:
-                break
+            self.check_chunk_log(name, output, CHUNKED_PARTITION_LINE, 1, nchunk)
+            self.compare(model, name, serial_dir / base, run_dir / base)
             order = read_row_order(run_dir, base)
             mismatched = sorted(
                 key
@@ -421,13 +443,12 @@ class Gate:
                 ntask, run_file, f"{model} at -np {ntask} with forest_chunks {nchunk}"
             )
             name = f"{model}_np{ntask}_chunks{nchunk}"
-            if not self.marker(status == 0, f"mpi_run_{name}", f"exit {status}"):
-                if status == TIMEOUT_STATUS:
-                    break
+            if not self.run_marker(status, f"mpi_run_{name}"):
                 continue
-            self.check_task_layout(name, run_dir, base, snapshots, ntask, serial_totals, output)
-            if self.compare(model, name, serial_dir / base, run_dir / base) == TIMEOUT_STATUS:
-                break
+            self.check_task_layout(
+                name, run_dir, base, snapshots, ntask, serial_totals, output, nchunk=nchunk
+            )
+            self.compare(model, name, serial_dir / base, run_dir / base)
 
     def chunked_refusal(self, model: str, config: dict) -> None:
         """The fixture run file at forest_chunks: 2 fails at configuration, before the run opens."""
@@ -442,10 +463,12 @@ class Gate:
             f"exit {status}; expected a configuration failure naming "
             f"{' and '.join(map(repr, CHUNK_REFUSAL_MESSAGES))} before '{OPENED_LINE}'",
         )
+        if status == TIMEOUT_STATUS:
+            raise LegStopped(f"chunked_refused_{model}")
 
-    def compare(self, model: str, name: str, reference: Path, output: Path) -> int:
+    def compare(self, model: str, name: str, reference: Path, output: Path) -> None:
         """Compare one run with its serial reference: the identity, non-vacuity and (for hod)
-        created-row markers. Returns the comparator's status."""
+        created-row markers. A comparator timeout ends the leg after its marker."""
         label = name.removeprefix(f"{model}_")
         status, report = self.run(
             [
@@ -463,7 +486,7 @@ class Gate:
         )
         self.marker(status == 0, f"identity_{name}", f"comparator exited {status}")
         if status == TIMEOUT_STATUS:
-            return status
+            raise LegStopped(f"identity_{name}")
         passed = PASSED_RE.search(report)
         compared = int(passed.group(1)) if passed else None
         self.marker(
@@ -479,7 +502,6 @@ class Gate:
                 f"created_rows_compared_{name}",
                 f"comparator reported created rows (serial, {label}) = {counts}",
             )
-        return status
 
     def check_sham_audit(self, output: str) -> None:
         audits = [tuple(map(int, m.groups())) for m in SHAM_AUDIT_RE.finditer(output)]
@@ -504,9 +526,11 @@ class Gate:
             PARTITION_LINE not in output, f"no_partition_log_{name}", "a partition line was logged"
         )
 
-    def check_task_layout(self, name, run_dir, base, snapshots, ntask, serial_totals, output):
+    def check_task_layout(
+        self, name, run_dir, base, snapshots, ntask, serial_totals, output, nchunk=None
+    ):
         """-np N > 1: every partition file, N resolving task groups per snapshot summing to the
-        serial count, and the log line."""
+        serial count, and the log line; with nchunk, also task 0's headline naming the chunks."""
         want_files, want_groups = expected_layout(base, snapshots, ntask)
         found = partition_files(run_dir, base)
         master = read_master(run_dir / f"{base}.hdf5", snapshots)
@@ -533,6 +557,20 @@ class Gate:
             f"over {ntask} tasks" in line,
             f"partition_log_{name}",
             f"task 0's partition line naming {ntask} tasks is missing (got {line!r})",
+        )
+        if nchunk is not None:
+            self.check_chunk_log(name, output, f"task 0: {PARTITION_LINE}", ntask, nchunk)
+
+    def check_chunk_log(self, name, output, headline, ntask, nchunk) -> None:
+        """Task 0's partition headline names the task count and the chunk count, so a run that
+        parsed forest_chunks but swept unchunked fails (an unchunked run's headline names no
+        chunks, and a serial unchunked run logs none)."""
+        phrase = chunk_log_phrase(ntask, nchunk)
+        line = next((text for text in output.splitlines() if headline in text), "")
+        self.marker(
+            phrase in line,
+            f"chunk_log_{name}",
+            f"task 0's partition headline {headline!r} with {phrase!r} is missing (got {line!r})",
         )
 
     def version_2_refusal(self) -> None:
@@ -608,6 +646,12 @@ def write_run_file(config: dict, run_dir: Path) -> Path:
     run_file = run_dir / "run.yaml"
     run_file.write_text(yaml.safe_dump(derived, default_flow_style=False, sort_keys=False))
     return run_file
+
+
+def chunk_log_phrase(ntask: int, nchunk: int) -> str:
+    """The part of task 0's partition headline naming the task and chunk counts, e.g.
+    ``over 1 task in 2 chunks each`` or ``over 3 tasks in 3 chunks each``."""
+    return f"over {ntask} task{'' if ntask == 1 else 's'} in {nchunk} chunks each"
 
 
 def load_run_file(name: str) -> dict:
