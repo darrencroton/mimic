@@ -52,7 +52,7 @@ make tests-unit > archive/test-logs/tests-unit.log 2>&1; rc=$?
 echo "exit_code=$rc"
 ```
 
-Treat any non-zero exit code as failure regardless of what the log text looks like. `make tests` runs everything (clean + build + check-docs + validate-modules + all tiers); append the `summary` goal to any test target to filter output down to `MIMIC_RESULT:` FAIL/SKIP/WARN/ERROR lines.
+Treat any non-zero exit code as failure regardless of what the log text looks like. `make tests` runs everything (clean + build + check-docs + validate-modules + all tiers); append the `summary` goal to any test target to filter output down to `MIMIC_RESULT:` FAIL/SKIP/WARN/ERROR lines (PASS and NA are suppressed; NA means not applicable to the selected pair).
 
 ## 2. Non-negotiables
 
@@ -64,11 +64,11 @@ Generated C, headers, and schemas are outputs of `make generate`, driven by YAML
 
 ### B. Same MODEL/SIMULATION selectors across generate, validate, tests, build, and run
 
-Mimic compiles exactly one model package against one simulation package. Generation, module validation, test-input generation, the build, and the test harness all key off the same two selectors; mixing them (e.g. `make MODEL=sham generate` then plain `make`) produces silently inconsistent generated code and binaries. Two guards exist because this bit people: the Makefile fails loudly on an unknown package (`Unknown MODEL`/`Unknown SIMULATION`) and on lowercase `model=`/`simulation=` typos, and at runtime `src/core/read_parameter_file.c` refuses to run when the run YAML's `model.name` does not match the compile-time `MIMIC_COMPILED_MODEL`. Baseline-comparison tests skip (with a stated reason) when the selected pair differs from the committed-baseline pair — a SKIP there means you tested less than you think, not that you passed.
+Mimic compiles exactly one model package against one simulation package. Generation, module validation, test-input generation, the build, and the test harness all key off the same two selectors; mixing them (e.g. `make MODEL=sham generate` then plain `make`) produces silently inconsistent generated code and binaries. Two guards exist because this bit people: the Makefile fails loudly on an unknown package (`Unknown MODEL`/`Unknown SIMULATION`) and on lowercase `model=`/`simulation=` typos, and at runtime `src/core/read_parameter_file.c` refuses to run when the run YAML's `model.name` does not match the compile-time `MIMIC_COMPILED_MODEL`. Baseline-comparison tests report NA (with a stated reason) when the selected pair differs from the committed-baseline pair, and summary mode hides NA — so under a non-default pair you tested less than you think, not that you passed.
 
 ### C. Failing tests are real problems — never weaken them to pass
 
-STYLE-GUIDE, verbatim: "Do not weaken errors into warnings merely to get a test or run to pass" and "Never simplify failing tests to make them pass." Incident basis: the precision-policy history showed that lenient float comparisons had masked a real inheritance comparison bug for some time (see the `mimic-failure-archaeology` skill for the full account), and commit `6cbeafe4` found a silently re-narrowed local float in `sage_reincorporation.c` only because the FULL suite ran with strict tolerances. A weakened test is worse than no test: it certifies broken behaviour. Legitimate escape hatches are `TEST_SKIP_WITH("reason")` (C) / `TestSkipped` (Python) for genuinely unavailable configurations — never for inconvenient failures.
+STYLE-GUIDE, verbatim: "Do not weaken errors into warnings merely to get a test or run to pass" and "Never simplify failing tests to make them pass." Incident basis: the precision-policy history showed that lenient float comparisons had masked a real inheritance comparison bug for some time (see the `mimic-failure-archaeology` skill for the full account), and commit `6cbeafe4` found a silently re-narrowed local float in `sage_reincorporation.c` only because the FULL suite ran with strict tolerances. A weakened test is worse than no test: it certifies broken behaviour. Legitimate escape hatches are `TEST_SKIP_WITH("reason")` (C) / `TestSkipped` (Python) for a test that applies but genuinely cannot run here, and `TEST_NA_WITH("reason")` / `TestNotApplicable` for one that does not apply to the selected pair — never for inconvenient failures.
 
 ### D. Respect package ownership boundaries
 
@@ -119,7 +119,7 @@ rg -n '<old-name>' --hidden -g '!.git' .          # docs, scripts, YAML, harness
 make tests summary                                 # then read every SKIP line and its reason
 ```
 
-A test that skips because a guard still references the old name reports green while testing nothing. Grep is not optional, and neither is reading the SKIP reasons.
+A test that skips because a guard still references the old name reports green while testing nothing. Grep is not optional, and neither is reading the SKIP reasons. NA lines are suppressed in summary mode, so a stale guard that raises NA is just as silent: when a rename touches a pair guard, run the affected test file directly and confirm its PASS marker.
 
 ## 5. Structural changes: planning in docs/dev
 

@@ -1188,15 +1188,15 @@ int test_in_sweep_pool_growth_past_the_ceiling_warns_once(void) {
  *          the real reader's load_slab exactly, accounting for its 8-byte block
  *          rounding of the int32 columns.
  *
- * Skips unless the fixture's package is compiled, as the fixture's own reader
- * tests do.
+ * Not applicable unless the fixture's package is compiled, as the fixture's own
+ * reader tests do.
  */
 int test_slab_width_matches_the_real_v3_reader(void) {
   struct ChildResult result;
   char needle[256];
 
   if (strcmp(MIMIC_COMPILED_SIMULATION, V3_FIXTURE_PACKAGE) != 0) {
-    return TEST_SKIP_WITH("the v3 fixture's /schema matches only SIMULATION=" V3_FIXTURE_PACKAGE);
+    return TEST_NA_WITH("the v3 fixture's /schema matches only SIMULATION=" V3_FIXTURE_PACKAGE);
   }
 
   TEST_ASSERT(prepare_output_dir() == 0, "Should create the output directory");

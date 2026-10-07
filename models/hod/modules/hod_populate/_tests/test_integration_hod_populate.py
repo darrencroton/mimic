@@ -29,7 +29,7 @@ module configurations fail at startup; and every run is leak-free.
 Run directly with MODEL=hod SIMULATION=<pair> after building that pair with TEST_BUILD=yes
 (make tests-snapshot-global-hod does both for the fixture pair and passes --cases fixture;
 make MODEL=hod SIMULATION=mini-millennium tests-integration runs every case, the vertical ones
-for real). Every case reports a configuration SKIP under any other pair. Fixture cases are
+for real). Every case reports NA under any other simulation. Fixture cases are
 named test_fixture_*, vertical cases test_vertical_*.
 """
 
@@ -47,6 +47,7 @@ sys.path.insert(0, str(REPO_ROOT / "tests"))
 
 from framework import (  # noqa: E402
     MIMIC_EXE,
+    TestNotApplicable,
     TestSkipped,
     check_no_memory_leaks,
     compiled_model,
@@ -91,10 +92,17 @@ AUDIT_LINE = re.compile(
 
 
 def require_package(simulation, run_file):
-    """Raise the configuration SKIP unless the selected pair is hod x ``simulation``."""
-    if compiled_model() != "hod" or compiled_simulation() != simulation:
-        raise TestSkipped(
-            f"configuration SKIP: selected pair is MODEL={compiled_model()} "
+    """Require the hod x ``simulation`` pair (NA under another simulation).
+
+    The module's tests register only under MODEL=hod, so a different model means a misconfigured
+    direct run and stays a loud SKIP; a different simulation is a registered pair these cases
+    were not written for, which is not applicable.
+    """
+    if compiled_model() != "hod":
+        raise TestSkipped(f"selected model is {compiled_model()!r}, not hod")
+    if compiled_simulation() != simulation:
+        raise TestNotApplicable(
+            f"selected pair is MODEL={compiled_model()} "
             f"SIMULATION={compiled_simulation()}, not the hod x {simulation} pair these cases "
             f"are written against (run make tests-snapshot-global-hod for the fixture pair, "
             f"make MODEL=hod SIMULATION=mini-millennium tests-integration for the vertical one)"
@@ -113,7 +121,7 @@ def require_vertical_package():
     missing = [path.name for path in VERTICAL_TREE_FILES if not path.exists()]
     if missing:
         raise TestSkipped(
-            f"data SKIP: the mini-Millennium tree files {missing} are absent from "
+            f"the mini-Millennium tree files {missing} are absent from "
             f"simulations/{VERTICAL_SIMULATION}/snapshots (./scripts/first_run.sh fetches them)"
         )
 
@@ -515,7 +523,7 @@ def main(argv=None):
 
     The snapshot-global battery builds only the fixture pair and gates on a zero-skip count, so
     it passes ``--cases fixture``; the integration tier of a mini-Millennium build runs them all
-    and reports the fixture cases as configuration skips.
+    and reports the fixture cases as not applicable.
     """
     global TEMP_DIR
     parser = argparse.ArgumentParser(description=__doc__.strip().splitlines()[1])

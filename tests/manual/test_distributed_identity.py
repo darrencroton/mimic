@@ -76,8 +76,8 @@ the job's budget must leave room for the log step. On a timeout or an
 interrupt the whole group (``mpirun`` and its ranks, or ``make`` and its compilers) gets SIGTERM
 and, after a short grace, SIGKILL whether or not its leader has exited, and is reaped before the
 gate continues or restores the generated code, so a hang fails the gate instead of stalling it or
-leaving ranks behind. Any FAIL, ERROR or SKIP marker fails the run; the gate has no legitimate skip
-(a missing ``mpicc`` or ``mpirun`` is a failure). The whole output goes to
+leaving ranks behind. Any FAIL, ERROR, SKIP or NA marker fails the run; the gate has no
+legitimate skip (a missing ``mpicc`` or ``mpirun`` is a failure). The whole output goes to
 ``build/distributed_tests.log``; run outputs go to ``output/distributed-identity/gate/`` (replaced
 on each run).
 
@@ -163,7 +163,7 @@ CREATED_RE = re.compile(
     r"^Created rows \(UniqueGalaxyID < 0\).*: \S+ (\d+), \S+ (\d+)$", re.MULTILINE
 )
 SHAM_AUDIT_RE = re.compile(r"SHAM audit z=\S+ candidates=(\d+) assigned=(\d+) masked=(\d+)")
-MARKER_RE = re.compile(r"^MIMIC_RESULT: (PASS|WARN|FAIL|ERROR|SKIP)\b.*$", re.MULTILINE)
+MARKER_RE = re.compile(r"^MIMIC_RESULT: (PASS|WARN|FAIL|ERROR|SKIP|NA)\b.*$", re.MULTILINE)
 # Inherited state that must not reach the builds: make's recursion state, the test-build switch,
 # and USE-MPI (an environment value would turn the serial reference into an MPI build).
 MAKE_STATE = ("MAKEFLAGS", "MFLAGS", "MAKELEVEL", "MIMIC_TEST_BUILD", "USE-MPI")
@@ -312,7 +312,7 @@ class Gate:
             status == 0 and bad == 0 and passed == CONTROL_CASES,
             "mpi_control_test",
             f"exit {status}, {passed}/{CONTROL_CASES} cases passed, "
-            f"{bad} FAIL/ERROR/SKIP/WARN markers",
+            f"{bad} FAIL/ERROR/SKIP/NA/WARN markers",
         )
 
     def leg(self, model: str) -> None:

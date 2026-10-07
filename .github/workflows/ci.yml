@@ -121,11 +121,28 @@ jobs:
 
     # The generic integration tier on a horizontal package, over the committed
     # worked_graph fixture (simulations/mini-millennium-horizontal/_tests/input/
-    # test_simulation.yaml): HDF5-only run files, vertical-only tests skipped with
-    # a reason. Needs no real dataset; the tier runs in seconds after the build.
+    # test_simulation.yaml): HDF5-only run files, vertical-only tests reported NA.
+    # The tier tolerates skips and NAs, so the four horizontal-run cases that must
+    # execute here are required by name: a stale guard would otherwise turn them into
+    # a quiet SKIP or NA. Needs no real dataset; the tier runs in seconds after the build.
     - name: Run integration tests on a horizontal package
       run: |
-        make MODEL=halos-only SIMULATION=mini-millennium-horizontal tests-integration
+        set -o pipefail
+        mkdir -p build
+        make MODEL=halos-only SIMULATION=mini-millennium-horizontal tests-integration \
+          | tee build/horizontal_integration.log
+        missing=0
+        for name in \
+          test_horizontal_run_completes_and_writes_output_over_the_fixture \
+          test_horizontal_failure_keeps_partition_files_that_already_closed \
+          test_horizontal_failure_removes_the_in_flight_partition_file \
+          test_horizontal_unwritable_output_directory_fails_before_the_dataset_opens; do
+          if ! grep -qx "MIMIC_RESULT: PASS $name" build/horizontal_integration.log; then
+            echo "::error::required case did not PASS: $name"
+            missing=1
+          fi
+        done
+        exit $missing
 
     # The snapshot-global battery on the committed horizontal fixtures: the post_snapshot
     # phase and typed callback contract, and the sham_rank_match and hod_populate packages

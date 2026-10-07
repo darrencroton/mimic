@@ -118,7 +118,7 @@ echo "Parameter file: $PARAM_FILE"
 echo ""
 
 # Step 0: Refuse to install a baseline the selected pair cannot validate.
-# The comparison test skips for any non-default pair, so installing from one
+# The comparison test is not applicable (NA) to any non-default pair, so installing from one
 # would overwrite the committed baseline with output nothing checks. The owning
 # pair is read straight from the Makefile: defaults.sh honours an ambient
 # DEFAULT_MODEL/DEFAULT_SIMULATION, which must not be able to unlock this gate.
@@ -129,7 +129,7 @@ if [ "$MODEL" != "$BASELINE_MODEL" ] || [ "$SIMULATION" != "$BASELINE_SIMULATION
     echo -e "${RED}ERROR: The committed baseline belongs to MODEL=$BASELINE_MODEL SIMULATION=$BASELINE_SIMULATION${NC}"
     echo "Selected: MODEL=$MODEL SIMULATION=$SIMULATION"
     echo ""
-    echo "The baseline comparison test skips for any other pair, so a baseline"
+    echo "The baseline comparison test does not apply to any other pair, so a baseline"
     echo "installed from this selection would never be validated. Re-run with the"
     echo "default pair, or leave MODEL/SIMULATION unset."
     exit 1

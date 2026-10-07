@@ -17,7 +17,7 @@ from pathlib import Path
 
 import yaml
 
-from .markers import TestSkipped
+from .markers import TestNotApplicable, TestSkipped
 
 # Repository paths
 REPO_ROOT = Path(__file__).parent.parent.parent
@@ -58,16 +58,17 @@ def selected_package_test_config():
     return package_test_config(compiled_simulation())
 
 
-def skip_if_selected_package_is_horizontal(needs):
-    """Raise TestSkipped when the selected package is horizontal, naming what the test needs.
+def not_applicable_if_selected_package_is_horizontal(needs):
+    """Raise TestNotApplicable when the selected package is horizontal, naming the need.
 
     The one guard for tests that inherently need the vertical path: binary galaxy output,
     ``--skip`` resume, an input file range, forest partitioning, MPI ranks or a vertical
-    reader. A horizontal run is HDF5-only and has none of these, so such a test cannot
-    apply there. ``needs`` completes the sentence "this test needs ...".
+    reader. A horizontal run is HDF5-only and has none of these, so such a test does not
+    apply there: the outcome is NA (not a SKIP), a deterministic consequence of the package's
+    kind. ``needs`` completes the sentence "this test needs ...".
     """
     if selected_package_is_horizontal():
-        raise TestSkipped(
+        raise TestNotApplicable(
             f"selected package {compiled_simulation()} is horizontal; this test needs {needs}, "
             f"which only a vertical package has"
         )
@@ -88,9 +89,13 @@ def is_default_baseline_combo():
     return compiled_model() == default_model() and compiled_simulation() == default_simulation()
 
 
-def skip_non_default_baseline():
-    """Raise TestSkipped for default-package baseline regressions."""
-    raise TestSkipped(
+def not_applicable_to_non_default_baseline():
+    """Raise TestNotApplicable for default-package baseline regressions.
+
+    The committed baselines belong to the Makefile's default MODEL/SIMULATION pair, so under
+    any other pair the comparison does not apply (NA), however the test is registered.
+    """
+    raise TestNotApplicable(
         f"committed baseline is for MODEL={default_model()} "
         f"SIMULATION={default_simulation()}, but this run selected "
         f"MODEL={compiled_model()} SIMULATION={compiled_simulation()}"
@@ -197,13 +202,14 @@ def _ensure_generated_test_inputs():
 
 
 def _generated_input(relative_parts, error_hint):
-    """Return a generated test input file, or skip when the selected package has none.
+    """Return a generated test input file, or report why the selected package has none.
 
-    Skips (TestSkipped) in two cases, both recorded by the generator rather than
-    decided here: the package's generic tier cannot run at all (the manifest's
-    skip_reason, e.g. a horizontal package with no committed fixture), or the
-    requested file does not exist for the package's kind (a horizontal package has
-    no binary-output or UniqueGalaxyID run file of its own).
+    Both outcomes are recorded by the generator rather than decided here. When the
+    package's generic tier cannot run at all (the manifest's skip_reason, e.g. a
+    horizontal package with no committed fixture) this raises TestSkipped: that is a
+    coverage gap and stays loud. When the requested file does not exist for the
+    package's kind (a horizontal package has no binary-output or UniqueGalaxyID run
+    file of its own) it raises TestNotApplicable.
     """
     manifest = _ensure_generated_test_inputs()
     if manifest.get("skip_reason"):
@@ -212,7 +218,7 @@ def _generated_input(relative_parts, error_hint):
     path = _generated_input_root().joinpath(*relative_parts)
     if name not in manifest["run_files"]:
         if manifest.get("processing_order") == "horizontal":
-            raise TestSkipped(
+            raise TestNotApplicable(
                 f"selected package {compiled_simulation()} is horizontal; the generated run "
                 f"file {name} exists only for vertical packages"
             )
@@ -520,7 +526,7 @@ def create_test_param_file(
         last_file (int): Last file to process (default: keep reference simulation config)
                          A horizontal package has no input file range: a single-file
                          request (0..0) is not written, and any other range skips the
-                         test (TestSkipped), since only the vertical readers have one.
+                         test (TestNotApplicable), since only the vertical readers have one.
         ref_param_file (str or Path): Reference YAML parameter file
                                       (default: default_run_file(), the generated core
                                       run file that runs on the selected package)
@@ -563,7 +569,7 @@ def create_test_param_file(
     # Set defaults
     horizontal = selected_package_is_horizontal()
     if horizontal and (first_file, last_file) not in ((None, None), (0, 0)):
-        skip_if_selected_package_is_horizontal(
+        not_applicable_if_selected_package_is_horizontal(
             f"an input file range ({first_file}..{last_file}) across several tree files"
         )
     if ref_param_file is None:

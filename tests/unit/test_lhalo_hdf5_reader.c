@@ -14,7 +14,9 @@
  * The header hooks are catalog-independent. Loading a unit reads one dataset per field
  * of the compiled package's catalog, and the fixture carries mini-Millennium's L-Halo
  * record, so the load test runs only when every compiled catalog dataset is present in
- * the fixture and skips otherwise.
+ * the fixture and is not applicable otherwise. Under mini-Millennium itself, the package
+ * the fixture was built for, a missing dataset is a failure: there it means the fixture
+ * is stale, which must never read as not applicable.
  */
 
 #include "../framework/test_framework.h"
@@ -37,6 +39,9 @@
 #include <string.h>
 
 extern const struct VerticalReader LHaloHDF5Reader;
+
+/* The package whose L-Halo catalog the committed fixture carries (generate_fixture.py). */
+#define FIXTURE_PACKAGE "mini-millennium"
 
 static int passed = 0, failed = 0;
 
@@ -103,12 +108,13 @@ static int read_fixture_tree_nhalos(const char *path, int *tree_nhalos, int max_
   return ntrees;
 }
 
-/* True when every dataset the compiled catalog names exists in the file's tree_000. */
+/* 1 when every dataset the compiled catalog names exists in the file's tree_000, 0 when one is
+ * missing, -1 when the file cannot be opened. */
 static int fixture_carries_compiled_catalog(const char *path) {
   int carries = 1;
   const hid_t file = H5Fopen(path, H5F_ACC_RDONLY, H5P_DEFAULT);
   if (file < 0) {
-    return 0;
+    return -1;
   }
   const size_t nfields = sizeof(COMPILED_CATALOG_DATASETS) / sizeof(COMPILED_CATALOG_DATASETS[0]);
   for (size_t i = 0; carries && i < nfields; i++) {
@@ -171,9 +177,16 @@ int test_header_hooks_match_each_partition_table(void) {
 int test_open_partition_stages_tables_and_loads_a_unit(void) {
   char path[512];
   fixture_path(path, sizeof(path), 1);
-  if (!fixture_carries_compiled_catalog(path)) {
-    return TEST_SKIP_WITH("the fixture carries mini-Millennium's L-Halo catalog, which the "
-                          "compiled simulation package does not declare");
+  const int carries = fixture_carries_compiled_catalog(path);
+  if (carries < 0) {
+    return TEST_SKIP_WITH("the committed L-Halo HDF5 fixture could not be opened");
+  }
+  if (carries == 0) {
+    TEST_ASSERT(strcmp(MIMIC_COMPILED_SIMULATION, FIXTURE_PACKAGE) != 0,
+                "the fixture lacks a dataset of its own package's catalog: regenerate it with "
+                "tests/data/lhalo_hdf5/generate_fixture.py");
+    return TEST_NA_WITH("the fixture carries mini-Millennium's L-Halo catalog, which the "
+                        "compiled simulation package does not declare");
   }
 
   init_memory_system(0);

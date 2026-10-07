@@ -29,8 +29,8 @@ models/sham/input/sham_micro-uchuu-ascii-horizontal.yaml:
 The pure-Python case at the top checks that the rank-density table embedded in
 test_unit_sham_rank_match.c (between its SHAM_DECIMAL_REFERENCE markers) is exactly what the
 reference script computes, so the C table cannot drift from its oracle; it needs no executable
-and runs under every MODEL/SIMULATION pair. Every fixture case reports a configuration SKIP
-under any pair other than sham x micro-uchuu-ascii-horizontal (make tests-snapshot-global
+and runs under every MODEL/SIMULATION pair. Every fixture case reports NA under any
+simulation other than micro-uchuu-ascii-horizontal (make tests-snapshot-global
 builds that pair and runs them all).
 """
 
@@ -50,6 +50,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from framework import (  # noqa: E402
     MIMIC_EXE,
+    TestNotApplicable,
     TestSkipped,
     check_no_memory_leaks,
     compiled_model,
@@ -122,10 +123,17 @@ _INVERSE_CACHE = {}
 
 
 def require_fixture_package():
-    """Raise the configuration SKIP unless the selected pair is sham x the fixture package."""
-    if compiled_model() != "sham" or compiled_simulation() != PACKAGE_SIMULATION:
-        raise TestSkipped(
-            f"configuration SKIP: selected pair is MODEL={compiled_model()} "
+    """Require sham x the fixture package (NA under another simulation).
+
+    The module's tests register only under MODEL=sham, so a different model means a misconfigured
+    direct run and stays a loud SKIP; a different simulation is a registered pair these cases
+    were not written for, which is not applicable.
+    """
+    if compiled_model() != "sham":
+        raise TestSkipped(f"selected model is {compiled_model()!r}, not sham")
+    if compiled_simulation() != PACKAGE_SIMULATION:
+        raise TestNotApplicable(
+            f"selected pair is MODEL={compiled_model()} "
             f"SIMULATION={compiled_simulation()}, not the sham x {PACKAGE_SIMULATION} pair these "
             f"cases are written against (make tests-snapshot-global builds and runs it)"
         )

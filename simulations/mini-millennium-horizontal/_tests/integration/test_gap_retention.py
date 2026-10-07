@@ -33,11 +33,12 @@ what this test pins; the measured vertical/horizontal comparison lives in the
 real-data parity gate (../scientific/test_cross_format_identity.py), not here.
 
 Row expectations hold for the physics-free halos-only model only; under another
-model those tests skip and the lifecycle tests still run.
+model those tests report NA and the lifecycle tests still run.
 
 Skips automatically when:
   - SIMULATION != mini-millennium-horizontal (wrong compiled package)
   - Mimic is not built
+Reports NA when:
   - MODEL != halos-only (output-row tests only)
 
 Run with:
@@ -71,6 +72,7 @@ sys.path.insert(0, str(REPO_ROOT / "tests"))
 
 from framework import (  # noqa: E402
     MIMIC_EXE,
+    TestNotApplicable,
     TestSkipped,
     check_no_memory_leaks,
     compiled_model,
@@ -96,7 +98,7 @@ def _require_package():
 
 def _require_halos_only():
     if compiled_model() != "halos-only":
-        raise TestSkipped(
+        raise TestNotApplicable(
             f"compiled model is {compiled_model()!r}; the expected rows are physics-free "
             f"halos-only inheritance"
         )

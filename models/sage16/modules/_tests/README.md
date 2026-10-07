@@ -136,8 +136,8 @@ REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 
 from framework import (
-    BLUE, NC, MIMIC_EXE, TestSkipped,
-    result_error, result_fail, result_pass, result_skip,
+    BLUE, NC, MIMIC_EXE, TestNotApplicable, TestSkipped,
+    result_error, result_fail, result_na, result_pass, result_skip,
 )
 
 
@@ -164,6 +164,8 @@ def main():
             passed += 1
         except TestSkipped as e:
             result_skip(test.__name__, str(e))
+        except TestNotApplicable as e:
+            result_na(test.__name__, str(e))
         except AssertionError as e:
             result_fail(test.__name__, str(e).splitlines()[0])
             failed += 1

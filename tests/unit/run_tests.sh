@@ -23,12 +23,8 @@
 # Detect compiler failures even when piping to tee for logs
 set -o pipefail
 
-# Counters
-TOTAL_TESTS=0
-PASSED_TESTS=0
-FAILED_TESTS=0
-SKIPPED_TESTS=0
-COMPILE_ERRORS=0
+# Failed test files, for the failure list. Outcome counts are per test case and live in
+# the TALLY_* variables of scripts/lib/test_tally.sh.
 FAILED_TEST_NAMES=""
 
 # Get repository root (two levels up from tests/unit/)
@@ -41,6 +37,8 @@ TEST_FAILURES_FILE="${REPO_ROOT}/build/.test_failures"
 # the generation scripts below see the same selection.
 . "${REPO_ROOT}/scripts/lib/defaults.sh"
 . "${REPO_ROOT}/scripts/lib/colors.sh"
+# shellcheck source=scripts/lib/test_tally.sh
+. "${REPO_ROOT}/scripts/lib/test_tally.sh"
 # shellcheck source=scripts/lib/python.sh
 . "${REPO_ROOT}/scripts/lib/python.sh"
 . "${REPO_ROOT}/scripts/lib/hdf5.sh"
@@ -55,12 +53,6 @@ MODEL_ROOT="models/${MODEL}"
 
 summary_enabled() {
     [ "${TEST_SUMMARY:-0}" = "1" ]
-}
-
-# In summary mode, print only non-pass MIMIC_RESULT: lines from a captured log file.
-print_markers() {
-    local log_file=$1
-    grep "^MIMIC_RESULT: \(FAIL\|SKIP\|WARN\|ERROR\)" "$log_file" || true
 }
 
 record_failed_test() {
@@ -248,8 +240,6 @@ compile_and_run_test() {
 
     local test_exe="${BUILD_DIR}/${test_name}.test"
 
-    TOTAL_TESTS=$((TOTAL_TESTS + 1))
-
     # Check if test file exists in tests/unit/ (core tests)
     if [ ! -f "$test_file" ]; then
         # Try module directory (auto-discovered tests)
@@ -265,7 +255,7 @@ compile_and_run_test() {
     if [ ! -f "$test_file" ]; then
         echo "MIMIC_RESULT: ERROR ${test_display} -- test file not found"
         echo -e "${RED}✗ Test file not found: ${test_name}.c${NC}"
-        FAILED_TESTS=$((FAILED_TESTS + 1))
+        TALLY_FAILED=$((TALLY_FAILED + 1))
         record_failed_test "$test_display"
         return 1
     fi
@@ -296,7 +286,7 @@ compile_and_run_test() {
             if ! summary_enabled; then
                 echo -e "${YELLOW}– Skipping ${test_name}: HDF5 development library not available${NC}"
             fi
-            SKIPPED_TESTS=$((SKIPPED_TESTS + 1))
+            TALLY_SKIPPED=$((TALLY_SKIPPED + 1))
             return 0
         fi
         test_cflags="${test_cflags} -DHDF5 ${HDF5_CFLAGS}"
@@ -326,8 +316,8 @@ compile_and_run_test() {
         if ! $CC $test_cflags $module_include $test_file $extra_sources $link_objs -o $test_exe $test_ldflags > "$compile_log" 2>&1; then
             echo "MIMIC_RESULT: ERROR ${test_display} -- compilation failed"
             cat "$compile_log"
-            COMPILE_ERRORS=$((COMPILE_ERRORS + 1))
-            FAILED_TESTS=$((FAILED_TESTS + 1))
+            TALLY_COMPILE_ERRORS=$((TALLY_COMPILE_ERRORS + 1))
+            TALLY_FAILED=$((TALLY_FAILED + 1))
             record_failed_test "$test_display"
             return 2
         fi
@@ -336,8 +326,8 @@ compile_and_run_test() {
         if ! $CC $test_cflags $module_include $test_file $extra_sources $link_objs -o $test_exe $test_ldflags 2>&1 | tee "$compile_log"; then
             echo -e "${RED}✗ Compilation failed for ${test_name}${NC}"
             echo "  See ${compile_log} for details"
-            COMPILE_ERRORS=$((COMPILE_ERRORS + 1))
-            FAILED_TESTS=$((FAILED_TESTS + 1))
+            TALLY_COMPILE_ERRORS=$((TALLY_COMPILE_ERRORS + 1))
+            TALLY_FAILED=$((TALLY_FAILED + 1))
             record_failed_test "$test_display"
             return 2
         fi
@@ -348,34 +338,20 @@ compile_and_run_test() {
         echo -e "${BLUE}Running test: ${test_name}${NC}"
     fi
 
-    local run_log="${BUILD_DIR}/${test_name}.run.log"
-    if summary_enabled; then
-        if $test_exe > "$run_log" 2>&1; then
-            print_markers "$run_log"
-            PASSED_TESTS=$((PASSED_TESTS + 1))
-            return 0
-        else
-            # On failure: show markers if any were emitted; otherwise show full log
-            # (the full log path handles crashes/signals that emit no markers at all)
-            if grep -q "^MIMIC_RESULT:" "$run_log"; then
-                print_markers "$run_log"
-            else
-                cat "$run_log"
-            fi
-            FAILED_TESTS=$((FAILED_TESTS + 1))
-            record_failed_test "$test_display"
-            return 1
+    # Summary mode shows only non-pass markers (NA is suppressed like PASS and only counted,
+    # so SKIP stays the one outcome that means "should run here but cannot"); a crash that
+    # emits no markers shows its full log. Either way the cases are tallied.
+    if run_tallied "$test_exe"; then
+        if ! summary_enabled; then
+            echo -e "${GREEN}✓ ${test_name} PASSED${NC}"
         fi
-    elif $test_exe; then
-        echo -e "${GREEN}✓ ${test_name} PASSED${NC}"
-        PASSED_TESTS=$((PASSED_TESTS + 1))
         return 0
-    else
-        echo -e "${RED}✗ ${test_name} FAILED${NC}"
-        FAILED_TESTS=$((FAILED_TESTS + 1))
-        record_failed_test "$test_display"
-        return 1
     fi
+    if ! summary_enabled; then
+        echo -e "${RED}✗ ${test_name} FAILED${NC}"
+    fi
+    record_failed_test "$test_display"
+    return 1
 }
 
 ###############################################################################
@@ -398,60 +374,21 @@ unset MIMIC_TEST_BUILD
 ${MIMIC_PYTHON} scripts/generate_properties.py > /dev/null 2>&1 || true
 ${MIMIC_PYTHON} scripts/generate_module_registry.py > /dev/null 2>&1 || true
 
-# Print summary
-if summary_enabled; then
-    echo -n "Unit Test Summary: total=${TOTAL_TESTS} passed="
-    echo -en "${GREEN}${PASSED_TESTS}${NC}"
-    echo -n " failed="
-    if [ $FAILED_TESTS -gt 0 ]; then
-        echo -en "${RED}${FAILED_TESTS}${NC}"
-    else
-        echo -n "$FAILED_TESTS"
-    fi
-    if [ $COMPILE_ERRORS -gt 0 ]; then
-        echo -n " compile_errors="
-        echo -en "${YELLOW}${COMPILE_ERRORS}${NC}"
-    fi
-    if [ $SKIPPED_TESTS -gt 0 ]; then
-        echo -n " skipped="
-        echo -en "${YELLOW}${SKIPPED_TESTS}${NC}"
-    fi
-    echo ""
-else
-    echo ""
-    echo -e "${BLUE}============================================================${NC}"
-    echo -e "${BLUE}Unit Test Summary${NC}"
-    echo -e "${BLUE}============================================================${NC}"
-    echo "Total tests:    $TOTAL_TESTS"
-    echo -e "Passed:         ${GREEN}$PASSED_TESTS${NC}"
-    if [ $FAILED_TESTS -gt 0 ]; then
-        echo -e "Failed:         ${RED}$FAILED_TESTS${NC}"
-    else
-        echo "Failed:         $FAILED_TESTS"
-    fi
-    if [ $COMPILE_ERRORS -gt 0 ]; then
-        echo -e "Compile errors: ${YELLOW}$COMPILE_ERRORS${NC}"
-    fi
-    if [ $SKIPPED_TESTS -gt 0 ]; then
-        echo -e "Skipped:        ${YELLOW}$SKIPPED_TESTS${NC}"
-    fi
-    if [ $FAILED_TESTS -gt 0 ]; then
-        echo -e "${RED}Failed tests:${NC}"
-        for test_name in $FAILED_TEST_NAMES; do
-            echo "  - $test_name"
-        done
-    fi
-    echo -e "${BLUE}============================================================${NC}"
+# Print the counts line and the verdict, laid out like every other tier (Makefile
+# RUN_PYTHON_TEST_REGISTRY): counts, TL;DR, the failed tests, then one blank line.
+if ! summary_enabled; then
     echo ""
 fi
-
-# Final result
-if [ $FAILED_TESTS -eq 0 ] && [ $COMPILE_ERRORS -eq 0 ]; then
+print_tally_line "Unit"
+if [ $TALLY_FAILED -eq 0 ] && [ $TALLY_COMPILE_ERRORS -eq 0 ]; then
     echo -e "${GREEN}=== TLDR: ALL UNIT TESTS PASSED ===${NC}"
     echo ""
     exit 0
-else
-    echo -e "${RED}=== TLDR: UNIT TESTS FAILED ===${NC}"
-    echo ""
-    exit 1
 fi
+echo -e "${RED}=== TLDR: UNIT TESTS FAILED ===${NC}"
+echo -e "${RED}Failed tests:${NC}"
+for test_name in $FAILED_TEST_NAMES; do
+    echo "  - $test_name"
+done
+echo ""
+exit 1

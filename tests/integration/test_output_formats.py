@@ -45,13 +45,13 @@ from framework import (
     load_binary_halos,
     load_hdf5_halos,
     load_hdf5_run_properties,
+    not_applicable_if_selected_package_is_horizontal,
+    not_applicable_to_non_default_baseline,
     resolve_sim_config_path,
     run_mimic,
     run_mimic_fresh,
     run_test_suite,
     selected_package_is_horizontal,
-    skip_if_selected_package_is_horizontal,
-    skip_non_default_baseline,
 )
 
 VALIDATION_MANIFEST_PATH = REPO_ROOT / "tests" / "generated" / "property_ranges.json"
@@ -149,7 +149,7 @@ def test_binary_format_execution():
 
     if not MIMIC_EXE.exists():
         raise TestSkipped("Mimic not built")
-    skip_if_selected_package_is_horizontal("binary galaxy output")
+    not_applicable_if_selected_package_is_horizontal("binary galaxy output")
 
     param_file = core_input_file("test_binary.yaml")
     assert param_file.exists(), f"Parameter file not found: {param_file}"
@@ -175,7 +175,7 @@ def test_binary_format_loading():
 
     if not MIMIC_EXE.exists():
         raise TestSkipped("Mimic not built")
-    skip_if_selected_package_is_horizontal("binary galaxy output")
+    not_applicable_if_selected_package_is_horizontal("binary galaxy output")
 
     # Check output file exists
     output_dir = TEST_DATA_DIR / "output" / "binary"
@@ -236,7 +236,7 @@ def test_binary_baseline_comparison():
     if not MIMIC_EXE.exists():
         raise TestSkipped("Mimic not built")
     if not is_default_baseline_combo():
-        skip_non_default_baseline()
+        not_applicable_to_non_default_baseline()
 
     # Load current test output
     output_dir = TEST_DATA_DIR / "output" / "binary"
@@ -545,7 +545,7 @@ def test_hdf5_baseline_comparison():
     if not MIMIC_EXE.exists():
         raise TestSkipped("Mimic not built")
     if not is_default_baseline_combo():
-        skip_non_default_baseline()
+        not_applicable_to_non_default_baseline()
 
     # Check if HDF5 is supported
     if not check_hdf5_support():
@@ -900,7 +900,7 @@ def test_format_equivalence():
     if not MIMIC_EXE.exists():
         raise TestSkipped("Mimic not built")
 
-    skip_if_selected_package_is_horizontal("binary galaxy output to compare against HDF5")
+    not_applicable_if_selected_package_is_horizontal("binary galaxy output to compare against HDF5")
 
     # Check if HDF5 is supported
     if not check_hdf5_support():

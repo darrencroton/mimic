@@ -37,8 +37,9 @@ has five idle chunks. Each check is one ``MIMIC_RESULT:`` marker:
 
 Skips automatically when:
   - SIMULATION != mini-millennium-horizontal (wrong compiled package)
-  - MODEL != halos-only (the fixture run file names halos-only)
   - Mimic is not built
+Reports NA when:
+  - MODEL != halos-only (the fixture run file names halos-only)
 
 Run with:
   MODEL=halos-only SIMULATION=mini-millennium-horizontal \\
@@ -74,6 +75,7 @@ sys.path.insert(0, str(REPO_ROOT / "tests"))
 
 from framework import (  # noqa: E402
     MIMIC_EXE,
+    TestNotApplicable,
     TestSkipped,
     check_no_memory_leaks,
     compiled_model,
@@ -126,7 +128,9 @@ def _require_package():
         raise TestSkipped(f"compiled simulation is {sim!r}, not mini-millennium-horizontal")
     model = compiled_model()
     if model != "halos-only":
-        raise TestSkipped(f"compiled model is {model!r}; the fixture run file names halos-only")
+        raise TestNotApplicable(
+            f"compiled model is {model!r}; the fixture run file names halos-only"
+        )
     if not MIMIC_EXE.exists():
         raise TestSkipped("Mimic not built")
 

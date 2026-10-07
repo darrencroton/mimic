@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from framework import (
     MIMIC_EXE,
+    TestNotApplicable,
     TestSkipped,
     create_test_param_file,
     resolve_sim_config_path,
@@ -119,7 +120,7 @@ def test_box_size_with_correct_dimension_still_runs():
         sim_config = yaml.safe_load(handle)
     box_size = (sim_config.get("simulation") or {}).get("box_size")
     if not isinstance(box_size, dict) or box_size.get("units") != "Mpc/h":
-        raise TestSkipped(
+        raise TestNotApplicable(
             "selected package's simulation.box_size is not declared in Mpc/h; cannot "
             "derive an equivalent kpc/h value for the positive case"
         )

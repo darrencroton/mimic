@@ -237,7 +237,7 @@ Tests are part of the style contract because they define how failures are surfac
 - Every test case should emit a structured `MIMIC_RESULT:` marker through the framework.
 - C unit tests commonly follow `SETUP`, `EXECUTE`, `VALIDATE`, `CLEANUP` comment sections; use that structure when it improves scanability.
 - Test names should describe behavior, not implementation details.
-- Use `TEST_SKIP_WITH` or `TestSkipped` for deliberate configuration skips.
+- Use `TEST_SKIP_WITH` or `TestSkipped` for a test that applies to the selected pair but cannot run (missing library, data or fixture), and `TEST_NA_WITH` or `TestNotApplicable` for one that does not apply to the pair at all; NA is for deterministic selection mismatches only, never for a missing environment.
 - Keep module-owned tests near the module; keep cross-module pipeline behavior in the model package `_tests/` or top-level `tests/` as appropriate.
 - Capture long test output to logs under `archive/test-logs/` when running manually.
 - Never simplify failing tests to make them pass.

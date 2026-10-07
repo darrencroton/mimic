@@ -1441,7 +1441,7 @@ class Tee(io.TextIOBase):
 
 
 def main() -> int:
-    """Run every stage; fail on any FAIL, ERROR or SKIP marker (a WARN is surfaced, not fatal)."""
+    """Run every stage; any FAIL, ERROR, SKIP or NA marker fails (a WARN is surfaced, not fatal)."""
     LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
     console = sys.stdout
     with LOG_PATH.open("w") as handle:
@@ -1451,8 +1451,8 @@ def main() -> int:
             # No abort_on_failure: once the builds succeed the legs are independent, each
             # checks its own prerequisites, and the verdict stage names every leg's outcome.
             status = run_test_suite(Identity().stages(), "Snapshot-global disabled-mode identity")
-            if re.search(r"^MIMIC_RESULT: SKIP", buffer.getvalue(), flags=re.MULTILINE):
-                print("FAIL: a stage was skipped; this test has no legitimate skip")
+            if re.search(r"^MIMIC_RESULT: (SKIP|NA)\b", buffer.getvalue(), flags=re.MULTILINE):
+                print("FAIL: a stage was skipped or not applicable; every stage must run")
                 status = 1
             if "MIMIC_RESULT: WARN" in buffer.getvalue():
                 print("WARN: see the MIMIC_RESULT: WARN line(s) above (not a failure)")

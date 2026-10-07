@@ -31,8 +31,10 @@
  *   - Test normal cases, edge cases (zero/boundary values), parameter
  *     sensitivity, and conservation laws where applicable.
  *   - Every test path that allocates must end with check_memory_leaks().
- *   - A test that cannot run in this configuration returns
- *     TEST_SKIP_WITH("reason") so it is reported as a SKIP, never as a pass.
+ *   - A test that applies here but cannot run (a missing library or data file)
+ *     returns TEST_SKIP_WITH("reason") so it is reported as a SKIP, never as a
+ *     pass. One that does not apply to the selected MODEL/SIMULATION pair returns
+ *     TEST_NA_WITH("reason"): it is reported as NA, which summary mode suppresses.
  */
 
 #include "../../../../tests/framework/test_framework.h"

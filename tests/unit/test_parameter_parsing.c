@@ -778,7 +778,7 @@ int test_yaml_line_declares_horizontal_forms(void) {
  * input.processing_order in the run file, else one in the simulation config the
  * run file points at, else the framework default.
  *
- * Skips for a horizontal package: the generated core run file this test
+ * Not applicable to a horizontal package: the generated core run file this test
  * reads is output_format: binary, which config-time gating
  * rejects for a horizontal configuration (output_format: hdf5 is not a
  * substitute -- see test_cosmology_param_file() in core_test_fixtures.h), so
@@ -792,7 +792,7 @@ int test_default_processing_order(void) {
   FILE *fp;
 
   if (compiled_simulation_is_horizontal()) {
-    return TEST_SKIP_WITH(
+    return TEST_NA_WITH(
         "no generated core run file both declares a horizontal package's real "
         "processing_order and parses in this harness (output_format: binary is rejected; "
         "output_format: hdf5 hits read_parameter_file.c's #ifndef HDF5 guard here)");

@@ -35,15 +35,16 @@ sys.path.insert(0, str(REPO_ROOT / "tests"))
 from framework import (  # noqa: E402
     MIMIC_EXE,
     TEST_DATA_DIR,
+    TestNotApplicable,
     TestSkipped,
     core_input_file,
     create_test_param_file,
     load_binary_halos,
+    not_applicable_if_selected_package_is_horizontal,
     resolve_sim_config_path,
     run_mimic,
     run_mimic_fresh,
     run_test_suite,
-    skip_if_selected_package_is_horizontal,
 )
 
 TREE_MUL_FAC = 1_000_000_000  # galaxy IDs within a tree occupy this stride
@@ -73,7 +74,7 @@ def test_selected_simulation_unique_ids_are_unique():
     """
     if not MIMIC_EXE.exists():
         raise TestSkipped("Mimic not built")
-    skip_if_selected_package_is_horizontal("binary galaxy output")
+    not_applicable_if_selected_package_is_horizontal("binary galaxy output")
 
     param_file, output_dir, temp_dir = create_test_param_file(
         "uniquegalid_selected_simulation",
@@ -234,7 +235,7 @@ def test_lhalo_two_file_prefix_offset_encoding():
     if not MIMIC_EXE.exists():
         raise TestSkipped("Mimic not built")
     if _tree_type_for_param(core_input_file("test_binary.yaml")) != "lhalo_binary":
-        raise TestSkipped("L-Halo prefix-offset fixture requires a lhalo_binary build")
+        raise TestNotApplicable("L-Halo prefix-offset fixture requires a lhalo_binary package")
 
     temp_dir = Path(tempfile.mkdtemp(prefix="mimic_unique_id_"))
     try:

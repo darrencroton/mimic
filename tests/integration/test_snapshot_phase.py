@@ -31,13 +31,14 @@ test_post_snapshot_population_excludes_type3 (tests/unit/test_snapshot_module_co
 which runs the real marshaller over a workspace that contains a Type 3 entry.
 
 Parser and vertical-rejection cases run on every package. The horizontal-execution cases
-need a horizontal package with a committed fixture and report a configuration SKIP
-otherwise; the required evidence is a run under each of
+need a horizontal package with a committed fixture: they report NA under a vertical
+package and SKIP under a horizontal package that ships no fixture. The required
+evidence is a run under each of
 
   MODEL=halos-only SIMULATION=micro-uchuu-ascii-horizontal TEST_BUILD=yes   (v2, adjacent)
   MODEL=halos-only SIMULATION=mini-millennium-horizontal TEST_BUILD=yes     (v3, gapped)
 
-with no MIMIC_RESULT: SKIP. The test never invokes make; build the selected TEST_BUILD
+with no MIMIC_RESULT: SKIP or NA. The test never invokes make; build the selected TEST_BUILD
 executable first. It contains no multi-rank case.
 """
 
@@ -55,6 +56,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from framework import (  # noqa: E402
     MIMIC_EXE,
     REPO_ROOT,
+    TestNotApplicable,
     TestSkipped,
     check_no_memory_leaks,
     compiled_simulation,
@@ -154,14 +156,24 @@ def package_fixture():
 
 
 def require_horizontal_fixture(case):
-    """Raise the explicit configuration SKIP for a horizontal-execution case."""
+    """Return the selected package's fixture for a horizontal-execution case.
+
+    A vertical package has no horizontal driver to exercise, so the case is NA. A
+    horizontal package that ships no committed fixture is a coverage gap and stays a
+    SKIP, so it stays loud.
+    """
+    if not selected_package_is_horizontal():
+        raise TestNotApplicable(
+            f"selected package {compiled_simulation()} is vertical; {case} needs the "
+            f"horizontal driver running over a horizontal package's committed fixture "
+            f"(run under SIMULATION=micro-uchuu-ascii-horizontal or mini-millennium-horizontal)"
+        )
     fixture = package_fixture()
     if fixture is None:
         raise TestSkipped(
-            f"configuration SKIP: selected package {compiled_simulation()} is not a horizontal "
-            f"package with a committed fixture; {case} needs the horizontal driver running "
-            f"over one (run under SIMULATION=micro-uchuu-ascii-horizontal or "
-            f"mini-millennium-horizontal)"
+            f"selected package {compiled_simulation()} ships no committed horizontal fixture "
+            f"(_tests/input/test_simulation.yaml); {case} needs the horizontal driver running "
+            f"over one"
         )
     if not MIMIC_EXE.exists():
         raise FileNotFoundError(f"Mimic executable not found at {MIMIC_EXE}")

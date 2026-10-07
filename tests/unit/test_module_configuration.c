@@ -214,22 +214,6 @@ int test_valid_module_initialization(void) {
 }
 
 /**
- * @test    test_unknown_module_error
- * @brief   Test error handling for unknown module names
- *
- * Expected: module_system_init() exits with error for invalid module
- * Validates: Invalid module names are detected and reported
- *
- * Skipped: module_system_init() calls exit() on invalid module names
- * (fail-fast design), so this needs process isolation. The behavior is
- * covered by tests/integration/test_module_pipeline.py
- * (test_unknown_module_error), which runs Mimic as a subprocess.
- */
-int test_unknown_module_error(void) {
-  return TEST_SKIP_WITH("requires process isolation; covered by test_module_pipeline.py");
-}
-
-/**
  * @test    test_single_phase_configuration
  * @brief   Test initializing modules in a single phase only
  *
@@ -277,7 +261,6 @@ int main(void) {
   TEST_RUN(test_physics_free_mode);
   TEST_RUN(test_empty_named_phase_cleanup);
   TEST_RUN(test_valid_module_initialization);
-  TEST_RUN(test_unknown_module_error);
   TEST_RUN(test_single_phase_configuration);
 
   TEST_SUMMARY();

@@ -20,7 +20,7 @@
  * The fixture's /schema declares mini-Millennium L-Halo payload units, which
  * only the mini-millennium-horizontal package declares, so every test that
  * opens it successfully runs only when that package is compiled in
- * (MIMIC_COMPILED_SIMULATION) and skips otherwise. Under any package whose
+ * (MIMIC_COMPILED_SIMULATION) and is not applicable otherwise. Under any package whose
  * links are `int`, test_int_link_package_rejects_v3 instead pins the refusal
  * to narrow version 3's int64 links.
  *
@@ -119,7 +119,7 @@ static int compiled_for_fixture_package(void) {
 #define REQUIRE_FIXTURE_PACKAGE()                                                                  \
   do {                                                                                             \
     if (!compiled_for_fixture_package()) {                                                         \
-      return TEST_SKIP_WITH("the v3 fixture's /schema matches only SIMULATION=" FIXTURE_PACKAGE);  \
+      return TEST_NA_WITH("the v3 fixture's /schema matches only SIMULATION=" FIXTURE_PACKAGE);    \
     }                                                                                              \
   } while (0)
 
@@ -1039,7 +1039,7 @@ int test_v3_undeclared_extra_is_not_materialised(void) {
  */
 int test_int_link_package_rejects_v3(void) {
   if (sizeof(((struct RawHalo *)0)->Descendant) != sizeof(int32_t)) {
-    return TEST_SKIP_WITH("the compiled package stores links as long long");
+    return TEST_NA_WITH("the compiled package stores links as long long");
   }
   char dir[MAX_STRING_LEN];
   TEST_ASSERT(stage_fixture(dir, sizeof(dir)) == 0, "should stage a scratch copy of the fixture");

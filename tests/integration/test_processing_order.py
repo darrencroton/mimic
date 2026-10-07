@@ -22,15 +22,16 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from framework import (
     MIMIC_EXE,
     REPO_ROOT,
+    TestNotApplicable,
     TestSkipped,
     compiled_simulation,
     create_test_param_file,
     load_binary_halos,
+    not_applicable_if_selected_package_is_horizontal,
     run_mimic,
     run_test_suite,
     selected_package_is_horizontal,
     selected_package_test_config,
-    skip_if_selected_package_is_horizontal,
 )
 
 TEMP_DIR = None
@@ -148,8 +149,18 @@ def snapshot_fixture_present():
     )
 
 
-def skip_unless_snapshot_fixture_present():
-    """Skip, naming what is missing, unless the selected package's fixture is usable."""
+def require_snapshot_fixture():
+    """Require the selected package's committed horizontal fixture, naming what is missing.
+
+    A vertical package has no horizontal fixture to run over, so the test does not apply
+    there (NA). A horizontal package that ships no fixture, or whose fixture payload is
+    absent, is a coverage gap: that stays a SKIP so it stays loud.
+    """
+    if not selected_package_is_horizontal():
+        raise TestNotApplicable(
+            f"selected package {compiled_simulation()} is vertical; this test runs the "
+            f"horizontal driver over a horizontal package's committed fixture"
+        )
     if package_fixture() is None:
         raise TestSkipped(
             f"selected package {compiled_simulation()} ships no committed horizontal fixture "
@@ -293,7 +304,7 @@ def effective_input_setting(name, key):
 
     Mirrors the parser's precedence for a key the run file may inherit: an
     explicit value in the run file wins, else the simulation config the run file
-    points at, else None. Lets package-dependent tests skip rather than assert a
+    points at, else None. Lets package-dependent tests opt out rather than assert a
     condition the selected package's own configuration contradicts.
     """
     param_file = make_param_file(name)
@@ -366,7 +377,7 @@ def test_horizontal_run_completes_and_writes_output_over_the_fixture():
     configuration is the only source of input.tree_type/tree_name/processing_order here);
     forcing tree_type: horizontal_hdf5 onto a vertical package would abort for an
     unrelated config-mismatch reason. Guarded separately against the fixture being absent,
-    so a sparse or partial checkout skips rather than fails.
+    so a sparse or partial checkout skips rather than fails (a vertical package is NA).
 
     output_format is forced to hdf5 explicitly, because output_format: binary is rejected
     for a horizontal configuration at config time (see
@@ -380,11 +391,11 @@ def test_horizontal_run_completes_and_writes_output_over_the_fixture():
     import h5py
 
     if effective_input_setting("valid_horizontal_probe", "processing_order") != "horizontal":
-        raise TestSkipped(
+        raise TestNotApplicable(
             "selected package is not horizontal; its own configuration is the only "
             "source of input.tree_type/tree_name/processing_order this test relies on"
         )
-    skip_unless_snapshot_fixture_present()
+    require_snapshot_fixture()
 
     nsnapshots = snapshot_fixture_snapshot_count()
     # Every package fixture this runs over must hold an empty snapshot (the
@@ -571,8 +582,8 @@ def test_horizontal_run_completes_and_writes_output_over_the_fixture():
         ), "master RunProperties should record the identity multiplier"
 
 
-def skip_unless_horizontal_driver_is_runnable(probe_name):
-    """Skip unless the selected package is horizontal and the fixture is present.
+def require_runnable_horizontal_driver(probe_name):
+    """Require a horizontal package with its fixture present; NA if vertical, SKIP if no fixture.
 
     Same two guards the completing-run test above carries, for the same reasons:
     the package's own configuration is the only source of
@@ -580,11 +591,11 @@ def skip_unless_horizontal_driver_is_runnable(probe_name):
     fixture payload to run against.
     """
     if effective_input_setting(probe_name, "processing_order") != "horizontal":
-        raise TestSkipped(
+        raise TestNotApplicable(
             "selected package is not horizontal; its own configuration is the only "
             "source of input.tree_type/tree_name/processing_order this test relies on"
         )
-    skip_unless_snapshot_fixture_present()
+    require_snapshot_fixture()
 
 
 def test_horizontal_failure_keeps_partition_files_that_already_closed():
@@ -607,7 +618,7 @@ def test_horizontal_failure_keeps_partition_files_that_already_closed():
     closed. Nothing here can exercise the in-flight half of the registry -- the failing
     snapshot's own output file does not exist yet -- which is why the next test exists.
     """
-    skip_unless_horizontal_driver_is_runnable("retention_probe")
+    require_runnable_horizontal_driver("retention_probe")
 
     requested = [1, snapshot_fixture_snapshot_count() - 1]
     # The first populated snapshot strictly between the two requested ones, so the
@@ -669,7 +680,7 @@ def test_horizontal_failure_removes_the_in_flight_partition_file():
     permission on the directory rather than on the file, so cleanup can still remove it --
     and the marker byte is what proves the file that disappeared was this one.
     """
-    skip_unless_horizontal_driver_is_runnable("inflight_probe")
+    require_runnable_horizontal_driver("inflight_probe")
     skip_unless_mode_bits_deny_access()
 
     requested = [1, snapshot_fixture_snapshot_count() - 1]
@@ -719,7 +730,7 @@ def test_horizontal_unwritable_output_directory_fails_before_the_dataset_opens()
                first requested output snapshot -- the end of a multi-week run for a z=0-only
                request.
     """
-    skip_unless_horizontal_driver_is_runnable("writability_probe")
+    require_runnable_horizontal_driver("writability_probe")
     skip_unless_mode_bits_deny_access()
 
     output_dir = Path(TEMP_DIR) / "unwritable_output"
@@ -841,10 +852,10 @@ def test_horizontal_reader_unset_processing_order_names_the_default():
     The unset-default case only exists when neither the run file nor the simulation config
     it points at declares input.processing_order; a package whose own configuration declares
     the key (e.g. micro-uchuu-ascii-horizontal's horizontal) makes it configured, so the test
-    skips there rather than asserting a condition the package contradicts.
+    is not applicable there rather than asserting a condition the package contradicts.
     """
     if effective_input_setting("unset_order_probe", "processing_order") is not None:
-        raise TestSkipped(
+        raise TestNotApplicable(
             "selected package's configuration declares input.processing_order; "
             "the unset-default case does not apply"
         )
@@ -1014,11 +1025,13 @@ def test_multiplier_default_and_non_positive_rejection():
         assert "must be positive" in output
 
 
-def _skip_unless_selected_package_is_vertical():
-    """Skip tests that read binary galaxy output when the selected package forbids it."""
+def _require_selected_package_is_vertical():
+    """Require a built mimic and a vertical package: binary galaxy output is read back."""
     if not MIMIC_EXE.exists():
         raise TestSkipped("Mimic not built")
-    skip_if_selected_package_is_horizontal("binary galaxy output to read the multiplier back from")
+    not_applicable_if_selected_package_is_horizontal(
+        "binary galaxy output to read the multiplier back from"
+    )
 
 
 def _run_and_read_unique_ids(name, **kwargs):
@@ -1063,7 +1076,7 @@ def test_vertical_accepts_non_default_multiplier():
                to forest index -1 and cannot match. The min-id assertion catches the same
                failure independently.
     """
-    _skip_unless_selected_package_is_vertical()
+    _require_selected_package_is_vertical()
 
     ten_billion = 10 * DEFAULT_MULTIPLIER
 
@@ -1103,7 +1116,7 @@ def test_multiplier_precedence_across_both_parser_passes():
                values are spread more than two-fold apart precisely so the test cannot pass
                under the wrong one.
     """
-    _skip_unless_selected_package_is_vertical()
+    _require_selected_package_is_vertical()
 
     package_value = 2 * DEFAULT_MULTIPLIER
     run_file_value = 9 * DEFAULT_MULTIPLIER

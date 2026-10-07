@@ -39,10 +39,11 @@ Captured suite logs are machine-readable via the marker protocol (`mimic-validat
 ```bash
 rg -n "^MIMIC_RESULT: (FAIL|ERROR)" archive/test-logs/tests.log     # hard failures
 rg -n "^MIMIC_RESULT: SKIP" archive/test-logs/tests.log             # READ EVERY REASON
+rg -c "^MIMIC_RESULT: NA" archive/test-logs/tests.log               # full log only; see n/a=
 rg -c "^MIMIC_RESULT: PASS" archive/test-logs/tests.log             # pass count sanity
 ```
 
-A SKIP audit is a real measurement: a guard checking a stale name once silently skipped the sage16 physics baseline test for weeks while suites reported green.
+A SKIP audit is a real measurement (NA is the not-applicable outcome, suppressed in summary mode, so a full log is where its reasons live): a guard checking a stale name once silently skipped the sage16 physics baseline test for weeks while suites reported green.
 
 ## 3. Memory measurement
 

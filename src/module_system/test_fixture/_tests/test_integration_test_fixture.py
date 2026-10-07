@@ -40,9 +40,9 @@ from framework import (
     NC,
     RED,
     core_input_file,
+    not_applicable_if_selected_package_is_horizontal,
     result_error,
     run_test_suite,
-    skip_if_selected_package_is_horizontal,
 )
 
 # Test state
@@ -164,7 +164,8 @@ def setup_module():
 
     Only the temp directory is prepared here: the generated run file is looked up inside each
     test, after its horizontal guard, so a package whose generic tier cannot run reports
-    configuration SKIPs instead of a setup ERROR.
+    NA outcomes (or a SKIP, for a horizontal package that ships no fixture) instead of a setup
+    ERROR.
     """
     global temp_dir
     temp_dir = tempfile.mkdtemp(prefix="mimic_test_fixture_")
@@ -193,7 +194,7 @@ def test_module_loads():
     Expected: Module registration succeeds, init completes without error
     """
     print(f"{BLUE}TEST:{NC} test_module_loads")
-    skip_if_selected_package_is_horizontal("binary galaxy output and a tree-file range")
+    not_applicable_if_selected_package_is_horizontal("binary galaxy output and a tree-file range")
 
     # Create minimal parameter file with test_fixture
     param_file = create_test_param_file(
@@ -228,7 +229,7 @@ def test_parameter_configuration():
     Expected: Custom parameter value is read correctly
     """
     print(f"{BLUE}TEST:{NC} test_parameter_configuration")
-    skip_if_selected_package_is_horizontal("binary galaxy output and a tree-file range")
+    not_applicable_if_selected_package_is_horizontal("binary galaxy output and a tree-file range")
 
     # Create parameter file with custom DummyParameter
     param_file = create_test_param_file(
@@ -256,7 +257,7 @@ def test_execution_completes():
     Expected: Full pipeline completes, output files created
     """
     print(f"{BLUE}TEST:{NC} test_execution_completes")
-    skip_if_selected_package_is_horizontal("binary galaxy output and a tree-file range")
+    not_applicable_if_selected_package_is_horizontal("binary galaxy output and a tree-file range")
 
     # Create parameter file for full execution
     param_file = create_test_param_file(
@@ -292,7 +293,7 @@ def test_memory_safety():
     Expected: "No memory leaks detected" message appears
     """
     print(f"{BLUE}TEST:{NC} test_memory_safety")
-    skip_if_selected_package_is_horizontal("binary galaxy output and a tree-file range")
+    not_applicable_if_selected_package_is_horizontal("binary galaxy output and a tree-file range")
 
     # Create parameter file
     param_file = create_test_param_file(

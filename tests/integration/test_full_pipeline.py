@@ -36,11 +36,11 @@ from framework import (
     core_input_file,
     default_run_file,
     ensure_output_dirs,
+    not_applicable_if_selected_package_is_horizontal,
     run_mimic,
     run_mimic_fresh,
     run_test_suite,
     selected_package_is_horizontal,
-    skip_if_selected_package_is_horizontal,
 )
 
 # Ensure output directories exist before any tests run
@@ -80,7 +80,7 @@ def test_output_files_created():
     Validates: Output file generation
     """
     print("Testing output file creation...")
-    skip_if_selected_package_is_horizontal("binary galaxy output")
+    not_applicable_if_selected_package_is_horizontal("binary galaxy output")
 
     # Expected output location (from test_binary.yaml: writes to binary/)
     # Binary format uses redshift-based naming: model_z{redshift}_{filenr}
@@ -180,7 +180,7 @@ def test_output_loadable():
     Validates: Output format integrity
     """
     print("Testing output file structure...")
-    skip_if_selected_package_is_horizontal("binary galaxy output")
+    not_applicable_if_selected_package_is_horizontal("binary galaxy output")
 
     # Expected output file (test_binary.yaml writes to binary/)
     # Binary format uses redshift-based naming: model_z{redshift}_{filenr}

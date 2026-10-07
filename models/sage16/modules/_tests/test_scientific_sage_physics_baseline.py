@@ -43,17 +43,19 @@ from framework import (
     MIMIC_EXE,
     NC,
     RED,
+    TestNotApplicable,
     TestSkipped,
     baseline_rtol,
     compiled_model,
     is_default_baseline_combo,
     load_binary_halos,
+    not_applicable_to_non_default_baseline,
     result_error,
     result_fail,
+    result_na,
     result_pass,
     result_skip,
     run_mimic_fresh,
-    skip_non_default_baseline,
 )
 from test_output_formats import compare_halos_comprehensive
 
@@ -80,7 +82,7 @@ def test_sage_physics_baseline():
     if compiled_model() != "sage16":
         raise TestSkipped(f"MODEL={compiled_model()}, this baseline is SAGE-specific")
     if not is_default_baseline_combo():
-        skip_non_default_baseline()
+        not_applicable_to_non_default_baseline()
 
     if not MIMIC_EXE.exists():
         raise TestSkipped("Mimic not built")
@@ -148,6 +150,7 @@ def main():
     passed = 0
     failed = 0
     skipped = 0
+    not_applicable = 0
 
     for test in tests:
         print()
@@ -158,6 +161,9 @@ def main():
         except TestSkipped as e:
             result_skip(test.__name__, str(e))
             skipped += 1
+        except TestNotApplicable as e:
+            result_na(test.__name__, str(e))
+            not_applicable += 1
         except AssertionError as e:
             result_fail(test.__name__, str(e).splitlines()[0])
             failed += 1
@@ -172,8 +178,10 @@ def main():
     print(f"Passed:  {passed}")
     if skipped:
         print(f"Skipped: {skipped}")
+    if not_applicable:
+        print(f"N/A:     {not_applicable}")
     print(f"Failed:  {failed}")
-    print(f"Total:   {passed + failed + skipped}")
+    print(f"Total:   {passed + failed + skipped + not_applicable}")
     print(f"{BLUE}{'=' * 60}{NC}")
     print()
 

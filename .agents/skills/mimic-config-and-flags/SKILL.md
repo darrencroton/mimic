@@ -151,6 +151,7 @@ Generated conversion code lands in `src/include/generated/parameter_unit_convers
 | `MIMIC_BASELINE_RTOL` | `tests/framework/harness.py` | Overrides the baseline comparison relative tolerance (default 1e-6); CI sets 1e-3. Policy: see the `mimic-validation-and-qa` skill |
 | `MIMIC_TEST_BUILD` | `scripts/discovery.py`, exported by the Makefile | The Makefile exports `MIMIC_TEST_BUILD=1` when `TEST_BUILD=yes`; `tests/unit/run_tests.sh` sets it directly. Selects the test-instrumented build (compiles the `test_fixture` module) |
 | `NO_COLOR` | `scripts/console.py`, `scripts/lib/colors.sh` | Any value disables ANSI color in script output (honors the no-color.org convention) |
+| `MIMIC_FORCE_COLOR` | `tests/framework/runner.py`, set by `scripts/lib/test_tally.sh` | Internal: `1` keeps a Python test's colour when the test tiers tee its output to a terminal; not meant to be set by hand, and `NO_COLOR` still wins |
 
 ## Adjacent configuration axes (owned by sibling skills)
 

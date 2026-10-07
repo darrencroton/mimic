@@ -25,10 +25,11 @@ its model/simulation pair as a test build, then runs its declared tests by path:
                  the integration tier of a hod x mini-millennium build)
 
 Model tests are not registered for horizontal packages, which is why the tests are invoked by
-path. Marker policy, per step: a non-zero exit, any ``MIMIC_RESULT: FAIL``, ``ERROR`` or ``SKIP``
-(these batteries have no legitimate skip), or a PASS-plus-WARN count different from the cases the
-test file declares (``def test_`` or ``TEST_RUN(``) fails the step; a ``WARN`` is surfaced but not
-fatal, as in ``make tests``. The whole output goes to one log under build/.
+path. Marker policy, per step: a non-zero exit, any ``MIMIC_RESULT: FAIL``, ``ERROR``, ``SKIP``
+or ``NA`` (these batteries have no legitimate skip and every declared case applies), or a
+PASS-plus-WARN count different from the cases the test file declares (``def test_`` or
+``TEST_RUN(``) fails the step; a ``WARN`` is surfaced but not fatal, as in ``make tests``. The whole
+output goes to one log under build/.
 
 The caller's generated code (``MODEL``/``SIMULATION`` from the environment, else the Makefile
 defaults) is regenerated in a ``finally`` block, and SIGHUP/SIGINT/SIGQUIT/SIGTERM are converted
@@ -52,7 +53,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 UNIT_DIR = REPO_ROOT / "tests" / "unit"
 SHAM_TESTS = Path("models/sham/modules/sham_rank_match/_tests")
 HOD_TESTS = Path("models/hod/modules/hod_populate/_tests")
-MARKER_RE = re.compile(r"^MIMIC_RESULT: (PASS|WARN|FAIL|ERROR|SKIP)\b.*$", re.MULTILINE)
+MARKER_RE = re.compile(r"^MIMIC_RESULT: (PASS|WARN|FAIL|ERROR|SKIP|NA)\b.*$", re.MULTILINE)
 MAKE_STATE = ("MAKEFLAGS", "MFLAGS", "MAKELEVEL")
 
 
@@ -65,7 +66,7 @@ class Test:
     unit_name: str | None = None
     #: A Python test file shared between packages names its cases ``test_<cases>_*`` and takes
     #: ``--cases <cases>``; only that subset is run and counted, so the cases written for another
-    #: package (which would report a configuration SKIP here) stay out of this group.
+    #: package (which would report NA here) stay out of this group.
     cases: str | None = None
 
     def declared(self) -> int:
@@ -169,12 +170,12 @@ class Battery:
         """Apply the marker policy to one step's output."""
         markers = [(m.group(1), m.group(0)) for m in MARKER_RE.finditer(output)]
         passed = sum(1 for kind, _ in markers if kind in ("PASS", "WARN"))
-        bad = [line for kind, line in markers if kind in ("FAIL", "ERROR", "SKIP")]
+        bad = [line for kind, line in markers if kind in ("FAIL", "ERROR", "SKIP", "NA")]
         warned = [line for kind, line in markers if kind == "WARN"]
         if status != 0:
             self.fail(f"{label} exited {status}")
         if bad:
-            self.fail(f"{label} reported FAIL, ERROR or SKIP cases:\n  " + "\n  ".join(bad))
+            self.fail(f"{label} reported FAIL, ERROR, SKIP or NA cases:\n  " + "\n  ".join(bad))
         if passed != declared:
             self.fail(f"{label} ran {passed} passing cases, expected {declared}")
         for line in warned:

@@ -1282,6 +1282,7 @@ Mimic uses three test tiers. Every tier runs the core tests, selected-simulation
 | Unit | `make tests-unit` | C unit tests for core functions, selected-simulation fixtures, selected-model modules, and infrastructure |
 | Integration | `make tests-integration` | End-to-end Python tests for core workflows, selected-simulation fixtures, and selected-model modules |
 | Scientific | `make tests-scientific` | Core scientific contracts plus selected-simulation and selected-model scientific regressions |
+| Converter | `make tests-converter` | The converter's stdlib-unittest suite (`convert/mimic-convert/tests/`), run through `tests/framework/unittest_runner.py` so each test case emits a marker |
 
 Run everything:
 
@@ -1289,7 +1290,7 @@ Run everything:
 make tests
 ```
 
-To see only warnings, failures, skipped tests, and final suite outcomes, add the `summary` goal modifier (e.g. `make tests summary`).
+To see only warnings, failures, skipped tests (those that should run but cannot), and final suite outcomes, add the `summary` goal modifier (e.g. `make tests summary`).
 
 Summary mode works by filtering for structured result markers. Every test emits one of:
 
@@ -1297,14 +1298,17 @@ Summary mode works by filtering for structured result markers. Every test emits 
 MIMIC_RESULT: PASS <test_name>
 MIMIC_RESULT: FAIL <test_name> [-- <reason>]
 MIMIC_RESULT: SKIP <test_name> [-- <reason>]
+MIMIC_RESULT: NA <test_name> [-- <reason>]
 MIMIC_RESULT: WARN <test_name> [-- <reason>]
 MIMIC_RESULT: ERROR <test_name> [-- <reason>]
 ```
 
-Summary mode filters structured markers directly: pass markers are suppressed, while fail, skip, warning, and error markers are shown. The filter is deterministic by design, with no natural-language heuristics or exclusion lists. New tests must emit these markers:
+SKIP and NA are different promises. SKIP means the test applies to the selected `MODEL`/`SIMULATION` pair but cannot run here (HDF5 not built, data or fixtures missing, `mimic` not built), so it must stay visible. NA (not applicable) means the test does not apply to the pair at all, a deterministic consequence of the selection (a horizontal-only case under a vertical package, or a fixture built for a different compiled package). Neither is a failure.
 
-- **C unit tests** — use `TEST_MARKER_*` macros from `tests/framework/test_framework.h`. `TEST_RUN` and `TEST_ASSERT*` emit them automatically; no per-test changes needed. To skip a test that cannot run in this configuration, `return TEST_SKIP_WITH("reason")` — `TEST_RUN` emits the SKIP marker and counts it separately from passes.
-- **Python tests** — call `result_pass / result_fail / result_skip / result_warn / result_error` from `tests/framework` in the `main()` loop. Raise `TestSkipped` to skip; the standard loop pattern catches it and calls `result_skip` automatically.
+Summary mode filters structured markers directly: pass and NA markers are suppressed, while fail, skip, warning, and error markers are shown. NA lines stay in the full log and are counted, so a test that disappears into NA is still auditable; a gate that must run a case treats NA as a failure, as it does SKIP. The filter is deterministic by design, with no natural-language heuristics or exclusion lists. Each tier ends with a counts line, `<Tier> Test Summary: passed=N failed=N skipped=N n/a=N` (plus `warned=N` when non-zero, and `compile_errors=N` for the unit tier), shown in both modes just before the tier's TL;DR. It counts test cases from the markers, not test files: passed includes WARN, failed includes ERROR, and a test file or binary that exits non-zero without emitting a FAIL or ERROR marker adds one failure, so a crash never reads as zero failures. The tally and the live-or-summary running of each test file live in `scripts/lib/test_tally.sh`, shared by the Makefile recipes and `tests/unit/run_tests.sh`. The converter package stays free of any Mimic import and still runs under plain `python -m unittest discover`; `tests/framework/unittest_runner.py` is the Mimic-side adapter that runs the same discovery and prints one marker per test case (a failing `subTest` is one FAIL, and an import or fixture failure is an ERROR), followed by the failure tracebacks. A failing pre-tier check (`check-docs`, `validate-modules`, `check-horizontal-fixture`) is dumped under a `=== CHECK FAILED: <check> ===` heading and silent otherwise. New tests must emit these markers:
+
+- **C unit tests** — use `TEST_MARKER_*` macros from `tests/framework/test_framework.h`. `TEST_RUN` and `TEST_ASSERT*` emit them automatically; no per-test changes needed. To skip a test that applies but cannot run, `return TEST_SKIP_WITH("reason")`; for a test that does not apply to the selected pair, `return TEST_NA_WITH("reason")`. `TEST_RUN` emits the SKIP or NA marker and counts each separately from passes.
+- **Python tests** — call `result_pass / result_fail / result_skip / result_na / result_warn / result_error` from `tests/framework` in the `main()` loop. Raise `TestSkipped` to skip a test that applies but cannot run, and `TestNotApplicable` for one that does not apply to the selected pair; the standard loop (`run_test_suite`) catches them and calls `result_skip` or `result_na` automatically.
 
 For long-running test sessions, capture logs and check the exit code:
 
@@ -1369,12 +1373,12 @@ source mimic_venv/bin/activate
 
 The generic tiers run on every simulation package, and the run files they use are generated for the selected package's declared processing order: `scripts/generate_test_inputs.py` reads `input.processing_order` from the package's `simulation_info.yaml` and its `_tests/input/test_simulation.yaml` (`package_processing_order()` in `scripts/discovery.py`, which stops if the two disagree), never from the package's name. A vertical package gets the binary and HDF5 run files it always had; a horizontal package gets HDF5-only run files with no input file range, because a horizontal run cannot write binary output and its reader takes its file set from the snapshot list. The generated `manifest.json` records the processing order, the run files written and, when the tier cannot run, a `skip_reason`.
 
-A horizontal package runs the generic tiers only on committed fixture data, which its `_tests/input/test_simulation.yaml` points at. A horizontal package without that file has no runnable test dataset, so every test that needs a generated run file skips with the manifest's `skip_reason` and nothing opens the production data. Each fixture is small, synthetic and rebuilt by the `regenerate.sh` beside it under the package's `_tests/data/`; it exercises the package's compiled schema, reader and driver, not its halo population.
+A horizontal package runs the generic tiers only on committed fixture data, which its `_tests/input/test_simulation.yaml` points at. A horizontal package without that file has no runnable test dataset, so every test that needs a generated run file skips with the manifest's `skip_reason` (a SKIP, not NA: a coverage gap stays visible) and nothing opens the production data. Each fixture is small, synthetic and rebuilt by the `regenerate.sh` beside it under the package's `_tests/data/`; it exercises the package's compiled schema, reader and driver, not its halo population.
 
 When writing an integration test:
 
 - Take a run from `default_run_file()` in `tests/framework/harness.py` (or let `create_test_param_file()` default to it) rather than naming `test_binary.yaml` or `test_hdf5.yaml`. It returns the binary run file on a vertical package, as before, and the HDF5 one on a horizontal package.
-- Guard behaviour that only a vertical package has (binary output, `--skip`, an input file range, forest partitioning, MPI ranks or a vertical reader) with `skip_if_selected_package_is_horizontal("<what the test needs>")`. The argument completes the sentence "this test needs ...", so the skip reason names what is missing. Do not hard-code an output format or a package name to decide.
+- Guard behaviour that only a vertical package has (binary output, `--skip`, an input file range, forest partitioning, MPI ranks or a vertical reader) with `not_applicable_if_selected_package_is_horizontal("<what the test needs>")`. The argument completes the sentence "this test needs ...", so the NA reason names what is missing. The guard raises `TestNotApplicable`, which is reported as NA rather than SKIP because the decision follows from the package's kind; a missing fixture or missing data stays a `TestSkipped`. Do not hard-code an output format or a package name to decide.
 
 The selected model's own tests run only on the vertical packages listed in `FULL_MODEL_TEST_SIMULATIONS` in `scripts/discovery.py`, never on a horizontal package, because the `sage16` module tests read the binary `model_z0.000_0` output that a horizontal run cannot write; a horizontal package's physics is covered by its parity gate against the vertical package of the same source. Which packages ship fixtures, and the full target list, are in [tests/README.md](../tests/README.md).
 

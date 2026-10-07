@@ -652,7 +652,7 @@ generate-test-registry:
 # (echo's \033 handling is shell-dependent; printf's is portable).
 
 define RUN_PYTHON_TEST_REGISTRY
-	@. scripts/lib/colors.sh; \
+	@. scripts/lib/colors.sh; . scripts/lib/test_tally.sh; \
 	export MODEL='$(MODEL)' SIMULATION='$(SIMULATION)'; \
 	FAILED=0; \
 	FAILED_TESTS=""; \
@@ -663,31 +663,17 @@ define RUN_PYTHON_TEST_REGISTRY
 		if [ "$(TEST_SUMMARY)" != "1" ]; then \
 			echo ""; \
 			printf "$${BLUE}Running: %s$${NC}\n" "$$test"; \
-			if ! $(PYTHON) $$test; then \
-				FAILED=1; \
-				FAILED_TESTS="$$FAILED_TESTS $$test"; \
-			fi; \
-		else \
-			output_file=$$(mktemp); \
-			if $(PYTHON) $$test > "$$output_file" 2>&1; then \
-				grep "^MIMIC_RESULT: \(FAIL\|SKIP\|WARN\|ERROR\)" "$$output_file" || true; \
-				rm -f "$$output_file"; \
-			else \
-				if grep -q "^MIMIC_RESULT:" "$$output_file"; then \
-					grep "^MIMIC_RESULT: \(FAIL\|SKIP\|WARN\|ERROR\)" "$$output_file" || true; \
-				else \
-					cat "$$output_file"; \
-				fi; \
-				rm -f "$$output_file"; \
-				FAILED=1; \
-				FAILED_TESTS="$$FAILED_TESTS $$test"; \
-			fi; \
+		fi; \
+		if ! run_tallied $(PYTHON) $$test; then \
+			FAILED=1; \
+			FAILED_TESTS="$$FAILED_TESTS $$test"; \
 		fi; \
 	done; \
 	$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) generate >/dev/null 2>&1 || true; \
 	if [ "$(TEST_SUMMARY)" != "1" ]; then \
 		echo ""; \
 	fi; \
+	print_tally_line $(3); \
 	if [ $$FAILED -eq 1 ]; then \
 		mkdir -p build; \
 		for test in $$FAILED_TESTS; do \
@@ -726,19 +712,25 @@ define RUN_SUMMARY_AWARE
 endef
 
 # For infrastructure steps that should not abort the top-level aggregate target:
-# silence successful runs, show failed command output, then record the suite label.
+# silence successful runs, show failed command output under a heading naming the check
+# (before the captured output in summary mode, after the streamed output otherwise),
+# then record the suite label.
 define RUN_SUMMARY_AWARE_RECORD
-	@if [ "$(TEST_SUMMARY)" = "1" ]; then \
+	@. scripts/lib/colors.sh; \
+	if [ "$(TEST_SUMMARY)" = "1" ]; then \
 		output_file=$$(mktemp); \
 		if $(1) > "$$output_file" 2>&1; then \
 			rm -f "$$output_file"; \
 		else \
+			printf "$${RED}=== CHECK FAILED: $(2) ===$${NC}\n"; \
 			cat "$$output_file"; \
 			rm -f "$$output_file"; \
+			echo ""; \
 			grep -qxF "$(2)" build/.test_failures 2>/dev/null || echo "$(2)" >> build/.test_failures; \
 		fi; \
 	else \
 		if ! $(1); then \
+			printf "$${RED}=== CHECK FAILED: $(2) ===$${NC}\n"; \
 			grep -qxF "$(2)" build/.test_failures 2>/dev/null || echo "$(2)" >> build/.test_failures; \
 		fi; \
 	fi
@@ -758,14 +750,14 @@ tests:
 	$(call RUN_SUMMARY_AWARE,$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) USE-HDF5=yes,build)
 	@mkdir -p build
 	@rm -f build/.test_failures
-	@if [ "$(TEST_SUMMARY)" != "1" ]; then echo ""; fi
+	@echo ""
 	$(call RUN_SUMMARY_AWARE_RECORD,$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) check-docs,docs)
 	@if [ "$(TEST_SUMMARY)" != "1" ]; then echo ""; fi
 	$(call RUN_SUMMARY_AWARE_RECORD,$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) validate-modules,validate-modules)
 	@if [ "$(TEST_SUMMARY)" != "1" ]; then echo ""; fi
 	$(call RUN_SUMMARY_AWARE_RECORD,$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) check-horizontal-fixture,check-horizontal-fixture)
 	@if [ "$(TEST_SUMMARY)" != "1" ]; then echo ""; fi
-	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) tests-converter || { grep -qx converter build/.test_failures 2>/dev/null || echo "converter" >> build/.test_failures; true; }
+	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) tests-converter || { grep -q '^converter:' build/.test_failures 2>/dev/null || grep -qx converter build/.test_failures 2>/dev/null || echo "converter" >> build/.test_failures; true; }
 	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) tests-unit || { grep -q '^unit:' build/.test_failures 2>/dev/null || grep -qx unit build/.test_failures 2>/dev/null || echo "unit" >> build/.test_failures; true; }
 	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) tests-integration || { grep -q '^integration:' build/.test_failures 2>/dev/null || grep -qx integration build/.test_failures 2>/dev/null || echo "integration" >> build/.test_failures; true; }
 	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) tests-scientific || { grep -q '^scientific:' build/.test_failures 2>/dev/null || grep -qx scientific build/.test_failures 2>/dev/null || echo "scientific" >> build/.test_failures; true; }
@@ -796,12 +788,34 @@ tests:
 # not activated in the calling shell.
 CONVERTER_PYTHON := $(shell if [ -f mimic_venv/bin/python3 ]; then echo mimic_venv/bin/python3; else echo python3; fi)
 tests-converter:
-	@if [ "$(TEST_SUMMARY)" != "1" ]; then echo ""; fi
 	@. scripts/lib/colors.sh; \
 	printf "$${BLUE}============================================================$${NC}\n"; \
 	printf "$${BLUE}RUNNING CONVERTER TESTS$${NC}\n"; \
 	printf "$${BLUE}============================================================$${NC}\n"
-	$(call RUN_SUMMARY_AWARE,$(CONVERTER_PYTHON) -m unittest discover -s convert/mimic-convert/tests,converter tests)
+	@. scripts/lib/colors.sh; . scripts/lib/test_tally.sh; \
+	run_tallied env PYTHONPATH=tests $(CONVERTER_PYTHON) -m framework.unittest_runner \
+	    convert/mimic-convert/tests; \
+	rc=$$?; \
+	print_tally_line Converter; \
+	if [ $$rc -ne 0 ]; then \
+		mkdir -p build; \
+		failed_modules=$$(printf '%s\n' $$TALLY_FAIL_NAMES \
+		    | sed 's/^unittest\.loader\._FailedTest\.//; s/\..*//' | sort -u); \
+		for module in $$failed_modules; do \
+			failure="converter: convert/mimic-convert/tests/$$module.py"; \
+			grep -qxF "$$failure" build/.test_failures 2>/dev/null || echo "$$failure" >> build/.test_failures; \
+		done; \
+		printf "$${RED}=== TLDR: CONVERTER TESTS FAILED ===$${NC}\n"; \
+		printf "$${RED}Failed tests:$${NC}\n"; \
+		for module in $$failed_modules; do \
+			echo "  - convert/mimic-convert/tests/$$module.py"; \
+		done; \
+		echo ""; \
+		exit 1; \
+	else \
+		printf "$${GREEN}=== TLDR: ALL CONVERTER TESTS PASSED ===$${NC}\n"; \
+		echo ""; \
+	fi
 
 # Structural conformance of the committed horizontal-HDF5 contract fixture
 # (simulations/micro-uchuu-ascii-horizontal/_tests/data/) against the frozen format
@@ -811,7 +825,6 @@ check-horizontal-fixture:
 	$(call RUN_SUMMARY_AWARE,$(CONVERTER_PYTHON) simulations/micro-uchuu-ascii-horizontal/_tests/input/check_fixture_conformance.py simulations/micro-uchuu-ascii-horizontal/_tests/data,horizontal fixture conformance)
 
 tests-unit:
-	@if [ "$(TEST_SUMMARY)" != "1" ]; then echo ""; fi
 	@. scripts/lib/colors.sh; \
 	printf "$${BLUE}============================================================$${NC}\n"; \
 	printf "$${BLUE}RUNNING UNIT TESTS$${NC}\n"; \
@@ -845,16 +858,17 @@ tests-scientific:
 	$(call RUN_PYTHON_TIER,scientific,SCIENTIFIC VALIDATION,SCIENTIFIC)
 
 # Version 3 horizontal fixture battery. These tests only run under
-# SIMULATION=mini-millennium-horizontal (they skip under the default pair), so
+# SIMULATION=mini-millennium-horizontal (they do not apply under the default pair), so
 # this target builds that pair itself, runs exactly the fixture-backed C and
 # Python tests, and fails on any non-zero exit or any unexpected
-# `MIMIC_RESULT: SKIP`. test_int_link_package_rejects_v3 skips by design under
-# this package (the compiled package stores links as long long). Needs no real
-# dataset. Keep it narrow: the whole integration tier also runs under this
-# pair on committed fixtures, but it legitimately skips its vertical-only
-# tests, which this target's no-unexpected-SKIP gate would reject. The
-# generated code is regenerated for the caller's MODEL/SIMULATION on every
-# path, including a failed build, so the tree is never left bound to the
+# `MIMIC_RESULT: SKIP` or `MIMIC_RESULT: NA` (every case here is meant to apply,
+# so an NA means a guard is wrong). test_int_link_package_rejects_v3 is the one
+# allowlisted NA: it does not apply under this package (the compiled package
+# stores links as long long). Needs no real dataset. Keep it narrow: the whole
+# integration tier also runs under this pair on committed fixtures, but its
+# vertical-only tests are legitimately NA there, which this target's gate would
+# reject. The generated code is regenerated for the caller's MODEL/SIMULATION on
+# every path, including a failed build, so the tree is never left bound to the
 # horizontal pair; rebuild the executable with `make`. run_tests.sh refreshes
 # the test registry and inputs itself.
 HV3_MODEL := halos-only
@@ -871,10 +885,14 @@ tests-horizontal-v3:
 	for test in $(HV3_PY_TESTS); do \
 		MODEL='$(HV3_MODEL)' SIMULATION='$(HV3_SIMULATION)' $(PYTHON) $$test >> $(HV3_LOG) 2>&1 || rc=1; \
 	done; \
-	skips=$$(grep '^MIMIC_RESULT: SKIP' $(HV3_LOG) | grep -v 'test_int_link_package_rejects_v3'); \
-	if [ -n "$$skips" ]; then echo "Unexpected skips:"; echo "$$skips"; rc=1; fi; \
+	skips=$$(grep -E '^MIMIC_RESULT: (SKIP|NA) ' $(HV3_LOG) \
+		| grep -v -E '^MIMIC_RESULT: NA test_int_link_package_rejects_v3 '); \
+	if [ -n "$$skips" ]; then \
+		echo "Unexpected skips or not-applicable cases:"; echo "$$skips"; rc=1; \
+	fi; \
 	if [ $$rc -ne 0 ]; then echo "FAIL: tests-horizontal-v3 (see $(HV3_LOG))"; \
-	else echo "PASS: tests-horizontal-v3 ($(words $(HV3_UNIT_TESTS)) C tests, $(words $(HV3_PY_TESTS)) Python tests, no unexpected skips)"; fi; \
+	else echo "PASS: tests-horizontal-v3 ($(words $(HV3_UNIT_TESTS)) C tests," \
+		"$(words $(HV3_PY_TESTS)) Python tests, no unexpected skips or N/A)"; fi; \
 	echo $$rc > build/.horizontal_v3_status
 	$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) generate
 	@echo "Generated code restored for MODEL=$(MODEL) SIMULATION=$(SIMULATION); rebuild the executable with 'make'."

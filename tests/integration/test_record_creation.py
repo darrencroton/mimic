@@ -174,9 +174,9 @@ def _output_pair():
                 break
         if not _pair:
             raise TestSkipped(
-                "configuration SKIP: the selected package's committed fixture has no two "
-                "consecutive output snapshots with a Type 0 host whose galaxy continues from the "
-                "first to the second, so creation and inheritance cannot both be observed"
+                "the selected package's committed fixture has no two consecutive output "
+                "snapshots with a Type 0 host whose galaxy continues from the first to the "
+                "second, so creation and inheritance cannot both be observed"
             )
     return list(_pair)
 

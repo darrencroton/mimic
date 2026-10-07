@@ -7,7 +7,10 @@ with the marker protocol (markers.py) only through their outcome:
   - return None              -> MIMIC_RESULT: PASS
   - return a non-empty str   -> MIMIC_RESULT: WARN with that reason
                                 (counts as a pass; the suite stays green)
-  - raise TestSkipped(...)   -> MIMIC_RESULT: SKIP
+  - raise TestSkipped(...)   -> MIMIC_RESULT: SKIP (applies here, cannot run: stays visible)
+  - raise TestNotApplicable(...)
+                             -> MIMIC_RESULT: NA (does not apply to the selected pair:
+                                suppressed in summary mode, never a failure)
   - raise AssertionError     -> MIMIC_RESULT: FAIL
   - raise anything else      -> MIMIC_RESULT: ERROR
 
@@ -17,10 +20,23 @@ This keeps the protocol's one-marker-per-test contract intact.
 import os
 import sys
 
-from .markers import TestSkipped, result_error, result_fail, result_pass, result_skip, result_warn
+from .markers import (
+    TestNotApplicable,
+    TestSkipped,
+    result_error,
+    result_fail,
+    result_na,
+    result_pass,
+    result_skip,
+    result_warn,
+)
 
 # Suppress color when stdout is not a terminal or NO_COLOR is set (mirrors scripts/console.py).
-_COLOR = sys.stdout.isatty() and "NO_COLOR" not in os.environ
+# MIMIC_FORCE_COLOR=1 comes from scripts/lib/test_tally.sh, which tees a test's output to a
+# terminal: the pipe must not strip the colour the developer would otherwise see.
+_COLOR = (
+    sys.stdout.isatty() or os.environ.get("MIMIC_FORCE_COLOR") == "1"
+) and "NO_COLOR" not in os.environ
 BLUE = "\033[1;34m" if _COLOR else ""
 GREEN = "\033[0;32m" if _COLOR else ""
 RED = "\033[0;31m" if _COLOR else ""
@@ -52,7 +68,8 @@ def run_test_suite(tests, title, abort_on_failure=False):
             test silently disappears from the record.
 
     Returns:
-        int: 0 if no test failed (warnings and skips allowed), 1 otherwise.
+        int: 0 if no test failed (warnings, skips and not-applicable cases
+            allowed), 1 otherwise.
             Suitable for sys.exit().
     """
     print(f"{BLUE}{'=' * 60}{NC}")
@@ -63,6 +80,7 @@ def run_test_suite(tests, title, abort_on_failure=False):
     passed = 0
     failed = 0
     skipped = 0
+    not_applicable = 0
     warned = 0
 
     for index, test in enumerate(tests):
@@ -78,6 +96,9 @@ def run_test_suite(tests, title, abort_on_failure=False):
         except TestSkipped as exc:
             result_skip(test.__name__, _first_line(exc))
             skipped += 1
+        except TestNotApplicable as exc:
+            result_na(test.__name__, _first_line(exc))
+            not_applicable += 1
         except AssertionError as exc:
             result_fail(test.__name__, _first_line(exc))
             failed += 1
@@ -100,8 +121,10 @@ def run_test_suite(tests, title, abort_on_failure=False):
         print(f"Warned:  {warned}")
     if skipped:
         print(f"Skipped: {skipped}")
+    if not_applicable:
+        print(f"N/A:     {not_applicable}")
     print(f"Failed:  {failed}")
-    print(f"Total:   {passed + failed + skipped}")
+    print(f"Total:   {passed + failed + skipped + not_applicable}")
     print(f"{BLUE}{'=' * 60}{NC}")
     print()
 

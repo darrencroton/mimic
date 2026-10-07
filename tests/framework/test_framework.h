@@ -49,12 +49,13 @@
 /* Per-translation-unit framework state. Test files own 'passed'/'failed'
  * (see TEST_RUN); the framework owns these. */
 static int test_skips __attribute__((unused)) = 0;
+static int test_nas __attribute__((unused)) = 0;
 static const char *test_skip_reason __attribute__((unused)) = "";
 static int test_fail_marked __attribute__((unused)) = 0;
 
 /**
- * @def     TEST_MARKER_PASS / TEST_MARKER_FAIL / TEST_MARKER_SKIP / TEST_MARKER_WARN /
- * TEST_MARKER_ERROR
+ * @def     TEST_MARKER_PASS / TEST_MARKER_FAIL / TEST_MARKER_SKIP / TEST_MARKER_NA /
+ * TEST_MARKER_WARN / TEST_MARKER_ERROR
  * @brief   Emit a structured MIMIC_RESULT: line for summary-mode filtering.
  *
  * These are the only lines the summary filter matches — no natural-language
@@ -81,6 +82,7 @@ static int test_fail_marked __attribute__((unused)) = 0;
     test_fail_marked = 1;                                                                          \
   } while (0)
 #define TEST_MARKER_SKIP(name, reason) TEST_MARKER_WITH_REASON("SKIP", (name), (reason))
+#define TEST_MARKER_NA(name, reason) TEST_MARKER_WITH_REASON("NA", (name), (reason))
 #define TEST_MARKER_WARN(name, msg) TEST_MARKER_WITH_REASON("WARN", (name), (msg))
 #define TEST_MARKER_ERROR(name, msg) TEST_MARKER_WITH_REASON("ERROR", (name), (msg))
 
@@ -170,10 +172,11 @@ static int test_fail_marked __attribute__((unused)) = 0;
  * @brief   Run a test function and track results
  *
  * @param   test_func   Test function to execute; returns TEST_PASS, TEST_FAIL,
- *                      or TEST_SKIP (see those macros)
+ *                      TEST_SKIP, or TEST_NA (see those macros)
  *
- * Automatically increments 'passed' or 'failed' counters (skips are tracked
- * by the framework and reported by TEST_SUMMARY; they count as neither).
+ * Automatically increments 'passed' or 'failed' counters (skips and
+ * not-applicable cases are tracked by the framework and reported by
+ * TEST_SUMMARY; they count as neither, and neither is a failure).
  * Requires: static int passed = 0, failed = 0; in the file scope.
  *
  * Every outcome emits a MIMIC_RESULT marker: assertion failures emit theirs
@@ -200,6 +203,10 @@ static int test_fail_marked __attribute__((unused)) = 0;
       printf("– SKIP\n");                                                                          \
       TEST_MARKER_SKIP(#test_func, test_skip_reason[0] ? test_skip_reason : "skipped");            \
       test_skips++;                                                                                \
+    } else if (test_run_rc == TEST_NA) {                                                           \
+      printf("– N/A\n");                                                                           \
+      TEST_MARKER_NA(#test_func, test_skip_reason[0] ? test_skip_reason : "not applicable");       \
+      test_nas++;                                                                                  \
     } else {                                                                                       \
       printf("✗ FAIL\n");                                                                          \
       if (!test_fail_marked) {                                                                     \
@@ -229,8 +236,11 @@ static int test_fail_marked __attribute__((unused)) = 0;
     if (test_skips > 0) {                                                                          \
       printf("Skipped: %d\n", test_skips);                                                         \
     }                                                                                              \
+    if (test_nas > 0) {                                                                            \
+      printf("N/A: %d\n", test_nas);                                                               \
+    }                                                                                              \
     printf("Failed: %d\n", failed);                                                                \
-    printf("Total:  %d\n", passed + test_skips + failed);                                          \
+    printf("Total:  %d\n", passed + test_skips + test_nas + failed);                               \
     printf("%s", BLUE);                                                                            \
     printf("============================================================\n");                      \
     printf("%s\n", NC);                                                                            \
@@ -253,16 +263,25 @@ static int test_fail_marked __attribute__((unused)) = 0;
 #define TEST_RESULT() (failed > 0 ? 1 : 0)
 
 /**
- * @def     TEST_PASS / TEST_FAIL / TEST_SKIP
+ * @def     TEST_PASS / TEST_FAIL / TEST_SKIP / TEST_NA
  * @brief   Return-value vocabulary for test functions run via TEST_RUN.
  *
  * Return TEST_SKIP (optionally via TEST_SKIP_WITH for a reason) from a test
- * that cannot run in this configuration; TEST_RUN emits the SKIP marker so
- * the skip stays visible in summary mode instead of masquerading as a pass.
+ * that applies to this configuration but cannot run (HDF5 not built, data
+ * missing, a fixture absent); TEST_RUN emits the SKIP marker so the skip stays
+ * visible in summary mode instead of masquerading as a pass.
+ *
+ * Return TEST_NA (via TEST_NA_WITH) from a test that does not apply to the
+ * selected MODEL/SIMULATION pair, where that is a deterministic consequence of
+ * the pair (package kind, processing order, the compiled package against the
+ * one a fixture was built for). TEST_RUN emits the NA marker, which summary
+ * mode suppresses like PASS. Never use it for a missing environment or missing
+ * data: that must stay a SKIP so it stays loud.
  */
 #define TEST_PASS 0
 #define TEST_FAIL 1
 #define TEST_SKIP 2
+#define TEST_NA 3
 
 /**
  * @def     TEST_SKIP_WITH
@@ -272,5 +291,16 @@ static int test_fail_marked __attribute__((unused)) = 0;
  *   return TEST_SKIP_WITH("requires process isolation");
  */
 #define TEST_SKIP_WITH(reason) (test_skip_reason = (reason), TEST_SKIP)
+
+/**
+ * @def     TEST_NA_WITH
+ * @brief   Mark the current test not applicable to the selected pair, with a
+ *          reason shown in the NA marker (shares the reason buffer with
+ *          TEST_SKIP_WITH).
+ *
+ * Usage:
+ *   return TEST_NA_WITH("applies only to a horizontal package");
+ */
+#define TEST_NA_WITH(reason) (test_skip_reason = (reason), TEST_NA)
 
 #endif /* TEST_FRAMEWORK_H */
