@@ -728,6 +728,10 @@ python plot/mimic-plot/mimic-plot.py --param-file=models/sage16/input/sage16_min
 python plot/mimic-plot/mimic-plot.py --param-file=models/sage16/input/sage16_mini-millennium.yaml \
     --plots=halo_mass_function,stellar_mass_function
 
+# Everything except the named plots (names must be registered by the model; unknown names are an error)
+python plot/mimic-plot/mimic-plot.py --param-file=models/sage16/input/sage16_mini-millennium.yaml \
+    --exclude=baryon_fraction
+
 # Single-snapshot plots only, or evolution-across-redshift plots only
 python plot/mimic-plot/mimic-plot.py --param-file=models/sage16/input/sage16_mini-millennium.yaml \
     --snapshot-plots

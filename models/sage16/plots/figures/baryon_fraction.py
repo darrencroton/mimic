@@ -124,90 +124,56 @@ def plot(
     halo_mass = np.full(len(galaxies), -np.inf)  # Initialize with negative infinity
     halo_mass[valid_mvir] = np.log10(galaxies.Mvir[valid_mvir] * 1.0e10 / hubble_h)
 
+    # Sum each baryonic component over every galaxy sharing a central's UniqueCentralGalaxyID in
+    # one pass. A group-by with np.unique + np.bincount keeps this O(N log N) in the galaxy count,
+    # where scanning the whole member list once per central is quadratic per mass bin.
+    _, group_of_galaxy = np.unique(galaxies.UniqueCentralGalaxyID, return_inverse=True)
+    n_groups = int(group_of_galaxy.max()) + 1
+
+    component_fields = {
+        "stars": (has_stellar, "StellarMass"),
+        "cold": (has_cold, "ColdGas"),
+        "hot": (has_hot, "HotGas"),
+        "ejected": (has_ejected, "EjectedGas"),
+        "ics": (has_ics, "ICS"),
+        "bh": (has_bh, "BlackHoleMass"),
+    }
+
+    # Per-central baryon fractions: each central takes the full sum of its group, so two
+    # centrals carrying the same UniqueCentralGalaxyID share one group sum.
+    central_indices = np.flatnonzero(central_mask)
+    central_group = group_of_galaxy[central_indices]
+    central_mvir = galaxies.Mvir[central_indices].astype(np.float64)
+    central_log_mass = halo_mass[central_indices]
+    fractions = {}
+    for name, (available, field) in component_fields.items():
+        if available:
+            group_sum = np.bincount(
+                group_of_galaxy, weights=galaxies[field].astype(np.float64), minlength=n_groups
+            )
+            fractions[name] = group_sum[central_group] / central_mvir
+        else:
+            fractions[name] = np.zeros(len(central_indices))
+    fractions["baryons"] = sum(fractions[name] for name in component_fields)
+
     # Loop through halo mass bins
     for i in range(nbins):
         # Get central galaxies in this mass bin
-        bin_mask = central_mask & (halo_mass >= halo_bins[i]) & (halo_mass < halo_bins[i + 1])
-        centrals_in_bin = np.where(bin_mask)[0]
+        in_bin = (central_log_mass >= halo_bins[i]) & (central_log_mass < halo_bins[i + 1])
 
         # Skip if not enough central galaxies in this bin
-        if len(centrals_in_bin) < 3:  # Require at least 3 galaxies for statistics
+        if np.count_nonzero(in_bin) < 3:  # Require at least 3 galaxies for statistics
             continue
 
-        # Get central indices for galaxies in this bin
-        central_indices_in_bin = galaxies.UniqueCentralGalaxyID[centrals_in_bin]
-
-        # Create masks for all galaxies belonging to these centrals
-        central_groups = np.isin(galaxies.UniqueCentralGalaxyID, central_indices_in_bin)
-
-        # Extract baryonic components for all groups at once (only if available)
-        group_central_indices = galaxies.UniqueCentralGalaxyID[central_groups]
-
-        # Get available components
-        group_data = {}
-        if has_stellar:
-            group_data["stellar"] = galaxies.StellarMass[central_groups]
-        if has_cold:
-            group_data["cold"] = galaxies.ColdGas[central_groups]
-        if has_hot:
-            group_data["hot"] = galaxies.HotGas[central_groups]
-        if has_ejected:
-            group_data["ejected"] = galaxies.EjectedGas[central_groups]
-        if has_ics:
-            group_data["ics"] = galaxies.ICS[central_groups]
-        if has_bh:
-            group_data["bh"] = galaxies.BlackHoleMass[central_groups]
-
-        # Initialize arrays to hold the sums for each central
-        baryon_fractions = np.zeros(len(centrals_in_bin))
-        stellar_fractions = np.zeros(len(centrals_in_bin))
-        cold_fractions = np.zeros(len(centrals_in_bin))
-        hot_fractions = np.zeros(len(centrals_in_bin))
-        ejected_fractions = np.zeros(len(centrals_in_bin))
-        ics_fractions = np.zeros(len(centrals_in_bin))
-        bh_fractions = np.zeros(len(centrals_in_bin))
-        halo_masses = np.zeros(len(centrals_in_bin))
-
-        # Process each central galaxy in the bin
-        for j, central_idx in enumerate(centrals_in_bin):
-            central_gal_index = galaxies.UniqueCentralGalaxyID[central_idx]
-
-            # Find all galaxies in this halo
-            group_mask = group_central_indices == central_gal_index
-
-            if np.any(group_mask):
-                # Sum components across all galaxies in the halo (only available ones)
-                stars = np.sum(group_data["stellar"][group_mask]) if has_stellar else 0.0
-                cold = np.sum(group_data["cold"][group_mask]) if has_cold else 0.0
-                hot = np.sum(group_data["hot"][group_mask]) if has_hot else 0.0
-                ejected = np.sum(group_data["ejected"][group_mask]) if has_ejected else 0.0
-                ics = np.sum(group_data["ics"][group_mask]) if has_ics else 0.0
-                bh = np.sum(group_data["bh"][group_mask]) if has_bh else 0.0
-
-                # Total baryons (only sum what's available)
-                baryons = stars + cold + hot + ejected + ics + bh
-
-                # Calculate fractions relative to halo mass
-                baryon_fractions[j] = baryons / galaxies.Mvir[central_idx]
-                stellar_fractions[j] = stars / galaxies.Mvir[central_idx]
-                cold_fractions[j] = cold / galaxies.Mvir[central_idx]
-                hot_fractions[j] = hot / galaxies.Mvir[central_idx]
-                ejected_fractions[j] = ejected / galaxies.Mvir[central_idx]
-                ics_fractions[j] = ics / galaxies.Mvir[central_idx]
-                bh_fractions[j] = bh / galaxies.Mvir[central_idx]
-
-                # Store the central halo mass (log10, in Msun)
-                halo_masses[j] = np.log10(galaxies.Mvir[central_idx] * 1.0e10 / hubble_h)
-
         # Calculate means for this bin
-        central_halo_mass.append(np.mean(halo_masses))
-        mean_baryon_fraction.append(np.mean(baryon_fractions))
-        mean_stars.append(np.mean(stellar_fractions))
-        mean_cold.append(np.mean(cold_fractions))
-        mean_hot.append(np.mean(hot_fractions))
-        mean_ejected.append(np.mean(ejected_fractions))
-        mean_ics.append(np.mean(ics_fractions))
-        mean_bh.append(np.mean(bh_fractions))
+        central_halo_mass.append(np.mean(central_log_mass[in_bin]))
+        mean_baryon_fraction.append(np.mean(fractions["baryons"][in_bin]))
+        mean_stars.append(np.mean(fractions["stars"][in_bin]))
+        mean_cold.append(np.mean(fractions["cold"][in_bin]))
+        mean_hot.append(np.mean(fractions["hot"][in_bin]))
+        mean_ejected.append(np.mean(fractions["ejected"][in_bin]))
+        mean_ics.append(np.mean(fractions["ics"][in_bin]))
+        mean_bh.append(np.mean(fractions["bh"][in_bin]))
 
     # Convert to numpy arrays
     central_halo_mass = np.array(central_halo_mass)

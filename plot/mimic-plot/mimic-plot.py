@@ -1025,6 +1025,10 @@ def parse_arguments():
         "--plots", help="Comma-separated list of plots to generate (default: all available plots)"
     )
     parser.add_argument(
+        "--exclude",
+        help="Comma-separated list of plots to leave out (applied after --plots)",
+    )
+    parser.add_argument(
         "--use-tex",
         action="store_true",
         help="Use LaTeX for text rendering (not recommended)",
@@ -1269,15 +1273,55 @@ def resolve_file_range(params, args):
     return first_file, last_file
 
 
+def parse_plot_names(text):
+    """Split a comma-separated plot list, stripping whitespace and dropping empty entries."""
+    return [name.strip() for name in text.split(",") if name.strip()]
+
+
+def resolve_plot_selection(plots_arg, exclude_arg):
+    """Resolve --plots and --exclude against the active model's figure registry.
+
+    ``--plots`` picks the candidate set (``"all"`` means every registered figure) and
+    ``--exclude`` removes names from it. Every named plot must be registered in the model's
+    ``SNAPSHOT_PLOTS`` or ``EVOLUTION_PLOTS`` (the model's full figure inventory; the active
+    profile then decides which selected figures run); an unknown name or an explicitly empty
+    ``--plots`` is fatal.
+
+    Returns ``(selected_plots, excluded_plots)``. ``selected_plots`` is None when nothing
+    restricts the run (every plot in the profile runs), otherwise the list of plots allowed to
+    run, which may be empty. ``excluded_plots`` is the de-duplicated ``--exclude`` list.
+    """
+    registry = list(dict.fromkeys(SNAPSHOT_PLOTS + EVOLUTION_PLOTS))
+    chosen = None if plots_arg == "all" else parse_plot_names(plots_arg)
+    if chosen == []:
+        error(f"--plots names no plots. Valid plots: {', '.join(registry)}")
+        sys.exit(1)
+    excluded = list(dict.fromkeys(parse_plot_names(exclude_arg or "")))
+
+    for flag, names in (("--plots", chosen or []), ("--exclude", excluded)):
+        unknown = [name for name in names if name not in registry]
+        if unknown:
+            error(
+                f"Unknown plot name(s) in {flag}: {', '.join(unknown)}. "
+                f"Valid plots: {', '.join(registry)}"
+            )
+            sys.exit(1)
+
+    if not excluded:
+        return chosen, []
+    candidates = registry if chosen is None else chosen
+    return [name for name in candidates if name not in excluded], excluded
+
+
 def run_plot_modules(plot_modules, selected_plots, gate_galaxies, call_kwargs, skip_label, args):
     """Filter and run a set of plot modules, returning (created_paths, skipped_validation).
 
-    Plots are filtered to ``selected_plots`` (when given) and then to those whose declared
-    PLOT_REQUIREMENTS are satisfied by ``gate_galaxies``; unsatisfied plots are reported as
-    a "missing properties" skip. Each remaining plot is called with ``call_kwargs`` and its
-    ``(path, skip_msg)`` return is recorded.
+    Plots are filtered to ``selected_plots`` (when not None; an empty list selects nothing) and
+    then to those whose declared PLOT_REQUIREMENTS are satisfied by ``gate_galaxies``;
+    unsatisfied plots are reported as a "missing properties" skip. Each remaining plot is called
+    with ``call_kwargs`` and its ``(path, skip_msg)`` return is recorded.
     """
-    if selected_plots:
+    if selected_plots is not None:
         plot_modules = {k: v for k, v in plot_modules.items() if k in selected_plots}
 
     available_plots = {}
@@ -1324,10 +1368,22 @@ def run_plot_modules(plot_modules, selected_plots, gate_galaxies, call_kwargs, s
 def generate_snapshot_plots(params, args, output_dir, selected_plots):
     """Read the requested snapshot and generate its plots.
 
+    Returns at once, reading nothing, when no registered snapshot figure is selected.
+
     Returns (created_paths, skipped_validation, data_available).
     """
     if not args.quiet:
         print_phase("SNAPSHOT PLOTS")
+
+    plot_modules = get_available_plot_modules("snapshot", args.verbose)
+    if args.verbose:
+        print(f"Available snapshot plots: {', '.join(plot_modules.keys())}")
+    if selected_plots is not None:
+        plot_modules = {k: v for k, v in plot_modules.items() if k in selected_plots}
+    if not plot_modules:
+        if not args.quiet:
+            print("No snapshot plots are registered or selected; skipping the snapshot stage.")
+        return [], {}, False
 
     model_path = params["OutputDir"]
     snapshot = args.snapshot if args.snapshot is not None else params.get("LastSnapshotNr")
@@ -1388,9 +1444,6 @@ def generate_snapshot_plots(params, args, output_dir, selected_plots):
             print("")
         return [], {}, False
 
-    plot_modules = get_available_plot_modules("snapshot", args.verbose)
-    if args.verbose:
-        print(f"Available snapshot plots: {', '.join(plot_modules.keys())}")
     call_kwargs = dict(
         galaxies=galaxies,
         volume=volume,
@@ -1413,8 +1466,8 @@ def resolve_evolution_read_fields(plot_modules, selected_plots, evolution_plot_f
 
     Args:
         plot_modules: Dict of plot name -> plot function for the active profile
-        selected_plots: Optional set/list restricting which plots will run (--plots=),
-            or None/empty to mean every plot in plot_modules
+        selected_plots: Optional set/list restricting which plots will run (--plots= and
+            --exclude=), where None means every plot in plot_modules and an empty list none
         evolution_plot_fields: Dict of plot name -> required galaxy field names
             (e.g. the model's EVOLUTION_PLOT_FIELDS registry)
 
@@ -1423,7 +1476,7 @@ def resolve_evolution_read_fields(plot_modules, selected_plots, evolution_plot_f
         every candidate plot (the conservative fallback: read every field).
     """
     candidate_plots = [
-        name for name in plot_modules if not selected_plots or name in selected_plots
+        name for name in plot_modules if selected_plots is None or name in selected_plots
     ]
     if not candidate_plots or not all(name in evolution_plot_fields for name in candidate_plots):
         return None
@@ -1446,7 +1499,7 @@ def generate_evolution_plots(params, args, output_dir, selected_plots):
     plot_modules = get_available_plot_modules("evolution", args.verbose)
     if args.verbose:
         print(f"Available evolution plots: {', '.join(plot_modules.keys())}")
-    if selected_plots:
+    if selected_plots is not None:
         plot_modules = {k: v for k, v in plot_modules.items() if k in selected_plots}
     if not plot_modules:
         if not args.quiet:
@@ -1568,9 +1621,18 @@ def generate_evolution_plots(params, args, output_dir, selected_plots):
 
 
 def print_run_summary(
-    args, output_dir, snapshot_created, snapshot_skipped, evolution_created, evolution_skipped
+    args,
+    output_dir,
+    snapshot_created,
+    snapshot_skipped,
+    evolution_created,
+    evolution_skipped,
+    excluded_plots=(),
 ):
-    """Print the optional SKIPPED PLOTS detail and the final COMPLETE summary."""
+    """Print the optional SKIPPED PLOTS detail and the final COMPLETE summary.
+
+    ``excluded_plots`` (the --exclude names) is reported on its own line, apart from skipped.
+    """
     total_skipped = 0
     if args.snapshot_plots:
         total_skipped += len(snapshot_skipped)
@@ -1609,6 +1671,8 @@ def print_run_summary(
 
     print(f"Plots created   : {total_plots}")
     print(f"Skipped plots   : {total_skipped} (run with --verbose flag for details)")
+    if excluded_plots:
+        print(f"Excluded plots  : {len(excluded_plots)} ({', '.join(excluded_plots)})")
     print(f"Output location : {output_dir}")
 
 
@@ -1623,10 +1687,10 @@ def main():
     if not args.quiet:
         print_phase("CONFIGURATION")
     params = load_and_validate_config(args)
-    output_dir = resolve_paths(params, args)
 
-    # Determine which plots to generate
-    selected_plots = None if args.plots == "all" else [p.strip() for p in args.plots.split(",")]
+    # Determine which plots to generate (fails early on an unknown plot name).
+    selected_plots, excluded_plots = resolve_plot_selection(args.plots, args.exclude)
+    output_dir = resolve_paths(params, args)
 
     # Show simple progress message in quiet mode
     if args.quiet:
@@ -1654,6 +1718,7 @@ def main():
         snapshot_skipped,
         evolution_created,
         evolution_skipped,
+        excluded_plots,
     )
 
 

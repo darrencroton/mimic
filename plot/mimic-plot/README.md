@@ -93,6 +93,9 @@ python mimic-plot.py --param-file=/path/to/mimic_params.yaml
 # Generate specific plots from both types
 python mimic-plot.py --param-file=/path/to/mimic_params.yaml --plots=halo_mass_function,hmf_evolution
 
+# Generate every plot except the named ones
+python mimic-plot.py --param-file=/path/to/mimic_params.yaml --exclude=baryon_fraction
+
 # Generate only snapshot plots
 python mimic-plot.py --param-file=/path/to/mimic_params.yaml --snapshot-plots
 
@@ -119,6 +122,8 @@ deactivate
 --output-dir=<dir>     Output directory for plots [default: <OutputDir>/plots]
 --format=<format>      Output format (.png, .pdf) [default: .png]
 --plots=<list>         Comma-separated list of plots to generate [default: all]
+--exclude=<list>       Comma-separated list of plots to leave out, applied after --plots
+                       (both options reject names the model does not register)
 --use-tex              Use LaTeX for text rendering (not recommended)
 --verbose, -v          Show detailed output including skipped plots
 --quiet, -q            Show minimal output (only summary)
@@ -561,7 +566,7 @@ plot/mimic-plot/tests/test_plotting.sh
 
 - **`test_validation_helpers.py`**: Unit tests for plot validation functions (16 tests covering edge cases, thresholds, and error handling)
 - **`test_correlation_function.py`**: Unit tests for the real-space correlation-function helpers in `output_utils.py` (grid counts against a brute-force count on uniform, coarse-grid and capped-grid clustered samples, the tile memory bound, uniform-sample `xi`, periodic boundary, small-N guard, input domain) and the figure-support helpers listed under Shared Helpers
-- **`test_engine_stages.py`**: Unit tests for the engine's snapshot and evolution stages against a stub registry: an empty or unselected evolution registry returns without reading snapshots or exiting, and snapshot figures receive `metadata["redshift"]`
+- **`test_engine_stages.py`**: Unit tests for the engine's snapshot and evolution stages against a stub registry: an empty or unselected evolution registry returns without reading snapshots or exiting, and snapshot figures receive `metadata["redshift"]`; the snapshot stage likewise returns without reading when no snapshot figure is selected; and `--exclude` / `--plots` selection (composition, rejection of unknown plot names)
 - **`test_figure_helpers.py`**: Unit tests for the physics helpers in the hod and sham figure packages (the occupation `law()`, `host_lookup()`, the unmatched-satellite count, `nfw_enclosed_fraction()` and the SHAM `target_mass_function()` h conversion)
 - **`test_plotting.sh`**: Integration tests for the plotting pipeline (14 tests: five `mimic-plot.py` invocations with different command-line options and plot types, which need real output from a prior run of the default model, then the standalone Python unit-test files above and the SAGE-native reader, profile inheritance, redshift mapper and chunked-consumer suites)
 

@@ -4,7 +4,10 @@
 Covers: the evolution stage returns at once, without reading any snapshot or exiting, when no
 registered evolution figure is selected (an empty EVOLUTION_PLOTS, or --plots naming only other
 figures), still reads snapshots when an evolution figure is selected, and the snapshot stage
-hands each figure the snapshot's redshift in metadata. Needs no Mimic output.
+hands each figure the snapshot's redshift in metadata and returns without reading when no
+snapshot figure is selected, and --exclude removes figures from both stages (composing with
+--plots) while unknown plot names in --plots or --exclude, or an empty --plots, are fatal. Needs no
+Mimic output.
 """
 
 import contextlib
@@ -180,6 +183,105 @@ def test_snapshot_stage_passes_the_redshift_to_figures():
     assert seen.get("hubble_h") == 0.7, "The reader's own metadata must be kept"
 
 
+def stub_registry(engine):
+    """Give the engine a two-snapshot-figure, one-evolution-figure registry."""
+    engine.SNAPSHOT_PLOTS = ["stub_a", "stub_b"]
+    engine.EVOLUTION_PLOTS = ["stub_evolution"]
+
+
+def run_snapshot_figures(engine, selected_plots):
+    """Run the stub snapshot figures through the shared filter; return the names that ran."""
+    ran = []
+
+    def make_figure(name):
+        def figure(**_kwargs):
+            ran.append(name)
+            return f"{name}.png", None
+
+        return figure
+
+    modules = {name: make_figure(name) for name in engine.SNAPSHOT_PLOTS}
+    with contextlib.redirect_stdout(io.StringIO()):
+        engine.run_plot_modules(modules, selected_plots, None, {}, "plot(s)", make_args())
+    return ran
+
+
+def test_exclude_removes_a_figure_from_the_stage():
+    """--exclude alone runs every registered figure except the named one."""
+    engine = load_engine()
+    stub_registry(engine)
+    selected, excluded = engine.resolve_plot_selection("all", " stub_b, ")
+    assert excluded == ["stub_b"], f"Expected the stripped name only, got {excluded}"
+    assert run_snapshot_figures(engine, selected) == ["stub_a"]
+
+
+def test_exclude_composes_with_plots():
+    """--plots picks the candidates and --exclude then removes from them."""
+    engine = load_engine()
+    stub_registry(engine)
+    selected, _excluded = engine.resolve_plot_selection("stub_a,stub_b", "stub_b")
+    assert run_snapshot_figures(engine, selected) == ["stub_a"]
+    # Excluding every candidate selects nothing; it must not fall back to running everything.
+    selected, _excluded = engine.resolve_plot_selection("stub_b", "stub_b")
+    assert selected == [] and run_snapshot_figures(engine, selected) == []
+
+
+def test_unknown_plot_name_is_fatal_and_named():
+    """An unregistered name in --plots or --exclude exits non-zero and says which."""
+    engine = load_engine()
+    stub_registry(engine)
+    for plots, exclude, flag in (
+        ("all", "stub_typo", "--exclude"),
+        ("stub_typo", None, "--plots"),
+        (",", None, "--plots"),
+    ):
+        out = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out):
+                engine.resolve_plot_selection(plots, exclude)
+        except SystemExit as exit_info:
+            assert exit_info.code == 1, f"{flag}: exit code {exit_info.code}"
+        else:
+            raise AssertionError(f"{flag}: an unknown plot name did not exit")
+        text = out.getvalue()
+        assert flag in text, f"{flag}: error did not name the flag: {text!r}"
+        assert plots == "," or "stub_typo" in text, f"{flag}: error did not name it: {text!r}"
+        assert "stub_a" in text, f"{flag}: error did not list the valid plots: {text!r}"
+
+
+def test_excluding_every_evolution_figure_skips_the_evolution_stage():
+    """With every evolution figure excluded the stage returns before reading any snapshot."""
+    engine = load_engine()
+    stub_registry(engine)
+    engine.PROFILE_PLOTS = {"snapshot": None, "evolution": None}
+    engine.importlib = SimpleNamespace(
+        import_module=lambda _name: SimpleNamespace(plot=lambda **_kwargs: (None, "stub"))
+    )
+    engine.SnapshotRedshiftMapper = RaisingMapper
+    selected, _excluded = engine.resolve_plot_selection("all", "stub_evolution")
+    result, _text = run_evolution_stage(engine, selected_plots=selected)
+    assert result == ([], {})
+
+
+def test_snapshot_stage_with_no_selected_figure_returns_without_reading():
+    """With every snapshot figure deselected the stage never maps a snapshot or reads data."""
+    engine = load_engine()
+    stub_registry(engine)
+    engine.get_available_plot_modules = lambda *_args: {"stub_a": None, "stub_b": None}
+    engine.SnapshotRedshiftMapper = RaisingMapper
+
+    def read_data(**_kwargs):
+        raise AssertionError("The snapshot stage read data with no figure selected")
+
+    engine.read_data = read_data
+    selected, _excluded = engine.resolve_plot_selection("all", "stub_a,stub_b")
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        result = engine.generate_snapshot_plots(StubParams({}), make_args(), "unused", selected)
+    assert result == ([], {}, False), f"Expected an empty result, got {result}"
+    assert "No snapshot plots" in out.getvalue(), f"Expected a notice, got {out.getvalue()!r}"
+
+
 def main():
     """Run this file's tests via the shared framework runner."""
     return run_test_suite(
@@ -189,6 +291,11 @@ def main():
             test_selection_naming_only_snapshot_figures_skips_the_evolution_stage,
             test_selected_evolution_figure_still_reads_snapshots,
             test_snapshot_stage_passes_the_redshift_to_figures,
+            test_exclude_removes_a_figure_from_the_stage,
+            test_exclude_composes_with_plots,
+            test_unknown_plot_name_is_fatal_and_named,
+            test_excluding_every_evolution_figure_skips_the_evolution_stage,
+            test_snapshot_stage_with_no_selected_figure_returns_without_reading,
         ],
         "Engine snapshot and evolution stages (test_engine_stages.py)",
     )
