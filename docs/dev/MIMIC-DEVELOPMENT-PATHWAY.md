@@ -147,7 +147,7 @@ Taken together the intended destination is a framework in which a galaxy formati
 4. **Stage C, the production datasets**: the uncut dataset first, run and compared galaxy by galaxy with a version 2 run, then the cut; a validator scale slice is mandatory with one drive; laptop acceptance is a calibrated measurement on the Mac Studio, labelled a proxy until a laptop runs it.
 5. **Stage D, retire version 2**: about 12 to 14 thousand lines, after the shared utilities are extracted and the physics batteries retargeted.
 
-Forest cuts are data changes inside version 3 when declared as a transformed source. **Full Uchuu additionally** needs its about 37 TB source mounted and about 26 TB of output, and meets its own super-forest question.
+Two alternatives stay in view in the brief: a `format_version 4` with a read of the source, the only technically exact route, and re-conversion from the ASCII trees under the ruling, which yields the same bytes at the cost of the route's scale engineering and another six to seven days. Forest cuts are data changes inside version 3 when declared as a transformed source. **Full Uchuu additionally** needs its about 37 TB source mounted and about 26 TB of output, and meets its own super-forest question.
 
 ### Step 1: Shin-Uchuu (closed)
 
