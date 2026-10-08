@@ -8,7 +8,35 @@
 
 ## Stage A — micro-Uchuu on the forest-blocked ASCII route
 
-**Code under test.** The conversion, the C dump and both harness comparisons ran at converter commit `6ae714829a3b68f934e88ed1464a97532e671f27` (branch `feature/shin-uchuu-v3`, Slice 4's last commit), clean tree (`$A/logs/convert-00-provenance.log`; the harness record `$A/harness-record.json` records `git_commit` and `git_dirty_paths 0` for every entry). The parity gate, the distributed, chunked and SHAM legs ran at `2ac07bfe37fcf4c6ef8c29deb80dac4aa67a9e24`, Slice 5's first commit, which changes only the package's declarations, its tests and the new SHAM run file on top of `6ae71482` (no converter, reader or driver source). Slice 5's second commit, the child of `2ac07bfe`, touched only the package README's prose, this record, the expected-message needles of one test (`test_unit_horizontal_reader_open.c`'s eight link cases) and one comment line of the package's `simulation_info.yaml`, none of which any run above reads, so no leg was re-run at it. At that commit `make MODEL=halos-only SIMULATION=micro-uchuu-ascii-horizontal tests-unit tests-integration` passed: `Unit Test Summary: passed=316 failed=0 skipped=0 n/a=18`, `Integration Test Summary: passed=116 failed=0 skipped=0 n/a=16` (`$A/logs/tiers-unit-integration-2.log`).
+**Code under test.** The conversion, the C dump and both harness comparisons ran at converter commit `6ae714829a3b68f934e88ed1464a97532e671f27` (branch `feature/shin-uchuu-v3`, Slice 4's last commit; `$A/logs/convert-00-provenance.log` records the commit and the start time, 2026-10-08T05:48:49Z). The harness record `$A/harness-record.json` takes the commit, a count of `git status --porcelain` lines and the harness's own SHA-256 after each command ends. All four entries record `6ae71482` and harness SHA-256 `50311f52c78cdd75b1e49b7d62bc576d90954da63bf29fed1a133cfa4f8cf67e`, the digest of the harness file at `6ae71482`.
+
+**Working-tree state.** Only `build-dump` (ended 05:49:10Z) records `git_dirty_paths 0`. `dump` (ended 05:51:04Z), `compare` (ended 06:03:50Z) and `compare-extras` (ended 06:05:23Z) each record `git_dirty_paths 5`. The five entries are this slice's own edits, all made between 05:49:48Z and 05:50:59Z (file times in `$A/logs/harness-tree-state.log`) and committed unchanged as `2ac07bfe` at 06:09:57Z. A `git status --short` taken in this session at 06:06:18Z, just before installation, showed exactly these five entries and nothing else; that check is in no log:
+
+- modified: `simulations/micro-uchuu-ascii-horizontal/halo_properties.yaml`;
+- modified: `simulations/micro-uchuu-ascii-horizontal/_tests/scientific/test_cross_format_identity.py`;
+- modified: `simulations/micro-uchuu-ascii-horizontal/_tests/unit/test_unit_horizontal_reader_realdata.c`;
+- untracked: `models/sham/input/sham_micro-uchuu-ascii-horizontal-realdata.yaml`;
+- untracked: the new directory `simulations/micro-uchuu-ascii-horizontal/_tests/integration/`, holding `test_schema_conformance.py` (porcelain reports the directory as one entry).
+
+None of the five can affect the conversion, the C dump or either comparison:
+
+- the converter reads `convert/mimic-convert/` and `simulations/micro-uchuu-ascii/`, which no commit of this slice touches (`git diff --name-only 6ae71482 HEAD` is in the same log);
+- the harness is pinned by its recorded SHA-256;
+- the dump tool was built for `halos-only` × `micro-uchuu-ascii` by `build-dump` while the record shows `git_dirty_paths 0`, and the dump reads only that package and `$A/dump_run.yaml`;
+- the five paths belong to the horizontal package, its tests and a SHAM run file, which none of these steps reads.
+
+The conversion stages after `inspect` overlapped the edits (`ingest` started 05:49:44Z), but they read only those unchanged files, and the converter writes no tree state of its own.
+
+**Later commits.** The parity gate and the distributed, chunked and SHAM legs ran at `2ac07bfe37fcf4c6ef8c29deb80dac4aa67a9e24`, Slice 5's first commit. It changes only the package's declarations, its tests and the new SHAM run file on top of `6ae71482`, with no converter, reader or driver source.
+
+Slice 5's second commit, `eb5c950f10c00c94c524138b1b39f9b793a27d67`, touched only:
+
+- the package README's prose;
+- this record;
+- the expected-message needles of the eight link cases in `test_unit_horizontal_reader_open.c`;
+- one comment line of the package's `simulation_info.yaml`.
+
+No run above reads any of them, so no leg was re-run at it. `make MODEL=halos-only SIMULATION=micro-uchuu-ascii-horizontal tests-unit tests-integration` passed (`Unit Test Summary: passed=316 failed=0 skipped=0 n/a=18`, `Integration Test Summary: passed=116 failed=0 skipped=0 n/a=16`, `$A/logs/tiers-unit-integration-2.log`). It ran on the working tree that `eb5c950f` then committed, and the log does not name a commit. That tree differed from the commit only by the formatter's later re-wrap of one link case, which changes no string; the record's own prose changed too, and no test reads it. A third commit corrected four statements of this record and changed nothing else.
 
 ### Conversion
 
@@ -27,7 +55,7 @@ Peak RSS is `/usr/bin/time -l`'s maximum resident set size (GB = 10⁹ B).
 
 **Dataset** (`report`, `<workdir>/conversion_report.{txt,json}`): 22,580,924 halos in 50 snapshot files, all populated; 440,651 forests; `links_adjacent 1` (measured 1), 0 gapped `Descendant` links, longest span 1; `SourceHaloID` in [1, 22,580,924]; maximum `ForestIndex` 440,650; maximum rank 350,074; largest snapshot 27 with 621,360 halos; 0 `Len == 0` halos; 3,364,750,153 bytes emitted (149.01 B/halo). Forest blocking is recorded by the report's identity conventions (`source_halo_id`: "1-based position in (ForestIndex, HaloRankInForest) order") and by its battery outcome `identity: PASS`, the check that, for an unsampled ASCII dataset, every halo's `SourceHaloID` is exactly that position (`validate_v3.py`, `_V3_POSITION_IDENTITY`).
 
-**Battery verdict** (`validate`, `$A/logs/convert-05-validate.log`): `validation: PASS`, every check PASS: file-set, object-set, sidecar-object-set, schema-binding, manifest-binding, header-values, run-scoped-headers, row-values, len-nonnegative, field-finiteness, position-bounds, link-targets, links-adjacent, topology-closure, source-key-coverage, identity, header-bounds, sidecar-content, count-conservation. `report` re-ran the battery with chain-cycles as well (20 checks, all PASS, `validation: PASS`).
+**Battery verdict** (`validate`, `$A/logs/convert-05-validate.log`): `validation: PASS`, all 20 checks PASS: file-set, object-set, sidecar-object-set, schema-binding, manifest-binding, header-values, run-scoped-headers, row-values, len-nonnegative, field-finiteness, position-bounds, link-targets, links-adjacent, topology-closure, chain-cycles (10 pointer-jumping rounds), source-key-coverage, identity, header-bounds, sidecar-content, count-conservation. `report` re-ran the same 20 checks, all PASS, `validation: PASS` (`<workdir>/conversion_report.{txt,json}`, `$A/logs/convert-06-report.log`).
 
 **Digests.** `forests.h5` SHA-256 `2addb65076291cba9831d867eae850cbed905c11340c5c71d556972a81d10203`. The 51 files' SHA-256 values are listed in `$A/logs/install-sha256-installed.txt` (that list's own SHA-256 is `73189046aff714709204debbfae0106278108bd35c355b6bf9cf60d71d572149`), and every one equals the workdir manifest's recorded `sha256` for the same `write/attempt_001/` artefact.
 
