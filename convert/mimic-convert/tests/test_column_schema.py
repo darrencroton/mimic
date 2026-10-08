@@ -1402,12 +1402,19 @@ class V3FieldTableTests(unittest.TestCase):
             self.assertNotIn("SourceHaloID", payload)
 
     def test_identity_conventions_are_declared_per_source_format(self):
+        shared = {"forest_index", "halo_rank_in_forest", "forest_id", "ordinals"}
         for source_format in cs.SOURCE_FORMATS:
             convention = cs.SOURCE_IDENTITY_CONVENTIONS[source_format]
-            self.assertEqual(
-                set(convention),
-                {"forest_index", "halo_rank_in_forest", "forest_id", "ordinals"},
-            )
+            # only the ASCII route defines SourceHaloID by its identities
+            # rather than by its physical inventory
+            extra = {"source_halo_id"} if source_format == "consistent_trees_ascii" else set()
+            self.assertEqual(set(convention), shared | extra, source_format)
+        self.assertEqual(
+            cs.SOURCE_IDENTITY_CONVENTIONS["consistent_trees_ascii"]["source_halo_id"],
+            "1-based position in (ForestIndex, HaloRankInForest) order",
+        )
+        for source_format in ("lhalo_binary", "consistent_trees_hdf5"):
+            self.assertNotIn("source_halo_id", cs.SOURCE_IDENTITY_CONVENTIONS[source_format])
 
     def test_lhalo_mass_stays_float32_in_1e10_msun_h(self):
         payload = {f.name: f for f in cs.PAYLOAD_FIELDS["lhalo_binary"]}

@@ -216,6 +216,31 @@ class InventoryRecordTests(unittest.TestCase):
         ).hexdigest()
         self.assertEqual(record["units_sha256"], expected)
 
+    def test_a_non_physical_inventory_records_no_files(self):
+        """The ASCII route's per-forest inventory (``physical_units = False``,
+        units ``(0, ForestIndex)``) is digested by the same rule but declares
+        no per-file summary; an explicit ``physical_units = True`` is the
+        default record exactly."""
+        units = self.units([((0, 0), 6), ((0, 1), 4), ((0, 2), 2)])
+        forests = SourceInventory(units)
+        forests.physical_units = False
+        record = cm.inventory_record(forests)
+        self.assertEqual(record["files"], [])
+        self.assertEqual((record["n_units"], record["total_halos"]), (3, 12))
+        self.assertEqual((record["n_selected_units"], record["selected_halos"]), (3, 12))
+        expected = hashlib.sha256(
+            np.array([[0, 0, 6], [0, 1, 4], [0, 2, 2]], dtype="<i8").tobytes()
+        ).hexdigest()
+        self.assertEqual(record["units_sha256"], expected)
+        physical = cm.inventory_record(SourceInventory(units))
+        self.assertEqual(
+            physical["files"], [{"source_file_ordinal": 0, "n_units": 3, "n_halos": 12}]
+        )
+        self.assertEqual({**physical, "files": []}, record)
+        explicit = SourceInventory(units)
+        explicit.physical_units = True
+        self.assertEqual(cm.inventory_record(explicit), physical)
+
     def test_moving_one_halo_between_units_changes_the_digest(self):
         first = cm.inventory_record(SourceInventory(self.units([((0, 0), 3), ((0, 1), 2)])))
         second = cm.inventory_record(SourceInventory(self.units([((0, 0), 2), ((0, 1), 3)])))

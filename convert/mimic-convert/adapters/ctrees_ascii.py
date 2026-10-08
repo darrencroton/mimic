@@ -15,22 +15,36 @@ coordinate and the profile's declared extras through them unchanged, and
 canonical batches. The legacy ASCII-to-v2 route is untouched: it runs the same
 stages in the frozen legacy layout, and its writer refuses an extended workdir.
 
-**Source coordinates.** A *unit* is the part of one ASCII forest that one
-file carries -- every ``#tree`` block of that file whose root the forest owns --
-numbered in order of the forest's first ``#tree`` marker in the file. A row's
-``row_ordinal`` is its position among its unit's rows in file order; the file
-ordinal is the file's position in the ordered source inventory. This is the
-source's own order, and nothing is sorted to derive it
-(``ctrees_parser.plan_source_units``). ``SourceHaloID`` prefix-sums unit halo
-counts in ascending ``(file, unit)`` order. A forest whose trees lie in
-several files is several units; :meth:`CTreesAsciiAdapter.iter_forests` then
-reports -1 ordinals for it, as the v3 forest sidecar prescribes, and the per-file unit sidecars
-the manifest owns retain its full membership.
+**Canonical unit and identity.** Under the 2026-10-07 owner ruling the
+route's canonical unit is the whole forest: units are the forests in ascending
+``ForestIndex`` (the dense ascending-forest-id enumeration of
+``forest_index_table.npy``), a unit's halo count is the forest's total over
+every snapshot, and the row ordinal is ``HaloRankInForest`` (the post-fix-up
+reference vertical order), so ``SourceHaloID = 1 + sum(n_g for g <
+ForestIndex) + HaloRankInForest``. Both identity fields are the link stage's
+own values, read from the links record, and the per-forest totals come from
+the units sidecars and the forest table before any halo row is read. Every
+forest's rows are therefore contiguous in ``SourceHaloID``, every slab is
+forest-blocked, and ``SourceInventory.coordinate`` inverts an id to
+``(0, ForestIndex, HaloRankInForest)``: the leading 0 is a deliberate shim
+that keeps the three-field coordinate contract the two prelinked routes rely
+on, not a file ordinal, and the inventory says so by declaring no physical
+units (``physical_units = False``).
 
-**Identity is both kinds at once.** ``SourceHaloID`` and the coordinate are the
-canonical keys; ``ForestIndex`` and ``HaloRankInForest`` are the existing ASCII
-identity -- the dense ascending-forest-id enumeration and the post-fix-up
-reference vertical order -- exactly as the link stage computed them.
+**Physical coordinates** survive only for the forest sidecar. A *physical
+unit* is the part of one ASCII forest that one file carries -- every ``#tree``
+block of that file whose root the forest owns -- numbered in order of the
+forest's first ``#tree`` marker in the file (``ctrees_parser.plan_source_units``).
+A forest whose trees lie in several files is several physical units;
+:meth:`CTreesAsciiAdapter.iter_forests` then reports -1 ordinals for it, as
+the v3 forest sidecar prescribes, and the per-file unit sidecars the manifest
+owns retain its full membership. The scatter-time ``(file, unit, row)``
+stamps in the fixed scratch no longer feed identity.
+
+**Identity is both kinds at once.** ``SourceHaloID`` is the canonical key;
+``ForestIndex`` and ``HaloRankInForest`` are the existing ASCII identity
+exactly as the link stage computed them, and ``SourceHaloID`` is their
+position.
 
 **Values** are those the preparation fixed: float64 parse then float32
 rounding, ``Len`` from ``round(Mvir * 1e-10 / particle_mass)``, ``Spin`` the
@@ -47,18 +61,22 @@ non-adjacent source descendant rather than inventing a prescription for one.
 Chain order is the link stage's, untouched.
 
 **Emission order.** Snapshot by snapshot, ascending, each snapshot in ascending
-``SourceHaloID``, and no batch spans two snapshots, so every batch is strictly
-increasing as ``CanonicalBatch`` requires. ``SourceHaloID`` does *not* ascend
-across batches -- unlike the two prelinked adapters, whose emission follows the
-inventory -- because the preparation is snapshot-partitioned; the transpose
-partitions by snapshot anyway. After the last batch the adapter proves every
-id in ``[1, total]`` was emitted exactly once.
+``SourceHaloID`` (so in (``ForestIndex``, ``HaloRankInForest``) order), and no
+batch spans two snapshots, so every batch is strictly increasing as
+``CanonicalBatch`` requires. ``SourceHaloID`` does *not* ascend across batches
+-- unlike the two prelinked adapters, whose emission follows the inventory --
+because a forest's id block spans every snapshot while the preparation is
+snapshot-partitioned; the transpose partitions by snapshot anyway. After the
+last batch the adapter proves every id in ``[1, total]`` was emitted exactly
+once.
 
 **Bounds.** ASCII keeps its existing per-snapshot bounds; nothing is
 catalog-sized except two explicitly budgeted terms, each checked against
 ``memory_budget_bytes`` before it is allocated:
 
-1. *The inventory*, O(unit count): :data:`INVENTORY_BYTES_PER_UNIT` per unit.
+1. *The inventory*, O(forest count) plus the physical unit tables, O(unit
+   count): :data:`INVENTORY_BYTES_PER_UNIT` per forest (an inventory unit) and
+   :data:`SOURCE_UNIT_TABLE_BYTES` per physical unit.
 2. *The coverage bitset*, one bit per halo, the same exact structure the link
    stage's identity verification uses.
 
@@ -113,6 +131,7 @@ __all__ = [
     "ConverterError",
     "INVENTORY_BYTES_PER_UNIT",
     "INVENTORY_BASE_BYTES",
+    "SOURCE_UNIT_TABLE_BYTES",
     "SNAPSHOT_BYTES_PER_HALO",
     "SOURCE_ID_READ_ROWS",
     "DEFAULT_MEMORY_BUDGET_BYTES",
@@ -121,24 +140,29 @@ __all__ = [
     "prepare_workdir",
 ]
 
-#: Peak bytes per inventory unit of the whole :meth:`CTreesAsciiAdapter.inventory`
-#: path: the ``SourceInventory`` (a ``SourceUnit`` object, a prefix-sum int and
-#: an index-dict entry per unit), the per-file sidecar tables and this
-#: adapter's own int64 unit columns, all live together while it is built.
+#: Peak bytes per inventory unit -- one forest -- of the whole
+#: :meth:`CTreesAsciiAdapter.inventory` path: the ``SourceInventory`` (a
+#: ``SourceUnit`` object, a prefix-sum int and an index-dict entry per
+#: forest), the forest table and this adapter's per-forest totals and bases.
+#: The physical unit tables are the separate :data:`SOURCE_UNIT_TABLE_BYTES`
+#: term, so a forest spanning many files is charged for every one of them.
 #:
 #: Measured with ``tracemalloc`` around the real ``inventory()`` call on
-#: prepared two-file synthetic workdirs of one halo per unit (whole path, not
-#: just ``SourceInventory``):
+#: prepared two-file synthetic workdirs of one halo per forest (whole path),
+#: with one physical unit per forest:
 #:
-#:     n =  5,000 units    1,724 B/unit   (the base term below dominates)
-#:     n = 24,000 units      520 B/unit   <- worst per-unit slope observed
-#:     n = 60,000 units      461 B/unit
+#:     n =  24,000 forests    545 B/forest   (the base term below still shows)
+#:     n =  60,000 forests    485 B/forest
+#:     n = 120,000 forests    488 B/forest   <- worst slope at scale
 #:
-#: 704 is that 520 plus a 1.35x margin, for the reason the L-Halo adapter
-#: gives: a budget that refuses work is safe, one that accepts work it cannot
-#: hold is the defect. ``BudgetAccountingTests`` re-measures the real path and
-#: fails if ``INVENTORY_BASE_BYTES + n * INVENTORY_BYTES_PER_UNIT`` is ever
-#: exceeded.
+#: and 32 B for each further physical unit (60,000 forests each split across
+#: both files: 31,027,869 bytes against 29,103,720). 704 per forest plus the
+#: 64-byte unit term is 768 against that 488, a 1.57x margin, for the reason
+#: the L-Halo adapter gives: a budget that refuses work is safe, one that
+#: accepts work it cannot hold is the defect. ``BudgetAccountingTests``
+#: re-measures the real path and fails if ``INVENTORY_BASE_BYTES +
+#: n_forests * INVENTORY_BYTES_PER_UNIT + n_units * SOURCE_UNIT_TABLE_BYTES``
+#: is ever exceeded.
 INVENTORY_BYTES_PER_UNIT = 704
 
 #: The constant part of the inventory peak: ``scatter.file_md5`` reads in
@@ -148,6 +172,13 @@ INVENTORY_BYTES_PER_UNIT = 704
 #: that block with room for the manifest's own parse.
 INVENTORY_BASE_BYTES = 9 * 1024 * 1024
 
+#: Peak bytes per *physical* unit (one forest's part of one file) of the
+#: inventory path, counted rather than estimated: the file's sidecar row and
+#: its stacked copy (2 x 16), the contiguous forest-id and count columns
+#: (2 x 8), the row's ``ForestIndex`` lookup (8) and its membership mask (1),
+#: rounded up to 64. The forest sidecar reads these columns, so they are kept.
+SOURCE_UNIT_TABLE_BYTES = 64
+
 #: Resident bytes per halo of one snapshot's emission, counted rather than
 #: estimated: the previous, current and next snapshots' ``SourceHaloID``
 #: columns are each charged at 8 bytes per halo of *their own* snapshot, and
@@ -156,12 +187,13 @@ INVENTORY_BASE_BYTES = 9 * 1024 * 1024
 SNAPSHOT_BYTES_PER_HALO = 16
 
 #: Rows per bounded read when deriving a snapshot's ``SourceHaloID`` column from
-#: its memory-mapped fixed records, so the three coordinate temporaries stay
-#: O(1) in the snapshot size.
+#: its memory-mapped links records, so the identity temporaries stay O(1) in
+#: the snapshot size.
 SOURCE_ID_READ_ROWS = 65536
 
 #: Bytes the ``SourceHaloID`` derivation holds per row of one bounded read:
-#: three int64 coordinates, the global unit index and the gathered base.
+#: the int64 ``ForestIndex`` and ``HaloRankInForest`` columns, the gathered
+#: forest count and base, and the range mask (charged a full word).
 SOURCE_ID_READ_BYTES_PER_ROW = 5 * 8
 
 #: Default ceiling, matching the other adapters and the link stage.
@@ -452,20 +484,29 @@ class CTreesAsciiAdapter(SourceAdapter):
         self.layout = ScratchLayout.from_schema(schema)
         self._manifest: Optional[Manifest] = None
         self._inventory: Optional[SourceInventory] = None
-        #: per inventory unit, flattened in (file, unit) order
+        #: per forest (inventory unit), in ForestIndex order: halo total and the
+        #: SourceHaloID of its rank 0
+        self._forest_counts = np.zeros(0, dtype=np.int64)
+        self._forest_bases = np.zeros(0, dtype=np.int64)
+        #: per physical unit, flattened in (file, unit) order, for the sidecar
         self._unit_forest_ids = np.zeros(0, dtype=np.int64)
         self._unit_counts = np.zeros(0, dtype=np.int64)
-        self._unit_bases = np.zeros(0, dtype=np.int64)
-        #: index of each file's first unit in the flattened columns, plus the total
+        #: index of each file's first physical unit in the flattened columns,
+        #: plus the total
         self._file_unit_offsets = np.zeros(1, dtype=np.int64)
 
     # ---- public views ----------------------------------------------------
 
     def inventory(self) -> SourceInventory:
-        """The ordered unit inventory, from the manifest-owned per-file unit
-        sidecars. Every source file of the recorded inventory must have a
-        completed scatter and a verified sidecar (never narrow silently),
-        and the units must account for every prepared halo."""
+        """The canonical inventory: one unit per forest, ``(0, ForestIndex)``,
+        in ascending ``ForestIndex``, its ``n_halos`` the forest's total over
+        every snapshot, built from the manifest-owned per-file unit sidecars
+        and the forest index table before any halo row is read. Every source
+        file of the recorded inventory must have a completed scatter and a
+        verified sidecar (never narrow silently), and the forests must account
+        for every prepared halo. ``base_id(0, ForestIndex) + HaloRankInForest``
+        is a halo's ``SourceHaloID``, and ``coordinate`` inverts one to
+        ``(0, ForestIndex, HaloRankInForest)``."""
         if self._inventory is None:
             self._inventory = self._build_inventory()
         return self._inventory
@@ -474,10 +515,11 @@ class CTreesAsciiAdapter(SourceAdapter):
         """Every forest in ``ForestIndex`` order, for the ``forests.h5`` sidecar.
 
         ``forest_id`` is the original ctrees forest id. A forest whose halos
-        lie in exactly one unit reports that unit's file and unit ordinals; a
-        forest spanning files reports -1 for both, its membership being
-        the unit sidecars'. ``n_halos`` is the forest's total. O(units +
-        forests) from the inventory columns and the verified forest table.
+        lie in exactly one physical unit reports that unit's file and unit
+        ordinals; a forest spanning files reports -1 for both, its membership
+        being the unit sidecars'. ``n_halos`` is the forest's total. O(units +
+        forests) from the physical unit columns (kept beside the per-forest
+        inventory for this view) and the verified forest table.
         """
         self.inventory()
         manifest = self._manifest
@@ -584,13 +626,16 @@ class CTreesAsciiAdapter(SourceAdapter):
                 fixed, links, current = upcoming.fixed, upcoming.links, upcoming.ids
             else:
                 fixed, links = self._open_snapshot(snap, fixed_dtype)
-                current = self._source_ids(fixed, snap)
+                current = self._source_ids(fixed, links, snap)
             prev_ids = previous[1] if previous is not None and previous[0] == snap - 1 else None
             upcoming = None
             if snap + 1 in recorded:
                 next_fixed, next_links = self._open_snapshot(snap + 1, fixed_dtype)
                 upcoming = _MappedSnapshot(
-                    snap + 1, next_fixed, next_links, self._source_ids(next_fixed, snap + 1)
+                    snap + 1,
+                    next_fixed,
+                    next_links,
+                    self._source_ids(next_fixed, next_links, snap + 1),
                 )
                 del next_fixed, next_links
             next_ids = upcoming.ids if upcoming is not None else None
@@ -668,12 +713,33 @@ class CTreesAsciiAdapter(SourceAdapter):
         return manifest
 
     def _build_inventory(self) -> SourceInventory:
+        """One inventory unit per forest, in ascending ``ForestIndex``, from the
+        manifest-owned per-file unit sidecars and ``forest_index_table.npy``
+        alone: no halo row is read. The physical unit columns the forest
+        sidecar needs are kept beside it.
+
+        The budget is stated against the forest count -- the
+        ``SourceInventory`` and the per-forest columns,
+        :data:`INVENTORY_BYTES_PER_UNIT` per forest -- plus the physical unit
+        tables, :data:`SOURCE_UNIT_TABLE_BYTES` per physical unit, and is
+        checked before each sidecar is materialised."""
         manifest = self._load_manifest()
         source_files = manifest.data["provenance"].get("source_files")
         if not source_files:
             raise ConverterError(
                 "{}: no ordered source inventory is recorded".format(manifest.path)
             )
+        table_path = Path(manifest.workdir) / "forest_index_table.npy"
+        manifest.verify_intermediate(table_path, "forest index table")
+        # sized from the memory-mapped header before anything is materialised
+        forest_header = np.load(table_path, mmap_mode="r")
+        if forest_header.dtype != np.dtype("<i8") or forest_header.ndim != 1:
+            raise ConverterError(
+                "{}: forest index table must be int64 [n_forests], got {} {}".format(
+                    table_path, forest_header.dtype, forest_header.shape
+                )
+            )
+        n_forests = int(forest_header.shape[0])
         scratch_dir = Path(manifest.workdir) / "scratch"
         tables: List[np.ndarray] = []
         n_units = 0
@@ -704,9 +770,13 @@ class CTreesAsciiAdapter(SourceAdapter):
                 )
             n_units += int(header.shape[0])
             check_budget(
-                INVENTORY_BASE_BYTES + n_units * INVENTORY_BYTES_PER_UNIT,
+                INVENTORY_BASE_BYTES
+                + n_forests * INVENTORY_BYTES_PER_UNIT
+                + n_units * SOURCE_UNIT_TABLE_BYTES,
                 self.memory_budget_bytes,
-                "the source inventory ({} unit(s) through file {})".format(n_units, ordinal),
+                "the source inventory ({} forest(s); {} physical unit(s) through file {})".format(
+                    n_forests, n_units, ordinal
+                ),
                 "raise memory_budget_bytes",
             )
             table = np.array(header)
@@ -721,12 +791,42 @@ class CTreesAsciiAdapter(SourceAdapter):
                 )
             tables.append(table)
 
-        units = [
-            SourceUnit(source_file_ordinal=ordinal, unit_ordinal=unit, n_halos=int(count))
-            for ordinal, table in enumerate(tables)
-            for unit, count in enumerate(table[:, 1].tolist())
-        ]
-        inventory = SourceInventory(units)
+        forest_table = np.array(forest_header)
+        del forest_header
+        stacked = np.concatenate(tables) if tables else np.zeros((0, 2), dtype=np.int64)
+        unit_forest_ids = np.ascontiguousarray(stacked[:, 0])
+        unit_counts = np.ascontiguousarray(stacked[:, 1])
+        del stacked
+        # every physical unit's forest must be a table entry (a table position
+        # is a ForestIndex, so the table ascends strictly), and every forest
+        # must carry halos, exactly as the link stage's density check requires
+        if n_forests and not bool(np.all(forest_table[1:] > forest_table[:-1])):
+            raise ConverterError(
+                "{}: the forest index table is not strictly ascending".format(table_path)
+            )
+        forest_of_unit = np.searchsorted(forest_table, unit_forest_ids)
+        known = forest_of_unit < n_forests
+        known[known] = forest_table[forest_of_unit[known]] == unit_forest_ids[known]
+        totals = np.zeros(n_forests, dtype=np.int64)
+        if bool(known.all()):
+            np.add.at(totals, forest_of_unit, unit_counts)
+        if n_forests == 0 or not bool(known.all()) or bool(np.any(totals == 0)):
+            raise ConverterError(
+                "{}: the forest index table and the source-unit sidecars disagree about which "
+                "forests carry halos".format(manifest.path)
+            )
+        del forest_of_unit, known, forest_table
+
+        inventory = SourceInventory(
+            [
+                SourceUnit(source_file_ordinal=0, unit_ordinal=forest, n_halos=count)
+                for forest, count in enumerate(totals.tolist())
+            ]
+        )
+        # the canonical unit is the forest, not a physical (file, unit): the
+        # leading 0 is the coordinate shim, and the manifest's inventory record
+        # must not read it as file 0 (conversion_manifest.inventory_record)
+        inventory.physical_units = False
         prepared = sum(int(entry["rows"]) for entry in manifest.data["snapshots"].values())
         if inventory.total_halos != prepared:
             raise ConverterError(
@@ -734,16 +834,15 @@ class CTreesAsciiAdapter(SourceAdapter):
                     manifest.path, inventory.total_halos, prepared
                 )
             )
-        stacked = np.concatenate(tables) if tables else np.zeros((0, 2), dtype=np.int64)
-        self._unit_forest_ids = np.ascontiguousarray(stacked[:, 0])
-        self._unit_counts = np.ascontiguousarray(stacked[:, 1])
-        # the emitted ids are the inventory's own bases, unit for unit: both
-        # the stacked tables and ``inventory.units`` are in (file, unit) order
-        self._unit_bases = np.fromiter(
-            (inventory.base_id(u.source_file_ordinal, u.unit_ordinal) for u in inventory.units),
+        self._forest_counts = totals
+        # the emitted ids are the inventory's own bases, forest for forest
+        self._forest_bases = np.fromiter(
+            (inventory.base_id(0, forest) for forest in range(n_forests)),
             dtype=np.int64,
-            count=len(inventory.units),
+            count=n_forests,
         )
+        self._unit_forest_ids = unit_forest_ids
+        self._unit_counts = unit_counts
         self._file_unit_offsets = np.r_[
             np.int64(0), np.cumsum([table.shape[0] for table in tables], dtype=np.int64)
         ]
@@ -787,34 +886,38 @@ class CTreesAsciiAdapter(SourceAdapter):
                 mapped.append(np.memmap(path, dtype=dtype, mode="r", shape=(n_rows,)))
         return mapped[0], mapped[1]
 
-    def _source_ids(self, fixed: np.ndarray, snap: int) -> np.ndarray:
-        """``SourceHaloID`` of every row of one snapshot, in slab order, derived
-        in bounded reads from the recorded coordinates; every coordinate is
-        checked against the inventory it must lie in."""
-        n_files = self._file_unit_offsets.size - 1
-        out = np.empty(fixed.shape[0], dtype=np.int64)
-        for start in range(0, fixed.shape[0], SOURCE_ID_READ_ROWS):
-            block = fixed[start : start + SOURCE_ID_READ_ROWS]
-            files = np.asarray(block["src_file_ordinal"], dtype=np.int64)
-            units = np.asarray(block["src_unit_ordinal"], dtype=np.int64)
-            rows = np.asarray(block["src_row_ordinal"], dtype=np.int64)
-            # each test indexes with values the previous one proved in range
-            bad = (files < 0) | (files >= n_files)
+    def _source_ids(self, fixed: np.ndarray, links: np.ndarray, snap: int) -> np.ndarray:
+        """``SourceHaloID`` of every row of one snapshot, in slab order:
+        ``base[ForestIndex] + HaloRankInForest``, both read from the links
+        record in bounded reads (the scatter-time physical coordinates in
+        ``fixed`` no longer feed identity; it names a refused row's halo id).
+        Each forest is checked against the inventory's forests and each rank
+        against its forest's halo count."""
+        n_forests = self._forest_counts.size
+        out = np.empty(links.shape[0], dtype=np.int64)
+        for start in range(0, links.shape[0], SOURCE_ID_READ_ROWS):
+            block = links[start : start + SOURCE_ID_READ_ROWS]
+            forests = np.asarray(block["ForestIndex"], dtype=np.int64)
+            ranks = np.asarray(block["HaloRankInForest"], dtype=np.int64)
+            # the rank test indexes with forests the first test proved in range
+            bad = (forests < 0) | (forests >= n_forests)
             if not bad.any():
-                bad = (units < 0) | (units >= np.diff(self._file_unit_offsets)[files])
-            flat = np.zeros(0, dtype=np.int64)
-            if not bad.any():
-                flat = self._file_unit_offsets[files] + units
-                bad = (rows < 0) | (rows >= self._unit_counts[flat])
+                bad = (ranks < 0) | (ranks >= self._forest_counts[forests])
             if bad.any():
                 at = int(np.nonzero(bad)[0][0])
+                forest = int(forests[at])
+                held = (
+                    "forest {} holds {} halo(s)".format(forest, int(self._forest_counts[forest]))
+                    if 0 <= forest < n_forests
+                    else "the inventory holds {} forest(s)".format(n_forests)
+                )
                 raise ConverterError(
-                    "snapshot {}: halo id {} has source coordinate ({}, {}, {}) outside the "
-                    "source inventory".format(
-                        snap, int(block["id"][at]), int(files[at]), int(units[at]), int(rows[at])
+                    "snapshot {}: halo id {} has ForestIndex {} and HaloRankInForest {} outside "
+                    "the source inventory ({})".format(
+                        snap, int(fixed["id"][start + at]), forest, int(ranks[at]), held
                     )
                 )
-            out[start : start + block.shape[0]] = self._unit_bases[flat] + rows
+            out[start : start + block.shape[0]] = self._forest_bases[forests] + ranks
         return out
 
     @staticmethod
@@ -844,7 +947,8 @@ class CTreesAsciiAdapter(SourceAdapter):
         current_ids: np.ndarray,
         next_ids: Optional[np.ndarray],
     ) -> CanonicalBatch:
-        """One batch: gathered rows of one snapshot, in ascending SourceHaloID."""
+        """One batch: gathered rows of one snapshot, in ascending SourceHaloID
+        (so in (ForestIndex, HaloRankInForest) order)."""
         n = ids.size
         if n and not bool(np.all(fixed["snap"] == snap)):
             raise ConverterError(
@@ -882,19 +986,20 @@ class CTreesAsciiAdapter(SourceAdapter):
             )
             for extra in self.schema.extra_fields
         }
+        identity = {
+            "SourceHaloID": np.ascontiguousarray(ids, dtype=np.int64),
+            "ForestIndex": np.ascontiguousarray(links["ForestIndex"], dtype=np.int64),
+            "HaloRankInForest": np.ascontiguousarray(links["HaloRankInForest"], dtype=np.int64),
+        }
         batch = CanonicalBatch(
             schema=self.schema,
-            identity={
-                "SourceHaloID": np.ascontiguousarray(ids, dtype=np.int64),
-                "ForestIndex": np.ascontiguousarray(links["ForestIndex"], dtype=np.int64),
-                "HaloRankInForest": np.ascontiguousarray(links["HaloRankInForest"], dtype=np.int64),
-            },
+            identity=identity,
+            # the canonical (forest, rank) coordinate behind the 0 shim; see the
+            # module docstring
             coordinates={
-                "source_file_ordinal": np.ascontiguousarray(
-                    fixed["src_file_ordinal"], dtype=np.int64
-                ),
-                "unit_ordinal": np.ascontiguousarray(fixed["src_unit_ordinal"], dtype=np.int64),
-                "row_ordinal": np.ascontiguousarray(fixed["src_row_ordinal"], dtype=np.int64),
+                "source_file_ordinal": np.zeros(n, dtype=np.int64),
+                "unit_ordinal": identity["ForestIndex"].copy(),
+                "row_ordinal": identity["HaloRankInForest"].copy(),
             },
             links=link_columns,
             payload=payload,

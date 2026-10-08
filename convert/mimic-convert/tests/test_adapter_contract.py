@@ -11,6 +11,9 @@ The load-bearing distinctions tested here:
   rather than wrap.
 - Sampling narrows *what is converted*, never *what an id means*: a sampled
   run's ids equal the unsampled run's.
+- Inversion is to the route's declared canonical unit: physical for the two
+  prelinked routes, the whole forest ``(0, ForestIndex)`` with
+  ``HaloRankInForest`` as the row for ``consistent_trees_ascii``.
 """
 
 import os
@@ -218,6 +221,43 @@ class InventoryTests(unittest.TestCase):
     def test_default_selection_is_every_unit(self):
         inventory = base.SourceInventory([base.SourceUnit(0, 0, 1), base.SourceUnit(3, 2, 1)])
         self.assertEqual(inventory.selected, ((0, 0), (3, 2)))
+
+    def test_the_ascii_canonical_unit_is_the_forest_and_inverts_to_its_rank(self):
+        """``consistent_trees_ascii`` declares the whole forest its canonical
+        unit, keyed ``(0, ForestIndex)``: the prefix-sum arithmetic is the
+        prelinked routes' unchanged, ``SourceHaloID = 1 + sum(n_g for g <
+        ForestIndex) + HaloRankInForest``, and inversion lands on
+        ``(0, ForestIndex, HaloRankInForest)`` -- the 0 a shim, declared by
+        ``physical_units = False`` rather than read as a file."""
+        counts = [6, 4, 2, 2, 3]
+        inventory = base.SourceInventory(
+            [base.SourceUnit(0, forest, n) for forest, n in enumerate(counts)]
+        )
+        inventory.physical_units = False
+        source_halo_id = 1
+        for forest, n in enumerate(counts):
+            self.assertEqual(inventory.base_id(0, forest), 1 + sum(counts[:forest]))
+            for rank in range(n):
+                self.assertEqual(
+                    inventory.coordinate(source_halo_id), base.SourceCoordinate(0, forest, rank)
+                )
+                self.assertEqual(
+                    id_of(inventory, base.SourceCoordinate(0, forest, rank)), source_halo_id
+                )
+                source_halo_id += 1
+        self.assertEqual(source_halo_id - 1, inventory.total_halos)
+        # a batch carrying the shim coordinate satisfies the unchanged contract
+        schema = ascii_schema()
+        batch = make_batch(schema, n_rows=3)
+        forest, ranks = 1, np.arange(3, dtype=np.int64)
+        batch.identity["SourceHaloID"][:] = inventory.base_id(0, forest) + ranks
+        batch.identity["ForestIndex"][:] = forest
+        batch.identity["HaloRankInForest"][:] = ranks
+        batch.links["FirstHaloInFOFgroup"][:] = batch.identity["SourceHaloID"]
+        batch.coordinates["source_file_ordinal"][:] = 0
+        batch.coordinates["unit_ordinal"][:] = forest
+        batch.coordinates["row_ordinal"][:] = ranks
+        batch.validate()
 
 
 class LinkFieldTableTests(unittest.TestCase):

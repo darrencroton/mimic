@@ -95,8 +95,9 @@ Subcommands
     Compare a version 3 dataset's SourceHaloID identity, and any selected
     extra fields, with independent source extraction. It needs no extra: with
     a profile whose ``extra_fields`` is empty (every shipped profile) it still
-    checks the identity, which is how an ASCII conversion's SourceHaloID is
-    verified.
+    checks the identity -- ``SourceHaloID`` on the two prelinked routes, and on
+    ASCII the row coverage of the catalogue key (``SnapNum``, ``MostBoundID``),
+    which does not verify ASCII ``SourceHaloID``.
 
 Exit codes: 0 PASS (or a measured command succeeded), 1 FAIL (a comparison
 found a defect, or a measured command failed), 2 usage error or unusable input
@@ -1838,27 +1839,30 @@ def _ascii_slices(path, width, columns, trees, block_rows):
 
 
 def iter_ascii_source(tree_files, forests_list, fields, identity_aliases, block_rows):
-    """(SourceHaloID array, {field: token arrays}) per slice of a tree block; not in id order.
+    """(SnapNum array, {field: token arrays}) per slice of a tree block, in file order.
 
-    A unit is one forest's part of one file, numbered by the forest's first
-    ``#tree`` marker in that file; a row's ordinal is its position among its
-    unit's rows in file order; ``SourceHaloID`` prefix-sums unit sizes in
-    ascending (file, unit) order, from 1. Pass one counts each tree's rows
-    without keeping a token; pass two, with every unit's prefix sum known,
-    yields each tree in slices of at most ``block_rows`` rows holding only the
-    requested columns, so memory follows ``block_rows``, never the largest
-    forest. Only the indexed-header dialect (``#name(0) name(1) ...`` on line
+    No ``SourceHaloID`` is assigned: under the forest-rank convention a halo's
+    id is its (``ForestIndex``, ``HaloRankInForest``) position, and the rank
+    is the reference's post-fix-up vertical order, which a plain text parse
+    cannot reproduce. ASCII rows are keyed instead by the catalogue's own id
+    (returned under :data:`IDENTITY_FIELD`) and the row's snapshot, read from
+    its ``snap_idx`` or ``snap_num`` column -- the key :func:`compare_extras`
+    joins this route on. Pass one counts each tree's rows without keeping a
+    token; pass two yields each tree in slices of at most ``block_rows`` rows
+    holding only the requested columns, so memory follows ``block_rows``,
+    never the largest forest, and a file that changes between the passes is
+    refused. Only the indexed-header dialect (``#name(0) name(1) ...`` on line
     1) is read; anything else fails rather than being guessed at. Float tokens
     are parsed with Python's correctly rounded ``float()`` before the declared
     cast, so a converter parse that is not correctly rounded is reported, not
-    mirrored. The identity alias resolves per file, case-insensitively against
-    the suffix-stripped header, and is returned under :data:`IDENTITY_FIELD`.
+    mirrored. The identity alias and the snapshot column resolve per file,
+    case-insensitively against the suffix-stripped header.
     """
     block_rows = int(block_rows)
     if block_rows <= 0:
         raise AcceptanceError("block_rows must be positive, not {}".format(block_rows))
     forest_of_tree = _ascii_forest_of_tree(forests_list)
-    base = 1
+    snapshot_field = "_snapshot"
     for path in tree_files:
         header = _ascii_header(path)
         missing = [field for field in fields if field.lower() not in header]
@@ -1868,17 +1872,17 @@ def iter_ascii_source(tree_files, forests_list, fields, identity_aliases, block_
         position[IDENTITY_FIELD] = header.index(
             _resolve_alias(identity_aliases, header, path, fold=True)
         )
+        position[snapshot_field] = header.index(
+            _resolve_alias(["snap_idx", "snap_num"], header, path, fold=True)
+        )
         columns = sorted(set(position.values()))
         slot = {field: columns.index(column) for field, column in position.items()}
-        trees, unit_sizes = _ascii_tree_plan(path, len(header), forest_of_tree, forests_list)
-        unit_base = np.concatenate([[0], np.cumsum(unit_sizes, dtype=np.int64)])
-        for tree_index, first, table in _ascii_slices(
-            path, len(header), columns, trees, block_rows
-        ):
-            unit, offset, _rows, _root = trees[tree_index]
-            ids = base + unit_base[unit] + offset + first + np.arange(len(table), dtype=np.int64)
-            yield ids, {field: table[:, column] for field, column in slot.items()}
-        base += int(unit_base[-1])
+        trees, _unit_sizes = _ascii_tree_plan(path, len(header), forest_of_tree, forests_list)
+        for _tree, _first, table in _ascii_slices(path, len(header), columns, trees, block_rows):
+            snaps = _ascii_values(table[:, slot[snapshot_field]], np.int64)
+            kept = {field: table[:, column] for field, column in slot.items()}
+            del kept[snapshot_field]
+            yield snaps, kept
 
 
 def _ascii_values(tokens, dtype):
@@ -1889,10 +1893,16 @@ def _ascii_values(tokens, dtype):
 
 
 def source_extra_blocks(
-    source_format, declared, identity_aliases, inventory, block_rows, budget_bytes, findings
+    source_format, declared, identity_aliases, inventory, block_rows, budget_bytes, findings, record
 ):
-    """Independently extracted identity and extras as :func:`extras_record_dtype` blocks."""
-    record = extras_record_dtype(declared)
+    """Independently extracted identity and extras as ``record`` blocks.
+
+    ``record`` is :func:`extras_record_dtype` for the two prelinked routes,
+    whose first field is the extracted ``SourceHaloID``; for
+    ``consistent_trees_ascii`` that field is ``SnapNum`` instead, because the
+    ASCII extractor keys rows by (``SnapNum``, catalogue id) and assigns no
+    ``SourceHaloID`` (see :func:`compare_extras`).
+    """
     fields = sorted({source["field"] for _n, _d, _c, sources in declared for source in sources})
     if source_format == "lhalo_binary":
         layout = lhalo_layout(inventory["halo_properties"], inventory["byte_order"])
@@ -1934,9 +1944,9 @@ def source_extra_blocks(
         )
     else:
         raise AcceptanceError("unknown source format {!r}".format(source_format))
-    for ids, columns in blocks:
-        out = np.zeros(len(ids), dtype=record)
-        out["SourceHaloID"] = ids
+    for keys, columns in blocks:
+        out = np.zeros(len(keys), dtype=record)
+        out[record.names[0]] = keys
         catalog_id = columns[IDENTITY_FIELD]
         if source_format == "consistent_trees_ascii":
             catalog_id = _ascii_values(catalog_id, np.int64)
@@ -1963,25 +1973,55 @@ def source_extra_blocks(
 def compare_extras(
     dataset_dir, source_format, profile, inventory, budget_bytes, spill_dir, block_rows
 ):
-    """Compare a dataset's SourceHaloID identity and declared extras with source extraction.
+    """Compare a dataset's identity and declared extras with source extraction.
 
     The identity comparison runs whether or not the profile declares any
-    extra: ``row_coverage`` requires the converted SourceHaloIDs to be exactly
-    the set the source inventory defines, and ``source_identity`` requires the
-    converted ``MostBoundID`` at each SourceHaloID to equal that source row's
-    own catalog identifier, so a SourceHaloID moved to the wrong halo is caught
-    even when the set of ids is right. This is the identity check for ASCII,
-    whose ``compare`` cannot derive SourceHaloID from forest order.
+    extra. For ``lhalo_binary`` and ``consistent_trees_hdf5`` both sides are
+    keyed by ``SourceHaloID``: ``row_coverage`` requires the converted ids to
+    be exactly the set the source inventory defines, and ``source_identity``
+    requires the converted ``MostBoundID`` at each id to equal that source
+    row's own catalog identifier, so an id moved to the wrong halo is caught
+    even when the set of ids is right. They keep that key because an L-Halo
+    source carries duplicate ``MostBoundID`` values.
+
+    For ``consistent_trees_ascii`` alone both sides are sorted and joined on
+    the catalogue key (``SnapNum``, ``MostBoundID``): the forest-rank
+    ``SourceHaloID`` needs the reference's post-fix-up rank, which a text
+    parse does not reproduce. ``row_coverage`` and the duplicate findings then
+    hold under that key, and ``source_identity`` -- an id-to-catalogue binding
+    the key itself already is -- is reported not applicable. ASCII
+    ``SourceHaloID`` binding is proved elsewhere: by the adapter's literal ids
+    and by ``compare``'s ``source_halo_id`` finding.
     """
     declared, identity_aliases = load_profile_declarations(profile, source_format)
+    catalogue_key = source_format == "consistent_trees_ascii"
+    record = extras_record_dtype(declared)
+    if catalogue_key:
+        record = np.dtype(
+            [
+                ("SnapNum" if name == "SourceHaloID" else name, record.fields[name][0])
+                for name in record.names
+            ]
+        )
+        key = ("SnapNum", IDENTITY_FIELD)
+        what = "(SnapNum, MostBoundID)"
+    else:
+        key = ("SourceHaloID",)
+        what = "SourceHaloID"
     findings = Findings()
-    findings.declare("duplicate_reference_rows", "no SourceHaloID extracted twice")
-    findings.declare("duplicate_converted_rows", "no SourceHaloID converted twice")
-    findings.declare("row_coverage", "the same SourceHaloIDs on both sides")
+    findings.declare("duplicate_reference_rows", "no {} extracted twice".format(what))
+    findings.declare("duplicate_converted_rows", "no {} converted twice".format(what))
+    findings.declare("row_coverage", "the same {}s on both sides".format(what))
     findings.declare(
         "source_identity",
         "each SourceHaloID's converted MostBoundID equals its source row's catalog identifier",
     )
+    if catalogue_key:
+        findings.not_applicable(
+            "source_identity",
+            "consistent_trees_ascii joins on the catalogue id itself; its SourceHaloID binding "
+            "is compare's source_halo_id finding",
+        )
     for name, _dtype, _components, _sources in declared:
         findings.declare("extra_" + name, "{} bits equal the source's declared cast".format(name))
     try:
@@ -2005,49 +2045,47 @@ def compare_extras(
             )
         else:
             usable.append(name)
-    record = extras_record_dtype(declared)
     share = max(1, int(budget_bytes) // 2)
     stats = {}
     with contextlib.ExitStack() as stack:
-        key = ("SourceHaloID",)
         ref = stack.enter_context(ExternalSorter(record, key, share, spill_dir, "extracted extras"))
         conv = stack.enter_context(
             ExternalSorter(record, key, share, spill_dir, "converted extras")
         )
         for block in source_extra_blocks(
-            source_format, declared, identity_aliases, inventory, block_rows, budget_bytes, findings
+            source_format,
+            declared,
+            identity_aliases,
+            inventory,
+            block_rows,
+            budget_bytes,
+            findings,
+            record,
         ):
             ref.add(block)
-        for ids, arrays in dataset.extra_blocks(usable + ["MostBoundID"], block_rows):
+        names = usable + ["MostBoundID"] + (["SnapNum"] if catalogue_key else [])
+        for ids, arrays in dataset.extra_blocks(names, block_rows):
             out = np.zeros(len(ids), dtype=record)
-            out["SourceHaloID"] = ids
+            out[record.names[0]] = arrays["SnapNum"] if catalogue_key else ids
             out[IDENTITY_FIELD] = arrays["MostBoundID"].astype(np.int64)
             for name in usable:
                 out[name] = arrays[name].view(record[name].base)
             conv.add(out)
 
         def describe(row):
+            if catalogue_key:
+                return "(SnapNum {}, MostBoundID {})".format(
+                    int(row["SnapNum"]), int(row[IDENTITY_FIELD])
+                )
             return "SourceHaloID {}".format(int(row["SourceHaloID"]))
 
         matched = 0
         for r, match, c, c_matched in lookup_join(
-            dedupe(
-                ref.sorted_blocks(),
-                ("SourceHaloID",),
-                findings,
-                "duplicate_reference_rows",
-                describe,
-            ),
-            ("SourceHaloID",),
+            dedupe(ref.sorted_blocks(), key, findings, "duplicate_reference_rows", describe),
+            key,
             record,
-            dedupe(
-                conv.sorted_blocks(),
-                ("SourceHaloID",),
-                findings,
-                "duplicate_converted_rows",
-                describe,
-            ),
-            ("SourceHaloID",),
+            dedupe(conv.sorted_blocks(), key, findings, "duplicate_converted_rows", describe),
+            key,
             record,
             stats,
         ):
@@ -2067,8 +2105,10 @@ def compare_extras(
             hit = match >= 0
             matched += int(np.count_nonzero(hit))
             rr, cc = r[hit], c[match[hit]]
-            findings.compared("source_identity", len(rr))
-            moved = rr[IDENTITY_FIELD] != cc[IDENTITY_FIELD]
+            moved = np.zeros(len(rr), dtype=bool)
+            if not catalogue_key:
+                findings.compared("source_identity", len(rr))
+                moved = rr[IDENTITY_FIELD] != cc[IDENTITY_FIELD]
             if moved.any():
                 findings.fail(
                     "source_identity",

@@ -502,7 +502,8 @@ PAYLOAD_FIELDS: Dict[str, Tuple[PayloadField, ...]] = {
 }
 
 #: How ``ForestIndex``, ``HaloRankInForest`` and the sidecar ``ForestID`` are
-#: defined for each source format. Identity is relative to the selected
+#: defined for each source format, and ``SourceHaloID`` where the route defines
+#: it by those identities rather than by its physical inventory. Identity is relative to the selected
 #: source representation: L-Halo and forests-HDF5 packagings of the same
 #: simulation can enumerate different forest sets, so equal identities across
 #: formats are never promised.
@@ -512,6 +513,7 @@ SOURCE_IDENTITY_CONVENTIONS: Dict[str, Dict[str, str]] = {
         "halo_rank_in_forest": "post-fixup reference vertical traversal order",
         "forest_id": "original source forest id",
         "ordinals": "-1/-1 for a forest spanning files; the manifest retains full membership",
+        "source_halo_id": "1-based position in (ForestIndex, HaloRankInForest) order",
     },
     "consistent_trees_hdf5": {
         "forest_index": "file-prefix ForestInfo row number",

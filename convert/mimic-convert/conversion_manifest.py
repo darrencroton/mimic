@@ -400,7 +400,14 @@ def inventory_record(inventory) -> Dict[str, object]:
     inventory order, plus the selected keys'. Two inventories with equal
     records assign every ``SourceHaloID`` and enumerate every forest
     identically; a per-file summary keeps the record readable.
+
+    The units are the route's canonical units. An inventory that declares
+    them non-physical (``physical_units = False``, the ASCII route's
+    per-forest inventory keyed ``(0, ForestIndex)``) gets an empty ``files``
+    summary, because its leading 0 is a coordinate shim, not a file; one
+    without the attribute is physical and is summarised per file as before.
     """
+    physical = getattr(inventory, "physical_units", True)
     digest = hashlib.sha256()
     files: Dict[int, List[int]] = {}
     block: List[Tuple[int, int, int]] = []
@@ -412,9 +419,10 @@ def inventory_record(inventory) -> Dict[str, object]:
 
     for unit in inventory.units:
         block.append((unit.source_file_ordinal, unit.unit_ordinal, unit.n_halos))
-        summary = files.setdefault(unit.source_file_ordinal, [0, 0])
-        summary[0] += 1
-        summary[1] += unit.n_halos
+        if physical:
+            summary = files.setdefault(unit.source_file_ordinal, [0, 0])
+            summary[0] += 1
+            summary[1] += unit.n_halos
         if len(block) >= 65536:
             flush()
     flush()

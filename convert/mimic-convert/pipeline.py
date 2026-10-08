@@ -388,9 +388,20 @@ def _ascii_parameters(parameters: Mapping) -> Dict[str, object]:
             "pool_size": 1,
             "chunksize": DEFAULT_CHUNKSIZE,
             "rank_budget_bytes": DEFAULT_RANK_BUDGET_BYTES,
+            "identity_scheme": "forest-rank",
         },
         "consistent_trees_ascii",
     )
+    # The SourceHaloID convention this conversion assigns, recorded so that it
+    # is inside the configuration digest: a workdir prepared under the earlier
+    # physical (file, unit, row) ids records none and is refused by
+    # ``initialize`` as a different conversion. Optional, so that recorded
+    # parameters re-validate, but no other value is accepted.
+    if merged["identity_scheme"] != "forest-rank":
+        raise ConverterError(
+            "consistent_trees_ascii identity_scheme must be 'forest-rank' (SourceHaloID is the "
+            "(ForestIndex, HaloRankInForest) position), got {!r}".format(merged["identity_scheme"])
+        )
     tree_files = merged["tree_files"]
     if (
         isinstance(tree_files, (str, bytes))
@@ -412,6 +423,7 @@ def _ascii_parameters(parameters: Mapping) -> Dict[str, object]:
         "memory_budget_bytes": require_integer(
             merged["memory_budget_bytes"], "memory_budget_bytes", _RECORDED, minimum=1
         ),
+        "identity_scheme": merged["identity_scheme"],
     }
 
 
@@ -732,10 +744,32 @@ def initialize(
     return manifest
 
 
+def _require_current_identity_scheme(manifest: ConversionManifest) -> None:
+    """Refuse an ASCII workdir recorded before the forest-rank identity scheme.
+
+    ``initialize`` refuses one through the configuration digest, but a stage
+    resumed from its workdir alone never re-initializes, so every stage entry
+    checks the recorded scheme too, before it touches anything. Read-only;
+    the other routes record no scheme and are unaffected.
+    """
+    adapter = manifest.configuration["adapter"]
+    if adapter["source_format"] != "consistent_trees_ascii":
+        return
+    if adapter["parameters"].get("identity_scheme") != "forest-rank":
+        raise ConverterError(
+            "{}: this ASCII workdir predates the 2026-10-07 identity ruling (SourceHaloID is now "
+            "the (ForestIndex, HaloRankInForest) position, recorded as identity_scheme "
+            "'forest-rank'); it does not resume -- reconvert it in a fresh workdir".format(
+                manifest.workdir
+            )
+        )
+
+
 def _open_for_stage(workdir, schema: Optional[CanonicalSchema]) -> ConversionManifest:
     """Load and bind a manifest for a stage; every check here is read-only,
     so a refused resume leaves the workdir exactly as it was."""
     manifest = ConversionManifest.load(workdir)
+    _require_current_identity_scheme(manifest)
     manifest.require_schema(schema)
     recomputed = _record_dtypes(manifest.schema)
     recorded = manifest.configuration["record_dtypes"]

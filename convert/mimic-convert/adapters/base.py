@@ -12,8 +12,12 @@ An adapter cannot know a target's snapshot-local row: that mapping is built by
 the bounded external sort/merge in ``transpose.py``. Emitting the
 target's ``SourceHaloID`` keeps each batch flat and bounded (one int64 per
 link), keeps the whole relationship spoolable, and keeps the source coordinate
-recoverable -- the inventory's prefix sums invert an id back to
-``(source_file_ordinal, unit_ordinal, row_ordinal)`` exactly.
+recoverable -- the inventory's prefix sums invert an id back to the route's
+declared canonical unit and row exactly, as ``(source_file_ordinal,
+unit_ordinal, row_ordinal)``. For the two prelinked routes that unit is
+physical (a file's tree or ``ForestInfo`` row); for ``consistent_trees_ascii``
+it is the whole forest, and the coordinate is ``(0, ForestIndex,
+HaloRankInForest)`` (see :class:`SourceInventory`).
 
 **Adapter-author contract.**
 
@@ -212,6 +216,21 @@ class SourceInventory:
     packaging and a forests-HDF5 packaging of the same simulation can
     enumerate different forest sets, so equal ``SourceHaloID`` or
     ``UniqueGalaxyID`` values across formats are never promised.
+
+    **The canonical unit is the route's declaration.** A unit is whatever the
+    route declares its canonical unit to be, and inversion (:meth:`base_id`,
+    :meth:`coordinate`) is to that unit and its row ordinal. For
+    ``lhalo_binary`` and ``consistent_trees_hdf5`` it is physical -- a file's
+    tree or ``ForestInfo`` row, keyed ``(source_file_ordinal, unit_ordinal)``
+    -- and the inventory is also the physical one. For
+    ``consistent_trees_ascii`` it is the whole forest in ascending
+    ``ForestIndex``, keyed ``(0, ForestIndex)`` with ``HaloRankInForest`` as
+    the row: the leading 0 is a deliberate shim that keeps this three-field
+    contract (and its non-negativity) for the two prelinked routes rather than
+    widening it, not a file ordinal. A route whose units are not physical says
+    so by setting ``physical_units = False`` on the inventory it returns;
+    ``conversion_manifest.inventory_record`` then records no per-file
+    summary. An inventory without the attribute is physical.
     """
 
     def __init__(
@@ -275,7 +294,9 @@ class SourceInventory:
             raise ConverterError("unit {} is not in the inventory".format(key)) from None
 
     def coordinate(self, source_halo_id: int) -> SourceCoordinate:
-        """Invert a ``SourceHaloID`` back to its source coordinate.
+        """Invert a ``SourceHaloID`` back to its canonical unit and row: the
+        physical source coordinate on the two prelinked routes,
+        ``(0, ForestIndex, HaloRankInForest)`` on the ASCII route.
 
         Exact by construction: ids are a contiguous prefix sum, so the search
         is a bisection over unit bases with no stored id table.
@@ -340,8 +361,11 @@ class CanonicalBatch:
     ``SourceHaloID``/``ForestIndex``/``HaloRankInForest``, ``links`` the five
     topology links as target ``SourceHaloID`` (``-1`` null), ``payload`` the
     format's declared physical/catalog fields, and ``extras`` the
-    declaratively selected ones. ``coordinates`` carries the three source
-    ordinals per row, so a comparison never has to reconstruct them.
+    declaratively selected ones. ``coordinates`` carries the three ordinals of
+    each row's canonical coordinate (:class:`SourceInventory`), so a comparison
+    never has to reconstruct them: the physical ``(file, unit, row)`` on the two
+    prelinked routes, and the shim ``(0, ForestIndex, HaloRankInForest)`` on
+    the ASCII route, whose canonical unit is the forest.
 
     Batch size is the adapter's business; the contract only requires that a
     batch fits the configured bound, so a forest larger than one chunk is

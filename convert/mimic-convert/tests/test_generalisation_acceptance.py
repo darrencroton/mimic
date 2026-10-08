@@ -1323,6 +1323,91 @@ class ExtrasTests(unittest.TestCase):
             package / "simulation_info.yaml",
         )
 
+    def test_ascii_extras_with_a_forest_spanning_two_files(self):
+        """Forest 100's two trees lie in different files, between other
+        forests: the catalogue-key join still matches every row and every
+        extra, whatever file a forest's halos come from."""
+        import fixtures
+
+        source = self.tmp / "spanning"
+        source.mkdir()
+        multi, satellite, early, zero_mass, sub = fixtures.standard_forests()
+        tree_files = [
+            fixtures.write_ctrees_file(
+                source / "tree_0.dat", [multi.trees[0], satellite.trees[0], early.trees[0]]
+            ),
+            fixtures.write_ctrees_file(
+                source / "tree_1.dat", [zero_mass.trees[0], multi.trees[1], sub.trees[0]]
+            ),
+        ]
+        forests_list = fixtures.write_forests_list(
+            source / "forests.list", [multi, satellite, early, zero_mass, sub]
+        )
+        # the package's metadata names the route (input.tree_type); the
+        # fixture's own a_list numbers its snapshots
+        sim_info = SIMULATIONS / "micro-uchuu-ascii" / "simulation_info.yaml"
+        profile = write_profile(
+            self.tmp / "profile.yaml",
+            REPO_ROOT / "convert" / "mimic-convert" / "profiles" / "consistent_trees_ascii.yaml",
+            [
+                extra("Radius", [{"field": "Rvir"}], "float", "kpc/h"),
+                extra("Progenitors", [{"field": "num_prog"}], "int"),
+                extra("RootID", [{"field": "Tree_root_ID"}], "long long"),
+            ],
+        )
+        ingest = [
+            "--source-format",
+            "consistent_trees_ascii",
+            "--simulation-info",
+            sim_info,
+            "--a-list",
+            fixtures.write_a_list(source / "fixture.a_list"),
+            "--column-map",
+            profile,
+            "--forests-list",
+            forests_list,
+            "--tree-file",
+            tree_files[0],
+            "--tree-file",
+            tree_files[1],
+            "--ingest-max-rows",
+            "4",
+        ]
+        dataset = self.check_route(
+            "consistent_trees_ascii",
+            profile,
+            [str(a) for a in ingest],
+            [
+                "--forests-list",
+                forests_list,
+                "--tree-file",
+                tree_files[0],
+                "--tree-file",
+                tree_files[1],
+            ],
+            "RootID",
+            sim_info,
+        )
+        code, report, text = self.extras_cli(
+            dataset,
+            "consistent_trees_ascii",
+            profile,
+            [
+                "--forests-list",
+                forests_list,
+                "--tree-file",
+                tree_files[0],
+                "--tree-file",
+                tree_files[1],
+            ],
+        )
+        self.assertEqual(code, 0, text)
+        self.assertEqual(report["matched_rows"], 17)
+        self.assertEqual(report["checks"]["row_coverage"]["compared"], 17)
+        with h5py.File(dataset / "forests.h5", "r") as handle:
+            spans = handle["SourceFileOrdinal"][...]
+            self.assertEqual(int(spans[0]), -1)
+
     def test_profile_loader_accepts_no_extras_and_refuses_malformed_profiles(self):
         shipped = REPO_ROOT / "convert" / "mimic-convert" / "profiles" / "lhalo_binary.yaml"
         self.assertEqual(
@@ -1399,6 +1484,43 @@ class ExtrasTests(unittest.TestCase):
         self.assertEqual(report["failed_checks"], ["source_identity"])
         self.assertEqual(report["checks"]["source_identity"]["failures"], 2)
 
+    def check_ascii_catalogue_key_only(self, dataset, profile, inventory):
+        """The ASCII leg of :meth:`check_identity_only` under the catalogue-key
+        join: PASS on the clean dataset with ``source_identity`` not
+        applicable; a wrong catalogue id fails ``row_coverage`` exactly as a
+        wrong SourceHaloID does on the other routes; a swapped SourceHaloID
+        pair passes, because compare-extras no longer reads ASCII ids."""
+        source_format = "consistent_trees_ascii"
+        code, report, text = self.extras_cli(dataset, source_format, profile, inventory)
+        self.assertEqual(code, 0, text + json.dumps(report and report["checks"], indent=1))
+        self.assertEqual(report["extras"], [])
+        self.assertIn("not_applicable", report["checks"]["source_identity"])
+        self.assertEqual(report["checks"]["source_identity"]["compared"], 0)
+        self.assertGreater(report["checks"]["row_coverage"]["compared"], 0)
+        paths = [p for p in sorted(Path(dataset).glob("snapshot_*.h5")) if rows_in(p) > 1]
+        self.assertTrue(paths, "need a snapshot with two halos to swap")
+
+        wrong = self.tmp / "wrong_catalogue_id"
+        shutil.copytree(dataset, wrong)
+        with h5py.File(wrong / paths[0].name, "r+") as handle:
+            catalogue = handle["halos"]["MostBoundID"][...]
+            catalogue[0] = 10**12
+            handle["halos"]["MostBoundID"][...] = catalogue
+        code, report, text = self.extras_cli(wrong, source_format, profile, inventory)
+        self.assertEqual(code, acc.EXIT_FAIL, text)
+        self.assertEqual(report["failed_checks"], ["row_coverage"])
+        self.assertEqual(report["checks"]["row_coverage"]["failures"], 2)
+
+        # ASCII SourceHaloID binding is not this comparator's to prove: the
+        # adapter's literal ids (test_ascii_adapter TestCanonicalBridge) and
+        # the C-dump compare leg's source_halo_id finding prove it
+        swapped = self.tmp / "swapped_id"
+        shutil.copytree(dataset, swapped)
+        edit_ids(swapped / paths[0].name, lambda ids: ids.__setitem__(slice(0, 2), ids[1::-1]))
+        code, report, text = self.extras_cli(swapped, source_format, profile, inventory)
+        self.assertEqual(code, 0, text)
+        self.assertEqual(report["failed_checks"], [])
+
     def test_ascii_identity_with_the_shipped_zero_extras_profile(self):
         package = SIMULATIONS / "micro-uchuu-ascii"
         data = package / "_tests" / "data"
@@ -1422,9 +1544,8 @@ class ExtrasTests(unittest.TestCase):
         dataset = convert_with_harness(
             self.tmp, [str(a) for a in ingest], self.record, package / "simulation_info.yaml"
         )
-        self.check_identity_only(
+        self.check_ascii_catalogue_key_only(
             dataset,
-            "consistent_trees_ascii",
             profile,
             ["--forests-list", data / "forests.list", "--tree-file", data / "tree_0_0_0.dat"],
         )
@@ -1621,20 +1742,23 @@ class ExtrasTests(unittest.TestCase):
 # The ASCII extractor's memory bound
 # ==========================================================================
 
-ASCII_HEADER = "#scale(0) id(1) desc_id(2) x(3) Mvir(4) num_prog(5) Tree_root_ID(6)\n"
+ASCII_HEADER = "#scale(0) id(1) desc_id(2) x(3) Mvir(4) num_prog(5) Tree_root_ID(6) Snap_num(7)\n"
 
 
 def write_ascii(directory, trees, forest_of_tree):
     """One indexed-header ASCII tree file of ``{tree root: rows}`` and its forests.list.
 
-    Row ``i`` of the file (from 0) has catalog id ``i + 1`` and x ``i / 1000``.
+    Row ``i`` of the file (from 0) has catalog id ``i + 1``, x ``i / 1000`` and
+    snapshot ``i % 4``.
     """
     directory.mkdir(parents=True, exist_ok=True)
     lines, row = [ASCII_HEADER, "#Omega_M = 0.3\n", "{}\n".format(len(trees))], 0
     for tree, rows in trees.items():
         lines.append("#tree {}\n".format(tree))
         for _ in range(rows):
-            lines.append("0.5 {} -1 {:.3f} 1.0e12 0 {}\n".format(row + 1, row / 1000, tree))
+            lines.append(
+                "0.5 {} -1 {:.3f} 1.0e12 0 {} {}\n".format(row + 1, row / 1000, tree, row % 4)
+            )
             row += 1
     path = directory / "tree_0_0_0.dat"
     path.write_text("".join(lines))
@@ -1652,15 +1776,16 @@ class AsciiExtractionTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
 
     def peak(self, path, listing, block_rows):
-        """tracemalloc peak while streaming ``x`` of every row; the blocks' sizes and ids."""
+        """tracemalloc peak while streaming ``x`` of every row; the blocks' sizes and catalog ids."""
         sizes, ids = [], []
         tracemalloc.start()
         try:
-            for block_ids, columns in acc.iter_ascii_source(
+            for _snaps, columns in acc.iter_ascii_source(
                 [path], listing, ["x"], ["id"], block_rows
             ):
-                sizes.append(len(block_ids))
-                ids.append((int(block_ids[0]), int(block_ids[-1]), columns["x"][0]))
+                catalog = columns[acc.IDENTITY_FIELD]
+                sizes.append(len(catalog))
+                ids.append((int(catalog[0]), int(catalog[-1]), columns["x"][0]))
             _current, peak = tracemalloc.get_traced_memory()
         finally:
             tracemalloc.stop()
@@ -1684,30 +1809,31 @@ class AsciiExtractionTests(unittest.TestCase):
         self.assertLess(peak, whole_tokens / 2, (peak, whole_tokens))
         self.assertLess(4 * peak, whole_peak, (peak, whole_peak))
 
-    def test_ascii_slices_assign_the_same_source_halo_ids_at_any_block_size(self):
-        # forests 1 and 2 interleave across trees; the empty tree still opens forest 3's unit
+    def test_ascii_slices_yield_the_same_catalogue_keys_at_any_block_size(self):
+        """The extractor assigns no SourceHaloID: every row comes out keyed by
+        (SnapNum, catalogue id) in file order, identically at any block size."""
+        # forests 1 and 2 interleave across trees; tree 31 is empty
         trees = {11: 3, 21: 5, 12: 4, 31: 0, 22: 2, 13: 1, 32: 3}
         forests = {11: 1, 12: 1, 13: 1, 21: 2, 22: 2, 31: 3, 32: 3}
         path, listing = write_ascii(self.tmp, trees, forests)
 
-        def ids(block_rows):
+        def keys(block_rows):
             blocks = acc.iter_ascii_source([path], listing, ["x"], ["id"], block_rows)
             return [
-                (int(i), int(c), x)
-                for block_ids, columns in blocks
-                for i, c, x in zip(block_ids, columns[acc.IDENTITY_FIELD], columns["x"])
+                (int(snap), int(catalog), x)
+                for snaps, columns in blocks
+                for snap, catalog, x in zip(snaps, columns[acc.IDENTITY_FIELD], columns["x"])
             ]
 
-        whole = ids(1 << 20)
-        # unit order 1, 2, 3; a row's ordinal counts its forest's earlier rows in the file
-        by_catalog = {catalog: source for source, catalog, _x in whole}
-        self.assertEqual([by_catalog[c] for c in (1, 4, 9, 13, 16)], [1, 9, 4, 14, 16])
-        self.assertEqual(sorted(by_catalog.values()), list(range(1, 19)))
+        whole = keys(1 << 20)
+        self.assertEqual(
+            whole, [(row % 4, row + 1, "{:.3f}".format(row / 1000)) for row in range(18)]
+        )
         for block_rows in (1, 2, 3, 7):
             with self.subTest(block_rows=block_rows):
-                self.assertEqual(ids(block_rows), whole)
+                self.assertEqual(keys(block_rows), whole)
         with self.assertRaises(acc.AcceptanceError):
-            ids(0)
+            keys(0)
 
     def test_a_file_changed_between_the_passes_is_refused(self):
         path, listing = write_ascii(self.tmp, {7: 5, 8: 2}, {7: 1, 8: 2})

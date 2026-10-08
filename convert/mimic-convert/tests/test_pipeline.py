@@ -400,6 +400,12 @@ class EndToEndTests(PipelineCase):
                 {"source_file_ordinal": 1, "n_units": 1, "n_halos": 3},
             ],
         )
+        # the physical record is the one this route has always written (pinned
+        # before the ASCII route's per-forest inventory was introduced)
+        self.assertEqual(
+            inventory["units_sha256"],
+            "7415e86f7025d884b501c4212ad0de10669ec32fac9c7cf2f104f481dba16fa3",
+        )
         # stage records and content checksums, recomputed independently
         for stage in cm.STAGES:
             record = data["stages"][stage]
@@ -1303,6 +1309,15 @@ class OtherAdapterTests(unittest.TestCase):
         pipeline.run_transpose(work)
         got, want = cm.ConversionManifest.load(work), cm.ConversionManifest.load(clean)
         self.assertEqual(got.inventory, want.inventory)
+        # one unit per forest (the five standard forests) and no physical units
+        n_forests = len(fixtures.standard_forests())
+        self.assertEqual(got.inventory["files"], [])
+        self.assertEqual(
+            (got.inventory["n_units"], got.inventory["n_selected_units"]), (n_forests, n_forests)
+        )
+        self.assertEqual(
+            got.configuration["adapter"]["parameters"]["identity_scheme"], "forest-rank"
+        )
         for stage in ("ingest", "transpose"):
             self.assertEqual(
                 [got.artifact(r)["sha256"] for r in got.stage(stage)["artifacts"]],
@@ -1423,6 +1438,19 @@ class OtherAdapterTests(unittest.TestCase):
         np.testing.assert_array_equal(rows4["Descendant"], [0, 1])
         np.testing.assert_array_equal(rows5["NextHaloInFOFgroup"], [1, -1, -1])
         np.testing.assert_array_equal(rows5["ForestIndex"], [0, 0, 1])
+        # the physical record is the one this route has always written (pinned
+        # before the ASCII route's per-forest inventory was introduced)
+        self.assertEqual(
+            manifest.inventory["units_sha256"],
+            "f9c4a98219e4d3dac5f53aa8e7475c9957732139a15d6f5920cdcda4bc27b987",
+        )
+        self.assertEqual(
+            manifest.inventory["files"],
+            [
+                {"source_file_ordinal": 0, "n_units": 1, "n_halos": 4},
+                {"source_file_ordinal": 1, "n_units": 1, "n_halos": 1},
+            ],
+        )
 
 
 if __name__ == "__main__":
