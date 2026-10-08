@@ -218,6 +218,7 @@ from census.partition import (  # noqa: E402
     DEFAULT_NTASKS,
     partition_cut,
     range_rows,
+    slab_prefix,
 )
 from census.rules import Rule  # noqa: E402
 from census.trees import load_labels, load_roots, load_slab_tree_pairs, trees_dir  # noqa: E402
@@ -1003,9 +1004,11 @@ def partition_points(
 def apply_points(points: List[Dict], snap: int, forests: np.ndarray, counts: np.ndarray) -> None:
     """Record every grid point's widest range in one slab (a tie keeps the
     lowest-numbered slab, as slabs are applied in ascending order) and each
-    range's largest slab so far."""
+    range's largest slab so far. The slab's prefix sums are computed once for
+    every point."""
+    prefix = slab_prefix(counts)
     for point in points:
-        rows = range_rows(forests, counts, point["forest_cuts"])
+        rows = range_rows(forests, counts, point["forest_cuts"], prefix)
         point["range_peak_rows"] = np.maximum(point["range_peak_rows"], rows).tolist()
         at = int(np.argmax(rows)) if rows.size else 0
         widest = int(rows[at]) if rows.size else 0

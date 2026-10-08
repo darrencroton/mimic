@@ -144,19 +144,33 @@ def partition_cut(weights: Sequence[int], ntask: int, nchunk: int) -> List[int]:
     return cuts
 
 
-def range_rows(forests: np.ndarray, counts: np.ndarray, cuts: Sequence[int]) -> np.ndarray:
+def slab_prefix(counts: np.ndarray) -> np.ndarray:
+    """A slab's row-count prefix sums (int64, a leading 0), for :func:`range_rows`."""
+    prefix = np.zeros(np.asarray(counts).size + 1, dtype=np.int64)
+    np.cumsum(counts, out=prefix[1:])
+    return prefix
+
+
+def range_rows(
+    forests: np.ndarray,
+    counts: np.ndarray,
+    cuts: Sequence[int],
+    prefix: Optional[np.ndarray] = None,
+) -> np.ndarray:
     """Rows of one slab in each range of ``cuts``.
 
     Args:
         forests: the slab's present ``ForestIndex`` values, ascending.
         counts: their row counts, aligned.
         cuts: a partition's forest cuts.
+        prefix: :func:`slab_prefix` of ``counts``, when the caller applies
+            several partitions to one slab and computes it once.
 
     Returns:
         int64 array of length ``len(cuts) - 1``.
     """
-    prefix = np.zeros(np.asarray(counts).size + 1, dtype=np.int64)
-    np.cumsum(counts, out=prefix[1:])
+    if prefix is None:
+        prefix = slab_prefix(counts)
     below = prefix[np.searchsorted(forests, np.asarray(cuts, dtype=np.int64), "left")]
     return np.diff(below)
 
@@ -234,8 +248,9 @@ def run_partition(
     for snap in range(len(n_halos)):
         forests, counts = load_slab_pairs(aggregate_dir, snap)
         floors.append(int(counts.max()) if counts.size else 0)
+        prefix = slab_prefix(counts)
         for point in points:
-            rows = range_rows(forests, counts, point["forest_cuts"])
+            rows = range_rows(forests, counts, point["forest_cuts"], prefix)
             if int(rows.sum()) != n_halos[snap]:  # pragma: no cover - cuts span [0, n)
                 raise ConverterError("partition ranges do not cover snapshot {}".format(snap))
             at = int(np.argmax(rows)) if rows.size else 0

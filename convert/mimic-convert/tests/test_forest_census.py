@@ -220,6 +220,21 @@ class TestPartition(unittest.TestCase):
             partition.range_rows(forests, counts, [0, 1, 3, 3, 6]), [4, 1, 0, 8]
         )
 
+    def test_a_shared_prefix_gives_the_same_ranges(self):
+        generator = np.random.default_rng(31)
+        forests = np.sort(generator.choice(500, 120, replace=False)).astype(np.int64)
+        counts = generator.integers(1, 50, forests.size).astype(np.int32)
+        prefix = partition.slab_prefix(counts)
+        for ntask, nchunk in ((1, 1), (2, 3), (4, 8), (8, 32)):
+            weights = np.zeros(500, dtype=np.int64)
+            weights[forests] = counts
+            cuts = partition.partition_cut(weights, ntask, nchunk)
+            np.testing.assert_array_equal(
+                partition.range_rows(forests, counts, cuts, prefix),
+                partition.range_rows(forests, counts, cuts),
+            )
+        np.testing.assert_array_equal(partition.slab_prefix(np.zeros(0, dtype=np.int32)), [0])
+
 
 # ---------------------------------------------------------------------------
 # The index files
