@@ -1506,8 +1506,71 @@ class ExtrasTests(unittest.TestCase):
         blocks = list(
             acc.iter_ascii_source([path], listing, ["_snapshot"], ["id"], ["snap_num"], 2)
         )
-        self.assertEqual([int(v) for _s, c in blocks for v in c["_snapshot"]], [904, 905, 906])
-        self.assertEqual([int(v) for snaps, _c in blocks for v in snaps], [0, 1, 2])
+        self.assertEqual([int(v) for _s, _i, c in blocks for v in c["_snapshot"]], [904, 905, 906])
+        self.assertEqual([int(v) for snaps, _i, _c in blocks for v in snaps], [0, 1, 2])
+
+    def test_an_extra_from_a_column_named_like_the_identity_key(self):
+        """A declared extra sourced from a column named like the extraction's
+        identity key (:data:`IDENTITY_FIELD`) is read as that column, and the
+        catalogue id still comes from the identity alias, on ASCII and on
+        forests-HDF5."""
+        name = acc.IDENTITY_FIELD
+        self.ascii_fixture_route(
+            "identity_shadow",
+            lambda document: None,
+            [extra("Shadow", [{"field": name}], "long long")],
+            "Shadow",
+            extra_columns=[(name, lambda halo: str(5000 + halo.halo_id % 89))],
+        )
+        path, listing = write_ascii(self.tmp / "plain_identity", {7: 3}, {7: 1})
+        # a header column named like the identity key; each data row (file
+        # lines 4-6) carries 800 + its line number there
+        lines = path.read_text().splitlines()
+        lines[0] += " {}(8)".format(name)
+        lines = [
+            line + " {}".format(800 + k) if not line.startswith("#") and " " in line else line
+            for k, line in enumerate(lines)
+        ]
+        path.write_text("\n".join(lines) + "\n")
+        blocks = list(acc.iter_ascii_source([path], listing, [name], ["id"], ["snap_num"], 2))
+        self.assertEqual([int(v) for _s, _i, c in blocks for v in c[name]], [804, 805, 806])
+        self.assertEqual([int(v) for _s, ids, _c in blocks for v in ids], [1, 2, 3])
+
+        package = SIMULATIONS / "micro-uchuu-hdf5"
+        fixture = package / "_tests" / "data" / "MicroUchuu_test_mergertree_info.h5"
+        info = self.tmp / "identity_shadow_info.h5"
+        shutil.copy2(fixture, info)
+        _declared, aliases, _snapshot = acc.load_profile_declarations(
+            package / "converter_columns.yaml", "consistent_trees_hdf5"
+        )
+        with h5py.File(info, "r+") as handle:
+            forests = handle["File0"]["Forests"]
+            (identity,) = [alias for alias in aliases if alias in forests]
+            catalog = forests[identity][...].astype(np.int64)
+            forests[name] = -catalog - 7
+        rows = list(acc.iter_hdf5_source(info, 0, 0, [name], aliases, 4, 1 << 20))
+        self.assertTrue(rows)
+        ids = np.concatenate([np.asarray(ids) for _f, _r, ids, _c in rows])
+        shadow = np.concatenate([np.asarray(c[name]) for _f, _r, _i, c in rows])
+        np.testing.assert_array_equal(shadow, -ids - 7)
+        self.assertEqual(sorted(ids.tolist()), sorted(catalog.tolist()))
+
+    def test_an_unresolvable_alias_names_its_role(self):
+        """The alias error names the snapshot role for snapshot aliases and the
+        identity role for identity aliases, whether none or two resolve."""
+        path, listing = write_ascii(self.tmp / "roles", {7: 2}, {7: 1})
+        cases = (
+            (["id"], ["no_such_snap"], "snapshot"),
+            (["id"], ["snap_num", "id"], "snapshot"),
+            (["no_such_id"], ["snap_num"], "identity"),
+            (["id", "snap_num"], ["snap_num"], "identity"),
+        )
+        for identity, snapshot, role in cases:
+            with self.subTest(identity=identity, snapshot=snapshot):
+                with self.assertRaisesRegex(
+                    acc.AcceptanceError, "exactly one of the {} aliases".format(role)
+                ):
+                    list(acc.iter_ascii_source([path], listing, [], identity, snapshot, 2))
 
     def test_profile_loader_accepts_no_extras_and_refuses_malformed_profiles(self):
         shipped = REPO_ROOT / "convert" / "mimic-convert" / "profiles" / "lhalo_binary.yaml"
@@ -1834,7 +1897,8 @@ class ExtrasTests(unittest.TestCase):
         def extracted(info):
             blocks = acc.iter_hdf5_source(info, 0, 0, ["Mvir"], aliases, 4, 1 << 20)
             return [
-                (first, rows, {k: v.tolist() for k, v in c.items()}) for first, rows, c in blocks
+                (first, rows, ids.tolist(), {k: v.tolist() for k, v in c.items()})
+                for first, rows, ids, c in blocks
             ]
 
         self.assertEqual(extracted(linked), extracted(fixture))
@@ -1929,10 +1993,9 @@ class AsciiExtractionTests(unittest.TestCase):
         sizes, ids = [], []
         tracemalloc.start()
         try:
-            for _snaps, columns in acc.iter_ascii_source(
+            for _snaps, catalog, columns in acc.iter_ascii_source(
                 [path], listing, ["x"], ["id"], ["snap_num"], block_rows
             ):
-                catalog = columns[acc.IDENTITY_FIELD]
                 sizes.append(len(catalog))
                 ids.append((int(catalog[0]), int(catalog[-1]), columns["x"][0]))
             _current, peak = tracemalloc.get_traced_memory()
@@ -1970,8 +2033,8 @@ class AsciiExtractionTests(unittest.TestCase):
             blocks = acc.iter_ascii_source([path], listing, ["x"], ["id"], ["snap_num"], block_rows)
             return [
                 (int(snap), int(catalog), x)
-                for snaps, columns in blocks
-                for snap, catalog, x in zip(snaps, columns[acc.IDENTITY_FIELD], columns["x"])
+                for snaps, ids, columns in blocks
+                for snap, catalog, x in zip(snaps, ids, columns["x"])
             ]
 
         whole = keys(1 << 20)

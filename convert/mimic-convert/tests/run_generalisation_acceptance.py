@@ -48,8 +48,9 @@ What the comparator detects, each as its own named check: dropped and extra
 rows, duplicated rows on either side, wrong ``SnapNum``, a link resolving to
 the wrong halo (which is how a reordered progenitor or FoF chain shows up),
 a wrong target snapshot, a changed payload bit, and a wrong ``SourceHaloID``
-(on every route, whose ids all ascend in (``ForestIndex``, rank) order). Columns it does not compare (converter extras, or extra
-columns in a newer dump) are ignored rather than failing the comparison. A
+(on every route, whose ids all ascend in (``ForestIndex``, rank) order).
+Columns it does not compare (converter extras, or extra columns in a newer
+dump) are ignored rather than failing the comparison. A
 comparison that matches no rows at all is a FAIL, never a vacuous PASS.
 
 Bounded resources
@@ -855,6 +856,10 @@ def reference_blocks(dump_blocks, source_format, findings):
     unit on the prelinked routes, the forest as the unit on ASCII -- so the
     expected ``SourceHaloID`` of the k-th row is k (from 1).
     """
+    # Every format the CLI accepts is listed; the test stays because
+    # compare_streams is also called directly with any string, and an
+    # unlisted format must get no SourceHaloID expectation rather than one
+    # its id convention might not satisfy.
     assign = source_format in UNIT_FOREST_FORMATS
     position = 0
     carry_forest, carry_next = None, 0
@@ -1227,11 +1232,6 @@ def _declare_checks(findings, source_format):
         findings.declare("payload_" + name, "{} binary32 bits equal the reference".format(name))
     findings.declare("payload_storage", "every float payload dataset is <f4 binary32 in every file")
     findings.declare("source_halo_id", "SourceHaloID is the 1-based (ForestIndex, rank) position")
-    if source_format not in UNIT_FOREST_FORMATS:
-        findings.not_applicable(
-            "source_halo_id",
-            "{} forest enumeration is not the inventory order".format(source_format),
-        )
 
 
 def _compare_window(reference, converted, source_format, findings):
@@ -1581,13 +1581,16 @@ def load_profile_declarations(profile_path, source_format):
     return declared, aliases, snapshot_aliases
 
 
-def _resolve_alias(aliases, available, where, fold=False):
-    """The one alias present in ``available`` (case-folded when ``fold``)."""
+def _resolve_alias(aliases, available, where, role, fold=False):
+    """The one alias present in ``available`` (case-folded when ``fold``).
+
+    ``role`` (``"identity"`` or ``"snapshot"``) names the aliases in the error.
+    """
     found = [alias for alias in aliases if (alias.lower() if fold else alias) in available]
     if len(found) != 1:
         raise AcceptanceError(
-            "{}: exactly one of the identity aliases {} must resolve, found {}".format(
-                where, aliases, found
+            "{}: exactly one of the {} aliases {} must resolve, found {}".format(
+                where, role, aliases, found
             )
         )
     return found[0].lower() if fold else found[0]
@@ -1706,10 +1709,12 @@ def _coalesce(offsets, counts):
 def iter_hdf5_source(
     info_file, first_file, last_file, fields, identity_aliases, block_rows, budget_bytes
 ):
-    """(first SourceHaloID, rows, {field: values}) over ``File<N>`` groups in ForestInfo order.
+    """(first SourceHaloID, rows, catalog ids, {field: values}) in ForestInfo order.
 
-    The identity alias is resolved per file and returned under
-    :data:`IDENTITY_FIELD`; it is also the extent every other field must match.
+    Blocks run over the ``File<N>`` groups. The identity alias is resolved per
+    file and its values are yielded on their own, apart from the requested
+    fields, so no field name can collide with it; it is also the extent every
+    other field must match.
     """
     source_halo_id = 1
     with h5py.File(info_file, "r") as handle:
@@ -1733,7 +1738,7 @@ def iter_hdf5_source(
             offsets = table["ForestHalosOffset"].astype(np.int64)
             counts = table["ForestNhalos"].astype(np.int64)
             where = "{}/{}/Forests".format(info_file, name)
-            identity = _resolve_alias(identity_aliases, forests, where)
+            identity = _resolve_alias(identity_aliases, forests, where, "identity")
             length = forests[identity].shape[0]
             for field in fields:
                 if field not in forests:
@@ -1750,8 +1755,7 @@ def iter_hdf5_source(
                 for begin in range(start, start + total, block_rows):
                     stop = min(start + total, begin + block_rows)
                     columns = {field: forests[field][begin:stop] for field in fields}
-                    columns[IDENTITY_FIELD] = forests[identity][begin:stop]
-                    yield source_halo_id, stop - begin, columns
+                    yield source_halo_id, stop - begin, forests[identity][begin:stop], columns
                     source_halo_id += stop - begin
 
 
@@ -1865,17 +1869,17 @@ def _ascii_slices(path, width, columns, trees, block_rows):
 def iter_ascii_source(
     tree_files, forests_list, fields, identity_aliases, snapshot_aliases, block_rows
 ):
-    """(SnapNum array, {field: token arrays}) per slice of a tree block, in file order.
+    """(SnapNum array, catalog id tokens, {field: token arrays}) per slice, in file order.
 
     No ``SourceHaloID`` is assigned: under the forest-rank convention a halo's
     id is its (``ForestIndex``, ``HaloRankInForest``) position, and the rank
     is the reference's post-fix-up vertical order, which a plain text parse
     cannot reproduce. ASCII rows are keyed instead by the catalogue's own id
-    (returned under :data:`IDENTITY_FIELD`) and the row's snapshot, read from
-    the one column of the header that ``snapshot_aliases`` (the profile's
-    ``required_columns.snap``) names -- the key :func:`compare_extras` joins
-    this route on. The snapshot column's position is kept apart from the
-    requested fields, so no field name can collide with it. Pass one counts
+    and the row's snapshot, read from the one column of the header that
+    ``snapshot_aliases`` (the profile's ``required_columns.snap``) names --
+    the key :func:`compare_extras` joins this route on. The identity and
+    snapshot columns' positions are kept apart from the requested fields and
+    yielded on their own, so no field name can collide with either. Pass one counts
     each tree's rows without keeping a token; pass two yields each tree in
     slices of at most ``block_rows`` rows holding only the requested columns,
     so memory follows ``block_rows``, never the largest forest, and a file
@@ -1897,17 +1901,21 @@ def iter_ascii_source(
         if missing:
             raise AcceptanceError("{}: no column(s) {}".format(path, missing))
         position = {field: header.index(field.lower()) for field in fields}
-        position[IDENTITY_FIELD] = header.index(
-            _resolve_alias(identity_aliases, header, path, fold=True)
+        identity_column = header.index(
+            _resolve_alias(identity_aliases, header, path, "identity", fold=True)
         )
-        snapshot_column = header.index(_resolve_alias(snapshot_aliases, header, path, fold=True))
-        columns = sorted(set(position.values()) | {snapshot_column})
+        snapshot_column = header.index(
+            _resolve_alias(snapshot_aliases, header, path, "snapshot", fold=True)
+        )
+        columns = sorted(set(position.values()) | {identity_column, snapshot_column})
         slot = {field: columns.index(column) for field, column in position.items()}
+        identity_slot = columns.index(identity_column)
         snapshot_slot = columns.index(snapshot_column)
         trees, _unit_sizes = _ascii_tree_plan(path, len(header), forest_of_tree, forests_list)
         for _tree, _first, table in _ascii_slices(path, len(header), columns, trees, block_rows):
             snaps = _ascii_values(table[:, snapshot_slot], np.int64)
-            yield snaps, {field: table[:, column] for field, column in slot.items()}
+            fields_of = {field: table[:, column] for field, column in slot.items()}
+            yield snaps, table[:, identity_slot], fields_of
 
 
 def _ascii_values(tokens, dtype):
@@ -1943,11 +1951,12 @@ def source_extra_blocks(
         missing = [field for field in fields if field not in layout.names]
         if missing:
             raise AcceptanceError("binary layout has no field(s) {}".format(missing))
-        identity = _resolve_alias(identity_aliases, layout.names, "binary layout")
+        identity = _resolve_alias(identity_aliases, layout.names, "binary layout", "identity")
         blocks = (
             (
                 first + np.arange(len(records), dtype=np.int64),
-                dict({f: records[f] for f in fields}, **{IDENTITY_FIELD: records[identity]}),
+                records[identity],
+                {f: records[f] for f in fields},
             )
             for first, records in iter_lhalo_source(
                 inventory["source_dir"],
@@ -1961,8 +1970,8 @@ def source_extra_blocks(
         )
     elif source_format == "consistent_trees_hdf5":
         blocks = (
-            (first + np.arange(rows, dtype=np.int64), columns)
-            for first, rows, columns in iter_hdf5_source(
+            (first + np.arange(rows, dtype=np.int64), catalog, columns)
+            for first, rows, catalog, columns in iter_hdf5_source(
                 inventory["info_file"],
                 inventory["first_file"],
                 inventory["last_file"],
@@ -1983,10 +1992,9 @@ def source_extra_blocks(
         )
     else:
         raise AcceptanceError("unknown source format {!r}".format(source_format))
-    for keys, columns in blocks:
+    for keys, catalog_id, columns in blocks:
         out = np.zeros(len(keys), dtype=record)
         out[record.names[0]] = keys
-        catalog_id = columns[IDENTITY_FIELD]
         if source_format == "consistent_trees_ascii":
             catalog_id = _ascii_values(catalog_id, np.int64)
         catalog_id = np.asarray(catalog_id)
