@@ -49,6 +49,9 @@ RULE_KEYS = ("d", "h", "m")
 #: How an unbounded threshold is written.
 UNBOUNDED = "any"
 
+#: The largest ``d`` or ``h`` threshold: the merged counts are int64.
+_INT64_MAX = int(np.iinfo(np.int64).max)
+
 
 def _format_mass(value: float) -> str:
     """The shortest decimal that reads back as exactly ``value`` (``repr``), so
@@ -106,8 +109,8 @@ COMPLETE = Rule()
 
 def parse_rule(text: str) -> Rule:
     """A rule from ``d=<int>,h=<int>,m=<float>``; an omitted key, or the value
-    ``any``, is unbounded. ``d`` and ``h`` are non-negative integers, ``m`` a
-    finite number.
+    ``any``, is unbounded. ``d`` and ``h`` are integers in ``[0, 2^63 - 1]``
+    (the merged counts are int64), ``m`` a finite float.
 
     Raises:
         ConverterError: on an empty specification, an unknown or repeated key,
@@ -129,12 +132,21 @@ def parse_rule(text: str) -> Rule:
         if value == UNBOUNDED:
             values[key] = None
             continue
-        try:
-            number = int(value) if key in ("d", "h") else float(value)
-        except ValueError:
-            number = None
-        if number is None or (key in ("d", "h") and number < 0) or not np.isfinite(number):
-            kind = "a non-negative integer" if key in ("d", "h") else "a finite number"
+        if key in ("d", "h"):
+            try:
+                number = int(value)
+            except ValueError:
+                number = None
+            valid = number is not None and 0 <= number <= _INT64_MAX
+            kind = "a non-negative integer of at most 2^63 - 1"
+        else:
+            try:
+                number = float(value)
+            except ValueError:
+                number = None
+            valid = number is not None and bool(np.isfinite(number))
+            kind = "a finite number"
+        if not valid:
             raise ConverterError(
                 "rule {!r}: {}={!r} is not {} or {}".format(text, key, value, kind, UNBOUNDED)
             )

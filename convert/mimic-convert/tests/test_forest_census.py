@@ -1333,7 +1333,7 @@ class TestGraphAndCut(unittest.TestCase):
             [1, 2, 4],
             [1, 2, 4],
             1 << 30,
-            [4, 16],
+            [4, 6, 16],
         )
 
     @classmethod
@@ -1550,17 +1550,45 @@ class TestGraphAndCut(unittest.TestCase):
         self.assertEqual(points[(1, 2)]["widest_rows_per_snapshot"], [0, 0, 0, 2, 5, 3])
         self.assertEqual(points[(1, 1)]["widest"]["rows"], 8)
         self.assertEqual(points[(1, 4)]["widest"]["rows"], 3)
-        self.assertEqual(points[(1, 4)]["implied_bytes"], 3 << 30)
-        self.assertEqual(points[(1, 4)]["fits_gib"], [4, 16])
-        self.assertEqual(points[(1, 2)]["fits_gib"], [16])
+        self.assertEqual(points[(1, 4)]["process_bytes"], 3 << 30)
+        self.assertEqual(points[(1, 4)]["job_bytes"], 3 << 30)
+        self.assertEqual(points[(1, 4)]["fits_gib"], [4, 6, 16])
+        self.assertEqual(points[(1, 2)]["fits_gib"], [6, 16])
+        self.assertEqual(points[(1, 4)]["retention_memory_ceiling_mb"], 3 << 10)
         classes = entry["partition"]["laptop_classes"]
+
+        def best(ntask, nchunk, widest, job):
+            return {
+                "ntask": ntask,
+                "nchunk": nchunk,
+                "widest_rows": widest,
+                "job_rows": job,
+                "process_bytes": widest << 30,
+                "job_bytes": job << 30,
+                "retention_memory_ceiling_mb": widest << 10,
+            }
+
         self.assertEqual(
             [(c["class_gib"], c["smallest_fitting_point"]) for c in classes],
-            [
-                (4, {"ntask": 1, "nchunk": 4, "widest_rows": 3, "implied_bytes": 3 << 30}),
-                (16, {"ntask": 1, "nchunk": 1, "widest_rows": 8, "implied_bytes": 8 << 30}),
-            ],
+            [(4, best(1, 4, 3, 3)), (6, best(1, 2, 5, 5)), (16, best(1, 1, 8, 8))],
         )
+
+    def test_a_class_is_judged_on_the_job_not_one_process(self):
+        entry = self.rule_summary("d=2,h=any,m=any")
+        points = {(p["ntask"], p["nchunk"]): p for p in entry["partition"]["grid"]}
+        # two ranks over [0, 2) and [2, 5): rank 0's widest slab holds 5 rows
+        # (snapshot 4), rank 1's 3 (snapshots 4 and 5); one process needs 5 GiB,
+        # which a 6 GiB laptop holds, but the two ranks run at once and need 8
+        two_ranks = points[(2, 1)]
+        self.assertEqual(two_ranks["forest_cuts"], [0, 2, 5])
+        self.assertEqual(two_ranks["task_widest_rows"], [5, 3])
+        self.assertEqual(two_ranks["process_bytes"], 5 << 30)
+        self.assertLessEqual(two_ranks["process_bytes"], 6 << 30)
+        self.assertEqual((two_ranks["job_rows"], two_ranks["job_bytes"]), (8, 8 << 30))
+        self.assertEqual(two_ranks["fits_gib"], [16])
+        # four ranks: per-range peaks [2, 3, 3, 0] add up to the job's 8 rows
+        self.assertEqual(points[(4, 1)]["task_widest_rows"], [2, 3, 3, 0])
+        self.assertEqual(points[(4, 1)]["job_rows"], 8)
 
     def test_the_materialised_table_and_its_record(self):
         entry = self.rule_summary("d=2,h=any,m=any")
@@ -1631,7 +1659,7 @@ class TestGraphAndCut(unittest.TestCase):
             [1, 2, 4],
             [1, 2, 4],
             1 << 30,
-            [4, 16],
+            [4, 6, 16],
             1,
         )
         for name in ("graph", "cut"):
@@ -1672,7 +1700,7 @@ class TestGraphAndCut(unittest.TestCase):
             "rule d=2,h=any,m=any: 5 piece(s) (3 fresh), 2 promoted, 1 progenitor chain(s) changed",
             text,
         )
-        self.assertIn("   16 GiB: fits at ntask 1 nchunk 1 (widest 8 rows)", text)
+        self.assertIn("   16 GiB: fits at ntask 1 nchunk 1 (job 8 rows, process 8 rows)", text)
         self.assertIn(
             "md5 computed once",
             aggregate.read_json(Path(other) / "cut" / "summary.json")["index_files"]["note"],
@@ -1737,6 +1765,69 @@ class TestGraphAndCut(unittest.TestCase):
         self.assertIn("give 1 tree root(s) a forest other than the dataset's", captured.text)
         self.assertIn("[2400]", captured.text)
         self.assertFalse(cut.cut_dir(other).exists())
+        # without --materialise the run explores and records the failed check (DD12)
+        with capture_stderr() as captured, contextlib.redirect_stdout(io.StringIO()):
+            status = forest_census.main(arguments + ["--rule", "d=2"])
+        self.assertEqual(status, 0, captured.text)
+        summary = aggregate.read_json(cut.cut_dir(other) / "summary.json")
+        self.assertEqual(summary["index_check"]["verdict"], "fail")
+        self.assertEqual(
+            summary["index_check"]["roots_in_another_forest"], {"count": 1, "examples": [2400]}
+        )
+        self.assertIsNone(summary["rules"][0]["table"])
+        self.assertEqual(summary["rules"][0]["severance"]["promoted_halos"], 1)
+
+    def test_integers_beyond_int64_are_refused(self):
+        other = self.tmp / "agg_overflow"
+        self.prepare(other)
+        run_quietly(graph.run_graph, self.dataset, other, [0, 1])
+        arguments = ["cut", "--dataset", str(self.paths["dataset"]), "--aggregate", str(other)]
+        locations = ["--locations", str(self.paths["locations"])]
+        huge = self.tmp / "huge.list"
+        huge.write_text(
+            self.paths["forests_list"].read_text().replace("2400 2000", "2400 18446744073709551616")
+        )
+        for extra, message in (
+            (
+                [
+                    "--forests-list",
+                    str(self.paths["forests_list"]),
+                    "--rule",
+                    "h=18446744073709551616",
+                ],
+                "is not a non-negative integer of at most 2^63 - 1",
+            ),
+            (["--forests-list", str(huge), "--rule", "d=2"], "an id outside int64"),
+        ):
+            with capture_stderr() as captured:
+                status = forest_census.main(arguments + locations + extra)
+            self.assertEqual(status, 2, extra)
+            self.assertIn(message, captured.text)
+            self.assertNotIn("Traceback", captured.text)
+        self.assertFalse(cut.cut_dir(other).exists())
+        with self.assertRaisesRegex(ConverterError, "huge.list: malformed cut table"):
+            cut_table.read_cut_table(
+                huge,
+                self.index.tree_roots,
+                self.index.forest_ids,
+                np.load(trees.trees_dir(other) / "tree_totals.npy"),
+            )
+
+    def test_graph_refuses_halos_outside_their_tree_forest(self):
+        other = self.tmp / "agg_mismatch"
+        self.prepare(other)
+        summary_path = trees.trees_dir(other) / "summary.json"
+        recorded = aggregate.read_json(summary_path)
+        recorded["forest_mismatch_halos"] = 3
+        aggregate.write_json(summary_path, recorded)
+        arguments = ["graph", "--dataset", str(self.paths["dataset"]), "--aggregate", str(other)]
+        with capture_stderr() as captured:
+            status = forest_census.main(arguments)
+        self.assertEqual(status, 2)
+        self.assertIn(
+            "records 3 halo(s) whose ForestIndex is not their tree's forest", captured.text
+        )
+        self.assertFalse(graph.graph_dir(other).exists())
 
     def test_outputs_of_an_earlier_run_are_refused(self):
         other = self.tmp / "agg_stale_rules"
@@ -1941,10 +2032,15 @@ class TestCutWithoutCorrespondence(unittest.TestCase):
         index = (self.index.tree_roots, self.index.forest_ids)
         with self.assertRaisesRegex(ConverterError, "verdict is 'fail'; a cut table is written"):
             cut.run_cut(self.dataset, self.agg, *index, {}, [rule], [rule])
-        # exploring needs the index files to describe the census as well
-        with self.assertRaisesRegex(ConverterError, "do not list this census's tree roots"):
-            cut.run_cut(self.dataset, self.agg, *index, {}, [rule])
         self.assertFalse(cut.cut_dir(self.agg).exists())
+        # exploring proceeds, the failed index check recorded (PM ruling DD12)
+        summary = run_quietly(cut.run_cut, self.dataset, self.agg, *index, {}, [rule])
+        check = summary["index_check"]
+        self.assertEqual(check["verdict"], "fail")
+        self.assertEqual(check["census_roots_missing"]["count"], 10)
+        self.assertIn("do not list this census's tree roots", check["message"])
+        self.assertIsNone(summary["rules"][0]["table"])
+        self.assertEqual(summary["catalogue_max_forest_id"], int(self.index.forest_ids.max()))
 
     def test_the_graph_runs_on_version_2(self):
         tmp = self.tmp / "v2"

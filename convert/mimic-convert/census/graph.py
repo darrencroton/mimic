@@ -22,15 +22,20 @@ across them.
 **Edge lists.** One pass over the named forests' rows of every slab, with the
 slab's labels mapped: ``ForestIndex`` is read in bounded blocks and
 ``FirstHaloInFOFgroup`` and ``M_Crit200`` only over each block's span of the
-named forests' rows (for a version 3 dataset, exactly those rows). Each slab's
+named forests' rows (for a version 3 dataset, exactly those rows when the
+named forests are adjacent in ``ForestIndex``, else their enclosing span).
+``graph`` is refused before it writes anything when the ``trees`` summary
+records halos whose ``ForestIndex`` is not their tree's forest
+(``forest_mismatch_halos``): such rows would be skipped and their pairs lost. Each slab's
 pairs are written sorted by (lo, hi) as ``graph/slab_NNN_edges.npy``. The
 per-slab lists are kept beside the merged records: they give the per-snapshot
 promotions of a cut (``census/cut.py``). Bytes read per slab: ``8 x
 n_halos(s)`` for ``ForestIndex`` plus ``(w_link + 4) x span(s)`` for
 ``FirstHaloInFOFgroup`` and ``M_Crit200``, where ``w_link`` is the link width
 (4 B in version 2, 8 B in version 3) and ``span(s)`` the rows from the first to
-the last named-forest row of each block (the forests' rows in version 3). The
-bytes actually read are measured and recorded in ``summary.json`` (``io``).
+the last named-forest row of each block (in version 3 the forests' rows when
+they are adjacent, else their enclosing span). The bytes actually read are
+measured and recorded in ``summary.json`` (``io``).
 
 **Merged records.** The per-slab lists are merged by an external k-way merge
 (:func:`merge_slab_edges`): each slab contributes a bounded window, every key at
@@ -240,8 +245,13 @@ def iter_forest_rows(
     """Yield ``(rows, {name: values})`` for the rows of one slab whose
     ``ForestIndex`` is in ``forests`` (ascending), block by block: the
     ``ForestIndex`` block is read whole, the named columns only over the span
-    of the block's matching rows. ``ForestIndex`` is always among the values.
-    Every byte read is added to ``meter`` when one is given."""
+    of the block's matching rows, from the first to the last. In a version 3
+    slab that span is exactly the named forests' rows only when the forests
+    are adjacent in ``ForestIndex``; otherwise it is their enclosing span,
+    which includes the rows of the forests between them, and in a version 2
+    slab it can be the whole block. It is bounded by ``block_rows`` either way.
+    ``ForestIndex`` is always among the values. Every byte read is added to
+    ``meter`` when one is given."""
     forests = np.asarray(forests, dtype=np.int64)
     for start, block in dataset.iter_column(snap, "ForestIndex", block_rows):
         if meter is not None:
@@ -616,8 +626,22 @@ def run_graph(
     identity = dataset.identity()
     aggregate_dir = bind(aggregate_dir, identity)
     trees_summary = require_completed(
-        aggregate_dir, trees_dir(aggregate_dir), "trees", identity, ("largest_forest",)
+        aggregate_dir,
+        trees_dir(aggregate_dir),
+        "trees",
+        identity,
+        ("largest_forest", "forest_mismatch_halos"),
     )
+    mismatched = int(trees_summary["forest_mismatch_halos"])
+    if mismatched:
+        # a named-forest tree whose rows carry another ForestIndex would be read
+        # only partly, silently losing the pairs through those rows
+        raise ConverterError(
+            "{}: the trees summary records {} halo(s) whose ForestIndex is not their tree's "
+            "forest; the converter forbids this and the graph would miss pairs through them".format(
+                aggregate_dir, mismatched
+            )
+        )
     forests = named_forests(forest_indices, trees_summary, dataset.n_forests_total)
     out = graph_dir(aggregate_dir)
     begin(out)

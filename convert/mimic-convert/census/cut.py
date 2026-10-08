@@ -15,9 +15,13 @@ For every candidate rule (``census/rules.py``) over the co-membership graph
    original forest keeps its ``ForestIndex`` (the cut forest's largest piece
    among them) and the fresh pieces enumerate after every original forest in
    ascending fresh id -- giving every grid point's widest range per slab and
-   overall, its implied memory at the stated bytes per resident halo, and per
-   laptop class a row saying whether any grid point fits and the smallest that
-   does;
+   overall and two memory figures at the stated bytes per resident halo: the
+   **process** figure (the widest range; the per-rank
+   ``retention_memory_ceiling_mb`` guidance) and the **job** figure (the sum
+   over tasks of each task's widest chunk over all slabs, since one laptop
+   runs every rank at once and the ranks do not move through the slabs in
+   step; :func:`laptop_rows`). Per laptop class, a row says whether any grid
+   point's job fits and the smallest that does;
 3. from one further pass over the named forests' rows of every slab with the
    labels mapped (the census's fourth read of those columns, bounded like the
    others; every rule is evaluated in the same pass):
@@ -58,9 +62,13 @@ id), every halo of a cut forest (``HaloRankInForest`` recomputed), and every
 halo whose ``SourceHaloID`` prefix moves (every forest from the first cut one).
 
 A complete table in ``forests.list`` shape and its JSON record are written
-only for the rules asked for (``materialise``) and only when the ``trees``
-root correspondence verdict passed; they live under ``cut/rules/<rule>/`` as
-``forests.list`` and ``record.json``.
+only for the rules asked for (``materialise``), only when the ``trees`` root
+correspondence verdict passed, and only when the index files given to the run
+describe the census (:func:`check_index`); they live under
+``cut/rules/<rule>/`` as ``forests.list`` and ``record.json``. Without a table
+to write, a failed index check does not stop the run (PM ruling DD12): it is
+recorded in the summary (``index_check``), the census explores every rule, and
+fresh ids still start above the supplied index's largest forest id.
 
 **Reads.** Each slab is read once by the pass: ``ForestIndex`` in full
 blocks, ``FirstHaloInFOFgroup`` and ``Descendant`` over each block's span of
@@ -72,7 +80,8 @@ central id and losing central's descendant the pass needs, so nothing is
 re-read. Bytes read per slab: ``8 x n_halos(s) + 2 w x span(s) + (12 + w) x
 retained_span(s)``, with ``w`` the link width (4 B in version 2, 8 B in
 version 3), ``span(s)`` the rows from the first to the last named-forest row of
-each block (the forests' rows in version 3) and ``retained_span(s)`` the same
+each block (in version 3 the forests' rows when they are adjacent in
+``ForestIndex``, else their enclosing span) and ``retained_span(s)`` the same
 over the retained rows. The bytes read are measured and recorded per column in
 ``summary.json`` (``io``).
 
@@ -89,27 +98,48 @@ with ``tracemalloc``):
   piece of each tree (4 B x t, 0.42 GB) and about 82 B per piece; the
   union-find of ``census/rules.py`` (about 1.0 GB, transient) and the dense
   partition weights (8 B x (F + fresh pieces), 1.3 GB, transient);
+- per slab of step 2 (:func:`aggregate_slab`, from the aggregates alone):
+  about **37 B per pair** of the slab's edge list (the list, its local
+  endpoints and every rule's piece gathers), **14 B per present tree** and 12
+  B per occupancy pair, all released when the slab is done, before the pass
+  begins. Pairs per slab are at most its cross-tree members, so at worst
+  (every super-forest row of snapshot 31 a member of its own pair) about 12.3
+  GB;
 - per slab of the pass (PM ruling DD10: arrays proportional to the named
   forests' rows in one slab, stated here with their worst case): the block's
   columns, label gathers and transients, about **114 B x block_rows** (0.48
   GB at the default 2^22) for one rule and 17 B x block_rows more per further
-  rule; the retained rows, about **34 B each**, at most the named forests' rows
-  of the slab, so at worst the super-forest's 333,663,215 rows at snapshot 31,
-  **11.3 GB**; each promotion with its share of the chain work (done in
-  batches of ``block_rows`` sibling records) and of the dependents'
-  bookkeeping, about **165 B**, promotions being at most the slab's cross-tree
-  members (``graph``'s ``per_snapshot`` records them); and the descendant sets
-  being propagated, 8 B per affected halo;
+  rule; the slab's edge list and :func:`touched_trees`' gathers, about **38 B
+  per pair** (20 B for the list, 18 B for its endpoints and masks over pairs),
+  with its two tree masks, **2 B per named-forest tree** (0.21 GB for the
+  super-forest), the edge terms at worst about 12.7 GB as above; the retained
+  rows, about **34 B each**, at most the named forests' rows of the slab, so at
+  worst the super-forest's 333,663,215 rows at snapshot 31, **11.3 GB**; each
+  promotion with its share of the chain work (done in batches of
+  ``block_rows`` sibling records) and of the dependents' bookkeeping, about
+  **165 B**, promotions being at most the slab's cross-tree members
+  (``graph``'s ``per_snapshot`` records them); and the descendant sets being
+  propagated, 8 B per affected halo;
 - while a table is checked and written: ``census/cut_table.py``'s 50 B per
-  catalogue tree and the table's ids, 8 B per tree: **18.3 GB**.
+  catalogue tree and the table's ids, 8 B per tree: **18.3 GB**. Nothing of
+  the pass or of step 2 is held by then.
 
 The subcommand's peak at Shin-Uchuu scale is the largest of the index load
-(24.9 GB), the pass (11.7 GB + R x (0.42 GB + 82 B x p) + 0.5 GB + the
-retained rows and promotions) and a table (11.7 GB + R x (0.42 GB + 82 B x p)
-+ 18.3 GB). With eight rules of 10^7 pieces each, that is about 40 GB while a
-table is written and about 22 GB plus the per-slab terms during the pass (34
-GB with every super-forest row of snapshot 31 retained). No tree x snapshot or
-forest x snapshot matrix is held.
+(24.9 GB), step 2 (11.7 GB + R x (0.42 GB + 82 B x p) + 1.3 GB + the slab
+terms), the pass (11.7 GB + R x (0.42 GB + 82 B x p) + 0.7 GB + the edge,
+retained-row and promotion terms) and a table (11.7 GB + R x (0.42 GB + 82 B x
+p) + 18.3 GB). With eight rules of 10^7 pieces each, that is about 40 GB while
+a table is written and about 22 GB plus the per-slab terms during the pass:
+with as many pairs and retained rows as a few per cent of snapshot 31's
+super-forest rows, a few GB more; in the worst case, every one of those rows a
+cross-tree member of its own pair and retained, about 46 GB before the
+promotions, plus 165 B per promotion (another 55 GB if every one of them were
+promoted). Every per-slab term follows from the aggregates Slice 9 records
+(``graph``'s ``per_snapshot`` members and pairs), so the real peak can be
+computed before the pass runs. The figures above were measured with
+``tracemalloc`` on synthetic slabs of 2^20 rows and synthetic graphs of 2 x
+10^6 pairs over 10^6 trees. No tree x snapshot or forest x snapshot matrix is
+held.
 
 Aggregates under ``<aggregate>/cut/``: per rule ``assignment.npy`` (**8 B x
 t**, about 0.84 GB per rule for the super-forest), and for a materialised
@@ -322,24 +352,35 @@ def check_index(
     tree_forest: np.ndarray,
     forest_ids: np.ndarray,
     block_rows: int = DEFAULT_BLOCK_ROWS,
-) -> None:
-    """Refuse index files that do not describe this census: the root sets must
-    be equal and every root's ``forests.list`` forest id must be the sidecar
-    ``ForestID`` of its tree's forest -- the ``trees`` correspondence, applied
-    to the index files given to this run.
+) -> Dict:
+    """Whether the index files given to this run describe this census: the
+    root sets must be equal and every root's ``forests.list`` forest id must
+    be the sidecar ``ForestID`` of its tree's forest -- the ``trees``
+    correspondence, applied to the index files in hand.
 
-    Raises:
-        ConverterError: naming the first disagreement, with examples.
+    Returns:
+        ``{"verdict": "pass" | "fail", "message", ...counts and examples}``;
+        the caller refuses a table on ``fail`` and records it otherwise (PM
+        ruling DD12: exploration proceeds whatever the correspondence).
     """
     if index_roots.size != roots.size or not np.array_equal(index_roots, roots):
         missing = np.setdiff1d(roots, index_roots, assume_unique=True)
         extra = np.setdiff1d(index_roots, roots, assume_unique=True)
-        raise ConverterError(
-            "the index files do not list this census's tree roots: {} census root(s) missing "
-            "(e.g. {}), {} root(s) the census has no tree for (e.g. {})".format(
+        return {
+            "verdict": "fail",
+            "census_roots_missing": {
+                "count": int(missing.size),
+                "examples": missing[:N_EXAMPLES].tolist(),
+            },
+            "index_roots_without_tree": {
+                "count": int(extra.size),
+                "examples": extra[:N_EXAMPLES].tolist(),
+            },
+            "message": "the index files do not list this census's tree roots: {} census root(s) "
+            "missing (e.g. {}), {} root(s) the census has no tree for (e.g. {})".format(
                 missing.size, missing[:N_EXAMPLES].tolist(), extra.size, extra[:N_EXAMPLES].tolist()
-            )
-        )
+            ),
+        }
     wrong = 0
     examples: List[int] = []
     for start in range(0, roots.size, block_rows):
@@ -348,11 +389,16 @@ def check_index(
         differs = np.flatnonzero(np.asarray(index_forest_ids[start:stop]) != sidecar)
         wrong += int(differs.size)
         examples.extend(roots[start + differs[: N_EXAMPLES - len(examples)]].tolist())
+    record = {
+        "verdict": "fail" if wrong else "pass",
+        "roots_in_another_forest": {"count": wrong, "examples": examples},
+    }
     if wrong:
-        raise ConverterError(
-            "the index files give {} tree root(s) a forest other than the dataset's (e.g. "
-            "roots {}); they are not the index files this census describes".format(wrong, examples)
+        record["message"] = (
+            "the index files give {} tree root(s) a forest other than the dataset's (e.g. roots "
+            "{}); they are not the index files this census describes".format(wrong, examples)
         )
+    return record
 
 
 # ---- per-rule state ------------------------------------------------------------
@@ -823,6 +869,37 @@ def severance_pass(
 # ---- partition with the pieces installed ------------------------------------------
 
 
+def aggregate_slab(
+    aggregate_dir,
+    snap: int,
+    local_of: np.ndarray,
+    states: Sequence[RuleState],
+    points: Sequence[List[Dict]],
+    predicted: Sequence[List[int]],
+    n_forests: int,
+    catalogue_max: int,
+) -> None:
+    """One slab of step 2 (module docstring), from the aggregates alone: every
+    rule's piece peaks, the promotions the slab's edge list predicts, and the
+    partition grid's ranges with the pieces installed. Its buffers (the slab's
+    tree pairs, occupancy pairs and edge list with their gathers) are released
+    on return, before the pass."""
+    local, counts = slab_local_counts(aggregate_dir, snap, local_of)
+    edges = load_slab_edges(aggregate_dir, snap, mmap=False)
+    edge_lo = local_of[edges["lo"]]
+    edge_hi = local_of[edges["hi"]]
+    forests_s, counts_s = load_slab_pairs(aggregate_dir, snap)
+    for at, (state, per_piece) in enumerate(zip(states, piece_counts(states, local, counts))):
+        # ascending slabs and a strict test: a tie keeps the lowest-numbered slab
+        better = per_piece > state.peak
+        state.peak[better] = per_piece[better]
+        state.peak_snapshot[better] = snap
+        severed = state.tree_piece[edge_lo] != state.tree_piece[edge_hi]
+        predicted[at].append(int(edges["halos"][severed].sum()))
+        installed = install_pieces(forests_s, counts_s, state, per_piece, n_forests, catalogue_max)
+        apply_points(points[at], snap, *installed)
+
+
 def partition_points(
     aggregate_dir,
     state: RuleState,
@@ -849,6 +926,7 @@ def partition_points(
                     "forest_cuts": partition_cut(weights, ntask, nchunk),
                     "widest_rows_per_snapshot": [],
                     "widest": {"snapshot": None, "range": None, "rows": -1},
+                    "range_peak_rows": [0] * (int(ntask) * int(nchunk)),
                 }
             )
     return points
@@ -856,9 +934,11 @@ def partition_points(
 
 def apply_points(points: List[Dict], snap: int, forests: np.ndarray, counts: np.ndarray) -> None:
     """Record every grid point's widest range in one slab (a tie keeps the
-    lowest-numbered slab, as slabs are applied in ascending order)."""
+    lowest-numbered slab, as slabs are applied in ascending order) and each
+    range's largest slab so far."""
     for point in points:
         rows = range_rows(forests, counts, point["forest_cuts"])
+        point["range_peak_rows"] = np.maximum(point["range_peak_rows"], rows).tolist()
         at = int(np.argmax(rows)) if rows.size else 0
         widest = int(rows[at]) if rows.size else 0
         point["widest_rows_per_snapshot"].append(widest)
@@ -873,18 +953,38 @@ def apply_points(points: List[Dict], snap: int, forests: np.ndarray, counts: np.
 
 
 def laptop_rows(points: List[Dict], bytes_per_halo: int, laptop_gib: Sequence[int]) -> List[Dict]:
-    """Per laptop class, whether any grid point's widest range fits its whole
-    memory at ``bytes_per_halo``, and the smallest such point (fewest ranges,
-    then fewest tasks)."""
+    """Per laptop class, whether any grid point's **job** fits its whole memory
+    at ``bytes_per_halo``, and the smallest such point (fewest ranges, then
+    fewest tasks).
+
+    On one laptop the ranks of an ``mpirun`` job run at once, each holding its
+    own chunk, so a class is judged on the job's memory, not one process's
+    (``docs/USER-GUIDE.md``: ranks cut per-process memory but not the job's
+    total). The driver's ranks do not synchronise during the sweep -- each
+    sweeps its chunks through every snapshot on its own, with no collective
+    between the startup broadcast and the end -- so two ranks can be at their
+    widest slabs at the same moment, and the per-slab sum over ranks is not a
+    safe bound. The job figure is therefore the conservative one: the sum over
+    tasks of each task's widest chunk over all slabs (``task_widest_rows``).
+    The per-process figure (the widest range over all slabs) is kept as the
+    per-rank ``retention_memory_ceiling_mb`` guidance (MB of 1024^2 bytes, as
+    the driver reads it)."""
     for point in points:
-        point["implied_bytes"] = point["widest"]["rows"] * int(bytes_per_halo)
+        peaks = np.asarray(point.pop("range_peak_rows"), dtype=np.int64).reshape(
+            point["ntask"], point["nchunk"]
+        )
+        point["task_widest_rows"] = peaks.max(axis=1).tolist()
+        point["job_rows"] = int(peaks.max(axis=1).sum())
+        point["process_bytes"] = point["widest"]["rows"] * int(bytes_per_halo)
+        point["job_bytes"] = point["job_rows"] * int(bytes_per_halo)
+        point["retention_memory_ceiling_mb"] = -(-point["process_bytes"] // (1 << 20))
         point["fits_gib"] = [
-            int(gib) for gib in laptop_gib if point["implied_bytes"] <= int(gib) * _GIB
+            int(gib) for gib in laptop_gib if point["job_bytes"] <= int(gib) * _GIB
         ]
     rows = []
     for gib in laptop_gib:
         budget = int(gib) * _GIB
-        fitting = [p for p in points if p["implied_bytes"] <= budget]
+        fitting = [p for p in points if p["job_bytes"] <= budget]
         best = min(fitting, key=lambda p: (p["ntask"] * p["nchunk"], p["ntask"]), default=None)
         rows.append(
             {
@@ -898,7 +998,10 @@ def laptop_rows(points: List[Dict], bytes_per_halo: int, laptop_gib: Sequence[in
                         "ntask": best["ntask"],
                         "nchunk": best["nchunk"],
                         "widest_rows": best["widest"]["rows"],
-                        "implied_bytes": best["implied_bytes"],
+                        "job_rows": best["job_rows"],
+                        "process_bytes": best["process_bytes"],
+                        "job_bytes": best["job_bytes"],
+                        "retention_memory_ceiling_mb": best["retention_memory_ceiling_mb"],
                     }
                 ),
             }
@@ -1006,8 +1109,9 @@ def run_cut(
 
     Raises:
         ConverterError: on any :func:`prepare_cut` refusal, index files that
-            do not describe this census (:func:`check_index`, before any
-            output is touched), a table invariant, or a refusal of the pass.
+            do not describe this census when a table is to be written
+            (:func:`check_index`, before any output is touched; otherwise the
+            check is recorded), a table invariant, or a refusal of the pass.
     """
     inputs = prepare_cut(dataset, aggregate_dir, rules, materialise)
     if index_roots.size == 0:
@@ -1018,7 +1122,13 @@ def run_cut(
     roots = load_roots(aggregate_dir)
     tree_forest = load_array(trees_dir(aggregate_dir) / "tree_forest.npy", mmap=True)
     tree_totals = load_array(trees_dir(aggregate_dir) / "tree_totals.npy", mmap=True)
-    check_index(index_roots, index_forest_ids, roots, tree_forest, forest_ids, block_rows)
+    index_check = check_index(
+        index_roots, index_forest_ids, roots, tree_forest, forest_ids, block_rows
+    )
+    if materialise and index_check["verdict"] != "pass":
+        raise ConverterError("{}; no cut table is written".format(index_check["message"]))
+    if index_check["verdict"] != "pass":
+        log("cut: index check failed, exploring only: {}".format(index_check["message"]))
     out = begin(cut_dir(aggregate_dir))
     n_forests = dataset.n_forests_total
     catalogue_max = int(index_forest_ids.max())
@@ -1056,22 +1166,9 @@ def run_cut(
     ]
     predicted = [[] for _state in states]
     for snap in dataset.snapshots:
-        local, counts = slab_local_counts(aggregate_dir, snap, local_of)
-        edges = load_slab_edges(aggregate_dir, snap, mmap=False)
-        edge_lo = local_of[edges["lo"]]
-        edge_hi = local_of[edges["hi"]]
-        forests_s, counts_s = load_slab_pairs(aggregate_dir, snap)
-        for at, (state, per_piece) in enumerate(zip(states, piece_counts(states, local, counts))):
-            # ascending slabs and a strict test: a tie keeps the lowest-numbered slab
-            better = per_piece > state.peak
-            state.peak[better] = per_piece[better]
-            state.peak_snapshot[better] = snap
-            severed = state.tree_piece[edge_lo] != state.tree_piece[edge_hi]
-            predicted[at].append(int(edges["halos"][severed].sum()))
-            installed = install_pieces(
-                forests_s, counts_s, state, per_piece, n_forests, catalogue_max
-            )
-            apply_points(points[at], snap, *installed)
+        aggregate_slab(
+            aggregate_dir, snap, local_of, states, points, predicted, n_forests, catalogue_max
+        )
 
     meter = ReadMeter()
     check = severance_pass(
@@ -1190,6 +1287,7 @@ def run_cut(
         "index_files": index_files,
         "catalogue_max_forest_id": catalogue_max,
         "root_correspondence": inputs["trees"]["root_correspondence"]["verdict"],
+        "index_check": index_check,
         "stored_chain_check": check,
         "io": meter.record(
             "per slab, 8 B x n_halos(s) of ForestIndex, plus 2 x link width x the named forests' "

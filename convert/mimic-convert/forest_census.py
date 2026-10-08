@@ -227,14 +227,25 @@ def _print_cut(summary: dict) -> None:
                     (
                         "no grid point fits"
                         if best is None
-                        else "fits at ntask {} nchunk {} (widest {} rows)".format(
-                            best["ntask"], best["nchunk"], best["widest_rows"]
+                        else "fits at ntask {} nchunk {} (job {} rows, process {} rows)".format(
+                            best["ntask"], best["nchunk"], best["job_rows"], best["widest_rows"]
                         )
                     ),
                 )
             )
         if entry["table"] is not None:
             print("  table {} md5 {}".format(entry["table"]["path"], entry["table"]["md5"]))
+
+
+def load_index(forests_list, locations) -> SourceIndex:
+    """:meth:`SourceIndex.load`, with an id beyond int64 refused as a
+    ``ConverterError`` rather than the shared loaders' ``OverflowError``."""
+    try:
+        return SourceIndex.load(forests_list, locations)
+    except OverflowError as exc:
+        raise ConverterError(
+            "{} or {}: an id outside int64 ({})".format(forests_list, locations, exc)
+        ) from exc
 
 
 def cmd_occupancy(args: argparse.Namespace) -> int:
@@ -256,7 +267,7 @@ def cmd_trees(args: argparse.Namespace) -> int:
     index = None
     if args.forests_list is not None:
         _log("trees: loading {} and {}".format(args.forests_list, args.locations))
-        index = SourceIndex.load(args.forests_list, args.locations)
+        index = load_index(args.forests_list, args.locations)
     summary = run_trees(dataset, args.aggregate, index, report, args.block_rows, _log)
     _print_trees(summary)
     return 0
@@ -280,7 +291,7 @@ def cmd_cut(args: argparse.Namespace) -> int:
     dataset = HorizontalDataset(args.dataset)
     prepare_cut(dataset, args.aggregate, rules, materialise)
     _log("cut: loading {} and {}".format(args.forests_list, args.locations))
-    index = SourceIndex.load(args.forests_list, args.locations)
+    index = load_index(args.forests_list, args.locations)
     # the cut needs only the roots and their forest ids: release the locations columns
     index_roots, index_forest_ids = index.tree_roots, index.forest_ids
     del index

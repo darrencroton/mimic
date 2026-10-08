@@ -346,11 +346,13 @@ def read_cut_table(
         ``(roots, forest_ids)`` aligned with the ascending ``index_roots``.
 
     Raises:
-        ConverterError: for a malformed table or any invariant violated.
+        ConverterError: for a malformed table (a row that is not two integers,
+            or an id outside int64) or any invariant violated.
     """
     try:
         roots, ids = load_forests_list(path)
-    except SubsetError as exc:
+    except (SubsetError, OverflowError) as exc:
+        # an id beyond int64 overflows the shared loader's int64 arrays
         raise ConverterError("{}: malformed cut table ({})".format(path, exc)) from exc
     check_table(roots, ids, index_roots, index_forest_ids, tree_totals, what=str(path))
     order = np.argsort(roots, kind="stable")
