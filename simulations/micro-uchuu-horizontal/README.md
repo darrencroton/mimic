@@ -76,4 +76,4 @@ The recorded gate of 2026-09-29 passed: 4,409,643 galaxies over output snapshots
 
 - `simulations/micro-uchuu/` — the same halos in L-Halo binary, the conversion source and the cosmology reference
 - `simulations/micro-uchuu-hdf5-horizontal/` — the same simulation converted from forests-HDF5; its `M_Crit200` is in `Msun/h`, and no identity with this package is claimed
-- `simulations/micro-uchuu-ascii-horizontal/` — the version 2 conversion from Consistent-Trees ASCII
+- `simulations/micro-uchuu-ascii-horizontal/` — the version 3, forest-blocked conversion from Consistent-Trees ASCII

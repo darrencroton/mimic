@@ -42,9 +42,12 @@ mimic_venv/bin/python convert/mimic-convert/convert_trees.py write --workdir "$W
 mimic_venv/bin/python convert/mimic-convert/convert_trees.py validate --workdir "$W"
 mimic_venv/bin/python convert/mimic-convert/convert_trees.py report --workdir "$W"
 
+A=$(mimic_venv/bin/python -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["stages"]["write"]["directory"])' "$W/manifest.json")
 mkdir -p "$D"
-cp "$W"/write/attempt_*/snapshot_*.h5 "$W"/write/attempt_*/forests.h5 "$D"/
+cp "$W/$A"/snapshot_*.h5 "$W/$A"/forests.h5 "$D"/
 ```
+
+`$A` is the write attempt the manifest records (`stages.write.directory`, for example `write/attempt_001`); copy from that directory alone, since a workdir that has been through more than one write attempt holds several. Verify the installed files against the manifest: each `<attempt>/<file>` artefact under `artifacts` in `manifest.json` records its `sha256`.
 
 Keep the workdir: its `manifest.json` is what `validate` and `report` bind the dataset to. `convert/mimic-convert/README.md` documents the workdir layout, resume semantics, memory budgeting and the independent comparison tooling.
 
