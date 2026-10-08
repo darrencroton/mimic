@@ -47,7 +47,28 @@ mkdir -p "$D"
 cp "$W/$A"/snapshot_*.h5 "$W/$A"/forests.h5 "$D"/
 ```
 
-`$A` is the write attempt the manifest records (`stages.write.directory`, for example `write/attempt_001`); it is the attempt `validate` and `report` bound the dataset to, so copy from that directory. Verify the installed files against the manifest: each `<attempt>/<file>` artefact under `artifacts` in `manifest.json` records its `sha256`, which confirms the copy.
+`$A` is the write attempt the manifest records (`stages.write.directory`, for example `write/attempt_001`); it is the attempt `validate` and `report` bound the dataset to, so copy from that directory. Verify the installed files against the manifest, whose `artifacts` entry for each `<attempt>/<file>` records its `sha256`; this prints `51 files checked, 0 mismatches` and exits 0 when the copy is exact:
+
+```bash
+mimic_venv/bin/python -I - "$W" "$A" "$D" <<'EOF'
+import hashlib, json, pathlib, sys
+
+workdir, attempt, installed = sys.argv[1:4]
+artifacts = json.load(open(workdir + "/manifest.json"))["artifacts"]
+names = sorted(n for n in artifacts if n.startswith(attempt + "/"))
+failures = 0
+for name in names:
+    digest = hashlib.sha256()
+    with open(pathlib.Path(installed) / pathlib.Path(name).name, "rb") as handle:
+        for block in iter(lambda: handle.read(1 << 24), b""):
+            digest.update(block)
+    if digest.hexdigest() != artifacts[name]["sha256"]:
+        failures += 1
+        print("MISMATCH", name)
+print(len(names), "files checked,", failures, "mismatches")
+sys.exit(1 if failures or not names else 0)
+EOF
+```
 
 Keep the workdir: its `manifest.json` is what `validate` and `report` bind the dataset to. `convert/mimic-convert/README.md` documents the workdir layout, resume semantics, memory budgeting and the independent comparison tooling.
 

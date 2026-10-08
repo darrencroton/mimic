@@ -1,4 +1,4 @@
-# Mimic halos-only micro-Uchuu (horizontal HDF5 version 2, from Consistent-Trees ASCII) Run Configuration
+# Mimic halos-only micro-Uchuu (horizontal HDF5 version 3, from Consistent-Trees ASCII) Run Configuration
 
 model:
   name: halos-only
