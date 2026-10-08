@@ -1016,7 +1016,8 @@ class BoundedSixtyFourBitTests(unittest.TestCase):
                     "ForestIndex": forest,
                     "HaloRankInForest": zeros + snap_index,
                     "SnapNum": zeros + snap,
-                    "SourceHaloID": (1 << 40) + 2 * np.arange(per_snap) + snap_index,
+                    # the 1-based (ForestIndex, rank) position, as on every route
+                    "SourceHaloID": 1 + 2 * np.arange(per_snap) + snap_index,
                     "Len": zeros + 5,
                     "MostBoundID": zeros - 3,
                     "Descendant": rows.copy() if snap == 10 else null,
@@ -1060,6 +1061,8 @@ class BoundedSixtyFourBitTests(unittest.TestCase):
         clean = run(False)
         self.assertEqual(clean["verdict"], "PASS", clean["failed_checks"])
         self.assertEqual(clean["matched_rows"], 2 * n_forests)
+        self.assertNotIn("not_applicable", clean["checks"]["source_halo_id"])
+        self.assertEqual(clean["checks"]["source_halo_id"]["compared"], 2 * n_forests)
         for sort in clean["resources"]["sorts"]:
             self.assertGreater(sort["runs"], 1, sort["label"])
         broken = run(True)
@@ -1648,6 +1651,53 @@ class ExtrasTests(unittest.TestCase):
             profile,
             ["--forests-list", data / "forests.list", "--tree-file", data / "tree_0_0_0.dat"],
         )
+        self.check_ascii_source_halo_id_under_compare(dataset)
+
+    def compare_cli(self, dataset, dump, source_format):
+        report = self.tmp / "compare.json"
+        code, out, err = run_harness(
+            [
+                "compare",
+                "--record",
+                self.record,
+                "--dataset",
+                dataset,
+                "--dump",
+                dump,
+                "--source-format",
+                source_format,
+                "--report",
+                report,
+            ]
+        )
+        loaded = json.loads(report.read_text()) if report.exists() else None
+        return code, loaded, out + err
+
+    def check_ascii_source_halo_id_under_compare(self, dataset):
+        """The C-dump compare leg checks ASCII ``SourceHaloID`` on the same
+        dataset: applicable and passing on the clean conversion, and a swapped
+        id pair -- which compare-extras' catalogue-key join cannot see -- fails
+        ``source_halo_id`` alone. The dump is the committed literal of this
+        fixture, which :class:`CDumpToolTests` pins byte for byte to the real
+        ``dump_ctrees_topology --source-payload`` output."""
+        dump = self.tmp / "ascii.dump"
+        dump.write_text(ASCII_FIXTURE_SOURCE_DUMP)
+        code, report, text = self.compare_cli(dataset, dump, "consistent_trees_ascii")
+        self.assertEqual(code, 0, text + json.dumps(report and report["checks"], indent=1))
+        self.assertEqual(report["matched_rows"], 4)
+        self.assertNotIn("not_applicable", report["checks"]["source_halo_id"])
+        self.assertEqual(report["checks"]["source_halo_id"]["compared"], 4)
+        self.assertEqual(report["checks"]["source_halo_id"]["failures"], 0)
+
+        paths = [p for p in sorted(Path(dataset).glob("snapshot_*.h5")) if rows_in(p) > 1]
+        self.assertTrue(paths, "need a snapshot with two halos to swap")
+        swapped = self.tmp / "compare_swapped_id"
+        shutil.copytree(dataset, swapped)
+        edit_ids(swapped / paths[0].name, lambda ids: ids.__setitem__(slice(0, 2), ids[1::-1]))
+        code, report, text = self.compare_cli(swapped, dump, "consistent_trees_ascii")
+        self.assertEqual(code, acc.EXIT_FAIL, text)
+        self.assertEqual(report["failed_checks"], ["source_halo_id"])
+        self.assertEqual(report["checks"]["source_halo_id"]["failures"], 2)
 
     def test_lhalo_and_hdf5_identity_with_the_shipped_zero_extras_profiles(self):
         source = SyntheticLHalo().write_source(self.tmp / "source")

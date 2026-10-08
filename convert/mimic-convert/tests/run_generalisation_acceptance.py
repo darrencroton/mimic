@@ -20,14 +20,22 @@ that share none of its code:
   within-forest rank (plus the target's snapshot for the three
   snapshot-qualified links) and the core payload as exact integers and binary32
   bit patterns;
-* for SourceHaloID identity and selected extra fields, the independent
+* for the identity binding and selected extra fields, the independent
   extractors below, which read the
   source files directly -- L-Halo binary records through a layout recomputed
   here from the package's ordered ``halo_properties.yaml``, forests-HDF5
   through raw ``h5py`` reads walked in ``ForestInfo`` order, and ASCII through
-  a plain text parse -- and assign ``SourceHaloID`` from the format
-  specification's own definition (a prefix sum over the declared source order,
-  starting at 1), not from any converter helper.
+  a plain text parse. The two prelinked extractors assign ``SourceHaloID``
+  from the format specification's own definition (a prefix sum over the
+  declared source order, starting at 1), not from any converter helper; the
+  ASCII extractor assigns none and yields the catalogue key (``SnapNum``,
+  ``MostBoundID``) instead.
+
+On every route ``SourceHaloID`` is the 1-based position of a halo in
+ascending (``ForestIndex``, ``HaloRankInForest``) order over the whole source,
+so the dump alone defines the expected id: :func:`reference_blocks` assigns k
+to the k-th row of the (forest, rank)-sorted dump, and ``compare`` checks it
+for all three formats.
 
 The converted side is read with plain ``h5py``. Topology is compared in the
 reference's key space: every converted link ``(target snapshot, target row)``
@@ -39,9 +47,8 @@ as a key (L-Halo particle identifiers are signed and repeat).
 What the comparator detects, each as its own named check: dropped and extra
 rows, duplicated rows on either side, wrong ``SnapNum``, a link resolving to
 the wrong halo (which is how a reordered progenitor or FoF chain shows up),
-a wrong target snapshot, a changed payload bit, and -- for the unit-forest
-formats, whose forest enumeration *is* the inventory order -- a wrong
-``SourceHaloID``. Columns it does not compare (converter extras, or extra
+a wrong target snapshot, a changed payload bit, and a wrong ``SourceHaloID``
+(on every route, whose ids all ascend in (``ForestIndex``, rank) order). Columns it does not compare (converter extras, or extra
 columns in a newer dump) are ignored rather than failing the comparison. A
 comparison that matches no rows at all is a FAIL, never a vacuous PASS.
 
@@ -97,7 +104,8 @@ Subcommands
     a profile whose ``extra_fields`` is empty (every shipped profile) it still
     checks the identity -- ``SourceHaloID`` on the two prelinked routes, and on
     ASCII the row coverage of the catalogue key (``SnapNum``, ``MostBoundID``),
-    which does not verify ASCII ``SourceHaloID``.
+    which does not verify ASCII ``SourceHaloID``; ``compare``'s
+    ``source_halo_id`` finding verifies it on every route.
 
 Exit codes: 0 PASS (or a measured command succeeded), 1 FAIL (a comparison
 found a defect, or a measured command failed), 2 usage error or unusable input
@@ -218,9 +226,11 @@ DUMP_REQUIRED_COLUMNS = DUMP_INT_COLUMNS + tuple(
 )
 
 SOURCE_FORMATS = ("lhalo_binary", "consistent_trees_hdf5", "consistent_trees_ascii")
-#: Formats whose forest (an L-Halo tree, a forests-HDF5 ForestInfo row) is one
-#: inventory unit, so ascending (ForestIndex, rank) *is* SourceHaloID order.
-UNIT_FOREST_FORMATS = ("lhalo_binary", "consistent_trees_hdf5")
+#: Formats whose SourceHaloID order *is* ascending (ForestIndex, rank): every
+#: route. On the two prelinked routes a forest (an L-Halo tree, a forests-HDF5
+#: ForestInfo row) is one inventory unit; on ASCII the inventory unit is the
+#: forest itself (the forest-rank identity scheme).
+UNIT_FOREST_FORMATS = ("lhalo_binary", "consistent_trees_hdf5", "consistent_trees_ascii")
 
 #: The profile role that names each format's own per-halo catalog identifier
 #:, which the converter carries as ``MostBoundID``. Restated, not imported.
@@ -840,10 +850,10 @@ def reference_blocks(dump_blocks, source_format, findings):
     """Check a (ForestIndex, rank)-sorted, de-duplicated dump; assign expected SourceHaloID.
 
     Ranks must be dense from 0 within every forest (``dump_integrity``), and a
-    qualified link naming a target rank must name a target snapshot. For the
-    unit-forest formats ascending (ForestIndex, rank) is the inventory order,
-    so the expected ``SourceHaloID`` of the k-th row is k (from 1); for ASCII
-    that order differs from the inventory's and the check does not apply.
+    qualified link naming a target rank must name a target snapshot. On every
+    route ascending (ForestIndex, rank) is the inventory order -- a forest per
+    unit on the prelinked routes, the forest as the unit on ASCII -- so the
+    expected ``SourceHaloID`` of the k-th row is k (from 1).
     """
     assign = source_format in UNIT_FOREST_FORMATS
     position = 0
@@ -1216,7 +1226,7 @@ def _declare_checks(findings, source_format):
     for name, _components in FLOAT_PAYLOAD:
         findings.declare("payload_" + name, "{} binary32 bits equal the reference".format(name))
     findings.declare("payload_storage", "every float payload dataset is <f4 binary32 in every file")
-    findings.declare("source_halo_id", "SourceHaloID equals the inventory prefix sum")
+    findings.declare("source_halo_id", "SourceHaloID is the 1-based (ForestIndex, rank) position")
     if source_format not in UNIT_FOREST_FORMATS:
         findings.not_applicable(
             "source_halo_id",
