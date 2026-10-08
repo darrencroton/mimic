@@ -409,3 +409,103 @@ def all_trees(forests: Sequence[ForestSpec]) -> List[TreeSpec]:
     for forest in forests:
         trees.extend(forest.trees)
     return trees
+
+
+# ---------------------------------------------------------------------------
+# Correspondence-valid forests: each ``#tree`` root id is its terminal halo's id
+# ---------------------------------------------------------------------------
+#
+# In Consistent-Trees output a ``#tree`` block holds the history of one root
+# halo and is keyed by that halo's id. The canned forests above do not follow
+# this (tree 101's terminal halo is 1010), which the ASCII adapter does not care
+# about; the forest census does, because it recovers trees from terminal halos
+# and compares their ids with the index files' tree roots. These forests keep
+# exactly one terminal halo per tree, with the tree's root id, and give the
+# census cross-tree FoF membership, a forest spanning files and a tree whose
+# root is not at the final snapshot.
+
+
+def correspondence_multi_tree_forest() -> ForestSpec:
+    """Forest 1100: three trees; 1110 is a satellite of 1100 at snapshot 5 and
+    1121 of 1101 at snapshot 4, so FoF groups join halos of different trees."""
+    tree_a = TreeSpec(
+        root_id=1100,
+        halos=[
+            HaloSpec(halo_id=1100, snap=5, mvir=2.0e12, num_prog=2),
+            HaloSpec(halo_id=1101, snap=4, mvir=1.2e12, desc_id=1100, num_prog=1),
+            HaloSpec(halo_id=1102, snap=4, mvir=5.0e11, desc_id=1100),
+            HaloSpec(halo_id=1103, snap=3, mvir=9.0e11, desc_id=1101),
+        ],
+    )
+    tree_b = TreeSpec(
+        root_id=1110,
+        halos=[
+            HaloSpec(halo_id=1110, snap=5, mvir=3.0e11, pid=1100, upid=1100, num_prog=1),
+            HaloSpec(halo_id=1111, snap=4, mvir=3.5e11, desc_id=1110),
+        ],
+    )
+    tree_c = TreeSpec(
+        root_id=1120,
+        halos=[
+            HaloSpec(halo_id=1120, snap=5, mvir=4.0e11, num_prog=1),
+            HaloSpec(halo_id=1121, snap=4, mvir=2.0e11, desc_id=1120, pid=1101, upid=1101),
+        ],
+    )
+    return ForestSpec(forest_id=1100, trees=[tree_a, tree_b, tree_c])
+
+
+def correspondence_spanning_forest() -> ForestSpec:
+    """Forest 1200: two trees meant for different files (a forest spanning
+    files); 1210 is 1200's satellite at snapshot 5 and 1211 is 1201's at 4."""
+    tree_a = TreeSpec(
+        root_id=1200,
+        halos=[
+            HaloSpec(halo_id=1200, snap=5, mvir=1.0e12, num_prog=1),
+            HaloSpec(halo_id=1201, snap=4, mvir=8.0e11, desc_id=1200, num_prog=1),
+            HaloSpec(halo_id=1202, snap=3, mvir=6.0e11, desc_id=1201),
+        ],
+    )
+    tree_b = TreeSpec(
+        root_id=1210,
+        halos=[
+            HaloSpec(halo_id=1210, snap=5, mvir=2.0e11, pid=1200, upid=1200, num_prog=1),
+            HaloSpec(halo_id=1211, snap=4, mvir=1.5e11, desc_id=1210, pid=1201, upid=1201),
+            HaloSpec(halo_id=1212, snap=3, mvir=1.0e11, desc_id=1211),
+        ],
+    )
+    return ForestSpec(forest_id=1200, trees=[tree_a, tree_b])
+
+
+def correspondence_early_dying_forest() -> ForestSpec:
+    """Forest 1300: one tree whose root halo is at snapshot 2, not the final one."""
+    tree = TreeSpec(
+        root_id=1300,
+        halos=[
+            HaloSpec(halo_id=1300, snap=2, mvir=3.0e11, num_prog=1),
+            HaloSpec(halo_id=1301, snap=1, mvir=2.0e11, desc_id=1300),
+        ],
+    )
+    return ForestSpec(forest_id=1300, trees=[tree])
+
+
+def correspondence_single_tree_forest() -> ForestSpec:
+    """Forest 1400: one tree, a main branch over three snapshots."""
+    tree = TreeSpec(
+        root_id=1400,
+        halos=[
+            HaloSpec(halo_id=1400, snap=5, mvir=6.0e11, num_prog=1),
+            HaloSpec(halo_id=1401, snap=4, mvir=5.0e11, desc_id=1400, num_prog=1),
+            HaloSpec(halo_id=1402, snap=3, mvir=4.0e11, desc_id=1401),
+        ],
+    )
+    return ForestSpec(forest_id=1400, trees=[tree])
+
+
+def correspondence_forests() -> List[ForestSpec]:
+    """The correspondence-valid forests, in ascending forest id."""
+    return [
+        correspondence_multi_tree_forest(),
+        correspondence_spanning_forest(),
+        correspondence_early_dying_forest(),
+        correspondence_single_tree_forest(),
+    ]

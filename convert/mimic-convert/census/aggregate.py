@@ -1,0 +1,128 @@
+"""The census aggregate directory: identity binding and atomic writes.
+
+An aggregate directory holds one dataset's census results, one subdirectory per
+subcommand (``occupancy/``, ``trees/``, ``partition/``), beside
+``identity.json``, the :meth:`horizontal_dataset.HorizontalDataset.identity`
+record of the dataset the results were computed from. The first subcommand run
+against a directory writes it; every later one compares the dataset it was
+given against it and refuses a different dataset, so results from two datasets
+are never mixed. The directory and everything in it are deleted by hand when the
+census is done; nothing here deletes anything.
+
+Every file is written to a temporary name and renamed into place, and a
+subcommand writes its ``summary.json`` last, so a summary's presence means the
+subcommand completed.
+"""
+
+import json
+import os
+import sys
+from pathlib import Path
+from typing import Mapping, Optional
+
+import numpy as np
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from errors import ConverterError  # noqa: E402
+
+IDENTITY_NAME = "identity.json"
+SUMMARY_NAME = "summary.json"
+
+
+def slab_stem(snap: int) -> str:
+    """The per-slab file stem, ``slab_NNN``."""
+    return "slab_{:03d}".format(int(snap))
+
+
+def write_json(path, payload: Mapping) -> Path:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    with open(tmp, "w") as handle:
+        json.dump(payload, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+    os.replace(str(tmp), str(path))
+    return path
+
+
+def read_json(path) -> dict:
+    with open(path) as handle:
+        return json.load(handle)
+
+
+def save_array(path, array: np.ndarray) -> int:
+    """``np.save`` ``array`` atomically to ``path``; returns the file's size."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    with open(tmp, "wb") as handle:
+        np.save(handle, array, allow_pickle=False)
+    os.replace(str(tmp), str(path))
+    return path.stat().st_size
+
+
+def load_array(path, mmap: bool = False) -> np.ndarray:
+    """Load an aggregate array; ``mmap`` maps it read-only instead of reading it."""
+    return np.load(path, mmap_mode="r" if mmap else None, allow_pickle=False)
+
+
+def bind(aggregate_dir, identity: Mapping) -> Path:
+    """Bind ``aggregate_dir`` to the dataset ``identity``: write it to a new
+    directory, or require an existing directory's record to be equal.
+
+    Raises:
+        ConverterError: when the directory was produced from another dataset.
+    """
+    aggregate_dir = Path(aggregate_dir)
+    aggregate_dir.mkdir(parents=True, exist_ok=True)
+    path = aggregate_dir / IDENTITY_NAME
+    if not path.exists():
+        write_json(path, identity)
+        return aggregate_dir
+    recorded = read_json(path)
+    current = json.loads(json.dumps(identity))
+    if recorded != current:
+        differing = sorted(
+            key
+            for key in set(recorded) | set(current)
+            if recorded.get(key, None) != current.get(key, None)
+        )
+        raise ConverterError(
+            "{}: produced from a different dataset (identity differs in {}); use a new "
+            "aggregate directory for this dataset".format(aggregate_dir, differing)
+        )
+    return aggregate_dir
+
+
+def bound_identity(aggregate_dir) -> dict:
+    """The identity an existing aggregate directory is bound to.
+
+    Raises:
+        ConverterError: when the directory has no identity record.
+    """
+    path = Path(aggregate_dir) / IDENTITY_NAME
+    if not path.is_file():
+        raise ConverterError(
+            "{}: not a census aggregate directory (no {})".format(aggregate_dir, IDENTITY_NAME)
+        )
+    return read_json(path)
+
+
+def require_summary(directory, what: str) -> dict:
+    """The ``summary.json`` of a completed subcommand.
+
+    Raises:
+        ConverterError: when the subcommand has not completed in this directory.
+    """
+    path = Path(directory) / SUMMARY_NAME
+    if not path.is_file():
+        raise ConverterError("{}: no {}; run {} first".format(directory, SUMMARY_NAME, what))
+    return read_json(path)
+
+
+def directory_bytes(directory, pattern: Optional[str] = None) -> int:
+    """Total size of the regular files under ``directory`` (matching ``pattern``)."""
+    directory = Path(directory)
+    paths = directory.rglob(pattern) if pattern else directory.rglob("*")
+    return sum(path.stat().st_size for path in paths if path.is_file())
