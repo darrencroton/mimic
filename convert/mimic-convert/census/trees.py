@@ -55,8 +55,8 @@ being read (8 B x ``block_rows`` per column):
   (snapshots 33 and 34, 1,037,966,193 halos); the 20 B x n of pass 1; the
   per-tree totals and peaks (16 B x n) and the one per-slab count vector,
   counted block by block (8 B x n); and the slab's present-tree pairs while
-  they are written, at most about 21 B per present tree. At most about **65 B x
-  n** besides the labels (every tree present in one slab): about 24.6 GB in
+  they are written, at most about 25 B per present tree. At most about **69 B x
+  n** besides the labels (every tree present in one slab): about 25.9 GB in
   all.
 - **checks** (after pass 2): 36 B x n of per-tree results, transients of about
   36 B x n while the correspondence and conservation run, and 24 B x F for the
@@ -67,7 +67,7 @@ being read (8 B x ``block_rows`` per column):
   (about 24.9 GB, before pass 1).
 
 The largest phase with index files is therefore the checks, about 37 GB, then
-pass 2, about 35 GB. The only arrays of a slab's length are the two label
+pass 2, about 36 GB. The only arrays of a slab's length are the two label
 arrays: every halo column is read in bounded blocks, and the tree counts are
 accumulated per block of labels into the per-tree vector. No tree x snapshot
 matrix is held.
@@ -82,6 +82,7 @@ sufficient.
 
 import os
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, Optional, Tuple
 
@@ -244,7 +245,11 @@ def _label_slab(
         terminal = descendant == -1
         if terminal.any():
             ids = block["MostBoundID"][terminal].astype(np.int64, copy=False)
-            ordinal = np.searchsorted(roots, ids)
+            # sorted needles keep the search cache-friendly over a large root table
+            by_id = np.argsort(ids, kind="stable")
+            ordinal = np.empty(ids.size, dtype=np.int64)
+            ordinal[by_id] = np.searchsorted(roots, ids[by_id])
+            del by_id
             if ordinal.size and (
                 int(ordinal.max()) >= roots.size or not np.array_equal(roots[ordinal], ids)
             ):
@@ -400,15 +405,27 @@ def root_correspondence(
     return record
 
 
-def load_parsed_counts(path) -> Dict[str, int]:
+@dataclass(frozen=True)
+class ParsedCounts:
+    """A conversion record's per-file ``parsed_count``, keyed by file name."""
+
+    path: Path
+    counts: Dict[str, int]
+
+
+def load_parsed_counts(path) -> ParsedCounts:
     """Per-file ``parsed_count`` keyed by file name, from a JSON whose
-    ``source_files`` maps each source path to a record carrying it.
+    ``source_files`` maps each source path to a record carrying it. Called
+    before any census array is written, so a bad report costs nothing.
 
     Raises:
-        ConverterError: without such a mapping, or when two paths share a name.
+        ConverterError: for unreadable JSON, no such mapping, two paths sharing
+            a name, or a ``parsed_count`` that is not a non-negative integer.
+        OSError: when the file cannot be opened.
     """
     path = Path(path)
-    sources = read_json(path).get("source_files")
+    document = read_json(path)
+    sources = document.get("source_files") if isinstance(document, dict) else None
     if not isinstance(sources, dict) or not sources:
         raise ConverterError(
             "{}: no source_files with per-file parsed_count (expected a version 2 "
@@ -421,15 +438,22 @@ def load_parsed_counts(path) -> Dict[str, int]:
             raise ConverterError("{}: two source files are named {}".format(path, name))
         if not isinstance(entry, dict) or "parsed_count" not in entry:
             raise ConverterError("{}: {} has no parsed_count".format(path, source))
-        counts[name] = int(entry["parsed_count"])
-    return counts
+        value = entry["parsed_count"]
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ConverterError(
+                "{}: {} has parsed_count {!r}, not a non-negative integer".format(
+                    path, source, value
+                )
+            )
+        counts[name] = value
+    return ParsedCounts(path=path.resolve(), counts=counts)
 
 
 def conservation(
     roots: np.ndarray,
     tree_totals: np.ndarray,
     index: SourceIndex,
-    report_path=None,
+    report: Optional[ParsedCounts] = None,
 ) -> Dict:
     """Per-file halo sums of the trees through ``locations.dat``, compared with
     the report's per-file parsed counts when one is given (module docstring)."""
@@ -450,18 +474,17 @@ def conservation(
         "files": files,
         "unattributed_halos": int(tree_totals[~found].sum()),
     }
-    if report_path is None:
+    if report is None:
         record["verdict"] = "unchecked"
         return record
-    parsed = load_parsed_counts(report_path)
     names = {entry["name"] for entry in files}
     mismatched = 0
     for entry in files:
-        entry["parsed_count"] = parsed.get(entry["name"])
+        entry["parsed_count"] = report.counts.get(entry["name"])
         entry["agrees"] = entry["parsed_count"] == entry["census_halos"]
         mismatched += not entry["agrees"]
-    record["report"] = str(Path(report_path).resolve())
-    record["report_files_not_in_locations"] = sorted(set(parsed) - names)
+    record["report"] = str(report.path)
+    record["report_files_not_in_locations"] = sorted(set(report.counts) - names)
     record["files_disagreeing"] = mismatched
     record["verdict"] = (
         "pass"
@@ -480,17 +503,22 @@ def run_trees(
     dataset: HorizontalDataset,
     aggregate_dir,
     index: Optional[SourceIndex] = None,
-    report_path=None,
+    report: Optional[ParsedCounts] = None,
     block_rows: int = DEFAULT_BLOCK_ROWS,
     log: Callable[[str], None] = _quiet,
 ) -> Dict:
     """Run both passes and the checks, write the aggregates; returns the summary.
 
+    ``report`` is :func:`load_parsed_counts`' result, parsed by the caller
+    before the index files are loaded. Every refusal that needs no pass result
+    happens before the directory's completion marker or any array is touched.
+
     Raises:
-        ConverterError: for a gapped dataset (``links_adjacent`` 0), a report
-            without index files, or any refusal of the passes.
+        ConverterError: for a report without index files, a gapped dataset
+            (``links_adjacent`` 0), another dataset's directory, or any
+            refusal of the passes.
     """
-    if report_path is not None and index is None:
+    if report is not None and index is None:
         raise ConverterError("the conservation check needs forests.list and locations.dat")
     if dataset.links_adjacent != 1:
         raise ConverterError(
@@ -556,9 +584,7 @@ def run_trees(
         "root_correspondence": root_correspondence(
             roots, root_snapshot, tree_forest, forest_ids, dataset.snapshots[-1], index
         ),
-        "conservation": (
-            None if index is None else conservation(roots, totals, index, report_path)
-        ),
+        "conservation": (None if index is None else conservation(roots, totals, index, report)),
         "aggregates": {
             "labels": {
                 "formula": "4 B x total halos (int32 root ordinal per halo, one file per slab in "

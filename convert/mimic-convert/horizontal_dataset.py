@@ -52,6 +52,15 @@ RUN_SCOPED_ATTRS = (
     "source_format",
 )
 
+#: Header attributes read after opening, required in every file: name -> type.
+REQUIRED_ATTRS = {
+    "n_halos": int,
+    "n_forests_total": int,
+    "max_halo_rank_in_forest": int,
+    "links_adjacent": int,
+    "scale_factor": float,
+}
+
 _SNAPSHOT_FILE = re.compile(r"^snapshot_(\d{3,})\.h5$")
 
 
@@ -142,9 +151,15 @@ class HorizontalDataset:
                         self.directory, name, sorted(values)
                     )
                 )
-        for name in ("n_forests_total", "n_halos"):
-            if any(not isinstance(header.get(name), int) for header in self._headers):
-                raise ConverterError("{}: header attribute {} missing".format(self.directory, name))
+        for name, kind in REQUIRED_ATTRS.items():
+            for snap, header in enumerate(self._headers):
+                value = header.get(name)
+                if isinstance(value, bool) or not isinstance(value, kind):
+                    raise ConverterError(
+                        "{}: header attribute {} missing or not {} (got {!r})".format(
+                            self.snapshot_path(snap), name, kind.__name__, value
+                        )
+                    )
         if version >= 3 and not all(name in first for name in V3_STRING_ATTRS):
             raise ConverterError(
                 "{}: a version 3 header without {}".format(self.directory, sorted(V3_STRING_ATTRS))

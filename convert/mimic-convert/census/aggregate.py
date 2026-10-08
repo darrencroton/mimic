@@ -22,7 +22,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Mapping, Optional
+from typing import Mapping, Optional, Sequence
 
 import numpy as np
 
@@ -32,6 +32,15 @@ from errors import ConverterError  # noqa: E402
 
 IDENTITY_NAME = "identity.json"
 SUMMARY_NAME = "summary.json"
+
+#: The fields of :meth:`horizontal_dataset.HorizontalDataset.identity`.
+IDENTITY_KEYS = (
+    "format_version",
+    "source_format",
+    "n_forests_total",
+    "n_halos",
+    "forest_id_sha256",
+)
 
 
 def slab_stem(snap: int) -> str:
@@ -50,9 +59,35 @@ def write_json(path, payload: Mapping) -> Path:
     return path
 
 
-def read_json(path) -> dict:
-    with open(path) as handle:
-        return json.load(handle)
+def read_json(path):
+    """Parse a JSON file.
+
+    Raises:
+        ConverterError: when the file is not valid UTF-8 JSON, naming it.
+        OSError: when it cannot be opened.
+    """
+    with open(path, "rb") as handle:
+        raw = handle.read()
+    try:
+        return json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise ConverterError("{}: not readable as JSON ({})".format(path, exc)) from exc
+
+
+def read_record(path, keys: Sequence[str] = ()) -> dict:
+    """A JSON object holding at least ``keys``.
+
+    Raises:
+        ConverterError: for unreadable JSON, a value that is not an object, or
+            a missing key, naming the file.
+    """
+    record = read_json(path)
+    if not isinstance(record, dict):
+        raise ConverterError("{}: not a JSON object".format(path))
+    missing = [key for key in keys if key not in record]
+    if missing:
+        raise ConverterError("{}: missing {}".format(path, missing))
+    return record
 
 
 def save_array(path, array: np.ndarray) -> int:
@@ -84,7 +119,7 @@ def bind(aggregate_dir, identity: Mapping) -> Path:
     if not path.exists():
         write_json(path, identity)
         return aggregate_dir
-    recorded = read_json(path)
+    recorded = read_record(path)
     current = json.loads(json.dumps(identity))
     if recorded != current:
         differing = sorted(
@@ -122,19 +157,20 @@ def bound_identity(aggregate_dir) -> dict:
         raise ConverterError(
             "{}: not a census aggregate directory (no {})".format(aggregate_dir, IDENTITY_NAME)
         )
-    return read_json(path)
+    return read_record(path, IDENTITY_KEYS)
 
 
-def require_summary(directory, what: str) -> dict:
-    """The ``summary.json`` of a completed subcommand.
+def require_summary(directory, what: str, keys: Sequence[str] = ()) -> dict:
+    """The ``summary.json`` of a completed subcommand, holding at least ``keys``.
 
     Raises:
-        ConverterError: when the subcommand has not completed in this directory.
+        ConverterError: when the subcommand has not completed in this directory,
+            or its summary is unreadable or lacks a key.
     """
     path = Path(directory) / SUMMARY_NAME
     if not path.is_file():
         raise ConverterError("{}: no {}; run {} first".format(directory, SUMMARY_NAME, what))
-    return read_json(path)
+    return read_record(path, keys)
 
 
 def directory_bytes(directory, pattern: Optional[str] = None) -> int:

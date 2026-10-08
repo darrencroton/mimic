@@ -24,6 +24,14 @@ The weights are the widest slab's per-forest row counts, as the driver uses
 (``src/core/horizontal_driver.c``, the widest slab the lowest-numbered on a tie);
 :func:`range_rows` applies a partition's cuts to any slab's sparse per-forest
 counts, giving each range's row count in that slab.
+
+The ``partition`` subcommand writes one aggregate, ``partition/summary.json``.
+Its size is dominated by about ``(S + 1) x sum(ntask x nchunk)`` integers over
+the grid for ``S`` slabs (each point's cuts and every slab's range rows), plus
+per-point and per-slab metadata of a few integers each: for Shin-Uchuu's 70
+slabs and the default grid ({1, 2, 4, 8} x {1, 2, 4, 8, 16, 32}, 945 ranges in
+all) about 67,000 integers, a few hundred kilobytes of JSON. The summary records
+that count and its own measured size under ``aggregates``.
 """
 
 import os
@@ -191,7 +199,9 @@ def run_partition(
             invalid grid point.
     """
     identity = bound_identity(aggregate_dir)
-    occupancy = require_summary(occupancy_dir(aggregate_dir), "occupancy")
+    occupancy = require_summary(
+        occupancy_dir(aggregate_dir), "occupancy", ("dataset", "widest_slab")
+    )
     if occupancy["dataset"] != identity:
         raise ConverterError(
             "{}: the occupancy summary was not produced from this directory's dataset".format(
@@ -267,6 +277,23 @@ def run_partition(
             "split: every partition's widest range in that slab holds at least this many",
         },
         "grid": points,
+        "aggregates": {
+            "summary": {
+                "formula": "about (S + 1) x sum over the grid of ntask x nchunk integers for S "
+                "slabs (cuts and per-slab range rows), plus a few integers of metadata per "
+                "grid point and slab, as indented JSON",
+                "range_integers": (len(n_halos) + 1) * sum(t * c for t, c in grid),
+                "bytes": 0,
+            }
+        },
     }
-    write_json(Path(aggregate_dir) / PARTITION_DIR / SUMMARY_NAME, summary)
+    # the summary records its own size: rewrite until the recorded figure is the file's
+    path = Path(aggregate_dir) / PARTITION_DIR / SUMMARY_NAME
+    record = summary["aggregates"]["summary"]
+    for _attempt in range(8):
+        write_json(path, summary)
+        size = path.stat().st_size
+        if size == record["bytes"]:
+            break
+        record["bytes"] = size
     return summary

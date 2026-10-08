@@ -46,7 +46,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from census.occupancy import run_occupancy  # noqa: E402
 from census.partition import DEFAULT_NCHUNKS, DEFAULT_NTASKS, run_partition  # noqa: E402
-from census.trees import run_trees  # noqa: E402
+from census.trees import load_parsed_counts, run_trees  # noqa: E402
 from errors import ConverterError  # noqa: E402
 from horizontal_dataset import DEFAULT_BLOCK_ROWS, HorizontalDataset  # noqa: E402
 from source_index import SourceIndex  # noqa: E402
@@ -168,16 +168,20 @@ def cmd_occupancy(args: argparse.Namespace) -> int:
 
 
 def cmd_trees(args: argparse.Namespace) -> int:
+    # every refusal of the arguments, the report included, before the long loads
     if (args.forests_list is None) != (args.locations is None):
         raise ConverterError("--forests-list and --locations are given together or not at all")
+    if args.conversion_report is not None and args.forests_list is None:
+        raise ConverterError("--conversion-report needs --forests-list and --locations")
+    report = None
+    if args.conversion_report is not None:
+        report = load_parsed_counts(args.conversion_report)
     dataset = HorizontalDataset(args.dataset)
     index = None
     if args.forests_list is not None:
         _log("trees: loading {} and {}".format(args.forests_list, args.locations))
         index = SourceIndex.load(args.forests_list, args.locations)
-    summary = run_trees(
-        dataset, args.aggregate, index, args.conversion_report, args.block_rows, _log
-    )
+    summary = run_trees(dataset, args.aggregate, index, report, args.block_rows, _log)
     _print_trees(summary)
     return 0
 

@@ -31,6 +31,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import h5py
 import numpy as np
@@ -353,6 +354,98 @@ class TestVersion2Dataset(unittest.TestCase):
         self.assertEqual(summary["largest_tree"]["root_id"], 1010)
         self.assertEqual(summary["largest_tree"]["total_halos"], 5)
 
+    def edited(self, name, file_name, edit):
+        """A copy of ``generic`` with ``edit(handle)`` applied to one file."""
+        copy = copy_generic(self.tmp / name)
+        with h5py.File(copy / file_name, "r+") as handle:
+            edit(handle)
+        return copy
+
+    def test_inconsistent_datasets_are_refused_at_open(self):
+        def set_header(name, value):
+            def edit(handle):
+                handle["header"].attrs[name] = value
+
+            return edit
+
+        def drop_header(name):
+            def edit(handle):
+                del handle["header"].attrs[name]
+
+            return edit
+
+        def shrink_sidecar(handle):
+            del handle["ForestID"]
+            handle.create_dataset("ForestID", data=np.array([10, 20], dtype=np.int64))
+
+        cases = (
+            (
+                "mixed",
+                "snapshot_002.h5",
+                set_header("format_version", np.int32(3)),
+                "format_version differs between snapshot files",
+            ),
+            (
+                "run_scoped",
+                "snapshot_003.h5",
+                set_header("n_forests_total", np.int64(4)),
+                "n_forests_total differs between snapshot files",
+            ),
+            (
+                "sidecar",
+                "forests.h5",
+                shrink_sidecar,
+                "/ForestID holds 2 entries but n_forests_total is 3",
+            ),
+            (
+                "renamed",
+                "snapshot_001.h5",
+                set_header("snapshot_number", np.int32(7)),
+                "snapshot_001.h5: header snapshot_number 7 disagrees with the file name",
+            ),
+            (
+                "no_scale",
+                "snapshot_004.h5",
+                drop_header("scale_factor"),
+                "snapshot_004.h5: header attribute scale_factor missing",
+            ),
+        )
+        for name, file_name, edit, message in cases:
+            with self.assertRaisesRegex(ConverterError, message):
+                HorizontalDataset(self.edited(name, file_name, edit))
+        # links_adjacent absent from every file passes the agreement test, so
+        # the presence check is what catches it
+        no_links = copy_generic(self.tmp / "no_links")
+        for path in no_links.glob("snapshot_*.h5"):
+            with h5py.File(path, "r+") as handle:
+                del handle["header"].attrs["links_adjacent"]
+        with self.assertRaisesRegex(ConverterError, "header attribute links_adjacent missing"):
+            HorizontalDataset(no_links)
+
+    def test_a_forest_index_out_of_range_is_refused_by_occupancy(self):
+        def edit(handle):
+            handle["halos"]["ForestIndex"][0] = 3
+
+        dataset = HorizontalDataset(self.edited("forest_range", "snapshot_004.h5", edit))
+        with self.assertRaisesRegex(ConverterError, r"ForestIndex outside \[0, 3\)"):
+            occupancy.run_occupancy(dataset, self.tmp / "agg")
+
+    def test_broken_descendant_links_are_refused_by_trees(self):
+        def link_last(handle):
+            handle["halos"]["Descendant"][0] = 0
+
+        def link_beyond(handle):
+            handle["halos"]["Descendant"][0] = 99
+
+        last = HorizontalDataset(self.edited("link_last", "snapshot_005.h5", link_last))
+        with self.assertRaisesRegex(ConverterError, "the last slab holds 1 non-null Descendant"):
+            trees.run_trees(last, self.tmp / "agg_last")
+        beyond = HorizontalDataset(self.edited("link_beyond", "snapshot_004.h5", link_beyond))
+        with self.assertRaisesRegex(
+            ConverterError, r"Descendant outside \[0, 4\) of the next slab"
+        ):
+            trees.run_trees(beyond, self.tmp / "agg_beyond")
+
     def test_a_gapped_dataset_is_refused_by_trees(self):
         gapped = copy_generic(self.tmp / "gapped")
         for path in gapped.glob("snapshot_*.h5"):
@@ -393,7 +486,11 @@ class TestCensusOnVersion3(unittest.TestCase):
         cls.agg = cls.tmp / "agg"
         cls.occupancy = run_quietly(occupancy.run_occupancy, cls.dataset, cls.agg)
         cls.trees = run_quietly(
-            trees.run_trees, cls.dataset, cls.agg, cls.index, cls.paths["preparation_manifest"]
+            trees.run_trees,
+            cls.dataset,
+            cls.agg,
+            cls.index,
+            trees.load_parsed_counts(cls.paths["preparation_manifest"]),
         )
 
     @classmethod
@@ -410,6 +507,8 @@ class TestCensusOnVersion3(unittest.TestCase):
         with h5py.File(self.paths["dataset"] / "forests.h5", "r") as handle:
             sidecar = {name: handle[name][...] for name in handle}
         np.testing.assert_array_equal(table.forest_ids, sidecar["ForestID"])
+        # file_ordinal is the FileID; it equals SourceFileOrdinal here only because
+        # convert_ascii gives the converter its tree files in FileID order
         np.testing.assert_array_equal(table.file_ordinal, sidecar["SourceFileOrdinal"])
         np.testing.assert_array_equal(table.unit_ordinal, sidecar["SourceUnitOrdinal"])
         # literal: 1100 unit 0 of file 0 (markers F, F, G, F), 1200 spans, 1300
@@ -580,12 +679,26 @@ class TestCensusOnVersion3(unittest.TestCase):
         )
         roots = trees.load_roots(self.agg)
         totals = np.load(trees.trees_dir(self.agg) / "tree_totals.npy")
-        record = trees.conservation(roots, totals, self.index, report)
+        record = trees.conservation(roots, totals, self.index, trees.load_parsed_counts(report))
         self.assertEqual(record["verdict"], "fail")
         self.assertEqual(record["files_disagreeing"], 1)
-        report.write_text(json.dumps({"totals": {}}))
-        with self.assertRaisesRegex(ConverterError, "no source_files"):
-            trees.conservation(roots, totals, self.index, report)
+
+    def test_a_malformed_report_is_refused(self):
+        report = self.tmp / "malformed_report.json"
+        for document, message in (
+            ({"totals": {}}, "no source_files"),
+            ([1, 2], "no source_files"),
+            ({"source_files": {"/a/t.dat": {"parsed_count": "13"}}}, "not a non-negative integer"),
+            ({"source_files": {"/a/t.dat": {"parsed_count": -1}}}, "not a non-negative integer"),
+            ({"source_files": {"/a/t.dat": {"parsed_count": True}}}, "not a non-negative integer"),
+            ({"source_files": {"/a/t.dat": {}}}, "has no parsed_count"),
+        ):
+            report.write_text(json.dumps(document))
+            with self.assertRaisesRegex(ConverterError, message):
+                trees.load_parsed_counts(report)
+        report.write_text("{not json")
+        with self.assertRaisesRegex(ConverterError, "malformed_report.json: not readable as JSON"):
+            trees.load_parsed_counts(report)
 
     def test_results_do_not_depend_on_the_block_size(self):
         other = self.tmp / "agg_block_1"
@@ -595,7 +708,7 @@ class TestCensusOnVersion3(unittest.TestCase):
             self.dataset,
             other,
             self.index,
-            self.paths["preparation_manifest"],
+            trees.load_parsed_counts(self.paths["preparation_manifest"]),
             block_rows=1,
         )
         for path in sorted(self.agg.rglob("*")):
@@ -652,16 +765,53 @@ class TestCensusOnVersion3(unittest.TestCase):
 
     def test_a_failed_rerun_leaves_no_completion_marker(self):
         other = self.tmp / "agg_rerun"
-        run_quietly(
-            trees.run_trees, self.dataset, other, self.index, self.paths["preparation_manifest"]
-        )
+        report = trees.load_parsed_counts(self.paths["preparation_manifest"])
+        run_quietly(trees.run_trees, self.dataset, other, self.index, report)
         self.assertEqual(aggregate.require_summary(trees.trees_dir(other), "trees")["n_trees"], 7)
-        bad = self.tmp / "no_source_files.json"
-        bad.write_text(json.dumps({"totals": {}}))
-        with self.assertRaisesRegex(ConverterError, "no source_files"):
-            run_quietly(trees.run_trees, self.dataset, other, self.index, bad)
+        # a failure inside pass 2, after the rerun has started rewriting arrays
+        injected = ConverterError("injected pass 2 failure")
+        with mock.patch.object(trees, "narrow_tree_counts", side_effect=injected):
+            with self.assertRaisesRegex(ConverterError, "injected pass 2 failure"):
+                run_quietly(trees.run_trees, self.dataset, other, self.index, report)
         with self.assertRaisesRegex(ConverterError, "run trees first"):
             aggregate.require_summary(trees.trees_dir(other), "trees")
+
+    def test_a_bad_report_is_refused_before_anything_is_touched(self):
+        other = self.tmp / "agg_bad_report"
+        run_quietly(
+            trees.run_trees,
+            self.dataset,
+            other,
+            self.index,
+            trees.load_parsed_counts(self.paths["preparation_manifest"]),
+        )
+        before = {
+            path: (path.read_bytes(), path.stat().st_mtime_ns)
+            for path in other.rglob("*")
+            if path.is_file()
+        }
+        malformed = self.tmp / "bad_report.json"
+        malformed.write_text("{not json")
+        no_sources = self.tmp / "no_sources.json"
+        no_sources.write_text(json.dumps({"totals": {}}))
+        base = ["trees", "--dataset", str(self.paths["dataset"]), "--aggregate", str(other)]
+        base += ["--forests-list", str(self.paths["forests_list"])]
+        base += ["--locations", str(self.paths["locations"])]
+        for report, message in (
+            (self.tmp / "missing.json", "No such file"),
+            (malformed, "not readable as JSON"),
+            (no_sources, "no source_files"),
+        ):
+            with capture_stderr() as captured:
+                status = forest_census.main(base + ["--conversion-report", str(report)])
+            self.assertEqual(status, 2, report)
+            self.assertIn(message, captured.text)
+        after = {
+            path: (path.read_bytes(), path.stat().st_mtime_ns)
+            for path in other.rglob("*")
+            if path.is_file()
+        }
+        self.assertEqual(after, before)
 
     def test_the_trees_and_partition_command_lines(self):
         other = str(self.tmp / "agg_cli")
@@ -683,6 +833,17 @@ class TestCensusOnVersion3(unittest.TestCase):
             status = forest_census.main(["trees"] + dataset + index[:2])
         self.assertEqual(status, 2)
         self.assertIn("--forests-list and --locations are given together", captured.text)
+        with capture_stderr() as captured:
+            status = forest_census.main(["trees"] + dataset + report)
+        self.assertEqual(status, 2)
+        self.assertIn("--conversion-report needs --forests-list and --locations", captured.text)
+        with self.assertRaisesRegex(ConverterError, "needs forests.list and locations.dat"):
+            trees.run_trees(
+                self.dataset,
+                self.tmp / "agg_unused",
+                None,
+                trees.load_parsed_counts(self.paths["preparation_manifest"]),
+            )
 
         stdout = io.StringIO()
         with contextlib.redirect_stdout(stdout), capture_stderr():
@@ -695,6 +856,18 @@ class TestCensusOnVersion3(unittest.TestCase):
             "ntask   2 nchunk   1: widest range 4 rows (snapshot 4, task 0, chunk 0)",
             stdout.getvalue(),
         )
+        recorded = aggregate.read_json(Path(other) / "partition" / "summary.json")
+        self.assertEqual(
+            recorded["aggregates"]["summary"]["bytes"],
+            (Path(other) / "partition" / "summary.json").stat().st_size,
+        )
+        self.assertEqual(recorded["aggregates"]["summary"]["range_integers"], 7 * (1 + 2 + 2 + 4))
+
+        (Path(other) / "identity.json").write_text("{malformed")
+        with capture_stderr() as captured:
+            status = forest_census.main(["partition", "--aggregate", other])
+        self.assertEqual(status, 2)
+        self.assertIn("identity.json: not readable as JSON", captured.text)
 
 
 class TestCorrespondenceMismatch(unittest.TestCase):
