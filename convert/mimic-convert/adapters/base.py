@@ -180,7 +180,11 @@ class SourceCoordinate:
 
     A *unit* is the source's own grouping object: an L-Halo tree, a
     forests-HDF5 ``ForestInfo`` row, or an ASCII forest. ``row_ordinal`` is the
-    original within-unit row index, never a re-sorted one.
+    original within-unit row index, never a re-sorted one. On the
+    ``consistent_trees_ascii`` route, by contrast, the unit is the whole forest
+    and the coordinate is ``(0, ForestIndex, HaloRankInForest)`` (see
+    :class:`SourceInventory`): its row ordinal is the rank, the post-fix-up
+    reference traversal order, not a file row.
     """
 
     source_file_ordinal: int
