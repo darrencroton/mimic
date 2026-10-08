@@ -42,17 +42,19 @@ extern struct MimicConfig MimicConfig;
 /* ---------------------------------------------------------------------------
  * Dataset facts
  *
- * Recorded by the 2026-08-03 conversion gate and reproduced by the producer
- * validation battery and the topology cross-check. A mismatch here means the
- * local dataset is not the one this package documents, which is worth failing
- * over rather than passing quietly.
+ * Recorded by the version 3 conversion this package's README.md documents (the
+ * forest-blocked consistent_trees_ascii route of convert_trees.py) and reproduced
+ * by its producer validation battery. A mismatch here means the local dataset is
+ * not the one this package documents, which is worth failing over rather than
+ * passing quietly.
  * ------------------------------------------------------------------------- */
 
 #define REALDATA_SNAPSHOTS 50
 #define REALDATA_TOTAL_HALOS INT64_C(22580924)
 #define REALDATA_N_FORESTS_TOTAL INT64_C(440651)
 #define REALDATA_MAX_RANK INT64_C(350074)
-#define REALDATA_FORMAT_VERSION 2
+#define REALDATA_FORMAT_VERSION 3
+#define REALDATA_SOURCE_FORMAT "consistent_trees_ascii"
 
 /* simulations/micro-uchuu-ascii-horizontal/simulation_info.yaml's physical values. The
    real dataset's headers were stamped from these same values, so
@@ -117,6 +119,9 @@ int test_open_run_against_full_dataset(void) {
                     "run info should publish fifty snapshots");
   TEST_ASSERT_EQUAL(info.format_version, REALDATA_FORMAT_VERSION,
                     "run info should publish the on-disk format version");
+  TEST_ASSERT_STRING_EQUAL(info.source_format, REALDATA_SOURCE_FORMAT,
+                           "run info should publish the source format the dataset was converted "
+                           "from");
   TEST_ASSERT_EQUAL(info.n_forests_total, REALDATA_N_FORESTS_TOTAL,
                     "run info should publish the recorded forest count");
   TEST_ASSERT_EQUAL(info.max_halo_rank_in_forest, REALDATA_MAX_RANK,

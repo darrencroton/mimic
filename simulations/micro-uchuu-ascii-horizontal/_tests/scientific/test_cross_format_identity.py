@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-Cross-format identity gate for the version 2 horizontal package.
+Cross-format identity gate for the version 3 horizontal package converted from ASCII.
 
 The same simulation, read through two different drivers, must produce the same
 galaxies. This gate runs micro-Uchuu through the vertical driver
 (``micro-uchuu-ascii``, Consistent-Trees ASCII) and through the horizontal
-driver (``micro-uchuu-ascii-horizontal``, version 2 snapshot HDF5) and requires, for
+driver (``micro-uchuu-ascii-horizontal``, a forest-blocked version 3 conversion of
+exactly that catalogue by the ``consistent_trees_ascii`` route) and requires, for
 every output snapshot, identical ``UniqueGalaxyID`` sets and per-id
 **byte-identical** fields, under ``halos-only`` and ``sage16``, each with fixed
 and dynamic timesteps. There is no tolerance, no field exclusion and no
@@ -75,9 +76,10 @@ PACKAGE = GatePackage(
     # first_file/last_file are metadata only for the ASCII reader; both packages declare 0-0.
     file_range=(0, 0),
     override_vertical_range=False,
-    format_version=2,
+    format_version=3,
     source_format="consistent_trees_ascii",
-    column_mapping_sha256=None,
+    # simulations/micro-uchuu-ascii/converter_columns.yaml, the route's profile.
+    column_mapping_sha256="727d13f529fa80305f261b933612b6087aa52ade5dde7899bb18f8f4450f8f6d",
     links_adjacent=1,
     halos=22_580_924,
     forests=440_651,
@@ -482,11 +484,11 @@ def assert_output_schema_delta(baseline: RunOutput, head: RunOutput) -> None:
 
 
 # --------------------------------------------------------------------------
-# The version 2 gate
+# The ASCII gate
 # --------------------------------------------------------------------------
 
 
-class VersionTwoGate(ParityGate):
+class AsciiGate(ParityGate):
     """The shared parity gate plus the multi-partition check and Stage 8."""
 
     def check_leg(
@@ -581,8 +583,8 @@ class VersionTwoGate(ParityGate):
 
 
 def main() -> int:
-    return VersionTwoGate(PACKAGE).run(
-        "micro-uchuu-ascii-horizontal version 2 cross-format identity gate "
+    return AsciiGate(PACKAGE).run(
+        "micro-uchuu-ascii-horizontal version 3 cross-format identity gate "
         "(test_cross_format_identity.py)"
     )
 

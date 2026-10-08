@@ -1,0 +1,57 @@
+# Mimic SHAM on the real micro-Uchuu box, converted from Consistent-Trees ASCII, Run Configuration
+#
+# The real 100 Mpc/h micro-Uchuu box through this package's own dataset
+# (simulations/micro-uchuu-ascii-horizontal/snapshots: horizontal HDF5 version 3,
+# converted from Consistent-Trees ASCII by the forest-blocked route). The shipped
+# sham_micro-uchuu-ascii-horizontal.yaml reads the committed synthetic fixture
+# through simulation.config; this variant names no config, so its input is the
+# package's simulation_info.yaml and the real dataset behind the snapshots symlink.
+# Needs the horizontal driver and a build of
+# MODEL=sham SIMULATION=micro-uchuu-ascii-horizontal; run it from the repository
+# root. Single process, fully resident.
+#
+# Every module setting is sham_micro-uchuu-horizontal.yaml's (the real-box run
+# file of the L-Halo-derived package): one output epoch, snapshot 49 (z = 0.0005),
+# inside ShamTargetRedshiftMax 0.1; the peak history is still accumulated over
+# every processed snapshot. sham_rank_match ranks candidates by descending
+# ShamVpeak with ties broken by ascending UniqueGalaxyID, so this run is also the
+# evidence that a module keyed on the id gives the same output on any two
+# conversions of the catalogue that preserve UniqueGalaxyID. This is a
+# calibrated-target rank match with zero scatter, not an observational parity
+# claim.
+
+model:
+  name: sham
+
+simulation:
+  name: micro-uchuu-ascii-horizontal
+
+output:
+  output_filename: sham
+  output_directory: output/sham-micro-uchuu-ascii-horizontal-realdata
+  output_format: hdf5                               # Horizontal runs write HDF5 only
+  snapshot_list: [49]                               # z = 0.0005, the lowest-redshift epoch
+
+SubSteps: 1
+
+modules:
+
+  # Retirement, peak tracking and the non-member reset, before any other module.
+  pre_timestep:
+    - sham_rank_match: process_full_halo
+
+  # The whole-snapshot rank match on each output snapshot.
+  post_snapshot:
+    - sham_rank_match: process_snapshot
+
+  parameters:
+    # Baldry et al. (2012) GAMA z < 0.06 double Schechter (physical Msun, Mpc^-3 at h = 0.7)
+    ShamTargetLogMstar: 10.66      # log10 Ms [Msun]
+    ShamTargetPhi1: 3.96e-3        # phi1 [Mpc^-3]
+    ShamTargetAlpha1: -0.35        # alpha1 [dimensionless]
+    ShamTargetPhi2: 0.79e-3        # phi2 [Mpc^-3]
+    ShamTargetAlpha2: -1.47        # alpha2 [dimensionless]
+    ShamTargetHubble: 0.7          # h of the published fit
+    ShamTargetLogMassFloor: 8.0    # log10 lowest assignable mass [Msun at the simulation's h]
+    ShamTargetRedshiftMax: 0.1     # largest output redshift (the target's z < 0.06, with margin)
+    ShamMinVpeak: 80               # candidate completeness floor on ShamVpeak [km/s]

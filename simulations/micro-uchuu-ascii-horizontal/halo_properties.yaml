@@ -1,67 +1,71 @@
-# micro-Uchuu (from Consistent-Trees ASCII) Halo Catalog Properties — horizontal HDF5 format version 2
+# micro-Uchuu (from Consistent-Trees ASCII) Halo Catalog Properties — horizontal HDF5 format version 3
 #
-# Defines the RawHalo contract for the horizontal_hdf5 reader. Every entry below
-# is a `/halos` dataset of convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md (format_version 2),
-# whose Halo Datasets table makes dataset names and types normative: the
-# generated reader-side code consumes the datasets by name, so property names
-# and the on-disk names are the same strings and no `source:` mapping is needed.
+# Version 3 horizontal package for micro-Uchuu, converted from Consistent-Trees ASCII
+# by convert/mimic-convert/convert_trees.py (the forest-blocked consistent_trees_ascii
+# route) with the simulations/micro-uchuu-ascii/converter_columns.yaml profile.
+# The package's compiled declarations are checked against the converter's own
+# /schema derivation for this route, and against the real converted dataset's
+# /schema when it is present, by _tests/integration/test_schema_conformance.py
+# (make tests-integration with this package selected).
 #
-# The shared fields mirror micro-uchuu-ascii/halo_properties.yaml exactly (key
-# order, units, h_convention, range, output, init/output sources, and core-role
-# bindings): the snapshot dataset is produced from the same micro-Uchuu
-# Consistent-Trees source by convert/mimic-convert/, which applies the same reference
-# value conventions. M_Crit200 therefore carries the native ctrees Mvir in
-# Msun/h, positions are Mpc/h, Spin is the specific angular momentum J/Mvir,
-# (Mpc/h)(km/s), for non-zero Mvir -- the converter deliberately keeps raw J
-# for zero-mass halos -- and Len is derived as round(Mvir * 1e-10 / particle_mass).
+# Every entry is a `/halos` dataset of convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md (section "Version 3").
+# The payload fields declare exactly the type, units and h_convention the
+# converter's consistent_trees_ascii route writes into each file's `/schema`,
+# and the reader aborts at open on any disagreement. The shared fields mirror
+# micro-uchuu-ascii/halo_properties.yaml (key order, units, h_convention,
+# range, output, init/output sources, and core-role bindings): the converter
+# applies the vertical reader's value conventions. M_Crit200 therefore carries
+# the native ctrees Mvir in Msun/h, positions are Mpc/h, Spin is the specific
+# angular momentum J/Mvir, (Mpc/h)(km/s), for non-zero Mvir -- the converter
+# deliberately keeps raw J for zero-mass halos -- and Len is derived as
+# round(Mvir * 1e-10 / particle_mass).
 #
-# ForestIndex and HaloRankInForest, the producer-owned UniqueGalaxyID identity
-# components the on-disk format carries explicitly, are deliberately NOT
-# declared here: they are horizontal-format identity metadata governed by
-# convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md, not catalog halo properties, so they are
-# read directly by src/io/horizontal/read_horizontal_hdf5.c into
-# struct SnapshotSlab's reader-owned forest_index/halo_rank_in_forest arrays,
-# never through this file or the generated RawHalo struct.
+# The five links are `long long`: version 3 stores them as
+# int64, and the reader refuses a package whose link storage would narrow them.
+# They, SourceHaloID, the three target-snapshot columns and the
+# ForestIndex/HaloRankInForest identity arrays are governed by the format's
+# fixed table, not by `/schema`; the last six are reader-owned slab arrays
+# and are deliberately NOT declared here.
 #
 # Required core roles (src/core/core_properties.yaml required_inputs):
 # Descendant, FirstProgenitor, NextProgenitor, FirstHaloInFOFgroup,
 # NextHaloInFOFgroup, SnapNum, Len, HaloMass.
 #
-# Mirror maintenance: the shared fields track micro-uchuu-ascii and
+# Mirror maintenance: the shared payload fields track micro-uchuu-ascii and
 # micro-uchuu-hdf5. Any change to a shared field must be made in all three, and
 # any change to a name or type here must first be made in the frozen format
 # specification.
 
 halo_properties:
-  # --- merger-tree topology links (consumed directly by the core driver) ---
+  # --- merger-tree topology links (int64 snapshot-local indices in v3) ---
   - name: Descendant
-    type: int
+    type: long long
     units: dimensionless
-    description: Index of the descendant halo in this forest, or -1 if none
+    description: Row index of the descendant in the DescendantSnapshot file, or -1 if none
     provides_core_role: Descendant
 
   - name: FirstProgenitor
-    type: int
+    type: long long
     units: dimensionless
-    description: Index of the first progenitor halo in this forest, or -1 if none
+    description: Row index of the main progenitor in the FirstProgenitorSnapshot file, or -1 if none
     provides_core_role: FirstProgenitor
 
   - name: NextProgenitor
-    type: int
+    type: long long
     units: dimensionless
-    description: Index of the next progenitor linked to the same descendant, or -1 if none
+    description: Row index of the next sibling progenitor in the NextProgenitorSnapshot file, or -1 if none
     provides_core_role: NextProgenitor
 
   - name: FirstHaloInFOFgroup
-    type: int
+    type: long long
     units: dimensionless
-    description: Index of the first halo in this FoF group
+    description: Row index in this snapshot of the FoF central
     provides_core_role: FirstHaloInFOFgroup
 
   - name: NextHaloInFOFgroup
-    type: int
+    type: long long
     units: dimensionless
-    description: Index of the next halo in this FoF group, or -1 if none
+    description: Row index in this snapshot of the next FoF-group member, or -1 if last
     provides_core_role: NextHaloInFOFgroup
 
   # --- particle count (derived by the producer from Mvir / particle_mass) ---
