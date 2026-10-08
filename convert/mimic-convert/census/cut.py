@@ -98,7 +98,9 @@ with ``tracemalloc``):
   trees), the census roots (8 B x n), the dense tree to local-index map (4 B x
   n) and the named-forest tree arrays (28 B x t): about **11.7 GB** at
   Shin-Uchuu scale with the super-forest's 104,845,278 trees; per rule, the
-  piece of each tree (4 B x t, 0.42 GB) and about 82 B per piece; the
+  piece of each tree (4 B x t, 0.42 GB) and about 82 B per piece, plus 8 B
+  per fresh piece for the fresh pieces' order, sorted once per rule rather
+  than in every slab (``RuleState.fresh_order``); the
   union-find of ``census/rules.py`` (about 1.0 GB, transient) and the dense
   partition weights (8 B x (F + fresh pieces), 1.3 GB, transient);
 - per slab of step 2 (:func:`aggregate_slab`, from the aggregates alone):
@@ -139,9 +141,9 @@ with ``tracemalloc``):
   the pass or of step 2 is held by then.
 
 The subcommand's peak at Shin-Uchuu scale is the largest of the index load
-(24.9 GB), step 2 (11.7 GB + R x (0.42 GB + 82 B x p) + 1.3 GB + the slab
-terms), the pass (11.7 GB + R x (0.42 GB + 82 B x p) + 0.7 GB + the edge,
-retained-row and promotion terms) and a table (11.7 GB + R x (0.42 GB + 82 B x
+(24.9 GB), step 2 (11.7 GB + R x (0.42 GB + 90 B x p) + 1.3 GB + the slab
+terms), the pass (11.7 GB + R x (0.42 GB + 90 B x p) + 0.7 GB + the edge,
+retained-row and promotion terms) and a table (11.7 GB + R x (0.42 GB + 90 B x
 p) + 18.3 GB). With eight rules of 10^7 pieces each, that is about 40 GB while
 a table is written and about 22 GB plus the per-slab terms during the pass:
 with as many pairs and retained rows as a few per cent of snapshot 31's
@@ -437,6 +439,7 @@ class RuleState:
     peak: np.ndarray = field(init=False)  # per piece, its largest slab count
     peak_snapshot: np.ndarray = field(init=False)  # the lowest-numbered slab of the peak
     seeded: np.ndarray = field(init=False)  # per piece, whether it holds a seed
+    fresh_order: np.ndarray = field(init=False)  # the fresh pieces, in ascending fresh id
     widest_counts: Optional[np.ndarray] = None  # per piece, its rows in the widest slab
     current: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.int64))
     current_seeds: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.int64))
@@ -449,6 +452,9 @@ class RuleState:
         self.peak = np.zeros(n_pieces, dtype=np.int64)
         self.peak_snapshot = np.full(n_pieces, -1, dtype=np.int64)
         self.seeded = np.zeros(n_pieces, dtype=bool)
+        # sorted once here, not per slab: the installed partition appends fresh pieces in this order
+        fresh = np.flatnonzero(~self.pieces["keeps_id"])
+        self.fresh_order = fresh[np.argsort(self.pieces["id"][fresh], kind="stable")]
 
 
 def piece_counts(states: Sequence[RuleState], local: np.ndarray, counts: np.ndarray) -> List:
@@ -494,8 +500,7 @@ def install_pieces(
     present = at < forests.size
     present[present] = forests[at[present]] == pieces["forest_index"][keeping][present]
     counts[at[present]] = per_piece[keeping[present]]
-    fresh = np.flatnonzero(~pieces["keeps_id"] & (per_piece > 0))
-    fresh = fresh[np.argsort(pieces["id"][fresh], kind="stable")]
+    fresh = state.fresh_order[per_piece[state.fresh_order] > 0]
     nonzero = counts > 0
     return (
         np.concatenate([forests[nonzero], n_forests + (pieces["id"][fresh] - catalogue_max - 1)]),

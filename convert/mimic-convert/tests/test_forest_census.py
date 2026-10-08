@@ -1214,6 +1214,52 @@ class TestWindowedMembership(unittest.TestCase):
         self.check([3, 10], rows)  # only the first row
 
 
+class TestInstalledPieces(unittest.TestCase):
+    """The fresh pieces' order, sorted once per rule, installs each slab as a
+    per-slab sort of the fresh pieces would."""
+
+    @staticmethod
+    def reference(forests, counts, pieces, per_piece, n_forests, catalogue_max):
+        counts = np.asarray(counts, dtype=np.int64).copy()
+        keeping = np.flatnonzero(pieces["keeps_id"])
+        at = np.searchsorted(forests, pieces["forest_index"][keeping])
+        present = at < forests.size
+        present[present] = forests[at[present]] == pieces["forest_index"][keeping][present]
+        counts[at[present]] = per_piece[keeping[present]]
+        fresh = np.flatnonzero(~pieces["keeps_id"] & (per_piece > 0))
+        fresh = fresh[np.argsort(pieces["id"][fresh], kind="stable")]
+        nonzero = counts > 0
+        return (
+            np.concatenate(
+                [forests[nonzero], n_forests + (pieces["id"][fresh] - catalogue_max - 1)]
+            ),
+            np.concatenate([counts[nonzero], per_piece[fresh]]),
+        )
+
+    def test_matches_a_per_slab_sort(self):
+        generator = np.random.default_rng(99)
+        n_forests, catalogue_max = 40, 1000
+        for _trial in range(50):
+            named = np.sort(generator.choice(n_forests, 3, replace=False))
+            n_fresh = int(generator.integers(0, 30))
+            pieces = {
+                # fresh ids in a scrambled piece order, as union-find leaves them
+                "id": np.r_[named + 500, catalogue_max + 1 + generator.permutation(n_fresh)],
+                "keeps_id": np.r_[np.ones(3, dtype=bool), np.zeros(n_fresh, dtype=bool)],
+                "forest_index": np.r_[named, generator.choice(named, n_fresh)],
+            }
+            state = cut.RuleState(
+                rule=rules.COMPLETE, pieces=pieces, tree_piece=np.zeros(0, dtype=np.int32)
+            )
+            forests = np.sort(generator.choice(n_forests, 25, replace=False)).astype(np.int64)
+            counts = generator.integers(1, 9, forests.size)
+            per_piece = generator.integers(0, 4, pieces["id"].size)
+            got = cut.install_pieces(forests, counts, state, per_piece, n_forests, catalogue_max)
+            want = self.reference(forests, counts, pieces, per_piece, n_forests, catalogue_max)
+            np.testing.assert_array_equal(got[0], want[0])
+            np.testing.assert_array_equal(got[1], want[1])
+
+
 class TestCutTableInvariants(unittest.TestCase):
     """Index: roots 10, 11, 12 in forest 1 and 20, 21 in forest 2 (maximum 2);
     totals 5, 1, 2, 3, 1. The valid table cuts 12 (2 halos) and 21 (1 halo)
