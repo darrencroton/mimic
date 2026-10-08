@@ -17,8 +17,8 @@ at forest ``s`` at capacity ``C`` ends at the first forest whose inclusion
 would push its sum past ``C``, which is ``searchsorted(P, P[s] + C, "right") -
 1``. This is the C loop's fit test (``weights[f] > capacity - filled`` closes
 the range) step for step, with zero-weight forests riding in the open range,
-but costs O(ranges x log n) per capacity instead of O(n), so a 271 million-forest
-weight vector is cut in seconds.
+but costs O(ranges x log n) per capacity instead of O(n), so Shin-Uchuu's
+166,547,771-forest weight vector (1.3 GB) is cut in seconds.
 
 The weights are the widest slab's per-forest row counts, as the driver uses
 (``src/core/horizontal_driver.c``, the widest slab the lowest-numbered on a tie);

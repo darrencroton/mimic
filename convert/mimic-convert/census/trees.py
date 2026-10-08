@@ -41,10 +41,36 @@ Aggregates written under ``<aggregate>/trees/`` (sizes also in ``summary.json``)
 - ``summary.json``: the tree count, the largest tree's total and peak, the root
   correspondence verdict, the conservation check, and the aggregate sizes.
 
-Resident memory: the two label arrays (4 B x the two slabs' halos, about 4.2 GB
-at the widest Shin-Uchuu pair), the per-tree arrays (36 B per tree) and one
-per-tree count vector (8 B per tree) per slab, and the column blocks being read.
-No other array of a slab's length and no tree x snapshot matrix is held.
+Resident memory, with ``n`` the number of trees and ``F`` = ``n_forests_total``
+(Shin-Uchuu: ``n`` at least the 315,004,242 z=0 roots, which the figures below
+use, and ``F`` = 166,547,771). Per-tree figures were measured with
+``tracemalloc`` on synthetic inputs; each phase's peak adds the column blocks
+being read (8 B x ``block_rows`` per column):
+
+- **pass 1** (roots): about **42 B x n** at its peak -- the terminal ids,
+  forests and slabs (20 B), the sort order (8 B), one reindexed copy and the
+  stable sort's buffer -- falling to 20 B x n once sorted. About 13.2 GB.
+- **pass 2** (labels): the two label arrays, ``4 B x (n_halos(s) +
+  n_halos(s + 1))``, about 4.15 GB for Shin-Uchuu's widest adjacent pair
+  (snapshots 33 and 34, 1,037,966,193 halos); the 20 B x n of pass 1; the
+  per-tree totals and peaks (16 B x n) and the one per-slab count vector,
+  counted block by block (8 B x n); and the slab's present-tree pairs while
+  they are written, at most about 21 B per present tree. At most about **65 B x
+  n** besides the labels (every tree present in one slab): about 24.6 GB in
+  all.
+- **checks** (after pass 2): 36 B x n of per-tree results, transients of about
+  36 B x n while the correspondence and conservation run, and 24 B x F for the
+  sidecar ``ForestID`` and the per-forest tree and halo counts: about 26.7 GB.
+- **index files**, when given: the :class:`source_index.SourceIndex` holds
+  **32 B per index tree** for the whole subcommand (about 10.1 GB, added to
+  every phase above), after a load that peaks at about 79 B per index tree
+  (about 24.9 GB, before pass 1).
+
+The largest phase with index files is therefore the checks, about 37 GB, then
+pass 2, about 35 GB. The only arrays of a slab's length are the two label
+arrays: every halo column is read in bounded blocks, and the tree counts are
+accumulated per block of labels into the per-tree vector. No tree x snapshot
+matrix is held.
 
 The conservation check sums the tree totals per source file through
 ``locations.dat`` and, when a JSON carrying ``source_files`` with per-file
@@ -65,6 +91,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from census.aggregate import (  # noqa: E402
     SUMMARY_NAME,
+    begin,
     bind,
     load_array,
     read_json,
@@ -150,20 +177,37 @@ def enumerate_roots(
         ConverterError: on a repeated terminal id, or more roots than int32
             ordinals can number.
     """
-    roots, forests, snaps = [], [], []
+    root_blocks, forest_blocks, snap_blocks = [], [], []
     for snap in dataset.snapshots:
-        for _start, block in dataset.iter_columns(snap, TREE_COLUMNS, block_rows):
-            terminal = block["Descendant"] == -1
-            if terminal.any():
-                roots.append(block["MostBoundID"][terminal].astype(np.int64))
-                forests.append(block["ForestIndex"][terminal].astype(np.int64))
-                snaps.append(np.full(int(terminal.sum()), snap, dtype=np.int32))
-    if not roots:
+        for start, block in dataset.iter_column(snap, "Descendant", block_rows):
+            terminal = np.flatnonzero(block == -1)
+            if terminal.size == 0:
+                continue
+            # the identity columns only over the rows spanning this block's terminals
+            low, high = int(terminal[0]), int(terminal[-1]) + 1
+            rows = dataset.read_rows(
+                snap, ("MostBoundID", "ForestIndex"), start + low, start + high
+            )
+            picked = terminal - low
+            root_blocks.append(rows["MostBoundID"][picked].astype(np.int64))
+            forest_blocks.append(rows["ForestIndex"][picked].astype(np.int64))
+            snap_blocks.append(np.full(picked.size, snap, dtype=np.int32))
+    if not root_blocks:
         empty = np.zeros(0, dtype=np.int64)
         return empty, empty.copy(), np.zeros(0, dtype=np.int32)
-    roots, forests, snaps = np.concatenate(roots), np.concatenate(forests), np.concatenate(snaps)
+    # each column concatenated and its blocks released before the next, then
+    # each reindexed in turn, so the transient peak is 36 B per root (module docstring)
+    roots = np.concatenate(root_blocks)
+    del root_blocks
+    forests = np.concatenate(forest_blocks)
+    del forest_blocks
+    snaps = np.concatenate(snap_blocks)
+    del snap_blocks
     order = np.argsort(roots, kind="stable")
-    roots, forests, snaps = roots[order], forests[order], snaps[order]
+    roots = roots[order]
+    forests = forests[order]
+    snaps = snaps[order]
+    del order
     repeated = np.nonzero(roots[1:] == roots[:-1])[0]
     if repeated.size:
         raise ConverterError(
@@ -229,6 +273,24 @@ def _label_slab(
     return labels, forest_mismatches
 
 
+def narrow_tree_counts(counts: np.ndarray, ordinals: np.ndarray, snap: int) -> np.ndarray:
+    """One slab's per-tree counts as int32, refusing a count int32 cannot hold.
+
+    Raises:
+        ConverterError: naming the snapshot and the root ordinal of the first
+            tree holding more than 2^31 - 1 of the slab's halos.
+    """
+    counts = np.asarray(counts)
+    if counts.size and int(counts.max()) > _INT32_MAX:
+        at = int(np.argmax(counts > _INT32_MAX))
+        raise ConverterError(
+            "snapshot {}: tree with root ordinal {} holds {} halos, beyond int32".format(
+                snap, int(ordinals[at]), int(counts[at])
+            )
+        )
+    return counts.astype(np.int32)
+
+
 def label_trees(
     dataset: HorizontalDataset,
     aggregate_dir,
@@ -243,24 +305,28 @@ def label_trees(
     totals = np.zeros(n_trees, dtype=np.int64)
     max_occ = np.zeros(n_trees, dtype=np.int32)
     max_snap = np.full(n_trees, -1, dtype=np.int32)
+    counts = np.zeros(n_trees, dtype=np.int64)  # one slab's counts; zero between slabs
     label_bytes = pair_bytes = pairs_total = forest_mismatches = 0
     next_labels = None
     for snap in reversed(dataset.snapshots):
         labels, mismatches = _label_slab(dataset, snap, roots, tree_forest, next_labels, block_rows)
         forest_mismatches += mismatches
         label_bytes += save_array(label_path(aggregate_dir, snap), labels)
-        counts = np.bincount(labels, minlength=n_trees) if n_trees else np.zeros(0, np.int64)
+        for start in range(0, labels.size, block_rows):
+            np.add.at(counts, labels[start : start + block_rows], 1)
         present = np.flatnonzero(counts)
+        present_counts = narrow_tree_counts(counts[present], present, snap)
+        counts[present] = 0
         trees_path, counts_path = slab_tree_pair_paths(aggregate_dir, snap)
         pair_bytes += save_array(trees_path, present.astype(np.int32))
-        pair_bytes += save_array(counts_path, counts[present].astype(np.int32))
+        pair_bytes += save_array(counts_path, present_counts)
         pairs_total += int(present.size)
-        totals += counts
+        totals[present] += present_counts
         # descending slabs and a non-strict test: a tie moves to the lower-numbered slab
-        better = (counts >= max_occ) & (counts > 0)
-        max_occ[better] = counts[better]
-        max_snap[better] = snap
-        del counts, present, better
+        better = present_counts >= max_occ[present]
+        max_occ[present[better]] = present_counts[better]
+        max_snap[present[better]] = snap
+        del present, present_counts, better
         next_labels = labels
         log("trees: snapshot {} -- {} halos labelled".format(snap, labels.size))
     return {
@@ -435,7 +501,7 @@ def run_trees(
     identity = dataset.identity()
     aggregate_dir = bind(aggregate_dir, identity)
     out = trees_dir(aggregate_dir)
-    out.mkdir(parents=True, exist_ok=True)
+    begin(out)
 
     log("trees: enumerating terminal roots")
     roots, tree_forest, root_snapshot = enumerate_roots(dataset, block_rows)

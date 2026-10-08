@@ -34,8 +34,7 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from errors import ConverterError  # noqa: E402
-from hdf5_writer import snapshot_h5_name  # noqa: E402
-from hdf5_writer_v3 import SIDECAR_NAME, V3_STRING_ATTRS  # noqa: E402
+from hdf5_writer_v3 import SIDECAR_NAME, V3_STRING_ATTRS, snapshot_h5_name  # noqa: E402
 
 #: Rows per block read: 2^22 rows is 32 MiB of an int64 column.
 DEFAULT_BLOCK_ROWS = 1 << 22
@@ -221,6 +220,27 @@ class HorizontalDataset:
 
     # ---- bounded reads -----------------------------------------------------
 
+    def _halo_datasets(self, handle, snap: int, names: Sequence[str]) -> List[Tuple[str, object]]:
+        """The named ``/halos`` datasets of an open snapshot file, each checked
+        to hold the header's ``n_halos`` rows."""
+        path = self.snapshot_path(snap)
+        if "halos" not in handle:
+            raise ConverterError("{}: no /halos group".format(path))
+        halos = handle["halos"]
+        datasets = []
+        for name in names:
+            if name not in halos:
+                raise ConverterError("{}: no /halos/{} dataset".format(path, name))
+            dataset = halos[name]
+            if int(dataset.shape[0]) != self.n_halos[snap]:
+                raise ConverterError(
+                    "{}: /halos/{} holds {} rows but n_halos is {}".format(
+                        path, name, dataset.shape[0], self.n_halos[snap]
+                    )
+                )
+            datasets.append((name, dataset))
+        return datasets
+
     def iter_columns(
         self, snap: int, names: Sequence[str], block_rows: int = DEFAULT_BLOCK_ROWS
     ) -> Iterator[Tuple[int, Dict[str, np.ndarray]]]:
@@ -235,26 +255,33 @@ class HorizontalDataset:
         snap = self._check_snapshot(snap)
         block_rows = _require_block_rows(block_rows)
         n_rows = self.n_halos[snap]
-        path = self.snapshot_path(snap)
-        with h5py.File(path, "r") as handle:
-            if "halos" not in handle:
-                raise ConverterError("{}: no /halos group".format(path))
-            halos = handle["halos"]
-            datasets = []
-            for name in names:
-                if name not in halos:
-                    raise ConverterError("{}: no /halos/{} dataset".format(path, name))
-                dataset = halos[name]
-                if int(dataset.shape[0]) != n_rows:
-                    raise ConverterError(
-                        "{}: /halos/{} holds {} rows but n_halos is {}".format(
-                            path, name, dataset.shape[0], n_rows
-                        )
-                    )
-                datasets.append((name, dataset))
+        with h5py.File(self.snapshot_path(snap), "r") as handle:
+            datasets = self._halo_datasets(handle, snap, names)
             for start in range(0, n_rows, block_rows):
                 stop = min(start + block_rows, n_rows)
                 yield start, {name: dataset[start:stop] for name, dataset in datasets}
+
+    def read_rows(
+        self, snap: int, names: Sequence[str], start: int, stop: int
+    ) -> Dict[str, np.ndarray]:
+        """The rows ``[start, stop)`` of every named ``/halos`` column of one
+        slab: a bounded read for a caller that already holds a block's range.
+
+        Raises:
+            ConverterError: on a range outside the slab, or as :meth:`iter_columns`.
+        """
+        snap = self._check_snapshot(snap)
+        if not 0 <= int(start) <= int(stop) <= self.n_halos[snap]:
+            raise ConverterError(
+                "{}: rows [{}, {}) are outside [0, {})".format(
+                    self.snapshot_path(snap), start, stop, self.n_halos[snap]
+                )
+            )
+        with h5py.File(self.snapshot_path(snap), "r") as handle:
+            return {
+                name: dataset[int(start) : int(stop)]
+                for name, dataset in self._halo_datasets(handle, snap, names)
+            }
 
     def iter_column(
         self, snap: int, name: str, block_rows: int = DEFAULT_BLOCK_ROWS

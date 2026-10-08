@@ -24,8 +24,10 @@ as the version 3 sidecar does (``HORIZONTAL-HDF5-FORMAT.md``, V3 Forest
 Sidecar). The ``FileID`` is the converter's file ordinal when the tree files are
 given to it in ``FileID`` order.
 
-Memory: the joined table is 28 B per tree (root, forest, offset int64; file id
-int32) plus the loaders' transient copies; about 9 GB for 3 x 10^8 trees.
+Memory (measured with ``tracemalloc``): the joined table keeps 32 B per tree
+(root, forest, file id and offset, int64), about 10.1 GB for Shin-Uchuu's
+315,004,242 trees; :meth:`SourceIndex.load` peaks at about 79 B per tree (about
+24.9 GB), most of it the shared loaders' parse buffers.
 """
 
 import os
@@ -101,13 +103,19 @@ class SourceIndex:
             subset.SubsetError: on a malformed row (from the shared loaders).
         """
         forests_list, locations = Path(forests_list), Path(locations)
+        # one file at a time, each sorted and its unsorted arrays released
+        # before the next is parsed, which bounds the load's transient peak
         list_roots, list_forests = load_forests_list(forests_list)
-        loc_roots, loc_files, loc_offsets, filenames = load_locations(locations)
+        order = _sorted_unique(list_roots, str(forests_list))
+        roots = list_roots[order]
+        del list_roots
+        forest_ids = list_forests[order]
+        del list_forests, order
 
-        list_order = _sorted_unique(list_roots, str(forests_list))
-        loc_order = _sorted_unique(loc_roots, str(locations))
-        roots = list_roots[list_order]
-        loc_sorted = loc_roots[loc_order]
+        loc_roots, loc_files, loc_offsets, filenames = load_locations(locations)
+        order = _sorted_unique(loc_roots, str(locations))
+        loc_sorted = loc_roots[order]
+        del loc_roots
         if roots.size != loc_sorted.size or not np.array_equal(roots, loc_sorted):
             only_list = np.setdiff1d(roots, loc_sorted, assume_unique=True)
             only_loc = np.setdiff1d(loc_sorted, roots, assume_unique=True)
@@ -122,11 +130,16 @@ class SourceIndex:
                     _examples(only_loc),
                 )
             )
+        del loc_sorted
+        file_ids = loc_files[order].astype(np.int64)
+        del loc_files
+        offsets = loc_offsets[order].astype(np.int64, copy=False)
+        del loc_offsets, order
         return cls(
             tree_roots=roots.astype(np.int64, copy=False),
-            forest_ids=list_forests[list_order].astype(np.int64, copy=False),
-            file_ids=loc_files[loc_order].astype(np.int64),
-            offsets=loc_offsets[loc_order].astype(np.int64, copy=False),
+            forest_ids=forest_ids.astype(np.int64, copy=False),
+            file_ids=file_ids,
+            offsets=offsets,
             filenames=dict(filenames),
         )
 

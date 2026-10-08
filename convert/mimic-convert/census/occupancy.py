@@ -17,8 +17,8 @@ Aggregates written under ``<aggregate>/occupancy/`` (sizes also recorded in
 - ``forest_totals.npy`` (int64), ``forest_max_occupancy.npy`` (int32) and
   ``forest_max_snapshot.npy`` (int32, -1 for a forest with no halo): per forest,
   its halos over all slabs, its largest slab occupancy and the lowest-numbered
-  slab where it occurs. **16 B x n_forests_total**, about 4.3 GB for 2.7 x 10^8
-  forests.
+  slab where it occurs. **16 B x n_forests_total**, about 2.7 GB for Shin-Uchuu's
+  166,547,771 forests (4.3 GB at F2's worst case of 271,392,048).
 - ``summary.json``: the brief's measured table rows (total halos; the widest
   slab, the lowest-numbered on a tie as ``src/core/horizontal_driver.c``
   chooses it; the largest forest's total, its peak occupancy and slab; the
@@ -27,9 +27,11 @@ Aggregates written under ``<aggregate>/occupancy/`` (sizes also recorded in
   its top-10 and top-100 shares), a per-snapshot table, and the aggregate sizes.
 
 Resident memory: 24 B x n_forests_total (the three per-forest arrays and the
-int64 scratch counter), one ``ForestIndex`` block (8 B x block rows) with its
-``np.unique`` temporaries, and one slab's pairs (12 B per present forest). No
-array of a slab's length and no forest x snapshot matrix is held.
+int64 scratch counter; about 4.0 GB for Shin-Uchuu's 166,547,771 forests, and
+8 B more per forest for the sidecar ``ForestID`` when the summary is built), one
+``ForestIndex`` block (8 B x block rows) with its ``np.unique`` temporaries, and
+one slab's pairs (12 B per present forest). No array of a slab's length and no
+forest x snapshot matrix is held.
 """
 
 import os
@@ -43,6 +45,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from census.aggregate import (  # noqa: E402
     SUMMARY_NAME,
+    begin,
     bind,
     load_array,
     save_array,
@@ -184,7 +187,7 @@ def run_occupancy(
     identity = dataset.identity()
     aggregate_dir = bind(aggregate_dir, identity)
     out = occupancy_dir(aggregate_dir)
-    out.mkdir(parents=True, exist_ok=True)
+    begin(out)
     n_forests = dataset.n_forests_total
     n_halos = dataset.n_halos
     totals = np.zeros(n_forests, dtype=np.int64)

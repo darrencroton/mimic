@@ -633,6 +633,69 @@ class TestCensusOnVersion3(unittest.TestCase):
         with self.assertRaisesRegex(ConverterError, "produced from a different dataset"):
             occupancy.run_occupancy(HorizontalDataset(GENERIC_V2), self.agg)
 
+    def test_read_rows_reads_one_bounded_range(self):
+        rows = self.dataset.read_rows(4, ("MostBoundID", "ForestIndex"), 2, 5)
+        whole = read_slab_column(self.paths["dataset"], 4, "MostBoundID")
+        np.testing.assert_array_equal(rows["MostBoundID"], whole[2:5])
+        self.assertEqual(rows["ForestIndex"].size, 3)
+        with self.assertRaisesRegex(ConverterError, r"rows \[5, 9\) are outside \[0, 7\)"):
+            self.dataset.read_rows(4, ("MostBoundID",), 5, 9)
+
+    def test_tree_counts_beyond_int32_are_refused_before_narrowing(self):
+        counts = np.array([5, 1 << 31, 7], dtype=np.int64)
+        ordinals = np.array([3, 9, 12], dtype=np.int64)
+        with self.assertRaisesRegex(ConverterError, "snapshot 4: tree with root ordinal 9 holds"):
+            trees.narrow_tree_counts(counts, ordinals, 4)
+        narrowed = trees.narrow_tree_counts(counts[[0, 2]], ordinals[[0, 2]], 4)
+        self.assertEqual(narrowed.dtype, np.int32)
+        np.testing.assert_array_equal(narrowed, [5, 7])
+
+    def test_a_failed_rerun_leaves_no_completion_marker(self):
+        other = self.tmp / "agg_rerun"
+        run_quietly(
+            trees.run_trees, self.dataset, other, self.index, self.paths["preparation_manifest"]
+        )
+        self.assertEqual(aggregate.require_summary(trees.trees_dir(other), "trees")["n_trees"], 7)
+        bad = self.tmp / "no_source_files.json"
+        bad.write_text(json.dumps({"totals": {}}))
+        with self.assertRaisesRegex(ConverterError, "no source_files"):
+            run_quietly(trees.run_trees, self.dataset, other, self.index, bad)
+        with self.assertRaisesRegex(ConverterError, "run trees first"):
+            aggregate.require_summary(trees.trees_dir(other), "trees")
+
+    def test_the_trees_and_partition_command_lines(self):
+        other = str(self.tmp / "agg_cli")
+        dataset = ["--dataset", str(self.paths["dataset"]), "--aggregate", other]
+        index = ["--forests-list", str(self.paths["forests_list"])]
+        index += ["--locations", str(self.paths["locations"])]
+        report = ["--conversion-report", str(self.paths["preparation_manifest"])]
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout), capture_stderr():
+            status = forest_census.main(["trees"] + dataset + index + report)
+        self.assertEqual(status, 0)
+        self.assertIn("trees: 7 effective trees over 19 halos", stdout.getvalue())
+        self.assertIn(
+            "root correspondence: pass (1 roots outside the last snapshot)", stdout.getvalue()
+        )
+        self.assertIn("conservation: pass", stdout.getvalue())
+
+        with capture_stderr() as captured:
+            status = forest_census.main(["trees"] + dataset + index[:2])
+        self.assertEqual(status, 2)
+        self.assertIn("--forests-list and --locations are given together", captured.text)
+
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout), capture_stderr():
+            self.assertEqual(forest_census.main(["occupancy"] + dataset), 0)
+            status = forest_census.main(
+                ["partition", "--aggregate", other, "--ntask", "1,2", "--nchunk", "1,2"]
+            )
+        self.assertEqual(status, 0)
+        self.assertIn(
+            "ntask   2 nchunk   1: widest range 4 rows (snapshot 4, task 0, chunk 0)",
+            stdout.getvalue(),
+        )
+
 
 class TestCorrespondenceMismatch(unittest.TestCase):
     """The adapter's standard forests, whose ``#tree`` root ids (101, 102, ...)

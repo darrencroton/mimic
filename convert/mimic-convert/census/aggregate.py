@@ -6,12 +6,16 @@ subcommand (``occupancy/``, ``trees/``, ``partition/``), beside
 record of the dataset the results were computed from. The first subcommand run
 against a directory writes it; every later one compares the dataset it was
 given against it and refuses a different dataset, so results from two datasets
-are never mixed. The directory and everything in it are deleted by hand when the
-census is done; nothing here deletes anything.
+are never mixed. The directory and its results are deleted by hand when the
+census is done; the only file anything here removes is a subcommand's own
+``summary.json``, as below.
 
 Every file is written to a temporary name and renamed into place, and a
 subcommand writes its ``summary.json`` last, so a summary's presence means the
-subcommand completed.
+subcommand completed. A subcommand that writes arrays first removes its own
+``summary.json`` (:func:`begin`), so a rerun that fails part-way through a
+completed directory cannot leave the old summary vouching for half-rewritten
+arrays.
 """
 
 import json
@@ -93,6 +97,18 @@ def bind(aggregate_dir, identity: Mapping) -> Path:
             "aggregate directory for this dataset".format(aggregate_dir, differing)
         )
     return aggregate_dir
+
+
+def begin(directory) -> Path:
+    """Open a subcommand's output ``directory`` for writing: create it, and
+    remove its completion marker (``summary.json``) if a previous run left one.
+    Nothing else in the directory is touched."""
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    marker = directory / SUMMARY_NAME
+    if marker.exists():
+        os.remove(marker)
+    return directory
 
 
 def bound_identity(aggregate_dir) -> dict:
