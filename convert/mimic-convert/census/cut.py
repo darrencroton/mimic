@@ -67,8 +67,11 @@ correspondence verdict passed, and only when the index files given to the run
 describe the census (:func:`check_index`); they live under
 ``cut/rules/<rule>/`` as ``forests.list`` and ``record.json``. Without a table
 to write, a failed index check does not stop the run (PM ruling DD12): it is
-recorded in the summary (``index_check``), the census explores every rule, and
-fresh ids still start above the supplied index's largest forest id.
+recorded in the summary (``index_check``) and the census explores every rule.
+Fresh piece ids start above one floor used for naming, the partition and the
+summary (``fresh_id_floor``): the larger of the supplied index's and the
+dataset sidecar's largest forest id, so a fresh piece never takes an existing
+forest's id. When the index check passed the two are equal.
 
 **Reads.** Each slab is read once by the pass: ``ForestIndex`` in full
 blocks, ``FirstHaloInFOFgroup`` and ``Descendant`` over each block's span of
@@ -115,11 +118,22 @@ with ``tracemalloc``):
   super-forest), the edge terms at worst about 12.7 GB as above; the retained
   rows, about **34 B each**, at most the named forests' rows of the slab, so at
   worst the super-forest's 333,663,215 rows at snapshot 31, **11.3 GB**; each
-  promotion with its share of the chain work (done in batches of
-  ``block_rows`` sibling records) and of the dependents' bookkeeping, about
-  **165 B**, promotions being at most the slab's cross-tree members
-  (``graph``'s ``per_snapshot`` records them); and the descendant sets being
-  propagated, 8 B per affected halo;
+  promotion with its share of the chain work and of the dependents'
+  bookkeeping, about **165 B** as measured with groups of one or two
+  progenitors, promotions being at most the slab's cross-tree members
+  (``graph``'s ``per_snapshot`` records them); the descendant sets being
+  propagated, 8 B per affected halo; and the chain working memory of
+  :func:`_chain_changes`, stated on its own because it grows with the slab's
+  affected siblings ``a`` (the progenitors of descendants with a promoted
+  progenitor) and with its largest progenitor group ``g_max``: the sorted
+  sibling index, about **29 B x a** while it is built (``a`` is at most the
+  retained rows, so at worst 9.7 GB at snapshot 31), and one batch's working
+  arrays, about **200 B x (block_rows + g_max - 1)** (0.84 GB at the default
+  2^22 plus 200 B per progenitor of the largest group beyond it; the
+  theoretical worst case, one descendant with every one of snapshot 31's
+  333,663,215 super-forest rows as progenitors, would be 67 GB, while a
+  descendant's progenitors in a real merger tree number in the thousands at
+  most);
 - while a table is checked and written: ``census/cut_table.py``'s 50 B per
   catalogue tree and the table's ids, 8 B per tree: **18.3 GB**. Nothing of
   the pass or of step 2 is held by then.
@@ -134,7 +148,9 @@ with as many pairs and retained rows as a few per cent of snapshot 31's
 super-forest rows, a few GB more; in the worst case, every one of those rows a
 cross-tree member of its own pair and retained, about 46 GB before the
 promotions, plus 165 B per promotion (another 55 GB if every one of them were
-promoted). Every per-slab term follows from the aggregates Slice 9 records
+promoted) and the chain working memory (up to 9.7 GB for the sibling index,
+and 0.84 GB per batch plus 200 B per progenitor of the largest group beyond
+``block_rows``). Every per-slab term follows from the aggregates Slice 9 records
 (``graph``'s ``per_snapshot`` members and pairs), so the real peak can be
 computed before the pass runs. The figures above were measured with
 ``tracemalloc`` on synthetic slabs of 2^20 rows and synthetic graphs of 2 x
@@ -325,7 +341,9 @@ def prepare_cut(
 
 def stale_outputs(aggregate_dir, rules: Sequence[Rule], materialise: Sequence[Rule]) -> List[str]:
     """The entries of ``cut/rules/`` a run of ``rules`` would not rewrite,
-    relative to that directory."""
+    relative to that directory. A ``<file>.tmp`` left by an interrupted write
+    of a file this run rewrites is not counted: the atomic write replaces it.
+    """
     base = cut_dir(aggregate_dir) / RULES_DIR
     if not base.is_dir():
         return []
@@ -337,10 +355,13 @@ def stale_outputs(aggregate_dir, rules: Sequence[Rule], materialise: Sequence[Ru
         if entry.name not in written or not entry.is_dir():
             stale.append(entry.name)
             continue
+        # an interrupted write's temporary of a file this run rewrites is
+        # replaced by that atomic write, so it is not stale
+        rewritten = written[entry.name] | {name + ".tmp" for name in written[entry.name]}
         stale.extend(
             "{}/{}".format(entry.name, item.name)
             for item in sorted(entry.iterdir())
-            if item.name not in written[entry.name]
+            if item.name not in rewritten
         )
     return stale
 
@@ -567,6 +588,32 @@ RETAINED_COLUMNS = ("MostBoundID", MASS_COLUMN, "NextProgenitor")
 _INT32_MAX = int(np.iinfo(np.int32).max)
 
 
+def edge_locals(
+    edges: np.ndarray, local_of: np.ndarray, snap: Optional[int] = None
+) -> Tuple[np.ndarray, np.ndarray]:
+    """The local tree indices of an edge list's two endpoints.
+
+    Raises:
+        ConverterError: for an endpoint outside the named forests, whose -1
+            would otherwise index the last tree's piece.
+    """
+    lo = local_of[edges["lo"]]
+    hi = local_of[edges["hi"]]
+    outside = (lo < 0) | (hi < 0)
+    if outside.any():
+        at = int(np.argmax(outside))
+        raise ConverterError(
+            "{}edge list names {} pair(s) with a tree outside the named forests (e.g. root "
+            "ordinals ({}, {})); the graph aggregates are stale".format(
+                "" if snap is None else "snapshot {}: ".format(snap),
+                int(np.count_nonzero(outside)),
+                int(edges["lo"][at]),
+                int(edges["hi"][at]),
+            )
+        )
+    return lo, hi
+
+
 def touched_trees(
     edges: np.ndarray, local_of: np.ndarray, states: Sequence[RuleState], n_local: int
 ) -> Tuple[np.ndarray, np.ndarray]:
@@ -585,8 +632,7 @@ def touched_trees(
     retained = np.zeros(n_local, dtype=bool)
     if edges.size == 0:
         return severed, retained
-    lo = local_of[edges["lo"]]
-    hi = local_of[edges["hi"]]
+    lo, hi = edge_locals(edges, local_of)
     cut_any = np.zeros(edges.size, dtype=bool)
     for state in states:
         cut_any |= state.tree_piece[lo] != state.tree_piece[hi]
@@ -638,9 +684,17 @@ def _chain_changes(
     changes and how many change their first progenitor, and the stored-chain
     check over every affected descendant with two or more progenitors.
 
-    The sibling records are taken in batches of whole descendants of about
-    ``batch_rows`` records, so the chains' working arrays (about 200 B per
-    record) never span the slab."""
+    Working memory (measured with ``tracemalloc``): the slab's affected
+    siblings are first found and sorted by descendant into one int32 index
+    over the retained rows, about **29 B per affected sibling** while it is
+    built and 4 B each while it is held across the batches; the chains are
+    then worked in batches of whole descendants, each starting at the first
+    group at or after a multiple of ``batch_rows`` records, so a batch holds at
+    most ``batch_rows + g_max - 1`` records for the slab's largest progenitor
+    group of ``g_max`` records, at about **200 B per record**. The batch spans
+    more than ``batch_rows`` records only when one descendant's progenitors
+    cross a batch boundary, and the whole slab's affected siblings only when
+    they all belong to one descendant."""
     changed: List[List[np.ndarray]] = [[] for _state in states]
     head_changed = [0] * len(states)
     check = {"descendants": 0, "mismatches": 0, "examples": []}
@@ -652,7 +706,7 @@ def _chain_changes(
     for start in range(0, kept.row.size, batch_rows):
         part = kept.descendant[start : start + batch_rows].astype(np.int64)
         found.append(start + np.flatnonzero(in_sorted(union, part)))
-    picked = drain(found)
+    picked = drain(found).astype(np.int32)  # positions among the retained rows
     picked = picked[np.argsort(kept.descendant[picked], kind="stable")]
     grouped = kept.descendant[picked]
     starts = np.flatnonzero(np.r_[True, grouped[1:] != grouped[:-1]]) if picked.size else picked
@@ -743,9 +797,12 @@ def severance_pass(
         if dataset.n_halos[snap] > _INT32_MAX:
             raise ConverterError("{}: more rows than int32 row indices hold".format(path))
         labels = load_labels(aggregate_dir, snap)
-        _severed, retain = touched_trees(
-            load_slab_edges(aggregate_dir, snap, mmap=False), local_of, states, n_local
-        )
+        try:
+            _severed, retain = touched_trees(
+                load_slab_edges(aggregate_dir, snap, mmap=False), local_of, states, n_local
+            )
+        except ConverterError as exc:
+            raise ConverterError("{}: {}".format(path, exc)) from exc
         for state in states:
             state.current = np.unique(np.concatenate(state.following + [state.current[:0]]))
             state.current_seeds = np.unique(
@@ -886,8 +943,7 @@ def aggregate_slab(
     on return, before the pass."""
     local, counts = slab_local_counts(aggregate_dir, snap, local_of)
     edges = load_slab_edges(aggregate_dir, snap, mmap=False)
-    edge_lo = local_of[edges["lo"]]
-    edge_hi = local_of[edges["hi"]]
+    edge_lo, edge_hi = edge_locals(edges, local_of, snap)
     forests_s, counts_s = load_slab_pairs(aggregate_dir, snap)
     for at, (state, per_piece) in enumerate(zip(states, piece_counts(states, local, counts))):
         # ascending slabs and a strict test: a tie keeps the lowest-numbered slab
@@ -1131,7 +1187,11 @@ def run_cut(
         log("cut: index check failed, exploring only: {}".format(index_check["message"]))
     out = begin(cut_dir(aggregate_dir))
     n_forests = dataset.n_forests_total
-    catalogue_max = int(index_forest_ids.max())
+    # one fresh-id floor for naming, installing and the summary: above every
+    # id of the supplied index and of the dataset, so a fresh piece can never
+    # take an existing forest's id even when the index check failed (equal
+    # when it passed)
+    catalogue_max = max(int(index_forest_ids.max()), int(forest_ids.max()))
     forest_trees = load_forest_trees(aggregate_dir)
     local_forest = np.asarray(tree_forest[forest_trees], dtype=np.int64)
     local_totals = np.asarray(tree_totals[forest_trees], dtype=np.int64)
@@ -1286,6 +1346,13 @@ def run_cut(
         "named_forests": named,
         "index_files": index_files,
         "catalogue_max_forest_id": catalogue_max,
+        "fresh_id_floor": {
+            "value": catalogue_max,
+            "index_max_forest_id": int(index_forest_ids.max()),
+            "dataset_max_forest_id": int(forest_ids.max()),
+            "note": "fresh piece ids start at value + 1: the larger of the supplied index's and "
+            "the dataset sidecar's largest forest id",
+        },
         "root_correspondence": inputs["trees"]["root_correspondence"]["verdict"],
         "index_check": index_check,
         "stored_chain_check": check,

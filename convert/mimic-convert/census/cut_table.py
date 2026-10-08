@@ -203,8 +203,15 @@ def check_table(
         ``{"trees", "pieces", "cut_forests", "fresh_pieces"}``.
 
     Raises:
-        ConverterError: naming the first invariant violated, with examples.
+        ConverterError: for totals not aligned with the index roots, or naming
+            the first invariant violated, with examples.
     """
+    if np.shape(tree_totals) != np.shape(index_roots):
+        raise ConverterError(
+            "{}: {} halo totals given for {} index tree roots".format(
+                what, np.size(tree_totals), np.size(index_roots)
+            )
+        )
     table_roots = np.asarray(table_roots, dtype=np.int64)
     table_forest_ids = np.asarray(table_forest_ids, dtype=np.int64)
     order = np.argsort(table_roots, kind="stable")

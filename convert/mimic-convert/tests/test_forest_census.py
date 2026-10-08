@@ -37,6 +37,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 import h5py
@@ -1229,6 +1230,10 @@ class TestCutTableInvariants(unittest.TestCase):
             with self.assertRaisesRegex(ConverterError, message):
                 self.check(ids, roots)
 
+    def test_totals_not_aligned_with_the_index_are_refused(self):
+        with self.assertRaisesRegex(ConverterError, "cut table: 4 halo totals given for 5"):
+            self.check(self.VALID, totals=self.TOTALS[:4])
+
     def test_written_tables_are_checked_on_read(self):
         path = self.tmp / "forests.list"
         md5, size = cut_table.write_table(path, self.ROOTS, np.asarray(self.VALID))
@@ -1848,8 +1853,54 @@ class TestGraphAndCut(unittest.TestCase):
             with self.assertRaisesRegex(ConverterError, "would not rewrite.*" + stale):
                 cut.run_cut(self.dataset, other, *self.index_arrays(), {}, rules_now, materialise)
         self.assertEqual(sorted(path.name for path in cut.cut_dir(other).rglob("*")), before)
-        # the same run again rewrites exactly its own outputs
+        # the same run again rewrites exactly its own outputs; a temporary an
+        # interrupted write left for one of them is replaced, not refused
+        leftovers = [
+            cut.rule_dir(other, d2) / name for name in ("assignment.npy.tmp", "record.json.tmp")
+        ]
+        for leftover in leftovers:
+            leftover.write_bytes(b"interrupted")
         run_quietly(cut.run_cut, self.dataset, other, *self.index_arrays(), {}, [d2], [d2])
+        # each atomic write reuses its .tmp name and renames it into place
+        self.assertFalse(any(leftover.exists() for leftover in leftovers))
+        # a temporary of a file the run would not rewrite is stale
+        with self.assertRaisesRegex(ConverterError, "forests.list.tmp"):
+            (cut.rule_dir(other, d2) / "forests.list.tmp").write_bytes(b"interrupted")
+            cut.run_cut(self.dataset, other, *self.index_arrays(), {}, [d2])
+
+    def test_fresh_ids_start_above_every_existing_forest_id(self):
+        other = self.tmp / "agg_floor"
+        self.prepare(other)
+        run_quietly(graph.run_graph, self.dataset, other, [0, 1])
+        # a mismatched index whose largest id (1999) is below forest 2000's
+        lowered = np.full(self.index.tree_roots.size, 1999, dtype=np.int64)
+        d2 = self.rules[0]
+        summary = run_quietly(
+            cut.run_cut, self.dataset, other, self.index.tree_roots, lowered, {}, [d2]
+        )
+        self.assertEqual(summary["index_check"]["verdict"], "fail")
+        self.assertEqual(
+            {k: summary["fresh_id_floor"][k] for k in ("value", "index_max_forest_id")},
+            {"value": 2000, "index_max_forest_id": 1999},
+        )
+        assignment = cut.load_assignment(other, d2)
+        # unchanged from the matched run: fresh ids above 2000, none taking 2000
+        np.testing.assert_array_equal(assignment, [1500, 2002, 2000, 2000, 2001, 2003])
+        entry = summary["rules"][0]
+        self.assertEqual(np.unique(assignment).size, entry["pieces"]["count"])
+        for point in entry["partition"]["grid"]:
+            self.assertEqual(point["forest_cuts"][-1], entry["pieces"]["count"])
+
+    def test_an_edge_outside_the_named_forests_is_refused(self):
+        other = self.tmp / "agg_foreign_edge"
+        self.prepare(other)
+        run_quietly(graph.run_graph, self.dataset, other, [0])
+        edges = graph.load_slab_edges(other, 4, mmap=False)
+        foreign = np.zeros(1, dtype=graph.EDGE_DTYPE)
+        foreign[0] = (2, 3, 1, 1.0)  # trees 2100 and 2200 lie in forest 2000
+        aggregate.save_array(graph.edge_path(other, 4), np.concatenate([edges, foreign]))
+        with self.assertRaisesRegex(ConverterError, "tree outside the named forests.*\\(2, 3\\)"):
+            cut.run_cut(self.dataset, other, *self.index_arrays(), {}, [self.rules[0]])
 
     def test_a_stale_edge_list_is_refused(self):
         other = self.tmp / "agg_stale"
@@ -1943,6 +1994,109 @@ class TestGroupSplitting(unittest.TestCase):
         self.assertEqual(severance["groups_losing_members"], 1)
         self.assertEqual(severance["groups_central_leaves_members_stay"], 1)
         self.assertEqual(severance["remnants_with_several_members"], 0)
+
+
+def propagating_forest():
+    """Forest 4000: 4102 (tree 4100) is 4202's satellite (tree 4200) at
+    snapshot 2 only, so ``d=2`` severs (4100, 4200) there, and the promoted
+    halo's descendants run on to snapshots 3, 4 and 5. 4302 and 4303 (tree
+    4300) are satellites of tree 4200's centrals at snapshots 2 and 3, so
+    (4200, 4300) has two snapshots and is kept: in slab 2 tree 4300 is
+    retained only as a neighbour of the severed tree 4200."""
+    p = fixtures.TreeSpec(
+        root_id=4100,
+        halos=[
+            fixtures.HaloSpec(halo_id=4100, snap=5, mvir=5.0e11, num_prog=1),
+            fixtures.HaloSpec(halo_id=4104, snap=4, mvir=4.0e11, desc_id=4100, num_prog=1),
+            fixtures.HaloSpec(halo_id=4103, snap=3, mvir=3.0e11, desc_id=4104, num_prog=1),
+            fixtures.HaloSpec(halo_id=4102, snap=2, mvir=2.0e11, desc_id=4103, pid=4202, upid=4202),
+        ],
+    )
+    q = fixtures.TreeSpec(
+        root_id=4200,
+        halos=[
+            fixtures.HaloSpec(halo_id=4200, snap=5, mvir=4.0e12, num_prog=1),
+            fixtures.HaloSpec(halo_id=4204, snap=4, mvir=3.0e12, desc_id=4200, num_prog=1),
+            fixtures.HaloSpec(halo_id=4203, snap=3, mvir=2.0e12, desc_id=4204, num_prog=1),
+            fixtures.HaloSpec(halo_id=4202, snap=2, mvir=1.0e12, desc_id=4203),
+        ],
+    )
+    r = fixtures.TreeSpec(
+        root_id=4300,
+        halos=[
+            fixtures.HaloSpec(halo_id=4300, snap=5, mvir=6.0e11, num_prog=1),
+            fixtures.HaloSpec(halo_id=4304, snap=4, mvir=5.0e11, desc_id=4300, num_prog=1),
+            fixtures.HaloSpec(
+                halo_id=4303, snap=3, mvir=4.0e11, desc_id=4304, num_prog=1, pid=4203, upid=4203
+            ),
+            fixtures.HaloSpec(halo_id=4302, snap=2, mvir=3.0e11, desc_id=4303, pid=4202, upid=4202),
+        ],
+    )
+    return fixtures.ForestSpec(forest_id=4000, trees=[p, q, r])
+
+
+class TestDependentPropagation(unittest.TestCase):
+    """A seed two and more slabs before the last: dependents propagate along
+    descendant links through every later slab."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp(prefix="census_propagation_"))
+        forests = [propagating_forest()]
+        cls.paths = convert_ascii(cls.tmp / "source", [fixtures.all_trees(forests)], forests)
+        cls.dataset = HorizontalDataset(cls.paths["dataset"])
+        index = SourceIndex.load(cls.paths["forests_list"], cls.paths["locations"])
+        cls.agg = cls.tmp / "agg"
+        run_quietly(occupancy.run_occupancy, cls.dataset, cls.agg)
+        run_quietly(trees.run_trees, cls.dataset, cls.agg, index)
+        run_quietly(graph.run_graph, cls.dataset, cls.agg)
+        cls.rule = rules.parse_rule("d=2")
+        cls.summary = run_quietly(
+            cut.run_cut,
+            cls.dataset,
+            cls.agg,
+            index.tree_roots,
+            index.forest_ids,
+            {},
+            [cls.rule],
+            [cls.rule],
+        )
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_dependents_propagate_to_the_last_slab(self):
+        entry = self.summary["rules"][0]
+        rows = {row["snapshot"]: row for row in entry["severance"]["per_snapshot"]}
+        # snapshot 2: 4102 promoted, its central 4202 losing it; then their
+        # descendants 4103/4203, 4104/4204 and 4100/4200
+        self.assertEqual(rows[2]["promoted_halos"], 1)
+        self.assertEqual([rows[snap]["affected_halos"] for snap in range(6)], [0, 0, 2, 2, 2, 2])
+        self.assertEqual([rows[snap]["seed_halos"] for snap in range(6)], [0, 0, 2, 0, 0, 0])
+        sage = entry["predicted_effects"]["sage16_halos_only"]
+        self.assertEqual((sage["seed_halos"], sage["dependent_halos"]), (2, 8))
+        # seeded pieces: {4100} (4 halos) and {4200, 4300} (8 halos)
+        self.assertEqual(sage["upper_bound_halos"], 12)
+        np.testing.assert_array_equal(cut.load_assignment(self.agg, self.rule), [4001, 4000, 4000])
+
+    def test_a_neighbour_of_a_severed_tree_is_retained(self):
+        local_of = np.arange(3, dtype=np.int32)
+        state = SimpleNamespace(tree_piece=np.array([1, 0, 0], dtype=np.int32))
+        severed, retained = cut.touched_trees(
+            graph.load_slab_edges(self.agg, 2, mmap=False), local_of, [state], 3
+        )
+        # tree 4300 shares no severed edge, only a group with the severed 4200
+        np.testing.assert_array_equal(severed, [True, True, False])
+        np.testing.assert_array_equal(retained, [True, True, True])
+        severed, retained = cut.touched_trees(
+            graph.load_slab_edges(self.agg, 3, mmap=False), local_of, [state], 3
+        )
+        self.assertFalse(retained.any())
+        # the pass read the retained columns in slab 2 only (its 3 rows)
+        read = self.summary["io"]["per_column"]
+        self.assertEqual(read["MostBoundID"], 8 * 3)
+        self.assertEqual(read["NextProgenitor"], 8 * 3)
 
 
 class TestVersion2EndToEnd(unittest.TestCase):
