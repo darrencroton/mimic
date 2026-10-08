@@ -1182,6 +1182,38 @@ class TestChains(unittest.TestCase):
         )
 
 
+class TestWindowedMembership(unittest.TestCase):
+    """The pass's windowed membership test against the plain one."""
+
+    def check(self, haystack, needles):
+        haystack = np.asarray(haystack, dtype=np.int64)
+        needles = np.asarray(needles, dtype=np.int64)
+        np.testing.assert_array_equal(
+            graph.in_sorted_window(haystack, needles), graph.in_sorted(haystack, needles)
+        )
+
+    def test_agrees_with_in_sorted_on_random_blocks(self):
+        generator = np.random.default_rng(2026)
+        for _trial in range(300):
+            span = int(generator.integers(1, 5000))
+            haystack = np.unique(generator.integers(0, span, int(generator.integers(0, 400))))
+            n = int(generator.integers(0, min(span, 600) + 1))
+            start = int(generator.integers(-50, span))
+            needles = np.unique(start + generator.choice(span, n, replace=False))
+            self.check(haystack, needles)
+
+    def test_edge_cases(self):
+        rows = np.arange(10, 20)
+        self.check([], rows)  # no dependents
+        self.check([1, 2, 3], [])  # an empty block
+        self.check(rows, rows)  # every row a dependent
+        self.check(np.arange(0, 40, 2), rows)  # some
+        self.check([0, 5, 9, 20, 30], rows)  # none inside the block's range
+        self.check([10], [10])  # one-row block
+        self.check([19, 25], rows)  # only the last row
+        self.check([3, 10], rows)  # only the first row
+
+
 class TestCutTableInvariants(unittest.TestCase):
     """Index: roots 10, 11, 12 in forest 1 and 20, 21 in forest 2 (maximum 2);
     totals 5, 1, 2, 3, 1. The valid table cuts 12 (2 halos) and 21 (1 halo)

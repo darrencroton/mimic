@@ -167,6 +167,7 @@ grid point and slab).
 
 import os
 import sys
+import time
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -198,6 +199,7 @@ from census.graph import (  # noqa: E402
     drain,
     graph_dir,
     in_sorted,
+    in_sorted_window,
     iter_forest_rows,
     load_forest_trees,
     load_pairs,
@@ -840,7 +842,8 @@ def severance_pass(
                         )
                     )
                 if state.current.size:
-                    hit = in_sorted(state.current, rows)
+                    # rows ascend: search only the dependents within the block's row range
+                    hit = in_sorted_window(state.current, rows)
                     found[at] += int(np.count_nonzero(hit))
                     onward = desc[hit]
                     state.following.append(onward[onward >= 0])
@@ -919,7 +922,11 @@ def severance_pass(
             state.following_seeds.append(changed)
             state.per_snapshot[-1]["progenitor_order_changed"] = int(changed.size)
             state.per_snapshot[-1]["first_progenitor_changed"] = int(change["head_changed"])
-        log("cut: snapshot {} evaluated for {} rule(s)".format(snap, len(states)))
+        log(
+            "cut: snapshot {} evaluated for {} rule(s) at {}".format(
+                snap, len(states), time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            )
+        )
     return check
 
 

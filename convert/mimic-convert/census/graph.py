@@ -192,6 +192,26 @@ def in_sorted(haystack: np.ndarray, needles: np.ndarray) -> np.ndarray:
     return haystack[position] == needles
 
 
+def in_sorted_window(haystack: np.ndarray, needles: np.ndarray) -> np.ndarray:
+    """:func:`in_sorted` for strictly ascending ``needles``, at a cost
+    proportional to the needles plus the haystack entries between the first
+    and last needle, rather than to the needles times the log of the whole
+    haystack: only that window of the ascending ``haystack`` is searched into
+    the needles. A block's rows against a slab-wide set is the use."""
+    hit = np.zeros(np.shape(needles), dtype=bool)
+    if haystack.size == 0 or hit.size == 0:
+        return hit
+    low = int(np.searchsorted(haystack, needles[0], "left"))
+    high = int(np.searchsorted(haystack, needles[-1], "right"))
+    window = haystack[low:high]
+    if window.size == 0:
+        return hit
+    position = np.minimum(np.searchsorted(needles, window), needles.size - 1)
+    found = needles[position] == window
+    hit[position[found]] = True
+    return hit
+
+
 # ---- bounded reads of the named forests' rows ------------------------------------
 
 
