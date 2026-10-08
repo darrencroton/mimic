@@ -229,6 +229,9 @@ IDENTITY_ROLE = {
     "consistent_trees_hdf5": "id",
     "consistent_trees_ascii": "id",
 }
+#: The role naming the ASCII snapshot column in a profile's ``required_columns``
+#: (the list the converter resolves the column from, ``ctrees_parser``).
+SNAPSHOT_ROLE = "snap"
 #: The extraction record's identity column. A leading underscore cannot collide
 #: with a declared extra (extra names start with a letter).
 IDENTITY_FIELD = "_source_catalog_id"
@@ -1479,14 +1482,18 @@ def compare_dataset(dataset_dir, dump_path, source_format, budget_bytes, spill_d
 
 
 def load_profile_declarations(profile_path, source_format):
-    """The declared extras and the identity-role aliases of a profile, from plain YAML.
+    """The declared extras and the identity and snapshot aliases of a profile, from plain YAML.
 
-    Returns ``(declared, identity_aliases)``: one ``(name, storage dtype,
-    components, sources)`` per declared extra -- possibly none, since the
-    SourceHaloID identity comparison needs no extra -- and the aliases of the
-    format's catalog-identifier role (:data:`IDENTITY_ROLE`). A profile that is
-    not a mapping, whose ``extra_fields`` is not a list, that lacks the
-    identity role, or with a malformed extra or source raises
+    Returns ``(declared, identity_aliases, snapshot_aliases)``: one ``(name,
+    storage dtype, components, sources)`` per declared extra -- possibly none,
+    since the identity comparison needs no extra -- the aliases of the
+    format's catalog-identifier role (:data:`IDENTITY_ROLE`), and, for
+    ``consistent_trees_ascii`` only, the aliases of its snapshot role
+    (:data:`SNAPSHOT_ROLE`), the list the converter resolves the snapshot
+    column from (``None`` for the other formats). A profile that is not a
+    mapping, whose ``extra_fields`` is not a list, that lacks the identity
+    role (or, for ASCII, the snapshot role), or with a malformed extra or
+    source raises
     :class:`AcceptanceError`, as does an extra name that is repeated, is
     ``SourceHaloID`` or does not start with an ASCII letter (it could not be a
     distinct field of :func:`extras_record_dtype`); an empty ``extra_fields``
@@ -1504,17 +1511,24 @@ def load_profile_declarations(profile_path, source_format):
         raise AcceptanceError(
             "{}: extra_fields must be a list (it may be empty)".format(profile_path)
         )
-    role = IDENTITY_ROLE[source_format]
     required = document.get("required_columns")
-    aliases = required.get(role) if isinstance(required, dict) else None
-    if (
-        not isinstance(aliases, list)
-        or not aliases
-        or not all(isinstance(alias, str) and alias for alias in aliases)
-    ):
-        raise AcceptanceError(
-            "{}: required_columns.{} must be a nonempty alias list".format(profile_path, role)
-        )
+    roles = [IDENTITY_ROLE[source_format]]
+    if source_format == "consistent_trees_ascii":
+        roles.append(SNAPSHOT_ROLE)
+    resolved = []
+    for role in roles:
+        aliases = required.get(role) if isinstance(required, dict) else None
+        if (
+            not isinstance(aliases, list)
+            or not aliases
+            or not all(isinstance(alias, str) and alias for alias in aliases)
+        ):
+            raise AcceptanceError(
+                "{}: required_columns.{} must be a nonempty alias list".format(profile_path, role)
+            )
+        resolved.append(aliases)
+    aliases = resolved[0]
+    snapshot_aliases = resolved[1] if len(resolved) > 1 else None
     declared = []
     for entry in extras:
         if not isinstance(entry, dict):
@@ -1554,7 +1568,7 @@ def load_profile_declarations(profile_path, source_format):
                 )
             )
         declared.append((name, np.dtype(dtype), components, sources))
-    return declared, aliases
+    return declared, aliases, snapshot_aliases
 
 
 def _resolve_alias(aliases, available, where, fold=False):
@@ -1838,7 +1852,9 @@ def _ascii_slices(path, width, columns, trees, block_rows):
         raise changed()
 
 
-def iter_ascii_source(tree_files, forests_list, fields, identity_aliases, block_rows):
+def iter_ascii_source(
+    tree_files, forests_list, fields, identity_aliases, snapshot_aliases, block_rows
+):
     """(SnapNum array, {field: token arrays}) per slice of a tree block, in file order.
 
     No ``SourceHaloID`` is assigned: under the forest-rank convention a halo's
@@ -1846,23 +1862,25 @@ def iter_ascii_source(tree_files, forests_list, fields, identity_aliases, block_
     is the reference's post-fix-up vertical order, which a plain text parse
     cannot reproduce. ASCII rows are keyed instead by the catalogue's own id
     (returned under :data:`IDENTITY_FIELD`) and the row's snapshot, read from
-    its ``snap_idx`` or ``snap_num`` column -- the key :func:`compare_extras`
-    joins this route on. Pass one counts each tree's rows without keeping a
-    token; pass two yields each tree in slices of at most ``block_rows`` rows
-    holding only the requested columns, so memory follows ``block_rows``,
-    never the largest forest, and a file that changes between the passes is
-    refused. Only the indexed-header dialect (``#name(0) name(1) ...`` on line
-    1) is read; anything else fails rather than being guessed at. Float tokens
-    are parsed with Python's correctly rounded ``float()`` before the declared
-    cast, so a converter parse that is not correctly rounded is reported, not
-    mirrored. The identity alias and the snapshot column resolve per file,
+    the one column of the header that ``snapshot_aliases`` (the profile's
+    ``required_columns.snap``) names -- the key :func:`compare_extras` joins
+    this route on. The snapshot column's position is kept apart from the
+    requested fields, so no field name can collide with it. Pass one counts
+    each tree's rows without keeping a token; pass two yields each tree in
+    slices of at most ``block_rows`` rows holding only the requested columns,
+    so memory follows ``block_rows``, never the largest forest, and a file
+    that changes between the passes is refused. Only the indexed-header
+    dialect (``#name(0) name(1) ...`` on line 1) is read; anything else fails
+    rather than being guessed at. Float tokens are parsed with Python's
+    correctly rounded ``float()`` before the declared cast, so a converter
+    parse that is not correctly rounded is reported, not mirrored. The
+    identity alias and the snapshot column resolve per file,
     case-insensitively against the suffix-stripped header.
     """
     block_rows = int(block_rows)
     if block_rows <= 0:
         raise AcceptanceError("block_rows must be positive, not {}".format(block_rows))
     forest_of_tree = _ascii_forest_of_tree(forests_list)
-    snapshot_field = "_snapshot"
     for path in tree_files:
         header = _ascii_header(path)
         missing = [field for field in fields if field.lower() not in header]
@@ -1872,17 +1890,14 @@ def iter_ascii_source(tree_files, forests_list, fields, identity_aliases, block_
         position[IDENTITY_FIELD] = header.index(
             _resolve_alias(identity_aliases, header, path, fold=True)
         )
-        position[snapshot_field] = header.index(
-            _resolve_alias(["snap_idx", "snap_num"], header, path, fold=True)
-        )
-        columns = sorted(set(position.values()))
+        snapshot_column = header.index(_resolve_alias(snapshot_aliases, header, path, fold=True))
+        columns = sorted(set(position.values()) | {snapshot_column})
         slot = {field: columns.index(column) for field, column in position.items()}
+        snapshot_slot = columns.index(snapshot_column)
         trees, _unit_sizes = _ascii_tree_plan(path, len(header), forest_of_tree, forests_list)
         for _tree, _first, table in _ascii_slices(path, len(header), columns, trees, block_rows):
-            snaps = _ascii_values(table[:, slot[snapshot_field]], np.int64)
-            kept = {field: table[:, column] for field, column in slot.items()}
-            del kept[snapshot_field]
-            yield snaps, kept
+            snaps = _ascii_values(table[:, snapshot_slot], np.int64)
+            yield snaps, {field: table[:, column] for field, column in slot.items()}
 
 
 def _ascii_values(tokens, dtype):
@@ -1893,7 +1908,15 @@ def _ascii_values(tokens, dtype):
 
 
 def source_extra_blocks(
-    source_format, declared, identity_aliases, inventory, block_rows, budget_bytes, findings, record
+    source_format,
+    declared,
+    identity_aliases,
+    inventory,
+    block_rows,
+    budget_bytes,
+    findings,
+    record,
+    snapshot_aliases=None,
 ):
     """Independently extracted identity and extras as ``record`` blocks.
 
@@ -1901,7 +1924,8 @@ def source_extra_blocks(
     whose first field is the extracted ``SourceHaloID``; for
     ``consistent_trees_ascii`` that field is ``SnapNum`` instead, because the
     ASCII extractor keys rows by (``SnapNum``, catalogue id) and assigns no
-    ``SourceHaloID`` (see :func:`compare_extras`).
+    ``SourceHaloID`` (see :func:`compare_extras`); ``snapshot_aliases``
+    names that route's snapshot column (:func:`load_profile_declarations`).
     """
     fields = sorted({source["field"] for _n, _d, _c, sources in declared for source in sources})
     if source_format == "lhalo_binary":
@@ -1940,7 +1964,12 @@ def source_extra_blocks(
         )
     elif source_format == "consistent_trees_ascii":
         blocks = iter_ascii_source(
-            inventory["tree_files"], inventory["forests_list"], fields, identity_aliases, block_rows
+            inventory["tree_files"],
+            inventory["forests_list"],
+            fields,
+            identity_aliases,
+            snapshot_aliases,
+            block_rows,
         )
     else:
         raise AcceptanceError("unknown source format {!r}".format(source_format))
@@ -1993,7 +2022,7 @@ def compare_extras(
     ``SourceHaloID`` binding is proved elsewhere: by the adapter's literal ids
     and by ``compare``'s ``source_halo_id`` finding.
     """
-    declared, identity_aliases = load_profile_declarations(profile, source_format)
+    declared, identity_aliases, snapshot_aliases = load_profile_declarations(profile, source_format)
     catalogue_key = source_format == "consistent_trees_ascii"
     record = extras_record_dtype(declared)
     if catalogue_key:
@@ -2061,6 +2090,7 @@ def compare_extras(
             budget_bytes,
             findings,
             record,
+            snapshot_aliases,
         ):
             ref.add(block)
         names = usable + ["MostBoundID"] + (["SnapNum"] if catalogue_key else [])

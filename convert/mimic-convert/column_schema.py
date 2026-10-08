@@ -503,10 +503,10 @@ PAYLOAD_FIELDS: Dict[str, Tuple[PayloadField, ...]] = {
 
 #: How ``ForestIndex``, ``HaloRankInForest`` and the sidecar ``ForestID`` are
 #: defined for each source format, and ``SourceHaloID`` where the route defines
-#: it by those identities rather than by its physical inventory. Identity is relative to the selected
-#: source representation: L-Halo and forests-HDF5 packagings of the same
-#: simulation can enumerate different forest sets, so equal identities across
-#: formats are never promised.
+#: it by those identities rather than by its physical inventory. Identity is
+#: relative to the selected source representation: L-Halo and forests-HDF5
+#: packagings of the same simulation can enumerate different forest sets, so
+#: equal identities across formats are never promised.
 SOURCE_IDENTITY_CONVENTIONS: Dict[str, Dict[str, str]] = {
     "consistent_trees_ascii": {
         "forest_index": "dense forest-id enumeration in ascending source forest id",

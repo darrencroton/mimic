@@ -915,7 +915,10 @@ class TestBridgeRefusals(unittest.TestCase):
 
     def test_budget_is_checked_before_allocation(self):
         tiny = CTreesAsciiAdapter(schema_of(), self.workdir, memory_budget_bytes=1024)
-        with self.assertRaisesRegex(ConverterError, "source inventory .* above the configured"):
+        # the first term charged is the manifest load, refused before it is read
+        with self.assertRaisesRegex(
+            ConverterError, "^loading the conversion manifest .* above the configured"
+        ):
             tiny.inventory()
         # the inventory is built under an ample budget, then the ceiling drops
         # to enough for the bitset but not for one snapshot's bounded read
@@ -1032,7 +1035,8 @@ class TestBridgeRefusals(unittest.TestCase):
             (
                 "every rank 0",
                 set_field("HaloRankInForest", 0),
-                "occurs more than once|emitted twice",
+                r"^snapshot 5: SourceHaloID 1 occurs more than once -- two rows hold the same "
+                r"\(ForestIndex 0, HaloRankInForest 0\) position$",
             ),
             (
                 "forest outside the table",
@@ -1242,17 +1246,31 @@ class OldWorkdirTests(unittest.TestCase):
         )
 
 
+def stated_inventory_bytes(workdir, n_forests, n_units, n_files):
+    """The inventory budget the adapter states, rebuilt from its named terms."""
+    return (
+        ctrees_ascii.INVENTORY_BASE_BYTES
+        + os.path.getsize(Path(workdir) / "manifest.json")
+        * ctrees_ascii.MANIFEST_LOAD_BYTES_PER_BYTE
+        + n_forests * ctrees_ascii.INVENTORY_BYTES_PER_UNIT
+        + n_units * ctrees_ascii.SOURCE_UNIT_TABLE_BYTES
+        + n_files * ctrees_ascii.INVENTORY_BYTES_PER_FILE
+    )
+
+
 class BudgetAccountingTests(unittest.TestCase):
     """Re-measure the real inventory path so INVENTORY_BYTES_PER_UNIT (per
-    forest), SOURCE_UNIT_TABLE_BYTES (per physical unit) and
-    INVENTORY_BASE_BYTES cannot silently drift below what it allocates."""
+    forest), SOURCE_UNIT_TABLE_BYTES (per physical unit),
+    INVENTORY_BYTES_PER_FILE (per source file), MANIFEST_LOAD_BYTES_PER_BYTE
+    and INVENTORY_BASE_BYTES cannot silently drift below what it allocates."""
 
     def test_inventory_peak_is_within_the_declared_terms(self):
         schema = schema_of(DEFAULT_PROFILE)
-        # one physical unit per forest, then every forest split across both
-        # files (two physical units per forest)
-        for n_forests, split in ((2, False), (3000, False), (3000, True)):
-            case = self.subTest(n_forests=n_forests, split=split)
+        # (forests, trees per forest, files): one physical unit per forest in
+        # two files; every forest split across both files; and a fragmented
+        # catalogue -- few forests, every one-halo tree in a file of its own
+        for n_forests, n_trees, n_files in ((2, 1, 2), (3000, 1, 2), (3000, 2, 2), (2, 200, 400)):
+            case = self.subTest(forests=n_forests, trees=n_trees, files=n_files)
             with case, tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 forests = [
@@ -1260,21 +1278,26 @@ class BudgetAccountingTests(unittest.TestCase):
                         forest_id=10 * (k + 1),
                         trees=[
                             fixtures.TreeSpec(
-                                root_id=10 * (k + 1) + t,
+                                root_id=100000 * (k + 1) + t,
                                 halos=[
-                                    fixtures.HaloSpec(halo_id=10 * (k + 1) + t, snap=5, mvir=1.0e11)
+                                    fixtures.HaloSpec(
+                                        halo_id=100000 * (k + 1) + t, snap=5, mvir=1.0e11
+                                    )
                                 ],
                             )
-                            for t in range(2 if split else 1)
+                            for t in range(n_trees)
                         ],
                     )
                     for k in range(n_forests)
                 ]
-                if split:
-                    parts = [[f.trees[0] for f in forests], [f.trees[1] for f in forests]]
-                else:
+                if n_files == n_forests * n_trees:  # fragmented: a file per tree
+                    parts = [[tree] for tree in fixtures.all_trees(forests)]
+                elif n_files == n_trees:  # split: tree t of every forest in file t
+                    parts = [[f.trees[t] for f in forests] for t in range(n_trees)]
+                else:  # the forests halved between the two files
                     trees = fixtures.all_trees(forests)
                     parts = [trees[: len(trees) // 2], trees[len(trees) // 2 :]]
+                self.assertEqual(len(parts), n_files)
                 files = [
                     fixtures.write_ctrees_file(root / "t{}.dat".format(i), part)
                     for i, part in enumerate(parts)
@@ -1296,41 +1319,58 @@ class BudgetAccountingTests(unittest.TestCase):
                     peak = tracemalloc.get_traced_memory()[1] - base
                 finally:
                     tracemalloc.stop()
-                n_units = 2 * n_forests if split else n_forests
+                n_units = int(adapter._unit_counts.size)
+                expected_units = sum(
+                    sum(1 for f in forests if any(t in part for t in f.trees)) for part in parts
+                )
+                self.assertEqual(n_units, expected_units)
                 self.assertEqual(len(adapter.inventory().units), n_forests)
                 self.assertEqual(sum(1 for _ in adapter.iter_forests()), n_forests)
-                self.assertEqual(int(adapter._unit_counts.size), n_units)
                 self.assertLessEqual(
-                    peak,
-                    ctrees_ascii.INVENTORY_BASE_BYTES
-                    + n_forests * ctrees_ascii.INVENTORY_BYTES_PER_UNIT
-                    + n_units * ctrees_ascii.SOURCE_UNIT_TABLE_BYTES,
+                    peak, stated_inventory_bytes(root / "w", n_forests, n_units, n_files)
                 )
 
     def test_the_inventory_budget_is_stated_against_the_forest_count(self):
-        """The refusal's figure is exactly the base, the per-forest term and
-        the physical unit term, and it is checked before the sidecar it
-        names is materialised: one byte less is refused, that much builds."""
+        """The refusal's figure is exactly the base, the manifest, per-forest,
+        physical unit and per-file terms, checked before the sidecar it names
+        is materialised: one byte less is refused, that much builds."""
         with tempfile.TemporaryDirectory() as tmp:
             env = Env(Path(tmp))
             workdir = env.prepare(schema_of())
             # 5 forests; 3 physical units in each of the two files
-            need = (
-                ctrees_ascii.INVENTORY_BASE_BYTES
-                + 5 * ctrees_ascii.INVENTORY_BYTES_PER_UNIT
-                + 6 * ctrees_ascii.SOURCE_UNIT_TABLE_BYTES
-            )
+            need = stated_inventory_bytes(workdir, 5, 6, 2)
+            manifest_bytes = os.path.getsize(workdir / "manifest.json")
             with self.assertRaisesRegex(
                 ConverterError,
-                r"^the source inventory \(5 forest\(s\); 6 physical unit\(s\) through file 1\) "
-                r"needs {} bytes, above the configured memory budget of {} bytes; raise "
-                r"memory_budget_bytes$".format(need, need - 1),
+                r"^the source inventory \(5 forest\(s\); 6 physical unit\(s\) through file 1 "
+                r"of 2; a {}-byte manifest\) needs {} bytes, above the configured memory budget "
+                r"of {} bytes; raise memory_budget_bytes$".format(manifest_bytes, need, need - 1),
             ):
                 CTreesAsciiAdapter(schema_of(), workdir, memory_budget_bytes=need - 1).inventory()
             inventory = CTreesAsciiAdapter(
                 schema_of(), workdir, memory_budget_bytes=need
             ).inventory()
             self.assertEqual(len(inventory.units), 5)
+
+    def test_the_manifest_term_is_refused_before_the_manifest_is_read(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = Env(Path(tmp))
+            workdir = env.prepare(schema_of())
+            manifest_bytes = os.path.getsize(workdir / "manifest.json")
+            need = (
+                ctrees_ascii.INVENTORY_BASE_BYTES
+                + manifest_bytes * ctrees_ascii.MANIFEST_LOAD_BYTES_PER_BYTE
+            )
+            adapter = CTreesAsciiAdapter(schema_of(), workdir, memory_budget_bytes=need - 1)
+            unread = AssertionError("the manifest was read")
+            with mock.patch.object(Manifest, "load_or_create", side_effect=unread):
+                with self.assertRaisesRegex(
+                    ConverterError,
+                    r"^loading the conversion manifest \({} bytes\) needs {} bytes".format(
+                        manifest_bytes, need
+                    ),
+                ):
+                    adapter.inventory()
 
 
 if __name__ == "__main__":

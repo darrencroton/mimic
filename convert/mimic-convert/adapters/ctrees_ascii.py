@@ -75,8 +75,11 @@ catalog-sized except two explicitly budgeted terms, each checked against
 ``memory_budget_bytes`` before it is allocated:
 
 1. *The inventory*, O(forest count) plus the physical unit tables, O(unit
-   count): :data:`INVENTORY_BYTES_PER_UNIT` per forest (an inventory unit) and
-   :data:`SOURCE_UNIT_TABLE_BYTES` per physical unit.
+   count), the per-file allocations, O(file count), and the manifest load:
+   :data:`INVENTORY_BYTES_PER_UNIT` per forest (an inventory unit),
+   :data:`SOURCE_UNIT_TABLE_BYTES` per physical unit,
+   :data:`INVENTORY_BYTES_PER_FILE` per source file and
+   :data:`MANIFEST_LOAD_BYTES_PER_BYTE` per byte of ``manifest.json``.
 2. *The coverage bitset*, one bit per halo, the same exact structure the link
    stage's identity verification uses.
 
@@ -132,6 +135,8 @@ __all__ = [
     "INVENTORY_BYTES_PER_UNIT",
     "INVENTORY_BASE_BYTES",
     "SOURCE_UNIT_TABLE_BYTES",
+    "INVENTORY_BYTES_PER_FILE",
+    "MANIFEST_LOAD_BYTES_PER_BYTE",
     "SNAPSHOT_BYTES_PER_HALO",
     "SOURCE_ID_READ_ROWS",
     "DEFAULT_MEMORY_BUDGET_BYTES",
@@ -160,9 +165,9 @@ __all__ = [
 #: 64-byte unit term is 768 against that 488, a 1.57x margin, for the reason
 #: the L-Halo adapter gives: a budget that refuses work is safe, one that
 #: accepts work it cannot hold is the defect. ``BudgetAccountingTests``
-#: re-measures the real path and fails if ``INVENTORY_BASE_BYTES +
-#: n_forests * INVENTORY_BYTES_PER_UNIT + n_units * SOURCE_UNIT_TABLE_BYTES``
-#: is ever exceeded.
+#: re-measures the real path and fails if the whole stated figure (this term,
+#: the base, :data:`SOURCE_UNIT_TABLE_BYTES`, :data:`INVENTORY_BYTES_PER_FILE`
+#: and :data:`MANIFEST_LOAD_BYTES_PER_BYTE`) is ever exceeded.
 INVENTORY_BYTES_PER_UNIT = 704
 
 #: The constant part of the inventory peak: ``scatter.file_md5`` reads in
@@ -178,6 +183,26 @@ INVENTORY_BASE_BYTES = 9 * 1024 * 1024
 #: (2 x 8), the row's ``ForestIndex`` lookup (8) and its membership mask (1),
 #: rounded up to 64. The forest sidecar reads these columns, so they are kept.
 SOURCE_UNIT_TABLE_BYTES = 64
+
+#: Peak bytes per *source file* of the inventory path besides its units: the
+#: file's retained sidecar table object and list slot, its memory-mapped
+#: header, and its entries in the file-offset columns. Measured with
+#: ``tracemalloc`` around the real ``inventory()`` call, manifest already
+#: loaded, on one-unit-per-file workdirs: a slope of 128 B per file from 500
+#: to 1,000 files and 151 B from 1,000 to 3,000 (each figure including that
+#: file's one unit). 192 is that 151 plus a 1.27x margin, charged on top of
+#: the unit term.
+INVENTORY_BYTES_PER_FILE = 192
+
+#: Peak bytes per byte of ``manifest.json`` while the inventory path loads it:
+#: the JSON text and the parsed per-file records it holds (one source entry
+#: and several intermediates per file), which make a fragmented catalogue's
+#: manifest the largest single term. Measured with ``tracemalloc`` around the
+#: real manifest load: 2.96x the file size at 1,000 and 3,000 one-row files
+#: (7,283,103 bytes for a 2,462,087-byte manifest), 3.0x at 500. 4 is that
+#: plus a 1.35x margin; the term is checked against the file's size before it
+#: is read.
+MANIFEST_LOAD_BYTES_PER_BYTE = 4
 
 #: Resident bytes per halo of one snapshot's emission, counted rather than
 #: estimated: the previous, current and next snapshots' ``SourceHaloID``
@@ -644,9 +669,15 @@ class CTreesAsciiAdapter(SourceAdapter):
             ascending = current[order]
             if n_rows > 1 and not bool(np.all(ascending[1:] > ascending[:-1])):
                 at = int(np.nonzero(ascending[1:] <= ascending[:-1])[0][0])
+                row = int(order[at])
                 raise ConverterError(
-                    "snapshot {}: SourceHaloID {} occurs more than once -- two rows claim one "
-                    "source coordinate".format(snap, int(ascending[at]))
+                    "snapshot {}: SourceHaloID {} occurs more than once -- two rows hold the same "
+                    "(ForestIndex {}, HaloRankInForest {}) position".format(
+                        snap,
+                        int(ascending[at]),
+                        int(links["ForestIndex"][row]),
+                        int(links["HaloRankInForest"][row]),
+                    )
                 )
             del ascending
             for start in range(0, n_rows, max_rows):
@@ -721,14 +752,28 @@ class CTreesAsciiAdapter(SourceAdapter):
         The budget is stated against the forest count -- the
         ``SourceInventory`` and the per-forest columns,
         :data:`INVENTORY_BYTES_PER_UNIT` per forest -- plus the physical unit
-        tables, :data:`SOURCE_UNIT_TABLE_BYTES` per physical unit, and is
-        checked before each sidecar is materialised."""
+        tables, :data:`SOURCE_UNIT_TABLE_BYTES` per physical unit, the
+        per-file allocations, :data:`INVENTORY_BYTES_PER_FILE` per source
+        file, and the manifest load, :data:`MANIFEST_LOAD_BYTES_PER_BYTE` per
+        byte of ``manifest.json``. The manifest term is checked before the
+        manifest is read, and the whole figure before each sidecar is
+        materialised."""
+        manifest_path = self.workdir / "manifest.json"
+        manifest_bytes = os.path.getsize(manifest_path) if manifest_path.is_file() else 0
+        manifest_term = INVENTORY_BASE_BYTES + manifest_bytes * MANIFEST_LOAD_BYTES_PER_BYTE
+        check_budget(
+            manifest_term,
+            self.memory_budget_bytes,
+            "loading the conversion manifest ({} bytes)".format(manifest_bytes),
+            "raise memory_budget_bytes",
+        )
         manifest = self._load_manifest()
         source_files = manifest.data["provenance"].get("source_files")
         if not source_files:
             raise ConverterError(
                 "{}: no ordered source inventory is recorded".format(manifest.path)
             )
+        n_files = len(source_files)
         table_path = Path(manifest.workdir) / "forest_index_table.npy"
         manifest.verify_intermediate(table_path, "forest index table")
         # sized from the memory-mapped header before anything is materialised
@@ -770,13 +815,13 @@ class CTreesAsciiAdapter(SourceAdapter):
                 )
             n_units += int(header.shape[0])
             check_budget(
-                INVENTORY_BASE_BYTES
+                manifest_term
                 + n_forests * INVENTORY_BYTES_PER_UNIT
-                + n_units * SOURCE_UNIT_TABLE_BYTES,
+                + n_units * SOURCE_UNIT_TABLE_BYTES
+                + n_files * INVENTORY_BYTES_PER_FILE,
                 self.memory_budget_bytes,
-                "the source inventory ({} forest(s); {} physical unit(s) through file {})".format(
-                    n_forests, n_units, ordinal
-                ),
+                "the source inventory ({} forest(s); {} physical unit(s) through file {} of {}; "
+                "a {}-byte manifest)".format(n_forests, n_units, ordinal, n_files, manifest_bytes),
                 "raise memory_budget_bytes",
             )
             table = np.array(header)

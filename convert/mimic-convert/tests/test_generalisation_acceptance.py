@@ -1408,14 +1408,113 @@ class ExtrasTests(unittest.TestCase):
             spans = handle["SourceFileOrdinal"][...]
             self.assertEqual(int(spans[0]), -1)
 
+    def ascii_fixture_route(self, name, profile_edit, extras, flip, **file_options):
+        """Convert the standard fixture forests, written as one ASCII file with
+        ``file_options``, under the shipped ASCII profile edited by
+        ``profile_edit`` and carrying ``extras``; then require compare-extras
+        to pass and to catch ``flip`` (:meth:`check_route`)."""
+        import fixtures
+
+        source = self.tmp / name
+        source.mkdir()
+        forests = fixtures.standard_forests()
+        tree_file = fixtures.write_ctrees_file(
+            source / "tree_0.dat", fixtures.all_trees(forests), **file_options
+        )
+        forests_list = fixtures.write_forests_list(source / "forests.list", forests)
+        document = yaml.safe_load(
+            (
+                REPO_ROOT / "convert" / "mimic-convert" / "profiles" / "consistent_trees_ascii.yaml"
+            ).read_text()
+        )
+        document["extra_fields"] = extras
+        profile_edit(document)
+        profile = source / "profile.yaml"
+        profile.write_text(yaml.safe_dump(document, sort_keys=False))
+        sim_info = SIMULATIONS / "micro-uchuu-ascii" / "simulation_info.yaml"
+        ingest = [
+            "--source-format",
+            "consistent_trees_ascii",
+            "--simulation-info",
+            sim_info,
+            "--a-list",
+            fixtures.write_a_list(source / "fixture.a_list"),
+            "--column-map",
+            profile,
+            "--forests-list",
+            forests_list,
+            "--tree-file",
+            tree_file,
+            "--ingest-max-rows",
+            "4",
+        ]
+        inventory = ["--forests-list", forests_list, "--tree-file", tree_file]
+        self.check_route(
+            "consistent_trees_ascii", profile, [str(a) for a in ingest], inventory, flip, sim_info
+        )
+        return profile
+
+    def test_ascii_extras_follow_the_profiles_snapshot_column(self):
+        """The extractor reads the snapshot column the profile names
+        (``required_columns.snap``), as the converter does: a catalogue
+        whose snapshot column is ``Epoch`` converts and compares."""
+
+        def rename(document):
+            document["required_columns"]["snap"] = ["Epoch"]
+
+        profile = self.ascii_fixture_route(
+            "epoch",
+            rename,
+            [extra("RootID", [{"field": "Tree_root_ID"}], "long long")],
+            "RootID",
+            snapshot_column="Epoch",
+        )
+        self.assertEqual(
+            acc.load_profile_declarations(profile, "consistent_trees_ascii")[2], ["Epoch"]
+        )
+        # an ASCII profile without the snapshot role is refused by name
+        document = yaml.safe_load(profile.read_text())
+        del document["required_columns"]["snap"]
+        broken = self.tmp / "no_snap.yaml"
+        broken.write_text(yaml.safe_dump(document))
+        with self.assertRaisesRegex(acc.AcceptanceError, "required_columns.snap"):
+            acc.load_profile_declarations(broken, "consistent_trees_ascii")
+
+    def test_an_extra_from_a_column_named_like_an_internal_key(self):
+        """A declared extra sourced from a column named ``_snapshot`` is read
+        as that column, never confused with the snapshot key."""
+        self.ascii_fixture_route(
+            "shadow",
+            lambda document: None,
+            [extra("Shadow", [{"field": "_snapshot"}], "int")],
+            "Shadow",
+            extra_columns=[("_snapshot", lambda halo: str(1000 + halo.halo_id % 97))],
+        )
+        path, listing = write_ascii(self.tmp / "plain", {7: 3}, {7: 1})
+        # a header column named _snapshot after the real snapshot column; each
+        # data row (file lines 4-6) carries 900 + its line number there
+        lines = path.read_text().splitlines()
+        lines[0] += " _snapshot(8)"
+        lines = [
+            line + " {}".format(900 + k) if not line.startswith("#") and " " in line else line
+            for k, line in enumerate(lines)
+        ]
+        path.write_text("\n".join(lines) + "\n")
+        blocks = list(
+            acc.iter_ascii_source([path], listing, ["_snapshot"], ["id"], ["snap_num"], 2)
+        )
+        self.assertEqual([int(v) for _s, c in blocks for v in c["_snapshot"]], [904, 905, 906])
+        self.assertEqual([int(v) for snaps, _c in blocks for v in snaps], [0, 1, 2])
+
     def test_profile_loader_accepts_no_extras_and_refuses_malformed_profiles(self):
         shipped = REPO_ROOT / "convert" / "mimic-convert" / "profiles" / "lhalo_binary.yaml"
         self.assertEqual(
-            acc.load_profile_declarations(shipped, "lhalo_binary"), ([], ["MostBoundID"])
+            acc.load_profile_declarations(shipped, "lhalo_binary"), ([], ["MostBoundID"], None)
         )
         ascii_profile = SIMULATIONS / "micro-uchuu-ascii" / "converter_columns.yaml"
         self.assertEqual(
-            acc.load_profile_declarations(ascii_profile, "consistent_trees_ascii"), ([], ["id"])
+            acc.load_profile_declarations(ascii_profile, "consistent_trees_ascii"),
+            ([], ["id"], ["snap_idx", "snap_num"]),
         )
         base = yaml.safe_load(shipped.read_text())
         malformed = {
@@ -1678,7 +1777,7 @@ class ExtrasTests(unittest.TestCase):
         )
         self.assertEqual(acc.hdf5_link_targets(fixture, 0, 0), [], "a hard link has no target")
         # the extraction reads the same rows through the link as from the fixture itself
-        _declared, aliases = acc.load_profile_declarations(
+        _declared, aliases, _snapshot = acc.load_profile_declarations(
             package / "converter_columns.yaml", "consistent_trees_hdf5"
         )
 
@@ -1776,12 +1875,12 @@ class AsciiExtractionTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
 
     def peak(self, path, listing, block_rows):
-        """tracemalloc peak while streaming ``x`` of every row; the blocks' sizes and catalog ids."""
+        """tracemalloc peak while streaming ``x`` of every row; block sizes and catalog ids."""
         sizes, ids = [], []
         tracemalloc.start()
         try:
             for _snaps, columns in acc.iter_ascii_source(
-                [path], listing, ["x"], ["id"], block_rows
+                [path], listing, ["x"], ["id"], ["snap_num"], block_rows
             ):
                 catalog = columns[acc.IDENTITY_FIELD]
                 sizes.append(len(catalog))
@@ -1818,7 +1917,7 @@ class AsciiExtractionTests(unittest.TestCase):
         path, listing = write_ascii(self.tmp, trees, forests)
 
         def keys(block_rows):
-            blocks = acc.iter_ascii_source([path], listing, ["x"], ["id"], block_rows)
+            blocks = acc.iter_ascii_source([path], listing, ["x"], ["id"], ["snap_num"], block_rows)
             return [
                 (int(snap), int(catalog), x)
                 for snaps, columns in blocks
@@ -1852,7 +1951,7 @@ class AsciiExtractionTests(unittest.TestCase):
 
             with self.subTest(label), mock.patch.object(acc, "_ascii_tree_plan", changed):
                 with self.assertRaisesRegex(acc.AcceptanceError, "changed between"):
-                    list(acc.iter_ascii_source([path], listing, ["x"], ["id"], 2))
+                    list(acc.iter_ascii_source([path], listing, ["x"], ["id"], ["snap_num"], 2))
 
 
 # ==========================================================================
