@@ -47,7 +47,7 @@ mkdir -p "$D"
 cp "$W/$A"/snapshot_*.h5 "$W/$A"/forests.h5 "$D"/
 ```
 
-`$A` is the write attempt the manifest records (`stages.write.directory`, for example `write/attempt_001`); copy from that directory alone, since a workdir that has been through more than one write attempt holds several. Verify the installed files against the manifest: each `<attempt>/<file>` artefact under `artifacts` in `manifest.json` records its `sha256`.
+`$A` is the write attempt the manifest records (`stages.write.directory`, for example `write/attempt_001`); it is the attempt `validate` and `report` bound the dataset to, so copy from that directory. Verify the installed files against the manifest: each `<attempt>/<file>` artefact under `artifacts` in `manifest.json` records its `sha256`, which confirms the copy.
 
 Keep the workdir: its `manifest.json` is what `validate` and `report` bind the dataset to. `convert/mimic-convert/README.md` documents the workdir layout, resume semantics, memory budgeting and the independent comparison tooling.
 

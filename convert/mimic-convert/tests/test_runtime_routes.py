@@ -13,20 +13,26 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 class RuntimeRoutesTests(unittest.TestCase):
-    def test_constant_holds_the_five_gated_routes_with_their_coverage(self):
+    def test_constant_holds_the_six_gated_routes_with_their_coverage(self):
         rows = {(r.simulation, r.source_format): r for r in runtime_routes.ROUTES}
-        self.assertEqual(len(runtime_routes.ROUTES), 5)
-        self.assertEqual(len(rows), 5)
+        self.assertEqual(len(runtime_routes.ROUTES), 6)
+        self.assertEqual(len(rows), 6)
         for key in (
             ("mini-Millennium", "lhalo_binary"),
             ("micro-Uchuu", "lhalo_binary"),
             ("micro-Uchuu", "consistent_trees_hdf5"),
             ("Millennium", "lhalo_binary"),
             ("mini-Uchuu", "lhalo_binary"),
+            ("micro-Uchuu", "consistent_trees_ascii"),
         ):
             self.assertEqual(rows[key].coverage, "complete")
-        self.assertEqual(rows[("mini-Millennium", "lhalo_binary")].models, ("halos-only", "sage16"))
-        others = [r for r in runtime_routes.ROUTES if r.simulation != "mini-Millennium"]
+        sage16_keys = {
+            ("mini-Millennium", "lhalo_binary"),
+            ("micro-Uchuu", "consistent_trees_ascii"),
+        }
+        for key in sage16_keys:
+            self.assertEqual(rows[key].models, ("halos-only", "sage16"))
+        others = [r for key, r in rows.items() if key not in sage16_keys]
         self.assertTrue(all(r.models == ("halos-only",) for r in others))
 
     def test_every_renderer_names_the_routes_and_the_standing_text(self):

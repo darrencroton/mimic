@@ -52,7 +52,7 @@ All numeric scalars use strict parsers (`get_strict_int_value`, `get_strict_int6
 
 ### Horizontal-only rejections (`validate_and_postprocess()`, beside the `processing_order` check above)
 
-These are not separate `input:` keys — they are additional config-time checks that apply only when the resolved `processing_order` is `horizontal`. `NTask > 1` is not among them: a multi-rank horizontal configuration is accepted here, and the driver refuses a version 2 dataset, or a version 3 one not grouped by forest (only a Consistent-Trees ASCII conversion older than the 2026-10-07 ruling), at startup, once it has opened the dataset. Each rejection is accumulated into the same "Parameter validation failed" report as every other required-key violation:
+These are not separate `input:` keys — they are additional config-time checks that apply only when the resolved `processing_order` is `horizontal`. `NTask > 1` is not among them: a multi-rank horizontal configuration is accepted here, and the driver refuses a version 2 dataset, or a version 3 one not grouped by forest (for example an older Consistent-Trees ASCII conversion), at startup, once it has opened the dataset. Each rejection is accumulated into the same "Parameter validation failed" report as every other required-key violation:
 
 | Condition | Rejection |
 |---|---|

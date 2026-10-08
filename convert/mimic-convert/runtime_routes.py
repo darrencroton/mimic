@@ -3,7 +3,7 @@
 A conversion is not a validated route. Mimic's ``horizontal_hdf5`` reader and horizontal driver
 consume format version 3, but a route is supported only where a recorded parity gate passed. The
 authoritative list, with models, data and evidence, is the table under
-``convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md#v3-runtime-support``; :data:`ROUTES` mirrors its five rows
+``convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md#v3-runtime-support``; :data:`ROUTES` mirrors its six rows
 and is the one place in the converter that restates them.
 
 Three renderers derive the text the converter shows from that one constant, so the runtime
@@ -37,13 +37,14 @@ class Route(NamedTuple):
     models: Tuple[str, ...]
 
 
-#: The five parity-gated routes, in the spec table's order.
+#: The six parity-gated routes, in the spec table's order.
 ROUTES: Tuple[Route, ...] = (
     Route("mini-Millennium", "lhalo_binary", COMPLETE, ("halos-only", "sage16")),
     Route("micro-Uchuu", "lhalo_binary", COMPLETE, ("halos-only",)),
     Route("micro-Uchuu", "consistent_trees_hdf5", COMPLETE, ("halos-only",)),
     Route("Millennium", "lhalo_binary", COMPLETE, ("halos-only",)),
     Route("mini-Uchuu", "lhalo_binary", COMPLETE, ("halos-only",)),
+    Route("micro-Uchuu", "consistent_trees_ascii", COMPLETE, ("halos-only", "sage16")),
 )
 
 
