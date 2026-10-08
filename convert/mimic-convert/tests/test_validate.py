@@ -16,6 +16,7 @@ import tempfile
 import tracemalloc
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 import h5py
@@ -24,8 +25,12 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import fixtures  # noqa: E402
+import pipeline  # noqa: E402
+import test_pipeline as literal  # noqa: E402
 import validate  # noqa: E402
 import validate_v3  # noqa: E402
+from column_schema import build_schema, load_column_map  # noqa: E402
 from conversion_manifest import ConversionManifest  # noqa: E402
 from ctrees_parser import ConverterError  # noqa: E402
 from hdf5_writer import (  # noqa: E402
@@ -34,6 +39,7 @@ from hdf5_writer import (  # noqa: E402
     snapshot_h5_name,
     write_snapshot_file,
 )
+from hdf5_writer_v3 import HorizontalV3Writer  # noqa: E402
 from scatter import load_a_list  # noqa: E402
 from test_fixups import capture_stderr  # noqa: E402
 from test_hdf5_writer import make_v3_conversion, make_written_workdir  # noqa: E402
@@ -2691,6 +2697,206 @@ class TestV3BatteryBinding(V3BatteryCase):
         _result, outcomes = self.run_v3(self.copy(), manifest=False)
         self.assertEqual(outcomes["manifest-binding"].status, "SKIP")
         self.assertEqual(outcomes["count-conservation"].status, "SKIP")
+
+
+#: The single-snapshot links and the link/target-snapshot pairs of a v3 slab.
+_SAME_SNAPSHOT_LINKS = ("FirstHaloInFOFgroup", "NextHaloInFOFgroup")
+_QUALIFIED_LINKS = (
+    ("Descendant", "DescendantSnapshot"),
+    ("FirstProgenitor", "FirstProgenitorSnapshot"),
+    ("NextProgenitor", "NextProgenitorSnapshot"),
+)
+
+
+def source_file_forests():
+    """The canned ASCII forests in descending forest id, so the source file's
+    forest order is the reverse of the ascending-id ForestIndex enumeration."""
+    return list(reversed(fixtures.standard_forests()))
+
+
+def make_v3_ascii_conversion(root, forests):
+    """``forests`` written in the given order to one Consistent-Trees ASCII
+    file, then initialize, ingest, transpose and the v3 write stage."""
+    root = Path(root)
+    src = root / "src"
+    src.mkdir(parents=True)
+    tree = fixtures.write_ctrees_file(src / "tree_0_0_0.dat", fixtures.all_trees(forests))
+    sim_info = fixtures.write_simulation_info(src / "simulation_info.yaml")
+    parameters = {
+        "tree_files": [str(tree)],
+        "forests_list": str(fixtures.write_forests_list(src / "forests.list", forests)),
+        "simulation_info": str(sim_info),
+    }
+    a_list = fixtures.write_a_list(src / "fixture.a_list")
+    schema = build_schema(load_column_map(literal.PROFILE_DIR / "consistent_trees_ascii.yaml"))
+    work = root / "work"
+    pipeline.initialize(
+        work, schema, parameters, a_list, ingest_max_rows=4, transpose_budget_bytes=literal.BUDGET
+    )
+    pipeline.run_ingest(work)
+    pipeline.run_transpose(work)
+    manifest = pipeline.run_write(work, HorizontalV3Writer(sim_info))
+    return SimpleNamespace(
+        work=work,
+        a_list=a_list,
+        manifest=manifest,
+        dataset=manifest.artifact_path(manifest.stage("write")["directory"]),
+    )
+
+
+def reorder_to_source_file_order(directory, forests):
+    """Rewrite an ASCII v3 dataset in the physical order the pre-2026-10-07
+    convention gave a one-file source: SourceHaloID is the halo's 1-based data
+    row in the source file and every slab is in ascending SourceHaloID. Rows
+    are permuted with every column, and each link's row index is remapped, so
+    every link still names the same halo and only the identity order changes.
+    The catalogue id (MostBoundID, the ctrees id) locates each halo's file row.
+    """
+    file_row = {
+        halo.halo_id: row + 1
+        for row, halo in enumerate(
+            halo for tree in fixtures.all_trees(forests) for halo in tree.halos
+        )
+    }
+    names = sorted(p.name for p in Path(directory).glob("snapshot_*.h5"))
+    orders, new_row = [], []
+    for name in names:
+        with h5py.File(directory / name, "r") as handle:
+            ids = handle["halos"]["MostBoundID"][...]
+        sids = np.array([file_row[int(i)] for i in ids], dtype=np.int64)
+        order = np.argsort(sids, kind="stable")
+        inverse = np.empty_like(order)
+        inverse[order] = np.arange(order.size)
+        orders.append((order, sids))
+        new_row.append(inverse)
+    for snap, name in enumerate(names):
+        order, sids = orders[snap]
+        with h5py.File(directory / name, "r+") as handle:
+            halos = handle["halos"]
+            old = {key: halos[key][...] for key in halos}
+            for key, values in old.items():
+                halos[key][...] = values[order]
+            for key in _SAME_SNAPSHOT_LINKS:
+                values = old[key][order]
+                set_ = values >= 0
+                values[set_] = new_row[snap][values[set_]]
+                halos[key][...] = values
+            for key, target_key in _QUALIFIED_LINKS:
+                values, targets = old[key][order], old[target_key][order]
+                for row in np.flatnonzero(values >= 0):
+                    values[row] = new_row[int(targets[row])][values[row]]
+                halos[key][...] = values
+            halos["SourceHaloID"][...] = sids[order]
+
+
+class TestV3BatteryAsciiPosition(unittest.TestCase):
+    """The (ForestIndex, rank) position check on the Consistent-Trees ASCII
+    route: it applies to a complete dataset, it fails a physically ordered
+    one, and a sampled ASCII inventory is refused so it can never be skipped."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls._tmp = tempfile.TemporaryDirectory(prefix="v3_ascii_battery_")
+        cls.forests = source_file_forests()
+        cls.conv = make_v3_ascii_conversion(cls._tmp.name, cls.forests)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._tmp.cleanup()
+
+    def run_v3(self, directory, manifest_path=None):
+        result = validate_v3.run_battery_v3(
+            directory,
+            self.conv.a_list,
+            manifest_path=manifest_path or self.conv.manifest.path,
+            budget_bytes=V3_BUDGET,
+        )
+        return result, outcome_map(result.outcomes)
+
+    def copy(self) -> Path:
+        target = Path(tempfile.mkdtemp(dir=self._tmp.name)) / "dataset"
+        shutil.copytree(self.conv.dataset, target)
+        return target
+
+    def identity_order(self, directory):
+        rows = []
+        for path in sorted(Path(directory).glob("snapshot_*.h5")):
+            with h5py.File(path, "r") as handle:
+                halos = handle["halos"]
+                rows.extend(
+                    zip(
+                        halos["ForestIndex"][...].tolist(),
+                        halos["HaloRankInForest"][...].tolist(),
+                        halos["SourceHaloID"][...].tolist(),
+                    )
+                )
+        return sorted(rows)
+
+    def test_the_inventory_is_complete_so_the_position_check_applies(self):
+        inventory = self.conv.manifest.inventory
+        self.assertEqual(inventory["selected_halos"], inventory["total_halos"])
+        with h5py.File(self.conv.dataset / "snapshot_000.h5", "r") as handle:
+            self.assertEqual(
+                handle["header"].attrs["source_format"].decode(), "consistent_trees_ascii"
+            )
+
+    def test_a_forest_blocked_ascii_dataset_passes_the_position_check(self):
+        result, outcomes = self.run_v3(self.conv.dataset)
+        self.assertEqual([o.line() for o in result.outcomes if o.status != "PASS"], [])
+        self.assertEqual(outcomes["identity"].status, "PASS")
+        ids = [sid for _forest, _rank, sid in self.identity_order(self.conv.dataset)]
+        self.assertEqual(ids, list(range(1, len(ids) + 1)))
+
+    def test_a_physically_ordered_ascii_dataset_fails_the_position_check(self):
+        directory = self.copy()
+        reorder_to_source_file_order(directory, self.forests)
+        # the rewrite is a real physical order: forest 0 (the lowest forest id)
+        # comes last in the source file, so its rank 0 is not SourceHaloID 1
+        first = self.identity_order(directory)[0]
+        self.assertEqual(first[:2], (0, 0))
+        self.assertNotEqual(first[2], 1)
+        _result, outcomes = self.run_v3(directory)
+        self.assertEqual(outcomes["identity"].status, "FAIL", outcomes["identity"].line())
+        self.assertIn("not its (ForestIndex, rank) position", outcomes["identity"].detail)
+        self.assertIn(
+            "(ForestIndex=0, rank=0) has SourceHaloID {}, expected 1".format(first[2]),
+            outcomes["identity"].detail,
+        )
+        # every other content check still passes: the rewrite is otherwise a
+        # valid dataset, so only the position check catches the physical order
+        for check in (
+            "row-values",
+            "link-targets",
+            "topology-closure",
+            "chain-cycles",
+            "source-key-coverage",
+            "sidecar-content",
+            "count-conservation",
+        ):
+            self.assertEqual(outcomes[check].status, "PASS", outcomes[check].line())
+
+    def test_a_sampled_ascii_inventory_is_refused(self):
+        work = Path(tempfile.mkdtemp(dir=self._tmp.name)) / "work"
+        shutil.copytree(self.conv.work, work)
+        path = work / "manifest.json"
+        data = json.loads(path.read_text())
+        inventory = data["sources"]["inventory"]
+        selected = int(inventory["selected_halos"])
+        inventory["total_halos"] = selected + 1
+        path.write_text(json.dumps(data))
+        manifest = ConversionManifest.load(work)
+        directory = manifest.artifact_path(manifest.stage("write")["directory"])
+        _result, outcomes = self.run_v3(directory, manifest_path=manifest.path)
+        self.assertEqual(outcomes["identity"].status, "FAIL", outcomes["identity"].line())
+        self.assertIn(
+            "consistent_trees_ascii inventory selects {} of {} halos; the ASCII route does "
+            "not sample".format(selected, selected + 1),
+            outcomes["identity"].detail,
+        )
+        # the selected count still matches the dataset, so the refusal is the
+        # identity check's alone
+        self.assertEqual(outcomes["source-key-coverage"].status, "PASS")
+        self.assertEqual(outcomes["count-conservation"].status, "PASS")
 
 
 class TestV3LiteralGraphs(unittest.TestCase):

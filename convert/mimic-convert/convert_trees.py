@@ -349,10 +349,10 @@ def _print_topology(n_gapped: int, max_span: int, adjacent: bool, counts) -> Non
             "path counts emitted records in int), warns above 1e9 rows where the output "
             "marshaller cannot grow, and otherwise at forest_chunks: 1 whole-slab retention "
             "must hold it in memory (optionally bounded by input.retention_memory_ceiling_mb); "
-            "on forest-blocked output (lhalo_binary and consistent_trees_hdf5 sources) chunked "
-            "sweeps (input.forest_chunks) bound a run's memory by a chunk, down to the largest "
-            "forest's share of the widest slab, which no setting splits; consistent_trees_ascii "
-            "output is not forest-blocked and cannot be chunked".format(widest, _INT32_MAX)
+            "output from every route (lhalo_binary, consistent_trees_hdf5 and "
+            "consistent_trees_ascii sources) is forest-blocked, so chunked sweeps "
+            "(input.forest_chunks) bound a run's memory by a chunk, down to the largest "
+            "forest's share of the widest slab, which no setting splits".format(widest, _INT32_MAX)
         )
     else:
         print(

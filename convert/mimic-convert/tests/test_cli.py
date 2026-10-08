@@ -665,6 +665,16 @@ class OutputIdentificationTests(unittest.TestCase):
         self.assertIn("warns above 1e9 rows", text)
         self.assertIn(str(2**31), text)
         self.assertIn("links_adjacent=1", text)
+        # every route's output is forest-blocked, ASCII included, so chunked
+        # sweeps apply to all three
+        self.assertIn(
+            "output from every route (lhalo_binary, consistent_trees_hdf5 and "
+            "consistent_trees_ascii sources) is forest-blocked, so chunked sweeps "
+            "(input.forest_chunks) bound a run's memory by a chunk",
+            text,
+        )
+        self.assertNotIn("not forest-blocked", text)
+        self.assertNotIn("cannot be chunked", text)
 
     def test_a_snapshot_at_int32_max_is_not_wide(self):
         text = self.topology(0, 0, True, [2**31 - 1])

@@ -113,10 +113,17 @@ _V3_H_CONVENTIONS = ("carried", "free", "none")
 _V3_SOURCE_FORMATS = ("consistent_trees_ascii", "consistent_trees_hdf5", "lhalo_binary")
 _V3_SIDECAR = ("ForestID", "SourceFileOrdinal", "SourceUnitOrdinal")
 
-#: Formats whose forest IS one inventory unit (an L-Halo tree, a forests-HDF5
-#: ForestInfo row), so a forest's halos are one contiguous SourceHaloID range
-#: in within-forest row order.
-_V3_UNIT_FORESTS = ("lhalo_binary", "consistent_trees_hdf5")
+#: Formats whose SourceHaloID is the halo's 1-based position in (ForestIndex,
+#: HaloRankInForest) order -- every route: an L-Halo tree, a forests-HDF5
+#: ForestInfo row and (since the 2026-10-07 ruling) a whole Consistent-Trees
+#: ASCII forest is one inventory unit, so a forest's halos are one contiguous
+#: SourceHaloID range in rank order.
+_V3_POSITION_IDENTITY = ("consistent_trees_ascii", "consistent_trees_hdf5", "lhalo_binary")
+
+#: Formats whose inventory records per-file unit counts (``files``), so the
+#: sidecar's (SourceFileOrdinal, SourceUnitOrdinal) pairs are checked against
+#: them. The ASCII inventory has no per-file summary (one unit per forest).
+_V3_PER_FILE_INVENTORY = ("lhalo_binary", "consistent_trees_hdf5")
 
 #: Each snapshot-qualified link and its target-snapshot column.
 _V3_QUALIFIED = (
@@ -1283,21 +1290,31 @@ def _v3_chain_cycles(scan: _V3Scan) -> Tuple[List[str], int]:
 
 
 def _v3_identity(
-    scan: _V3Scan, source_format: str, n_forests_total: int, max_rank: int, unsampled: bool
+    scan: _V3Scan,
+    source_format: str,
+    n_forests_total: int,
+    max_rank: int,
+    inventory: Optional[Mapping],
 ) -> List[str]:
     """Consume the (ForestIndex, HaloRankInForest, SourceHaloID) ordering.
 
     Every forest's ranks are exactly 0 .. count-1 (dense and unique). For
     Consistent-Trees ASCII every forest holds halos, so ForestIndex is dense
-    over [0, n_forests_total). For the unit-forest formats a forest may be a
-    zero-halo tree, but its halos are one contiguous SourceHaloID range in rank
-    order, so in (ForestIndex, rank) order the ids of an unsampled conversion
-    are exactly 1, 2, 3, ...
+    over [0, n_forests_total); for the two prelinked formats a forest may be a
+    zero-halo tree. On every route a forest's halos are one contiguous
+    SourceHaloID range in rank order, so in (ForestIndex, rank) order the ids of
+    an unsampled conversion are exactly 1, 2, 3, ... -- which, for a complete
+    dataset, also proves every slab is grouped by forest. The ASCII route does
+    not sample, so a sampled ASCII inventory fails here and the position check
+    always applies to it.
     """
     failures = _Failures()
     carry_forest, carry_rank, position = -1, -1, 0
     measured_max = -1
-    unit_forests = source_format in _V3_UNIT_FORESTS
+    unsampled = inventory is not None and int(inventory["selected_halos"]) == int(
+        inventory["total_halos"]
+    )
+    position_identity = source_format in _V3_POSITION_IDENTITY and unsampled
     blocks = scan.identity.sorted_blocks(
         budget_bytes=scan.budget_bytes, consumer_bytes_per_record=_V3_ORDER_CONSUMER_BYTES
     )
@@ -1330,7 +1347,7 @@ def _v3_identity(
                         for f, p in zip(forest[bad][:5], prev_forest[bad][:5])
                     ],
                 )
-            if unit_forests and unsampled:
+            if position_identity:
                 expected = position + 1 + np.arange(size, dtype=np.int64)
                 bad = sid != expected
                 failures.add(
@@ -1352,6 +1369,11 @@ def _v3_identity(
     finally:
         blocks.close()
     messages = failures.messages()
+    if source_format == "consistent_trees_ascii" and inventory is not None and not unsampled:
+        messages.append(
+            "consistent_trees_ascii inventory selects {} of {} halos; the ASCII route does not "
+            "sample".format(inventory["selected_halos"], inventory["total_halos"])
+        )
     if source_format == "consistent_trees_ascii" and carry_forest != n_forests_total - 1:
         messages.append(
             "ForestIndex values end at {} but n_forests_total is {}".format(
@@ -1484,7 +1506,7 @@ def _v3_sidecar_content(
                 per_file[int(ordinal)] = per_file.get(int(ordinal), 0) + int(count)
             prev = (int(files[-1]), int(units[-1]), None)
     messages = failures.messages()
-    if inventory is not None and source_format in _V3_UNIT_FORESTS:
+    if inventory is not None and source_format in _V3_PER_FILE_INVENTORY:
         recorded = {
             int(entry["source_file_ordinal"]): int(entry["n_units"]) for entry in inventory["files"]
         }
@@ -1713,13 +1735,10 @@ def run_battery_v3(
         inventory = manifest.inventory if manifest is not None else None
         record("source-key-coverage", _v3_source_keys(scan, inventory))
         if run_scoped_ok:
-            unsampled = inventory is not None and int(inventory["selected_halos"]) == int(
-                inventory["total_halos"]
-            )
             record(
                 "identity",
                 scan.identity_ranges.messages()
-                + _v3_identity(scan, source_format, n_forests_total, max_rank, unsampled),
+                + _v3_identity(scan, source_format, n_forests_total, max_rank, inventory),
             )
             record("header-bounds", check_header_bounds(n_forests_total, max_rank, multiplier))
             record(

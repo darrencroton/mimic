@@ -197,6 +197,31 @@ class TestV3Report(unittest.TestCase):
         self.assertEqual({o["status"] for o in self.report["validation"]}, {"PASS"})
 
 
+class TestV3WidthLimitation(unittest.TestCase):
+    """The wide-slab limitation states that every route's output is
+    forest-blocked, so chunked sweeps apply to all three."""
+
+    def limitations(self, counts):
+        return report._v3_limitations({"snapshot_counts": counts}, mock.Mock(extra_fields=()))
+
+    def test_a_wide_slab_is_bounded_by_a_chunk_on_every_route(self):
+        joined = " ".join(self.limitations([5, 2**31, 7]))
+        self.assertIn("The largest snapshot holds {} halos".format(2**31), joined)
+        self.assertIn(
+            "output from every route (lhalo_binary, consistent_trees_hdf5 and "
+            "consistent_trees_ascii) is forest-blocked and chunked sweeps apply",
+            joined,
+        )
+        self.assertIn("a chunk's memory (bounded below by the largest forest)", joined)
+        self.assertNotIn("cannot be chunked", joined)
+        self.assertNotIn("whole-slab memory does", joined)
+
+    def test_a_slab_at_int32_max_states_no_width_limitation(self):
+        joined = " ".join(self.limitations([2**31 - 1]))
+        self.assertNotIn("The largest snapshot holds", joined)
+        self.assertNotIn("forest-blocked", joined)
+
+
 class TestV3ReportFailures(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="v3_report_fail_"))
