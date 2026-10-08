@@ -28,8 +28,10 @@ For every candidate rule (``census/rules.py``) over the co-membership graph
      F6), the groups that lose members, and the **groups whose central leaves
      while members stay**, counted as (group, piece) remnants: a piece's
      members of one group whose central is in another piece, each of which
-     becomes its own central (no host is invented). The promotions are
-     checked against those the slab's edge list predicts;
+     becomes its own central (no host is invented), and of those the remnants
+     holding two or more members (members that stay together in one piece but
+     no longer share a group). The promotions are checked against those the
+     slab's edge list predicts;
    - **progenitor-order changes** under F4: per slab, the encounter order of a
      descendant's progenitors is ascending (upid, pid, id), upid being the FoF
      central's ``MostBoundID`` (``FirstHaloInFOFgroup``'s row) and pid -1 for a
@@ -60,31 +62,61 @@ only for the rules asked for (``materialise``) and only when the ``trees``
 root correspondence verdict passed; they live under ``cut/rules/<rule>/`` as
 ``forests.list`` and ``record.json``.
 
-Resident memory, with ``n`` all trees, ``t`` the named forests' trees, ``F``
-the forests, ``R`` the rules and ``p_r`` rule ``r``'s pieces: the dense tree to
-local-index map (4 B x n, about 1.26 GB at Shin-Uchuu scale), the roots (8 B
-x n, 2.5 GB), the named-forest tree arrays (about 32 B x t, 3.4 GB for the
-super-forest) and per rule the piece of each tree (8 B x t) and about 50 B per
-piece; the union-find of ``census/rules.py``; one slab's tree pairs,
-occupancy pairs and edge list (8, 12 and 20 B per entry) with the dense
-partition weights (8 B x (F + fresh pieces), 1.3 GB at Shin-Uchuu scale); in
-the pass (measured with ``tracemalloc``), the block's columns, label gathers
-and transients, about **115 B x block_rows** for one rule (0.48 GB at the
-default 2^22) and 17 B x block_rows more per further rule (its two piece
-gathers and mask), the promoted rows and the sibling records of the affected
-descendants, about **100 B per promoted or sibling row**, and the descendant
-sets being propagated (8 B per affected halo of the slab). The
-:class:`source_index.SourceIndex` holds 32 B per catalogue tree throughout,
-and while a table is checked and written ``census/cut_table.py`` adds about
-66 B per catalogue tree.
-No array of a slab's length is held beyond the column blocks and the mapped
-labels, and no tree x snapshot or forest x snapshot matrix.
+**Reads.** Each slab is read once by the pass: ``ForestIndex`` in full
+blocks, ``FirstHaloInFOFgroup`` and ``Descendant`` over each block's span of
+named-forest rows, and ``MostBoundID``, ``M_Crit200`` and ``NextProgenitor``
+over each block's span of **retained rows**, the rows of the trees a severed
+edge of the slab joins and of the trees they share a group with
+(:func:`touched_trees`). Those rows supply every progenitor record, FoF
+central id and losing central's descendant the pass needs, so nothing is
+re-read. Bytes read per slab: ``8 x n_halos(s) + 2 w x span(s) + (12 + w) x
+retained_span(s)``, with ``w`` the link width (4 B in version 2, 8 B in
+version 3), ``span(s)`` the rows from the first to the last named-forest row of
+each block (the forests' rows in version 3) and ``retained_span(s)`` the same
+over the retained rows. The bytes read are measured and recorded per column in
+``summary.json`` (``io``).
+
+**Memory**, with ``n`` all trees, ``t`` the named forests' trees, ``F`` the
+forests, ``R`` the rules and ``p`` a rule's pieces (per-unit costs measured
+with ``tracemalloc``):
+
+- for the whole subcommand: the index files' roots and forest ids (16 B per
+  catalogue tree; :meth:`source_index.SourceIndex.load` peaks at about 79 B per
+  tree before anything else is loaded, 24.9 GB at Shin-Uchuu's 315,004,242
+  trees), the census roots (8 B x n), the dense tree to local-index map (4 B x
+  n) and the named-forest tree arrays (28 B x t): about **11.7 GB** at
+  Shin-Uchuu scale with the super-forest's 104,845,278 trees; per rule, the
+  piece of each tree (4 B x t, 0.42 GB) and about 82 B per piece; the
+  union-find of ``census/rules.py`` (about 1.0 GB, transient) and the dense
+  partition weights (8 B x (F + fresh pieces), 1.3 GB, transient);
+- per slab of the pass (PM ruling DD10: arrays proportional to the named
+  forests' rows in one slab, stated here with their worst case): the block's
+  columns, label gathers and transients, about **114 B x block_rows** (0.48
+  GB at the default 2^22) for one rule and 17 B x block_rows more per further
+  rule; the retained rows, about **34 B each**, at most the named forests' rows
+  of the slab, so at worst the super-forest's 333,663,215 rows at snapshot 31,
+  **11.3 GB**; each promotion with its share of the chain work (done in
+  batches of ``block_rows`` sibling records) and of the dependents'
+  bookkeeping, about **165 B**, promotions being at most the slab's cross-tree
+  members (``graph``'s ``per_snapshot`` records them); and the descendant sets
+  being propagated, 8 B per affected halo;
+- while a table is checked and written: ``census/cut_table.py``'s 50 B per
+  catalogue tree and the table's ids, 8 B per tree: **18.3 GB**.
+
+The subcommand's peak at Shin-Uchuu scale is the largest of the index load
+(24.9 GB), the pass (11.7 GB + R x (0.42 GB + 82 B x p) + 0.5 GB + the
+retained rows and promotions) and a table (11.7 GB + R x (0.42 GB + 82 B x p)
++ 18.3 GB). With eight rules of 10^7 pieces each, that is about 40 GB while a
+table is written and about 22 GB plus the per-slab terms during the pass (34
+GB with every super-forest row of snapshot 31 retained). No tree x snapshot or
+forest x snapshot matrix is held.
 
 Aggregates under ``<aggregate>/cut/``: per rule ``assignment.npy`` (**8 B x
 t**, about 0.84 GB per rule for the super-forest), and for a materialised
 rule ``forests.list`` (the catalogue's rows, about 24 B per tree) and
-``record.json`` (about 80 B per piece); ``summary.json`` (a few kilobytes per
-rule plus about 10 integers per rule, grid point and slab).
+``record.json`` (``census/cut_table.py``: about 40 B per piece, streamed);
+``summary.json`` (a few kilobytes per rule plus about 10 integers per rule,
+grid point and slab).
 """
 
 import os
@@ -110,12 +142,14 @@ from census.cut_table import (  # noqa: E402
     check_table,
     name_pieces,
     table_ids,
-    table_record,
     write_table,
+    write_table_record,
 )
 from census.graph import (  # noqa: E402
     MASS_COLUMN,
+    ReadMeter,
     check_central_rows,
+    drain,
     graph_dir,
     in_sorted,
     iter_forest_rows,
@@ -124,7 +158,7 @@ from census.graph import (  # noqa: E402
     load_slab_edges,
     local_index,
     pair_keys,
-    read_at,
+    read_span,
     require_completed,
     rule_components,
 )
@@ -139,7 +173,6 @@ from census.rules import Rule  # noqa: E402
 from census.trees import load_labels, load_roots, load_slab_tree_pairs, trees_dir  # noqa: E402
 from errors import ConverterError  # noqa: E402
 from horizontal_dataset import DEFAULT_BLOCK_ROWS, HorizontalDataset  # noqa: E402
-from source_index import SourceIndex  # noqa: E402
 
 CUT_DIR = "cut"
 RULES_DIR = "rules"
@@ -161,7 +194,9 @@ SEVERANCE_DEFINITIONS = {
     "promoted_halos": "members whose FoF central lies in another piece; each becomes a central",
     "groups_losing_members": "FoF groups with at least one promoted member",
     "groups_central_leaves_members_stay": "(group, piece) remnants: a piece's members of one "
-    "group whose central lies in another piece",
+    "group whose central lies in another piece; each member becomes its own central",
+    "remnants_with_several_members": "of those remnants, the ones holding two or more members: "
+    "members that stay together in one piece but no longer share a group",
     "seed_halos": "promoted halos, centrals of groups losing members, and descendants whose "
     "progenitor chain changed over the previous slab",
     "affected_halos": "seeds and every halo on a seed's descendant path, in this slab",
@@ -202,6 +237,11 @@ def prepare_cut(
     the completed ``occupancy``, ``trees`` and ``graph`` of that dataset, with
     a passed root correspondence when a table is to be written.
 
+    A run whose ``cut/rules/`` holds output it would not rewrite (a rule not
+    among this run's, or a table and record of a rule this run does not
+    materialise) is refused too, so that no earlier run's output survives
+    beside this run's summary; such output is removed by hand.
+
     Raises:
         ConverterError: naming the first refusal.
     """
@@ -236,6 +276,14 @@ def prepare_cut(
         )
     if occupancy["widest_slab"] is None:
         raise ConverterError("{}: the dataset has no halo to cut".format(aggregate_dir))
+    stale = stale_outputs(aggregate_dir, rules, materialise)
+    if stale:
+        raise ConverterError(
+            "{}: {} output(s) of an earlier cut run this run would not rewrite (e.g. {}); "
+            "remove them by hand or use a fresh aggregate directory".format(
+                cut_dir(aggregate_dir) / RULES_DIR, len(stale), stale[:N_EXAMPLES]
+            )
+        )
     return {
         "identity": identity,
         "occupancy": occupancy,
@@ -243,6 +291,68 @@ def prepare_cut(
         "graph": graph,
         "forests": np.asarray(graph["forests"], dtype=np.int64),
     }
+
+
+def stale_outputs(aggregate_dir, rules: Sequence[Rule], materialise: Sequence[Rule]) -> List[str]:
+    """The entries of ``cut/rules/`` a run of ``rules`` would not rewrite,
+    relative to that directory."""
+    base = cut_dir(aggregate_dir) / RULES_DIR
+    if not base.is_dir():
+        return []
+    written = {rule.name: {"assignment.npy"} for rule in rules}
+    for rule in materialise:
+        written[rule.name] |= {"forests.list", "record.json"}
+    stale = []
+    for entry in sorted(base.iterdir()):
+        if entry.name not in written or not entry.is_dir():
+            stale.append(entry.name)
+            continue
+        stale.extend(
+            "{}/{}".format(entry.name, item.name)
+            for item in sorted(entry.iterdir())
+            if item.name not in written[entry.name]
+        )
+    return stale
+
+
+def check_index(
+    index_roots: np.ndarray,
+    index_forest_ids: np.ndarray,
+    roots: np.ndarray,
+    tree_forest: np.ndarray,
+    forest_ids: np.ndarray,
+    block_rows: int = DEFAULT_BLOCK_ROWS,
+) -> None:
+    """Refuse index files that do not describe this census: the root sets must
+    be equal and every root's ``forests.list`` forest id must be the sidecar
+    ``ForestID`` of its tree's forest -- the ``trees`` correspondence, applied
+    to the index files given to this run.
+
+    Raises:
+        ConverterError: naming the first disagreement, with examples.
+    """
+    if index_roots.size != roots.size or not np.array_equal(index_roots, roots):
+        missing = np.setdiff1d(roots, index_roots, assume_unique=True)
+        extra = np.setdiff1d(index_roots, roots, assume_unique=True)
+        raise ConverterError(
+            "the index files do not list this census's tree roots: {} census root(s) missing "
+            "(e.g. {}), {} root(s) the census has no tree for (e.g. {})".format(
+                missing.size, missing[:N_EXAMPLES].tolist(), extra.size, extra[:N_EXAMPLES].tolist()
+            )
+        )
+    wrong = 0
+    examples: List[int] = []
+    for start in range(0, roots.size, block_rows):
+        stop = min(start + block_rows, roots.size)
+        sidecar = forest_ids[np.asarray(tree_forest[start:stop], dtype=np.int64)]
+        differs = np.flatnonzero(np.asarray(index_forest_ids[start:stop]) != sidecar)
+        wrong += int(differs.size)
+        examples.extend(roots[start + differs[: N_EXAMPLES - len(examples)]].tolist())
+    if wrong:
+        raise ConverterError(
+            "the index files give {} tree root(s) a forest other than the dataset's (e.g. "
+            "roots {}); they are not the index files this census describes".format(wrong, examples)
+        )
 
 
 # ---- per-rule state ------------------------------------------------------------
@@ -331,7 +441,8 @@ def chain_order(encounter: Sequence[int], mass: np.ndarray) -> List[int]:
     """The reference incremental-insertion chain over progenitors visited in
     ``encounter`` order: the first starts the chain, each later one becomes
     the head if strictly more massive than the current head, else the tail
-    (``links.build_progenitor_links``)."""
+    (``links.build_progenitor_links``). Kept as the reference that
+    :func:`chain_positions` is tested against."""
     encounter = [int(i) for i in encounter]
     chain = deque(encounter[:1])
     head = encounter[0]
@@ -344,123 +455,211 @@ def chain_order(encounter: Sequence[int], mass: np.ndarray) -> List[int]:
     return list(chain)
 
 
-def stored_chain(rows: np.ndarray, next_rows: np.ndarray) -> Optional[List[int]]:
-    """The positions of ``rows`` in the order their ``NextProgenitor`` links
-    chain them, or ``None`` when the links do not form one chain over them."""
-    position = {int(row): at for at, row in enumerate(rows)}
-    targets = {int(target) for target in next_rows if int(target) != -1}
-    heads = [at for at, row in enumerate(rows) if int(row) not in targets]
-    if len(heads) != 1:
-        return None
-    chain = [heads[0]]
-    while len(chain) <= rows.size:
-        target = int(next_rows[chain[-1]])
-        if target == -1:
-            break
-        if target not in position:
-            return None
-        chain.append(position[target])
-    return chain if len(chain) == rows.size and len(set(chain)) == rows.size else None
+def chain_positions(
+    groups: np.ndarray, upid: np.ndarray, pid: np.ndarray, ids: np.ndarray, mass: np.ndarray
+) -> np.ndarray:
+    """Every progenitor's position in its descendant's chain, for all
+    descendants at once (``groups`` is each record's descendant).
+
+    The insertion loop moves a progenitor to the front exactly when it is a
+    strict prefix maximum of mass in encounter order (ascending (upid, pid,
+    id)), and appends every other one at the tail. So the chain is the strict
+    prefix maxima in reverse encounter order, then the rest in encounter
+    order, and its head is the last strict prefix maximum. Masses become
+    dense ranks offset by the group's ordinal, so one ``maximum.accumulate``
+    over all groups gives each group's running maximum.
+
+    Returns:
+        int64 positions (0 is the first progenitor), aligned with the inputs.
+    """
+    groups = np.asarray(groups, dtype=np.int64)
+    positions = np.zeros(groups.size, dtype=np.int64)
+    if groups.size == 0:
+        return positions
+    order = np.lexsort((ids, pid, upid, groups))
+    grouped = groups[order]
+    first = np.r_[True, grouped[1:] != grouped[:-1]]
+    group_no = np.cumsum(first) - 1
+    rank = np.unique(np.asarray(mass)[order], return_inverse=True)[1].reshape(-1)
+    levels = int(rank.max()) + 1
+    value = group_no * levels + rank  # below 2^63: groups and levels are below 2^31
+    running = np.maximum.accumulate(value)
+    record = first | (value > np.r_[-1, running[:-1]])
+    starts = np.flatnonzero(first)
+    records_before = np.cumsum(record) - record
+    others_before = np.cumsum(~record) - ~record
+    n_records = np.add.reduceat(record.astype(np.int64), starts)[group_no]
+    record_at = records_before - records_before[starts][group_no]
+    other_at = others_before - others_before[starts][group_no]
+    positions[order] = np.where(record, n_records - 1 - record_at, n_records + other_at)
+    return positions
 
 
-def encounter(upid: np.ndarray, pid: np.ndarray, ids: np.ndarray) -> np.ndarray:
-    """Positions in ascending (upid, pid, id)."""
-    return np.lexsort((ids, pid, upid))
+def stored_chain_mismatches(
+    groups: np.ndarray, rows: np.ndarray, next_rows: np.ndarray, positions: np.ndarray
+) -> np.ndarray:
+    """The groups whose stored ``NextProgenitor`` links are not the chain
+    ``positions`` describe: in a matching group every progenitor links to the
+    next one in the chain and the last links to -1."""
+    order = np.lexsort((positions, groups))
+    grouped = groups[order]
+    chained = rows[order]
+    continues = np.r_[grouped[1:] == grouped[:-1], False]
+    expected = np.where(continues, np.r_[chained[1:], -1], -1)
+    return np.unique(grouped[np.asarray(next_rows)[order] != expected])
 
 
 # ---- the pass ------------------------------------------------------------------
 
+#: Columns the pass reads for every named-forest row of a block.
+PASS_COLUMNS = ("FirstHaloInFOFgroup", "Descendant")
 
-def _sibling_records(
-    dataset: HorizontalDataset,
-    snap: int,
-    descendants: np.ndarray,
-    span: Tuple[int, int],
-    block_rows: int,
-) -> Dict[str, np.ndarray]:
-    """The rows of one slab whose ``Descendant`` is among ``descendants``
-    (ascending), with the columns their chains need, read in bounded blocks
-    over the named forests' row span."""
-    names = ("MostBoundID", MASS_COLUMN, "FirstHaloInFOFgroup", "NextProgenitor")
-    parts: Dict[str, List[np.ndarray]] = {name: [] for name in names + ("row", "Descendant")}
-    low, high = span
-    for start in range(low, high, block_rows):
-        stop = min(start + block_rows, high)
-        desc = dataset.read_rows(snap, ("Descendant",), start, stop)["Descendant"]
-        hit = np.flatnonzero(in_sorted(descendants, desc.astype(np.int64, copy=False)))
-        if hit.size == 0:
-            continue
-        first, last = int(hit[0]), int(hit[-1]) + 1
-        columns = dataset.read_rows(snap, names, start + first, start + last)
-        for name in names:
-            parts[name].append(columns[name][hit - first])
-        parts["row"].append(start + hit.astype(np.int64))
-        parts["Descendant"].append(desc[hit].astype(np.int64))
-    return {
-        name: (np.concatenate(values) if values else np.zeros(0)) for name, values in parts.items()
-    }
+#: Columns it reads, over the block's span of retained rows, for the rows of
+#: trees touched by a severance in the slab.
+RETAINED_COLUMNS = ("MostBoundID", MASS_COLUMN, "NextProgenitor")
+
+_INT32_MAX = int(np.iinfo(np.int32).max)
+
+
+def touched_trees(
+    edges: np.ndarray, local_of: np.ndarray, states: Sequence[RuleState], n_local: int
+) -> Tuple[np.ndarray, np.ndarray]:
+    """From one slab's edge list: the trees an edge severed under any rule
+    joins (``severed``), and those trees with every tree they share a group
+    with in the slab (``retained``), as masks over the local trees.
+
+    A promoted halo and its siblings (the other progenitors of its
+    descendant) lie in a severed tree, so the chain records needed are the
+    severed trees' rows; a central whose group loses members lies in a
+    severed tree too; and a sibling's FoF central lies in its own tree or in a
+    tree it shares an edge with, so the retained trees' rows hold every
+    central the chain keys need.
+    """
+    severed = np.zeros(n_local, dtype=bool)
+    retained = np.zeros(n_local, dtype=bool)
+    if edges.size == 0:
+        return severed, retained
+    lo = local_of[edges["lo"]]
+    hi = local_of[edges["hi"]]
+    cut_any = np.zeros(edges.size, dtype=bool)
+    for state in states:
+        cut_any |= state.tree_piece[lo] != state.tree_piece[hi]
+    severed[lo[cut_any]] = True
+    severed[hi[cut_any]] = True
+    near = severed[lo] | severed[hi]
+    retained[:] = severed
+    retained[lo[near]] = True
+    retained[hi[near]] = True
+    return severed, retained
+
+
+@dataclass
+class Retained:
+    """One slab's retained rows (ascending), with what the chains need."""
+
+    row: np.ndarray  # int32
+    descendant: np.ndarray  # int32, -1 when none
+    central: np.ndarray  # int32 FirstHaloInFOFgroup
+    next_progenitor: np.ndarray  # int32
+    most_bound_id: np.ndarray  # int64
+    mass: np.ndarray  # float32 M_Crit200
+
+    def lookup(self, rows: np.ndarray, what: str, path) -> np.ndarray:
+        """Positions of ``rows`` among the retained rows.
+
+        Raises:
+            ConverterError: for a row that was not retained.
+        """
+        rows = np.asarray(rows, dtype=np.int64)
+        at = np.minimum(np.searchsorted(self.row, rows), max(self.row.size - 1, 0))
+        if rows.size and (self.row.size == 0 or (self.row[at] != rows).any()):
+            raise ConverterError(
+                "{}: a {} is not among the rows of the touched trees".format(path, what)
+            )
+        return at
 
 
 def _chain_changes(
-    dataset: HorizontalDataset,
     snap: int,
     states: Sequence[RuleState],
     promoted: Sequence[np.ndarray],
     affected: Sequence[np.ndarray],
-    span: Tuple[int, int],
-    block_rows: int,
+    kept: Retained,
+    path,
+    batch_rows: int = DEFAULT_BLOCK_ROWS,
 ) -> Tuple[List[Dict], Dict]:
     """Per rule, the descendants (rows of the next slab) whose progenitor chain
-    changes, and the stored-chain check over every affected descendant."""
-    results = [{"changed": [], "head_changed": 0} for _state in states]
+    changes and how many change their first progenitor, and the stored-chain
+    check over every affected descendant with two or more progenitors.
+
+    The sibling records are taken in batches of whole descendants of about
+    ``batch_rows`` records, so the chains' working arrays (about 200 B per
+    record) never span the slab."""
+    changed: List[List[np.ndarray]] = [[] for _state in states]
+    head_changed = [0] * len(states)
     check = {"descendants": 0, "mismatches": 0, "examples": []}
     union = np.unique(np.concatenate(affected)) if affected else np.zeros(0, dtype=np.int64)
     if union.size == 0:
-        return results, check
-    sib = _sibling_records(dataset, snap, union, span, block_rows)
-    rows = sib["row"].astype(np.int64)  # the promoted rows themselves are always among them
-    central = check_central_rows(
-        sib["FirstHaloInFOFgroup"], dataset.n_halos[snap], dataset.snapshot_path(snap)
+        return [{"changed": np.zeros(0, dtype=np.int64), "head_changed": 0} for _s in states], check
+    # the affected descendants' progenitors, found block by block
+    found = []
+    for start in range(0, kept.row.size, batch_rows):
+        part = kept.descendant[start : start + batch_rows].astype(np.int64)
+        found.append(start + np.flatnonzero(in_sorted(union, part)))
+    picked = drain(found)
+    picked = picked[np.argsort(kept.descendant[picked], kind="stable")]
+    grouped = kept.descendant[picked]
+    starts = np.flatnonzero(np.r_[True, grouped[1:] != grouped[:-1]]) if picked.size else picked
+    sizes = np.diff(np.r_[starts, picked.size])
+    several = np.repeat(sizes >= 2, sizes)
+    picked, grouped = picked[several], grouped[several]
+    del starts, sizes, several
+    starts = np.flatnonzero(np.r_[True, grouped[1:] != grouped[:-1]]) if picked.size else picked
+    # each batch starts at the first group starting at or after a multiple of batch_rows
+    edges = np.r_[starts, picked.size]
+    bounds = np.unique(
+        np.r_[edges[np.searchsorted(starts, np.arange(0, picked.size, batch_rows))], picked.size]
     )
-    ids = sib["MostBoundID"].astype(np.int64)
-    mass = sib[MASS_COLUMN]
-    satellite = central != rows
-    hosts = np.unique(central[satellite])
-    host_ids = read_at(dataset, snap, "MostBoundID", hosts, block_rows).astype(np.int64)
-    upid = ids.copy()
-    upid[satellite] = host_ids[np.searchsorted(hosts, central[satellite])]
-    pid = np.where(satellite, upid, -1)
-
-    order = np.lexsort((rows, sib["Descendant"]))
-    desc_sorted = sib["Descendant"][order]
-    starts = np.flatnonzero(np.r_[True, desc_sorted[1:] != desc_sorted[:-1]])
-    ends = np.r_[starts[1:], order.size]
-    for begin_at, end_at in zip(starts, ends):
-        group = order[begin_at:end_at]
-        if group.size < 2:
-            continue
-        descendant = int(desc_sorted[begin_at])
-        before = [int(group[i]) for i in encounter(upid[group], pid[group], ids[group])]
-        chain_before = chain_order(before, mass)
-        check["descendants"] += 1
-        stored = stored_chain(rows[group], sib["NextProgenitor"][group].astype(np.int64))
-        if stored is None or [int(group[i]) for i in stored] != chain_before:
-            check["mismatches"] += 1
-            if len(check["examples"]) < N_EXAMPLES:
-                check["examples"].append({"snapshot": snap + 1, "descendant_row": descendant})
-        for state_at in range(len(states)):
-            if not in_sorted(affected[state_at], np.array([descendant]))[0]:
+    del grouped, starts, edges
+    for low, high in zip(bounds[:-1], bounds[1:]):
+        batch = picked[low:high]
+        groups = kept.descendant[batch].astype(np.int64)
+        rows = kept.row[batch].astype(np.int64)
+        central = kept.central[batch].astype(np.int64)
+        ids = kept.most_bound_id[batch]
+        mass = kept.mass[batch]
+        satellite = central != rows
+        upid = ids.copy()
+        upid[satellite] = kept.most_bound_id[
+            kept.lookup(central[satellite], "progenitor's FoF central", path)
+        ]
+        pid = np.where(satellite, upid, -1)
+        before = chain_positions(groups, upid, pid, ids, mass)
+        mismatched = stored_chain_mismatches(
+            groups, rows, kept.next_progenitor[batch].astype(np.int64), before
+        )
+        check["descendants"] += int(np.unique(groups).size)
+        check["mismatches"] += int(mismatched.size)
+        check["examples"].extend(
+            {"snapshot": snap + 1, "descendant_row": int(row)}
+            for row in mismatched[: N_EXAMPLES - len(check["examples"])]
+        )
+        for at in range(len(states)):
+            moved = in_sorted(promoted[at], rows)
+            if not moved.any():
                 continue
-            moved = in_sorted(promoted[state_at], rows[group])
-            if not moved.any():  # pragma: no cover - an affected descendant has one
-                continue
-            new_upid = np.where(moved, ids[group], upid[group])
-            new_pid = np.where(moved, -1, pid[group])
-            after = [int(group[i]) for i in encounter(new_upid, new_pid, ids[group])]
-            chain_after = chain_order(after, mass)
-            if chain_after != chain_before:
-                results[state_at]["changed"].append(descendant)
-                results[state_at]["head_changed"] += int(chain_after[0] != chain_before[0])
+            after = chain_positions(
+                groups, np.where(moved, ids, upid), np.where(moved, -1, pid), ids, mass
+            )
+            changed[at].append(np.unique(groups[before != after]))
+            head_changed[at] += int(np.unique(groups[(before == 0) & (after != 0)]).size)
+    results = [
+        {
+            "changed": (np.concatenate(parts) if parts else np.zeros(0, dtype=np.int64)),
+            "head_changed": heads,
+        }
+        for parts, heads in zip(changed, head_changed)
+    ]
     return results, check
 
 
@@ -473,6 +672,7 @@ def severance_pass(
     predicted: Sequence[Sequence[int]],
     block_rows: int = DEFAULT_BLOCK_ROWS,
     log: Callable[[str], None] = _quiet,
+    meter: Optional[ReadMeter] = None,
 ) -> Dict:
     """The fourth read (module docstring, step 3): fills each state's
     ``per_snapshot`` rows and ``seeded`` pieces; returns the stored-chain check.
@@ -480,7 +680,10 @@ def severance_pass(
     Slabs are visited in ascending order so that dependents propagate forward
     along ``Descendant``. Snapshot N's row counts its promotions, groups and
     seeds, and in ``progenitor_order_changed`` the descendants at N + 1 whose
-    chain over N's progenitors changes (they are seeds of N + 1).
+    chain over N's progenitors changes (they are seeds of N + 1). Each slab is
+    read once: every named-forest row's ``FirstHaloInFOFgroup`` and
+    ``Descendant``, and the retained rows' (:func:`touched_trees`) three
+    further columns over each block's span of them; nothing is re-read.
 
     Raises:
         ConverterError: on a promotion count that disagrees with the slab's
@@ -488,9 +691,15 @@ def severance_pass(
             or label inconsistency.
     """
     check = {"descendants": 0, "mismatches": 0, "examples": []}
+    n_local = int(np.count_nonzero(local_of >= 0))
     for snap in dataset.snapshots:
         path = dataset.snapshot_path(snap)
+        if dataset.n_halos[snap] > _INT32_MAX:
+            raise ConverterError("{}: more rows than int32 row indices hold".format(path))
         labels = load_labels(aggregate_dir, snap)
+        _severed, retain = touched_trees(
+            load_slab_edges(aggregate_dir, snap, mmap=False), local_of, states, n_local
+        )
         for state in states:
             state.current = np.unique(np.concatenate(state.following + [state.current[:0]]))
             state.current_seeds = np.unique(
@@ -499,12 +708,10 @@ def severance_pass(
             state.following, state.following_seeds = [], []
         parts = [[] for _state in states]
         found = [0] * len(states)
-        span = [None, None]
+        kept_parts: Dict[str, List[np.ndarray]] = {name: [] for name in Retained.__annotations__}
         for rows, values in iter_forest_rows(
-            dataset, snap, forests, ("FirstHaloInFOFgroup", "Descendant"), block_rows
+            dataset, snap, forests, PASS_COLUMNS, block_rows, meter
         ):
-            span[0] = int(rows[0]) if span[0] is None else span[0]
-            span[1] = int(rows[-1]) + 1
             central = check_central_rows(values["FirstHaloInFOFgroup"], dataset.n_halos[snap], path)
             desc = values["Descendant"].astype(np.int64)
             own = local_of[np.asarray(labels[rows])]
@@ -522,11 +729,11 @@ def severance_pass(
                 if moved.any():
                     parts[at].append(
                         (
-                            rows[moved],
-                            central[moved],
-                            desc[moved],
-                            own_piece[moved],
-                            host_piece[moved],
+                            rows[moved].astype(np.int32),
+                            central[moved].astype(np.int32),
+                            desc[moved].astype(np.int32),
+                            own_piece[moved].astype(np.int32),
+                            host_piece[moved].astype(np.int32),
                         )
                     )
                 if state.current.size:
@@ -534,6 +741,22 @@ def severance_pass(
                     found[at] += int(np.count_nonzero(hit))
                     onward = desc[hit]
                     state.following.append(onward[onward >= 0])
+            keep = np.flatnonzero(retain[own])
+            if keep.size:
+                low, high = int(rows[keep[0]]), int(rows[keep[-1]]) + 1
+                extra = read_span(dataset, snap, RETAINED_COLUMNS, low, high, meter)
+                offset = rows[keep] - low
+                kept_parts["row"].append(rows[keep].astype(np.int32))
+                kept_parts["descendant"].append(desc[keep].astype(np.int32))
+                kept_parts["central"].append(central[keep].astype(np.int32))
+                kept_parts["next_progenitor"].append(
+                    extra["NextProgenitor"][offset].astype(np.int32)
+                )
+                kept_parts["most_bound_id"].append(extra["MostBoundID"][offset].astype(np.int64))
+                kept_parts["mass"].append(extra[MASS_COLUMN][offset].astype(np.float32))
+        # each field's parts released as it is joined
+        kept = Retained(**{name: drain(values) for name, values in kept_parts.items()})
+        del kept_parts
 
         promoted, affected = [], []
         for at, state in enumerate(states):
@@ -545,10 +768,11 @@ def severance_pass(
                 )
             if parts[at]:
                 rows_p, central_p, desc_p, own_p, host_p = (
-                    np.concatenate(column) for column in zip(*parts[at])
+                    np.concatenate(column).astype(np.int64) for column in zip(*parts[at])
                 )
             else:
                 rows_p = central_p = desc_p = own_p = host_p = np.zeros(0, dtype=np.int64)
+            parts[at] = None
             if rows_p.size != predicted[at][snap]:
                 raise ConverterError(
                     "{}: rule {} promotes {} halo(s) but the slab's edge list predicts {}; the "
@@ -557,21 +781,21 @@ def severance_pass(
                     )
                 )
             losing = np.unique(central_p)
-            remnants = np.unique(pair_keys(central_p, own_p)).size if rows_p.size else 0
+            remnant_members = np.unique(pair_keys(central_p, own_p), return_counts=True)[1]
             state.seeded[own_p] = True
             state.seeded[host_p] = True
             seeds = np.unique(np.concatenate([rows_p, losing, state.current_seeds]))
             affected_rows = np.unique(np.concatenate([state.current, seeds]))
             state.following.append(desc_p[desc_p >= 0])
-            if losing.size:
-                onward = read_at(dataset, snap, "Descendant", losing, block_rows).astype(np.int64)
-                state.following.append(onward[onward >= 0])
+            onward = kept.descendant[kept.lookup(losing, "central losing members", path)]
+            state.following.append(onward[onward >= 0].astype(np.int64))
             state.per_snapshot.append(
                 {
                     "snapshot": snap,
                     "promoted_halos": int(rows_p.size),
                     "groups_losing_members": int(losing.size),
-                    "groups_central_leaves_members_stay": int(remnants),
+                    "groups_central_leaves_members_stay": int(remnant_members.size),
+                    "remnants_with_several_members": int(np.count_nonzero(remnant_members >= 2)),
                     "seed_halos": int(seeds.size),
                     "affected_halos": int(affected_rows.size),
                 }
@@ -579,18 +803,15 @@ def severance_pass(
             promoted.append(rows_p)
             affected.append(np.unique(desc_p[desc_p >= 0]))
 
-        if span[0] is not None:
-            changes, slab_check = _chain_changes(
-                dataset, snap, states, promoted, affected, (span[0], span[1]), block_rows
-            )
-        else:
-            changes = [{"changed": [], "head_changed": 0} for _state in states]
-            slab_check = {"descendants": 0, "mismatches": 0, "examples": []}
+        changes, slab_check = _chain_changes(
+            snap, states, promoted, affected, kept, path, block_rows
+        )
+        del kept
         check["descendants"] += slab_check["descendants"]
         check["mismatches"] += slab_check["mismatches"]
         check["examples"].extend(slab_check["examples"][: N_EXAMPLES - len(check["examples"])])
         for state, change in zip(states, changes):
-            changed = np.asarray(change["changed"], dtype=np.int64)
+            changed = change["changed"]
             state.following.append(changed)
             state.following_seeds.append(changed)
             state.per_snapshot[-1]["progenitor_order_changed"] = int(changed.size)
@@ -762,7 +983,8 @@ def edge_statistics(
 def run_cut(
     dataset: HorizontalDataset,
     aggregate_dir,
-    index: SourceIndex,
+    index_roots: np.ndarray,
+    index_forest_ids: np.ndarray,
     index_files: Dict,
     rules: Sequence[Rule],
     materialise: Sequence[Rule] = (),
@@ -776,27 +998,30 @@ def run_cut(
     """Evaluate every rule (module docstring) and write the aggregates and,
     for the materialised rules, the tables and records; returns the summary.
 
-    ``index_files`` is the record of the index files (paths, sizes and md5,
-    computed once by the caller) that every table record carries.
+    ``index_roots`` and ``index_forest_ids`` are the index files' tree roots
+    (ascending) and their forest ids (:class:`source_index.SourceIndex`'s
+    ``tree_roots`` and ``forest_ids``); ``index_files`` is the record of the
+    files (paths, sizes and md5, computed once by the caller) that every
+    table record carries.
 
     Raises:
-        ConverterError: on any :func:`prepare_cut` refusal, an index whose
-            roots are not the census's when a table is written, a table
-            invariant, or a refusal of the pass.
+        ConverterError: on any :func:`prepare_cut` refusal, index files that
+            do not describe this census (:func:`check_index`, before any
+            output is touched), a table invariant, or a refusal of the pass.
     """
     inputs = prepare_cut(dataset, aggregate_dir, rules, materialise)
-    if index.n_trees == 0:
+    if index_roots.size == 0:
         raise ConverterError("the index files list no tree")
     identity = inputs["identity"]
     forests = inputs["forests"]
-    out = begin(cut_dir(aggregate_dir))
-    n_forests = dataset.n_forests_total
-    catalogue_max = int(index.forest_ids.max())
     forest_ids = dataset.forest_ids()
-
     roots = load_roots(aggregate_dir)
     tree_forest = load_array(trees_dir(aggregate_dir) / "tree_forest.npy", mmap=True)
     tree_totals = load_array(trees_dir(aggregate_dir) / "tree_totals.npy", mmap=True)
+    check_index(index_roots, index_forest_ids, roots, tree_forest, forest_ids, block_rows)
+    out = begin(cut_dir(aggregate_dir))
+    n_forests = dataset.n_forests_total
+    catalogue_max = int(index_forest_ids.max())
     forest_trees = load_forest_trees(aggregate_dir)
     local_forest = np.asarray(tree_forest[forest_trees], dtype=np.int64)
     local_totals = np.asarray(tree_totals[forest_trees], dtype=np.int64)
@@ -813,7 +1038,7 @@ def run_cut(
             components, local_forest, local_totals, local_roots, forest_ids, catalogue_max
         )
         del components
-        state = RuleState(rule=rule, pieces=pieces, tree_piece=pieces.pop("piece"))
+        state = RuleState(rule=rule, pieces=pieces, tree_piece=pieces.pop("piece").astype(np.int32))
         assignment_bytes += save_array(
             rule_dir(aggregate_dir, rule) / "assignment.npy", pieces["id"][state.tree_piece]
         )
@@ -848,42 +1073,45 @@ def run_cut(
             )
             apply_points(points[at], snap, *installed)
 
+    meter = ReadMeter()
     check = severance_pass(
-        dataset, aggregate_dir, forests, local_of, states, predicted, block_rows, log
+        dataset, aggregate_dir, forests, local_of, states, predicted, block_rows, log, meter
     )
 
     sizes = {"assignments": assignment_bytes, "tables": 0, "records": 0}
     tables = {}
+    named = {
+        "forest_index": [int(f) for f in forests],
+        "forest_id": [int(forest_ids[f]) for f in forests],
+        "graph_forests": [int(f) for f in inputs["graph"]["forests"]],
+    }
     if materialise:
-        if not np.array_equal(roots, index.tree_roots):
-            raise ConverterError(
-                "{}: the census's tree roots are not the index files' roots; a cut table is "
-                "written only for the index files the root correspondence passed against".format(
-                    aggregate_dir
-                )
-            )
-        all_totals = np.asarray(tree_totals, dtype=np.int64)
         for state in states:
             if state.rule.name not in {rule.name for rule in materialise}:
                 continue
-            ids = table_ids(index.forest_ids, forest_trees, state.pieces["id"][state.tree_piece])
-            check_table(index.tree_roots, ids, index.tree_roots, index.forest_ids, all_totals)
+            ids = table_ids(index_forest_ids, forest_trees, state.pieces["id"][state.tree_piece])
+            check_table(index_roots, ids, index_roots, index_forest_ids, tree_totals)
             directory = rule_dir(aggregate_dir, state.rule)
-            md5, table_bytes = write_table(directory / "forests.list", index.tree_roots, ids)
+            md5, table_bytes = write_table(directory / "forests.list", index_roots, ids)
             del ids
             table = {
                 "path": str((directory / "forests.list").resolve()),
                 "md5": md5,
                 "bytes": table_bytes,
-                "rows": index.n_trees,
+                "rows": int(index_roots.size),
+            }
+            header = {
+                "dataset": identity,
+                "index_files": index_files,
+                "rule": state.rule.record(),
+                "forests": named,
+                "table": table,
             }
             pieces = dict(
                 state.pieces, peak_occupancy=state.peak, peak_snapshot=state.peak_snapshot
             )
-            record = table_record(identity, index_files, state.rule.record(), pieces, table)
-            write_json(directory / "record.json", record)
+            sizes["records"] += write_table_record(directory / "record.json", header, pieces)
             sizes["tables"] += table_bytes
-            sizes["records"] += (directory / "record.json").stat().st_size
             tables[state.rule.name] = table
             log("cut: table for rule {} written, md5 {}".format(state.rule.name, md5))
 
@@ -911,6 +1139,9 @@ def run_cut(
                     "groups_losing_members": sum(r["groups_losing_members"] for r in rows),
                     "groups_central_leaves_members_stay": sum(
                         r["groups_central_leaves_members_stay"] for r in rows
+                    ),
+                    "remnants_with_several_members": sum(
+                        r["remnants_with_several_members"] for r in rows
                     ),
                     "per_snapshot": rows,
                     "definitions": SEVERANCE_DEFINITIONS,
@@ -955,10 +1186,17 @@ def run_cut(
         "dataset": identity,
         "dataset_dir": str(dataset.directory.resolve()),
         "forests": [int(f) for f in forests],
+        "named_forests": named,
         "index_files": index_files,
         "catalogue_max_forest_id": catalogue_max,
         "root_correspondence": inputs["trees"]["root_correspondence"]["verdict"],
         "stored_chain_check": check,
+        "io": meter.record(
+            "per slab, 8 B x n_halos(s) of ForestIndex, plus 2 x link width x the named forests' "
+            "row span(s) of FirstHaloInFOFgroup and Descendant, plus (8 + 4 + link width) B x the "
+            "retained rows' span(s) of MostBoundID, M_Crit200 and NextProgenitor; link width 4 B "
+            "in version 2, 8 B in version 3"
+        ),
         "rules": rule_summaries,
         "aggregates": {
             "assignments": {
@@ -970,10 +1208,17 @@ def run_cut(
             },
             "tables": {
                 "formula": "one forests.list-shaped row per catalogue tree for each materialised "
-                "rule (about 24 B per tree at Shin-Uchuu's id widths) and a JSON record of "
-                "about 80 B per piece",
+                "rule (about 24 B per tree at Shin-Uchuu's id widths)",
                 "materialised": sorted(tables),
-                "bytes": sizes["tables"] + sizes["records"],
+                "bytes": sizes["tables"],
+            },
+            "records": {
+                "formula": "per materialised rule, a header of a few kilobytes plus, per piece, "
+                "the sum over its six columns of (decimal digits + 1) bytes, about 40 B per piece "
+                "at Shin-Uchuu's id widths; written in chunks of 2^16 pieces, about 16 B per "
+                "piece resident",
+                "pieces": int(sum(s.pieces["id"].size for s in states if s.rule.name in tables)),
+                "bytes": sizes["records"],
             },
         },
     }

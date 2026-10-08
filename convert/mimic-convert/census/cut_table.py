@@ -28,18 +28,24 @@ is read (:func:`read_cut_table`), each refused with a ``ConverterError``:
 4. an id at or below the catalogue's maximum is its trees' original forest id
    (a fresh id at or below the maximum is refused);
 5. every original forest keeps exactly one piece with its own id;
-6. when the trees' halo totals are given: the piece keeping a forest's id is
-   its largest (ties by the smallest root id), and fresh ids ascend in
-   descending piece size with the same tie rule.
+6. the piece keeping a forest's id is its largest by the trees' halo totals
+   (ties by the smallest root id), and fresh ids ascend in descending piece
+   size with the same tie rule. The totals are a required input of both the
+   check and the reader, so no table is accepted without this invariant.
 
 A complete table holds a row per catalogue tree (about 7.5 GB of text at
 Shin-Uchuu's 315,004,242 trees), so it is written only for the tables asked for
 (the rehearsal's and the rule the owner chooses) and only when the ``trees``
 root correspondence verdict passed; every exploratory rule keeps only its
 compact per-tree assignment. Each table is accompanied by a JSON record
-(:func:`table_record`): the input dataset identity, the index files' md5
-(computed once per run), the rule, every piece (id, tree count, halo total,
-peak occupancy and its slab) and the table's own md5.
+(:func:`write_table_record`): the input dataset identity, the index files'
+md5 (computed once per run), the rule, the named forests, every piece (id,
+original forest id, tree count, halo total, peak occupancy and its slab) and
+the table's own md5. The per-piece columns are streamed to the file in chunks
+of 2^16 pieces, never built as Python lists: the record costs about 16 B per
+piece resident (the id order and one gathered chunk) and ``sum over the six
+columns of (decimal digits + 1)`` bytes per piece on disk, about 40 B per
+piece at Shin-Uchuu's id widths.
 
 Resident memory while a table is checked and written, with ``n`` catalogue
 trees: the index's 32 B x n, the table's ids and the trees' totals (16 B x n),
@@ -49,10 +55,11 @@ Shin-Uchuu's 315,004,242 trees. Writing formats rows in chunks of 2^20.
 """
 
 import hashlib
+import json
 import os
 import sys
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Dict, Tuple
 
 import numpy as np
 
@@ -69,6 +76,12 @@ WRITE_ROWS = 1 << 20
 
 #: Bytes hashed per read.
 HASH_BYTES = 8 << 20
+
+#: The per-piece columns of a table record, in order.
+RECORD_COLUMNS = ("id", "forest_id", "trees", "halos", "peak_occupancy", "peak_snapshot")
+
+#: Pieces formatted per write of a record column.
+RECORD_CHUNK = 1 << 16
 
 _INT64_MAX = int(np.iinfo(np.int64).max)
 
@@ -173,7 +186,7 @@ def check_table(
     table_forest_ids: np.ndarray,
     index_roots: np.ndarray,
     index_forest_ids: np.ndarray,
-    tree_totals: Optional[np.ndarray] = None,
+    tree_totals: np.ndarray,
     what: str = "cut table",
 ) -> Dict:
     """Check a cut table against the catalogue's index (module docstring,
@@ -183,7 +196,8 @@ def check_table(
         table_roots, table_forest_ids: the table's rows, in any order.
         index_roots: the index files' tree roots, ascending and unique.
         index_forest_ids: their original forest ids, aligned.
-        tree_totals: optional, each index tree's halo total, aligned.
+        tree_totals: each index tree's halo total, aligned (required: invariant
+            6 depends on it).
 
     Returns:
         ``{"trees", "pieces", "cut_forests", "fresh_pieces"}``.
@@ -261,9 +275,6 @@ def check_table(
         "cut_forests": int(np.unique(piece_forest[~keeps]).size),
         "fresh_pieces": int(np.count_nonzero(~keeps)),
     }
-    if tree_totals is None:
-        return record
-
     halos = np.add.reduceat(np.asarray(tree_totals, dtype=np.int64)[by_piece], starts)
     smallest = np.minimum.reduceat(np.asarray(index_roots, dtype=np.int64)[by_piece], starts)
     del by_piece
@@ -326,9 +337,10 @@ def read_cut_table(
     path,
     index_roots: np.ndarray,
     index_forest_ids: np.ndarray,
-    tree_totals: Optional[np.ndarray] = None,
+    tree_totals: np.ndarray,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """Read a cut table and check every invariant against the index.
+    """Read a cut table and check every invariant against the index and the
+    trees' halo totals (aligned with ``index_roots``).
 
     Returns:
         ``(roots, forest_ids)`` aligned with the ascending ``index_roots``.
@@ -345,24 +357,34 @@ def read_cut_table(
     return roots[order], ids[order]
 
 
-def table_record(
-    identity: Dict,
-    index_files: Dict,
-    rule: Dict,
-    pieces: Dict[str, np.ndarray],
-    table: Dict,
-) -> Dict:
-    """The JSON record accompanying a table (module docstring). ``pieces``
-    holds per piece ``id``, ``forest_id``, ``trees``, ``halos``,
-    ``peak_occupancy`` and ``peak_snapshot``; they are written as columns."""
-    order = np.argsort(pieces["id"], kind="stable")
-    return {
-        "dataset": identity,
-        "index_files": index_files,
-        "rule": rule,
-        "pieces": {
-            name: np.asarray(pieces[name])[order].tolist()
-            for name in ("id", "forest_id", "trees", "halos", "peak_occupancy", "peak_snapshot")
-        },
-        "table": table,
-    }
+def write_table_record(path, header: Dict, pieces: Dict[str, np.ndarray]) -> int:
+    """Write a table's JSON record atomically; returns its size.
+
+    ``header`` holds the record's JSON-ready entries (dataset identity, index
+    files, rule, forests, table); ``pieces`` holds the per-piece arrays named
+    in :data:`RECORD_COLUMNS`, which are written as columns in ascending
+    piece id, streamed in chunks of :data:`RECORD_CHUNK` (module docstring).
+    """
+    if "pieces" in header:
+        raise ConverterError("a record's header may not carry its own pieces")
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    order = np.argsort(np.asarray(pieces["id"]), kind="stable")
+    with open(tmp, "w") as handle:
+        handle.write("{\n")
+        for key in sorted(header):
+            handle.write(
+                "  {}: {},\n".format(json.dumps(key), json.dumps(header[key], sort_keys=True))
+            )
+        handle.write('  "pieces": {\n')
+        for at, name in enumerate(RECORD_COLUMNS):
+            column = np.asarray(pieces[name])
+            handle.write("    {}: [".format(json.dumps(name)))
+            for start in range(0, order.size, RECORD_CHUNK):
+                part = column[order[start : start + RECORD_CHUNK]].tolist()
+                handle.write(("," if start else "") + ",".join(str(int(v)) for v in part))
+            handle.write("]" + (",\n" if at + 1 < len(RECORD_COLUMNS) else "\n"))
+        handle.write("  }\n}\n")
+    os.replace(str(tmp), str(path))
+    return path.stat().st_size

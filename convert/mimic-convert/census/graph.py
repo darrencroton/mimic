@@ -12,16 +12,25 @@ join it and in whichever direction (a pair whose host switches between
 snapshots is one pair), and carries the slab, the member count and the
 members' ``Mvir`` sum. The mass column is ``M_Crit200``, which for a
 Consistent-Trees-derived dataset is native float32 ``Mvir`` in Msun/h
-(``HORIZONTAL-HDF5-FORMAT.md``); sums are float64.
+(``HORIZONTAL-HDF5-FORMAT.md``); sums are float64, computed with
+``np.add.reduceat`` over the members in row order. That is deterministic for a
+fixed NumPy build and independent of the block size, but ``reduceat`` does not
+promise strictly sequential addition, so the last bit of a sum may differ
+between builds, and an ``m`` threshold placed exactly on a sum is not portable
+across them.
 
 **Edge lists.** One pass over the named forests' rows of every slab, with the
 slab's labels mapped: ``ForestIndex`` is read in bounded blocks and
 ``FirstHaloInFOFgroup`` and ``M_Crit200`` only over each block's span of the
 named forests' rows (for a version 3 dataset, exactly those rows). Each slab's
-pairs are written sorted by (lo, hi) as ``graph/slab_NNN_edges.npy``. Mass sums
-add each pair's members in row order, so they do not depend on the block size.
-The per-slab lists are kept beside the merged records: they give the
-per-snapshot promotions of a cut (``census/cut.py``).
+pairs are written sorted by (lo, hi) as ``graph/slab_NNN_edges.npy``. The
+per-slab lists are kept beside the merged records: they give the per-snapshot
+promotions of a cut (``census/cut.py``). Bytes read per slab: ``8 x
+n_halos(s)`` for ``ForestIndex`` plus ``(w_link + 4) x span(s)`` for
+``FirstHaloInFOFgroup`` and ``M_Crit200``, where ``w_link`` is the link width
+(4 B in version 2, 8 B in version 3) and ``span(s)`` the rows from the first to
+the last named-forest row of each block (the forests' rows in version 3). The
+bytes actually read are measured and recorded in ``summary.json`` (``io``).
 
 **Merged records.** The per-slab lists are merged by an external k-way merge
 (:func:`merge_slab_edges`): each slab contributes a bounded window, every key at
@@ -51,16 +60,34 @@ Aggregates under ``<aggregate>/graph/`` (sizes also in ``summary.json``):
 
 Resident memory, with ``n`` the number of trees, ``t`` the named forests'
 trees and ``x`` a slab's cross-tree members (measured with ``tracemalloc``):
-the per-tree forest array (8 B x n, about 2.5 GB at Shin-Uchuu's 315,004,242
-trees) and the named-forest tree list (4 B x t) for the whole subcommand; per
-slab, the block's columns, label gathers and transients, about **100 B x
-block_rows** (0.4 GB at the default 2^22), and the slab's contributions until
-they are reduced, about **85 B x x** (key, mass, sort order and the reduced
-list); the merge, about **170 B per window entry**, ``block_rows`` entries in
-all (0.7 GB at the default); the components, 8 B x t plus about 40 B per edge
-of a batch of ``block_rows`` pairs (about 1.0 GB for the super-forest). No
-array of a slab's length is held beyond the column block and the mapped
-labels, and no tree x snapshot matrix.
+
+- for the whole subcommand: the roots and the per-tree forest array (16 B x n,
+  about 5.0 GB at Shin-Uchuu's 315,004,242 trees) and the named-forest tree
+  list with its forests and totals (20 B x t, about 2.1 GB for the
+  super-forest's 104,845,278 trees);
+- per slab: the block's columns, label gathers and transients, about **100 B
+  x block_rows** (0.4 GB at the default 2^22); and the slab's cross-tree
+  contributions (int64 key and float32 mass, kept float32 until the
+  reduction), about **40 B per member plus 27 B per distinct pair of the
+  slab** at the reduction's peak (12 B per member while they accumulate).
+  This per-slab accumulation is proportional to the named forests' rows in
+  one slab (PM ruling DD10): ``x`` is at most the named forests' rows in the
+  slab, so its worst case at Shin-Uchuu scale is the super-forest's peak
+  occupancy of 333,663,215 rows at snapshot 31, about **22.4 GB** if every one
+  were a cross-tree member of a distinct pair; the mandated per-slab edge list
+  is of the same order (20 B per pair, at most one pair per member). The
+  ``per_snapshot`` rows of ``summary.json`` record each slab's members and
+  pairs, so the real figure follows from them;
+- the merge, about **170 B per window entry**, ``block_rows`` entries in all
+  (0.7 GB at the default); the components, 8 B x t plus about 40 B per edge of
+  a batch of ``block_rows`` pairs (about 1.0 GB for the super-forest).
+
+The subcommand's peak at Shin-Uchuu scale is therefore about 7.5 GB plus the
+per-slab term: about **30 GB** in the worst case (every super-forest row of
+snapshot 31 a cross-tree member of its own pair), and about 9 GB when a few per
+cent of a slab's rows are. No array of a slab's length is held beyond the column block,
+the mapped labels and the cross-tree contributions above, and no tree x
+snapshot matrix.
 """
 
 import os
@@ -163,19 +190,62 @@ def in_sorted(haystack: np.ndarray, needles: np.ndarray) -> np.ndarray:
 # ---- bounded reads of the named forests' rows ------------------------------------
 
 
+class ReadMeter:
+    """Bytes of ``/halos`` columns read, per column: the arrays the dataset
+    returned, which is what the census asked HDF5 for (HDF5 reads whole
+    chunks, so the device may move more)."""
+
+    def __init__(self):
+        self.per_column: Dict[str, int] = {}
+
+    def add(self, columns: Dict[str, np.ndarray]) -> None:
+        for name, values in columns.items():
+            self.per_column[name] = self.per_column.get(name, 0) + int(values.nbytes)
+
+    @property
+    def total(self) -> int:
+        return sum(self.per_column.values())
+
+    def record(self, formula: str) -> Dict:
+        return {
+            "formula": formula,
+            "bytes_read": self.total,
+            "per_column": dict(sorted(self.per_column.items())),
+        }
+
+
+def read_span(
+    dataset: HorizontalDataset,
+    snap: int,
+    names: Sequence[str],
+    start: int,
+    stop: int,
+    meter: Optional[ReadMeter] = None,
+) -> Dict[str, np.ndarray]:
+    """:meth:`HorizontalDataset.read_rows`, metered."""
+    columns = dataset.read_rows(snap, names, start, stop) if names else {}
+    if meter is not None:
+        meter.add(columns)
+    return columns
+
+
 def iter_forest_rows(
     dataset: HorizontalDataset,
     snap: int,
     forests: np.ndarray,
     names: Sequence[str],
     block_rows: int = DEFAULT_BLOCK_ROWS,
+    meter: Optional[ReadMeter] = None,
 ) -> Iterator[Tuple[np.ndarray, Dict[str, np.ndarray]]]:
     """Yield ``(rows, {name: values})`` for the rows of one slab whose
     ``ForestIndex`` is in ``forests`` (ascending), block by block: the
     ``ForestIndex`` block is read whole, the named columns only over the span
-    of the block's matching rows. ``ForestIndex`` is always among the values."""
+    of the block's matching rows. ``ForestIndex`` is always among the values.
+    Every byte read is added to ``meter`` when one is given."""
     forests = np.asarray(forests, dtype=np.int64)
     for start, block in dataset.iter_column(snap, "ForestIndex", block_rows):
+        if meter is not None:
+            meter.add({"ForestIndex": block})
         if forests.size == 1:
             picked = np.flatnonzero(block == forests[0])
         else:
@@ -183,34 +253,10 @@ def iter_forest_rows(
         if picked.size == 0:
             continue
         low, high = int(picked[0]), int(picked[-1]) + 1
-        columns = dataset.read_rows(snap, names, start + low, start + high) if names else {}
+        columns = read_span(dataset, snap, names, start + low, start + high, meter)
         values = {name: columns[name][picked - low] for name in names}
         values["ForestIndex"] = block[picked].astype(np.int64, copy=False)
         yield start + picked.astype(np.int64), values
-
-
-def read_at(
-    dataset: HorizontalDataset,
-    snap: int,
-    name: str,
-    rows: np.ndarray,
-    block_rows: int = DEFAULT_BLOCK_ROWS,
-) -> np.ndarray:
-    """One column's values at ``rows`` (ascending, unique) of one slab, read in
-    windows of at most ``block_rows`` rows that each start at a wanted row."""
-    rows = np.asarray(rows, dtype=np.int64)
-    parts = []
-    at = 0
-    while at < rows.size:
-        start = int(rows[at])
-        end = int(np.searchsorted(rows, start + block_rows, "left"))
-        segment = rows[at:end]
-        values = dataset.read_rows(snap, (name,), start, int(segment[-1]) + 1)[name]
-        parts.append(values[segment - start])
-        at = end
-    if not parts:
-        return np.zeros(0, dtype=np.int64)
-    return np.concatenate(parts)
 
 
 def check_central_rows(central: np.ndarray, n_rows: int, path) -> np.ndarray:
@@ -254,10 +300,15 @@ def check_label_forests(
 # ---- per-slab edge lists ------------------------------------------------------
 
 
-def reduce_contributions(keys: np.ndarray, mass: np.ndarray) -> np.ndarray:
+def reduce_contributions(key_parts: List[np.ndarray], mass_parts: List[np.ndarray]) -> np.ndarray:
     """Pairs from per-member ``(key, mass)`` contributions in row order: one
     :data:`EDGE_DTYPE` record per distinct key, ascending, its members counted
-    and their masses added in row order."""
+    and their masses (float32, widened here) summed in float64 in row order
+    with ``np.add.reduceat``. The two part lists are emptied as they are
+    concatenated, and each array is released as soon as its sorted copy
+    exists, so the peak is about 35 B per member (module docstring)."""
+    keys = drain(key_parts)
+    mass = drain(mass_parts)
     if keys.size == 0:
         return np.zeros(0, dtype=EDGE_DTYPE)
     order = np.argsort(keys, kind="stable")
@@ -270,7 +321,8 @@ def reduce_contributions(keys: np.ndarray, mass: np.ndarray) -> np.ndarray:
     edges["lo"] = first >> _KEY_SHIFT
     edges["hi"] = first & ((1 << _KEY_SHIFT) - 1)
     edges["halos"] = np.diff(np.r_[starts, keys.size])
-    edges["mass"] = np.add.reduceat(mass, starts)
+    del keys, first
+    edges["mass"] = np.add.reduceat(mass.astype(np.float64), starts)
     return edges
 
 
@@ -281,6 +333,7 @@ def slab_edges(
     tree_forest: np.ndarray,
     forests: np.ndarray,
     block_rows: int = DEFAULT_BLOCK_ROWS,
+    meter: Optional[ReadMeter] = None,
 ) -> Tuple[np.ndarray, int]:
     """One slab's pairs and its cross-tree member count (module docstring)."""
     path = dataset.snapshot_path(snap)
@@ -288,7 +341,7 @@ def slab_edges(
     key_parts: List[np.ndarray] = []
     mass_parts: List[np.ndarray] = []
     for rows, values in iter_forest_rows(
-        dataset, snap, forests, ("FirstHaloInFOFgroup", MASS_COLUMN), block_rows
+        dataset, snap, forests, ("FirstHaloInFOFgroup", MASS_COLUMN), block_rows, meter
     ):
         central = check_central_rows(values["FirstHaloInFOFgroup"], n_rows, path)
         own = np.asarray(labels[rows], dtype=np.int64)
@@ -299,14 +352,18 @@ def slab_edges(
             continue
         own, host = own[cross], host[cross]
         key_parts.append(pair_keys(np.minimum(own, host), np.maximum(own, host)))
-        mass_parts.append(values[MASS_COLUMN][cross].astype(np.float64))
+        mass_parts.append(values[MASS_COLUMN][cross].astype(np.float32))
     if not key_parts:
         return np.zeros(0, dtype=EDGE_DTYPE), 0
-    keys = np.concatenate(key_parts)
-    del key_parts
-    mass = np.concatenate(mass_parts)
-    del mass_parts
-    return reduce_contributions(keys, mass), int(keys.size)
+    members = sum(part.size for part in key_parts)
+    return reduce_contributions(key_parts, mass_parts), members
+
+
+def drain(parts: List[np.ndarray]) -> np.ndarray:
+    """Concatenate ``parts`` and empty the list, so the parts can be released."""
+    whole = np.concatenate(parts) if parts else np.zeros(0, dtype=np.int64)
+    parts.clear()
+    return whole
 
 
 # ---- the external merge -------------------------------------------------------
@@ -576,9 +633,16 @@ def run_graph(
 
     per_snapshot = []
     edge_bytes = edges_total = 0
+    meter = ReadMeter()
     for snap in dataset.snapshots:
         edges, members = slab_edges(
-            dataset, snap, load_labels(aggregate_dir, snap), tree_forest, forests, block_rows
+            dataset,
+            snap,
+            load_labels(aggregate_dir, snap),
+            tree_forest,
+            forests,
+            block_rows,
+            meter,
         )
         edge_bytes += save_array(edge_path(aggregate_dir, snap), edges)
         edges_total += int(edges.size)
@@ -610,7 +674,12 @@ def run_graph(
         "forests": [int(f) for f in forests],
         "mass_column": MASS_COLUMN,
         "mass_note": "pair masses sum M_Crit200, native float32 Mvir in Msun/h for a "
-        "Consistent-Trees-derived dataset",
+        "Consistent-Trees-derived dataset, with np.add.reduceat in row order: deterministic "
+        "for a fixed NumPy build; an m threshold exactly on a sum is not portable across builds",
+        "io": meter.record(
+            "8 B x n_halos(s) of ForestIndex plus (link width + 4 B) x the named forests' row "
+            "span(s) of FirstHaloInFOFgroup and M_Crit200, summed over slabs"
+        ),
         "n_forest_trees": int(forest_trees.size),
         "per_snapshot": per_snapshot,
         "pairs": {

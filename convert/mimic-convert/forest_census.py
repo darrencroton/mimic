@@ -281,6 +281,9 @@ def cmd_cut(args: argparse.Namespace) -> int:
     prepare_cut(dataset, args.aggregate, rules, materialise)
     _log("cut: loading {} and {}".format(args.forests_list, args.locations))
     index = SourceIndex.load(args.forests_list, args.locations)
+    # the cut needs only the roots and their forest ids: release the locations columns
+    index_roots, index_forest_ids = index.tree_roots, index.forest_ids
+    del index
     index_files = {"note": "md5 computed once per cut run"}
     for name, path in (("forests_list", args.forests_list), ("locations", args.locations)):
         _log("cut: md5 of {}".format(path))
@@ -292,7 +295,8 @@ def cmd_cut(args: argparse.Namespace) -> int:
     summary = run_cut(
         dataset,
         args.aggregate,
-        index,
+        index_roots,
+        index_forest_ids,
         index_files,
         rules,
         materialise,

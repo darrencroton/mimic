@@ -10,6 +10,8 @@ record (``census/graph.py``): it keeps the edge between two trees iff
 where any of the three may be unbounded (``None``, written ``any``). A rule is
 named by its thresholds, ``d=<d>,h=<h>,m=<m>``, in every output: the name is
 the directory its results are written under and the key every summary uses.
+``m`` is written as the shortest decimal that reads back as the same float,
+so the name is lossless (``parse_rule(rule.name) == rule``).
 The rule with all three unbounded keeps every edge; its components are the
 complete effective graph's (:data:`COMPLETE`).
 
@@ -49,7 +51,9 @@ UNBOUNDED = "any"
 
 
 def _format_mass(value: float) -> str:
-    return format(float(value), "g")
+    """The shortest decimal that reads back as exactly ``value`` (``repr``), so
+    distinct thresholds never share a name and ``parse_rule(rule.name) == rule``."""
+    return repr(float(value))
 
 
 @dataclass(frozen=True)

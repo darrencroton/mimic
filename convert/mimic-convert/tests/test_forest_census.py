@@ -1083,7 +1083,7 @@ class TestRules(unittest.TestCase):
 
     def test_names_and_parsing(self):
         self.assertEqual(rules.COMPLETE.name, "d=any,h=any,m=any")
-        self.assertEqual(rules.parse_rule("m=1e12, d=5").name, "d=5,h=any,m=1e+12")
+        self.assertEqual(rules.parse_rule("m=1e12, d=5").name, "d=5,h=any,m=1000000000000.0")
         self.assertEqual(rules.parse_rule("d=5,h=2,m=any"), rules.Rule(5, 2, None))
         self.assertEqual(
             rules.parse_rule("h=3").record(),
@@ -1100,6 +1100,18 @@ class TestRules(unittest.TestCase):
         ):
             with self.assertRaisesRegex(ConverterError, message):
                 rules.parse_rule(text)
+
+    def test_names_are_lossless(self):
+        self.assertNotEqual(rules.parse_rule("m=1234567").name, rules.parse_rule("m=1234568").name)
+        generator = np.random.default_rng(8)
+        masses = np.concatenate(
+            [generator.random(200) * 10.0 ** generator.integers(-5, 16, 200), [0.1, 1e300, -2.5]]
+        )
+        for mass in masses.tolist():
+            rule = rules.Rule(3, None, mass)
+            self.assertEqual(rules.parse_rule(rule.name), rule, rule.name)
+        for rule in (rules.COMPLETE, rules.Rule(0, 7, None), rules.Rule(None, None, 0.0)):
+            self.assertEqual(rules.parse_rule(rule.name), rule)
 
     def test_union_find_agrees_with_a_sequential_one(self):
         generator = np.random.default_rng(20261008)
@@ -1120,6 +1132,55 @@ class TestRules(unittest.TestCase):
             rules.union_find(2, lambda: iter([(np.array([0]), np.array([2]))]))
 
 
+class TestChains(unittest.TestCase):
+    """The vectorised chain positions against the reference insertion loop."""
+
+    def random_groups(self, generator, n_groups):
+        sizes = generator.integers(1, 7, n_groups)
+        groups = np.repeat(np.arange(n_groups) * 3 + 11, sizes)
+        n = groups.size
+        # few distinct masses, so equal masses and ties at the head are common
+        mass = generator.integers(0, 4, n).astype(np.float32) * np.float32(1.5e11)
+        upid = generator.integers(0, 50, n)
+        pid = np.where(generator.random(n) < 0.5, -1, upid)
+        ids = generator.permutation(n) + 1000
+        shuffle = generator.permutation(n)
+        return groups[shuffle], upid[shuffle], pid[shuffle], ids[shuffle], mass[shuffle]
+
+    def test_positions_equal_the_insertion_loop(self):
+        generator = np.random.default_rng(2026)
+        for n_groups in (1, 5, 400):
+            groups, upid, pid, ids, mass = self.random_groups(generator, n_groups)
+            positions = cut.chain_positions(groups, upid, pid, ids, mass)
+            for group in np.unique(groups):
+                members = np.flatnonzero(groups == group)
+                encounter = members[np.lexsort((ids[members], pid[members], upid[members]))]
+                expected = cut.chain_order(encounter, mass)
+                got = members[np.argsort(positions[members])].tolist()
+                self.assertEqual(got, expected, group)
+                self.assertEqual(sorted(positions[members].tolist()), list(range(members.size)))
+        self.assertEqual(cut.chain_positions([], [], [], [], np.zeros(0)).size, 0)
+
+    def test_the_stored_chain_check(self):
+        generator = np.random.default_rng(7)
+        groups, upid, pid, ids, mass = self.random_groups(generator, 300)
+        rows = generator.permutation(groups.size) * 2 + 5
+        positions = cut.chain_positions(groups, upid, pid, ids, mass)
+        next_rows = np.full(groups.size, -1, dtype=np.int64)
+        for group in np.unique(groups):
+            members = np.flatnonzero(groups == group)
+            chain = members[np.argsort(positions[members])]
+            next_rows[chain[:-1]] = rows[chain[1:]]
+        self.assertEqual(cut.stored_chain_mismatches(groups, rows, next_rows, positions).size, 0)
+        # break one link of a group with two or more progenitors
+        broken = next_rows.copy()
+        linked = np.flatnonzero(broken != -1)[0]
+        broken[linked] = -1
+        np.testing.assert_array_equal(
+            cut.stored_chain_mismatches(groups, rows, broken, positions), [groups[linked]]
+        )
+
+
 class TestCutTableInvariants(unittest.TestCase):
     """Index: roots 10, 11, 12 in forest 1 and 20, 21 in forest 2 (maximum 2);
     totals 5, 1, 2, 3, 1. The valid table cuts 12 (2 halos) and 21 (1 halo)
@@ -1136,6 +1197,7 @@ class TestCutTableInvariants(unittest.TestCase):
 
     def check(self, ids, roots=None, totals=TOTALS):
         roots = self.ROOTS if roots is None else np.asarray(roots, dtype=np.int64)
+        totals = self.TOTALS if totals is None else totals
         return cut_table.check_table(
             roots, np.asarray(ids, dtype=np.int64), self.ROOTS, self.FORESTS, totals
         )
@@ -1166,10 +1228,6 @@ class TestCutTableInvariants(unittest.TestCase):
         for ids, roots, message in cases:
             with self.assertRaisesRegex(ConverterError, message):
                 self.check(ids, roots)
-        # without the totals the naming order is not checked, the rest is
-        self.check([3, 3, 1, 2, 4], totals=None)
-        with self.assertRaisesRegex(ConverterError, "mix trees"):
-            self.check([1, 1, 3, 2, 3], totals=None)
 
     def test_written_tables_are_checked_on_read(self):
         path = self.tmp / "forests.list"
@@ -1183,11 +1241,38 @@ class TestCutTableInvariants(unittest.TestCase):
         malformed = self.tmp / "malformed.list"
         malformed.write_text("#TreeRootID ForestID\n10 1\n11 1 7\n")
         with self.assertRaisesRegex(ConverterError, "malformed cut table"):
-            cut_table.read_cut_table(malformed, self.ROOTS, self.FORESTS)
-        mixing = self.tmp / "mixing.list"
-        cut_table.write_table(mixing, self.ROOTS, np.array([1, 1, 3, 2, 3]))
-        with self.assertRaisesRegex(ConverterError, "mixing.list: 1 piece\\(s\\) mix"):
-            cut_table.read_cut_table(mixing, self.ROOTS, self.FORESTS)
+            cut_table.read_cut_table(malformed, self.ROOTS, self.FORESTS, self.TOTALS)
+        for name, ids, message in (
+            ("mixing", [1, 1, 3, 2, 3], "1 piece\\(s\\) mix"),
+            # forest 1's id given to its smaller piece {12} (2 halos), not {10, 11} (6)
+            ("smaller", [3, 3, 1, 2, 4], "not kept by their largest piece \\(e.g. forest 1\\)"),
+            # fresh ids out of size order: {21} (1 halo) before {12} (2 halos)
+            ("order", [1, 1, 4, 2, 3], "fresh ids do not follow descending piece size"),
+        ):
+            path = self.tmp / (name + ".list")
+            cut_table.write_table(path, self.ROOTS, np.array(ids))
+            with self.assertRaisesRegex(ConverterError, name + ".list: .*" + message):
+                cut_table.read_cut_table(path, self.ROOTS, self.FORESTS, self.TOTALS)
+        # the halo totals are a required argument of the reader
+        with self.assertRaises(TypeError):
+            cut_table.read_cut_table(path, self.ROOTS, self.FORESTS)
+
+    def test_the_record_streams_its_piece_columns(self):
+        pieces = {
+            name: np.arange(5, dtype=np.int64)[::-1] + offset
+            for offset, name in enumerate(cut_table.RECORD_COLUMNS)
+        }
+        path = self.tmp / "record.json"
+        header = {"rule": {"name": "d=2,h=any,m=any"}, "table": {"md5": "x"}}
+        with mock.patch.object(cut_table, "RECORD_CHUNK", 2):
+            size = cut_table.write_table_record(path, header, pieces)
+        self.assertEqual(size, path.stat().st_size)
+        record = aggregate.read_json(path)
+        self.assertEqual(record["rule"], header["rule"])
+        self.assertEqual(record["pieces"]["id"], [0, 1, 2, 3, 4])
+        self.assertEqual(record["pieces"]["peak_snapshot"], [5, 6, 7, 8, 9])
+        with self.assertRaisesRegex(ConverterError, "may not carry its own pieces"):
+            cut_table.write_table_record(path, {"pieces": []}, pieces)
 
     def test_naming_and_the_tie_rule(self):
         # forest 0 (id 7): trees 0..2 as components {0, 1} (4 halos) and {2} (4
@@ -1240,7 +1325,8 @@ class TestGraphAndCut(unittest.TestCase):
             cut.run_cut,
             cls.dataset,
             cls.agg,
-            cls.index,
+            cls.index.tree_roots,
+            cls.index.forest_ids,
             cls.index_files(),
             cls.rules,
             [cls.rules[0]],
@@ -1265,6 +1351,10 @@ class TestGraphAndCut(unittest.TestCase):
             trees.load_parsed_counts(cls.paths["preparation_manifest"]),
             block_rows,
         )
+
+    @classmethod
+    def index_arrays(cls):
+        return cls.index.tree_roots, cls.index.forest_ids
 
     @classmethod
     def index_files(cls):
@@ -1494,6 +1584,7 @@ class TestGraphAndCut(unittest.TestCase):
         self.assertEqual(record["dataset"], self.dataset.identity())
         self.assertEqual(record["rule"], self.rules[0].record())
         self.assertEqual(record["table"], table)
+        self.assertEqual(record["forests"]["forest_id"], [1500, 2000])
         self.assertEqual(
             record["index_files"]["forests_list"]["md5"],
             cut_table.md5_file(self.paths["forests_list"]),
@@ -1516,10 +1607,12 @@ class TestGraphAndCut(unittest.TestCase):
         run_quietly(graph.run_graph, self.dataset, other, [0])
         complete = rules.parse_rule("d=any")
         summary = run_quietly(
-            cut.run_cut, self.dataset, other, self.index, {}, [complete], [complete]
+            cut.run_cut, self.dataset, other, *self.index_arrays(), {}, [complete], [complete]
         )
         table = Path(self.rule_summary(complete.name, summary)["table"]["path"])
-        roots, ids = cut_table.read_cut_table(table, self.index.tree_roots, self.index.forest_ids)
+        roots, ids = cut_table.read_cut_table(
+            table, *self.index_arrays(), np.load(trees.trees_dir(other) / "tree_totals.npy")
+        )
         np.testing.assert_array_equal(ids, self.index.forest_ids)
         self.assertEqual(self.rule_summary(complete.name, summary)["pieces"]["fresh"], 0)
 
@@ -1531,7 +1624,7 @@ class TestGraphAndCut(unittest.TestCase):
             cut.run_cut,
             self.dataset,
             other,
-            self.index,
+            *self.index_arrays(),
             self.index_files(),
             self.rules,
             [self.rules[0]],
@@ -1612,6 +1705,61 @@ class TestGraphAndCut(unittest.TestCase):
         with self.assertRaisesRegex(ConverterError, "run trees first"):
             graph.run_graph(self.dataset, self.tmp / "agg_empty")
 
+    def test_bytes_read_are_measured(self):
+        # every row belongs to the two named forests: version 3 links are int64
+        halos = self.dataset.total_halos
+        self.assertEqual(
+            self.graph["io"]["per_column"],
+            {"FirstHaloInFOFgroup": 8 * halos, "ForestIndex": 8 * halos, "M_Crit200": 4 * halos},
+        )
+        read = self.cut["io"]["per_column"]
+        for name in ("ForestIndex", "FirstHaloInFOFgroup", "Descendant"):
+            self.assertEqual(read[name], 8 * halos, name)
+        # retained rows lie only in the slabs with a severed edge, 3 and 4 (3 + 8 rows)
+        for name, width in (("MostBoundID", 8), ("M_Crit200", 4), ("NextProgenitor", 8)):
+            self.assertTrue(0 < read[name] <= width * (3 + 8), name)
+        self.assertEqual(self.cut["io"]["bytes_read"], sum(read.values()))
+
+    def test_index_files_reassigning_a_root_are_refused(self):
+        other = self.tmp / "agg_reassigned"
+        self.prepare(other)
+        run_quietly(graph.run_graph, self.dataset, other, [0])
+        # root 2400 lies outside the selected forest 1500; move it to forest 1500
+        replaced = self.tmp / "reassigned.list"
+        replaced.write_text(
+            self.paths["forests_list"].read_text().replace("2400 2000", "2400 1500")
+        )
+        arguments = ["cut", "--dataset", str(self.paths["dataset"]), "--aggregate", str(other)]
+        arguments += ["--forests-list", str(replaced), "--locations", str(self.paths["locations"])]
+        with capture_stderr() as captured:
+            status = forest_census.main(arguments + ["--rule", "d=2", "--materialise", "d=2"])
+        self.assertEqual(status, 2)
+        self.assertIn("give 1 tree root(s) a forest other than the dataset's", captured.text)
+        self.assertIn("[2400]", captured.text)
+        self.assertFalse(cut.cut_dir(other).exists())
+
+    def test_outputs_of_an_earlier_run_are_refused(self):
+        other = self.tmp / "agg_stale_rules"
+        self.prepare(other)
+        run_quietly(graph.run_graph, self.dataset, other, [0, 1])
+        d2, m = self.rules[0], self.rules[1]
+        run_quietly(cut.run_cut, self.dataset, other, *self.index_arrays(), {}, [d2], [d2])
+        record = aggregate.read_json(cut.rule_dir(other, d2) / "record.json")
+        self.assertEqual(
+            record["forests"],
+            {"forest_index": [0, 1], "forest_id": [1500, 2000], "graph_forests": [0, 1]},
+        )
+        before = sorted(path.name for path in cut.cut_dir(other).rglob("*"))
+        for rules_now, materialise, stale in (
+            ([m], [], "d=2,h=any,m=any"),
+            ([d2], [], "d=2,h=any,m=any/forests.list"),
+        ):
+            with self.assertRaisesRegex(ConverterError, "would not rewrite.*" + stale):
+                cut.run_cut(self.dataset, other, *self.index_arrays(), {}, rules_now, materialise)
+        self.assertEqual(sorted(path.name for path in cut.cut_dir(other).rglob("*")), before)
+        # the same run again rewrites exactly its own outputs
+        run_quietly(cut.run_cut, self.dataset, other, *self.index_arrays(), {}, [d2], [d2])
+
     def test_a_stale_edge_list_is_refused(self):
         other = self.tmp / "agg_stale"
         self.prepare(other)
@@ -1619,7 +1767,153 @@ class TestGraphAndCut(unittest.TestCase):
         edges = graph.load_slab_edges(other, 4, mmap=False)
         aggregate.save_array(graph.edge_path(other, 4), edges[1:])
         with self.assertRaisesRegex(ConverterError, "edge list predicts 1; the graph aggregates"):
-            cut.run_cut(self.dataset, other, self.index, {}, [self.rules[0]])
+            cut.run_cut(self.dataset, other, *self.index_arrays(), {}, [self.rules[0]])
+
+
+def splitting_forest():
+    """Forest 3000: at snapshot 4, central 3101 (tree 3100) hosts 3201 and 3202
+    (tree 3200) and 3301 (tree 3300); each tree's root is a central at 5."""
+    r = fixtures.TreeSpec(
+        root_id=3100,
+        halos=[
+            fixtures.HaloSpec(halo_id=3100, snap=5, mvir=4.0e12, num_prog=1),
+            fixtures.HaloSpec(halo_id=3101, snap=4, mvir=3.0e12, desc_id=3100),
+        ],
+    )
+    s = fixtures.TreeSpec(
+        root_id=3200,
+        halos=[
+            fixtures.HaloSpec(halo_id=3200, snap=5, mvir=9.0e11, num_prog=2),
+            fixtures.HaloSpec(halo_id=3201, snap=4, mvir=2.0e11, desc_id=3200, pid=3101, upid=3101),
+            fixtures.HaloSpec(halo_id=3202, snap=4, mvir=4.0e11, desc_id=3200, pid=3101, upid=3101),
+        ],
+    )
+    u = fixtures.TreeSpec(
+        root_id=3300,
+        halos=[
+            fixtures.HaloSpec(halo_id=3300, snap=5, mvir=5.0e11, num_prog=1),
+            fixtures.HaloSpec(halo_id=3301, snap=4, mvir=3.0e11, desc_id=3300, pid=3101, upid=3101),
+        ],
+    )
+    return fixtures.ForestSpec(forest_id=3000, trees=[r, s, u])
+
+
+class TestGroupSplitting(unittest.TestCase):
+    """One group losing members to two pieces: the group, remnant and
+    several-member remnant counts differ."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp(prefix="census_split_"))
+        forests = [splitting_forest()]
+        cls.paths = convert_ascii(cls.tmp / "source", [fixtures.all_trees(forests)], forests)
+        cls.dataset = HorizontalDataset(cls.paths["dataset"])
+        index = SourceIndex.load(cls.paths["forests_list"], cls.paths["locations"])
+        cls.agg = cls.tmp / "agg"
+        run_quietly(occupancy.run_occupancy, cls.dataset, cls.agg)
+        run_quietly(trees.run_trees, cls.dataset, cls.agg, index)
+        run_quietly(graph.run_graph, cls.dataset, cls.agg)
+        cls.summary = run_quietly(
+            cut.run_cut,
+            cls.dataset,
+            cls.agg,
+            index.tree_roots,
+            index.forest_ids,
+            {},
+            [rules.parse_rule("d=2"), rules.parse_rule("h=2")],
+        )
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def severance(self, name):
+        entry = next(r for r in self.summary["rules"] if r["rule"]["name"] == name)
+        return entry["severance"]
+
+    def test_one_group_two_remnants_one_with_several_members(self):
+        # d=2 drops (3100, 3200) and (3100, 3300): three pieces
+        severance = self.severance("d=2,h=any,m=any")
+        self.assertEqual(severance["promoted_halos"], 3)
+        self.assertEqual(severance["groups_losing_members"], 1)
+        self.assertEqual(severance["groups_central_leaves_members_stay"], 2)
+        self.assertEqual(severance["remnants_with_several_members"], 1)
+        for name in (
+            "groups_losing_members",
+            "groups_central_leaves_members_stay",
+            "remnants_with_several_members",
+        ):
+            self.assertIn(name, severance["definitions"])
+
+    def test_a_split_keeping_one_tree(self):
+        # h=2 keeps (3100, 3200) (two members) and drops (3100, 3300)
+        severance = self.severance("d=any,h=2,m=any")
+        self.assertEqual(severance["promoted_halos"], 1)
+        self.assertEqual(severance["groups_losing_members"], 1)
+        self.assertEqual(severance["groups_central_leaves_members_stay"], 1)
+        self.assertEqual(severance["remnants_with_several_members"], 0)
+
+
+class TestVersion2EndToEnd(unittest.TestCase):
+    """occupancy, trees, graph and cut on the committed version 2 fixture, with
+    index files written from its census roots, and a table read back."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="census_v2_cut_"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def write_index(self, dataset):
+        probe = self.tmp / "probe"
+        run_quietly(trees.run_trees, dataset, probe)
+        roots = trees.load_roots(probe)
+        tree_forest = np.load(trees.trees_dir(probe) / "tree_forest.npy")
+        forest_ids = dataset.forest_ids()[tree_forest]
+        forests_list = self.tmp / "forests.list"
+        forests_list.write_text(
+            "#TreeRootID ForestID\n"
+            + "".join("{} {}\n".format(r, f) for r, f in zip(roots.tolist(), forest_ids.tolist()))
+        )
+        locations = self.tmp / "locations.dat"
+        locations.write_text(
+            "#TreeRootID FileID Offset Filename\n"
+            + "".join("{} 0 {} tree_0.dat\n".format(r, 100 * at) for at, r in enumerate(roots))
+        )
+        return forests_list, locations
+
+    def test_the_census_runs_end_to_end(self):
+        dataset = HorizontalDataset(GENERIC_V2)
+        forests_list, locations = self.write_index(dataset)
+        agg = str(self.tmp / "agg")
+        base = ["--dataset", str(GENERIC_V2), "--aggregate", agg]
+        index = ["--forests-list", str(forests_list), "--locations", str(locations)]
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout), capture_stderr() as captured:
+            for arguments in (
+                ["occupancy"] + base,
+                ["trees"] + base + index,
+                ["graph"] + base,
+                ["cut"]
+                + base
+                + index
+                + ["--rule", "d=2", "--rule", "d=any"]
+                + ["--materialise", "d=2", "--materialise", "d=any"],
+            ):
+                self.assertEqual(forest_census.main(arguments), 0, captured.text)
+        self.assertIn("root correspondence: pass", stdout.getvalue())
+        summary = aggregate.read_json(Path(agg) / "cut" / "summary.json")
+        self.assertEqual(summary["stored_chain_check"]["mismatches"], 0)
+        roots = trees.load_roots(agg)
+        totals = np.load(trees.trees_dir(agg) / "tree_totals.npy")
+        sidecar = dataset.forest_ids()[np.load(trees.trees_dir(agg) / "tree_forest.npy")]
+        for entry in summary["rules"]:
+            table = Path(entry["table"]["path"])
+            self.assertEqual(entry["table"]["md5"], cut_table.md5_file(table))
+            got_roots, ids = cut_table.read_cut_table(table, roots, sidecar, totals)
+            np.testing.assert_array_equal(got_roots, roots)
+            np.testing.assert_array_equal(
+                ids[np.load(graph.graph_dir(agg) / "forest_trees.npy")],
+                cut.load_assignment(agg, rules.parse_rule(entry["rule"]["name"])),
+            )
 
 
 class TestCutWithoutCorrespondence(unittest.TestCase):
@@ -1642,14 +1936,15 @@ class TestCutWithoutCorrespondence(unittest.TestCase):
     def tearDownClass(cls):
         shutil.rmtree(cls.tmp, ignore_errors=True)
 
-    def test_a_table_needs_a_passed_correspondence(self):
+    def test_index_files_that_do_not_describe_the_census_are_refused(self):
         rule = rules.parse_rule("d=2")
+        index = (self.index.tree_roots, self.index.forest_ids)
         with self.assertRaisesRegex(ConverterError, "verdict is 'fail'; a cut table is written"):
-            cut.run_cut(self.dataset, self.agg, self.index, {}, [rule], [rule])
+            cut.run_cut(self.dataset, self.agg, *index, {}, [rule], [rule])
+        # exploring needs the index files to describe the census as well
+        with self.assertRaisesRegex(ConverterError, "do not list this census's tree roots"):
+            cut.run_cut(self.dataset, self.agg, *index, {}, [rule])
         self.assertFalse(cut.cut_dir(self.agg).exists())
-        summary = run_quietly(cut.run_cut, self.dataset, self.agg, self.index, {}, [rule])
-        self.assertEqual(summary["root_correspondence"], "fail")
-        self.assertIsNone(summary["rules"][0]["table"])
 
     def test_the_graph_runs_on_version_2(self):
         tmp = self.tmp / "v2"
