@@ -1,4 +1,4 @@
-# micro-Uchuu (from Consistent-Trees ASCII) Simulation Metadata — horizontal HDF5 format version 2
+# micro-Uchuu (from Consistent-Trees ASCII) Simulation Metadata — horizontal HDF5 format version 3
 #
 # `snapshots/` is a symlink to your local copy of the converted dataset
 # directory: 50 `snapshot_NNN.h5` files plus the `forests.h5` sidecar, produced

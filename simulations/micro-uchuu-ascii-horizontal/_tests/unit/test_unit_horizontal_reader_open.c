@@ -1640,21 +1640,22 @@ static int corrupt_first_progenitor_in_snapshot_zero(const char *dir) {
 
 static const struct link_case LINK_CASES[] = {
     {"FirstProgenitor outside [-1, n_halos(N-1))", corrupt_first_progenitor_range, 4,
-     "snapshot_004.h5", "'FirstProgenitor' is 5 at halo 0, outside -1 or [0, 1)"},
+     "snapshot_004.h5", "'FirstProgenitor' is 5 at snapshot row 0, outside -1 or [0, 1)"},
     {"NextProgenitor outside [-1, n_halos(N))", corrupt_next_progenitor_range, 4, "snapshot_004.h5",
-     "'NextProgenitor' is 6 at halo 0, outside -1 or [0, 6)"},
+     "'NextProgenitor' is 6 at snapshot row 0, outside -1 or [0, 6)"},
     {"FirstHaloInFOFgroup outside [0, n_halos(N))", corrupt_first_fof_range, 4, "snapshot_004.h5",
-     "'FirstHaloInFOFgroup' is 6 at halo 0, outside [0, 6)"},
+     "'FirstHaloInFOFgroup' is 6 at snapshot row 0, outside [0, 6)"},
     {"FirstHaloInFOFgroup of -1", corrupt_first_fof_null, 4, "snapshot_004.h5",
-     "'FirstHaloInFOFgroup' is -1 at halo 0, outside [0, 6)"},
+     "'FirstHaloInFOFgroup' is -1 at snapshot row 0, outside [0, 6)"},
     {"NextHaloInFOFgroup outside [-1, n_halos(N))", corrupt_next_fof_range, 4, "snapshot_004.h5",
-     "'NextHaloInFOFgroup' is 9 at halo 1, outside -1 or [0, 6)"},
+     "'NextHaloInFOFgroup' is 9 at snapshot row 1, outside -1 or [0, 6)"},
     {"Descendant outside [-1, n_halos(N+1))", corrupt_descendant_range, 4, "snapshot_004.h5",
-     "'Descendant' is 4 at halo 0, outside -1 or [0, 4)"},
+     "'Descendant' is 4 at snapshot row 0, outside -1 or [0, 4)"},
     {"non-null Descendant in the final snapshot", corrupt_descendant_in_final_snapshot,
-     FIXTURE_SNAPSHOTS - 1, "snapshot_005.h5", "'Descendant' is 0 at halo 0, outside -1 or [0, 0)"},
+     FIXTURE_SNAPSHOTS - 1, "snapshot_005.h5",
+     "'Descendant' is 0 at snapshot row 0, outside -1 or [0, 0)"},
     {"non-null FirstProgenitor in snapshot 0", corrupt_first_progenitor_in_snapshot_zero, 0,
-     "snapshot_000.h5", "'FirstProgenitor' is 0 at halo 0, outside -1 or [0, 0)"},
+     "snapshot_000.h5", "'FirstProgenitor' is 0 at snapshot row 0, outside -1 or [0, 0)"},
 };
 #define LINK_CASE_COUNT (sizeof(LINK_CASES) / sizeof(LINK_CASES[0]))
 

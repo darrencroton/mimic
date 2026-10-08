@@ -1,0 +1,93 @@
+# Shin-Uchuu Version 3 — Acceptance Record
+
+**Status:** Started 2026-10-08 by Slice 5 of [`MIMIC-SHIN-UCHUU-V3-IMPLEMENTATION-PLAN.md`](MIMIC-SHIN-UCHUU-V3-IMPLEMENTATION-PLAN.md) (F11: one section per stage). This file records measurements; it is not a plan and makes no claim beyond the runs below. Every number here is quoted from a log named beside it; the logs live outside the repository, under `/Volumes/Internal/results/mimic/shin-uchuu-v3-stage-a/` (where `output/` resolves on this host, abbreviated `$A` below) and the LaCie conversion workdir.
+
+**Host** (`$A/logs/host.log`): macOS (Darwin 27.0.0), Mac Studio (`Mac15,14`), 32 cores, 512 GiB RAM; Open MPI 5.0.9; HDF5 1.14.6; `mimic_venv` Python 3.14.6 with h5py 3.15.1 and numpy 2.3.4.
+
+---
+
+## Stage A — micro-Uchuu on the forest-blocked ASCII route
+
+**Code under test.** The conversion, the C dump and both harness comparisons ran at converter commit `6ae714829a3b68f934e88ed1464a97532e671f27` (branch `feature/shin-uchuu-v3`, Slice 4's last commit), clean tree (`$A/logs/convert-00-provenance.log`; the harness record `$A/harness-record.json` records `git_commit` and `git_dirty_paths 0` for every entry). The parity gate, the distributed, chunked and SHAM legs ran at `2ac07bfe37fcf4c6ef8c29deb80dac4aa67a9e24`, Slice 5's first commit, which changes only the package's declarations, its tests and the new SHAM run file on top of `6ae71482` (no converter, reader or driver source). Slice 5's second commit, the child of `2ac07bfe`, touched only the package README's prose, this record, the expected-message needles of one test (`test_unit_horizontal_reader_open.c`'s eight link cases) and one comment line of the package's `simulation_info.yaml`, none of which any run above reads, so no leg was re-run at it. At that commit `make MODEL=halos-only SIMULATION=micro-uchuu-ascii-horizontal tests-unit tests-integration` passed: `Unit Test Summary: passed=316 failed=0 skipped=0 n/a=18`, `Integration Test Summary: passed=116 failed=0 skipped=0 n/a=16` (`$A/logs/tiers-unit-integration-2.log`).
+
+### Conversion
+
+Source: `simulations/micro-uchuu-ascii/snapshots` → `/Volumes/Internal/data/uchuu/micro-uchuu/micro-uchuu-ascii/` (`tree_0_0_0.dat`, 11,515,537,257 bytes, 22,580,924 rows, 561,266 `#tree` markers, per `$A/logs/convert-01-inspect.log`), with the package's profile `simulations/micro-uchuu-ascii/converter_columns.yaml` (`column_mapping_sha256 727d13f529fa80305f261b933612b6087aa52ade5dde7899bb18f8f4450f8f6d`, no extra fields; `identity_scheme forest-rank`). Workdir `/Volumes/LaCie/data/uchuu/micro-uchuu/stage-a-v3-workdir` (kept, with its `manifest.json`, `configuration_sha256 417738812775f4d8f823896cbc06bb73f032674e079272462bd6c0782a631253`); battery spill `/Volumes/LaCie/data/uchuu/micro-uchuu/stage-a-v3-spill`. Default memory budget (2048 MiB), `pool_size` 1 (the adapter parameters in `$A/logs/convert-01-inspect.log`). The commands are the `convert_trees.py` sequence in the package README with `--spill-dir` added to `validate` and `report`.
+
+| Stage | Exit | Wall-clock | Peak RSS | Log |
+|---|---|---|---|---|
+| `inspect` | 0 | 55.15 s | 0.15 GB | `$A/logs/convert-01-inspect.log` |
+| `ingest` | 0 | 289.08 s | 4.52 GB | `$A/logs/convert-02-ingest.log` |
+| `transpose` | 0 | 106.14 s | 3.71 GB | `$A/logs/convert-03-transpose.log` |
+| `write` | 0 | 27.48 s | 0.88 GB | `$A/logs/convert-04-write.log` |
+| `validate` | 0 | 33.79 s | 0.71 GB | `$A/logs/convert-05-validate.log` |
+| `report` | 0 | 32.95 s | 0.77 GB | `$A/logs/convert-06-report.log` |
+
+Peak RSS is `/usr/bin/time -l`'s maximum resident set size (GB = 10⁹ B).
+
+**Dataset** (`report`, `<workdir>/conversion_report.{txt,json}`): 22,580,924 halos in 50 snapshot files, all populated; 440,651 forests; `links_adjacent 1` (measured 1), 0 gapped `Descendant` links, longest span 1; `SourceHaloID` in [1, 22,580,924]; maximum `ForestIndex` 440,650; maximum rank 350,074; largest snapshot 27 with 621,360 halos; 0 `Len == 0` halos; 3,364,750,153 bytes emitted (149.01 B/halo). Forest blocking is recorded by the report's identity conventions (`source_halo_id`: "1-based position in (ForestIndex, HaloRankInForest) order") and by its battery outcome `identity: PASS`, the check that, for an unsampled ASCII dataset, every halo's `SourceHaloID` is exactly that position (`validate_v3.py`, `_V3_POSITION_IDENTITY`).
+
+**Battery verdict** (`validate`, `$A/logs/convert-05-validate.log`): `validation: PASS`, every check PASS: file-set, object-set, sidecar-object-set, schema-binding, manifest-binding, header-values, run-scoped-headers, row-values, len-nonnegative, field-finiteness, position-bounds, link-targets, links-adjacent, topology-closure, source-key-coverage, identity, header-bounds, sidecar-content, count-conservation. `report` re-ran the battery with chain-cycles as well (20 checks, all PASS, `validation: PASS`).
+
+**Digests.** `forests.h5` SHA-256 `2addb65076291cba9831d867eae850cbed905c11340c5c71d556972a81d10203`. The 51 files' SHA-256 values are listed in `$A/logs/install-sha256-installed.txt` (that list's own SHA-256 is `73189046aff714709204debbfae0106278108bd35c355b6bf9cf60d71d572149`), and every one equals the workdir manifest's recorded `sha256` for the same `write/attempt_001/` artefact.
+
+### Harness verdicts
+
+`convert/mimic-convert/tests/run_generalisation_acceptance.py`, record `$A/harness-record.json`, child logs under `$A/logs/harness/`.
+
+| Subcommand | Verdict | Wall-clock | Peak RSS | Report |
+|---|---|---|---|---|
+| `build-dump` (`halos-only` × `micro-uchuu-ascii`) | exit 0 | 3.6 s | 0.05 GB | `$A/logs/harness-01-build-dump.log` |
+| `dump` (`--source-payload`, run file `$A/dump_run.yaml`: the committed `halos-only_micro-uchuu-ascii.yaml` with `output_format: binary` and a scratch output directory) | exit 0 | 109.4 s | 0.76 GB | `$A/micro-uchuu-ascii.dump` (3.8 GB, `$A/logs/host.log`) |
+| `compare` against the C dump | **PASS**, `failed_checks []` | 334.3 s | 0.79 GB | `$A/compare-report.json` |
+| `compare-extras` against independent extraction | **PASS**, `failed_checks []` | 91.9 s | 0.50 GB | `$A/compare-extras-report.json` |
+
+`compare` matched 22,580,924 converted rows to 22,580,924 reference rows with 0 failures in each of its 25 findings: the five links, the three target snapshots, `snapnum`, the eight payload fields and payload storage, row coverage, both duplicate checks, dump integrity, converter link encoding and targets, and **`source_halo_id` applicable and passing** ("SourceHaloID is the 1-based (ForestIndex, rank) position", 22,580,924 compared, 0 failures). `compare-extras` (the shipped zero-extras profile) matched 22,580,924 rows on the catalogue key (`SnapNum`, `MostBoundID`) with 0 failures in row coverage and both duplicate checks; `source_identity` is not applicable for ASCII by design ("its SourceHaloID binding is compare's source_halo_id finding").
+
+### Installation
+
+The dataset was installed by copying `<workdir>/write/attempt_001/{snapshot_*.h5,forests.h5}` (51 files, `cp -p`) to `/Volumes/LaCie/data/uchuu/micro-uchuu/micro-uchuu-ascii-horizontal-v3` and repointing the gitignored symlink `simulations/micro-uchuu-ascii-horizontal/snapshots` from `/Volumes/Internal/data/uchuu/micro-uchuu/micro-uchuu-ascii-horizontal` to it (`$A/logs/install-symlink.log`). The copy's SHA-256 list is byte-identical to the workdir's (`$A/logs/install-sha256-workdir.txt`, `$A/logs/install-sha256-installed.txt`).
+
+**Retained version 2 dataset (for Slice 15's G3):** `/Volumes/Internal/data/uchuu/micro-uchuu/micro-uchuu-ascii-horizontal` (50 snapshot files and `forests.h5`), untouched.
+
+### Parity gate
+
+`make MODEL=halos-only SIMULATION=micro-uchuu-ascii-horizontal tests-scientific` (log `$A/logs/gate-halos-only.log`, exit 0, 414.80 s wall-clock including the tier's own build and other scientific tests) and the same with `MODEL=sage16` (log `$A/logs/gate-sage16.log`, exit 0, 428.58 s). Both runs of the gate built every worktree at `2ac07bfe` and passed every stage. Stage 2 confirmed 50 version 3 files from `consistent_trees_ascii` with the pinned digest, `links_adjacent 1`, 22,580,924 halos, 0 gapped links, and a conversion inventory of 440,651 forests from source file 0, exactly the vertical side's. The comparator's PASSED line for each leg, from `gate-halos-only.log` (identical in `gate-sage16.log`):
+
+| Leg | Comparator line |
+|---|---|
+| `halos-only` fixed | `PASSED: 4409643 galaxies over 8 output snapshot(s) are bitwise identical in all 20 field(s), with identical UniqueGalaxyID sets and no duplicates` |
+| `halos-only` dynamic | `PASSED: 4409643 galaxies over 8 output snapshot(s) are bitwise identical in all 20 field(s), with identical UniqueGalaxyID sets and no duplicates` |
+| `sage16` fixed | `PASSED: 3112186 galaxies over 8 output snapshot(s) are bitwise identical in all 42 field(s), with identical UniqueGalaxyID sets and no duplicates` |
+| `sage16` dynamic | `PASSED: 3112152 galaxies over 8 output snapshot(s) are bitwise identical in all 42 field(s), with identical UniqueGalaxyID sets and no duplicates` |
+
+Output snapshots 7, 8, 10, 12, 16, 23, 28 and 49; the vertical side wrote 5 partition files and the horizontal side 8 in every leg (the multi-partition check). **Stage 8** (vertical-path preservation against `aedded2f`): 4,409,643 galaxy records byte-identical to the baseline; 6 HDF5 files walked, 19 excluded provenance attribute differences, the one permitted delta (`UniqueGalaxyID description`, 6 occurrences) observed and nothing else; `output_schema.json` differs in exactly `.fields[UniqueGalaxyID].description`. Each tier ended `Scientific Test Summary: passed=35 failed=0 skipped=0 n/a=0 warned=1`; the warning is the tier's generic `test_zero_values` check (two `Mvir = 0.0` halos), not a gate stage.
+
+### Distributed and chunked legs
+
+Per model, from the shipped run file `models/<model>/input/<model>_micro-uchuu-ascii-horizontal.yaml` with only `output.output_directory` changed (and `input.forest_chunks: 4` for the chunked run), at `2ac07bfe`. The serial reference is a non-MPI production build (`TEST_BUILD=no`, `USE-MPI=`), written to `archive/distributed-references/<model>-ascii/` with `COMMIT.txt` (`2ac07bfe…`, 2026-10-08), `make_info.txt` (MPI disabled), `run.log` and `time.txt`. The `-np 4` run is a `USE-MPI=yes` build under `mpirun --oversubscribe -np 4`. Each run was compared with its serial reference by `scripts/compare_cross_format_identity.py`. Logs under `$A/logs/legs/`.
+
+| Model | Run | Comparator line | Wall-clock | Peak RSS |
+|---|---|---|---|---|
+| `halos-only` | serial reference | — | 7.05 s | 5.006 GB |
+| `halos-only` | serial, `forest_chunks: 4` | `PASSED: 4409643 galaxies over 8 output snapshot(s) are bitwise identical in all 20 field(s), with identical UniqueGalaxyID sets and no duplicates` | 6.98 s | 2.500 GB |
+| `halos-only` | `-np 4` | `PASSED: 4409643 galaxies over 8 output snapshot(s) are bitwise identical in all 20 field(s), with identical UniqueGalaxyID sets and no duplicates` | 2.73 s | not measured per rank |
+| `sage16` | serial reference | — | 39.93 s | 2.475 GB |
+| `sage16` | serial, `forest_chunks: 4` | `PASSED: 3112186 galaxies over 8 output snapshot(s) are bitwise identical in all 42 field(s), with identical UniqueGalaxyID sets and no duplicates` | 38.93 s | 0.684 GB |
+| `sage16` | `-np 4` | `PASSED: 3112186 galaxies over 8 output snapshot(s) are bitwise identical in all 42 field(s), with identical UniqueGalaxyID sets and no duplicates` | 13.76 s | not measured per rank |
+
+Wall-clock and peak RSS are `/usr/bin/time -l` (`<model>-<run>-time.txt`); for `-np 4` it timed the `mpirun` launcher, so only its wall-clock is quoted. The driver's startup forest-blocking check (the scan of every slab's `ForestIndex`, which aborts with "is not forest-blocked" otherwise) passed in every distributed and chunked run; its headline, logged only after the scan of all 50 slabs:
+
+- `-np 4` (`halos-only-np4-run.log`, `sage16-np4-run.log`): `task 0: Distributed horizontal partition: 440651 forests over 4 tasks, weighted by the widest slab, snapshot 27 (621360 halos)`
+- `forest_chunks: 4` (`halos-only-chunks4-run.log`, `sage16-chunks4-run.log`): `Chunked horizontal partition: 440651 forests over 1 task in 4 chunks each, weighted by the widest slab, snapshot 27 (621360 halos)`
+
+### SHAM leg (version 2 against version 3)
+
+One `MODEL=sham SIMULATION=micro-uchuu-ascii-horizontal` non-MPI production build at `2ac07bfe` (`$A/logs/sham/make_info.txt`, `commit.txt`) ran two run files: the committed `models/sham/input/sham_micro-uchuu-ascii-horizontal-realdata.yaml` on the installed version 3 dataset, and the scratch `$A/sham/sham_micro-uchuu-ascii-horizontal-v2.yaml` (the same file with `simulation.config` set to `$A/sham/simulation_info_v2.yaml`, the package's `simulation_info.yaml` with `input.simulation_dir` set to the retained version 2 dataset, and a scratch output directory). Each run logged its dataset (`format_version 2` and `format_version 3` respectively, 440,651 forests, max rank 350,074) and the same audit line, `SHAM audit z=0.0005 candidates=74596 assigned=74596 masked=0` (`$A/logs/sham/v2-run.log`, `v3-run.log`).
+
+| Run | Wall-clock | Peak RSS |
+|---|---|---|
+| version 2 | 5.84 s | 2.241 GB |
+| version 3 | 5.93 s | 2.306 GB |
+
+Comparator (`$A/logs/sham/compare.log`, exit 0): `PASSED: 557669 galaxies over 1 output snapshot(s) are bitwise identical in all 24 field(s), with identical UniqueGalaxyID sets and no duplicates`. A module that ranks and breaks ties on `UniqueGalaxyID` therefore gives byte-identical output on the version 2 dataset and on its forest-blocked version 3 reconversion. HOD's leg waits for Slice 14's lineage comparator.
