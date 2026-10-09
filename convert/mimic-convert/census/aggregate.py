@@ -1,7 +1,8 @@
 """The census aggregate directory: identity binding and atomic writes.
 
 An aggregate directory holds one dataset's census results, one subdirectory per
-subcommand (``occupancy/``, ``trees/``, ``partition/``), beside
+subcommand (``occupancy/``, ``trees/``, ``partition/``, ``table/``, ``cut/``;
+``table-restricted/`` and ``cut-restricted/`` for a forest selection), beside
 ``identity.json``, the :meth:`horizontal_dataset.HorizontalDataset.identity`
 record of the dataset the results were computed from. The first subcommand run
 against a directory writes it; every later one compares the dataset it was
@@ -171,6 +172,24 @@ def require_summary(directory, what: str, keys: Sequence[str] = ()) -> dict:
     if not path.is_file():
         raise ConverterError("{}: no {}; run {} first".format(directory, SUMMARY_NAME, what))
     return read_record(path, keys)
+
+
+def require_completed(aggregate_dir, directory, what: str, identity: Mapping, keys=()) -> dict:
+    """A completed subcommand's summary (:func:`require_summary`), produced
+    from the dataset ``identity`` this directory is bound to.
+
+    Raises:
+        ConverterError: as :func:`require_summary`, or when the summary
+            records another dataset.
+    """
+    summary = require_summary(directory, what, tuple(keys) + ("dataset",))
+    if summary["dataset"] != json.loads(json.dumps(identity)):
+        raise ConverterError(
+            "{}: the {} summary was not produced from this directory's dataset".format(
+                aggregate_dir, what
+            )
+        )
+    return summary
 
 
 def directory_bytes(directory, pattern: Optional[str] = None) -> int:

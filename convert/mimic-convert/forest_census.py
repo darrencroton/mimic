@@ -21,7 +21,7 @@ Subcommands::
             [--forests-list FILE --locations FILE [--conversion-report JSON]]
             [--block-rows N]
         Terminal-root labels for every halo (int32 root ordinals per slab, kept
-        for the graph and the cut), per-tree totals and per-slab occupancy, the
+        for the table and the cut), per-tree totals and per-slab occupancy, the
         root correspondence with the index files and the per-file conservation
         check (census/trees.py).
 
@@ -32,24 +32,26 @@ Subcommands::
         range, with the heaviest forest as the floor (census/partition.py).
         Needs a completed ``occupancy``.
 
-    forest_census.py graph --dataset DIR --aggregate DIR [--forest-index N ...]
-            [--block-rows N]
-        The FoF co-membership graph between the named forests' trees (default:
-        the forest with the largest total): per-slab pair lists, their merge
-        into per-pair records, and the complete graph's components
-        (census/graph.py). Needs a completed ``trees``.
+    forest_census.py table --dataset DIR --aggregate DIR --forests-list FILE
+            --locations FILE [--forest-index N ...] [--block-rows N]
+        The decided cut table: every forest cut at its z = 0 FoF groups (only
+        the named forests with --forest-index), in forests.list shape with
+        its streamed JSON record (census/table.py, census/cut_table.py).
+        Refuses a census holding a tree that ends before the final snapshot,
+        and index files that do not describe the census. Needs a completed
+        ``trees`` with a passed root correspondence.
 
-    forest_census.py cut --dataset DIR --aggregate DIR --forests-list FILE
-            --locations FILE --rule d=<int>,h=<int>,m=<float> [--rule ...]
-            [--materialise RULE ...] [--ntask 1,2,4,8] [--nchunk 1,2,4,8,16,32]
-            [--bytes-per-halo 1100] [--laptop-gib 16,32,64] [--block-rows N]
-        For every candidate rule (census/rules.py): its pieces under F6, the
-        severed relations, promotions, progenitor-order changes, re-labelled
-        halos and predicted model effects, and the partition with the pieces
-        installed; a complete cut table and its record for each materialised
-        rule (census/cut.py, census/cut_table.py). The index files' md5 are
-        computed once per run. Needs completed ``occupancy``, ``trees`` and
-        ``graph``.
+    forest_census.py cut --dataset DIR --aggregate DIR --reserve-gib X
+            [--forest-index N ...] [--ntask 1,2,4,8]
+            [--nchunk 1,2,4,8,16,32,64,128] [--bytes-per-halo 1100]
+            [--laptop-gib 16,32,64] [--block-rows N]
+        The decided table's cost over every forest it splits: promotions per
+        slab (none at the final snapshot), groups losing members and their
+        remnants, progenitor-order changes with the stored-chain check, the
+        re-labelled halos, the affected-history bracket, and the partition
+        with the pieces installed, judged per laptop class on the job's
+        memory less the usable reserve (census/cut.py). Needs completed
+        ``occupancy``, ``trees`` and ``partition``.
 
 Exit status: 0 when the subcommand completed (a failed correspondence or
 conservation verdict is a result, recorded and printed, not an error); 2 on a
@@ -64,16 +66,15 @@ from typing import List, Optional, Sequence
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from census.cut import (  # noqa: E402
+    CUT_NCHUNKS,
     DEFAULT_BYTES_PER_HALO,
     DEFAULT_LAPTOP_GIB,
-    prepare_cut,
     run_cut,
 )
 from census.cut_table import md5_file  # noqa: E402
-from census.graph import run_graph  # noqa: E402
 from census.occupancy import run_occupancy  # noqa: E402
 from census.partition import DEFAULT_NCHUNKS, DEFAULT_NTASKS, run_partition  # noqa: E402
-from census.rules import parse_rule  # noqa: E402
+from census.table import prepare_table, run_table, selected_forests  # noqa: E402
 from census.trees import load_parsed_counts, run_trees  # noqa: E402
 from errors import ConverterError  # noqa: E402
 from horizontal_dataset import DEFAULT_BLOCK_ROWS, HorizontalDataset  # noqa: E402
@@ -101,6 +102,18 @@ def _positive(text: str) -> int:
     value = int(text)
     if value < 1:
         raise argparse.ArgumentTypeError("expected a positive integer, got {!r}".format(text))
+    return value
+
+
+def _reserve(text: str) -> float:
+    try:
+        value = float(text)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("expected a number of GiB, got {!r}".format(text)) from exc
+    if not value >= 0.0 or value == float("inf"):
+        raise argparse.ArgumentTypeError(
+            "expected a finite non-negative number of GiB, got {!r}".format(text)
+        )
     return value
 
 
@@ -189,52 +202,60 @@ def _print_partition(summary: dict) -> None:
         )
 
 
-def _print_graph(summary: dict) -> None:
+def _print_table(summary: dict) -> None:
+    groups = summary["groups"]
+    print("table: {} ({})".format(summary["rule"]["text"], summary["scope"]))
     print(
-        "graph: forests {}, {} trees, {} distinct pairs".format(
-            summary["forests"], summary["n_forest_trees"], summary["pairs"]["count"]
+        "z = 0 FoF groups: {} over {} forests; {} forest(s) split into {} groups; {} forests "
+        "after the cut".format(
+            groups["z0_groups"],
+            groups["forests_before"],
+            groups["split_forests"]["count"],
+            groups["split_forests"]["groups"],
+            groups["forests_after"],
         )
     )
-    for forest in summary["complete_graph"]["per_forest"]:
-        print(
-            "complete graph: ForestIndex {} (ForestID {}) has {} component(s){}".format(
-                forest["forest_index"],
-                forest["forest_id"],
-                forest["components"],
-                ", separable without severing" if forest["separable_without_severing"] else "",
-            )
+    print(
+        "pieces: {} ({} fresh); table {} md5 {}".format(
+            summary["pieces"]["count"],
+            summary["pieces"]["fresh"],
+            summary["table"]["path"],
+            summary["table"]["md5"],
         )
+    )
 
 
 def _print_cut(summary: dict) -> None:
+    pieces = summary["pieces"]
+    severance = summary["severance"]
+    print(
+        "cut ({}): {} split forest(s), {} piece(s) ({} fresh)".format(
+            summary["scope"], pieces["split_forests"], pieces["count"], pieces["fresh"]
+        )
+    )
+    print(
+        "{} promoted ({} at the final snapshot), {} progenitor chain(s) changed".format(
+            severance["promoted_halos"],
+            severance["promoted_at_final_snapshot"],
+            summary["progenitor_order"]["descendants_changed"],
+        )
+    )
     print("check of the recomputed chains: {}".format(summary["stored_chain_check"]))
-    for entry in summary["rules"]:
-        severance = entry["severance"]
+    for row in summary["partition"]["laptop_classes"]:
+        best = row["smallest_fitting_point"]
         print(
-            "rule {}: {} piece(s) ({} fresh), {} promoted, {} progenitor chain(s) changed".format(
-                entry["rule"]["name"],
-                entry["pieces"]["count"],
-                entry["pieces"]["fresh"],
-                severance["promoted_halos"],
-                entry["progenitor_order"]["descendants_changed"],
+            "  {:3d} GiB less {} GiB: {}".format(
+                row["class_gib"],
+                row["reserve_gib"],
+                (
+                    "no grid point fits"
+                    if best is None
+                    else "fits at ntask {} nchunk {} (job {} rows, process {} rows)".format(
+                        best["ntask"], best["nchunk"], best["job_rows"], best["widest_rows"]
+                    )
+                ),
             )
         )
-        for row in entry["partition"]["laptop_classes"]:
-            best = row["smallest_fitting_point"]
-            print(
-                "  {:3d} GiB: {}".format(
-                    row["class_gib"],
-                    (
-                        "no grid point fits"
-                        if best is None
-                        else "fits at ntask {} nchunk {} (job {} rows, process {} rows)".format(
-                            best["ntask"], best["nchunk"], best["job_rows"], best["widest_rows"]
-                        )
-                    ),
-                )
-            )
-        if entry["table"] is not None:
-            print("  table {} md5 {}".format(entry["table"]["path"], entry["table"]["md5"]))
 
 
 def load_index(forests_list, locations) -> SourceIndex:
@@ -278,43 +299,50 @@ def cmd_partition(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_graph(args: argparse.Namespace) -> int:
-    dataset = HorizontalDataset(args.dataset)
-    _print_graph(run_graph(dataset, args.aggregate, args.forest_index, args.block_rows, _log))
-    return 0
-
-
-def cmd_cut(args: argparse.Namespace) -> int:
+def cmd_table(args: argparse.Namespace) -> int:
     # every refusal of the arguments and the aggregates before the index loads
-    rules = [parse_rule(text) for text in args.rule]
-    materialise = [parse_rule(text) for text in args.materialise]
     dataset = HorizontalDataset(args.dataset)
-    prepare_cut(dataset, args.aggregate, rules, materialise)
-    _log("cut: loading {} and {}".format(args.forests_list, args.locations))
+    selection = selected_forests(args.forest_index, dataset.n_forests_total)
+    prepare_table(dataset, args.aggregate, selection)
+    _log("table: loading {} and {}".format(args.forests_list, args.locations))
     index = load_index(args.forests_list, args.locations)
-    # the cut needs only the roots and their forest ids: release the locations columns
+    # the table needs only the roots and their forest ids: release the locations columns
     index_roots, index_forest_ids = index.tree_roots, index.forest_ids
     del index
-    index_files = {"note": "md5 computed once per cut run"}
+    index_files = {}
     for name, path in (("forests_list", args.forests_list), ("locations", args.locations)):
-        _log("cut: md5 of {}".format(path))
+        _log("table: md5 of {}".format(path))
         index_files[name] = {
             "path": os.path.abspath(path),
             "bytes": os.path.getsize(path),
             "md5": md5_file(path),
         }
-    summary = run_cut(
+    summary = run_table(
         dataset,
         args.aggregate,
         index_roots,
         index_forest_ids,
         index_files,
-        rules,
-        materialise,
+        selection,
+        args.block_rows,
+        _log,
+    )
+    _print_table(summary)
+    return 0
+
+
+def cmd_cut(args: argparse.Namespace) -> int:
+    dataset = HorizontalDataset(args.dataset)
+    selection = selected_forests(args.forest_index, dataset.n_forests_total)
+    summary = run_cut(
+        dataset,
+        args.aggregate,
+        selection,
         args.ntask,
         args.nchunk,
         args.bytes_per_halo,
         args.laptop_gib,
+        args.reserve_gib,
         args.block_rows,
         _log,
     )
@@ -325,7 +353,8 @@ def cmd_cut(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="forest_census.py",
-        description="Forest and effective-tree census of a horizontal-HDF5 dataset.",
+        description="Forest and effective-tree census of a horizontal-HDF5 dataset, and the "
+        "decided cut table with its cost.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -337,6 +366,32 @@ def build_parser() -> argparse.ArgumentParser:
             type=_positive,
             default=DEFAULT_BLOCK_ROWS,
             help="rows per column block read (default 2^22)",
+        )
+
+    def selection_argument(command):
+        command.add_argument(
+            "--forest-index",
+            type=int,
+            action="append",
+            default=None,
+            help="ForestIndex of a forest to cut (repeatable; default every forest); every other "
+            "forest keeps its identity assignment",
+        )
+
+    def grid_arguments(command, nchunks):
+        command.add_argument(
+            "--ntask",
+            type=_counts,
+            default=list(DEFAULT_NTASKS),
+            help="comma-separated task counts",
+        )
+        command.add_argument(
+            "--nchunk",
+            type=_counts,
+            default=list(nchunks),
+            help="comma-separated chunk counts per task (default {})".format(
+                ",".join(str(n) for n in nchunks)
+            ),
         )
 
     occupancy = sub.add_parser("occupancy", help="per-slab and per-forest occupancy")
@@ -356,53 +411,20 @@ def build_parser() -> argparse.ArgumentParser:
 
     partition = sub.add_parser("partition", help="simulate the driver's task/chunk partition")
     partition.add_argument("--aggregate", required=True, help="census aggregate directory")
-    partition.add_argument(
-        "--ntask", type=_counts, default=list(DEFAULT_NTASKS), help="comma-separated task counts"
-    )
-    partition.add_argument(
-        "--nchunk",
-        type=_counts,
-        default=list(DEFAULT_NCHUNKS),
-        help="comma-separated chunk counts per task",
-    )
+    grid_arguments(partition, DEFAULT_NCHUNKS)
     partition.set_defaults(func=cmd_partition)
 
-    graph = sub.add_parser("graph", help="the FoF co-membership graph between trees")
-    dataset_arguments(graph)
-    graph.add_argument(
-        "--forest-index",
-        type=int,
-        action="append",
-        default=None,
-        help="ForestIndex of a forest to census (repeatable; default the largest by total)",
-    )
-    graph.set_defaults(func=cmd_graph)
+    table = sub.add_parser("table", help="the decided cut table: the z = 0 FoF groups")
+    dataset_arguments(table)
+    table.add_argument("--forests-list", required=True, help="the catalogue's forests.list")
+    table.add_argument("--locations", required=True, help="the catalogue's locations.dat")
+    selection_argument(table)
+    table.set_defaults(func=cmd_table)
 
-    cut = sub.add_parser("cut", help="candidate cut rules, their tables and predicted effects")
+    cut = sub.add_parser("cut", help="the decided table's cost and its chunked memory")
     dataset_arguments(cut)
-    cut.add_argument("--forests-list", required=True, help="the catalogue's forests.list")
-    cut.add_argument("--locations", required=True, help="the catalogue's locations.dat")
-    cut.add_argument(
-        "--rule",
-        action="append",
-        required=True,
-        help="candidate rule d=<int>,h=<int>,m=<float>; 'any' or omitted is unbounded (repeatable)",
-    )
-    cut.add_argument(
-        "--materialise",
-        action="append",
-        default=[],
-        help="a rule whose complete cut table is written (repeatable)",
-    )
-    cut.add_argument(
-        "--ntask", type=_counts, default=list(DEFAULT_NTASKS), help="comma-separated task counts"
-    )
-    cut.add_argument(
-        "--nchunk",
-        type=_counts,
-        default=list(DEFAULT_NCHUNKS),
-        help="comma-separated chunk counts per task",
-    )
+    selection_argument(cut)
+    grid_arguments(cut, CUT_NCHUNKS)
     cut.add_argument(
         "--bytes-per-halo",
         type=_positive,
@@ -414,6 +436,13 @@ def build_parser() -> argparse.ArgumentParser:
         type=_counts,
         default=list(DEFAULT_LAPTOP_GIB),
         help="comma-separated laptop memory classes in GiB (default 16,32,64)",
+    )
+    cut.add_argument(
+        "--reserve-gib",
+        type=_reserve,
+        required=True,
+        help="GiB of each laptop class held back for the operating system and applications; a "
+        "class is judged on the job's memory against the rest",
     )
     cut.set_defaults(func=cmd_cut)
     return parser

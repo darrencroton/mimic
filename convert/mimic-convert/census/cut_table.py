@@ -3,15 +3,16 @@
 A **cut forest table** is a file in ``forests.list`` shape (``#TreeRootID
 ForestID`` then one ``<tree root id> <forest id>`` row per tree) that maps
 every tree root of the catalogue's index files to the forest it belongs to
-after a cut. Its pieces come from a rule's components (``census/rules.py``):
-each component of a named forest's co-membership graph is one **piece**.
+after a cut. The census builds one table, the decided one: every tree joins
+the forest of its terminal halo's z = 0 FoF group (``census/table.py``), and
+each such group's trees are one **piece**.
 
 Naming (:func:`name_pieces`), as the plan's frozen decision F6 binds it:
 
 - a piece's size is its total halo count over all snapshots; ties are broken
   by the smallest tree root id;
 - of a forest's pieces exactly one, the largest, keeps the original forest id,
-  so a forest the rule does not cut keeps its id and is unchanged;
+  so a forest the table does not cut keeps its id and is unchanged;
 - every other piece receives a fresh id above the catalogue's maximum forest
   id, unique across the table, assigned in descending piece size with the same
   tie rule (over all cut forests together), so that every untouched forest
@@ -34,24 +35,26 @@ is read (:func:`read_cut_table`), each refused with a ``ConverterError``:
    check and the reader, so no table is accepted without this invariant.
 
 A complete table holds a row per catalogue tree (about 7.5 GB of text at
-Shin-Uchuu's 315,004,242 trees), so it is written only for the tables asked for
-(the rehearsal's and the rule the owner chooses) and only when the ``trees``
-root correspondence verdict passed; every exploratory rule keeps only its
-compact per-tree assignment. Each table is accompanied by a JSON record
+Shin-Uchuu's 315,004,242 trees), written only when the ``trees`` root
+correspondence verdict passed and the index files given pass the census's
+index check. Each table is accompanied by a JSON record
 (:func:`write_table_record`): the input dataset identity, the index files'
-md5 (computed once per run), the rule, the named forests, every piece (id,
+md5, the rule, the forests it splits, every piece of those forests (id,
 original forest id, tree count, halo total, peak occupancy and its slab) and
 the table's own md5. The per-piece columns are streamed to the file in chunks
-of 2^16 pieces, never built as Python lists: the record costs about 16 B per
-piece resident (the id order and one gathered chunk) and ``sum over the six
-columns of (decimal digits + 1)`` bytes per piece on disk, about 40 B per
-piece at Shin-Uchuu's id widths.
+of 2^16 pieces, never built as one Python list: the record costs 8 B per piece
+resident (the id order) and one chunk of 2^16 pieces as Python values and text,
+about 7 MB (measured with ``tracemalloc``), and ``sum over the six columns of
+(decimal digits + 1)`` bytes per piece on disk, about 40 B per piece at
+Shin-Uchuu's id widths.
 
 Resident memory while a table is checked and written, with ``n`` catalogue
-trees: the index's 32 B x n, the table's ids and the trees' totals (16 B x n),
-and the check's sort orders and per-piece arrays, about **50 B x n** at their
-peak (measured with ``tracemalloc``): about 98 B x n in all, 31 GB at
-Shin-Uchuu's 315,004,242 trees. Writing formats rows in chunks of 2^20.
+trees: the index's roots and forest ids (16 B x n), the table's ids and the
+trees' totals (16 B x n), and the check's sort orders and per-piece arrays,
+about **96 B x n** at their peak (measured with ``tracemalloc`` on the
+micro-Uchuu census's 561,266 trees, whose pieces number about as many as its
+trees, as Shin-Uchuu's do): about 128 B x n in all, 40 GB at Shin-Uchuu's
+315,004,242 trees. Writing formats rows in chunks of 2^20.
 """
 
 import hashlib
@@ -110,11 +113,13 @@ def name_pieces(
     forest_ids: np.ndarray,
     catalogue_max: int,
 ) -> Dict[str, np.ndarray]:
-    """Name the pieces of the named forests' components under F6.
+    """Name the pieces of the split forests' trees under F6.
 
     Args:
-        components: each named-forest tree's component root (its smallest
-            local index); local trees are in ascending root id.
+        components: each local tree's piece key, the local index of one tree
+            of its piece (the decided table uses the z = 0 central's tree,
+            which need not be the piece's smallest); local trees are in
+            ascending root id.
         local_forest: each tree's ``ForestIndex``.
         local_totals: each tree's halo total over all snapshots.
         local_roots: each tree's root id (ascending).
@@ -122,27 +127,31 @@ def name_pieces(
         catalogue_max: the largest forest id of the catalogue.
 
     Returns:
-        ``piece`` (each tree's piece index) and, per piece in ascending
-        component root: ``root`` (local index of its smallest tree),
-        ``forest_index``, ``forest_id`` (the original), ``id`` (the piece's
-        id), ``trees``, ``halos``, ``smallest_root_id`` and ``keeps_id``.
+        ``piece`` (each tree's piece index) and, per piece in ascending piece
+        key: ``root`` (local index of its smallest tree), ``forest_index``,
+        ``forest_id`` (the original), ``id`` (the piece's id), ``trees``,
+        ``halos``, ``smallest_root_id`` and ``keeps_id``. The smallest tree is
+        found over the piece's trees, never assumed to be its key's tree.
 
     Raises:
-        ConverterError: on a component joining trees of two forests, or fresh
-            ids beyond int64.
+        ConverterError: on a piece joining trees of two forests, or fresh ids
+            beyond int64.
     """
-    roots, piece, trees = np.unique(components, return_inverse=True, return_counts=True)
+    keys, piece, trees = np.unique(components, return_inverse=True, return_counts=True)
     piece = piece.reshape(-1)
-    halos = np.zeros(roots.size, dtype=np.int64)
+    halos = np.zeros(keys.size, dtype=np.int64)
     np.add.at(halos, piece, np.asarray(local_totals, dtype=np.int64))
-    forest = np.asarray(local_forest, dtype=np.int64)[roots]
+    # local trees ascend by root id, so a piece's smallest local index is its smallest root
+    first = np.full(keys.size, np.iinfo(np.int64).max, dtype=np.int64)
+    np.minimum.at(first, piece, np.arange(piece.size, dtype=np.int64))
+    forest = np.asarray(local_forest, dtype=np.int64)[first]
     if np.any(np.asarray(local_forest, dtype=np.int64) != forest[piece]):
-        raise ConverterError("a component joins trees of two forests")
-    smallest = np.asarray(local_roots, dtype=np.int64)[roots]
+        raise ConverterError("a piece joins trees of two forests")
+    smallest = np.asarray(local_roots, dtype=np.int64)[first]
     # rank within each forest: largest first, ties by the smallest root id
     ranked = np.lexsort((smallest, -halos, forest))
     first_of_forest = np.r_[True, forest[ranked][1:] != forest[ranked][:-1]]
-    keeps = np.zeros(roots.size, dtype=bool)
+    keeps = np.zeros(keys.size, dtype=bool)
     keeps[ranked[first_of_forest]] = True
     ids = np.asarray(forest_ids, dtype=np.int64)[forest]
     fresh = np.flatnonzero(~keeps)
@@ -155,7 +164,7 @@ def name_pieces(
         ids[order] = int(catalogue_max) + 1 + np.arange(order.size, dtype=np.int64)
     return {
         "piece": piece.astype(np.int64),
-        "root": roots.astype(np.int64),
+        "root": first,
         "forest_index": forest,
         "forest_id": np.asarray(forest_ids, dtype=np.int64)[forest],
         "id": ids,
@@ -170,7 +179,7 @@ def table_ids(
     index_forest_ids: np.ndarray, forest_trees: np.ndarray, local_piece_ids: np.ndarray
 ) -> np.ndarray:
     """The cut table's forest ids aligned with the index's ascending roots:
-    the original ids, with each named-forest tree's replaced by its piece's.
+    the original ids, with each split-forest tree's replaced by its piece's.
     The census root ordinals are the index positions when the root
     correspondence passed."""
     ids = np.array(index_forest_ids, dtype=np.int64, copy=True)

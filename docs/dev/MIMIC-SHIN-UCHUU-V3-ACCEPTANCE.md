@@ -119,3 +119,13 @@ One `MODEL=sham SIMULATION=micro-uchuu-ascii-horizontal` non-MPI production buil
 | version 3 | 5.93 s | 2.306 GB |
 
 Comparator (`$A/logs/sham/compare.log`, exit 0): `PASSED: 557669 galaxies over 1 output snapshot(s) are bitwise identical in all 24 field(s), with identical UniqueGalaxyID sets and no duplicates`. A module that ranks and breaks ties on `UniqueGalaxyID` therefore gives byte-identical output on the version 2 dataset and on its forest-blocked version 3 reconversion. HOD's leg waits for Slice 14's lineage comparator.
+
+---
+
+## Stage B — the forest census and the decided cut table
+
+Stage B's measurements and the owner's decision are recorded in [`MIMIC-SHIN-UCHUU-FOREST-CENSUS.md`](MIMIC-SHIN-UCHUU-FOREST-CENSUS.md), the census record (F11); this section only points to it and names how Stage B ran.
+
+- **Run 2** (2026-10-08/09) accepted Slices 7 and 8 (the census's readers, occupancy, effective trees, partition simulation, and the candidate-rule machinery over the co-membership graph). Its Slice 9 measured the production census up to the graph and a rule preview, and was **stopped** on 2026-10-09 while the twelve-rule candidate `cut` ran, when the owner decided the cut rule: every forest is cut at its z = 0 FoF groups.
+- **Revision 5** of the implementation plan (commit `40a448d5`) recorded that decision (F6, "The decided table"), retired the candidate-rule exploration (the Final-State Inventory), and rewrote Slice 9.
+- **Run 2b** ran the revised Slice 9: the decided table for the whole simulation and its measured cost, the micro-Uchuu rehearsal on the version 3 and version 2 datasets, the production census reusing run 2's `occupancy`, `trees` and `partition` aggregates after four checks, and the census record with its two empty decision slots. Run 2's retired `graph/` and candidate `cut/` outputs were moved aside, not deleted, to `/Volumes/LaCie/data/uchuu/shin-uchuu-census-run2-retired/`.

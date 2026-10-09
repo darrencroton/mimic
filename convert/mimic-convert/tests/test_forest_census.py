@@ -11,7 +11,7 @@ Oracles:
   the C test owns the brute-force oracle;
 - occupancy and labelling against counts written out by hand from the fixture
   topology, on version 3 datasets the converter's own pipeline writes from
-  :mod:`fixtures`' correspondence-valid forests (each ``#tree`` root id is its
+  :mod:`fixtures`' correspondence forests (each ``#tree`` root id is its
   terminal halo's id), the labels also against each halo's root found by
   walking ``desc_id`` in the fixture specification;
 - the index reader against hand-written index files, and against the sidecar
@@ -19,12 +19,14 @@ Oracles:
 - the identity record against the committed version 2 fixture
   (``simulations/micro-uchuu-ascii-horizontal/_tests/data/generic``) and its
   ``fixture_manifest.json``;
-- the co-membership graph against pairs written out by hand from the
-  severance forests' topology (:func:`severance_forests`) and against a
-  whole-slab oracle over the same columns; rules and components against
-  hand-built graphs and a sequential union-find; naming, invariants,
-  severance, the progenitor-order change and the partition with the pieces
-  installed against values derived by hand from the same topology.
+- the decided table against tables written out by hand from the fixture
+  topology, on version 3 and version 2 datasets the converter writes from the
+  same forests, and against the partition that cuts every co-membership ended
+  before the final snapshot, computed independently from the raw slab columns
+  inside the test (:func:`all_ended_pieces`); naming, invariants, promotions,
+  the progenitor-order change, the affected-history bracket and the partition
+  with the pieces installed against values derived by hand from the same
+  topology.
 """
 
 import contextlib
@@ -32,6 +34,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -53,16 +56,20 @@ from census import (  # noqa: E402
     aggregate,
     cut,
     cut_table,
-    graph,
     occupancy,
     partition,
-    rules,
+    table,
     trees,
 )
 from column_schema import build_schema, load_column_map  # noqa: E402
 from errors import ConverterError  # noqa: E402
+from fixups import run_fixups  # noqa: E402
+from hdf5_writer import run_write as run_write_v2  # noqa: E402
 from hdf5_writer_v3 import HorizontalV3Writer  # noqa: E402
 from horizontal_dataset import HorizontalDataset  # noqa: E402
+from links import run_links  # noqa: E402
+from scatter import run_scatter  # noqa: E402
+from sort_index import run_sort  # noqa: E402
 from source_index import SourceIndex  # noqa: E402
 from test_fixups import capture_stderr  # noqa: E402
 
@@ -131,6 +138,29 @@ def convert_ascii(root: Path, file_trees, forests):
     }
 
 
+def convert_ascii_v2(root: Path, file_trees, forests):
+    """Convert fixture trees as :func:`convert_ascii` does, through the
+    version 2 route (scatter, sort, fix-ups, links, the version 2 writer);
+    returns the paths the census needs."""
+    root.mkdir(parents=True)
+    tree_files = [
+        fixtures.write_ctrees_file(root / "tree_{}.dat".format(i), trees_of_file)
+        for i, trees_of_file in enumerate(file_trees)
+    ]
+    forests_list = fixtures.write_forests_list(root / "forests.list", forests)
+    locations = write_locations(root / "locations.dat", tree_files)
+    sim_info = fixtures.write_simulation_info(root / "simulation_info.yaml")
+    a_list = fixtures.write_a_list(root / "fixture.a_list")
+    work = root / "work"
+    with capture_stderr():
+        run_scatter(tree_files, forests_list, a_list, work, simulation_info_path=sim_info)
+        run_sort(work)
+        run_fixups(work, a_list, sim_info)
+        run_links(work)
+        run_write_v2(work, a_list, sim_info)
+    return {"dataset": work / "hdf5", "forests_list": forests_list, "locations": locations}
+
+
 def terminal_root(halos, halo_id):
     """The id of the halo ``halo_id``'s descendant chain ends at."""
     while halos[halo_id].desc_id != -1:
@@ -153,12 +183,12 @@ def copy_generic(destination: Path) -> Path:
     return destination
 
 
-#: The correspondence-valid forests' file layout: file 0 holds the ``#tree``
-#: markers 1100, 1110, 1300, 1120, 1200 -- forest 1100's markers repeat around
-#: forest 1300's (F, F, G, F) -- and file 1 holds 1400, 1210, so forest 1200
-#: spans both files.
+#: The correspondence forests' file layout, with the early-ending forest 1300
+#: of the negative fixture: file 0 holds the ``#tree`` markers 1100, 1110,
+#: 1300, 1120, 1200 -- forest 1100's markers repeat around forest 1300's (F, F,
+#: G, F) -- and file 1 holds 1400, 1210, so forest 1200 spans both files.
 def correspondence_layout():
-    multi, spanning, early, single = fixtures.correspondence_forests()
+    multi, spanning, early, single = fixtures.early_ending_correspondence_forests()
     return [
         [multi.trees[0], multi.trees[1], early.trees[0], multi.trees[2], spanning.trees[0]],
         [single.trees[0], spanning.trees[1]],
@@ -499,7 +529,10 @@ class TestVersion2Dataset(unittest.TestCase):
 
 
 class TestCensusOnVersion3(unittest.TestCase):
-    """The correspondence-valid forests (layout: :func:`correspondence_layout`).
+    """The correspondence forests with the early-ending forest 1300 of the
+    negative fixture (layout: :func:`correspondence_layout`): the census
+    labels and reports it; the decided table refuses it
+    (:class:`TestEarlyEndingRefused`).
 
     ``ForestIndex`` 0..3 are forests 1100, 1200, 1300 and 1400. Halos per
     snapshot: 0, 1 (1301), 1 (1300), 4 (1103, 1202, 1212, 1402), 7 (1101, 1102,
@@ -509,7 +542,7 @@ class TestCensusOnVersion3(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = Path(tempfile.mkdtemp(prefix="census_v3_"))
-        forests = fixtures.correspondence_forests()
+        forests = fixtures.early_ending_correspondence_forests()
         cls.halos = {h.halo_id: h for f in forests for t in f.trees for h in t.halos}
         cls.paths = convert_ascii(cls.tmp / "valid", correspondence_layout(), forests)
         cls.dataset = HorizontalDataset(cls.paths["dataset"])
@@ -941,211 +974,8 @@ class TestCorrespondenceMismatch(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# The co-membership graph, rules, cut tables and the cut
+# Progenitor chains, the installed partition and the cut table's invariants
 # ---------------------------------------------------------------------------
-
-
-def five_halo_forest():
-    """Forest 1500, five halos in two trees: 1530 (tree 1500) is a satellite of
-    1510 (tree 1600) at snapshot 4 and shares descendant 1500 with 1520, of
-    equal mass. Before a cut the encounter keys are (1510, 1510, 1530) and
-    (1520, -1, 1520), so the chain is [1530, 1520]; severed, 1530 becomes
-    (1530, -1, 1530) and the chain [1520, 1530]."""
-    tree_a = fixtures.TreeSpec(
-        root_id=1500,
-        halos=[
-            fixtures.HaloSpec(halo_id=1500, snap=5, mvir=1.0e12, num_prog=2),
-            fixtures.HaloSpec(halo_id=1520, snap=4, mvir=5.0e11, desc_id=1500),
-            fixtures.HaloSpec(halo_id=1530, snap=4, mvir=5.0e11, desc_id=1500, pid=1510, upid=1510),
-        ],
-    )
-    tree_b = fixtures.TreeSpec(
-        root_id=1600,
-        halos=[
-            fixtures.HaloSpec(halo_id=1600, snap=5, mvir=9.0e11, num_prog=1),
-            fixtures.HaloSpec(halo_id=1510, snap=4, mvir=8.0e11, desc_id=1600),
-        ],
-    )
-    return fixtures.ForestSpec(forest_id=1500, trees=[tree_a, tree_b])
-
-
-def switching_forest():
-    """Forest 2000, four trees. Trees 2100 and 2200 share FoF groups in both
-    directions: 2201 is 2101's satellite at snapshot 3, and 2102 and 2103 are
-    2202's at snapshot 4 (two members, one snapshot). 2401 (tree 2400) is
-    2302's (tree 2300) satellite at snapshot 4, with the larger mass."""
-    t1 = fixtures.TreeSpec(
-        root_id=2100,
-        halos=[
-            fixtures.HaloSpec(halo_id=2100, snap=5, mvir=1.0e12, num_prog=2),
-            fixtures.HaloSpec(halo_id=2102, snap=4, mvir=6.0e11, desc_id=2100, pid=2202, upid=2202),
-            fixtures.HaloSpec(halo_id=2103, snap=4, mvir=2.0e11, desc_id=2100, pid=2202, upid=2202),
-            fixtures.HaloSpec(halo_id=2101, snap=3, mvir=5.0e11, desc_id=2102),
-        ],
-    )
-    t2 = fixtures.TreeSpec(
-        root_id=2200,
-        halos=[
-            fixtures.HaloSpec(halo_id=2200, snap=5, mvir=8.0e11, num_prog=1),
-            fixtures.HaloSpec(halo_id=2202, snap=4, mvir=7.0e11, desc_id=2200, num_prog=1),
-            fixtures.HaloSpec(halo_id=2201, snap=3, mvir=1.0e11, desc_id=2202, pid=2101, upid=2101),
-        ],
-    )
-    t3 = fixtures.TreeSpec(
-        root_id=2300,
-        halos=[
-            fixtures.HaloSpec(halo_id=2300, snap=5, mvir=3.0e12, num_prog=1),
-            fixtures.HaloSpec(halo_id=2302, snap=4, mvir=2.0e12, desc_id=2300, num_prog=1),
-            fixtures.HaloSpec(halo_id=2301, snap=3, mvir=1.0e12, desc_id=2302),
-        ],
-    )
-    t4 = fixtures.TreeSpec(
-        root_id=2400,
-        halos=[
-            fixtures.HaloSpec(halo_id=2400, snap=5, mvir=5.0e11, num_prog=1),
-            fixtures.HaloSpec(halo_id=2401, snap=4, mvir=1.5e12, desc_id=2400, pid=2302, upid=2302),
-        ],
-    )
-    return fixtures.ForestSpec(forest_id=2000, trees=[t1, t2, t3, t4])
-
-
-def severance_forests():
-    """Forests 1500 (``ForestIndex`` 0) and 2000 (1). Root ordinals: 1500 -> 0,
-    1600 -> 1, 2100 -> 2, 2200 -> 3, 2300 -> 4, 2400 -> 5. Tree totals 3, 2,
-    4, 3, 3, 2; halos per snapshot 0, 0, 0, 3, 8, 6."""
-    return [five_halo_forest(), switching_forest()]
-
-
-def f32(value):
-    """A fixture mass as the dataset stores it, widened."""
-    return float(np.float32(value))
-
-
-def pair_array(rows):
-    """Merged pair records from ``(lo, hi, snapshots, halos, mass)`` tuples."""
-    pairs = np.zeros(len(rows), dtype=graph.PAIR_DTYPE)
-    for at, (lo, hi, snapshots, halos, mass) in enumerate(rows):
-        pairs[at] = (lo, hi, snapshots, 0, 0, halos, mass)
-    return pairs
-
-
-def sequential_components(n_nodes, edges):
-    """A plain sequential union-find, each component named by its smallest node."""
-    parent = list(range(n_nodes))
-
-    def find(x):
-        while parent[x] != x:
-            parent[x] = parent[parent[x]]
-            x = parent[x]
-        return x
-
-    for u, v in edges:
-        ru, rv = find(u), find(v)
-        if ru != rv:
-            parent[max(ru, rv)] = min(ru, rv)
-    return [find(x) for x in range(n_nodes)]
-
-
-def oracle_slab_pairs(dataset_dir, snap, labels, tree_forest, forests):
-    """A slab's pairs from whole columns: {(lo, hi): (members, mass)}."""
-    with h5py.File(Path(dataset_dir) / "snapshot_{:03d}.h5".format(snap), "r") as handle:
-        forest = handle["halos"]["ForestIndex"][...]
-        central = handle["halos"]["FirstHaloInFOFgroup"][...]
-        mass = handle["halos"]["M_Crit200"][...]
-    pairs = {}
-    for row in range(forest.size):
-        if forest[row] not in forests or central[row] == row:
-            continue
-        own, host = int(labels[row]), int(labels[central[row]])
-        if own == host:
-            continue
-        key = (min(own, host), max(own, host))
-        members, total = pairs.get(key, (0, 0.0))
-        pairs[key] = (members + 1, total + float(mass[row]))
-    return pairs
-
-
-class TestRules(unittest.TestCase):
-    #: Local trees 0..5: (0, 1) long-lived, (1, 2) many halos, (3, 4) massive, (4, 5) all.
-    PAIRS = [(0, 1, 3, 1, 1.0), (1, 2, 1, 5, 1.0), (3, 4, 1, 1, 100.0), (4, 5, 2, 2, 2.0)]
-
-    def components(self, rule, batch_rows=1 << 20):
-        trees_local = np.arange(6, dtype=np.int32)
-        return graph.rule_components(pair_array(self.PAIRS), trees_local, rule, batch_rows).tolist()
-
-    def test_each_threshold_kind(self):
-        cases = {
-            "d=any,h=any,m=any": [0, 0, 0, 3, 3, 3],
-            "d=2": [0, 0, 2, 3, 4, 4],
-            "h=2": [0, 1, 1, 3, 4, 4],
-            "m=50": [0, 1, 2, 3, 3, 5],
-            "d=2,h=2": [0, 1, 2, 3, 4, 4],
-            "d=4": [0, 1, 2, 3, 4, 5],
-        }
-        for spec, expected in cases.items():
-            for batch_rows in (1, 3, 1 << 20):
-                self.assertEqual(
-                    self.components(rules.parse_rule(spec), batch_rows),
-                    expected,
-                    (spec, batch_rows),
-                )
-
-    def test_a_rule_at_its_minimum_keeps_every_edge(self):
-        complete = self.components(rules.COMPLETE)
-        for spec in ("d=0,h=0", "d=1,h=1,m=any", "m=1"):
-            self.assertEqual(self.components(rules.parse_rule(spec)), complete, spec)
-        self.assertTrue(rules.COMPLETE.keeps_every_edge)
-        self.assertEqual(rules.component_count(np.array(complete)), 2)
-
-    def test_names_and_parsing(self):
-        self.assertEqual(rules.COMPLETE.name, "d=any,h=any,m=any")
-        self.assertEqual(rules.parse_rule("m=1e12, d=5").name, "d=5,h=any,m=1000000000000.0")
-        self.assertEqual(rules.parse_rule("d=5,h=2,m=any"), rules.Rule(5, 2, None))
-        self.assertEqual(
-            rules.parse_rule("h=3").record(),
-            {"name": "d=any,h=3,m=any", "min_snapshots": None, "min_halos": 3, "min_mass": None},
-        )
-        for text, message in (
-            ("", "expected d="),
-            ("x=1", "is not one of"),
-            ("d=1,d=2", "d given twice"),
-            ("d=-1", "not a non-negative integer"),
-            ("h=1.5", "not a non-negative integer"),
-            ("m=nan", "not a finite number"),
-            ("d", "is not one of"),
-        ):
-            with self.assertRaisesRegex(ConverterError, message):
-                rules.parse_rule(text)
-
-    def test_names_are_lossless(self):
-        self.assertNotEqual(rules.parse_rule("m=1234567").name, rules.parse_rule("m=1234568").name)
-        generator = np.random.default_rng(8)
-        masses = np.concatenate(
-            [generator.random(200) * 10.0 ** generator.integers(-5, 16, 200), [0.1, 1e300, -2.5]]
-        )
-        for mass in masses.tolist():
-            rule = rules.Rule(3, None, mass)
-            self.assertEqual(rules.parse_rule(rule.name), rule, rule.name)
-        for rule in (rules.COMPLETE, rules.Rule(0, 7, None), rules.Rule(None, None, 0.0)):
-            self.assertEqual(rules.parse_rule(rule.name), rule)
-
-    def test_union_find_agrees_with_a_sequential_one(self):
-        generator = np.random.default_rng(20261008)
-        for n_nodes, n_edges in ((1, 0), (7, 3), (50, 40), (300, 280), (300, 900)):
-            edges = generator.integers(0, n_nodes, size=(n_edges, 2))
-            # a long path through a shuffled order, so hooks chain deeply
-            path = generator.permutation(n_nodes)
-            edges = np.concatenate([edges, np.stack([path[:-1], path[1:]], axis=1)[: n_nodes // 3]])
-            expected = sequential_components(n_nodes, edges.tolist())
-            for batch in (1, 7, 10_000):
-
-                def batches(edges=edges, batch=batch):
-                    for start in range(0, len(edges), batch):
-                        yield edges[start : start + batch, 0], edges[start : start + batch, 1]
-
-                self.assertEqual(rules.union_find(n_nodes, batches).tolist(), expected)
-        with self.assertRaisesRegex(ConverterError, "outside \\[0, 2\\)"):
-            rules.union_find(2, lambda: iter([(np.array([0]), np.array([2]))]))
 
 
 class TestChains(unittest.TestCase):
@@ -1197,41 +1027,10 @@ class TestChains(unittest.TestCase):
         )
 
 
-class TestWindowedMembership(unittest.TestCase):
-    """The pass's windowed membership test against the plain one."""
-
-    def check(self, haystack, needles):
-        haystack = np.asarray(haystack, dtype=np.int64)
-        needles = np.asarray(needles, dtype=np.int64)
-        np.testing.assert_array_equal(
-            graph.in_sorted_window(haystack, needles), graph.in_sorted(haystack, needles)
-        )
-
-    def test_agrees_with_in_sorted_on_random_blocks(self):
-        generator = np.random.default_rng(2026)
-        for _trial in range(300):
-            span = int(generator.integers(1, 5000))
-            haystack = np.unique(generator.integers(0, span, int(generator.integers(0, 400))))
-            n = int(generator.integers(0, min(span, 600) + 1))
-            start = int(generator.integers(-50, span))
-            needles = np.unique(start + generator.choice(span, n, replace=False))
-            self.check(haystack, needles)
-
-    def test_edge_cases(self):
-        rows = np.arange(10, 20)
-        self.check([], rows)  # no dependents
-        self.check([1, 2, 3], [])  # an empty block
-        self.check(rows, rows)  # every row a dependent
-        self.check(np.arange(0, 40, 2), rows)  # some
-        self.check([0, 5, 9, 20, 30], rows)  # none inside the block's range
-        self.check([10], [10])  # one-row block
-        self.check([19, 25], rows)  # only the last row
-        self.check([3, 10], rows)  # only the first row
-
-
 class TestInstalledPieces(unittest.TestCase):
-    """The fresh pieces' order, sorted once per rule, installs each slab as a
-    per-slab sort of the fresh pieces would."""
+    """The fresh pieces' order, sorted once when the pieces are built
+    (:class:`cut.CutState`), installs each slab as a per-slab sort of the fresh
+    pieces would."""
 
     @staticmethod
     def reference(forests, counts, pieces, per_piece, n_forests, catalogue_max):
@@ -1258,14 +1057,12 @@ class TestInstalledPieces(unittest.TestCase):
             named = np.sort(generator.choice(n_forests, 3, replace=False))
             n_fresh = int(generator.integers(0, 30))
             pieces = {
-                # fresh ids in a scrambled piece order, as union-find leaves them
+                # fresh ids in a scrambled piece order, as the pieces' keys leave them
                 "id": np.r_[named + 500, catalogue_max + 1 + generator.permutation(n_fresh)],
                 "keeps_id": np.r_[np.ones(3, dtype=bool), np.zeros(n_fresh, dtype=bool)],
                 "forest_index": np.r_[named, generator.choice(named, n_fresh)],
             }
-            state = cut.RuleState(
-                rule=rules.COMPLETE, pieces=pieces, tree_piece=np.zeros(0, dtype=np.int32)
-            )
+            state = cut.CutState(table=SimpleNamespace(pieces=pieces))
             forests = np.sort(generator.choice(n_forests, 25, replace=False)).astype(np.int64)
             counts = generator.integers(1, 9, forests.size)
             per_piece = generator.integers(0, 4, pieces["id"].size)
@@ -1361,7 +1158,7 @@ class TestCutTableInvariants(unittest.TestCase):
             for offset, name in enumerate(cut_table.RECORD_COLUMNS)
         }
         path = self.tmp / "record.json"
-        header = {"rule": {"name": "d=2,h=any,m=any"}, "table": {"md5": "x"}}
+        header = {"rule": {"text": table.RULE_TEXT}, "table": {"md5": "x"}}
         with mock.patch.object(cut_table, "RECORD_CHUNK", 2):
             size = cut_table.write_table_record(path, header, pieces)
         self.assertEqual(size, path.stat().st_size)
@@ -1391,6 +1188,19 @@ class TestCutTableInvariants(unittest.TestCase):
         np.testing.assert_array_equal(named["keeps_id"], [True, False, False, True, False])
         np.testing.assert_array_equal(named["halos"], [4, 4, 2, 6, 2])
         np.testing.assert_array_equal(named["smallest_root_id"], [100, 102, 200, 201, 202])
+        # a piece keyed by a tree that is not its smallest (the decided table keys
+        # a piece by its z = 0 central's tree): the smallest root is still found
+        keyed = cut_table.name_pieces(
+            components=np.array([1, 1, 2, 3, 4, 5]),
+            local_forest=np.array([0, 0, 0, 1, 1, 1]),
+            local_totals=np.array([1, 3, 4, 2, 6, 2]),
+            local_roots=np.array([100, 101, 102, 200, 201, 202]),
+            forest_ids=np.array([7, 9]),
+            catalogue_max=9,
+        )
+        for name in ("id", "keeps_id", "halos", "smallest_root_id"):
+            np.testing.assert_array_equal(keyed[name], named[name], name)
+        np.testing.assert_array_equal(keyed["root"], [0, 2, 3, 4, 5])
         with self.assertRaisesRegex(ConverterError, "joins trees of two forests"):
             cut_table.name_pieces(
                 np.array([0, 0]),
@@ -1402,612 +1212,98 @@ class TestCutTableInvariants(unittest.TestCase):
             )
 
 
-class TestGraphAndCut(unittest.TestCase):
-    """The severance forests (:func:`severance_forests`) converted to version 3
-    in one file; the graph and the cut over both forests."""
+# ---------------------------------------------------------------------------
+# The decided table and its cost
+# ---------------------------------------------------------------------------
 
-    BOTH = ["--forest-index", "0", "--forest-index", "1"]
 
-    @classmethod
-    def setUpClass(cls):
-        cls.tmp = Path(tempfile.mkdtemp(prefix="census_cut_"))
-        forests = severance_forests()
-        cls.paths = convert_ascii(cls.tmp / "source", [fixtures.all_trees(forests)], forests)
-        cls.dataset = HorizontalDataset(cls.paths["dataset"])
-        cls.index = SourceIndex.load(cls.paths["forests_list"], cls.paths["locations"])
-        cls.agg = cls.tmp / "agg"
-        cls.prepare(cls.agg)
-        cls.graph = run_quietly(graph.run_graph, cls.dataset, cls.agg, [0, 1])
-        cls.rules = [rules.parse_rule(text) for text in ("d=2", "m=1e12", "d=any")]
-        cls.cut = run_quietly(
-            cut.run_cut,
-            cls.dataset,
-            cls.agg,
-            cls.index.tree_roots,
-            cls.index.forest_ids,
-            cls.index_files(),
-            cls.rules,
-            [cls.rules[0]],
-            [1, 2, 4],
-            [1, 2, 4],
-            1 << 30,
-            [4, 6, 16],
-        )
+def five_halo_forest():
+    """Forest 1500, five halos in two trees, each its own z = 0 group: 1530
+    (tree 1500) is a satellite of 1510 (tree 1600) at snapshot 4 and shares
+    descendant 1500 with 1520, of equal mass. Before the cut the encounter keys
+    are (1510, 1510, 1530) and (1520, -1, 1520), so the chain is [1530, 1520];
+    promoted, 1530 becomes (1530, -1, 1530) and the chain [1520, 1530]."""
+    tree_a = fixtures.TreeSpec(
+        root_id=1500,
+        halos=[
+            fixtures.HaloSpec(halo_id=1500, snap=5, mvir=1.0e12, num_prog=2),
+            fixtures.HaloSpec(halo_id=1520, snap=4, mvir=5.0e11, desc_id=1500),
+            fixtures.HaloSpec(halo_id=1530, snap=4, mvir=5.0e11, desc_id=1500, pid=1510, upid=1510),
+        ],
+    )
+    tree_b = fixtures.TreeSpec(
+        root_id=1600,
+        halos=[
+            fixtures.HaloSpec(halo_id=1600, snap=5, mvir=9.0e11, num_prog=1),
+            fixtures.HaloSpec(halo_id=1510, snap=4, mvir=8.0e11, desc_id=1600),
+        ],
+    )
+    return fixtures.ForestSpec(forest_id=1500, trees=[tree_a, tree_b])
 
-    @classmethod
-    def tearDownClass(cls):
-        shutil.rmtree(cls.tmp, ignore_errors=True)
 
-    @classmethod
-    def prepare(cls, agg, block_rows=1 << 22):
-        run_quietly(occupancy.run_occupancy, cls.dataset, agg, block_rows)
-        run_quietly(
-            trees.run_trees,
-            cls.dataset,
-            agg,
-            cls.index,
-            trees.load_parsed_counts(cls.paths["preparation_manifest"]),
-            block_rows,
-        )
+def switching_forest():
+    """Forest 2000, four trees, each its own z = 0 group. Trees 2100 and 2200
+    share FoF groups in both directions: 2201 is 2101's satellite at snapshot
+    3, and 2102 and 2103 are 2202's at snapshot 4 (two members, one snapshot).
+    2401 (tree 2400) is 2302's (tree 2300) satellite at snapshot 4, with the
+    larger mass."""
+    t1 = fixtures.TreeSpec(
+        root_id=2100,
+        halos=[
+            fixtures.HaloSpec(halo_id=2100, snap=5, mvir=1.0e12, num_prog=2),
+            fixtures.HaloSpec(halo_id=2102, snap=4, mvir=6.0e11, desc_id=2100, pid=2202, upid=2202),
+            fixtures.HaloSpec(halo_id=2103, snap=4, mvir=2.0e11, desc_id=2100, pid=2202, upid=2202),
+            fixtures.HaloSpec(halo_id=2101, snap=3, mvir=5.0e11, desc_id=2102),
+        ],
+    )
+    t2 = fixtures.TreeSpec(
+        root_id=2200,
+        halos=[
+            fixtures.HaloSpec(halo_id=2200, snap=5, mvir=8.0e11, num_prog=1),
+            fixtures.HaloSpec(halo_id=2202, snap=4, mvir=7.0e11, desc_id=2200, num_prog=1),
+            fixtures.HaloSpec(halo_id=2201, snap=3, mvir=1.0e11, desc_id=2202, pid=2101, upid=2101),
+        ],
+    )
+    t3 = fixtures.TreeSpec(
+        root_id=2300,
+        halos=[
+            fixtures.HaloSpec(halo_id=2300, snap=5, mvir=3.0e12, num_prog=1),
+            fixtures.HaloSpec(halo_id=2302, snap=4, mvir=2.0e12, desc_id=2300, num_prog=1),
+            fixtures.HaloSpec(halo_id=2301, snap=3, mvir=1.0e12, desc_id=2302),
+        ],
+    )
+    t4 = fixtures.TreeSpec(
+        root_id=2400,
+        halos=[
+            fixtures.HaloSpec(halo_id=2400, snap=5, mvir=5.0e11, num_prog=1),
+            fixtures.HaloSpec(halo_id=2401, snap=4, mvir=1.5e12, desc_id=2400, pid=2302, upid=2302),
+        ],
+    )
+    return fixtures.ForestSpec(forest_id=2000, trees=[t1, t2, t3, t4])
 
-    @classmethod
-    def index_arrays(cls):
-        return cls.index.tree_roots, cls.index.forest_ids
 
-    @classmethod
-    def index_files(cls):
-        return {
-            name: {"path": str(path), "md5": cut_table.md5_file(path)}
-            for name, path in (
-                ("forests_list", cls.paths["forests_list"]),
-                ("locations", cls.paths["locations"]),
-            )
-        }
+def sequential_components(n_nodes, edges):
+    """Connected components of ``edges`` by plain sequential disjoint-set merging, the
+    test's own oracle, each component named by its smallest node."""
+    parent = list(range(n_nodes))
 
-    def rule_summary(self, name, summary=None):
-        summary = self.cut if summary is None else summary
-        return next(r for r in summary["rules"] if r["rule"]["name"] == name)
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
 
-    # ---- the graph ----
-
-    def test_per_slab_pairs(self):
-        expected = {
-            3: [(2, 3, 1, f32(1e11))],
-            4: [(0, 1, 1, f32(5e11)), (2, 3, 2, f32(6e11) + f32(2e11)), (4, 5, 1, f32(1.5e12))],
-        }
-        for snap in self.dataset.snapshots:
-            edges = graph.load_slab_edges(self.agg, snap)
-            self.assertEqual(edges.dtype, graph.EDGE_DTYPE)
-            self.assertEqual([tuple(e) for e in edges.tolist()], expected.get(snap, []), snap)
-
-    def test_a_switching_host_counts_once_per_snapshot(self):
-        pairs = graph.load_pairs(self.agg)
-        self.assertEqual(pairs.dtype, graph.PAIR_DTYPE)
-        self.assertEqual(
-            [tuple(p) for p in pairs.tolist()],
-            [
-                (0, 1, 1, 4, 4, 1, f32(5e11)),
-                (2, 3, 2, 3, 4, 3, f32(1e11) + (f32(6e11) + f32(2e11))),
-                (4, 5, 1, 4, 4, 1, f32(1.5e12)),
-            ],
-        )
-
-    def test_the_slab_pairs_agree_with_a_whole_slab_oracle(self):
-        tree_forest = np.load(trees.trees_dir(self.agg) / "tree_forest.npy")
-        for snap in self.dataset.snapshots:
-            labels = trees.load_labels(self.agg, snap)
-            expected = oracle_slab_pairs(self.paths["dataset"], snap, labels, tree_forest, (0, 1))
-            got = {
-                (int(e["lo"]), int(e["hi"])): (int(e["halos"]), float(e["mass"]))
-                for e in graph.load_slab_edges(self.agg, snap)
-            }
-            self.assertEqual(got, expected, snap)
-
-    def test_the_complete_graph_components_are_a_result(self):
-        np.testing.assert_array_equal(graph.load_forest_trees(self.agg), [0, 1, 2, 3, 4, 5])
-        np.testing.assert_array_equal(graph.load_components(self.agg), [0, 0, 2, 2, 4, 4])
-        record = self.graph["complete_graph"]
-        self.assertEqual(record["components"], 3)
-        one, two = record["per_forest"]
-        self.assertEqual((one["forest_id"], one["components"]), (1500, 1))
-        self.assertFalse(one["separable_without_severing"])
-        self.assertEqual((two["forest_id"], two["components"]), (2000, 2))
-        self.assertTrue(two["separable_without_severing"])
-        self.assertEqual(
-            two["largest"],
-            [
-                {"smallest_root_id": 2100, "trees": 2, "halos": 7},
-                {"smallest_root_id": 2300, "trees": 2, "halos": 5},
-            ],
-        )
-        self.assertEqual(self.graph["pairs"], {"count": 3, "max_snapshots": 2, "halos": 5})
-
-    def test_the_graph_defaults_to_the_largest_forest(self):
-        other = self.tmp / "agg_default"
-        self.prepare(other)
-        summary = run_quietly(graph.run_graph, self.dataset, other)
-        self.assertEqual(summary["forests"], [1])
-        self.assertEqual(graph.load_pairs(other)[["lo", "hi"]].tolist(), [(2, 3), (4, 5)])
-        np.testing.assert_array_equal(graph.load_forest_trees(other), [2, 3, 4, 5])
-        with self.assertRaisesRegex(ConverterError, "ForestIndex \\[2\\] outside \\[0, 2\\)"):
-            graph.run_graph(self.dataset, other, [2])
-
-    def test_aggregate_sizes_are_stated(self):
-        sizes = self.graph["aggregates"]
-        base = graph.graph_dir(self.agg)
-        self.assertEqual(sizes["slab_edges"]["pairs"], 4)
-        self.assertEqual(
-            sizes["slab_edges"]["bytes"], aggregate.directory_bytes(base, "slab_*_edges.npy")
-        )
-        self.assertEqual(sizes["pairs"]["bytes"], (base / "pairs.npy").stat().st_size)
-        self.assertEqual(sizes["pairs"]["bytes"], 256 + 36 * 3)
-        self.assertEqual(sizes["slab_edges"]["bytes"], 6 * 192 + 20 * 4)
-        cut_sizes = self.cut["aggregates"]
-        self.assertEqual(
-            cut_sizes["assignments"]["bytes"],
-            aggregate.directory_bytes(cut.cut_dir(self.agg), "assignment.npy"),
-        )
-        for record in list(sizes.values()) + list(cut_sizes.values()):
-            self.assertIn(" B ", record["formula"])
-
-    # ---- the cut ----
-
-    def test_pieces_are_named_under_f6(self):
-        # d=2 keeps only (2100, 2200): pieces A (3) keeps 1500, {T1, T2} (7)
-        # keeps 2000; fresh by size then root: T3 (3) 2001, B (2, root 1600)
-        # 2002, T4 (2, root 2400) 2003
-        np.testing.assert_array_equal(
-            cut.load_assignment(self.agg, self.rules[0]), [1500, 2002, 2000, 2000, 2001, 2003]
-        )
-        # m=1e12 keeps only (2300, 2400), whose piece (5 halos) is forest 2000's
-        # largest and keeps 2000; fresh: T1 (4) 2001, T2 (3) 2002, B (2) 2003
-        np.testing.assert_array_equal(
-            cut.load_assignment(self.agg, self.rules[1]), [1500, 2003, 2001, 2002, 2000, 2000]
-        )
-        # the complete rule: forest 1500 whole, forest 2000 split along its components
-        np.testing.assert_array_equal(
-            cut.load_assignment(self.agg, self.rules[2]), [1500, 1500, 2000, 2000, 2001, 2001]
-        )
-        pieces = self.rule_summary("d=2,h=any,m=any")["pieces"]
-        self.assertEqual((pieces["count"], pieces["fresh"]), (5, 3))
-        five, switching = pieces["per_forest"]
-        self.assertEqual(
-            five["kept_piece"],
-            {
-                "id": 1500,
-                "forest_id": 1500,
-                "trees": 1,
-                "halos": 3,
-                "smallest_root_id": 1500,
-                "peak_occupancy": 2,
-                "peak_snapshot": 4,
-            },
-        )
-        self.assertEqual(
-            [(p["id"], p["halos"], p["peak_occupancy"]) for p in switching["largest_fresh_pieces"]],
-            [(2001, 3, 1), (2003, 2, 1)],
-        )
-
-    def test_severance_and_the_progenitor_order_change(self):
-        entry = self.rule_summary("d=2,h=any,m=any")
-        severance = entry["severance"]
-        self.assertEqual(severance["promoted_halos"], 2)  # 1530 and 2401
-        self.assertEqual(severance["groups_losing_members"], 2)  # 1510's and 2302's
-        self.assertEqual(severance["groups_central_leaves_members_stay"], 2)
-        rows = {row["snapshot"]: row for row in severance["per_snapshot"]}
-        self.assertEqual(rows[4]["promoted_halos"], 2)
-        self.assertEqual(rows[3]["promoted_halos"], 0)  # (2100, 2200) is kept
-        # descendant 1500's chain [1530, 1520] becomes [1520, 1530]
-        self.assertEqual(rows[4]["progenitor_order_changed"], 1)
-        self.assertEqual(rows[4]["first_progenitor_changed"], 1)
-        self.assertEqual(entry["progenitor_order"]["descendants_changed"], 1)
-        edges = entry["edges"]
-        self.assertEqual(edges["kept"]["pairs"], 1)
-        self.assertEqual((edges["dropped"]["pairs"], edges["dropped"]["halos"]), (2, 2))
-        self.assertEqual(edges["severed"]["pairs"], 2)
-        # checked: every affected descendant with two or more progenitors, over
-        # all rules (1500 for d=2; 1500 and 2100 for m=1e12)
-        self.assertEqual(self.cut["stored_chain_check"]["descendants"], 2)
-        self.assertEqual(self.cut["stored_chain_check"]["mismatches"], 0)
-
-    def test_relabelled_halos_and_predicted_effects(self):
-        entry = self.rule_summary("d=2,h=any,m=any")
-        self.assertEqual(
-            entry["relabelled"],
-            {
-                "forest_id_changed_halos": 7,
-                "rank_recomputed_halos": 17,
-                "source_halo_id_shifted_halos": 17,
-            },
-        )
-        sage = entry["predicted_effects"]["sage16_halos_only"]
-        # seeds: 1530, 2401, 1510, 2302 at snapshot 4, and 1500 (its chain) at 5;
-        # dependents add 1600, 2300, 2400 at 5
-        self.assertEqual(sage["seed_halos"], 5)
-        self.assertEqual(sage["dependent_halos"], 8)
-        self.assertEqual(sage["upper_bound_halos"], 10)  # pieces A, B, T3, T4
-        self.assertEqual(entry["predicted_effects"]["hod_sham"]["halos"], 17)
-        rows = {row["snapshot"]: row for row in entry["severance"]["per_snapshot"]}
-        self.assertEqual((rows[4]["seed_halos"], rows[4]["affected_halos"]), (4, 4))
-        self.assertEqual((rows[5]["seed_halos"], rows[5]["affected_halos"]), (1, 4))
-
-    def test_the_complete_rule_severs_nothing(self):
-        entry = self.rule_summary("d=any,h=any,m=any")
-        self.assertEqual(entry["edges"]["dropped"]["pairs"], 0)
-        self.assertEqual(entry["severance"]["promoted_halos"], 0)
-        self.assertEqual(entry["predicted_effects"]["sage16_halos_only"]["dependent_halos"], 0)
-        # its components are the complete graph's
-        self.assertEqual(entry["components"], self.graph["complete_graph"]["components"])
-
-    def test_the_partition_with_the_pieces_installed(self):
-        entry = self.rule_summary("d=2,h=any,m=any")
-        points = {(p["ntask"], p["nchunk"]): p for p in entry["partition"]["grid"]}
-        # widest slab 4, installed weights [2, 3, 1, 1, 1] (A, {T1, T2}, then
-        # 2001, 2002, 2003)
-        self.assertEqual(points[(1, 2)]["forest_cuts"], [0, 2, 5])
-        self.assertEqual(points[(1, 2)]["widest_rows_per_snapshot"], [0, 0, 0, 2, 5, 3])
-        self.assertEqual(points[(1, 1)]["widest"]["rows"], 8)
-        self.assertEqual(points[(1, 4)]["widest"]["rows"], 3)
-        self.assertEqual(points[(1, 4)]["process_bytes"], 3 << 30)
-        self.assertEqual(points[(1, 4)]["job_bytes"], 3 << 30)
-        self.assertEqual(points[(1, 4)]["fits_gib"], [4, 6, 16])
-        self.assertEqual(points[(1, 2)]["fits_gib"], [6, 16])
-        self.assertEqual(points[(1, 4)]["retention_memory_ceiling_mb"], 3 << 10)
-        classes = entry["partition"]["laptop_classes"]
-
-        def best(ntask, nchunk, widest, job):
-            return {
-                "ntask": ntask,
-                "nchunk": nchunk,
-                "widest_rows": widest,
-                "job_rows": job,
-                "process_bytes": widest << 30,
-                "job_bytes": job << 30,
-                "retention_memory_ceiling_mb": widest << 10,
-            }
-
-        self.assertEqual(
-            [(c["class_gib"], c["smallest_fitting_point"]) for c in classes],
-            [(4, best(1, 4, 3, 3)), (6, best(1, 2, 5, 5)), (16, best(1, 1, 8, 8))],
-        )
-
-    def test_a_class_is_judged_on_the_job_not_one_process(self):
-        entry = self.rule_summary("d=2,h=any,m=any")
-        points = {(p["ntask"], p["nchunk"]): p for p in entry["partition"]["grid"]}
-        # two ranks over [0, 2) and [2, 5): rank 0's widest slab holds 5 rows
-        # (snapshot 4), rank 1's 3 (snapshots 4 and 5); one process needs 5 GiB,
-        # which a 6 GiB laptop holds, but the two ranks run at once and need 8
-        two_ranks = points[(2, 1)]
-        self.assertEqual(two_ranks["forest_cuts"], [0, 2, 5])
-        self.assertEqual(two_ranks["task_widest_rows"], [5, 3])
-        self.assertEqual(two_ranks["process_bytes"], 5 << 30)
-        self.assertLessEqual(two_ranks["process_bytes"], 6 << 30)
-        self.assertEqual((two_ranks["job_rows"], two_ranks["job_bytes"]), (8, 8 << 30))
-        self.assertEqual(two_ranks["fits_gib"], [16])
-        # four ranks: per-range peaks [2, 3, 3, 0] add up to the job's 8 rows
-        self.assertEqual(points[(4, 1)]["task_widest_rows"], [2, 3, 3, 0])
-        self.assertEqual(points[(4, 1)]["job_rows"], 8)
-
-    def test_the_materialised_table_and_its_record(self):
-        entry = self.rule_summary("d=2,h=any,m=any")
-        table = entry["table"]
-        path = Path(table["path"])
-        self.assertEqual(table["md5"], cut_table.md5_file(path))
-        self.assertEqual(table["rows"], 6)
-        for other in self.rules[1:]:
-            self.assertIsNone(self.rule_summary(other.name)["table"])
-            self.assertFalse((cut.rule_dir(self.agg, other) / "forests.list").exists())
-        # round trip through source_index.py
-        cut_index = SourceIndex.load(path, self.paths["locations"])
-        np.testing.assert_array_equal(cut_index.tree_roots, self.index.tree_roots)
-        np.testing.assert_array_equal(cut_index.forest_ids, [1500, 2002, 2000, 2000, 2001, 2003])
-        self.assertEqual(
-            cut_index.forest_table().forest_ids.tolist(), [1500, 2000, 2001, 2002, 2003]
-        )
-        totals = np.load(trees.trees_dir(self.agg) / "tree_totals.npy")
-        cut_table.read_cut_table(path, self.index.tree_roots, self.index.forest_ids, totals)
-        record = aggregate.read_json(cut.rule_dir(self.agg, self.rules[0]) / "record.json")
-        self.assertEqual(record["dataset"], self.dataset.identity())
-        self.assertEqual(record["rule"], self.rules[0].record())
-        self.assertEqual(record["table"], table)
-        self.assertEqual(record["forests"]["forest_id"], [1500, 2000])
-        self.assertEqual(
-            record["index_files"]["forests_list"]["md5"],
-            cut_table.md5_file(self.paths["forests_list"]),
-        )
-        self.assertEqual(
-            record["pieces"],
-            {
-                "id": [1500, 2000, 2001, 2002, 2003],
-                "forest_id": [1500, 2000, 2000, 1500, 2000],
-                "trees": [1, 2, 1, 1, 1],
-                "halos": [3, 7, 3, 2, 2],
-                "peak_occupancy": [2, 3, 1, 1, 1],
-                "peak_snapshot": [4, 4, 3, 4, 4],
-            },
-        )
-
-    def test_a_forest_with_one_component_yields_the_identity_table(self):
-        other = self.tmp / "agg_identity"
-        self.prepare(other)
-        run_quietly(graph.run_graph, self.dataset, other, [0])
-        complete = rules.parse_rule("d=any")
-        summary = run_quietly(
-            cut.run_cut, self.dataset, other, *self.index_arrays(), {}, [complete], [complete]
-        )
-        table = Path(self.rule_summary(complete.name, summary)["table"]["path"])
-        roots, ids = cut_table.read_cut_table(
-            table, *self.index_arrays(), np.load(trees.trees_dir(other) / "tree_totals.npy")
-        )
-        np.testing.assert_array_equal(ids, self.index.forest_ids)
-        self.assertEqual(self.rule_summary(complete.name, summary)["pieces"]["fresh"], 0)
-
-    def test_results_do_not_depend_on_the_block_size(self):
-        other = self.tmp / "agg_block_1"
-        self.prepare(other, block_rows=1)
-        run_quietly(graph.run_graph, self.dataset, other, [0, 1], 1)
-        summary = run_quietly(
-            cut.run_cut,
-            self.dataset,
-            other,
-            *self.index_arrays(),
-            self.index_files(),
-            self.rules,
-            [self.rules[0]],
-            [1, 2, 4],
-            [1, 2, 4],
-            1 << 30,
-            [4, 6, 16],
-            1,
-        )
-        for name in ("graph", "cut"):
-            for path in sorted((self.agg / name).rglob("*.npy")) + sorted(
-                (self.agg / name).rglob("forests.list")
-            ):
-                twin = other / path.relative_to(self.agg)
-                self.assertEqual(path.read_bytes(), twin.read_bytes(), path)
-        strip = json.loads(json.dumps(summary["rules"]).replace(str(other), str(self.agg)))
-        self.assertEqual(strip, self.cut["rules"])
-
-    def test_the_graph_and_cut_command_lines(self):
-        other = str(self.tmp / "agg_cli")
-        dataset = ["--dataset", str(self.paths["dataset"]), "--aggregate", other]
-        index = ["--forests-list", str(self.paths["forests_list"])]
-        index += ["--locations", str(self.paths["locations"])]
-        stdout = io.StringIO()
-        with contextlib.redirect_stdout(stdout), capture_stderr() as captured:
-            self.assertEqual(forest_census.main(["occupancy"] + dataset), 0)
-            self.assertEqual(forest_census.main(["trees"] + dataset + index), 0)
-            self.assertEqual(forest_census.main(["graph"] + dataset + self.BOTH), 0)
-            status = forest_census.main(
-                ["cut"]
-                + dataset
-                + index
-                + ["--rule", "d=2", "--rule", "h=2"]
-                + ["--materialise", "d=2,h=any", "--ntask", "1", "--nchunk", "1,4"]
-            )
-        self.assertEqual(status, 0, captured.text)
-        text = stdout.getvalue()
-        self.assertIn("graph: forests [0, 1], 6 trees, 3 distinct pairs", text)
-        self.assertIn(
-            "complete graph: ForestIndex 1 (ForestID 2000) has 2 component(s), separable "
-            "without severing",
-            text,
-        )
-        self.assertIn(
-            "rule d=2,h=any,m=any: 5 piece(s) (3 fresh), 2 promoted, 1 progenitor chain(s) changed",
-            text,
-        )
-        self.assertIn("   16 GiB: fits at ntask 1 nchunk 1 (job 8 rows, process 8 rows)", text)
-        self.assertIn(
-            "md5 computed once",
-            aggregate.read_json(Path(other) / "cut" / "summary.json")["index_files"]["note"],
-        )
-        self.assertTrue(
-            (Path(other) / "cut" / "rules" / "d=2,h=any,m=any" / "forests.list").is_file()
-        )
-        self.assertFalse(
-            (Path(other) / "cut" / "rules" / "d=any,h=2,m=any" / "forests.list").exists()
-        )
-
-    def test_cut_refusals_come_before_any_work(self):
-        other = self.tmp / "agg_refusals"
-        self.prepare(other)
-        dataset = ["--dataset", str(self.paths["dataset"]), "--aggregate", str(other)]
-        index = ["--forests-list", str(self.paths["forests_list"])]
-        index += ["--locations", str(self.paths["locations"])]
-        for extra, message in (
-            (["--rule", "q=2"], "is not one of"),
-            (["--rule", "d=2", "--rule", "d=2,m=any"], "given more than once"),
-            (["--rule", "d=2", "--materialise", "d=3"], "not among the rules"),
-            (["--rule", "d=2"], "run graph first"),
-        ):
-            with capture_stderr() as captured:
-                status = forest_census.main(["cut"] + dataset + index + extra)
-            self.assertEqual(status, 2, extra)
-            self.assertIn(message, captured.text)
-            self.assertNotIn("Traceback", captured.text)
-            self.assertFalse((other / "cut").exists(), extra)
-        with self.assertRaisesRegex(ConverterError, "run trees first"):
-            graph.run_graph(self.dataset, self.tmp / "agg_empty")
-
-    def test_bytes_read_are_measured(self):
-        # every row belongs to the two named forests: version 3 links are int64
-        halos = self.dataset.total_halos
-        self.assertEqual(
-            self.graph["io"]["per_column"],
-            {"FirstHaloInFOFgroup": 8 * halos, "ForestIndex": 8 * halos, "M_Crit200": 4 * halos},
-        )
-        read = self.cut["io"]["per_column"]
-        for name in ("ForestIndex", "FirstHaloInFOFgroup", "Descendant"):
-            self.assertEqual(read[name], 8 * halos, name)
-        # retained rows lie only in the slabs with a severed edge, 3 and 4 (3 + 8 rows)
-        for name, width in (("MostBoundID", 8), ("M_Crit200", 4), ("NextProgenitor", 8)):
-            self.assertTrue(0 < read[name] <= width * (3 + 8), name)
-        self.assertEqual(self.cut["io"]["bytes_read"], sum(read.values()))
-
-    def test_index_files_reassigning_a_root_are_refused(self):
-        other = self.tmp / "agg_reassigned"
-        self.prepare(other)
-        run_quietly(graph.run_graph, self.dataset, other, [0])
-        # root 2400 lies outside the selected forest 1500; move it to forest 1500
-        replaced = self.tmp / "reassigned.list"
-        replaced.write_text(
-            self.paths["forests_list"].read_text().replace("2400 2000", "2400 1500")
-        )
-        arguments = ["cut", "--dataset", str(self.paths["dataset"]), "--aggregate", str(other)]
-        arguments += ["--forests-list", str(replaced), "--locations", str(self.paths["locations"])]
-        with capture_stderr() as captured:
-            status = forest_census.main(arguments + ["--rule", "d=2", "--materialise", "d=2"])
-        self.assertEqual(status, 2)
-        self.assertIn("give 1 tree root(s) a forest other than the dataset's", captured.text)
-        self.assertIn("[2400]", captured.text)
-        self.assertFalse(cut.cut_dir(other).exists())
-        # without --materialise the run explores and records the failed check (DD12)
-        with capture_stderr() as captured, contextlib.redirect_stdout(io.StringIO()):
-            status = forest_census.main(arguments + ["--rule", "d=2"])
-        self.assertEqual(status, 0, captured.text)
-        summary = aggregate.read_json(cut.cut_dir(other) / "summary.json")
-        self.assertEqual(summary["index_check"]["verdict"], "fail")
-        self.assertEqual(
-            summary["index_check"]["roots_in_another_forest"], {"count": 1, "examples": [2400]}
-        )
-        self.assertIsNone(summary["rules"][0]["table"])
-        self.assertEqual(summary["rules"][0]["severance"]["promoted_halos"], 1)
-
-    def test_integers_beyond_int64_are_refused(self):
-        other = self.tmp / "agg_overflow"
-        self.prepare(other)
-        run_quietly(graph.run_graph, self.dataset, other, [0, 1])
-        arguments = ["cut", "--dataset", str(self.paths["dataset"]), "--aggregate", str(other)]
-        locations = ["--locations", str(self.paths["locations"])]
-        huge = self.tmp / "huge.list"
-        huge.write_text(
-            self.paths["forests_list"].read_text().replace("2400 2000", "2400 18446744073709551616")
-        )
-        for extra, message in (
-            (
-                [
-                    "--forests-list",
-                    str(self.paths["forests_list"]),
-                    "--rule",
-                    "h=18446744073709551616",
-                ],
-                "is not a non-negative integer of at most 2^63 - 1",
-            ),
-            (["--forests-list", str(huge), "--rule", "d=2"], "an id outside int64"),
-        ):
-            with capture_stderr() as captured:
-                status = forest_census.main(arguments + locations + extra)
-            self.assertEqual(status, 2, extra)
-            self.assertIn(message, captured.text)
-            self.assertNotIn("Traceback", captured.text)
-        self.assertFalse(cut.cut_dir(other).exists())
-        with self.assertRaisesRegex(ConverterError, "huge.list: malformed cut table"):
-            cut_table.read_cut_table(
-                huge,
-                self.index.tree_roots,
-                self.index.forest_ids,
-                np.load(trees.trees_dir(other) / "tree_totals.npy"),
-            )
-
-    def test_graph_refuses_halos_outside_their_tree_forest(self):
-        other = self.tmp / "agg_mismatch"
-        self.prepare(other)
-        summary_path = trees.trees_dir(other) / "summary.json"
-        recorded = aggregate.read_json(summary_path)
-        recorded["forest_mismatch_halos"] = 3
-        aggregate.write_json(summary_path, recorded)
-        arguments = ["graph", "--dataset", str(self.paths["dataset"]), "--aggregate", str(other)]
-        with capture_stderr() as captured:
-            status = forest_census.main(arguments)
-        self.assertEqual(status, 2)
-        self.assertIn(
-            "records 3 halo(s) whose ForestIndex is not their tree's forest", captured.text
-        )
-        self.assertFalse(graph.graph_dir(other).exists())
-
-    def test_outputs_of_an_earlier_run_are_refused(self):
-        other = self.tmp / "agg_stale_rules"
-        self.prepare(other)
-        run_quietly(graph.run_graph, self.dataset, other, [0, 1])
-        d2, m = self.rules[0], self.rules[1]
-        run_quietly(cut.run_cut, self.dataset, other, *self.index_arrays(), {}, [d2], [d2])
-        record = aggregate.read_json(cut.rule_dir(other, d2) / "record.json")
-        self.assertEqual(
-            record["forests"],
-            {"forest_index": [0, 1], "forest_id": [1500, 2000], "graph_forests": [0, 1]},
-        )
-        before = sorted(path.name for path in cut.cut_dir(other).rglob("*"))
-        for rules_now, materialise, stale in (
-            ([m], [], "d=2,h=any,m=any"),
-            ([d2], [], "d=2,h=any,m=any/forests.list"),
-        ):
-            with self.assertRaisesRegex(ConverterError, "would not rewrite.*" + stale):
-                cut.run_cut(self.dataset, other, *self.index_arrays(), {}, rules_now, materialise)
-        self.assertEqual(sorted(path.name for path in cut.cut_dir(other).rglob("*")), before)
-        # the same run again rewrites exactly its own outputs; a temporary an
-        # interrupted write left for one of them is replaced, not refused
-        leftovers = [
-            cut.rule_dir(other, d2) / name for name in ("assignment.npy.tmp", "record.json.tmp")
-        ]
-        for leftover in leftovers:
-            leftover.write_bytes(b"interrupted")
-        run_quietly(cut.run_cut, self.dataset, other, *self.index_arrays(), {}, [d2], [d2])
-        # each atomic write reuses its .tmp name and renames it into place
-        self.assertFalse(any(leftover.exists() for leftover in leftovers))
-        # a temporary of a file the run would not rewrite is stale
-        with self.assertRaisesRegex(ConverterError, "forests.list.tmp"):
-            (cut.rule_dir(other, d2) / "forests.list.tmp").write_bytes(b"interrupted")
-            cut.run_cut(self.dataset, other, *self.index_arrays(), {}, [d2])
-
-    def test_fresh_ids_start_above_every_existing_forest_id(self):
-        other = self.tmp / "agg_floor"
-        self.prepare(other)
-        run_quietly(graph.run_graph, self.dataset, other, [0, 1])
-        # a mismatched index whose largest id (1999) is below forest 2000's
-        lowered = np.full(self.index.tree_roots.size, 1999, dtype=np.int64)
-        d2 = self.rules[0]
-        summary = run_quietly(
-            cut.run_cut, self.dataset, other, self.index.tree_roots, lowered, {}, [d2]
-        )
-        self.assertEqual(summary["index_check"]["verdict"], "fail")
-        self.assertEqual(
-            {k: summary["fresh_id_floor"][k] for k in ("value", "index_max_forest_id")},
-            {"value": 2000, "index_max_forest_id": 1999},
-        )
-        assignment = cut.load_assignment(other, d2)
-        # unchanged from the matched run: fresh ids above 2000, none taking 2000
-        np.testing.assert_array_equal(assignment, [1500, 2002, 2000, 2000, 2001, 2003])
-        entry = summary["rules"][0]
-        self.assertEqual(np.unique(assignment).size, entry["pieces"]["count"])
-        for point in entry["partition"]["grid"]:
-            self.assertEqual(point["forest_cuts"][-1], entry["pieces"]["count"])
-
-    def test_an_edge_outside_the_named_forests_is_refused(self):
-        other = self.tmp / "agg_foreign_edge"
-        self.prepare(other)
-        run_quietly(graph.run_graph, self.dataset, other, [0])
-        edges = graph.load_slab_edges(other, 4, mmap=False)
-        foreign = np.zeros(1, dtype=graph.EDGE_DTYPE)
-        foreign[0] = (2, 3, 1, 1.0)  # trees 2100 and 2200 lie in forest 2000
-        aggregate.save_array(graph.edge_path(other, 4), np.concatenate([edges, foreign]))
-        with self.assertRaisesRegex(ConverterError, "tree outside the named forests.*\\(2, 3\\)"):
-            cut.run_cut(self.dataset, other, *self.index_arrays(), {}, [self.rules[0]])
-
-    def test_a_stale_edge_list_is_refused(self):
-        other = self.tmp / "agg_stale"
-        self.prepare(other)
-        run_quietly(graph.run_graph, self.dataset, other, [0, 1])
-        edges = graph.load_slab_edges(other, 4, mmap=False)
-        aggregate.save_array(graph.edge_path(other, 4), edges[1:])
-        with self.assertRaisesRegex(ConverterError, "edge list predicts 1; the graph aggregates"):
-            cut.run_cut(self.dataset, other, *self.index_arrays(), {}, [self.rules[0]])
+    for u, v in edges:
+        ru, rv = find(u), find(v)
+        if ru != rv:
+            parent[max(ru, rv)] = min(ru, rv)
+    return [find(x) for x in range(n_nodes)]
 
 
 def splitting_forest():
     """Forest 3000: at snapshot 4, central 3101 (tree 3100) hosts 3201 and 3202
-    (tree 3200) and 3301 (tree 3300); each tree's root is a central at 5."""
+    (tree 3200) and 3301 (tree 3300); each tree's root is a central at 5, so
+    the decided table cuts the forest into its three trees."""
     r = fixtures.TreeSpec(
         root_id=3100,
         halos=[
@@ -2033,69 +1329,11 @@ def splitting_forest():
     return fixtures.ForestSpec(forest_id=3000, trees=[r, s, u])
 
 
-class TestGroupSplitting(unittest.TestCase):
-    """One group losing members to two pieces: the group, remnant and
-    several-member remnant counts differ."""
-
-    @classmethod
-    def setUpClass(cls):
-        cls.tmp = Path(tempfile.mkdtemp(prefix="census_split_"))
-        forests = [splitting_forest()]
-        cls.paths = convert_ascii(cls.tmp / "source", [fixtures.all_trees(forests)], forests)
-        cls.dataset = HorizontalDataset(cls.paths["dataset"])
-        index = SourceIndex.load(cls.paths["forests_list"], cls.paths["locations"])
-        cls.agg = cls.tmp / "agg"
-        run_quietly(occupancy.run_occupancy, cls.dataset, cls.agg)
-        run_quietly(trees.run_trees, cls.dataset, cls.agg, index)
-        run_quietly(graph.run_graph, cls.dataset, cls.agg)
-        cls.summary = run_quietly(
-            cut.run_cut,
-            cls.dataset,
-            cls.agg,
-            index.tree_roots,
-            index.forest_ids,
-            {},
-            [rules.parse_rule("d=2"), rules.parse_rule("h=2")],
-        )
-
-    @classmethod
-    def tearDownClass(cls):
-        shutil.rmtree(cls.tmp, ignore_errors=True)
-
-    def severance(self, name):
-        entry = next(r for r in self.summary["rules"] if r["rule"]["name"] == name)
-        return entry["severance"]
-
-    def test_one_group_two_remnants_one_with_several_members(self):
-        # d=2 drops (3100, 3200) and (3100, 3300): three pieces
-        severance = self.severance("d=2,h=any,m=any")
-        self.assertEqual(severance["promoted_halos"], 3)
-        self.assertEqual(severance["groups_losing_members"], 1)
-        self.assertEqual(severance["groups_central_leaves_members_stay"], 2)
-        self.assertEqual(severance["remnants_with_several_members"], 1)
-        for name in (
-            "groups_losing_members",
-            "groups_central_leaves_members_stay",
-            "remnants_with_several_members",
-        ):
-            self.assertIn(name, severance["definitions"])
-
-    def test_a_split_keeping_one_tree(self):
-        # h=2 keeps (3100, 3200) (two members) and drops (3100, 3300)
-        severance = self.severance("d=any,h=2,m=any")
-        self.assertEqual(severance["promoted_halos"], 1)
-        self.assertEqual(severance["groups_losing_members"], 1)
-        self.assertEqual(severance["groups_central_leaves_members_stay"], 1)
-        self.assertEqual(severance["remnants_with_several_members"], 0)
-
-
 def propagating_forest():
-    """Forest 4000: 4102 (tree 4100) is 4202's satellite (tree 4200) at
-    snapshot 2 only, so ``d=2`` severs (4100, 4200) there, and the promoted
-    halo's descendants run on to snapshots 3, 4 and 5. 4302 and 4303 (tree
-    4300) are satellites of tree 4200's centrals at snapshots 2 and 3, so
-    (4200, 4300) has two snapshots and is kept: in slab 2 tree 4300 is
-    retained only as a neighbour of the severed tree 4200."""
+    """Forest 4000, three trees, each its own z = 0 group: 4102 (tree 4100) is
+    4202's satellite (tree 4200) at snapshot 2, and 4302 and 4303 (tree 4300)
+    are satellites of tree 4200's centrals at snapshots 2 and 3. Every one is
+    promoted, and the promoted halos' descendants run on to snapshot 5."""
     p = fixtures.TreeSpec(
         root_id=4100,
         halos=[
@@ -2128,8 +1366,810 @@ def propagating_forest():
     return fixtures.ForestSpec(forest_id=4000, trees=[p, q, r])
 
 
+def naming_forest():
+    """Forest 5000: three z = 0 groups of 4 halos each, a three-way tie. Group
+    A's central is 5100 and its member tree 5050 has the smaller root; group C's
+    central is 5300 and its member tree 5055 has the smaller root; group B is
+    tree 5060 alone. By the smallest root of each piece (5050, 5055, 5060) A
+    keeps 5000, then C takes 5001 and B 5002; naming by the central's tree
+    (5100, 5300, 5060) would give B the forest's id."""
+    spec = fixtures.HaloSpec
+    return fixtures.ForestSpec(
+        forest_id=5000,
+        trees=[
+            fixtures.TreeSpec(
+                root_id=5050,
+                halos=[
+                    spec(halo_id=5050, snap=5, mvir=3.0e11, pid=5100, upid=5100, num_prog=1),
+                    spec(halo_id=5051, snap=4, mvir=2.0e11, desc_id=5050),
+                ],
+            ),
+            fixtures.TreeSpec(
+                root_id=5055,
+                halos=[
+                    spec(halo_id=5055, snap=5, mvir=3.0e11, pid=5300, upid=5300, num_prog=1),
+                    spec(halo_id=5056, snap=4, mvir=2.0e11, desc_id=5055),
+                ],
+            ),
+            fixtures.TreeSpec(
+                root_id=5060,
+                halos=[
+                    spec(halo_id=5060, snap=5, mvir=1.0e12, num_prog=2),
+                    spec(halo_id=5061, snap=4, mvir=6.0e11, desc_id=5060, num_prog=1),
+                    spec(halo_id=5064, snap=4, mvir=2.0e11, desc_id=5060),
+                    spec(halo_id=5062, snap=3, mvir=4.0e11, desc_id=5061),
+                ],
+            ),
+            fixtures.TreeSpec(
+                root_id=5100,
+                halos=[
+                    spec(halo_id=5100, snap=5, mvir=2.0e12, num_prog=1),
+                    spec(halo_id=5101, snap=4, mvir=1.0e12, desc_id=5100),
+                ],
+            ),
+            fixtures.TreeSpec(
+                root_id=5300,
+                halos=[
+                    spec(halo_id=5300, snap=5, mvir=2.0e12, num_prog=1),
+                    spec(halo_id=5301, snap=4, mvir=1.0e12, desc_id=5300),
+                ],
+            ),
+        ],
+    )
+
+
+def decided_forests():
+    """Forests 1100, 1200 and 1400 (the correspondence forests), 1500 and 2000."""
+    return fixtures.correspondence_forests() + [five_halo_forest(), switching_forest()]
+
+
+def decided_layout():
+    """File 0 holds forest 1100, tree 1200 of the spanning forest 1200, and the
+    forests 1500 and 2000; file 1 holds forest 1400 and tree 1210, so forest
+    1200 spans both files."""
+    multi, spanning, single = fixtures.correspondence_forests()
+    return [
+        multi.trees + [spanning.trees[0]] + five_halo_forest().trees + switching_forest().trees,
+        [single.trees[0], spanning.trees[1]],
+    ]
+
+
+def all_ended_pieces(dataset_dir):
+    """Independently of the census: each tree root id's piece under the
+    partition that cuts every co-membership ended before the final snapshot
+    and keeps every one present at it, named by the piece's smallest root id,
+    and the pairs of trees that co-membered only before the final snapshot.
+
+    Every slab's raw columns are read whole; each halo's tree is found by
+    walking ``Descendant`` from the last slab backward; a co-membership is a
+    FoF member whose tree differs from its central's; the pieces are the
+    components of the pairs present at the final snapshot."""
+    slabs = []
+    for path in sorted(Path(dataset_dir).glob("snapshot_*.h5")):
+        with h5py.File(path, "r") as handle:
+            halos = handle["halos"]
+            slabs.append(
+                {
+                    name: halos[name][...]
+                    for name in ("MostBoundID", "Descendant", "FirstHaloInFOFgroup")
+                }
+            )
+    labels = [None] * len(slabs)
+    for snap in reversed(range(len(slabs))):
+        ids, desc = slabs[snap]["MostBoundID"], slabs[snap]["Descendant"]
+        labels[snap] = [
+            int(ids[row]) if desc[row] == -1 else labels[snap + 1][int(desc[row])]
+            for row in range(ids.size)
+        ]
+    final = len(slabs) - 1
+    kept, ended = set(), set()
+    for snap, slab in enumerate(slabs):
+        for row, central in enumerate(slab["FirstHaloInFOFgroup"]):
+            own, host = labels[snap][row], labels[snap][int(central)]
+            if own != host:
+                (kept if snap == final else ended).add((min(own, host), max(own, host)))
+    roots = sorted(set(labels[final]))
+    position = {root: at for at, root in enumerate(roots)}
+    components = sequential_components(len(roots), [(position[a], position[b]) for a, b in kept])
+    return {root: roots[components[position[root]]] for root in roots}, ended - kept
+
+
+def same_partition(assignment_a, assignment_b):
+    """Whether two root -> label maps group the roots identically."""
+
+    def groups(assignment):
+        members = {}
+        for root, label in assignment.items():
+            members.setdefault(label, set()).add(root)
+        return {frozenset(group) for group in members.values()}
+
+    return groups(assignment_a) == groups(assignment_b)
+
+
+def read_table(path):
+    """A forests.list-shaped table as {root id: forest id}."""
+    rows = Path(path).read_text().splitlines()[1:]
+    return {int(root): int(forest) for root, forest in (row.split() for row in rows)}
+
+
+def run_census(dataset, agg, paths, block_rows=1 << 22):
+    """occupancy, trees (with the index files) and partition into ``agg``."""
+    index = SourceIndex.load(paths["forests_list"], paths["locations"])
+    run_quietly(occupancy.run_occupancy, dataset, agg, block_rows)
+    run_quietly(trees.run_trees, dataset, agg, index, None, block_rows)
+    run_quietly(partition.run_partition, agg, [1, 2], [1, 2])
+    return index
+
+
+def index_files(paths):
+    return {
+        name: {"path": str(paths[name]), "md5": cut_table.md5_file(paths[name])}
+        for name in ("forests_list", "locations")
+    }
+
+
+def run_decided(dataset, agg, paths, index, selection=None, block_rows=1 << 22):
+    """The table and the cut of the decided table, with the test grid: tasks and
+    chunks {1, 2, 4}, 1 GiB per resident halo, classes 6, 9 and 16 GiB less a
+    1 GiB reserve."""
+    summary_table = run_quietly(
+        table.run_table,
+        dataset,
+        agg,
+        index.tree_roots,
+        index.forest_ids,
+        index_files(paths),
+        selection,
+        block_rows,
+    )
+    summary_cut = run_quietly(
+        cut.run_cut,
+        dataset,
+        agg,
+        selection,
+        [1, 2, 4],
+        [1, 2, 4],
+        1 << 30,
+        [6, 9, 16],
+        1.0,
+        block_rows,
+    )
+    return summary_table, summary_cut
+
+
+class TestDecidedTable(unittest.TestCase):
+    """The decided table and its cost on :func:`decided_forests`, converted to
+    version 3 (:class:`TestDecidedTableVersion2` repeats every case on version 2).
+
+    ``ForestIndex`` 0..4 are forests 1100, 1200, 1400, 1500 and 2000. Trees by
+    root: 1100 (4 halos), 1110 (2), 1120 (2), 1200 (3), 1210 (3), 1400 (3),
+    1500 (3), 1600 (2), 2100 (4), 2200 (3), 2300 (3), 2400 (2); halos per
+    snapshot 0, 0, 0, 7, 15, 12.
+
+    The z = 0 groups: forest 1100 ends in {1100, 1110} (6 halos) and {1120}
+    (2); 1200 in one group, {1200, 1210}, and 1400 in one, so both are
+    unchanged; 1500 in {1500} (3) and {1600} (2); 2000 in its four trees. Ten
+    groups, three split forests, eight pieces. The catalogue maximum is 2000;
+    fresh ids by size, ties by the smallest root: 2200 -> 2001, 2300 -> 2002,
+    1120 -> 2003, 1600 -> 2004, 2400 -> 2005.
+
+    Promotions: at snapshot 3, 2201 (tree 2200) from 2101's group; at snapshot
+    4, 1121 from 1101's, 1530 from 1510's, 2102 and 2103 from 2202's (one
+    remnant of two members) and 2401 from 2302's; none at snapshot 5.
+    """
+
+    convert = staticmethod(convert_ascii)
+    EXPECTED = {
+        1100: 1100,
+        1110: 1100,
+        1120: 2003,
+        1200: 1200,
+        1210: 1200,
+        1400: 1400,
+        1500: 1500,
+        1600: 2004,
+        2100: 2000,
+        2200: 2001,
+        2300: 2002,
+        2400: 2005,
+    }
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp(prefix="census_decided_"))
+        cls.paths = cls.convert(cls.tmp / "source", decided_layout(), decided_forests())
+        cls.dataset = HorizontalDataset(cls.paths["dataset"])
+        cls.agg = cls.tmp / "agg"
+        cls.index = run_census(cls.dataset, cls.agg, cls.paths)
+        cls.table, cls.cut = run_decided(cls.dataset, cls.agg, cls.paths, cls.index)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def fresh_census(self, name):
+        other = self.tmp / name
+        run_census(self.dataset, other, self.paths)
+        return other
+
+    def rows(self, key):
+        return [row[key] for row in self.cut["severance"]["per_snapshot"]]
+
+    # ---- the table ----
+
+    def test_the_groups_the_table_is_built_on(self):
+        groups = self.table["groups"]
+        self.assertEqual((groups["z0_halos"], groups["z0_groups"]), (12, 10))
+        self.assertEqual((groups["forests_before"], groups["forests_after"]), (5, 10))
+        self.assertEqual(
+            groups["split_forests"], {"count": 3, "groups": 8, "extra_groups": 5, "halos": 25}
+        )
+        self.assertEqual(
+            groups["largest_forest"],
+            {"forest_index": 4, "forest_id": 2000, "halos": 12, "groups": 4, "split": True},
+        )
+        other = groups["other_split_forests"]
+        self.assertEqual((other["count"], other["extra_groups"], other["halos"]), (2, 2, 13))
+        self.assertEqual(groups["forests_with_one_group"], 2)
+        self.assertEqual(
+            [(f["forest_id"], f["groups"]) for f in groups["most_groups"]],
+            [(2000, 4), (1100, 2), (1500, 2)],
+        )
+        self.assertEqual((self.table["pieces"]["count"], self.table["pieces"]["fresh"]), (8, 5))
+
+    def test_each_forest_splits_into_exactly_its_z0_groups(self):
+        got = read_table(self.table["table"]["path"])
+        self.assertEqual(got, self.EXPECTED)
+        # a forest ending in one z = 0 group keeps its id for every tree
+        for root in (1200, 1210, 1400):
+            self.assertEqual(got[root], self.index.forest_ids[self.index.find([root])[0]])
+        # the table's invariants hold on read
+        totals = np.load(trees.trees_dir(self.agg) / "tree_totals.npy")
+        roots, ids = cut_table.read_cut_table(
+            self.table["table"]["path"], self.index.tree_roots, self.index.forest_ids, totals
+        )
+        np.testing.assert_array_equal(roots, self.index.tree_roots)
+        self.assertEqual(self.table["checks"]["table_invariants"]["cut_forests"], 3)
+
+    def test_the_table_round_trips_through_the_index_reader(self):
+        cut_index = SourceIndex.load(self.table["table"]["path"], self.paths["locations"])
+        np.testing.assert_array_equal(cut_index.tree_roots, self.index.tree_roots)
+        forests = cut_index.forest_table()
+        self.assertEqual(
+            forests.forest_ids.tolist(),
+            [1100, 1200, 1400, 1500, 2000, 2001, 2002, 2003, 2004, 2005],
+        )
+        self.assertEqual(forests.n_trees.tolist(), [2, 2, 1, 1, 1, 1, 1, 1, 1, 1])
+
+    def test_the_partition_that_cuts_every_ended_co_membership(self):
+        independent, ended_only = all_ended_pieces(self.paths["dataset"])
+        self.assertTrue(same_partition(independent, read_table(self.table["table"]["path"])))
+        # the fixture does cut co-memberships: 2201, 1121, 1530, 2102/2103 and 2401's
+        self.assertEqual(
+            ended_only,
+            {(2100, 2200), (1100, 1120), (1500, 1600), (2300, 2400)},
+        )
+
+    def test_the_record(self):
+        record = aggregate.read_json(table.table_dir(self.agg) / "record.json")
+        self.assertEqual(record["dataset"], self.dataset.identity())
+        self.assertEqual(record["rule"]["text"], "the z = 0 FoF groups of every forest")
+        self.assertEqual(record["rule"]["final_snapshot"], 5)
+        self.assertEqual(record["rule"]["final_scale_factor"], 1.0)
+        self.assertEqual(
+            (record["rule"]["scope"], record["rule"]["selection"]), ("whole simulation", None)
+        )
+        self.assertEqual(record["table"], self.table["table"])
+        self.assertEqual(record["table"]["md5"], cut_table.md5_file(record["table"]["path"]))
+        self.assertEqual(
+            record["index_files"]["forests_list"]["md5"],
+            cut_table.md5_file(self.paths["forests_list"]),
+        )
+        self.assertEqual(record["forests"]["split"], 3)
+        self.assertEqual(record["fresh_id_floor"], 2000)
+        self.assertEqual(
+            record["pieces"],
+            {
+                "id": [1100, 1500, 2000, 2001, 2002, 2003, 2004, 2005],
+                "forest_id": [1100, 1500, 2000, 2000, 2000, 1100, 1500, 2000],
+                "trees": [2, 1, 1, 1, 1, 1, 1, 1],
+                "halos": [6, 3, 4, 3, 3, 2, 2, 2],
+                "peak_occupancy": [3, 2, 2, 1, 1, 1, 1, 1],
+                "peak_snapshot": [4, 4, 4, 3, 3, 4, 4, 4],
+            },
+        )
+        # the table and the cut evaluate one assignment
+        self.assertEqual(record["assignment_sha256"], self.cut["assignment_sha256"])
+        self.assertEqual(self.table["assignment_sha256"], self.cut["assignment_sha256"])
+
+    # ---- the cost ----
+
+    def test_promotions_before_the_final_snapshot_and_none_at_it(self):
+        self.assertEqual(self.rows("promoted_halos"), [0, 0, 0, 1, 5, 0])
+        self.assertEqual(self.rows("groups_losing_members"), [0, 0, 0, 1, 4, 0])
+        self.assertEqual(self.rows("groups_central_leaves_members_stay"), [0, 0, 0, 1, 4, 0])
+        self.assertEqual(self.rows("remnants_with_several_members"), [0, 0, 0, 0, 1, 0])
+        severance = self.cut["severance"]
+        self.assertEqual(severance["promoted_at_final_snapshot"], 0)
+        self.assertEqual(
+            [
+                severance[name]
+                for name in (
+                    "promoted_halos",
+                    "groups_losing_members",
+                    "groups_central_leaves_members_stay",
+                    "remnants_with_several_members",
+                )
+            ],
+            [6, 5, 5, 1],
+        )
+        for name in severance["per_snapshot"][0]:
+            if name != "snapshot":
+                self.assertIn(name, severance["definitions"])
+
+    def test_the_progenitor_order_change(self):
+        # descendant 1500's chain [1530, 1520] becomes [1520, 1530]; 2100's two
+        # progenitors are both promoted and keep their order
+        self.assertEqual(self.rows("progenitor_order_changed"), [0, 0, 0, 0, 1, 0])
+        self.assertEqual(self.rows("first_progenitor_changed"), [0, 0, 0, 0, 1, 0])
+        self.assertEqual(
+            self.cut["progenitor_order"], {"descendants_changed": 1, "first_progenitor_changed": 1}
+        )
+        # checked: descendants 1500 and 2100, each with two progenitors
+        self.assertEqual(
+            self.cut["stored_chain_check"], {"descendants": 2, "mismatches": 0, "examples": []}
+        )
+
+    def test_relabelled_halos_and_the_affected_history_bracket(self):
+        self.assertEqual(
+            self.cut["relabelled"],
+            {
+                "forest_id_changed_halos": 12,
+                "rank_recomputed_halos": 25,
+                "source_halo_id_shifted_halos": 34,
+            },
+        )
+        # seeds: 2201 and 2101 at snapshot 3; the five promoted and the four
+        # losing centrals at 4; 1500 (its chain) at 5. Dependents add 2202 and
+        # 2102 (already seeds) at 4 and the seven other roots below a seed at 5
+        self.assertEqual(self.rows("seed_halos"), [0, 0, 0, 2, 9, 1])
+        self.assertEqual(self.rows("affected_halos"), [0, 0, 0, 2, 9, 8])
+        sage = self.cut["predicted_effects"]["sage16_halos_only"]
+        self.assertEqual(
+            (sage["seed_halos"], sage["dependent_halos"], sage["upper_bound_halos"]), (12, 19, 25)
+        )
+        hod_sham = self.cut["predicted_effects"]["hod_sham"]
+        self.assertEqual(hod_sham["identity_recomputed_halos"], 25)
+        self.assertEqual(len(hod_sham["mechanisms"]), 3)
+
+    def test_the_retained_rows_and_the_bytes_read(self):
+        # snapshot 3: 2201 and its central 2101; snapshot 4: the progenitors of
+        # 1120, 1500, 2100 and 2400 (six) and the centrals 1101, 1510, 2202, 2302
+        self.assertEqual(self.rows("retained_rows"), [0, 0, 0, 2, 10, 0])
+        self.assertEqual(self.rows("rows_read"), [0, 0, 0, 4, 12, 9])
+        self.check_bytes_read(self.cut["io"]["per_column"], 8)
+        self.assertEqual(self.cut["io"]["bytes_read"], sum(self.cut["io"]["per_column"].values()))
+
+    def check_bytes_read(self, read, link):
+        # the split forests' rows span every slab here (forests 1200 and 1400
+        # lie between them); the construction reads the final slab once more
+        self.assertEqual(read["ForestIndex"], 8 * (34 + 12))
+        self.assertEqual(read["FirstHaloInFOFgroup"], link * (34 + 12))
+        self.assertEqual(read["Descendant"], link * 34)
+        for name, width in (("MostBoundID", 8), ("M_Crit200", 4), ("NextProgenitor", link)):
+            self.assertTrue(width * 12 <= read[name] <= width * (7 + 15), name)
+        self.assertEqual(
+            self.table["io"]["per_column"], {"FirstHaloInFOFgroup": 12 * link, "ForestIndex": 96}
+        )
+
+    # ---- the partition ----
+
+    def points(self):
+        return {(p["ntask"], p["nchunk"]): p for p in self.cut["partition"]["grid"]}
+
+    def test_the_partition_with_the_pieces_installed(self):
+        points = self.points()
+        # widest slab 4, installed weights [3, 2, 1, 2, 2] for ForestIndex 0..4
+        # (the kept pieces), then 1 for each of 2001..2005
+        self.assertEqual(points[(1, 2)]["forest_cuts"], [0, 4, 10])
+        self.assertEqual(points[(1, 2)]["widest_rows_per_snapshot"], [0, 0, 0, 4, 8, 6])
+        self.assertEqual(points[(1, 1)]["widest"]["rows"], 15)
+        self.assertEqual(points[(1, 4)]["forest_cuts"], [0, 2, 5, 10, 10])
+        self.assertEqual(points[(1, 4)]["job_rows"], 5)
+        self.assertEqual(points[(1, 4)]["retention_memory_ceiling_mb"], 5 << 10)
+        partition_record = self.cut["partition"]
+        self.assertEqual(
+            (partition_record["bytes_per_halo"], partition_record["reserve_gib"]), (1 << 30, 1.0)
+        )
+        # uncut, forest 2000's five rows of snapshot 4 are the floor
+        self.assertEqual(partition_record["uncut_floor"]["rows"], 5)
+
+        def best(ntask, nchunk, rows):
+            return {
+                "ntask": ntask,
+                "nchunk": nchunk,
+                "widest_rows": rows,
+                "job_rows": rows,
+                "process_bytes": rows << 30,
+                "job_bytes": rows << 30,
+                "retention_memory_ceiling_mb": rows << 10,
+            }
+
+        self.assertEqual(
+            [
+                (c["class_gib"], c["usable_bytes"], c["smallest_fitting_point"])
+                for c in partition_record["laptop_classes"]
+            ],
+            [
+                (6, 5 << 30, best(1, 4, 5)),
+                (9, 8 << 30, best(1, 2, 8)),
+                (16, 15 << 30, best(1, 1, 15)),
+            ],
+        )
+
+    def test_a_class_is_judged_on_the_job_not_one_process(self):
+        # two ranks over [0, 4) and [4, 10): rank 0's widest slab holds 8 rows,
+        # rank 1's 7; one process needs 8 GiB, which 9 GiB less the reserve
+        # holds, but the two ranks run at once and need 15
+        two_ranks = self.points()[(2, 1)]
+        self.assertEqual(two_ranks["forest_cuts"], [0, 4, 10])
+        self.assertEqual(two_ranks["task_widest_rows"], [8, 7])
+        self.assertEqual((two_ranks["process_bytes"], two_ranks["job_bytes"]), (8 << 30, 15 << 30))
+        self.assertEqual(two_ranks["fits_gib"], [16])
+
+    def test_memory_and_the_startup_weights_are_stated(self):
+        memory = self.cut["memory"]
+        self.assertEqual(
+            (memory["startup_weights"]["uncut_bytes"], memory["startup_weights"]["cut_bytes"]),
+            (8 * 5, 8 * 10),
+        )
+        self.assertEqual(memory["widest_pass_slab"]["dense_row_bytes"], 12 * 15)
+        for summary in (self.cut, self.table):
+            for name, value in summary["memory"]["peak_rss_bytes_after"].items():
+                self.assertGreater(value, 0, name)
+        self.assertEqual(
+            self.cut["aggregates"]["summary"]["bytes"],
+            (cut.cut_dir(self.agg) / "summary.json").stat().st_size,
+        )
+        sizes = self.table["aggregates"]
+        self.assertEqual(sizes["table"]["bytes"], Path(self.table["table"]["path"]).stat().st_size)
+        self.assertEqual(
+            sizes["record"]["bytes"], (table.table_dir(self.agg) / "record.json").stat().st_size
+        )
+
+    # ---- invariance, selection and the command line ----
+
+    def test_results_do_not_depend_on_the_block_size(self):
+        other = self.tmp / "agg_block_1"
+        index = run_census(self.dataset, other, self.paths, block_rows=1)
+        summary_table, summary_cut = run_decided(
+            self.dataset, other, self.paths, index, block_rows=1
+        )
+        self.assertEqual(
+            (other / "table" / "forests.list").read_bytes(),
+            (self.agg / "table" / "forests.list").read_bytes(),
+        )
+        varying = ("dataset_dir", "io", "memory", "aggregates", "table")
+        for got, want in ((summary_table, self.table), (summary_cut, self.cut)):
+            got = json.loads(json.dumps(got).replace(str(other), str(self.agg)))
+            for key in set(want) - set(varying):
+                self.assertEqual(got[key], want[key], key)
+
+    def test_a_forest_selection_splits_only_the_named_forests(self):
+        other = self.fresh_census("agg_selection")
+        selection = table.selected_forests([4], self.dataset.n_forests_total)
+        summary_table, summary_cut = run_decided(
+            self.dataset, other, self.paths, self.index, selection
+        )
+        self.assertFalse((other / "table").exists())
+        got = read_table(other / "table-restricted" / "forests.list")
+        # forest 2000 split, fresh by size: 2200 -> 2001, 2300 -> 2002, 2400 -> 2003
+        expected = {
+            root: self.index.forest_ids[at] for at, root in enumerate(self.index.tree_roots)
+        }
+        expected.update({2100: 2000, 2200: 2001, 2300: 2002, 2400: 2003})
+        self.assertEqual(got, expected)
+        record = aggregate.read_json(other / "table-restricted" / "record.json")
+        self.assertEqual(record["rule"]["scope"], "restricted to the selected forests")
+        self.assertIn("every other forest keeps its identity assignment", record["rule"]["text"])
+        self.assertEqual(record["rule"]["selection"], {"forest_index": [4], "forest_id": [2000]})
+        self.assertNotEqual(summary_table["scope"], "whole simulation")
+        self.assertEqual(summary_cut["scope"], "restricted to the selected forests")
+        self.assertTrue((other / "cut-restricted" / "summary.json").is_file())
+        self.assertEqual(
+            [r["promoted_halos"] for r in summary_cut["severance"]["per_snapshot"]],
+            [0, 0, 0, 1, 3, 0],
+        )
+        self.assertEqual(summary_cut["pieces"]["split_forests"], 1)
+
+    def test_the_table_and_cut_command_lines(self):
+        other = str(self.tmp / "agg_cli")
+        dataset = ["--dataset", str(self.paths["dataset"]), "--aggregate", other]
+        index = ["--forests-list", str(self.paths["forests_list"])]
+        index += ["--locations", str(self.paths["locations"])]
+        grid = ["--ntask", "1", "--nchunk", "1,4", "--bytes-per-halo", str(1 << 30)]
+        grid += ["--laptop-gib", "6,9,16", "--reserve-gib", "1"]
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout), capture_stderr() as captured:
+            self.assertEqual(forest_census.main(["occupancy"] + dataset), 0)
+            self.assertEqual(forest_census.main(["trees"] + dataset + index), 0)
+            self.assertEqual(forest_census.main(["partition", "--aggregate", other]), 0)
+            self.assertEqual(forest_census.main(["table"] + dataset + index), 0)
+            status = forest_census.main(["cut"] + dataset + grid)
+        self.assertEqual(status, 0, captured.text)
+        text = stdout.getvalue()
+        self.assertIn("table: the z = 0 FoF groups of every forest (whole simulation)", text)
+        self.assertIn(
+            "z = 0 FoF groups: 10 over 5 forests; 3 forest(s) split into 8 groups; 10 forests "
+            "after the cut",
+            text,
+        )
+        self.assertIn("pieces: 8 (5 fresh); table ", text)
+        self.assertIn("cut (whole simulation): 3 split forest(s), 8 piece(s) (5 fresh)", text)
+        self.assertIn("6 promoted (0 at the final snapshot), 1 progenitor chain(s) changed", text)
+        self.assertIn(
+            "    6 GiB less 1.0 GiB: fits at ntask 1 nchunk 4 (job 5 rows, process 5", text
+        )
+        self.assertIn("   16 GiB less 1.0 GiB: fits at ntask 1 nchunk 1 (job 15 rows", text)
+        self.assertEqual(
+            (Path(other) / "table" / "forests.list").read_bytes(),
+            (self.agg / "table" / "forests.list").read_bytes(),
+        )
+        # the reserve is a required argument
+        with capture_stderr(), self.assertRaises(SystemExit):
+            forest_census.main(["cut"] + dataset)
+
+    # ---- refusals ----
+
+    def test_refusals_come_before_any_output(self):
+        other = self.tmp / "agg_refusals"
+        dataset = ["--dataset", str(self.paths["dataset"]), "--aggregate", str(other)]
+        index = ["--forests-list", str(self.paths["forests_list"])]
+        index += ["--locations", str(self.paths["locations"])]
+        run_quietly(occupancy.run_occupancy, self.dataset, other)
+        for arguments, message in (
+            (["table"] + dataset + index, "run trees first"),
+            (["cut"] + dataset + ["--reserve-gib", "1"], "run trees first"),
+        ):
+            with capture_stderr() as captured:
+                self.assertEqual(forest_census.main(arguments), 2, arguments)
+            self.assertIn(message, captured.text)
+        run_quietly(trees.run_trees, self.dataset, other, self.index)
+        for arguments, message in (
+            (["cut"] + dataset + ["--reserve-gib", "1"], "run partition first"),
+            (["cut"] + dataset + ["--reserve-gib", "16"], "no usable memory"),
+            (["table"] + dataset + index + ["--forest-index", "9"], "ForestIndex \\[9\\] outside"),
+            (
+                ["cut"] + dataset + ["--reserve-gib", "1", "--forest-index", "-1"],
+                "outside \\[0, 5\\)",
+            ),
+        ):
+            with capture_stderr() as captured:
+                self.assertEqual(forest_census.main(arguments), 2, arguments)
+            self.assertRegex(captured.text, message)
+            self.assertNotIn("Traceback", captured.text)
+        for name in ("table", "cut", "table-restricted", "cut-restricted"):
+            self.assertFalse((other / name).exists(), name)
+
+    def test_index_files_that_do_not_describe_the_census_are_refused(self):
+        other = self.fresh_census("agg_reassigned")
+        replaced = self.tmp / "reassigned.list"
+        replaced.write_text(
+            self.paths["forests_list"].read_text().replace("2400 2000", "2400 1500")
+        )
+        arguments = ["table", "--dataset", str(self.paths["dataset"]), "--aggregate", str(other)]
+        arguments += ["--forests-list", str(replaced), "--locations", str(self.paths["locations"])]
+        with capture_stderr() as captured:
+            status = forest_census.main(arguments)
+        self.assertEqual(status, 2)
+        self.assertIn("give 1 tree root(s) a forest other than the dataset's", captured.text)
+        self.assertIn("[2400]", captured.text)
+        self.assertFalse(table.table_dir(other).exists())
+
+    def test_integers_beyond_int64_are_refused(self):
+        other = self.fresh_census("agg_overflow")
+        huge = self.tmp / "huge.list"
+        huge.write_text(
+            self.paths["forests_list"].read_text().replace("2400 2000", "2400 18446744073709551616")
+        )
+        arguments = ["table", "--dataset", str(self.paths["dataset"]), "--aggregate", str(other)]
+        arguments += ["--forests-list", str(huge), "--locations", str(self.paths["locations"])]
+        with capture_stderr() as captured:
+            status = forest_census.main(arguments)
+        self.assertEqual(status, 2)
+        self.assertIn("an id outside int64", captured.text)
+        self.assertFalse(table.table_dir(other).exists())
+        with self.assertRaisesRegex(ConverterError, "huge.list: malformed cut table"):
+            cut_table.read_cut_table(
+                huge,
+                self.index.tree_roots,
+                self.index.forest_ids,
+                np.load(trees.trees_dir(other) / "tree_totals.npy"),
+            )
+
+    def test_outputs_of_an_earlier_run_are_refused(self):
+        other = self.fresh_census("agg_stale")
+        run_decided(self.dataset, other, self.paths, self.index)
+        before = sorted(path.name for path in other.rglob("*"))
+        for directory in (table.table_dir(other), cut.cut_dir(other)):
+            stray = directory / "stray.npy"
+            stray.write_bytes(b"left by hand")
+            with self.assertRaisesRegex(ConverterError, "would not rewrite.*stray.npy"):
+                run_decided(self.dataset, other, self.paths, self.index)
+            stray.unlink()
+        self.assertEqual(sorted(path.name for path in other.rglob("*")), before)
+        # a temporary an interrupted write left for an output is replaced, not refused
+        leftover = table.table_dir(other) / "record.json.tmp"
+        leftover.write_bytes(b"interrupted")
+        run_decided(self.dataset, other, self.paths, self.index)
+        self.assertFalse(leftover.exists())
+
+    def test_final_slab_central_references_are_validated(self):
+        other = self.fresh_census("agg_references")
+        last = self.dataset.snapshots[-1]
+        ids = read_slab_column(self.paths["dataset"], last, "MostBoundID")
+        row = {int(halo): at for at, halo in enumerate(ids)}
+        for name, edit, message in (
+            ("range", {1110: 99}, "1 FirstHaloInFOFgroup value\\(s\\) outside \\[0, 12\\)"),
+            # 1100 names the satellite 1110: neither 1110 (named by 1100) nor 1100
+            # (named by 1110) is then its own central
+            (
+                "self",
+                {1100: row[1110]},
+                re.escape(
+                    "2 row(s) named as a FoF central by FirstHaloInFOFgroup are not their own "
+                    "central (e.g. rows {})".format(sorted([row[1100], row[1110]]))
+                ),
+            ),
+            # 1120, a central of forest 1100, names 1200's row in forest 1200
+            (
+                "foreign",
+                {1120: row[1200]},
+                "1 z = 0 halo\\(s\\) whose FirstHaloInFOFgroup names a row of another forest",
+            ),
+        ):
+            copy = self.tmp / ("dataset_" + name)
+            shutil.copytree(self.paths["dataset"], copy)
+            with h5py.File(copy / "snapshot_{:03d}.h5".format(last), "r+") as handle:
+                column = handle["halos"]["FirstHaloInFOFgroup"]
+                values = column[...]
+                for halo, target in edit.items():
+                    values[row[halo]] = target
+                column[...] = values
+            with self.assertRaisesRegex(ConverterError, message):
+                table.run_table(
+                    HorizontalDataset(copy),
+                    other,
+                    self.index.tree_roots,
+                    self.index.forest_ids,
+                    {},
+                )
+        self.assertFalse(table.table_dir(other).exists())
+
+    def test_a_split_forest_must_hold_one_piece_per_z0_central(self):
+        other = self.fresh_census("agg_piece_count")
+        real = cut_table.name_pieces
+
+        def merging(components, local_forest, *args):
+            # every tree of forest 2000 (ForestIndex 4) given one piece key
+            components = np.array(components, copy=True)
+            mine = np.flatnonzero(np.asarray(local_forest) == 4)
+            components[mine] = components[mine[0]]
+            return real(components, local_forest, *args)
+
+        with mock.patch.object(table, "name_pieces", merging):
+            with self.assertRaisesRegex(
+                ConverterError,
+                "1 split forest\\(s\\) whose piece count is not their z = 0 central count "
+                "\\(e.g. ForestIndex 4: 1 pieces, 4 centrals\\)",
+            ):
+                run_decided(self.dataset, other, self.paths, self.index)
+        self.assertFalse(table.table_dir(other).exists())
+
+    def test_a_promotion_at_the_final_snapshot_is_refused(self):
+        other = self.fresh_census("agg_final_promotion")
+        real = cut.decided_table
+
+        def wrong(*args, **kwargs):
+            built = real(*args, **kwargs)
+            # tree 1110, a z = 0 satellite of 1100, moved into 1120's piece
+            roots = trees.load_roots(other)[built.local].tolist()
+            built.tree_piece[roots.index(1110)] = built.tree_piece[roots.index(1120)]
+            return built
+
+        with mock.patch.object(cut, "decided_table", wrong):
+            with self.assertRaisesRegex(
+                ConverterError, "1 halo\\(s\\) promoted at the final snapshot"
+            ):
+                cut.run_cut(self.dataset, other, reserve_gib=1.0, laptop_gib=[6])
+        self.assertFalse((cut.cut_dir(other) / "summary.json").exists())
+
+
+class TestDecidedTableVersion2(TestDecidedTable):
+    """Every case of :class:`TestDecidedTable` on the same forests converted
+    through the version 2 route: the table is the same file, and every count
+    the same; only the bytes read differ (4 B links, rows not grouped by
+    forest)."""
+
+    convert = staticmethod(convert_ascii_v2)
+
+    def test_the_dataset_is_version_2(self):
+        self.assertEqual(self.dataset.format_version, 2)
+        self.assertIsNone(self.dataset.source_format)
+
+    def check_bytes_read(self, read, link):
+        TestDecidedTable.check_bytes_read(self, read, 4)
+
+
+class TestNamingTieRule(unittest.TestCase):
+    """:func:`naming_forest`: three tied pieces, two of them keyed by a central
+    tree that is not their smallest-root tree."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp(prefix="census_naming_"))
+        forests = [naming_forest()]
+        cls.paths = convert_ascii(cls.tmp / "source", [fixtures.all_trees(forests)], forests)
+        cls.dataset = HorizontalDataset(cls.paths["dataset"])
+        cls.agg = cls.tmp / "agg"
+        cls.index = run_census(cls.dataset, cls.agg, cls.paths)
+        cls.table, cls.cut = run_decided(cls.dataset, cls.agg, cls.paths, cls.index)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_the_smallest_root_breaks_the_tie(self):
+        self.assertEqual(
+            read_table(self.table["table"]["path"]),
+            {5050: 5000, 5100: 5000, 5055: 5001, 5300: 5001, 5060: 5002},
+        )
+        record = aggregate.read_json(table.table_dir(self.agg) / "record.json")
+        self.assertEqual(record["pieces"]["halos"], [4, 4, 4])
+        independent, _ended = all_ended_pieces(self.paths["dataset"])
+        self.assertTrue(same_partition(independent, read_table(self.table["table"]["path"])))
+        largest = self.table["pieces"]["largest"]
+        self.assertEqual(
+            [(p["id"], p["smallest_root_id"]) for p in largest],
+            [(5000, 5050), (5001, 5055), (5002, 5060)],
+        )
+
+
+class TestGroupSplitting(unittest.TestCase):
+    """One group losing members to two pieces: the group, remnant and
+    several-member remnant counts differ."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp(prefix="census_split_"))
+        forests = [splitting_forest()]
+        cls.paths = convert_ascii(cls.tmp / "source", [fixtures.all_trees(forests)], forests)
+        cls.dataset = HorizontalDataset(cls.paths["dataset"])
+        cls.agg = cls.tmp / "agg"
+        cls.index = run_census(cls.dataset, cls.agg, cls.paths)
+        cls.table, cls.cut = run_decided(cls.dataset, cls.agg, cls.paths, cls.index)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_one_group_two_remnants_one_with_several_members(self):
+        # tree 3200 (3 halos) keeps 3000; 3100 and 3300 (2 each) take 3001, 3002
+        self.assertEqual(
+            read_table(self.table["table"]["path"]), {3100: 3001, 3200: 3000, 3300: 3002}
+        )
+        severance = self.cut["severance"]
+        self.assertEqual(severance["promoted_halos"], 3)
+        self.assertEqual(severance["groups_losing_members"], 1)
+        self.assertEqual(severance["groups_central_leaves_members_stay"], 2)
+        self.assertEqual(severance["remnants_with_several_members"], 1)
+        # 3200's two promoted progenitors keep their order: checked, unchanged
+        self.assertEqual(self.cut["progenitor_order"]["descendants_changed"], 0)
+        self.assertEqual(self.cut["stored_chain_check"]["descendants"], 1)
+
+
 class TestDependentPropagation(unittest.TestCase):
-    """A seed two and more slabs before the last: dependents propagate along
+    """Seeds two and more slabs before the last: dependents propagate along
     descendant links through every later slab."""
 
     @classmethod
@@ -2138,74 +2178,72 @@ class TestDependentPropagation(unittest.TestCase):
         forests = [propagating_forest()]
         cls.paths = convert_ascii(cls.tmp / "source", [fixtures.all_trees(forests)], forests)
         cls.dataset = HorizontalDataset(cls.paths["dataset"])
-        index = SourceIndex.load(cls.paths["forests_list"], cls.paths["locations"])
         cls.agg = cls.tmp / "agg"
-        run_quietly(occupancy.run_occupancy, cls.dataset, cls.agg)
-        run_quietly(trees.run_trees, cls.dataset, cls.agg, index)
-        run_quietly(graph.run_graph, cls.dataset, cls.agg)
-        cls.rule = rules.parse_rule("d=2")
-        cls.summary = run_quietly(
-            cut.run_cut,
-            cls.dataset,
-            cls.agg,
-            index.tree_roots,
-            index.forest_ids,
-            {},
-            [cls.rule],
-            [cls.rule],
-        )
+        cls.index = run_census(cls.dataset, cls.agg, cls.paths)
+        cls.table, cls.cut = run_decided(cls.dataset, cls.agg, cls.paths, cls.index)
 
     @classmethod
     def tearDownClass(cls):
         shutil.rmtree(cls.tmp, ignore_errors=True)
 
     def test_dependents_propagate_to_the_last_slab(self):
-        entry = self.summary["rules"][0]
-        rows = {row["snapshot"]: row for row in entry["severance"]["per_snapshot"]}
-        # snapshot 2: 4102 promoted, its central 4202 losing it; then their
-        # descendants 4103/4203, 4104/4204 and 4100/4200
-        self.assertEqual(rows[2]["promoted_halos"], 1)
-        self.assertEqual([rows[snap]["affected_halos"] for snap in range(6)], [0, 0, 2, 2, 2, 2])
-        self.assertEqual([rows[snap]["seed_halos"] for snap in range(6)], [0, 0, 2, 0, 0, 0])
-        sage = entry["predicted_effects"]["sage16_halos_only"]
-        self.assertEqual((sage["seed_halos"], sage["dependent_halos"]), (2, 8))
-        # seeded pieces: {4100} (4 halos) and {4200, 4300} (8 halos)
-        self.assertEqual(sage["upper_bound_halos"], 12)
-        np.testing.assert_array_equal(cut.load_assignment(self.agg, self.rule), [4001, 4000, 4000])
-
-    def test_a_neighbour_of_a_severed_tree_is_retained(self):
-        local_of = np.arange(3, dtype=np.int32)
-        state = SimpleNamespace(tree_piece=np.array([1, 0, 0], dtype=np.int32))
-        severed, retained = cut.touched_trees(
-            graph.load_slab_edges(self.agg, 2, mmap=False), local_of, [state], 3
+        rows = {row["snapshot"]: row for row in self.cut["severance"]["per_snapshot"]}
+        # snapshot 2: 4102 and 4302 promoted from 4202's group; snapshot 3: 4303
+        # from 4203's; their descendants and the losing centrals' run on to 5
+        self.assertEqual([rows[snap]["promoted_halos"] for snap in range(6)], [0, 0, 2, 1, 0, 0])
+        self.assertEqual([rows[snap]["seed_halos"] for snap in range(6)], [0, 0, 3, 2, 0, 0])
+        self.assertEqual([rows[snap]["affected_halos"] for snap in range(6)], [0, 0, 3, 3, 3, 3])
+        # snapshot 2: 4102, 4302 and their central 4202; snapshot 3: 4303 and 4203
+        self.assertEqual([rows[snap]["retained_rows"] for snap in range(6)], [0, 0, 3, 2, 0, 0])
+        sage = self.cut["predicted_effects"]["sage16_halos_only"]
+        self.assertEqual(
+            (sage["seed_halos"], sage["dependent_halos"], sage["upper_bound_halos"]), (5, 12, 12)
         )
-        # tree 4300 shares no severed edge, only a group with the severed 4200
-        np.testing.assert_array_equal(severed, [True, True, False])
-        np.testing.assert_array_equal(retained, [True, True, True])
-        severed, retained = cut.touched_trees(
-            graph.load_slab_edges(self.agg, 3, mmap=False), local_of, [state], 3
+        # three tied trees of 4 halos: 4100 keeps 4000
+        self.assertEqual(
+            read_table(self.table["table"]["path"]), {4100: 4000, 4200: 4001, 4300: 4002}
         )
-        self.assertFalse(retained.any())
-        # the pass read the retained columns in slab 2 only (its 3 rows)
-        read = self.summary["io"]["per_column"]
-        self.assertEqual(read["MostBoundID"], 8 * 3)
-        self.assertEqual(read["NextProgenitor"], 8 * 3)
 
 
-class TestVersion2EndToEnd(unittest.TestCase):
-    """occupancy, trees, graph and cut on the committed version 2 fixture, with
-    index files written from its census roots, and a table read back."""
+class TestEarlyEndingRefused(unittest.TestCase):
+    """A census holding a tree that ends before the final snapshot is refused
+    by the table and the cut, naming the count, before any output: the
+    negative fixture (version 3) and the committed version 2 fixture."""
 
     def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp(prefix="census_v2_cut_"))
+        self.tmp = Path(tempfile.mkdtemp(prefix="census_early_"))
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
 
-    def write_index(self, dataset):
+    def check_refused(self, dataset_dir, paths, message):
+        agg = str(self.tmp / "agg_{}".format(Path(dataset_dir).name))
+        dataset = ["--dataset", str(dataset_dir), "--aggregate", agg]
+        index = ["--forests-list", str(paths[0]), "--locations", str(paths[1])]
+        with contextlib.redirect_stdout(io.StringIO()), capture_stderr():
+            for arguments in (["occupancy"] + dataset, ["trees"] + dataset + index):
+                self.assertEqual(forest_census.main(arguments), 0, arguments)
+            self.assertEqual(forest_census.main(["partition", "--aggregate", agg]), 0)
+        for arguments in (["table"] + dataset + index, ["cut"] + dataset + ["--reserve-gib", "1"]):
+            with capture_stderr() as captured:
+                self.assertEqual(forest_census.main(arguments), 2, arguments)
+            self.assertIn(message, captured.text)
+        for name in ("table", "cut"):
+            self.assertFalse((Path(agg) / name).exists(), name)
+
+    def test_the_negative_fixture_is_refused(self):
+        forests = fixtures.early_ending_correspondence_forests()
+        paths = convert_ascii(self.tmp / "early", correspondence_layout(), forests)
+        self.check_refused(
+            paths["dataset"],
+            (paths["forests_list"], paths["locations"]),
+            "1 tree(s) end before the final snapshot 5 (e.g. roots [1300])",
+        )
+
+    def test_the_committed_version_2_fixture_is_refused(self):
+        dataset = HorizontalDataset(GENERIC_V2)
         probe = self.tmp / "probe"
         run_quietly(trees.run_trees, dataset, probe)
         roots = trees.load_roots(probe)
-        tree_forest = np.load(trees.trees_dir(probe) / "tree_forest.npy")
-        forest_ids = dataset.forest_ids()[tree_forest]
+        forest_ids = dataset.forest_ids()[np.load(trees.trees_dir(probe) / "tree_forest.npy")]
         forests_list = self.tmp / "forests.list"
         forests_list.write_text(
             "#TreeRootID ForestID\n"
@@ -2216,95 +2254,11 @@ class TestVersion2EndToEnd(unittest.TestCase):
             "#TreeRootID FileID Offset Filename\n"
             + "".join("{} 0 {} tree_0.dat\n".format(r, 100 * at) for at, r in enumerate(roots))
         )
-        return forests_list, locations
-
-    def test_the_census_runs_end_to_end(self):
-        dataset = HorizontalDataset(GENERIC_V2)
-        forests_list, locations = self.write_index(dataset)
-        agg = str(self.tmp / "agg")
-        base = ["--dataset", str(GENERIC_V2), "--aggregate", agg]
-        index = ["--forests-list", str(forests_list), "--locations", str(locations)]
-        stdout = io.StringIO()
-        with contextlib.redirect_stdout(stdout), capture_stderr() as captured:
-            for arguments in (
-                ["occupancy"] + base,
-                ["trees"] + base + index,
-                ["graph"] + base,
-                ["cut"]
-                + base
-                + index
-                + ["--rule", "d=2", "--rule", "d=any"]
-                + ["--materialise", "d=2", "--materialise", "d=any"],
-            ):
-                self.assertEqual(forest_census.main(arguments), 0, captured.text)
-        self.assertIn("root correspondence: pass", stdout.getvalue())
-        summary = aggregate.read_json(Path(agg) / "cut" / "summary.json")
-        self.assertEqual(summary["stored_chain_check"]["mismatches"], 0)
-        roots = trees.load_roots(agg)
-        totals = np.load(trees.trees_dir(agg) / "tree_totals.npy")
-        sidecar = dataset.forest_ids()[np.load(trees.trees_dir(agg) / "tree_forest.npy")]
-        for entry in summary["rules"]:
-            table = Path(entry["table"]["path"])
-            self.assertEqual(entry["table"]["md5"], cut_table.md5_file(table))
-            got_roots, ids = cut_table.read_cut_table(table, roots, sidecar, totals)
-            np.testing.assert_array_equal(got_roots, roots)
-            np.testing.assert_array_equal(
-                ids[np.load(graph.graph_dir(agg) / "forest_trees.npy")],
-                cut.load_assignment(agg, rules.parse_rule(entry["rule"]["name"])),
-            )
-
-
-class TestCutWithoutCorrespondence(unittest.TestCase):
-    """The adapter's standard forests fail the root correspondence: the cut
-    explores but refuses to write a table."""
-
-    @classmethod
-    def setUpClass(cls):
-        cls.tmp = Path(tempfile.mkdtemp(prefix="census_cut_mismatch_"))
-        forests = fixtures.standard_forests()
-        cls.paths = convert_ascii(cls.tmp / "standard", [fixtures.all_trees(forests)], forests)
-        cls.dataset = HorizontalDataset(cls.paths["dataset"])
-        cls.index = SourceIndex.load(cls.paths["forests_list"], cls.paths["locations"])
-        cls.agg = cls.tmp / "agg"
-        run_quietly(occupancy.run_occupancy, cls.dataset, cls.agg)
-        run_quietly(trees.run_trees, cls.dataset, cls.agg, cls.index)
-        run_quietly(graph.run_graph, cls.dataset, cls.agg)
-
-    @classmethod
-    def tearDownClass(cls):
-        shutil.rmtree(cls.tmp, ignore_errors=True)
-
-    def test_index_files_that_do_not_describe_the_census_are_refused(self):
-        rule = rules.parse_rule("d=2")
-        index = (self.index.tree_roots, self.index.forest_ids)
-        with self.assertRaisesRegex(ConverterError, "verdict is 'fail'; a cut table is written"):
-            cut.run_cut(self.dataset, self.agg, *index, {}, [rule], [rule])
-        self.assertFalse(cut.cut_dir(self.agg).exists())
-        # exploring proceeds, the failed index check recorded (PM ruling DD12)
-        summary = run_quietly(cut.run_cut, self.dataset, self.agg, *index, {}, [rule])
-        check = summary["index_check"]
-        self.assertEqual(check["verdict"], "fail")
-        self.assertEqual(check["census_roots_missing"]["count"], 10)
-        self.assertIn("do not list this census's tree roots", check["message"])
-        self.assertIsNone(summary["rules"][0]["table"])
-        self.assertEqual(summary["catalogue_max_forest_id"], int(self.index.forest_ids.max()))
-
-    def test_the_graph_runs_on_version_2(self):
-        tmp = self.tmp / "v2"
-        dataset = HorizontalDataset(GENERIC_V2)
-        run_quietly(trees.run_trees, dataset, tmp)
-        summary = run_quietly(graph.run_graph, dataset, tmp)
-        tree_forest = np.load(trees.trees_dir(tmp) / "tree_forest.npy")
-        forests = tuple(summary["forests"])
-        for snap in dataset.snapshots:
-            expected = oracle_slab_pairs(
-                GENERIC_V2, snap, trees.load_labels(tmp, snap), tree_forest, forests
-            )
-            got = {
-                (int(e["lo"]), int(e["hi"])): (int(e["halos"]), float(e["mass"]))
-                for e in graph.load_slab_edges(tmp, snap)
-            }
-            self.assertEqual(got, expected, snap)
+        self.check_refused(
+            GENERIC_V2,
+            (forests_list, locations),
+            "1 tree(s) end before the final snapshot 5 (e.g. roots [3010])",
+        )
 
 
 if __name__ == "__main__":

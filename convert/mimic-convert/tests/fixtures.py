@@ -421,8 +421,8 @@ def all_trees(forests: Sequence[ForestSpec]) -> List[TreeSpec]:
 # about; the forest census does, because it recovers trees from terminal halos
 # and compares their ids with the index files' tree roots. These forests keep
 # exactly one terminal halo per tree, with the tree's root id, and give the
-# census cross-tree FoF membership, a forest spanning files and a tree whose
-# root is not at the final snapshot.
+# census cross-tree FoF membership and a forest spanning files; the forest
+# whose tree's root is not at the final snapshot is a separate negative fixture.
 
 
 def correspondence_multi_tree_forest() -> ForestSpec:
@@ -502,10 +502,18 @@ def correspondence_single_tree_forest() -> ForestSpec:
 
 
 def correspondence_forests() -> List[ForestSpec]:
-    """The correspondence-valid forests, in ascending forest id."""
+    """The correspondence-valid forests, in ascending forest id: every tree
+    reaches the final snapshot."""
     return [
         correspondence_multi_tree_forest(),
         correspondence_spanning_forest(),
-        correspondence_early_dying_forest(),
         correspondence_single_tree_forest(),
     ]
+
+
+def early_ending_correspondence_forests() -> List[ForestSpec]:
+    """A negative fixture: the correspondence-valid forests with forest 1300,
+    whose one tree ends at snapshot 2, in ascending forest id. The census
+    reports the early root; the decided cut table refuses the catalogue."""
+    multi, spanning, single = correspondence_forests()
+    return [multi, spanning, correspondence_early_dying_forest(), single]

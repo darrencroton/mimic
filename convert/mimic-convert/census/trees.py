@@ -28,8 +28,8 @@ Aggregates written under ``<aggregate>/trees/`` (sizes also in ``summary.json``)
 - ``labels/slab_NNN.npy`` (int32): **4 B per halo**, ``4 x total halos`` plus a
   128 B header per file, about 90 GB at Shin-Uchuu scale (22,503,649,037
   halos). The labels live for the aggregate directory's lifetime, because the
-  co-membership graph and the cut both read them; the directory is deleted by
-  hand when the census is done.
+  decided table (``census/table.py``) and the cut (``census/cut.py``) both read
+  them; the directory is deleted by hand when the census is done.
 - ``slab_NNN_trees.npy`` (int32 root ordinals, ascending) and
   ``slab_NNN_counts.npy`` (int32): **8 B per present tree per slab**,
   ``8 x sum over slabs of the trees present``, at most ``8 x sum over slabs of
