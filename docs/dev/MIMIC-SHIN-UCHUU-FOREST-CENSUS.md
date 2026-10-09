@@ -4,13 +4,13 @@
 
 **Status:** Measured 2026-10-09 (run 2b). The cut rule is the owner's decision of 2026-10-09 (plan F6, "The decided table"); this record measures it and does not revisit it. The **two decision slots** at the end are **empty**: they are the owner's. Nothing here is a recommendation. No physics claim is made beyond the measured counts.
 
-**Evidence.** Every number below is quoted from a file named beside it. The files are census summaries in an aggregate directory, logs and scripts under `/Volumes/Internal/results/mimic/shin-uchuu-v3-stage-b/` (abbreviated `$B`), or PM's decision evidence under `.orchestrator/stage-b-decision/` in this repository's working tree (gitignored; abbreviated `$D`). Each `$B/logs/rev5-<step>.log` holds the subcommand's command line, the commit, the uncommitted census paths and the SHA-256 of every census source file, its output, `/usr/bin/time -l` (wall-clock, peak RSS, peak memory footprint), its exit status, and `du -sk` and `df -k` before and after. The scripts the record uses are `$B/scripts/rev5_run_step.sh` (the step wrapper), `rev5_reuse_checks.py`, `rev5_compare_rehearsal.py`, `rev5_extract_record.py`, `rev5_census_facts.py` and `rev5_measure_memory.py`; `$B/logs/rev5-*-extract*.txt` and `rev5-production-facts.txt` print every summary key the record quotes. The aggregate directories are:
+**Evidence.** Every number below is quoted from a file named beside it. The files are census summaries in an aggregate directory, logs and scripts under `/Volumes/Internal/results/mimic/shin-uchuu-v3-stage-b/` (abbreviated `$B`), or PM's decision evidence under `.orchestrator/stage-b-decision/` in this repository's working tree (gitignored; abbreviated `$D`). Each `$B/logs/rev5-<step>.log` holds the subcommand's command line, the commit, the uncommitted census paths and the SHA-256 of every census source file, its output, `/usr/bin/time -l` (wall-clock, peak RSS, peak memory footprint), its exit status, and `du -sk` and `df -k` before and after. The scripts the record uses are `$B/scripts/rev5_run_step.sh` (the step wrapper), the `rev5_rehearsal_*.sh` and `rev5_production*.sh` runners, `rev5_reuse_checks.py`, `rev5_compare_rehearsal.py`, `rev5_extract_record.py`, `rev5_census_facts.py`, `rev5_diff_summaries.py`, `rev5_measure_memory.py` and `rev5_measure_cut_aggregates.py`. `$B/logs/rev5-*-extract*-final.txt` and `rev5-production-facts-final.txt` print every summary key the record quotes from the final runs. The aggregate directories are:
 
 - `$P` = `/Volumes/LaCie/data/uchuu/shin-uchuu-census/` (production);
 - `$X` = `/Volumes/LaCie/data/uchuu/shin-uchuu-census-run2-retired/` (run 2's retired `graph/` and candidate `cut/` outputs, moved aside, not deleted);
 - `$R3` = `/Volumes/LaCie/data/uchuu/micro-uchuu/census-rev5-v3/` and `$R2` = `/Volumes/LaCie/data/uchuu/micro-uchuu/census-rev5-v2/` (rehearsal).
 
-**Code.** The production `occupancy`, `trees` and `partition` aggregates are run 2's, written at commit `5b7edec1` and reused after the four checks below; this slice changes neither their on-disk format nor their meaning (`census/occupancy.py`, `census/partition.py` and the code of `census/trees.py` are unchanged). Every other step ran `convert/mimic-convert/forest_census.py` at this slice's code before it was committed: each `rev5-*` log records `# git 40a448d5` with the census paths modified, and the SHA-256 of every census source file, which equal the committed files' (verified after the commit; [Code identity](#code-identity)). `mimic_venv` (Python 3.14.6, h5py 3.15.1, numpy 2.3.4). Host: the Mac Studio (macOS, 32 cores, 512 GiB RAM); the datasets and aggregates are on the LaCie (an external disk). Every production step ran strictly in sequence, with no other LaCie-bound job alongside.
+**Code.** The production `occupancy`, `trees` and `partition` aggregates are run 2's, written at commit `5b7edec1` and reused after the four checks below; this slice changes neither their on-disk format nor their meaning (`census/occupancy.py`, `census/partition.py` and the code of `census/trees.py` are unchanged). Every figure quoted from the decided table and its cost comes from the final runs, which ran `convert/mimic-convert/forest_census.py` at commit `50718b4f` with no census path modified. The SHA-256 their logs record for every census source file equals the committed blobs' ([Code identity](#code-identity)). The earlier rounds are kept and listed there. `mimic_venv` (Python 3.14.6, h5py 3.15.1, numpy 2.3.4). Host: the Mac Studio (macOS, 32 cores, 512 GiB RAM); the datasets and aggregates are on the LaCie (an external disk). Every production step ran strictly in sequence, with no other LaCie-bound job alongside.
 
 ---
 
@@ -77,7 +77,7 @@ The Stage A conversion's `conversion_report.json` (version 3) carries no per-fil
 
 **Affected-history bracket** (PM ruling DD9, F7). The **seeds** are the promoted halos, the centrals of groups that lose members, and the descendants whose progenitor chain changes. **`dependent_halos`** counts the seeds and every halo on a seed's descendant path, propagated slab by slab. **`upper_bound_halos`** counts every halo of a piece holding a seed: a piece without one keeps its topology and its relative order. Both are input-topology counts, not a prediction of how many galaxies differ.
 
-**Re-labelled halos.** Halos given a new forest id (those of fresh pieces); halos whose `HaloRankInForest` is recomputed (every halo of a split forest); and halos whose `SourceHaloID` prefix moves (every halo of every forest from the first split one in `ForestIndex` order).
+**Re-labelled halos.** Halos given a new forest id (those of fresh pieces); halos whose `HaloRankInForest` is recomputed (every halo of a split forest); and halos whose `SourceHaloID` prefix moves. Under F1, `SourceHaloID = 1 + Σ_{g < ForestIndex} n_g + HaloRankInForest`, so `SourceHaloID` is recomputed for every halo of every forest from the first split one in `ForestIndex` order (`source_halo_id_recomputed_halos`). The prefix moves for all of them except the first split forest's kept piece: it keeps its `ForestIndex` after unchanged forests, so only its ranks move (`source_halo_id_shifted_halos`).
 
 **Partition with the pieces installed.** The exact simulation of `horizontal_partition_cut` (`src/core/horizontal_partition.c`): minimax contiguous packing of the widest slab's per-forest rows into `ntask` task ranges, then `nchunk` chunks within each task, with the pieces installed (each original forest keeps its `ForestIndex`; the fresh pieces follow in ascending fresh id). The grid is (ntask, nchunk) ∈ {1, 2, 4, 8} × {1, 2, 4, 8, 16, 32, 64, 128}. Each point records the **process** figure (the widest range over all slabs: one rank's working set, the per-rank `retention_memory_ceiling_mb` guidance) and the **job** figure (the sum over tasks of each task's widest chunk over all slabs; the ranks of one `mpirun` job run at once and do not synchronise during the sweep, so this is the conservative bound).
 
@@ -91,7 +91,7 @@ The owner decided the rule on 2026-10-09 from run 2's measurements and PM's info
 
 **Run 2's co-membership graph of the super-forest** (`$X/graph/summary.json`, moved aside from `$P/graph/`; `$B/logs/production-graph.log`). Over the super-forest's 104,845,278 trees it found 177,551,953 distinct tree pairs from 951,063,057 (slab, pair) entries, 1,085,744,968 cross-tree members over all slabs, and 54,039,445 members in as many pairs at snapshot 69. Its complete graph had 21,527 components, the largest holding 12,642,063,653 halos (104,788,727 trees).
 
-**Run 2's rule preview** (`$B/logs/production-rule-preview.log`, `$B/scripts/preview_rules.py`; run 2's union-find over the graph's merged pairs; super-forest only; component totals only, **no memory figure**). Duration thresholds d = 2, 5, 10, 20 left a largest component of 8,938,717,241, 683,058,267, 359,917,233 and 204,555,077 halos; every previewed rule left one of at least 1.7 × 10⁸ halos.
+**Run 2's rule preview** (`$B/logs/production-rule-preview.log`, `$B/scripts/preview_rules.py`; run 2's union-find over the graph's merged pairs; super-forest only; component totals only, **no memory figure**). Duration thresholds d = 2, 5, 10, 20 left a largest component of 8,938,717,241, 683,058,267, 359,917,233 and 204,555,077 halos; every previewed rule left one of at least 169,664,231 halos (d = 40).
 
 **PM's informal estimates** (read-only scripts on run 2's aggregates; **informal, not census outputs**):
 
@@ -104,16 +104,16 @@ The census reproduces each of PM's counts independently in [The decided table](#
 
 ## Rehearsal: micro-Uchuu, version 3 and version 2
 
-**Runs.** Every subcommand ran on the version 3 dataset into `$R3` and on the retained version 2 dataset into `$R2`, with identical arguments (`$B/scripts/rev5_rehearsal_census.sh`, `rev5_rehearsal_table_cut.sh`): `occupancy`; `trees` with the micro-Uchuu index files and the preparation manifest; `partition` over {1, 2, 4, 8} × {1, 2, 4, 8, 16, 32}; `table` for the whole simulation; `cut` with `--reserve-gib 4`; and `table` and `cut` restricted to the largest forest (`--forest-index 237997`). Each exited 0 in at most 2.2 s and 0.49 GB peak RSS (`$B/logs/rev5-rehearsal-v3-<step>.log`, `rev5-rehearsal-v2-<step>.log`). A first round (logs `*-attempt1*`) ran before a one-string fix to `census/table.py`'s summary text and gave the same figures; the round quoted here ran at the code production ran.
+**Runs.** Every subcommand ran on the version 3 dataset into `$R3` and on the retained version 2 dataset into `$R2`, with identical arguments: `occupancy`; `trees` with the micro-Uchuu index files and the preparation manifest; `partition` over {1, 2, 4, 8} × {1, 2, 4, 8, 16, 32} (`$B/scripts/rev5_rehearsal_census.sh`; `$B/logs/rev5-rehearsal-<v>-{occupancy,trees,partition}.log`); then, at the final code (`$B/scripts/rev5_rehearsal_table_cut_final.sh`; `$B/logs/rev5-rehearsal-<v>-<step>-final.log`), `table` for the whole simulation, `cut` with `--reserve-gib 4`, and `table` and `cut` restricted to the largest forest (`--forest-index 237997`). Each exited 0 in at most 11 s (the final version 3 `cut`; every other step at most 3.2 s) and 0.49 GB peak RSS. The census steps ran before the final code; the modules they run (`census/occupancy.py`, `trees.py`, `partition.py`, `aggregate.py`) are unchanged since, so their aggregates stand. Two earlier rounds of `table` and `cut` (logs `*-attempt1*`, and the unsuffixed `rev5-rehearsal-<v>-{table,cut,…}.log`) ran before steer 1's fixes. Their tables and records have the md5s of the final round, and their summaries differ only as [Code identity](#code-identity) lists (`$B/logs/rev5-rehearsal-steer1-diff.txt`).
 
-**Agreement through the catalogue id** (`$B/scripts/rev5_compare_rehearsal.py`, `$B/logs/rev5-rehearsal-compare.log`, exit 0, `VERDICT: agree`). The two directories hold the same file set:
+**Agreement through the catalogue id** (`$B/scripts/rev5_compare_rehearsal.py`, `$B/logs/rev5-rehearsal-compare-final.log`: `VERDICT: agree`, `# exit status: 0`). The two directories hold the same file set:
 
 - **209 `.npy` arrays are identical** in dtype, shape and value (per-slab forest pairs, per-forest totals and peaks, tree roots and per-tree arrays, per-slab tree pairs);
 - **both tables are byte-identical**: the whole-simulation table (md5 `75ebf1572d513a020c0425bf1bd84338`) and the restricted one (md5 `1759395bc7110082e0fe20d5db72864e`);
 - **all 50 label slabs agree** compared through the catalogue id (each halo's `MostBoundID` with its root's `MostBoundID`, sorted by `MostBoundID`, since the labels follow each dataset's row order);
 - the ten JSON summaries and records agree key by key except where the layouts must differ: the identity record (`format_version` 3 against 2, `source_format`), the dataset directory and the file paths, the bytes read (version 2 slabs are not grouped by forest and its links are 4 B), the measured peak RSS, and the sizes of the files that embed the identity record.
 
-Every logical result therefore agrees, including both tables, every promotion and chain count and the partition grid; the figures below are quoted from `$R3` (`$B/logs/rev5-rehearsal-v3-extract.txt`, `rev5-rehearsal-v3-extract-restricted.txt`) and hold for `$R2`.
+Every logical result therefore agrees, including both tables, every promotion and chain count and the partition grid; the figures below are quoted from `$R3` (`$B/logs/rev5-rehearsal-v3-extract-final.txt`, `rev5-rehearsal-v3-extract-restricted-final.txt`) and hold for `$R2`.
 
 **Census.** 22,580,924 halos over 50 slabs; the widest slab is snapshot 27 (621,360 halos). The largest forest, `ForestIndex` 237997 (`ForestID` 28435178), holds 350,075 halos and peaks at 11,775 at snapshot 17, which is the uncut partition's floor (`$R3/partition/summary.json`). There are 561,266 effective trees; the largest, root 28453397, holds 55,081 halos and peaks at 2,108 at snapshot 16. **Root correspondence passes**: 561,266 terminal roots against 561,266 index roots, 0 in each of the four mismatch counts, and **0 trees end before snapshot 49**. **Conservation passes** against the Stage A conversion's per-file parsed counts: `tree_0_0_0.dat` sums to 22,580,924 census halos against `parsed_count` 22,580,924, 0 files disagreeing, 0 unattributed halos (`$R3/trees/summary.json`).
 
@@ -127,7 +127,8 @@ Every logical result therefore agrees, including both tables, every promotion an
 | (group, piece) remnants; with ≥ 2 members | 198,716; 10,118 | 9,352; 806 |
 | Progenitor chains changed (first progenitor changed) | 129 (0) | 19 (0) |
 | Stored-chain check: descendants; mismatches | 3,437; 0 | 271; 0 |
-| Halos with a new forest id; rank recomputed; `SourceHaloID` shifted | 3,338,472; 10,080,682; 22,580,924 | 270,951; 350,075; 10,080,520 |
+| Halos with a new forest id; rank recomputed | 3,338,472; 10,080,682 | 270,951; 350,075 |
+| Halos whose `SourceHaloID` prefix moves (`SourceHaloID` recomputed) | 22,544,994 (22,580,924) | 10,001,396 (10,080,520) |
 | `sage16`/`halos-only`: seeds; `dependent_halos`; `upper_bound_halos` | 319,852; 1,028,661; 10,067,526 | 14,185; 39,519; 350,017 |
 | Table md5 | `75ebf1572d513a020c0425bf1bd84338` | `1759395bc7110082e0fe20d5db72864e` |
 
@@ -137,11 +138,17 @@ The restricted table splits only `ForestIndex` 237997 into its 2,309 z = 0 group
 
 ## Production: the version 2 Shin-Uchuu dataset
 
-**Runs** (`$B/scripts/rev5_production.sh`; one log per step in `$B/logs/`). Run 2's `occupancy`, `trees` (with the production index files and conversion report) and `partition` (grid {1, 2, 4, 8} × {1, 2, 4, 8, 16, 32}) aggregates were reused after the checks below. Run 2's retired outputs were then moved aside, and `table` and `cut --reserve-gib 4` ran one after the other (`rev5-production-table.log`, `rev5-production-cut.log`), each exiting 0. A first `table` attempt was stopped by hand during its index load, before it wrote anything, to correct one summary string (`rev5-production-table-attempt1-stopped.log`). Both steps were then run a second time with `MallocLargeCache=0` (`rev5-production-table-nolargecache.log`, `rev5-production-cut-nolargecache.log`, `$B/scripts/rev5_production_nolargecache.sh`); see [Resources](#resources).
+**Runs** (one log per step in `$B/logs/`). Run 2's `occupancy`, `trees` (with the production index files and conversion report) and `partition` (grid {1, 2, 4, 8} × {1, 2, 4, 8, 16, 32}) aggregates were reused after the checks below, and run 2's retired outputs were moved aside. `table` and then `cut --reserve-gib 4` ran three times, each step exiting 0:
+
+1. the first run (`$B/scripts/rev5_production.sh`; `rev5-production-table.log`, `rev5-production-cut.log`). Before it, a first `table` attempt was stopped by hand during its index load, before it wrote anything, to correct one summary string (`rev5-production-table-attempt1-stopped.log`);
+2. a rerun with `MallocLargeCache=0` (`$B/scripts/rev5_production_nolargecache.sh`; `-nolargecache` logs);
+3. **the final run, quoted throughout**, at the committed code after PM's steer 1 and with `MallocLargeCache=0` (`$B/scripts/rev5_production_final.sh`; `rev5-production-table-final.log`, `rev5-production-cut-final.log`).
+
+All three wrote the same table and record; see [Resources](#resources).
 
 ### Reuse of run 2's aggregates
 
-`$B/scripts/rev5_reuse_checks.py` (`$B/logs/rev5-production-reuse-checks.log`, exit 0, `VERDICT: pass`) checked, read-only, before anything was moved or written:
+`$B/scripts/rev5_reuse_checks.py` (`$B/logs/rev5-production-reuse-checks.log`, whose last line is `VERDICT: pass`; the script exits 0 only on that verdict, and the log records no exit status) checked, read-only, before anything was moved or written:
 
 1. **The summaries are complete**: `occupancy`, `trees` and `partition` each hold a `summary.json` with its keys; `trees` records root correspondence `pass`, 0 roots outside the last snapshot, conservation `pass`, `forest_mismatch_halos` 0, and 70 label slabs.
 2. **The dataset identity matches**: the dataset's identity record equals `$P/identity.json` and every summary's `dataset` entry (`format_version` 2, 166,547,771 forests, 70 slabs, sidecar SHA-256 `f4807578…6336063`).
@@ -150,11 +157,11 @@ The restricted table splits only `ForestIndex` 237997 into its 2,309 z = 0 group
 
 The aggregates were written at `5b7edec1`; this slice changes neither their format nor their meaning.
 
-**Run 2's retired outputs moved aside** (`$B/logs/rev5-production-move-aside.log`): `$P/graph/` (25,636,764 KiB, 74 files) and `$P/cut/` (9,829,248 KiB, 12 files) were renamed to `$X/graph/` and `$X/cut/` on the same volume at 2026-10-09T01:32:54Z, before any new output was written; the file counts and sizes are equal before and after, and the volume's used space is unchanged. They remain charged to the LaCie's storage ledger until the owner deletes them (procedure step 12).
+**Run 2's retired outputs moved aside** (`$B/logs/rev5-production-move-aside.log`): `$P/graph/` (25,636,764 KiB, 74 files) and `$P/cut/` (9,829,248 KiB, 12 files) were renamed to `$X/graph/` and `$X/cut/` on the same volume at 2026-10-09T01:32:54Z, before any new output was written; the file counts and sizes are equal before and after, and the volume's used space rose by 40 KiB (2,778,218,260 to 2,778,218,300 KiB, the new directory's entry). They remain charged to the LaCie's storage ledger until the owner deletes them (procedure step 12).
 
 ### The brief's measured table, reproduced
 
-Every row of the brief's "Measured on 2026-10-07" table that the census measures, from run 2's summaries (`$B/logs/rev5-production-extract.txt`; `$P/occupancy/summary.json` unless named):
+Every row of the brief's "Measured on 2026-10-07" table that the census measures, from run 2's summaries (`$B/logs/rev5-production-extract-final.txt`; `$P/occupancy/summary.json` unless named):
 
 | Quantity | Brief | Census | Census key |
 |---|---:|---:|---|
@@ -167,7 +174,7 @@ Every row of the brief's "Measured on 2026-10-07" table that the census measures
 | Forests whose occupancy ever exceeds 100,000 / 250,000 / 1,000,000 | 11 / 1 / 1 | 11 / 1 / 1 | `forests_exceeding` |
 | Snapshot 34: forests present, top-10 share, top-100 share | 68,294,028; 62.10%; 62.86% | 68,294,028; 322,493,271 halos = 62.10%; 326,479,638 = 62.86% | `widest_slab` |
 
-**Every figure reproduces to the number; there is no discrepancy.** The brief's "second-largest forest" is unambiguous here: the forest second by total is also second by peak. The super-forest holds 33.28% of snapshot 69 (104,845,278 of 315,004,242) and 91.00% of snapshot 0 (1,693,311 of 1,860,842); the twelve highest forest peaks, eleven above 100,000, are in `$B/logs/rev5-production-facts.txt`.
+**Every figure reproduces to the number; there is no discrepancy.** The brief's "second-largest forest" is unambiguous here: the forest second by total is also second by peak. The super-forest holds 33.28% of snapshot 69 (104,845,278 of 315,004,242) and 91.00% of snapshot 0 (1,693,311 of 1,860,842); the twelve highest forest peaks, eleven above 100,000, are in `$B/logs/rev5-production-facts-final.txt`.
 
 ### Root correspondence and conservation
 
@@ -183,14 +190,14 @@ The driver's weights are snapshot 34's per-forest rows, the super-forest holding
 
 ### The decided table
 
-`$P/table/` (`$P/table/summary.json`, `record.json`, `forests.list`; `$B/logs/rev5-production-table.log`). Snapshot 69 (scale factor 0.99998) holds **244,953,607 FoF groups** among its 315,004,242 halos. Every central reference was validated, and for every split forest the piece count equals its z = 0 centrals:
+`$P/table/` (`$P/table/summary.json`, `record.json`, `forests.list`; `$B/logs/rev5-production-table-final.log`). Snapshot 69 (scale factor 0.99998) holds **244,953,607 FoF groups** among its 315,004,242 halos. Every central reference was validated, and for every split forest the piece count equals its z = 0 centrals:
 
 - **158,494,209 forests end in one group** and are unchanged;
 - **8,053,562 forests are split**, into 86,459,398 pieces holding 17,165,642,448 halos; 78,405,836 pieces are fresh, with ids from 26,877,727,958 (above the catalogue's largest, 26,877,727,957);
 - the **super-forest** ends in **50,805,833 groups**; the **other 8,053,561 split forests** hold **27,600,004 extra groups** and **4,519,034,547 halos**; the next most divided forest is the second-largest (`ForestIndex` 16386454, 32,410 groups);
 - the cut dataset has **244,953,607 forests**, one per z = 0 group.
 
-The total of 244,953,607 groups, the super-forest's 50,805,833, and the other split forests' 8,053,561, 27,600,004 and 4,519,034,547 reproduce PM's informal counts exactly, computed independently by the census (`$P/table/summary.json` `groups`). The table has 315,004,242 rows (7,560,101,829 B, md5 **`6e9f2fb03b26a36ce51c5392e7bcf164`**); its record lists the 86,459,398 pieces of the split forests (2,954,410,424 B, md5 `432b157965cebf9420993e62d074377d`, `$B/logs/rev5-production-run1-summaries/md5.txt`), and the assignment's SHA-256 is `9cc47fb6a4dc087f9c2de98cdb5d258a76062e611055cb361dc96cbb33766227`, the same in `$P/cut/summary.json`. The table's invariants were checked on write: 315,004,242 trees, 244,953,607 pieces, 8,053,562 cut forests, 78,405,836 fresh pieces.
+The total of 244,953,607 groups, the super-forest's 50,805,833, and the other split forests' 8,053,561, 27,600,004 and 4,519,034,547 reproduce PM's informal counts exactly, computed independently by the census (`$P/table/summary.json` `groups`). The table has 315,004,242 rows (7,560,101,829 B, md5 **`6e9f2fb03b26a36ce51c5392e7bcf164`**); its record lists the 86,459,398 pieces of the split forests (2,954,410,424 B, md5 `432b157965cebf9420993e62d074377d`, `$B/logs/rev5-production-run1-summaries/md5.txt`, unchanged in every run), and the assignment's SHA-256 is `9cc47fb6a4dc087f9c2de98cdb5d258a76062e611055cb361dc96cbb33766227`, the same in `$P/cut/summary.json`. The table's invariants were checked on write: 315,004,242 trees, 244,953,607 pieces, 8,053,562 cut forests, 78,405,836 fresh pieces.
 
 **Its largest pieces** (`pieces.largest`, `pieces.highest_peak`; all in the super-forest, all peaking at snapshot 31):
 
@@ -206,7 +213,7 @@ These are the piece totals and peaks PM's estimate sampled over snapshots 24 to 
 
 ### The decided table's cost
 
-From one pass over the split forests' rows of every slab (`$P/cut/summary.json`; per-slab rows in `$B/logs/rev5-production-extract.txt`):
+From one pass over the split forests' rows of every slab (`$P/cut/summary.json`; per-slab rows in `$B/logs/rev5-production-extract-final.txt`):
 
 | Measure | Production |
 |---|---:|
@@ -219,7 +226,8 @@ From one pass over the split forests' rows of every slab (`$P/cut/summary.json`;
 | Stored-chain check: descendants checked; mismatches | 3,410,566; **0** |
 | Halos with a new forest id | 14,749,355,436 |
 | Halos whose `HaloRankInForest` is recomputed | 17,165,642,448 |
-| Halos whose `SourceHaloID` prefix moves | 22,503,649,037 (every halo: the super-forest is `ForestIndex` 0) |
+| Halos whose `SourceHaloID` is recomputed (every forest from the first split one, here `ForestIndex` 0, the super-forest) | 22,503,649,037 |
+| Halos whose `SourceHaloID` prefix moves (the same, less the super-forest's kept piece of 126,380,326) | 22,377,268,711 |
 | `sage16`/`halos-only` seeds | 636,367,687 |
 | `dependent_halos` | **2,445,611,151** |
 | `upper_bound_halos` | **17,163,320,870** |
@@ -228,7 +236,7 @@ The stored-chain check's 0 mismatches mean the recomputed chains reproduce the d
 
 ### Chunked memory with the pieces installed
 
-The partition with the pieces installed, weighted as the driver weighs it by the widest slab (snapshot 34), for every grid point (`$P/cut/summary.json` `partition.grid`; `$B/logs/rev5-production-facts.txt`). Rows are the widest chunk; GB at 1,100 B per halo:
+The partition with the pieces installed, weighted as the driver weighs it by the widest slab (snapshot 34), for every grid point (`$P/cut/summary.json` `partition.grid`; `$B/logs/rev5-production-facts-final.txt`). Rows are the widest chunk; GB at 1,100 B per halo:
 
 | ntask | nchunk | Process: widest rows (snapshot) | Process GB | Job rows | Job GB |
 |---:|---:|---:|---:|---:|---:|
@@ -253,21 +261,33 @@ The smallest job figure on the grid is **29,113,469 rows, 32.0 GB, at one task a
 
 ### Resources
 
-Wall-clock and peak RSS from `/usr/bin/time -l` in each step's log; the run 2 steps are reused, not rerun.
+Wall-clock and peak RSS from `/usr/bin/time -l` in each step's log; the run 2 steps are reused, not rerun. The quoted `table` and `cut` run is the final one, at the committed code with `MallocLargeCache=0` (`rev5-production-table-final.log`, `rev5-production-cut-final.log`, `$B/scripts/rev5_production_final.sh`); the earlier runs are listed for their wall-clock and default-allocator RSS.
 
-| Step | Wall-clock | Peak RSS (default allocator) | Peak RSS with `MallocLargeCache=0` | Written (sum of file sizes) |
+| Step | Wall-clock | Peak RSS, `MallocLargeCache=0` | Peak RSS, default allocator | Written (sum of file sizes) |
 |---|---:|---:|---:|---|
-| `occupancy` (run 2, `production-occupancy.log`) | 1,006 s | 32.7 GB | — | `occupancy/` 64,619,992,405 B |
-| `trees` (run 2, `production-trees.log`) | 2,768 s | 41.7 GB | — | `trees/` 190,327,307,815 B |
-| `partition` (run 2, `production-partition.log`) | 421 s | 27.4 GB | — | `partition/` 1,363,597 B |
-| `table` (`rev5-production-table.log`; rerun `-nolargecache`) | 1,527 s; 1,089 s | 66.7 GB | **57.3 GB** | `table/` 10,514,524,769 B (table 7,560,101,829; record 2,954,410,424) |
-| `cut` (`rev5-production-cut.log`; rerun `-nolargecache`) | 5,839 s; 5,075 s | 109.4 GB | **33.7 GB** | `cut/` 191,193 B |
+| `occupancy` (run 2, `production-occupancy.log`) | 1,006 s | — | 32.7 GB | `occupancy/` 64,619,992,405 B |
+| `trees` (run 2, `production-trees.log`) | 2,768 s | — | 41.7 GB | `trees/` 190,327,307,815 B |
+| `partition` (run 2, `production-partition.log`) | 421 s | — | 27.4 GB | `partition/` 1,363,597 B |
+| `table`: final; `-nolargecache`; first | 1,246 s; 1,089 s; 1,527 s | **57.3 GB**; 57.3 GB; — | —; —; 66.7 GB | `table/` 10,514,524,775 B (table 7,560,101,829; record 2,954,410,424) |
+| `cut`: final; `-nolargecache`; first | 5,148 s; 5,075 s; 5,839 s | **33.7 GB**; 33.7 GB; — | —; —; 109.4 GB | `cut/` 191,245 B |
 
-(Sizes from `$B/logs/rev5-production-facts.txt`.) **The default-allocator RSS includes freed memory.** macOS's allocator keeps freed large blocks resident in its large-allocation cache, and `ru_maxrss` counts them. Run in isolation on production (`$B/scripts/rev5_measure_cut_aggregates.py`), the cut's aggregates phase reached 59.7 GB of RSS with the cache (`$B/logs/rev5-production-cut-aggregates-memory.log`) and 30.25 GB without it (`rev5-production-cut-aggregates-memory-nolargecache.log`), with 16.6 GB of live arrays after the table's construction. With the cache disabled, the phases' peaks are (summaries' `memory`): `table` 17.8 GB after loading the index files, 32.1 GB through the pieces and their peaks, 57.3 GB while the table is checked and written; `cut` 27.1 GB through its pieces, 30.3 GB through the aggregates, 33.7 GB through the pass. These follow the modules' stated formulas. The table's check (about 96 B per catalogue tree, 30.2 GB) sits on top of the index files' roots and ids, the table's ids and the trees' totals (about 32 B per tree, 10.1 GB) and the pieces, census roots and per-forest arrays still held (about 15 GB). The pass's widest slab costs 12 B per row (6.2 GB at snapshot 34) beside the 16.6 GB held. **The rerun is deterministic**: its `forests.list` and `record.json` have the md5s of the first run, and both summaries are identical except the measured memory (and the cut summary's own size), so the outputs now in `$P` are the rerun's.
+(Sizes from `$B/logs/rev5-production-facts-final.txt`.) **The default-allocator RSS includes freed memory.** macOS's allocator keeps freed large blocks resident in its large-allocation cache, and `ru_maxrss` counts them. Run in isolation on production (`$B/scripts/rev5_measure_cut_aggregates.py`), the cut's aggregates phase reached 59.7 GB of RSS with the cache (`$B/logs/rev5-production-cut-aggregates-memory.log`) and 30.25 GB without it (`rev5-production-cut-aggregates-memory-nolargecache.log`), with 16.6 GB of live arrays after the table's construction.
 
-**Disk and footprint.** `$P` holds 259,242,356 KiB at rest (`du -sk`) and `$X` 35,466,012 KiB, together **0.30 TB** (301.8 GB). The LaCie footprint peaked during the rerun's rewrite of the table at 260,336,064 KiB in `$P` with `$X` unchanged (0.303 TB together) and 2,789,593,412 KiB used on the volume (`$B/logs/rev5-production-footprint-nolargecache.log`, sampled every 2 min); 5,024,478,164 KiB (5.14 TB) were free afterwards.
+With the cache disabled, the phases' peaks are (`$P/table/summary.json` and `$P/cut/summary.json` `memory`): `table` 17.8 GB after loading the index files, 32.1 GB through the pieces and their peaks, 57.3 GB while the table is checked and written; `cut` 27.1 GB through its pieces, 30.3 GB through the aggregates, 33.7 GB through the pass. The table's 57.3 GB peak reconciles with the modules' stated terms at n = 315,004,242 trees, F = 166,547,771 forests, t = 154,306,684 split-forest trees (the record's `trees` column summed, `$B/logs/rev5-production-split-trees.txt`) and p = 86,459,398 pieces:
 
-**The procedure's free-space precondition, rechecked.** Procedure step 1 budgets "the census aggregates (the measured figure from Slice 9; run 2 measured about 0.29 TB in all, retired outputs included)". The measured figure is **0.30 TB** at rest, retired outputs included (0.303 TB at the table-rewrite peak); the ledger entry is 0.01 TB above run 2's. The decided table and its record (10.5 GB) are kept with the conversion provenance (the Final-State Inventory); the rest is deleted by the owner after the last step that reads it.
+- `check_table`, about 96 B × n: 30.24 GB;
+- the index files' roots and ids (16 B × n), the census roots (8 B × n), the trees' totals mapped (8 B × n) and the table's ids (8 B × n): 12.60 GB;
+- the sidecar `ForestID`, the centrals and the halos per forest: 24 B × F, 4.00 GB;
+- the tree-to-local map (4 B × n), the local trees and their pieces (8 B × t): 2.49 GB;
+- the piece columns (57 B × p) and their peaks (16 B × p): 6.31 GB.
+
+These sum to 55.64 GB; the other 1.7 GB is the interpreter, the HDF5 library and the phase's transients. The cut's pass adds to its 16.6 GB of held arrays the widest slab's 12 B per row (6.2 GB at snapshot 34), the next slab's descendant mask and, at their largest, 25,198,213 promotions and 29,776,851 retained rows (`$P/cut/summary.json` `severance.per_snapshot`).
+
+**The reruns are deterministic.** Each wrote a `forests.list` and `record.json` with the first run's md5s. The final run's summaries differ from the `-nolargecache` run's only in the corrected prefix count, the added recomputed count, the record-size formula text, the measured memory and the cut summary's own size (`$B/logs/rev5-production-steer1-diff.txt`; the replaced summaries are kept in `$B/logs/rev5-production-run1-summaries/` and `rev5-production-run2-summaries/`). The outputs now in `$P` are the final run's.
+
+**Disk and footprint.** At rest `$P` holds 259,256,268 KiB (`du -sk`, `rev5-production-cut-final.log`) and `$X` 35,466,012 KiB, together **0.30 TB** (301.8 GB). The 2-minute footprint sampler's **maximum observed sample** was 259,814,892 KiB in `$P`, with `$X` unchanged and 2,789,088,192 KiB used on the volume (`$B/logs/rev5-production-footprint-final.log`, 2026-10-09T06:51:43Z). The sampler misses the true peak: `write_table` writes the whole 7,560,101,829-byte table to a temporary file before it replaces the old one, so both coexist. The record's temporary (2,954,410,424 B) is written after the table's has replaced the old table. The **derived peak** is therefore the at-rest figure plus the temporary table: about **0.31 TB** (309.4 GB). The sampler's last sample shows 5,024,450,920 KiB free (5.15 TB, 4.68 TiB).
+
+**The procedure's free-space precondition, rechecked.** Procedure step 1 budgets "the census aggregates (the measured figure from Slice 9; run 2 measured about 0.29 TB in all, retired outputs included)". The measured figure is **0.31 TB** at the derived peak of a table rewrite (0.30 TB at rest), retired outputs included: 0.02 TB above run 2's. The decided table and its record (10.5 GB) are kept with the conversion provenance (the Final-State Inventory); the rest is deleted by the owner after the last step that reads it.
 
 ---
 
@@ -288,20 +308,27 @@ These are predictions from input topology, per the plan's decision 7; none is a 
 
 ## Code identity
 
-Every `rev5-*` step log records `# git 40a448d5` (plan revision 5, this slice's starting commit) with the census paths modified or new, and the SHA-256 of each census source file. Every rehearsal step (the round quoted) and every production `table` and `cut` run (both rounds) recorded the same digests:
+Every `rev5-*` step log records the commit, the uncommitted census paths and the SHA-256 of each census source file. The final runs (every rehearsal `*-final` step and the production `table` and `cut` `-final` steps) ran at commit `50718b4f61a0b398a1c3573ed9475aba2598a2a6` with no census path modified, and recorded:
 
 | File (under `convert/mimic-convert/`) | SHA-256 |
 |---|---|
-| `forest_census.py` | `f1fcb6679202f802d5a617c5829687cd5a7cad139c773f651d03d968080d8e78` |
+| `forest_census.py` | `11d1cd54aa69ed9fec968eff0bcd559225d43d42a1ce6ec5a646fa0c730c4315` |
 | `census/aggregate.py` | `a865385db5b48e14539f50f388ce95a116427bd6c58fd0d54e89fa62fb90fb99` |
-| `census/cut.py` | `3751412ab207982ae3273a59c9bd5c9b6b07ae77600dbbaab9cc703227484076` |
-| `census/cut_table.py` | `24a9d2e13ef1a9c163e6ee51a9e241b8c6fad4475081bcf6e4d0c1c9a2deac43` |
+| `census/cut.py` | `4c2fd3cd7a95b87aa54bcaf0752763ed510c47b989367ae7c6bea06a70c1817e` |
+| `census/cut_table.py` | `87fdccec80c3da66d84cc16c347264ecbef617c1cad185deb6308794ecc5a35d` |
 | `census/occupancy.py` | `4e87b54257d5ba98d663375fd9c358293538bc1bb78192ae2cdf254902acea08` |
 | `census/partition.py` | `95cd52696e0657cfd7079cef75a893ed0c08a1bf1b0df39008efca278235c686` |
-| `census/table.py` | `59bbc28d5d86c06bc44948ede9d19df082d9963180e5d0ec67072c5f152e3b76` |
+| `census/table.py` | `34363f09f7bac88ac9606951eb31b957cec98411ee4f324584a1135bcc06451f` |
 | `census/trees.py` | `06a0f36f6d0c22c6097c2d1d6e5432298bcde3458e829a828dcf6fa8237591d8` |
 
-The same files, byte for byte, are kept in `$B/logs/rev5-code-as-run/`, and they are the files Slice 9 committed: the digests of the committed blobs equal these. `horizontal_dataset.py` and `source_index.py`, which this slice does not change, recorded `79f6dd02…` and `2bb1617d…`. The per-unit memory figures in `census/table.py`, `census/cut.py` and `census/cut_table.py` were calibrated with `tracemalloc` on the micro-Uchuu census (`$B/scripts/rev5_measure_memory.py`, `$B/logs/rev5-memory-calibration-v3.txt`).
+These are the committed blobs (copies in `$B/logs/rev5-code-final/`). The earlier runs ran at the slice's first code (commit `8ffecb0d`'s blobs, kept in `$B/logs/rev5-code-as-run/`). Steer 1 changed `forest_census.py`, `census/cut.py`, `census/cut_table.py` and `census/table.py`. The rehearsal's `occupancy`, `trees` and `partition` steps ran at the first code; the modules they run are unchanged. Against the earlier runs, the final runs' outputs changed only as follows, and all of these changes are intended:
+
+- every table and record md5 is the same;
+- `relabelled.source_halo_id_shifted_halos` is corrected (production 22,503,649,037 → 22,377,268,711; micro-Uchuu 22,580,924 → 22,544,994, restricted 10,080,520 → 10,001,396), and `source_halo_id_recomputed_halos` is added;
+- the record-size formula text changed;
+- the measured memory and the cut summary's size changed.
+
+`$B/logs/rev5-production-steer1-diff.txt` and `rev5-rehearsal-steer1-diff.txt` list every difference. `horizontal_dataset.py` and `source_index.py`, which this slice does not change, recorded `79f6dd02…` and `2bb1617d…`. The per-unit memory figures in `census/table.py`, `census/cut.py` and `census/cut_table.py` were calibrated with `tracemalloc` on the micro-Uchuu census (`$B/scripts/rev5_measure_memory.py`, `$B/logs/rev5-memory-calibration-v3.txt`).
 
 ---
 
