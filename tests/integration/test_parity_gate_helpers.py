@@ -7,6 +7,7 @@ dataset or build. Run with: python3 tests/integration/test_parity_gate_helpers.p
 
 import sys
 import tempfile
+from functools import partial
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -84,6 +85,51 @@ def test_horizontal_diff_accepts_two_keys_and_rejects_a_third():
         assert _refuses(lambda: assert_horizontal_run_file_diff(vertical, third, "horiz")), msg
 
 
+def test_horizontal_diff_admits_the_dataset_override_keys_only_with_an_override():
+    """A gate naming its own horizontal dataset may set exactly its directory and a_list.
+
+    Both shapes a run file can take are covered: one that already has an input
+    section (the keys join it) and one that has none (the override opens it).
+    """
+    override = (Path("/data/subset-v3"), Path("/data/subset.a_list"))
+    keys = f"  simulation_dir: {override[0]}\n  snapshot_list_file: {override[1]}\n"
+    bare = VERTICAL.replace("input:\n  first_file: 0\n  last_file: 3\n", "")
+    with tempfile.TemporaryDirectory() as tmp:
+        scratch = Path(tmp)
+        for name, vertical_text, horizontal_text in (
+            ("joined", VERTICAL, HORIZONTAL.replace("input:\n", "input:\n" + keys)),
+            (
+                "opened",
+                bare,
+                HORIZONTAL.replace("input:\n  first_file: 0\n  last_file: 3\n", "")
+                + "input:\n"
+                + keys,
+            ),
+        ):
+            vertical = _write(scratch, f"{name}-vertical.yaml", vertical_text)
+            horizontal = _write(scratch, f"{name}-horizontal.yaml", horizontal_text)
+            third = _write(
+                scratch, "third.yaml", horizontal_text.replace("SubSteps: 1", "SubSteps: 2")
+            )
+            directory_only = _write(
+                scratch,
+                "directory-only.yaml",
+                horizontal_text.replace(f"  snapshot_list_file: {override[1]}\n", ""),
+            )
+            elsewhere = (Path("/data/other"), override[1])
+            assert_horizontal_run_file_diff(vertical, horizontal, "horiz", override)
+            for what, candidate, dataset in (
+                ("the override keys without an override", horizontal, None),
+                ("a directory other than the override's", horizontal, elsewhere),
+                ("a third functional change beside the override", third, override),
+                ("an override setting only the directory", directory_only, override),
+            ):
+                check = partial(
+                    assert_horizontal_run_file_diff, vertical, candidate, "horiz", dataset
+                )
+                assert _refuses(check), f"{name}: accepted {what}"
+
+
 if __name__ == "__main__":
     sys.exit(
         run_test_suite(
@@ -91,6 +137,7 @@ if __name__ == "__main__":
                 test_dynamic_variant_adds_one_line_and_refuses_existing_scheme,
                 test_range_override_rewrites_only_the_range_keys,
                 test_horizontal_diff_accepts_two_keys_and_rejects_a_third,
+                test_horizontal_diff_admits_the_dataset_override_keys_only_with_an_override,
             ],
             "Parity-gate run-file helpers (test_parity_gate_helpers.py)",
         )

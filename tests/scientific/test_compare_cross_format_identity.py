@@ -593,6 +593,394 @@ def test_compare_created_duplicate_created_id_is_detected():
 
 
 # --------------------------------------------------------------------------
+# Alternate pairing: tree rows by catalogue key, created rows by lineage
+# --------------------------------------------------------------------------
+
+#: A record carrying everything the alternate pairings read: both identity
+#: fields, the catalogue key, and one payload field to perturb.
+PAIRED_DTYPE = numpy.dtype(
+    [
+        ("UniqueGalaxyID", "<i8"),
+        ("UniqueCentralGalaxyID", "<i8"),
+        ("MostBoundID", "<i8"),
+        ("SnapNum", "<i4"),
+        ("StellarMass", "<f8"),
+    ]
+)
+
+#: The snapshot every paired record lives in.
+PAIRED_SNAP = 5
+
+
+def created_id(host_key, ordinal):
+    """A created record's id, as galaxy_id.h encodes it: -(1 + ordinal + 1024 * host_key)."""
+    return -(1 + ordinal + comparator.MAX_CREATED_RECORDS_PER_HOST * host_key)
+
+
+def paired_records(tree, created, tree_ids, host_keys):
+    """One run's records for PAIRED_SNAP.
+
+    `tree` is a list of (MostBoundID, central MostBoundID, mass); `created` a list
+    of (host MostBoundID, ordinal, mass), each inheriting its host's central as
+    a created record does. `tree_ids` maps a MostBoundID to this run's tree id
+    and `host_keys` a host MostBoundID to this run's created-id host key, which
+    is how two enumerations of one simulation label the same galaxies apart.
+    """
+    centrals = {mbid: central for mbid, central, _ in tree}
+    rows = [(tree_ids[mbid], tree_ids[central], mbid, mass) for mbid, central, mass in tree]
+    rows += [
+        (created_id(host_keys[host], ordinal), tree_ids[centrals[host]], host, mass)
+        for host, ordinal, mass in created
+    ]
+    records = numpy.zeros(len(rows), dtype=PAIRED_DTYPE)
+    for index, (galaxy_id, central, mbid, mass) in enumerate(rows):
+        records[index] = (galaxy_id, central, mbid, PAIRED_SNAP, mass)
+    return records
+
+
+#: The science both runs share: three tree galaxies in two FoF groups and three
+#: created satellites, two of them on one host.
+PAIRED_TREE = [(11, 11, 1.5), (12, 11, 2.5), (21, 21, 3.5)]
+PAIRED_CREATED = [(11, 0, 0.25), (11, 1, 0.5), (21, 0, 0.75)]
+LEFT_TREE_IDS = {11: 1_000_001, 12: 1_000_002, 21: 2_000_001}
+RIGHT_TREE_IDS = {11: 5_000_001, 12: 5_000_002, 21: 4_000_001}
+LEFT_HOST_KEYS = {11: 7, 21: 9}
+RIGHT_HOST_KEYS = {11: 3, 21: 40}
+
+BOTH_PAIRINGS = ("--match-by-catalogue-id", "--match-created-by-lineage")
+
+
+def paired_run(root, name, tree=PAIRED_TREE, created=PAIRED_CREATED, tree_ids=None, keys=None):
+    """Write one run of the paired science, labelled the right run's way unless told otherwise."""
+    records = paired_records(tree, created, tree_ids or RIGHT_TREE_IDS, keys or RIGHT_HOST_KEYS)
+    return write_run(root / name, "model", [{PAIRED_SNAP: records}])
+
+
+def test_created_id_ordinal_decoding_matches_the_c_encoding():
+    """The copied radix is the C constant, and the ordinal decodes as the C decoder does.
+
+    The radix is copied from src/include/constants.h; reading the header here
+    makes a change on the C side fail this test instead of silently mispairing
+    every created record.
+    """
+    print("Testing the created-id ordinal decoding...")
+    header = (REPO_ROOT / "src" / "include" / "constants.h").read_text()
+    defined = [
+        int(line.split()[2])
+        for line in header.splitlines()
+        if line.startswith("#define MAX_CREATED_RECORDS_PER_HOST ")
+    ]
+    assert defined == [comparator.MAX_CREATED_RECORDS_PER_HOST], f"constants.h defines {defined}"
+
+    host_keys = numpy.array([0, 1, 9, 2**52], dtype=numpy.int64)
+    for ordinal in (0, 1, comparator.MAX_CREATED_RECORDS_PER_HOST - 1):
+        ids = numpy.array([created_id(int(key), ordinal) for key in host_keys], dtype=numpy.int64)
+        decoded = comparator.created_ordinals(ids)
+        assert (decoded == ordinal).all(), f"ordinal {ordinal} decoded as {decoded}"
+    # The most negative id decodes without overflow: -(id + 1) is INT64_MAX.
+    lowest = numpy.array([numpy.iinfo(numpy.int64).min], dtype=numpy.int64)
+    expected = numpy.iinfo(numpy.int64).max % comparator.MAX_CREATED_RECORDS_PER_HOST
+    assert comparator.created_ordinals(lowest)[0] == expected
+    print("  ✓ the radix matches constants.h and ordinals decode as -(id + 1) mod radix")
+
+
+def test_alternate_pairings_accept_equal_science_with_different_labels():
+    """The same galaxies under different ids compare identical once paired by what they are.
+
+    Each run labels the galaxies its own way: created ids encode a different
+    host row, and in the second half the tree ids enumerate the forests
+    differently too, with every central relabelled to match. The default rule
+    is shown to fail on the relabelled runs first, so a pass is the pairing's
+    doing and not an accident of equal ids.
+    """
+    print("Testing equal science under different labels...")
+    with scratch() as root:
+        left = paired_run(root, "left", tree_ids=LEFT_TREE_IDS, keys=LEFT_HOST_KEYS)
+
+        # Tree ids equal, created ids relabelled: the lineage pairing alone.
+        lineage = paired_run(root, "lineage", tree_ids=LEFT_TREE_IDS)
+        status, report = compare(left, lineage, "--compare-created")
+        assert_status(status, DIFFERENT, report, "relabelled created rows paired by id")
+        status, report = compare(left, lineage, "--match-created-by-lineage")
+        assert_status(status, IDENTICAL, report, "relabelled created rows by lineage")
+        assert "PASSED: 6 galaxies" in report, f"not every record was compared\n{report}"
+        assert "identical under the lineage comparator" in report, report
+        assert "3 created row(s) compared" in report, f"created count not reported\n{report}"
+
+        # Every id relabelled: both pairings together.
+        relabelled = paired_run(root, "relabelled")
+        status, report = compare(left, relabelled)
+        assert_status(status, DIFFERENT, report, "relabelled tree rows paired by id")
+        status, report = compare(left, relabelled, *BOTH_PAIRINGS)
+        assert_status(status, IDENTICAL, report, "relabelled runs under both pairings")
+        assert "catalogue-key and lineage comparator" in report, report
+        assert "PASSED: 6 galaxies" in report, f"not every record was compared\n{report}"
+    print("  ✓ relabelled runs compare identical by catalogue key and lineage, and not by id")
+
+
+def test_lineage_mismatch_and_created_field_difference_fail():
+    """A created record whose lineage has no partner fails, as does a created field difference."""
+    print("Testing a lineage mismatch...")
+    with scratch() as root:
+        left = paired_run(root, "left", tree_ids=LEFT_TREE_IDS, keys=LEFT_HOST_KEYS)
+
+        # Host 11's second satellite carries ordinal 2 instead of 1.
+        shifted = [(11, 0, 0.25), (11, 2, 0.5), (21, 0, 0.75)]
+        right = paired_run(root, "shifted", created=shifted)
+        status, report = compare(left, right, *BOTH_PAIRINGS)
+        assert_status(status, DIFFERENT, report, "lineage mismatch")
+        assert "created-row key sets differ" in report, f"not reported as unpaired\n{report}"
+        assert "ordinal=1" in report and "ordinal=2" in report, f"keys not named\n{report}"
+
+        heavier = [(11, 0, 0.25), (11, 1, 0.5), (21, 0, numpy.nextafter(0.75, 1.0))]
+        right = paired_run(root, "heavier", created=heavier)
+        status, report = compare(left, right, *BOTH_PAIRINGS)
+        assert_status(status, DIFFERENT, report, "created field difference")
+        assert "StellarMass: 1 record(s) differ" in report, f"field not named\n{report}"
+    print("  ✓ an unpaired lineage and a created field difference both fail")
+
+
+def test_duplicate_catalogue_key_fails():
+    """Two tree rows sharing (MostBoundID, SnapNum) in one run fail the catalogue pairing."""
+    print("Testing a duplicate catalogue key...")
+    with scratch() as root:
+        left = paired_run(root, "left", tree_ids=LEFT_TREE_IDS, keys=LEFT_HOST_KEYS)
+        records = paired_records(PAIRED_TREE, PAIRED_CREATED, RIGHT_TREE_IDS, RIGHT_HOST_KEYS)
+        twin = records[1:2].copy()
+        twin["UniqueGalaxyID"] = 5_000_009  # a distinct id, so only the key repeats
+        right = write_run(
+            root / "right", "model", [{PAIRED_SNAP: numpy.concatenate([records, twin])}]
+        )
+
+        status, report = compare(left, right, *BOTH_PAIRINGS)
+        assert_status(status, DIFFERENT, report, "duplicate catalogue key")
+        assert "duplicated tree-row key" in report, f"duplicate not reported\n{report}"
+        assert "(MostBoundID=12, SnapNum=5) appears 2 times" in report, report
+    print("  ✓ a duplicated catalogue key fails")
+
+
+def test_broken_central_mapping_fails():
+    """A central that does not map through the pairing fails, naming both centrals.
+
+    The second run's galaxy 12 names the record paired with the first run's
+    galaxy 21 as its central. Its own value is a valid id of that run, so only
+    a comparison through the pairing can see it is the wrong one.
+    """
+    print("Testing a broken central mapping...")
+    with scratch() as root:
+        records = paired_records(PAIRED_TREE, PAIRED_CREATED, RIGHT_TREE_IDS, RIGHT_HOST_KEYS)
+        records["UniqueCentralGalaxyID"][records["MostBoundID"] == 12] = RIGHT_TREE_IDS[21]
+        right = write_run(root / "right", "model", [{PAIRED_SNAP: records[:3]}])
+        left_tree = write_run(
+            root / "left-tree",
+            "model",
+            [{PAIRED_SNAP: paired_records(PAIRED_TREE, [], LEFT_TREE_IDS, LEFT_HOST_KEYS)}],
+        )
+
+        status, report = compare(left_tree, right, "--match-by-catalogue-id")
+        assert_status(status, DIFFERENT, report, "broken central mapping")
+        assert (
+            "central 1000001 maps to 5000001, right central 4000001" in report
+        ), f"both centrals not named\n{report}"
+    print("  ✓ a central that does not map through the pairing fails and names both")
+
+
+def test_alternate_mode_usage_errors():
+    """Contradictory options are usage errors (exit 2), before any input is read."""
+    print("Testing alternate-mode usage errors...")
+    for options in (
+        ("--compare-created", "--match-created-by-lineage"),
+        ("--match-by-catalogue-id", "--multiplier", "1000"),
+        (
+            "--multiplier",
+            "1000",
+            "--left-sidecar",
+            "l",
+            "--right-sidecar",
+            "r",
+            "--cut-record",
+            "c",
+        ),
+        ("--report-all-forests",),
+    ):
+        with contextlib.redirect_stderr(io.StringIO()):
+            try:
+                comparator.main(["left", "right", *options])
+            except SystemExit as stop:
+                assert stop.code == INPUT_ERROR, f"{options}: exit {stop.code}"
+                continue
+        raise AssertionError(f"{options} was accepted")
+    print("  ✓ contradictory or incomplete option sets are refused")
+
+
+# --------------------------------------------------------------------------
+# The cut-difference report
+# --------------------------------------------------------------------------
+
+#: The UniqueGalaxyID forest multiplier of the cut fixture.
+CUT_MULTIPLIER = 1000
+
+#: The uncut dataset's forests by ForestIndex, and the cut dataset's: forest 20
+#: is cut into the piece that keeps its id and a fresh piece 100, which
+#: enumerates after every original forest (ForestIndex 3).
+UNCUT_FORESTS = [10, 20, 30]
+CUT_FORESTS = [10, 20, 30, 100]
+CUT_FRESH_FLOOR = 31
+
+#: Tree galaxies as (MostBoundID, central MostBoundID, forest index in the
+#: uncut and in the cut dataset, halo number, mass). Galaxy 203 lands in the
+#: fresh piece, so its id differs between the datasets.
+CUT_TREE = [
+    (101, 101, 0, 0, 0, 1.0),
+    (201, 201, 1, 1, 0, 2.0),
+    (202, 201, 1, 1, 1, 3.0),
+    (203, 203, 1, 3, 2, 4.0),
+    (301, 301, 2, 2, 0, 5.0),
+    (302, 301, 2, 2, 1, 6.0),
+]
+
+#: Created satellites as (host MostBoundID, ordinal, mass), one in the fresh
+#: piece and one in an unchanged forest.
+CUT_CREATED = [(203, 0, 0.5), (301, 0, 0.75)]
+
+
+def cut_run(root, name, cut, tree=CUT_TREE, created=CUT_CREATED):
+    """One run of the cut fixture, on the cut dataset's enumeration when `cut` is set."""
+    ids = {
+        mbid: halo + CUT_MULTIPLIER * ((after if cut else before) + 1)
+        for mbid, _, before, after, halo, _ in tree
+    }
+    centrals = {mbid: central for mbid, central, *_ in tree}
+    rows = [(ids[mbid], ids[central], mbid, mass) for mbid, central, *_, mass in tree]
+    rows += [
+        (created_id(index + (50 if cut else 0), ordinal), ids[centrals[host]], host, mass)
+        for index, (host, ordinal, mass) in enumerate(created)
+    ]
+    records = numpy.zeros(len(rows), dtype=PAIRED_DTYPE)
+    for index, (galaxy_id, central, mbid, mass) in enumerate(rows):
+        records[index] = (galaxy_id, central, mbid, PAIRED_SNAP, mass)
+    return write_run(root / name, "model", [{PAIRED_SNAP: records}])
+
+
+def cut_inputs(root):
+    """Both sidecars and the cut record; returns the comparator options naming them."""
+    for name, forests in (("uncut", UNCUT_FORESTS), ("cut", CUT_FORESTS)):
+        with h5py.File(root / f"{name}-forests.h5", "w") as handle:
+            handle.create_dataset("ForestID", data=numpy.array(forests, dtype=numpy.int64))
+    # The record's layout: one header entry per line, one line per piece column.
+    (root / "record.json").write_text(
+        "{\n"
+        f'  "fresh_id_floor": {CUT_FRESH_FLOOR},\n'
+        '  "rule": {"text": "the z = 0 FoF groups of every forest"},\n'
+        '  "pieces": {\n'
+        '    "id": [20,100],\n'
+        '    "forest_id": [20,20],\n'
+        '    "trees": [2,1]\n'
+        "  }\n"
+        "}\n"
+    )
+    return (
+        *BOTH_PAIRINGS,
+        "--multiplier",
+        str(CUT_MULTIPLIER),
+        "--left-sidecar",
+        str(root / "uncut-forests.h5"),
+        "--right-sidecar",
+        str(root / "cut-forests.h5"),
+        "--cut-record",
+        str(root / "record.json"),
+    )
+
+
+def heavier(tree, mbid):
+    """`tree` with galaxy `mbid`'s mass moved up by one ulp."""
+    return [
+        (*row[:-1], numpy.nextafter(row[-1], numpy.inf) if row[0] == mbid else row[-1])
+        for row in tree
+    ]
+
+
+def test_cut_report_reports_a_split_forest_difference_and_fails_an_unchanged_one():
+    """A difference inside a split forest is reported and passes; outside one it fails.
+
+    The same one-ulp change is made to a galaxy of the split forest 20 and to a
+    galaxy of forest 30, which the cut leaves alone. A galaxy whose catalogue
+    key pairs but whose tree id changed outside a split forest fails too: an
+    unchanged forest keeps its ForestIndex and so its ids.
+    """
+    print("Testing the cut-difference report's split and unchanged forests...")
+    with scratch() as root:
+        options = cut_inputs(root)
+        uncut = cut_run(root, "uncut", cut=False)
+
+        status, report = compare(uncut, cut_run(root, "same", cut=True), *options)
+        assert_status(status, IDENTICAL, report, "cut with no difference")
+
+        inside = cut_run(root, "inside", cut=True, tree=heavier(CUT_TREE, 202))
+        status, report = compare(uncut, inside, *options)
+        assert_status(status, IDENTICAL, report, "difference inside a split forest")
+        assert (
+            "forest 20: 3 identical, 1 differing (StellarMass 1), 0 only in left, 0 only in right"
+            in report
+        ), f"the split forest's difference was not reported\n{report}"
+        assert "outside the split forests" in report, f"the PASSED scope is missing\n{report}"
+
+        outside = cut_run(root, "outside", cut=True, tree=heavier(CUT_TREE, 302))
+        status, report = compare(uncut, outside, *options)
+        assert_status(status, DIFFERENT, report, "difference in an unchanged forest")
+        assert "StellarMass: 1 record(s) differ" in report, f"field not named\n{report}"
+
+        status, report = compare(uncut, outside, *options, "--report-all-forests")
+        assert_status(status, IDENTICAL, report, "difference reported under --report-all-forests")
+        assert "forest 30: " in report and "total over other forests" in report, report
+
+        moved = [(*row[:4], 7, row[5]) if row[0] == 302 else row for row in CUT_TREE]
+        status, report = compare(uncut, cut_run(root, "moved", cut=True, tree=moved), *options)
+        assert_status(status, DIFFERENT, report, "tree id changed in an unchanged forest")
+        assert "UniqueGalaxyID: 1 record(s) differ" in report, f"id change not named\n{report}"
+    print("  ✓ split-forest differences are reported; unchanged-forest differences fail")
+
+
+def test_cut_report_classifies_a_fresh_piece_record_to_its_original_forest():
+    """Records only in the fresh piece are counted against the forest it was cut from.
+
+    One tree galaxy and one created satellite (whose host is in the fresh
+    piece) exist only in the cut run. Both are placed through the cut
+    dataset's sidecar and the record in forest 20, so they are reported there.
+    """
+    print("Testing the classification of a fresh piece's unmatched records...")
+    with scratch() as root:
+        options = cut_inputs(root)
+        uncut = cut_run(root, "uncut", cut=False)
+        extra_tree = [*CUT_TREE, (204, 203, 1, 3, 3, 4.5)]
+        extra_created = [*CUT_CREATED, (203, 1, 0.625)]
+        cut = cut_run(root, "cut", cut=True, tree=extra_tree, created=extra_created)
+
+        status, report = compare(uncut, cut, *options)
+        assert_status(status, IDENTICAL, report, "unmatched records in a fresh piece")
+        assert (
+            "forest 20: 4 identical, 0 differing, 0 only in left, 2 only in right" in report
+        ), f"the fresh piece's records were not placed in forest 20\n{report}"
+    print("  ✓ a fresh piece's unmatched records are reported under their original forest")
+
+
+def test_cut_report_unplaceable_record_is_an_input_error():
+    """A tree id decoding outside its dataset's sidecar exits 2, never 0 or 1."""
+    print("Testing an unplaceable record...")
+    with scratch() as root:
+        options = cut_inputs(root)
+        stray = [*CUT_TREE, (401, 401, 5, 5, 0, 9.0)]
+        status, report = compare(
+            cut_run(root, "uncut", cut=False, tree=stray),
+            cut_run(root, "cut", cut=True, tree=stray),
+            *options,
+        )
+        assert_status(status, INPUT_ERROR, report, "record outside the sidecar")
+        assert "outside the sidecar's 3 forests" in report, f"not named\n{report}"
+    print("  ✓ a record that cannot be placed in a forest is an input error")
+
+
+# --------------------------------------------------------------------------
 # Unreadable input is an input error, never a difference
 # --------------------------------------------------------------------------
 
@@ -667,6 +1055,15 @@ def main():
             test_compare_created_accepts_equal_created_rows,
             test_compare_created_detects_differing_created_rows,
             test_compare_created_duplicate_created_id_is_detected,
+            test_created_id_ordinal_decoding_matches_the_c_encoding,
+            test_alternate_pairings_accept_equal_science_with_different_labels,
+            test_lineage_mismatch_and_created_field_difference_fail,
+            test_duplicate_catalogue_key_fails,
+            test_broken_central_mapping_fails,
+            test_alternate_mode_usage_errors,
+            test_cut_report_reports_a_split_forest_difference_and_fails_an_unchanged_one,
+            test_cut_report_classifies_a_fresh_piece_record_to_its_original_forest,
+            test_cut_report_unplaceable_record_is_an_input_error,
             test_truncated_partition_is_an_input_error,
             test_missing_run_directory_is_an_input_error,
             test_directory_without_partitions_is_an_input_error,

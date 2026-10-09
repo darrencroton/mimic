@@ -96,7 +96,16 @@ NUMBERED_TREE_FILE_READERS = ("lhalo_binary",)
 #: file each forest came from).
 FORESTS_FILE = "forests.h5"
 SOURCE_FILE_ORDINAL = "SourceFileOrdinal"
+SOURCE_UNIT_ORDINAL = "SourceUnitOrdinal"
 FOREST_ID = "ForestID"
+
+#: The conversion manifest's dependency role for a bulk source file the
+#: converter read (convert/mimic-convert/conversion_manifest.py SOURCE_ROLE).
+MANIFEST_SOURCE_ROLE = "source"
+
+#: The converter directory, whose source_index.py reads the Consistent-Trees
+#: index files for the manifest-proved inventory.
+CONVERTER_DIR = REPO_ROOT / "convert" / "mimic-convert"
 
 #: Attributes required to be exactly equal between the two runs of a leg before
 #: their records are compared. A pair that disagrees here is not two views of one
@@ -114,6 +123,10 @@ PREFLIGHT_ATTRS = (
 #: effective vertical one. ``simulation.name`` selects the package under test;
 #: ``output.output_directory`` keeps the two runs from writing over each other.
 AUTHORIZED_KEY_CHANGES = ("simulation.name", "output.output_directory")
+
+#: The further keys the horizontal run file sets when the gate names a dataset
+#: other than the package's own (``GatePackage.horizontal_dataset``), and only then.
+DATASET_OVERRIDE_KEYS = ("input.simulation_dir", "input.snapshot_list_file")
 
 #: The only functional keys the vertical range override may change.
 RANGE_KEYS = ("input.first_file", "input.last_file")
@@ -169,6 +182,16 @@ class GatePackage:
             dataset directory; when empty they are derived from the reader.
         require_halos_only_before_sage16: Fail every sage16 leg's prerequisite
             unless all halos-only legs passed.
+        manifest: The dataset's conversion manifest. When given, the sidecar
+            stage proves the conversion inventory from the manifest's source
+            dependencies rather than inferring it from ``SourceFileOrdinal``,
+            which for a Consistent-Trees ASCII conversion is the tree file's
+            position in the converter's order and -1 for a forest spanning files.
+        horizontal_dataset: (directory, snapshot list) of a horizontal dataset
+            to gate in place of the package's own ``snapshots`` and a_list. The
+            horizontal run file then also sets ``input.simulation_dir`` and
+            ``input.snapshot_list_file`` to exactly these paths
+            (DATASET_OVERRIDE_KEYS); the gate that runs it writes that file.
     """
 
     vertical: str
@@ -190,6 +213,8 @@ class GatePackage:
     schemes: tuple[str, ...] = ("fixed", "dynamic")
     vertical_dataset_files: tuple[str, ...] = ()
     require_halos_only_before_sage16: bool = False
+    manifest: Path | None = None
+    horizontal_dataset: tuple[Path, Path] | None = None
     build_timeout_s: int = 3600
     run_timeout_s: int = 8 * 3600
     compare_timeout_s: int = 2 * 3600
@@ -199,6 +224,18 @@ class GatePackage:
     def legs(self) -> tuple[tuple[str, str], ...]:
         """Every (model, scheme) leg, in the order it runs and is reported."""
         return tuple((model, scheme) for model in self.models for scheme in self.schemes)
+
+    def horizontal_snapshots(self) -> Path:
+        """The horizontal dataset directory: the override's, else the package's ``snapshots``."""
+        if self.horizontal_dataset is not None:
+            return Path(self.horizontal_dataset[0])
+        return package_path(self.horizontal, "snapshots")
+
+    def horizontal_snapshot_list(self) -> Path:
+        """The horizontal dataset's snapshot list: the override's, else the package's a_list."""
+        if self.horizontal_dataset is not None:
+            return Path(self.horizontal_dataset[1])
+        return package_path(self.horizontal, self.alist)
 
 
 # --------------------------------------------------------------------------
@@ -365,13 +402,23 @@ def dynamic_variant(run_file: Path, scratch: Path) -> Path:
 
 
 def assert_horizontal_run_file_diff(
-    vertical_path: Path, horizontal_path: Path, horizontal_simulation: str
+    vertical_path: Path,
+    horizontal_path: Path,
+    horizontal_simulation: str,
+    dataset_override: tuple[Path, Path] | None = None,
 ) -> None:
     """The horizontal run file differs from the effective vertical one in exactly two keys.
 
     Checked on the parsed YAML (the keys must be exactly AUTHORIZED_KEY_CHANGES)
     and on the comment-free lines (exactly two, ``name: <horizontal>`` then an
     ``output_directory:`` assignment), since comments carry no functional weight.
+
+    With ``dataset_override`` (directory, snapshot list), and only then, the
+    horizontal file must also set DATASET_OVERRIDE_KEYS to exactly those paths:
+    each may be added (with the ``input:`` line opening its section, when the
+    vertical file has none) or changed, and nothing else may. Their lines are
+    set aside before the line check, which then applies unchanged.
+
     Raises AssertionError naming every other difference.
     """
     left_text = vertical_path.read_text()
@@ -379,20 +426,24 @@ def assert_horizontal_run_file_diff(
 
     left_flat = flatten_keys(yaml.safe_load(left_text) or {})
     right_flat = flatten_keys(yaml.safe_load(right_text) or {})
-    if set(left_flat) != set(right_flat):
+    override_keys = DATASET_OVERRIDE_KEYS if dataset_override is not None else ()
+    only_vertical = set(left_flat) - set(right_flat)
+    only_horizontal = set(right_flat) - set(left_flat) - set(override_keys)
+    if only_vertical or only_horizontal:
         raise AssertionError(
             f"{horizontal_path} and {vertical_path} do not carry the same keys: "
-            f"only vertical: {sorted(set(left_flat) - set(right_flat))}; "
-            f"only horizontal: {sorted(set(right_flat) - set(left_flat))}"
+            f"only vertical: {sorted(only_vertical)}; only horizontal: {sorted(only_horizontal)}"
         )
-    changed_keys = sorted(key for key in left_flat if left_flat[key] != right_flat[key])
-    if changed_keys != sorted(AUTHORIZED_KEY_CHANGES):
+    allowed = sorted((*AUTHORIZED_KEY_CHANGES, *override_keys))
+    changed_keys = sorted(key for key in right_flat if left_flat.get(key) != right_flat[key])
+    if changed_keys != allowed:
         detail = "\n".join(
-            f"    {key}: {left_flat[key]!r} -> {right_flat[key]!r}" for key in changed_keys
+            f"    {key}: {left_flat.get(key)!r} -> {right_flat.get(key)!r}"
+            for key in sorted(set(changed_keys) | set(allowed))
         )
         raise AssertionError(
             f"{horizontal_path} differs from {vertical_path} in functional key(s) "
-            f"{changed_keys}, expected exactly {sorted(AUTHORIZED_KEY_CHANGES)}:\n{detail}"
+            f"{changed_keys}, expected exactly {allowed}:\n{detail}"
         )
     if right_flat["simulation.name"] != horizontal_simulation:
         raise AssertionError(
@@ -405,13 +456,37 @@ def assert_horizontal_run_file_diff(
             f"{right_flat['output.output_directory']!r}, which does not name a "
             f"{horizontal_simulation} output directory, so the two runs would share one"
         )
+    for key, expected in zip(override_keys, dataset_override or ()):
+        if right_flat[key] != str(expected):
+            raise AssertionError(
+                f"{horizontal_path}: {key} is {right_flat[key]!r}, the gate names {str(expected)!r}"
+            )
 
     left_body = functional_lines(left_text)
     right_body = functional_lines(right_text)
+    if override_keys:
+        leaves = {key.split(".", 1)[1] for key in override_keys}
+        bodies = []
+        for body in (left_body, right_body):
+            kept, section = [], None
+            for line in body:
+                if not line[0].isspace():
+                    section = line.split(":", 1)[0].strip()
+                elif section == "input" and line.strip().split(":", 1)[0] in leaves:
+                    continue
+                kept.append(line)
+            bodies.append(kept)
+        left_body, right_body = bodies
+        # An input section the override alone opened is set aside with it.
+        if "input:" in right_body and "input:" not in left_body:
+            at = right_body.index("input:")
+            if at + 1 == len(right_body) or not right_body[at + 1][0].isspace():
+                del right_body[at]
     if len(left_body) != len(right_body):
         raise AssertionError(
             f"{horizontal_path.name} has {len(right_body)} functional line(s), "
             f"{vertical_path.name} has {len(left_body)}"
+            + (f", beyond its {list(override_keys)} lines" if override_keys else "")
         )
     changed = [index for index in range(len(left_body)) if left_body[index] != right_body[index]]
     if len(changed) != 2:
@@ -561,9 +636,13 @@ def point_output_at(worktree: Path, output_root: Path) -> None:
     link.symlink_to(output_root)
 
 
-def assert_dataset_present(package: str, required_files) -> Path:
-    """Fail -- never skip -- when a package's machine-local dataset is absent."""
-    link = package_path(package, "snapshots")
+def assert_dataset_present(package: str, required_files, directory: Path | None = None) -> Path:
+    """Fail -- never skip -- when a package's machine-local dataset is absent.
+
+    ``directory`` names a dataset the gate uses in place of the package's own
+    ``snapshots`` (``GatePackage.horizontal_dataset``); it is checked the same way.
+    """
+    link = package_path(package, "snapshots") if directory is None else Path(directory)
     if not link.exists():
         target = os.readlink(link) if link.is_symlink() else "(no symlink)"
         raise AssertionError(
@@ -578,6 +657,97 @@ def assert_dataset_present(package: str, required_files) -> Path:
         if not entry.exists():
             raise AssertionError(f"{package} dataset is incomplete: missing {entry}")
     return link
+
+
+def assert_manifest_inventory(pkg: GatePackage, sidecar: Path) -> None:
+    """The sidecar stage's inventory proof from the conversion manifest (``pkg.manifest``).
+
+    The manifest's source dependencies must name exactly the tree files the
+    vertical reader opens, which for Consistent-Trees ASCII are the files
+    ``locations.dat`` lists. Each forest held in one file must carry a
+    ``SourceFileOrdinal`` inside that set (the converter numbers its source files
+    from 0 in the order it read them) and a ``SourceUnitOrdinal`` of its own;
+    a forest marked -1/-1 must be one the index files place in more than one
+    file (``source_index.py``). A converted forest's ordinals, unlike a version
+    2 file number, say nothing about the vertical side's file range, so this
+    replaces the inference from ``SourceFileOrdinal`` rather than adding to it.
+
+    Memory: ``SourceIndex`` over the vertical side's index files, about 80 B per
+    tree at its peak (``source_index.py``), and the sidecar's three columns.
+    """
+    if pkg.source_format != "consistent_trees_ascii":
+        raise AssertionError(
+            f"the manifest-proved inventory reads the Consistent-Trees index files; "
+            f"{pkg.vertical} reads {pkg.source_format}"
+        )
+    manifest = Path(pkg.manifest)
+    try:
+        document = json.loads(manifest.read_text())
+        dependencies = document["sources"]["dependencies"]
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        raise AssertionError(f"{manifest}: not a readable conversion manifest ({error})") from None
+    sources = [
+        Path(record["path"]).name
+        for record in dependencies
+        if MANIFEST_SOURCE_ROLE in record.get("roles", ())
+    ]
+    if not sources or len(set(sources)) != len(sources):
+        raise AssertionError(
+            f"{manifest}: {len(sources)} source dependencies, {len(set(sources))} distinct "
+            f"names; the inventory needs at least one, each named once"
+        )
+
+    if str(CONVERTER_DIR) not in sys.path:
+        sys.path.insert(0, str(CONVERTER_DIR))
+    from source_index import SourceIndex
+
+    vertical_data = package_path(pkg.vertical, "snapshots")
+    index = SourceIndex.load(vertical_data / "forests.list", vertical_data / "locations.dat")
+    listed = set(index.filenames.values())
+    if set(sources) != listed:
+        only_manifest = sorted(set(sources) - listed)
+        only_index = sorted(listed - set(sources))
+        raise AssertionError(
+            f"{manifest}: its source dependencies are not the vertical side's tree files: "
+            f"{len(only_manifest)} only in the manifest (e.g. {only_manifest[:3]}), "
+            f"{len(only_index)} only in {vertical_data / 'locations.dat'} "
+            f"(e.g. {only_index[:3]})"
+        )
+
+    with h5py.File(sidecar, "r") as handle:
+        forest_ids = numpy.asarray(handle[FOREST_ID][()], dtype=numpy.int64)
+        files = numpy.asarray(handle[SOURCE_FILE_ORDINAL][()], dtype=numpy.int64)
+        units = numpy.asarray(handle[SOURCE_UNIT_ORDINAL][()], dtype=numpy.int64)
+    spanning = files == -1
+    if not numpy.array_equal(spanning, units == -1):
+        row = int(numpy.flatnonzero(spanning != (units == -1))[0])
+        raise AssertionError(
+            f"{sidecar}: row {row} (ForestID {int(forest_ids[row])}) carries ordinals "
+            f"{int(files[row])}/{int(units[row])}; a forest is in one file (both set) or "
+            f"spans files (both -1)"
+        )
+    outside = ~spanning & ((files < 0) | (files >= len(sources)) | (units < 0))
+    if outside.any():
+        row = int(numpy.flatnonzero(outside)[0])
+        raise AssertionError(
+            f"{sidecar}: {int(outside.sum())} single-file row(s) outside the manifest's "
+            f"{len(sources)} source files (e.g. ForestID {int(forest_ids[row])} with ordinals "
+            f"{int(files[row])}/{int(units[row])})"
+        )
+    table = index.forest_table()
+    multi_file = table.forest_ids[table.file_ordinal == -1]
+    unexplained = forest_ids[spanning][~numpy.isin(forest_ids[spanning], multi_file)]
+    if unexplained.size:
+        raise AssertionError(
+            f"{sidecar}: {unexplained.size} forest(s) marked -1/-1 that the index files hold "
+            f"in one file (e.g. ForestID {unexplained[:3].tolist()})"
+        )
+    log(
+        f"  conversion inventory from {manifest}: {len(sources)} source files, exactly the tree "
+        f"files {vertical_data / 'locations.dat'} lists; {int((~spanning).sum())} single-file "
+        f"forests inside them, {int(spanning.sum())} -1/-1 forests of the "
+        f"{multi_file.size} the index files place in several files"
+    )
 
 
 class RunOutput:
@@ -1001,7 +1171,7 @@ class ParityGate:
         banner(f"Stage 2: horizontal dataset provenance (format version {pkg.format_version})")
         self.require("preconditions", "not inspecting the dataset")
 
-        directory = package_path(pkg.horizontal, "snapshots")
+        directory = pkg.horizontal_snapshots()
         names = sorted(
             entry.name for entry in directory.iterdir() if SNAPSHOT_FILE_RE.match(entry.name)
         )
@@ -1103,6 +1273,11 @@ class ParityGate:
             )
         if not version3:
             log(f"  {FORESTS_FILE}: {rows.size} {FOREST_ID} rows, the pinned forest count")
+            self.done.add("dataset")
+            return
+
+        if pkg.manifest is not None:
+            assert_manifest_inventory(pkg, directory / FORESTS_FILE)
             self.done.add("dataset")
             return
 
