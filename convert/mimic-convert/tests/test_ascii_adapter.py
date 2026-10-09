@@ -1647,6 +1647,49 @@ class CutTableTests(unittest.TestCase):
             self.prepare(workdir, other)
         self.prepare(workdir, self.severed_table)
 
+    def test_an_interrupted_install_resumes_to_the_uninterrupted_output(self):
+        import scatter
+        from hdf5_writer_v3 import HorizontalV3Writer
+
+        whole = convert_under_cut(self.severed, self.root / "install_whole", self.severed_table)
+        expected = whole.artifact_path(whole.stage("write")["directory"])
+        real_replace, real_install = os.replace, scatter._install_table
+
+        def after_replacing(name):
+            def replace(src, dst):
+                real_replace(src, dst)
+                if Path(dst).name == name:
+                    raise RuntimeError("injected after replacing {}".format(name))
+
+            return mock.patch.object(scatter.os, "replace", side_effect=replace)
+
+        def before_the_save():
+            def install(manifest, path, kind, table, **record):
+                real_install(manifest, path, kind, table, **record)
+                if kind == "forest-index-table":
+                    raise RuntimeError("injected before the manifest save")
+
+            return mock.patch.object(scatter, "_install_table", side_effect=install)
+
+        for boundary, injection in (
+            ("units", after_replacing(source_units_name(1))),
+            ("table", after_replacing("forest_index_table.npy")),
+            ("save", before_the_save()),
+        ):
+            with self.subTest(boundary=boundary):
+                work = self.root / ("install_" + boundary)
+                with injection, self.assertRaisesRegex(RuntimeError, "injected"):
+                    convert_under_cut(self.severed, work, self.severed_table)
+                with capture_stderr():
+                    pipeline.run_ingest(work)
+                    pipeline.run_transpose(work)
+                    manifest = pipeline.run_write(
+                        work, HorizontalV3Writer(self.severed["root"] / "simulation_info.yaml")
+                    )
+                assert_datasets_equal(
+                    self, expected, manifest.artifact_path(manifest.stage("write")["directory"])
+                )
+
     def test_the_installed_partition_is_the_tables(self):
         workdir = self.root / "installed"
         self.prepare(workdir, self.severed_table)
@@ -1662,6 +1705,11 @@ class CutTableTests(unittest.TestCase):
             np.load(workdir / "scratch" / source_units_name(1)).tolist(), [[8001, 2], [8000, 3]]
         )
         manifest = Manifest.load_or_create(workdir)
+        # a source's owned intermediates name its tree-rows sidecar
+        for path in manifest.data["provenance"]["source_files"]:
+            entry = manifest.source_entry(path)
+            owned = [p.name for p, _what in manifest.source_intermediates(entry)]
+            self.assertIn("tree_rows_src_{}.npy".format(entry["src_index"]), owned)
         fixed_dtype = fixed_layout(manifest.layout)[0]
         records = [
             record

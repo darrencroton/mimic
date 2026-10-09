@@ -8,12 +8,15 @@ forests the cut tests use:
   every halo the cut promotes (stated literally per fixture) and every central
   in the raw convention, ``pid`` -1 and ``upid`` -1, every other satellite on
   its resolved central, and every other column as in the input;
-- the cut table is the new ``forests.list`` and ``locations.dat`` points at
-  each block's first data row in the rewritten files;
-- the converter's route over the transformed files, with no cut table, equals
-  its route over the original files under the table, in every ``/halos``
-  column, header attribute and sidecar value: the transformed source carries
-  exactly the cut topology to a reader that knows nothing of a cut;
+- the cut table is the new ``forests.list``, and the written layout is one the
+  reference reader accepts: one file (contiguous ``FileID`` values from 0, a
+  perfect-cube file count) holding every tree in the inputs' order, with
+  ``locations.dat`` pointing at each block's first data row;
+- the converter's route over the transformed file, with no cut table, equals
+  its route under the table over the original trees in that one-file order,
+  in every ``/halos`` column, header attribute and sidecar value: the
+  transformed source carries exactly the cut topology to a reader that knows
+  nothing of a cut;
 - a source whose hosts cannot be resolved under the original partition, and a
   used output directory, are refused.
 """
@@ -120,38 +123,58 @@ class TransformTests(unittest.TestCase):
                     (root / "out" / "forests.list").read_bytes(),
                     (root / "src" / "cut.list").read_bytes(),
                 )
-                self.assert_locations(root / "out")
+                self.assert_reader_layout(root / "src", root / "out")
 
-    def assert_locations(self, directory: Path):
-        names = sorted(path.name for path in directory.glob("tree_*.dat"))
+    def assert_reader_layout(self, source: Path, directory: Path):
+        """One file the reference reader accepts, holding the inputs' trees in
+        order, with every ``locations.dat`` offset at its block's first data row."""
+        self.assertEqual(
+            sorted(path.name for path in directory.glob("*.dat")),
+            sorted([transform_ascii_fixture.OUTPUT_TREE_FILE, "locations.dat"]),
+        )
         entries = (directory / "locations.dat").read_text().splitlines()
         self.assertEqual(entries[0], "#TreeRootID FileID Offset Filename")
-        roots = []
-        for entry in entries[1:]:
-            root, file_id, offset, name = entry.split()
-            self.assertEqual(name, names[int(file_id)])
-            text = (directory / name).read_bytes()
+        rows = [tuple(entry.split()) for entry in entries[1:]]
+        self.assertEqual(
+            {(file_id, name) for _r, file_id, _o, name in rows}, {("0", "tree_0_0_0.dat")}
+        )
+        transform_ascii_fixture.check_reader_layout(
+            [(int(r), int(f), int(o), n) for r, f, o, n in rows]
+        )
+        text = (directory / "tree_0_0_0.dat").read_bytes()
+        for root, _file_id, offset, _name in rows:
             marker = "#tree {}\n".format(root).encode("ascii")
-            self.assertEqual(text[: int(offset)][-len(marker) :], marker, entry)
-            roots.append(int(root))
-        listed = [
-            int(line.split()[0])
-            for line in (directory / "forests.list").read_text().splitlines()[1:]
+            self.assertEqual(text[: int(offset)][-len(marker) :], marker, root)
+        markers = [
+            int(line.split()[1])
+            for path in sorted(source.glob("tree_*.dat"))
+            for line in path.read_text().splitlines()
+            if line.startswith("#tree ")
         ]
-        self.assertEqual(sorted(roots), sorted(listed))
+        self.assertEqual([int(row[0]) for row in rows], markers)
+        # the tree-count line is the output's
+        self.assertEqual(text.splitlines()[2], str(len(markers)).encode("ascii"))
+
+    def test_the_layout_rules_are_the_reference_readers(self):
+        check = transform_ascii_fixture.check_reader_layout
+        for file_ids in ([0], [0] * 8 + list(range(8)), list(range(27))):
+            check([(1, file_id, 0, "f") for file_id in file_ids])
+        for file_ids, pattern in (([0, 1], "not a perfect cube"), ([1], "not contiguous from 0")):
+            with self.assertRaisesRegex(ConverterError, pattern):
+                check([(1, file_id, 0, "f") for file_id in file_ids])
 
     def test_the_route_reads_the_transformed_files_as_the_cut_catalogue(self):
         for name, forest_of, table_of, split_after in CUT_FIXTURES:
             with self.subTest(fixture=name):
                 root = self.root / "route" / name
                 forest = forest_of()
-                table = write_source(
-                    root / "src", forest, cut_layout(forest, split_after), table_of()
-                )
+                write_source(root / "src", forest, cut_layout(forest, split_after), table_of())
+                # the same trees in the one-file order the transform writes them in
+                table = write_source(root / "one", forest, cut_layout(forest), table_of())
                 transform(root / "src", root / "out")
                 for metadata in ("simulation_info.yaml", "fixture.a_list"):
                     shutil.copy(root / "src" / metadata, root / "out" / metadata)
-                under_table = convert_under_cut({"root": root / "src"}, root / "cut_route", table)
+                under_table = convert_under_cut({"root": root / "one"}, root / "cut_route", table)
                 plain = convert_under_cut({"root": root / "out"}, root / "plain_route", None)
                 assert_datasets_equal(
                     self,
@@ -201,7 +224,7 @@ class TransformTests(unittest.TestCase):
         with redirect_stdout(io.StringIO()) as stdout:
             self.assertEqual(transform_ascii_fixture.main(argv), 0)
         self.assertIn('"promoted_per_snapshot": {"4": 1}', stdout.getvalue())
-        self.assertTrue((root / "fresh" / "locations.dat").is_file())
+        self.assertTrue((root / "fresh" / "tree_0_0_0.dat").is_file())
 
 
 if __name__ == "__main__":

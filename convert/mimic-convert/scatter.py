@@ -664,8 +664,9 @@ class Manifest:
         the entry itself rather than guessed from the scratch directory
         listing: the two per-source sidecars, the source-units sidecar when the
         entry records one (an extended-layout scatter; every SourceHaloID and
-        source coordinate of the file derives from it), plus one worker-scratch
-        file per snapshot the file contributed rows to."""
+        source coordinate of the file derives from it), the tree-rows sidecar
+        when the entry records one (a scatter under a cut table), plus one
+        worker-scratch file per snapshot the file contributed rows to."""
         scratch_dir = self.workdir / "scratch"
         src_index = entry["src_index"]
         owned = [
@@ -674,6 +675,8 @@ class Manifest:
         ]
         if "source_units" in entry:
             owned.append((scratch_dir / source_units_name(src_index), "source-units sidecar"))
+        if "tree_rows" in entry:
+            owned.append((scratch_dir / tree_rows_name(src_index), "tree-rows sidecar"))
         for snap_str in sorted(entry["per_snapshot_counts"], key=int):
             owned.append(
                 (
@@ -1448,12 +1451,22 @@ def _finalize_scatter(
         Path(manifest.workdir) / "forest_max_snap.npy", "forest-max-snap-merged", build_forest_max
     )
 
-    # ForestID sidecar table data (emitted as forests.h5 by the writer)
-    write_table_once(
-        Path(manifest.workdir) / "forest_index_table.npy",
-        "forest-index-table",
-        forest_map.forest_index_table,
+    # ForestID sidecar table data (emitted as forests.h5 by the writer). Under
+    # a cut table, once every snapshot is fixed the table belongs to
+    # install_cut, which may have been interrupted between replacing it and
+    # saving the manifest; install_cut itself verifies or completes it.
+    recorded_snapshots = manifest.data["snapshots"].values()
+    installing = (
+        manifest.data["provenance"].get("cut_table") is not None
+        and bool(recorded_snapshots)
+        and all(entry.get("status") == "fixed" for entry in recorded_snapshots)
     )
+    if not installing:
+        write_table_once(
+            Path(manifest.workdir) / "forest_index_table.npy",
+            "forest-index-table",
+            forest_map.forest_index_table,
+        )
 
     # observed pairs union
     pairs = set()
@@ -1627,8 +1640,13 @@ def load_cut_table(manifest: Manifest, forests_list_path, cut_table_path) -> For
     maximum in descending piece size. The totals are the scattered per-tree
     row counts, so this runs after scatter and before any later stage.
 
-    Memory: about 128 B per tree at the census reader's peak, plus the
-    original map's and the returned map's 24 B per tree each.
+    Memory: the census reader's parse and check, the two maps (24 B per tree
+    each), and the per-file roots and row counts with their concatenations,
+    the sort order and the ordered totals (48 B per tree), all resident
+    together. Measured with ``tracemalloc`` around this call on synthetic
+    two-file workdirs of one-halo trees: a peak of 197 B per tree at 100,000
+    and at 200,000 trees (19.7 and 39.4 MB), plus the constant 8 MiB block
+    the md5 reads use.
     """
     from census.cut_table import read_cut_table
 
@@ -1701,8 +1719,13 @@ def install_cut(manifest: Manifest, cut_map: ForestMap) -> None:
     (``ctrees_parser.plan_source_units`` over the recorded marker roots and
     tree row counts), its count the piece's rows in the file. The original
     partition's versions are replaced, never kept beside these, so the link
-    stage and the adapter read the cut partition only. Idempotent: a resumed
-    install keeps what it already wrote.
+    stage and the adapter read the cut partition only. The fixed scratch
+    records keep the source coordinates scatter stamped under the original
+    partition's units; nothing reads them after scatter's own attribution
+    check. Idempotent: a resumed install keeps what it already wrote, and an
+    install interrupted between a table's replacement and the manifest save
+    is completed here (``_finalize_scatter`` leaves the forest table to this
+    function once every snapshot is fixed).
 
     Memory: one file's roots, row counts, starts and forest ids (32 B per tree
     of the file) and its unit plan, besides the cut map.

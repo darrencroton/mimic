@@ -18,12 +18,22 @@ a source it reads as the cut catalogue instead:
   convention, ``pid`` -1 and ``upid`` -1, which is what the reference reader
   expects of a central (it sets such a halo's ``upid`` to its own id itself);
 - the cut table is written as the new ``forests.list``, and ``locations.dat``
-  is regenerated for the rewritten files (``FileID`` the file's position in
-  the given list, the offset that of each block's first data row).
+  is regenerated for the written file (each block's offset that of its first
+  data row, where the reference reader starts reading).
 
-Every other byte of a file is kept: the header, comments, the tree-count line
-and the ``#tree`` markers; a rewritten data row keeps its tokens, separated
-by single spaces. The table must hold every ``#tree`` root of the files, and
+**One output file.** The reference reader refuses a ``locations.dat`` whose
+``FileID`` values are not contiguous from 0, or whose file count is not a
+perfect cube (``read_locations``). The tool therefore writes every tree into
+one file, :data:`OUTPUT_TREE_FILE` (1 = 1^3), keeping the trees' order: the
+given files in turn, each in its own order. The inputs must share one header
+line; the output keeps the first file's header and comments, its tree-count
+line rewritten to the total, and every other file's lines from its first
+``#tree`` marker on. The written layout is checked against both rules before
+``locations.dat`` is written, and refused if it breaks either.
+
+Every other byte is kept: the header, comments and the ``#tree`` markers; a
+rewritten data row keeps its tokens, separated by single spaces. The table
+must hold every ``#tree`` root of the files, and
 every invariant of a cut table is checked against the trees' row counts
 (``census.cut_table.read_cut_table``). An input whose hosts cannot be
 resolved under the original partition is refused, as is an output directory
@@ -37,7 +47,7 @@ Usage:
         --forests-list <forests.list> --cut-table <table> --output-dir <dir> \\
         <tree file> [<tree file> ...]
 
-Prints one JSON line (the files written and the promotions per snapshot);
+Prints one JSON line (the file written and the promotions per snapshot);
 exits 2 on a refusal, naming the offending input.
 """
 
@@ -56,6 +66,9 @@ from ctrees_parser import parse_header_line, resolve_columns  # noqa: E402
 from errors import ConverterError  # noqa: E402
 from fixups import fix_upid_snapshot  # noqa: E402
 from scatter import load_forests_list  # noqa: E402
+
+#: The one tree file the tool writes (Consistent-Trees' name for a one-file box).
+OUTPUT_TREE_FILE = "tree_0_0_0.dat"
 
 #: One parsed data row: where it is, and the columns the transformation reads.
 ROW_DTYPE = np.dtype(
@@ -80,6 +93,14 @@ class _File:
         self.lines = path.read_bytes().splitlines(keepends=True)
         if not self.lines:
             raise ConverterError("{}: empty file".format(path))
+        if not self.lines[-1].endswith(b"\n"):
+            self.lines[-1] += b"\n"
+        #: index of the first ``#tree`` marker line (the end of the preamble)
+        self.first_tree = next(
+            (i for i, raw in enumerate(self.lines) if raw.split()[:1] == [b"#tree"]),
+            len(self.lines),
+        )
+        self.n_trees = sum(1 for raw in self.lines if raw.split()[:1] == [b"#tree"])
         layout = resolve_columns(parse_header_line(self.lines[0].decode("ascii").strip()))
         self.n_columns = len(layout.all_names)
         self.id = layout.indices["id"]
@@ -155,8 +176,8 @@ def _hosts(rows: np.ndarray, cut_forest: np.ndarray) -> Dict[str, np.ndarray]:
     return {"pid": pid_out, "upid": upid_out, "promoted": promoted}
 
 
-def _write_file(tree_file: _File, lines_of_rows: np.ndarray, pid, upid, out: Path) -> None:
-    """``tree_file`` with each listed data row's host tokens replaced."""
+def _rewritten(tree_file: _File, lines_of_rows: np.ndarray, pid, upid) -> List[bytes]:
+    """``tree_file``'s lines with each listed data row's host tokens replaced."""
     lines = list(tree_file.lines)
     for line_index, row_pid, row_upid in zip(lines_of_rows.tolist(), pid.tolist(), upid.tolist()):
         raw = lines[line_index]
@@ -165,21 +186,44 @@ def _write_file(tree_file: _File, lines_of_rows: np.ndarray, pid, upid, out: Pat
         tokens[tree_file.pid] = str(row_pid).encode("ascii")
         tokens[tree_file.upid] = str(row_upid).encode("ascii")
         lines[line_index] = b" ".join(tokens) + raw[len(body) :]
-    out.write_bytes(b"".join(lines))
+    return lines
 
 
-def _write_locations(paths: Sequence[Path], out: Path) -> None:
-    """Each ``#tree`` marker's root, ``FileID``, the byte offset of its block's
-    first data row (where the reference reader starts reading) and file name."""
-    lines = ["#TreeRootID FileID Offset Filename"]
-    for file_id, path in enumerate(paths):
-        position = 0
-        for raw in path.read_bytes().splitlines(keepends=True):
-            position += len(raw)
-            parts = raw.split()
-            if parts and parts[0] == b"#tree":
-                lines.append("{} {} {} {}".format(int(parts[1]), file_id, position, path.name))
-    out.write_text("\n".join(lines) + "\n")
+def _preamble(tree_file: _File, n_trees: int) -> List[bytes]:
+    """The first file's header and comments, its bare tree-count line (when it
+    has one) rewritten to the output's ``n_trees``."""
+    lines = []
+    for raw in tree_file.lines[: tree_file.first_tree]:
+        body = raw.strip()
+        if lines and body and not body.startswith(b"#"):
+            raw = str(n_trees).encode("ascii") + raw[len(raw.rstrip(b"\r\n")) :]
+        lines.append(raw)
+    return lines
+
+
+def locations_rows(path: Path, file_id: int = 0) -> List[tuple]:
+    """``(root, FileID, offset, name)`` for each ``#tree`` marker of ``path``,
+    the offset that of its block's first data row."""
+    rows = []
+    position = 0
+    for raw in path.read_bytes().splitlines(keepends=True):
+        position += len(raw)
+        parts = raw.split()
+        if parts and parts[0] == b"#tree":
+            rows.append((int(parts[1]), file_id, position, path.name))
+    return rows
+
+
+def check_reader_layout(rows: Sequence[tuple]) -> None:
+    """The reference reader's ``locations.dat`` rules: ``FileID`` values
+    contiguous from 0, and a perfect-cube file count."""
+    file_ids = sorted({row[1] for row in rows})
+    n_files = len(file_ids)
+    if file_ids != list(range(n_files)):
+        raise ConverterError("FileID values {} are not contiguous from 0".format(file_ids))
+    divisions = int(round(n_files ** (1.0 / 3.0)))
+    if divisions**3 != n_files:
+        raise ConverterError("{} tree files is not a perfect cube".format(n_files))
 
 
 def transform(tree_files: Sequence, forests_list, cut_table, output_dir) -> Dict:
@@ -198,6 +242,9 @@ def transform(tree_files: Sequence, forests_list, cut_table, output_dir) -> Dict
         raise ConverterError("{}: the output directory holds an input".format(output_dir))
 
     files = [_File(path) for path in paths]
+    headers = {tree_file.lines[0].strip() for tree_file in files}
+    if len(headers) != 1:
+        raise ConverterError("the tree files do not share one header line; they cannot be joined")
     rows = _read_rows(files)
     forest_map = load_forests_list(forests_list)
     rows["forest_id"] = forest_map.lookup_forest_ids(rows["tree_root_id"])
@@ -209,19 +256,28 @@ def transform(tree_files: Sequence, forests_list, cut_table, output_dir) -> Dict
     cut_forest = table_ids[np.searchsorted(table_roots, rows["tree_root_id"])]
     hosts = _hosts(rows, cut_forest)
 
-    output_dir.mkdir(parents=True, exist_ok=True)
-    written = []
+    text = _preamble(files[0], sum(tree_file.n_trees for tree_file in files))
     for file_index, tree_file in enumerate(files):
-        out = output_dir / tree_file.path.name
         mine = rows["file"] == file_index
-        _write_file(tree_file, rows["line"][mine], hosts["pid"][mine], hosts["upid"][mine], out)
-        written.append(out)
+        lines = _rewritten(tree_file, rows["line"][mine], hosts["pid"][mine], hosts["upid"][mine])
+        text.extend(lines[tree_file.first_tree :])
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    out = output_dir / OUTPUT_TREE_FILE
+    out.write_bytes(b"".join(text))
+    locations = locations_rows(out)
+    check_reader_layout(locations)
+    (output_dir / "locations.dat").write_text(
+        "\n".join(
+            ["#TreeRootID FileID Offset Filename"] + ["{} {} {} {}".format(*r) for r in locations]
+        )
+        + "\n"
+    )
     (output_dir / "forests.list").write_bytes(Path(cut_table).read_bytes())
-    _write_locations(written, output_dir / "locations.dat")
     promoted = rows["snap"][hosts["promoted"]]
     return {
         "output_dir": str(output_dir),
-        "tree_files": [str(path) for path in written],
+        "tree_file": str(out),
         "promoted_per_snapshot": {
             int(snap): int(count) for snap, count in zip(*np.unique(promoted, return_counts=True))
         },
@@ -233,7 +289,7 @@ def main(argv=None) -> int:
     parser.add_argument("--forests-list", required=True, help="the original forests.list")
     parser.add_argument("--cut-table", required=True, help="the cut forest table")
     parser.add_argument("--output-dir", required=True, help="a new or empty directory")
-    parser.add_argument("tree_files", nargs="+", help="the tree files, in FileID order")
+    parser.add_argument("tree_files", nargs="+", help="the tree files, in the order to join them")
     args = parser.parse_args(argv)
     try:
         summary = transform(args.tree_files, args.forests_list, args.cut_table, args.output_dir)
