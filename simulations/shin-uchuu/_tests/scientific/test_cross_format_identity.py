@@ -36,10 +36,12 @@ naming a dataset from outside needs:
 - stage 1 checks the named dataset, not the package's ``snapshots``;
 - the horizontal side runs the committed ``shin-uchuu`` run file with an
   ``input`` section setting ``simulation_dir`` and ``snapshot_list_file`` to the
-  named dataset and the package's a_list, and stage 3 checks that this variant
+  named dataset and the worktree's copy of the package's a_list, and stage 3
+  checks that this variant
   differs from the vertical run file in exactly the authorized keys plus those
   two;
-- each leg checks that the horizontal run read the named dataset. Its recorded
+- each leg checks that the horizontal run read the named dataset and its
+  worktree's a_list. Its recorded
   file range is the ``shin-uchuu`` package's own (0-0): the horizontal reader
   takes its files from the a_list, and the vertical subset's 0-2743 names files
   only the vertical reader has.
@@ -159,6 +161,17 @@ def dataset_variant(run_file: Path, scratch: Path, dataset: tuple[Path, Path]) -
 class SubsetGate(ParityGate):
     """The shared parity gate, run against a horizontal dataset named from outside."""
 
+    #: This gate threads the named dataset through stage 1 and the horizontal runs.
+    THREADS_HORIZONTAL_DATASET = True
+
+    def worktree_dataset(self, worktree: Path) -> tuple[Path, Path]:
+        """The named dataset as a worktree's run reads it: the a_list is the worktree's own
+        copy, as every other input of a HEAD-built run is."""
+        directory, snapshot_list = self.package.horizontal_dataset
+        if snapshot_list.is_relative_to(REPO_ROOT):
+            snapshot_list = worktree / snapshot_list.relative_to(REPO_ROOT)
+        return directory, snapshot_list
+
     def expected_snapshot_files(self) -> list[str]:
         alist = self.package.horizontal_snapshot_list()
         if not alist.is_file():
@@ -232,7 +245,7 @@ class SubsetGate(ParityGate):
         if not worktree_run_file.is_file():
             raise AssertionError(f"{key}: the HEAD worktree has no run file at {worktree_run_file}")
         scratch = self.scratch_dir("run-files", key)
-        run_file = dataset_variant(worktree_run_file, scratch, self.package.horizontal_dataset)
+        run_file = dataset_variant(worktree_run_file, scratch, self.worktree_dataset(worktree))
         if scheme == "dynamic":
             run_file = dynamic_variant(run_file, scratch)
         return self.run_in_worktree(key, worktree, run_file, model, simulation)
@@ -270,6 +283,12 @@ class SubsetGate(ParityGate):
             raise AssertionError(
                 f"{horizontal_run.master}: the horizontal run read {read.resolve()}, not the "
                 f"named dataset {pkg.horizontal_snapshots().resolve()}"
+            )
+        snapshot_list = self.worktree_dataset(horizontal_run.worktree)[1]
+        if strings.get("FileWithSnapList") != str(snapshot_list):
+            raise AssertionError(
+                f"{horizontal_run.master}: the horizontal run read the snapshot list "
+                f"{strings.get('FileWithSnapList')!r}, not its worktree's {str(snapshot_list)!r}"
             )
         log(
             f"  vertical run read {inventory['files'][0]}..{inventory['files'][-1]} from "

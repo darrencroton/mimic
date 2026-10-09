@@ -72,12 +72,15 @@ table's JSON record (``--cut-record``) places every record in its original
 forest: a tree record's ``ForestIndex`` is decoded from its id
 (``UniqueGalaxyID // multiplier - 1``), looked up in its own dataset's sidecar
 ``ForestID``, and a piece the record lists is mapped to the forest it was cut
-from; a created record follows its host, the tree row of its run and snapshot
-with its ``MostBoundID``. A record that cannot be placed is an input error.
+from; a created record follows its host into the forest of the central its
+``UniqueCentralGalaxyID`` names in the same run and snapshot. The multiplier
+must be the one both runs record (``RunProperties/UniqueGalaxyIDMultiplier``).
+A record that cannot be placed is an input error.
 Records of the forests the record splits are paired by the catalogue key
 (``--match-by-catalogue-id`` is required) and **reported, not failed**: per
-forest and in total, how many are identical, how many differ and in which
-fields, and how many are unmatched. Records of every other forest keep the
+forest (one line for every split forest with records) and in total, how many
+are identical, how many differ and in which fields, and how many are
+unmatched. Records of every other forest keep the
 strict rule, including an identical ``UniqueGalaxyID`` for tree rows, since a
 forest the cut leaves alone keeps its ``ForestIndex``. ``--report-all-forests``
 reports every forest without failing instead, for a model whose identity-keyed
@@ -104,11 +107,15 @@ difference would send someone hunting a physics bug that does not exist.
 Both runs are read one output snapshot at a time rather than held whole. The
 comparator exists to compare production runs, and its memory is heaviest exactly
 when a large divergence is being diagnosed, which is the worst moment to run out
-of it. The cut-difference report adds, for the whole comparison, both sidecars'
-``ForestID`` columns (8 B per forest each), the record's piece ids and their
-original forests (16 B per piece, plus one column's line and its text, about
-26 B per piece, while it is parsed), and its per-forest tallies (about 40 B per reported forest
-per snapshot, and 16 B per differing field of each).
+of it. An alternate pairing copies each run's snapshot records up to three
+more times while it pairs them (split into tree and created rows, the paired
+rows, and their concatenation), and holds one copy of each run's paired
+records while the fields are compared. The cut-difference report adds, for the
+whole comparison, both sidecars' ``ForestID`` columns (8 B per forest each),
+the record's piece ids and their original forests (16 B per piece, plus one
+column's line and its text, about 26 B per piece, while it is parsed), and its
+per-forest tallies (about 40 B per reported forest per snapshot, and 16 B per
+differing field of each).
 """
 
 import argparse
@@ -689,7 +696,8 @@ def report_unpaired(snap, kind, labels, sides, max_report):
 class CutRecord(NamedTuple):
     """What the report needs from a cut table's record: every piece of every
     split forest (ascending piece id) with the forest it was cut from, and the
-    floor at which fresh piece ids start."""
+    fresh-id floor: the catalogue's largest forest id, above which every fresh
+    piece id lies."""
 
     piece_ids: numpy.ndarray
     forest_ids: numpy.ndarray
@@ -747,14 +755,30 @@ def read_cut_record(path):
     if piece_ids.size and numpy.any(piece_ids[1:] <= piece_ids[:-1]):
         raise ComparisonError(f"{path}: piece ids are not strictly ascending")
     # A piece either keeps its forest's id or carries a fresh one.
-    invalid = (piece_ids != forest_ids) & (piece_ids < floor)
+    invalid = (piece_ids != forest_ids) & (piece_ids <= floor)
     if invalid.any():
         raise ComparisonError(
             f"{path}: piece {int(piece_ids[invalid][0])} of forest "
             f"{int(forest_ids[invalid][0])} neither keeps the forest's id nor is fresh "
-            f"(at or above {floor})"
+            f"(above {floor})"
         )
     return CutRecord(piece_ids, forest_ids, floor)
+
+
+def recorded_multiplier(index):
+    """The UniqueGalaxyIDMultiplier every partition of one run records in RunProperties."""
+    values = set()
+    for path in index.files:
+        with open_partition(path) as handle:
+            properties = handle.get("RunProperties")
+            if properties is None or "UniqueGalaxyIDMultiplier" not in properties.attrs:
+                raise ComparisonError(f"{path}: no RunProperties/UniqueGalaxyIDMultiplier")
+            values.add(int(numpy.asarray(properties.attrs["UniqueGalaxyIDMultiplier"]).ravel()[0]))
+    if len(values) != 1:
+        raise ComparisonError(
+            f"{index.files[0].parent}: partitions record UniqueGalaxyIDMultiplier {sorted(values)}"
+        )
+    return values.pop()
 
 
 def read_sidecar_forest_ids(path):
@@ -798,11 +822,11 @@ class CutReport:
             )
             listed = record.piece_ids[position] == forest_ids
             mapped = numpy.where(listed, record.forest_ids[position], forest_ids)
-        unlisted_fresh = ~listed & (forest_ids >= record.fresh_id_floor)
+        unlisted_fresh = ~listed & (forest_ids > record.fresh_id_floor)
         if unlisted_fresh.any():
             raise ComparisonError(
                 f"{where}: ForestID {int(forest_ids[unlisted_fresh][0])} is a fresh piece id "
-                f"(at or above {record.fresh_id_floor}) that the cut record does not list"
+                f"(above {record.fresh_id_floor}) that the cut record does not list"
             )
         return mapped
 
@@ -820,19 +844,22 @@ class CutReport:
             )
         tree_forests = self.original(sidecar[forest_index], where)
 
-        # A created record follows its host: the tree row with its MostBoundID.
-        hosts = tree["MostBoundID"]
-        order = numpy.argsort(hosts, kind="stable")
-        wanted = created["MostBoundID"]
-        position = numpy.minimum(numpy.searchsorted(hosts[order], wanted), max(len(hosts) - 1, 0))
-        found = hosts[order][position] == wanted if len(hosts) else numpy.zeros(len(wanted), bool)
+        # A created record follows its host into the host's forest. Its
+        # MostBoundID is its birth host's and goes stale once the record is
+        # inherited, but its UniqueCentralGalaxyID names the central of the FoF
+        # group it is in now, a tree row of the same run and snapshot.
+        order = numpy.argsort(ids, kind="stable")
+        wanted = created[CENTRAL_FIELD]
+        position = numpy.minimum(numpy.searchsorted(ids[order], wanted), max(len(ids) - 1, 0))
+        found = ids[order][position] == wanted if len(ids) else numpy.zeros(len(wanted), bool)
         if not found.all():
             missing = ~found
             raise ComparisonError(
-                f"{where}: created record {ID_FIELD} {int(created[ID_FIELD][missing][0])} has no "
-                f"host: no tree row carries its MostBoundID {int(wanted[missing][0])}"
+                f"{where}: created record {ID_FIELD} {int(created[ID_FIELD][missing][0])} cannot "
+                f"be placed: its {CENTRAL_FIELD} {int(wanted[missing][0])} is no tree row of "
+                f"this snapshot"
             )
-        created_forests = tree_forests[order][position] if len(hosts) else wanted[:0]
+        created_forests = tree_forests[order][position] if len(ids) else wanted[:0]
         return tree_forests, created_forests
 
     def reported(self, forests):
@@ -869,13 +896,13 @@ class CutReport:
         return forests, columns, fields
 
     def print_report(self, labels):
-        """The per-forest and total report, every forest with a difference listed."""
+        """The per-forest and total report: one line for every reported forest with records."""
         forests, columns, fields = self.table()
         names = {"only_left": f"only in {labels[0]}", "only_right": f"only in {labels[1]}"}
         scope = "every forest" if self.report_all else f"the {self.split.size} split forest(s)"
         print(f"\nCut-difference report ({scope}; reported, not failed):")
         changed = (columns["differing"] + columns["only_left"] + columns["only_right"]) > 0
-        for position in numpy.flatnonzero(changed):
+        for position in range(forests.size):
             differing = ", ".join(
                 f"{field} {int(counts[position])}"
                 for field, counts in fields.items()
@@ -1017,6 +1044,8 @@ def compare_snapshot_matched(snap, left, right, labels, max_report, matching, cu
     if cut is not None:
         forests = numpy.concatenate([f for _, _, _, f in paired])
         reported = cut.reported(forests)
+    # The per-kind copies are released before any field is compared.
+    del paired, runs
     strict = ~reported
 
     any_differs = numpy.zeros(len(pair_left), dtype=bool)
@@ -1225,6 +1254,14 @@ def compare_runs(args):
     # Every input the comparison needs is checked before the first snapshot is read.
     cut = None
     if args.cut_record is not None:
+        recorded = {
+            label: recorded_multiplier(index) for label, index in zip(labels, (left, right))
+        }
+        if set(recorded.values()) != {args.multiplier}:
+            raise ComparisonError(
+                f"--multiplier {args.multiplier} is not the UniqueGalaxyIDMultiplier both runs "
+                f"record: {recorded}"
+            )
         cut = CutReport(
             args.multiplier,
             (
@@ -1241,11 +1278,12 @@ def compare_runs(args):
     if matching.alternate:
         for index in (left, right):
             names = [name for name, _, _ in index.signature]
-            missing = [name for name in CATALOGUE_FIELDS if name not in names]
+            needed = [*CATALOGUE_FIELDS, *([CENTRAL_FIELD] if cut is not None else [])]
+            missing = [name for name in needed if name not in names]
             if missing:
                 raise ComparisonError(
-                    f"{index.files[0]}: Galaxies records carry no {missing}; the pairing keys on "
-                    f"{list(CATALOGUE_FIELDS)}"
+                    f"{index.files[0]}: Galaxies records carry no {missing}; the pairing and "
+                    f"the cut report read {needed}"
                 )
 
     # Duplicate ids first, over every output snapshot of BOTH runs -- including

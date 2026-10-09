@@ -191,7 +191,10 @@ class GatePackage:
             to gate in place of the package's own ``snapshots`` and a_list. The
             horizontal run file then also sets ``input.simulation_dir`` and
             ``input.snapshot_list_file`` to exactly these paths
-            (DATASET_OVERRIDE_KEYS); the gate that runs it writes that file.
+            (DATASET_OVERRIDE_KEYS). The shared stages do not write that file
+            or check the named dataset's presence, so the gate that does
+            declares it with ``THREADS_HORIZONTAL_DATASET = True``; any other
+            gate fails at stage 2.
     """
 
     vertical: str
@@ -659,8 +662,11 @@ def assert_dataset_present(package: str, required_files, directory: Path | None 
     return link
 
 
-def assert_manifest_inventory(pkg: GatePackage, sidecar: Path) -> None:
-    """The sidecar stage's inventory proof from the conversion manifest (``pkg.manifest``).
+def assert_manifest_inventory(manifest: Path, sidecar: Path, vertical_data: Path) -> None:
+    """The sidecar stage's inventory proof from a dataset's conversion manifest.
+
+    ``vertical_data`` is the vertical side's Consistent-Trees dataset directory,
+    holding ``forests.list`` and ``locations.dat``.
 
     The manifest's source dependencies must name exactly the tree files the
     vertical reader opens, which for Consistent-Trees ASCII are the files
@@ -675,12 +681,7 @@ def assert_manifest_inventory(pkg: GatePackage, sidecar: Path) -> None:
     Memory: ``SourceIndex`` over the vertical side's index files, about 80 B per
     tree at its peak (``source_index.py``), and the sidecar's three columns.
     """
-    if pkg.source_format != "consistent_trees_ascii":
-        raise AssertionError(
-            f"the manifest-proved inventory reads the Consistent-Trees index files; "
-            f"{pkg.vertical} reads {pkg.source_format}"
-        )
-    manifest = Path(pkg.manifest)
+    manifest = Path(manifest)
     try:
         document = json.loads(manifest.read_text())
         dependencies = document["sources"]["dependencies"]
@@ -701,7 +702,6 @@ def assert_manifest_inventory(pkg: GatePackage, sidecar: Path) -> None:
         sys.path.insert(0, str(CONVERTER_DIR))
     from source_index import SourceIndex
 
-    vertical_data = package_path(pkg.vertical, "snapshots")
     index = SourceIndex.load(vertical_data / "forests.list", vertical_data / "locations.dat")
     listed = set(index.filenames.values())
     if set(sources) != listed:
@@ -1169,6 +1169,17 @@ class ParityGate:
         """The horizontal dataset is the pinned conversion of the vertical side's files."""
         pkg = self.package
         banner(f"Stage 2: horizontal dataset provenance (format version {pkg.format_version})")
+        # The shared stages read a named dataset here only; its presence check
+        # and the horizontal runs need a gate that threads it through them.
+        if pkg.horizontal_dataset is not None and not getattr(
+            self, "THREADS_HORIZONTAL_DATASET", False
+        ):
+            raise AssertionError(
+                f"{type(self).__name__} names the horizontal dataset {pkg.horizontal_dataset} "
+                f"but does not thread it through its presence check and runs, which would read "
+                f"the {pkg.horizontal} package's own snapshots; such a gate subclasses "
+                f"ParityGate and sets THREADS_HORIZONTAL_DATASET"
+            )
         self.require("preconditions", "not inspecting the dataset")
 
         directory = pkg.horizontal_snapshots()
@@ -1277,7 +1288,14 @@ class ParityGate:
             return
 
         if pkg.manifest is not None:
-            assert_manifest_inventory(pkg, directory / FORESTS_FILE)
+            if pkg.source_format != "consistent_trees_ascii":
+                raise AssertionError(
+                    f"the manifest-proved inventory reads the Consistent-Trees index files; "
+                    f"{pkg.vertical} reads {pkg.source_format}"
+                )
+            assert_manifest_inventory(
+                pkg.manifest, directory / FORESTS_FILE, package_path(pkg.vertical, "snapshots")
+            )
             self.done.add("dataset")
             return
 

@@ -822,10 +822,12 @@ CUT_MULTIPLIER = 1000
 
 #: The uncut dataset's forests by ForestIndex, and the cut dataset's: forest 20
 #: is cut into the piece that keeps its id and a fresh piece 100, which
-#: enumerates after every original forest (ForestIndex 3).
+#: enumerates after every original forest (ForestIndex 3). The fresh-id floor
+#: is the catalogue's largest forest id, as the census writes it, so forest 30
+#: is both unsplit and at the floor.
 UNCUT_FORESTS = [10, 20, 30]
 CUT_FORESTS = [10, 20, 30, 100]
-CUT_FRESH_FLOOR = 31
+CUT_FRESH_FLOOR = max(UNCUT_FORESTS)
 
 #: Tree galaxies as (MostBoundID, central MostBoundID, forest index in the
 #: uncut and in the cut dataset, halo number, mass). Galaxy 203 lands in the
@@ -840,26 +842,51 @@ CUT_TREE = [
 ]
 
 #: Created satellites as (host MostBoundID, ordinal, mass), one in the fresh
-#: piece and one in an unchanged forest.
+#: piece and one in an unchanged forest. A fourth entry, when present, is the
+#: MostBoundID the record carries instead of its host's: a record inherited
+#: into a later snapshot keeps the one of the host it was born on.
 CUT_CREATED = [(203, 0, 0.5), (301, 0, 0.75)]
 
 
-def cut_run(root, name, cut, tree=CUT_TREE, created=CUT_CREATED):
-    """One run of the cut fixture, on the cut dataset's enumeration when `cut` is set."""
+def cut_records(cut, snap, tree, created):
+    """One snapshot of the cut fixture, on the cut dataset's enumeration when `cut` is set."""
     ids = {
         mbid: halo + CUT_MULTIPLIER * ((after if cut else before) + 1)
         for mbid, _, before, after, halo, _ in tree
     }
     centrals = {mbid: central for mbid, central, *_ in tree}
     rows = [(ids[mbid], ids[central], mbid, mass) for mbid, central, *_, mass in tree]
-    rows += [
-        (created_id(index + (50 if cut else 0), ordinal), ids[centrals[host]], host, mass)
-        for index, (host, ordinal, mass) in enumerate(created)
-    ]
+    for index, (host, ordinal, mass, *birth) in enumerate(created):
+        key = 100 * snap + index + (50 if cut else 0)
+        rows.append((created_id(key, ordinal), ids[centrals[host]], (birth or [host])[0], mass))
     records = numpy.zeros(len(rows), dtype=PAIRED_DTYPE)
     for index, (galaxy_id, central, mbid, mass) in enumerate(rows):
-        records[index] = (galaxy_id, central, mbid, PAIRED_SNAP, mass)
-    return write_run(root / name, "model", [{PAIRED_SNAP: records}])
+        records[index] = (galaxy_id, central, mbid, snap, mass)
+    return records
+
+
+def cut_run(
+    root, name, cut, tree=CUT_TREE, created=CUT_CREATED, later=(), multiplier=CUT_MULTIPLIER
+):
+    """One run of the cut fixture: PAIRED_SNAP, then `later` (tree, created) snapshots.
+
+    Every partition records `multiplier` as RunProperties/UniqueGalaxyIDMultiplier,
+    as a run does.
+    """
+    snapshots = [(tree, created), *later]
+    spec = write_run(
+        root / name,
+        "model",
+        [
+            {PAIRED_SNAP + offset: cut_records(cut, PAIRED_SNAP + offset, *contents)}
+            for offset, contents in enumerate(snapshots)
+        ],
+    )
+    for index in range(len(snapshots)):
+        with h5py.File(root / name / numbered_filename("model", index), "a") as handle:
+            properties = handle.create_group("RunProperties")
+            properties.attrs["UniqueGalaxyIDMultiplier"] = numpy.int64(multiplier)
+    return spec
 
 
 def cut_inputs(root):
@@ -904,9 +931,13 @@ def test_cut_report_reports_a_split_forest_difference_and_fails_an_unchanged_one
     """A difference inside a split forest is reported and passes; outside one it fails.
 
     The same one-ulp change is made to a galaxy of the split forest 20 and to a
-    galaxy of forest 30, which the cut leaves alone. A galaxy whose catalogue
-    key pairs but whose tree id changed outside a split forest fails too: an
-    unchanged forest keeps its ForestIndex and so its ids.
+    galaxy of forest 30, which the cut leaves alone. Forest 30 is the
+    catalogue's largest forest id, the record's fresh-id floor: an unsplit
+    forest at the floor is no fresh piece, so identical runs compare clean. A
+    galaxy whose catalogue key pairs but whose tree id changed outside a split
+    forest fails too: an unchanged forest keeps its ForestIndex and so its ids.
+    Every split forest with records gets its line, identical ones included,
+    and under --report-all-forests every forest does.
     """
     print("Testing the cut-difference report's split and unchanged forests...")
     with scratch() as root:
@@ -915,6 +946,9 @@ def test_cut_report_reports_a_split_forest_difference_and_fails_an_unchanged_one
 
         status, report = compare(uncut, cut_run(root, "same", cut=True), *options)
         assert_status(status, IDENTICAL, report, "cut with no difference")
+        assert (
+            "forest 20: 4 identical, 0 differing, 0 only in left, 0 only in right" in report
+        ), f"the identical split forest has no line of its own\n{report}"
 
         inside = cut_run(root, "inside", cut=True, tree=heavier(CUT_TREE, 202))
         status, report = compare(uncut, inside, *options)
@@ -932,7 +966,9 @@ def test_cut_report_reports_a_split_forest_difference_and_fails_an_unchanged_one
 
         status, report = compare(uncut, outside, *options, "--report-all-forests")
         assert_status(status, IDENTICAL, report, "difference reported under --report-all-forests")
-        assert "forest 30: " in report and "total over other forests" in report, report
+        assert "forest 30: 2 identical, 1 differing (StellarMass 1)" in report, report
+        assert "forest 10: 1 identical, 0 differing" in report, f"forest 10 not listed\n{report}"
+        assert "total over other forests" in report, report
 
         moved = [(*row[:4], 7, row[5]) if row[0] == 302 else row for row in CUT_TREE]
         status, report = compare(uncut, cut_run(root, "moved", cut=True, tree=moved), *options)
@@ -962,6 +998,51 @@ def test_cut_report_classifies_a_fresh_piece_record_to_its_original_forest():
             "forest 20: 4 identical, 0 differing, 0 only in left, 2 only in right" in report
         ), f"the fresh piece's records were not placed in forest 20\n{report}"
     print("  ✓ a fresh piece's unmatched records are reported under their original forest")
+
+
+def test_cut_report_places_an_inherited_created_record_through_its_central():
+    """A created record inherited into a later snapshot is placed in its current host's forest.
+
+    In the second snapshot the satellite born on host 203 still carries 203's
+    MostBoundID, which no halo of that snapshot has; its central is the fresh
+    piece's galaxy 213. It is placed through that central in forest 20, so the
+    two identical runs compare clean rather than failing as unplaceable.
+    """
+    print("Testing an inherited created record's placement...")
+    with scratch() as root:
+        options = cut_inputs(root)
+        later_tree = [(213, 213, 1, 3, 10, 4.0), (311, 311, 2, 2, 10, 5.0)]
+        later = [(later_tree, [(213, 0, 0.5, 203), (311, 0, 0.75, 301)])]
+        uncut = cut_run(root, "uncut", cut=False, later=later)
+        cut = cut_run(root, "cut", cut=True, later=later)
+
+        status, report = compare(uncut, cut, *options)
+        assert_status(status, IDENTICAL, report, "inherited created record")
+        assert (
+            "forest 20: 6 identical, 0 differing, 0 only in left, 0 only in right" in report
+        ), f"the inherited record was not placed in forest 20\n{report}"
+    print("  ✓ an inherited created record is placed through its current central")
+
+
+def test_cut_report_checks_the_multiplier_against_both_runs():
+    """A --multiplier neither run records, or two runs recording different ones, exit 2."""
+    print("Testing the recorded multiplier...")
+    with scratch() as root:
+        options = list(cut_inputs(root))
+        uncut = cut_run(root, "uncut", cut=False)
+        cut = cut_run(root, "cut", cut=True)
+
+        wrong = options.copy()
+        wrong[wrong.index("--multiplier") + 1] = "999"
+        status, report = compare(uncut, cut, *wrong)
+        assert_status(status, INPUT_ERROR, report, "a multiplier the runs do not record")
+        assert "--multiplier 999" in report and "1000" in report, f"values not named\n{report}"
+
+        other = cut_run(root, "other", cut=True, multiplier=2 * CUT_MULTIPLIER)
+        status, report = compare(uncut, other, *options)
+        assert_status(status, INPUT_ERROR, report, "runs recording different multipliers")
+        assert "2000" in report, f"the second run's multiplier was not named\n{report}"
+    print("  ✓ the multiplier must be the one both runs record")
 
 
 def test_cut_report_unplaceable_record_is_an_input_error():
@@ -1063,6 +1144,8 @@ def main():
             test_alternate_mode_usage_errors,
             test_cut_report_reports_a_split_forest_difference_and_fails_an_unchanged_one,
             test_cut_report_classifies_a_fresh_piece_record_to_its_original_forest,
+            test_cut_report_places_an_inherited_created_record_through_its_central,
+            test_cut_report_checks_the_multiplier_against_both_runs,
             test_cut_report_unplaceable_record_is_an_input_error,
             test_truncated_partition_is_an_input_error,
             test_missing_run_directory_is_an_input_error,
