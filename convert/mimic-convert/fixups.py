@@ -30,6 +30,15 @@ unchanged apart from the two appended fields: its source coordinates and
 declared extras are copied field for field into the fixed record, and no
 convention touches them -- an extra that selects the raw ``Jx``/``Jy``/``Jz``
 columns keeps the catalog J while the core ``Jx``/``Jy``/``Jz`` are normalised.
+
+**Under a declared cut table** (``cut_map``; the canonical ASCII route only)
+hosts are still resolved under the original ``forests.list`` partition, and
+only then does :func:`sever_snapshot` install the table: every record's
+``forest_id`` becomes its tree's forest in the table (through
+``tree_root_id``), and every satellite whose resolved central lies in another
+forest of the table becomes a central (``upid = id``, ``pid = -1``). No host
+relation is invented. Without a table nothing here changes, and a host in
+another forest stays the unresolved failure it always was.
 """
 
 import os
@@ -50,6 +59,7 @@ from ctrees_parser import (  # noqa: E402
 )
 from scatter import (  # noqa: E402
     A_LIST_ATOL,
+    ForestMap,
     Manifest,
     file_md5,
     id_checksum,
@@ -439,6 +449,38 @@ def fix_upid_snapshot(records: np.ndarray, snap: int) -> None:
         )
 
 
+def sever_snapshot(records: np.ndarray, snap: int, cut_map: ForestMap) -> int:
+    """Install a cut table over one snapshot whose hosts
+    :func:`fix_upid_snapshot` has resolved under the original partition.
+
+    Every record's ``forest_id`` becomes its tree's forest in the table
+    (``cut_map``, through ``tree_root_id``); every satellite whose resolved
+    central (``upid``, a ``pid == -1`` record of this snapshot) now lies in
+    another forest becomes a central, ``upid = id`` and ``pid = -1``, the
+    post-fix-up form of a central. A satellite whose central stays in its
+    forest keeps it. Returns the number promoted.
+    """
+    ids = records["id"]
+    forest = cut_map.lookup_forest_ids(records["tree_root_id"])
+    records["forest_id"] = forest
+    satellites = np.flatnonzero(records["pid"] != -1)
+    if satellites.size == 0:
+        return 0
+    hosts = records["upid"][satellites]
+    central = np.minimum(np.searchsorted(ids, hosts), ids.size - 1)
+    unresolved = (ids[central] != hosts) | (records["pid"][central] != -1)
+    if unresolved.any():  # pragma: no cover - fix_upid_snapshot resolves every satellite first
+        at = satellites[np.flatnonzero(unresolved)[0]]
+        raise ConverterError(
+            "snapshot {}: satellite id {} has upid {}, which is no central of this "
+            "snapshot".format(snap, int(ids[at]), int(records["upid"][at]))
+        )
+    promoted = satellites[forest[central] != forest[satellites]]
+    records["upid"][promoted] = ids[promoted]
+    records["pid"][promoted] = -1
+    return int(promoted.size)
+
+
 def apply_fixups_snapshot(
     records: np.ndarray,
     snap: int,
@@ -446,6 +488,7 @@ def apply_fixups_snapshot(
     particle_mass: float,
     forests_at_max: Optional[np.ndarray] = None,
     context: str = "fixups",
+    cut_map: Optional[ForestMap] = None,
 ) -> Tuple[np.ndarray, Dict[str, int]]:
     """Run Phase 3 steps 1-4 on one snapshot's sorted records.
 
@@ -454,6 +497,10 @@ def apply_fixups_snapshot(
     default, used by direct unit-level calls that do not have that sidecar)
     skips the corrupt-input guard rather than treating it as "no forest
     peaks here" the way an explicit empty array does.
+
+    ``cut_map`` (default None) is a declared cut table, installed by
+    :func:`sever_snapshot` once every host is resolved; the stats then count
+    its promotions as ``cut_promotions``.
 
     Returns the fixed-record array (``fixed_record_dtype(records.dtype)``:
     FIXED_RECORD_DTYPE for legacy records) and the per-snapshot stats. Every
@@ -475,7 +522,10 @@ def apply_fixups_snapshot(
     if forests_at_max is not None:
         verify_fof_centrals_present(fixed, snap, forests_at_max, context)
     fix_upid_snapshot(fixed, snap)
-    return fixed, {"rows": int(fixed.size), "len_zero_count": len_zero}
+    stats = {"rows": int(fixed.size), "len_zero_count": len_zero}
+    if cut_map is not None:
+        stats["cut_promotions"] = sever_snapshot(fixed, snap, cut_map)
+    return fixed, stats
 
 
 def verify_mostboundid_invariant(records: np.ndarray, context: str) -> None:
@@ -502,6 +552,7 @@ def run_fixups(
     simulation_info_path,
     snapshots: Optional[Sequence[int]] = None,
     consume_intermediates: bool = False,
+    cut_map: Optional[ForestMap] = None,
 ) -> Manifest:
     """Apply the fix-up stage to every sorted snapshot (or the given subset).
 
@@ -514,10 +565,22 @@ def run_fixups(
     deletion of each snapshot's sorted scratch once its fixed
     output is verified and registered. It is off by default and changes no
     emitted byte; with it off this stage deletes nothing, exactly as before.
+
+    ``cut_map`` is the workdir's cut table (``scatter.load_cut_table``), which
+    is required exactly when scatter bound one: its md5 must be the bound
+    one, so no snapshot of a workdir is fixed with and another without it.
     """
     manifest = Manifest.load_or_create(workdir)
     if not manifest.path.exists():
         raise ConverterError("{}: no manifest found; run scatter first".format(workdir))
+    bound_cut = (manifest.data["provenance"].get("cut_table") or {}).get("md5")
+    given_cut = None if cut_map is None else cut_map.md5
+    if bound_cut != given_cut:
+        raise ConverterError(
+            "{}: the fix-up stage was given cut table md5 {} but scatter bound {}".format(
+                manifest.path, given_cut, bound_cut
+            )
+        )
 
     a_list, a_list_md5 = load_a_list(a_list_path)
     provenance = manifest.data["provenance"]
@@ -557,6 +620,7 @@ def run_fixups(
             particle_mass,
             forests_at_max_by_snap.get(snap, _EMPTY_FOREST_IDS),
             consume_intermediates=consume_intermediates,
+            cut_map=cut_map,
         )
     return manifest
 
@@ -603,8 +667,10 @@ def fix_one_snapshot(
     particle_mass: float,
     forests_at_max: np.ndarray = _EMPTY_FOREST_IDS,
     consume_intermediates: bool = False,
+    cut_map: Optional[ForestMap] = None,
 ) -> None:
-    """Fix one snapshot: verify input, apply steps 1-4, write + verify output."""
+    """Fix one snapshot: verify input, apply steps 1-4 (and the cut table's
+    severance when ``cut_map`` is given), write + verify output."""
     entry = manifest.data["snapshots"].get(str(snap))
     if entry is None:
         raise ConverterError("snapshot {}: no manifest entry; run scatter first".format(snap))
@@ -663,6 +729,7 @@ def fix_one_snapshot(
         particle_mass,
         forests_at_max=forests_at_max,
         context=str(sorted_path),
+        cut_map=cut_map,
     )
 
     fixed_path = sorted_path.parent / fixed_scratch_name(snap)
@@ -700,6 +767,8 @@ def fix_one_snapshot(
     # positive evidence from the data. report.py fails loudly on a non-zero total.
     entry["flyby_demotions"] = int(np.count_nonzero(reread["MostBoundID"] < 0))
     entry["len_zero_count"] = stats["len_zero_count"]
+    if cut_map is not None:
+        entry["cut_promotions"] = stats["cut_promotions"]
     entry["status"] = "fixed"
     manifest.save()
     _consume_sorted(manifest, entry, snap, consume_intermediates)

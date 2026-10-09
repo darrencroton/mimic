@@ -36,6 +36,14 @@ Profiles select source fields and describe the source layout. They never
 change a run YAML, a ``halo_properties.yaml`` or a ``snapshots`` symlink, and
 this CLI writes nothing outside ``--workdir``.
 
+**A declared cut** (``ingest --cut-table``, Consistent-Trees ASCII only)
+converts a catalogue directly into its cut form. The table, in
+``forests.list`` shape, maps every tree root to its forest after the cut; hosts
+are still resolved under ``--forests-list``, and every halo whose resolved
+central then lies in another forest of the table becomes a central. Without
+it the conversion is exactly what it was; with it the table's path and md5
+are part of the recorded configuration.
+
 **Format versions.** This CLI emits version 3 only. The existing
 Consistent-Trees ASCII to version 2 workflow is unchanged and lives in
 ``convert_ctrees.py``, whose commands keep their version 2 defaults.
@@ -44,7 +52,7 @@ Consistent-Trees ASCII to version 2 workflow is unchanged and lives in
 horizontal driver consume format version 3, but a converted dataset is an
 evidenced runtime route only where a recorded parity gate passed against the
 same source format's vertical reader over the same files. The evidenced
-routes are the five in runtime_routes.ROUTES, which mirrors the table under
+routes are those in runtime_routes.ROUTES, which mirrors the table under
 convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md#v3-runtime-support; full Uchuu is not
 runnable. Every stage says so, and says whether the dataset has non-adjacent
 (gapped) Descendant links or a snapshot wider than int32.
@@ -139,9 +147,17 @@ _TUNING_OPTIONS = {
     "consistent_trees_hdf5": (),
     "consistent_trees_ascii": ("pool_size", "chunksize"),
 }
+#: Per-format optional inputs that define the conversion (``ingest`` only):
+#: optional for their format, rejected for others.
+_OPTIONAL_INPUTS = {
+    "lhalo_binary": (),
+    "consistent_trees_hdf5": (),
+    "consistent_trees_ascii": ("cut_table",),
+}
 _ALL_FORMAT_OPTIONS = sorted(
     {name for names in _INVENTORY_OPTIONS.values() for name in names}
     | {name for names in _TUNING_OPTIONS.values() for name in names}
+    | {name for names in _OPTIONAL_INPUTS.values() for name in names}
 )
 #: Everything that defines a conversion, for the ingest resume check.
 _CONFIGURATION_OPTIONS = (
@@ -167,7 +183,9 @@ def _check_format_options(args) -> None:
     another format is."""
     source_format = args.source_format
     required = _INVENTORY_OPTIONS[source_format]
-    allowed = set(required) | set(_TUNING_OPTIONS[source_format])
+    allowed = (
+        set(required) | set(_TUNING_OPTIONS[source_format]) | set(_OPTIONAL_INPUTS[source_format])
+    )
     missing = [_flag(name) for name in required if getattr(args, name, None) is None]
     foreign = [
         _flag(name)
@@ -292,6 +310,8 @@ def _adapter_parameters(args, info, budget_bytes: int) -> dict:
         parameters["pool_size"] = args.pool_size
     if args.chunksize is not None:
         parameters["chunksize"] = args.chunksize
+    if getattr(args, "cut_table", None) is not None:
+        parameters["cut_table"] = args.cut_table
     return parameters
 
 
@@ -813,6 +833,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help="halos per ingest chunk (default {})".format(1 << 20),
+    )
+    ingest.add_argument(
+        "--cut-table",
+        default=None,
+        help="consistent_trees_ascii only: a cut forest table (forests.list shape, every tree "
+        "root to its forest after the cut). Hosts are resolved under --forests-list, then every "
+        "halo whose central lies in another forest of the table becomes a central; the table's "
+        "md5 is part of the recorded configuration",
     )
 
     transpose = sub.add_parser(

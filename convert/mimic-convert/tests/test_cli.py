@@ -350,6 +350,19 @@ class StageChainTests(CliCase):
         # longer needs a matching --ingest-max-rows.
         self.run_chain(ascii_route(), "micro-uchuu-ascii", n_halos=4)
 
+    def test_micro_uchuu_ascii_fixture_under_a_cut_table(self):
+        # the catalogue's own forests.list is the identity cut table
+        table = route_value(ascii_route(), "--forests-list")
+        work = self.run_chain(
+            ascii_route(), "micro-uchuu-ascii", n_halos=4, ingest=("--cut-table", table)
+        )
+        manifest = json.loads((work / "manifest.json").read_text())
+        parameters = manifest["configuration"]["adapter"]["parameters"]
+        self.assertEqual(parameters["cut_table"], os.path.realpath(table))
+        self.assertEqual(
+            parameters["cut_table_md5"], hashlib.md5(Path(table).read_bytes()).hexdigest()
+        )
+
     def test_the_shipped_default_profile_is_announced_when_no_profile_is_named(self):
         route = ascii_route()
         index = route.index("--column-map")
@@ -414,6 +427,10 @@ class FailureTests(CliCase):
     def test_an_option_of_another_format_is_refused_rather_than_ignored(self):
         route = self.route + ["--forests-list", self.data / "x.list"]
         self.ingest_fails(route, "do not apply to --source-format lhalo_binary")
+
+    def test_a_cut_table_is_refused_for_another_format(self):
+        route = self.route + ["--cut-table", self.data / "x.list"]
+        self.ingest_fails(route, "--cut-table do not apply to --source-format lhalo_binary")
 
     def test_a_missing_inventory_option_is_named(self):
         index = self.route.index("--tree-name")

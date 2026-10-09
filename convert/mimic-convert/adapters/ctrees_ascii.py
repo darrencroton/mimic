@@ -111,7 +111,9 @@ from scatter import (
     SOURCE_SATISFIED,
     Manifest,
     file_md5,
+    install_cut,
     load_a_list,
+    load_cut_table,
     load_forests_list,
     run_scatter,
     source_units_name,
@@ -311,10 +313,26 @@ def prepare_workdir(
     rank_budget_bytes: int = DEFAULT_RANK_BUDGET_BYTES,
     max_rows: Optional[int] = None,
     memory_budget_bytes: Optional[int] = None,
+    cut_table_path=None,
 ) -> Manifest:
     """Run the existing ASCII topology preparation in the schema's extended
     scratch layout: scatter, sort, fix-ups and links. Returns the workdir
     manifest.
+
+    **A declared cut table** (``cut_table_path``, a ``forests.list``-shaped
+    map from every tree root to its forest after the cut; default None,
+    which changes nothing) converts the catalogue directly into its cut form.
+    Scatter keeps ``forests.list`` as the partition and checks the table's
+    roots against it before reading any source file; after scatter every
+    invariant of the table is checked against the trees' halo totals
+    (``scatter.load_cut_table``), before sort; the fix-up stage resolves
+    every host under the original partition and then installs the table,
+    promoting each satellite whose central lies in another forest of the
+    table to a central (``fixups.sever_snapshot``); ``scatter.install_cut``
+    then replaces the forest table and the units sidecars with the cut
+    partition's; and the link stage runs unchanged on the result, so ranks,
+    chains and identities follow the cut partition. The table's md5 is bound
+    into the workdir, and a resume must name the same table, or none.
 
     No intermediate is consumed: the adapter reads the fixed and links scratch
     this leaves behind. The a_list, simulation_info and ordered source files
@@ -370,7 +388,12 @@ def prepare_workdir(
         entry.get("status") == "linked" for entry in manifest.data["snapshots"].values()
     ):
         _check_recorded_inputs(
-            manifest, tree_files, forests_list_path, a_list_path, simulation_info_path
+            manifest,
+            tree_files,
+            forests_list_path,
+            a_list_path,
+            simulation_info_path,
+            cut_table_path,
         )
         return run_links(workdir, budget_bytes=rank_budget_bytes)
     scattered = run_scatter(
@@ -382,11 +405,22 @@ def prepare_workdir(
         chunksize=chunksize,
         simulation_info_path=simulation_info_path,
         schema=schema,
+        cut_table_path=cut_table_path,
     )
+    cut_map = None
+    if cut_table_path is not None:
+        cut_map = load_cut_table(scattered, forests_list_path, cut_table_path)
     if max_rows is not None:
         _check_largest_batch_term(schema, scattered, max_rows, memory_budget_bytes)
     run_sort(workdir)
-    run_fixups(workdir, a_list_path=a_list_path, simulation_info_path=simulation_info_path)
+    fixed = run_fixups(
+        workdir,
+        a_list_path=a_list_path,
+        simulation_info_path=simulation_info_path,
+        cut_map=cut_map,
+    )
+    if cut_map is not None:
+        install_cut(fixed, cut_map)
     return run_links(workdir, budget_bytes=rank_budget_bytes)
 
 
@@ -411,11 +445,17 @@ def _check_largest_batch_term(
 
 
 def _check_recorded_inputs(
-    manifest: Manifest, tree_files, forests_list_path, a_list_path, simulation_info_path
+    manifest: Manifest,
+    tree_files,
+    forests_list_path,
+    a_list_path,
+    simulation_info_path,
+    cut_table_path=None,
 ) -> None:
     """The identity binding scatter applies on resume, for a resume that does
     not re-enter scatter: the same ordered sources, each still the bytes that
-    were scattered, and the same metadata bytes.
+    were scattered, and the same metadata bytes, cut table included (or none,
+    when none was bound).
 
     Source content is judged by scatter's own rule, ``Manifest.classify_source``
     (recorded size and mtime_ns, a ``consumed`` entry satisfying it without a
@@ -440,6 +480,11 @@ def _check_recorded_inputs(
             "simulation_info",
             file_md5(simulation_info_path),
             provenance.get("simulation_info", {}).get("md5"),
+        ),
+        (
+            "cut table",
+            None if cut_table_path is None else file_md5(cut_table_path),
+            (provenance.get("cut_table") or {}).get("md5"),
         ),
     )
     for what, given, recorded in checks:

@@ -10,6 +10,12 @@ Two independent oracles:
   joined to the canonical rows by ``(SnapNum, ForestIndex, HaloRankInForest)``
   -- never by row number, since canonical rows are in ``SourceHaloID`` order
   -- with links compared by the target halo's ctrees id.
+
+Under a declared cut table the oracle is the dataset rewriter: on
+:mod:`fixtures`' adversarial cut forests, the route's conversion under the
+table must equal the rewriter's cut of the route's uncut output in every
+``/halos`` column, header attribute and sidecar value, with the same
+promotions per snapshot.
 """
 
 import json
@@ -41,13 +47,21 @@ from adapters.ctrees_ascii import (  # noqa: E402
 from column_schema import build_schema, load_column_map, parse_column_map  # noqa: E402
 from conversion_manifest import inventory_record  # noqa: E402
 from ctrees_parser import ConverterError  # noqa: E402
-from fixups import fixed_scratch_name, run_fixups  # noqa: E402
+from fixups import fixed_layout, fixed_scratch_name, run_fixups  # noqa: E402
 from hdf5_writer import run_write  # noqa: E402
 from links import links_scratch_name, run_links  # noqa: E402
 from scatter import Manifest, run_scatter, source_units_name  # noqa: E402
 from sort_index import index_name, run_sort, sorted_scratch_name  # noqa: E402
 from test_conversion_manifest import tree_state  # noqa: E402
 from test_fixups import capture_stderr  # noqa: E402
+from test_rewriter import (  # noqa: E402
+    assert_datasets_equal,
+    cut,
+    cut_layout,
+    cut_source,
+    read_sidecar,
+    write_table,
+)
 
 PROFILE_DIR = Path(__file__).resolve().parents[1] / "profiles"
 DEFAULT_PROFILE = PROFILE_DIR / "consistent_trees_ascii.yaml"
@@ -1371,6 +1385,293 @@ class BudgetAccountingTests(unittest.TestCase):
                     ),
                 ):
                     adapter.inventory()
+
+
+# ---------------------------------------------------------------------------
+# A declared cut table
+# ---------------------------------------------------------------------------
+
+#: Each adversarial cut fixture: its forest, its decided table and, for the
+#: two laid over two files, the tree from which the second file starts (the
+#: three-piece fixture's piece {2520, 2530} then spans both files).
+CUT_FIXTURES = (
+    ("severed", fixtures.severed_satellite_forest, fixtures.severed_satellite_cut_table, 1),
+    ("no_central", fixtures.no_initial_central_forest, fixtures.no_initial_central_cut_table, None),
+    ("leaves", fixtures.central_leaves_forest, fixtures.central_leaves_cut_table, None),
+    ("tie", fixtures.progenitor_tie_forest, fixtures.progenitor_tie_cut_table, None),
+    ("three", fixtures.three_piece_forest, fixtures.three_piece_cut_table, 3),
+    ("z0", fixtures.z0_groups_forest, fixtures.z0_groups_cut_table, None),
+    ("head", fixtures.progenitor_head_forest, fixtures.progenitor_head_cut_table, None),
+)
+
+
+def route_parameters(source, cut_table=None):
+    """The route's parameters over ``source``'s files (as ``cut_source`` wrote
+    them), with a cut table when one is given."""
+    root = source["root"]
+    parameters = {
+        "tree_files": [str(path) for path in sorted(root.glob("tree_*.dat"))],
+        "forests_list": str(root / "forests.list"),
+        "simulation_info": str(root / "simulation_info.yaml"),
+    }
+    if cut_table is not None:
+        parameters["cut_table"] = str(cut_table)
+    return parameters
+
+
+def convert_under_cut(source, work, cut_table):
+    """The route's conversion of ``source``'s files under ``cut_table``, with
+    the batch and budget ``cut_source``'s uncut conversion used."""
+    from hdf5_writer_v3 import HorizontalV3Writer
+
+    pipeline.initialize(
+        work,
+        schema_of(DEFAULT_PROFILE),
+        route_parameters(source, cut_table),
+        source["root"] / "fixture.a_list",
+        ingest_max_rows=4,
+        transpose_budget_bytes=4 << 20,
+    )
+    with capture_stderr():
+        pipeline.run_ingest(work)
+        pipeline.run_transpose(work)
+        manifest = pipeline.run_write(
+            work, HorizontalV3Writer(source["root"] / "simulation_info.yaml")
+        )
+    return manifest
+
+
+class CutTableTests(unittest.TestCase):
+    """The route under a declared cut table, against the rewriter's cut of
+    the route's uncut output (the fixture-scale equivalence of the two
+    producers of a cut dataset), and its bindings and refusals."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.root = Path(tempfile.mkdtemp(prefix="ascii_cut_"))
+        forest = fixtures.severed_satellite_forest()
+        cls.severed = cut_source(cls.root / "severed", forest, cut_layout(forest, 1))
+        cls.severed_table = write_table(
+            cls.root / "severed", "cut", fixtures.severed_satellite_cut_table(), cls.severed
+        )
+
+    @classmethod
+    def tearDownClass(cls):
+        import shutil
+
+        shutil.rmtree(cls.root, ignore_errors=True)
+
+    def test_the_route_under_a_table_equals_the_cut_of_its_uncut_output(self):
+        import convert_trees
+        from scatter import file_md5
+        from test_rewriter import quiet
+
+        for name, forest_of, table_of, split_after in CUT_FIXTURES:
+            with self.subTest(fixture=name):
+                root = self.root / "equal" / name
+                forest = forest_of()
+                source = cut_source(root, forest, cut_layout(forest, split_after))
+                table = write_table(root, "cut", table_of(), source)
+                summary = cut(source, root / "c", root / "c_scratch", table)
+                manifest = convert_under_cut(source, root / "route", table)
+                dataset = manifest.artifact_path(manifest.stage("write")["directory"])
+                assert_datasets_equal(self, root / "c" / "dataset", dataset)
+                # and the cut is not the identity: one more forest per fresh piece
+                self.assertEqual(
+                    read_sidecar(dataset / "forests.h5")["ForestID"].size,
+                    read_sidecar(source["dataset"] / "forests.h5")["ForestID"].size
+                    + summary["cut"]["fresh_pieces"],
+                )
+                self.assertGreater(summary["cut"]["fresh_pieces"], 0)
+                # the same severance: the route's promotions per snapshot are (C)'s
+                prepared = json.loads(
+                    (root / "route" / pipeline.ASCII_PREPARATION_DIR / "manifest.json").read_text()
+                )
+                promoted = {
+                    int(snap): entry["cut_promotions"]
+                    for snap, entry in prepared["snapshots"].items()
+                    if entry["cut_promotions"]
+                }
+                self.assertTrue(promoted)
+                self.assertEqual(
+                    promoted,
+                    {
+                        entry["snapshot"]: entry["promoted_halos"]
+                        for entry in summary["cut"]["per_snapshot"]
+                        if entry["promoted_halos"]
+                    },
+                )
+                recorded = manifest.configuration["adapter"]["parameters"]
+                self.assertEqual(recorded["cut_table_md5"], file_md5(table))
+                with quiet():
+                    self.assertEqual(
+                        convert_trees.main(["validate", "--workdir", str(root / "route")]), 0
+                    )
+
+    def test_without_a_table_nothing_is_recorded(self):
+        recorded = pipeline.canonical_parameters(
+            "consistent_trees_ascii", route_parameters(self.severed)
+        )
+        self.assertNotIn("cut_table", recorded)
+        self.assertNotIn("cut_table_md5", recorded)
+        prepared = self.severed["preparation_manifest"]
+        provenance = json.loads(prepared.read_text())["provenance"]
+        self.assertNotIn("cut_table", provenance)
+        self.assertEqual(list(prepared.parent.glob("scratch/tree_rows_src_*.npy")), [])
+
+    def test_the_table_is_inside_the_configuration_digest(self):
+        uncut = pipeline.canonical_parameters(
+            "consistent_trees_ascii", route_parameters(self.severed)
+        )
+        recorded = pipeline.canonical_parameters(
+            "consistent_trees_ascii", route_parameters(self.severed, self.severed_table)
+        )
+        self.assertEqual(
+            dict(recorded, cut_table=None, cut_table_md5=None),
+            dict(uncut, cut_table=None, cut_table_md5=None),
+        )
+        self.assertEqual(recorded["cut_table"], os.path.realpath(self.severed_table))
+        # the recorded form re-validates to itself, and only against the same bytes
+        self.assertEqual(
+            pipeline.canonical_parameters("consistent_trees_ascii", recorded), recorded
+        )
+        with self.assertRaisesRegex(ConverterError, "not the recorded"):
+            pipeline.canonical_parameters(
+                "consistent_trees_ascii", dict(recorded, cut_table_md5="0" * 32)
+            )
+        with self.assertRaisesRegex(ConverterError, "needs a cut_table"):
+            pipeline.canonical_parameters(
+                "consistent_trees_ascii", dict(uncut, cut_table_md5=recorded["cut_table_md5"])
+            )
+        # a different table is a different conversion of the same files
+        work = self.root / "digest"
+        convert_under_cut(self.severed, work, self.severed_table)
+        other = write_table(self.root / "severed", "other", {}, self.severed)
+        with self.assertRaisesRegex(ConverterError, "holds a different conversion"):
+            pipeline.initialize(
+                work,
+                schema_of(DEFAULT_PROFILE),
+                route_parameters(self.severed, other),
+                self.severed["root"] / "fixture.a_list",
+                ingest_max_rows=4,
+                transpose_budget_bytes=4 << 20,
+            )
+
+    def test_no_other_route_accepts_a_table(self):
+        for source_format, parameters in (
+            ("lhalo_binary", {"sources": [[0, str(self.severed_table)]]}),
+            (
+                "consistent_trees_hdf5",
+                {"info_path": "x", "first_file": 0, "last_file": 0, "particle_mass": 1.0},
+            ),
+        ):
+            with self.subTest(source_format=source_format):
+                with self.assertRaisesRegex(ConverterError, r"unknown \['cut_table'\]"):
+                    pipeline.canonical_parameters(
+                        source_format, dict(parameters, cut_table=str(self.severed_table))
+                    )
+
+    def prepare(self, workdir, cut_table, **kwargs):
+        source = self.severed
+        root = source["root"]
+        with capture_stderr():
+            return prepare_workdir(
+                schema_of(DEFAULT_PROFILE),
+                sorted(root.glob("tree_*.dat")),
+                root / "forests.list",
+                root / "fixture.a_list",
+                root / "simulation_info.yaml",
+                workdir,
+                cut_table_path=cut_table,
+                **kwargs,
+            )
+
+    def test_a_table_whose_roots_are_not_the_index_files_is_refused_before_scatter(self):
+        source = self.severed
+        cases = (
+            ("missing", {2110: None}, r"misses 1 forests.list tree root\(s\) \(e.g. \[2110\]\)"),
+            ("foreign", {9999: 9999}, r"lists 1 root\(s\) forests.list does not \(e.g. \[9999\]\)"),
+        )
+        for name, change, pattern in cases:
+            with self.subTest(case=name):
+                rows = {
+                    tree.root_id: forest.forest_id
+                    for forest in source["forests"]
+                    for tree in forest.trees
+                }
+                rows.update(fixtures.severed_satellite_cut_table())
+                for root_id, forest_id in change.items():
+                    if forest_id is None:
+                        del rows[root_id]
+                    else:
+                        rows[root_id] = forest_id
+                table = fixtures.write_cut_table(self.root / (name + ".list"), rows)
+                workdir = self.root / ("roots_" + name)
+                with self.assertRaisesRegex(ConverterError, pattern):
+                    self.prepare(workdir, table)
+                self.assertFalse((workdir / "manifest.json").exists(), "scatter ran")
+                self.assertEqual(list((workdir / "scratch").iterdir()), [])
+
+    def test_a_violated_invariant_is_refused_after_scatter_and_before_sort(self):
+        # the smaller piece {2110} keeps the forest's id, the larger takes the fresh one
+        table = write_table(self.root, "swapped", {2100: 8001, 2110: 2100}, self.severed)
+        workdir = self.root / "swapped_work"
+        with self.assertRaisesRegex(ConverterError, "not kept by their largest piece"):
+            self.prepare(workdir, table)
+        statuses = {
+            entry["status"]
+            for entry in json.loads((workdir / "manifest.json").read_text())["snapshots"].values()
+        }
+        self.assertEqual(statuses, {"concatenated"})
+
+    def test_a_resume_must_name_the_same_table_or_none(self):
+        workdir = self.root / "resume"
+        with mock.patch.object(ctrees_ascii, "run_sort", side_effect=RuntimeError("stop")):
+            with self.assertRaisesRegex(RuntimeError, "stop"):
+                self.prepare(workdir, self.severed_table)
+        other = write_table(self.root, "resume_other", {}, self.severed)
+        for table, pattern in (
+            (other, "cut table md5 .* differs"),
+            (None, "cut table md5 None differs"),
+        ):
+            with self.subTest(table=table):
+                with self.assertRaisesRegex(ConverterError, pattern):
+                    self.prepare(workdir, table)
+        # the fix-up stage refuses to run without the bound table
+        with self.assertRaisesRegex(ConverterError, "given cut table md5 None but scatter bound"):
+            root = self.severed["root"]
+            run_fixups(workdir, root / "fixture.a_list", root / "simulation_info.yaml")
+        # a resume with the same table completes, and a linked workdir still checks it
+        self.prepare(workdir, self.severed_table)
+        with self.assertRaisesRegex(ConverterError, "cut table differs"):
+            self.prepare(workdir, other)
+        self.prepare(workdir, self.severed_table)
+
+    def test_the_installed_partition_is_the_tables(self):
+        workdir = self.root / "installed"
+        self.prepare(workdir, self.severed_table)
+        np.testing.assert_array_equal(
+            np.load(workdir / "forest_index_table.npy"), [1400, 2100, 8000, 8001]
+        )
+        # file 0 holds 1400 and tree 2100; file 1 holds tree 2110 (the fresh
+        # piece) and forest 8000's tree, in that marker order
+        self.assertEqual(
+            np.load(workdir / "scratch" / source_units_name(0)).tolist(), [[1400, 3], [2100, 3]]
+        )
+        self.assertEqual(
+            np.load(workdir / "scratch" / source_units_name(1)).tolist(), [[8001, 2], [8000, 3]]
+        )
+        manifest = Manifest.load_or_create(workdir)
+        fixed_dtype = fixed_layout(manifest.layout)[0]
+        records = [
+            record
+            for entry in manifest.data["snapshots"].values()
+            for record in np.fromfile(entry["fixed_file"], dtype=fixed_dtype)
+        ]
+        by_id = {int(r["id"]): r for r in records}
+        self.assertEqual(int(by_id[2111]["forest_id"]), 8001)
+        self.assertEqual((int(by_id[2111]["pid"]), int(by_id[2111]["upid"])), (-1, 2111))
+        self.assertEqual(int(by_id[2101]["forest_id"]), 2100)
 
 
 if __name__ == "__main__":

@@ -29,6 +29,18 @@ Every scratch file handle this module opens is buffered explicitly at
 :data:`SCRATCH_BUFFER_BYTES`, in the serial and the pooled scatter alike, so
 the buffer never scales with a filesystem's ``st_blksize`` across the up to
 one-handle-per-snapshot a source file can hold open.
+
+**A declared cut table** (extended layout only; ``run_scatter``'s
+``cut_table_path``) changes nothing scatter itself produces: ``forests.list``
+stays the partition every record's ``forest_id`` is joined from, because the
+fix-up stage resolves hosts under it. Scatter checks the table's roots against
+``forests.list`` before any file is read, binds the table's md5 into the
+workdir's provenance, and records each file's per-tree row counts
+(:func:`tree_rows_name`). Once the fix-up stage has resolved every host,
+:func:`install_cut` recomputes the forest table and the per-file units
+sidecars under the table, replacing the original partition's; the per-forest
+maximum-snapshot aggregate, an input of the fix-up stage's own guard, keeps
+the original partition.
 """
 
 import hashlib
@@ -39,6 +51,7 @@ import time
 from dataclasses import dataclass
 from multiprocessing import Pool
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -121,6 +134,12 @@ def source_units_name(src_index: int) -> str:
     """Per-source ``[n_units, 2]`` (forest id, halo count) sidecar of an
     extended-layout scatter: that file's canonical source units."""
     return "units_src_{}.npy".format(src_index)
+
+
+def tree_rows_name(src_index: int) -> str:
+    """Per-source ``[n_trees]`` row counts of a scatter under a cut table, one
+    per ``#tree`` marker in file order (aligned with ``roots_src_N.npy``)."""
+    return "tree_rows_src_{}.npy".format(src_index)
 
 
 def open_scratch(path, mode: str = "wb"):
@@ -259,6 +278,23 @@ def validate_root_coverage(observed_roots: np.ndarray, forest_map: ForestMap) ->
                 missing_from_data.size, missing_from_data[:5].tolist()
             )
         )
+
+
+def check_cut_roots(cut_map: ForestMap, forest_map: ForestMap, cut_table_path) -> None:
+    """A cut table maps exactly ``forests.list``'s tree roots, each once (the
+    loader refuses a repeated root): the check that needs no halo, made
+    before any source file is read. Its other invariants need the trees'
+    halo totals and are checked by :func:`load_cut_table`."""
+    if np.array_equal(cut_map.tree_root_ids, forest_map.tree_root_ids):
+        return
+    missing = np.setdiff1d(forest_map.tree_root_ids, cut_map.tree_root_ids, assume_unique=True)
+    extra = np.setdiff1d(cut_map.tree_root_ids, forest_map.tree_root_ids, assume_unique=True)
+    raise ConverterError(
+        "{}: cut table misses {} forests.list tree root(s) (e.g. {}) and lists {} root(s) "
+        "forests.list does not (e.g. {})".format(
+            cut_table_path, missing.size, missing[:5].tolist(), extra.size, extra[:5].tolist()
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -789,6 +825,8 @@ class FileScatterResult:
     worker_files: Dict[int, str]
     #: extended layout only: ``[n_units, 2]`` (forest id, halo count)
     source_units: Optional[np.ndarray] = None
+    #: extended layout only: rows per ``#tree`` marker, in file order
+    tree_rows: Optional[np.ndarray] = None
 
 
 def _update_forest_max(acc: Dict[int, int], forest_ids: np.ndarray, snaps: np.ndarray) -> None:
@@ -912,6 +950,11 @@ def scatter_one_file(
             for snap in counts
         },
         source_units=parser.unit_plan.table() if extended else None,
+        tree_rows=(
+            np.diff(np.r_[parser.prescan.tree_start_rows, np.int64(parser.prescan.n_rows)])
+            if extended
+            else None
+        ),
     )
 
 
@@ -1046,6 +1089,7 @@ def run_scatter(
     save_every_seconds: float = DEFAULT_SAVE_EVERY_SECONDS,
     batch_mode: bool = False,
     schema=None,
+    cut_table_path=None,
 ) -> Manifest:
     """Phase 0 + Phase 1: map, scatter, concat, aggregates, manifest.
 
@@ -1053,6 +1097,17 @@ def run_scatter(
     ``consistent_trees_ascii`` canonical schema; it selects the columns and
     fixes the workdir's extended scratch layout (see the module docstring).
     A resume must pass the same schema, or none for a legacy workdir.
+
+    ``cut_table_path`` (extended layout only; default None, which changes
+    nothing) names a cut forest table in ``forests.list`` shape. Before any
+    source file is read, its tree roots must be exactly ``forests.list``'s;
+    its md5 is then bound into the provenance (a resume must name the same
+    table, or none when none was named), and every scattered file's per-tree
+    row counts are recorded (:func:`tree_rows_name`) for the table's
+    invariant check and :func:`install_cut`. The records themselves keep the
+    original forest ids. Loading the table costs what loading ``forests.list``
+    does (the parse's Python lists, then 24 B per tree of sorted int64
+    columns), and it is released before any file is scattered.
 
     Re-running skips source files whose manifest entry is completed and whose
     size/mtime still match. Per-file conservation (independent pre-count ==
@@ -1106,6 +1161,16 @@ def run_scatter(
 
     a_list, a_list_md5 = load_a_list(a_list_path)
     forest_map = load_forests_list(forests_list_path)
+    cut_identity = None
+    if cut_table_path is not None:
+        if schema is None:
+            raise ConverterError(
+                "a cut table is a canonical ASCII route option; the legacy route takes none"
+            )
+        cut_map = load_forests_list(cut_table_path)
+        check_cut_roots(cut_map, forest_map, cut_table_path)
+        cut_identity = {"path": str(Path(cut_table_path).resolve()), "md5": cut_map.md5}
+        del cut_map
 
     layout = LEGACY_LAYOUT if schema is None else ScratchLayout.from_schema(schema)
     manifest = Manifest.load_or_create(workdir, layout=layout)
@@ -1136,6 +1201,18 @@ def run_scatter(
             "source file set/order changed since this workdir was created; "
             "refusing to resume — use a fresh workdir"
         )
+    if recorded:
+        # an existing workdir: the cut table (or its absence) is part of the
+        # conversion, never something a resume adds, drops or swaps
+        recorded_md5 = (recorded.get("cut_table") or {}).get("md5")
+        given_md5 = None if cut_identity is None else cut_identity["md5"]
+        if recorded_md5 != given_md5:
+            raise ConverterError(
+                "cut table md5 {} differs from the {} this workdir was created with; refusing "
+                "to resume — use a fresh workdir".format(given_md5, recorded_md5)
+            )
+    if cut_identity is not None:
+        identities["cut_table"] = cut_identity
     manifest.data["provenance"].update(identities)
     if simulation_info_path is not None:
         # immutable once recorded: the fix-up stage derives Len from this
@@ -1214,6 +1291,12 @@ def run_scatter(
             manifest.register_intermediate(
                 units_file, "source-units", rows=int(result.source_units.shape[0])
             )
+        if cut_identity is not None:
+            tree_rows_file = scratch_dir / tree_rows_name(result.src_index)
+            np.save(tree_rows_file, result.tree_rows)
+            manifest.register_intermediate(
+                tree_rows_file, "tree-rows", rows=int(result.tree_rows.size)
+            )
         manifest.data["source_files"][result.path] = {
             "src_index": result.src_index,
             "size": result.size,
@@ -1233,6 +1316,8 @@ def run_scatter(
             manifest.data["source_files"][result.path]["source_units"] = int(
                 result.source_units.shape[0]
             )
+        if cut_identity is not None:
+            manifest.data["source_files"][result.path]["tree_rows"] = int(result.tree_rows.size)
         maybe_save_manifest()
 
     if pool_size <= 1 or len(pending) <= 1:
@@ -1489,6 +1574,170 @@ def _retry_worker_cleanup(manifest: Manifest, scratch_dir: Path, snap: int, part
             manifest.remove_intermediate(worker_path)
         else:
             entry["status"] = "removed"
+
+
+# ---------------------------------------------------------------------------
+# A declared cut table
+# ---------------------------------------------------------------------------
+
+
+def _scattered_trees(manifest: Manifest) -> List[Tuple[int, np.ndarray, np.ndarray]]:
+    """``(src_index, roots, rows)`` per source file, in inventory order: each
+    ``#tree`` marker's root and row count in file order, from the verified
+    observed-roots and tree-rows sidecars. A file's rows must sum to its
+    parsed count."""
+    scratch_dir = Path(manifest.workdir) / "scratch"
+    trees = []
+    for path in manifest.data["provenance"]["source_files"]:
+        entry = manifest.source_entry(path)
+        if entry is None or entry.get("status") not in SOURCE_SATISFIED or "tree_rows" not in entry:
+            raise ConverterError(
+                "{}: source file {} has no scatter recorded under the cut table".format(
+                    manifest.path, path
+                )
+            )
+        src_index = int(entry["src_index"])
+        roots_file = scratch_dir / "roots_src_{}.npy".format(src_index)
+        rows_file = scratch_dir / tree_rows_name(src_index)
+        manifest.verify_intermediate(roots_file, "observed-roots sidecar")
+        manifest.verify_intermediate(rows_file, "tree-rows sidecar")
+        roots = np.load(roots_file)
+        rows = np.load(rows_file)
+        if roots.shape != rows.shape or int(rows.sum()) != int(entry["parsed_count"]):
+            raise ConverterError(
+                "{}: {} tree row count(s) summing to {} for {} tree root(s) and {} parsed "
+                "halo(s)".format(
+                    rows_file, rows.size, int(rows.sum()), roots.size, entry["parsed_count"]
+                )
+            )
+        trees.append((src_index, roots, rows))
+    return trees
+
+
+def load_cut_table(manifest: Manifest, forests_list_path, cut_table_path) -> ForestMap:
+    """The workdir's cut table, every invariant checked, as the map the fix-up
+    stage and :func:`install_cut` relabel from.
+
+    The table must be the one the provenance binds, and ``forests.list`` the
+    original partition it binds. The invariants are the census's
+    (``census.cut_table.read_cut_table``): every tree root once, a piece holds
+    trees of one forest, an uncut forest keeps its id, the largest piece of a
+    cut forest keeps its id (by halo totals over every snapshot, ties by the
+    smallest root), and fresh ids ascend contiguously from the catalogue's
+    maximum in descending piece size. The totals are the scattered per-tree
+    row counts, so this runs after scatter and before any later stage.
+
+    Memory: about 128 B per tree at the census reader's peak, plus the
+    original map's and the returned map's 24 B per tree each.
+    """
+    from census.cut_table import read_cut_table
+
+    provenance = manifest.data["provenance"]
+    forest_map = load_forests_list(forests_list_path)
+    recorded_cut = provenance.get("cut_table") or {}
+    if forest_map.md5 != provenance.get("forests_list", {}).get("md5"):
+        raise ConverterError(
+            "{}: forests.list md5 {} is not the one this workdir was scattered under".format(
+                forests_list_path, forest_map.md5
+            )
+        )
+    cut_md5 = file_md5(cut_table_path)
+    if cut_md5 != recorded_cut.get("md5"):
+        raise ConverterError(
+            "{}: cut table md5 {} is not the {} this workdir was scattered under".format(
+                cut_table_path, cut_md5, recorded_cut.get("md5")
+            )
+        )
+    trees = _scattered_trees(manifest)
+    roots = np.concatenate([tree_roots for _src, tree_roots, _rows in trees])
+    rows = np.concatenate([tree_rows for _src, _roots, tree_rows in trees])
+    order = np.argsort(roots, kind="stable")
+    if not np.array_equal(roots[order], forest_map.tree_root_ids):
+        raise ConverterError(  # pragma: no cover - finalize's coverage check refuses it first
+            "{}: the scattered tree roots are not forests.list's".format(manifest.path)
+        )
+    table_roots, table_ids = read_cut_table(
+        cut_table_path, forest_map.tree_root_ids, forest_map.forest_ids, rows[order]
+    )
+    return ForestMap(
+        tree_root_ids=table_roots,
+        forest_ids=table_ids,
+        unique_forest_ids=np.unique(table_ids),
+        md5=recorded_cut["md5"],
+    )
+
+
+def _install_table(manifest: Manifest, path: Path, kind: str, table: np.ndarray, **record):
+    """Replace one registered table with ``table``, atomically. A file that
+    already holds ``table`` (the identity cut, or a resumed install) is kept
+    and only re-registered if a crash came between its replacement and the
+    manifest save; anything else must be the registered original."""
+    path = Path(path)
+    if path.exists():
+        current = np.load(path)
+        if current.dtype == table.dtype and np.array_equal(current, table):
+            registered = manifest.data["intermediates"].get(str(path.resolve()), {})
+            if registered.get("md5") != file_md5(path):
+                manifest.register_intermediate(path, kind, **record)
+            return
+    manifest.verify_intermediate(path, kind)
+    tmp = path.with_name(path.name + ".tmp")
+    with open(tmp, "wb") as handle:
+        np.save(handle, table)
+    os.replace(tmp, path)
+    manifest.register_intermediate(path, kind, **record)
+
+
+def install_cut(manifest: Manifest, cut_map: ForestMap) -> None:
+    """Recompute the forest table and every units sidecar under the cut table,
+    once the fix-up stage has resolved every host under the original
+    partition and relabelled every record's ``forest_id`` through its
+    ``tree_root_id``.
+
+    ``forest_index_table.npy`` becomes the table's ascending forest ids, so a
+    fresh piece enumerates after every original forest. Each file's
+    ``units_src_N.npy`` becomes its pieces as units: a piece's ordinal is its
+    rank among the file's pieces by its first ``#tree`` marker in the file
+    (``ctrees_parser.plan_source_units`` over the recorded marker roots and
+    tree row counts), its count the piece's rows in the file. The original
+    partition's versions are replaced, never kept beside these, so the link
+    stage and the adapter read the cut partition only. Idempotent: a resumed
+    install keeps what it already wrote.
+
+    Memory: one file's roots, row counts, starts and forest ids (32 B per tree
+    of the file) and its unit plan, besides the cut map.
+    """
+    snapshots = manifest.data["snapshots"]
+    unfixed = sorted(int(s) for s, e in snapshots.items() if e.get("status") != "fixed")
+    if unfixed:
+        raise ConverterError(
+            "{}: snapshot(s) {} are not fixed; the cut is installed once every host is "
+            "resolved".format(manifest.path, unfixed[:5])
+        )
+    scratch_dir = Path(manifest.workdir) / "scratch"
+    for src_index, roots, rows in _scattered_trees(manifest):
+        starts = np.cumsum(rows) - rows
+        markers = SimpleNamespace(
+            path=str(scratch_dir / tree_rows_name(src_index)),
+            tree_start_rows=starts,
+            n_rows=int(rows.sum()),
+        )
+        plan = plan_source_units(markers, cut_map.lookup_forest_ids(roots), src_index)
+        table = plan.table()
+        _install_table(
+            manifest,
+            scratch_dir / source_units_name(src_index),
+            "source-units",
+            table,
+            rows=int(table.shape[0]),
+        )
+    _install_table(
+        manifest,
+        Path(manifest.workdir) / "forest_index_table.npy",
+        "forest-index-table",
+        cut_map.forest_index_table(),
+    )
+    manifest.save()
 
 
 # ---------------------------------------------------------------------------

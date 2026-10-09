@@ -389,6 +389,8 @@ def _ascii_parameters(parameters: Mapping) -> Dict[str, object]:
             "chunksize": DEFAULT_CHUNKSIZE,
             "rank_budget_bytes": DEFAULT_RANK_BUDGET_BYTES,
             "identity_scheme": "forest-rank",
+            "cut_table": None,
+            "cut_table_md5": None,
         },
         "consistent_trees_ascii",
     )
@@ -409,7 +411,7 @@ def _ascii_parameters(parameters: Mapping) -> Dict[str, object]:
         or not tree_files
     ):
         raise ConverterError("consistent_trees_ascii tree_files must be a nonempty list")
-    return {
+    recorded = {
         "tree_files": [
             _path_string(path, "tree_files[{}]".format(i)) for i, path in enumerate(tree_files)
         ],
@@ -425,6 +427,33 @@ def _ascii_parameters(parameters: Mapping) -> Dict[str, object]:
         ),
         "identity_scheme": merged["identity_scheme"],
     }
+    recorded.update(_ascii_cut_table(merged["cut_table"], merged["cut_table_md5"]))
+    return recorded
+
+
+def _ascii_cut_table(cut_table, cut_table_md5) -> Dict[str, object]:
+    """The recorded form of an optional declared cut table: its path and the
+    md5 of its bytes, both inside the configuration digest, so a conversion
+    under another table, or under none, is a different conversion. Absent
+    (no key at all) when no table is named, so a conversion without one
+    records exactly what it did before. A recorded md5 re-validates only
+    against the same bytes."""
+    from scatter import file_md5
+
+    if cut_table is None:
+        if cut_table_md5 is not None:
+            raise ConverterError("consistent_trees_ascii cut_table_md5 needs a cut_table")
+        return {}
+    path = _path_string(cut_table, "cut_table")
+    try:
+        md5 = file_md5(path)
+    except OSError as exc:
+        raise ConverterError("cut table {} cannot be read: {}".format(path, exc)) from exc
+    if cut_table_md5 is not None and cut_table_md5 != md5:
+        raise ConverterError(
+            "cut table {} has md5 {}, not the recorded {}".format(path, md5, cut_table_md5)
+        )
+    return {"cut_table": path, "cut_table_md5": md5}
 
 
 def _lhalo_dependencies(parameters: Mapping):
@@ -445,6 +474,8 @@ def _ascii_dependencies(parameters: Mapping):
     dependencies = [(path, (SOURCE_ROLE,), False) for path in parameters["tree_files"]]
     dependencies.append((parameters["forests_list"], ("forests_list",), False))
     dependencies.append((parameters["simulation_info"], ("simulation_info",), True))
+    if "cut_table" in parameters:
+        dependencies.append((parameters["cut_table"], ("cut_table",), True))
     return dependencies
 
 
@@ -636,6 +667,7 @@ def _prepare_ascii(manifest: ConversionManifest) -> Path:
         rank_budget_bytes=parameters["rank_budget_bytes"],
         max_rows=manifest.configuration["ingest_max_rows"],
         memory_budget_bytes=parameters["memory_budget_bytes"],
+        cut_table_path=parameters.get("cut_table"),
     )
     return prepared
 
