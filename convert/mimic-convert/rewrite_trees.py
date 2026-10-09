@@ -38,9 +38,14 @@ Refusals happen before any write and exit 2 naming the offending value: an
 input that is not version 2 (migrate) or 3 (noop, cut), ``links_adjacent`` 0,
 a version 3 input of another source format, missing or inconsistent index
 files, an a_list that is not the input's, a multiplier that cannot encode the
-output's bounds, a missing or ambiguous tree-file order, terminal halos that
-do not correspond to the index files' tree roots, a cut table violating any
-of its invariants, and a record that is not the given table's or index files'.
+output's bounds (the installed table's for cut), a missing or ambiguous
+tree-file order, terminal halos that do not correspond to the index files'
+tree roots, a cut table violating any of its invariants, a cut piece held in
+one file whose FileID the input sidecar gives no conversion ordinal for, and a
+record that is not the given table's or index files'. Two refusals of a cut
+are made per slab once the workdir exists: a halo whose FoF central lies in
+another forest of the input, and stored progenitor chains that are not the
+reference insertion loop's over the input's own keys.
 
 ``--resume`` continues an interrupted run after its last verified slab; it
 refuses a changed input or configuration, and re-verifies a completed run.

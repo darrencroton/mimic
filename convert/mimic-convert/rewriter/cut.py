@@ -34,17 +34,21 @@ and the sidecar need:
   by first ``#tree`` marker, and a piece spanning files carries -1/-1;
 - the per-tree inventory's forest columns, which name each tree's piece.
 
-Memory: the labelling pre-pass holds two slabs' labels (8 B x n) beside one
-block of two columns (16 B x b); the table read peaks at the census reader's
-stated 128 B per tree and leaves ``tree_forest`` (8 B x T), the output
-totals and bases (16 B x F') and the pieces (56 B per piece of a split
-forest) resident.
+Memory (the package docstring states the figures and what was measured): the
+labelling pre-pass holds two slabs' labels (8 B x n) beside one block of two
+columns (16 B x b) and the per-slab ``unique``'s transients; the table read
+peaks at the census reader's 128 B per tree, then the installation holds 84 B
+x T + 82 B x F' + 8 B x P + 56 B x p (measured 189 B x T when F' = p = T),
+about 84 GB concurrent with pass 0's arrays at Shin-Uchuu; the pieces are
+written out and released at once, and the passes keep ``tree_forest``,
+``tree_original`` and ``tree_totals`` (24 B x T), the output bases and the
+split masks.
 """
 
 import os
 import sys
 from dataclasses import dataclass
-from typing import Callable, Dict, List
+from typing import Callable, Dict, List, Optional
 
 import numpy as np
 
@@ -86,8 +90,9 @@ def _examples(values, limit: int = 5) -> list:
 class CutPlan:
     """An installed cut table: the output's enumeration and what the passes read."""
 
-    table_ids: np.ndarray  # int64 [n_trees]: the table's forest id per index tree
+    table_ids: Optional[np.ndarray]  # int64 [n_trees]: the table's forest id per index tree
     tree_forest: np.ndarray  # int64 [n_trees]: each root ordinal's output ForestIndex
+    tree_original: np.ndarray  # int64 [n_trees]: each root ordinal's input ForestIndex
     tree_totals: np.ndarray  # int64 [n_trees]: each tree's halos over every slab
     forest_ids: np.ndarray  # int64 [n_forests_out]: the output sidecar's ForestID
     totals: np.ndarray  # int64 [n_forests_out]: halos per output forest
@@ -95,7 +100,7 @@ class CutPlan:
     max_rank: int
     split_old: np.ndarray  # bool [n_forests_in]: the forests the table cuts
     split_new: np.ndarray  # bool [n_forests_out]: their pieces, kept or fresh
-    pieces: np.ndarray  # PIECES_DTYPE, the split forests' pieces in ascending id
+    pieces: Optional[np.ndarray]  # PIECES_DTYPE, ascending id; None once written out
     n_forests_in: int
     catalogue_max: int
     index: SourceIndex  # the index files under the table's ids
@@ -112,20 +117,24 @@ class CutPlan:
 
     def slab(self) -> CutSlab:
         return CutSlab(
-            tree_forest=self.tree_forest, split_old=self.split_old, split_new=self.split_new
+            tree_forest=self.tree_forest,
+            tree_original=self.tree_original,
+            split_old=self.split_old,
+            split_new=self.split_new,
         )
 
     def release_tables(self) -> None:
-        """Drop what the slab passes do not read."""
+        """Drop what the slab passes do not read (the pieces once written)."""
         self.index = None
         self.forest_table = None
         self.sidecar = None
         self.totals = None
+        self.pieces = None
+        self.table_ids = None
 
-    def record(self) -> Dict[str, object]:
+    def record(self, pieces: np.ndarray) -> Dict[str, object]:
         """The cut's summary: the forests before and after, the split forests,
-        the pieces and the largest of them."""
-        pieces = self.pieces
+        the pieces (reloaded from ``cut_pieces.npy``) and the largest of them."""
         by_halos = np.lexsort((pieces["id"], -pieces["halos"]))[:N_LARGEST]
         return {
             "forests_before": int(self.n_forests_in),
@@ -262,7 +271,25 @@ def install_table(
     pieces = _pieces(
         table_ids, tree_totals, original_index, split_old, forest_ids_in, forest_ids_out
     )
-    del original_index
+    # a piece held in one file needs that file's conversion ordinal, which a
+    # version 3 input's sidecar gives only through a forest held in that file
+    single_files = np.unique(forest_table.file_ordinal[forest_table.file_ordinal >= 0])
+    no_ordinal = [
+        int(f) for f in single_files.tolist() if prepared.file_ordinals.get(int(f), -1) < 0
+    ]
+    if no_ordinal:
+        raise ConverterError(
+            "{}: {} piece(s) held in one file whose FileID the input sidecar gives no "
+            "conversion ordinal for ({}); every input forest of those files spans files, and the "
+            "cut cannot infer the converter's file order".format(
+                request.cut_table,
+                int(np.count_nonzero(np.isin(forest_table.file_ordinal, no_ordinal))),
+                ", ".join(
+                    "FileID {} ({})".format(f, index.filenames.get(f)) for f in no_ordinal[:5]
+                ),
+            )
+        )
+    del single_files, no_ordinal
     sidecar = output_sidecar(forest_table, prepared.file_ordinals, forest_ids_out)
     log(
         "cut: table installed -- {} forest(s) become {} ({} split, {} fresh piece(s)); "
@@ -273,6 +300,7 @@ def install_table(
     return CutPlan(
         table_ids=table_ids,
         tree_forest=tree_forest,
+        tree_original=original_index,
         tree_totals=np.ascontiguousarray(tree_totals, dtype=np.int64),
         forest_ids=np.ascontiguousarray(forest_ids_out, dtype=np.int64),
         totals=totals,

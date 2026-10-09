@@ -197,6 +197,7 @@ class CutSlab:
     """What the slab passes need of an installed cut table."""
 
     tree_forest: np.ndarray  # int64 [n_trees]: each root ordinal's output ForestIndex
+    tree_original: np.ndarray  # int64 [n_trees]: each root ordinal's input ForestIndex
     split_old: np.ndarray  # bool [input forests]: the forests the table cuts
     split_new: np.ndarray  # bool [output forests]: pieces of a cut forest (kept or fresh)
 
@@ -305,17 +306,24 @@ def rank_slab(
     if cut is not None:
         desc = _int64(dataset, snap, "Descendant")
         labels = tree_labels(path, desc, mbid, roots, labels_next)
-        key_forest = cut.tree_forest[labels]
-        changed = cut.split_old[forest]
-        wrong = (key_forest != forest) & ~changed
+        # every row's stored forest must be its tree's: a row stored under
+        # another forest cannot be re-homed, cut or not
+        wrong = cut.tree_original[labels] != forest
         if wrong.any():
             raise ConverterError(
-                "{}: {} halo(s) of an uncut forest whose tree the cut table assigns to another "
-                "forest; the labels and the table disagree; {}".format(
-                    path, int(wrong.sum()), _rows(path, np.flatnonzero(wrong))
+                "{}: {} halo(s) whose stored ForestIndex is not their tree's forest; examples "
+                "(row, stored, tree's): {}".format(
+                    path,
+                    int(wrong.sum()),
+                    [
+                        (int(w), int(forest[w]), int(cut.tree_original[labels[w]]))
+                        for w in np.flatnonzero(wrong)[:5]
+                    ],
                 )
             )
         del wrong
+        key_forest = cut.tree_forest[labels]
+        changed = cut.split_old[forest]
         foreign = forest[fhif] != forest
         if foreign.any():
             raise ConverterError(
@@ -329,8 +337,10 @@ def rank_slab(
         upid_old, pid_old = upid, pid
         upid = np.where(promoted, mbid, upid_old)
         pid = np.where((fhif == rows) | promoted, -1, upid)
+        del rows
     else:
         key_forest = forest
+        del fhif, rows
     perm = np.lexsort((mbid, pid, upid, key_forest))
     if identity_from_input:
         moved = perm != np.arange(n, dtype=np.int64)
@@ -345,6 +355,9 @@ def rank_slab(
             )
         del moved
     sorted_forest = key_forest[perm]
+    del forest
+    if cut is None:
+        del key_forest  # the same array as forest
     if n > 1:
         same = sorted_forest[1:] == sorted_forest[:-1]
         for column in (upid, pid, mbid):
@@ -360,6 +373,8 @@ def rank_slab(
                 )
             )
         del same
+    if cut is None:
+        del upid, pid
     starts = np.flatnonzero(np.r_[True, sorted_forest[1:] != sorted_forest[:-1]])
     lengths = np.diff(np.append(starts, n))
     run_forests = sorted_forest[starts]
@@ -401,7 +416,6 @@ def rank_slab(
     remap = SlabRemap(snap=snap, perm=perm, forest=sorted_forest, rank=rank, sid=sid)
     counts: Dict[str, int] = {}
     if cut is None:
-        del upid, pid
         desc = _int64(dataset, snap, "Descendant")
         labels = tree_labels(path, desc, mbid, roots, labels_next)
         del desc, mbid
@@ -463,6 +477,7 @@ def _cut_chains(
         counts["groups_central_leaves_members_stay"] = int(remnants.size)
         counts["remnants_with_several_members"] = int(np.count_nonzero(remnants >= 2))
         del remnants
+    del fhif, promoted
     inverse = remap.inverse()
     next_prog = np.full(n, -1, dtype=np.int64)
     first_prog_up = np.full(n_next, -1, dtype=np.int64)
@@ -480,10 +495,14 @@ def _cut_chains(
             mass = np.ascontiguousarray(dataset.read_column(snap, MASS_COLUMN), dtype=np.float32)
             m = prog[multi]
             g = targets[multi]
-            after[multi] = chain_positions(g, upid[m], pid[m], mbid[m], mass[m])
-            before[multi] = chain_positions(g, upid_old[m], pid_old[m], mbid[m], mass[m])
-            del mass, m, g
-        del multi
+            ids = mbid[m]
+            masses = mass[m]
+            del mass
+            after[multi] = chain_positions(g, upid[m], pid[m], ids, masses)
+            del upid, pid
+            before[multi] = chain_positions(g, upid_old[m], pid_old[m], ids, masses)
+            del upid_old, pid_old, ids, masses, m, g
+        del multi, mbid
         # the input's stored chains must be the loop's over the input's own keys
         order = np.lexsort((before, targets))
         grouped = targets[order]

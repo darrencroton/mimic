@@ -121,30 +121,46 @@ for the summary and ``planned_peak_bytes`` evaluates them for an input):
   slab's ``MostBoundID``, then the identity columns), both measured; about
   101 GB concurrent at Shin-Uchuu, the run's peak.
 
-A cut adds (``rewriter.cut``), with ``F'`` the output's forests and ``p`` the
-progenitors of the widest slab (Shin-Uchuu under the decided table: F' =
-244,953,607, T = 315,004,242; the coefficients are counted from the arrays
-held, not measured):
+A cut adds the following (``rewriter.cut``), with ``F'`` the output's forests,
+``p`` the pieces of the split forests and ``P`` the (file, forest) pairs of
+the cut index. Shin-Uchuu under the decided table: F' = 244,953,607, T =
+315,004,242, p = 86,459,398, P about 320 million, n = 519,342,987. The
+per-row and per-tree coefficients marked measured were measured with
+``tracemalloc`` on a synthetic 400,000-row slab (100,000 forests of two trees
+each, every forest cut into its two trees, every row of the slab a
+progenitor, three quarters of them of descendants with three progenitors,
+one quarter promoted; the uncut pass 1 measured 73 B x n on the same slab):
 
-- the labelling pre-pass, **8 B x n + 16 B x b** beside pass 0's resident
-  arrays (two slabs' labels and one block of ``Descendant`` and
-  ``MostBoundID``), and the per-tree totals, 8 B x T;
-- the table's installation, transient: the table read and checked at the
-  census reader's **128 B x T** (about 40 GB), then the per-tree new forest
-  (8 B x T, resident through the passes, about 2.5 GB), the output's totals
-  and bases (16 B x F') and the pieces (56 B per piece of a split forest);
-- the baseline grows by 8 B x T + 16 B x (F' - F);
+- the labelling pre-pass, beside pass 0's resident arrays (about 52 B x T +
+  80 B x F + 8 B x P, 32 GB): two slabs' labels, one block of ``Descendant``
+  and ``MostBoundID`` and the per-slab ``unique``'s transients, **8 B x n +
+  16 B x b + about 20 B x n** (measured 39 B x n with b = 0.65 n); about
+  15 GB, 47 GB concurrent;
+- the table's installation: the table read and checked at the census
+  reader's 128 B x T (40 GB, transient), then the cut index (32 B x T), its
+  forest table (40 B x F' + 8 B x P), the table ids, per-tree forests and
+  totals (32 B x T), the output totals, bases and sidecar (42 B x F'), the
+  pieces (56 B x p) and about 20 B x T of transients: **84 B x T + 82 B x F'
+  + 8 B x P + 56 B x p** (measured 189 B x T with F' = p = T), about 52 GB,
+  **84 GB concurrent** with pass 0's arrays, the install-time peak;
+- the baseline through passes 1 and 2 grows by the per-tree forests, original
+  forests and totals, **24 B x T** (7.6 GB), and by the output's bases and
+  split masks (10 B x F' in place of 8 B x F);
 - the remap store holds two more int64 columns per resident slab (the
   recomputed ``NextProgenitor`` and the next slab's ``FirstProgenitor``):
-  **48 B per row, 144 B x n** over three slabs;
-- pass 1 adds the inverse permutations of this and the next slab, the new
-  forest, mass, the stored progenitor links and the promotion mask, about
-  **49 B x n**, and the chain computation about **16 B x p** for every
-  progenitor plus **110 B** per progenitor of a descendant with two or more
-  (the census's vectorised insertion positions, before and after the cut);
-- pass 2 adds the FoF chain construction (about 25 B x n) and, while
-  verifying, the previous slab's ``Descendant`` and the structural masks
-  (about 30 B x n).
+  **48 B per row, 144 B x n** over three slabs, 75 GB;
+- pass 1 holds, beside the baseline and the two remap entries already resident
+  (96 B x n), a working set of **298 B x n** (measured: the uncut set, the
+  inverse permutations of this slab and the next, the new forest, the
+  promotion mask, the old and new keys, the stored progenitor links, the
+  mass and the insertion positions before and after the cut over the
+  multi-progenitor groups); about 155 GB, **219 GB concurrent**, the run's
+  peak;
+- pass 2 holds, beside the baseline and three remap entries (144 B x n),
+  **56 B x n** while writing and **117 B x n** while verifying (measured:
+  the FoF chain construction, then the written columns, the previous slab's
+  ``Descendant`` and the structural masks); about 61 GB, **150 GB
+  concurrent** while verifying.
 
 Every whole-slab array is int64-indexed; nothing is narrowed to int32 but the
 tree labels, whose ordinals the root enumeration bounds.

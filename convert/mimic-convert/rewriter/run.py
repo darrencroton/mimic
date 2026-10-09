@@ -87,6 +87,7 @@ from rewriter.workdir import (  # noqa: E402
     finish_manifest,
     inventory_path,
     inventory_record,
+    load_array,
     open_manifest,
     read_json,
     save_array_atomic,
@@ -254,6 +255,8 @@ def run_rewrite(request: RewriteRequest, log: Callable[[str], None] = _log) -> d
         state.save()
         del inventory
     run = _Run(prepared, output_dir, scratch, log, plan)
+    if plan is not None:
+        _write_pieces(plan, state, output_dir, log)
     run.dataset_out.mkdir(parents=True, exist_ok=True)
     manifest.require_inventory(inventory_record(census.totals))
     manifest.save()
@@ -362,12 +365,9 @@ def run_rewrite(request: RewriteRequest, log: Callable[[str], None] = _log) -> d
             n_links[name] = n_links.get(name, 0) + int(value)
     cut_record = None
     if plan is not None:
-        save_array_atomic(cut_pieces_path(output_dir), plan.pieces)
-        state.data["cut_pieces"] = {
-            "sha256": sha256_file(cut_pieces_path(output_dir)),
-            "bytes": cut_pieces_path(output_dir).stat().st_size,
-        }
-        state.save()
+        pieces = load_array(
+            cut_pieces_path(output_dir), state.data["cut_pieces"]["sha256"], "cut pieces"
+        )
         cut_record = {
             "table": {
                 "path": prepared.configuration["adapter"]["parameters"]["cut_table"],
@@ -379,7 +379,7 @@ def run_rewrite(request: RewriteRequest, log: Callable[[str], None] = _log) -> d
             "record_dataset": (
                 None if prepared.cut_record is None else prepared.cut_record["dataset"]
             ),
-            **plan.record(),
+            **plan.record(pieces),
             "per_snapshot": per_snapshot_rows(state.data["cut_per_snapshot"]),
             "definitions": dict(CUT_COUNT_DEFINITIONS),
             "pieces_file": {
@@ -387,6 +387,7 @@ def run_rewrite(request: RewriteRequest, log: Callable[[str], None] = _log) -> d
                 **state.data["cut_pieces"],
             },
         }
+        del pieces
     files = sorted(run.dataset_out.iterdir())
     finish_manifest(
         manifest,
@@ -484,6 +485,18 @@ def _checkpoint_pass0(
         shas["tree_totals"] = scratch.save(names["tree_totals"], tree_totals)
     state.data["pass0"] = {"sha256": shas, "correspondence": census.correspondence}
     state.save()
+
+
+def _write_pieces(plan: CutPlan, state: RestartState, output_dir: Path, log) -> None:
+    """``cut_pieces.npy`` beside the manifest, recorded in the state, written
+    as soon as the table is installed and released before the slab passes; a
+    resume rewrites the same content from the reinstalled table."""
+    path = cut_pieces_path(output_dir)
+    save_array_atomic(path, plan.pieces)
+    state.data["cut_pieces"] = {"sha256": sha256_file(path), "bytes": path.stat().st_size}
+    state.save()
+    log("cut: {} piece(s) of the split forests written to {}".format(plan.pieces.size, path))
+    plan.pieces = None
 
 
 def _install(prepared: Prepared, census: Census, tree_totals: np.ndarray, log) -> CutPlan:

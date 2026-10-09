@@ -829,6 +829,38 @@ def z0_groups_cut_table(fresh: int = 8001) -> dict:
     return {2600: fresh, 2610: 2600, 2620: 2600}
 
 
+def progenitor_head_forest() -> ForestSpec:
+    """Forest 2700: 2750 (tree 2750) has three progenitors at snapshot 4, the
+    centrals 2751 (7e11) and 2752 (5e11) and 2753 (7e11), a satellite of tree
+    2710's 2711. Before the cut 2753 is encountered first ((2711, 2711, 2753)),
+    2751 ties its mass and joins the tail, 2752 the tail: chain 2753, 2751,
+    2752. The decided table severs 2753 ((2753, -1, 2753), encountered last):
+    2751 starts, 2752 joins the tail, 2753 ties and joins the tail: chain
+    2751, 2752, 2753, so the head is replaced and the old head ends the
+    chain. {2750} (4 halos) keeps the id 2700, {2710} (2 halos) is fresh."""
+    tree_b = TreeSpec(
+        root_id=2710,
+        halos=[
+            HaloSpec(halo_id=2710, snap=5, mvir=9.0e11, num_prog=1),
+            HaloSpec(halo_id=2711, snap=4, mvir=8.0e11, desc_id=2710),
+        ],
+    )
+    tree_a = TreeSpec(
+        root_id=2750,
+        halos=[
+            HaloSpec(halo_id=2750, snap=5, mvir=3.0e12, num_prog=3),
+            HaloSpec(halo_id=2751, snap=4, mvir=7.0e11, desc_id=2750),
+            HaloSpec(halo_id=2752, snap=4, mvir=5.0e11, desc_id=2750),
+            HaloSpec(halo_id=2753, snap=4, mvir=7.0e11, desc_id=2750, pid=2711, upid=2711),
+        ],
+    )
+    return ForestSpec(forest_id=2700, trees=[tree_b, tree_a])
+
+
+def progenitor_head_cut_table(fresh: int = 8001) -> dict:
+    return {2710: fresh, 2750: 2700}
+
+
 def write_cut_table(path, table: dict, forests: Sequence[ForestSpec] = ()) -> Path:
     """A cut table in ``forests.list`` shape: ``table`` maps tree roots to
     their forest id after the cut; every tree of ``forests`` not in it keeps

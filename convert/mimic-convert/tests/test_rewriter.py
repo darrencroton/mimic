@@ -1417,6 +1417,48 @@ class TestCutFixtures(unittest.TestCase):
             [(2400, 2400, 1, 1, 1, 3, 1), (8001, 2400, 3, 1, 1, 2, 0)],
         )
 
+    def test_a_three_progenitor_chain_whose_head_is_replaced(self):
+        forest = fixtures.progenitor_head_forest()
+        source, out, summary = self.run_cut("head", forest, fixtures.progenitor_head_cut_table())
+        # before the cut the chain is 2753 (the satellite, encountered first),
+        # 2751 (equal mass, tail), 2752
+        before = topology(source["dataset"])
+        self.assertEqual(before[5][2], (2750, 1, 1, 5, -1, 2753, -1, 2750, -1))
+        self.assertEqual(before[4][2], (2753, 1, 3, 7, 2750, -1, 2751, 2711, -1))
+        self.assertEqual(before[4][3], (2751, 1, 4, 8, 2750, -1, 2752, 2751, -1))
+        self.assert_cut(
+            out,
+            summary,
+            {
+                5: [
+                    (1400, 0, 0, 1, -1, 1401, -1, 1400, -1),
+                    (2750, 1, 0, 4, -1, 2751, -1, 2750, -1),
+                    (2000, 2, 0, 8, -1, 2002, -1, 2000, -1),
+                    (2710, 3, 0, 11, -1, 2711, -1, 2710, -1),
+                ],
+                # after: 2751 (head), 2752, 2753 (the old head ends the chain)
+                4: [
+                    (1401, 0, 1, 2, 1400, 1402, -1, 1401, -1),
+                    (2751, 1, 1, 5, 2750, -1, 2752, 2751, -1),
+                    (2752, 1, 2, 6, 2750, -1, 2753, 2752, -1),
+                    (2753, 1, 3, 7, 2750, -1, -1, 2753, -1),
+                    (2001, 2, 1, 9, 2000, -1, -1, 2001, -1),
+                    (2002, 2, 2, 10, 2000, -1, 2001, 2002, -1),
+                    (2711, 3, 1, 12, 2710, -1, -1, 2711, -1),
+                ],
+                3: [(1402, 0, 2, 3, 1401, -1, -1, 1402, -1)],
+            },
+            {
+                "ForestID": [1400, 2700, 8000, 8001],
+                "SourceFileOrdinal": [0, 0, 0, 0],
+                "SourceUnitOrdinal": [0, 2, 3, 1],
+            },
+            4,
+            3,
+            {4: (1, 1, 1, 0, 1, 1)},
+            [(2700, 2700, 1, 1, 1, 4, 1), (8001, 2700, 3, 1, 1, 2, 0)],
+        )
+
     def test_three_pieces_and_the_largest_keeps_the_id(self):
         forest = fixtures.three_piece_forest()
         source, out, summary = self.run_cut(
@@ -1833,6 +1875,87 @@ class TestCutTableAndRefusals(unittest.TestCase):
             self.assertEqual(rewrite_trees.main(argv), 0)
         self.assertIn("cut: COMPLETE", stdout.getvalue())
         assert_bytes_equal(self, reference / "dataset", cli_out / "dataset")
+
+    def test_the_multiplier_is_checked_against_the_installed_tables_bounds(self):
+        # the input's max_halo_rank_in_forest is 4 (forest 2100 holds 5 halos)
+        # and the cut's is 2: a multiplier of 3 encodes the output alone
+        with self.assertRaisesRegex(ConverterError, "cannot encode the output's bounds"):
+            rewrite(
+                "noop",
+                self.severed,
+                self.severed["dataset"],
+                self.root / "severed" / "noop_3",
+                self.root / "severed" / "noop_3_s",
+                multiplier=3,
+            )
+        summary = cut(
+            self.severed,
+            self.root / "severed" / "cut_3",
+            self.root / "severed" / "cut_3_s",
+            self.severed_table,
+            multiplier=3,
+        )
+        self.assertEqual(
+            (summary["multiplier"], summary["max_halo_rank_in_forest"], summary["n_forests_total"]),
+            (3, 2, 4),
+        )
+        # a multiplier the output's bounds do not fit is refused before any write
+        self.refused(
+            "--multiplier 2: cannot encode the output's bounds: identity multiplier 2 does not "
+            "exceed max_halo_rank_in_forest 2",
+            self.severed,
+            self.severed_table,
+            multiplier=2,
+        )
+
+    def test_a_row_stored_under_another_forest_is_refused(self):
+        # at snapshot 4 the satellite 2111 (tree 2110, forest 2100) and 2002
+        # (forest 8000) swap their stored ForestIndex: the forest totals, the
+        # terminal roots and the table all still pass, and pass 1 refuses the
+        # rows whose stored forest is not their tree's
+        copy = self.root / "severed" / "rehomed"
+        shutil.copytree(self.severed["dataset"], copy)
+        with h5py.File(copy / "snapshot_004.h5", "r+") as handle:
+            ids = handle["halos"]["MostBoundID"][...].tolist()
+            forest = handle["halos"]["ForestIndex"][...]
+            forest[ids.index(2111)], forest[ids.index(2002)] = 2, 1
+            handle["halos"]["ForestIndex"][...] = forest
+        with self.assertRaisesRegex(
+            ConverterError,
+            "snapshot_004.h5: 2 halo\\(s\\) whose stored ForestIndex is not their tree's forest; "
+            "examples \\(row, stored, tree's\\): \\[\\(2, 2, 1\\), \\(4, 1, 2\\)\\]",
+        ):
+            cut(
+                self.severed,
+                self.root / "severed" / "rehomed_out",
+                self.root / "severed" / "rehomed_s",
+                self.severed_table,
+                input_dir=copy,
+            )
+
+    def test_a_piece_without_a_file_ordinal_source_is_refused(self):
+        # file 1 holds only trees of forest 2500, which spans files 0 and 1,
+        # so the input sidecar gives file 1 no conversion ordinal; the cut
+        # would make {2520, 2530} a single-file piece of file 1
+        first, last = companions()
+        forest = fixtures.three_piece_forest()
+        root = self.root / "no_ordinal"
+        source = convert_ascii(
+            root,
+            [[first.trees[0]] + forest.trees[:2], forest.trees[2:], [last.trees[0]]],
+            [first, forest, last],
+        )
+        source["root"] = root
+        source["forests"] = [first, forest, last]
+        held = read_sidecar(source["dataset"] / "forests.h5")
+        self.assertEqual(held["SourceFileOrdinal"].tolist(), [0, -1, 2])
+        self.refused(
+            "1 piece\\(s\\) held in one file whose FileID the input sidecar gives no conversion "
+            "ordinal for \\(FileID 1 \\(tree_1.dat\\)\\); every input forest of those files "
+            "spans files, and the cut cannot infer the converter's file order",
+            source,
+            write_table(root, "cut", fixtures.three_piece_cut_table(), source),
+        )
 
     def test_stored_chains_that_are_not_the_reference_order_are_refused(self):
         # forest 8000's progenitor chain at snapshot 4 reversed in the input

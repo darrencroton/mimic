@@ -27,7 +27,10 @@ The refusals, in the order they are made:
   it;
 - the columns: every ``/halos`` column the output table needs, at the table's
   dtype and shape;
-- the multiplier: it must encode the output's identity bounds;
+- the multiplier: it must encode the output's identity bounds -- the
+  input's for ``migrate`` and ``noop``; for ``cut`` the installed table's,
+  checked when the table is installed (``rewriter.cut``), since a cut lowers
+  ``max_halo_rank_in_forest`` and raises ``n_forests_total``;
 - the index files: both present and consistent with each other, listing
   exactly the input's forests in the sidecar's order;
 - the tree-file order: from the version 2 conversion manifest's ordered
@@ -41,7 +44,18 @@ The refusals, in the order they are made:
   identity is carried into the manifest as lineage, not compared, since a
   migration changes the identity while preserving the forest enumeration.
   The table's own invariants are checked once pass 0 has given the trees'
-  halo totals (``rewriter.cut``), still before any write.
+  halo totals (``rewriter.cut``), still before any write, as are a piece held
+  in one file whose ``FileID`` the input sidecar gives no ordinal for (the
+  cut cannot infer the converter's file order) and the multiplier against
+  the output's bounds.
+
+Two further refusals of a ``cut`` are made per slab in pass 1
+(``rewriter.passes.rank_slab``), after the workdir exists: a halo whose FoF
+central lies in another forest of the input (a version 3 invariant hosts are
+resolved under), and stored progenitor chains that are not the reference
+insertion loop's over the input's own keys (the recomputed chains and the
+progenitor-order counts rest on it; every converter and rewriter output
+satisfies it).
 """
 
 import json
@@ -700,15 +714,29 @@ MEMORY_FORMULAS = {
     "peak": "the larger of pass 0 and the slab passes' 16 B x F + 16 B x T + 179 B x n; "
     "Shin-Uchuu (n 519,342,987, F 166,547,771, T 315,004,242, P about 320 million): about "
     "58 GB for pass 0 and about 101 GB for pass 2's verification, the run's peak",
+    "cut": "a cut adds the labelling pre-pass (8 B x n + 16 B x b + about 20 B x n beside "
+    "pass 0's arrays), the table's installation (84 B x T + 82 B x F' + 8 B x P + 56 B x p "
+    "after a 128 B x T read, about 84 GB concurrent at Shin-Uchuu), 24 B x T to the baseline, "
+    "16 B per row per resident remap entry (144 B x n over three), a pass 1 working set of "
+    "298 B x n in place of 68 B x n (measured; 219 GB concurrent, the run's peak) and a "
+    "pass 2 working set of 56 B x n writing and 117 B x n verifying (measured; 150 GB "
+    "concurrent); the planned peak below uses the input's forests for F'",
 }
 
 
 def planned_peak_bytes(
-    widest: int, n_forests: int, n_trees: int, n_pairs: int, block_rows: int
+    widest: int, n_forests: int, n_trees: int, n_pairs: int, block_rows: int, cut: bool = False
 ) -> int:
     """The concurrent peak the formulas above plan for this input: the larger
-    of pass 0's inventory step and the slab passes' verification peak."""
+    of pass 0's inventory step and the slab passes' verification peak, or for
+    a cut of the installation and pass 1 (with the input's forest count
+    standing in for the output's, unknown before the table is installed)."""
     pass0 = 133 * n_trees + 80 * n_forests + 8 * n_pairs + 24 * block_rows
+    if cut:
+        install = 52 * n_trees + 80 * n_forests + 8 * n_pairs + 84 * n_trees + 82 * n_forests
+        install += 8 * n_pairs + 56 * n_trees
+        slabs = 26 * n_forests + 40 * n_trees + (4 + 96 + 298) * widest
+        return int(max(pass0, install, slabs))
     slabs = 16 * n_forests + 16 * n_trees + 179 * widest
     return int(max(pass0, slabs))
 
@@ -761,11 +789,14 @@ def _configuration(
     index_pairs: int,
     cut_table_md5: Optional[str],
     cut_record: Optional[Dict[str, object]],
+    pinned: Mapping[str, str],
 ) -> Dict[str, object]:
     """The manifest's frozen configuration: everything that decides an output
     byte, under the keys the report reads, with the rewriter's own values.
     The cut table is bound by its md5 (the census's digest of it) and its
-    SHA-256; the record contributes the rule text and its dataset lineage."""
+    SHA-256, the latter taken from its pin (``pinned``: role -> content
+    digest) so the table is read once for each; the record contributes the
+    rule text and its dataset lineage."""
     input_dtype = np.dtype(
         [
             (name, dtype.str, shape) if shape else (name, dtype.str)
@@ -798,13 +829,13 @@ def _configuration(
             None if request.cut_table is None else str(_resolved(request.cut_table, "--cut-table"))
         ),
         "cut_table_md5": cut_table_md5,
-        "cut_table_sha256": _sha256_or_none(request.cut_table),
+        "cut_table_sha256": pinned.get(ROLE_CUT_TABLE),
         "cut_table_record": (
             None
             if request.cut_table_record is None
             else str(_resolved(request.cut_table_record, "--cut-table-record"))
         ),
-        "cut_table_record_sha256": _sha256_or_none(request.cut_table_record),
+        "cut_table_record_sha256": pinned.get(ROLE_CUT_TABLE_RECORD),
         "cut_rule": None if cut_record is None else cut_record["rule"],
         "cut_table_record_dataset": None if cut_record is None else cut_record["dataset"],
         "a_list_sha256": sha256_file(request.a_list),
@@ -816,7 +847,12 @@ def _configuration(
     }
     widest = max(dataset.n_halos) if dataset.n_halos else 0
     parameters["planned_peak_bytes"] = planned_peak_bytes(
-        widest, dataset.n_forests_total, index_trees, index_pairs, int(request.block_rows)
+        widest,
+        dataset.n_forests_total,
+        index_trees,
+        index_pairs,
+        int(request.block_rows),
+        request.operation == OPERATION_CUT,
     )
     return {
         "adapter": {"source_format": SOURCE_FORMAT, "parameters": parameters},
@@ -858,7 +894,8 @@ def prepare(request: RewriteRequest) -> Prepared:
     declarations = schema.output_field_declarations()
     table = v3_halo_datasets(schema)
     check_columns(dataset, table)
-    check_multiplier(request, dataset.n_forests_total, dataset.max_halo_rank_in_forest)
+    if request.operation != OPERATION_CUT:
+        check_multiplier(request, dataset.n_forests_total, dataset.max_halo_rank_in_forest)
     index = load_index(request)
     forest_table = index.forest_table()
     sidecar_in = dataset.sidecar_columns()
@@ -888,6 +925,7 @@ def prepare(request: RewriteRequest) -> Prepared:
     if request.operation == OPERATION_CUT:
         cut_table_md5, cut_record = check_cut_table_files(request)
     pins = _pins(request, dataset)
+    pinned = {role: pin["sha256"] for pin in pins for role in pin["roles"] if "sha256" in pin}
     configuration = _configuration(
         request,
         dataset,
@@ -900,6 +938,7 @@ def prepare(request: RewriteRequest) -> Prepared:
         int(forest_table.files.size),
         cut_table_md5,
         cut_record,
+        pinned,
     )
     return Prepared(
         request=request,
