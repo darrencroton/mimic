@@ -32,7 +32,12 @@ is read (:func:`read_cut_table`), each refused with a ``ConverterError``:
 6. the piece keeping a forest's id is its largest by the trees' halo totals
    (ties by the smallest root id), and fresh ids ascend in descending piece
    size with the same tie rule. The totals are a required input of both the
-   check and the reader, so no table is accepted without this invariant.
+   check and the reader, so no table is accepted without this invariant;
+7. the fresh ids are contiguous from the catalogue's maximum forest id plus
+   one, so that the fresh pieces enumerate densely after every original
+   forest: fresh id ``catalogue_max + 1 + k`` is ``ForestIndex``
+   ``n_forests_total + k``, which is the enumeration the partition
+   simulation and the dataset rewriter both install.
 
 A complete table holds a row per catalogue tree (about 7.5 GB of text at
 Shin-Uchuu's 315,004,242 trees), written only when the ``trees`` root
@@ -216,7 +221,7 @@ def check_table(
     what: str = "cut table",
 ) -> Dict:
     """Check a cut table against the catalogue's index (module docstring,
-    invariants 2 to 6).
+    invariants 2 to 7).
 
     Args:
         table_roots, table_forest_ids: the table's rows, in any order.
@@ -337,6 +342,17 @@ def check_table(
                     int(size[at]),
                     int(piece_id[fresh[at - 1]]),
                     int(size[at - 1]),
+                )
+            )
+    if fresh.size:
+        expected = catalogue_max + 1 + np.arange(fresh.size, dtype=np.int64)
+        gap = np.flatnonzero(piece_id[fresh] != expected)
+        if gap.size:
+            at = int(gap[0])
+            raise ConverterError(
+                "{}: fresh ids are not contiguous from the catalogue's maximum {} plus one (id {} "
+                "where {} was expected, {} fresh piece(s) in all)".format(
+                    what, catalogue_max, int(piece_id[fresh[at]]), int(expected[at]), fresh.size
                 )
             )
     return record

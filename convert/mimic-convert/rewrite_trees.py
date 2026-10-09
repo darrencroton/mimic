@@ -1,6 +1,6 @@
 """Rewrite a horizontal-HDF5 dataset of a Consistent-Trees ASCII catalogue.
 
-Two operations over one input dataset directory, each writing a version 3
+Three operations over one input dataset directory, each writing a version 3
 dataset into a converter-shaped workdir (``convert/mimic-convert/rewriter``):
 
   migrate   a version 2 input becomes version 3: identities computed from the
@@ -11,6 +11,17 @@ dataset into a converter-shaped workdir (``convert/mimic-convert/rewriter``):
   noop      a version 3 input is reproduced exactly (every dataset value,
             dtype, header attribute, /schema attribute and sidecar value) under
             the identity table: the passes' permanent self-test
+  cut       a version 3 input is rewritten under a declared cut forest table
+            (--cut-table, forests.list-shaped: tree root to forest id): every
+            tree joins the table's forest, a cut forest's largest piece keeps
+            its id and the fresh pieces take ids above the catalogue's maximum,
+            contiguous from it, enumerated after every original forest; every
+            halo whose FoF central lands in another forest becomes a central;
+            FoF chains, ranks and progenitor chain order are recomputed for the
+            forests the table changes and every other forest is reproduced
+            exactly; the table's md5 is bound into the manifest and the resume
+            state, and --cut-table-record (the census's JSON record of the
+            table) supplies the rule text and the dataset lineage
 
 Every location is explicit: ``--input`` (the dataset directory), ``--output``
 (the workdir to create: manifest.json, dataset/, tree_inventory.npy,
@@ -18,17 +29,18 @@ rewrite_state.json, rewrite_summary.json) and ``--scratch`` (pass 1's remap
 entries and checkpoints); nothing defaults into the repository. The a_list,
 the simulation metadata and the two index files (``forests.list`` and
 ``locations.dat``) are always named. ``--column-map`` is required for migrate
-and refused for noop; ``--conversion-manifest`` (migrate only) is the version
-2 conversion's ``manifest.json``, required when ``locations.dat`` names more
-than one tree file, since the sidecar's file ordinals follow the order the
+and refused for noop and cut; ``--conversion-manifest`` (migrate only) is the
+version 2 conversion's ``manifest.json``, required when ``locations.dat`` names
+more than one tree file, since the sidecar's file ordinals follow the order the
 converter was given the files, which ``locations.dat``'s FileID does not record.
 
 Refusals happen before any write and exit 2 naming the offending value: an
-input that is not version 2 (migrate) or 3 (noop), ``links_adjacent`` 0, a
-version 3 input of another source format, missing or inconsistent index
+input that is not version 2 (migrate) or 3 (noop, cut), ``links_adjacent`` 0,
+a version 3 input of another source format, missing or inconsistent index
 files, an a_list that is not the input's, a multiplier that cannot encode the
-output's bounds, a missing or ambiguous tree-file order, and terminal halos
-that do not correspond to the index files' tree roots.
+output's bounds, a missing or ambiguous tree-file order, terminal halos that
+do not correspond to the index files' tree roots, a cut table violating any
+of its invariants, and a record that is not the given table's or index files'.
 
 ``--resume`` continues an interrupted run after its last verified slab; it
 refuses a changed input or configuration, and re-verifies a completed run.
@@ -56,7 +68,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from errors import ConverterError  # noqa: E402
-from rewriter import OPERATION_MIGRATE, OPERATION_NOOP  # noqa: E402
+from rewriter import OPERATION_CUT, OPERATION_MIGRATE, OPERATION_NOOP  # noqa: E402
 from rewriter.inputs import RewriteRequest  # noqa: E402
 from subset import SubsetError  # noqa: E402
 from validate import DEFAULT_MULTIPLIER  # noqa: E402
@@ -109,8 +121,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="rewrite_trees",
         description="Rewrite a horizontal-HDF5 dataset of a Consistent-Trees ASCII catalogue "
-        "into a version 3 dataset: migrate (version 2 in) or noop (version 3 in, the "
-        "identity). Every location is explicit; refusals exit 2.",
+        "into a version 3 dataset: migrate (version 2 in), noop (version 3 in, the "
+        "identity) or cut (version 3 in, under a cut forest table). Every location is "
+        "explicit; refusals exit 2.",
     )
     sub = parser.add_subparsers(dest="operation", required=True)
     migrate = sub.add_parser(OPERATION_MIGRATE, help="version 2 in, version 3 out")
@@ -119,6 +132,19 @@ def build_arg_parser() -> argparse.ArgumentParser:
         OPERATION_NOOP, help="version 3 in, version 3 out under the identity table"
     )
     _add_common(noop)
+    cut = sub.add_parser(OPERATION_CUT, help="version 3 in, version 3 out under a cut table")
+    _add_common(cut)
+    cut.add_argument(
+        "--cut-table",
+        required=True,
+        help="the cut forest table (forests.list-shaped: tree root id, forest id per tree)",
+    )
+    cut.add_argument(
+        "--cut-table-record",
+        default=None,
+        help="the table's JSON record (the census's record.json): its rule text and dataset "
+        "lineage go into the manifest; it must name this table's md5 and the index files'",
+    )
     return parser
 
 
@@ -138,6 +164,10 @@ def request_from_args(args) -> RewriteRequest:
         ),
         multiplier=args.multiplier,
         resume=bool(args.resume),
+        cut_table=None if getattr(args, "cut_table", None) is None else Path(args.cut_table),
+        cut_table_record=(
+            None if getattr(args, "cut_table_record", None) is None else Path(args.cut_table_record)
+        ),
     )
 
 

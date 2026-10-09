@@ -604,3 +604,243 @@ def interleaved_correspondence_forests() -> List[ForestSpec]:
     """The interleaved forests in ascending forest id: every tree reaches the
     final snapshot and every ``#tree`` root is its terminal halo."""
     return [interleaved_forest_3000(), interleaved_forest_6000(), interleaved_forest_8000()]
+
+
+# ---------------------------------------------------------------------------
+# Adversarial cut fixtures: correspondence-valid forests with a declared cut table
+# ---------------------------------------------------------------------------
+#
+# Each forest below is cut by the table its ``*_cut_table`` function states: a
+# map from every tree root of the forest to the forest id its piece takes
+# after the cut. Every tree reaches the final snapshot 5 and every ``#tree``
+# root is its terminal halo, so the reference reader can read the forests
+# vertically, and every table is the decided one for its forest -- each tree
+# joins the forest of its terminal halo's FoF group at snapshot 5 -- so that
+# no halo is promoted at the final snapshot. Fresh forest ids are assigned
+# over the catalogue the tests build (forests 1400, the fixture forest and
+# 8000, in that order), so they start at 8001 and follow descending piece
+# size; the largest piece keeps the forest's id (ties by the smallest root,
+# which no fixture relies on). Each table is written in ``forests.list`` shape
+# (:func:`write_cut_table`).
+
+
+def severed_satellite_forest() -> ForestSpec:
+    """Forest 2100: tree 2110's halo at snapshot 4 is a satellite of tree 2100's;
+    at snapshot 5 both roots are centrals of their own groups. The decided
+    table severs the satellite: 2111 is promoted at snapshot 4, {2100} (3 halos)
+    keeps the id and {2110} (2 halos) takes the fresh id."""
+    tree_a = TreeSpec(
+        root_id=2100,
+        halos=[
+            HaloSpec(halo_id=2100, snap=5, mvir=2.0e12, num_prog=1),
+            HaloSpec(halo_id=2101, snap=4, mvir=1.5e12, desc_id=2100, num_prog=1),
+            HaloSpec(halo_id=2102, snap=3, mvir=1.0e12, desc_id=2101),
+        ],
+    )
+    tree_b = TreeSpec(
+        root_id=2110,
+        halos=[
+            HaloSpec(halo_id=2110, snap=5, mvir=5.0e11, num_prog=1),
+            HaloSpec(halo_id=2111, snap=4, mvir=4.0e11, desc_id=2110, pid=2101, upid=2101),
+        ],
+    )
+    return ForestSpec(forest_id=2100, trees=[tree_a, tree_b])
+
+
+def severed_satellite_cut_table(fresh: int = 8001) -> dict:
+    return {2100: 2100, 2110: fresh}
+
+
+def no_initial_central_forest() -> ForestSpec:
+    """Forest 2200: tree 2210 is a satellite of tree 2200's halos at snapshots
+    3 and 4 and a central only at snapshot 5, so its piece holds no central
+    before the cut at those snapshots; 2211 and 2212 are promoted. {2200}
+    (4 halos) keeps the id, {2210} (3 halos) is fresh."""
+    tree_a = TreeSpec(
+        root_id=2200,
+        halos=[
+            HaloSpec(halo_id=2200, snap=5, mvir=2.0e12, num_prog=1),
+            HaloSpec(halo_id=2201, snap=4, mvir=1.5e12, desc_id=2200, num_prog=1),
+            HaloSpec(halo_id=2202, snap=3, mvir=1.0e12, desc_id=2201, num_prog=1),
+            HaloSpec(halo_id=2203, snap=2, mvir=8.0e11, desc_id=2202),
+        ],
+    )
+    tree_b = TreeSpec(
+        root_id=2210,
+        halos=[
+            HaloSpec(halo_id=2210, snap=5, mvir=5.0e11, num_prog=1),
+            HaloSpec(
+                halo_id=2211, snap=4, mvir=4.0e11, desc_id=2210, pid=2201, upid=2201, num_prog=1
+            ),
+            HaloSpec(halo_id=2212, snap=3, mvir=3.0e11, desc_id=2211, pid=2202, upid=2202),
+        ],
+    )
+    return ForestSpec(forest_id=2200, trees=[tree_a, tree_b])
+
+
+def no_initial_central_cut_table(fresh: int = 8001) -> dict:
+    return {2200: 2200, 2210: fresh}
+
+
+def central_leaves_forest() -> ForestSpec:
+    """Forest 2300: at snapshot 4 the central 2301 (tree 2300) hosts 2311 (tree
+    2310) and 2321 (tree 2320); at snapshot 5 tree 2300's root is alone and
+    2320 is 2310's satellite. The decided table puts {2310, 2320} (4 halos)
+    under the forest's id 2300 and {2300} (2 halos) under the fresh id: the
+    central leaves while its two members stay together, each promoted to its
+    own central at snapshot 4 (one remnant of two members)."""
+    tree_a = TreeSpec(
+        root_id=2300,
+        halos=[
+            HaloSpec(halo_id=2300, snap=5, mvir=3.0e12, num_prog=1),
+            HaloSpec(halo_id=2301, snap=4, mvir=2.5e12, desc_id=2300),
+        ],
+    )
+    tree_b = TreeSpec(
+        root_id=2310,
+        halos=[
+            HaloSpec(halo_id=2310, snap=5, mvir=8.0e11, num_prog=1),
+            HaloSpec(halo_id=2311, snap=4, mvir=6.0e11, desc_id=2310, pid=2301, upid=2301),
+        ],
+    )
+    tree_c = TreeSpec(
+        root_id=2320,
+        halos=[
+            HaloSpec(halo_id=2320, snap=5, mvir=3.0e11, pid=2310, upid=2310, num_prog=1),
+            HaloSpec(halo_id=2321, snap=4, mvir=2.5e11, desc_id=2320, pid=2301, upid=2301),
+        ],
+    )
+    return ForestSpec(forest_id=2300, trees=[tree_a, tree_b, tree_c])
+
+
+def central_leaves_cut_table(fresh: int = 8001) -> dict:
+    return {2300: fresh, 2310: 2300, 2320: 2300}
+
+
+def progenitor_tie_forest() -> ForestSpec:
+    """Forest 2400: 2450 (tree 2450) has two progenitors of equal mass at
+    snapshot 4, the central 2451 and 2452, a satellite of tree 2410's 2411.
+    Before the cut 2452's key (2411, 2411, 2452) is encountered before 2451's
+    (2451, -1, 2451), so the insertion loop keeps 2452 in front of the equally
+    massive 2451: FirstProgenitor 2452. The decided table severs 2452 (its
+    key becomes (2452, -1, 2452), after 2451's), so the loop keeps 2451 in
+    front: FirstProgenitor 2451. {2450} (3 halos) keeps the id 2400, {2410}
+    (2 halos) is fresh."""
+    tree_b = TreeSpec(
+        root_id=2410,
+        halos=[
+            HaloSpec(halo_id=2410, snap=5, mvir=9.0e11, num_prog=1),
+            HaloSpec(halo_id=2411, snap=4, mvir=8.0e11, desc_id=2410),
+        ],
+    )
+    tree_a = TreeSpec(
+        root_id=2450,
+        halos=[
+            HaloSpec(halo_id=2450, snap=5, mvir=2.0e12, num_prog=2),
+            HaloSpec(halo_id=2451, snap=4, mvir=1.0e12, desc_id=2450),
+            HaloSpec(halo_id=2452, snap=4, mvir=1.0e12, desc_id=2450, pid=2411, upid=2411),
+        ],
+    )
+    return ForestSpec(forest_id=2400, trees=[tree_b, tree_a])
+
+
+def progenitor_tie_cut_table(fresh: int = 8001) -> dict:
+    return {2410: fresh, 2450: 2400}
+
+
+def three_piece_forest() -> ForestSpec:
+    """Forest 2500 in three pieces: tree 2510 (5 halos) is the largest and
+    keeps the id; {2520, 2530} (4 halos: 2530 is 2520's satellite at snapshot
+    5) takes the first fresh id and {2500} (2 halos) the second. At snapshot
+    4 the central 2511 hosts 2501 and 2521, and at snapshot 3 2512 hosts 2522:
+    three promotions over two snapshots. Laid out with tree 2530 in a second
+    file, the piece {2520, 2530} spans files."""
+    tree_a = TreeSpec(
+        root_id=2500,
+        halos=[
+            HaloSpec(halo_id=2500, snap=5, mvir=1.0e12, num_prog=1),
+            HaloSpec(halo_id=2501, snap=4, mvir=9.0e11, desc_id=2500, pid=2511, upid=2511),
+        ],
+    )
+    tree_b = TreeSpec(
+        root_id=2510,
+        halos=[
+            HaloSpec(halo_id=2510, snap=5, mvir=3.0e12, num_prog=1),
+            HaloSpec(halo_id=2511, snap=4, mvir=2.5e12, desc_id=2510, num_prog=1),
+            HaloSpec(halo_id=2512, snap=3, mvir=2.0e12, desc_id=2511, num_prog=1),
+            HaloSpec(halo_id=2513, snap=2, mvir=1.5e12, desc_id=2512, num_prog=1),
+            HaloSpec(halo_id=2514, snap=1, mvir=1.2e12, desc_id=2513),
+        ],
+    )
+    tree_c = TreeSpec(
+        root_id=2520,
+        halos=[
+            HaloSpec(halo_id=2520, snap=5, mvir=6.0e11, num_prog=1),
+            HaloSpec(
+                halo_id=2521, snap=4, mvir=5.0e11, desc_id=2520, pid=2511, upid=2511, num_prog=1
+            ),
+            HaloSpec(halo_id=2522, snap=3, mvir=4.0e11, desc_id=2521, pid=2512, upid=2512),
+        ],
+    )
+    tree_d = TreeSpec(
+        root_id=2530,
+        halos=[HaloSpec(halo_id=2530, snap=5, mvir=2.0e11, pid=2520, upid=2520)],
+    )
+    return ForestSpec(forest_id=2500, trees=[tree_a, tree_b, tree_c, tree_d])
+
+
+def three_piece_cut_table(fresh: int = 8001) -> dict:
+    return {2500: fresh + 1, 2510: 2500, 2520: fresh, 2530: fresh}
+
+
+def z0_groups_forest() -> ForestSpec:
+    """Forest 2600 split into its two snapshot-5 FoF groups by the decided
+    table: {2600} and {2610, 2620} (2620 is 2610's satellite at snapshot 5).
+    At snapshot 4, 2621 (tree 2620) is a satellite of 2601 (tree 2600) and is
+    promoted; nothing is promoted at snapshot 5, so the output's final FoF
+    groups equal the input's. {2610, 2620} (4 halos) keeps the id 2600,
+    {2600} (3 halos) is fresh."""
+    tree_a = TreeSpec(
+        root_id=2600,
+        halos=[
+            HaloSpec(halo_id=2600, snap=5, mvir=2.0e12, num_prog=1),
+            HaloSpec(halo_id=2601, snap=4, mvir=1.8e12, desc_id=2600, num_prog=1),
+            HaloSpec(halo_id=2602, snap=3, mvir=1.5e12, desc_id=2601),
+        ],
+    )
+    tree_b = TreeSpec(
+        root_id=2610,
+        halos=[
+            HaloSpec(halo_id=2610, snap=5, mvir=7.0e11, num_prog=1),
+            HaloSpec(halo_id=2611, snap=4, mvir=6.0e11, desc_id=2610),
+        ],
+    )
+    tree_c = TreeSpec(
+        root_id=2620,
+        halos=[
+            HaloSpec(halo_id=2620, snap=5, mvir=2.0e11, pid=2610, upid=2610, num_prog=1),
+            HaloSpec(halo_id=2621, snap=4, mvir=1.5e11, desc_id=2620, pid=2601, upid=2601),
+        ],
+    )
+    return ForestSpec(forest_id=2600, trees=[tree_a, tree_b, tree_c])
+
+
+def z0_groups_cut_table(fresh: int = 8001) -> dict:
+    return {2600: fresh, 2610: 2600, 2620: 2600}
+
+
+def write_cut_table(path, table: dict, forests: Sequence[ForestSpec] = ()) -> Path:
+    """A cut table in ``forests.list`` shape: ``table`` maps tree roots to
+    their forest id after the cut; every tree of ``forests`` not in it keeps
+    its forest's id."""
+    rows = {}
+    for forest in forests:
+        for tree in forest.trees:
+            rows[tree.root_id] = forest.forest_id
+    rows.update(table)
+    path = Path(path)
+    lines = ["#TreeRootID ForestID"] + [
+        "{} {}".format(root, forest) for root, forest in sorted(rows.items())
+    ]
+    path.write_text("\n".join(lines) + "\n")
+    return path

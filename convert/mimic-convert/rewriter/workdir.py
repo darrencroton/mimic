@@ -14,8 +14,9 @@ validate`` and ``report`` bind to it through their existing entry points:
   the ``write`` stage registering ``dataset/`` and every file in it by SHA-256;
 - ``dataset/``: the snapshot files and ``forests.h5`` and nothing else;
 - beside the manifest: ``tree_inventory.npy`` (its size and SHA-256 are in the
-  restart state), ``rewrite_state.json`` (the restart state below) and
-  ``rewrite_summary.json``.
+  restart state), ``rewrite_state.json`` (the restart state below),
+  ``rewrite_summary.json`` and, for a cut, ``cut_pieces.npy`` (recorded like
+  the inventory).
 
 **The scratch directory** holds pass 0's results and pass 1's per-slab remap
 entries and checkpoints, each written to a temporary name, fsynced and
@@ -23,8 +24,10 @@ renamed, and each recorded with its SHA-256 in the restart state before
 anything depends on it. Only the slabs the next step needs are kept.
 
 **The restart state** records which slabs are written and verified (with
-each file's SHA-256), which scratch files exist (with theirs), and the
-manifest's configuration digest. ``--resume`` loads the manifest, requires
+each file's SHA-256), which scratch files exist (with theirs), the
+manifest's configuration digest (which binds the cut table's md5, so a
+changed table is a changed configuration) and, for a cut, each ranked slab's
+promotion and chain-change counts. ``--resume`` loads the manifest, requires
 the newly prepared configuration to equal the recorded one, re-pins every
 dependency (``ConversionManifest.verify_dependencies``: a changed input --
 even one of the same size -- is refused) and requires the inputs read now to
@@ -55,6 +58,7 @@ from conversion_manifest import (  # noqa: E402
 )
 from errors import ConverterError  # noqa: E402
 from rewriter import (  # noqa: E402
+    CUT_PIECES_NAME,
     DATASET_DIR,
     REWRITER_VERSION,
     STATE_NAME,
@@ -71,8 +75,10 @@ STATUS_RUNNING = "running"
 STATUS_COMPLETE = "complete"
 
 _REMAP_PARTS = ("perm", "forest", "rank", "sid")
+#: Remap parts a cut adds (saved when present, loaded when recorded).
+_REMAP_CUT_PARTS = ("next_prog", "first_prog_up")
 _CHECKPOINT_PARTS = ("running", "tree_counts", "labels")
-_PASS0_PARTS = ("totals", "roots", "inventory")
+_PASS0_PARTS = ("totals", "roots", "inventory", "tree_totals")
 
 
 def _fsync_directory(path: Path) -> None:
@@ -214,15 +220,26 @@ class Scratch:
     # ---- remap entries ----
     @staticmethod
     def remap_names(snap: int) -> Dict[str, str]:
-        return {part: "remap_{:03d}_{}.npy".format(snap, part) for part in _REMAP_PARTS}
+        return {
+            part: "remap_{:03d}_{}.npy".format(snap, part)
+            for part in _REMAP_PARTS + _REMAP_CUT_PARTS
+        }
 
     def save_remap(self, remap: SlabRemap) -> Dict[str, str]:
         names = self.remap_names(remap.snap)
-        return {part: self.save(names[part], getattr(remap, part)) for part in _REMAP_PARTS}
+        shas = {part: self.save(names[part], getattr(remap, part)) for part in _REMAP_PARTS}
+        for part in _REMAP_CUT_PARTS:
+            held = getattr(remap, part)
+            if held is not None:
+                shas[part] = self.save(names[part], held)
+        return shas
 
     def load_remap(self, snap: int, shas: Mapping[str, str]) -> SlabRemap:
         names = self.remap_names(snap)
         parts = {part: self.load(names[part], shas[part]) for part in _REMAP_PARTS}
+        for part in _REMAP_CUT_PARTS:
+            if part in shas:
+                parts[part] = self.load(names[part], shas[part])
         return SlabRemap(snap=snap, **parts)
 
     def drop_remap(self, snap: int) -> None:
@@ -279,6 +296,8 @@ class RestartState:
             "remaps": {},
             "checkpoints": {},
             "peak_store_bytes": 0,
+            "cut_per_snapshot": {},
+            "cut_pieces": None,
         }
         state = cls(path, data)
         state.save()
@@ -452,9 +471,13 @@ def finish_manifest(
     n_links: Mapping[str, int],
     store_peak_bytes: int,
     files: List[Path],
+    cut: Optional[Mapping[str, object]] = None,
 ) -> None:
     """Complete the three stages with the rewriter's results and register
-    every dataset file. Idempotent: a stage already complete is left alone."""
+    every dataset file; a cut's record (the table, its rule, the promotions
+    and chain changes per snapshot, the pieces) joins the writer record,
+    which the conversion report carries whole. Idempotent: a stage already
+    complete is left alone."""
     total = int(sum(counts))
     if not manifest.is_complete("ingest"):
         manifest.begin_attempt("ingest")
@@ -482,20 +505,17 @@ def finish_manifest(
         manifest.begin_attempt("write", DATASET_DIR)
         for path in files:
             manifest.register_artifact(manifest.relative(path), "write", "write-output")
-        manifest.complete_stage(
-            "write",
-            {
-                "writer": {
-                    "writer": "horizontal-hdf5-rewriter",
-                    "rewriter_version": REWRITER_VERSION,
-                    "operation": prepared.operation,
-                    "format_version": 3,
-                    "simulation_info_sha256": sha256_file(prepared.request.simulation_info),
-                    "header": dict(prepared.metadata),
-                },
-                "n_files": len(files),
-            },
-        )
+        writer: Dict[str, object] = {
+            "writer": "horizontal-hdf5-rewriter",
+            "rewriter_version": REWRITER_VERSION,
+            "operation": prepared.operation,
+            "format_version": 3,
+            "simulation_info_sha256": sha256_file(prepared.request.simulation_info),
+            "header": dict(prepared.metadata),
+        }
+        if cut is not None:
+            writer["cut"] = dict(cut)
+        manifest.complete_stage("write", {"writer": writer, "n_files": len(files)})
 
 
 def state_path(output_dir: Path) -> Path:
@@ -508,6 +528,10 @@ def summary_path(output_dir: Path) -> Path:
 
 def inventory_path(output_dir: Path) -> Path:
     return Path(output_dir) / TREE_INVENTORY_NAME
+
+
+def cut_pieces_path(output_dir: Path) -> Path:
+    return Path(output_dir) / CUT_PIECES_NAME
 
 
 def dataset_dir(output_dir: Path) -> Path:

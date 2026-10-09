@@ -1126,6 +1126,15 @@ class TestCutTableInvariants(unittest.TestCase):
             ([1, 1, 3, 4, 5], None, "keep no piece with their own id \\(e.g. \\[2\\]"),
             ([3, 3, 1, 2, 4], None, "not kept by their largest piece \\(e.g. forest 1\\)"),
             ([1, 1, 4, 2, 3], None, "fresh ids do not follow descending piece size"),
+            # fresh ids 3 and 5: a gap at 4
+            (
+                [1, 1, 3, 2, 5],
+                None,
+                "not contiguous from the catalogue's maximum 2 plus one \\(id 5 "
+                "where 4 was expected, 2 fresh",
+            ),
+            # fresh ids 4 and 5: the first is not the maximum plus one
+            ([1, 1, 4, 2, 5], None, "not contiguous .*\\(id 4 where 3 was expected"),
         )
         for ids, roots, message in cases:
             with self.assertRaisesRegex(ConverterError, message):

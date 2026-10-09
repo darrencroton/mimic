@@ -15,6 +15,16 @@ are released once pass 0, the sidecar and the inventory checkpoint are done
 (the inventory is reloaded from the scratch at the end); the baseline is then
 the forest bases and running counts, the roots and tree counts, and one or
 two slabs' labels (package docstring).
+
+For a cut (``rewriter.cut``) pass 0 continues with the labelling pre-pass
+and the table's installation, every refusal of which happens before the
+manifest, the scratch and any output exist; the installed table replaces the
+census's totals, bases and rank bound, the prepared sidecar and the forest
+count, and its per-tree totals are checkpointed so that a resume reinstalls
+the same table (bound by its md5 in the configuration). The passes then keep
+the per-tree forest and the split masks resident, and the finalisation checks
+the labels' tree counts against the pre-pass, writes ``cut_pieces.npy`` and
+records the cut in the summary and the manifest.
 """
 
 import os
@@ -32,7 +42,13 @@ from conversion_manifest import canonical_sha256, sha256_file  # noqa: E402
 from errors import ConverterError  # noqa: E402
 from hdf5_writer import snapshot_h5_name  # noqa: E402
 from hdf5_writer_v3 import SIDECAR_NAME  # noqa: E402
-from rewriter import DATASET_DIR, OPERATION_NOOP  # noqa: E402
+from rewriter import DATASET_DIR, OPERATION_CUT, OPERATION_NOOP  # noqa: E402
+from rewriter.cut import (  # noqa: E402
+    CutPlan,
+    install_table,
+    label_tree_totals,
+    per_snapshot_rows,
+)
 from rewriter.inputs import (  # noqa: E402
     MEMORY_FORMULAS,
     Prepared,
@@ -50,6 +66,7 @@ from rewriter.pass0 import (  # noqa: E402
     tree_inventory,
 )
 from rewriter.passes import (  # noqa: E402
+    CUT_COUNT_DEFINITIONS,
     SlabColumns,
     SlabRemap,
     Window,
@@ -65,6 +82,7 @@ from rewriter.workdir import (  # noqa: E402
     Scratch,
     check_fresh_output,
     create_manifest,
+    cut_pieces_path,
     dataset_dir,
     finish_manifest,
     inventory_path,
@@ -127,6 +145,8 @@ def _reverify_complete(manifest, state: RestartState, output_dir: Path, log) -> 
         )
     _check_recorded_file(dataset_dir(output_dir) / SIDECAR_NAME, state.data["sidecar"], "sidecar")
     _check_recorded_file(inventory_path(output_dir), state.data.get("inventory"), "tree inventory")
+    if state.data.get("cut_pieces") is not None:
+        _check_recorded_file(cut_pieces_path(output_dir), state.data["cut_pieces"], "cut pieces")
     log("resume: the run is complete; every output re-verified")
     return read_json(summary_path(output_dir), "summary")
 
@@ -134,12 +154,21 @@ def _reverify_complete(manifest, state: RestartState, output_dir: Path, log) -> 
 class _Run:
     """One run's mutable progress."""
 
-    def __init__(self, prepared: Prepared, output_dir: Path, scratch: Scratch, log):
+    def __init__(
+        self,
+        prepared: Prepared,
+        output_dir: Path,
+        scratch: Scratch,
+        log,
+        plan: Optional[CutPlan] = None,
+    ):
         self.prepared = prepared
         self.output_dir = output_dir
         self.dataset_out = dataset_dir(output_dir)
         self.scratch = scratch
         self.log = log
+        self.plan = plan
+        self.cut = None if plan is None else plan.slab()
         self.remaps: Dict[int, SlabRemap] = {}
         self.store_peak = 0
         self.written_this_run = 0
@@ -173,6 +202,8 @@ def run_rewrite(request: RewriteRequest, log: Callable[[str], None] = _log) -> d
     n_snapshots = prepared.n_snapshots
     block_rows = int(request.block_rows)
     identity_from_input = request.operation == OPERATION_NOOP
+    cutting = request.operation == OPERATION_CUT
+    plan: Optional[CutPlan] = None
     scratch = Scratch(scratch_dir)
     binding = {"output": str(output_dir), "configuration_sha256": configuration_sha256}
     filenames = dict(prepared.index.filenames)
@@ -185,13 +216,23 @@ def run_rewrite(request: RewriteRequest, log: Callable[[str], None] = _log) -> d
             return _reverify_complete(manifest, state, output_dir, log)
         scratch.begin(binding, resume=True)
         census = _reload_pass0(state, scratch, log)
+        if cutting:
+            tree_totals = scratch.load(
+                scratch.pass0_names()["tree_totals"], state.data["pass0"]["sha256"]["tree_totals"]
+            )
+            plan = _install(prepared, census, tree_totals, log)
+            del tree_totals
     else:
-        # every refusal, pass 0's root correspondence included, before the
-        # first write: the output and scratch are only checked here, and
-        # created once pass 0 has passed
+        # every refusal, pass 0's root correspondence and the cut table's
+        # invariants included, before the first write: the output and scratch
+        # are only checked here, and created once pass 0 has passed
         check_fresh_output(output_dir)
         scratch.check_fresh()
         census = run_pass0(dataset, prepared.index, prepared.sidecar["ForestID"], block_rows, log)
+        tree_totals = None
+        if cutting:
+            tree_totals = label_tree_totals(dataset, census.roots, block_rows, log)
+            plan = _install(prepared, census, tree_totals, log)
         manifest = create_manifest(prepared, output_dir)
         # a dependency that moved while pass 0 read it is caught here
         manifest.verify_dependencies()
@@ -199,14 +240,20 @@ def run_rewrite(request: RewriteRequest, log: Callable[[str], None] = _log) -> d
             state_path(output_dir), request.operation, configuration_sha256, n_snapshots
         )
         scratch.begin(binding, resume=False)
-        _checkpoint_pass0(census, state, scratch)
-        inventory = tree_inventory(prepared.index, prepared.forest_table, prepared.file_ordinals)
+        _checkpoint_pass0(census, state, scratch, tree_totals)
+        del tree_totals
+        if plan is None:
+            inventory = tree_inventory(
+                prepared.index, prepared.forest_table, prepared.file_ordinals
+            )
+        else:
+            inventory = tree_inventory(plan.index, plan.forest_table, prepared.file_ordinals)
         state.data["pass0"]["inventory_sha256"] = scratch.save(
             scratch.pass0_names()["inventory"], inventory
         )
         state.save()
         del inventory
-    run = _Run(prepared, output_dir, scratch, log)
+    run = _Run(prepared, output_dir, scratch, log, plan)
     run.dataset_out.mkdir(parents=True, exist_ok=True)
     manifest.require_inventory(inventory_record(census.totals))
     manifest.save()
@@ -239,6 +286,8 @@ def run_rewrite(request: RewriteRequest, log: Callable[[str], None] = _log) -> d
     # slab passes (package docstring, the resident baseline)
     prepared.release_tables()
     census.totals = None
+    if plan is not None:
+        plan.release_tables()
 
     # ---- passes 1 and 2 ----
     top = n_snapshots - 1
@@ -286,6 +335,13 @@ def run_rewrite(request: RewriteRequest, log: Callable[[str], None] = _log) -> d
                 int(tree_counts.sum()), dataset.total_halos
             )
         )
+    if plan is not None and not np.array_equal(tree_counts, plan.tree_totals):
+        raise ConverterError(
+            "the tree labels of pass 1 count {} tree(s) differently from the labelling "
+            "pre-pass the table was checked against".format(
+                int(np.count_nonzero(tree_counts != plan.tree_totals))
+            )
+        )
     inventory = scratch.load(
         scratch.pass0_names()["inventory"], state.data["pass0"]["inventory_sha256"]
     )
@@ -304,8 +360,43 @@ def run_rewrite(request: RewriteRequest, log: Callable[[str], None] = _log) -> d
     for record in state.data["verified"].values():
         for name, value in record["n_links"].items():
             n_links[name] = n_links.get(name, 0) + int(value)
+    cut_record = None
+    if plan is not None:
+        save_array_atomic(cut_pieces_path(output_dir), plan.pieces)
+        state.data["cut_pieces"] = {
+            "sha256": sha256_file(cut_pieces_path(output_dir)),
+            "bytes": cut_pieces_path(output_dir).stat().st_size,
+        }
+        state.save()
+        cut_record = {
+            "table": {
+                "path": prepared.configuration["adapter"]["parameters"]["cut_table"],
+                "md5": prepared.cut_table_md5,
+                "sha256": prepared.configuration["adapter"]["parameters"]["cut_table_sha256"],
+            },
+            "record": prepared.configuration["adapter"]["parameters"]["cut_table_record"],
+            "rule": None if prepared.cut_record is None else prepared.cut_record["rule"],
+            "record_dataset": (
+                None if prepared.cut_record is None else prepared.cut_record["dataset"]
+            ),
+            **plan.record(),
+            "per_snapshot": per_snapshot_rows(state.data["cut_per_snapshot"]),
+            "definitions": dict(CUT_COUNT_DEFINITIONS),
+            "pieces_file": {
+                "name": cut_pieces_path(output_dir).name,
+                **state.data["cut_pieces"],
+            },
+        }
     files = sorted(run.dataset_out.iterdir())
-    finish_manifest(manifest, prepared, counts, n_links, int(state.data["peak_store_bytes"]), files)
+    finish_manifest(
+        manifest,
+        prepared,
+        counts,
+        n_links,
+        int(state.data["peak_store_bytes"]),
+        files,
+        cut_record,
+    )
     for snap, record in state.data["verified"].items():
         registered = manifest.artifact("{}/{}".format(DATASET_DIR, snapshot_h5_name(int(snap))))
         if registered is None or registered["sha256"] != record["sha256"]:
@@ -345,6 +436,8 @@ def run_rewrite(request: RewriteRequest, log: Callable[[str], None] = _log) -> d
     }
     if request.operation == OPERATION_NOOP:
         summary["byte_comparison"] = _byte_comparison(dataset, run.dataset_out)
+    if cut_record is not None:
+        summary["cut"] = cut_record
     write_json_atomic(summary_path(output_dir), summary)
     state.data["status"] = STATUS_COMPLETE
     state.save()
@@ -379,14 +472,30 @@ def _reload_pass0(state: RestartState, scratch: Scratch, log) -> Census:
     )
 
 
-def _checkpoint_pass0(census: Census, state: RestartState, scratch: Scratch) -> None:
+def _checkpoint_pass0(
+    census: Census, state: RestartState, scratch: Scratch, tree_totals: Optional[np.ndarray]
+) -> None:
     names = scratch.pass0_names()
     shas = {
         "totals": scratch.save(names["totals"], census.totals),
         "roots": scratch.save(names["roots"], census.roots),
     }
+    if tree_totals is not None:
+        shas["tree_totals"] = scratch.save(names["tree_totals"], tree_totals)
     state.data["pass0"] = {"sha256": shas, "correspondence": census.correspondence}
     state.save()
+
+
+def _install(prepared: Prepared, census: Census, tree_totals: np.ndarray, log) -> CutPlan:
+    """Install the cut table and let it replace the input's census: the
+    output's totals, bases, rank bound, sidecar and forest count."""
+    plan = install_table(prepared, census, tree_totals, log)
+    census.totals = plan.totals
+    census.sid_base = plan.sid_base
+    census.max_rank = plan.max_rank
+    prepared.sidecar = plan.sidecar
+    prepared.n_forests_out = plan.n_forests
+    return plan
 
 
 def _load_checkpoint(run: _Run, state: RestartState, snap: int):
@@ -420,7 +529,7 @@ def _pass1(
     tree_counts: np.ndarray,
     identity_from_input: bool,
 ) -> np.ndarray:
-    remap, labels = rank_slab(
+    remap, labels, cut_counts = rank_slab(
         run.prepared.dataset,
         snap,
         census.sid_base,
@@ -429,8 +538,12 @@ def _pass1(
         labels_next,
         tree_counts,
         identity_from_input,
+        run.cut,
+        run.remaps.get(snap + 1),
     )
     run.hold(remap)
+    if run.cut is not None:
+        state.data["cut_per_snapshot"][str(snap)] = cut_counts
     state.data["remaps"][str(snap)] = run.scratch.save_remap(remap)
     state.data["checkpoints"][str(snap)] = run.scratch.save_checkpoint(
         snap, running, tree_counts, labels
@@ -455,7 +568,9 @@ def _pass2(
     window = Window(
         own=run.remaps[snap], above=run.remaps.get(snap + 1), below=run.remaps.get(snap - 1)
     )
-    columns = SlabColumns(prepared.dataset, snap, window, prepared.table, identity_from_input)
+    columns = SlabColumns(
+        prepared.dataset, snap, window, prepared.table, identity_from_input, run.cut
+    )
     header = output_header(prepared, snap, window.own.n, census.max_rank)
     if identity_from_input:
         check_header_reproduced(prepared.dataset, snap, header)

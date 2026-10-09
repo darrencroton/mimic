@@ -10,18 +10,21 @@ The refusals, in the order they are made:
 
 - paths: the output and scratch directories are explicit and lie outside the
   input, and neither contains the other;
-- the operation's options: ``migrate`` needs ``--column-map``; ``noop``
-  refuses it (``/schema`` is carried through) and ``--conversion-manifest``;
-- the input: ``format_version`` 2 for ``migrate`` and 3 for ``noop`` (every
-  other version is refused by the reader), ``links_adjacent`` 1, and for a
-  version 3 input ``source_format`` ``consistent_trees_ascii``;
+- the operation's options: ``migrate`` needs ``--column-map``; ``noop`` and
+  ``cut`` refuse it (``/schema`` is carried through) and
+  ``--conversion-manifest``; ``cut`` needs ``--cut-table``, which the other
+  two refuse, and takes ``--cut-table-record``;
+- the input: ``format_version`` 2 for ``migrate`` and 3 for ``noop`` and
+  ``cut`` (every other version is refused by the reader), ``links_adjacent``
+  1, and for a version 3 input ``source_format`` ``consistent_trees_ascii``;
 - the a_list: exactly the input's scale factors;
 - the simulation metadata: exactly the input's five physical header values;
 - the schema: for ``migrate`` the profile's, which must be a
-  ``consistent_trees_ascii`` profile; for ``noop`` the shipped default
-  profile, whose digest must be the input's ``column_mapping_sha256``, since
-  the manifest the battery binds to embeds the schema and no other profile is
-  given; every input slab's ``/schema`` must then declare exactly it;
+  ``consistent_trees_ascii`` profile; for ``noop`` and ``cut`` the shipped
+  default profile, whose digest must be the input's ``column_mapping_sha256``,
+  since the manifest the battery binds to embeds the schema and no other
+  profile is given; every input slab's ``/schema`` must then declare exactly
+  it;
 - the columns: every ``/halos`` column the output table needs, at the table's
   dtype and shape;
 - the multiplier: it must encode the output's identity bounds;
@@ -30,8 +33,15 @@ The refusals, in the order they are made:
 - the tree-file order: from the version 2 conversion manifest's ordered
   source list (``migrate``), required when ``locations.dat`` names more than
   one file, the one file itself otherwise, and refused when ambiguous or
-  naming another file; for ``noop`` the mapping the input sidecar itself
-  implies, refused when inconsistent.
+  naming another file; for ``noop`` and ``cut`` the mapping the input sidecar
+  itself implies, refused when inconsistent;
+- the cut table's record (``cut``, when given): a readable JSON record whose
+  ``table.md5`` is the given table's md5 and whose ``index_files`` md5 values
+  are the given index files', each refused otherwise; the record's dataset
+  identity is carried into the manifest as lineage, not compared, since a
+  migration changes the identity while preserving the forest enumeration.
+  The table's own invariants are checked once pass 0 has given the trees'
+  halo totals (``rewriter.cut``), still before any write.
 """
 
 import json
@@ -45,6 +55,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from census.cut_table import md5_file  # noqa: E402
 from census.trees import ParsedCounts, load_parsed_counts  # noqa: E402
 from column_schema import (  # noqa: E402
     CanonicalSchema,
@@ -64,6 +75,7 @@ from hdf5_writer import load_header_metadata  # noqa: E402
 from hdf5_writer_v3 import V3_SCHEMA_ATTRS, V3_SIDECAR_DATASETS, v3_halo_datasets  # noqa: E402
 from horizontal_dataset import DEFAULT_BLOCK_ROWS, HorizontalDataset  # noqa: E402
 from rewriter import (  # noqa: E402
+    OPERATION_CUT,
     OPERATION_MIGRATE,
     OPERATION_NOOP,
     OPERATIONS,
@@ -99,6 +111,8 @@ ROLE_COLUMN_MAP = "column_map"
 ROLE_FORESTS_LIST = "forests_list"
 ROLE_LOCATIONS = "locations"
 ROLE_CONVERSION_MANIFEST = "conversion_manifest"
+ROLE_CUT_TABLE = "cut_table"
+ROLE_CUT_TABLE_RECORD = "cut_table_record"
 
 #: ``/halos`` columns of a version 2 input that the output table reads under
 #: another width (int32 links become int64).
@@ -132,6 +146,9 @@ class RewriteRequest:
     multiplier: int
     resume: bool = False
     block_rows: int = DEFAULT_BLOCK_ROWS
+    #: the cut forest table (``cut`` only) and, optionally, its JSON record
+    cut_table: Optional[Path] = None
+    cut_table_record: Optional[Path] = None
 
 
 @dataclass
@@ -157,6 +174,11 @@ class Prepared:
     sidecar: Optional[Dict[str, np.ndarray]]
     pins: List[Dict[str, object]]
     configuration: Dict[str, object]
+    #: ``cut``: the table's md5 and the header of its record (``None`` without one)
+    cut_table_md5: Optional[str] = None
+    cut_record: Optional[Dict[str, object]] = None
+    #: ``cut``: the output's forest count once the table is installed
+    n_forests_out: Optional[int] = None
 
     @property
     def operation(self) -> str:
@@ -168,6 +190,9 @@ class Prepared:
 
     @property
     def n_forests(self) -> int:
+        """The output's forest count: the input's, or the cut table's."""
+        if self.n_forests_out is not None:
+            return int(self.n_forests_out)
         return self.dataset.n_forests_total
 
     def release_tables(self) -> None:
@@ -225,18 +250,34 @@ def check_options(request: RewriteRequest) -> None:
             "migrate needs --column-map (the package's consistent_trees_ascii profile), from "
             "which the version 3 /schema is built"
         )
-    if request.operation == OPERATION_NOOP:
+    if request.operation in (OPERATION_NOOP, OPERATION_CUT):
         if request.column_map is not None:
             raise ConverterError(
-                "noop refuses --column-map {}: the input's /schema is carried through".format(
-                    request.column_map
+                "{} refuses --column-map {}: the input's /schema is carried through".format(
+                    request.operation, request.column_map
                 )
             )
         if request.conversion_manifest is not None:
             raise ConverterError(
-                "noop refuses --conversion-manifest {}: the sidecar ordinals are carried "
-                "through".format(request.conversion_manifest)
+                "{} refuses --conversion-manifest {}: the sidecar ordinals follow the input "
+                "sidecar".format(request.operation, request.conversion_manifest)
             )
+    if request.operation == OPERATION_CUT:
+        if request.cut_table is None:
+            raise ConverterError(
+                "cut needs --cut-table (the cut forest table, forests.list-shaped)"
+            )
+    else:
+        for name, value in (
+            ("--cut-table", request.cut_table),
+            ("--cut-table-record", request.cut_table_record),
+        ):
+            if value is not None:
+                raise ConverterError(
+                    "{} refuses {} {}: only cut takes a cut table".format(
+                        request.operation, name, value
+                    )
+                )
     if isinstance(request.multiplier, bool) or not isinstance(
         request.multiplier, (int, np.integer)
     ):
@@ -692,6 +733,12 @@ def _pins(request: RewriteRequest, dataset: HorizontalDataset) -> List[Dict[str,
                 request.conversion_manifest, (ROLE_CONVERSION_MANIFEST,), content_sha256=True
             )
         )
+    if request.cut_table is not None:
+        pins.append(pin_dependency(request.cut_table, (ROLE_CUT_TABLE,), content_sha256=True))
+    if request.cut_table_record is not None:
+        pins.append(
+            pin_dependency(request.cut_table_record, (ROLE_CUT_TABLE_RECORD,), content_sha256=True)
+        )
     for snap in dataset.snapshots:
         pins.append(pin_dependency(dataset.snapshot_path(snap), (ROLE_INPUT,)))
     pins.append(pin_dependency(dataset.sidecar_path, (ROLE_INPUT,)))
@@ -712,9 +759,13 @@ def _configuration(
     scratch_dir: Path,
     index_trees: int,
     index_pairs: int,
+    cut_table_md5: Optional[str],
+    cut_record: Optional[Dict[str, object]],
 ) -> Dict[str, object]:
     """The manifest's frozen configuration: everything that decides an output
-    byte, under the keys the report reads, with the rewriter's own values."""
+    byte, under the keys the report reads, with the rewriter's own values.
+    The cut table is bound by its md5 (the census's digest of it) and its
+    SHA-256; the record contributes the rule text and its dataset lineage."""
     input_dtype = np.dtype(
         [
             (name, dtype.str, shape) if shape else (name, dtype.str)
@@ -743,7 +794,19 @@ def _configuration(
         "tree_file_order": list(tree_file_order),
         "tree_file_order_sha256": canonical_sha256(list(tree_file_order)),
         "multiplier": int(request.multiplier),
-        "cut_table_md5": None,
+        "cut_table": (
+            None if request.cut_table is None else str(_resolved(request.cut_table, "--cut-table"))
+        ),
+        "cut_table_md5": cut_table_md5,
+        "cut_table_sha256": _sha256_or_none(request.cut_table),
+        "cut_table_record": (
+            None
+            if request.cut_table_record is None
+            else str(_resolved(request.cut_table_record, "--cut-table-record"))
+        ),
+        "cut_table_record_sha256": _sha256_or_none(request.cut_table_record),
+        "cut_rule": None if cut_record is None else cut_record["rule"],
+        "cut_table_record_dataset": None if cut_record is None else cut_record["dataset"],
         "a_list_sha256": sha256_file(request.a_list),
         "simulation_info_sha256": sha256_file(request.simulation_info),
         "column_map_sha256": _sha256_or_none(request.column_map),
@@ -821,6 +884,9 @@ def prepare(request: RewriteRequest) -> Prepared:
                 raise ConverterError(
                     "index files inconsistent with the input sidecar: /{} differs".format(name)
                 )
+    cut_table_md5, cut_record = None, None
+    if request.operation == OPERATION_CUT:
+        cut_table_md5, cut_record = check_cut_table_files(request)
     pins = _pins(request, dataset)
     configuration = _configuration(
         request,
@@ -832,6 +898,8 @@ def prepare(request: RewriteRequest) -> Prepared:
         scratch_dir,
         index.n_trees,
         int(forest_table.files.size),
+        cut_table_md5,
+        cut_record,
     )
     return Prepared(
         request=request,
@@ -849,7 +917,84 @@ def prepare(request: RewriteRequest) -> Prepared:
         sidecar=sidecar,
         pins=pins,
         configuration=configuration,
+        cut_table_md5=cut_table_md5,
+        cut_record=cut_record,
     )
+
+
+# ---------------------------------------------------------------------------
+# The cut table's files
+# ---------------------------------------------------------------------------
+
+
+def read_record_header(path) -> Dict[str, object]:
+    """The header entries of a cut table's JSON record, without its per-piece
+    columns. The census writes the record with one header entry per line
+    before a ``"pieces"`` line (``census.cut_table.write_table_record``), so
+    the header is read line by line up to that line and parsed alone, which
+    bounds the read at a few kilobytes however many pieces follow; a record
+    without that line is parsed whole."""
+    path = Path(path)
+    lines: List[str] = []
+    try:
+        with open(path) as handle:
+            for line in handle:
+                if line.startswith('  "pieces":'):
+                    text = "".join(lines).rstrip().rstrip(",") + "\n}\n"
+                    break
+                lines.append(line)
+            else:
+                text = "".join(lines)
+        document = json.loads(text)
+    except (OSError, ValueError) as exc:
+        raise ConverterError(
+            "--cut-table-record {}: not a readable JSON record ({})".format(path, exc)
+        ) from exc
+    if not isinstance(document, dict):
+        raise ConverterError("--cut-table-record {}: not a JSON object".format(path))
+    return document
+
+
+def check_cut_table_files(request: RewriteRequest) -> Tuple[str, Optional[Dict[str, object]]]:
+    """The cut table must exist (its invariants are checked once the trees'
+    totals are known); its record, when given, must name the table's md5 and
+    the index files' md5 values and carry a rule text. Returns the table's
+    md5 and the record's header (``None`` without a record)."""
+    table = request.cut_table
+    if table is None or not Path(table).is_file():
+        raise ConverterError("--cut-table {}: no such file".format(table))
+    table_md5 = md5_file(table)
+    if request.cut_table_record is None:
+        return table_md5, None
+    record = read_record_header(request.cut_table_record)
+    held = record.get("table") if isinstance(record.get("table"), dict) else {}
+    if held.get("md5") != table_md5:
+        raise ConverterError(
+            "--cut-table-record {}: records table md5 {!r} but --cut-table {} has md5 {}; the "
+            "record is not this table's".format(
+                request.cut_table_record, held.get("md5"), table, table_md5
+            )
+        )
+    files = record.get("index_files") if isinstance(record.get("index_files"), dict) else {}
+    for name, option, path in (
+        ("forests_list", "--forests-list", request.forests_list),
+        ("locations", "--locations", request.locations),
+    ):
+        entry = files.get(name) if isinstance(files.get(name), dict) else {}
+        actual = md5_file(path)
+        if entry.get("md5") != actual:
+            raise ConverterError(
+                "--cut-table-record {}: records {} md5 {!r} but {} {} has md5 {}; the table was "
+                "built for other index files".format(
+                    request.cut_table_record, name, entry.get("md5"), option, path, actual
+                )
+            )
+    rule = record.get("rule") if isinstance(record.get("rule"), dict) else {}
+    if not isinstance(rule.get("text"), str) or not rule["text"]:
+        raise ConverterError(
+            "--cut-table-record {}: no rule text (rule.text)".format(request.cut_table_record)
+        )
+    return table_md5, {"rule": rule["text"], "dataset": record.get("dataset")}
 
 
 def check_header_reproduced(

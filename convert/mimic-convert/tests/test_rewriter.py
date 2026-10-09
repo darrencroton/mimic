@@ -17,7 +17,17 @@ spanning both:
 - resume after an injected failure against an uninterrupted run, byte by
   byte; a completed run re-verified; a changed input and a changed
   configuration refused;
-- every refusal, with nothing written.
+- every refusal, with nothing written;
+- the cut, on :mod:`fixtures`' adversarial forests (a severed satellite, a
+  piece without an initial central, a group whose central leaves while its
+  members stay together, a progenitor-order tie resolved by the insertion
+  loop, a forest cut into three pieces, a forest split into its final-snapshot
+  FoF groups), each beside two untouched forests: every output row's
+  identity and links stated literally, the sidecar rows, the header bounds,
+  the per-snapshot counts and the pieces; the untouched forests and every
+  descendant relation against the input; the identity table against the
+  no-op, byte for byte; every table invariant refused before any write; the
+  record's binding by md5; resume, block-size independence and the CLI.
 """
 
 import contextlib
@@ -40,6 +50,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import convert_trees  # noqa: E402
 import fixtures  # noqa: E402
 import rewrite_trees  # noqa: E402
+from census import cut_table  # noqa: E402
 from conversion_manifest import sha256_file  # noqa: E402
 from errors import ConverterError  # noqa: E402
 from hdf5_writer_v3 import V3_SIDECAR_DATASETS  # noqa: E402
@@ -1029,6 +1040,829 @@ class TestRefusals(unittest.TestCase):
             self.assertEqual(rewrite_trees.main(argv), 2)
         self.assertIn("format_version 2 but noop", stderr.getvalue())
         self.assertFalse((self.root / "cli_out").exists())
+
+
+# ---------------------------------------------------------------------------
+# The cut
+# ---------------------------------------------------------------------------
+
+#: The output's link columns, each with the slab its targets lie in relative
+#: to the owner's, and the identity columns a topology row carries.
+TOPOLOGY_LINKS = (
+    ("Descendant", 1),
+    ("FirstProgenitor", -1),
+    ("NextProgenitor", 0),
+    ("FirstHaloInFOFgroup", 0),
+    ("NextHaloInFOFgroup", 0),
+)
+PAYLOAD_COLUMNS = ("M_Crit200", "Vmax", "VelDisp", "Pos", "Vel", "Spin", "SnapNum")
+
+
+def topology(dataset_dir):
+    """Per populated snapshot, in row order: (MostBoundID, ForestIndex,
+    HaloRankInForest, SourceHaloID, then each link's target as the target
+    row's MostBoundID, -1 for none), so links read the same whatever the
+    rows' positions."""
+    columns = {}
+    for snap in range(N_SNAPSHOTS):
+        halos, _header, _schema = read_file(Path(dataset_dir) / "snapshot_{:03d}.h5".format(snap))
+        columns[snap] = halos
+    rows = {}
+    for snap in range(N_SNAPSHOTS):
+        halos = columns[snap]
+        if halos["MostBoundID"].size == 0:
+            continue
+        slab = []
+        for row in range(halos["MostBoundID"].size):
+            entry = [
+                int(halos[name][row])
+                for name in ("MostBoundID", "ForestIndex", "HaloRankInForest", "SourceHaloID")
+            ]
+            for name, offset in TOPOLOGY_LINKS:
+                target = int(halos[name][row])
+                entry.append(
+                    -1 if target == -1 else int(columns[snap + offset]["MostBoundID"][target])
+                )
+            slab.append(tuple(entry))
+        rows[snap] = slab
+    return rows
+
+
+def rows_by_id(dataset_dir):
+    """Every halo's payload and link targets (as ids) keyed by MostBoundID."""
+    by_id = {}
+    for snap, slab in topology(dataset_dir).items():
+        halos, _header, _schema = read_file(Path(dataset_dir) / "snapshot_{:03d}.h5".format(snap))
+        for row, entry in enumerate(slab):
+            payload = tuple(halos[name][row].tobytes() for name in PAYLOAD_COLUMNS)
+            by_id[entry[0]] = (snap, entry, payload)
+    return by_id
+
+
+def companions():
+    """The two untouched forests every cut fixture is laid beside: 1400
+    (before the fixture forest) and 8000 (after it, so its SourceHaloID
+    prefix moves while its ForestIndex, ranks and links do not)."""
+    return fixtures.correspondence_single_tree_forest(), fixtures.interleaved_forest_8000()
+
+
+def cut_source(root: Path, forest, layout):
+    first, last = companions()
+    source = convert_ascii(root, layout, [first, forest, last])
+    source["root"] = root
+    source["forests"] = [first, forest, last]
+    return source
+
+
+def cut_layout(forest, split_after=None):
+    """One file holding everything, or two files with the fixture forest's
+    trees from ``split_after`` on in the second (so a piece can span files)."""
+    first, last = companions()
+    if split_after is None:
+        return [[first.trees[0]] + forest.trees + [last.trees[0]]]
+    return [
+        [first.trees[0]] + forest.trees[:split_after],
+        forest.trees[split_after:] + [last.trees[0]],
+    ]
+
+
+def write_table(root: Path, name: str, table: dict, source) -> Path:
+    return fixtures.write_cut_table(root / (name + ".list"), table, source["forests"])
+
+
+def cut(source, out, scratch, table, input_dir=None, **overrides):
+    input_dir = source["dataset"] if input_dir is None else input_dir
+    return rewrite("cut", source, input_dir, out, scratch, cut_table=table, **overrides)
+
+
+class TestCutFixtures(unittest.TestCase):
+    """Each adversarial fixture cut by its decided table; the expectations are
+    the rows of :func:`topology` written out by hand from the fixture's
+    docstring: (id, ForestIndex, HaloRankInForest, SourceHaloID, Descendant,
+    FirstProgenitor, NextProgenitor, FirstHaloInFOFgroup, NextHaloInFOFgroup)
+    with every link as its target's id."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.root = Path(tempfile.mkdtemp(prefix="rewriter_cut_"))
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.root, ignore_errors=True)
+
+    def run_cut(self, name, forest, table, split_after=None):
+        root = self.root / name
+        source = cut_source(root, forest, cut_layout(forest, split_after))
+        path = write_table(root, "cut", table, source)
+        source["cut_table"] = path
+        out = root / "out"
+        summary = cut(source, out, root / "scratch", path)
+        self.check_common(source, out, summary)
+        return source, out, summary
+
+    def check_common(self, source, out, summary):
+        """What holds for every fixture: the untouched forests reproduce their
+        payload, links and identity, every descendant relation is the
+        input's, SourceHaloID is the forest base plus the rank over the new
+        totals, the table is bound by its md5, and the workdir validates."""
+        before = rows_by_id(source["dataset"])
+        after = rows_by_id(out / "dataset")
+        self.assertEqual(sorted(before), sorted(after))
+        untouched = {1400, 1401, 1402, 2000, 2001, 2002}
+        for halo_id in before:
+            snap_a, entry_a, payload_a = before[halo_id]
+            snap_b, entry_b, payload_b = after[halo_id]
+            self.assertEqual((snap_a, payload_a), (snap_b, payload_b), halo_id)
+            # the logical descendant relation never changes
+            self.assertEqual(entry_a[4], entry_b[4], ("Descendant", halo_id))
+            if halo_id in untouched:
+                # ForestIndex, HaloRankInForest and every link as in the input
+                self.assertEqual(entry_a[1:3] + entry_a[4:], entry_b[1:3] + entry_b[4:], halo_id)
+        self.assertEqual(int(summary["cut"]["forests_after"]), int(summary["n_forests_total"]))
+        self.assertEqual(summary["cut"]["table"]["md5"], cut_table.md5_file(source["cut_table"]))
+        rows = topology(out / "dataset")
+        totals = {}
+        for slab in rows.values():
+            for entry in slab:
+                totals[entry[1]] = totals.get(entry[1], 0) + 1
+        base, bases = 1, {}
+        for forest_index in sorted(totals):
+            bases[forest_index] = base
+            base += totals[forest_index]
+        for slab in rows.values():
+            for entry in slab:
+                self.assertEqual(entry[3], bases[entry[1]] + entry[2], entry)
+        with quiet():
+            self.assertEqual(convert_trees.main(["validate", "--workdir", str(out)]), 0)
+
+    def assert_cut(self, out, summary, rows, sidecar, n_forests, max_rank, counts, pieces):
+        self.assertEqual(topology(out / "dataset"), rows)
+        held = read_sidecar(out / "dataset" / "forests.h5")
+        self.assertEqual({name: held[name].tolist() for name in held}, sidecar)
+        for snap in range(N_SNAPSHOTS):
+            _halos, header, _schema = read_file(out / "dataset" / "snapshot_{:03d}.h5".format(snap))
+            self.assertEqual(int(header["n_forests_total"]), n_forests)
+            self.assertEqual(int(header["max_halo_rank_in_forest"]), max_rank)
+        self.assertEqual(summary["n_forests_total"], n_forests)
+        self.assertEqual(summary["max_halo_rank_in_forest"], max_rank)
+        per_snapshot = {
+            entry["snapshot"]: (
+                entry["promoted_halos"],
+                entry["groups_losing_members"],
+                entry["groups_central_leaves_members_stay"],
+                entry["remnants_with_several_members"],
+                entry["progenitor_order_changed"],
+                entry["first_progenitor_changed"],
+            )
+            for entry in summary["cut"]["per_snapshot"]
+        }
+        expected = {snap: (0, 0, 0, 0, 0, 0) for snap in range(N_SNAPSHOTS)}
+        expected.update(counts)
+        self.assertEqual(per_snapshot, expected)
+        written = np.load(out / "cut_pieces.npy")
+        self.assertEqual(
+            [tuple(int(v) for v in row) for row in written],
+            pieces,
+        )
+        self.assertEqual(summary["cut"]["pieces"]["count"], len(pieces))
+        self.assertEqual(summary["cut"]["fresh_pieces"], sum(1 for row in pieces if not row[6]))
+
+    def test_severed_satellite(self):
+        forest = fixtures.severed_satellite_forest()
+        source, out, summary = self.run_cut(
+            "severed", forest, fixtures.severed_satellite_cut_table(), split_after=1
+        )
+        self.assert_cut(
+            out,
+            summary,
+            {
+                5: [
+                    (1400, 0, 0, 1, -1, 1401, -1, 1400, -1),
+                    (2100, 1, 0, 4, -1, 2101, -1, 2100, -1),
+                    (2000, 2, 0, 7, -1, 2002, -1, 2000, -1),
+                    (2110, 3, 0, 10, -1, 2111, -1, 2110, -1),
+                ],
+                4: [
+                    (1401, 0, 1, 2, 1400, 1402, -1, 1401, -1),
+                    (2101, 1, 1, 5, 2100, 2102, -1, 2101, -1),
+                    (2001, 2, 1, 8, 2000, -1, -1, 2001, -1),
+                    (2002, 2, 2, 9, 2000, -1, 2001, 2002, -1),
+                    (2111, 3, 1, 11, 2110, -1, -1, 2111, -1),
+                ],
+                3: [
+                    (1402, 0, 2, 3, 1401, -1, -1, 1402, -1),
+                    (2102, 1, 2, 6, 2101, -1, -1, 2102, -1),
+                ],
+            },
+            # forest 2100 spanned both files; its kept piece is file 0's
+            # second unit and the fresh piece file 1's first
+            {
+                "ForestID": [1400, 2100, 8000, 8001],
+                "SourceFileOrdinal": [0, 0, 1, 1],
+                "SourceUnitOrdinal": [0, 1, 1, 0],
+            },
+            4,
+            2,
+            {4: (1, 1, 1, 0, 0, 0)},
+            [(2100, 2100, 1, 1, 1, 3, 1), (8001, 2100, 3, 1, 1, 2, 0)],
+        )
+        # the input held the satellite in 2101's group at row 2 of snapshot 4
+        self.assertEqual(topology(source["dataset"])[4][2], (2111, 1, 3, 7, 2110, -1, -1, 2101, -1))
+        # the satellite's row and its descendant's row both move, and the
+        # descendant still resolves to the same halo
+        halos, _header, _schema = read_file(out / "dataset" / "snapshot_004.h5")
+        above, _header, _schema = read_file(out / "dataset" / "snapshot_005.h5")
+        self.assertEqual(int(halos["MostBoundID"][4]), 2111)
+        self.assertEqual(int(above["MostBoundID"][int(halos["Descendant"][4])]), 2110)
+        self.assertEqual(int(halos["DescendantSnapshot"][4]), 5)
+        inventory = np.load(out / "tree_inventory.npy")
+        self.assertEqual(
+            {
+                int(row["root"]): tuple(
+                    int(row[name])
+                    for name in (
+                        "forest_id",
+                        "forest_index",
+                        "file_id",
+                        "source_file_ordinal",
+                        "marker_ordinal",
+                        "n_rows",
+                    )
+                )
+                for row in inventory
+            },
+            {
+                1400: (1400, 0, 0, 0, 0, 3),
+                2100: (2100, 1, 0, 0, 1, 3),
+                2110: (8001, 3, 1, 1, 0, 2),
+                2000: (8000, 2, 1, 1, 1, 3),
+            },
+        )
+
+    def test_a_piece_without_an_initial_central(self):
+        forest = fixtures.no_initial_central_forest()
+        _source, out, summary = self.run_cut(
+            "no_central", forest, fixtures.no_initial_central_cut_table()
+        )
+        self.assert_cut(
+            out,
+            summary,
+            {
+                5: [
+                    (1400, 0, 0, 1, -1, 1401, -1, 1400, -1),
+                    (2200, 1, 0, 4, -1, 2201, -1, 2200, -1),
+                    (2000, 2, 0, 8, -1, 2002, -1, 2000, -1),
+                    (2210, 3, 0, 11, -1, 2211, -1, 2210, -1),
+                ],
+                4: [
+                    (1401, 0, 1, 2, 1400, 1402, -1, 1401, -1),
+                    (2201, 1, 1, 5, 2200, 2202, -1, 2201, -1),
+                    (2001, 2, 1, 9, 2000, -1, -1, 2001, -1),
+                    (2002, 2, 2, 10, 2000, -1, 2001, 2002, -1),
+                    (2211, 3, 1, 12, 2210, 2212, -1, 2211, -1),
+                ],
+                3: [
+                    (1402, 0, 2, 3, 1401, -1, -1, 1402, -1),
+                    (2202, 1, 2, 6, 2201, 2203, -1, 2202, -1),
+                    (2212, 3, 2, 13, 2211, -1, -1, 2212, -1),
+                ],
+                2: [(2203, 1, 3, 7, 2202, -1, -1, 2203, -1)],
+            },
+            # the fresh piece becomes the file's third unit, after 2200's
+            {
+                "ForestID": [1400, 2200, 8000, 8001],
+                "SourceFileOrdinal": [0, 0, 0, 0],
+                "SourceUnitOrdinal": [0, 1, 3, 2],
+            },
+            4,
+            3,
+            {4: (1, 1, 1, 0, 0, 0), 3: (1, 1, 1, 0, 0, 0)},
+            [(2200, 2200, 1, 1, 1, 4, 1), (8001, 2200, 3, 1, 1, 3, 0)],
+        )
+
+    def test_a_central_leaves_while_its_members_stay_together(self):
+        forest = fixtures.central_leaves_forest()
+        _source, out, summary = self.run_cut(
+            "central_leaves", forest, fixtures.central_leaves_cut_table()
+        )
+        self.assert_cut(
+            out,
+            summary,
+            {
+                5: [
+                    (1400, 0, 0, 1, -1, 1401, -1, 1400, -1),
+                    (2310, 1, 0, 4, -1, 2311, -1, 2310, 2320),
+                    (2320, 1, 1, 5, -1, 2321, -1, 2310, -1),
+                    (2000, 2, 0, 8, -1, 2002, -1, 2000, -1),
+                    (2300, 3, 0, 11, -1, 2301, -1, 2300, -1),
+                ],
+                4: [
+                    (1401, 0, 1, 2, 1400, 1402, -1, 1401, -1),
+                    (2311, 1, 2, 6, 2310, -1, -1, 2311, -1),
+                    (2321, 1, 3, 7, 2320, -1, -1, 2321, -1),
+                    (2001, 2, 1, 9, 2000, -1, -1, 2001, -1),
+                    (2002, 2, 2, 10, 2000, -1, 2001, 2002, -1),
+                    (2301, 3, 1, 12, 2300, -1, -1, 2301, -1),
+                ],
+                3: [(1402, 0, 2, 3, 1401, -1, -1, 1402, -1)],
+            },
+            {
+                "ForestID": [1400, 2300, 8000, 8001],
+                "SourceFileOrdinal": [0, 0, 0, 0],
+                "SourceUnitOrdinal": [0, 2, 3, 1],
+            },
+            4,
+            3,
+            # two members promoted out of one group: one remnant of two
+            {4: (2, 1, 1, 1, 0, 0)},
+            [(2300, 2300, 1, 1, 2, 4, 1), (8001, 2300, 3, 1, 1, 2, 0)],
+        )
+
+    def test_a_progenitor_tie_follows_the_insertion_loop(self):
+        forest = fixtures.progenitor_tie_forest()
+        source, out, summary = self.run_cut("tie", forest, fixtures.progenitor_tie_cut_table())
+        # before the cut the satellite 2452 is encountered first and the equal
+        # mass keeps it in front
+        before = topology(source["dataset"])
+        self.assertEqual(before[5][2], (2450, 1, 1, 5, -1, 2452, -1, 2450, -1))
+        self.assertEqual(before[4][2], (2452, 1, 3, 7, 2450, -1, 2451, 2411, -1))
+        self.assert_cut(
+            out,
+            summary,
+            {
+                5: [
+                    (1400, 0, 0, 1, -1, 1401, -1, 1400, -1),
+                    (2450, 1, 0, 4, -1, 2451, -1, 2450, -1),
+                    (2000, 2, 0, 7, -1, 2002, -1, 2000, -1),
+                    (2410, 3, 0, 10, -1, 2411, -1, 2410, -1),
+                ],
+                4: [
+                    (1401, 0, 1, 2, 1400, 1402, -1, 1401, -1),
+                    (2451, 1, 1, 5, 2450, -1, 2452, 2451, -1),
+                    (2452, 1, 2, 6, 2450, -1, -1, 2452, -1),
+                    (2001, 2, 1, 8, 2000, -1, -1, 2001, -1),
+                    (2002, 2, 2, 9, 2000, -1, 2001, 2002, -1),
+                    (2411, 3, 1, 11, 2410, -1, -1, 2411, -1),
+                ],
+                3: [(1402, 0, 2, 3, 1401, -1, -1, 1402, -1)],
+            },
+            {
+                "ForestID": [1400, 2400, 8000, 8001],
+                "SourceFileOrdinal": [0, 0, 0, 0],
+                "SourceUnitOrdinal": [0, 2, 3, 1],
+            },
+            4,
+            2,
+            {4: (1, 1, 1, 0, 1, 1)},
+            [(2400, 2400, 1, 1, 1, 3, 1), (8001, 2400, 3, 1, 1, 2, 0)],
+        )
+
+    def test_three_pieces_and_the_largest_keeps_the_id(self):
+        forest = fixtures.three_piece_forest()
+        source, out, summary = self.run_cut(
+            "three", forest, fixtures.three_piece_cut_table(), split_after=3
+        )
+        self.assert_cut(
+            out,
+            summary,
+            {
+                5: [
+                    (1400, 0, 0, 1, -1, 1401, -1, 1400, -1),
+                    (2510, 1, 0, 4, -1, 2511, -1, 2510, -1),
+                    (2000, 2, 0, 9, -1, 2002, -1, 2000, -1),
+                    (2520, 3, 0, 12, -1, 2521, -1, 2520, 2530),
+                    (2530, 3, 1, 13, -1, -1, -1, 2520, -1),
+                    (2500, 4, 0, 16, -1, 2501, -1, 2500, -1),
+                ],
+                4: [
+                    (1401, 0, 1, 2, 1400, 1402, -1, 1401, -1),
+                    (2511, 1, 1, 5, 2510, 2512, -1, 2511, -1),
+                    (2001, 2, 1, 10, 2000, -1, -1, 2001, -1),
+                    (2002, 2, 2, 11, 2000, -1, 2001, 2002, -1),
+                    (2521, 3, 2, 14, 2520, 2522, -1, 2521, -1),
+                    (2501, 4, 1, 17, 2500, -1, -1, 2501, -1),
+                ],
+                3: [
+                    (1402, 0, 2, 3, 1401, -1, -1, 1402, -1),
+                    (2512, 1, 2, 6, 2511, 2513, -1, 2512, -1),
+                    (2522, 3, 3, 15, 2521, -1, -1, 2522, -1),
+                ],
+                2: [(2513, 1, 3, 7, 2512, 2514, -1, 2513, -1)],
+                1: [(2514, 1, 4, 8, 2513, -1, -1, 2514, -1)],
+            },
+            # the piece {2520, 2530} spans both files: -1/-1
+            {
+                "ForestID": [1400, 2500, 8000, 8001, 8002],
+                "SourceFileOrdinal": [0, 0, 1, -1, 0],
+                "SourceUnitOrdinal": [0, 2, 1, -1, 1],
+            },
+            5,
+            4,
+            # two promoted from 2511's group into two different pieces
+            {4: (2, 1, 2, 0, 0, 0), 3: (1, 1, 1, 0, 0, 0)},
+            [
+                (2500, 2500, 1, 1, 1, 5, 1),
+                (8001, 2500, 3, 1, 2, 4, 0),
+                (8002, 2500, 4, 1, 1, 2, 0),
+            ],
+        )
+        # the manifest and the report carry the cut: the table, the
+        # per-snapshot counts and the pieces
+        with quiet():
+            self.assertEqual(convert_trees.main(["report", "--workdir", str(out)]), 0)
+        recorded, report = outcomes(out)
+        self.assertEqual(recorded["manifest-binding"], "PASS")
+        self.assertNotIn("SKIP", recorded.values())
+        manifest = json.loads((out / "manifest.json").read_text())
+        parameters = manifest["configuration"]["adapter"]["parameters"]
+        self.assertEqual(parameters["operation"], "cut")
+        self.assertEqual(parameters["cut_table_md5"], cut_table.md5_file(source["cut_table"]))
+        self.assertIsNone(parameters["cut_rule"])
+        writer = report["format"]["writer"]
+        self.assertEqual(writer["cut"]["table"]["md5"], parameters["cut_table_md5"])
+        self.assertEqual(writer["cut"]["split_forests"], 1)
+        self.assertEqual(writer["cut"]["fresh_pieces"], 2)
+        self.assertEqual(
+            [entry["promoted_halos"] for entry in writer["cut"]["per_snapshot"]],
+            [0, 0, 0, 1, 2, 0],
+        )
+        self.assertEqual(
+            [piece["id"] for piece in writer["cut"]["pieces"]["largest"]], [2500, 8001, 8002]
+        )
+        self.assertEqual(
+            {record["roles"][0] for record in manifest["sources"]["dependencies"]} >= {"cut_table"},
+            True,
+        )
+
+    def test_a_forest_split_into_its_final_snapshot_fof_groups(self):
+        forest = fixtures.z0_groups_forest()
+        source, out, summary = self.run_cut("z0", forest, fixtures.z0_groups_cut_table())
+        self.assert_cut(
+            out,
+            summary,
+            {
+                5: [
+                    (1400, 0, 0, 1, -1, 1401, -1, 1400, -1),
+                    (2610, 1, 0, 4, -1, 2611, -1, 2610, 2620),
+                    (2620, 1, 1, 5, -1, 2621, -1, 2610, -1),
+                    (2000, 2, 0, 8, -1, 2002, -1, 2000, -1),
+                    (2600, 3, 0, 11, -1, 2601, -1, 2600, -1),
+                ],
+                4: [
+                    (1401, 0, 1, 2, 1400, 1402, -1, 1401, -1),
+                    (2611, 1, 2, 6, 2610, -1, -1, 2611, -1),
+                    (2621, 1, 3, 7, 2620, -1, -1, 2621, -1),
+                    (2001, 2, 1, 9, 2000, -1, -1, 2001, -1),
+                    (2002, 2, 2, 10, 2000, -1, 2001, 2002, -1),
+                    (2601, 3, 1, 12, 2600, 2602, -1, 2601, -1),
+                ],
+                3: [
+                    (1402, 0, 2, 3, 1401, -1, -1, 1402, -1),
+                    (2602, 3, 2, 13, 2601, -1, -1, 2602, -1),
+                ],
+            },
+            {
+                "ForestID": [1400, 2600, 8000, 8001],
+                "SourceFileOrdinal": [0, 0, 0, 0],
+                "SourceUnitOrdinal": [0, 2, 3, 1],
+            },
+            4,
+            3,
+            {4: (1, 1, 1, 0, 0, 0)},
+            [(2600, 2600, 1, 1, 2, 4, 1), (8001, 2600, 3, 1, 1, 3, 0)],
+        )
+
+        # the final snapshot's FoF groups, as sets of ids, are the input's
+        def groups(rows):
+            by_central = {}
+            for entry in rows[5]:
+                by_central.setdefault(entry[7], set()).add(entry[0])
+            return by_central
+
+        self.assertEqual(groups(topology(source["dataset"])), groups(topology(out / "dataset")))
+
+
+class TestCutTableAndRefusals(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.root = Path(tempfile.mkdtemp(prefix="rewriter_cut_refusals_"))
+        cls.routes = RouteSet(cls.root, two_file_layout())
+        forest = fixtures.severed_satellite_forest()
+        cls.severed = cut_source(cls.root / "severed", forest, cut_layout(forest))
+        cls.severed_table = write_table(
+            cls.root / "severed", "cut", fixtures.severed_satellite_cut_table(), cls.severed
+        )
+        three = fixtures.three_piece_forest()
+        cls.three = cut_source(cls.root / "three", three, cut_layout(three))
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.root, ignore_errors=True)
+
+    n_refused = 0
+
+    def refused(self, pattern, source, table, **overrides):
+        type(self).n_refused += 1
+        out = self.root / "refused_out_{}".format(self.n_refused)
+        scratch = self.root / "refused_scratch_{}".format(self.n_refused)
+        input_dir = overrides.pop("input_dir", None)
+        with self.assertRaisesRegex(ConverterError, pattern):
+            cut(source, out, scratch, table, input_dir=input_dir, **overrides)
+        self.assertFalse(out.exists(), "a refusal must write nothing")
+        self.assertFalse(scratch.exists(), "a refusal must write nothing")
+
+    def test_the_identity_table_produces_the_noops_output(self):
+        noop_out = self.root / "noop"
+        rewrite("noop", self.routes.v3, self.routes.v3["dataset"], noop_out, self.root / "ns")
+        cut_out = self.root / "identity_cut"
+        summary = cut(self.routes.v3, cut_out, self.root / "ics", self.routes.v3["forests_list"])
+        assert_bytes_equal(self, noop_out / "dataset", cut_out / "dataset")
+        self.assertEqual((summary["cut"]["split_forests"], summary["cut"]["fresh_pieces"]), (0, 0))
+        self.assertEqual(summary["cut"]["pieces"]["count"], 0)
+        self.assertTrue(
+            all(
+                entry["promoted_halos"] == 0 and entry["progenitor_order_changed"] == 0
+                for entry in summary["cut"]["per_snapshot"]
+            )
+        )
+        self.assertEqual(np.load(cut_out / "cut_pieces.npy").size, 0)
+        self.assertEqual(
+            sha256_file(noop_out / "tree_inventory.npy"),
+            sha256_file(cut_out / "tree_inventory.npy"),
+        )
+
+    def test_every_table_invariant_is_refused_before_any_write(self):
+        source = self.severed
+        forests = source["forests"]
+        cases = (
+            # a root of the index files absent from the table
+            ({2000: None}, "1 tree root\\(s\\) of the index files missing \\(e.g. \\[2000\\]"),
+            # a table root absent from the index files
+            ({9999: 9999}, "1 not in the index files \\(e.g. \\[9999\\]"),
+            # a piece joining trees of two forests
+            (
+                {2110: 8001, 2000: 8001},
+                "1 piece\\(s\\) mix trees of several forests \\(e.g. id 8001\\)",
+            ),
+            # a fresh id at or below the catalogue's maximum
+            (
+                {2110: 1400},
+                "at or below the catalogue's maximum 8000 that is not their forest's own "
+                "\\(e.g. root 2110 of forest 2100 given 1400\\)",
+            ),
+            # a forest keeping no piece with its own id
+            ({2100: 8001, 2110: 8002}, "keep no piece with their own id \\(e.g. \\[2100\\]"),
+            # the smaller piece keeping the id
+            ({2100: 8001, 2110: 2100}, "not kept by their largest piece \\(e.g. forest 2100\\)"),
+            # fresh ids not contiguous from the maximum plus one
+            (
+                {2110: 8002},
+                "not contiguous from the catalogue's maximum 8000 plus one \\(id 8002 where 8001",
+            ),
+        )
+        for at, (changes, message) in enumerate(cases):
+            table = dict(fixtures.severed_satellite_cut_table())
+            for root, value in changes.items():
+                if value is None:
+                    table.pop(root, None)
+                else:
+                    table[root] = value
+            rows = {}
+            for forest in forests:
+                for tree in forest.trees:
+                    rows[tree.root_id] = forest.forest_id
+            rows.update(table)
+            for root, value in changes.items():
+                if value is None:
+                    rows.pop(root, None)
+            path = self.root / "severed" / "bad_{}.list".format(at)
+            path.write_text(
+                "#TreeRootID ForestID\n"
+                + "".join("{} {}\n".format(root, forest) for root, forest in sorted(rows.items()))
+            )
+            self.refused(message, source, path)
+        # fresh ids out of descending piece size: {2520, 2530} (4 halos) after {2500} (2)
+        path = write_table(
+            self.root / "three",
+            "order",
+            {2500: 8001, 2510: 2500, 2520: 8002, 2530: 8002},
+            self.three,
+        )
+        self.refused("fresh ids do not follow descending piece size", self.three, path)
+        malformed = self.root / "severed" / "malformed.list"
+        malformed.write_text(self.severed_table.read_text().replace("2110 8001", "2110 8001 7"))
+        self.refused("malformed cut table", source, malformed)
+        self.refused("--cut-table .* no such file", source, self.root / "absent.list")
+
+    def test_the_cut_table_option_belongs_to_cut_alone(self):
+        self.refused("cut needs --cut-table", self.severed, None)
+        self.refused(
+            "cut refuses --column-map", self.severed, self.severed_table, column_map=ASCII_PROFILE
+        )
+        self.refused(
+            "cut refuses --conversion-manifest",
+            self.severed,
+            self.severed_table,
+            conversion_manifest=self.routes.v2["manifest"],
+        )
+        with self.assertRaisesRegex(ConverterError, "noop refuses --cut-table"):
+            rewrite(
+                "noop",
+                self.routes.v3,
+                self.routes.v3["dataset"],
+                self.root / "x",
+                self.root / "sx",
+                cut_table=self.routes.v3["forests_list"],
+            )
+        with self.assertRaisesRegex(ConverterError, "migrate refuses --cut-table-record"):
+            rewrite(
+                "migrate",
+                self.routes.v2,
+                self.routes.v2["dataset"],
+                self.root / "x",
+                self.root / "sx",
+                cut_table_record=self.routes.v2["manifest"],
+            )
+        self.assertFalse((self.root / "x").exists())
+
+    def record(self, name, **changes):
+        """A record in the census's streamed shape: the header entries, then
+        the per-piece columns; md5s of this table and these index files."""
+        header = {
+            "dataset": {"format_version": 2, "n_forests_total": 999, "forest_id_sha256": "0" * 64},
+            "index_files": {
+                "forests_list": {"md5": cut_table.md5_file(self.severed["forests_list"])},
+                "locations": {"md5": cut_table.md5_file(self.severed["locations"])},
+            },
+            "rule": {"text": "the z = 0 FoF groups of every forest"},
+            "table": {"md5": cut_table.md5_file(self.severed_table)},
+        }
+        for key, value in changes.items():
+            section, field = key.split("__")
+            header[section][field] = value
+        pieces = {
+            column: np.array([2100, 8001], dtype=np.int64) for column in cut_table.RECORD_COLUMNS
+        }
+        path = self.root / "severed" / (name + ".json")
+        cut_table.write_table_record(path, header, pieces)
+        return path
+
+    def test_the_record_is_bound_by_md5_not_by_the_datasets_identity(self):
+        record = self.record("record")
+        out = self.root / "severed" / "with_record"
+        summary = cut(
+            self.severed,
+            out,
+            self.root / "severed" / "with_record_s",
+            self.severed_table,
+            cut_table_record=record,
+        )
+        parameters = json.loads((out / "manifest.json").read_text())["configuration"]["adapter"][
+            "parameters"
+        ]
+        self.assertEqual(parameters["cut_rule"], "the z = 0 FoF groups of every forest")
+        self.assertEqual(parameters["cut_table_record_dataset"]["format_version"], 2)
+        self.assertEqual(parameters["cut_table_record_sha256"], sha256_file(record))
+        self.assertEqual(summary["cut"]["rule"], "the z = 0 FoF groups of every forest")
+        self.assertEqual(summary["cut"]["record_dataset"]["n_forests_total"], 999)
+        with quiet():
+            self.assertEqual(convert_trees.main(["report", "--workdir", str(out)]), 0)
+        _recorded, report = outcomes(out)
+        self.assertEqual(report["format"]["writer"]["cut"]["rule"], parameters["cut_rule"])
+        self.assertIn(
+            "cut_table_record",
+            {role for entry in report["source"]["dependencies"] for role in entry["roles"]},
+        )
+        # the same table and dataset without a record: a different configuration
+        plain = cut(
+            self.severed,
+            self.root / "severed" / "plain",
+            self.root / "severed" / "plain_s",
+            self.severed_table,
+        )
+        self.assertNotEqual(plain["configuration_sha256"], summary["configuration_sha256"])
+        assert_bytes_equal(self, out / "dataset", self.root / "severed" / "plain" / "dataset")
+        self.refused(
+            "records table md5 'ffff",
+            self.severed,
+            self.severed_table,
+            cut_table_record=self.record("wrong_table", table__md5="f" * 32),
+        )
+        self.refused(
+            "records locations md5 'eeee",
+            self.severed,
+            self.severed_table,
+            cut_table_record=self.record("wrong_index", index_files__locations={"md5": "e" * 32}),
+        )
+        self.refused(
+            "no rule text",
+            self.severed,
+            self.severed_table,
+            cut_table_record=self.record("no_rule", rule__text=""),
+        )
+        unreadable = self.root / "severed" / "unreadable.json"
+        unreadable.write_text("{\n")
+        self.refused(
+            "not a readable JSON record",
+            self.severed,
+            self.severed_table,
+            cut_table_record=unreadable,
+        )
+
+    def test_resume_block_size_and_the_cli(self):
+        source = self.severed
+        reference = self.root / "severed" / "reference"
+        cut(source, reference, self.root / "severed" / "reference_s", self.severed_table)
+        for name, block_rows in (("blocks_2", 2), ("blocks_3", 3)):
+            out = self.root / "severed" / name
+            cut(
+                source,
+                out,
+                self.root / "severed" / (name + "_s"),
+                self.severed_table,
+                block_rows=block_rows,
+            )
+            assert_bytes_equal(self, reference / "dataset", out / "dataset")
+        # an interruption after two verified slabs, then the resume
+        out = self.root / "severed" / "interrupted"
+        scratch = self.root / "severed" / "interrupted_s"
+        original = rewriter_run.verify_slab
+        calls = []
+
+        def failing(*args, **kwargs):
+            if len(calls) == 2:
+                raise RuntimeError("injected failure")
+            calls.append(1)
+            return original(*args, **kwargs)
+
+        with mock.patch.object(rewriter_run, "verify_slab", failing):
+            with self.assertRaisesRegex(RuntimeError, "injected failure"):
+                cut(source, out, scratch, self.severed_table)
+        # a different table is a different configuration
+        other = write_table(self.root / "severed", "other", {2100: 2100, 2110: 2100}, source)
+        with self.assertRaisesRegex(ConverterError, "another configuration"):
+            cut(source, out, scratch, other, resume=True)
+        summary = cut(source, out, scratch, self.severed_table, resume=True)
+        self.assertEqual(summary["slabs_written_this_run"], N_SNAPSHOTS - 2)
+        assert_bytes_equal(self, reference / "dataset", out / "dataset")
+        again = cut(source, out, scratch, self.severed_table, resume=True)
+        self.assertEqual(again["cut"]["table"]["md5"], summary["cut"]["table"]["md5"])
+        # the CLI
+        cli_out = self.root / "severed" / "cli"
+        argv = [
+            "cut",
+            "--input",
+            str(source["dataset"]),
+            "--output",
+            str(cli_out),
+            "--scratch",
+            str(self.root / "severed" / "cli_s"),
+            "--simulation-info",
+            str(source["root"] / "simulation_info.yaml"),
+            "--a-list",
+            str(source["root"] / "fixture.a_list"),
+            "--forests-list",
+            str(source["forests_list"]),
+            "--locations",
+            str(source["locations"]),
+            "--cut-table",
+            str(self.severed_table),
+        ]
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(rewrite_trees.main(argv), 0)
+        self.assertIn("cut: COMPLETE", stdout.getvalue())
+        assert_bytes_equal(self, reference / "dataset", cli_out / "dataset")
+
+    def test_stored_chains_that_are_not_the_reference_order_are_refused(self):
+        # forest 8000's progenitor chain at snapshot 4 reversed in the input
+        # (2001 before 2002, against the insertion loop's 2002 first): the
+        # cut cannot reproduce it and refuses
+        copy = self.root / "severed" / "reversed_chain"
+        shutil.copytree(self.severed["dataset"], copy)
+        with h5py.File(copy / "snapshot_004.h5", "r+") as handle:
+            ids = handle["halos"]["MostBoundID"][...].tolist()
+            row_2001, row_2002 = ids.index(2001), ids.index(2002)
+            next_prog = handle["halos"]["NextProgenitor"][...]
+            next_prog[row_2001], next_prog[row_2002] = row_2002, -1
+            handle["halos"]["NextProgenitor"][...] = next_prog
+        with h5py.File(copy / "snapshot_005.h5", "r+") as handle:
+            ids = handle["halos"]["MostBoundID"][...].tolist()
+            handle["halos"]["FirstProgenitor"][ids.index(2000)] = row_2001
+        # the check is pass 1's, so the workdir exists when it refuses
+        with self.assertRaisesRegex(
+            ConverterError,
+            "snapshot_004.h5: the input's progenitor chains into snapshot 5 are not the "
+            "reference insertion order .* for 1 descendant\\(s\\) \\(2 NextProgenitor link\\(s\\) "
+            "and 1 FirstProgenitor",
+        ):
+            cut(
+                self.severed,
+                self.root / "severed" / "reversed_out",
+                self.root / "severed" / "reversed_s",
+                self.severed_table,
+                input_dir=copy,
+            )
 
 
 if __name__ == "__main__":
