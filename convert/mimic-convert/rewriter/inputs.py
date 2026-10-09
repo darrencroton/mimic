@@ -64,7 +64,6 @@ from hdf5_writer import load_header_metadata  # noqa: E402
 from hdf5_writer_v3 import V3_SCHEMA_ATTRS, V3_SIDECAR_DATASETS, v3_halo_datasets  # noqa: E402
 from horizontal_dataset import DEFAULT_BLOCK_ROWS, HorizontalDataset  # noqa: E402
 from rewriter import (  # noqa: E402
-    DATASET_DIR,
     OPERATION_MIGRATE,
     OPERATION_NOOP,
     OPERATIONS,
@@ -304,27 +303,27 @@ def check_a_list(request: RewriteRequest, dataset: HorizontalDataset) -> Tuple[f
 
 
 def check_metadata(request: RewriteRequest, dataset: HorizontalDataset) -> Dict[str, float]:
-    """The simulation metadata must give exactly the input's physical headers."""
+    """The simulation metadata must give exactly every input slab's physical
+    headers (the reader's run-scoped checks do not cover them)."""
     metadata = load_header_metadata(request.simulation_info)
-    header = dataset.header(0)
-    missing = [name for name in PHYSICAL_ATTRS if header.get(name) is None]
-    if missing:
-        raise ConverterError("{}: header without {}".format(dataset.snapshot_path(0), missing))
-    differing = {
-        name: (header[name], metadata[name])
-        for name in PHYSICAL_ATTRS
-        if float(header[name]) != float(metadata[name])
-    }
-    if differing:
-        raise ConverterError(
-            "--simulation-info {}: physical header value(s) differ from the input's: {}".format(
-                request.simulation_info,
-                ", ".join(
-                    "{} input {!r} metadata {!r}".format(name, held, given)
-                    for name, (held, given) in sorted(differing.items())
-                ),
-            )
-        )
+    for snap in dataset.snapshots:
+        header = dataset.header(snap)
+        for name in PHYSICAL_ATTRS:
+            if header.get(name) is None:
+                raise ConverterError(
+                    "{}: header without {}".format(dataset.snapshot_path(snap), name)
+                )
+            if float(header[name]) != float(metadata[name]):
+                raise ConverterError(
+                    "--simulation-info {}: {} is {!r} but {} records {!r}; refusing to write a "
+                    "header that differs from the input's".format(
+                        request.simulation_info,
+                        name,
+                        metadata[name],
+                        dataset.snapshot_path(snap),
+                        header[name],
+                    )
+                )
     return metadata
 
 
@@ -364,14 +363,17 @@ def load_schema(request: RewriteRequest, dataset: HorizontalDataset) -> Canonica
             )
         return schema
     schema = build_schema(load_column_map(DEFAULT_PROFILE))
-    recorded = dataset.header(0).get("column_mapping_sha256")
-    if schema.digest != recorded:
-        raise ConverterError(
-            "{}: column_mapping_sha256 {} is not the shipped {} profile's ({}); the manifest "
-            "noop writes embeds that profile's schema, so an input converted with another "
-            "profile cannot be bound -- its own profile is not given (noop refuses "
-            "--column-map)".format(dataset.directory, recorded, SOURCE_FORMAT, schema.digest)
-        )
+    for snap in dataset.snapshots:
+        recorded = dataset.header(snap).get("column_mapping_sha256")
+        if schema.digest != recorded:
+            raise ConverterError(
+                "{}: column_mapping_sha256 {} is not the shipped {} profile's ({}); the "
+                "manifest noop writes embeds that profile's schema, so an input converted with "
+                "another profile cannot be bound -- its own profile is not given (noop refuses "
+                "--column-map)".format(
+                    dataset.snapshot_path(snap), recorded, SOURCE_FORMAT, schema.digest
+                )
+            )
     expected = _declared(schema.output_field_declarations())
     for snap in dataset.snapshots:
         declared = dataset.schema_declarations(snap)
@@ -850,6 +852,21 @@ def prepare(request: RewriteRequest) -> Prepared:
     )
 
 
+def check_header_reproduced(
+    dataset: HorizontalDataset, snap: int, header: Mapping[str, object]
+) -> None:
+    """For the no-op: the header about to be written must equal the input
+    slab's own, attribute by attribute (the format's string attributes
+    compared as text)."""
+    held = dataset.header(snap)
+    for name, value in header.items():
+        if name not in held or held[name] != value:
+            raise ConverterError(
+                "{}: header {} would be written as {!r} but the input holds {!r}; refusing to "
+                "reproduce it".format(dataset.snapshot_path(snap), name, value, held.get(name))
+            )
+
+
 def output_header(prepared: Prepared, snap: int, n_halos: int, max_rank: int) -> Dict[str, object]:
     """One output slab's ``/header`` attributes, in the writer's table."""
     header: Dict[str, object] = {
@@ -865,7 +882,3 @@ def output_header(prepared: Prepared, snap: int, n_halos: int, max_rank: int) ->
     }
     header.update(prepared.metadata)
     return header
-
-
-def dataset_dir(output_dir: Path) -> Path:
-    return Path(output_dir) / DATASET_DIR

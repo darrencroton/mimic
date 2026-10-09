@@ -37,6 +37,7 @@ from rewriter.inputs import (  # noqa: E402
     MEMORY_FORMULAS,
     Prepared,
     RewriteRequest,
+    check_header_reproduced,
     check_paths,
     output_header,
     prepare,
@@ -238,7 +239,6 @@ def run_rewrite(request: RewriteRequest, log: Callable[[str], None] = _log) -> d
     # slab passes (package docstring, the resident baseline)
     prepared.release_tables()
     census.totals = None
-    census.root_snapshot = None
 
     # ---- passes 1 and 2 ----
     top = n_snapshots - 1
@@ -305,7 +305,7 @@ def run_rewrite(request: RewriteRequest, log: Callable[[str], None] = _log) -> d
         for name, value in record["n_links"].items():
             n_links[name] = n_links.get(name, 0) + int(value)
     files = sorted(run.dataset_out.iterdir())
-    finish_manifest(manifest, prepared, counts, n_links, run.store_peak, files)
+    finish_manifest(manifest, prepared, counts, n_links, int(state.data["peak_store_bytes"]), files)
     for snap, record in state.data["verified"].items():
         registered = manifest.artifact("{}/{}".format(DATASET_DIR, snapshot_h5_name(int(snap))))
         if registered is None or registered["sha256"] != record["sha256"]:
@@ -375,7 +375,6 @@ def _reload_pass0(state: RestartState, scratch: Scratch, log) -> Census:
         sid_base=sid_base,
         max_rank=max_rank,
         roots=roots,
-        root_snapshot=None,
         correspondence=dict(recorded["correspondence"]),
     )
 
@@ -385,7 +384,6 @@ def _checkpoint_pass0(census: Census, state: RestartState, scratch: Scratch) -> 
     shas = {
         "totals": scratch.save(names["totals"], census.totals),
         "roots": scratch.save(names["roots"], census.roots),
-        "root_snapshot": scratch.save(names["root_snapshot"], census.root_snapshot),
     }
     state.data["pass0"] = {"sha256": shas, "correspondence": census.correspondence}
     state.save()
@@ -459,6 +457,8 @@ def _pass2(
     )
     columns = SlabColumns(prepared.dataset, snap, window, prepared.table, identity_from_input)
     header = output_header(prepared, snap, window.own.n, census.max_rank)
+    if identity_from_input:
+        check_header_reproduced(prepared.dataset, snap, header)
     path = run.dataset_out / snapshot_h5_name(snap)
     tmp = run.dataset_out / (snapshot_h5_name(snap) + ".tmp")
     if tmp.exists():

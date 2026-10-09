@@ -72,7 +72,7 @@ STATUS_COMPLETE = "complete"
 
 _REMAP_PARTS = ("perm", "forest", "rank", "sid")
 _CHECKPOINT_PARTS = ("running", "tree_counts", "labels")
-_PASS0_PARTS = ("totals", "roots", "root_snapshot", "inventory")
+_PASS0_PARTS = ("totals", "roots", "inventory")
 
 
 def _fsync_directory(path: Path) -> None:

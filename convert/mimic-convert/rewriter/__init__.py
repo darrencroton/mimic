@@ -44,7 +44,7 @@ reference rank orders a forest's halos by descending snapshot first.
    is remapped through its target slab's permutation (``Descendant`` at N+1,
    ``FirstProgenitor`` at N-1, the rest at N) with its companion snapshot
    column -1 iff the link is -1, the file is written to a temporary name,
-   renamed on success, re-read and verified against the input.
+   re-read and verified against the input, and renamed on success.
 
 **Output.** A converter-shaped workdir: ``manifest.json`` of the shape the
 producer battery binds to, ``dataset/`` holding exactly the snapshot files

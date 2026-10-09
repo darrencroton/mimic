@@ -69,7 +69,6 @@ class Census:
     sid_base: np.ndarray  # int64 [n_forests]: SourceHaloID of each forest's rank 0
     max_rank: int
     roots: np.ndarray  # int64, ascending: the trees' terminal MostBoundID values
-    root_snapshot: np.ndarray  # int32, aligned with roots
     correspondence: Dict[str, object]
 
 
@@ -170,7 +169,7 @@ def run_pass0(
                 max_rank + 1, max_rank, dataset.max_halo_rank_in_forest
             )
         )
-    roots, root_snapshot, correspondence = check_roots(dataset, index, forest_ids, block_rows)
+    roots, _root_snapshot, correspondence = check_roots(dataset, index, forest_ids, block_rows)
     log(
         "pass 0: {} forests, {} halos, {} trees; root correspondence {}".format(
             totals.size, dataset.total_halos, roots.size, correspondence["verdict"]
@@ -181,7 +180,6 @@ def run_pass0(
         sid_base=sid_base,
         max_rank=max_rank,
         roots=roots,
-        root_snapshot=np.asarray(root_snapshot, dtype=np.int32),
         correspondence=correspondence,
     )
 

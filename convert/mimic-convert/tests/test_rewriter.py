@@ -446,6 +446,25 @@ class TestNoop(unittest.TestCase):
         self.assertFalse((self.root / "digest_out").exists())
         self.assertFalse((self.root / "digest_s").exists())
 
+    def test_noop_refuses_a_later_snapshot_whose_header_differs(self):
+        # snapshot 0 is untouched, so a check of the first header alone passes
+        copy = self.copy_v3("later_header")
+        with h5py.File(copy / "snapshot_003.h5", "r+") as handle:
+            handle["header"].attrs.modify("omega_matter", np.float64(0.25))
+        with self.assertRaisesRegex(
+            ConverterError, "omega_matter is 0.3089 but .*snapshot_003.h5 records 0.25"
+        ):
+            rewrite("noop", self.routes.v3, copy, self.root / "later_out", self.root / "later_s")
+        self.assertFalse((self.root / "later_out").exists())
+        copy = self.copy_v3("later_digest")
+        with h5py.File(copy / "snapshot_004.h5", "r+") as handle:
+            handle["header"].attrs.modify(
+                "column_mapping_sha256", np.array(("1" * 64).encode(), dtype="S64")
+            )
+        with self.assertRaisesRegex(ConverterError, "snapshot_004.h5: column_mapping_sha256 1"):
+            rewrite("noop", self.routes.v3, copy, self.root / "later_out", self.root / "later_s")
+        self.assertFalse((self.root / "later_out").exists())
+
     def test_noop_refuses_a_profile_and_a_conversion_manifest(self):
         with self.assertRaisesRegex(ConverterError, "noop refuses --column-map"):
             rewrite(
@@ -585,6 +604,35 @@ class TestResume(unittest.TestCase):
             )
             self.assertEqual(summary["slabs_written_this_run"], N_SNAPSHOTS - 2, attribute)
             assert_bytes_equal(self, self.reference / "dataset", out / "dataset")
+
+    def test_resume_after_a_failure_in_the_finalisation(self):
+        # every slab verified, the summary never written: the resume takes
+        # the branch with nothing left to rank and reproduces the run
+        out = self.root / "finalisation"
+        scratch = self.root / "finalisation_scratch"
+        original = rewriter_run.write_json_atomic
+
+        def failing(path, document):
+            if path.name == "rewrite_summary.json":
+                raise RuntimeError("injected failure")
+            return original(path, document)
+
+        with mock.patch.object(rewriter_run, "write_json_atomic", failing):
+            with self.assertRaisesRegex(RuntimeError, "injected failure"):
+                rewrite("migrate", self.routes.v2, self.routes.v2["dataset"], out, scratch)
+        state = json.loads((out / "rewrite_state.json").read_text())
+        self.assertEqual(len(state["verified"]), N_SNAPSHOTS)
+        self.assertEqual(state["status"], "running")
+        summary = rewrite(
+            "migrate", self.routes.v2, self.routes.v2["dataset"], out, scratch, resume=True
+        )
+        self.assertEqual(summary["slabs_written_this_run"], 0)
+        assert_bytes_equal(self, self.reference / "dataset", out / "dataset")
+        self.assertEqual(
+            sha256_file(out / "tree_inventory.npy"),
+            sha256_file(self.reference / "tree_inventory.npy"),
+        )
+        self.assertEqual(summary["remap_store"]["peak_bytes"], state["peak_store_bytes"])
 
     def test_resume_refuses_a_retargeted_input_symlink(self):
         # the input directory holds a symlink to one slab; after the
@@ -889,7 +937,7 @@ class TestRefusals(unittest.TestCase):
             .replace("100.0", "200.0")
         )
         self.refused(
-            "physical header value",
+            "box_size_mpc_h is 200.0 but .*records 100.0",
             "migrate",
             self.routes.v2,
             self.routes.v2["dataset"],

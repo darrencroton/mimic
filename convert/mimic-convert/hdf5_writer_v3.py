@@ -290,13 +290,15 @@ def write_v3_snapshot_columns(
     ``column(name)`` is called once per ``table`` entry, in the table's order,
     and returns that column for every row, which is written in slices of
     ``block_rows``; the column must have ``n_halos`` rows and the table's
-    dtype and shape. ``track_times`` is passed to every object created, so
-    with the default ``False`` no object header carries a modification time
-    and a repeated write of the same content is byte-identical. The file is
-    created exclusively (``w-``), as the record writer's is.
+    dtype and shape. ``track_times`` is passed to every group and dataset
+    created (the file's own creation property list leaves time tracking off
+    by default), so with the default ``False`` no object header carries a
+    modification time and a repeated write of the same content is
+    byte-identical. The file is created exclusively (``w-``), as the record
+    writer's is.
     """
     block_rows = _require_block_rows(block_rows)
-    with h5py.File(path, "w-", libver="latest", track_times=track_times) as handle:
+    with h5py.File(path, "w-", libver="latest") as handle:
         header_group = handle.create_group("header", track_times=track_times)
         for name, dtype in HEADER_ATTRS.items():
             header_group.attrs.create(name, header[name], dtype=dtype)
