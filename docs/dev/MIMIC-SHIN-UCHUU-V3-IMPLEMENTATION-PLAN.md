@@ -2,19 +2,36 @@
 
 **Purpose:** Execute [`MIMIC-SHIN-UCHUU-V3-PLAN.md`](MIMIC-SHIN-UCHUU-V3-PLAN.md), the staged requirements brief: a forest-blocked Consistent-Trees ASCII route under the owner ruling that keeps `format_version 3` (Stage A); the super-forest decision by measurement on the version 2 production dataset (Stage B); a dataset rewriter that migrates version 2 to version 3 and cuts a forest under a declared table (Stage R); the Shin-Uchuu production datasets, uncut then cut, run and compared galaxy by galaxy (Stage C); and the retirement of version 2 (Stage D). The end state is the brief's decision 4: both version 2 datasets replaced by version 3 ones, every piece of version 2 removed, and the Shin-Uchuu dataset cut so that it runs chunked on a 16, 32 or 64 GB laptop.
 
-**Status:** Planning contract, revision 5 (2026-10-09). Stage A (Slices 1 to 6) and Slices 7 and 8 are accepted. Slice 9 was stopped in run 2 for this revision.
+**Status:** Planning contract, revision 6 (2026-10-10). Stages A and B (Slices 1 to 9) are accepted; Slice 9 was accepted in run 2b at `35f39209`.
+
+Revision 6 records the owner's decision 6, taken on Slice 9's census record. **The class is 16 GiB with a usable budget of 10 GiB, at one task and 128 chunks; the stop condition steps down to 32 GiB, then stops.** The decision is contingent on one root-cause fix.
+
+The census found that under the decided table the driver's partition cannot reach 16 or 32 GiB at any chunk count:
+- the driver weighs each forest by its rows in the widest slab only;
+- the 29 million smallest fresh pieces are nearly empty there and full at z = 0;
+- so they share one chunk of 29,113,469 rows.
+
+The owner chose to fix the cause rather than renumber the pieces. The new [Slice 15](#slice-15-the-drivers-partition-weighted-by-each-forests-peak-occupancy-revision-6) weighs each forest by its peak occupancy over all slabs. The fix needs no format change.
+
+Revision 6:
+- adds Slice 15, so the former Slices 15 to 24 are now 16 to 25. Every slice number in this document, including those in earlier revisions' notes, uses the new numbering;
+- records decision 6;
+- amends the stage map, the profiles and resource tables, the Final-State Inventory, F6's wording, Slices 7 and 9 (wording only; both are accepted), Slices 23 and 25, and procedure steps 5 and 11;
+- folds in run 2b's plan defects (PD1 to PD3) and its routed item R11.
+
+Every other contract is unchanged.
 
 Revision 5 records the owner's Stage B decision, taken on the census's production measurements, an independent assessment and its critique. **Every forest of the whole simulation is partitioned into its z = 0 FoF groups:** each tree joins the forest of its terminal halo's z = 0 FoF group. That gives 244,953,607 forests where today there are 166,547,771. The rule has no free parameter and is anchored at the final snapshot, so every halo is treated the same. It replaces the candidate-rule exploration (duration, halo-count and mass thresholds over a co-membership graph) and the laptop-class-driven choice of rule.
 
 Revision 5 amends:
 - decisions 6 and 7, F2, F6, F7, and the Stage B execution boundary;
 - the execution profiles, the Resource Profile row for Slice 9, and the launcher;
-- Slice 9 (rewritten), and Slices 8, 11, 12, 14, 15, 16, 17, 22 and 24;
+- Slice 9 (rewritten), and Slices 8, 11, 12, 14, 16, 17, 18, 23 and 25;
 - procedure steps 1 and 8 to 12.
 
 It adds a [Final-State Inventory](#final-state-inventory) that removes the census machinery the decision makes dead. Every other contract is unchanged.
 
-Revision 4 carries the owner's requests after the panel converged: the stage map below, Claude Opus 5.5 at high effort in place of Fable for Slices 2, 8 and 16 (Fable stays on the rewriter, Slices 11 and 12), and the location of the version 2 reference run output. Revision 2 went back to the same panel for a focused re-review, which found every round-1 item resolved and seven items the amendments themselves opened; revision 3 resolves them: the census labels live for the census directory's lifetime and the cut's candidate evaluation re-reads the forest's slabs with them resident, the rewriter drops its occupancy shortcut and always scans `ForestIndex` itself, `fixtures.py` joins Slice 7's surface, the harness's block-size case moves to Slice 2, the bounded battery's agreement test is restricted to adjacent datasets with the gapped refusal tested separately, the pinned identity gate's mutation source is retargeted, the micro-Uchuu rehearsal compares logical census results through the catalogue id, the surviving converter modules' version 2 prose joins Slice 22, and the Stage R datasets retained into the procedure are named and budgeted. Revision 1 was reviewed by an independent panel (Codex `gpt-6.1-sol` and Claude Fable 5.1, both high effort, read-only); every finding was verified against the repository and this revision resolves them: the production procedure follows the brief's output placement (one run output on `Internal` at a time), the alternate matching modes of the comparator treat identity-valued fields through the matched mapping rather than byte for byte, the cut operation remaps the numeric `Descendant` and verifies the logical target, the version 2 deletions are listed by symbol, the ASCII extras join moves into the adapter slice so no slice breaks the converter floor, the catalogue key is ASCII-only, the sidecar unit ordinal is the dense first-marker rank the parser computes, the census graph is undirected with per-snapshot deduplication and its table invariants are enumerated, the census aggregates are sized and released, the bounded battery has a per-obligation algorithm table with a ceiling in multiples of the widest slab, the rewriter's workdir layout and manifest fields are frozen, the uncut `sage16` run's memory floor is the super-forest's rows, the version 2 branches of the parity gate and the processing-order test are retired, the pinned identity gate's version 2 leg is removed with its reason, the vertical-path preservation stage is kept under a version-neutral gate, and twelve anchors were corrected. The brief's design was critiqued in three panel rounds (2026-10-07) and this plan takes its binding decisions, its ruling, its rewriter contract and its workflows as given; where this plan refines or corrects the brief it says so under [Decisions for the owner](#decisions-for-the-owner) and [Frozen Decisions](#frozen-decisions). Written after five read-only investigations of the code at the planning baseline (the converter's ASCII route, inventory contract, pipeline, manifest, battery and writer; the format document and every stale statement in the guides, skills, changelog and package READMEs; the C reader, driver, partition and identity encoding; the gates, harnesses, fixtures and make targets; the version 2 inventory and the local data), each anchor below re-read at the baseline.
+Revision 4 carries the owner's requests after the panel converged: the stage map below, Claude Opus 5.5 at high effort in place of Fable for Slices 2, 8 and 17 (Fable stays on the rewriter, Slices 11 and 12), and the location of the version 2 reference run output. Revision 2 went back to the same panel for a focused re-review, which found every round-1 item resolved and seven items the amendments themselves opened; revision 3 resolves them: the census labels live for the census directory's lifetime and the cut's candidate evaluation re-reads the forest's slabs with them resident, the rewriter drops its occupancy shortcut and always scans `ForestIndex` itself, `fixtures.py` joins Slice 7's surface, the harness's block-size case moves to Slice 2, the bounded battery's agreement test is restricted to adjacent datasets with the gapped refusal tested separately, the pinned identity gate's mutation source is retargeted, the micro-Uchuu rehearsal compares logical census results through the catalogue id, the surviving converter modules' version 2 prose joins Slice 23, and the Stage R datasets retained into the procedure are named and budgeted. Revision 1 was reviewed by an independent panel (Codex `gpt-6.1-sol` and Claude Fable 5.1, both high effort, read-only); every finding was verified against the repository and this revision resolves them: the production procedure follows the brief's output placement (one run output on `Internal` at a time), the alternate matching modes of the comparator treat identity-valued fields through the matched mapping rather than byte for byte, the cut operation remaps the numeric `Descendant` and verifies the logical target, the version 2 deletions are listed by symbol, the ASCII extras join moves into the adapter slice so no slice breaks the converter floor, the catalogue key is ASCII-only, the sidecar unit ordinal is the dense first-marker rank the parser computes, the census graph is undirected with per-snapshot deduplication and its table invariants are enumerated, the census aggregates are sized and released, the bounded battery has a per-obligation algorithm table with a ceiling in multiples of the widest slab, the rewriter's workdir layout and manifest fields are frozen, the uncut `sage16` run's memory floor is the super-forest's rows, the version 2 branches of the parity gate and the processing-order test are retired, the pinned identity gate's version 2 leg is removed with its reason, the vertical-path preservation stage is kept under a version-neutral gate, and twelve anchors were corrected. The brief's design was critiqued in three panel rounds (2026-10-07) and this plan takes its binding decisions, its ruling, its rewriter contract and its workflows as given; where this plan refines or corrects the brief it says so under [Decisions for the owner](#decisions-for-the-owner) and [Frozen Decisions](#frozen-decisions). Written after five read-only investigations of the code at the planning baseline (the converter's ASCII route, inventory contract, pipeline, manifest, battery and writer; the format document and every stale statement in the guides, skills, changelog and package READMEs; the C reader, driver, partition and identity encoding; the gates, harnesses, fixtures and make targets; the version 2 inventory and the local data), each anchor below re-read at the baseline.
 
 **Planning baseline:** the last commit that changes anything outside this file, [`MIMIC-DEVELOPMENT-PATHWAY.md`](MIMIC-DEVELOPMENT-PATHWAY.md) and the brief's status line. Every `path:line` anchor below was read at that baseline. The hash is deliberately not written here: PM binds a run to the SHA-256 of this file's bytes, so a hash that moves with unrelated commits would force a re-freeze. Recheck drift against the anchors before executing a slice; do not silently rebase a contract onto a changed interface.
 
@@ -30,12 +47,12 @@ One row per run. "Going in" is what must be true before the run starts; "Your ac
 |---|---|---|---|---|---|
 | 1 | A | 1 to 6 | The ruling into the format document and the ASCII route made forest-blocked, gated on micro-Uchuu; `micro-uchuu-ascii-horizontal` moved to version 3; guides and skills corrected | Decision 1 confirmed; this plan committed and `check-plan` clean; `make`, `make USE-MPI=yes`, `mimic_venv`, the micro-Uchuu ASCII and version 2 datasets resolve; `tests-converter`, `tests-horizontal-v3` and `tests-distributed` pass at the baseline; LaCie directories chosen and the version 2 micro-Uchuu dataset's retention path recorded | Start the run-1 launcher; approve 1, 2, 3, 5, 6 when asked; Slice 5 runs real data for a few hours. Expect at the end: the version 3 micro-Uchuu dataset installed, the acceptance record started |
 | 2 | B | 7 to 9 | Measure the super-forest: effective trees, the co-membership graph, candidate cut rules with their predicted physics cost and chunk maxima. **Run 2 (2026-10-08/09):** Slices 7 and 8 accepted; Slice 9 stopped for revision 5 after the owner chose the z = 0 FoF-group rule | Run 1 accepted; the LaCie holds only `data/`; the production `forests.list` (7.56 GB, md5 `60dbf14a99ae9f23ca7c334474477a95`) and `locations.dat` (13.75 GB, md5 `75442d7ae5b1f2465b485e60720e6df7`) in `/Volumes/LaCie/data/uchuu/shin-uchuu-nt-transfer/` | Done |
-| 2b | B | 9 (revision 5) | The z = 0 FoF-group table for the whole simulation, its measured cost (promotions, progenitor-order changes, affected histories) and its chunked memory; the obsolete exploration machinery removed; the census record you sign off | Revision 5 committed; run 2's aggregates on the LaCie | New PM run; approve 9. The production `cut` accounting reads the dataset for a few hours (measured in run 2: occupancy 17 min, trees 46 min, graph 43 min). Then read `MIMIC-SHIN-UCHUU-FOREST-CENSUS.md`, fill its two decision slots (the laptop class with its usable budget, and the stop condition), and record them in decision 6 here, then commit |
-| 3 | R | 10 to 15 | The rewriter (migrate, cut, no-op), the route's declared cut table, the comparator's lineage key, and every gate at subset scale against the Stage A route and the C reference reader | Run 2b accepted, and your laptop class and stop condition recorded in this plan; about 0.6 TB of LaCie space for the subset conversions and workdirs | New PM run; approve 11 to 15; Slice 15 runs 12 to 24 h of machine time with 100 GB kept free. Expect: the Stage R record with the measured spill, RSS and sizes, and three retained subset datasets |
-| 4 | C | 16 | The bounded battery, proven to agree with the external-sort battery on the subset | Run 3 accepted | New PM run; approve 16; a 2 to 4 h agreement run |
-| (owner) | C | the production procedure | The uncut dataset by (M), run and compared galaxy by galaxy with the version 2 run; the cut dataset by (C), run, compared, science-checked; the laptop proxy | Slice 16 accepted; the free space the recomputed storage ledger requires on the LaCie (procedure step 1); the version 2 run output at `/Volumes/Internal/results/mimic/sage16-shin-uchuu` with its `metadata/`; decisions 9 to 11 answered | Not PM: a Mode A assistant session walking the twelve steps in order, each step's evidence into the acceptance record as it happens. Two whole-machine moments: step 2 if the reference has to be re-run, and step 5 (the uncut `sage16` run). Your own transfers to NT at steps 6 and 12 |
-| 5 | C | 17 | Provenance, the record and the pathway after production | The procedure complete and its record accepted | New PM run; approve 17 |
-| 6 | D | 18 to 24 | Retire version 2: utilities extracted, the version 3 ASCII fixture and every consumer retargeted, the negative battery ported, the reader path, converter, crosscheck, fixtures, make target and CI step deleted, the format document's version 2 text frozen as history | Run 5 accepted; the version 2 production dataset deleted from the LaCie after its NT copy was verified | New PM run; approve 19, 21, 22, 23, 24. Expect about 18 thousand lines gone; then archive this plan and the brief on merge |
+| 2b | B | 9 (revision 5) | The z = 0 FoF-group table for the whole simulation, its measured cost (promotions, progenitor-order changes, affected histories) and its chunked memory; the obsolete exploration machinery removed; the census record you sign off | Revision 5 committed; run 2's aggregates on the LaCie | Done: Slice 9 accepted at `35f39209` (run 2b, 2026-10-09); the owner filled the census record's two slots and recorded them in decision 6 (revision 6, 2026-10-10) |
+| 3 | R | 10 to 16 | The rewriter (migrate, cut, no-op), the route's declared cut table, the comparator's lineage key, the driver's partition weighted by peak occupancy (Slice 15) with the census re-measured, and every gate at subset scale against the Stage A route and the C reference reader | Run 2b accepted, decision 6 recorded (revision 6 committed); about 0.6 TB of LaCie space for the subset conversions and workdirs | New PM run; approve 11 to 16; Slice 15 reruns the production census's partition and `cut` (under two hours of LaCie reads); Slice 16 runs 12 to 24 h of machine time with 100 GB kept free. Expect: the Stage R record with the measured spill, RSS and sizes, and three retained subset datasets |
+| 4 | C | 17 | The bounded battery, proven to agree with the external-sort battery on the subset | Run 3 accepted | New PM run; approve 17; a 2 to 4 h agreement run |
+| (owner) | C | the production procedure | The uncut dataset by (M), run and compared galaxy by galaxy with the version 2 run; the cut dataset by (C), run, compared, science-checked; the laptop proxy | Slice 17 accepted; the free space the recomputed storage ledger requires on the LaCie (procedure step 1); the version 2 run output at `/Volumes/Internal/results/mimic/sage16-shin-uchuu` with its `metadata/`; decisions 9 to 11 answered | Not PM: a Mode A assistant session walking the twelve steps in order, each step's evidence into the acceptance record as it happens. Two whole-machine moments: step 2 if the reference has to be re-run, and step 5 (the uncut `sage16` run). Your own transfers to NT at steps 6 and 12 |
+| 5 | C | 18 | Provenance, the record and the pathway after production | The procedure complete and its record accepted | New PM run; approve 18 |
+| 6 | D | 19 to 25 | Retire version 2: utilities extracted, the version 3 ASCII fixture and every consumer retargeted, the negative battery ported, the reader path, converter, crosscheck, fixtures, make target and CI step deleted, the format document's version 2 text frozen as history | Run 5 accepted; the version 2 production dataset deleted from the LaCie after its NT copy was verified | New PM run; approve 20, 22, 23, 24, 25. Expect about 18 thousand lines gone; then archive this plan and the brief on merge |
 
 ---
 
@@ -47,15 +64,15 @@ Each row is a decision this plan needs. The plan is written on the recommendatio
 |---|---|---|---|---|
 | 1 | **Confirm the ruling** (brief open question 1): stay in version 3 by an explicit errata carve-out, with the dataset produced by the rewriter from version 2. | **Confirm.** Both panelists and the brief converge on it; the technically exact alternative (`format_version 4` with a read of the 11.61 TB source) keeps duplicate reader, converter, test and documentation paths against the vision's single source of truth, and re-conversion from ASCII buys the same bytes for six to seven days and scale engineering the route lacks. | Confirmed | 1 to 6 |
 | 2 | **One plan, six Mode B runs (and run 2b, revision 5's restart of Slice 9).** The brief's five stages are one document, executed as six PM runs (one per stage, and Stage C split around the owner-operated production procedure) with a revision point at each boundary, because Stage B ends in an owner decision and Stage C is production work; earlier slices are attested at the next `init`. | **Recommended** over one plan per stage: every slice's contract is written now against the code as it is, the owner reads one document, and the revision points are where the plan legitimately changes (the chosen cut rule, the measured subset figures). | Six runs | all |
-| 3 | **`crosscheck.py` (1,704 lines) and `test_crosscheck.py` (1,913 lines)** read datasets through the version 2 layout only (`convert/mimic-convert/crosscheck.py:119-126`). Port to version 3, or retire with version 2? | **Retire at Stage D.** Its role, the reference-topology proof against the C dump, is held for version 3 by `run_generalisation_acceptance.py compare`, which the Stage A route joins; porting would keep two tools for one proof. This raises the brief's 12 to 14 thousand lines to about 18 thousand, three quarters still tests and prose. | Retired | 22, 24 |
+| 3 | **`crosscheck.py` (1,704 lines) and `test_crosscheck.py` (1,913 lines)** read datasets through the version 2 layout only (`convert/mimic-convert/crosscheck.py:119-126`). Port to version 3, or retire with version 2? | **Retire at Stage D.** Its role, the reference-topology proof against the C dump, is held for version 3 by `run_generalisation_acceptance.py compare`, which the Stage A route joins; porting would keep two tools for one proof. This raises the brief's 12 to 14 thousand lines to about 18 thousand, three quarters still tests and prose. | Retired | 23, 25 |
 | 4 | **Where the new tools live.** The census and the rewriter are new Python under `convert/mimic-convert/` (`forest_census.py` with a `census/` package; `rewrite_trees.py` with a `rewriter/` package; two shared modules, `horizontal_dataset.py` for bounded column reads of version 2 and 3 slabs and `source_index.py` for `forests.list`/`locations.dat`), tested under `make tests-converter`, sharing the writer, schema, manifest and battery modules. | **Recommended.** The cut table is a converter input and the rewriter is a producer of the format the converter owns; `scripts/` holds analysis of Mimic output, not producers. | As stated | 7, 8, 11, 12 |
-| 5 | **The committed version 2 fixtures stay where they are until Stage D** (a refinement of the brief's recommendation to move them to a legacy location under `tests/data/` for the A to D window). | **Recommended.** Moving them costs about ten path edits that Stage D deletes anyway; leaving them in place costs nothing, keeps `check-horizontal-fixture` and the version 2 refusal check unchanged, and makes Stage D one coherent swap to a version 3 fixture converted from a committed synthetic ASCII source. | In place until D | 5, 19, 23 |
-| 6 | **Laptop class and usable budget** (brief open question 2). Revision 5: the cut rule is decided (F6), so the class no longer chooses the rule. It sets only the chunked configuration and the acceptance budget. | Decide on the revised Stage B census. Record:<br>• the class (16, 32 or 64 GiB, as the census judges it; estimates are quoted in decimal GB);<br>• the **usable concurrent-job budget** (the class less a stated reserve for the operating system and applications);<br>• the task and chunk counts that meet it. Ranks on one laptop run concurrently, so the job's figure is the sum over tasks of each task's widest chunk (Slice 8).<br>The chunk count is bounded below by the widest slab: 519,342,987 rows ÷ G × 1.1 KB, about 17.9 GB at G = 32. A 16 GiB class therefore needs G ≥ 64 whatever the cut. The census-model fit, the Mac proxy (procedure step 11) and a laptop run are distinct acceptances. | 32 GB, provisional | 9, procedure 11 |
-| 7 | **Scope of the scientific claim on the cut dataset** (brief open question 3). | **Limit the byte-identity claim to `sage16` and `halos-only`**, measured against the uncut dataset: every galaxy of a forest the cut leaves unchanged (a forest ending in one z = 0 FoF group) is byte-identical. Inside the split forests the differences come from the removed satellite phases of earlier encounters. They are measured with the cut-difference report (procedure step 10) and attributed to the census record's promotions and affected histories. The census record's counts are input-topology counts, not a prediction of how many galaxies differ.<br><br>**Structural invariant claimed:** the input's z = 0 FoF groups are preserved exactly (every z = 0 central/member relation by `MostBoundID`). The z = 0 *galaxy* population and Types of `sage16` are **measured, not claimed**: earlier satellite phases change gas transfers, stripping, mergers, disruption and orphans.<br><br>For HOD and SHAM the cut recomputes the identities their draws and tie-breaks key on in every split forest. SHAM's global ranking can also move tied assignments outside them. Their change is **measured and recorded, not claimed away**, at subset scale in Slice 15. Neither model chunks, so no production run of either on the cut dataset is planned. The uncut dataset keeps all four models byte-identical. | As stated | 9, 15, 17, procedure 10 |
+| 5 | **The committed version 2 fixtures stay where they are until Stage D** (a refinement of the brief's recommendation to move them to a legacy location under `tests/data/` for the A to D window). | **Recommended.** Moving them costs about ten path edits that Stage D deletes anyway; leaving them in place costs nothing, keeps `check-horizontal-fixture` and the version 2 refusal check unchanged, and makes Stage D one coherent swap to a version 3 fixture converted from a committed synthetic ASCII source. | In place until D | 5, 20, 24 |
+| 6 | **Laptop class and usable budget** (brief open question 2). Revision 5: the cut rule is decided (F6), so the class no longer chooses the rule. It sets only the chunked configuration and the acceptance budget. | Decide on the revised Stage B census. Record:<br>• the class (16, 32 or 64 GiB, as the census judges it; estimates are quoted in decimal GB);<br>• the **usable concurrent-job budget** (the class less a stated reserve for the operating system and applications);<br>• the task and chunk counts that meet it. Ranks on one laptop run concurrently, so the job's figure is the sum over tasks of each task's widest chunk (Slice 8).<br>The chunk count is bounded below by the widest slab: 519,342,987 rows ÷ G × 1.1 KB, about 17.9 GB at G = 32. A 16 GiB class therefore needs G ≥ 64 whatever the cut. The census-model fit, the Mac proxy (procedure step 11) and a laptop run are distinct acceptances.<br><br>**Decided (owner, 2026-10-10; the census record's two slots):**<br>• **class 16 GiB, usable concurrent-job budget 10 GiB** (a 6 GiB reserve, the brief's "8 to 10 GB usable"), **one task with 128 chunks**. This is contingent on Slice 15's peak-occupancy weighting: under the widest-slab weighting no grid point reaches 16 or 32 GiB (Slice 9).<br>• **Stop condition:** a step-down with one stop, applied at three checkpoints in order: Slice 15's re-measured census grid, the Mac proxy (procedure step 11), and a laptop run of the class.<br>• **The metric:** at the census checkpoint, the estimated concurrent Mimic job (job rows × bytes per halo) against the class's usable budget; the census tool's own RSS is not the metric. At the Mac-proxy and laptop checkpoints, the Mimic sweep's measured peak RSS (the sum over tasks when there are several).<br>• **The configuration:** start at one task and 128 chunks. At the census checkpoint, a miss is no one-task chunk count up to 256 fitting the class's usable budget. At the proxy and laptop checkpoints, if the sweep completes over budget or fails for memory, test 256 chunks before declaring a miss. A fit at a count other than 128 changes the configuration, not the class, and is recorded here.<br>• **A miss or a failed sweep** moves the target to 32 GiB with 26 GiB usable (the same reserve, at most 256 chunks), evaluated at the same checkpoint, with the miss and its measured cause recorded.<br>• If 32 GiB is also missed, the plan stops for the owner. Going to 64 GiB needs a new owner decision. Under the widest-slab weighting, 64 GiB with 58 GiB usable is reached at (1, 32) (Slice 9's grid; its (1, 16) fit was at a 4 GiB reserve). | Decided: 16 GiB, 10 GiB usable, (1, 128) | 9, 15, procedure 5 and 11 |
+| 7 | **Scope of the scientific claim on the cut dataset** (brief open question 3). | **Limit the byte-identity claim to `sage16` and `halos-only`**, measured against the uncut dataset: every galaxy of a forest the cut leaves unchanged (a forest ending in one z = 0 FoF group) is byte-identical. Inside the split forests the differences come from the removed satellite phases of earlier encounters. They are measured with the cut-difference report (procedure step 10) and attributed to the census record's promotions and affected histories. The census record's counts are input-topology counts, not a prediction of how many galaxies differ.<br><br>**Structural invariant claimed:** the input's z = 0 FoF groups are preserved exactly (every z = 0 central/member relation by `MostBoundID`). The z = 0 *galaxy* population and Types of `sage16` are **measured, not claimed**: earlier satellite phases change gas transfers, stripping, mergers, disruption and orphans.<br><br>For HOD and SHAM the cut recomputes the identities their draws and tie-breaks key on in every split forest. SHAM's global ranking can also move tied assignments outside them. Their change is **measured and recorded, not claimed away**, at subset scale in Slice 16. Neither model chunks, so no production run of either on the cut dataset is planned. The uncut dataset keeps all four models byte-identical. | As stated | 9, 16, 18, procedure 10 |
 | 8 | **The reference C reader learns the severance rule?** (brief open question 4) | **No.** The independent leg uses transformed ASCII fixtures read by the unmodified reader; the reader stays reference-pure. | No | 13 |
 | 9 | **Is the version 2 production run's output (0.51 TB) the reference** for the galaxy-by-galaxy comparison? (brief open question 5) | Check its recorded build, modules, parameters, timestep scheme, output fields and snapshot coverage against the new run file first; re-run the version 2 dataset once, locally, only if they differ. | Check first | Procedure step 5 |
 | 10 | **Park the uncut dataset on NT, or keep it locally** in scenario (a)? (brief open question 6) | Keep it until the cut dataset's science checks are accepted, then park it slab by slab with checksums if the facility agrees; nothing in the plan depends on the answer. | Decide at settle | Procedure step 12 |
-| 11 | **Storage scenario.** | Plan against **(a)**, one LaCie, the conservative case; the validator scale slice is built regardless, since a 4.4 TB battery spill is unreasonable in either scenario. | (a) | 16, procedure |
+| 11 | **Storage scenario.** | Plan against **(a)**, one LaCie, the conservative case; the validator scale slice is built regardless, since a 4.4 TB battery spill is unreasonable in either scenario. | (a) | 17, procedure |
 | 12 | **Developer models.** | Claude Fable 5.1 at high effort for the rewriter's two slices (migration and cut), whose output is production data at a scale the subset gates never reach; Claude Opus 5.5 at high effort for every other correctness-critical slice (each is gated by an independent reference and reviewed at its final commit, so the Fable premium there buys review rounds, not a safety property) and for real-data stages; Claude Sonnet 5.5 for documentation, package preparation and deletions. High effort, not higher: the contracts are written, and the previous two plans ran Opus at high without a steer attributable to effort. Reviewer: Claude Fable 5.1, high. | Per the profiles table | all |
 
 ---
@@ -69,12 +86,12 @@ Each row is a decision this plan needs. The plan is written on the recommendatio
 | F3 | **Scientific identity and its acceptance matrix.** | Two datasets are scientifically identical for a model under a named run configuration when the galaxy set is the same and every output field is byte-identical for matched galaxies (`scripts/compare_cross_format_identity.py`, no tolerance). Tree galaxies match by `UniqueGalaxyID` where the forest enumeration, ranks and multiplier are unchanged, else by (`MostBoundID`, `SnapNum`); created records (HOD satellites) match by birth lineage, (host `MostBoundID`, `SnapNum`, creation ordinal decoded from the negative id, `src/include/galaxy_id.h:61-72`), which Slice 14 teaches the comparator. In those alternate modes the matching key itself (`UniqueGalaxyID`, which the brief allows to differ) is not a compared field, and the one other identity-valued output field, `UniqueCentralGalaxyID` (`src/core/core_properties.yaml:90`), is compared through the matched mapping (the left record's central must map to the right record's central); every other field is compared byte for byte, and the default mode is unchanged. The matrix: `halos-only` and `sage16` vertical against horizontal, fixed and dynamic schemes, serial; horizontal serial against chunked and against `mpirun`; `sham` and `hod` horizontally only, serial against `mpirun` (collective), and version 2 against version 3 where both exist. No shipped module sums floats across a snapshot, so no last-bit allowance is used. |
 | F4 | **The rank is derivable from version 2 columns.** | `HaloRankInForest` is the dense position of a halo in the lexsort of (`ForestIndex` asc, `SnapNum` desc, upid asc, pid asc, `MostBoundID` asc) with upid the FoF central's `MostBoundID` (the `FirstHaloInFOFgroup` row's) and pid −1 for a central else the central's id (`convert/mimic-convert/fixups.py:386-426`, `rank_sort.py:13-24`; 0 mismatches over 22,580,924 micro-Uchuu halos). The progenitor chain order is the reference incremental-insertion loop over the encounter order (upid, pid, id) within a slab (`links.py:191-195`, `:370-380`). Both are reproduced in the rewriter, in int64 throughout. |
 | F5 | **The rewriter.** | `convert/mimic-convert/rewrite_trees.py` with a `rewriter/` package: one tool reading a horizontal dataset slab by slab and writing a version 3 dataset under a forest table, for Consistent-Trees-derived datasets with `links_adjacent` 1 only (anything else refused; the gapped case is out of scope). Pass 0: headers, sidecar, the index files (`forests.list`, `locations.dat`), the forest tables, and per-forest halo totals from its own scan of every slab's `ForestIndex` (about 180 GB read, under an hour; no shortcut from the census, so nothing has to be bound to it). Pass 1, in descending snapshot order with a per-forest running count: per slab the new row permutation and (`ForestIndex`, `HaloRankInForest`, `SourceHaloID`) per row, to a remap store of which only slabs N−1, N and N+1 are resident. Pass 2, trailing by one slab: payload rewritten in the new order, every link remapped through the target slab's permutation (`Descendant` at N+1, `FirstProgenitor` at N−1, the rest at N) with each `*Snapshot` companion −1 iff its link is −1, `/schema` carried through for a version 3 input and built from the package's profile for a version 2 input, the header attributes, the sidecar, a per-slab verification, and a manifest of the shape the battery binds to (`validate_v3.py:508-571`, `:1506-1539`, `:675-714`) with per-artefact SHA-256, the pinned a_list, an inventory whose totals and per-snapshot counts come from the input or the cut table and that declares no physical units, and the embedded schema. Three operations: **(M)** version 2 to version 3; **(C)** version 3 to version 3 under a cut table; **(N)** version 3 to version 3 under the identity table, which must reproduce its input exactly in every dataset value, dtype and metadata item. Scratch and output locations are explicit arguments; nothing defaults to the repository. The output directory is a converter-shaped workdir: `<output>/manifest.json`, `<output>/dataset/` (registered as the manifest's `write` stage directory, holding the snapshot files and `forests.h5` and nothing else, since the battery rejects unregistered entries, `validate_v3.py:521-530`), the per-tree inventory and the conversion report beside the manifest; the manifest's `configuration` carries the keys the report reads (`record_dtypes` with `ingest` and `transposed` itemsizes, `ingest_max_rows`, `transpose_budget_bytes`, `report.py:442-456`) with the rewriter's own values, and its `ingest` and `transpose` stage results carry `snapshot_counts`, `total_halos`, `n_links`, `n_gapped_descendants` 0, `max_descendant_span` 1 and `links_adjacent` 1. |
-| F6 | **The cut.** | A cut is a declared transformed source: the original index files, the original forest table, a **cut forest table** (a `forests.list`-shaped file, tree root to forest id, satisfying these invariants, each refused when violated: every tree root of the index files appears exactly once and no other root appears; a piece holds trees of exactly one original forest; an uncut forest keeps its id; of a cut forest's pieces exactly one, the largest by total halos over all snapshots with ties broken by the smallest tree root id, keeps the original id and every other receives a fresh id above the catalogue's maximum, unique across the table, assigned in descending piece size with the same tie rule, so that every untouched forest keeps its `ForestIndex`) and one deterministic transformation: hosts are resolved under the original partition (the post-fix-up central the dataset records), the cut table is installed, and every halo whose resolved central lies in another forest of the table becomes a central (`FirstHaloInFOFgroup` itself; upid = id, pid = −1 in the rank key); no host relation is invented. Tree membership is the terminal-root label (the label of the descendant, else the halo's own `MostBoundID`), computed in pass 1's descending order. The logical descendant relation never changes: the numeric `Descendant` index is remapped through the target slab's permutation like every link, and the per-slab verification checks that each halo's descendant carries the same `MostBoundID` as before; `DescendantSnapshot` is unchanged. For every forest the table changes: FoF chains, `HaloRankInForest` and progenitor chain order are recomputed under F4; for every other forest payload and topology are reproduced exactly and `UniqueGalaxyID` is unchanged. `SourceHaloID` is recomputed for every row (its prefix moves), `n_forests_total` and `max_halo_rank_in_forest` describe the new census, and a piece spanning files carries −1/−1. The ASCII route's fix-up stage applies the same rule behind a declared cut table; without one it refuses a cross-forest host as today. The table's md5 and the transformation go into the conversion report, the manifest and the package README's provenance section. Revision 5 fixes the table: see [The decided table](#the-decided-table-revision-5). |
-| F7 | **The census.** | Units are **effective descendant trees** (terminal-root components of the descendant graph; equality with Consistent-Trees' physical `#tree` blocks is not established and is not claimed; the root set is checked against the `forests.list` tree roots and the per-file row counts through `locations.dat` against the production report, a necessary and not sufficient check). Edges are undirected tree pairs (the smaller tree ordinal first) joined by a FoF co-membership between halos of different trees in the effective (post-fix-up) graph, each pair counted once per snapshot for its duration and accumulating the halos involved and their mass, aggregated in bounded per-slab edge lists merged by key (no dense tree × snapshot matrix). The components of the complete effective graph are themselves a census output: a forest that the effective relations already leave in several components is separable without severing anything, and the record says so rather than assuming connectivity. Candidate rules are duration and weight thresholds on those edges, each yielding components, a cut table under F6's naming, the severed relations and promotions per snapshot, the progenitor-order changes, the re-labelled halos, the predicted identity-dependent effects per model, and a simulation of `horizontal_partition_cut` (`src/core/horizontal_partition.c:106-182`: minimax contiguous packing by binary search over capacity, weights = the widest slab's per-forest row counts, lowest-numbered widest slab on ties, chunks packed within each task's range) for candidate task and chunk counts, giving the widest chunk in every slab. The raw `pid`/`upid` graph is not available without the source and is recorded as optional. Revision 5 supersedes the candidate rules: see [The census after revision 5](#the-census-after-revision-5). |
+| F6 | **The cut.** | A cut is a declared transformed source: the original index files, the original forest table, a **cut forest table** (a `forests.list`-shaped file, tree root to forest id, satisfying these invariants, each refused when violated: every tree root of the index files appears exactly once and no other root appears; a piece holds trees of exactly one original forest; an uncut forest keeps its id; of a cut forest's pieces exactly one, the largest by total halos over all snapshots with ties broken by the smallest tree root id, keeps the original id and every other receives a fresh id above the catalogue's maximum, unique across the table, assigned in descending piece size with the same tie rule, so that every untouched forest keeps its `ForestIndex`) and one deterministic transformation: hosts are resolved under the original partition (the post-fix-up central the dataset records), the cut table is installed, and every halo whose resolved central lies in another forest of the table becomes a central (`FirstHaloInFOFgroup` itself; upid = id, pid = −1 in the rank key); no host relation is invented. Tree membership is the terminal-root label (the label of the descendant, else the halo's own `MostBoundID`), computed in pass 1's descending order. The logical descendant relation never changes: the numeric `Descendant` index is remapped through the target slab's permutation like every link, and the per-slab verification checks that each halo's descendant carries the same `MostBoundID` as before; `DescendantSnapshot` is unchanged. For every forest the table changes: FoF chains, `HaloRankInForest` and progenitor chain order are recomputed under F4; for every other forest payload and topology are reproduced exactly and `UniqueGalaxyID` is unchanged. `SourceHaloID` is recomputed for every row (its prefix moves for every row after the first split forest's kept piece, whose prefix is unchanged; revision 6, PD2), `n_forests_total` and `max_halo_rank_in_forest` describe the new census, and a piece spanning files carries −1/−1. The ASCII route's fix-up stage applies the same rule behind a declared cut table; without one it refuses a cross-forest host as today. The table's md5 and the transformation go into the conversion report, the manifest and the package README's provenance section. Revision 5 fixes the table: see [The decided table](#the-decided-table-revision-5). |
+| F7 | **The census.** | Units are **effective descendant trees** (terminal-root components of the descendant graph; equality with Consistent-Trees' physical `#tree` blocks is not established and is not claimed; the root set is checked against the `forests.list` tree roots and the per-file row counts through `locations.dat` against the production report, a necessary and not sufficient check). Edges are undirected tree pairs (the smaller tree ordinal first) joined by a FoF co-membership between halos of different trees in the effective (post-fix-up) graph, each pair counted once per snapshot for its duration and accumulating the halos involved and their mass, aggregated in bounded per-slab edge lists merged by key (no dense tree × snapshot matrix). The components of the complete effective graph are themselves a census output: a forest that the effective relations already leave in several components is separable without severing anything, and the record says so rather than assuming connectivity. Candidate rules are duration and weight thresholds on those edges, each yielding components, a cut table under F6's naming, the severed relations and promotions per snapshot, the progenitor-order changes, the re-labelled halos, the predicted identity-dependent effects per model, and a simulation of `horizontal_partition_cut` (`src/core/horizontal_partition.c:106-182`: minimax contiguous packing by binary search over capacity, weights = the widest slab's per-forest row counts, lowest-numbered widest slab on ties, chunks packed within each task's range) for candidate task and chunk counts, giving the widest chunk in every slab. The raw `pid`/`upid` graph is not available without the source and is recorded as optional. Revision 5 supersedes the candidate rules: see [The census after revision 5](#the-census-after-revision-5). Revision 6: the partition's weights are each forest's peak occupancy over all slabs, in the driver and in the census's simulation (Slice 15); the widest-slab weighting above is the state Slices 7 to 9 measured. |
 | F8 | **The reference reader stays pure.** | The C reference reader (`src/io/vertical/ctrees/ctrees_utils.c`) learns nothing; the independent leg feeds it transformed ASCII fixtures whose host columns are canonicalised to the original resolved centrals and then severed per F6, through the vertical driver. |
 | F9 | **Fixtures.** | The committed version 2 fixtures (`simulations/micro-uchuu-ascii-horizontal/_tests/data/`, `.../data/generic/`, `simulations/shin-uchuu/_tests/data/`) stay in place and keep their consumers until Stage D, when a version 3 fixture converted by the Stage A route from a committed synthetic ASCII source replaces them on the pattern of `simulations/mini-millennium-horizontal/_tests/data/source/`. |
 | F10 | **Placement of data and scratch.** | Datasets, conversion workdirs, census aggregates and rewriter scratch go on the LaCie through explicit arguments. Gate scratch and the subset-scale run outputs go where `output/` resolves (`/Volumes/Internal/results/mimic`; `tests/framework/parity_gate.py:484-487`), which is the owner's rule for `Internal`; the brief's "override the gate harness's default" is therefore not needed and is dropped. Production run outputs (0.55 TB each) follow the brief's ledger exactly: `Internal` holds one at a time, so a new production output is written to the LaCie, compared, and moved to `Internal` only after the output it replaces has left for NT. The identity references for serial-versus-distributed comparisons live under `archive/distributed-references/`. |
-| F11 | **Records.** | Standing evidence: `docs/dev/MIMIC-SHIN-UCHUU-V3-ACCEPTANCE.md` (one section per stage, every number quoted elsewhere traced to it) and `docs/dev/MIMIC-SHIN-UCHUU-FOREST-CENSUS.md` (Stage B's record and the owner's decision). Nothing outside `docs/dev/` cites either; durable facts migrate to the guides, the format document, the package READMEs and the skills in Slices 6, 17 and 24. |
+| F11 | **Records.** | Standing evidence: `docs/dev/MIMIC-SHIN-UCHUU-V3-ACCEPTANCE.md` (one section per stage, every number quoted elsewhere traced to it) and `docs/dev/MIMIC-SHIN-UCHUU-FOREST-CENSUS.md` (Stage B's record and the owner's decision). Nothing outside `docs/dev/` cites either; durable facts migrate to the guides, the format document, the package READMEs and the skills in Slices 6, 18 and 25. |
 
 
 ### The decided table (revision 5)
@@ -125,29 +142,31 @@ After this plan the Consistent-Trees ASCII route of `convert_trees.py` emits for
 
 *Revision 5. Owner, 2026-10-09: "if any of the choices made here simplify the overall final state of anything we've added or changed in mimic, we should make sure that is cleaned up as well before the full plan has concluded."*
 
-The rows below cover what this plan adds, and the earlier work whose final state revision 5 changes. Everything else the plan touches reaches its final state through its own slice's contract and Stage D's retirement slices. Nothing is deferred past the plan. Slice 24 confirms every row and greps for leftovers (its final-state check). Removed code leaves the tree; history keeps it.
+The rows below cover what this plan adds, and the earlier work whose final state revision 5 changes. Everything else the plan touches reaches its final state through its own slice's contract and Stage D's retirement slices. Nothing is deferred past the plan. Slice 25 confirms every row and greps for leftovers (its final-state check). Removed code leaves the tree; history keeps it.
 
 | Artefact | Final state | Owning slice |
 |---|---|---|
-| `horizontal_dataset.py` (bounded reader, identity record) | keep; version 2 branch removed | 22 |
+| `horizontal_dataset.py` (bounded reader, identity record) | keep; version 2 branch removed | 23 |
 | `source_index.py` (index files, forest table) | keep; `FileID`-to-converter-ordinal mapping and corrected memory figures added | 11 |
-| `census/aggregate.py`, `census/occupancy.py`, `census/trees.py`, `census/partition.py` (including `slab_prefix`) | keep | 7, 9 |
+| `census/aggregate.py`, `census/occupancy.py`, `census/trees.py`, `census/partition.py` (including `slab_prefix`) | keep; `partition.py` weighs by peak occupancy, mirroring the driver | 7, 9, 15 |
+| The driver's partition weighting (`horizontal_compute_partition`, the partition module's accumulator) | keep, weighted by each forest's peak occupancy; the widest-slab weight and any helper only it used are removed | 15 |
+| This plan's identifiers (its frozen decisions "F1" to "F11", rulings such as "DD8" and "R10", "Slice n", "revision n") in code comments, docstrings and documents outside `docs/dev/` | **remove**: every comment states its rule self-contained (revision 6, R11). Earlier plans' identifiers in files no slice owns (`tests/unit/test_horizontal_distribution.c:290`, `tests/manual/test_snapshot_disabled_identity.py:31`, `.agents/skills/mimic-validation-and-qa/SKILL.md:130`, `.agents/skills/mimic-simulations-and-readers/SKILL.md:72`) are listed for the owner, not owned here | 15, 23, 25 |
 | `census/graph.py`: co-membership edge lists, external merge, components | **remove**; every helper the surviving census still imports moves to the module that uses it | 9 |
 | `census/rules.py`: threshold rules, union-find | **remove** | 9 |
 | `census/cut.py`: rule lists, rule names, the multi-rule pass, rule-keyed outputs | **simplify** to the decided table. The per-slab accounting, piece installation, partition rows and laptop rows survive | 9 |
 | `census/cut_table.py` (F6 naming, invariants, streamed record) | keep. The rewriter's table reader reuses it rather than restating the invariants | 9, 12 |
 | `forest_census.py` CLI | **simplify**: no `graph` subcommand, no rule options; the decided-table builder added | 9 |
 | `tests/test_forest_census.py`; `tests/fixtures.py` correspondence forests | retired cases go with their code; the rest keep | 9 |
-| `rewrite_trees.py` and `rewriter/`: `migrate` (M) | **remove** with version 2 | 22 |
+| `rewrite_trees.py` and `rewriter/`: `migrate` (M) | **remove** with version 2 | 23 |
 | `rewrite_trees.py` and `rewriter/`: `noop` (N) and `cut` (C) | keep. (C) keeps the general declared table (F6), because the table is the provenance artefact and the adversarial fixtures need arbitrary tables | 11, 12 |
 | `convert_trees.py ingest --cut-table` (route) and `tests/tools/transform_ascii_fixture.py` | keep: the independent gate of (C), and a documented route for converting a catalogue directly into its cut form | 13 |
 | Comparator lineage and catalogue modes; the cut-difference report | keep | 14 |
-| Parity-gate manifest-proved inventory and dataset override | keep; version 2 branches removed | 19 |
-| `validate_bounded.py` and the external-sort battery | **to decide inside the plan, not after it.** Slice 16 records the agreement. The revision before run 6 freezes the disposition in Slice 22's placeholder criterion, and run 6 does not start without it. Revision 4's "post-run review" wording is withdrawn | 16, 22 |
+| Parity-gate manifest-proved inventory and dataset override | keep; version 2 branches removed | 20 |
+| `validate_bounded.py` and the external-sort battery | **to decide inside the plan, not after it.** Slice 17 records the agreement. The revision before run 6 freezes the disposition in Slice 23's placeholder criterion, and run 6 does not start without it. Revision 4's "post-run review" wording is withdrawn | 17, 23 |
 | Census documentation: the converter manual's section | keep, describing the tool as it finally is | 9 |
-| Census documentation: skills and guides | keep, describing the tool as it finally is | 17, 24 |
-| Any text describing candidate rules, the co-membership graph or thresholds as live features | **remove** | 9, 24 |
-| The records under `docs/dev/` (the acceptance record, the census record) | standing evidence after the plan closes (F11). This plan and the brief (`MIMIC-SHIN-UCHUU-V3-PLAN.md`) are archived on merge | 24, then the owner on merge |
+| Census documentation: skills and guides | keep, describing the tool as it finally is | 18, 25 |
+| Any text describing candidate rules, the co-membership graph or thresholds as live features | **remove** | 9, 25 |
+| The records under `docs/dev/` (the acceptance record, the census record) | standing evidence after the plan closes (F11). This plan and the brief (`MIMIC-SHIN-UCHUU-V3-PLAN.md`) are archived on merge | 25, then the owner on merge |
 | LaCie census aggregates; run 2's retired graph and candidate-cut outputs (moved aside in Slice 9) | The accepted cut tables and records are kept with the conversion provenance. Every other aggregate is deleted by the owner, the `trees` labels and tree pairs only after the last step that reads them | procedure step 12 |
 
 ---
@@ -172,7 +191,7 @@ Anchors every slice relies on, read at the baseline.
 
 ## Execution Structure, Implementation Profiles and Run Preparation
 
-**Six runs, one plan (and run 2b).** PM executes the slices in plan order, one fresh Developer per slice, no batching. The stage boundaries are run boundaries: run 1 is Stage A (Slices 1 to 6); run 2 is Stage B (Slices 7 to 9). Revision 5 (owner, 2026-10-09) is an exceptional amendment beyond the boundary revision originally foreseen here. Run 2 accepted Slices 7 and 8 and stopped Slice 9; the owner decided the cut rule (F6) and amended Slice 9, F7, decisions 6 and 7, and the slices and procedure steps the [Final-State Inventory](#final-state-inventory) names. Run 2b runs the amended Slice 9, attesting Slices 1 to 8. The three performance commits run 2 left above Slice 8's commit (`ade3b7f0`, `003051df`, `72f7695f`) were drift-audited in run 2. Their surviving helpers are reviewed with the amended Slice 9. After run 2b the owner records the laptop class and stop condition (decision 6). Run 3 is Stage R (Slices 10 to 15); run 4 is Slice 16, after which the owner runs the production procedure; run 5 is Slice 17; run 6 is Stage D (Slices 18 to 24). Each later `init` attests the earlier slices (`--attest`). A stage's slices are independently gateable and nothing in a later stage is required by an earlier one.
+**Six runs, one plan (and run 2b).** PM executes the slices in plan order, one fresh Developer per slice, no batching. The stage boundaries are run boundaries: run 1 is Stage A (Slices 1 to 6); run 2 is Stage B (Slices 7 to 9). Revision 5 (owner, 2026-10-09) is an exceptional amendment beyond the boundary revision originally foreseen here. Run 2 accepted Slices 7 and 8 and stopped Slice 9; the owner decided the cut rule (F6) and amended Slice 9, F7, decisions 6 and 7, and the slices and procedure steps the [Final-State Inventory](#final-state-inventory) names. Run 2b runs the amended Slice 9, attesting Slices 1 to 8. The three performance commits run 2 left above Slice 8's commit (`ade3b7f0`, `003051df`, `72f7695f`) were drift-audited in run 2. Their surviving helpers are reviewed with the amended Slice 9. Run 2b accepted Slice 9 at `35f39209`. The owner then recorded decision 6 and revision 6 added Slice 15, the driver's partition weighted by peak occupancy, renumbering the later slices. Run 3 is Stage R (Slices 10 to 16); run 4 is Slice 17, after which the owner runs the production procedure; run 5 is Slice 18; run 6 is Stage D (Slices 19 to 25). Each later `init` attests the earlier slices (`--attest`). A stage's slices are independently gateable and nothing in a later stage is required by an earlier one.
 
 | Slice | Stage | Recommended Developer | Effort | Reason |
 |---|---|---|---|---|
@@ -190,20 +209,21 @@ Anchors every slice relies on, read at the baseline.
 | 12 | R | Claude Fable 5.1 | high | The (C) operation under F6 with its adversarial fixtures |
 | 13 | R | Claude Opus 5.5 | high | The ASCII route's fix-up stage behind a declared cut table; the independent reference leg's transformed fixtures |
 | 14 | R | Claude Opus 5.5 | high | The comparator's lineage key; the parity gate's manifest-proved inventory; the version 3 ASCII gate for the subset |
-| 15 | R | Claude Opus 5.5 | high | The subset conversions and gates G3, G3b, G3c, G4 with the HOD leg, determinism and resume, and the record |
-| 16 | C | Claude Opus 5.5 | high | The bounded battery: every obligation with a stated storage ceiling, verdict agreement before trust |
-| 17 | C | Claude Sonnet 5.5 | high | After the production procedure: the package README's provenance, the acceptance record, pathway and changelog |
-| 18 | D | Claude Opus 5.5 | medium | Utility extraction out of the version 2 modules |
-| 19 | D | Claude Opus 5.5 | high | The version 3 ASCII fixture from a committed synthetic source; every consumer retargeted |
-| 20 | D | Claude Opus 5.5 | medium | The version 2 reader's negative battery ported to the version 3 reader test |
-| 21 | D | Claude Opus 5.5 | high | Deletion of the version 2 reader path |
-| 22 | D | Claude Opus 5.5 | high | Deletion of the version 2 converter, validator, crosscheck and their tests; the rewriter's version 2 input |
-| 23 | D | Claude Sonnet 5.5 | high | Deletion of the version 2 fixtures, generators, make target and CI step |
-| 24 | D | Claude Sonnet 5.5 | high | The format document's version 2 text frozen as history; guides, skills, changelog, pathway closeout |
+| 15 | R | Claude Opus 5.5 | high | Revision 6: the driver's partition weighted by each forest's peak occupancy, its census mirror and the production re-measurement; a core change every distributed or chunked run uses |
+| 16 | R | Claude Opus 5.5 | high | The subset conversions and gates G3, G3b, G3c, G4 with the HOD leg, determinism and resume, and the record |
+| 17 | C | Claude Opus 5.5 | high | The bounded battery: every obligation with a stated storage ceiling, verdict agreement before trust |
+| 18 | C | Claude Sonnet 5.5 | high | After the production procedure: the package README's provenance, the acceptance record, pathway and changelog |
+| 19 | D | Claude Opus 5.5 | medium | Utility extraction out of the version 2 modules |
+| 20 | D | Claude Opus 5.5 | high | The version 3 ASCII fixture from a committed synthetic source; every consumer retargeted |
+| 21 | D | Claude Opus 5.5 | medium | The version 2 reader's negative battery ported to the version 3 reader test |
+| 22 | D | Claude Opus 5.5 | high | Deletion of the version 2 reader path |
+| 23 | D | Claude Opus 5.5 | high | Deletion of the version 2 converter, validator, crosscheck and their tests; the rewriter's version 2 input |
+| 24 | D | Claude Sonnet 5.5 | high | Deletion of the version 2 fixtures, generators, make target and CI step |
+| 25 | D | Claude Sonnet 5.5 | high | The format document's version 2 text frozen as history; guides, skills, changelog, pathway closeout |
 
 Pass the table's model and effort explicitly to `start-slice` and record the resolved model versions. Reviewer: Claude Fable 5.1 (`claude-fable-5-1`), high effort, fresh sessions for drift audit and code review. From run 2, by the owner's standing instruction, the drift audit runs on Claude Sonnet 5.5 at high effort, and Codex `gpt-6.1-sol` at high effort joins as a second code reviewer. An unavailable model is a setup blocker, never permission to substitute silently.
 
-**Approvals.** Slices marked `Approval needed before implementation: yes` need a recorded human approval (`approve`) before they start; this document grants none. Slices 4, 7, 10, 18 and 20 run unattended.
+**Approvals.** Slices marked `Approval needed before implementation: yes` need a recorded human approval (`approve`) before they start; this document grants none. Slices 4, 7, 10, 19 and 21 run unattended.
 
 **Before run 1,** in order:
 
@@ -211,9 +231,9 @@ Pass the table's model and effort explicitly to `start-slice` and record the res
 2. `python3 ~/.claude/skills/project-manager/scripts/pm.py check-plan --plan docs/dev/MIMIC-SHIN-UCHUU-V3-IMPLEMENTATION-PLAN.md --repo .` and resolve every warning.
 3. Confirm `make`, `make USE-MPI=yes` (Open MPI `mpicc` and `mpirun`), `mimic_venv` with h5py and numpy, HDF5, and that `simulations/micro-uchuu-ascii/snapshots` and `simulations/micro-uchuu-ascii-horizontal/snapshots` resolve.
 4. Confirm `make tests-converter`, `make tests-horizontal-v3` and `MPIRUN="mpirun --oversubscribe" make tests-distributed` pass at the baseline; record the distributed gate's live check count.
-5. Choose the LaCie directories for the Stage A workdir and the version 3 micro-Uchuu dataset (about 3 GB), and record where the version 2 micro-Uchuu dataset is retained for Slice 15's gate G3.
+5. Choose the LaCie directories for the Stage A workdir and the version 3 micro-Uchuu dataset (about 3 GB), and record where the version 2 micro-Uchuu dataset is retained for Slice 16's gate G3.
 
-**Before run 2:** the owner's 0.72 TB of unrelated files have left the LaCie (brief, "The two workflows"); the production `forests.list` (7.56 GB) and `locations.dat` (about 13 GB) have been transferred by the owner to the LaCie beside the version 2 dataset's provenance directory, with their md5 (the production report records the `forests.list` md5 `60dbf14a99ae9f23ca7c334474477a95`). **Before run 2b:** revision 5 committed. **Before run 3:** run 2b accepted; the laptop class, its usable budget, the task and chunk configuration and the stop condition recorded in decision 6 (the rule and its scope are fixed in F6). **Before run 4:** nothing beyond run 3's acceptance. **Before run 5:** the production procedure is complete and its record accepted. **Before run 6:** run 5 accepted; Slice 22's battery placeholder replaced by the decided text.
+**Before run 2:** the owner's 0.72 TB of unrelated files have left the LaCie (brief, "The two workflows"); the production `forests.list` (7.56 GB) and `locations.dat` (about 13 GB) have been transferred by the owner to the LaCie beside the version 2 dataset's provenance directory, with their md5 (the production report records the `forests.list` md5 `60dbf14a99ae9f23ca7c334474477a95`). **Before run 2b:** revision 5 committed. **Before run 3:** run 2b accepted (done, `35f39209`); decision 6 recorded (done, revision 6); revision 6 committed and `check-plan` clean. **Before run 4:** nothing beyond run 3's acceptance. **Before run 5:** the production procedure is complete and its record accepted. **Before run 6:** run 5 accepted; Slice 23's battery placeholder replaced by the decided text.
 
 ## Resource Profile
 
@@ -228,8 +248,9 @@ What each slice and procedure step demands of the Mac Studio (512 GB RAM, 32 cor
 | 9 | **heavy**: the production census reads the LaCie for the decided table's accounting pass over every split forest (about 17 bn halos, three to five columns), reusing run 2's occupancy, trees and partition aggregates. Measured in run 2 at `5b7edec1`: occupancy 1,006 s at 32.7 GB peak RSS; trees 2,768 s at 41.7 GB; graph 2,581 s at 35.1 GB; partition 421 s at 27.4 GB. The 12-rule candidate `cut` reached 174 GB RSS before its fixes and projected about 2 h for its pass after them. The aggregate directory measured about 291 GB in all (labels 90 GB, per-slab tree pairs 89 GB, occupancy pairs 62 GB, graph 25 GB); the graph and the candidate `cut` outputs are retired | 174 GB was measured for the retired 12-rule pass. The decided-table pass over every forest has its phase bounds stated and its RSS measured in Slice 9; the historical figure is not its ceiling. The host has 512 GB. | moderate, single process | a few hours | no, but do not run another LaCie-bound job alongside |
 | 10 | none | a few GB | light | under an hour | no |
 | 11 to 14 | light (fixtures) | a few GB | light | under an hour each | no |
-| 15 | **heavy**: two subset conversions through the route (the reference, and the one under a cut table) each read 210 GB of ASCII and spill about 0.5 TB, plus the version 2 subset conversion; the census on the subset reference; three subset rewrites each read and write about 60 GB; the gates run `sage16` and `halos-only` on 406 million halos vertically and horizontally eight times, plus the SHAM, HOD, chunked and `mpirun` legs | 40 to 80 GB (the ASCII inventory at about 5 GB, the rank stage, the battery's spill buffers; a subset horizontal run holds its widest slab at about 1.1 KB per halo) | high during the conversion (pooled scatter) and the runs | 12 to 24 h of machine time, across several sessions | yes, 100 GB, during the conversion and the vertical `sage16` legs |
-| 16 | moderate: both battery modes over the two subset datasets (about 120 GB read twice) | bounded mode: resident columns of the widest subset slab plus the bitsets, a few GB; the external-sort mode as measured in Slice 15 | moderate | 2 to 4 h | no |
+| 15 | moderate: the production census's `partition` (421 s in run 2) and `cut` (about 85 min in run 2b) rerun from the existing aggregates; the micro-Uchuu chunked and `mpirun` legs; the test tiers | `cut` measured 33.7 GB with `MallocLargeCache=0` in run 2b; the driver change adds nothing per halo | moderate, single process | a few hours of machine time | no, but do not run another LaCie-bound job alongside |
+| 16 | **heavy**: two subset conversions through the route (the reference, and the one under a cut table) each read 210 GB of ASCII and spill about 0.5 TB, plus the version 2 subset conversion; the census on the subset reference; three subset rewrites each read and write about 60 GB; the gates run `sage16` and `halos-only` on 406 million halos vertically and horizontally eight times, plus the SHAM, HOD, chunked and `mpirun` legs | 40 to 80 GB (the ASCII inventory at about 5 GB, the rank stage, the battery's spill buffers; a subset horizontal run holds its widest slab at about 1.1 KB per halo) | high during the conversion (pooled scatter) and the runs | 12 to 24 h of machine time, across several sessions | yes, 100 GB, during the conversion and the vertical `sage16` legs |
+| 17 | moderate: both battery modes over the two subset datasets (about 120 GB read twice) | bounded mode: resident columns of the widest subset slab plus the bitsets, a few GB; the external-sort mode as measured in Slice 16 | moderate | 2 to 4 h | no |
 | Procedure 2 (only if the reference is re-run) | heavy: the version 2 dataset (2.25 TB) read once; 0.55 TB written to `Internal` | **513 GB** (the uncut, unchunked version 2 run; the whole machine) | one core for 10 h | about 10 h | **yes, everything** |
 | Procedure 3 (M) | **very heavy**: 2.25 TB read, 3.25 TB written, 3.25 TB re-read to verify, plus the 0.05 TB remap store | 30 to 60 GB (one 519 million-row column at a time, the permutation, the remap window) | moderate (one `lexsort` per slab) | 12 to 20 h | yes, 100 GB |
 | Procedure 4 and 9 (bounded battery) | heavy: 3.25 TB read about twice | about 40 GB by the stated ceiling | moderate | 6 to 10 h each | no |
@@ -238,7 +259,7 @@ What each slice and procedure step demands of the Mac Studio (512 GB RAM, 32 cor
 | Procedure 10 (`sage16`, cut, chunked) | as step 5 | the chosen class's budget plus the output buffers, well under step 5's | one core | 10 to 14 h | yes, the chosen budget plus 50 GB |
 | Procedure 11 (laptop proxy) | as step 5 | the class's budget (16, 32 or 64 GB) by construction | one core | 10 to 14 h | yes, the budget plus 50 GB, with `MallocLargeCache=0` |
 | Procedure 6 and 12 (transfers to NT) | heavy on the LaCie and the network: 0.5 to 3.25 TB per transfer at the measured 110 MB/s download rate, upload unmeasured | none | none | 1.5 h per 0.55 TB; about 8 h for the uncut dataset if parked | no |
-| 18 to 24 | light | a few GB | light | under two hours each; Slice 19 runs several test tiers and the distributed gate | no |
+| 19 to 25 | light | a few GB | light | under two hours each; Slice 20 runs several test tiers and the distributed gate | no |
 
 The whole-machine moments are procedure step 2, if the version 2 reference has to be re-run, and step 5, the uncut `sage16` run, whose floor is the super-forest; the cut runs (steps 10 and 11) are the first that fit a small budget, which is the point of the cut. Nothing in Stages A, B, D or the code slices of R and C needs more than about 100 GB free.
 
@@ -388,7 +409,7 @@ Run on a feature branch the owner names at `init`; no implementation session edi
 
 ### Explicit Non-Goals
 
-- No bounded-memory rewrite of the battery (Slice 16); no change to the manifest-binding checks; no harness change (Slice 4); no guide or skill edit (Slice 6).
+- No bounded-memory rewrite of the battery (Slice 17); no change to the manifest-binding checks; no harness change (Slice 4); no guide or skill edit (Slice 6).
 
 ### Risk Flags
 
@@ -463,7 +484,7 @@ Run on a feature branch the owner names at `init`; no implementation session edi
 
 ### Acceptance Criteria
 
-- [ ] The conversion (`inspect`, `ingest`, `transpose`, `write`, `validate`, `report`) of `simulations/micro-uchuu-ascii/snapshots` with the package's profile runs in a LaCie workdir; `validate` passes, including the position check; `report` records forest blocking; `run_generalisation_acceptance.py compare` against the C dump and `compare-extras` pass with no finding; the dataset is installed at the directory `simulations/micro-uchuu-ascii-horizontal/snapshots` resolves to, with the version 2 dataset retained at a recorded path for Slice 15.
+- [ ] The conversion (`inspect`, `ingest`, `transpose`, `write`, `validate`, `report`) of `simulations/micro-uchuu-ascii/snapshots` with the package's profile runs in a LaCie workdir; `validate` passes, including the position check; `report` records forest blocking; `run_generalisation_acceptance.py compare` against the C dump and `compare-extras` pass with no finding; the dataset is installed at the directory `simulations/micro-uchuu-ascii-horizontal/snapshots` resolves to, with the version 2 dataset retained at a recorded path for Slice 16.
 - [ ] `simulations/micro-uchuu-ascii-horizontal/halo_properties.yaml` declares the five link roles `long long` with its header comment naming version 3; `simulation_info.yaml` is unchanged in values; `README.md` is rewritten to the version 3 packages' shape (provenance: converter commit, profile digest, counts, `links_adjacent`, the battery result; the regeneration commands are the `convert_trees.py` sequence; the version 2 refusal paragraph at `:62` becomes the statement that this dataset is forest-blocked and distributable and chunkable; the committed fixtures paragraph says the committed fixtures are version 2 until Stage D) with no sentence claiming more than was measured.
 - [ ] `_tests/integration/test_schema_conformance.py` exists on the `micro-uchuu-hdf5-horizontal` template and passes against the real dataset.
 - [ ] `_tests/scientific/test_cross_format_identity.py` carries version 3 pins (`format_version 3`, `source_format consistent_trees_ascii`, the profile's `column_mapping_sha256`, 22,580,924 halos, 440,651 forests, `links_adjacent 1`, file range (0, 0)) and runs `halos-only` and `sage16` under fixed and dynamic schemes; `VersionTwoGate` (`:489`) is renamed to a version-neutral `AsciiGate` that keeps its multi-partition check and its Stage 8, the vertical-path preservation stage against the pinned `BASELINE_COMMIT` (the brief requires the version 3 gate to inherit it; it is the only check of the vertical ASCII reader against a pinned commit).
@@ -581,7 +602,7 @@ Run on a feature branch the owner names at `init`; no implementation session edi
 - [ ] `convert/mimic-convert/horizontal_dataset.py`: opens a version 2 or 3 dataset directory, exposes the header attributes, the snapshot list, and bounded block reads of one named `/halos` column of one slab (row budget an argument, default 2²² rows), and a **dataset identity** record (format version, `source_format` when present, `n_forests_total`, per-snapshot `n_halos`, the sidecar's `ForestID` digest) that the census subcommands bind their aggregate directory to, so that `trees`, `graph` and `cut` refuse a directory produced from a different dataset.
 - [ ] `convert/mimic-convert/source_index.py`: parses `forests.list` (tree root to forest id) and `locations.dat` (tree root to file id and offset) into sorted int64 arrays; derives per forest the set of files, the count of trees, and for a forest held in one file its file ordinal and unit ordinal, the dense rank among that file's forests ordered by their first `#tree` marker (`ctrees_parser.py:593-603`; tested with repeated and non-contiguous markers such as F, F, G, F), else −1/−1; rejects a tree root present in one file and not the other.
 - [ ] `forest_census.py occupancy`: per slab, the (`ForestIndex`, count) pairs of the forests present, written as sorted int64 and int32 arrays into an aggregate directory (12 B per present forest per slab; about 25 GB at Shin-Uchuu scale, stated with its formula); over all slabs, per-forest totals (int64, length `n_forests_total`), the widest slab (lowest-numbered on ties, as `src/core/horizontal_driver.c:915-929`), each forest's maximum occupancy and the slab it occurs in; a summary JSON reproducing the brief's measured table rows (total halos, widest slab, the largest forest's total, peak occupancy and slab, the second-largest forest's maximum, the forests exceeding 100,000, 250,000 and 1,000,000 in any slab, and the top-10 and top-100 shares of the widest slab).
-- [ ] `forest_census.py trees`: a backward pass from the last slab labelling every halo with its terminal root (`MostBoundID` of the halo whose `Descendant` is −1), two slabs resident; the roots are enumerated first (a sorted int64 array, one per terminal halo) and labels are written per slab as **int32 root ordinals** (4 B per halo, about 90 GB at Shin-Uchuu scale, stated in the docstring with its formula) and live for the aggregate directory's lifetime, because `graph` and `cut` both read them (the directory is deleted by hand when the census is done); the root set is compared with the index files' tree roots (any root not in `forests.list`, and any root whose slab is not the last, reported with counts) and the correspondence verdict is recorded, since the cut table and the rewriter's inventory depend on it; per tree: its forest, its total, its per-slab occupancy as sparse (tree, count) arrays per slab, and the largest tree's total and peak occupancy; the conservation check (per-file row sums through `locations.dat` against a report's per-file parsed counts when a `conversion_report.json` is given).
+- [ ] `forest_census.py trees`: a backward pass from the last slab labelling every halo with its terminal root (`MostBoundID` of the halo whose `Descendant` is −1), two slabs resident; the roots are enumerated first (a sorted int64 array, one per terminal halo) and labels are written per slab as **int32 root ordinals** (4 B per halo, about 90 GB at Shin-Uchuu scale, stated in the docstring with its formula) and live for the aggregate directory's lifetime, because the census's later subcommands read them (after revision 5, `table` and `cut`; revision 6, PD3) (the directory is deleted by hand when the census is done); the root set is compared with the index files' tree roots (any root not in `forests.list`, and any root whose slab is not the last, reported with counts) and the correspondence verdict is recorded, since the cut table and the rewriter's inventory depend on it; per tree: its forest, its total, its per-slab occupancy as sparse (tree, count) arrays per slab, and the largest tree's total and peak occupancy; the conservation check (per-file row sums through `locations.dat` against a report's per-file parsed counts when a `conversion_report.json` is given).
 - [ ] `census/partition.py`: `partition_cut(weights, ntask, nchunk)` reproducing `horizontal_partition_cut_forests` and `horizontal_partition_cut` (`src/core/horizontal_partition.c:31-47`, `:106-182`) exactly, including the capacity binary search, the greedy pass, zero-weight handling and idle trailing ranges; `forest_census.py partition` applies it with the widest slab's per-forest counts as weights for a grid of (ntask, nchunk) and reports, for every slab, every range's row count and the widest range, plus the heaviest forest as the floor.
 - [ ] Tests (`convert/mimic-convert/tests/test_forest_census.py`): the partition against the C unit test's literal cases (`tests/unit/test_horizontal_partition.c:340` weights `{1, 5, 1}`, `:358` weights `{3, 0, 7, 1}`) and the `forest_blocks` fixture's recorded chunkings for weights `[2, 1, 7, 2, 2, 3]` (`tests/manual/test_distributed_identity.py:111-113`), no further brute-force oracle (the C test has its own); occupancy, labelling and the index reader on small synthetic version 3 datasets written with the converter's own fixtures, including new **correspondence-valid** fixtures whose `#tree` root id equals the terminal halo's id (the existing adapter fixtures use root 101 for terminal halo 1010, `tests/fixtures.py:251-255`, and are kept for the adapter), plus a correspondence-mismatch case that is reported, not repaired; the identity record on a version 2 fixture (`simulations/micro-uchuu-ascii-horizontal/_tests/data/generic`).
 - [ ] Memory and disk: no array of length `n_halos` of any slab beyond the column block being read and the two label arrays; no dense tree × snapshot or forest × snapshot matrix; every aggregate's size formula in its docstring and in the summary JSON, so Slice 9 can record the measured total and the procedure can budget it.
@@ -707,7 +728,7 @@ Run on a feature branch the owner names at `init`; no implementation session edi
 
   The graph's edge-list cross-check of promotions retires with the graph. Its replacements are the per-forest piece-count assertion, the zero-promotion assertion at the final snapshot, and the test's independent all-ended computation.
 
-  The HOD and SHAM effects are stated as predicted mechanisms: identity recomputation, host and centrality changes, and SHAM's global ranking. They are distinct from Slice 15's measured subset differences.
+  The HOD and SHAM effects are stated as predicted mechanisms: identity recomputation, host and centrality changes, and SHAM's global ranking. They are distinct from Slice 16's measured subset differences.
 - [ ] **Retirement** (the Final-State Inventory's Slice 9 rows).
   - Removed, together with their tests and CLI subcommands:
     - the threshold rules and union-find (`census/rules.py`);
@@ -729,7 +750,7 @@ Run on a feature branch the owner names at `init`; no implementation session edi
   - The helpers run 2's performance commits added that survive (`in_sorted_window`, `slab_prefix`, the once-sorted fresh-piece order, or their successors) are covered.
 - [ ] **Rehearsal.**
   - The census on the version 3 micro-Uchuu dataset and on the retained version 2 one agree in every logical result, compared through the catalogue id.
-  - Two materialised tables for Slice 15's G3c, each with its accounting:
+  - Two materialised tables for Slice 16's G3c, each with its accounting:
     - the decided table for the whole micro-Uchuu simulation;
     - the decided table restricted to micro-Uchuu's largest forest.
   - Conservation passes against the Stage A conversion's per-file parsed counts in `/Volumes/LaCie/data/uchuu/micro-uchuu/stage-a-v3-workdir/ascii_preparation/manifest.json`. A version 3 `conversion_report.json` carries none.
@@ -738,7 +759,7 @@ Run on a feature branch the owner names at `init`; no implementation session edi
   - Run 2's `occupancy`, `trees` and `partition` aggregates in `/Volumes/LaCie/data/uchuu/shin-uchuu-census/` are reused after the following checks pass:
     - their summaries are complete;
     - the dataset identity matches;
-    - the index files' md5 match the production report's and run 2's record;
+    - the index files' md5 match the production report's and run 2's record (revision 6, PD1: `forests.list` against both; `locations.dat` against run 2's record only, since the report records none);
     - the dataset files' modification times predate run 2's census, which shows the source is unchanged since it was aggregated.
   - Run 2's retired `graph/` and candidate `cut/` outputs are moved aside, not deleted, to `/Volumes/LaCie/data/uchuu/shin-uchuu-census-run2-retired/` before the new outputs are written. The same volume, so they stay charged to the storage ledger.
   - Recorded: every aggregate's size, the peak LaCie footprint, the wall-clock and peak RSS of every subcommand. The production procedure's free-space precondition is rechecked against them.
@@ -844,7 +865,7 @@ Run on a feature branch the owner names at `init`; no implementation session edi
 
 ### Explicit Non-Goals
 
-- No dataset change, no rewrite, no provenance rewrite (Slice 17), no generated file edited by hand.
+- No dataset change, no rewrite, no provenance rewrite (Slice 18), no generated file edited by hand.
 
 ### Risk Flags
 
@@ -1045,11 +1066,11 @@ Run on a feature branch the owner names at `init`; no implementation session edi
 - [ ] `tests/scientific/test_compare_cross_format_identity.py` covers both flags on synthesised HDF5 with created rows: equal science with different labels passes; a lineage mismatch, a duplicate catalogue key and a broken central mapping each fail.
 - [ ] `tests/framework/parity_gate.py`: `GatePackage` gains an optional `manifest` path; when present, the sidecar stage proves the inventory from the manifest's source dependencies (their names must equal the vertical side's file list) and checks that every single-file ordinal lies in that set and that −1/−1 rows are a subset of the forests the index files place in more than one file (`source_index.py`); when absent, the existing inference runs; every existing gate passes unchanged.
 - [ ] `GatePackage` gains an optional `horizontal_dataset` (directory, snapshot list) override; when set, the horizontal run file may additionally differ from the vertical one in `input.simulation_dir` and `input.snapshot_list_file` (`AUTHORIZED_KEY_CHANGES` extended under that condition only) and `assert_dataset_present` resolves the override.
-- [ ] `simulations/shin-uchuu/_tests/scientific/test_cross_format_identity.py` exists: vertical `shin-uchuu-ascii` against a horizontal dataset named by the override (the migrated subset), with version 3 pins to be filled by Slice 15 (counts 406,668,896 halos and 6,011,205 forests, `consistent_trees_ascii`, `links_adjacent 1`, the profile digest), `halos-only` and `sage16`, both schemes, free-space requirement 150 GiB; it skips with a stated reason when the override is not given.
+- [ ] `simulations/shin-uchuu/_tests/scientific/test_cross_format_identity.py` exists: vertical `shin-uchuu-ascii` against a horizontal dataset named by the override (the migrated subset), with version 3 pins to be filled by Slice 16 (counts 406,668,896 halos and 6,011,205 forests, `consistent_trees_ascii`, `links_adjacent 1`, the profile digest), `halos-only` and `sage16`, both schemes, free-space requirement 150 GiB; it skips with a stated reason when the override is not given.
 - [ ] **Revision 5: the cut-difference report.** `scripts/compare_cross_format_identity.py` gains `--multiplier`, both datasets' sidecars and the cut table's record.
   - Each tree record's `ForestIndex` is decoded from its `UniqueGalaxyID`. It is then mapped through the sidecar's `ForestID`, and through the record for a cut piece, to its original forest. Created records follow their host, and an unmappable record is an input error.
   - Records of the split original forests are matched by the catalogue key and **reported, not failed**: identical, differing (per field) and unmatched counts, per forest and in total.
-  - Records of every other forest keep the strict default semantics, where any difference or unmatched record fails. A separate option reports every forest without failing, for Slice 15's SHAM leg only; input errors still fail.
+  - Records of every other forest keep the strict default semantics, where any difference or unmatched record fails. A separate option reports every forest without failing, for Slice 16's SHAM leg only; input errors still fail.
   - The default behaviour without the option is unchanged.
   - `tests/scientific/test_compare_cross_format_identity.py` covers it: a difference inside a split forest is reported and passes; the same difference outside one fails; an unmatched record in a fresh piece is classified to its original forest.
 - [ ] `tests/integration/test_parity_gate_helpers.py` covers the extended key rule.
@@ -1068,7 +1089,7 @@ Run on a feature branch the owner names at `init`; no implementation session edi
 
 ### Explicit Non-Goals
 
-- No change to any existing gate script's pins; no change to `test_distributed_identity.py`; no run of the subset gate (Slice 15).
+- No change to any existing gate script's pins; no change to `test_distributed_identity.py`; no run of the subset gate (Slice 16).
 
 ### Risk Flags
 
@@ -1081,7 +1102,7 @@ Run on a feature branch the owner names at `init`; no implementation session edi
 - Tests to add/update: as listed.
 - Commands to run: `make tests-scientific`, `make tests-integration` (subagent); `make MODEL=halos-only SIMULATION=mini-millennium-horizontal tests-scientific` (the fixture gate still passes); `./scripts/beautify.sh`; `make check-format`.
 - Lint (differential, via the `lint` skill): required unless the slice changes no linted file.
-- Manual checks: the HOD run pair on micro-Uchuu (the retained version 2 dataset against Slice 5's version 3 dataset, through real-data run files on the pattern of Slice 5's SHAM leg, since the shipped `models/hod/input/hod_micro-uchuu-ascii-horizontal.yaml` resolves its input through the fixture's `test_simulation.yaml`) compares identical under `--match-created-by-lineage`, recorded for Slice 15.
+- Manual checks: the HOD run pair on micro-Uchuu (the retained version 2 dataset against Slice 5's version 3 dataset, through real-data run files on the pattern of Slice 5's SHAM leg, since the shipped `models/hod/input/hod_micro-uchuu-ascii-horizontal.yaml` resolves its input through the fixture's `test_simulation.yaml`) compares identical under `--match-created-by-lineage`, recorded for Slice 16.
 
 ### Rollback Path
 
@@ -1089,7 +1110,133 @@ Run on a feature branch the owner names at `init`; no implementation session edi
 
 ---
 
-## Slice 15: The subset conversions and the Stage R gates
+## Slice 15: The driver's partition weighted by each forest's peak occupancy (revision 6)
+
+### Intended Change
+
+- Recommended Developer: Claude Opus 5.5; effort: high. Requires Slice 9. Run on this host; the production re-measurement reads the census aggregates on the LaCie for under two hours.
+- **The problem it fixes.** Today the horizontal driver weighs each forest by its row count in the widest slab only. It packs contiguous `ForestIndex` ranges by minimax over those weights (`src/core/horizontal_driver.c:952-979`, `src/core/horizontal_partition.c:106-182`).
+  - A forest that is small in the widest slab but large in another slab is under-weighted.
+  - The census measured the consequence on the decided table. The 29,106,600 smallest fresh pieces are nearly empty at snapshot 34, the widest slab, but every one of them reaches z = 0.
+  - They therefore share one chunk, which holds 29,113,469 rows at snapshot 67. The smallest job on the grid stays at 32.0 GB at any chunk count, although the largest piece peaks at 3,415,844 rows (the census record, "Chunked memory with the pieces installed").
+- **The fix (owner, 2026-10-10: the root cause, not a renumbering).** The driver weighs each forest by its **peak occupancy**: its largest row count over all slabs. The minimax cut, the task and chunk structure, and every other partition rule stay unchanged.
+  - Σ peaks over a range bounds that range's rows in every slab, so the packing is no longer blind to the slabs it does not read.
+  - Task 0 computes the weights at startup by streaming every slab's `ForestIndex` column once. The forest-blocking check moves into the same pass, so it fails before any cut. The existing second pass then places the row cuts.
+  - Nothing is stored in the dataset and no run-file key is added, so the format, the datasets and every reader are unchanged.
+  - A run's galaxies do not depend on its partition. The serial-versus-chunked and serial-versus-`mpirun` identity gates are the proof.
+- Mirror the weighting in the census's partition simulation, which is the driver's exact simulation. Re-measure Slice 9's production grid, and record the result in the census record as an addendum.
+- **PM's informal estimate** on the production aggregates (`.orchestrator/stage-b-decision/partition-weighting-brief.md`; gitignored, labelled informal): the job at (1, 128) falls from 29,113,469 to 5,518,529 rows, and the best point reaches the 3,415,844-row floor. This slice measures it.
+
+### Acceptance Criteria
+
+- [ ] **Driver.** `horizontal_compute_partition` (`src/core/horizontal_driver.c:961-1055`) weighs forest `f` by `max over slabs s of rows(f, s)`.
+  - **First pass:** over every slab with halos. It streams `ForestIndex` (`horizontal_reader_scan_forest_index`), accumulates each forest's run length in that slab, folds it into the forest's maximum, and applies the forest-blocking check. A slab that is not forest-blocked is a `FATAL_ERROR` with the existing message and its log fields, raised before any cut.
+  - Then the unchanged `horizontal_partition_cut`.
+  - **Second pass:** the existing row-cut pass (`:981-1004`), unchanged apart from no longer carrying the blocking check if it moved. Its row-count hardening stays.
+  - Memory: the weights stay one `int64` per forest on task 0 only, freed before any generation is sized (`:1045-1054`), and the first pass allocates nothing per halo.
+  - I/O: the weighting pass reads 8 B × total halos. Today's startup already reads the widest slab for the weights and every slab for the row cuts, so the added read volume is 8 B × (total halos − widest-slab halos). It is on task 0 only, for distributed or chunked runs only (`:2410-2412`); a serial unchunked run is unchanged. This cost is stated in the function's comment, and the slice reports it for micro-Uchuu and its formula for Shin-Uchuu.
+- [ ] **Partition module.** `src/core/horizontal_partition.c`/`.h` gain a run-length peak accumulator that carries its state across scan blocks (a forest spanning blocks is counted once per slab). It replaces `horizontal_partition_accumulate_weights` if nothing else uses that. The header's comments (`horizontal_partition.h:37-38`, `:173-174`) and the driver's (`horizontal_driver.c:333-334`, `:942-960`, `:2094-2112`) describe the peak weighting. `horizontal_widest_snapshot` survives only where a log line still names the widest slab's rows (it is also referenced at `:2392-2395`, whose startup comment is rewritten).
+- [ ] **Logs.** The partition headline (`:1013-1017`) says the forests are weighted by their peak occupancy over all slabs. The task and chunk lines (`:1029-1042`) report the peak weight. The sweep line (`:2094-2112`) is unchanged: it already names the widest slab and its row range, and `test_chunked_sweep.py:340-341` assert it verbatim.
+- [ ] **Tests.**
+  - `tests/unit/test_horizontal_partition.c` covers the accumulator:
+    - runs spanning scan blocks;
+    - a forest absent from a slab;
+    - an empty slab;
+    - a forest whose peak is outside the widest slab, so its weight differs from the widest slab's count;
+    - the out-of-range refusal.
+  - `simulations/mini-millennium-horizontal/_tests/integration/test_chunked_sweep.py`: the asserted partition log strings (`:337-339`) take the peak weights. On the committed `forest_blocks` fixture the peaks are `[2, 1, 8, 2, 2, 3]` against the widest slab's `[2, 1, 7, 2, 2, 3]`, so task 0's weight 17 becomes 18 and chunk 0's 10 becomes 11. The cuts `[0, 3, 6]` and `[0, 2, 3, 6, 6, …]` and the idle chunks are unchanged, and the docstring (`:11-28`, `:326-327`) says why.
+  - `tests/manual/test_distributed_identity.py:111-112`: the comment names the peak weights. The live check count is unchanged.
+  - No other assertion changes.
+- [ ] **Census mirror.**
+  - `census/partition.py` (`:23-24`, `:187-193`, `:227-245`, `:279-284`) weighs by each forest's peak occupancy. `occupancy` already records it (`forest_max_occupancy.npy`, `census/occupancy.py:194-216`).
+  - `census/cut.py` installs the pieces by their per-piece peak (`CutState.peak`). It computes that peak before `partition_points` (`:1022-1035`) without a second pass over the slabs' columns, or states and measures the pass it adds.
+  - The summaries name the weighting, and `forest_census.py:30-31` and the converter manual's census section (`convert/mimic-convert/README.md:436`) state it.
+  - The census tests that assert widest-slab weights or cuts (`tests/test_forest_census.py:783-795`, `:1808-1815`, `:1848-1855`) are re-derived by hand for the peak weights, and each says so.
+  - The census and the driver still agree exactly: the C unit test's literal cases and the `forest_blocks` chunkings.
+- [ ] **Re-measurement.**
+  - The micro-Uchuu rehearsal's `partition` and `cut` are rerun (both datasets, compared as Slice 9 compared them).
+  - The production `partition` (uncut) and `cut` are rerun at the final code with `MallocLargeCache=0`, strictly in sequence, with no other LaCie-bound job alongside. The table's md5 `6e9f2fb03b26a36ce51c5392e7bcf164` is confirmed unchanged.
+  - The summaries differ from Slice 9's only in the partition figures, the laptop rows and memory; any other difference is a finding.
+  - Cross-check: the census's production grid under peak weights matches PM's informal estimate (`partition_weighting_production.json`, scheme S1, every point up to 256 chunks) exactly, or each difference is explained.
+  - The laptop rows use decision 6's usable budgets: 16 GiB less 6, 32 GiB less 6, 64 GiB less 6. They extend the grid to 256 chunks, as decision 6's stop condition requires.
+- [ ] **Records.**
+  - `docs/dev/MIMIC-SHIN-UCHUU-FOREST-CENSUS.md` gains a dated section, "Revision 6: the partition weighted by peak occupancy". It gives the new grid with process and job figures, the laptop rows at decision 6's budgets, the cross-check, the uncut partition under the new weighting (its floor, the super-forest's 333,663,215 rows, cannot change), and the code identity of the runs.
+  - The memory table near the top gains the new smallest job and the decided class's row, labelled with the weighting. Slice 9's figures stay, labelled as the widest-slab weighting.
+  - The first checkpoint of decision 6's stop condition is evaluated and stated: does 16 GiB with 10 GiB usable fit at some chunk count up to 256, and at which point?
+- [ ] **Documentation of record.**
+  - `docs/DEVELOPER-GUIDE.md:1226`, `:1243` and `:1248` state the peak weighting and why: the widest slab alone under-weights forests that grow late.
+  - `CHANGELOG.md` Unreleased: one entry in the existing style.
+  - Outside `docs/dev/`, no comment, docstring or document this slice writes cites a plan identifier (a decision, slice or revision number). Each states its rule self-contained. The comments it rewrites lose the earlier plans' identifiers they carry: `D3` and `D11` at `horizontal_driver.c:955`, `:1045` and `:1567`, and `test_horizontal_partition.c:10`, `:84`, `:313` and `:325`.
+  - `docs/dev/MIMIC-DEVELOPMENT-PATHWAY.md:250` ("and the widest slab once more for the weights") states the new startup scans in one sentence.
+- [ ] **Required evidence:**
+  - a clean build under `-Wall -Wextra -Wshadow -Wformat-security -Wundef`;
+  - `make tests-unit`, `make tests-integration` and `make tests-scientific` (subagents);
+  - `make tests-horizontal-v3`;
+  - `MPIRUN="mpirun --oversubscribe" make tests-distributed`, with the live check count unchanged;
+  - `make tests-converter` (subagent);
+  - Slice 5's micro-Uchuu chunked (`input.forest_chunks: 4`) and `mpirun -np 4` legs rerun under `sage16` and `halos-only`. They must be identical per `UniqueGalaxyID` to the archived serial references in `archive/distributed-references/`, with the startup log's partition lines recorded;
+  - `./scripts/beautify.sh`, `make check-format`, `make check-docs`.
+
+### Authorized Surface
+
+- Files allowed to change:
+  - `src/core/horizontal_driver.c`
+  - `src/core/horizontal_partition.c`
+  - `src/core/horizontal_partition.h`
+  - `tests/unit/test_horizontal_partition.c`
+  - `simulations/mini-millennium-horizontal/_tests/integration/test_chunked_sweep.py`
+  - `tests/manual/test_distributed_identity.py`
+  - `convert/mimic-convert/census/partition.py`
+  - `convert/mimic-convert/census/cut.py`
+  - `convert/mimic-convert/forest_census.py`
+  - `convert/mimic-convert/tests/test_forest_census.py`
+  - `convert/mimic-convert/README.md`
+  - `docs/DEVELOPER-GUIDE.md`
+  - `CHANGELOG.md`
+  - `docs/dev/MIMIC-SHIN-UCHUU-FOREST-CENSUS.md`
+  - `docs/dev/MIMIC-DEVELOPMENT-PATHWAY.md`
+- Functions/classes/components allowed to change:
+  - in the driver: `horizontal_compute_partition`, its visitors, the weight and log helpers, and the comments named above, including the startup comment in the driver's entry (`:2392-2395`);
+  - in the partition module: the weight accumulator and its declarations and comments;
+  - the census's weight construction, its summaries and the order of `cut`'s peak and partition steps;
+  - the named tests and their docstrings;
+  - the documentation sentences named above, including the pathway's one sentence;
+  - the census record's addendum and memory table.
+- Tests allowed or expected to change: the named tests only. No assertion is weakened, and each changed expectation is re-derived by hand.
+
+### Explicit Non-Goals
+
+- No change to the minimax cut algorithm, the task or chunk structure, the retention ceiling, or any run-file key.
+- No change to the format, a dataset, the converter's routes, the cut table or its naming (F6, R10), or the rewriter.
+- No stored or precomputed weight.
+- No change to which galaxies a run produces.
+
+### Risk Flags
+
+- Risky surfaces touched:
+  - the driver's partition, which every distributed or chunked horizontal run uses;
+  - an added startup pass, more I/O on the largest datasets;
+  - the census figures decision 6 rests on.
+- Approval needed before implementation: yes
+- Independent audit required: yes
+
+### Validation Plan
+
+- Tests to add/update: as listed.
+- Commands to run: as under Required evidence; the census subcommands on both micro-Uchuu datasets and on production.
+- Lint (differential, via the `lint` skill): required.
+- Manual checks:
+  - the chunked sweep's partition log on the `forest_blocks` fixture shows the peak weights;
+  - the census record's new figures trace to the summaries and logs it names, and the cross-check against PM's estimate is stated;
+  - the startup pass's added wall-clock on micro-Uchuu is recorded beside its formula.
+
+### Rollback Path
+
+- Revert the slice commits. The census record's addendum goes with them; Slice 9's aggregates and figures are untouched.
+
+---
+
+## Slice 16: The subset conversions and the Stage R gates
 
 ### Intended Change
 
@@ -1142,7 +1289,7 @@ Run on a feature branch the owner names at `init`; no implementation session edi
 - Tests to add/update: as listed.
 - Commands to run: the conversions (the subset reference, the version 2 subset, and the subset under `--cut-table`), the census on the subset, the rewrites, comparisons, gates and runs named above, every `validate` and `report` with `--multiplier 20000000000`, an explicit `--memory-budget-mb` and `--spill-dir` on the LaCie; `make tests-converter` if the rewriter changed; `make check-docs`; `./scripts/beautify.sh`; `make check-format`.
 - Lint (differential, via the `lint` skill): required unless the slice changes no linted file.
-- Manual checks: every number in the record traces to a named log; the record names the three subset datasets retained after this slice, each with the workdir and manifest that describe it, since `validate` and `report` load the manifest (`convert_trees.py:603`): the version 2 subset and the migrated subset for Stage D, and the cut subset for Slice 16's agreement run, about 0.16 TB together; and it confirms that the reference conversion, the cut-route conversion, the rewriter's scratch and every other workdir were deleted once the record was written, so the procedure's precondition can budget the rest.
+- Manual checks: every number in the record traces to a named log; the record names the three subset datasets retained after this slice, each with the workdir and manifest that describe it, since `validate` and `report` load the manifest (`convert_trees.py:603`): the version 2 subset and the migrated subset for Stage D, and the cut subset for Slice 17's agreement run, about 0.16 TB together; and it confirms that the reference conversion, the cut-route conversion, the rewriter's scratch and every other workdir were deleted once the record was written, so the procedure's precondition can budget the rest.
 
 ### Rollback Path
 
@@ -1150,19 +1297,19 @@ Run on a feature branch the owner names at `init`; no implementation session edi
 
 ---
 
-## Slice 16: The bounded producer battery
+## Slice 17: The bounded producer battery
 
 ### Intended Change
 
-- Recommended Developer: Claude Opus 5.5; effort: high. Requires Slice 3; uses Slice 15's subset datasets and measurements.
+- Recommended Developer: Claude Opus 5.5; effort: high. Requires Slice 3; uses Slice 16's subset datasets and measurements.
 - Give `validate_v3.py` a bounded mode in which every obligation of the battery has a replacement with a stated storage ceiling, and prove its verdicts agree with the external-sort battery's before it is trusted on production.
 
 ### Acceptance Criteria
 
 - [ ] `convert_trees.py validate --bounded` (and `report --bounded`), for adjacent (`links_adjacent` 1) datasets only, refusing a gapped dataset by name, runs the battery with bounded implementations whose ceiling is a stated function of the widest slab, `n_forests_total` and `n_halos`, printed at start and enforced against `--memory-budget-mb`: resident per-slab int64 columns are allowed (read in bounded blocks, never one read above `INT32_MAX` rows), whole-dataset sorts and spills are not. The slice freezes an obligation-to-algorithm table in `validate_bounded.py`'s docstring and the manual, one row per obligation: manifest binding and source conservation (unchanged); every per-row invariant (per block, unchanged); progenitor closure, chain membership and FoF integrity (per snapshot pair N and N−1 with their link, `*Snapshot`, `ForestIndex` and `MostBoundID` columns resident, cycle detection by a visited bitset per chain pass, state carried across block boundaries explicitly); `SourceHaloID` uniqueness and the [1, total] density as two independently indexed one-bit-per-halo bitsets (`total_halos / 8` bytes each, about 2.8 GB at Shin-Uchuu scale); the (`ForestIndex`, rank) position check and rank density from the per-forest totals (int64 per forest) and the per-slab block order; identity bounds; `/schema` agreement. At Shin-Uchuu's numbers the printed ceiling is about eight int64 columns of the widest slab plus the bitsets and the per-forest array, roughly 40 GB.
 - [ ] Every finding the external-sort battery can report has a counterpart in the bounded mode with the same name, so the two verdict sets are comparable item by item.
-- [ ] Agreement: a test runs both modes on every adjacent (`links_adjacent` 1) converter fixture dataset and adversarial variant `test_validate.py` already builds, on Slice 12's cut fixtures, and on new adjacent adversaries for the bounded mode (a chain crossing a block boundary, a long progenitor chain, a cycle), and asserts identical verdict sets; the gapped fixtures stay with the general battery, where they pass today (`test_validate.py:2703-2717`), and the bounded mode's refusal of one is a separate case; on this host the two modes agree on the migrated subset and the cut subset Slice 15 retained, with the bounded mode's peak RSS and spill (none expected beyond the bitsets) recorded in the acceptance record.
-- [ ] `validate_v3.py`'s external-sort implementation is untouched and remains the default; the README's "Restart, cleanup and memory" states the two modes, when to use the bounded one, and the command template for a Shin-Uchuu dataset (`--bounded --multiplier 20000000000 --memory-budget-mb <N> --spill-dir <LaCie path>`); whether one implementation retires is decided in Slice 22's contract at the Stage D revision, not after the plan (revision 5; see the Final-State Inventory).
+- [ ] Agreement: a test runs both modes on every adjacent (`links_adjacent` 1) converter fixture dataset and adversarial variant `test_validate.py` already builds, on Slice 12's cut fixtures, and on new adjacent adversaries for the bounded mode (a chain crossing a block boundary, a long progenitor chain, a cycle), and asserts identical verdict sets; the gapped fixtures stay with the general battery, where they pass today (`test_validate.py:2703-2717`), and the bounded mode's refusal of one is a separate case; on this host the two modes agree on the migrated subset and the cut subset Slice 16 retained, with the bounded mode's peak RSS and spill (none expected beyond the bitsets) recorded in the acceptance record.
+- [ ] `validate_v3.py`'s external-sort implementation is untouched and remains the default; the README's "Restart, cleanup and memory" states the two modes, when to use the bounded one, and the command template for a Shin-Uchuu dataset (`--bounded --multiplier 20000000000 --memory-budget-mb <N> --spill-dir <LaCie path>`); whether one implementation retires is decided in Slice 23's contract at the Stage D revision, not after the plan (revision 5; see the Final-State Inventory).
 - [ ] Required evidence: `make tests-converter` via a subagent; the subset agreement run; `./scripts/beautify.sh`; `make check-format`; `make check-docs`.
 
 ### Authorized Surface
@@ -1181,7 +1328,7 @@ Run on a feature branch the owner names at `init`; no implementation session edi
 
 ### Explicit Non-Goals
 
-- No change to any verdict's meaning; no removal of the external-sort battery (Slice 22's contract decides whether one implementation goes; revision 5); no change to the rewriter.
+- No change to any verdict's meaning; no removal of the external-sort battery (Slice 23's contract decides whether one implementation goes; revision 5); no change to the rewriter.
 
 ### Risk Flags
 
@@ -1202,15 +1349,15 @@ Run on a feature branch the owner names at `init`; no implementation session edi
 
 ---
 
-## The production procedure (owner-operated, between Slices 16 and 17)
+## The production procedure (owner-operated, between Slices 17 and 18)
 
-Not a PM slice: the owner runs it with an assistant session in Mode A, step by step, on the Mac Studio, under workflow (a) of the brief (one LaCie; `Internal` holds one run output at a time; NT is the archive of finished files by the owner's transfers). Every step's evidence goes into the acceptance record's Stage C section as it happens; a step that fails stops the procedure. Decimal TB; the output budget per dataset is 3.25 TB.
+Not a PM slice: the owner runs it with an assistant session in Mode A, step by step, on the Mac Studio, under workflow (a) of the brief (one LaCie; `Internal` holds one run output at a time; NT is the archive of finished files by the owner's transfers). Every step's evidence goes into the acceptance record's Stage C section as it happens; a step that fails stops the procedure, except for decision 6's class fallback at step 11. Decimal TB; the output budget per dataset is 3.25 TB.
 
-1. **Preconditions.** Stage R accepted; the LaCie holds the version 2 dataset (2.25), the subset ASCII (0.21), the index files (0.02), the three subset datasets Slice 15 retains with their workdirs (about 0.16) and the census aggregates (the measured figure from Slice 9; run 2 measured about 0.29 TB in all, retired outputs included). Revision 5: before production, the free-space figure and every step's peak and headroom below are recomputed from a measured ledger of everything retained, same-volume moves included, and the free space the recomputed ledger requires is available (revision 4's 4.85 TB, superseded; it derived from the brief's 7.71 usable less those, which leaves the cut step's 0.66 TB headroom intact only if the other Stage R datasets and workdirs were deleted as Slice 15 requires; at the baseline 4.2 TB was free with the owner's 0.72 TB of unrelated files and the 0.51 TB version 2 run output still on it, so about 1.2 TB moves off first); the version 2 run output is at `/Volumes/Internal/results/mimic/sage16-shin-uchuu` and its `metadata/` is readable (the empty `sage16-shin-uchuu-ascii` beside it is not needed: no vertical run of the full box exists or is planned, and the vertical comparison is the subset gate of Slice 15).
+1. **Preconditions.** Stage R accepted; the LaCie holds the version 2 dataset (2.25), the subset ASCII (0.21), the index files (0.02), the three subset datasets Slice 16 retains with their workdirs (about 0.16) and the census aggregates (the measured figure from Slice 9; run 2 measured about 0.29 TB in all, retired outputs included). Revision 5: before production, the free-space figure and every step's peak and headroom below are recomputed from a measured ledger of everything retained, same-volume moves included, and the free space the recomputed ledger requires is available (revision 4's 4.85 TB, superseded; it derived from the brief's 7.71 usable less those, which leaves the cut step's 0.66 TB headroom intact only if the other Stage R datasets and workdirs were deleted as Slice 16 requires; at the baseline 4.2 TB was free with the owner's 0.72 TB of unrelated files and the 0.51 TB version 2 run output still on it, so about 1.2 TB moves off first); the version 2 run output is at `/Volumes/Internal/results/mimic/sage16-shin-uchuu` and its `metadata/` is readable (the empty `sage16-shin-uchuu-ascii` beside it is not needed: no vertical run of the full box exists or is planned, and the vertical comparison is the subset gate of Slice 16).
 2. **The reference run's configuration** (decision 9): compare the version 2 run's recorded build, modules, parameters, timestep scheme, output fields and snapshot coverage with `models/sage16/input/sage16_shin-uchuu.yaml` at the current commit; if any differs, re-run `sage16` on the version 2 dataset now (about 10 h; 513 GB peak RSS was measured) into `Internal`, and record which was done.
 3. **The uncut dataset by (M):** `rewrite_trees.py migrate` from the version 2 dataset with the index files, the Slice 10 profile, `--multiplier 20000000000`, scratch and output on the LaCie; expected peak 6.05 TB resident, the remap store (about 0.05) released at the end; the per-tree inventory's conservation check against the production report passes.
 4. **Battery:** `convert_trees.py validate --workdir <uncut> --bounded --multiplier 20000000000 --memory-budget-mb <N> --spill-dir <LaCie path>` and `report` with the same options on the uncut dataset; pass required.
-5. **`sage16` on the uncut dataset:** single task, `input.forest_chunks` chosen from Slice 9's uncut partition figures (the super-forest's 333,663,215 rows are indivisible, so the widest chunk and the memory floor, about 370 GB at 1.1 KB per halo, are set by it whatever the chunk count; chunking only trims the rest), output to the LaCie (`Internal` still holds the reference); the galaxy-by-galaxy comparison against the reference run with `scripts/compare_cross_format_identity.py` (tree rows by `UniqueGalaxyID`); identical required, which isolates the format change from the cut; the science checks (the baryon fraction, the z = 0 Type 0 count, the halo mass function) recorded alongside the version 2 values.
+5. **`sage16` on the uncut dataset:** single task, `input.forest_chunks` chosen from the census's uncut partition figures (Slice 9, re-measured under peak weighting in Slice 15) (the super-forest's 333,663,215 rows are indivisible, so the widest chunk and the memory floor, about 370 GB at 1.1 KB per halo, are set by it whatever the chunk count; chunking only trims the rest), output to the LaCie (`Internal` still holds the reference); the galaxy-by-galaxy comparison against the reference run with `scripts/compare_cross_format_identity.py` (tree rows by `UniqueGalaxyID`); identical required, which isolates the format change from the cut; the science checks (the baryon fraction, the z = 0 Type 0 count, the halo mass function) recorded alongside the version 2 values.
 6. **Settle the version 2 artefacts:** the version 2 run output from `Internal` to NT (owner transfer, checksummed), then the uncut output from the LaCie to `Internal`; the version 2 dataset is deleted from the LaCie only after its NT copy is verified against the production report's checksums (owner's step; the brief's second copy already exists at `/fred/oz214/dcroton/shin-uchuu/snapshot-trees-v2`).
 7. **`shin-uchuu` moves to version 3:** the package's `snapshots` symlink points at the uncut dataset; Slice 10's schema-conformance test now runs its real-dataset half and passes.
 8. **The cut dataset by (C):** `rewrite_trees.py cut` from the uncut dataset under the decided table (F6; Slice 9's production table and record, pinned by md5, built from the version 2 census and applied to the validated migrated dataset, with both provenance links recorded); peak and headroom as recomputed in step 1 (revision 4 estimated 7.05 TB resident with 0.66 TB headroom); the manifest records the table's md5.
@@ -1225,13 +1372,13 @@ Not a PM slice: the owner runs it with an assistant session in Mode A, step by s
     - Those differences are attributed to the census record's promotions and affected-history bracket. The record's counts are input-topology counts, not a predicted number of differing galaxies.
     - The science checks are compared with step 5 and the version 2 values, and every difference is attributed to the cut.
     - The z = 0 `sage16` galaxy population and Types are reported as measured.
-11. **Laptop acceptance (Mac-measured proxy):** on the cut dataset, `sage16` with `MallocLargeCache=0` at the task and chunk counts the chosen class implies (from the census record's partition rows, judged on the job figure; a 16 GiB class needs at least 64 chunks), recording peak RSS (for several tasks, each rank's peak and their sum), the build configuration and the class's usable budget (decision 6); the predicate is peak RSS under the budget with the sweep completing; labelled a proxy until a laptop of the class runs it, which is then the final acceptance.
+11. **Laptop acceptance (Mac-measured proxy):** on the cut dataset, `sage16` with `MallocLargeCache=0` at the task and chunk counts the chosen class implies (from the census record's partition rows under peak weighting (Slice 15), judged on the job figure; decision 6 sets 16 GiB with 10 GiB usable at (1, 128), and its stop condition applies to this step), recording peak RSS (for several tasks, each rank's peak and their sum), the build configuration and the class's usable budget (decision 6); the predicate is peak RSS under the budget with the sweep completing; labelled a proxy until a laptop of the class runs it, which is then the final acceptance.
 12. **Settle:** the uncut output from `Internal` to NT, then the cut output from the LaCie to `Internal` (or the reverse, as the owner prefers); decision 10 on parking the uncut dataset; the package's `snapshots` symlink points at the dataset the owner designates as production (the cut one, under the end state). Then the Final-State Inventory's data rows are settled:
     - the accepted cut tables and their records are kept, checksummed, with the conversion provenance;
     - the census aggregates and run 2's moved-aside outputs are deleted by the owner;
     - the acceptance record notes the disposition of every directory.
 
-## Slice 17: Provenance, record and pathway after the production procedure
+## Slice 18: Provenance, record and pathway after the production procedure
 
 ### Intended Change
 
@@ -1287,7 +1434,7 @@ Not a PM slice: the owner runs it with an assistant session in Mode A, step by s
 
 ---
 
-## Slice 18: Utility extraction out of the version 2 modules
+## Slice 19: Utility extraction out of the version 2 modules
 
 ### Intended Change
 
@@ -1296,7 +1443,7 @@ Not a PM slice: the owner runs it with an assistant session in Mode A, step by s
 
 ### Acceptance Criteria
 
-- [ ] `CHUNK_1D`, `HEADER_ATTRS`, `_log`, `load_header_metadata` and `snapshot_h5_name` are defined in `hdf5_writer_v3.py`; `hdf5_writer_v3.py:60-66`, `validate_v3.py:59` and `convert_trees.py:223` import them from there; `hdf5_writer.py` imports them back from `hdf5_writer_v3.py` so its own behaviour is unchanged until Slice 22.
+- [ ] `CHUNK_1D`, `HEADER_ATTRS`, `_log`, `load_header_metadata` and `snapshot_h5_name` are defined in `hdf5_writer_v3.py`; `hdf5_writer_v3.py:60-66`, `validate_v3.py:59` and `convert_trees.py:223` import them from there; `hdf5_writer.py` imports them back from `hdf5_writer_v3.py` so its own behaviour is unchanged until Slice 23.
 - [ ] `DEFAULT_MULTIPLIER`, `DEFAULT_V3_BUDGET_BYTES`, `RUN_SCOPED_ATTRS`, `V3_FORMAT_VERSION`, `Outcome`, `_examples`, `_filter_failures`, `battery_failed` and `check_header_bounds` are defined in `validate_v3.py`; `validate_v3.py:68-78`, `report.py:34-39` and `convert_trees.py:760` import them from there; `validate.py` imports them back; the `validate` CLI (`validate.py:1714`) and the version dispatch (`:1659-1712`) are untouched.
 - [ ] No import cycle (`python -c "import validate_v3, hdf5_writer_v3, report, convert_trees"` from the converter directory succeeds); every converter test passes unchanged.
 - [ ] Required evidence: `make tests-converter` via a subagent; `./scripts/beautify.sh`; `make check-format`.
@@ -1336,21 +1483,21 @@ Not a PM slice: the owner runs it with an assistant session in Mode A, step by s
 
 ---
 
-## Slice 19: The version 3 ASCII fixture and every consumer retargeted
+## Slice 20: The version 3 ASCII fixture and every consumer retargeted
 
 ### Intended Change
 
-- Recommended Developer: Claude Opus 5.5; effort: high. Requires Slice 18.
+- Recommended Developer: Claude Opus 5.5; effort: high. Requires Slice 19.
 - Replace the committed version 2 fixtures' role with a version 3 fixture converted by the route from a committed synthetic ASCII source, and retarget every test, battery and run file that names the version 2 fixture, so that nothing but the version 2 code itself still depends on version 2.
 
 ### Acceptance Criteria
 
 - [ ] `simulations/micro-uchuu-ascii-horizontal/_tests/data/source/` holds a generator (`generate_source.py`) writing the synthetic Consistent-Trees ASCII tree, `forests.list` and `locations.dat` that `create_snapshot_fixture.py` synthesises today (the same three forests, six snapshots and halos, so every value-level expectation survives), and the written files, committed; `_tests/data/regenerate.sh` converts it with `convert_trees.py` (ingest, transpose, write, report) under the package's `simulation_info.yaml` and the `micro-uchuu-ascii` profile into `_tests/data/worked_ascii/`, committed, on the `mini-millennium-horizontal` pattern; `simulations/shin-uchuu/_tests/data/regenerate.sh` does the same into `simulations/shin-uchuu/_tests/data/worked_ascii/` with that package's scale factors.
-- [ ] Both packages' `_tests/input/test_simulation.yaml` point at `worked_ascii/`; `make MODEL=halos-only SIMULATION=micro-uchuu-ascii-horizontal tests-unit tests-integration` and the same for `shin-uchuu` pass on it. The two fixture-based C tests of `micro-uchuu-ascii-horizontal` (`test_unit_horizontal_reader_open.c`, `test_unit_horizontal_driver_gather.c`) read the top-level `_tests/data/` version 2 files directly, which stay until Slice 23, so they are untouched here and deleted in Slice 21.
+- [ ] Both packages' `_tests/input/test_simulation.yaml` point at `worked_ascii/`; `make MODEL=halos-only SIMULATION=micro-uchuu-ascii-horizontal tests-unit tests-integration` and the same for `shin-uchuu` pass on it. The two fixture-based C tests of `micro-uchuu-ascii-horizontal` (`test_unit_horizontal_reader_open.c`, `test_unit_horizontal_driver_gather.c`) read the top-level `_tests/data/` version 2 files directly, which stay until Slice 24, so they are untouched here and deleted in Slice 22.
 - [ ] `models/sham/input/sham_micro-uchuu-ascii-horizontal.yaml`, `models/hod/input/hod_micro-uchuu-ascii-horizontal.yaml`, `models/sham/modules/sham_rank_match/_tests/test_integration_sham_rank_match.py`, `models/hod/modules/hod_populate/_tests/test_integration_hod_populate.py`, `tests/manual/run_snapshot_global_battery.py` (the `halos-only-v2`, `sham` and `hod` groups become the version 3 ASCII fixture; the group name loses "v2"), `tests/integration/test_snapshot_phase.py` (`HORIZONTAL_INPUT`) run on `worked_ascii/`; any assertion that pinned a row-position-derived value (a created-record id) is updated to the version 3 fixture's value with the reason recorded in the test; `make tests-snapshot-global` and the two model integration tests pass.
 - [ ] `tests/manual/test_snapshot_disabled_identity.py`: the version 2 leg is removed, with its reason in the module docstring: the gate runs the pinned pre-feature reference commit on each commit's own fixture configuration (`required_paths`, `:211-219`) and compares metadata allowing only path-prefix differences, so a leg on a fixture the reference commit never carried cannot be compared; the vertical and version 3 gapped legs remain (a horizontal disabled-mode identity on adjacent input is covered by the package's parity gate); the mutation source for `test_comparator_rejects_mutations` (`:928-929`, today the `sage16` version 2 fixed leg) becomes the `sage16` version 3 gapped fixed leg, every mutation and control case retained; `make tests-snapshot-global-identity` passes with the two remaining fixtures.
 - [ ] `tests/framework/parity_gate.py` loses its version 2 branches (`:1019`, `:1083`, `:1095-1109`: the gap census and the manifest-proved inventory now apply to every gate) and `tests/integration/test_processing_order.py` loses its version 2 branch (`:117-129`, the docstrings at `:340-376` and `:852-856`); every gate and the integration tier still pass.
-- [ ] `tests/manual/test_distributed_identity.py`: the version 2 refusal leg (`:152-155`, `:586-607`) is removed (the reader's rejection of version 2 as unsupported is Slice 21's unit case); the live check count in the record is updated.
+- [ ] `tests/manual/test_distributed_identity.py`: the version 2 refusal leg (`:152-155`, `:586-607`) is removed (the reader's rejection of version 2 as unsupported is Slice 22's unit case); the live check count in the record is updated.
 - [ ] Required evidence: the tiers above via subagents; `make tests-distributed`; `./scripts/beautify.sh`; `make check-format`.
 
 ### Authorized Surface
@@ -1379,7 +1526,7 @@ Not a PM slice: the owner runs it with an assistant session in Mode A, step by s
 
 ### Explicit Non-Goals
 
-- No deletion of the version 2 fixtures, generators, checker or `check-horizontal-fixture` (Slice 23); no C code change (Slice 21); no physics change; no weakening of any case.
+- No deletion of the version 2 fixtures, generators, checker or `check-horizontal-fixture` (Slice 24); no C code change (Slice 22); no physics change; no weakening of any case.
 
 ### Risk Flags
 
@@ -1400,11 +1547,11 @@ Not a PM slice: the owner runs it with an assistant session in Mode A, step by s
 
 ---
 
-## Slice 20: The version 2 reader's negative battery ported to the version 3 reader test
+## Slice 21: The version 2 reader's negative battery ported to the version 3 reader test
 
 ### Intended Change
 
-- Recommended Developer: Claude Opus 5.5; effort: medium. Requires Slice 19.
+- Recommended Developer: Claude Opus 5.5; effort: medium. Requires Slice 20.
 - Port every case of `simulations/micro-uchuu-ascii-horizontal/_tests/unit/test_unit_horizontal_reader_open.c` that has no like-named analogue in `tests/unit/test_horizontal_v3_reader.c`, so that deleting the version 2 tests loses no coverage of shared reader behaviour.
 
 ### Acceptance Criteria
@@ -1443,11 +1590,11 @@ Not a PM slice: the owner runs it with an assistant session in Mode A, step by s
 
 ---
 
-## Slice 21: Deletion of the version 2 reader path
+## Slice 22: Deletion of the version 2 reader path
 
 ### Intended Change
 
-- Recommended Developer: Claude Opus 5.5; effort: high. Requires Slices 19 and 20.
+- Recommended Developer: Claude Opus 5.5; effort: high. Requires Slices 20 and 21.
 - Remove version 2 from the C reader and driver so the reader accepts exactly version 3.
 
 ### Acceptance Criteria
@@ -1475,7 +1622,7 @@ Not a PM slice: the owner runs it with an assistant session in Mode A, step by s
 
 ### Explicit Non-Goals
 
-- No change to the version 3 read path's behaviour or messages beyond the version check; no Python change; no documentation (Slice 24).
+- No change to the version 3 read path's behaviour or messages beyond the version check; no Python change; no documentation (Slice 25).
 
 ### Risk Flags
 
@@ -1496,17 +1643,18 @@ Not a PM slice: the owner runs it with an assistant session in Mode A, step by s
 
 ---
 
-## Slice 22: Deletion of the version 2 converter, validator and crosscheck
+## Slice 23: Deletion of the version 2 converter, validator and crosscheck
 
 ### Intended Change
 
-- Recommended Developer: Claude Opus 5.5; effort: high. Requires Slice 21.
+- Recommended Developer: Claude Opus 5.5; effort: high. Requires Slice 22.
 - Remove the version 2 producer and its batteries, the rewriter's version 2 input path, and rework the tests that used the version 2 writer as a harness.
 
 ### Acceptance Criteria
 
-- [ ] Deleted: `convert/mimic-convert/convert_ctrees.py`; `crosscheck.py` and `tests/test_crosscheck.py` (decision 3); `hdf5_writer.py` and `validate.py` (their surviving names moved by Slice 18; the `validate` CLI's version 3 dispatch moves into `validate_v3.py`'s `main` and `convert_trees.py validate` is the documented entry point); in `report.py` the version 2 functions `build_report`, `render_text`, `write_report` and `run_report` (`:107-296`; the version 3 constants from `:298` and everything after stay); `scatter.py:1499-1582` (`run_release`, `run_finalize`); the default `mimic-topology-dump v1` mode of `tests/unit/tools/dump_ctrees_topology.c` (`:25-34`, `:119-130`), which exists only to feed crosscheck, leaving `--source-payload` as the tool's one mode, with `Makefile:935`'s comment retargeted; `tests/data/legacy_manifest_v2/`; the version 2 halves of `tests/test_validate.py` (`:1-2180`) and `tests/test_hdf5_writer.py` (`:79-918` except the shared header-metadata and multiplier cases, which move to the version 3 classes); `tests/test_cli.py:685-733` and the `--help` assertion at `:214`; `tests/test_scatter.py:1823-1920`; the `migrate` subcommand and `horizontal_dataset.py`'s version 2 branch in the rewriter and census, with their tests.
+- [ ] Deleted: `convert/mimic-convert/convert_ctrees.py`; `crosscheck.py` and `tests/test_crosscheck.py` (decision 3); `hdf5_writer.py` and `validate.py` (their surviving names moved by Slice 19; the `validate` CLI's version 3 dispatch moves into `validate_v3.py`'s `main` and `convert_trees.py validate` is the documented entry point); in `report.py` the version 2 functions `build_report`, `render_text`, `write_report` and `run_report` (`:107-296`; the version 3 constants from `:298` and everything after stay); `scatter.py:1499-1582` (`run_release`, `run_finalize`); the default `mimic-topology-dump v1` mode of `tests/unit/tools/dump_ctrees_topology.c` (`:25-34`, `:119-130`), which exists only to feed crosscheck, leaving `--source-payload` as the tool's one mode, with `Makefile:935`'s comment retargeted; `tests/data/legacy_manifest_v2/`; the version 2 halves of `tests/test_validate.py` (`:1-2180`) and `tests/test_hdf5_writer.py` (`:79-918` except the shared header-metadata and multiplier cases, which move to the version 3 classes); `tests/test_cli.py:685-733` and the `--help` assertion at `:214`; `tests/test_scatter.py:1823-1920`; the `migrate` subcommand and `horizontal_dataset.py`'s version 2 branch in the rewriter and census, with their tests.
 - [ ] Reworked, not weakened: `test_links.py`, `test_fixups.py`, `test_sort_index.py`, `test_ascii_adapter.py`, `test_conversion_manifest.py` and `mock_reference.py` set up their datasets through the version 3 route or the adapter fixtures instead of `run_write` or `convert_ctrees.main`; a coverage map in the slice's validation note pairs every removed case with the surviving case that holds its obligation, or states that the obligation itself retired with the interface (release, finalize, the consumptive writer); names describe current behaviour.
+- [ ] **Revision 6 (R11).** No comment or docstring in `forest_census.py`, `census/`, `rewrite_trees.py`, `rewriter/` or `horizontal_dataset.py` cites a plan identifier: a frozen-decision number ("F1", "F6"), a ruling ("DD8", "R10"), a slice or revision number, or "the plan". Each states its rule self-contained, so the code still reads correctly after this plan is archived; a grep in the slice's validation note shows none remain.
 - [ ] The surviving converter modules lose their live version 2 statements and paths: `hdf5_writer_v3.py:12-13`, `validate_v3.py:7-9`, `convert_trees.py:40-41`, `:115`, `:833`; `conversion_manifest.py:19-25` and its legacy-manifest classification (`LEGACY_MANIFEST_VERSION`, `MANIFEST_LEGACY`, `classify_manifest`'s hand-back, `:90-102`, `:473-480`, and `pipeline.py:715`'s refusal), which only `tests/data/legacy_manifest_v2/` exercised; `scatter.Manifest`'s own version (the ASCII preparation state the version 3 route shares) and `column_schema.py:1323`'s profile-grammar comment are not version 2 statements and stay. `convert_trees.py --help` and the converter manual no longer mention `convert_ctrees.py`, batch mode, release, finalize or `--consume-intermediates`; the manual's "Legacy ASCII-to-v2" section (`README.md:146-378`) and "Reference-topology proof" (`:415-450`) are deleted and the module map lists only what exists.
 - [ ] **Battery disposition** (revision 5 placeholder; the revision before run 6 replaces this bullet with the decided text and the surface it needs): either the external-sort implementation is removed with its dispatch, options, tests and live documentation, and the manual names the bounded mode as the battery, once that revision extends the bounded mode to gapped input or declares gapped input unsupported by the battery, with the reason recorded; or both stay, with their separate supported purposes recorded in the manual.
 - [ ] `make tests-converter` passes; the deleted line count is reported in the slice's validation note as descriptive evidence against the inventory (about 2,600 source, 5,000 tests, with crosscheck).
@@ -1534,12 +1682,12 @@ Not a PM slice: the owner runs it with an assistant session in Mode A, step by s
   - `convert/mimic-convert/tests/`
   - `tests/unit/tools/dump_ctrees_topology.c`
   - `Makefile`
-- Functions/classes/components allowed to change: deletions as listed; the `validate` entry point move; the dump tool's default mode; one Makefile comment; the version 2 statements and the legacy-manifest path in the surviving modules; the test harness rework; the manual's sections.
+- Functions/classes/components allowed to change: the removal of plan identifiers from comments and docstrings in the files the R11 criterion names; deletions as listed; the `validate` entry point move; the dump tool's default mode; one Makefile comment; the version 2 statements and the legacy-manifest path in the surviving modules; the test harness rework; the manual's sections.
 - Tests allowed or expected to change: the converter tests as listed.
 
 ### Explicit Non-Goals
 
-- No change to the version 3 ASCII route's stage modules beyond removing the two version 2 CLI functions from `scatter.py`; no fixture deletion outside `tests/data/legacy_manifest_v2/` (Slice 23); no guide, skill or changelog edit (Slice 24).
+- No change to the version 3 ASCII route's stage modules beyond removing the two version 2 CLI functions from `scatter.py`; no fixture deletion outside `tests/data/legacy_manifest_v2/` (Slice 24); no guide, skill or changelog edit (Slice 25).
 
 ### Risk Flags
 
@@ -1550,7 +1698,7 @@ Not a PM slice: the owner runs it with an assistant session in Mode A, step by s
 ### Validation Plan
 
 - Tests to add/update: as listed.
-- Commands to run: `make tests-converter` (subagent); `make dump-ctrees-topology-tool`; `git grep -n "convert_ctrees\|crosscheck\|run_release\|run_finalize\|consume-intermediates" -- convert/ tests/ Makefile` finds nothing, and `git grep -n -i "version 2\|format_version 2\|to-v2\|legacy" -- convert/ ':!convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md'` finds only the profile-grammar comment (the guides, skills, READMEs and the format document are Slice 24's); `./scripts/beautify.sh`; `make check-format`; `make check-docs`.
+- Commands to run: `make tests-converter` (subagent); `make dump-ctrees-topology-tool`; `git grep -n "convert_ctrees\|crosscheck\|run_release\|run_finalize\|consume-intermediates" -- convert/ tests/ Makefile` finds nothing, and `git grep -n -i "version 2\|format_version 2\|to-v2\|legacy" -- convert/ ':!convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md'` finds only the profile-grammar comment (the guides, skills, READMEs and the format document are Slice 25's); `./scripts/beautify.sh`; `make check-format`; `make check-docs`.
 - Lint (differential, via the `lint` skill): required unless the slice changes no linted file.
 - Manual checks: `convert_trees.py validate --workdir` on the `worked_ascii` fixture's workdir still passes through the moved entry point.
 
@@ -1560,11 +1708,11 @@ Not a PM slice: the owner runs it with an assistant session in Mode A, step by s
 
 ---
 
-## Slice 23: Deletion of the version 2 fixtures, generators, make target and CI step
+## Slice 24: Deletion of the version 2 fixtures, generators, make target and CI step
 
 ### Intended Change
 
-- Recommended Developer: Claude Sonnet 5.5; effort: high. Requires Slice 22.
+- Recommended Developer: Claude Sonnet 5.5; effort: high. Requires Slice 23.
 - Remove the committed version 2 fixtures and everything that only generated or checked them.
 
 ### Acceptance Criteria
@@ -1587,7 +1735,7 @@ Not a PM slice: the owner runs it with an assistant session in Mode A, step by s
 
 ### Explicit Non-Goals
 
-- No code change elsewhere; no documentation (Slice 24); the `worked_ascii/` fixtures and `source/` of Slice 19 are untouched.
+- No code change elsewhere; no documentation (Slice 25); the `worked_ascii/` fixtures and `source/` of Slice 20 are untouched.
 
 ### Risk Flags
 
@@ -1608,11 +1756,11 @@ Not a PM slice: the owner runs it with an assistant session in Mode A, step by s
 
 ---
 
-## Slice 24: Version 2 frozen as history; guides, skills, changelog and pathway closeout
+## Slice 25: Version 2 frozen as history; guides, skills, changelog and pathway closeout
 
 ### Intended Change
 
-- Recommended Developer: Claude Sonnet 5.5; effort: high. Requires Slice 23.
+- Recommended Developer: Claude Sonnet 5.5; effort: high. Requires Slice 24.
 - Freeze the format document's version 2 text as history, remove every live statement about version 2 from the guides, skills, READMEs and tests README, write the changelog entry, and close the plan in the pathway.
 
 ### Acceptance Criteria
@@ -1625,7 +1773,7 @@ Not a PM slice: the owner runs it with an assistant session in Mode A, step by s
 - [ ] `docs/dev/MIMIC-DEVELOPMENT-PATHWAY.md`: the named follow-up and Completed Work record the plan complete with the record's numbers; the inventory marks this plan and the brief for archiving on merge and keeps the two records as standing evidence; the full-Uchuu follow-up is restated as the remaining item.
 - [ ] **Revision 5: final-state check** (owner, 2026-10-09: no stale or dead code or docs may remain that are unrelated to what Mimic is after this plan).
   - Every row of the [Final-State Inventory](#final-state-inventory) is confirmed done, with the commit that did it, in the slice's validation note.
-  - A grep for every retired module, subcommand, option and term the inventory names finds nothing outside history, `CHANGELOG.md`'s historical entries and the failure-archaeology chronicle. That covers code, tests, docs, skills, READMEs and run-file comments.
+  - A grep for every retired module, subcommand, option and term the inventory names finds nothing outside history, `CHANGELOG.md`'s historical entries and the failure-archaeology chronicle. That covers code, tests, docs, skills, READMEs and run-file comments, and it includes the plan identifiers the inventory names (revision 6, R11) outside `docs/dev/`, except the earlier-plan locations the inventory row lists for the owner, which the validation note reports as found.
   - Every surviving tool this plan added is described in the documentation of record.
 - [ ] `make check-docs` passes; `git grep -n -i "version 2\|format_version 2\|version-2\|to-v2" -- docs/ .agents/ simulations/ convert/ tests/README.md README.md AGENTS.md ':!docs/dev' ':!CHANGELOG.md'` finds only the format document's historical section and the chronicle (the converter's internal scratch-layout tags such as `ctrees-scratch-v2`, `ctrees_parser.py:105`, are not version 2 statements and are left alone); and the manual `docs/dev/` citation grep of Slice 6 finds nothing.
 
@@ -1783,4 +1931,37 @@ For Slice 9, independently trace every census-record number to its aggregate or 
 At the end, update HANDOFF.md and add the run-3 (Stage R) launcher.
 ```
 
-Later runs use the same launcher with the run's slice range, its approvals (run 2: 8, 9; run 2b: 9; run 3: 11, 12, 13, 14, 15; run 4: 16; run 5: 17; run 6: 19, 21, 22, 23, 24), its models from the profiles table, and `--attest` for every earlier slice.
+### Mode B: Supervised execution (run 3, Stage R)
+
+```text
+Plan file: docs/dev/MIMIC-SHIN-UCHUU-V3-IMPLEMENTATION-PLAN.md (revision 6)
+Repo: /Users/dcroton/Local/git-repos/mimic
+
+Start by reading the full HANDOFF.md closely.
+
+Harness/models:
+- Developer: claude, per the profiles table, passed explicitly to start-slice:
+  Slice 10 Sonnet 5.5 medium; Slices 11 and 12 Fable 5.1 high;
+  Slices 13, 14, 15 and 16 Opus 5.5 high
+- Drift audit: claude, Sonnet 5.5 at high effort
+- Code reviewer 1: claude, Fable 5.1 at high effort
+- Code reviewer 2: codex, gpt-6.1-sol at high effort
+Run the drift audit first, then the two code reviews in parallel with staggered starts.
+Complete all reviews before steering.
+
+Use project-manager. You are the accountable PM and never write slice code.
+Read the complete frozen plan, then run check-plan with repo context.
+Require a clean committed baseline with revision 6 committed on feature/shin-uchuu-v3.
+Init on that branch with --branch feature/shin-uchuu-v3 and
+--attest "Slice 1,Slice 2,Slice 3,Slice 4,Slice 5,Slice 6,Slice 7,Slice 8,Slice 9".
+Run Slices 10 to 16 (Stage R), then stop.
+Record human approval for Slices 11, 12, 13, 14, 15 and 16 before each starts.
+Ask for commit authorization before launch. No session pushes.
+Keep PM_RUN_TOKEN private to the PM seat.
+
+For Slice 15, rerun the production census only with no other LaCie-bound job alongside.
+For Slices 15 and 16, independently trace every record number to its aggregate or log.
+At the end, update HANDOFF.md and add the run-4 (Slice 17) launcher.
+```
+
+Later runs use the same launcher with the run's slice range, its approvals (run 2: 8, 9; run 2b: 9; run 3: 11, 12, 13, 14, 15, 16; run 4: 17; run 5: 18; run 6: 20, 22, 23, 24, 25), its models from the profiles table, and `--attest` for every earlier slice.

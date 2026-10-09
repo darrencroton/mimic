@@ -76,7 +76,7 @@ Peak RSS is `/usr/bin/time -l`'s maximum resident set size (GB = 10⁹ B).
 
 The dataset was installed by copying `<workdir>/write/attempt_001/{snapshot_*.h5,forests.h5}` (51 files, `cp -p`) to `/Volumes/LaCie/data/uchuu/micro-uchuu/micro-uchuu-ascii-horizontal-v3` and repointing the gitignored symlink `simulations/micro-uchuu-ascii-horizontal/snapshots` from `/Volumes/Internal/data/uchuu/micro-uchuu/micro-uchuu-ascii-horizontal` to it (`$A/logs/install-symlink.log`). The copy's SHA-256 list is byte-identical to the workdir's (`$A/logs/install-sha256-workdir.txt`, `$A/logs/install-sha256-installed.txt`).
 
-**Retained version 2 dataset (for Slice 15's G3):** `/Volumes/Internal/data/uchuu/micro-uchuu/micro-uchuu-ascii-horizontal` (50 snapshot files and `forests.h5`), untouched.
+**Retained version 2 dataset (for Slice 16's G3; Slice 15 before plan revision 6):** `/Volumes/Internal/data/uchuu/micro-uchuu/micro-uchuu-ascii-horizontal` (50 snapshot files and `forests.h5`), untouched.
 
 ### Parity gate
 

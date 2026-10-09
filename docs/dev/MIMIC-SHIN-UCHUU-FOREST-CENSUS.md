@@ -2,7 +2,7 @@
 
 **Purpose:** The measured record the owner signs off for Stage B: the decided cut table for the whole Shin-Uchuu simulation (every forest cut at its z = 0 FoF groups), what it costs (promotions, progenitor-order changes, affected histories), and how the cut dataset partitions under chunked slab streaming. Written by Slice 9 (revision 5) of [`MIMIC-SHIN-UCHUU-V3-IMPLEMENTATION-PLAN.md`](MIMIC-SHIN-UCHUU-V3-IMPLEMENTATION-PLAN.md) for the decision gate of the brief, [`MIMIC-SHIN-UCHUU-V3-PLAN.md`](MIMIC-SHIN-UCHUU-V3-PLAN.md) ("The decision gate"). F11 names it as Stage B's standing evidence.
 
-**Status:** Measured 2026-10-09 (run 2b). The cut rule is the owner's decision of 2026-10-09 (plan F6, "The decided table"); this record measures it and does not revisit it. The **two decision slots** at the end are **empty**: they are the owner's. Nothing here is a recommendation. No physics claim is made beyond the measured counts.
+**Status:** Measured 2026-10-09 (run 2b). The cut rule is the owner's decision of 2026-10-09 (plan F6, "The decided table"); this record measures it and does not revisit it. The **two decision slots** at the end were filled by the owner on 2026-10-10. Nothing here is a recommendation. No physics claim is made beyond the measured counts.
 
 **Evidence.** Every number below is quoted from a file named beside it. The files are census summaries in an aggregate directory, logs and scripts under `/Volumes/Internal/results/mimic/shin-uchuu-v3-stage-b/` (abbreviated `$B`), or PM's decision evidence under `.orchestrator/stage-b-decision/` in this repository's working tree (gitignored; abbreviated `$D`). Each `$B/logs/rev5-<step>.log` holds the subcommand's command line, the commit, the uncommitted census paths and the SHA-256 of every census source file, its output, `/usr/bin/time -l` (wall-clock, peak RSS, peak memory footprint), its exit status, and `du -sk` and `df -k` before and after. The scripts the record uses are `$B/scripts/rev5_run_step.sh` (the step wrapper), the `rev5_rehearsal_*.sh` and `rev5_production*.sh` runners, `rev5_reuse_checks.py`, `rev5_compare_rehearsal.py`, `rev5_extract_record.py`, `rev5_census_facts.py`, `rev5_diff_summaries.py`, `rev5_measure_memory.py` and `rev5_measure_cut_aggregates.py`. `$B/logs/rev5-*-extract*-final.txt` and `rev5-production-facts-final.txt` print every summary key the record quotes from the final runs. The aggregate directories are:
 
@@ -132,7 +132,7 @@ Every logical result therefore agrees, including both tables, every promotion an
 | `sage16`/`halos-only`: seeds; `dependent_halos`; `upper_bound_halos` | 319,852; 1,028,661; 10,067,526 | 14,185; 39,519; 350,017 |
 | Table md5 | `75ebf1572d513a020c0425bf1bd84338` | `1759395bc7110082e0fe20d5db72864e` |
 
-The restricted table splits only `ForestIndex` 237997 into its 2,309 z = 0 groups; every other forest keeps its id, and its record and summaries say "restricted to the selected forests" (`$R3/table-restricted/`, `$R3/cut-restricted/`). These are Slice 15's two tables for its gate G3c. At micro-Uchuu scale every laptop class holds the unchunked job (621,360 rows, 0.68 GB at (1, 1)), so the rehearsal checks the method, not a class.
+The restricted table splits only `ForestIndex` 237997 into its 2,309 z = 0 groups; every other forest keeps its id, and its record and summaries say "restricted to the selected forests" (`$R3/table-restricted/`, `$R3/cut-restricted/`). These are Slice 16's two tables for its gate G3c (Slice 15 before plan revision 6). At micro-Uchuu scale every laptop class holds the unchunked job (621,360 rows, 0.68 GB at (1, 1)), so the rehearsal checks the method, not a class.
 
 ---
 
@@ -293,7 +293,7 @@ These sum to 55.64 GB; the other 1.7 GB is the interpreter, the HDF5 library and
 
 ## Predicted differences per model (decision 7)
 
-These are predictions from input topology, per the plan's decision 7; none is a measured galaxy difference. The galaxy-by-galaxy differences of the cut dataset are measured later (Slice 15 at subset scale, procedure step 10 in production).
+These are predictions from input topology, per the plan's decision 7; none is a measured galaxy difference. The galaxy-by-galaxy differences of the cut dataset are measured later (Slice 16 at subset scale, procedure step 10 in production).
 
 - **Unchanged forests.** The 158,494,209 forests ending in one z = 0 group keep their id, their `ForestIndex`, their topology and payload, and their `UniqueGalaxyID`. Decision 7 limits the byte-identity claim to `sage16` and `halos-only`: every galaxy of such a forest, measured against the uncut dataset. For SHAM, the global ranking below can reach these forests too.
 - **`sage16` and `halos-only` inside the split forests.** A promoted halo becomes a central, so an earlier satellite phase is removed. That changes what a galaxy inherits along its history: infall, ejected-gas and ICS consolidation, stripping, reincorporation, the virial-mass source, progenitor order and inheritance, mergers, disruption and orphans. The affected histories are bracketed by `dependent_halos` (2,445,611,151: the seeds and every halo on a seed's descendant path) and `upper_bound_halos` (17,163,320,870: every halo of a piece holding a seed). The logical descendant relation and every z = 0 central/member relation of the input are preserved, but the z = 0 galaxy population and Types are measured, not claimed.
@@ -302,7 +302,7 @@ These are predictions from input topology, per the plan's decision 7; none is a 
   - *host and centrality changes*: a promoted halo (481,296,108 over all slabs, none at z = 0) becomes a central, so HOD populates it as a host and SHAM ranks it as a central, and its former group loses it;
   - *SHAM's global ranking*: abundance matching ranks every halo of a snapshot together, so a changed centrality or tie order can move tied assignments outside the split forests.
 
-  These are distinct from the measured subset differences of Slice 15. Neither model chunks, and no production run of either on the cut dataset is planned (decision 7).
+  These are distinct from the measured subset differences of Slice 16. Neither model chunks, and no production run of either on the cut dataset is planned (decision 7).
 
 ---
 
@@ -334,12 +334,37 @@ These are the committed blobs (copies in `$B/logs/rev5-code-final/`). The earlie
 
 ## The owner's decision
 
-The two slots below are the owner's. They are **empty** until the owner fills them; the owner then records them in the plan's decision 6.
+The two slots below are the owner's. The owner filled them on 2026-10-10, and they are recorded in the plan's decision 6 (revision 6).
 
 ### Decision slot 1: the laptop class and its usable budget
 
-*(empty: the owner's to fill)*
+**Owner, 2026-10-10.**
+
+- **Class:** 16 GiB.
+- **Usable concurrent-job budget:** 10 GiB. That is the class less a 6 GiB reserve for the operating system and applications, the brief's "8 to 10 GB usable" for this class.
+- **Configuration:** one task with 128 chunks (`input.forest_chunks: 128`).
+
+This decision is **contingent on fixing the driver's partition weighting** (plan revision 6). Under today's weighting, by each forest's rows in the widest slab, no grid point fits this class ([Chunked memory with the pieces installed](#chunked-memory-with-the-pieces-installed)). The 29.1 million smallest fresh pieces are almost empty at snapshot 34 and fill one chunk by snapshot 67.
+
+The owner chose the root-cause fix: the driver weighs each forest by its peak rows over all slabs. That fix needs no format change. The owner rejected renumbering the fresh pieces, which only reached a 19.6 GB job at best and would change untouched forests' `UniqueGalaxyID`.
+
+**PM's informal estimate** (`$D/partition-weighting-brief.md`; `$D/evidence/partition_weighting_production.{json,txt,log}`; not a census output):
+- It reproduces this record's grid exactly at all 32 points under today's weighting.
+- Under peak weighting the job at (1, 128) is 5,518,529 rows, about 6.1 GB at 1,100 B per halo. The best point reaches the largest piece's floor, 3,415,844 rows at (1, 256).
+- Under the decided budgets (each class less 6 GiB) the first fitting points are (1, 128) for 16 GiB (5,518,529 rows, 5.65 GiB) and (1, 32) for 32 GiB (22,018,442 rows, 22.56 GiB). At the estimate's own 4 GiB reserve they were (1, 64) and (1, 32).
+
+The revision-6 slice re-measures this grid under the new weighting. The production procedure calibrates the bytes per halo and runs the Mac proxy (step 11).
 
 ### Decision slot 2: the stop condition of the brief's decision gate
 
-*(empty: the owner's to fill)*
+**Owner, 2026-10-10.** The cut rule is fixed (F6), so the brief's decision gate reduces to what happens when the chosen class is not reached where it is measured. There are three checkpoints, in order:
+1. the revision-6 slice's re-measured census grid;
+2. the Mac proxy (procedure step 11);
+3. a run on a laptop of the class, when one is available.
+
+**The stop condition is a step-down with one stop:**
+- **Target:** 16 GiB with 10 GiB usable.
+- **The metric:** at the census checkpoint, the estimated concurrent Mimic job (job rows × bytes per halo) against the class's usable budget; the census tool's own RSS is not the metric. At the Mac-proxy and laptop checkpoints, the Mimic sweep's measured peak RSS (the sum over tasks when there are several).
+- **The configuration:** start at one task and 128 chunks. At the census checkpoint, a miss is no one-task chunk count up to 256 fitting the class's usable budget. At the Mac-proxy and laptop checkpoints, if the sweep completes over budget or fails for memory, test 256 chunks before declaring a miss. A fit at a count other than 128 changes the configuration, not the class, and is recorded in the plan's decision 6.
+- **A miss or a failed sweep** moves the target to 32 GiB with 26 GiB usable (the same 6 GiB reserve, at most 256 chunks), evaluated at the same checkpoint, with the miss and its measured cause recorded.
+- **If 32 GiB is also missed, stop and return to the owner.** Going to 64 GiB needs a new owner decision. Under today's widest-slab weighting, 64 GiB with 58 GiB usable is reached at (1, 32): 41,209,248 rows, 42.22 GiB. This record's (1, 16) fit was at its 4 GiB reserve.
