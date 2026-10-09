@@ -44,11 +44,14 @@ Memory (measured with ``tracemalloc``), with ``n_trees`` the index's trees,
   most of it the shared loaders' parse buffers;
 - :meth:`SourceIndex.forest_table` returns **40 B x n_forests + 8 B x n_pairs**
   (five int64 arrays per forest plus the CSR file list), about 9.2 GB at
-  Shin-Uchuu. While it runs it adds, on top of the table and the result, a
-  peak that depends on the forests-to-trees ratio: about **57 B x n_trees** at
-  Shin-Uchuu's ratio (about 18.0 GB), and about **81 B x n_trees** when forests
-  are as many as trees (every forest one tree, so n_forests = n_pairs =
-  n_trees), the measured worst case.
+  Shin-Uchuu. While it runs, the total it holds above the joined table --
+  its workspace and that result together -- peaks at about **57 B x n_trees**
+  at Shin-Uchuu's ratio (about 18.0 GB) and about **81 B x n_trees** when
+  forests are as many as trees (every forest one tree, so n_forests = n_pairs
+  = n_trees), the measured worst case;
+- :meth:`SourceIndex.marker_ordinals` holds a transient of about **33 B x
+  n_trees** (the sort order, the sorted file ids, a one-byte run mask, the
+  ranks and the result) and returns 8 B x n_trees.
 """
 
 import os
@@ -181,7 +184,7 @@ class SourceIndex:
         """Per tree (aligned with :attr:`tree_roots`), the dense rank of its
         ``#tree`` marker within its file by byte offset: the order
         ``ctrees_parser.plan_source_units`` encounters the file's trees.
-        Transient 24 B per tree (two sort orders and the ranks)."""
+        Transient about 33 B per tree (module docstring)."""
         by_marker = np.lexsort((self.offsets, self.file_ids))
         files = self.file_ids[by_marker]
         file_start = np.ones(files.size, dtype=bool)

@@ -53,35 +53,41 @@ and ``forests.h5``, and beside the manifest ``tree_inventory.npy``,
 ``convert_trees.py validate --workdir <output>`` and ``report`` then run with
 their binding and conservation checks applied.
 
-**Memory**, with ``n`` the widest slab's rows, ``n_next`` the next slab's,
-``F`` ``n_forests_total``, ``T`` the number of trees and ``P`` the index's
-(file, forest) pairs (Shin-Uchuu: n = 519,342,987, F = 166,547,771,
-T = 315,004,242, P about 320 million); block reads add ``8 B x block_rows``
-per column read:
+**Memory.** The concurrent peak per phase, with ``n`` the widest slab's
+rows, ``F`` ``n_forests_total``, ``T`` the index's trees, ``P`` its (file,
+forest) pairs and ``b`` the rows read per block (Shin-Uchuu: n = 519,342,987,
+F = 166,547,771, T = 315,004,242, P about 320 million). The per-row and
+per-tree coefficients marked measured were measured with ``tracemalloc`` on a
+synthetic 400,000-row slab (``rewriter.inputs.MEMORY_FORMULAS`` repeats them
+for the summary and ``planned_peak_bytes`` evaluates them for an input):
 
-- pass 0: the index, 32 B x T, after a load that peaks at 79 B x T; its
-  forest table, 40 B x F + 8 B x P, built with a transient of up to 81 B x T;
-  the terminal roots, 20 B x T at rest after a 42 B x T peak; the per-forest
-  totals and bases, 16 B x F; the per-tree inventory, 56 B x T. About 44 GB
-  at Shin-Uchuu, dominated by the index load.
-- pass 1, per slab: at the sort, the four key columns (``ForestIndex``,
-  upid, pid, ``MostBoundID``) and the sort's index and workspace, about
-  48 B x n; after it, ``MostBoundID``, the permutation, the sorted forest,
-  the rank, the id and one further input column at a time (the held rank,
-  then ``Descendant``), 48 B x n, plus the two label arrays, 4 B x (n +
-  n_next) and one-byte masks: at most about 56 B x n + 4 B x (n + n_next),
-  plus the running count, 8 B x F, the roots, 8 B x T, and the tree counts,
-  8 B x T; about 36 GB at Shin-Uchuu.
-- the remap store: 32 B per halo of each resident slab (the permutation and
-  three identities), at most three slabs: 96 B x n, about 50 GB; its peak is
-  recorded in the summary.
-- pass 2, per slab: while writing, one input column and its gathered output
-  at a time (at most 12 B x n each) beside the three resident permutations
-  and their inverses, 48 B x n; while verifying, the three slabs' input
-  ``MostBoundID``, 24 B x n, the written and the input link column, the
-  compared target ids (32 B x n) and the three identity columns (24 B x n)
-  beside the permutations and inverses: at most about 104 B x n, about
-  54 GB.
+- pass 0 peaks at its inventory step, **133 B x T + 80 B x F + 8 B x P +
+  24 B x b**: the index (32 B x T, after a load that peaks at 79 B x T), its
+  forest table (40 B x F + 8 B x P, built with a transient of 57 B x T at
+  Shin-Uchuu's ratio and 81 B x T when forests equal trees), the sidecar
+  columns (24 B x F), the roots and their slabs (12 B x T, after a gathering
+  peak of 42 B x T), the totals and bases (16 B x F), and the inventory
+  (56 B x T) with the marker ordinals' transient (33 B x T, measured); about
+  58 GB at Shin-Uchuu. The index, forest table, sidecar columns, totals and
+  inventory are then released (the inventory is checkpointed in the scratch
+  and reloaded at the end).
+- the baseline through passes 1 and 2 is **16 B x F + 16 B x T + 4 B x n**:
+  the forest bases and running counts, the roots and tree counts, and the
+  previous slab's labels; about 9.8 GB.
+- the remap store: 32 B per row of each resident slab (the permutation and
+  three identities), at most three slabs, **96 B x n**; about 50 GB. Its peak
+  is recorded in the summary.
+- pass 1 holds, beside the baseline and the two remap entries already
+  resident (64 B x n), a working set of **68 B x n**, and **79 B x n** for a
+  last slab whose every halo is terminal (measured: the sort's four key
+  columns and workspace, then the identities, the labels and the root
+  lookup's transients); about 80 GB concurrent at Shin-Uchuu.
+- pass 2 holds, beside the baseline and three remap entries, **45 B x n**
+  while writing (one input column and its gathered output, or a link's
+  temporaries and the target's inverse permutation) and **79 B x n** while
+  verifying (the written and input link, the compared target ids, one target
+  slab's ``MostBoundID``, then the identity columns), both measured; about
+  101 GB concurrent at Shin-Uchuu, the run's peak.
 
 Every whole-slab array is int64-indexed; nothing is narrowed to int32 but the
 tree labels, whose ordinals the root enumeration bounds.

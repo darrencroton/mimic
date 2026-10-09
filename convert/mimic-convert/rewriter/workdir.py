@@ -13,8 +13,9 @@ validate`` and ``report`` bind to it through their existing entry points:
   counts, zero gapped descendants, a maximum span of 1, ``links_adjacent`` 1),
   the ``write`` stage registering ``dataset/`` and every file in it by SHA-256;
 - ``dataset/``: the snapshot files and ``forests.h5`` and nothing else;
-- beside the manifest: ``tree_inventory.npy``, ``rewrite_state.json`` (the
-  restart state below) and ``rewrite_summary.json``.
+- beside the manifest: ``tree_inventory.npy`` (its size and SHA-256 are in the
+  restart state), ``rewrite_state.json`` (the restart state below) and
+  ``rewrite_summary.json``.
 
 **The scratch directory** holds pass 0's results and pass 1's per-slab remap
 entries and checkpoints, each written to a temporary name, fsynced and
@@ -26,9 +27,11 @@ each file's SHA-256), which scratch files exist (with theirs), and the
 manifest's configuration digest. ``--resume`` loads the manifest, requires
 the newly prepared configuration to equal the recorded one, re-pins every
 dependency (``ConversionManifest.verify_dependencies``: a changed input --
-even one of the same size -- is refused), re-verifies the scratch files it
-continues from, and continues after the last verified slab; a completed run
-is re-verified and exits.
+even one of the same size -- is refused) and requires the inputs read now to
+be exactly the pinned ones (:func:`check_pins`: a retargeted symlink is
+refused), re-verifies the scratch files it continues from, and continues
+after the last verified slab; a completed run is re-verified (outputs and
+inventory against their recorded checksums) and exits.
 """
 
 import hashlib
@@ -36,7 +39,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Dict, List, Mapping, Optional
+from typing import Dict, List, Mapping, Optional, Sequence
 
 import numpy as np
 
@@ -47,6 +50,7 @@ from conversion_manifest import (  # noqa: E402
     ConversionManifest,
     canonical_json,
     classify_manifest,
+    merge_dependencies,
     sha256_file,
 )
 from errors import ConverterError  # noqa: E402
@@ -68,7 +72,7 @@ STATUS_COMPLETE = "complete"
 
 _REMAP_PARTS = ("perm", "forest", "rank", "sid")
 _CHECKPOINT_PARTS = ("running", "tree_counts", "labels")
-_PASS0_PARTS = ("totals", "roots", "root_snapshot")
+_PASS0_PARTS = ("totals", "roots", "root_snapshot", "inventory")
 
 
 def _fsync_directory(path: Path) -> None:
@@ -270,6 +274,7 @@ class RestartState:
             "status": STATUS_RUNNING,
             "pass0": None,
             "sidecar": None,
+            "inventory": None,
             "verified": {},
             "remaps": {},
             "checkpoints": {},
@@ -370,8 +375,9 @@ def check_fresh_output(output_dir: Path) -> None:
     """A fresh run needs an absent or empty output directory."""
     if classify_manifest(output_dir) != "absent":
         raise ConverterError(
-            "--output {}: already holds a {}; use --resume to continue it or another "
-            "directory".format(output_dir / MANIFEST_NAME, MANIFEST_NAME)
+            "--output {}: already holds a {} (a run that was interrupted or refused after it "
+            "started); pass --resume to continue that run, otherwise remove the directory or "
+            "choose an empty one".format(output_dir, MANIFEST_NAME)
         )
     if output_dir.exists():
         if not output_dir.is_dir():
@@ -392,9 +398,42 @@ def create_manifest(prepared: Prepared, output_dir: Path) -> ConversionManifest:
     )
 
 
+def check_pins(manifest: ConversionManifest, pins: Sequence[Mapping]) -> None:
+    """The inputs being read now must be exactly the dependencies the run
+    pinned: the same resolved paths, each with the same size, mtime, device,
+    inode and content digest. A retargeted symlink resolves to another path
+    and is refused here even though the recorded path is unchanged."""
+    current = {record["path"]: record for record in merge_dependencies(pins)}
+    recorded = {record["path"]: record for record in manifest.dependencies}
+    for path in sorted(set(current) - set(recorded)):
+        raise ConverterError(
+            "{}: dependency {} ({}) is read now but was not pinned by this run; refusing to "
+            "resume against different inputs".format(
+                manifest.path, path, ", ".join(current[path]["roles"])
+            )
+        )
+    for path in sorted(set(recorded) - set(current)):
+        raise ConverterError(
+            "{}: pinned dependency {} ({}) is not among the inputs read now; refusing to "
+            "resume against different inputs".format(
+                manifest.path, path, ", ".join(recorded[path]["roles"])
+            )
+        )
+    for path in sorted(current):
+        for key in ("roles", "size_bytes", "mtime_ns", "device", "inode", "sha256"):
+            if current[path].get(key) != recorded[path].get(key):
+                raise ConverterError(
+                    "{}: dependency {} differs from the one this run pinned ({}: {} -> {}); "
+                    "refusing to resume".format(
+                        manifest.path, path, key, recorded[path].get(key), current[path].get(key)
+                    )
+                )
+
+
 def open_manifest(prepared: Prepared, output_dir: Path) -> ConversionManifest:
     """The manifest of the run being resumed: the same configuration, every
-    dependency unchanged."""
+    pinned dependency unchanged, and the inputs read now exactly the pinned
+    ones."""
     manifest = ConversionManifest.load(output_dir)
     if canonical_json(manifest.configuration) != canonical_json(prepared.configuration):
         raise ConverterError(
@@ -402,6 +441,7 @@ def open_manifest(prepared: Prepared, output_dir: Path) -> ConversionManifest:
             "with different arguments".format(manifest.path, manifest.data["configuration_sha256"])
         )
     manifest.verify_dependencies()
+    check_pins(manifest, prepared.pins)
     return manifest
 
 

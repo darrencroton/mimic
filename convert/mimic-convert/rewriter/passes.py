@@ -25,8 +25,9 @@ column gathered into the new order, every link remapped through its target
 slab's inverse permutation (``Descendant`` into N+1, ``FirstProgenitor`` into
 N-1, ``NextProgenitor`` and the FoF links into N) with its companion snapshot
 column -1 iff the link is -1, the identities from the remap store, and
-``SnapNum`` the slab's number. The file is written under a temporary name and
-renamed by the caller once :func:`verify_slab` has re-read it and checked:
+``SnapNum`` the slab's number. The file is written under a temporary name,
+:func:`verify_slab` re-reads that temporary file, and the caller renames it to
+its final name only on success. The verification checks:
 
 - the object set, header attributes, dataset layouts and ``/schema`` the
   format fixes;
@@ -44,7 +45,7 @@ int64-indexed and released as soon as the next step no longer needs it.
 import os
 import sys
 from dataclasses import dataclass
-from typing import Callable, Dict, Mapping, Optional, Sequence, Tuple
+from typing import Dict, Mapping, Optional, Sequence, Tuple
 
 import h5py
 import numpy as np
@@ -139,11 +140,15 @@ def rank_slab(
     roots: np.ndarray,
     labels_next: Optional[np.ndarray],
     tree_counts: np.ndarray,
+    identity_from_input: bool = False,
 ) -> Tuple[SlabRemap, np.ndarray]:
     """Pass 1 for one slab (module docstring). ``running`` and ``tree_counts``
     are advanced in place; ``labels_next`` is the next slab's labels in its
-    input row order (``None`` for the last slab). Returns the remap entry and
-    this slab's labels in input row order."""
+    input row order (``None`` for the last slab). With ``identity_from_input``
+    (the no-op) the derived order must be the input's own: the permutation
+    the identity and the derived ``ForestIndex``, ``HaloRankInForest`` and
+    ``SourceHaloID`` the stored columns, refused otherwise naming the first
+    row. Returns the remap entry and this slab's labels in input row order."""
     path = dataset.snapshot_path(snap)
     n = dataset.n_halos[snap]
     if n == 0:
@@ -173,6 +178,18 @@ def rank_slab(
     pid = np.where(fhif == rows, -1, upid)
     del fhif, rows
     perm = np.lexsort((mbid, pid, upid, forest))
+    if identity_from_input:
+        moved = perm != np.arange(n, dtype=np.int64)
+        if moved.any():
+            first = int(np.flatnonzero(moved)[0])
+            raise ConverterError(
+                "{}: the stored row order is not the (ForestIndex, HaloRankInForest) order the "
+                "input's own columns derive: {} row(s) move, the first at row {} (input row {} "
+                "belongs there); refusing to reproduce it".format(
+                    path, int(moved.sum()), first, int(perm[first])
+                )
+            )
+        del moved
     sorted_forest = forest[perm]
     del forest
     if n > 1:
@@ -212,6 +229,19 @@ def rank_slab(
             )
         )
     del rank_in, bad
+    if identity_from_input:
+        sid_in = _int64(dataset, snap, "SourceHaloID")
+        bad = sid_in != sid
+        if bad.any():
+            first = int(np.flatnonzero(bad)[0])
+            raise ConverterError(
+                "{}: {} row(s) whose stored SourceHaloID differs from the forest base plus the "
+                "derived rank, the first at row {} (stored {}, derived {}); refusing to "
+                "reproduce it".format(
+                    path, int(bad.sum()), first, int(sid_in[first]), int(sid[first])
+                )
+            )
+        del sid_in, bad
 
     desc = _int64(dataset, snap, "Descendant")
     terminal = desc == -1
@@ -227,7 +257,10 @@ def rank_slab(
                     path, int(np.sum(unknown)), _rows(path, np.flatnonzero(terminal)[unknown])
                 )
             )
+        del ids, unknown
         labels[terminal] = position
+        del position
+    del mbid
     linked = ~terminal
     if linked.any():
         if labels_next is None:
@@ -245,7 +278,8 @@ def rank_slab(
                 )
             )
         labels[linked] = labels_next[targets]
-    del desc, terminal, linked, mbid
+        del targets, bad
+    del desc, terminal, linked
     present, counts = np.unique(labels, return_counts=True)
     tree_counts[present] += counts
     return SlabRemap(snap=snap, perm=perm, forest=sorted_forest, rank=rank, sid=sid), labels
@@ -270,8 +304,10 @@ class Window:
 
 class SlabColumns:
     """The output columns of one slab, computed on demand from the input slab
-    and the window: one column resident at a time, plus the three inverse
-    permutations and the null masks of the links."""
+    and the window: one column resident at a time, the target slab's inverse
+    permutation while a link is remapped, and the null masks of the links.
+    With ``identity_from_input`` the identity columns are the input's own
+    (which pass 1 has proved equal to the derived ones)."""
 
     def __init__(
         self,
@@ -279,17 +315,15 @@ class SlabColumns:
         snap: int,
         window: Window,
         table: Mapping[str, Tuple[np.dtype, bool]],
+        identity_from_input: bool = False,
     ):
         self.dataset = dataset
         self.snap = snap
         self.window = window
         self.table = table
+        self.identity_from_input = identity_from_input
         self.path = dataset.snapshot_path(snap)
         self.n = window.own.n
-        self.inverse: Dict[int, Optional[np.ndarray]] = {
-            offset: None if window.target(offset) is None else window.target(offset).inverse()
-            for offset in (1, 0, -1)
-        }
         self.null: Dict[str, np.ndarray] = {}
         self.n_links: Dict[str, int] = {}
 
@@ -341,7 +375,9 @@ class SlabColumns:
             del held, expected
         new = np.full(self.n, -1, dtype=np.int64)
         if target is not None and (~null).any():
-            new[~null] = self.inverse[offset][old[~null]]
+            inverse = target.inverse()
+            new[~null] = inverse[old[~null]]
+            del inverse
         self.null[name] = null
         self.n_links[name] = int(np.count_nonzero(~null))
         return new
@@ -366,17 +402,22 @@ class SlabColumns:
                 )
         return np.ascontiguousarray(values[self.window.own.perm], dtype=dtype)
 
+    def identity(self, name: str) -> np.ndarray:
+        if self.identity_from_input:
+            return _int64(self.dataset, self.snap, name)
+        return {
+            "SourceHaloID": self.window.own.sid,
+            "ForestIndex": self.window.own.forest,
+            "HaloRankInForest": self.window.own.rank,
+        }[name]
+
     def __call__(self, name: str) -> np.ndarray:
         if name in _LINK_NAMES:
             return self.link(name)
         if name in _COMPANIONS:
             return self.companion(name)
-        if name == "SourceHaloID":
-            return self.window.own.sid
-        if name == "ForestIndex":
-            return self.window.own.forest
-        if name == "HaloRankInForest":
-            return self.window.own.rank
+        if name in _IDENTITY:
+            return self.identity(name)
         return self.payload(name)
 
 
@@ -562,15 +603,16 @@ def verify_slab(
     header: Mapping[str, object],
     declarations: Sequence[PayloadField],
     sid_base: np.ndarray,
-    mbid_of: Callable[[int], np.ndarray],
     block_rows: int,
 ) -> None:
     """Re-read one written slab and check everything the module docstring
-    lists; raise on the first difference. ``mbid_of(snap)`` is the input's
-    ``MostBoundID`` column of a slab, in input row order."""
+    lists; raise on the first difference. The input ``MostBoundID`` of one
+    target slab at a time is read for the link check (the links are taken in
+    target order, so each slab's column is read once)."""
     snap = columns.snap
     own = columns.window.own
     n = own.n
+    dataset = columns.dataset
     with h5py.File(path, "r") as handle:
         _check_structure(handle, path, header, columns.table, declarations, n)
         halos = handle["halos"]
@@ -578,9 +620,18 @@ def verify_slab(
             expected = columns(name)
             _compare(halos[name], expected, block_rows, path, name)
             del expected
+        if columns.identity_from_input:
+            for name in _IDENTITY:
+                if not np.array_equal(
+                    np.asarray(halos[name][...], dtype=np.int64), _int64(dataset, snap, name)
+                ):
+                    raise ConverterError(
+                        "{}: /halos/{} differs from the input's stored column".format(path, name)
+                    )
         # links: the target row of every written link carries the MostBoundID
         # of the input's target row, through the target slab's permutation
-        for name, companion, offset in LINKS:
+        mbid_snap, mbid_target = None, None
+        for name, companion, offset in sorted(LINKS, key=lambda link: link[2]):
             target = columns.window.target(offset)
             written = np.asarray(halos[name][...], dtype=np.int64)
             old = columns.old_link(name)
@@ -590,7 +641,9 @@ def verify_slab(
                     "{}: /halos/{} null rows differ from the input's".format(path, name)
                 )
             if target is not None and (~null).any():
-                mbid_target = mbid_of(target.snap)
+                if mbid_snap != target.snap:
+                    mbid_target = _int64(dataset, target.snap, "MostBoundID")
+                    mbid_snap = target.snap
                 actual = mbid_target[target.perm[written[~null]]]
                 wanted = mbid_target[old[~null]]
                 if not np.array_equal(actual, wanted):
@@ -618,6 +671,7 @@ def verify_slab(
                         )
                     )
             del written, old, null
+        del mbid_target
         # identities and SnapNum
         snapnum = np.asarray(halos["SnapNum"][...], dtype=np.int64)
         if np.any(snapnum != snap):

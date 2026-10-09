@@ -2,11 +2,19 @@
 
 The passes are the package docstring's; this module sequences them, keeps
 the remap window to slabs N+1, N and N-1, checkpoints pass 1 after every
-slab, records each verified slab in the restart state, and finishes the
-manifest, the per-tree inventory and the summary. On ``--resume`` it
-continues after the last verified slab from the scratch files the state
-names, and on a completed run it re-verifies the registered outputs and
-returns.
+slab, records each verified slab in the restart state before any recovery
+file is removed, and finishes the manifest, the per-tree inventory and the
+summary. On ``--resume`` it continues after the last verified slab from the
+scratch files the state names (a surplus or already-removed recovery file is
+tolerated), and on a completed run it re-verifies the registered outputs and
+the inventory and returns.
+
+What stays resident through passes 1 and 2 is deliberately small: the index,
+its forest table, the sidecar columns, the forest totals and the inventory
+are released once pass 0, the sidecar and the inventory checkpoint are done
+(the inventory is reloaded from the scratch at the end); the baseline is then
+the forest bases and running counts, the roots and tree counts, and one or
+two slabs' labels (package docstring).
 """
 
 import os
@@ -26,6 +34,7 @@ from hdf5_writer import snapshot_h5_name  # noqa: E402
 from hdf5_writer_v3 import SIDECAR_NAME  # noqa: E402
 from rewriter import DATASET_DIR, OPERATION_NOOP  # noqa: E402
 from rewriter.inputs import (  # noqa: E402
+    MEMORY_FORMULAS,
     Prepared,
     RewriteRequest,
     check_paths,
@@ -67,20 +76,6 @@ from rewriter.workdir import (  # noqa: E402
     write_json_atomic,
 )
 
-#: Bounded-memory formulas, stated once for the summary and the docstring.
-MEMORY_FORMULAS = {
-    "pass0": "32 B x n_trees (index) + 40 B x n_forests + 8 B x n_pairs (forest table) + "
-    "20 B x n_trees (roots) + 16 B x n_forests (totals, bases) + 56 B x n_trees (inventory); "
-    "the index load peaks at 79 B x n_trees and the forest table at 81 B x n_trees",
-    "pass1": "at most 56 B x n_rows (widest slab) + 4 B x (n_rows + n_next) (labels) + "
-    "8 B x n_forests (running count) + 16 B x n_trees (roots, tree counts)",
-    "remap_store": "32 B per row of each resident slab, at most three slabs (N+1, N, N-1)",
-    "pass2": "at most 104 B x n_rows: three permutations and inverses (48 B), three slabs' "
-    "MostBoundID (24 B), and while writing one input column and its gathered output (12 B "
-    "each) or while verifying the written and input link, the compared target ids and the "
-    "identity columns (56 B)",
-}
-
 
 def _log(message: str) -> None:
     print(message, file=sys.stderr)
@@ -111,22 +106,26 @@ def _clean_unverified(dataset_out: Path, verified: List[int], log) -> None:
             )
 
 
+def _check_recorded_file(path: Path, record: Optional[dict], what: str) -> None:
+    if record is None:
+        raise ConverterError("{}: the restart state records no {}".format(path, what))
+    if not path.is_file():
+        raise ConverterError("{}: the {} the state records is missing".format(path, what))
+    if path.stat().st_size != int(record["bytes"]) or sha256_file(path) != record["sha256"]:
+        raise ConverterError("{}: differs from the {} the state records".format(path, what))
+
+
 def _reverify_complete(manifest, state: RestartState, output_dir: Path, log) -> dict:
-    """A completed run: every registered output present with its recorded
-    checksum; returns the recorded summary."""
+    """A completed run: every registered output and the inventory present
+    with their recorded checksums; returns the recorded summary."""
     manifest.require_complete("write")
     manifest.verify_stage_artifacts("write")
     for snap, record in state.data["verified"].items():
-        path = dataset_dir(output_dir) / snapshot_h5_name(int(snap))
-        if sha256_file(path) != record["sha256"]:
-            raise ConverterError(
-                "{}: differs from the verified file the state records".format(path)
-            )
-    sidecar = dataset_dir(output_dir) / SIDECAR_NAME
-    if sha256_file(sidecar) != state.data["sidecar"]["sha256"]:
-        raise ConverterError(
-            "{}: differs from the verified sidecar the state records".format(sidecar)
+        _check_recorded_file(
+            dataset_dir(output_dir) / snapshot_h5_name(int(snap)), record, "verified slab"
         )
+    _check_recorded_file(dataset_dir(output_dir) / SIDECAR_NAME, state.data["sidecar"], "sidecar")
+    _check_recorded_file(inventory_path(output_dir), state.data.get("inventory"), "tree inventory")
     log("resume: the run is complete; every output re-verified")
     return read_json(summary_path(output_dir), "summary")
 
@@ -141,11 +140,10 @@ class _Run:
         self.scratch = scratch
         self.log = log
         self.remaps: Dict[int, SlabRemap] = {}
-        self.mbid: Dict[int, np.ndarray] = {}
         self.store_peak = 0
         self.written_this_run = 0
 
-    # ---- the remap window ----
+    # ---- the remap window and the recovery files ----
 
     def hold(self, remap: SlabRemap) -> None:
         self.remaps[remap.snap] = remap
@@ -153,17 +151,15 @@ class _Run:
         self.store_peak = max(self.store_peak, resident)
 
     def drop(self, snap: int, state: RestartState) -> None:
+        """Release one slab's remap entry and remove its files; idempotent."""
         self.remaps.pop(snap, None)
-        self.mbid.pop(snap, None)
         self.scratch.drop_remap(snap)
         state.data["remaps"].pop(str(snap), None)
 
-    def mbid_of(self, snap: int) -> np.ndarray:
-        if snap not in self.mbid:
-            self.mbid[snap] = np.ascontiguousarray(
-                self.prepared.dataset.read_column(snap, "MostBoundID"), dtype=np.int64
-            )
-        return self.mbid[snap]
+    def drop_checkpoint(self, snap: int, state: RestartState) -> None:
+        """Remove one pass 1 checkpoint; idempotent."""
+        self.scratch.drop_checkpoint(snap)
+        state.data["checkpoints"].pop(str(snap), None)
 
 
 def run_rewrite(request: RewriteRequest, log: Callable[[str], None] = _log) -> dict:
@@ -175,8 +171,10 @@ def run_rewrite(request: RewriteRequest, log: Callable[[str], None] = _log) -> d
     configuration_sha256 = canonical_sha256(prepared.configuration)
     n_snapshots = prepared.n_snapshots
     block_rows = int(request.block_rows)
+    identity_from_input = request.operation == OPERATION_NOOP
     scratch = Scratch(scratch_dir)
     binding = {"output": str(output_dir), "configuration_sha256": configuration_sha256}
+    filenames = dict(prepared.index.filenames)
     if request.resume:
         manifest = open_manifest(prepared, output_dir)
         state = RestartState.load(
@@ -201,11 +199,16 @@ def run_rewrite(request: RewriteRequest, log: Callable[[str], None] = _log) -> d
         )
         scratch.begin(binding, resume=False)
         _checkpoint_pass0(census, state, scratch)
+        inventory = tree_inventory(prepared.index, prepared.forest_table, prepared.file_ordinals)
+        state.data["pass0"]["inventory_sha256"] = scratch.save(
+            scratch.pass0_names()["inventory"], inventory
+        )
+        state.save()
+        del inventory
     run = _Run(prepared, output_dir, scratch, log)
     run.dataset_out.mkdir(parents=True, exist_ok=True)
     manifest.require_inventory(inventory_record(census.totals))
     manifest.save()
-    inventory = tree_inventory(prepared.index, prepared.forest_table, prepared.file_ordinals)
 
     # ---- the sidecar ----
     sidecar_path = run.dataset_out / SIDECAR_NAME
@@ -224,9 +227,18 @@ def run_rewrite(request: RewriteRequest, log: Callable[[str], None] = _log) -> d
         n_forests = write_sidecar(tmp, prepared.sidecar)
         verify_sidecar(tmp, prepared.sidecar)
         os.replace(tmp, sidecar_path)
-        state.data["sidecar"] = {"sha256": sha256_file(sidecar_path), "n_forests": n_forests}
+        state.data["sidecar"] = {
+            "sha256": sha256_file(sidecar_path),
+            "bytes": sidecar_path.stat().st_size,
+            "n_forests": n_forests,
+        }
         state.save()
         log("sidecar: {} forest(s) written and verified".format(n_forests))
+    # the whole-input tables are no longer needed: release them before the
+    # slab passes (package docstring, the resident baseline)
+    prepared.release_tables()
+    census.totals = None
+    census.root_snapshot = None
 
     # ---- passes 1 and 2 ----
     top = n_snapshots - 1
@@ -237,16 +249,18 @@ def run_rewrite(request: RewriteRequest, log: Callable[[str], None] = _log) -> d
     if lowest is None:
         running = np.zeros(n_forests, dtype=np.int64)
         tree_counts = np.zeros(n_trees, dtype=np.int64)
-        labels = _pass1(run, census, state, top, running, None, tree_counts)
+        labels = _pass1(run, census, state, top, running, None, tree_counts, identity_from_input)
         pending = top
     elif lowest == 0:
         pending = None
         running, tree_counts, labels = _load_checkpoint(run, state, 0)
+        _prune_recovery(run, state, keep_remaps=(), keep_checkpoints=(0,))
     else:
         pending = lowest - 1
         running, tree_counts, labels = _load_checkpoint(run, state, pending)
         for snap in (lowest, pending):
             run.hold(scratch.load_remap(snap, state.data["remaps"][str(snap)]))
+        _prune_recovery(run, state, keep_remaps=(lowest, pending), keep_checkpoints=(pending,))
         log(
             "resume: continuing after snapshot {} with pass 1 done through {}".format(
                 lowest, pending
@@ -254,19 +268,16 @@ def run_rewrite(request: RewriteRequest, log: Callable[[str], None] = _log) -> d
         )
     while pending is not None:
         if pending - 1 >= 0:
-            labels = _pass1(run, census, state, pending - 1, running, labels, tree_counts)
-        _pass2(run, census, state, pending, block_rows)
-        run.drop(pending + 1, state)
-        if pending > 0:
-            # pass 1's latest checkpoint (pending - 1) is what a resume after
-            # this slab continues from; the older one is no longer needed
-            scratch.drop_checkpoint(pending)
-            state.data["checkpoints"].pop(str(pending), None)
-        state.save()
+            labels = _pass1(
+                run, census, state, pending - 1, running, labels, tree_counts, identity_from_input
+            )
+        _pass2(run, census, state, pending, block_rows, identity_from_input)
+        _release_after(run, state, pending)
         pending = pending - 1 if pending > 0 else None
-    del running
+    del running, labels
     for snap in list(run.remaps):
         run.drop(snap, state)
+    state.save()
 
     # ---- the inventory, the manifest and the summary ----
     if int(tree_counts.sum()) != dataset.total_halos:
@@ -275,9 +286,19 @@ def run_rewrite(request: RewriteRequest, log: Callable[[str], None] = _log) -> d
                 int(tree_counts.sum()), dataset.total_halos
             )
         )
+    inventory = scratch.load(
+        scratch.pass0_names()["inventory"], state.data["pass0"]["inventory_sha256"]
+    )
     inventory["n_rows"] = tree_counts
+    del tree_counts
     save_array_atomic(inventory_path(output_dir), inventory)
-    conservation = check_conservation(inventory, prepared.index, prepared.parsed_counts)
+    state.data["inventory"] = {
+        "sha256": sha256_file(inventory_path(output_dir)),
+        "bytes": inventory_path(output_dir).stat().st_size,
+    }
+    state.save()
+    conservation = check_conservation(inventory, filenames, prepared.parsed_counts)
+    del inventory
     counts = [int(c) for c in dataset.n_halos]
     n_links: Dict[str, int] = {}
     for record in state.data["verified"].values():
@@ -312,7 +333,11 @@ def run_rewrite(request: RewriteRequest, log: Callable[[str], None] = _log) -> d
         "root_correspondence": census.correspondence,
         "conservation": conservation,
         "remap_store": {"peak_bytes": int(state.data["peak_store_bytes"])},
-        "memory": {"formulas": MEMORY_FORMULAS, "peak_rss_bytes": _peak_rss_bytes()},
+        "memory": {
+            "formulas": MEMORY_FORMULAS,
+            "planned_peak_bytes": prepared.configuration["transpose_budget_bytes"],
+            "peak_rss_bytes": _peak_rss_bytes(),
+        },
         "block_rows": block_rows,
         "resumed": bool(request.resume),
         "slabs_written_this_run": run.written_this_run,
@@ -335,13 +360,14 @@ def run_rewrite(request: RewriteRequest, log: Callable[[str], None] = _log) -> d
 def _reload_pass0(state: RestartState, scratch: Scratch, log) -> Census:
     names = scratch.pass0_names()
     recorded = state.data["pass0"]
-    if recorded is None:
+    if recorded is None or "inventory_sha256" not in recorded:
         raise ConverterError(
-            "{}: no pass 0 checkpoint; the run cannot resume (start it afresh)".format(state.path)
+            "{}: no complete pass 0 checkpoint; the run cannot resume (start it afresh)".format(
+                state.path
+            )
         )
     totals = scratch.load(names["totals"], recorded["sha256"]["totals"])
     roots = scratch.load(names["roots"], recorded["sha256"]["roots"])
-    root_snapshot = scratch.load(names["root_snapshot"], recorded["sha256"]["root_snapshot"])
     sid_base, max_rank = source_bases(totals)
     log("pass 0: reloaded from the scratch checkpoints")
     return Census(
@@ -349,7 +375,7 @@ def _reload_pass0(state: RestartState, scratch: Scratch, log) -> Census:
         sid_base=sid_base,
         max_rank=max_rank,
         roots=roots,
-        root_snapshot=root_snapshot,
+        root_snapshot=None,
         correspondence=dict(recorded["correspondence"]),
     )
 
@@ -375,6 +401,17 @@ def _load_checkpoint(run: _Run, state: RestartState, snap: int):
     return run.scratch.load_checkpoint(snap, recorded)
 
 
+def _prune_recovery(run: _Run, state: RestartState, keep_remaps, keep_checkpoints) -> None:
+    """Drop every recovery entry a resume does not continue from: entries
+    whose files an interrupted cleanup already removed, and files whose
+    removal it never reached."""
+    for snap in [int(key) for key in state.data["remaps"] if int(key) not in keep_remaps]:
+        run.drop(snap, state)
+    for snap in [int(key) for key in state.data["checkpoints"] if int(key) not in keep_checkpoints]:
+        run.drop_checkpoint(snap, state)
+    state.save()
+
+
 def _pass1(
     run: _Run,
     census: Census,
@@ -383,9 +420,17 @@ def _pass1(
     running: np.ndarray,
     labels_next: Optional[np.ndarray],
     tree_counts: np.ndarray,
+    identity_from_input: bool,
 ) -> np.ndarray:
     remap, labels = rank_slab(
-        run.prepared.dataset, snap, census.sid_base, running, census.roots, labels_next, tree_counts
+        run.prepared.dataset,
+        snap,
+        census.sid_base,
+        running,
+        census.roots,
+        labels_next,
+        tree_counts,
+        identity_from_input,
     )
     run.hold(remap)
     state.data["remaps"][str(snap)] = run.scratch.save_remap(remap)
@@ -398,12 +443,21 @@ def _pass1(
     return labels
 
 
-def _pass2(run: _Run, census: Census, state: RestartState, snap: int, block_rows: int) -> None:
+def _pass2(
+    run: _Run,
+    census: Census,
+    state: RestartState,
+    snap: int,
+    block_rows: int,
+    identity_from_input: bool,
+) -> None:
+    """Write the slab to its temporary name, verify that file, rename it, and
+    persist the verified progress before any recovery file is touched."""
     prepared = run.prepared
     window = Window(
         own=run.remaps[snap], above=run.remaps.get(snap + 1), below=run.remaps.get(snap - 1)
     )
-    columns = SlabColumns(prepared.dataset, snap, window, prepared.table)
+    columns = SlabColumns(prepared.dataset, snap, window, prepared.table, identity_from_input)
     header = output_header(prepared, snap, window.own.n, census.max_rank)
     path = run.dataset_out / snapshot_h5_name(snap)
     tmp = run.dataset_out / (snapshot_h5_name(snap) + ".tmp")
@@ -412,18 +466,30 @@ def _pass2(run: _Run, census: Census, state: RestartState, snap: int, block_rows
     if path.exists():
         path.unlink()
     n_links = write_slab(columns, tmp, header, prepared.declarations, block_rows)
+    verify_slab(tmp, columns, header, prepared.declarations, census.sid_base, block_rows)
     os.replace(tmp, path)
-    verify_slab(
-        path, columns, header, prepared.declarations, census.sid_base, run.mbid_of, block_rows
-    )
     digest = state.mark_verified(snap, path)
     state.data["verified"][str(snap)]["n_links"] = n_links
+    state.save()
     run.written_this_run += 1
     run.log(
         "pass 2: snapshot {} written and verified ({} rows, sha256 {})".format(
             snap, window.own.n, digest[:12]
         )
     )
+
+
+def _release_after(run: _Run, state: RestartState, pending: int) -> None:
+    """After slab ``pending`` is verified and recorded: the remap entry of
+    slab ``pending + 1`` and, while an earlier checkpoint exists, pass 1's
+    checkpoint of ``pending`` are no longer needed (a resume continues from
+    the remap entries of ``pending`` and ``pending - 1`` and the checkpoint
+    of ``pending - 1``). Every step is idempotent and the state is saved last,
+    so an interruption anywhere here resumes cleanly."""
+    run.drop(pending + 1, state)
+    if pending > 0:
+        run.drop_checkpoint(pending, state)
+    state.save()
 
 
 def _byte_comparison(dataset, dataset_out: Path) -> dict:

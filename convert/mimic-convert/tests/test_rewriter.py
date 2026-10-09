@@ -170,8 +170,8 @@ def outcomes(workdir):
 class RouteSet:
     """Both routes' outputs of one layout, built once per test class."""
 
-    def __init__(self, root: Path, layout):
-        forests = fixtures.correspondence_forests()
+    def __init__(self, root: Path, layout, forests=None):
+        forests = fixtures.correspondence_forests() if forests is None else forests
         self.v2 = convert_ascii_v2(root / "v2", layout, forests)
         self.v2["root"] = root / "v2"
         self.v2["manifest"] = root / "v2" / "work" / "manifest.json"
@@ -295,6 +295,32 @@ class TestMigrate(unittest.TestCase):
         self.assertEqual(int(by_root[1400]["file_id"]), 3)
         self.assertEqual(int(by_root[1400]["source_file_ordinal"]), 1)
 
+    def test_migration_equals_the_generic_pipeline_when_forest_runs_cross(self):
+        # forest ids 3000 < 6000 < 8000 against halo ids 1500 < 2000 < 3000 <
+        # 5500 < 7100: version 2's id order interleaves the forests in every
+        # slab, so the permutation moves whole forest runs past one another
+        forests = fixtures.interleaved_correspondence_forests()
+        f3000, f6000, f8000 = forests
+        layout = [
+            [f6000.trees[0], f3000.trees[0], f8000.trees[0]],
+            [f6000.trees[1], f3000.trees[1], f3000.trees[2]],
+        ]
+        routes = RouteSet(self.root / "interleaved", layout, forests)
+        out = self.root / "interleaved_migrated"
+        summary = rewrite(
+            "migrate", routes.v2, routes.v2["dataset"], out, self.root / "interleaved_scratch"
+        )
+        assert_datasets_equal(self, routes.v3["dataset"], out / "dataset")
+        self.assertEqual(summary["n_halos"], 18)
+        self.assertEqual(summary["n_trees"], 6)
+        # the version 2 slab order really interleaves the forests at snapshot 5
+        with h5py.File(routes.v2["dataset"] / "snapshot_005.h5", "r") as handle:
+            self.assertEqual(handle["halos"]["ForestIndex"][...].tolist(), [1, 2, 0, 0, 1, 0])
+        halos, _header, _schema = read_file(out / "dataset" / "snapshot_005.h5")
+        self.assertEqual(halos["ForestIndex"].tolist(), [0, 0, 0, 1, 1, 2])
+        with quiet():
+            self.assertEqual(convert_trees.main(["validate", "--workdir", str(out)]), 0)
+
     def test_cli_runs_the_migration(self):
         out = self.root / "cli"
         argv = [
@@ -361,6 +387,64 @@ class TestNoop(unittest.TestCase):
         self.assertEqual(recorded["manifest-binding"], "PASS")
         self.assertEqual(recorded["count-conservation"], "PASS")
         self.assertNotIn("SKIP", recorded.values())
+
+    def copy_v3(self, name):
+        copy = self.root / name
+        shutil.copytree(self.routes.v3["dataset"], copy)
+        return copy
+
+    def test_noop_refuses_a_stored_source_halo_id_that_is_not_derived(self):
+        copy = self.copy_v3("wrong_sid")
+        with h5py.File(copy / "snapshot_005.h5", "r+") as handle:
+            handle["halos"]["SourceHaloID"][2] = handle["halos"]["SourceHaloID"][2] + 100
+        with self.assertRaisesRegex(
+            ConverterError, "snapshot_005.h5: 1 row.* stored SourceHaloID differs .* row 2 "
+        ):
+            rewrite(
+                "noop", self.routes.v3, copy, self.root / "wrong_sid_out", self.root / "wrong_sid_s"
+            )
+
+    def test_noop_refuses_a_row_order_that_is_not_the_derived_one(self):
+        # rows 0 and 1 of the final slab swapped and every link into them
+        # remapped (the topology is unchanged, only the storage order), so the
+        # stored order is not the (ForestIndex, HaloRankInForest) order
+        copy = self.copy_v3("swapped")
+        swap = {0: 1, 1: 0}
+        with h5py.File(copy / "snapshot_005.h5", "r+") as handle:
+            for name, dataset in handle["halos"].items():
+                values = dataset[...]
+                values[[0, 1]] = values[[1, 0]]
+                if name in ("FirstHaloInFOFgroup", "NextHaloInFOFgroup", "NextProgenitor"):
+                    values = np.array(
+                        [swap.get(int(v), int(v)) for v in values], dtype=values.dtype
+                    )
+                dataset[...] = values
+        with h5py.File(copy / "snapshot_004.h5", "r+") as handle:
+            dataset = handle["halos"]["Descendant"]
+            dataset[...] = np.array(
+                [swap.get(int(v), int(v)) for v in dataset[...]], dtype=dataset.dtype
+            )
+        with self.assertRaisesRegex(
+            ConverterError, "snapshot_005.h5: the stored row order is not .* the first at row 0"
+        ):
+            rewrite(
+                "noop", self.routes.v3, copy, self.root / "swapped_out", self.root / "swapped_s"
+            )
+
+    def test_noop_refuses_a_digest_that_is_not_the_default_profiles(self):
+        copy = self.copy_v3("other_digest")
+        other = "0" * 64
+        for snap in range(N_SNAPSHOTS):
+            with h5py.File(copy / "snapshot_{:03d}.h5".format(snap), "r+") as handle:
+                handle["header"].attrs.modify(
+                    "column_mapping_sha256", np.array(other.encode(), dtype="S64")
+                )
+        with self.assertRaisesRegex(
+            ConverterError, "column_mapping_sha256 {} is not the shipped".format(other)
+        ):
+            rewrite("noop", self.routes.v3, copy, self.root / "digest_out", self.root / "digest_s")
+        self.assertFalse((self.root / "digest_out").exists())
+        self.assertFalse((self.root / "digest_s").exists())
 
     def test_noop_refuses_a_profile_and_a_conversion_manifest(self):
         with self.assertRaisesRegex(ConverterError, "noop refuses --column-map"):
@@ -448,6 +532,100 @@ class TestResume(unittest.TestCase):
             )
             self.assertEqual(again["configuration_sha256"], summary["configuration_sha256"])
 
+    def test_resume_after_a_failure_in_the_cleanup_window(self):
+        # three windows after a slab is verified and recorded: before any
+        # recovery file is removed, after the remap entry is removed but before
+        # the checkpoint, and after both but before the state is saved
+        def before_drop(original):
+            def failing(run, snap, state):
+                if len(state.data["verified"]) == 2 and snap == N_SNAPSHOTS - 1:
+                    raise RuntimeError("injected failure")
+                return original(run, snap, state)
+
+            return failing
+
+        def after_drop_before_checkpoint(original):
+            def failing(run, snap, state):
+                if len(state.data["verified"]) == 2 and snap == N_SNAPSHOTS - 2:
+                    raise RuntimeError("injected failure")
+                return original(run, snap, state)
+
+            return failing
+
+        def before_final_save(original):
+            def failing(state):
+                if (
+                    len(state.data["verified"]) == 2
+                    and state.data["status"] == "running"
+                    and str(N_SNAPSHOTS - 1) not in state.data["remaps"]
+                ):
+                    raise RuntimeError("injected failure")
+                return original(state)
+
+            return failing
+
+        cases = (
+            ("drop", rewriter_run._Run, before_drop),
+            ("drop_checkpoint", rewriter_run._Run, after_drop_before_checkpoint),
+            ("save", rewriter_run.RestartState, before_final_save),
+        )
+        for attribute, owner, wrap in cases:
+            out = self.root / "window_{}".format(attribute)
+            scratch = self.root / "window_{}_scratch".format(attribute)
+            original = getattr(owner, attribute)
+            with mock.patch.object(owner, attribute, wrap(original)):
+                with self.assertRaisesRegex(RuntimeError, "injected failure"):
+                    rewrite("migrate", self.routes.v2, self.routes.v2["dataset"], out, scratch)
+            state = json.loads((out / "rewrite_state.json").read_text())
+            self.assertEqual(
+                sorted(int(s) for s in state["verified"]), [N_SNAPSHOTS - 2, N_SNAPSHOTS - 1]
+            )
+            summary = rewrite(
+                "migrate", self.routes.v2, self.routes.v2["dataset"], out, scratch, resume=True
+            )
+            self.assertEqual(summary["slabs_written_this_run"], N_SNAPSHOTS - 2, attribute)
+            assert_bytes_equal(self, self.reference / "dataset", out / "dataset")
+
+    def test_resume_refuses_a_retargeted_input_symlink(self):
+        # the input directory holds a symlink to one slab; after the
+        # interruption it points at another copy of the same size under the
+        # same recorded path, which only the comparison of the pins catches
+        linked = self.root / "linked_v2"
+        shutil.copytree(self.routes.v2["dataset"], linked)
+        target_a = self.root / "slab_a.h5"
+        target_b = self.root / "slab_b.h5"
+        shutil.move(linked / "snapshot_005.h5", target_a)
+        shutil.copy(target_a, target_b)
+        with h5py.File(target_b, "r+") as handle:
+            handle["halos"]["Vmax"][0] = handle["halos"]["Vmax"][0] + 1
+        (linked / "snapshot_005.h5").symlink_to(target_a)
+        out, scratch = self.interrupted("retargeted", 2, input_dir=linked)
+        (linked / "snapshot_005.h5").unlink()
+        (linked / "snapshot_005.h5").symlink_to(target_b)
+        with self.assertRaisesRegex(ConverterError, "slab_b.h5 .* is read now but was not pinned"):
+            rewrite("migrate", self.routes.v2, linked, out, scratch, resume=True)
+
+    def test_a_completed_run_reverifies_the_inventory(self):
+        out = self.root / "inventory_check"
+        scratch = self.root / "inventory_check_scratch"
+        rewrite("migrate", self.routes.v2, self.routes.v2["dataset"], out, scratch)
+        inventory = out / "tree_inventory.npy"
+        held = inventory.read_bytes()
+        changed = np.load(inventory)
+        changed["n_rows"][0] += 1
+        np.save(inventory, changed)
+        with self.assertRaisesRegex(
+            ConverterError, "tree_inventory.npy: differs from the tree inventory"
+        ):
+            rewrite("migrate", self.routes.v2, self.routes.v2["dataset"], out, scratch, resume=True)
+        inventory.unlink()
+        with self.assertRaisesRegex(
+            ConverterError, "tree_inventory.npy: the tree inventory .* is missing"
+        ):
+            rewrite("migrate", self.routes.v2, self.routes.v2["dataset"], out, scratch, resume=True)
+        inventory.write_bytes(held)
+        rewrite("migrate", self.routes.v2, self.routes.v2["dataset"], out, scratch, resume=True)
+
     def test_resume_refuses_a_changed_input_of_the_same_size(self):
         private = self.root / "private_v2"
         shutil.copytree(self.routes.v2["dataset"], private)
@@ -475,7 +653,10 @@ class TestResume(unittest.TestCase):
             )
 
     def test_a_fresh_run_refuses_a_used_output_or_scratch(self):
-        with self.assertRaisesRegex(ConverterError, "already holds a manifest.json"):
+        with self.assertRaisesRegex(
+            ConverterError,
+            "already holds a manifest.json .* remove the directory or choose an empty one",
+        ):
             rewrite(
                 "migrate",
                 self.routes.v2,
@@ -714,6 +895,68 @@ class TestRefusals(unittest.TestCase):
             self.routes.v2["dataset"],
             simulation_info=other,
         )
+
+    def test_unsupported_format_version(self):
+        copy = self.copy_v3_with_header("version4", format_version=4)
+        self.refused("format_version 4 is not one of", "noop", self.routes.v3, copy)
+
+    def test_a_failing_conservation_verdict_refuses_the_result(self):
+        document = json.loads(self.routes.v2["manifest"].read_text())
+        for entry in document["source_files"].values():
+            entry["parsed_count"] = entry["parsed_count"] + 1
+        wrong = self.root / "wrong_counts_manifest.json"
+        wrong.write_text(json.dumps(document))
+        out = self.root / "conservation_out"
+        with self.assertRaisesRegex(
+            ConverterError, "tree rows disagree with the conversion record"
+        ):
+            rewrite(
+                "migrate",
+                self.routes.v2,
+                self.routes.v2["dataset"],
+                out,
+                self.root / "conservation_s",
+                conversion_manifest=wrong,
+            )
+        # the inventory is written for inspection; the run is not completed
+        self.assertTrue((out / "tree_inventory.npy").is_file())
+        self.assertNotIn("rewrite_summary.json", dataset_files(out))
+
+    def test_a_slab_corrupted_after_writing_is_caught_by_the_verification(self):
+        original = rewriter_run.write_slab
+
+        def corrupting(columns, path, header, declarations, block_rows):
+            n_links = original(columns, path, header, declarations, block_rows)
+            with h5py.File(path, "r+") as handle:
+                if handle["halos"]["Vmax"].shape[0]:
+                    handle["halos"]["Vmax"][0] = handle["halos"]["Vmax"][0] + 1
+            return n_links
+
+        with mock.patch.object(rewriter_run, "write_slab", corrupting):
+            with self.assertRaisesRegex(
+                ConverterError, "snapshot_005.h5.tmp: /halos/Vmax rows \\[0, .*differ"
+            ):
+                rewrite(
+                    "migrate",
+                    self.routes.v2,
+                    self.routes.v2["dataset"],
+                    self.root / "corrupt_out",
+                    self.root / "corrupt_s",
+                )
+        self.assertEqual(
+            dataset_files(self.root / "corrupt_out" / "dataset"),
+            ["forests.h5", "snapshot_005.h5.tmp"],
+        )
+
+    def test_a_rank_that_is_not_the_derived_one_is_refused(self):
+        copy = self.root / "wrong_rank"
+        shutil.copytree(self.routes.v2["dataset"], copy)
+        with h5py.File(copy / "snapshot_004.h5", "r+") as handle:
+            handle["halos"]["HaloRankInForest"][1] = handle["halos"]["HaloRankInForest"][1] + 7
+        with self.assertRaisesRegex(
+            ConverterError, "snapshot_004.h5: 1 row.* HaloRankInForest differs from the reference"
+        ):
+            rewrite("migrate", self.routes.v2, copy, self.root / "rank_out", self.root / "rank_s")
 
     def test_cli_exit_status_is_2_for_a_refusal(self):
         argv = [

@@ -20,7 +20,7 @@ once in bounded blocks before any output is written:
   tree-file order, the rank of its ``#tree`` marker within the file, and its
   row count, which pass 1 fills in as it labels halos with their trees. The
   per-file sums of those counts are checked against a given conversion
-  record's per-file parsed counts (``census.trees.conservation``).
+  record's per-file parsed counts (:func:`check_conservation`).
 
 Memory: the totals and bases, 16 B x n_forests; the roots with their forests
 and slabs, 20 B x n_trees at rest (42 B x n_trees while they are gathered);
@@ -36,12 +36,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from census.trees import (  # noqa: E402
-    ParsedCounts,
-    conservation,
-    enumerate_roots,
-    root_correspondence,
-)
+from census.trees import ParsedCounts, enumerate_roots, root_correspondence  # noqa: E402
 from errors import ConverterError  # noqa: E402
 from horizontal_dataset import HorizontalDataset  # noqa: E402
 from source_index import ForestTable, SourceIndex  # noqa: E402
@@ -209,25 +204,56 @@ def tree_inventory(
 
 
 def check_conservation(
-    inventory: np.ndarray, index: SourceIndex, parsed_counts: Optional[ParsedCounts]
+    inventory: np.ndarray, filenames: Dict[int, str], parsed_counts: Optional[ParsedCounts]
 ) -> Dict[str, object]:
-    """Per-file sums of the trees' rows against the conversion record's
-    parsed counts; ``unchecked`` without a record. A failing check is a
-    refusal of the run's result, reported with the record."""
-    record = conservation(
-        np.asarray(inventory["root"], dtype=np.int64),
-        np.asarray(inventory["n_rows"], dtype=np.int64),
-        index,
-        parsed_counts,
+    """Per-file sums of the trees' rows (through the inventory's ``file_id``,
+    with ``filenames`` the ``locations.dat`` ``FileID`` -> name map) against the
+    conversion record's parsed counts; ``unchecked`` without a record. A
+    failing check is a refusal of the run's result, reported with the record.
+    The record has the shape of the census's conservation check."""
+    file_ids = sorted(filenames)
+    present, inverse = np.unique(inventory["file_id"], return_inverse=True)
+    sums = np.zeros(present.size, dtype=np.int64)
+    np.add.at(sums, inverse, inventory["n_rows"])
+    by_file = {int(file_id): int(total) for file_id, total in zip(present, sums)}
+    files = [
+        {
+            "file_id": file_id,
+            "name": os.path.basename(filenames[file_id]),
+            "census_halos": by_file.get(file_id, 0),
+        }
+        for file_id in file_ids
+    ]
+    record: Dict[str, object] = {"files": files, "unattributed_halos": 0}
+    if parsed_counts is None:
+        record["verdict"] = "unchecked"
+        return record
+    names = {entry["name"] for entry in files}
+    mismatched = 0
+    for entry in files:
+        entry["parsed_count"] = parsed_counts.counts.get(entry["name"])
+        entry["agrees"] = entry["parsed_count"] == entry["census_halos"]
+        mismatched += not entry["agrees"]
+    record["report"] = str(parsed_counts.path)
+    record["report_files_not_in_locations"] = sorted(set(parsed_counts.counts) - names)
+    record["files_disagreeing"] = mismatched
+    record["verdict"] = (
+        "pass" if not mismatched and not record["report_files_not_in_locations"] else "fail"
     )
     if record["verdict"] == "fail":
         raise ConverterError(
             "per-tree inventory: {} file(s) whose tree rows disagree with the conversion "
-            "record's parsed counts, {} file(s) in the record but not in locations.dat, {} "
-            "unattributed halo(s)".format(
-                record["files_disagreeing"],
+            "record's parsed counts ({}), {} file(s) in the record but not in locations.dat; "
+            "the inventory is written for inspection and the run is refused".format(
+                mismatched,
+                ", ".join(
+                    "{}: {} rows against parsed {}".format(
+                        entry["name"], entry["census_halos"], entry["parsed_count"]
+                    )
+                    for entry in files
+                    if not entry["agrees"]
+                ),
                 len(record["report_files_not_in_locations"]),
-                record["unattributed_halos"],
             )
         )
     return record

@@ -146,8 +146,8 @@ class Prepared:
     table: Dict[str, Tuple[np.dtype, bool]]
     metadata: Dict[str, float]
     scale_factors: Tuple[float, ...]
-    index: SourceIndex
-    forest_table: ForestTable
+    index: Optional[SourceIndex]
+    forest_table: Optional[ForestTable]
     #: ``locations.dat`` ``FileID`` -> the conversion's tree-file ordinal
     #: (-1 where a ``noop`` input's sidecar does not determine it).
     file_ordinals: Dict[int, int]
@@ -155,7 +155,7 @@ class Prepared:
     tree_file_order: List[str]
     parsed_counts: Optional[ParsedCounts]
     #: the output sidecar's three columns, in ``ForestIndex`` order.
-    sidecar: Dict[str, np.ndarray]
+    sidecar: Optional[Dict[str, np.ndarray]]
     pins: List[Dict[str, object]]
     configuration: Dict[str, object]
 
@@ -170,6 +170,13 @@ class Prepared:
     @property
     def n_forests(self) -> int:
         return self.dataset.n_forests_total
+
+    def release_tables(self) -> None:
+        """Drop the index, its forest table and the sidecar columns once pass
+        0, the sidecar and the inventory no longer need them."""
+        self.index = None
+        self.forest_table = None
+        self.sidecar = None
 
 
 # ---------------------------------------------------------------------------
@@ -620,6 +627,50 @@ def output_sidecar(
 
 
 # ---------------------------------------------------------------------------
+# The planned working set
+# ---------------------------------------------------------------------------
+
+#: The concurrent peak per phase (package docstring): n the widest slab's
+#: rows, F the forests, T the index's trees, P its (file, forest) pairs, b the
+#: block rows read at a time. The per-row and per-tree coefficients marked
+#: measured were measured with tracemalloc on a synthetic 400,000-row slab.
+MEMORY_FORMULAS = {
+    "pass0": "133 B x T + 80 B x F + 8 B x P + 24 B x b at the inventory step, holding the "
+    "index (32 B x T), its forest table (40 B x F + 8 B x P), the sidecar columns (24 B x F), "
+    "the roots and their slabs (12 B x T), the totals and bases (16 B x F) and the inventory "
+    "(56 B x T) with the marker ordinals' transient (33 B x T, measured); earlier transients "
+    "are smaller: the index load (79 B x T), the forest table's build (57 B x T at Shin-Uchuu's "
+    "ratio, 81 B x T when forests equal trees) and the roots' gathering (42 B x T)",
+    "baseline": "16 B x F (forest bases, running counts) + 16 B x T (roots, tree counts) + "
+    "4 B x n (the previous slab's labels) through passes 1 and 2, once pass 0's tables are "
+    "released",
+    "remap_store": "32 B per row of each resident slab, at most three slabs: 96 B x n",
+    "pass1": "the working set of one slab beside the baseline and the two held remap entries "
+    "(64 B x n): 68 B x n, and 79 B x n for a last slab whose every halo is terminal "
+    "(measured; the sort's four key columns and workspace, then the identities, the labels "
+    "and the root lookup's transients)",
+    "pass2": "the working set of one slab beside the baseline and the three held remap "
+    "entries: 45 B x n while writing (one input column and its gathered output, or a link's "
+    "temporaries and the target's inverse permutation) and 79 B x n while verifying (the "
+    "written and input link, the compared target ids, one target slab's MostBoundID, then the "
+    "identity columns), measured",
+    "peak": "the larger of pass 0 and the slab passes' 16 B x F + 16 B x T + 179 B x n; "
+    "Shin-Uchuu (n 519,342,987, F 166,547,771, T 315,004,242, P about 320 million): about "
+    "58 GB for pass 0 and about 101 GB for pass 2's verification, the run's peak",
+}
+
+
+def planned_peak_bytes(
+    widest: int, n_forests: int, n_trees: int, n_pairs: int, block_rows: int
+) -> int:
+    """The concurrent peak the formulas above plan for this input: the larger
+    of pass 0's inventory step and the slab passes' verification peak."""
+    pass0 = 133 * n_trees + 80 * n_forests + 8 * n_pairs + 24 * block_rows
+    slabs = 16 * n_forests + 16 * n_trees + 179 * widest
+    return int(max(pass0, slabs))
+
+
+# ---------------------------------------------------------------------------
 # Pins and configuration
 # ---------------------------------------------------------------------------
 
@@ -657,6 +708,8 @@ def _configuration(
     tree_file_order: List[str],
     input_dir: Path,
     scratch_dir: Path,
+    index_trees: int,
+    index_pairs: int,
 ) -> Dict[str, object]:
     """The manifest's frozen configuration: everything that decides an output
     byte, under the keys the report reads, with the rewriter's own values."""
@@ -697,6 +750,9 @@ def _configuration(
         "locations_sha256": sha256_file(request.locations),
     }
     widest = max(dataset.n_halos) if dataset.n_halos else 0
+    parameters["planned_peak_bytes"] = planned_peak_bytes(
+        widest, dataset.n_forests_total, index_trees, index_pairs, int(request.block_rows)
+    )
     return {
         "adapter": {"source_format": SOURCE_FORMAT, "parameters": parameters},
         "schema": schema_record(schema),
@@ -711,10 +767,10 @@ def _configuration(
             "scale_factors": [float(value) for value in scale_factors],
         },
         # the report's working-set keys: the rewriter reads in blocks of this
-        # many rows, and its bounded working set is the remap store of three
-        # resident slabs (32 B per halo each)
+        # many rows, and the budget it plans for is the concurrent peak of
+        # the package docstring's formulas over this input (planned_peak_bytes)
         "ingest_max_rows": int(request.block_rows),
-        "transpose_budget_bytes": int(3 * 32 * widest),
+        "transpose_budget_bytes": int(parameters["planned_peak_bytes"]),
     }
 
 
@@ -765,7 +821,15 @@ def prepare(request: RewriteRequest) -> Prepared:
                 )
     pins = _pins(request, dataset)
     configuration = _configuration(
-        request, dataset, schema, scale_factors, order, input_dir, scratch_dir
+        request,
+        dataset,
+        schema,
+        scale_factors,
+        order,
+        input_dir,
+        scratch_dir,
+        index.n_trees,
+        int(forest_table.files.size),
     )
     return Prepared(
         request=request,
