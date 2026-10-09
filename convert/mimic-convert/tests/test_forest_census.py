@@ -217,19 +217,34 @@ class TestPartition(unittest.TestCase):
         # tests/unit/test_horizontal_partition.c, forests 0, 2, 3 and 5 empty
         self.assertEqual(partition.cut_forests([0, 3, 0, 0, 2, 0], 2), [0, 4, 6])
 
+    def test_peak_weights_move_the_cut(self):
+        # tests/unit/test_horizontal_partition.c, slabs whose peaks are [3, 3, 4]
+        # where the widest slab alone counts [3, 3, 0]: on two ranks the peaks
+        # pack at capacity 6 as [3, 3] | [4], the widest slab's counts at 3 as
+        # [3] | [3, 0]
+        self.assertEqual(partition.cut_forests([3, 3, 4], 2), [0, 2, 3])
+        self.assertEqual(partition.cut_forests([3, 3, 0], 2), [0, 1, 3])
+
     def test_forest_blocks_recorded_chunkings(self):
-        weights = [2, 1, 7, 2, 2, 3]
+        # the forest_blocks fixture's peak weights, each forest's largest row
+        # count in any one slab; the widest slab, snapshot 5, counts
+        # [2, 1, 7, 2, 2, 3] (forest 2 holds 8 rows at snapshot 6). Re-derived by
+        # hand for the peaks, the cuts are the same: G = 2 packs at capacity 11
+        # as [2, 1, 8] | [2, 2, 3] and G >= 3 at 8, the heaviest forest, as
+        # [2, 1] | [8] | [2, 2, 3]
+        weights = [2, 1, 8, 2, 2, 3]
         # serial chunk legs (test_chunked_sweep.py): [0, 3, 6] at G = 2 and
         # [0, 2, 3, 6, 6, ...] for every G >= 3, so G = 8 has five idle chunks
         self.assertEqual(partition.partition_cut(weights, 1, 2), [0, 3, 6])
         self.assertEqual(partition.partition_cut(weights, 1, 3), [0, 2, 3, 6])
         self.assertEqual(partition.partition_cut(weights, 1, 8), [0, 2, 3] + [6] * 6)
         # MPI chunk legs (2, 2) and (3, 3), derived by hand: tasks [0, 3, 6]
-        # then chunks of [2, 1, 7] and [2, 2, 3]; tasks [0, 2, 3, 6] then
-        # chunks of [2, 1], [7] (two idle) and [2, 2, 3]
+        # (capacity 11) then chunks of [2, 1, 8] (capacity 8) and [2, 2, 3]
+        # (capacity 4); tasks [0, 2, 3, 6] (capacity 8) then chunks of [2, 1],
+        # [8] (two idle) and [2, 2, 3]
         self.assertEqual(partition.partition_cut(weights, 2, 2), [0, 2, 3, 5, 6])
         self.assertEqual(partition.partition_cut(weights, 3, 3), [0, 1, 2, 2, 3, 3, 3, 4, 5, 6])
-        # the task level packs at the smallest feasible capacity (7, the heaviest
+        # the task level packs at the smallest feasible capacity (8, the heaviest
         # forest), so eight tasks use three ranges and five trailing ones idle
         self.assertEqual(partition.cut_forests(weights, 8), [0, 2, 3] + [6] * 6)
 
@@ -784,9 +799,14 @@ class TestCensusOnVersion3(unittest.TestCase):
         other = self.tmp / "agg_partition"
         run_quietly(occupancy.run_occupancy, self.dataset, other)
         summary = run_quietly(partition.run_partition, other, [1, 2], [1, 2])
-        # widest slab 4, weights [4, 2, 0, 1]: two tasks cut at [0, 1, 4]
-        self.assertEqual(summary["weights"]["snapshot"], 4)
+        # re-derived by hand for the peak weights: forest 2 holds one row at
+        # snapshot 1 and none in the widest slab 4, so the peaks are
+        # [4, 2, 1, 1] where slab 4 alone counts [4, 2, 0, 1]; two tasks still
+        # pack at capacity 4 as [4] | [2, 1, 1], cuts [0, 1, 4]
+        np.testing.assert_array_equal(partition.peak_weights(other, 4), [4, 2, 1, 1])
+        self.assertEqual(summary["weights"]["weighting"], partition.WEIGHTING)
         self.assertEqual(summary["weights"]["heaviest_forest"], {"forest_index": 0, "rows": 4})
+        self.assertEqual(summary["weights"]["widest_slab"], {"snapshot": 4, "halos": 7})
         self.assertEqual(summary["floor"]["per_snapshot"], [0, 1, 1, 2, 4, 3])
         point = next(p for p in summary["grid"] if (p["ntask"], p["nchunk"]) == (2, 1))
         self.assertEqual(point["forest_cuts"], [0, 1, 4])
@@ -1081,6 +1101,27 @@ class TestInstalledPieces(unittest.TestCase):
             want = self.reference(forests, counts, pieces, per_piece, n_forests, catalogue_max)
             np.testing.assert_array_equal(got[0], want[0])
             np.testing.assert_array_equal(got[1], want[1])
+
+    def test_installed_weights_are_the_peaks(self):
+        # forests 0..3 peak at [5, 4, 3, 2] (occupancy); forest 1 is split into
+        # its kept piece (peak 1) and fresh 1001 (peak 4, in a slab where the
+        # kept piece holds 1), forest 3 into its kept piece (peak 2) and fresh
+        # 1002 (peak 1): by hand [5, 1, 3, 2] then [4, 1] at ForestIndex 4, 5
+        agg = Path(tempfile.mkdtemp(prefix="census_installed_"))
+        self.addCleanup(shutil.rmtree, agg, ignore_errors=True)
+        (agg / "occupancy").mkdir()
+        np.save(agg / "occupancy" / "forest_max_occupancy.npy", np.array([5, 4, 3, 2], np.int32))
+        pieces = {
+            "id": np.array([1002, 11, 13, 1001]),
+            "keeps_id": np.array([False, True, True, False]),
+            "forest_index": np.array([3, 1, 3, 1]),
+        }
+        table = SimpleNamespace(pieces=pieces, n_fresh=2)
+        state = cut.CutState(table=table)
+        state.peak = np.array([1, 1, 2, 4], dtype=np.int64)
+        np.testing.assert_array_equal(
+            cut.installed_weights(agg, state, 4, 1000), [5, 1, 3, 2, 4, 1]
+        )
 
 
 class TestCutTableInvariants(unittest.TestCase):
@@ -1815,8 +1856,11 @@ class TestDecidedTable(unittest.TestCase):
 
     def test_the_partition_with_the_pieces_installed(self):
         points = self.points()
-        # widest slab 4, installed weights [3, 2, 1, 2, 2] for ForestIndex 0..4
-        # (the kept pieces), then 1 for each of 2001..2005
+        # installed peak weights, re-derived by hand: [3, 2, 1, 2, 2] for
+        # ForestIndex 0..4 (the kept pieces of 1100, 1500 and 2000 peak at 3, 2
+        # and 2; forest 1200 holds 2 rows and 1400 one in each of slabs 3 to 5),
+        # then 1 for each of 2001..2005; every peak equals the piece's rows in
+        # the widest slab 4, so the cuts are those of the widest slab's counts
         self.assertEqual(points[(1, 2)]["forest_cuts"], [0, 4, 10])
         self.assertEqual(points[(1, 2)]["widest_rows_per_snapshot"], [0, 0, 0, 4, 8, 6])
         self.assertEqual(points[(1, 1)]["widest"]["rows"], 15)
@@ -1854,7 +1898,9 @@ class TestDecidedTable(unittest.TestCase):
         )
 
     def test_a_class_is_judged_on_the_job_not_one_process(self):
-        # two ranks over [0, 4) and [4, 10): rank 0's widest slab holds 8 rows,
+        # the peak weights above, re-derived by hand for two ranks: capacity 8
+        # packs [3, 2, 1, 2] | [2, 1, 1, 1, 1, 1], ranks over [0, 4) and
+        # [4, 10); rank 0's widest slab holds 8 rows,
         # rank 1's 7; one process needs 8 GiB, which 9 GiB less the reserve
         # holds, but the two ranks run at once and need 15
         two_ranks = self.points()[(2, 1)]

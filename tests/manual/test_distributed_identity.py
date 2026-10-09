@@ -108,8 +108,8 @@ SIMULATION = "mini-millennium-horizontal"
 MODELS = ("halos-only", "sage16", "sham", "hod")
 NP_COUNTS = (1, 2, 3, 4, 8)
 # Chunked legs: serial runs at each forest_chunks value, and (rank count, forest_chunks) MPI pairs.
-# The fixture's widest-slab weights [2, 1, 7, 2, 2, 3] give two distinct non-trivial chunkings
-# (G = 2, and every G >= 3), and idle chunks at G = 8.
+# The fixture's peak weights [2, 1, 8, 2, 2, 3] (each forest's largest row count in any one slab)
+# give two distinct non-trivial chunkings (G = 2, and every G >= 3), and idle chunks at G = 8.
 CHUNK_COUNTS = (2, 3, 8)
 NP_CHUNK_PAIRS = ((2, 2), (3, 3))
 # Models with chunked legs; models whose fixture run file is refused under chunking (it configures

@@ -330,8 +330,7 @@ struct HorizontalDriverState {
   int task;
   int nchunk;
   int range;
-  int64_t widest_snapshot; /* the slab a partition is weighted by, computed once at open */
-  int64_t widest_halos;    /* its halo count, -1 for a run without snapshots */
+  int64_t widest_snapshot; /* the slab whose rows the partition and chunk lines name */
 };
 
 /* ------------------------------------------------------------------------- */
@@ -892,31 +891,23 @@ void horizontal_rebase_slab_links(struct SnapshotSlab *slab,
   }
 }
 
-/* scan_forest_index visitor: per-forest halo counts of one slab. */
-struct HorizontalWeightVisit {
-  int64_t *weights;
-  int64_t n_forests_total;
-};
-
-static void horizontal_visit_weights(int64_t first_row, const int64_t *values, int64_t count,
-                                     void *user) {
-  const struct HorizontalWeightVisit *visit = user;
-  (void)first_row;
-  horizontal_partition_accumulate_weights(visit->weights, visit->n_forests_total, values, count);
+/* scan_forest_index visitor: one slab's forest-blocked check and per-forest peaks. */
+static void horizontal_visit_peaks(int64_t first_row, const int64_t *values, int64_t count,
+                                   void *user) {
+  horizontal_peak_scan_visit(user, first_row, values, count);
 }
 
-/* scan_forest_index visitor: one slab's forest-blocked check and row cuts. */
+/* scan_forest_index visitor: one slab's row cuts. */
 static void horizontal_visit_scan(int64_t first_row, const int64_t *values, int64_t count,
                                   void *user) {
   horizontal_forest_scan_visit(user, first_row, values, count);
 }
 
 /* The widest slab -- the largest snapshot, the lowest-numbered on a tie -- or 0
- * for a run without snapshots, with its halo count in *halos (-1 then). Every
- * task reads it from the counts the reader published at open, so every task
- * names the same slab. */
+ * for a run without snapshots. Every task reads it from the counts the reader
+ * published at open, so every task names the same slab. */
 static int64_t horizontal_widest_snapshot(const struct HorizontalReader *reader,
-                                          int64_t snapshot_count, int64_t *halos) {
+                                          int64_t snapshot_count) {
   int64_t widest = 0;
   int64_t widest_halos = -1;
   for (int64_t snapnum = 0; snapnum < snapshot_count; snapnum++) {
@@ -926,7 +917,6 @@ static int64_t horizontal_widest_snapshot(const struct HorizontalReader *reader,
       widest_halos = nhalos;
     }
   }
-  *halos = widest_halos;
   return widest;
 }
 
@@ -939,7 +929,7 @@ static void horizontal_widest_rows(const struct HorizontalForestPartition *parti
   *row_hi = has_snapshots ? horizontal_row_cut(partition, widest, range + 1) : 0;
 }
 
-/* Widest-slab weight of forests [forest_lo, forest_hi). */
+/* Peak weight of forests [forest_lo, forest_hi): their summed peak occupancies. */
 static int64_t horizontal_forest_weight(const int64_t *weights, int64_t forest_lo,
                                         int64_t forest_hi) {
   int64_t weight = 0;
@@ -950,13 +940,28 @@ static int64_t horizontal_forest_weight(const int64_t *weights, int64_t forest_l
 }
 
 /*
- * Task 0's half of the startup partition: weigh the forests by their halo counts
- * in the widest slab (state->widest_snapshot), cut them into contiguous task
- * ranges by D3 and each task's range into its chunks, then scan every slab's
- * ForestIndex column, verifying it is forest-blocked and recording its row cuts,
+ * Task 0's half of the startup partition, in two passes over every slab's
+ * ForestIndex column:
+ *
+ * 1. weigh each forest by its peak occupancy, its largest row count in any one
+ *    slab, verifying on the way that every slab is forest-blocked, so a dataset
+ *    that is not fails here, before any cut. A range's summed peaks bound its
+ *    rows in every slab; a forest's rows in the widest slab alone would
+ *    under-weigh every forest that holds few rows there but many in a later
+ *    slab, and pack many such forests into one chunk that swells later;
+ * 2. cut the forests into contiguous task ranges of minimum makespan over those
+ *    weights and each task's range into its chunks, then record every slab's
+ *    row cuts,
+ *
  * and log the result. Every input the scans read was validated by this task's
  * validate_columns open, which is why task 0 alone opens with it in a
  * distributed run.
+ *
+ * Cost, on task 0 of a distributed or chunked run only: the weights are 8 B per
+ * forest, freed before any generation is sized, and the first pass allocates
+ * nothing per halo; the two passes read 8 B x total halos each. Weighting by
+ * the widest slab alone read that slab once, so the first pass adds
+ * 8 B x (total halos - the widest slab's halos) of startup reads.
  */
 static void horizontal_compute_partition(const struct HorizontalDriverState *state,
                                          const struct HorizontalRunInfo *info) {
@@ -966,15 +971,28 @@ static void horizontal_compute_partition(const struct HorizontalDriverState *sta
   const int nranges = horizontal_partition_range_count(partition);
 
   const int64_t widest = state->widest_snapshot;
-  const int64_t widest_halos = state->widest_halos;
 
   const int64_t n_forests = partition->n_forests_total;
   int64_t *weights =
       mymalloc_cat((size_t)(n_forests > 0 ? n_forests : 1) * sizeof(int64_t), MEM_HALOS);
   memset(weights, 0, (size_t)(n_forests > 0 ? n_forests : 1) * sizeof(int64_t));
-  if (info->snapshot_count > 0) {
-    struct HorizontalWeightVisit visit = {weights, n_forests};
-    horizontal_reader_scan_forest_index(state->reader, widest, horizontal_visit_weights, &visit);
+  for (int64_t snapnum = 0; snapnum < info->snapshot_count; snapnum++) {
+    if (horizontal_reader_halo_count(state->reader, snapnum) == 0) {
+      continue; /* an empty slab raises no peak and cannot break forest order */
+    }
+    struct HorizontalPeakScan peaks;
+    horizontal_peak_scan_begin(&peaks, weights, n_forests, snapnum);
+    horizontal_reader_scan_forest_index(state->reader, snapnum, horizontal_visit_peaks, &peaks);
+    if (horizontal_peak_scan_end(&peaks) != 0) {
+      FATAL_ERROR("Snapshot %" PRId64 " is not forest-blocked: ForestIndex falls from %" PRId64
+                  " at row %" PRId64 " to %" PRId64 " at row %" PRId64
+                  ". A distributed or chunked horizontal run (NTask = %d, input.forest_chunks = "
+                  "%d) needs every slab's rows grouped by forest in ascending ForestIndex, which "
+                  "this dataset (source_format '%s') does not have; run it with a single task "
+                  "and input.forest_chunks: 1",
+                  snapnum, peaks.violation_previous, peaks.violation_row - 1, peaks.violation_value,
+                  peaks.violation_row, ntask, nchunk, info->source_format);
+    }
   }
   horizontal_partition_cut(weights, partition);
 
@@ -982,18 +1000,14 @@ static void horizontal_compute_partition(const struct HorizontalDriverState *sta
     struct HorizontalForestScan scan;
     horizontal_forest_scan_begin(&scan, partition, snapnum);
     horizontal_reader_scan_forest_index(state->reader, snapnum, horizontal_visit_scan, &scan);
+    /* Unreachable while the column reads the same as in the first pass, which found every
+     * slab forest-blocked; cheap hardening, as is the check that the cuts partition every
+     * row. */
     if (horizontal_forest_scan_end(&scan) != 0) {
-      FATAL_ERROR("Snapshot %" PRId64 " is not forest-blocked: ForestIndex falls from %" PRId64
-                  " at row %" PRId64 " to %" PRId64 " at row %" PRId64
-                  ". A distributed or chunked horizontal run (NTask = %d, input.forest_chunks = "
-                  "%d) needs every slab's rows grouped by forest in ascending ForestIndex, which "
-                  "this dataset (source_format '%s') does not have; run it with a single task "
-                  "and input.forest_chunks: 1",
-                  snapnum, scan.violation_previous, scan.violation_row - 1, scan.violation_value,
-                  scan.violation_row, ntask, nchunk, info->source_format);
+      FATAL_ERROR("Snapshot %" PRId64 "'s ForestIndex column falls at row %" PRId64
+                  " on the partition's second scan but was forest-blocked on its first",
+                  snapnum, scan.violation_row);
     }
-    /* Unreachable while the scan visits the whole column; cheap hardening that the cuts
-     * partition every row. */
     const int64_t scanned_rows = horizontal_row_cut(partition, snapnum, nranges);
     const int64_t reader_rows = horizontal_reader_halo_count(state->reader, snapnum);
     if (scanned_rows != reader_rows) {
@@ -1010,11 +1024,10 @@ static void horizontal_compute_partition(const struct HorizontalDriverState *sta
   if (nchunk > 1) {
     snprintf(chunks_note, sizeof(chunks_note), " in %d chunks each", nchunk);
   }
-  INFO_LOG("%s horizontal partition: %" PRId64 " forest%s over %d task%s%s, weighted by "
-           "the widest slab, snapshot %" PRId64 " (%" PRId64 " halo%s)",
+  INFO_LOG("%s horizontal partition: %" PRId64 " forest%s over %d task%s%s, each forest "
+           "weighted by its peak occupancy over all slabs (its largest row count in any one slab)",
            ntask > 1 ? "Distributed" : "Chunked", n_forests, n_forests == 1 ? "" : "s", ntask,
-           ntask == 1 ? "" : "s", chunks_note, widest, widest_halos > 0 ? widest_halos : 0,
-           widest_halos == 1 ? "" : "s");
+           ntask == 1 ? "" : "s", chunks_note);
   for (int r = 0; r < ntask; r++) {
     /* Task r's own range spans its nchunk chunk ranges, which start at r * nchunk. */
     const int first_range = r * nchunk;
@@ -1026,8 +1039,8 @@ static void horizontal_compute_partition(const struct HorizontalDriverState *sta
     int64_t unused = 0;
     horizontal_widest_rows(partition, widest, first_range, &row_lo, &unused);
     horizontal_widest_rows(partition, widest, first_range + nchunk - 1, &unused, &row_hi);
-    INFO_LOG("Partition task %d: forests [%" PRId64 ", %" PRId64 "), widest-slab weight %" PRId64
-             " (snapshot %" PRId64 " rows [%" PRId64 ", %" PRId64 "))",
+    INFO_LOG("Partition task %d: forests [%" PRId64 ", %" PRId64 "), peak weight %" PRId64
+             " (widest slab snapshot %" PRId64 " rows [%" PRId64 ", %" PRId64 "))",
              r, forest_lo, forest_hi, horizontal_forest_weight(weights, forest_lo, forest_hi),
              widest, row_lo, row_hi);
     for (int c = 0; nchunk > 1 && c < nchunk; c++) {
@@ -1036,15 +1049,15 @@ static void horizontal_compute_partition(const struct HorizontalDriverState *sta
       const int64_t chunk_hi = partition->forest_cuts[range + 1];
       horizontal_widest_rows(partition, widest, range, &row_lo, &row_hi);
       INFO_LOG("Partition task %d chunk %d: forests [%" PRId64 ", %" PRId64
-               "), widest-slab weight %" PRId64 " (snapshot %" PRId64 " rows [%" PRId64 ", %" PRId64
-               "))",
+               "), peak weight %" PRId64 " (widest slab snapshot %" PRId64 " rows [%" PRId64
+               ", %" PRId64 "))",
                r, c, chunk_lo, chunk_hi, horizontal_forest_weight(weights, chunk_lo, chunk_hi),
                widest, row_lo, row_hi);
     }
   }
-  /* D11's partition terms: the tables stay resident on every task and are part of
-   * each task's retention accounting; the weights are task 0's alone and are
-   * freed here, before any generation is sized, so they are reported, not
+  /* The partition's memory terms: the tables stay resident on every task and are
+   * part of each task's retention accounting; the weights are task 0's alone and
+   * are freed here, before any generation is sized, so they are reported, not
    * counted against the ceiling. */
   INFO_LOG("Partition tables hold %" PRId64 " B on every task (counted in its retention "
            "accounting); the forest weights held %" PRId64 " B on task 0 while it was cut",
@@ -1564,7 +1577,7 @@ static int64_t horizontal_pool_resident_bytes(const struct GalaxyPool *pool) {
  * current (possibly marshaller-grown) capacity and galaxy pool, plus every reset
  * spare pool, whose chunks stay allocated until teardown, plus -- in a
  * distributed or chunked run -- the partition tables every task keeps for the
- * whole run (D11; 0 in an unpartitioned run). Each term is memory this process
+ * whole run (0 in an unpartitioned run). Each term is memory this process
  * already holds, so the plain sums below cannot overflow int64_t.
  */
 static int64_t horizontal_retained_resident_bytes(const struct HorizontalDriverState *state) {
@@ -2093,10 +2106,10 @@ static void horizontal_disarm_failure_cleanup(void) { horizontal_failure_state =
 
 /*
  * The line that opens chunk `chunk`'s sweep of a chunked run: the chunk, its
- * forests and its rows of the widest slab (the rows the partition weighed it
- * by). An idle chunk -- one the cut left without a forest -- says so; it still
- * sweeps every snapshot, loading no rows, so it still takes its turn at every
- * output partition.
+ * forests and its rows of the widest slab (a scale for the chunk; the partition
+ * weighed it by its forests' peaks over all slabs). An idle chunk -- one the cut left without a
+ * forest -- says so; it still sweeps every snapshot, loading no rows, so it still takes its turn at
+ * every output partition.
  */
 static void horizontal_log_chunk(const struct HorizontalDriverState *state, int chunk) {
   const struct HorizontalForestPartition *partition = state->partition;
@@ -2389,10 +2402,9 @@ void run_horizontal_driver(void) {
            state.reader->name, info.snapshot_count, info.snapshot_count == 1 ? "" : "s",
            info.format_version, info.links_adjacent, info.n_forests_total,
            info.n_forests_total == 1 ? "" : "s", info.max_halo_rank_in_forest);
-  /* The widest slab, once, from the counts every task read at open: the partition
-   * is weighted by it and the chunk lines name its rows. */
-  state.widest_snapshot =
-      horizontal_widest_snapshot(state.reader, info.snapshot_count, &state.widest_halos);
+  /* The widest slab, once, from the counts every task read at open: the partition's
+   * task and chunk lines and each chunk's sweep line name its rows. */
+  state.widest_snapshot = horizontal_widest_snapshot(state.reader, info.snapshot_count);
 
   /* Either a task count above one or a chunk count above one builds the
    * partition; a run with neither is today's unpartitioned run. */

@@ -11,8 +11,10 @@ aggregates of the dataset, with a passed root correspondence:
    (the same :func:`table.decided_table`, the same fresh-id floor; both outputs
    carry the assignment's SHA-256, so they can be tied);
 2. from the aggregates alone (one slab's tree pairs and occupancy pairs at a
-   time): each piece's peak occupancy and its slab, and the driver's partition
-   (``census/partition.py``) with the pieces installed -- under F6 an original
+   time): each piece's peak occupancy and its slab, in one pass over every
+   slab's tree pairs, and then, in a second, the driver's partition
+   (``census/partition.py``) with the pieces installed and weighted as the
+   driver weighs them, by their peak occupancy -- under F6 an original
    forest keeps its ``ForestIndex`` (a split forest's largest piece among them)
    and the fresh pieces enumerate after every original forest in ascending
    fresh id -- giving every grid point's widest range per slab and overall and
@@ -98,14 +100,18 @@ figures with ``n`` = 315,004,242 and ``F`` = 166,547,771):
   tree-to-local map (4 B x n, 1.3 GB), the sidecar ``ForestID``, the centrals
   and the halos per forest (24 B x F, 4.0 GB), the split-forest mask (1 B x F),
   the pieces as :func:`table.decided_table` leaves them (about **57 B x p + 8 B
-  x t**) and the per-piece state (the peak, its slab, the widest slab's count,
-  the seed flag and the fresh order, about **33 B x p**); the construction
-  itself peaks as ``census/table.py`` states;
+  x t**) and the per-piece state (the peak, its slab, the seed flag and the
+  fresh order, about **25 B x p**); the construction itself peaks as
+  ``census/table.py`` states;
 - step 2, from the aggregates: one slab's tree pairs and occupancy pairs with
   their gathers, about **19 B per present tree and 12 B per present forest**,
-  two per-piece vectors (**16 B x p**), and the dense partition weights of the
-  widest slab (**8 B x P**, transient); each grid point holds its forest cuts
-  and range peaks;
+  two per-piece vectors (**16 B x p**), and the dense partition weights, each
+  forest's or piece's peak (**8 B x P**, transient, with the occupancy's int32
+  peaks, **4 B x F**, while they load); each grid point holds its forest cuts
+  and range peaks. The peaks need every slab before the partition can be cut,
+  so the slabs' tree pairs are read twice, once for the peaks and once to apply
+  the partition; no dataset column is read in step 2, and the first pass's
+  wall-clock is recorded in ``summary.json`` (``partition.weights``);
 - per slab of the pass (arrays of one slab's length): the labels and the two
   dense row arrays, **12 B x n_halos(s)** (6.2 GB at the widest slab's
   519,342,987 rows), and the descendant mask of the next slab, **1 B x
@@ -150,7 +156,9 @@ from census.occupancy import load_slab_pairs, occupancy_dir  # noqa: E402
 from census.partition import (  # noqa: E402
     DEFAULT_NTASKS,
     PARTITION_DIR,
+    WEIGHTING,
     partition_cut,
+    peak_weights,
     range_rows,
     slab_prefix,
 )
@@ -163,6 +171,7 @@ from census.table import (  # noqa: E402
     output_dir,
     peak_rss_bytes,
     piece_entry,
+    piece_peaks,
     piece_slab_counts,
     refuse_stale,
     require_all_reach_final,
@@ -401,7 +410,6 @@ class CutState:
     peak_snapshot: np.ndarray = field(init=False)  # the lowest-numbered slab of the peak
     seeded: np.ndarray = field(init=False)  # per piece, whether it holds a seed
     fresh_order: np.ndarray = field(init=False)  # the fresh pieces, in ascending fresh id
-    widest_counts: Optional[np.ndarray] = None  # per piece, its rows in the widest slab
     current: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.int64))
     current_seeds: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.int64))
     following: List[np.ndarray] = field(default_factory=list)
@@ -833,22 +841,33 @@ def severance_pass(
 # ---- partition with the pieces installed ------------------------------------------
 
 
+def installed_weights(aggregate_dir, state: CutState, n_forests: int, catalogue_max: int):
+    """The partition weights with the pieces installed, as the driver would
+    weigh the cut dataset: every forest's peak occupancy, each split forest's
+    replaced by its id-keeping piece's peak, and each fresh piece's peak at
+    ``ForestIndex`` ``n_forests + (id - catalogue_max - 1)``. Needs
+    ``state.peak`` complete (dense int64, 8 B x (forests + fresh pieces))."""
+    pieces = state.pieces
+    weights = np.zeros(n_forests + state.table.n_fresh, dtype=np.int64)
+    weights[:n_forests] = peak_weights(aggregate_dir, n_forests)
+    keeping = np.flatnonzero(pieces["keeps_id"])
+    weights[pieces["forest_index"][keeping]] = state.peak[keeping]
+    fresh = state.fresh_order
+    weights[n_forests + (pieces["id"][fresh] - catalogue_max - 1)] = state.peak[fresh]
+    return weights
+
+
 def partition_points(
     aggregate_dir,
     state: CutState,
-    widest: int,
     n_forests: int,
     catalogue_max: int,
     ntasks: Sequence[int],
     nchunks: Sequence[int],
 ) -> List[Dict]:
-    """Each grid point's forest cuts with the widest slab's installed counts as weights."""
-    forests, counts = load_slab_pairs(aggregate_dir, widest)
-    new_forests, new_counts = install_pieces(
-        forests, counts, state, state.widest_counts, n_forests, catalogue_max
-    )
-    weights = np.zeros(n_forests + state.table.n_fresh, dtype=np.int64)
-    weights[new_forests] = new_counts
+    """Each grid point's forest cuts with the pieces installed and weighted by
+    their peak occupancy (:func:`installed_weights`)."""
+    weights = installed_weights(aggregate_dir, state, n_forests, catalogue_max)
     points = []
     for ntask in ntasks:
         for nchunk in nchunks:
@@ -1018,18 +1037,17 @@ def run_cut(
         )
     )
 
-    # aggregates only: piece peaks and the partition with the pieces installed
-    widest = int(inputs["occupancy"]["widest_slab"]["snapshot"])
-    state.widest_counts = piece_slab_counts(aggregate_dir, widest, table)
-    points = partition_points(
-        aggregate_dir, state, widest, n_forests, catalogue_max, ntasks, nchunks
+    # aggregates only: the piece peaks over every slab, which the partition weighs the
+    # pieces by, then the partition with the pieces installed applied to every slab
+    started = time.monotonic()
+    state.peak, state.peak_snapshot = piece_peaks(dataset, aggregate_dir, table)
+    peak_pass_seconds = round(time.monotonic() - started, 3)
+    log(
+        "cut: piece peaks over {} slab(s) in {} s".format(len(dataset.snapshots), peak_pass_seconds)
     )
+    points = partition_points(aggregate_dir, state, n_forests, catalogue_max, ntasks, nchunks)
     for snap in dataset.snapshots:
         per_piece = piece_slab_counts(aggregate_dir, snap, table)
-        # ascending slabs and a strict test: a tie keeps the lowest-numbered slab
-        better = per_piece > state.peak
-        state.peak[better] = per_piece[better]
-        state.peak_snapshot[better] = snap
         forests_s, counts_s = load_slab_pairs(aggregate_dir, snap)
         installed = install_pieces(forests_s, counts_s, state, per_piece, n_forests, catalogue_max)
         apply_points(points, snap, *installed)
@@ -1138,6 +1156,15 @@ def run_cut(
             },
         },
         "partition": {
+            "weights": {
+                "weighting": WEIGHTING,
+                "installed": "every forest's peak, a split forest's replaced by its id-keeping "
+                "piece's, then each fresh piece's peak in ascending fresh id",
+                "peak_pass_seconds": peak_pass_seconds,
+                "peak_pass_note": "one pass over every slab's tree-pair aggregates computes the "
+                "pieces' peaks before the partition is cut; the slabs' tree pairs are read "
+                "again to apply it, and no dataset column is read for either",
+            },
             "bytes_per_halo": int(bytes_per_halo),
             "reserve_gib": float(reserve_gib),
             "grid": points,
@@ -1163,8 +1190,8 @@ def run_cut(
                 "formula": "12 B x n_halos(s): the labels and the two dense int32 row arrays",
             },
             "startup_weights": {
-                "formula": "8 B x n_forests_total: the driver's dense weight vector at startup "
-                "(transient)",
+                "formula": "8 B x n_forests_total: the driver's dense peak-weight vector at "
+                "startup (transient, task 0 only)",
                 "uncut_bytes": 8 * n_forests,
                 "cut_bytes": 8 * (n_forests + table.n_fresh),
             },

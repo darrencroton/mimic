@@ -34,19 +34,23 @@
  *
  * Usage, in the order the distribution contract runs it:
  *
- * 1. Stream the widest slab's `ForestIndex` column through
- *    horizontal_partition_accumulate_weights() to get per-forest weights.
+ * 1. Stream every slab's `ForestIndex` column through a struct HorizontalPeakScan
+ *    to verify the slab is forest-blocked and fold each forest's row count in it
+ *    into the forest's weight, its **peak occupancy**: the largest row count it
+ *    holds in any one slab. A range's summed peaks bound its rows in every slab,
+ *    so a forest that is small in one slab but large in another is weighed by
+ *    the slab where it is large.
  * 2. horizontal_partition_cut() turns the weights into the task cuts and then each
  *    task's chunk cuts, filling every entry of `forest_cuts`.
  * 3. For every slab, stream the `ForestIndex` column through a
- *    struct HorizontalForestScan to verify the slab is forest-blocked and fill
- *    its `row_cuts` row.
+ *    struct HorizontalForestScan to fill its `row_cuts` row.
  *
  * Failures that mean a defective input (a weight sum beyond int64_t, a forest
  * index outside the dataset's forest count, a scan misused) abort through
  * FATAL_ERROR; the one expected, reportable failure -- a slab that is not
- * forest-blocked -- is a return value of horizontal_forest_scan_end(), with the
- * first offending pair recorded in the scan so the caller can name it.
+ * forest-blocked -- is a return value of horizontal_peak_scan_end() (and of
+ * horizontal_forest_scan_end()), with the first offending pair recorded in the
+ * scan so the caller can name it.
  */
 
 #include <stdint.h>
@@ -85,6 +89,29 @@ struct HorizontalForestScan {
   int64_t rows_seen;
   int64_t previous;
   int next_cut;
+  int violated;
+  int64_t violation_row;
+  int64_t violation_previous;
+  int64_t violation_value;
+};
+
+/**
+ * @brief   Streaming state for one slab's peak-occupancy scan
+ *
+ * Plain data, held by the caller (a stack local is fine); initialise it with
+ * horizontal_peak_scan_begin(). The slab's current forest and its run length so
+ * far carry across blocks, so a forest whose rows straddle any number of blocks
+ * is counted once, in full. Read the `violation_*` members after
+ * horizontal_peak_scan_end() returns -1; they mean what they mean in
+ * struct HorizontalForestScan.
+ */
+struct HorizontalPeakScan {
+  int64_t *weights;
+  int64_t n_forests_total;
+  int64_t snapnum;
+  int64_t rows_seen;
+  int64_t previous;
+  int64_t run;
   int violated;
   int64_t violation_row;
   int64_t violation_previous;
@@ -164,18 +191,44 @@ void horizontal_partition_cut_forests(const int64_t *weights, int64_t n_forests_
 void horizontal_partition_cut(const int64_t *weights, struct HorizontalForestPartition *partition);
 
 /**
- * @brief   Add one to a forest's weight for each streamed `ForestIndex` value
- * @param   weights          `n_forests_total` counters, zeroed by the caller before the first call
+ * @brief   Start scanning snapshot `snapnum`'s `ForestIndex` column for peak occupancies
+ * @param   scan             State to initialise
+ * @param   weights          `n_forests_total` per-forest peaks, zeroed by the caller before the
+ *                           first slab and carried from slab to slab; never reset here
  * @param   n_forests_total  Number of forests
- * @param   values           A block of `ForestIndex` values
- * @param   count            Number of values in the block
+ * @param   snapnum          The slab's index, used in diagnostics only
  *
- * Call once per block of the widest slab's column; the result is each forest's
- * halo count in that slab. Aborts (FATAL_ERROR) on a value outside
- * `[0, n_forests_total)`.
+ * Scan every slab in turn, each with its own begin/visit/end, over the same
+ * `weights`: after the last slab's end each entry is that forest's largest row
+ * count in any one slab, 0 for a forest no slab holds.
  */
-void horizontal_partition_accumulate_weights(int64_t *weights, int64_t n_forests_total,
-                                             const int64_t *values, int64_t count);
+void horizontal_peak_scan_begin(struct HorizontalPeakScan *scan, int64_t *weights,
+                                int64_t n_forests_total, int64_t snapnum);
+
+/**
+ * @brief   Feed the next block of the column
+ * @param   scan       Scan begun with horizontal_peak_scan_begin()
+ * @param   first_row  Slab row of `values[0]`; blocks must arrive in ascending, gapless order
+ *                     (aborts otherwise)
+ * @param   values     The block's `ForestIndex` values
+ * @param   count      Number of values, at least 0
+ *
+ * Aborts (FATAL_ERROR) on a value outside `[0, n_forests_total)`. After the
+ * first value smaller than its predecessor the scan records the violation and
+ * ignores the rest of the column: a slab that is not forest-blocked has no
+ * per-forest runs to measure.
+ */
+void horizontal_peak_scan_visit(struct HorizontalPeakScan *scan, int64_t first_row,
+                                const int64_t *values, int64_t count);
+
+/**
+ * @brief   Finish the scan, folding the slab's last run into its forest's peak
+ * @return  0 when the column was non-decreasing, so every forest's rows in it formed one run and
+ *          each forest's peak now covers this slab (an empty column changes nothing). -1 when a
+ *          value was smaller than its predecessor: the first such pair is in the scan's
+ *          `violation_*` members and the weights are unspecified.
+ */
+int horizontal_peak_scan_end(struct HorizontalPeakScan *scan);
 
 /**
  * @brief   Start scanning snapshot `snapnum`'s `ForestIndex` column

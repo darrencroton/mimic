@@ -10,6 +10,8 @@
 - `$X` = `/Volumes/LaCie/data/uchuu/shin-uchuu-census-run2-retired/` (run 2's retired `graph/` and candidate `cut/` outputs, moved aside, not deleted);
 - `$R3` = `/Volumes/LaCie/data/uchuu/micro-uchuu/census-rev5-v3/` and `$R2` = `/Volumes/LaCie/data/uchuu/micro-uchuu/census-rev5-v2/` (rehearsal).
 
+**Revision 6 reruns (2026-10-10).** Slice 15 reran `partition` and `cut` in `$P`, `$R3` and `$R2` under the driver's new weighting ([Revision 6](#revision-6-the-partition-weighted-by-peak-occupancy)). Before the reruns it copied the summaries they overwrite into sibling directories named for the widest-slab weighting, `partition-widest-slab/`, `cut-widest-slab/` and (rehearsal) `cut-restricted-widest-slab/`, each copy's md5 equal to its original. Every figure of this record outside that section is Slice 9's, and the summaries it names are those preserved copies; `partition/`, `cut/` and `cut-restricted/` now hold the peak-weighted reruns. Slice 15's logs and scripts are under `/Volumes/Internal/results/mimic/shin-uchuu-v3-stage-r/slice-15/` (abbreviated `$S15`).
+
 **Code.** The production `occupancy`, `trees` and `partition` aggregates are run 2's, written at commit `5b7edec1` and reused after the four checks below; this slice changes neither their on-disk format nor their meaning (`census/occupancy.py`, `census/partition.py` and the code of `census/trees.py` are unchanged). Every figure quoted from the decided table and its cost comes from the final runs, which ran `convert/mimic-convert/forest_census.py` at commit `50718b4f` with no census path modified. The SHA-256 their logs record for every census source file equals the committed blobs' ([Code identity](#code-identity)). The earlier rounds are kept and listed there. `mimic_venv` (Python 3.14.6, h5py 3.15.1, numpy 2.3.4). Host: the Mac Studio (macOS, 32 cores, 512 GiB RAM); the datasets and aggregates are on the LaCie (an external disk). Every production step ran strictly in sequence, with no other LaCie-bound job alongside.
 
 ---
@@ -20,17 +22,20 @@ Rows are the most halos one chunk holds resident in any slab; bytes are at **1,1
 
 | Quantity | Rows | At 1,100 B per halo | Source |
 |---|---:|---:|---|
-| Uncut, unchunked (one task, one chunk): the widest slab | 519,342,987 (snapshot 34) | 571.3 GB | `$P/partition/summary.json` grid (1, 1) `widest` |
-| Uncut, chunked at any task and chunk count: the super-forest's peak, which no partition splits | 333,663,215 (snapshot 31) | 367.0 GB | `$P/partition/summary.json` `floor` |
-| The decided table's largest piece (its peak): the cut dataset's floor at any chunk count | 3,415,844 (snapshot 31) | 3.76 GB | `$P/cut/summary.json` `pieces.highest_peak[0]` |
+| Uncut, unchunked (one task, one chunk): the widest slab | 519,342,987 (snapshot 34) | 571.3 GB | `$P/partition-widest-slab/summary.json` grid (1, 1) `widest` |
+| Uncut, chunked at any task and chunk count: the super-forest's peak, which no partition splits | 333,663,215 (snapshot 31) | 367.0 GB | `$P/partition-widest-slab/summary.json` `floor` |
+| The decided table's largest piece (its peak): the cut dataset's floor at any chunk count | 3,415,844 (snapshot 31) | 3.76 GB | `$P/cut-widest-slab/summary.json` `pieces.highest_peak[0]` |
 | The widest slab spread evenly over G chunks (a floor for any cut): G = 32, 64, 128 | 16,229,469; 8,114,735; 4,057,368 | 17.9; 8.9; 4.5 GB | 519,342,987 / G, rounded up |
 | The single-tree floor: the largest tree's peak, which no whole-tree cut goes below | 2,504,273 (snapshot 31) | 2.75 GB | `$P/trees/summary.json` `largest_tree` |
-| The decided table's smallest job on the grid ({1, 2, 4, 8} × {1, …, 128}) | 29,113,469 (one task, 128 chunks) | 32.0 GB | `$P/cut/summary.json` `partition.grid` |
-| Class 16 GiB less a 4 GiB reserve (12,884,901,888 B usable): smallest fitting job | none on the grid | — | `partition.laptop_classes` |
-| Class 32 GiB less a 4 GiB reserve (30,064,771,072 B usable): smallest fitting job | none on the grid | — | `partition.laptop_classes` |
-| Class 64 GiB less a 4 GiB reserve (64,424,509,440 B usable): smallest fitting job | 57,143,838 (one task, 16 chunks) | 62.9 GB | `partition.laptop_classes` |
+| Widest-slab weighting: the decided table's smallest job on the grid ({1, 2, 4, 8} × {1, …, 128}) | 29,113,469 (one task, 128 chunks) | 32.0 GB | `$P/cut-widest-slab/summary.json` `partition.grid` |
+| Widest-slab weighting: class 16 GiB less a 4 GiB reserve (12,884,901,888 B usable): smallest fitting job | none on the grid | — | `partition.laptop_classes` |
+| Widest-slab weighting: class 32 GiB less a 4 GiB reserve (30,064,771,072 B usable): smallest fitting job | none on the grid | — | `partition.laptop_classes` |
+| Widest-slab weighting: class 64 GiB less a 4 GiB reserve (64,424,509,440 B usable): smallest fitting job | 57,143,838 (one task, 16 chunks) | 62.9 GB | `partition.laptop_classes` |
+| Peak-occupancy weighting: the decided table's smallest job on the grid ({1, 2, 4, 8} × {1, …, 256}) | 3,415,844 (one task, 256 chunks): the largest piece's peak, the floor | 3.76 GB | `$P/cut/summary.json` `partition.grid` |
+| Peak-occupancy weighting: the decided configuration, one task and 128 chunks | 5,518,529 (snapshot 67) | 6.07 GB (5.65 GiB) | `$P/cut/summary.json` `partition.grid` |
+| Peak-occupancy weighting: the decided class, 16 GiB less a 6 GiB reserve (10,737,418,240 B usable): smallest fitting job | 5,518,529 (one task, 128 chunks) | 6.07 GB | `$P/cut/summary.json` `partition.laptop_classes` |
 
-The driver's transient startup weights are 8 B × `n_forests_total`: 1.33 GB for the uncut dataset's 166,547,771 forests and 1.96 GB for the cut dataset's 244,953,607 (`$P/cut/summary.json` `memory.startup_weights`). The table record is 2,954,410,424 B and the table 7,560,101,829 B (`$P/table/summary.json` `aggregates`).
+The driver's transient startup weights are 8 B × `n_forests_total`: 1.33 GB for the uncut dataset's 166,547,771 forests and 1.96 GB for the cut dataset's 244,953,607 (`$P/cut-widest-slab/summary.json` `memory.startup_weights`). The table record is 2,954,410,424 B and the table 7,560,101,829 B (`$P/table/summary.json` `aggregates`).
 
 ---
 
@@ -81,7 +86,7 @@ The Stage A conversion's `conversion_report.json` (version 3) carries no per-fil
 
 **Partition with the pieces installed.** The exact simulation of `horizontal_partition_cut` (`src/core/horizontal_partition.c`): minimax contiguous packing of the widest slab's per-forest rows into `ntask` task ranges, then `nchunk` chunks within each task, with the pieces installed (each original forest keeps its `ForestIndex`; the fresh pieces follow in ascending fresh id). The grid is (ntask, nchunk) ∈ {1, 2, 4, 8} × {1, 2, 4, 8, 16, 32, 64, 128}. Each point records the **process** figure (the widest range over all slabs: one rank's working set, the per-rank `retention_memory_ceiling_mb` guidance) and the **job** figure (the sum over tasks of each task's widest chunk over all slabs; the ranks of one `mpirun` job run at once and do not synchronise during the sweep, so this is the conservative bound).
 
-**Laptop rows.** One row per class (16, 32 and 64 GiB): the smallest grid point (fewest ranges, then fewest tasks) whose **job** bytes at 1,100 B per halo fit the class **less a usable reserve of 4 GiB**. The reserve is an argument of `cut` (`--reserve-gib`), chosen for this presentation only and not a recommendation; every grid point's job bytes are in `$P/cut/summary.json`, so any other budget can be read off them.
+**Laptop rows.** One row per class (16, 32 and 64 GiB): the smallest grid point (fewest ranges, then fewest tasks) whose **job** bytes at 1,100 B per halo fit the class **less a usable reserve of 4 GiB**. The reserve is an argument of `cut` (`--reserve-gib`), chosen for this presentation only and not a recommendation; every grid point's job bytes are in `$P/cut-widest-slab/summary.json`, so any other budget can be read off them.
 
 ---
 
@@ -115,9 +120,9 @@ The census reproduces each of PM's counts independently in [The decided table](#
 
 Every logical result therefore agrees, including both tables, every promotion and chain count and the partition grid; the figures below are quoted from `$R3` (`$B/logs/rev5-rehearsal-v3-extract-final.txt`, `rev5-rehearsal-v3-extract-restricted-final.txt`) and hold for `$R2`.
 
-**Census.** 22,580,924 halos over 50 slabs; the widest slab is snapshot 27 (621,360 halos). The largest forest, `ForestIndex` 237997 (`ForestID` 28435178), holds 350,075 halos and peaks at 11,775 at snapshot 17, which is the uncut partition's floor (`$R3/partition/summary.json`). There are 561,266 effective trees; the largest, root 28453397, holds 55,081 halos and peaks at 2,108 at snapshot 16. **Root correspondence passes**: 561,266 terminal roots against 561,266 index roots, 0 in each of the four mismatch counts, and **0 trees end before snapshot 49**. **Conservation passes** against the Stage A conversion's per-file parsed counts: `tree_0_0_0.dat` sums to 22,580,924 census halos against `parsed_count` 22,580,924, 0 files disagreeing, 0 unattributed halos (`$R3/trees/summary.json`).
+**Census.** 22,580,924 halos over 50 slabs; the widest slab is snapshot 27 (621,360 halos). The largest forest, `ForestIndex` 237997 (`ForestID` 28435178), holds 350,075 halos and peaks at 11,775 at snapshot 17, which is the uncut partition's floor (`$R3/partition-widest-slab/summary.json`). There are 561,266 effective trees; the largest, root 28453397, holds 55,081 halos and peaks at 2,108 at snapshot 16. **Root correspondence passes**: 561,266 terminal roots against 561,266 index roots, 0 in each of the four mismatch counts, and **0 trees end before snapshot 49**. **Conservation passes** against the Stage A conversion's per-file parsed counts: `tree_0_0_0.dat` sums to 22,580,924 census halos against `parsed_count` 22,580,924, 0 files disagreeing, 0 unattributed halos (`$R3/trees/summary.json`).
 
-**The decided table for the whole micro-Uchuu simulation** (`$R3/table/`, `$R3/cut/summary.json`). Snapshot 49 (scale factor 0.99951) holds 496,374 FoF groups over the 440,651 forests: 426,232 forests end in one group and are unchanged, and 14,419 split into 70,142 pieces (55,723 fresh, above `ForestID` 28,706,645), so the cut dataset has 496,374 forests. The table has 561,266 rows (10,102,809 B, md5 `75ebf1572d513a020c0425bf1bd84338`), its record 1,979,440 B. The largest piece by halos holds 80,644 (`ForestIndex` 239245's kept piece); the highest peak is 3,015 rows at snapshot 16 (`ForestIndex` 237997's kept piece, 79,124 halos). Its cost:
+**The decided table for the whole micro-Uchuu simulation** (`$R3/table/`, `$R3/cut-widest-slab/summary.json`). Snapshot 49 (scale factor 0.99951) holds 496,374 FoF groups over the 440,651 forests: 426,232 forests end in one group and are unchanged, and 14,419 split into 70,142 pieces (55,723 fresh, above `ForestID` 28,706,645), so the cut dataset has 496,374 forests. The table has 561,266 rows (10,102,809 B, md5 `75ebf1572d513a020c0425bf1bd84338`), its record 1,979,440 B. The largest piece by halos holds 80,644 (`ForestIndex` 239245's kept piece); the highest peak is 3,015 rows at snapshot 16 (`ForestIndex` 237997's kept piece, 79,124 halos). Its cost:
 
 | | Whole simulation | Restricted to `ForestIndex` 237997 |
 |---|---:|---:|
@@ -132,7 +137,7 @@ Every logical result therefore agrees, including both tables, every promotion an
 | `sage16`/`halos-only`: seeds; `dependent_halos`; `upper_bound_halos` | 319,852; 1,028,661; 10,067,526 | 14,185; 39,519; 350,017 |
 | Table md5 | `75ebf1572d513a020c0425bf1bd84338` | `1759395bc7110082e0fe20d5db72864e` |
 
-The restricted table splits only `ForestIndex` 237997 into its 2,309 z = 0 groups; every other forest keeps its id, and its record and summaries say "restricted to the selected forests" (`$R3/table-restricted/`, `$R3/cut-restricted/`). These are Slice 16's two tables for its gate G3c (Slice 15 before plan revision 6). At micro-Uchuu scale every laptop class holds the unchunked job (621,360 rows, 0.68 GB at (1, 1)), so the rehearsal checks the method, not a class.
+The restricted table splits only `ForestIndex` 237997 into its 2,309 z = 0 groups; every other forest keeps its id, and its record and summaries say "restricted to the selected forests" (`$R3/table-restricted/`, `$R3/cut-restricted-widest-slab/`). These are Slice 16's two tables for its gate G3c (Slice 15 before plan revision 6). At micro-Uchuu scale every laptop class holds the unchunked job (621,360 rows, 0.68 GB at (1, 1)), so the rehearsal checks the method, not a class.
 
 ---
 
@@ -186,7 +191,7 @@ Root 26728264386 (root ordinal 170,541,159, its root at snapshot 69) in the supe
 
 ### The uncut partition
 
-The driver's weights are snapshot 34's per-forest rows, the super-forest holding 321,253,424 of them (`$P/partition/summary.json` `weights`). The floor is **333,663,215 rows at snapshot 31**, the super-forest's peak. At (1, 1) the widest range is the whole of snapshot 34, 519,342,987 rows; at every other point of run 2's grid the widest range is the floor (`$P/partition/summary.json` `grid`). The uncut dataset therefore reaches no laptop class at any task or chunk count: 367 GB at 1,100 B per halo.
+The driver's weights are snapshot 34's per-forest rows, the super-forest holding 321,253,424 of them (`$P/partition-widest-slab/summary.json` `weights`). The floor is **333,663,215 rows at snapshot 31**, the super-forest's peak. At (1, 1) the widest range is the whole of snapshot 34, 519,342,987 rows; at every other point of run 2's grid the widest range is the floor (`$P/partition-widest-slab/summary.json` `grid`). The uncut dataset therefore reaches no laptop class at any task or chunk count: 367 GB at 1,100 B per halo.
 
 ### The decided table
 
@@ -197,7 +202,7 @@ The driver's weights are snapshot 34's per-forest rows, the super-forest holding
 - the **super-forest** ends in **50,805,833 groups**; the **other 8,053,561 split forests** hold **27,600,004 extra groups** and **4,519,034,547 halos**; the next most divided forest is the second-largest (`ForestIndex` 16386454, 32,410 groups);
 - the cut dataset has **244,953,607 forests**, one per z = 0 group.
 
-The total of 244,953,607 groups, the super-forest's 50,805,833, and the other split forests' 8,053,561, 27,600,004 and 4,519,034,547 reproduce PM's informal counts exactly, computed independently by the census (`$P/table/summary.json` `groups`). The table has 315,004,242 rows (7,560,101,829 B, md5 **`6e9f2fb03b26a36ce51c5392e7bcf164`**); its record lists the 86,459,398 pieces of the split forests (2,954,410,424 B, md5 `432b157965cebf9420993e62d074377d`, `$B/logs/rev5-production-run1-summaries/md5.txt`, unchanged in every run), and the assignment's SHA-256 is `9cc47fb6a4dc087f9c2de98cdb5d258a76062e611055cb361dc96cbb33766227`, the same in `$P/cut/summary.json`. The table's invariants were checked on write: 315,004,242 trees, 244,953,607 pieces, 8,053,562 cut forests, 78,405,836 fresh pieces.
+The total of 244,953,607 groups, the super-forest's 50,805,833, and the other split forests' 8,053,561, 27,600,004 and 4,519,034,547 reproduce PM's informal counts exactly, computed independently by the census (`$P/table/summary.json` `groups`). The table has 315,004,242 rows (7,560,101,829 B, md5 **`6e9f2fb03b26a36ce51c5392e7bcf164`**); its record lists the 86,459,398 pieces of the split forests (2,954,410,424 B, md5 `432b157965cebf9420993e62d074377d`, `$B/logs/rev5-production-run1-summaries/md5.txt`, unchanged in every run), and the assignment's SHA-256 is `9cc47fb6a4dc087f9c2de98cdb5d258a76062e611055cb361dc96cbb33766227`, the same in `$P/cut-widest-slab/summary.json`. The table's invariants were checked on write: 315,004,242 trees, 244,953,607 pieces, 8,053,562 cut forests, 78,405,836 fresh pieces.
 
 **Its largest pieces** (`pieces.largest`, `pieces.highest_peak`; all in the super-forest, all peaking at snapshot 31):
 
@@ -213,7 +218,7 @@ These are the piece totals and peaks PM's estimate sampled over snapshots 24 to 
 
 ### The decided table's cost
 
-From one pass over the split forests' rows of every slab (`$P/cut/summary.json`; per-slab rows in `$B/logs/rev5-production-extract-final.txt`):
+From one pass over the split forests' rows of every slab (`$P/cut-widest-slab/summary.json`; per-slab rows in `$B/logs/rev5-production-extract-final.txt`):
 
 | Measure | Production |
 |---|---:|
@@ -236,7 +241,7 @@ The stored-chain check's 0 mismatches mean the recomputed chains reproduce the d
 
 ### Chunked memory with the pieces installed
 
-The partition with the pieces installed, weighted as the driver weighs it by the widest slab (snapshot 34), for every grid point (`$P/cut/summary.json` `partition.grid`; `$B/logs/rev5-production-facts-final.txt`). Rows are the widest chunk; GB at 1,100 B per halo:
+The partition with the pieces installed, weighted as the driver weighs it by the widest slab (snapshot 34), for every grid point (`$P/cut-widest-slab/summary.json` `partition.grid`; `$B/logs/rev5-production-facts-final.txt`). Rows are the widest chunk; GB at 1,100 B per halo:
 
 | ntask | nchunk | Process: widest rows (snapshot) | Process GB | Job rows | Job GB |
 |---:|---:|---:|---:|---:|---:|
@@ -273,7 +278,7 @@ Wall-clock and peak RSS from `/usr/bin/time -l` in each step's log; the run 2 st
 
 (Sizes from `$B/logs/rev5-production-facts-final.txt`.) **The default-allocator RSS includes freed memory.** macOS's allocator keeps freed large blocks resident in its large-allocation cache, and `ru_maxrss` counts them. Run in isolation on production (`$B/scripts/rev5_measure_cut_aggregates.py`), the cut's aggregates phase reached 59.7 GB of RSS with the cache (`$B/logs/rev5-production-cut-aggregates-memory.log`) and 30.25 GB without it (`rev5-production-cut-aggregates-memory-nolargecache.log`), with 16.6 GB of live arrays after the table's construction.
 
-With the cache disabled, the phases' peaks are (`$P/table/summary.json` and `$P/cut/summary.json` `memory`): `table` 17.8 GB after loading the index files, 32.1 GB through the pieces and their peaks, 57.3 GB while the table is checked and written; `cut` 27.1 GB through its pieces, 30.3 GB through the aggregates, 33.7 GB through the pass. The table's 57.3 GB peak reconciles with the modules' stated terms at n = 315,004,242 trees, F = 166,547,771 forests, t = 154,306,684 split-forest trees (the record's `trees` column summed, `$B/logs/rev5-production-split-trees.txt`) and p = 86,459,398 pieces:
+With the cache disabled, the phases' peaks are (`$P/table/summary.json` and `$P/cut-widest-slab/summary.json` `memory`): `table` 17.8 GB after loading the index files, 32.1 GB through the pieces and their peaks, 57.3 GB while the table is checked and written; `cut` 27.1 GB through its pieces, 30.3 GB through the aggregates, 33.7 GB through the pass. The table's 57.3 GB peak reconciles with the modules' stated terms at n = 315,004,242 trees, F = 166,547,771 forests, t = 154,306,684 split-forest trees (the record's `trees` column summed, `$B/logs/rev5-production-split-trees.txt`) and p = 86,459,398 pieces:
 
 - `check_table`, about 96 B × n: 30.24 GB;
 - the index files' roots and ids (16 B × n), the census roots (8 B × n), the trees' totals mapped (8 B × n) and the table's ids (8 B × n): 12.60 GB;
@@ -281,7 +286,7 @@ With the cache disabled, the phases' peaks are (`$P/table/summary.json` and `$P/
 - the tree-to-local map (4 B × n), the local trees and their pieces (8 B × t): 2.49 GB;
 - the piece columns (57 B × p) and their peaks (16 B × p): 6.31 GB.
 
-These sum to 55.64 GB; the other 1.7 GB is the interpreter, the HDF5 library and the phase's transients. The cut's pass adds to its 16.6 GB of held arrays the widest slab's 12 B per row (6.2 GB at snapshot 34), the next slab's descendant mask and, at their largest, 25,198,213 promotions and 29,776,851 retained rows (`$P/cut/summary.json` `severance.per_snapshot`).
+These sum to 55.64 GB; the other 1.7 GB is the interpreter, the HDF5 library and the phase's transients. The cut's pass adds to its 16.6 GB of held arrays the widest slab's 12 B per row (6.2 GB at snapshot 34), the next slab's descendant mask and, at their largest, 25,198,213 promotions and 29,776,851 retained rows (`$P/cut-widest-slab/summary.json` `severance.per_snapshot`).
 
 **The reruns are deterministic.** Each wrote a `forests.list` and `record.json` with the first run's md5s. The final run's summaries differ from the `-nolargecache` run's only in the corrected prefix count, the added recomputed count, the record-size formula text, the measured memory and the cut summary's own size (`$B/logs/rev5-production-steer1-diff.txt`; the replaced summaries are kept in `$B/logs/rev5-production-run1-summaries/` and `rev5-production-run2-summaries/`). The outputs now in `$P` are the final run's.
 
@@ -297,7 +302,7 @@ These are predictions from input topology, per the plan's decision 7; none is a 
 
 - **Unchanged forests.** The 158,494,209 forests ending in one z = 0 group keep their id, their `ForestIndex`, their topology and payload, and their `UniqueGalaxyID`. Decision 7 limits the byte-identity claim to `sage16` and `halos-only`: every galaxy of such a forest, measured against the uncut dataset. For SHAM, the global ranking below can reach these forests too.
 - **`sage16` and `halos-only` inside the split forests.** A promoted halo becomes a central, so an earlier satellite phase is removed. That changes what a galaxy inherits along its history: infall, ejected-gas and ICS consolidation, stripping, reincorporation, the virial-mass source, progenitor order and inheritance, mergers, disruption and orphans. The affected histories are bracketed by `dependent_halos` (2,445,611,151: the seeds and every halo on a seed's descendant path) and `upper_bound_halos` (17,163,320,870: every halo of a piece holding a seed). The logical descendant relation and every z = 0 central/member relation of the input are preserved, but the z = 0 galaxy population and Types are measured, not claimed.
-- **HOD and SHAM**, as predicted mechanisms rather than counts (`$P/cut/summary.json` `predicted_effects.hod_sham`):
+- **HOD and SHAM**, as predicted mechanisms rather than counts (`$P/cut-widest-slab/summary.json` `predicted_effects.hod_sham`):
   - *identity recomputation*: `ForestIndex`, `HaloRankInForest` and `UniqueGalaxyID` are recomputed for every halo of a split forest (17,165,642,448 halos), and HOD's draws and SHAM's tie-breaks key on them;
   - *host and centrality changes*: a promoted halo (481,296,108 over all slabs, none at z = 0) becomes a central, so HOD populates it as a host and SHAM ranks it as a central, and its former group loses it;
   - *SHAM's global ranking*: abundance matching ranks every halo of a snapshot together, so a changed centrality or tie order can move tied assignments outside the split forests.
@@ -368,3 +373,118 @@ The revision-6 slice re-measures this grid under the new weighting. The producti
 - **The configuration:** start at one task and 128 chunks. At the census checkpoint, a miss is no one-task chunk count up to 256 fitting the class's usable budget. At the Mac-proxy and laptop checkpoints, if the sweep completes over budget or fails for memory, test 256 chunks before declaring a miss. A fit at a count other than 128 changes the configuration, not the class, and is recorded in the plan's decision 6.
 - **A miss or a failed sweep** moves the target to 32 GiB with 26 GiB usable (the same 6 GiB reserve, at most 256 chunks), evaluated at the same checkpoint, with the miss and its measured cause recorded.
 - **If 32 GiB is also missed, stop and return to the owner.** Going to 64 GiB needs a new owner decision. Under today's widest-slab weighting, 64 GiB with 58 GiB usable is reached at (1, 32): 41,209,248 rows, 42.22 GiB. This record's (1, 16) fit was at its 4 GiB reserve.
+
+---
+
+## Revision 6: the partition weighted by peak occupancy
+
+**Measured 2026-10-10 by Slice 15** (plan revision 6), the first checkpoint of decision 6's stop condition. Nothing above this section changed except that its figures now cite the preserved widest-slab summaries (the "Revision 6 reruns" note under the record's opening evidence). Logs are in `$S15/logs/`, scripts in `$S15/scripts/`.
+
+**The change.** The driver (`horizontal_compute_partition`, `src/core/horizontal_driver.c`) now weighs each forest by its **peak occupancy**, its largest row count in any one slab, instead of its rows in the widest slab. The minimax cut, the task and chunk structure and every other partition rule are unchanged. Task 0 computes the peaks in a first `ForestIndex` pass over every slab, which also applies the forest-blocking check, so a dataset that is not forest-blocked is refused before any cut. The existing second pass places the row cuts. The census's partition simulation mirrors it. `partition` weighs each forest by `occupancy`'s `forest_max_occupancy.npy`. `cut` computes every piece's peak first, in one pass over every slab's tree-pair aggregates (319 s on production, `partition.weights.peak_pass_seconds`), then installs the pieces by their peaks and applies the partition in a second pass over the same aggregates. No dataset column is read for either pass.
+
+**Runs.** All runs used `MallocLargeCache=0`, ran strictly in sequence, and had no other LaCie-bound job alongside. Each step went through `$S15/scripts/rev6_run_step.sh`, run 2b's wrapper with its log directory moved.
+
+- **Rehearsal** (`rev6_rehearsal.sh`): on `$R3` and then `$R2`, it preserved the summaries (`rev6-rehearsal-<v>-preserve.log`). It then ran `partition --ntask 1,2,4,8 --nchunk 1,2,4,8,16,32` and `cut --reserve-gib 6 --nchunk 1,2,4,8,16,32,64,128,256`, the latter for the whole simulation and with `--forest-index 237997` (`rev6-rehearsal-<v>-{partition,cut,cut-largest}.log`). Each step exited 0 in at most 14 s and 0.21 GB peak RSS. Both tables kept their md5s (`75ebf157…`, `1759395b…`; `rev6-rehearsal-<v>-tables-md5-{before,after}.txt`).
+- **Production** (`rev6_production.sh`, `rev6-production-runner.log`): the preserve step (`rev6-production-preserve.log`), then `partition` on Slice 9's grid, then `cut --reserve-gib 6` with chunk counts up to 256. `partition` (`rev6-production-partition.log`) exited 0 in 189 s with 6.10 GB peak RSS. `cut` (`rev6-production-cut.log`) exited 0 in 5,364 s with 32.95 GB peak RSS (26.9 GB peak memory footprint). Its phase peaks were 27.06 GB through the pieces, 29.48 GB through the aggregates and 32.95 GB through the pass (`$P/cut/summary.json` `memory`). Slice 9's cut took 5,148 s and 33.7 GB.
+- **The decided table is unchanged.** `$P/table/forests.list` has md5 `6e9f2fb03b26a36ce51c5392e7bcf164` before and after the reruns (`rev6-production-runner.log`). The cut summary carries the same assignment SHA-256, `9cc47fb6…66227`.
+
+**The summaries differ from Slice 9's only where they must** (`rev6-production-diff-{partition,cut}.txt`, `rev6-rehearsal-v3-diff-{partition,cut,cut-restricted}.txt`, from run 2b's `rev5_diff_summaries.py`):
+
+- the partition figures: the forest cuts, the range rows and widest ranges, the weights record, and the grid extended to 256 chunks;
+- the laptop rows, at the 6 GiB reserve;
+- the measured memory, and the startup-weights formula text;
+- the summary's own recorded size.
+
+No promotion, chain, re-labelling, bracket or piece figure changed. This is no finding.
+
+**The rehearsal.** The two directories still agree through the catalogue id (`rev6-rehearsal-compare.log`: `VERDICT: agree`, exit 0). 209 arrays and both tables are identical and all 50 label slabs agree. The comparator is run 2b's, plus one expected difference, the measured `peak_pass_seconds` (`rev6_compare_rehearsal.py`). The version 3 cut grid equals PM's informal micro-Uchuu estimate under scheme S1 at all 36 points (`rev6-rehearsal-v3-crosscheck-S1.log`: `VERDICT: exact`). Under peak weighting the micro-Uchuu job at (1, 128) is 7,494 rows, against 14,516 under the widest slab. The smallest is 3,793 at (1, 256), and the largest piece's peak is 3,015 rows.
+
+**The uncut partition under peak weighting** (`$P/partition/summary.json`). The weights are each forest's peak. The super-forest weighs 333,663,215, its peak at snapshot 31, where its snapshot-34 rows gave it 321,253,424. The floor cannot change, and does not: **333,663,215 rows at snapshot 31**. At (1, 1) the widest range is snapshot 34's 519,342,987 rows; at every other point of the grid it is the floor.
+
+**The grid with the pieces installed** (`$P/cut/summary.json` `partition.grid`; GB at 1,100 B per halo; the last column is Slice 9's job at the same point, `$P/cut-widest-slab/summary.json`):
+
+| ntask | nchunk | Process: widest rows (snapshot) | Process GB | Job rows | Job GB | Job, widest-slab weighting |
+|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 1 | 519,342,987 (34) | 571.3 | 519,342,987 | 571.3 | 519,342,987 |
+| 1 | 2 | 295,878,028 (32) | 325.5 | 295,878,028 | 325.5 | 263,234,050 |
+| 1 | 4 | 174,809,692 (30) | 192.3 | 174,809,692 | 192.3 | 158,215,629 |
+| 1 | 8 | 87,833,617 (31) | 96.6 | 87,833,617 | 96.6 | 80,726,615 |
+| 1 | 16 | 43,969,100 (31) | 48.4 | 43,969,100 | 48.4 | 57,143,838 |
+| 1 | 32 | 22,018,442 (31) | 24.2 | 22,018,442 | 24.2 | 41,209,248 |
+| 1 | 64 | 11,019,314 (67) | 12.1 | 11,019,314 | 12.1 | 33,188,253 |
+| 1 | 128 | 5,518,529 (67) | 6.1 | 5,518,529 | 6.1 | 29,113,469 |
+| 1 | 256 | 3,415,844 (31) | 3.8 | 3,415,844 | 3.8 | not on its grid |
+| 2 | 1 | 295,878,028 (32) | 325.5 | 531,542,925 | 584.7 | 525,151,954 |
+| 2 | 2 | 174,809,692 (30) | 192.3 | 305,128,324 | 335.6 | 297,773,810 |
+| 2 | 4 | 87,833,617 (31) | 96.6 | 174,190,715 | 191.6 | 157,797,804 |
+| 2 | 8 | 44,030,737 (31) | 48.4 | 87,982,868 | 96.8 | 97,694,455 |
+| 2 | 16 | 22,018,442 (31) | 24.2 | 43,982,452 | 48.4 | 61,938,131 |
+| 2 | 32 | 11,000,517 (67) | 12.1 | 21,983,516 | 24.2 | 43,593,939 |
+| 2 | 64 | 5,540,497 (31) | 6.1 | 11,043,707 | 12.1 | 34,497,887 |
+| 2 | 128 | 3,415,844 (31) | 3.8 | 6,169,923 | 6.8 | 31,262,440 |
+| 2 | 256 | 3,415,844 (31) | 3.8 | 4,794,702 | 5.3 | not on its grid |
+| 4 | 1 | 174,809,692 (30) | 192.3 | 551,741,874 | 606.9 | 561,030,069 |
+| 4 | 2 | 87,833,617 (31) | 96.6 | 311,115,596 | 342.2 | 296,722,731 |
+| 4 | 4 | 44,030,737 (31) | 48.4 | 161,760,215 | 177.9 | 167,422,044 |
+| 4 | 8 | 22,018,442 (31) | 24.2 | 81,120,647 | 89.2 | 100,044,626 |
+| 4 | 16 | 11,084,012 (31) | 12.2 | 40,729,958 | 44.8 | 62,887,168 |
+| 4 | 32 | 5,600,697 (31) | 6.2 | 21,071,409 | 23.2 | 44,264,681 |
+| 4 | 64 | 3,415,844 (31) | 3.8 | 11,728,677 | 12.9 | 36,339,369 |
+| 4 | 128 | 3,415,844 (31) | 3.8 | 8,021,356 | 8.8 | 33,699,603 |
+| 4 | 256 | 3,415,844 (31) | 3.8 | 6,648,505 | 7.3 | not on its grid |
+| 8 | 1 | 87,833,617 (31) | 96.6 | 588,845,467 | 647.7 | 577,692,575 |
+| 8 | 2 | 44,030,737 (31) | 48.4 | 306,438,881 | 337.1 | 311,715,350 |
+| 8 | 4 | 22,137,691 (31) | 24.4 | 154,110,867 | 169.5 | 172,438,286 |
+| 8 | 8 | 11,160,000 (31) | 12.3 | 77,448,193 | 85.2 | 99,301,000 |
+| 8 | 16 | 5,681,798 (31) | 6.2 | 39,685,276 | 43.7 | 62,530,100 |
+| 8 | 32 | 3,415,844 (31) | 3.8 | 21,159,003 | 23.3 | 45,852,386 |
+| 8 | 64 | 3,415,844 (31) | 3.8 | 12,760,772 | 14.0 | 38,435,735 |
+| 8 | 128 | 3,415,844 (31) | 3.8 | 9,095,172 | 10.0 | 35,082,325 |
+| 8 | 256 | 3,415,844 (31) | 3.8 | 7,276,660 | 8.0 | not on its grid |
+
+- **The best point reaches the floor.** At one task and 256 chunks the job is **3,415,844 rows (3.76 GB)**, the largest piece's peak at snapshot 31.
+- **At one task and 128 chunks the job is 5,518,529 rows**: 6.07 GB, or 5.65 GiB. It is chunk 127 (`ForestIndex` 239,436,509 to 244,953,606, 5,517,098 of the smallest fresh pieces) at snapshot 67. That chunk holds 5,428,844 rows at snapshot 34, where under the widest-slab weighting 29,106,600 such pieces shared one chunk. Every peak is at least one row, so the summed peaks now spread the late-growing pieces over the chunks.
+- **At 16 or more chunks per task the job falls at every point.** At (1, 64) it is 11,019,314 rows, against 33,188,253.
+- **At eight coarse points the job rises.** These are (1, 2), (1, 4), (1, 8), (2, 1), (2, 2), (2, 4), (4, 2) and (8, 1), all with at most 8 chunks per task; for example (1, 2) gives 295,878,028 rows against 263,234,050. The cut minimises the largest summed peak, which bounds every slab's rows, not each slab's own largest range. None of those points fits any class under either weighting.
+
+**Laptop rows at decision 6's budgets** (`partition.laptop_classes`, each class less a 6 GiB reserve, grid to 256 chunks):
+
+| Class | Usable | Smallest fitting grid point | Job |
+|---|---:|---|---:|
+| 16 GiB | 10,737,418,240 B (10 GiB) | **ntask 1, nchunk 128** | 5,518,529 rows, 6.07 GB (5.65 GiB) |
+| 32 GiB | 27,917,287,424 B (26 GiB) | ntask 1, nchunk 32 | 22,018,442 rows, 24.22 GB (22.56 GiB) |
+| 64 GiB | 62,277,025,792 B (58 GiB) | ntask 1, nchunk 16 | 43,969,100 rows, 48.37 GB (45.04 GiB) |
+
+**The cross-check against PM's informal estimate.** `$S15/scripts/rev6_crosscheck.py` compares every grid point with scheme S1 of `$D/evidence/partition_weighting_production.json` (fresh pieces last, each piece weighted by its peak over all slabs). It compares the forest cuts, the widest rows of every slab, the widest range, each task's widest rows and the job. All 36 points agree exactly, which is every point up to 256 chunks (`rev6-production-crosscheck-S1.log`: `compared points: 36 mismatches: 0`, `VERDICT: exact`). The estimate's three quoted figures are confirmed: 5,518,529 rows at (1, 128), the 3,415,844-row floor at (1, 256), and 11,019,314 rows at (1, 64). The estimate's 512-chunk points are not on the census grid.
+
+**The first checkpoint of decision 6's stop condition: met.** The target is 16 GiB with 10 GiB usable; the metric is the estimated concurrent job (job rows × 1,100 B) against the usable budget.
+
+- **16 GiB fits, first at one task and 128 chunks:** 5,518,529 rows, 6,070,381,900 B against 10,737,418,240 B usable. This is the decided configuration (`input.forest_chunks: 128`).
+- **At 64 chunks it does not fit:** 11,019,314 rows, 12,121,245,400 B (11.29 GiB).
+- **The configuration and the class stand.** The step-down to 32 GiB is not needed. Evaluated anyway, 32 GiB with 26 GiB usable fits at (1, 32).
+
+This is a partition row count at an assumed 1,100 B per halo, not a measured RSS. The next checkpoints are the Mac proxy and a laptop run (decision slot 2).
+
+**The driver's added startup read.** The weighting pass reads 8 B × total halos and the row-cut pass reads the same again. Weighting by the widest slab alone read that slab once, so the pass adds 8 B × (total halos − the widest slab's halos), on task 0 of a distributed or chunked run only.
+
+- **micro-Uchuu: measured.** The formula gives 8 × (22,580,924 − 621,360) = 175,676,512 B. Five alternating runs each of the base commit's binary (`63d7f2a9`) and this slice's, `halos-only` at `forest_chunks: 4` with the dataset cached, took 0.053–0.056 s and 0.106–0.120 s from the dataset's open to the partition's last log line (`$S15/logs/rev6-startup-timing.log`, `rev6_stamp.py`). The added wall-clock is about 0.06 s.
+- **Shin-Uchuu: the formula.** It gives 8 × (22,503,649,037 − 519,342,987) = 175,874,448,400 B, about 176 GB of extra startup reads; it was not measured here.
+
+The weights stay one int64 per forest on task 0, freed before any generation is sized: 1.33 GB uncut and 1.96 GB cut (`memory.startup_weights`). The first pass allocates nothing per halo.
+
+**Identity.** Galaxies do not depend on the partition. On micro-Uchuu the peak weighting moved the four chunk cuts from `ForestIndex` 101,620, 209,418 and 314,723 to 103,194, 211,123 and 316,414. Slice 5's `forest_chunks: 4` and `mpirun -np 4` legs of `sage16` and `halos-only` were rerun at this code. They are bitwise identical per `UniqueGalaxyID` to the archived serial references: 3,112,186 galaxies in 42 fields and 4,409,643 in 20 (`$S15/logs/legs/`).
+
+**Code identity.** Every revision 6 step log (rehearsal and production) records commit `63d7f2a9` with `forest_census.py`, `census/cut.py` and `census/partition.py` uncommitted. They are Slice 15's final code, committed unchanged in the slice's commit. The SHA-256 of every census source file is identical in every log:
+
+| File (under `convert/mimic-convert/`) | SHA-256 |
+|---|---|
+| `forest_census.py` | `2cee245887b2caf4ab0549cdf114eb81df5af615a570dd989bbea0595a563207` |
+| `census/aggregate.py` | `a865385db5b48e14539f50f388ce95a116427bd6c58fd0d54e89fa62fb90fb99` |
+| `census/cut.py` | `6a75443328cbe35cc45b8de50359ce3647a652629f4d6a5e3cd72816f036bcf6` |
+| `census/cut_table.py` | `a9818563ac1c0ccdf5e4d8504c07fc3f5430ec9de4f4b4e489e8bed371c04b72` |
+| `census/occupancy.py` | `4e87b54257d5ba98d663375fd9c358293538bc1bb78192ae2cdf254902acea08` |
+| `census/partition.py` | `9f02ef8a649f310f50a6facc65c9596aa5bf869c3c911560d73d39064023bce7` |
+| `census/table.py` | `34363f09f7bac88ac9606951eb31b957cec98411ee4f324584a1135bcc06451f` |
+| `census/trees.py` | `06a0f36f6d0c22c6097c2d1d6e5432298bcde3458e829a828dcf6fa8237591d8` |
+
+`census/cut_table.py` differs from Slice 9's blob through Slices 12 and 13. `cut` reaches it through the table's construction, and the decided table it builds is unchanged: the same assignment SHA-256, and every promotion, chain and piece figure equal to Slice 9's. `occupancy.py`, `table.py`, `trees.py` and `aggregate.py` equal Slice 9's.

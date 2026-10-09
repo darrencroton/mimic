@@ -9,13 +9,17 @@ generations, and appends its rows to the same per-snapshot partition files; the 
 creates each partition and the last one finalises it.
 
 The committed ``forest_blocks`` fixture (../data/forest_blocks/: six forests over seven gapped
-snapshots, snapshot 3 empty, widest slab snapshot 5 with 17 halos, widest-slab forest weights
-``[2, 1, 7, 2, 2, 3]``) is run with ``halos-only`` through
-``../input/forest_blocks_halos-only.yaml`` (output snapshots 6, 5, 4 and 2), its output directory
-redirected as the distributed identity gate does, at ``forest_chunks`` 1, 2, 3 and 8, plus 2 with
-``--compress`` (whose deflated ``Galaxies`` table is appended across file sessions). The cuts
-are ``[0, 3, 6]`` at ``G = 2`` and ``[0, 2, 3, 6, 6, ...]`` for every ``G >= 3``, so ``G = 8``
-has five idle chunks. Each check is one ``MIMIC_RESULT:`` marker:
+snapshots, snapshot 3 empty, widest slab snapshot 5 with 17 halos) is run with ``halos-only``
+through ``../input/forest_blocks_halos-only.yaml`` (output snapshots 6, 5, 4 and 2), its output
+directory redirected as the distributed identity gate does, at ``forest_chunks`` 1, 2, 3 and 8,
+plus 2 with ``--compress`` (whose deflated ``Galaxies`` table is appended across file sessions).
+The partition weighs each forest by its peak occupancy, its largest row count in any one slab:
+``[2, 1, 8, 2, 2, 3]``, where the widest slab alone counts ``[2, 1, 7, 2, 2, 3]`` (forest 2
+holds 7 rows at snapshot 5 and 8 at snapshot 6). The cuts are the same under both: ``[0, 3, 6]``
+at ``G = 2`` (capacity 11: ``[2, 1, 8] | [2, 2, 3]``) and ``[0, 2, 3, 6, 6, ...]`` for every
+``G >= 3`` (capacity 8, the heaviest forest: ``[2, 1] | [8] | [2, 2, 3]``), so ``G = 8`` has
+five idle chunks, and only the logged weights of the ranges holding forest 2 change. Each check
+is one ``MIMIC_RESULT:`` marker:
 
   - every run exits 0, leak-free, with the same four partition files and the master;
   - ``scripts/compare_cross_format_identity.py --compare-created`` reports every chunked run
@@ -25,7 +29,7 @@ has five idle chunks. Each check is one ``MIMIC_RESULT:`` marker:
   - the ``--compress`` run's partitions really are deflated;
   - the ``G = 8`` log shows exactly its five idle chunks, the ``G = 3`` log none;
   - the ``G = 2`` log carries the partition's chunk lines and each chunk's sweep line with the
-    hand-counted forest ranges, weights and widest-slab rows, ``2 x 7`` "Loaded snapshot"
+    hand-counted forest ranges, peak weights and widest-slab rows, ``2 x 7`` "Loaded snapshot"
     lines, and every release of chunk 0 before chunk 1 starts; the ``G = 1`` log has none of
     the partition or chunk lines;
   - the multi-visit failure window: on a copy of the fixture whose snapshot 5 row 12 (forest 4,
@@ -324,8 +328,9 @@ def test_two_chunk_log_lines():
     Test the G = 2 log's partition, chunk and lifecycle lines against a hand count.
 
     Expected: the partition's chunk lines and each chunk's sweep line name forests [0, 3) and
-              [3, 6) with widest-slab weights 10 and 7 and snapshot 5 rows [0, 10) and
-              [10, 17); there are 2 x 7 "Loaded snapshot" lines, chunk 1's carrying its row note;
+              [3, 6) with peak weights 11 (2 + 1 + 8) and 7 (2 + 2 + 3), task 0's 18, and
+              widest-slab snapshot 5 rows [0, 10) and [10, 17); there are 2 x 7 "Loaded
+              snapshot" lines, chunk 1's carrying its row note;
               all seven releases of chunk 0 precede chunk 1's sweep line and seven follow it;
               the G = 1 log holds no partition or chunk line.
     Validates: each chunk is logged, and each chunk releases its slabs before the next loads.
@@ -333,10 +338,13 @@ def test_two_chunk_log_lines():
     _require_package()
     g2 = _successful_leg("g2").stdout
     for needle in (
-        "Chunked horizontal partition: 6 forests over 1 task in 2 chunks each",
-        "Partition task 0: forests [0, 6), widest-slab weight 17 (snapshot 5 rows [0, 17))",
-        "Partition task 0 chunk 0: forests [0, 3), widest-slab weight 10 (snapshot 5 rows [0, 10))",
-        "Partition task 0 chunk 1: forests [3, 6), widest-slab weight 7 (snapshot 5 rows [10, 17))",
+        "Chunked horizontal partition: 6 forests over 1 task in 2 chunks each, each forest "
+        "weighted by its peak occupancy over all slabs",
+        "Partition task 0: forests [0, 6), peak weight 18 (widest slab snapshot 5 rows [0, 17))",
+        "Partition task 0 chunk 0: forests [0, 3), peak weight 11 (widest slab snapshot 5 rows "
+        "[0, 10))",
+        "Partition task 0 chunk 1: forests [3, 6), peak weight 7 (widest slab snapshot 5 rows "
+        "[10, 17))",
         "Sweeping this task's chunk 0 of 2: forests [0, 3), widest slab snapshot 5 rows [0, 10)",
         "Sweeping this task's chunk 1 of 2: forests [3, 6), widest slab snapshot 5 rows [10, 17)",
         "Loaded snapshot 5 (7 halos (this task's chunk 1 of 2, rows [10, 17) of the snapshot's "

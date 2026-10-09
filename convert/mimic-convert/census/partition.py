@@ -20,8 +20,14 @@ the range) step for step, with zero-weight forests riding in the open range,
 but costs O(ranges x log n) per capacity instead of O(n), so Shin-Uchuu's
 166,547,771-forest weight vector (1.3 GB) is cut in seconds.
 
-The weights are the widest slab's per-forest row counts, as the driver uses
-(``src/core/horizontal_driver.c``, the widest slab the lowest-numbered on a tie);
+The weights are each forest's **peak occupancy**, its largest row count in any
+one slab, as the driver weighs it (``src/core/horizontal_driver.c``, from one
+``ForestIndex`` pass over every slab at startup). A range's summed peaks bound
+its rows in every slab, so a forest that holds few rows in the widest slab but
+many in another is weighed by the slab where it is large. The occupancy pass
+already records the peaks (``forest_max_occupancy.npy``); the weight vector is
+8 B x ``n_forests_total`` (1.3 GB for Shin-Uchuu's 166,547,771 forests), plus
+the 4 B x ``n_forests_total`` int32 array it is widened from while it loads.
 :func:`range_rows` applies a partition's cuts to any slab's sparse per-forest
 counts, giving each range's row count in that slab.
 
@@ -46,6 +52,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from census.aggregate import (  # noqa: E402
     SUMMARY_NAME,
     bound_identity,
+    load_array,
     require_summary,
     write_json,
 )
@@ -184,13 +191,27 @@ DEFAULT_NTASKS = (1, 2, 4, 8)
 DEFAULT_NCHUNKS = (1, 2, 4, 8, 16, 32)
 
 
-def widest_slab_weights(aggregate_dir, n_forests: int, widest: int) -> np.ndarray:
-    """The widest slab's per-forest row counts as a dense int64 weight vector
-    (8 B x ``n_forests_total``), from the occupancy aggregates."""
-    weights = np.zeros(n_forests, dtype=np.int64)
-    forests, counts = load_slab_pairs(aggregate_dir, widest)
-    weights[forests] = counts
-    return weights
+#: How the weights are formed, recorded in the summaries that apply them.
+WEIGHTING = (
+    "peak occupancy: each forest weighs its largest row count in any one slab, as the "
+    "driver weighs it"
+)
+
+
+def peak_weights(aggregate_dir, n_forests: int) -> np.ndarray:
+    """Each forest's peak occupancy over all slabs as a dense int64 weight
+    vector (8 B x ``n_forests_total``), from the occupancy aggregates.
+
+    Raises:
+        ConverterError: when the recorded peaks do not cover ``n_forests``.
+    """
+    path = occupancy_dir(aggregate_dir) / "forest_max_occupancy.npy"
+    peaks = load_array(path)
+    if peaks.shape != (n_forests,):
+        raise ConverterError(
+            "{}: {} peak(s) for {} forests".format(path, peaks.shape[0], n_forests)
+        )
+    return peaks.astype(np.int64)
 
 
 def run_partition(
@@ -199,7 +220,7 @@ def run_partition(
     nchunks: Sequence[int] = DEFAULT_NCHUNKS,
     log: Optional[Callable[[str], None]] = None,
 ) -> dict:
-    """Apply :func:`partition_cut` with the widest slab's weights for every
+    """Apply :func:`partition_cut` with the peak-occupancy weights for every
     (ntask, nchunk) of the grid, and report every range's rows in every slab.
 
     Reads only the occupancy aggregates of ``aggregate_dir`` (one slab's pairs
@@ -228,8 +249,9 @@ def run_partition(
     grid = [(int(t), int(c)) for t in ntasks for c in nchunks]
     if widest is None or not grid:
         raise ConverterError("{}: no slab or no grid point to partition".format(aggregate_dir))
-    weights = widest_slab_weights(aggregate_dir, n_forests, widest["snapshot"])
+    weights = peak_weights(aggregate_dir, n_forests)
     heaviest = int(np.argmax(weights)) if n_forests else -1
+    heaviest_rows = int(weights[heaviest]) if n_forests else 0
     points = []
     for ntask, nchunk in grid:
         cuts = partition_cut(weights, ntask, nchunk)
@@ -277,12 +299,9 @@ def run_partition(
     summary = {
         "dataset": identity,
         "weights": {
-            "snapshot": widest["snapshot"],
-            "halos": widest["halos"],
-            "heaviest_forest": {
-                "forest_index": heaviest,
-                "rows": floors[widest["snapshot"]],
-            },
+            "weighting": WEIGHTING,
+            "heaviest_forest": {"forest_index": heaviest, "rows": heaviest_rows},
+            "widest_slab": {"snapshot": widest["snapshot"], "halos": widest["halos"]},
         },
         "floor": {
             "per_snapshot": floors,

@@ -7,10 +7,15 @@
  * empty ranges included) of every weight vector of length 0..8 over the weights
  * {0, 1, 2, 5} for 1..4 ranks, so the minimum makespan is established without
  * reference to the greedy rule under test. A second, independently written
- * greedy packer taken at the oracle's optimum pins the exact cuts D3 prescribes.
- * The streaming scan is checked against a binary-search lower bound on columns
- * delivered in blocks of varying size, and against hand-built cases for zero-weight
- * forests, idle ranks, decreasing columns and empty columns.
+ * greedy packer taken at the oracle's optimum pins the exact cuts the minimax
+ * rule prescribes (the smallest feasible capacity, then the left-to-right greedy
+ * packing at it). The streaming scan is checked against a binary-search lower
+ * bound on columns delivered in blocks of varying size, and against hand-built
+ * cases for zero-weight forests, idle ranks, decreasing columns and empty columns.
+ * The peak-occupancy scan that weighs the forests is checked on hand-built slabs:
+ * runs straddling blocks, forests absent from a slab, an empty slab, a forest
+ * whose peak lies outside the widest slab, a decreasing column and an
+ * out-of-range forest index.
  *
  * The two-level cut (horizontal_partition_cut()) is checked against the
  * same kind of oracle, applied to each task's sub-array over every contiguous
@@ -81,7 +86,7 @@ static int64_t cuts_makespan(const int64_t *prefix, const int64_t *cuts, int nta
 }
 
 /**
- * The D3 greedy packing at a given capacity, written independently of the code
+ * The greedy packing at a given capacity, written independently of the code
  * under test: ranges are built explicitly, one forest at a time. Cuts beyond the
  * last range are n (idle ranges).
  */
@@ -151,6 +156,27 @@ static void print_vector(const char *label, const int64_t *values, int count) {
     fprintf(stderr, "%s%" PRId64, i > 0 ? ", " : "", values[i]);
   }
   fprintf(stderr, "]\n");
+}
+
+/**
+ * Peak-scan one slab's `column` into `weights`, in blocks whose (positive) sizes
+ * cycle through `sizes`; returns horizontal_peak_scan_end()'s result.
+ */
+static int peak_scan_in_blocks(struct HorizontalPeakScan *scan, int64_t *weights, int64_t n_forests,
+                               int64_t snapnum, const int64_t *column, int64_t rows,
+                               const int64_t *sizes, int n_sizes) {
+  horizontal_peak_scan_begin(scan, weights, n_forests, snapnum);
+  int64_t row = 0;
+  int which = 0;
+  while (row < rows) {
+    int64_t take = sizes[which++ % n_sizes];
+    if (take > rows - row) {
+      take = rows - row;
+    }
+    horizontal_peak_scan_visit(scan, row, column + row, take);
+    row += take;
+  }
+  return horizontal_peak_scan_end(scan);
 }
 
 /** Feed `column` to the scan in blocks whose (positive) sizes cycle through `sizes`. */
@@ -310,7 +336,7 @@ static int check_chunk_vector(const int64_t *weights, int n, int ntask, int nchu
 
 /**
  * @test    test_cut_forests_matches_brute_force_over_all_small_vectors
- * @brief   Makespan equals the enumerated optimum, and the cuts are D3's exact greedy packing
+ * @brief   Makespan equals the enumerated optimum, and the cuts are the exact greedy packing
  */
 int test_cut_forests_matches_brute_force_over_all_small_vectors(void) {
   int64_t weights[MAX_FORESTS];
@@ -322,7 +348,7 @@ int test_cut_forests_matches_brute_force_over_all_small_vectors(void) {
       decode_weights(code, n, weights);
       for (int ntask = 1; ntask <= MAX_TASKS; ntask++) {
         TEST_ASSERT(check_cut_vector(weights, n, ntask),
-                    "cut_forests must match the brute-force optimum and the D3 greedy cuts");
+                    "cut_forests must match the brute-force optimum and the greedy cuts");
         vectors++;
       }
     }
@@ -384,10 +410,14 @@ int test_zero_weight_forests_are_assigned_and_never_cut_row_order(void) {
   const int64_t n_forests = 6;
   int64_t weights[6] = {0};
 
-  horizontal_partition_accumulate_weights(weights, n_forests, column, 5);
+  /* One slab, so each forest's peak is its row count in it: 3 for forest 1, 2 for forest 4. */
+  struct HorizontalPeakScan peaks;
+  const int64_t peak_sizes[1] = {2};
+  TEST_ASSERT_EQUAL(peak_scan_in_blocks(&peaks, weights, n_forests, 0, column, 5, peak_sizes, 1), 0,
+                    "the column is forest-blocked");
   TEST_ASSERT(weights[1] == 3 && weights[4] == 2 &&
                   weights[0] + weights[2] + weights[3] + weights[5] == 0,
-              "accumulate counts rows per forest");
+              "the peak scan counts each forest's rows in its only slab");
 
   struct HorizontalForestPartition *partition = horizontal_partition_create(2, 1, 1, n_forests);
   horizontal_partition_cut_forests(weights, n_forests, 2, partition->forest_cuts);
@@ -438,9 +468,13 @@ int test_more_ranks_than_nonzero_forests_leaves_idle_ranges(void) {
   };
 
   for (int c = 0; c < 2; c++) {
+    /* One slab, so the peaks are the row counts: [2, 3] and [0, 4, 0, 3, 0]. */
     int64_t weights[5] = {0};
-    horizontal_partition_accumulate_weights(weights, cases[c].n_forests, cases[c].column,
-                                            cases[c].rows);
+    struct HorizontalPeakScan peaks;
+    const int64_t peak_sizes[1] = {8};
+    TEST_ASSERT_EQUAL(peak_scan_in_blocks(&peaks, weights, cases[c].n_forests, 0, cases[c].column,
+                                          cases[c].rows, peak_sizes, 1),
+                      0, "the column is forest-blocked");
     struct HorizontalForestPartition *partition =
         horizontal_partition_create(4, 1, 1, cases[c].n_forests);
     horizontal_partition_cut_forests(weights, cases[c].n_forests, 4, partition->forest_cuts);
@@ -880,20 +914,101 @@ int test_scan_of_empty_column_yields_zero_row_cuts(void) {
 /* ------------------------------------------------------------------------- */
 
 /**
- * @test    test_accumulate_weights_counts_rows_across_blocks
- * @brief   Weights add up over successive blocks, one per streamed value
+ * @test    test_peak_scan_counts_runs_across_blocks
+ * @brief   A forest whose run straddles blocks is counted once, in full, at every block size
  */
-int test_accumulate_weights_counts_rows_across_blocks(void) {
+int test_peak_scan_counts_runs_across_blocks(void) {
+  /* Forest 0 holds rows 0-2, forest 2 rows 3-4, forest 3 row 5; forest 1 none. */
+  const int64_t column[6] = {0, 0, 0, 2, 2, 3};
+  const int64_t block_sizes[][2] = {{1, 1}, {2, 4}, {5, 1}, {6, 6}, {4, 1}};
+
+  for (int b = 0; b < 5; b++) {
+    int64_t weights[4] = {0, 0, 0, 0};
+    struct HorizontalPeakScan peaks;
+    TEST_ASSERT_EQUAL(peak_scan_in_blocks(&peaks, weights, 4, 0, column, 6, block_sizes[b], 2), 0,
+                      "the column is forest-blocked");
+    TEST_ASSERT(weights[0] == 3 && weights[1] == 0 && weights[2] == 2 && weights[3] == 1,
+                "each forest's run is its whole row count, whatever the block boundaries");
+  }
+
+  /* An empty block between two halves of forest 0's run changes nothing. */
   int64_t weights[4] = {0, 0, 0, 0};
-  const int64_t first[3] = {0, 0, 2};
-  const int64_t second[2] = {2, 3};
+  struct HorizontalPeakScan peaks;
+  horizontal_peak_scan_begin(&peaks, weights, 4, 0);
+  horizontal_peak_scan_visit(&peaks, 0, column, 2);
+  horizontal_peak_scan_visit(&peaks, 2, NULL, 0);
+  horizontal_peak_scan_visit(&peaks, 2, column + 2, 4);
+  TEST_ASSERT_EQUAL(horizontal_peak_scan_end(&peaks), 0, "the column is forest-blocked");
+  TEST_ASSERT(weights[0] == 3 && weights[2] == 2 && weights[3] == 1,
+              "an empty block splits no run");
+  return 0;
+}
 
-  horizontal_partition_accumulate_weights(weights, 4, first, 3);
-  horizontal_partition_accumulate_weights(weights, 4, second, 2);
-  horizontal_partition_accumulate_weights(weights, 4, NULL, 0);
+/**
+ * @test    test_peak_scan_takes_each_forest_largest_slab
+ * @brief   Weights are peaks over every slab: absent forests, an empty slab, a late peak
+ */
+int test_peak_scan_takes_each_forest_largest_slab(void) {
+  /* Slab 0 is the widest (6 rows): forests 0 and 1 hold 3 each and forest 2 none.
+   * Slab 1 is empty. Slab 2 (5 rows): forest 0 holds 1, forest 1 none, forest 2 4.
+   * By hand, the peaks are max(3, 0, 1) = 3, max(3, 0, 0) = 3 and max(0, 0, 4) = 4:
+   * forest 2's weight is 4 where the widest slab alone gives it 0. */
+  const int64_t widest[6] = {0, 0, 0, 1, 1, 1};
+  const int64_t late[5] = {0, 2, 2, 2, 2};
+  const int64_t sizes[2] = {2, 1};
+  int64_t weights[3] = {0, 0, 0};
+  struct HorizontalPeakScan peaks;
 
-  TEST_ASSERT(weights[0] == 2 && weights[1] == 0 && weights[2] == 2 && weights[3] == 1,
-              "each streamed value adds one to its forest");
+  TEST_ASSERT_EQUAL(peak_scan_in_blocks(&peaks, weights, 3, 0, widest, 6, sizes, 2), 0,
+                    "slab 0 is forest-blocked");
+  TEST_ASSERT(weights[0] == 3 && weights[1] == 3 && weights[2] == 0,
+              "after the widest slab the weights are its row counts");
+
+  /* The empty slab, with and without an empty block, leaves every peak as it was. */
+  horizontal_peak_scan_begin(&peaks, weights, 3, 1);
+  TEST_ASSERT_EQUAL(horizontal_peak_scan_end(&peaks), 0, "an empty slab is forest-blocked");
+  horizontal_peak_scan_begin(&peaks, weights, 3, 1);
+  horizontal_peak_scan_visit(&peaks, 0, NULL, 0);
+  TEST_ASSERT_EQUAL(horizontal_peak_scan_end(&peaks), 0, "an empty block is forest-blocked");
+  TEST_ASSERT(weights[0] == 3 && weights[1] == 3 && weights[2] == 0,
+              "an empty slab raises no peak");
+
+  TEST_ASSERT_EQUAL(peak_scan_in_blocks(&peaks, weights, 3, 2, late, 5, sizes, 2), 0,
+                    "slab 2 is forest-blocked");
+  TEST_ASSERT(weights[0] == 3 && weights[1] == 3 && weights[2] == 4,
+              "a smaller count keeps the peak, a larger one raises it, an absent forest keeps it");
+
+  /* The weighting moves the cut. On two ranks the peaks [3, 3, 4] pack at the smallest
+   * feasible capacity 6 as [3, 3] | [4], cuts [0, 2, 3]; the widest slab's counts
+   * [3, 3, 0] would pack at 3 as [3] | [3, 0], cuts [0, 1, 3], and leave forests 1 and 2
+   * together, 7 rows in slab 2. */
+  int64_t cuts[3];
+  horizontal_partition_cut_forests(weights, 3, 2, cuts);
+  TEST_ASSERT(cuts[0] == 0 && cuts[1] == 2 && cuts[2] == 3, "the peak weights cut at forest 2");
+  const int64_t widest_counts[3] = {3, 3, 0};
+  horizontal_partition_cut_forests(widest_counts, 3, 2, cuts);
+  TEST_ASSERT(cuts[0] == 0 && cuts[1] == 1 && cuts[2] == 3,
+              "the widest slab's counts alone cut at forest 1");
+  return 0;
+}
+
+/**
+ * @test    test_peak_scan_reports_decreasing_pair
+ * @brief   A slab that is not forest-blocked fails with its first decreasing pair named
+ */
+int test_peak_scan_reports_decreasing_pair(void) {
+  /* Forest 1's rows are not one run: ForestIndex falls from 2 at row 3 to 1 at row 4. */
+  const int64_t column[6] = {0, 1, 1, 2, 1, 3};
+  const int64_t sizes[1] = {3};
+  int64_t weights[4] = {0, 0, 0, 0};
+  struct HorizontalPeakScan peaks;
+
+  TEST_ASSERT_EQUAL(peak_scan_in_blocks(&peaks, weights, 4, 7, column, 6, sizes, 1), -1,
+                    "a decreasing column fails");
+  TEST_ASSERT(peaks.violation_row == 4 && peaks.violation_previous == 2 &&
+                  peaks.violation_value == 1,
+              "the first decreasing pair is recorded");
+  TEST_ASSERT_EQUAL(peaks.rows_seen, 6, "blocks after the violation are still accepted");
   return 0;
 }
 
@@ -952,11 +1067,23 @@ int test_partition_create_sizes_tables_by_range_count(void) {
 
 static int64_t child_value = 0;
 
-static void child_accumulate_out_of_range(const char *unused) {
+static void child_peak_scan_out_of_range(const char *unused) {
   (void)unused;
   int64_t weights[3] = {0, 0, 0};
   const int64_t values[3] = {0, 1, child_value};
-  horizontal_partition_accumulate_weights(weights, 3, values, 3);
+  struct HorizontalPeakScan peaks;
+  horizontal_peak_scan_begin(&peaks, weights, 3, 5);
+  horizontal_peak_scan_visit(&peaks, 0, values, 3);
+}
+
+static void child_peak_scan_with_gap(const char *unused) {
+  (void)unused;
+  int64_t weights[2] = {0, 0};
+  const int64_t values[2] = {0, 1};
+  struct HorizontalPeakScan peaks;
+  horizontal_peak_scan_begin(&peaks, weights, 2, 0);
+  horizontal_peak_scan_visit(&peaks, 0, values, 2);
+  horizontal_peak_scan_visit(&peaks, 3, values, 2); /* row 2 is missing */
 }
 
 static void child_cut_overflowing_weights(const char *unused) {
@@ -1020,13 +1147,16 @@ static void child_scan_of_missing_snapshot(const char *unused) {
  */
 int test_defective_inputs_abort(void) {
   child_value = 3;
-  TEST_ASSERT(expect_fatal(NULL, child_accumulate_out_of_range, "ForestIndex 3 is outside [0, 3)",
-                           NULL) == 1,
-              "a ForestIndex equal to the forest count aborts");
+  TEST_ASSERT(expect_fatal(NULL, child_peak_scan_out_of_range, "ForestIndex 3 is outside [0, 3)",
+                           "(snapshot 5 row 2)") == 1,
+              "a ForestIndex equal to the forest count aborts, naming its slab and row");
   child_value = -1;
-  TEST_ASSERT(expect_fatal(NULL, child_accumulate_out_of_range, "ForestIndex -1 is outside [0, 3)",
+  TEST_ASSERT(expect_fatal(NULL, child_peak_scan_out_of_range, "ForestIndex -1 is outside [0, 3)",
                            NULL) == 1,
-              "a negative ForestIndex aborts");
+              "a negative ForestIndex aborts before it is taken for a decreasing pair");
+  TEST_ASSERT(expect_fatal(NULL, child_peak_scan_with_gap, "expected the block to start at row 2",
+                           "starts at row 3") == 1,
+              "a peak-scan block that skips rows aborts");
   TEST_ASSERT(expect_fatal(NULL, child_cut_overflowing_weights, "sum beyond int64_t", NULL) == 1,
               "a weight sum beyond int64_t aborts");
   TEST_ASSERT(expect_success(NULL, child_cut_summing_to_int64_max) == 1,
@@ -1084,7 +1214,9 @@ int main(void) {
   TEST_RUN(test_scan_row_cuts_equal_lower_bound_for_every_small_chunked_column);
   TEST_RUN(test_scan_reports_decreasing_pair_with_row_and_values);
   TEST_RUN(test_scan_of_empty_column_yields_zero_row_cuts);
-  TEST_RUN(test_accumulate_weights_counts_rows_across_blocks);
+  TEST_RUN(test_peak_scan_counts_runs_across_blocks);
+  TEST_RUN(test_peak_scan_takes_each_forest_largest_slab);
+  TEST_RUN(test_peak_scan_reports_decreasing_pair);
   TEST_RUN(test_partition_create_is_zeroed_sized_and_released);
   TEST_RUN(test_partition_create_sizes_tables_by_range_count);
   TEST_RUN(test_defective_inputs_abort);

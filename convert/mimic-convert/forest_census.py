@@ -27,10 +27,11 @@ Subcommands::
 
     forest_census.py partition --aggregate DIR [--ntask 1,2,4,8]
             [--nchunk 1,2,4,8,16,32]
-        The driver's task and chunk partition with the widest slab's weights,
-        for every grid point: every range's rows in every slab and the widest
-        range, with the heaviest forest as the floor (census/partition.py).
-        Needs a completed ``occupancy``.
+        The driver's task and chunk partition, each forest weighted as the
+        driver weighs it by its peak occupancy (its largest row count in any
+        one slab), for every grid point: every range's rows in every slab and
+        the widest range, with the heaviest forest as the floor
+        (census/partition.py). Needs a completed ``occupancy``.
 
     forest_census.py table --dataset DIR --aggregate DIR --forests-list FILE
             --locations FILE [--forest-index N ...] [--block-rows N]
@@ -181,9 +182,10 @@ def _print_trees(summary: dict) -> None:
 
 def _print_partition(summary: dict) -> None:
     print(
-        "weights: snapshot {} ({} halos); floor {} rows at snapshot {}".format(
-            summary["weights"]["snapshot"],
-            summary["weights"]["halos"],
+        "weights: {}; heaviest forest {} ({} rows); floor {} rows at snapshot {}".format(
+            summary["weights"]["weighting"],
+            summary["weights"]["heaviest_forest"]["forest_index"],
+            summary["weights"]["heaviest_forest"]["rows"],
             summary["floor"]["max_rows"],
             summary["floor"]["snapshot"],
         )

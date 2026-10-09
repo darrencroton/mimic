@@ -181,17 +181,70 @@ void horizontal_partition_cut(const int64_t *weights, struct HorizontalForestPar
   myfree(task_cuts);
 }
 
-void horizontal_partition_accumulate_weights(int64_t *weights, int64_t n_forests_total,
-                                             const int64_t *values, int64_t count) {
+void horizontal_peak_scan_begin(struct HorizontalPeakScan *scan, int64_t *weights,
+                                int64_t n_forests_total, int64_t snapnum) {
+  memset(scan, 0, sizeof(*scan));
+  scan->weights = weights;
+  scan->n_forests_total = n_forests_total;
+  scan->snapnum = snapnum;
+}
+
+/* A forest-blocked slab holds each forest's rows as one run, so a finished run
+ * is the forest's whole row count in the slab. */
+static void peak_scan_fold(const struct HorizontalPeakScan *scan) {
+  if (scan->run > scan->weights[scan->previous]) {
+    scan->weights[scan->previous] = scan->run;
+  }
+}
+
+void horizontal_peak_scan_visit(struct HorizontalPeakScan *scan, int64_t first_row,
+                                const int64_t *values, int64_t count) {
+  if (first_row != scan->rows_seen) {
+    FATAL_ERROR("Peak scan of snapshot %" PRId64 " expected the block to start at row %" PRId64
+                " but it starts at row %" PRId64,
+                scan->snapnum, scan->rows_seen, first_row);
+  }
+  scan->rows_seen += count;
+  if (scan->violated) {
+    return;
+  }
+
   for (int64_t i = 0; i < count; i++) {
     const int64_t forest = values[i];
-    if (forest < 0 || forest >= n_forests_total) {
-      FATAL_ERROR("ForestIndex %" PRId64 " is outside [0, %" PRId64 ") (value %" PRId64
-                  " of the streamed block)",
-                  forest, n_forests_total, i);
+    const int64_t row = first_row + i;
+
+    if (forest < 0 || forest >= scan->n_forests_total) {
+      FATAL_ERROR("ForestIndex %" PRId64 " is outside [0, %" PRId64 ") (snapshot %" PRId64
+                  " row %" PRId64 ")",
+                  forest, scan->n_forests_total, scan->snapnum, row);
     }
-    weights[forest]++;
+    if (row > 0 && forest < scan->previous) {
+      scan->violated = 1;
+      scan->violation_row = row;
+      scan->violation_previous = scan->previous;
+      scan->violation_value = forest;
+      return;
+    }
+    if (row > 0 && forest == scan->previous) {
+      scan->run++;
+      continue;
+    }
+    if (row > 0) {
+      peak_scan_fold(scan);
+    }
+    scan->previous = forest;
+    scan->run = 1;
   }
+}
+
+int horizontal_peak_scan_end(struct HorizontalPeakScan *scan) {
+  if (scan->violated) {
+    return -1;
+  }
+  if (scan->rows_seen > 0) {
+    peak_scan_fold(scan);
+  }
+  return 0;
 }
 
 void horizontal_forest_scan_begin(struct HorizontalForestScan *scan,
