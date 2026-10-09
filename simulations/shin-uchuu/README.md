@@ -36,6 +36,7 @@ Horizontal runs are HDF5-only and do not support `--skip`; both are rejected at 
 - **`Spin` range `[-1000, 1000]`.** Measured over the full production dataset: max `|Spin|` = 416.69, zero non-finite.
 - **`deltaMvir` range `[-1000000.0, 1000000.0]`** (declared in `src/core/core_properties.yaml`, not this package; widened after a measured 4.77e4 on mini-Uchuu). Measured over the `sage16` production run: max `|deltaMvir|` = 12,432.
 - **`_tests/` ships a synthetic contract fixture, not a parity gate.** `_tests/data/` holds the committed version 2 fixture (three forests over six snapshots, rebuilt by `_tests/data/regenerate.sh` with the generator in `micro-uchuu-ascii-horizontal/_tests/input/`) and `_tests/input/test_simulation.yaml` points the generic test tiers at it. There is no package-local conformance check, schema test or cross-format identity gate yet; `make check-horizontal-fixture` covers only the `micro-uchuu-ascii-horizontal` fixture.
+- **The declarations are version 3 while the dataset is still version 2.** `halo_properties.yaml` declares the five link roles as `long long` and `_tests/integration/test_schema_conformance.py` pins the version 3 route, but the production dataset under `snapshots/` stays the version 2 conversion until it is rewritten; the version 2 reader path accepts either link width, so it still loads, and the real-dataset half of the conformance test skips while the dataset is version 2.
 
 ### Largest forest in the widest slab
 

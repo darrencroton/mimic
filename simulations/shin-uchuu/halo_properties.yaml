@@ -1,7 +1,7 @@
 # Shin-Uchuu Halo Catalog Properties — horizontal HDF5 format
 #
 # Defines the RawHalo contract for the horizontal_hdf5 reader. Every entry below
-# is a `/halos` dataset of convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md (format_version 2),
+# is a `/halos` dataset of convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md (format_version 3),
 # whose Halo Datasets table makes dataset names and types normative: the
 # generated reader-side code consumes the datasets by name, so property names
 # and the on-disk names are the same strings and no `source:` mapping is needed.
@@ -37,31 +37,31 @@
 halo_properties:
   # --- merger-tree topology links (consumed directly by the core driver) ---
   - name: Descendant
-    type: int
+    type: long long
     units: dimensionless
     description: Index of the descendant halo in this forest, or -1 if none
     provides_core_role: Descendant
 
   - name: FirstProgenitor
-    type: int
+    type: long long
     units: dimensionless
     description: Index of the first progenitor halo in this forest, or -1 if none
     provides_core_role: FirstProgenitor
 
   - name: NextProgenitor
-    type: int
+    type: long long
     units: dimensionless
     description: Index of the next progenitor linked to the same descendant, or -1 if none
     provides_core_role: NextProgenitor
 
   - name: FirstHaloInFOFgroup
-    type: int
+    type: long long
     units: dimensionless
     description: Index of the first halo in this FoF group
     provides_core_role: FirstHaloInFOFgroup
 
   - name: NextHaloInFOFgroup
-    type: int
+    type: long long
     units: dimensionless
     description: Index of the next halo in this FoF group, or -1 if none
     provides_core_role: NextHaloInFOFgroup

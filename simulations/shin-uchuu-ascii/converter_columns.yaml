@@ -1,0 +1,46 @@
+# Shin-Uchuu converter profile -- Consistent-Trees ASCII, for
+# convert/mimic-convert/convert_trees.py (version 3 output).
+#
+# Route: --source-format consistent_trees_ascii --forests-list
+# snapshots/forests.list --tree-file <a tree_*.dat file of snapshots/>.
+#
+# Checked against the package's source metadata: the roles are the reference
+# parser's required columns (convert/mimic-convert/ctrees_parser.py), matched
+# suffix-stripped and case-insensitively against each file's header, and
+# simulations/shin-uchuu-ascii/halo_properties.yaml declares exactly the
+# payload they fill, so no extra field is selected. The subset's tree
+# files carry Snap_idx in their header. Any other header column
+# can be added under extra_fields -- see
+# convert/mimic-convert/profiles/consistent_trees_ascii_extras_example.yaml.
+#
+# The version 2 workflow (convert_ctrees.py) does not read this file; its
+# selection is fixed and unchanged.
+#
+# This profile only selects source fields. It does not change a run YAML,
+# halo_properties.yaml or the snapshots symlink.
+
+schema_version: 1
+source_format: consistent_trees_ascii
+
+required_columns:
+  scale: [scale]
+  id: [id]
+  desc_scale: [desc_scale]
+  desc_id: [desc_id]
+  pid: [pid]
+  upid: [upid]
+  snap: [snap_idx, snap_num]
+  mvir: [Mvir]
+  vrms: [vrms]
+  vmax: [vmax]
+  x: [x]
+  y: [y]
+  z: [z]
+  vx: [vx]
+  vy: [vy]
+  vz: [vz]
+  jx: [Jx]
+  jy: [Jy]
+  jz: [Jz]
+
+extra_fields: []
