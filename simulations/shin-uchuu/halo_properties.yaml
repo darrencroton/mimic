@@ -7,8 +7,10 @@
 # and the on-disk names are the same strings and no `source:` mapping is needed.
 #
 # The shared fields mirror simulations/shin-uchuu-ascii/halo_properties.yaml
-# exactly (key order, units, h_convention, range, output, init/output sources,
-# and core-role bindings): the snapshot dataset is produced from that same
+# (key order, units, h_convention, range, output, init/output sources, and
+# core-role bindings) except the five link roles, which are `long long` here
+# because the version 3 format stores int64 links, while the vertical package
+# keeps `int`. The snapshot dataset is produced from that same
 # Shin-Uchuu Consistent-Trees subset by convert/mimic-convert/, which applies the
 # same reference value conventions. M_Crit200 therefore carries the native
 # ctrees Mvir in Msun/h, positions are Mpc/h, Spin is the specific angular
@@ -30,9 +32,10 @@
 # Descendant, FirstProgenitor, NextProgenitor, FirstHaloInFOFgroup,
 # NextHaloInFOFgroup, SnapNum, Len, HaloMass.
 #
-# Mirror maintenance: the shared fields track simulations/shin-uchuu-ascii.
-# Any change to a shared field must be made in both, and any change to a name
-# or type here must first be made in the frozen format specification.
+# Mirror maintenance: the shared fields track simulations/shin-uchuu-ascii, link
+# types aside. Any other change to a shared field must be made in both, and any
+# change to a name or type here must first be made in the frozen format
+# specification.
 
 halo_properties:
   # --- merger-tree topology links (consumed directly by the core driver) ---

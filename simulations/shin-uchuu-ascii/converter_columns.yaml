@@ -2,7 +2,8 @@
 # convert/mimic-convert/convert_trees.py (version 3 output).
 #
 # Route: --source-format consistent_trees_ascii --forests-list
-# snapshots/forests.list --tree-file <a tree_*.dat file of snapshots/>.
+# snapshots/forests.list, with one --tree-file per tree_*.dat of snapshots/, in
+# inventory order.
 #
 # Checked against the package's source metadata: the roles are the reference
 # parser's required columns (convert/mimic-convert/ctrees_parser.py), matched
