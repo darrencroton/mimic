@@ -45,8 +45,8 @@ the table's own md5. The per-piece columns are streamed to the file in chunks
 of 2^16 pieces, never built as one Python list: the record costs 8 B per piece
 resident (the id order) and one chunk of 2^16 pieces as Python values and text,
 about 7 MB (measured with ``tracemalloc``), and ``sum over the six columns of
-(decimal digits + 1)`` bytes per piece on disk, about 40 B per piece at
-Shin-Uchuu's id widths.
+(decimal digits + 1)`` bytes per piece on disk: 34.2 B per piece measured for
+Shin-Uchuu (2,954,410,424 B over 86,459,398 pieces, 11-digit ids).
 
 Resident memory while a table is checked and written, with ``n`` catalogue
 trees: the index's roots and forest ids (16 B x n), the table's ids and the
@@ -137,6 +137,23 @@ def name_pieces(
         ConverterError: on a piece joining trees of two forests, or fresh ids
             beyond int64.
     """
+    if np.size(components) == 0:
+        # no split forest: no piece to name
+        named = {
+            name: np.zeros(0, dtype=np.int64)
+            for name in (
+                "piece",
+                "root",
+                "forest_index",
+                "forest_id",
+                "id",
+                "trees",
+                "halos",
+                "smallest_root_id",
+            )
+        }
+        named["keeps_id"] = np.zeros(0, dtype=bool)
+        return named
     keys, piece, trees = np.unique(components, return_inverse=True, return_counts=True)
     piece = piece.reshape(-1)
     halos = np.zeros(keys.size, dtype=np.int64)
@@ -266,8 +283,10 @@ def check_table(
     piece_ids = ids[by_piece]
     starts = np.flatnonzero(np.r_[True, piece_ids[1:] != piece_ids[:-1]])
     ends = np.r_[starts[1:], piece_ids.size]
-    piece_forest = original[by_piece][starts]
-    mixed = original[by_piece][ends - 1] != piece_forest
+    original_by_piece = original[by_piece]
+    piece_forest = original_by_piece[starts]
+    mixed = original_by_piece[ends - 1] != piece_forest
+    del original_by_piece
     if mixed.any():
         raise ConverterError(
             "{}: {} piece(s) mix trees of several forests (e.g. id {})".format(

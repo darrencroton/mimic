@@ -965,6 +965,17 @@ class TestCorrespondenceMismatch(unittest.TestCase):
         self.assertEqual(record["roots_not_in_last_snapshot"]["in_forests_list"], 0)
         self.assertEqual(self.summary["conservation"]["unattributed_halos"], 17)
 
+    def test_the_table_and_the_cut_refuse_a_failed_correspondence(self):
+        index = SourceIndex.load(self.paths["forests_list"], self.paths["locations"])
+        for function, arguments in (
+            (table.run_table, (index.tree_roots, index.forest_ids, {})),
+            (cut.run_cut, ()),
+        ):
+            with self.assertRaisesRegex(ConverterError, "verdict is 'fail'; .*needs it to pass"):
+                function(self.dataset, self.tmp / "agg", *arguments)
+        for name in ("table", "cut"):
+            self.assertFalse((self.tmp / "agg" / name).exists(), name)
+
     def test_every_halo_is_still_labelled(self):
         roots = trees.load_roots(self.tmp / "agg")
         self.assertEqual(roots.size, 10)
@@ -1537,6 +1548,29 @@ def run_decided(dataset, agg, paths, index, selection=None, block_rows=1 << 22):
     return summary_table, summary_cut
 
 
+def check_identity_table(case, path, index):
+    """``path`` is the identity table of ``index``: every root keeps its forest id."""
+    case.assertEqual(
+        read_table(path),
+        {int(root): int(forest) for root, forest in zip(index.tree_roots, index.forest_ids)},
+    )
+
+
+def check_zero_cost(case, summary_table, summary_cut, n_forests):
+    """A table with no split forest and its zero-cost accounting."""
+    case.assertEqual((summary_table["pieces"]["count"], summary_table["pieces"]["fresh"]), (0, 0))
+    case.assertEqual(summary_table["groups"]["split_forests"]["count"], 0)
+    case.assertEqual(summary_table["groups"]["forests_after"], n_forests)
+    pieces = summary_cut["pieces"]
+    case.assertEqual((pieces["split_forests"], pieces["count"], pieces["fresh"]), (0, 0, 0))
+    case.assertEqual(pieces["forests_after"], n_forests)
+    case.assertEqual(summary_cut["severance"]["promoted_halos"], 0)
+    case.assertEqual(summary_cut["progenitor_order"]["descendants_changed"], 0)
+    case.assertEqual(set(summary_cut["relabelled"].values()), {0})
+    sage = summary_cut["predicted_effects"]["sage16_halos_only"]
+    case.assertEqual((sage["dependent_halos"], sage["upper_bound_halos"]), (0, 0))
+
+
 class TestDecidedTable(unittest.TestCase):
     """The decided table and its cost on :func:`decided_forests`, converted to
     version 3 (:class:`TestDecidedTableVersion2` repeats every case on version 2).
@@ -1726,7 +1760,10 @@ class TestDecidedTable(unittest.TestCase):
             {
                 "forest_id_changed_halos": 12,
                 "rank_recomputed_halos": 25,
-                "source_halo_id_shifted_halos": 34,
+                # SourceHaloID is recomputed from forest 1100 (ForestIndex 0) on, all 34
+                # halos; its kept piece (6 halos) keeps ForestIndex 0, so its prefix stays
+                "source_halo_id_shifted_halos": 28,
+                "source_halo_id_recomputed_halos": 34,
             },
         )
         # seeds: 2201 and 2101 at snapshot 3; the five promoted and the four
@@ -1881,6 +1918,41 @@ class TestDecidedTable(unittest.TestCase):
             [0, 0, 0, 1, 3, 0],
         )
         self.assertEqual(summary_cut["pieces"]["split_forests"], 1)
+
+    def test_an_unchanged_only_selection_gives_the_identity_table(self):
+        other = self.fresh_census("agg_unchanged_selection")
+        # forest 1200 (ForestIndex 1) ends in one z = 0 group
+        selection = table.selected_forests([1], self.dataset.n_forests_total)
+        summary_table, summary_cut = run_decided(
+            self.dataset, other, self.paths, self.index, selection
+        )
+        check_identity_table(self, other / "table-restricted" / "forests.list", self.index)
+        check_zero_cost(self, summary_table, summary_cut, self.dataset.n_forests_total)
+
+    def test_an_index_missing_a_census_root_is_refused(self):
+        other = self.fresh_census("agg_missing_root")
+        with self.assertRaisesRegex(
+            ConverterError,
+            "do not list this census's tree roots: 1 census root\\(s\\) missing \\(e.g. \\[1100\\]\\)"
+            ".*no cut table is written",
+        ):
+            table.run_table(
+                self.dataset, other, self.index.tree_roots[1:], self.index.forest_ids[1:], {}
+            )
+        self.assertFalse(table.table_dir(other).exists())
+
+    def test_a_class_below_every_job_has_no_fitting_point(self):
+        other = self.fresh_census("agg_no_fit")
+        arguments = ["cut", "--dataset", str(self.paths["dataset"]), "--aggregate", str(other)]
+        arguments += ["--ntask", "1,2", "--nchunk", "1,2", "--bytes-per-halo", str(1 << 30)]
+        arguments += ["--laptop-gib", "1", "--reserve-gib", "0.5"]
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout), capture_stderr() as captured:
+            self.assertEqual(forest_census.main(arguments), 0, captured.text)
+        self.assertIn("    1 GiB less 0.5 GiB: no grid point fits", stdout.getvalue())
+        row = aggregate.read_json(cut.cut_dir(other) / "summary.json")["partition"]
+        self.assertEqual(row["laptop_classes"][0]["feasible"], False)
+        self.assertIsNone(row["laptop_classes"][0]["smallest_fitting_point"])
 
     def test_the_table_and_cut_command_lines(self):
         other = str(self.tmp / "agg_cli")
@@ -2099,6 +2171,28 @@ class TestDecidedTableVersion2(TestDecidedTable):
 
     def check_bytes_read(self, read, link):
         TestDecidedTable.check_bytes_read(self, read, 4)
+
+
+class TestNoSplitForest(unittest.TestCase):
+    """Forests 1200 and 1400, each ending in one z = 0 group: the decided table
+    is the identity table and the cut costs nothing, on version 3 and 2."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="census_no_split_"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def test_version_3_and_version_2(self):
+        _multi, spanning, single = fixtures.correspondence_forests()
+        forests = [spanning, single]
+        for name, convert in (("v3", convert_ascii), ("v2", convert_ascii_v2)):
+            with self.subTest(name):
+                paths = convert(self.tmp / name, [fixtures.all_trees(forests)], forests)
+                dataset = HorizontalDataset(paths["dataset"])
+                agg = self.tmp / ("agg_" + name)
+                index = run_census(dataset, agg, paths)
+                summary_table, summary_cut = run_decided(dataset, agg, paths, index)
+                check_identity_table(self, table.table_dir(agg) / "forests.list", index)
+                check_zero_cost(self, summary_table, summary_cut, dataset.n_forests_total)
 
 
 class TestNamingTieRule(unittest.TestCase):

@@ -60,8 +60,11 @@ aggregates of the dataset, with a passed root correspondence:
 
 The halos **re-labelled** are also counted: those of fresh pieces (new forest
 id), every halo of a split forest (``HaloRankInForest`` recomputed), and every
-halo whose ``SourceHaloID`` prefix moves (every forest from the first split
-one).
+halo whose ``SourceHaloID`` prefix moves. ``SourceHaloID`` is recomputed for
+every row of every forest from the first split one on, but under F1 its prefix
+is the halos of every lower ``ForestIndex``, so the prefix moves for every
+halo of those forests except the first split forest's kept piece, which keeps
+its ``ForestIndex`` after unchanged forests (only its ranks move).
 
 **Retained-row discovery.** The pass finds the rows whose further columns the
 chains need from the slab itself, in two steps per slab. First every split-forest
@@ -1055,6 +1058,14 @@ def run_cut(
     }
     peak_args = (state.peak, state.peak_snapshot)
     uncut = inputs["partition"]["floor"]
+    # SourceHaloID is recomputed from the first split forest on; its prefix moves
+    # for all of those halos but the first split forest's kept piece (F1)
+    recomputed = shifted = 0
+    if first_split is not None:
+        recomputed = int(np.asarray(forest_totals[first_split:]).sum())
+        first_kept = (pieces["forest_index"] == first_split) & pieces["keeps_id"]
+        shifted = recomputed - int(pieces["halos"][first_kept].sum())
+    classes = laptop_rows(points, bytes_per_halo, laptop_gib, reserve_gib)
     rank_recomputed = int(pieces["halos"].sum())
     summary = {
         "dataset": identity,
@@ -1105,9 +1116,8 @@ def run_cut(
         "relabelled": {
             "forest_id_changed_halos": int(pieces["halos"][fresh].sum()),
             "rank_recomputed_halos": rank_recomputed,
-            "source_halo_id_shifted_halos": (
-                0 if first_split is None else int(np.asarray(forest_totals[first_split:]).sum())
-            ),
+            "source_halo_id_shifted_halos": shifted,
+            "source_halo_id_recomputed_halos": recomputed,
         },
         "predicted_effects": {
             "sage16_halos_only": {
@@ -1131,7 +1141,7 @@ def run_cut(
             "bytes_per_halo": int(bytes_per_halo),
             "reserve_gib": float(reserve_gib),
             "grid": points,
-            "laptop_classes": laptop_rows(points, bytes_per_halo, laptop_gib, reserve_gib),
+            "laptop_classes": classes,
             "uncut_floor": {
                 "rows": uncut["max_rows"],
                 "snapshot": uncut["snapshot"],

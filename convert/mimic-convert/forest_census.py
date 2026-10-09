@@ -303,7 +303,7 @@ def cmd_table(args: argparse.Namespace) -> int:
     # every refusal of the arguments and the aggregates before the index loads
     dataset = HorizontalDataset(args.dataset)
     selection = selected_forests(args.forest_index, dataset.n_forests_total)
-    prepare_table(dataset, args.aggregate, selection)
+    prepared = prepare_table(dataset, args.aggregate, selection)
     _log("table: loading {} and {}".format(args.forests_list, args.locations))
     index = load_index(args.forests_list, args.locations)
     # the table needs only the roots and their forest ids: release the locations columns
@@ -326,6 +326,7 @@ def cmd_table(args: argparse.Namespace) -> int:
         selection,
         args.block_rows,
         _log,
+        prepared,
     )
     _print_table(summary)
     return 0

@@ -699,19 +699,22 @@ def run_table(
     selection: Optional[np.ndarray] = None,
     block_rows: int = DEFAULT_BLOCK_ROWS,
     log: Callable[[str], None] = _quiet,
+    prepared: Optional[Dict] = None,
 ) -> Dict:
     """Build the decided table and write it, its record and the summary.
 
     ``index_roots`` and ``index_forest_ids`` are the index files' tree roots
     (ascending) and their forest ids; ``index_files`` is the record of the
-    files (paths, sizes and md5) the table record carries.
+    files (paths, sizes and md5) the table record carries. ``prepared`` is
+    :func:`prepare_table`'s result when the caller has already run it (before
+    loading the index files); otherwise it is run here.
 
     Raises:
         ConverterError: on any :func:`prepare_table` refusal, index files that
             do not describe this census, a refusal of the construction, or a
             table invariant; each before the output directory is touched.
     """
-    inputs = prepare_table(dataset, aggregate_dir, selection)
+    inputs = prepared if prepared is not None else prepare_table(dataset, aggregate_dir, selection)
     memory = {"after_loading_index_files": peak_rss_bytes()}
     meter = ReadMeter()
     roots = load_roots(aggregate_dir)
@@ -841,9 +844,9 @@ def run_table(
             },
             "record": {
                 "formula": "a header of a few kilobytes plus, per piece of a split forest, the "
-                "sum over its six columns of (decimal digits + 1) bytes, about 40 B per piece at "
-                "Shin-Uchuu's id widths; written in chunks of 2^16 pieces: 8 B per piece resident "
-                "and one chunk, about 7 MB",
+                "sum over its six columns of (decimal digits + 1) bytes (34.2 B per piece measured "
+                "at Shin-Uchuu's id widths); written in chunks of 2^16 pieces: 8 B per piece "
+                "resident and one chunk, about 7 MB",
                 "pieces": table.n_pieces,
                 "bytes": record_bytes,
             },
