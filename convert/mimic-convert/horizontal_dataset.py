@@ -306,6 +306,53 @@ class HorizontalDataset:
         for start, columns in self.iter_columns(snap, (name,), block_rows):
             yield start, columns[name]
 
+    def read_column(self, snap: int, name: str) -> np.ndarray:
+        """One whole ``/halos`` column of one slab, in the file's dtype.
+
+        The one deliberately unbounded read: ``n_halos`` x the column's
+        itemsize (at most 12 B per row for a vector), for a caller that holds
+        one slab's columns one at a time, such as the dataset rewriter.
+        """
+        return self.read_rows(snap, (name,), 0, self.n_halos[snap])[name]
+
+    def halo_dtypes(self, snap: int) -> Dict[str, Tuple[np.dtype, Tuple[int, ...]]]:
+        """Every ``/halos`` dataset of one slab: name -> (dtype, row shape)."""
+        snap = self._check_snapshot(snap)
+        with h5py.File(self.snapshot_path(snap), "r") as handle:
+            if "halos" not in handle:
+                raise ConverterError("{}: no /halos group".format(self.snapshot_path(snap)))
+            return {
+                name: (dataset.dtype, tuple(dataset.shape[1:]))
+                for name, dataset in handle["halos"].items()
+            }
+
+    def schema_declarations(self, snap: int) -> Dict[str, Dict[str, str]]:
+        """A version 3 slab's ``/schema``: name -> its attributes, as strings.
+
+        Raises:
+            ConverterError: for a version 2 dataset, or a file without the group.
+        """
+        snap = self._check_snapshot(snap)
+        if self.format_version < 3:
+            raise ConverterError(
+                "{}: a version {} dataset carries no /schema".format(
+                    self.directory, self.format_version
+                )
+            )
+        path = self.snapshot_path(snap)
+        with h5py.File(path, "r") as handle:
+            if "schema" not in handle:
+                raise ConverterError("{}: no /schema group".format(path))
+            return {
+                name: {key: _attr_value(value) for key, value in group.attrs.items()}
+                for name, group in handle["schema"].items()
+            }
+
+    def sidecar_columns(self) -> Dict[str, np.ndarray]:
+        """Every ``forests.h5`` dataset, whole (8 B x ``n_forests_total`` each)."""
+        with h5py.File(self.sidecar_path, "r") as handle:
+            return {name: handle[name][...] for name in handle}
+
     def iter_sidecar(
         self, name: str = "ForestID", block_rows: int = DEFAULT_BLOCK_ROWS
     ) -> Iterator[Tuple[int, np.ndarray]]:

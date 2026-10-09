@@ -33,6 +33,11 @@ What it adds over the records is only what a whole-dataset view decides:
 Memory is one block of ``block_rows`` records and one block of forests at a
 time; nothing is O(halos) or O(forests). Every emitted file is re-opened and
 verified against its source records before the stage reports it.
+
+:func:`write_v3_snapshot_columns` is the same file from whole columns, for the
+dataset rewriter (``rewrite_trees.py``), which produces one permuted column at a
+time rather than a record stream; it shares every object, header, chunk-shape
+and ``/schema`` rule above and adds nothing to the format.
 """
 
 import itertools
@@ -40,7 +45,7 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, Iterator, List, Mapping, Sequence, Tuple
+from typing import Callable, Dict, Iterable, Iterator, List, Mapping, Sequence, Tuple
 
 import h5py
 import numpy as np
@@ -262,6 +267,72 @@ def write_v3_snapshot_file(
         utf8 = h5py.string_dtype("utf-8")
         for declaration in declarations:
             group = schema_group.create_group(declaration.name)
+            for key in V3_SCHEMA_ATTRS:
+                group.attrs.create(key, getattr(declaration, key), dtype=utf8)
+
+
+def write_v3_snapshot_columns(
+    path,
+    header: Mapping[str, object],
+    table: Mapping[str, Tuple[np.dtype, bool]],
+    declarations: Sequence[PayloadField],
+    n_halos: int,
+    column: Callable[[str], np.ndarray],
+    *,
+    block_rows: int = V3_WRITE_BLOCK_ROWS,
+    track_times: bool = False,
+) -> None:
+    """Create one v3 ``snapshot_NNN.h5`` from whole columns rather than record
+    blocks: the same objects, header, chunk shape, dataset order and ``/schema``
+    as :func:`write_v3_snapshot_file`, for a producer that holds one permuted
+    column at a time (the dataset rewriter) instead of a stream of records.
+
+    ``column(name)`` is called once per ``table`` entry, in the table's order,
+    and returns that column for every row, which is written in slices of
+    ``block_rows``; the column must have ``n_halos`` rows and the table's
+    dtype and shape. ``track_times`` is passed to every object created, so
+    with the default ``False`` no object header carries a modification time
+    and a repeated write of the same content is byte-identical. The file is
+    created exclusively (``w-``), as the record writer's is.
+    """
+    block_rows = _require_block_rows(block_rows)
+    with h5py.File(path, "w-", libver="latest", track_times=track_times) as handle:
+        header_group = handle.create_group("header", track_times=track_times)
+        for name, dtype in HEADER_ATTRS.items():
+            header_group.attrs.create(name, header[name], dtype=dtype)
+        for name, size in V3_STRING_ATTRS.items():
+            header_group.attrs.create(
+                name, _fixed_ascii(header[name], size, name), dtype=h5py.string_dtype("ascii", size)
+            )
+        halos = handle.create_group("halos", track_times=track_times)
+        datasets = {}
+        for name, (dtype, is_vec) in table.items():
+            datasets[name] = halos.create_dataset(
+                name,
+                shape=(n_halos, 3) if is_vec else (n_halos,),
+                dtype=dtype,
+                chunks=v3_chunk_shape(n_halos, is_vec),
+                maxshape=(None, 3) if is_vec else (None,),
+                compression=None,
+                track_times=track_times,
+            )
+        for name, dataset in datasets.items():
+            dtype, is_vec = table[name]
+            values = np.ascontiguousarray(column(name), dtype=dtype)
+            if values.shape != ((n_halos, 3) if is_vec else (n_halos,)):
+                raise ConverterError(
+                    "{}: column {} has shape {}, the table needs {}".format(
+                        path, name, values.shape, (n_halos, 3) if is_vec else (n_halos,)
+                    )
+                )
+            for start in range(0, n_halos, block_rows):
+                stop = min(start + block_rows, n_halos)
+                dataset[start:stop] = values[start:stop]
+            del values
+        schema_group = handle.create_group("schema", track_times=track_times)
+        utf8 = h5py.string_dtype("utf-8")
+        for declaration in declarations:
+            group = schema_group.create_group(declaration.name, track_times=track_times)
             for key in V3_SCHEMA_ATTRS:
                 group.attrs.create(key, getattr(declaration, key), dtype=utf8)
 

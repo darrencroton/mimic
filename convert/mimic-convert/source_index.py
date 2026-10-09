@@ -27,19 +27,28 @@ sidecar's ``SourceFileOrdinal``. The converter numbers tree files in the order
 they are given to it, and on real Shin-Uchuu data a lexically sorted file list
 differs from ``FileID`` order (``tree_0_0_10.dat`` is ``FileID`` 10 but sorts
 before ``tree_0_0_2.dat``). A caller comparing with a sidecar must map each
-``FileID`` through that conversion's tree-file order; this module offers no such
-mapping. The unit ordinal needs no mapping: it is a rank within one file.
+``FileID`` through that conversion's tree-file order, by file name
+(:func:`rewriter.inputs.tree_file_ordinals` does, from the conversion's
+recorded ordered source list, and refuses an ambiguous mapping); this module
+offers no such mapping. The unit ordinal needs no mapping: it is a rank within
+one file. :meth:`SourceIndex.marker_ordinals` gives the matching per-tree rank
+of each ``#tree`` marker within its file.
 
-Memory (measured with ``tracemalloc``), for Shin-Uchuu's 315,004,242 trees:
+Memory (measured with ``tracemalloc``), with ``n_trees`` the index's trees,
+``n_forests`` its forests and ``n_pairs`` its distinct (file, forest) pairs
+(Shin-Uchuu: 315,004,242 trees, 166,547,771 forests, about 320 million pairs):
 
-- the joined table keeps **32 B per tree** (root, forest, file id and offset,
-  int64), about 10.1 GB;
-- :meth:`SourceIndex.load` peaks at about **79 B per tree** (about 24.9 GB),
+- the joined table keeps **32 B x n_trees** (root, forest, file id and
+  offset, int64), about 10.1 GB;
+- :meth:`SourceIndex.load` peaks at about **79 B x n_trees** (about 24.9 GB),
   most of it the shared loaders' parse buffers;
-- :meth:`SourceIndex.forest_table` adds, on top of the table, at most about
-  **57 B per tree** while it runs (about 18.0 GB; measured with as many
-  (file, forest) pairs as trees, its worst case) and returns about 25 B per
-  pair, which is at most 25 B per tree (about 7.9 GB).
+- :meth:`SourceIndex.forest_table` returns **40 B x n_forests + 8 B x n_pairs**
+  (five int64 arrays per forest plus the CSR file list), about 9.2 GB at
+  Shin-Uchuu. While it runs it adds, on top of the table and the result, a
+  peak that depends on the forests-to-trees ratio: about **57 B x n_trees** at
+  Shin-Uchuu's ratio (about 18.0 GB), and about **81 B x n_trees** when forests
+  are as many as trees (every forest one tree, so n_forests = n_pairs =
+  n_trees), the measured worst case.
 """
 
 import os
@@ -167,6 +176,23 @@ class SourceIndex:
         position = np.searchsorted(self.tree_roots, roots)
         clipped = np.minimum(position, self.tree_roots.size - 1)
         return np.where(self.tree_roots[clipped] == roots, clipped, -1).astype(np.int64)
+
+    def marker_ordinals(self) -> np.ndarray:
+        """Per tree (aligned with :attr:`tree_roots`), the dense rank of its
+        ``#tree`` marker within its file by byte offset: the order
+        ``ctrees_parser.plan_source_units`` encounters the file's trees.
+        Transient 24 B per tree (two sort orders and the ranks)."""
+        by_marker = np.lexsort((self.offsets, self.file_ids))
+        files = self.file_ids[by_marker]
+        file_start = np.ones(files.size, dtype=bool)
+        np.not_equal(files[1:], files[:-1], out=file_start[1:])
+        del files
+        rank = np.arange(file_start.size, dtype=np.int64)
+        rank -= np.maximum.accumulate(np.where(file_start, rank, 0))
+        del file_start
+        ordinals = np.empty(rank.size, dtype=np.int64)
+        ordinals[by_marker] = rank
+        return ordinals
 
     def forest_table(self) -> ForestTable:
         """Per-forest files, tree counts and sidecar ordinals (module docstring).
