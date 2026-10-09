@@ -1042,6 +1042,13 @@ def test_cut_report_checks_the_multiplier_against_both_runs():
         status, report = compare(uncut, other, *options)
         assert_status(status, INPUT_ERROR, report, "runs recording different multipliers")
         assert "2000" in report, f"the second run's multiplier was not named\n{report}"
+
+        # The runs share a label, so a check keyed by label would see one of them.
+        first = cut_run(root, "first", cut=False, multiplier=2 * CUT_MULTIPLIER)
+        labels = ("--left-label", "run", "--right-label", "run")
+        status, report = compare(first, cut, *options, *labels)
+        assert_status(status, INPUT_ERROR, report, "equal labels, different multipliers")
+        assert "2000" in report, f"the first run's multiplier was not named\n{report}"
     print("  ✓ the multiplier must be the one both runs record")
 
 

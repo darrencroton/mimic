@@ -109,8 +109,10 @@ comparator exists to compare production runs, and its memory is heaviest exactly
 when a large divergence is being diagnosed, which is the worst moment to run out
 of it. An alternate pairing copies each run's snapshot records up to three
 more times while it pairs them (split into tree and created rows, the paired
-rows, and their concatenation), and holds one copy of each run's paired
-records while the fields are compared. The cut-difference report adds, for the
+rows, and their concatenation); while the fields are compared it holds, beside
+both runs' snapshot records, only each run's concatenated paired records, a
+one-byte tree mask per pair and, under the cut report, each pair's forest
+(8 B) and a one-byte reported mask. The cut-difference report adds, for the
 whole comparison, both sidecars' ``ForestID`` columns (8 B per forest each),
 the record's piece ids and their original forests (16 B per piece, plus one
 column's line and its text, about 26 B per piece, while it is parsed), and its
@@ -934,39 +936,24 @@ class CutReport:
             )
 
 
-def compare_snapshot_matched(snap, left, right, labels, max_report, matching, cut=None):
-    """Compare one output snapshot under an alternate mode. Returns a SnapshotResult.
+def pair_snapshot(snap, left, right, labels, max_report, matching, cut):
+    """Pair one output snapshot's records under `matching`, the first half of
+    ``compare_snapshot_matched``.
 
-    Tree rows, then created rows unless they are not compared, are paired by
-    their mode's key (``pairing_keys``). A key duplicated within one run fails
-    its kind of row; an unpaired key fails; every pair is then compared field
-    by field: bytes for every field, except that ``UniqueGalaxyID`` is the key
-    and ``UniqueCentralGalaxyID`` is compared through the pairing
-    (``central_mapping``).
-
-    With `cut`, every record is first placed in its original forest. Records
-    of a reported forest are tallied instead of failing, and records of every
-    other forest are held to the strict rule, which for tree rows includes an
-    identical ``UniqueGalaxyID``. A pair placed in two different forests means
-    the sidecars or record do not describe these runs, an input error.
+    Returns (failures, pairs): `pairs` is None when nothing was paired, else (the
+    first run's paired records, the second run's, a tree-row mask, each pair's
+    original forest or None, tree pairs, created pairs). Every per-kind copy
+    made here goes out of scope on return, so the field comparison holds only
+    the concatenated pairs.
     """
     left_label, right_label = labels
     failures = 0
-    left_all, right_all = left[ID_FIELD], right[ID_FIELD]
-    created = (int(numpy.count_nonzero(left_all < 0)), int(numpy.count_nonzero(right_all < 0)))
-    zeros = (int(numpy.count_nonzero(left_all == 0)), int(numpy.count_nonzero(right_all == 0)))
-    if any(zeros):
-        print(
-            f"  FAIL Snap{snap:03d}: {ID_FIELD} 0 is neither a tree id nor a created id -- "
-            f"{left_label} {zeros[0]}, {right_label} {zeros[1]} row(s)"
-        )
-        failures += 1
-    if matching.created is None:
-        report_created(snap, created, labels)
-
     runs = []
-    for side, (records, ids) in enumerate(((left, left_all), (right, right_all))):
-        tree, made = records[ids > 0], records[ids < 0]
+    for side, records in enumerate((left, right)):
+        ids = records[ID_FIELD]
+        tree = records[ids > 0]
+        # Created rows are split off and placed only when they are compared.
+        made = records[ids < 0] if matching.created is not None else records[:0]
         placed = (None, None)
         if cut is not None:
             placed = cut.place(side, tree, made, f"{labels[side]} Snap{snap:03d}")
@@ -1025,27 +1012,61 @@ def compare_snapshot_matched(snap, left, right, labels, max_report, matching, cu
 
     counts = {kind: len(rows) for kind, rows, _, _ in paired}
     tree_pairs, created_pairs = counts.get("tree", 0), counts.get("created", 0)
+    if tree_pairs + created_pairs == 0:
+        return failures, None
+    return failures, (
+        numpy.concatenate([rows for _, rows, _, _ in paired]),
+        numpy.concatenate([rows for _, _, rows, _ in paired]),
+        numpy.concatenate([numpy.full(len(rows), kind == "tree") for kind, rows, _, _ in paired]),
+        None if cut is None else numpy.concatenate([f for _, _, _, f in paired]),
+        tree_pairs,
+        created_pairs,
+    )
+
+
+def compare_snapshot_matched(snap, left, right, labels, max_report, matching, cut=None):
+    """Compare one output snapshot under an alternate mode. Returns a SnapshotResult.
+
+    Tree rows, then created rows unless they are not compared, are paired by
+    their mode's key (``pairing_keys``, in ``pair_snapshot``). A key duplicated
+    within one run fails its kind of row; an unpaired key fails; every pair is
+    then compared field by field: bytes for every field, except that
+    ``UniqueGalaxyID`` is the key and ``UniqueCentralGalaxyID`` is compared
+    through the pairing (``central_mapping``).
+
+    With `cut`, every compared record is first placed in its original forest.
+    Records of a reported forest are tallied instead of failing, and records of
+    every other forest are held to the strict rule, which for tree rows includes
+    an identical ``UniqueGalaxyID``. A pair placed in two different forests means
+    the sidecars or record do not describe these runs, an input error.
+    """
+    left_label, right_label = labels
+    failures = 0
+    left_all, right_all = left[ID_FIELD], right[ID_FIELD]
+    created = (int(numpy.count_nonzero(left_all < 0)), int(numpy.count_nonzero(right_all < 0)))
+    zeros = (int(numpy.count_nonzero(left_all == 0)), int(numpy.count_nonzero(right_all == 0)))
+    if any(zeros):
+        print(
+            f"  FAIL Snap{snap:03d}: {ID_FIELD} 0 is neither a tree id nor a created id -- "
+            f"{left_label} {zeros[0]}, {right_label} {zeros[1]} row(s)"
+        )
+        failures += 1
+    if matching.created is None:
+        report_created(snap, created, labels)
+
+    paired_failures, pairs = pair_snapshot(snap, left, right, labels, max_report, matching, cut)
+    failures += paired_failures
+    if pairs is None:
+        if not failures:
+            print(f"  ok   Snap{snap:03d}: both runs are empty")
+        return SnapshotResult(failures, 0, created, 0)
+    pair_left, pair_right, is_tree, forests, tree_pairs, created_pairs = pairs
+    del pairs
 
     def result(failures):
         return SnapshotResult(failures, tree_pairs, created, created_pairs)
 
-    if not paired or tree_pairs + created_pairs == 0:
-        if not failures:
-            print(f"  ok   Snap{snap:03d}: both runs are empty")
-        return result(failures)
-
-    pair_left = numpy.concatenate([rows for _, rows, _, _ in paired])
-    pair_right = numpy.concatenate([rows for _, _, rows, _ in paired])
-    is_tree = numpy.concatenate(
-        [numpy.full(len(rows), kind == "tree") for kind, rows, _, _ in paired]
-    )
-    reported = numpy.zeros(len(pair_left), dtype=bool)
-    forests = None
-    if cut is not None:
-        forests = numpy.concatenate([f for _, _, _, f in paired])
-        reported = cut.reported(forests)
-    # The per-kind copies are released before any field is compared.
-    del paired, runs
+    reported = numpy.zeros(len(pair_left), dtype=bool) if cut is None else cut.reported(forests)
     strict = ~reported
 
     any_differs = numpy.zeros(len(pair_left), dtype=bool)
@@ -1254,14 +1275,14 @@ def compare_runs(args):
     # Every input the comparison needs is checked before the first snapshot is read.
     cut = None
     if args.cut_record is not None:
-        recorded = {
-            label: recorded_multiplier(index) for label, index in zip(labels, (left, right))
-        }
-        if set(recorded.values()) != {args.multiplier}:
-            raise ComparisonError(
-                f"--multiplier {args.multiplier} is not the UniqueGalaxyIDMultiplier both runs "
-                f"record: {recorded}"
-            )
+        # Kept by side, never by label: two runs may carry the same label.
+        for label, index in zip(labels, (left, right)):
+            recorded = recorded_multiplier(index)
+            if recorded != args.multiplier:
+                raise ComparisonError(
+                    f"--multiplier {args.multiplier} is not the UniqueGalaxyIDMultiplier "
+                    f"{recorded} that {label} ({index.files[0].parent}) records"
+                )
         cut = CutReport(
             args.multiplier,
             (
@@ -1278,7 +1299,8 @@ def compare_runs(args):
     if matching.alternate:
         for index in (left, right):
             names = [name for name, _, _ in index.signature]
-            needed = [*CATALOGUE_FIELDS, *([CENTRAL_FIELD] if cut is not None else [])]
+            placing_created = cut is not None and matching.created is not None
+            needed = [*CATALOGUE_FIELDS, *([CENTRAL_FIELD] if placing_created else [])]
             missing = [name for name in needed if name not in names]
             if missing:
                 raise ComparisonError(

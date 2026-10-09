@@ -678,6 +678,12 @@ def assert_manifest_inventory(manifest: Path, sidecar: Path, vertical_data: Path
     2 file number, say nothing about the vertical side's file range, so this
     replaces the inference from ``SourceFileOrdinal`` rather than adding to it.
 
+    The ordinal check is a range check: it proves every single-file ordinal
+    names one of the manifest's source files, not that it names the forest's own
+    file. The manifest records its dependencies sorted by path, without the
+    order the converter numbered them in, so the file an ordinal stands for is
+    not recoverable from it.
+
     Memory: ``SourceIndex`` over the vertical side's index files, about 80 B per
     tree at its peak (``source_index.py``), and the sidecar's three columns.
     """
