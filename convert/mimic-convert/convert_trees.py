@@ -76,7 +76,9 @@ budgeted term is checked against it before that term is allocated, and a
 conversion whose terms cannot fit is refused rather than run. It does not bound
 the Python interpreter's total resident size, and concurrently resident terms
 are not summed against it. ``validate``/``report`` take their own budget for
-the battery's bounded sorts.
+the battery's bounded sorts. With ``--bounded`` they run the battery's bounded
+mode instead (``validate_bounded.py``): adjacent datasets only, no sort and no
+spill, within a ceiling it prints at start and refuses above the budget.
 
 **Sources are read-only.** Source files are opened for reading only and pinned
 in the manifest. There is no source release, transfer or deletion for these
@@ -640,6 +642,7 @@ def cmd_validate(args) -> int:
         multiplier=args.multiplier,
         budget_bytes=budget_bytes,
         spill_dir=args.spill_dir,
+        bounded=args.bounded,
     )
     for outcome in battery.outcomes:
         print(outcome.line())
@@ -666,6 +669,7 @@ def cmd_report(args) -> int:
         multiplier=args.multiplier,
         budget_bytes=_megabytes(args.memory_budget_mb),
         spill_dir=args.spill_dir,
+        bounded=args.bounded,
     )
     links = report["links"]
     counts = [entry["halos"] for entry in report["per_snapshot"]]
@@ -799,6 +803,13 @@ def _add_validation_options(parser: argparse.ArgumentParser) -> None:
         "--spill-dir",
         default=None,
         help="directory for the battery's temporary sort files (default: system temp dir)",
+    )
+    parser.add_argument(
+        "--bounded",
+        action="store_true",
+        help="adjacent datasets (links_adjacent 1) only: run the battery without external sorts "
+        "or spill, within a ceiling it prints at start and refuses above --memory-budget-mb "
+        "(see the manual's 'Restart, cleanup and memory'); a gapped dataset is refused",
     )
 
 

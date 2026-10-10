@@ -662,6 +662,7 @@ def run_report_v3(
     budget_bytes: int = DEFAULT_V3_BUDGET_BYTES,
     spill_dir=None,
     battery: Optional[V3BatteryResult] = None,
+    bounded: bool = False,
 ) -> dict:
     """Validate a completed generic conversion's v3 dataset and write its
     report into the workdir. The battery outcome is in the report AND in its
@@ -671,8 +672,9 @@ def run_report_v3(
     ``battery``, when given, is a :func:`run_battery_v3` result the caller
     already holds for this conversion's dataset and ``a_list_path``; it is
     reported as is and the battery is not run again, so ``multiplier``,
-    ``budget_bytes`` and ``spill_dir`` are then unused. Binding that result to
-    this dataset is the caller's obligation."""
+    ``budget_bytes``, ``spill_dir`` and ``bounded`` are then unused. Binding
+    that result to this dataset is the caller's obligation. ``bounded`` runs
+    the battery in its bounded mode (``run_battery_v3``)."""
     manifest = ConversionManifest.load(workdir)
     manifest.require_complete("write")
     dataset_dir = manifest.artifact_path(manifest.stage("write")["directory"])
@@ -684,6 +686,7 @@ def run_report_v3(
             multiplier=multiplier,
             budget_bytes=budget_bytes,
             spill_dir=spill_dir,
+            bounded=bounded,
         )
     report = build_report_v3(manifest, battery, dataset_dir)
     json_path = write_report_v3(report, manifest.workdir)

@@ -29,6 +29,7 @@ import fixtures  # noqa: E402
 import pipeline  # noqa: E402
 import test_pipeline as literal  # noqa: E402
 import validate  # noqa: E402
+import validate_bounded  # noqa: E402
 import validate_v3  # noqa: E402
 from column_schema import build_schema, load_column_map  # noqa: E402
 from conversion_manifest import ConversionManifest  # noqa: E402
@@ -2862,8 +2863,11 @@ class TestV3BatteryAsciiPosition(unittest.TestCase):
             "(ForestIndex=0, rank=0) has SourceHaloID {}, expected 1".format(first[2]),
             outcomes["identity"].detail,
         )
+        # the rewrite changes the files' bytes, so manifest-binding fails too;
         # every other content check still passes: the rewrite is otherwise a
-        # valid dataset, so only the position check catches the physical order
+        # valid dataset, so of the content checks only the position check
+        # catches the physical order
+        self.assertEqual(outcomes["manifest-binding"].status, "FAIL")
         for check in (
             "row-values",
             "link-targets",
@@ -3122,6 +3126,727 @@ class TestV3FormatTables(unittest.TestCase):
                 for name, spec in EXTRA_TYPES.items()
             },
         )
+
+
+# ==========================================================================
+# Format version 3: the bounded mode against the external-sort battery
+# ==========================================================================
+#
+# The bounded mode (validate_bounded) must report what the external-sort
+# battery reports, check by check, on every adjacent (links_adjacent 1)
+# dataset: the canned ASCII conversion and every corruption of it, the cut
+# fixtures' conversions, and graphs built to stress the bounded walks (a long
+# progenitor chain and FoF group, cycles, chains that cross block boundaries
+# and snapshots). A gapped dataset stays with the external-sort battery and
+# is refused by the bounded mode before it reads anything.
+
+#: The bounded mode's budget in these tests: far above any fixture's ceiling.
+BOUNDED_BUDGET = 64 << 20
+
+#: Block sizes that put every chain of the fixtures across block boundaries.
+BOUNDED_BLOCK_SIZES = (1, 2, 3, 7, validate_bounded.DEFAULT_BLOCK_ROWS)
+
+
+def verdicts(result):
+    return {outcome.name: outcome.status for outcome in result.outcomes}
+
+
+def long_chain_forest():
+    """Forest 9000: 9000 (snapshot 5) has 24 progenitors at snapshot 4, so its
+    NextProgenitor chain is 23 links long; 9001 is their central and the other
+    23 its satellites, a 23-link FoF chain. Each progenitor has its own
+    progenitor at snapshot 3, and 9000 a satellite 9030 at snapshot 5."""
+    halos = [
+        fixtures.HaloSpec(halo_id=9000, snap=5, mvir=5.0e13, num_prog=24),
+        fixtures.HaloSpec(halo_id=9030, snap=5, mvir=1.0e10, pid=9000, upid=9000),
+    ]
+    for k in range(1, 25):
+        central = k == 1
+        halos.append(
+            fixtures.HaloSpec(
+                halo_id=9000 + k,
+                snap=4,
+                mvir=4.0e13 / k,
+                desc_id=9000,
+                pid=-1 if central else 9001,
+                upid=-1 if central else 9001,
+                num_prog=1,
+            )
+        )
+        halos.append(fixtures.HaloSpec(halo_id=9100 + k, snap=3, mvir=3.0e13 / k, desc_id=9000 + k))
+    return fixtures.ForestSpec(forest_id=9000, trees=[fixtures.TreeSpec(root_id=9000, halos=halos)])
+
+
+def row_of(directory, snap, halo_id) -> int:
+    """The row of the halo whose catalogue id (MostBoundID) is ``halo_id``."""
+    with h5py.File(Path(directory) / snapshot_h5_name(snap), "r") as handle:
+        ids = handle["halos"]["MostBoundID"][...]
+    return int(np.flatnonzero(ids == halo_id)[0])
+
+
+def set_values(directory, snap, column, values):
+    """``values`` maps row -> value of one /halos column."""
+    with h5py.File(Path(directory) / snapshot_h5_name(snap), "r+") as handle:
+        for row, value in values.items():
+            handle["halos"][column][row] = value
+
+
+def set_header(directory, attr, value, names=None):
+    names = names or sorted(p.name for p in Path(directory).glob("snapshot_*.h5"))
+    for name in names:
+        with h5py.File(Path(directory) / name, "r+") as handle:
+            attrs = handle["header"].attrs
+            attrs.create(attr, value, dtype=attrs[attr].dtype)
+
+
+class BoundedAgreementCase(unittest.TestCase):
+    """Runs both modes over a dataset and asserts identical verdict sets."""
+
+    def run_both(self, directory, a_list, manifest_path, block_sizes=(None,)):
+        external = validate_v3.run_battery_v3(
+            directory, a_list, manifest_path=manifest_path, budget_bytes=V3_BUDGET
+        )
+        self.assertNotIn("battery_mode", external.measurements)
+        expected = verdicts(external)
+        self.assertEqual(list(expected), list(validate_v3.V3_CHECKS))
+        lines = None
+        for block_rows in block_sizes:
+            with capture_stderr() as err:
+                bounded = validate_bounded.run_battery_bounded(
+                    directory,
+                    a_list,
+                    manifest_path,
+                    budget_bytes=BOUNDED_BUDGET,
+                    block_rows=block_rows or validate_bounded.DEFAULT_BLOCK_ROWS,
+                )
+            self.assertIn("bounded battery: ceiling", err.text)
+            self.assertEqual(
+                verdicts(bounded),
+                expected,
+                "block_rows {}:\nexternal:\n{}\nbounded:\n{}".format(
+                    block_rows,
+                    "\n".join(o.line() for o in external.outcomes if o.status != "PASS"),
+                    "\n".join(o.line() for o in bounded.outcomes if o.status != "PASS"),
+                ),
+            )
+            measured = bounded.measurements
+            self.assertEqual(measured["battery_mode"], "bounded")
+            self.assertEqual(measured.get("peak_spill_bytes", 0), 0)
+            if "peak_resident_bytes" in measured:
+                self.assertLessEqual(
+                    measured["peak_resident_bytes"] - FAR_BYTES(measured),
+                    measured["ceiling"]["ceiling_bytes"],
+                )
+            # the verdict does not depend on the block size, nor do the details
+            current = [o.line() for o in bounded.outcomes]
+            if lines is not None:
+                self.assertEqual(current, lines, "block_rows {}".format(block_rows))
+            lines = current
+        return outcome_map(external.outcomes), outcome_map(bounded.outcomes)
+
+
+def FAR_BYTES(measured):
+    return measured.get("far_links", 0) * validate_bounded.FAR_LINK_BYTES
+
+
+class TestBoundedModeAgreement(BoundedAgreementCase):
+    """The canned ASCII conversion (adjacent) and every corruption of it."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls._tmp = tempfile.TemporaryDirectory(prefix="v3_bounded_agreement_")
+        cls.forests = source_file_forests()
+        with capture_stderr():
+            cls.conv = make_v3_ascii_conversion(cls._tmp.name, cls.forests)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._tmp.cleanup()
+
+    def copy(self) -> Path:
+        target = Path(tempfile.mkdtemp(dir=self._tmp.name)) / "dataset"
+        shutil.copytree(self.conv.dataset, target)
+        return target
+
+    def agree(self, directory=None, block_sizes=(None,), **kwargs):
+        return self.run_both(
+            directory or self.conv.dataset,
+            kwargs.get("a_list", self.conv.a_list),
+            kwargs.get("manifest_path", self.conv.manifest.path),
+            block_sizes,
+        )
+
+    def edited_manifest(self, edit):
+        work = Path(tempfile.mkdtemp(dir=self._tmp.name)) / "work"
+        shutil.copytree(self.conv.work, work)
+        path = work / "manifest.json"
+        data = json.loads(path.read_text())
+        edit(data)
+        path.write_text(json.dumps(data))
+        manifest = ConversionManifest.load(work)
+        return manifest, manifest.artifact_path(manifest.stage("write")["directory"])
+
+    def test_the_fixture_is_adjacent_and_passes_in_both_modes(self):
+        with h5py.File(self.conv.dataset / "snapshot_005.h5", "r") as handle:
+            self.assertEqual(int(handle["header"].attrs["links_adjacent"]), 1)
+        external, bounded = self.agree(block_sizes=BOUNDED_BLOCK_SIZES)
+        self.assertEqual([o.line() for o in bounded.values() if o.status != "PASS"], [])
+        self.assertEqual(bounded["identity"].status, "PASS")
+
+    def test_every_corruption_gets_the_same_verdicts(self):
+        """Each corruption of the adjacent dataset, after the external-sort
+        battery's own corruption tests, with the check it must fail."""
+        mutations = {
+            # structure
+            "extra root object": (lambda d: self.add_root_group(d), "object-set"),
+            "narrowed link dtype": (lambda d: self.narrow(d), "object-set"),
+            "missing file": (lambda d: (d / "snapshot_003.h5").unlink(), "file-set"),
+            "extra sidecar dataset": (lambda d: self.add_sidecar_dataset(d), "sidecar-object-set"),
+            "schema units of one file": (
+                lambda d: self.schema_units(d, "snapshot_004.h5"),
+                "schema-binding",
+            ),
+            # headers
+            "format version": (
+                lambda d: set_header(d, "format_version", 4, ["snapshot_003.h5"]),
+                "header-values",
+            ),
+            "omega_matter of one file": (
+                lambda d: set_header(d, "omega_matter", 0.5, ["snapshot_003.h5"]),
+                "run-scoped-headers",
+            ),
+            "n_forests_total of one file": (
+                lambda d: set_header(d, "n_forests_total", 9, ["snapshot_004.h5"]),
+                "run-scoped-headers",
+            ),
+            "max rank header": (
+                lambda d: set_header(d, "max_halo_rank_in_forest", 7),
+                "identity",
+            ),
+            # rows
+            "SnapNum": (lambda d: set_values(d, 5, "SnapNum", {0: 4}), "row-values"),
+            "SourceHaloID order": (
+                lambda d: set_values(d, 5, "SourceHaloID", {0: 2, 1: 1}),
+                "row-values",
+            ),
+            "negative Len": (lambda d: set_values(d, 4, "Len", {0: -1}), "len-nonnegative"),
+            "NaN": (lambda d: set_values(d, 5, "Vmax", {3: np.nan}), "field-finiteness"),
+            "infinite vector component": (
+                lambda d: set_values(d, 5, "Vel", {1: [np.inf, 0.0, 0.0]}),
+                "field-finiteness",
+            ),
+            "position outside the box": (
+                lambda d: set_values(d, 5, "Pos", {0: [1.0e6, 1.0, 1.0]}),
+                "position-bounds",
+            ),
+            "duplicated SourceHaloID": (
+                lambda d: set_values(d, 5, "SourceHaloID", {8: 16}),
+                "source-key-coverage",
+            ),
+            "SourceHaloID outside the inventory": (
+                lambda d: set_values(d, 5, "SourceHaloID", {8: 99}),
+                "source-key-coverage",
+            ),
+            # links
+            "null index with a target snapshot": (
+                lambda d: set_values(d, 4, "NextProgenitorSnapshot", {1: 4}),
+                "link-targets",
+            ),
+            "row beyond its target snapshot": (
+                lambda d: set_values(d, 5, "FirstProgenitor", {0: 99}),
+                "link-targets",
+            ),
+            "backward descendant": (
+                lambda d: set_values(d, 4, "DescendantSnapshot", {0: 3}),
+                "link-targets",
+            ),
+            "target snapshot outside the dataset": (
+                lambda d: set_values(d, 4, "DescendantSnapshot", {0: 9}),
+                "link-targets",
+            ),
+            "NextProgenitor before the shared descendant's snapshot": (
+                lambda d: set_values(d, 4, "NextProgenitorSnapshot", {0: 5}),
+                "link-targets",
+            ),
+            "first progenitor two snapshots back": (
+                lambda d: set_values(d, 5, "FirstProgenitorSnapshot", {0: 3}),
+                "topology-closure",
+            ),
+            "first progenitor naming the wrong halo": (
+                lambda d: set_values(d, 5, "FirstProgenitor", {1: 0}),
+                "topology-closure",
+            ),
+            "next progenitor in an earlier snapshot": (
+                lambda d: set_values(d, 4, "NextProgenitorSnapshot", {0: 3})
+                or set_values(d, 4, "NextProgenitor", {0: 0}),
+                "topology-closure",
+            ),
+            "next progenitor of another descendant": (
+                lambda d: set_values(d, 4, "NextProgenitor", {0: 2}),
+                "topology-closure",
+            ),
+            "FoF member of another group": (
+                lambda d: set_values(d, 5, "NextHaloInFOFgroup", {2: 5}),
+                "topology-closure",
+            ),
+            "FoF target that is not a central": (
+                lambda d: set_values(d, 5, "FirstHaloInFOFgroup", {5: 5}),
+                "topology-closure",
+            ),
+            "member left out of its FoF chain": (
+                lambda d: set_values(d, 5, "NextHaloInFOFgroup", {7: -1}),
+                "topology-closure",
+            ),
+            "cross-forest link": (
+                lambda d: set_values(d, 5, "ForestIndex", {3: 0}),
+                "topology-closure",
+            ),
+            "gapped descendant under links_adjacent 1": (
+                lambda d: set_values(d, 3, "DescendantSnapshot", {0: 5}),
+                "links-adjacent",
+            ),
+            "FoF cycle": (
+                lambda d: set_values(d, 5, "NextHaloInFOFgroup", {8: 7}),
+                "chain-cycles",
+            ),
+            # identity and sidecar
+            "rank gap": (lambda d: set_values(d, 5, "HaloRankInForest", {8: 5}), "identity"),
+            "ForestIndex outside n_forests_total": (
+                lambda d: set_values(d, 5, "ForestIndex", {8: 99}),
+                "identity",
+            ),
+            "ranks out of source order": (
+                lambda d: set_values(d, 4, "HaloRankInForest", {3: 3, 4: 2}),
+                "identity",
+            ),
+            "repeated (ForestIndex, rank) pair": (
+                lambda d: set_values(d, 5, "HaloRankInForest", {7: 0}),
+                "identity",
+            ),
+            "skipped forest": (
+                lambda d: set_values(d, 2, "ForestIndex", {0: 3})
+                or set_values(d, 1, "ForestIndex", {0: 3}),
+                "identity",
+            ),
+            "physically ordered ASCII dataset": (
+                lambda d: reorder_to_source_file_order(d, self.forests),
+                "identity",
+            ),
+            "sidecar ForestID order": (
+                lambda d: self.sidecar(d, "ForestID", {1: 0}),
+                "sidecar-content",
+            ),
+            "sidecar shorter than n_forests_total": (
+                lambda d: self.shorten_sidecar(d),
+                "sidecar-content",
+            ),
+            # binding
+            "tampered content": (
+                lambda d: set_values(d, 3, "Vmax", {0: 99.0}),
+                "manifest-binding",
+            ),
+        }
+        for name, (mutate, check) in mutations.items():
+            with self.subTest(name):
+                directory = self.copy()
+                mutate(directory)
+                external, _bounded = self.agree(directory)
+                self.assertEqual(external[check].status, "FAIL", external[check].line())
+
+    def test_another_a_list_gets_the_same_verdicts(self):
+        other = Path(self._tmp.name) / "other.a_list"
+        other.write_text("".join("{!r}\n".format(0.1 * (i + 1)) for i in range(6)))
+        external, _bounded = self.agree(a_list=other)
+        self.assertEqual(external["manifest-binding"].status, "FAIL")
+        self.assertEqual(external["header-values"].status, "FAIL")
+
+    def test_manifest_corruptions_get_the_same_verdicts(self):
+        selected = int(self.conv.manifest.inventory["selected_halos"])
+
+        def sampled(data):
+            data["sources"]["inventory"]["total_halos"] = selected + 1
+
+        def more(data):
+            data["sources"]["inventory"]["selected_halos"] = selected + 2
+            data["sources"]["inventory"]["total_halos"] = selected + 2
+
+        def counts(data):
+            recorded = data["stages"]["ingest"]["result"]["snapshot_counts"]
+            data["stages"]["ingest"]["result"]["snapshot_counts"] = recorded[:-1] + [0]
+
+        for name, edit, check in (
+            ("a sampled ASCII inventory", sampled, "identity"),
+            ("an inventory selecting more halos", more, "count-conservation"),
+            ("ingest counts that differ", counts, "count-conservation"),
+            ("an incomplete write", lambda d: d["stages"]["write"].update(status="failed"), None),
+        ):
+            with self.subTest(name):
+                manifest, directory = self.edited_manifest(edit)
+                external, _bounded = self.agree(directory, manifest_path=manifest.path)
+                check = check or "manifest-binding"
+                self.assertEqual(external[check].status, "FAIL", external[check].line())
+
+    # ---- corruption helpers ------------------------------------------------
+
+    def add_root_group(self, directory):
+        with h5py.File(directory / "snapshot_002.h5", "r+") as handle:
+            handle.create_group("extra")
+
+    def add_sidecar_dataset(self, directory):
+        with h5py.File(directory / "forests.h5", "r+") as handle:
+            handle.create_dataset("Extra", data=np.zeros(5, "<i8"), chunks=(5,))
+
+    def narrow(self, directory):
+        with h5py.File(directory / "snapshot_004.h5", "r+") as handle:
+            halos = handle["halos"]
+            values = halos["Descendant"][...]
+            del halos["Descendant"]
+            halos.create_dataset(
+                "Descendant", data=values.astype("<i4"), chunks=(65536,), maxshape=(None,)
+            )
+
+    def schema_units(self, directory, name):
+        with h5py.File(directory / name, "r+") as handle:
+            handle["schema"]["Vmax"].attrs.create("units", "m/s", dtype=h5py.string_dtype("utf-8"))
+
+    def sidecar(self, directory, column, values):
+        with h5py.File(directory / "forests.h5", "r+") as handle:
+            for row, value in values.items():
+                handle[column][row] = value
+
+    def shorten_sidecar(self, directory):
+        with h5py.File(directory / "forests.h5", "r+") as handle:
+            for name in ("ForestID", "SourceFileOrdinal", "SourceUnitOrdinal"):
+                handle[name].resize((3,))
+
+
+class TestBoundedModeChains(BoundedAgreementCase):
+    """A long progenitor chain and FoF group, walked at every block size,
+    and cycles in them: inside one snapshot, across a block boundary, and
+    across snapshots."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls._tmp = tempfile.TemporaryDirectory(prefix="v3_bounded_chains_")
+        cls.forests = [fixtures.multi_tree_forest(), long_chain_forest()]
+        with capture_stderr():
+            cls.conv = make_v3_ascii_conversion(cls._tmp.name, cls.forests)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._tmp.cleanup()
+
+    def copy(self) -> Path:
+        target = Path(tempfile.mkdtemp(dir=self._tmp.name)) / "dataset"
+        shutil.copytree(self.conv.dataset, target)
+        return target
+
+    def agree(self, directory=None):
+        return self.run_both(
+            directory or self.conv.dataset,
+            self.conv.a_list,
+            self.conv.manifest.path,
+            BOUNDED_BLOCK_SIZES,
+        )
+
+    def chain(self, directory, snap, column, head):
+        """The rows of one chain, from ``head`` along ``column``."""
+        with h5py.File(Path(directory) / snapshot_h5_name(snap), "r") as handle:
+            successor = handle["halos"][column][...]
+        rows = [head]
+        while successor[rows[-1]] != -1 and len(rows) <= successor.size:
+            rows.append(int(successor[rows[-1]]))
+        return rows
+
+    def progenitors(self, directory):
+        """9000's progenitor chain at snapshot 4, head first."""
+        root = row_of(directory, 5, 9000)
+        with h5py.File(Path(directory) / "snapshot_005.h5", "r") as handle:
+            head = int(handle["halos"]["FirstProgenitor"][root])
+        return self.chain(directory, 4, "NextProgenitor", head)
+
+    def members(self, directory):
+        """9001's FoF chain at snapshot 4, central first."""
+        return self.chain(directory, 4, "NextHaloInFOFgroup", row_of(directory, 4, 9001))
+
+    def test_the_long_chains_pass_in_both_modes_at_every_block_size(self):
+        self.assertEqual(len(self.progenitors(self.conv.dataset)), 24)
+        self.assertEqual(len(self.members(self.conv.dataset)), 24)
+        _external, bounded = self.agree()
+        self.assertEqual([o.line() for o in bounded.values() if o.status != "PASS"], [])
+
+    def test_a_pure_next_progenitor_cycle_is_caught_by_chain_cycles_alone(self):
+        directory = self.copy()
+        chain = self.progenitors(directory)
+        # the chain now ends at its 10th member, and the 11th to 24th form a
+        # cycle whose members are each still reached exactly once
+        set_values(directory, 4, "NextProgenitor", {chain[9]: -1, chain[-1]: chain[10]})
+        set_values(directory, 4, "NextProgenitorSnapshot", {chain[9]: -1, chain[-1]: 4})
+        external, bounded = self.agree(directory)
+        self.assertEqual(external["topology-closure"].status, "PASS")
+        self.assertEqual(external["chain-cycles"].status, "FAIL")
+        self.assertIn("NextProgenitor", bounded["chain-cycles"].detail)
+        self.assertIn("14 halo(s)", bounded["chain-cycles"].detail)
+
+    def test_a_next_progenitor_chain_that_loops_back_is_caught_by_both_checks(self):
+        directory = self.copy()
+        chain = self.progenitors(directory)
+        set_values(directory, 4, "NextProgenitor", {chain[-1]: chain[5]})
+        set_values(directory, 4, "NextProgenitorSnapshot", {chain[-1]: 4})
+        external, _bounded = self.agree(directory)
+        self.assertEqual(external["topology-closure"].status, "FAIL")
+        self.assertEqual(external["chain-cycles"].status, "FAIL")
+
+    def test_a_pure_fof_cycle_across_block_boundaries_is_caught_by_chain_cycles_alone(self):
+        directory = self.copy()
+        chain = self.members(directory)
+        set_values(directory, 4, "NextHaloInFOFgroup", {chain[2]: -1, chain[-1]: chain[3]})
+        external, bounded = self.agree(directory)
+        self.assertEqual(external["topology-closure"].status, "PASS")
+        self.assertEqual(external["chain-cycles"].status, "FAIL")
+        self.assertIn("NextHaloInFOFgroup", bounded["chain-cycles"].detail)
+
+    def test_a_fof_member_reached_twice_is_not_a_cycle(self):
+        directory = self.copy()
+        chain = self.members(directory)
+        # two members name the same successor: a merge, not a cycle
+        set_values(directory, 4, "NextHaloInFOFgroup", {chain[4]: chain[9]})
+        external, _bounded = self.agree(directory)
+        self.assertEqual(external["topology-closure"].status, "FAIL")
+        self.assertEqual(external["chain-cycles"].status, "PASS")
+
+    def test_a_next_progenitor_cycle_across_snapshots_is_caught(self):
+        directory = self.copy()
+        tail = self.progenitors(directory)[-1]
+        early = row_of(directory, 3, 9124)
+        root = row_of(directory, 5, 9000)
+        # the tail at snapshot 4 names 9124 at snapshot 3, given 9000 as its
+        # descendant two snapshots on, which names the tail again
+        set_values(directory, 4, "NextProgenitor", {tail: early})
+        set_values(directory, 4, "NextProgenitorSnapshot", {tail: 3})
+        set_values(directory, 3, "Descendant", {early: root})
+        set_values(directory, 3, "DescendantSnapshot", {early: 5})
+        set_values(directory, 3, "NextProgenitor", {early: tail})
+        set_values(directory, 3, "NextProgenitorSnapshot", {early: 4})
+        external, bounded = self.agree(directory)
+        self.assertEqual(external["links-adjacent"].status, "FAIL")
+        self.assertEqual(external["chain-cycles"].status, "FAIL")
+        self.assertIn("crossing snapshots", bounded["chain-cycles"].detail)
+
+
+class TestBoundedModeCutFixtures(BoundedAgreementCase):
+    """Every adversarial cut fixture, converted by the ASCII route with and
+    without its cut table."""
+
+    def test_every_cut_fixture_gets_the_same_verdicts_cut_and_uncut(self):
+        from test_ascii_adapter import CUT_FIXTURES, convert_under_cut
+        from test_rewriter import cut_layout, cut_source, write_table
+
+        root = Path(tempfile.mkdtemp(prefix="v3_bounded_cut_"))
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        for name, forest_of, table_of, split in CUT_FIXTURES:
+            with self.subTest(name):
+                forest = forest_of()
+                source = cut_source(root / name, forest, cut_layout(forest, split))
+                table = write_table(root / name, "cut", table_of(), source)
+                manifest = convert_under_cut(source, root / name / "cut_work", table)
+                a_list = source["root"] / "fixture.a_list"
+                for work in (root / name / "work", manifest.workdir):
+                    loaded = ConversionManifest.load(work)
+                    dataset = loaded.artifact_path(loaded.stage("write")["directory"])
+                    with h5py.File(dataset / "snapshot_005.h5", "r") as handle:
+                        self.assertEqual(int(handle["header"].attrs["links_adjacent"]), 1)
+                    external, _bounded = self.run_both(
+                        dataset, a_list, loaded.path, BOUNDED_BLOCK_SIZES[:3]
+                    )
+                    self.assertFalse(
+                        [o.line() for o in external.values() if o.status != "PASS"], work
+                    )
+
+
+class TestBoundedModeRefusals(unittest.TestCase):
+    """What the bounded mode refuses, each before any long pass."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls._tmp = tempfile.TemporaryDirectory(prefix="v3_bounded_refusals_")
+        root = Path(cls._tmp.name)
+        with capture_stderr():
+            cls.gapped = make_v3_conversion(root / "gapped")
+            cls.adjacent = make_v3_ascii_conversion(root / "adjacent", source_file_forests())
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._tmp.cleanup()
+
+    def copy(self, conv) -> Path:
+        target = Path(tempfile.mkdtemp(dir=self._tmp.name)) / "dataset"
+        shutil.copytree(conv.dataset, target)
+        return target
+
+    def bounded(self, conv, directory=None, **kwargs):
+        kwargs.setdefault("budget_bytes", BOUNDED_BUDGET)
+        with capture_stderr():
+            return validate_bounded.run_battery_bounded(
+                directory or conv.dataset,
+                conv.a_list,
+                kwargs.pop("manifest_path", conv.manifest.path),
+                **kwargs,
+            )
+
+    def assert_refused_before_reading(self, pattern, conv, directory=None, **kwargs):
+        reads = mock.patch.object(
+            validate_bounded, "_v3_manifest_binding", side_effect=AssertionError("read")
+        )
+        with reads, mock.patch.object(
+            validate_bounded._BoundedRowScan, "run", side_effect=AssertionError("scanned")
+        ):
+            with self.assertRaisesRegex(ConverterError, pattern):
+                self.bounded(conv, directory, **kwargs)
+
+    def test_a_gapped_dataset_is_refused_by_name_and_passes_the_general_battery(self):
+        self.assert_refused_before_reading(
+            r"adjacent datasets \(links_adjacent 1\) only.*snapshot_000\.h5 declares "
+            r"links_adjacent 0",
+            self.gapped,
+        )
+        result = validate_v3.run_battery_v3(
+            self.gapped.dataset,
+            self.gapped.a_list,
+            manifest_path=self.gapped.manifest.path,
+            budget_bytes=V3_BUDGET,
+        )
+        self.assertFalse(result.failed)
+        self.assertEqual(result.measurements["links_adjacent_measured"], 0)
+
+    def test_the_dispatch_refuses_a_gapped_dataset_too(self):
+        with self.assertRaisesRegex(ConverterError, "links_adjacent 0"):
+            with capture_stderr():
+                validate_v3.run_battery_v3(
+                    self.gapped.dataset,
+                    self.gapped.a_list,
+                    manifest_path=self.gapped.manifest.path,
+                    budget_bytes=BOUNDED_BUDGET,
+                    bounded=True,
+                )
+
+    def test_one_gapped_file_among_adjacent_files_is_refused_by_name(self):
+        directory = self.copy(self.adjacent)
+        set_header(directory, "links_adjacent", 0, ["snapshot_003.h5"])
+        self.assert_refused_before_reading(
+            "1 file.*snapshot_003.h5 declares links_adjacent 0", self.adjacent, directory
+        )
+
+    def test_a_ceiling_above_the_budget_is_refused(self):
+        # a fixture's ceiling is a few KB; scale the per-row term past 1 MiB
+        with mock.patch.object(validate_bounded, "PAIR_BYTES_PER_ROW", 1 << 20):
+            self.assert_refused_before_reading(
+                r"ceiling \d+ B exceeds the budget of 1048576 B .*pair pass = 1048576 x 9 widest",
+                self.adjacent,
+                budget_bytes=V3_BUDGET,
+            )
+
+    def test_a_missing_or_unloadable_manifest_is_refused(self):
+        self.assert_refused_before_reading(
+            "needs the conversion manifest", self.adjacent, manifest_path=None
+        )
+        self.assert_refused_before_reading(
+            "cannot load the conversion manifest",
+            self.adjacent,
+            manifest_path=Path(self._tmp.name) / "absent" / "manifest.json",
+        )
+
+    def test_block_sizes_outside_the_int32_range_are_refused(self):
+        for bad in (0, validate_bounded.MAX_BLOCK_ROWS + 1, 2.0, True):
+            with self.assertRaises(ConverterError):
+                self.bounded(self.adjacent, block_rows=bad)
+
+    def test_a_stamped_gapped_dataset_agrees_or_is_refused_within_its_budget(self):
+        directory = self.copy(self.gapped)
+        set_header(directory, "links_adjacent", 1)
+        result = self.bounded(self.gapped, directory)
+        external = validate_v3.run_battery_v3(
+            directory,
+            self.gapped.a_list,
+            manifest_path=self.gapped.manifest.path,
+            budget_bytes=V3_BUDGET,
+        )
+        self.assertEqual(verdicts(result), verdicts(external))
+        self.assertEqual(outcome_map(result.outcomes)["links-adjacent"].status, "FAIL")
+        self.assertEqual(outcome_map(result.outcomes)["topology-closure"].status, "PASS")
+        self.assertGreater(result.measurements["far_links"], 0)
+        # when the links it would have to hold do not fit above the ceiling,
+        # it stops rather than exceed the budget
+        with mock.patch.object(validate_bounded, "FAR_LINK_BYTES", BOUNDED_BUDGET):
+            with self.assertRaisesRegex(ConverterError, "do not join adjacent snapshots"):
+                self.bounded(self.gapped, directory)
+
+    def test_the_external_sort_battery_stays_the_default(self):
+        result = validate_v3.run_battery_v3(
+            self.adjacent.dataset,
+            self.adjacent.a_list,
+            manifest_path=self.adjacent.manifest.path,
+            budget_bytes=V3_BUDGET,
+        )
+        self.assertNotIn("battery_mode", result.measurements)
+        self.assertGreater(result.measurements["chain_edges"], 0)
+
+
+class TestBoundedCeiling(unittest.TestCase):
+    def test_the_ceiling_is_the_stated_function(self):
+        ceiling = validate_bounded.Ceiling(
+            widest_rows=1000,
+            n_halos=5000,
+            total_halos=6000,
+            n_forests_total=70,
+            row_bytes=140,
+            block_rows=100,
+        )
+        pair = 64 * 1000 + 125 + 750 + 625 + 8 * 70 + 256 * 100
+        row = 8 * 70 + (4 * 140 + 256) * 100
+        self.assertEqual(ceiling.pair_pass, pair)
+        self.assertEqual(ceiling.row_pass, row)
+        self.assertEqual(ceiling.total, max(pair, row))
+
+    def test_shin_uchuu_numbers_fit_below_64_gb(self):
+        for n_forests in (166547771, 244953607):
+            ceiling = validate_bounded.Ceiling(
+                widest_rows=519342987,
+                n_halos=22503649037,
+                total_halos=22503649037,
+                n_forests_total=n_forests,
+                row_bytes=140,
+            )
+            self.assertLess(ceiling.total, 64 * 10**9)
+            self.assertGreater(ceiling.total, 38 * 10**9)
+
+    def test_the_command_prints_the_ceiling(self):
+        with mock.patch("sys.stdout") as out:
+            code = validate_bounded.main(
+                [
+                    "ceiling",
+                    "--widest-rows",
+                    "1000",
+                    "--n-halos",
+                    "5000",
+                    "--n-forests-total",
+                    "70",
+                ]
+            )
+        self.assertEqual(code, 0)
+        text = "".join(call.args[0] for call in out.write.call_args_list)
+        expected = validate_bounded.Ceiling(1000, 5000, 5000, 70, 140).total
+        self.assertIn("ceiling_bytes {}".format(expected), text)
+
+    def test_bitsets_record_repeats_and_gaps(self):
+        bits = validate_bounded._Bitset(20)
+        within, seen = bits.first_and_seen(np.array([3, 9, 3, 17], dtype=np.int64))
+        self.assertEqual(within.tolist(), [3])
+        self.assertEqual(seen.tolist(), [])
+        within, seen = bits.first_and_seen(np.array([9, 0, 8], dtype=np.int64))
+        self.assertEqual((within.tolist(), seen.tolist()), ([], [9]))
+        self.assertEqual(bits.count(), 5)
+        self.assertEqual(bits.clear_indices(3), [1, 2, 4])
 
 
 if __name__ == "__main__":

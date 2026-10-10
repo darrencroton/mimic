@@ -20,6 +20,9 @@ Coverage:
   missing inventory options, out-of-range and missing files, and conflicting
   resume inputs -- each before the workdir is mutated;
 - resume from the embedded configuration after the profile file is gone;
+- the battery's bounded mode (``validate``/``report --bounded``): its verdict
+  and printed ceiling on an adjacent conversion, and its refusal of a gapped
+  dataset;
 - the legacy ASCII-to-v2 commands, still emitting format version 2.
 """
 
@@ -384,6 +387,56 @@ class StageChainTests(CliCase):
 # ==========================================================================
 # Early failures and resume
 # ==========================================================================
+
+
+class BoundedBatteryTests(CliCase):
+    """``validate`` and ``report`` with ``--bounded``."""
+
+    def converted(self, route, sim_info=None):
+        work = self.tmp / "work"
+        sim_info = sim_info or route_value(route, "--simulation-info")
+        self.cli("ingest", "--workdir", work, *route, "--memory-budget-mb", BUDGET_MB)
+        self.cli("transpose", "--workdir", work)
+        self.cli("write", "--workdir", work, "--simulation-info", sim_info)
+        return work
+
+    def test_an_adjacent_conversion_passes_and_prints_its_ceiling(self):
+        work = self.converted(ascii_route())
+        spill = self.tmp / "spill"
+        spill.mkdir()
+        options = ("--bounded", "--memory-budget-mb", BUDGET_MB, "--spill-dir", spill)
+        validated = self.cli("validate", "--workdir", work, *options)
+        self.assertIn("validation: PASS", validated.stdout)
+        self.assertIn("links_adjacent=1", validated.stdout)
+        self.assertIn("bounded battery: ceiling", validated.stderr)
+        self.assertIn("budget {} B".format(int(BUDGET_MB) << 20), validated.stderr)
+        reported = self.cli("report", "--workdir", work, *options)
+        self.assertIn("bounded battery: ceiling", reported.stderr)
+        report = json.loads((work / "conversion_report.json").read_text())
+        self.assertTrue(report["validation_passed"])
+        self.assertEqual(report["resources"]["validation"]["peak_spill_bytes"], 0)
+        self.assertEqual(list(spill.iterdir()), [], "the bounded mode wrote to --spill-dir")
+        self.assertEqual(os.listdir(self.cwd), [])
+
+    def test_a_gapped_conversion_is_refused_by_name_and_passes_the_default_battery(self):
+        work = self.converted(
+            lhalo_route("mini-millennium", self.literal_gapped_source(), "trees_063", last_file=1)
+        )
+        for command in ("validate", "report"):
+            refused = self.cli(
+                command, "--workdir", work, "--bounded", "--memory-budget-mb", BUDGET_MB, expect=1
+            )
+            self.assertIn("ERROR: the bounded battery validates adjacent datasets", refused.stderr)
+            self.assertIn("snapshot_000.h5 declares links_adjacent 0", refused.stderr)
+            self.assertNotIn("validation:", refused.stdout)
+        self.assertFalse((work / "conversion_report.json").exists())
+        self.assertIn("validation: PASS", self.cli("validate", "--workdir", work).stdout)
+
+    def test_help_offers_the_bounded_mode(self):
+        for command in ("validate", "report"):
+            text = " ".join(self.cli(command, "--help").stdout.split())
+            self.assertIn("--bounded", text)
+            self.assertIn("links_adjacent 1", text)
 
 
 class FailureTests(CliCase):

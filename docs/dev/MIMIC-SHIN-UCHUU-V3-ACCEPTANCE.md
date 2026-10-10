@@ -424,3 +424,40 @@ Three subset datasets are retained on the LaCie for Stage D and Slice 17. Their 
 - **On the internal volume.** The model runs' outputs (`$R/runs/subset/*/out`, `$R/runs/micro-hod/{v2,m,s5}`; their run files are kept) and three trial directories of the fixture leg.
 
 What remains under `$W` is the three retained datasets, the cut table and `ref-manifest/` (121,900 KiB). No source data was touched.
+
+---
+
+## Stage C — the bounded battery and the production procedure
+
+### Preamble: the bounded battery (Slice 17)
+
+Slice 17 of the implementation plan (revision 6) added the version 3 battery's bounded mode, `convert_trees.py validate|report --bounded` (`convert/mimic-convert/validate_bounded.py`), which the production procedure's steps 4 and 9 run. It accepts adjacent datasets only (every snapshot file declaring `links_adjacent` 1; anything else is refused by name before any long pass), sorts and spills nothing, and holds at most a ceiling it prints at start and refuses above `--memory-budget-mb`. The external-sort mode is unchanged and stays the default. The obligation-to-algorithm table is in `validate_bounded.py`'s docstring and in the converter manual's "Restart, cleanup and memory". Logs: `/Volumes/Internal/results/mimic/shin-uchuu-v3-stage-c/slice-17/` (abbreviated `$C`).
+
+**The ceiling** (bytes): the larger of the row pass, 8`F` + `B`(4`R` + 256), and the pair pass, 64`W` + ⌈`W`/8⌉ + ⌈`H`/8⌉ + ⌈`N`/8⌉ + 8`F` + 256`B`, with `W` the widest snapshot's rows, `N` the dataset's halos, `H` the inventory's `total_halos`, `F` the headers' `n_forests_total`, `R` the bytes of one row of every `/halos` column, and `B` = min(`block_rows`, `W`), `block_rows` 1,048,576 by default. The 64 bytes per row of the widest snapshot are five int64 columns (`Descendant`, `FirstHaloInFOFgroup`, `NextProgenitor`, `NextHaloInFOFgroup` as global positions and `ForestIndex`) and two int32 in-link counters of the target snapshot, plus `FirstProgenitor` and `ForestIndex` of the snapshot after it. ⌈`W`/8⌉ is the chain pass's visited bitset; ⌈`H`/8⌉ and ⌈`N`/8⌉ are the `SourceHaloID` and (`ForestIndex`, rank) position bitsets; 8`F` is the per-forest totals.
+
+**At Shin-Uchuu's numbers** (the census record and the plan's decision 6: `W` 519,342,987 rows at snapshot 34, `N` = `H` 22,503,649,037, `F` 166,547,771 uncut and 244,953,607 after the decided cut; `R` 140, the default schema's row, which the subset datasets also measured), evaluated with
+
+```bash
+mimic_venv/bin/python convert/mimic-convert/validate_bounded.py ceiling \
+    --widest-rows 519342987 --n-halos 22503649037 --n-forests-total <F>
+```
+
+| Dataset | `F` | Pair pass = ceiling | Terms | `--memory-budget-mb` at least |
+|---|---|---|---|---|
+| uncut | 166,547,771 | 40,529,598,926 B (40.53 GB, 37.75 GiB) | 64 × 519,342,987 = 33,237,951,168; visited bitset 64,917,874; two bitsets 2 × 2,812,956,130; 8 × `F` = 1,332,382,168; 256 × 1,048,576 = 268,435,456 | 38653 |
+| cut | 244,953,607 | 41,156,845,614 B (41.16 GB, 38.33 GiB) | as above with 8 × `F` = 1,959,628,856 | 39251 |
+
+The row pass is 2,188,020,184 B (uncut) and 2,815,266,872 B (cut). Both ceilings are below 64 GB. They bound the battery's working arrays, not the interpreter's total RSS; on the subset the measured peak RSS stayed below the printed ceiling (below), and the procedure's budget should leave headroom above it.
+
+**The agreement run on this host.** Both modes, in sequence, over the two retained subset datasets (`$W/migrated` and `$W/cut` of Stage R), each `validate --workdir <dir> --multiplier 20000000000 --spill-dir /Volumes/LaCie/data/uchuu/shin-uchuu-stage-c-scratch/slice-17-spill`, the bounded mode with `--bounded --memory-budget-mb 2048` and the external-sort mode with `--memory-budget-mb 8192` (Stage R's budget), each detached under `MallocLargeCache=0 /usr/bin/time -l` by `$C/agreement.sh`, with the spill directory's `du -sk` sampled every 15 s (`$C/<run>.spill.log`). `validate` only: no `report` was run, so the retained `conversion_report.{json,txt}` files are untouched.
+
+| Run | Verdicts | Printed ceiling | Wall | Peak RSS | Peak spill (sampled) | Log |
+|---|---|---|---|---|---|---|
+| bounded, migrated | 20 PASS | 995,720,923 B | 270.81 s | 933,543,936 B | 0 | `$C/validate-bounded-migrated.{log,stderr}` |
+| external-sort, migrated | 20 PASS | — | 561.56 s | 6,892,568,576 B | 75,917,360 KiB | `$C/validate-external-migrated.{log,stderr}` |
+| bounded, cut | 20 PASS | 1,005,280,843 B | 269.31 s | 945,733,632 B | 0 | `$C/validate-bounded-cut.{log,stderr}` |
+| external-sort, cut | 20 PASS | — | 538.39 s | 6,892,486,656 B | 74,042,828 KiB | `$C/validate-external-cut.{log,stderr}` |
+
+The two modes' verdict sets are identical check by check on both datasets (every one of the 20 checks PASS in both). The subset's widest snapshot holds 9,006,294 rows (`W`), `N` = `H` = 406,668,896, `F` 6,011,205 (migrated) and 7,206,195 (cut). The bounded mode spilled nothing (the spill directory stayed at 0 KiB through every sample); the external-sort figures agree with Stage R's (6.90 GB and 77.7 GB by the report's `peak_spill_bytes`; the 15 s sampling here misses the briefest peaks). The spill directory was empty after the run. Nothing was trashed.
+
+**Code under test.** The working tree at `b18b5d17` with the slice's uncommitted changes (`$C/code-identity.txt`: `validate_bounded.py` md5 `5feca1678751bb1e9bad14f574550826`, `validate_v3.py` `484750f7f2b68fd7b911fb56eed00616`, `convert_trees.py` `e31b3f96a1543066cf6484647efa0e2b`, `report.py` `254a326c9d1d7b09d0941fc3e8cc4487`). After the run the slice removed one unused import from `validate_bounded.py` and added a docstring sentence to `convert_trees.py`; neither changes behaviour, and the slice's commit holds those two edits beyond the measured code.

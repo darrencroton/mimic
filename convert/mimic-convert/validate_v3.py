@@ -1582,6 +1582,7 @@ def run_battery_v3(
     *,
     budget_bytes: int = DEFAULT_V3_BUDGET_BYTES,
     spill_dir=None,
+    bounded: bool = False,
 ) -> V3BatteryResult:
     """Run the version 3 producer battery over one dataset directory.
 
@@ -1592,7 +1593,22 @@ def run_battery_v3(
     uniqueness only. ``budget_bytes`` bounds the scan and sort buffers;
     ``spill_dir`` hosts the private sort directory (default: the system
     temporary directory), which is removed on every path.
+
+    ``bounded`` runs the same checks in :mod:`validate_bounded`'s mode
+    instead: adjacent datasets only, no external sort and no spill, within a
+    ceiling it states and refuses above ``budget_bytes``.
     """
+    if bounded:
+        from validate_bounded import run_battery_bounded
+
+        return run_battery_bounded(
+            directory,
+            a_list_path,
+            manifest_path,
+            multiplier,
+            budget_bytes=budget_bytes,
+            spill_dir=spill_dir,
+        )
     budget_bytes = _require_budget(budget_bytes)
     directory = Path(directory)
     if not directory.is_dir():
