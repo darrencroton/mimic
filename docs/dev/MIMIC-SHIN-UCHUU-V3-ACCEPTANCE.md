@@ -319,16 +319,21 @@ The gate ends "all 4 parity legs PASS", and the tier ends `Scientific Test Summa
 
 ### G4: SHAM and HOD on the subset
 
-Frozen `sham × shin-uchuu` and `hod × shin-uchuu` builds, serial and `USE-MPI=yes`, ran the modules and parameters of the committed `sham_micro-uchuu-ascii-horizontal-realdata.yaml` and `hod_micro-uchuu-ascii-horizontal.yaml` (`$R/scripts/make_runfile.py`; SHAM output snapshot 69, HOD output snapshots 69, 48, 44, 37, 32, 30, 27 and 24). The simulation is `shin-uchuu`, with `simulation_dir` set to the dataset. The `-np 4` runs are `mpirun --oversubscribe -np 4`. `/usr/bin/time` timed the launcher, so their peak RSS column gives the wrapper's summed RSS of `mimic` and the launcher instead, sampled every 30 s from the step's start. A run shorter than about 30 s has only the first sample, taken before the ranks start, so it shows only the launcher. Run files are under `$R/runs/subset/<model>-<dataset>/` (the outputs were trashed; see Cleanup), and logs are `$R/logs/run-<model>-<dataset>.log`.
+Frozen `sham × shin-uchuu` and `hod × shin-uchuu` builds, serial and `USE-MPI=yes`, ran the modules and parameters of the committed `sham_micro-uchuu-ascii-horizontal-realdata.yaml` and `hod_micro-uchuu-ascii-horizontal.yaml` (`$R/scripts/make_runfile.py`; SHAM output snapshot 69, HOD output snapshots 69, 48, 44, 37, 32, 30, 27 and 24). The simulation is `shin-uchuu`, with `simulation_dir` set to the dataset. The `-np 4` runs are `mpirun --oversubscribe -np 4`. Under `mpirun`, `/usr/bin/time -l`'s maximum resident set size is the largest single process among the launcher and every rank it reaped, so for these runs the Peak RSS column gives the largest per-process peak, not a total. Compare each run log's `task 0: Peak process RSS` line:
+
+- for the migrated subset's SHAM and HOD runs, the figure equals task 0's (1.769 and 1.735 GB);
+- for the cut subset's `halos-only` and `sage16` runs, it exceeds task 0's (2.318 and 2.466 GB), so it is another rank's peak.
+
+Where the wrapper's 30 s samples caught the ranks running, their summed RSS is given as well, as the job's aggregate. The other runs ended before a second sample. Run files are under `$R/runs/subset/<model>-<dataset>/` (the outputs were trashed; see Cleanup), and logs are `$R/logs/run-<model>-<dataset>.log`.
 
 | Run | Wall-clock | Peak RSS |
 |---|---|---|
 | SHAM, version 2 subset | 177.90 s | 6.390 GB |
 | SHAM, migrated subset | 83.33 s | 6.758 GB |
-| SHAM, migrated subset, `-np 4` | 28.50 s | one sample, launcher only (8,896 KiB) |
+| SHAM, migrated subset, `-np 4` | 28.50 s | 1.769 GB, the largest per-process peak |
 | HOD, version 2 subset | 88.10 s | 6.300 GB |
 | HOD, migrated subset | 89.74 s | 6.669 GB |
-| HOD, migrated subset, `-np 4` | 31.89 s | 4,871,584 KiB, sampled sum, second of two samples |
+| HOD, migrated subset, `-np 4` | 31.89 s | 1.735 GB, the largest per-process peak; the aggregate sampled across processes was 4,871,584 KiB |
 
 | Comparison | Comparator line | Log |
 |---|---|---|
@@ -341,16 +346,16 @@ The three serial SHAM runs (version 2, migrated, cut) log the same audit line, `
 
 ### The cut subset: serial, chunked and distributed
 
-The cut subset `$W/cut/dataset` was run with the committed `halos-only_shin-uchuu.yaml` and `sage16_shin-uchuu.yaml` (output snapshots 24, 27, 30, 32, 37, 44, 48 and 69). Each model ran serially, serially with `input.forest_chunks: 8`, and under `mpirun --oversubscribe -np 4`; the `-np 4` RSS is sampled as described above.
+The cut subset `$W/cut/dataset` was run with the committed `halos-only_shin-uchuu.yaml` and `sage16_shin-uchuu.yaml` (output snapshots 24, 27, 30, 32, 37, 44, 48 and 69). Each model ran serially, serially with `input.forest_chunks: 8`, and under `mpirun --oversubscribe -np 4`; the `-np 4` peak RSS follows the per-process rule stated above.
 
 | Model | Run | Wall-clock | Peak RSS | Comparator line against serial |
 |---|---|---|---|---|
 | `halos-only` | serial | 169.02 s | 9.012 GB | — |
 | `halos-only` | `forest_chunks: 8` | 95.19 s | 1.503 GB | `PASSED: 92429377 galaxies over 8 output snapshot(s) are bitwise identical in all 20 field(s), with identical UniqueGalaxyID sets and no duplicates` |
-| `halos-only` | `-np 4` | 27.59 s | one sample, launcher only (8,928 KiB) | `PASSED: 92429377 galaxies over 8 output snapshot(s) are bitwise identical in all 20 field(s), with identical UniqueGalaxyID sets and no duplicates` |
+| `halos-only` | `-np 4` | 27.59 s | 2.453 GB, the largest per-process peak | `PASSED: 92429377 galaxies over 8 output snapshot(s) are bitwise identical in all 20 field(s), with identical UniqueGalaxyID sets and no duplicates` |
 | `sage16` | serial | 559.66 s | 9.712 GB | — |
 | `sage16` | `forest_chunks: 8` | 568.66 s | 1.777 GB | `PASSED: 60033537 galaxies over 8 output snapshot(s) are bitwise identical in all 42 field(s), with identical UniqueGalaxyID sets and no duplicates` |
-| `sage16` | `-np 4` | 159.11 s | 9,916,416 KiB, sampled sum of the four ranks and the launcher (max of six samples) | `PASSED: 60033537 galaxies over 8 output snapshot(s) are bitwise identical in all 42 field(s), with identical UniqueGalaxyID sets and no duplicates` |
+| `sage16` | `-np 4` | 159.11 s | 2.854 GB, the largest per-process peak; the aggregate sampled across processes was 9,916,416 KiB (max of six samples) | `PASSED: 60033537 galaxies over 8 output snapshot(s) are bitwise identical in all 42 field(s), with identical UniqueGalaxyID sets and no duplicates` |
 
 Logs are `$R/logs/run-<model>-cut[-chunks8|-np4].log` and `$R/logs/cut-<model>-serial-vs-{chunks8,np4}.log`.
 

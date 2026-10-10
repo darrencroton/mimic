@@ -475,7 +475,7 @@ mimic_venv/bin/python convert/mimic-convert/convert_trees.py validate --workdir 
 - `--input` is the dataset directory, `--output` the workdir to create and `--scratch` an empty directory for the remap store and checkpoints. The output and scratch must lie outside the input and apart from each other.
 - The a_list, the simulation metadata and both index files are always named.
 - `--column-map` is the package's `consistent_trees_ascii` converter profile. `migrate` requires it; `noop` and `cut` refuse it.
-- `noop` and `cut` accept only a dataset converted with the shipped default `consistent_trees_ascii` profile: every slab's `column_mapping_sha256` and `/schema` declarations must match that profile's.
+- `noop` and `cut` accept any input whose every slab's `column_mapping_sha256` and `/schema` declarations equal those of the shipped default `consistent_trees_ascii` profile. A package profile that is identical to the default, such as the Shin-Uchuu subset's, qualifies.
 - `--conversion-manifest` (`migrate` only; `noop` and `cut` refuse it, because their sidecar ordinals follow the input's sidecar) is the version 2 conversion's `manifest.json`. It is required when `locations.dat` names more than one tree file, because the sidecar's file ordinals follow the order the converter was given the files, and `locations.dat`'s FileID does not record that order.
 - `--cut-table-record` (`cut` only) supplies the rule text and the dataset lineage for the manifest, and must name the table's md5 and the index files'.
 
@@ -485,7 +485,7 @@ mimic_venv/bin/python convert/mimic-convert/convert_trees.py validate --workdir 
 - `links_adjacent` 0, or a version 3 input of another source format;
 - missing or inconsistent index files, or an a_list that is not the input's;
 - simulation metadata whose physical header values differ from any input slab's header;
-- for `noop` and `cut`, an input whose `column_mapping_sha256` or `/schema` is not the shipped default profile's;
+- for `noop` and `cut`, an input whose `column_mapping_sha256` or `/schema` declarations differ from the shipped default profile's;
 - for `noop` and `cut`, a `--column-map` or `--conversion-manifest`; for `migrate` and `noop`, a `--cut-table` or `--cut-table-record`;
 - without `--resume`, a `--scratch` that is not empty, or an `--output` that already holds a run's `manifest.json` or is otherwise not empty;
 - a multiplier that cannot encode the output's bounds (the installed table's, for a cut);
