@@ -163,11 +163,19 @@ PAIR_BLOCK_BYTES_PER_ROW = 256
 ROW_BLOCK_EXTRA_BYTES_PER_ROW = 256
 
 #: What one link that does not join adjacent snapshots costs while held: its
-#: 40-byte record, the sorted copy's index and the contracted-chain arrays.
-FAR_LINK_BYTES = 64
+#: 40-byte record (sorted in place), and at any one moment at most 48 bytes
+#: of index arrays over the held NextProgenitor links (their order by owner,
+#: owners and successors, and the contracted graph's in-link counts with the
+#: gather that feeds them); 88 bytes, charged as 96. Every other array over
+#: these links is built a block of at most ``block_rows`` links at a time.
+FAR_LINK_BYTES = 96
 
 #: Bytes of the popcount table walk per bitset chunk.
 _BITSET_CHUNK = 1 << 24
+
+#: Bytes searched at a time for a clear bit: the search's temporaries are at
+#: most this many bytes and eight times as many index bytes.
+_CLEAR_SEARCH_BYTES = 1 << 16
 
 _FAR_DTYPE = np.dtype(
     [
@@ -339,14 +347,22 @@ class _Bitset:
         return total
 
     def clear_indices(self, limit: int = 5) -> List[int]:
-        """The first ``limit`` indices of ``[0, n)`` whose bit is clear."""
+        """The first ``limit`` indices of ``[0, n)`` whose bit is clear.
+
+        Only bytes with a clear bit are unpacked, ``limit`` of them at most,
+        found :data:`_CLEAR_SEARCH_BYTES` at a time, so the search holds a
+        small fixed amount whatever the bitset's size or how many bits are
+        clear."""
         found: List[int] = []
-        for start in range(0, self.bits.size, _BITSET_CHUNK):
-            chunk = np.unpackbits(self.bits[start : start + _BITSET_CHUNK], bitorder="little")
-            clear = np.flatnonzero(chunk == 0) + 8 * start
-            clear = clear[clear < self.n]
-            found.extend(int(value) for value in clear[: limit - len(found)])
-            if len(found) >= limit:
+        for start in range(0, self.bits.size, _CLEAR_SEARCH_BYTES):
+            chunk = self.bits[start : start + _CLEAR_SEARCH_BYTES]
+            for byte in np.flatnonzero(chunk != 0xFF)[:limit]:
+                position = 8 * (start + int(byte))
+                bits = np.unpackbits(chunk[byte : byte + 1], bitorder="little")
+                for bit in np.flatnonzero(bits == 0):
+                    if position + int(bit) < self.n and len(found) < limit:
+                        found.append(position + int(bit))
+            if len(found) >= limit or 8 * (start + _CLEAR_SEARCH_BYTES) >= self.n:
                 break
         return found
 
@@ -485,11 +501,15 @@ class _BoundedRowScan(_V3Scan):
     def far_links(self) -> np.ndarray:
         """Every held link, ordered by target position; the parts are
         released."""
-        if not self.far_parts:
-            return np.empty(0, dtype=_FAR_DTYPE)
-        links = np.concatenate(self.far_parts)
-        self.far_parts = []
-        return links[np.argsort(links["target"], kind="stable")]
+        links = np.empty(sum(part.size for part in self.far_parts), dtype=_FAR_DTYPE)
+        start = 0
+        while self.far_parts:
+            part = self.far_parts.pop(0)
+            links[start : start + part.size] = part
+            start += part.size
+            del part
+        links.sort(order=("target", "tag", "owner"))
+        return links
 
     def _emit_topology(self, snap, rows, targets, first_fof, next_fof, forest) -> None:
         """Count the chain links as the external-sort battery does, and hold
@@ -595,9 +615,12 @@ class _PairPass:
         self.unsampled = int(inventory["selected_halos"]) == self.total
         self.emitted = 0
         far_np = np.flatnonzero(far["tag"] == _FAR_NP)
-        order = np.argsort(far["owner"][far_np], kind="stable")
+        owners = far["owner"][far_np]
+        order = np.argsort(owners, kind="stable")
         self.far_np = far_np[order]  # far-link index, by owner position
-        self.far_np_owner = far["owner"][self.far_np]
+        del far_np
+        self.far_np_owner = owners[order]
+        del owners, order
         self.far_np_next = np.full(self.far_np.size, -1, dtype=np.int64)
 
     # ---- driver ------------------------------------------------------------
@@ -892,12 +915,16 @@ class _PairPass:
         in-snapshot walk ends at, -1 if the chain ends here, -2 if it runs
         into a cycle (already reported)."""
         far = self.far
-        tags = far["tag"]
         first = int(np.searchsorted(far["target"], low, side="left"))
         last = int(np.searchsorted(far["target"], high, side="left"))
-        links = np.flatnonzero(tags[first:last] == _FAR_NP) + first
-        if not links.size:
-            return
+        for start in range(first, last, self.block_rows):
+            stop = min(start + self.block_rows, last)
+            links = np.flatnonzero(far["tag"][start:stop] == _FAR_NP) + start
+            if links.size:
+                self._far_path_ends_of(links, np_gp, visited, low, high)
+
+    def _far_path_ends_of(self, links, np_gp, visited, low, high) -> None:
+        far = self.far
         position = far["target"][links] - low
         result = np.full(links.size, -1, dtype=np.int64)
         active = np.arange(links.size)
@@ -926,8 +953,9 @@ class _PairPass:
         n = self.far_np_next.size
         if not n:
             return
-        successor = np.where(self.far_np_next >= 0, self.far_np_next, -1)
-        in_links = np.bincount(successor[successor >= 0], minlength=n).astype(np.int64)
+        successor = self.far_np_next  # consumed: -2 (runs into a cycle) ends here too
+        successor[successor < 0] = -1
+        in_links = np.bincount(successor[successor >= 0], minlength=n)
         visited = _Bitset(n)
         stuck = _walk_chains(lambda rows: successor[rows], in_links, self.block_rows, visited)
         if stuck:
@@ -1021,8 +1049,10 @@ class _PairPass:
                 )
 
     def _source_key_totals(self, source_keys: _Bitset) -> None:
-        if self.unsampled:
-            missing = self.total - source_keys.count()
+        if not self.unsampled:
+            return
+        missing = self.total - source_keys.count()
+        if missing > 0:
             self.keys.add(
                 "gap(s) in SourceHaloID coverage of the unsampled inventory",
                 missing,
@@ -1073,7 +1103,9 @@ class _PairPass:
 def _preflight(directory: Path, n_snapshots: int) -> List[Dict[str, object]]:
     """What the ceiling and the refusals need, from each readable snapshot
     file's header and dataset shapes: nothing is read beyond them. A file
-    that is missing or does not open is left to the structural checks."""
+    that is missing or does not open, and a file whose SourceHaloID is not a
+    one-dimensional dataset, contribute no rows: they are left to the
+    structural checks (a declared links_adjacent is still read)."""
     found = []
     for snap in range(n_snapshots):
         path = directory / snapshot_h5_name(snap)
@@ -1088,7 +1120,9 @@ def _preflight(directory: Path, n_snapshots: int) -> List[Dict[str, object]]:
                     entry["links_adjacent"] = np.asarray(attrs["links_adjacent"])[()].item()
                 if "n_forests_total" in attrs:
                     entry["n_forests_total"] = int(np.asarray(attrs["n_forests_total"])[()])
-                entry["rows"] = int(halos["SourceHaloID"].shape[0])
+                key = halos.get("SourceHaloID")
+                if isinstance(key, h5py.Dataset) and key.ndim == 1:
+                    entry["rows"] = int(key.shape[0])
                 entry["row_bytes"] = sum(
                     int(halos[name].dtype.itemsize) * int(np.prod(halos[name].shape[1:]))
                     for name in halos
@@ -1165,7 +1199,7 @@ def run_battery_bounded(
 
     preflight = _preflight(directory, n_snapshots)
     _refuse_gapped(preflight)
-    rows = [int(entry["rows"]) for entry in preflight]
+    rows = [int(entry["rows"]) for entry in preflight if "rows" in entry]
     ceiling = Ceiling(
         widest_rows=max(rows, default=0),
         n_halos=sum(rows),

@@ -414,7 +414,12 @@ class BoundedBatteryTests(CliCase):
         self.assertIn("bounded battery: ceiling", reported.stderr)
         report = json.loads((work / "conversion_report.json").read_text())
         self.assertTrue(report["validation_passed"])
-        self.assertEqual(report["resources"]["validation"]["peak_spill_bytes"], 0)
+        validation = report["resources"]["validation"]
+        self.assertEqual(validation["peak_spill_bytes"], 0)
+        self.assertEqual(validation["battery_mode"], "bounded")
+        self.assertIn(
+            "bounded battery: ceiling {} B".format(validation["ceiling_bytes"]), reported.stderr
+        )
         self.assertEqual(list(spill.iterdir()), [], "the bounded mode wrote to --spill-dir")
         self.assertEqual(os.listdir(self.cwd), [])
 

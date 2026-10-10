@@ -3300,6 +3300,7 @@ class TestBoundedModeAgreement(BoundedAgreementCase):
             # structure
             "extra root object": (lambda d: self.add_root_group(d), "object-set"),
             "narrowed link dtype": (lambda d: self.narrow(d), "object-set"),
+            "scalar SourceHaloID": (lambda d: self.scalar_key(d), "object-set"),
             "missing file": (lambda d: (d / "snapshot_003.h5").unlink(), "file-set"),
             "extra sidecar dataset": (lambda d: self.add_sidecar_dataset(d), "sidecar-object-set"),
             "schema units of one file": (
@@ -3495,6 +3496,11 @@ class TestBoundedModeAgreement(BoundedAgreementCase):
     def add_sidecar_dataset(self, directory):
         with h5py.File(directory / "forests.h5", "r+") as handle:
             handle.create_dataset("Extra", data=np.zeros(5, "<i8"), chunks=(5,))
+
+    def scalar_key(self, directory):
+        with h5py.File(directory / "snapshot_004.h5", "r+") as handle:
+            del handle["halos"]["SourceHaloID"]
+            handle["halos"].create_dataset("SourceHaloID", data=np.int64(3))
 
     def narrow(self, directory):
         with h5py.File(directory / "snapshot_004.h5", "r+") as handle:
@@ -3847,6 +3853,25 @@ class TestBoundedCeiling(unittest.TestCase):
         self.assertEqual((within.tolist(), seen.tolist()), ([], [9]))
         self.assertEqual(bits.count(), 5)
         self.assertEqual(bits.clear_indices(3), [1, 2, 4])
+
+    def test_the_first_clear_bits_of_a_large_sparse_bitset_cost_a_small_fixed_amount(self):
+        n = 1 << 31  # 256 MiB of bits: the first 64th set, every bit after it clear
+        bits = validate_bounded._Bitset(n)
+        filled = n // 64
+        bits.bits[: filled // 8] = 0xFF
+        tracemalloc.start()
+        try:
+            first = bits.clear_indices()
+            _current, peak = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+        self.assertEqual(first, list(range(filled, filled + 5)))
+        # the search holds one 64 KiB window's mask and indices, not the bitset's
+        self.assertLess(peak, 2 << 20)
+        # a full bitset has no clear bit, and the trailing bits past n are never named
+        full = validate_bounded._Bitset(13)
+        full.set_sorted(np.arange(13, dtype=np.int64))
+        self.assertEqual(full.clear_indices(), [])
 
 
 if __name__ == "__main__":

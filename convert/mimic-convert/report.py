@@ -456,6 +456,10 @@ def build_report_v3(manifest, battery, dataset_dir) -> dict:
                 "chain_rounds": transpose.get("chain_rounds"),
             },
             "validation": {
+                # which battery mode settled the verdicts; the bounded mode's
+                # printed ceiling, None for the external-sort mode
+                "battery_mode": measured.get("battery_mode", "external-sort"),
+                "ceiling_bytes": (measured.get("ceiling") or {}).get("ceiling_bytes"),
                 "budget_bytes": measured.get("budget_bytes"),
                 "peak_resident_bytes": measured.get("peak_resident_bytes"),
                 "peak_spill_bytes": measured.get("peak_spill_bytes"),
