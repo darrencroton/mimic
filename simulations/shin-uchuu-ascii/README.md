@@ -25,6 +25,20 @@ ln -s /path/to/shin-uchuu-subset-ascii simulations/shin-uchuu-ascii/snapshots
 
 `snapshots/` is machine-local and gitignored (`.gitignore` matches `simulations/*/snapshots`).
 
+## Converting the subset to horizontal HDF5
+
+The subset converts with either converter in `convert/mimic-convert/` (see its [README](../../convert/mimic-convert/README.md)). Give the 2,744 tree files in `locations.dat`'s FileID order, which is the natural (`sort -V`) order of the file names, not their plain lexical order. The order given becomes the forest sidecar's `SourceFileOrdinal`.
+
+Measured on the Mac Studio, source and workdir on one external disk, with the `shin-uchuu-ascii` converter profile, multiplier 2×10¹⁰ and `--memory-budget-mb 8192`. Peak RSS is from `/usr/bin/time -l` with `MallocLargeCache=0`.
+
+| Conversion | Wall-clock | Peak RSS | Disk |
+|---|---|---|---|
+| `convert_trees.py` to version 3: `inspect`, `ingest`, `transpose`, `write`, `validate`, `report` | 11,460 s (ingest 7,542 s) | 9.99 GB (ingest) | dataset 57.8 GB (142.1 B per halo); the volume's usage rose by at most 387 GB, the workdir's intermediates plus the battery's 76 GB spill; workdir 311 GB after `report` without consumption |
+| `convert_ctrees.py` to version 2: `scatter` to `report` | 16,102 s (scatter 13,131 s, I/O-bound at about 16 MB/s) | 8.98 GB (links) | workdir 41.4 GB with consumptive deletion |
+| `rewrite_trees.py migrate`, version 2 to 3 | 449 s | 2.09 GB | dataset 57.4 GB, scratch peak 1.72 GB |
+
+Both version 3 datasets pass the producer battery (20 of 20 checks) and agree in every `/halos` column, header attribute, `/schema` attribute and sidecar value. In the version 3 sidecar, 12,694 of the 6,011,205 forests span files and carry −1/−1 ordinals; every other forest carries its file's ordinal and its unit ordinal in that file.
+
 ## Data provenance
 
 Source: `/fred/oz214/simulations/uchuu/shinuchuu/mergertrees` on OzSTAR — 2744 `tree_*.dat` files, 11.61 TB, Consistent-Trees ASCII format, 70 snapshots. Cosmology (Ωm 0.3089, ΩΛ 0.6911, h 0.6774) is the Uchuu/Planck-2015 family shared with `micro-uchuu-ascii`; particle mass (8.97×10⁵ Msun/h) and box size (140 Mpc/h) are specific to Shin-Uchuu. The subset was extracted with `convert/mimic-convert/subset.py`, which selects whole forests without reading the bulk tree data, then copies only the selected byte ranges. The same subset was the rehearsal-scale dataset for the production conversion; how that conversion was run is in [`shin-uchuu/README.md`](../shin-uchuu/README.md#how-the-production-dataset-was-made).

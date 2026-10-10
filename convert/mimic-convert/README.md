@@ -449,6 +449,78 @@ Run `occupancy`, `trees` and `partition` first; `table` needs `trees`, and `cut`
 
 The whole directory therefore needs about 266 GB on disk. The peak RSS figures are measured with `MallocLargeCache=0`. With macOS's default allocator, freed large blocks stay resident in its cache and `/usr/bin/time` reported 66.7 GB for `table` and 109.4 GB for `cut`. The `trees` labels and per-slab pairs are its largest part, and both `table` and `cut` read them, so delete the directory only when the census is finished. At micro-Uchuu scale (22,580,924 halos) every subcommand runs in seconds, under 0.5 GB RSS.
 
+## Rewriting a horizontal dataset with `rewrite_trees.py`
+
+`rewrite_trees.py` rewrites an existing horizontal-HDF5 dataset of a Consistent-Trees ASCII catalogue into a version 3 dataset of the same halos, slab by slab, without reading the merger-tree source again. It accepts only datasets whose every `Descendant` link is adjacent (`links_adjacent` 1). It has three operations:
+
+- **`migrate`**: a version 2 dataset becomes version 3. Every identity (`ForestIndex`, `HaloRankInForest`, `SourceHaloID`) is computed from the version 2 columns, each row moves to its (`ForestIndex`, `HaloRankInForest`) position, the int32 links become int64 links with their target-snapshot companions, `/schema` is built from the package's converter profile, and the sidecar ordinals come from the index files.
+- **`noop`**: a version 3 dataset is rewritten under the identity table. The output must reproduce the input in every dataset value, dtype, header attribute, `/schema` attribute and sidecar value. This is the passes' permanent self-test.
+- **`cut`**: a version 3 dataset is rewritten under a declared cut forest table (`--cut-table`, in `forests.list` shape, such as the decided table `forest_census.py table` writes). Every tree joins the table's forest. A cut forest's largest piece keeps its id, and the fresh pieces take ids above the catalogue's maximum, enumerated after every original forest. Hosts are resolved under the original partition, and every halo whose FoF central lands in another forest becomes a central of its own group. FoF chains, ranks and progenitor chain order are recomputed for the forests the table changes, and every other forest is reproduced exactly. The same table given to `convert_trees.py ingest --cut-table` converts the catalogue directly into its cut form; the two routes write the same dataset.
+
+```bash
+R=convert/mimic-convert/rewrite_trees.py
+COMMON="--simulation-info <simulation_info.yaml> --a-list <a_list> \
+    --forests-list <forests.list> --locations <locations.dat> --multiplier <M>"
+mimic_venv/bin/python $R migrate --input <version 2 dataset dir> --output <workdir> --scratch <dir> \
+    $COMMON --column-map <converter profile> [--conversion-manifest <version 2 manifest.json>]
+mimic_venv/bin/python $R noop    --input <version 3 dataset dir> --output <workdir> --scratch <dir> $COMMON
+mimic_venv/bin/python $R cut     --input <version 3 dataset dir> --output <workdir> --scratch <dir> $COMMON \
+    --cut-table <forests.list-shaped table> [--cut-table-record <the census's record.json>]
+mimic_venv/bin/python convert/mimic-convert/convert_trees.py validate --workdir <workdir> \
+    --multiplier <M> --memory-budget-mb <MiB> --spill-dir <dir>
+```
+
+**Inputs.** Every location is explicit and nothing defaults into the repository:
+
+- `--input` is the dataset directory, `--output` the workdir to create and `--scratch` an empty directory for the remap store and checkpoints. The output and scratch must lie outside the input and apart from each other.
+- The a_list, the simulation metadata and both index files are always named.
+- `--column-map` is the package's `consistent_trees_ascii` converter profile. `migrate` requires it; `noop` and `cut` refuse it.
+- `--conversion-manifest` (`migrate` only) is the version 2 conversion's `manifest.json`. It is required when `locations.dat` names more than one tree file, because the sidecar's file ordinals follow the order the converter was given the files, and `locations.dat`'s FileID does not record that order.
+- `--cut-table-record` (`cut` only) supplies the rule text and the dataset lineage for the manifest, and must name the table's md5 and the index files'.
+
+**Refusals.** Each refusal exits 2 and names the offending value. These happen before anything is written:
+
+- an input that is not version 2 (`migrate`) or version 3 (`noop`, `cut`);
+- `links_adjacent` 0, or a version 3 input of another source format;
+- missing or inconsistent index files, or an a_list that is not the input's;
+- a multiplier that cannot encode the output's bounds (the installed table's, for a cut);
+- a missing or ambiguous tree-file order;
+- terminal halos that do not correspond to the index files' tree roots (refused, never repaired);
+- a cut table violating any of its invariants;
+- a cut piece held in one file whose FileID the input sidecar gives no conversion ordinal for;
+- a record that is not the given table's or index files'.
+
+A cut also checks two conditions per slab once the workdir exists, and refuses a halo whose FoF central lies in another forest of the input, and stored progenitor chains that the reference insertion loop over the input's own keys does not reproduce.
+
+**Output and manifest.** The workdir has the converter's shape, so `convert_trees.py validate` and `report` run against it with their manifest binding, schema binding and count-conservation checks applied:
+
+- `manifest.json` is a `mimic-generic-conversion` manifest (version 3). Its configuration records the operation, the input and its format version, the multiplier, the planned memory peak and the SHA-256 of every input file named. For a cut it also records the table's path, md5 and SHA-256, the rule text and the record's dataset lineage.
+- `dataset/` holds exactly the snapshot files and `forests.h5`; point a run's `simulation_dir` here.
+- `tree_inventory.npy` holds every tree's `locations.dat` file and row count.
+- `rewrite_state.json` is the restart state.
+- `rewrite_summary.json` records:
+  - the counts and link totals;
+  - the root correspondence and its verdict;
+  - the per-file conservation against a conversion record (`migrate` checks it against `--conversion-manifest`);
+  - the memory formulas, `planned_peak_bytes` and the measured `peak_rss_bytes`;
+  - the remap store's peak;
+  - for a cut, the per-snapshot promotions, the groups that lose members, the descendants whose progenitor order changes, and the pieces.
+- `cut_pieces.npy` (cut only) lists every piece of every split forest.
+
+The workdir's per-tree inventory can also be checked against another conversion's record with `rewriter.pass0.check_conservation`, for example the ASCII preparation manifest of a `convert_trees.py` conversion of the same files.
+
+**Resume.** Each snapshot is written under a temporary name, re-read and verified against the input, and renamed only when it passes. Every verified slab is recorded in the restart state before its recovery files are removed. `--resume` continues an interrupted run after its last verified slab. It refuses a changed input or configuration, the cut table's md5 included, and re-verifies a completed run. The scratch is emptied when the run completes; delete the empty directory by hand.
+
+**Memory and storage, as measured.** The package docstring (`rewriter/__init__.py`) states every memory term per phase. The remap store holds 32 B per row of each resident slab for `migrate` and `noop`, and 48 B for `cut`, over at most three slabs: 96 B and 144 B per row of the widest slab. The measurements below are on the Shin-Uchuu ASCII subset (`simulations/shin-uchuu-ascii`: 2,744 tree files, 406,668,896 halos in 70 slabs, widest slab 9,006,294 rows, 6,011,205 forests, 8,000,198 trees), on the Mac Studio, with input, output and scratch on one external disk, multiplier 2 × 10¹⁰. Peak RSS is from `/usr/bin/time -l` with `MallocLargeCache=0`, and the scratch peak was sampled every 30 s.
+
+| Operation | Wall-clock | Peak RSS (planned) | Remap store peak | Scratch peak | Output dataset |
+|---|---|---|---|---|---|
+| `migrate` (version 2 in) | 449 s | 2.09 GB (1.84 GB) | 864,236,928 B: 96.0 B per widest-slab row, 2.1 B per halo | 1.72 GB: 191 B per widest-slab row, 4.2 B per halo | 57.4 GB, 141.2 B per halo |
+| `noop` (version 3 in) | 500 s | 2.08 GB | | | value-identical to the input |
+| `cut`, decided table (6,011,205 → 7,206,195 forests) | 625 s | 4.17 GB (4.06 GB) | 1,296,188,984 B: 143.9 B per widest-slab row, 3.2 B per halo | 2.24 GB: 249 B per widest-slab row, 5.5 B per halo | 57.4 GB, 141.2 B per halo |
+
+The scratch holds pass 0's checkpoints (the forest totals, roots and per-tree inventory), the resident slabs' remap entries and pass 1's checkpoint. At most one snapshot file is temporary in `dataset/` at a time, so a run needs about the output's size plus the scratch peak on its volume. A `migrate` interrupted with SIGKILL after 30 verified slabs resumed in 186 s, and its output was byte-identical to an uninterrupted run's, as was a second run's. At micro-Uchuu scale (22,580,924 halos) `migrate` took 38 s at 0.25 GB and `cut` 44 s at 0.40 GB.
+
 ## Reference-topology proof
 
 The seven always-run checks of the version 2 cross-check (`CHECK_NAMES` in `crosscheck.py`) establish identity, rank, and central resolution by matching galaxies to halos. They do not, by themselves, directly compare the *order* of the converter's `FirstProgenitor`/`NextProgenitor`/`NextHaloInFOFgroup` chains against another implementation reading the same source data — rank equality constrains the underlying sort but does not prove chain construction.
@@ -513,6 +585,7 @@ All paths are relative to `convert/mimic-convert/`.
 | `validate_v3.py`    | the bounded 20-check version 3 battery that `convert_trees.py validate` runs — exact object and schema set, header agreement across files, source-key coverage, every link target and chain closure, identity density, field finiteness, positions inside the header box, count conservation and manifest binding — with hand-typed format tables independent of the writer |
 | `report.py`         | conversion report emission (`conversion_report.{json,txt}`) including battery outcomes and the recommended identity multiplier; the version 3 report adds source format, mapping, link-gap counts, index bounds and the runtime-compatibility section (format consumed, evidenced routes, limits) |
 | `forest_census.py`, `census/` | the forest census of a horizontal dataset (format version 2 or 3) and the decided cut table: `occupancy` / `trees` / `partition` / `table` / `cut`; see [Forest census](#forest-census-and-the-decided-cut-table-with-forest_censuspy) |
+| `rewrite_trees.py`, `rewriter/` | the horizontal-dataset rewriter of a Consistent-Trees ASCII catalogue: `migrate` (version 2 to 3) / `noop` (the identity self-test) / `cut` (under a declared cut table); see [Rewriting a horizontal dataset](#rewriting-a-horizontal-dataset-with-rewrite_treespy) |
 | `horizontal_dataset.py`, `source_index.py` | bounded column reads of a horizontal dataset and its identity record; the `forests.list` / `locations.dat` reader |
 | `subset.py`         | whole-forest subset selection and byte-exact extraction from a very large ctrees dataset, driven entirely from the index files: `plan-candidates` / `sample-roots` / `calibrate-proxy` / `finalize` / `extract` |
 | `crosscheck.py`     | seven-check cross-check vs a halos-only reference run (`reference-sanity`, `identity-forest`, `identity-creation`, `fof-central`, `mostboundid-positive`, `values`, `occupancy` — matching by \|MostBoundID\|, identity decode, FoF central, positive `MostBoundID`, bit-exact values, occupancy predicate), an optional eighth `topology-chains` check against a reference-topology dump (coverage, links, identity, ids), + reference-run plumbing |
