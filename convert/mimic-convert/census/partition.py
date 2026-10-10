@@ -198,9 +198,15 @@ WEIGHTING = (
 )
 
 
-def peak_weights(aggregate_dir, n_forests: int) -> np.ndarray:
+def peak_weights(aggregate_dir, n_forests: int, out: Optional[np.ndarray] = None) -> np.ndarray:
     """Each forest's peak occupancy over all slabs as a dense int64 weight
-    vector (8 B x ``n_forests_total``), from the occupancy aggregates.
+    vector, from the occupancy aggregates.
+
+    Args:
+        out: an int64 array of length ``n_forests`` to fill, else one is
+            allocated (8 B x ``n_forests_total``). The int32 peaks widen as
+            they are assigned into it, so loading holds 4 B x
+            ``n_forests_total`` beside it and no second int64 copy.
 
     Raises:
         ConverterError: when the recorded peaks do not cover ``n_forests``.
@@ -211,7 +217,10 @@ def peak_weights(aggregate_dir, n_forests: int) -> np.ndarray:
         raise ConverterError(
             "{}: {} peak(s) for {} forests".format(path, peaks.shape[0], n_forests)
         )
-    return peaks.astype(np.int64)
+    if out is None:
+        out = np.empty(n_forests, dtype=np.int64)
+    out[...] = peaks
+    return out
 
 
 def run_partition(

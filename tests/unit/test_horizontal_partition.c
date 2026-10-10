@@ -978,10 +978,10 @@ int test_peak_scan_takes_each_forest_largest_slab(void) {
   TEST_ASSERT(weights[0] == 3 && weights[1] == 3 && weights[2] == 4,
               "a smaller count keeps the peak, a larger one raises it, an absent forest keeps it");
 
-  /* The weighting moves the cut. On two ranks the peaks [3, 3, 4] pack at the smallest
-   * feasible capacity 6 as [3, 3] | [4], cuts [0, 2, 3]; the widest slab's counts
-   * [3, 3, 0] would pack at 3 as [3] | [3, 0], cuts [0, 1, 3], and leave forests 1 and 2
-   * together, 7 rows in slab 2. */
+  /* The weighting moves the cut: forest 2 weighs 4 where the widest slab gives it 0. On
+   * two ranks the peaks [3, 3, 4] pack at the smallest feasible capacity 6 as
+   * [3, 3] | [4], cuts [0, 2, 3]; the widest slab's counts [3, 3, 0] pack at 3 as
+   * [3] | [3, 0], cuts [0, 1, 3]. */
   int64_t cuts[3];
   horizontal_partition_cut_forests(weights, 3, 2, cuts);
   TEST_ASSERT(cuts[0] == 0 && cuts[1] == 2 && cuts[2] == 3, "the peak weights cut at forest 2");

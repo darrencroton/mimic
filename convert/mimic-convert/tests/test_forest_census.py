@@ -1944,6 +1944,10 @@ class TestDecidedTable(unittest.TestCase):
         varying = ("dataset_dir", "io", "memory", "aggregates", "table")
         for got, want in ((summary_table, self.table), (summary_cut, self.cut)):
             got = json.loads(json.dumps(got).replace(str(other), str(self.agg)))
+            want = json.loads(json.dumps(want))
+            # the peak pass's wall-clock is measured, so no two runs share it
+            for record in (got, want):
+                record.get("partition", {}).get("weights", {}).pop("peak_pass_seconds", None)
             for key in set(want) - set(varying):
                 self.assertEqual(got[key], want[key], key)
 

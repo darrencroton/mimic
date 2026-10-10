@@ -846,10 +846,12 @@ def installed_weights(aggregate_dir, state: CutState, n_forests: int, catalogue_
     weigh the cut dataset: every forest's peak occupancy, each split forest's
     replaced by its id-keeping piece's peak, and each fresh piece's peak at
     ``ForestIndex`` ``n_forests + (id - catalogue_max - 1)``. Needs
-    ``state.peak`` complete (dense int64, 8 B x (forests + fresh pieces))."""
+    ``state.peak`` complete. Holds the dense int64 result, 8 B x (forests +
+    fresh pieces), and, while the forests' peaks load straight into it, the
+    occupancy's int32 peaks, 4 B x forests."""
     pieces = state.pieces
     weights = np.zeros(n_forests + state.table.n_fresh, dtype=np.int64)
-    weights[:n_forests] = peak_weights(aggregate_dir, n_forests)
+    peak_weights(aggregate_dir, n_forests, out=weights[:n_forests])
     keeping = np.flatnonzero(pieces["keeps_id"])
     weights[pieces["forest_index"][keeping]] = state.peak[keeping]
     fresh = state.fresh_order

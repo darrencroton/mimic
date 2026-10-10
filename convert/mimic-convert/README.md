@@ -443,9 +443,9 @@ Run `occupancy`, `trees` and `partition` first; `table` needs `trees`, and `cut`
 |---|---|---|---|
 | `occupancy` | 17 min | 32.7 GB | 64.6 GB: per-slab (forest, count) pairs, 12 B per present forest per slab, plus 16 B per forest |
 | `trees` (with index files) | 46 min | 41.7 GB | 190.3 GB: labels 4 B per halo (90.0 GB), per-slab (tree, count) pairs 8 B per present tree per slab (89.0 GB), 36 B per tree (11.3 GB) |
-| `partition` | 7 min | 27.4 GB | under 2 MB of JSON |
+| `partition` | 189 s (measured) | 6.10 GB (measured) | under 2 MB of JSON |
 | `table` | 18 to 25 min | 57.3 GB (see below) | 10.5 GB: the table, about 24 B per catalogue tree (7.6 GB), and its record, about 34 B per piece of a split forest (3.0 GB) |
-| `cut` | 85 to 97 min | 33.7 GB (see below) | under 0.2 MB of JSON |
+| `cut` | 5,364 s, 89 min (measured) | 32.95 GB (measured; see below) | under 0.3 MB of JSON |
 
 The whole directory therefore needs about 266 GB on disk. The peak RSS figures are measured with `MallocLargeCache=0`. With macOS's default allocator, freed large blocks stay resident in its cache and `/usr/bin/time` reported 66.7 GB for `table` and 109.4 GB for `cut`. The `trees` labels and per-slab pairs are its largest part, and both `table` and `cut` read them, so delete the directory only when the census is finished. At micro-Uchuu scale (22,580,924 halos) every subcommand runs in seconds, under 0.5 GB RSS.
 
