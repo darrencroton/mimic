@@ -27,14 +27,14 @@ ln -s /path/to/shin-uchuu-subset-ascii simulations/shin-uchuu-ascii/snapshots
 
 ## Converting the subset to horizontal HDF5
 
-The subset converts with either converter in `convert/mimic-convert/` (see its [README](../../convert/mimic-convert/README.md)). Give the 2,744 tree files in `locations.dat`'s FileID order, which is the natural (`sort -V`) order of the file names, not their plain lexical order. The order given becomes the forest sidecar's `SourceFileOrdinal`.
+The subset converts with either converter in `convert/mimic-convert/` (see its [README](../../convert/mimic-convert/README.md)). The order in which the tree files are given becomes the forest sidecar's `SourceFileOrdinal`. By convention they are given in `locations.dat`'s FileID order, which is the natural (`sort -V`) order of the file names, not their plain lexical order. In that order `SourceFileOrdinal` equals the FileID and matches the production inventory.
 
 Measured on the Mac Studio, source and workdir on one external disk, with the `shin-uchuu-ascii` converter profile, multiplier 2×10¹⁰ and `--memory-budget-mb 8192`. Peak RSS is from `/usr/bin/time -l` with `MallocLargeCache=0`.
 
 | Conversion | Wall-clock | Peak RSS | Disk |
 |---|---|---|---|
 | `convert_trees.py` to version 3: `inspect`, `ingest`, `transpose`, `write`, `validate`, `report` | 11,460 s (ingest 7,542 s) | 9.99 GB (ingest) | dataset 57.8 GB (142.1 B per halo); the volume's usage rose by at most 387 GB, the workdir's intermediates plus the battery's 76 GB spill; workdir 311 GB after `report` without consumption |
-| `convert_ctrees.py` to version 2: `scatter` to `report` | 16,102 s (scatter 13,131 s, I/O-bound at about 16 MB/s) | 8.98 GB (links) | workdir 41.4 GB with consumptive deletion |
+| `convert_ctrees.py` to version 2: `scatter` to `report` | 16,103 s (scatter 13,131 s, I/O-bound at about 16 MB/s) | 8.98 GB (links) | workdir 41.4 GB, with consumptive deletion in `fixups`, `links` and `write` |
 | `rewrite_trees.py migrate`, version 2 to 3 | 449 s | 2.09 GB | dataset 57.4 GB, scratch peak 1.72 GB |
 
 Both version 3 datasets pass the producer battery (20 of 20 checks) and agree in every `/halos` column, header attribute, `/schema` attribute and sidecar value. In the version 3 sidecar, 12,694 of the 6,011,205 forests span files and carry −1/−1 ordinals; every other forest carries its file's ordinal and its unit ordinal in that file.

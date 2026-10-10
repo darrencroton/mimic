@@ -455,7 +455,7 @@ The whole directory therefore needs about 266 GB on disk. The peak RSS figures a
 
 - **`migrate`**: a version 2 dataset becomes version 3. Every identity (`ForestIndex`, `HaloRankInForest`, `SourceHaloID`) is computed from the version 2 columns, each row moves to its (`ForestIndex`, `HaloRankInForest`) position, the int32 links become int64 links with their target-snapshot companions, `/schema` is built from the package's converter profile, and the sidecar ordinals come from the index files.
 - **`noop`**: a version 3 dataset is rewritten under the identity table. The output must reproduce the input in every dataset value, dtype, header attribute, `/schema` attribute and sidecar value. This is the passes' permanent self-test.
-- **`cut`**: a version 3 dataset is rewritten under a declared cut forest table (`--cut-table`, in `forests.list` shape, such as the decided table `forest_census.py table` writes). Every tree joins the table's forest. A cut forest's largest piece keeps its id, and the fresh pieces take ids above the catalogue's maximum, enumerated after every original forest. Hosts are resolved under the original partition, and every halo whose FoF central lands in another forest becomes a central of its own group. FoF chains, ranks and progenitor chain order are recomputed for the forests the table changes, and every other forest is reproduced exactly. The same table given to `convert_trees.py ingest --cut-table` converts the catalogue directly into its cut form; the two routes write the same dataset.
+- **`cut`**: a version 3 dataset is rewritten under a declared cut forest table (`--cut-table`, in `forests.list` shape, such as the decided table `forest_census.py table` writes). Every tree joins the table's forest. A cut forest's largest piece keeps its id, and the fresh pieces take ids above the catalogue's maximum, enumerated after every original forest. Hosts are resolved under the original partition, and every halo whose FoF central lands in another forest becomes a central of its own group. FoF chains, ranks and progenitor chain order are recomputed for the forests the table changes, and every other forest is reproduced exactly. The same table given to `convert_trees.py ingest --cut-table` converts the catalogue directly into its cut form. The two routes write datasets identical in every value, header attribute, `/schema` attribute and sidecar value; the HDF5 file layout may differ.
 
 ```bash
 R=convert/mimic-convert/rewrite_trees.py
@@ -475,7 +475,8 @@ mimic_venv/bin/python convert/mimic-convert/convert_trees.py validate --workdir 
 - `--input` is the dataset directory, `--output` the workdir to create and `--scratch` an empty directory for the remap store and checkpoints. The output and scratch must lie outside the input and apart from each other.
 - The a_list, the simulation metadata and both index files are always named.
 - `--column-map` is the package's `consistent_trees_ascii` converter profile. `migrate` requires it; `noop` and `cut` refuse it.
-- `--conversion-manifest` (`migrate` only) is the version 2 conversion's `manifest.json`. It is required when `locations.dat` names more than one tree file, because the sidecar's file ordinals follow the order the converter was given the files, and `locations.dat`'s FileID does not record that order.
+- `noop` and `cut` accept only a dataset converted with the shipped default `consistent_trees_ascii` profile: every slab's `column_mapping_sha256` and `/schema` declarations must match that profile's.
+- `--conversion-manifest` (`migrate` only; `noop` and `cut` refuse it, because their sidecar ordinals follow the input's sidecar) is the version 2 conversion's `manifest.json`. It is required when `locations.dat` names more than one tree file, because the sidecar's file ordinals follow the order the converter was given the files, and `locations.dat`'s FileID does not record that order.
 - `--cut-table-record` (`cut` only) supplies the rule text and the dataset lineage for the manifest, and must name the table's md5 and the index files'.
 
 **Refusals.** Each refusal exits 2 and names the offending value. These happen before anything is written:
@@ -483,6 +484,10 @@ mimic_venv/bin/python convert/mimic-convert/convert_trees.py validate --workdir 
 - an input that is not version 2 (`migrate`) or version 3 (`noop`, `cut`);
 - `links_adjacent` 0, or a version 3 input of another source format;
 - missing or inconsistent index files, or an a_list that is not the input's;
+- simulation metadata whose physical header values differ from any input slab's header;
+- for `noop` and `cut`, an input whose `column_mapping_sha256` or `/schema` is not the shipped default profile's;
+- for `noop` and `cut`, a `--column-map` or `--conversion-manifest`; for `migrate` and `noop`, a `--cut-table` or `--cut-table-record`;
+- without `--resume`, a `--scratch` that is not empty, or an `--output` that already holds a run's `manifest.json` or is otherwise not empty;
 - a multiplier that cannot encode the output's bounds (the installed table's, for a cut);
 - a missing or ambiguous tree-file order;
 - terminal halos that do not correspond to the index files' tree roots (refused, never repaired);

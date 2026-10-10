@@ -134,11 +134,11 @@ Stage B's measurements and the owner's decision are recorded in [`MIMIC-SHIN-UCH
 
 ## Stage R — the subset conversions and the gates
 
-Slice 16 of the implementation plan (revision 6). Every step ran detached under `MallocLargeCache=0 /usr/bin/time -l` through a step wrapper that records, in each log's header, the commit, `git status --porcelain`, the command, and `df` of both volumes; at the end it records the exit status, the used-KiB range of both volumes and the summed RSS sampled every 30 s, and appends a row to the ledger. Logs live under `/Volumes/Internal/results/mimic/shin-uchuu-v3-stage-r/slice-16/` (abbreviated `$R`; ledger `$R/LEDGER.md`, logs `$R/logs/`, step scripts `$R/scripts/`). Workdirs are under `/Volumes/LaCie/data/uchuu/shin-uchuu-stage-r/` (abbreviated `$W`). Peak RSS is `/usr/bin/time -l`'s maximum resident set size (GB = 10⁹ B). One LaCie-bound job ran at a time. System free memory (`memory_pressure`) was at least 96% in every sample of every step, about 490 GiB of the 512 GiB, so the 100 GB floor held throughout.
+Slice 16 of the implementation plan (revision 6). Every step ran detached under `MallocLargeCache=0 /usr/bin/time -l` through a step wrapper that records, in each log's header, the commit, `git status --porcelain`, the command, and `df` of both volumes; at the end it records the exit status, the used-KiB range of both volumes and the summed RSS sampled every 30 s, and appends a row to the ledger. Logs live under `/Volumes/Internal/results/mimic/shin-uchuu-v3-stage-r/slice-16/` (abbreviated `$R`; ledger `$R/LEDGER.md`, logs `$R/logs/`, step scripts `$R/scripts/`). Workdirs are under `/Volumes/LaCie/data/uchuu/shin-uchuu-stage-r/` (abbreviated `$W`). Peak RSS is `/usr/bin/time -l`'s maximum resident set size (GB = 10⁹ B). One LaCie-bound job ran at a time. System free memory (`memory_pressure`) was at least 96%, about 490 GiB of the 512 GiB, in every sample of every step that recorded it. Two early steps, `ref-01-inspect` and `g3c-fixture-leg`, ran under an older wrapper that sampled disk use but not memory or RSS. Their peak RSS is still `/usr/bin/time`'s, 0.104 GB and 0.342 GB.
 
-**Code under test.** Every step ran at `a3d0ecee9f9e1a345551203d9ffdd0ed159cd572` (branch `feature/shin-uchuu-v3`), as each log's header records. Every step up to and including `rc-02-transpose` records a clean tree. From `rc-03-write` on, the headers show two modified files, `convert/mimic-convert/README.md` and `simulations/shin-uchuu-ascii/README.md`: this slice's documentation, which no step reads. Mimic binaries were built once per (model, simulation, MPI) pair at that commit on a clean tree (`make clean`, `make generate`, `make TEST_BUILD=no [USE-MPI=yes] -j16`) and copied out of the tree with `make_info`, the commit and their SHA-256 (`$R/bin/<model>__<simulation>[__mpi]/`), so a later rebuild of the tree cannot change a run. The subset gate builds its own worktrees at the same commit.
+**Code under test.** Every step ran at `a3d0ecee9f9e1a345551203d9ffdd0ed159cd572` (branch `feature/shin-uchuu-v3`), as each log's header records. Every step up to and including `rc-02-transpose` records a clean tree. From `rc-03-write` through `g4-subset-gate`, the headers show two modified files, `convert/mimic-convert/README.md` and `simulations/shin-uchuu-ascii/README.md`. From `run-sham-v2` on, they show three, this record being the third. All three are this slice's documentation, which no step reads. Mimic binaries were built once per (model, simulation, MPI) pair at that commit on a clean tree (`make clean`, `make generate`, `make TEST_BUILD=no [USE-MPI=yes] -j16`) and copied out of the tree with `make_info`, the commit and their SHA-256 (`$R/bin/<model>__<simulation>[__mpi]/`), so a later rebuild of the tree cannot change a run. The subset gate builds its own worktrees at the same commit.
 
-**Sources.** micro-Uchuu: `simulations/micro-uchuu-ascii/snapshots` (`tree_0_0_0.dat`), its retained version 2 dataset `/Volumes/Internal/data/uchuu/micro-uchuu/micro-uchuu-ascii-horizontal` (Stage A, "Retained version 2 dataset") and Slice 5's installed version 3 dataset `/Volumes/LaCie/data/uchuu/micro-uchuu/micro-uchuu-ascii-horizontal-v3`. The subset: `simulations/shin-uchuu-ascii/snapshots` → `/Volumes/LaCie/data/uchuu/shin-uchuu-subset-ascii`, 2,744 tree files given to both converters in `locations.dat`'s FileID order 0–2743 (`$R/scripts/subset_tree_files.txt`, `$R/logs/subset-fileid-map.txt`: the natural `sort -V` order of the names), with the profile `simulations/shin-uchuu-ascii/converter_columns.yaml` (digest `727d13f5…`). Every `validate` and `report` ran with an explicit `--memory-budget-mb` (8192 on the subset, 4096 on micro-Uchuu) and `--spill-dir` on the LaCie. On the subset every one ran with `--multiplier 20000000000`. On micro-Uchuu they ran with the package's multiplier 10⁹, and the migrated dataset's `validate` ran once more at 2×10¹⁰; the contract asks for 2×10¹⁰ everywhere, and the slice's `validation.md` records that reading under Contract defects.
+**Sources.** micro-Uchuu: `simulations/micro-uchuu-ascii/snapshots` (`tree_0_0_0.dat`), its retained version 2 dataset `/Volumes/Internal/data/uchuu/micro-uchuu/micro-uchuu-ascii-horizontal` (Stage A, "Retained version 2 dataset") and Slice 5's installed version 3 dataset `/Volumes/LaCie/data/uchuu/micro-uchuu/micro-uchuu-ascii-horizontal-v3`. The subset: `simulations/shin-uchuu-ascii/snapshots` → `/Volumes/LaCie/data/uchuu/shin-uchuu-subset-ascii`, 2,744 tree files given to both converters in `locations.dat`'s FileID order 0–2743 (`$R/scripts/subset_tree_files.txt`, `$R/logs/subset-fileid-map.txt`: the natural `sort -V` order of the names), with the profile `simulations/shin-uchuu-ascii/converter_columns.yaml` (digest `727d13f5…`). Every version 3 `validate` and `report` (`convert_trees.py`) ran with an explicit `--memory-budget-mb` (8192 on the subset, 4096 on micro-Uchuu) and `--spill-dir` on the LaCie. On the subset every one ran with `--multiplier 20000000000`. The version 2 battery (`validate.py` and `convert_ctrees.py report` on the version 2 subset) ran with `--multiplier 20000000000` only: for a version 2 dataset `validate.py` ignores `--memory-budget-mb`, and neither command has a spill option. On micro-Uchuu they ran with the package's multiplier 10⁹, and the migrated dataset's `validate` ran once more at 2×10¹⁰; the contract asks for 2×10¹⁰ everywhere, and the slice's `validation.md` records that reading under Contract defects.
 
 ### micro-Uchuu G3: migrating the retained version 2 dataset
 
@@ -152,7 +152,7 @@ Slice 16 of the implementation plan (revision 6). Every step ran detached under 
 | HOD on version 2, on (M), comparison | 0, 0, 0 | 8.88 s, 9.01 s, 56.72 s | 0.453, 0.487, 0.886 GB | `$R/logs/micro-g3-hod-*.log` |
 
 - **(M) ≡ Slice 5's dataset.** The comparison script (`$R/scripts/compare_datasets.py`) compares the file sets, and per snapshot the object set, every `/halos` column (dtype, shape and values), every header attribute (value and dtype) and every `/schema` attribute, and then every sidecar dataset; with `--bytes` it also compares every file's SHA-256. Result `VERDICT: IDENTICAL`: 51 files, 22,580,924 rows, 1,000 column comparisons, 700 header attributes, 450 schema groups, the three sidecar datasets; 12 of 51 files byte-identical, the rest differing in HDF5 layout only.
-- **Remap store.** The run records a peak of 59,587,424 B, which is 95.9 B per row of the widest slab (621,360 rows).
+- **Remap store.** The run's `rewrite_summary.json` records a peak of 59,587,424 B, which is 95.9 B per row of the widest slab (621,360 rows). The source is the ledger, which quotes it; the workdir was later trashed.
 - **Battery.** Both `validate` runs and `report` give `validation: PASS` with all 20 checks passing, `manifest-binding`, `schema-binding` and `count-conservation` among them and none skipped.
 - **HOD, version 2 against version 3.** One `hod × micro-uchuu-ascii-horizontal` build ran the committed `hod_micro-uchuu-ascii-horizontal.yaml` modules and parameters, writing every snapshot, on the retained version 2 dataset and on (M). `scripts/compare_cross_format_identity.py --match-created-by-lineage` reports: `PASSED: 22431070 galaxies over 50 output snapshot(s) are identical under the lineage comparator: all 21 field(s) bitwise except UniqueGalaxyID, the pairing key, and UniqueCentralGalaxyID, compared through the pairing, with identical key sets and no duplicates (tree rows by UniqueGalaxyID, created rows by lineage (MostBoundID, SnapNum, ordinal); 16379 created row(s) compared)`.
 - **HOD, version 2 against Slice 5's dataset itself.** The same build and parameters were run on Slice 5's dataset, with only the dataset and output directory changed (`$R/runs/micro-hod/hod_s5.yaml`; 30.95 s, 0.487 GB; the run log reports `format_version 3`, 440,651 forests and max rank 350,074). The same comparator against the version 2 run gives the identical PASSED line: 22,431,070 galaxies identical under the lineage comparator, with 16,379 created rows compared (`$R/logs/micro-g3-hod-run-s5.log`, `micro-g3-hod-compare-s5.log`).
@@ -174,16 +174,17 @@ Slice 16 of the implementation plan (revision 6). Every step ran detached under 
 - **Inspect.** 406,668,896 rows, 8,000,198 `#tree` markers and 210,572,730,148 source bytes.
 - **Ingest.** 426 chunks and 6,011,205 forests, with maximum rank 8,312,565. The rank pass ran within its 8 GiB budget in 4 sorted runs with 0 merge passes; its peak spill was 19,520,107,008 B, and the identity stores took 6,506,702,336 B.
 - **Transpose.** The largest snapshot holds 9,006,294 halos.
-- **Dataset.** `write/attempt_001` is 56,416,836 KiB (142.1 B per halo).
+- **Dataset.** `write/attempt_001` measured 56,416,836 KiB (142.1 B per halo) by `du -sk` right after `write`; the source is the ledger. In the volume trash, the same directory now measures 56,062,956 KiB.
 - **Battery.** `validate` gives `validation: PASS`, 20 of 20 checks, and `report` the same.
 - **Storage.**
   - The battery's spill was 74,648,504 KiB (76.4 GB), measured as the rise in LaCie use during `validate`; the spill directory is empty afterwards.
-  - The transient workdir's peak, as LaCie use above its value before `ingest`, was 377,963,248 KiB (387.0 GB) during `validate`, and 385.1 GB during `transpose`.
-  - The workdir measured 303,282,824 KiB after `report`.
+  - The workdir's own transient peak was during `transpose`: LaCie use rose 376,039,632 KiB (385.1 GB) above its value before `ingest`.
+  - The volume's largest rise was 377,963,248 KiB (387.0 GB), during `validate`. That is the finished workdir plus the battery's spill, not the workdir alone.
+  - The workdir measured 303,283,620 KiB after `report` (`ref-06-report.log`).
 
 ### The version 2 subset
 
-`convert_ctrees.py` over the same files in the same order, multiplier 2×10¹⁰, consumptive deletion on, `links --memory-budget-mb 8192`, `scatter --pool-size 8`, workdir `$W/v2-subset` (`$R/scripts/v2_convert.sh`).
+`convert_ctrees.py` over the same files in the same order, multiplier 2×10¹⁰, consumptive deletion (`--consume-intermediates`) in `fixups`, `links` and `write` (not in `sort`, and `scatter` has none), `links --memory-budget-mb 8192`, `scatter --pool-size 8`, workdir `$W/v2-subset` (`$R/scripts/v2_convert.sh`).
 
 | Stage | Exit | Wall-clock | Peak RSS | Log |
 |---|---|---|---|---|
@@ -195,10 +196,10 @@ Slice 16 of the implementation plan (revision 6). Every step ran detached under 
 | `validate.py` | 0 | 111.62 s | 0.898 GB | `$R/logs/v2-06-validate.log` |
 | `report` | 0 | 114.93 s | 1.101 GB | `$R/logs/v2-07-report.log` |
 
-- **Wall-clock.** The conversion took 16,102 s in all.
+- **Wall-clock.** The conversion took 16,103 s in all (the seven `real` values sum to 16,102.95 s).
 - **Scatter.** It was I/O-bound, with 2,681 s user and 591 s system time against its 13,131 s wall-clock. That is about 16 MB/s over the source, with source and workdir on the same disk, against the manual's 71.9 MB/s pooled figure. The figure is recorded as measured.
 - **Battery.** `validate.py` gives `validation: PASS`, 15 of 15 checks.
-- **Retained workdir.** 40,420,160 KiB, holding `hdf5/` (the dataset) and `manifest.json`.
+- **Retained workdir.** It holds `hdf5/` (the dataset, 40,004,580 KiB), `manifest.json`, `scratch/`, `forest_index_table.npy`, `forest_max_snap.npy` and `conversion_report.{json,txt}`. It measured 40,462,472 KiB at the end of `report` (`v2-07-report.log`, 08:50:42Z on 2026-10-10), and 40,420,160 KiB by `du -sk` between 13:40Z and 13:45Z the same day, and again at 20:25:36Z. The 42,312 KiB fall came with no step writing to it; its cause is not established.
 
 ### The rewrites of the subset
 
@@ -207,7 +208,7 @@ Every rewrite ran under `rewrite_trees.py` with the package's `simulation_info.y
 | Step | Exit | Wall-clock | Peak RSS (planned) | Remap store peak | Scratch peak | Log |
 |---|---|---|---|---|---|---|
 | (M) `migrate` of `$W/v2-subset/hdf5`, `--conversion-manifest $W/v2-subset/manifest.json`, output `$W/migrated` | 0 | 449.38 s | 2.092 GB (1.836 GB) | 864,236,928 B | 1,680,292 KiB | `$R/logs/m-01-migrate.log` |
-| (N) `noop` of the reference, output `$W/noop` | 0 | 500.17 s | 2.076 GB | — | — | `$R/logs/n-01-noop.log` |
+| (N) `noop` of the reference, output `$W/noop` | 0 | 500.17 s | 2.076 GB (1.836 GB) | 864,236,928 B | 1,680,292 KiB | `$R/logs/n-01-noop.log`, `$R/logs/n-01-noop.rewrite_summary.json` |
 | (C) `cut` of the reference under the subset's decided table, output `$W/cut` | 0 | 625.31 s | 4.170 GB (4.061 GB) | 1,296,188,984 B | 2,191,436 KiB | `$R/logs/c-01-cut.log` |
 
 **The rewriter's measured bytes per halo** (from each run's `rewrite_summary.json` and the scratch samples, over 406,668,896 halos with a widest slab of 9,006,294 rows):
@@ -224,7 +225,7 @@ The scratch is emptied when a run completes. During (M), LaCie use rose by at mo
 | Check | Result | Log |
 |---|---|---|
 | (M) against the reference, column by column | `VERDICT: IDENTICAL` over 71 files, 406,668,896 rows, 1,400 column comparisons, 980 header attributes, 630 schema groups and the sidecar's ForestID, SourceFileOrdinal and SourceUnitOrdinal (6,011,205 rows each). 9 of 71 files are byte-identical; the rest differ in layout only. | `$R/logs/m-02-g3-compare.log` |
-| Per-tree inventory conservation | `rewriter.pass0.check_conservation` against the reference's record: 2,744 files, 0 disagreeing, 406,668,896 halos on both sides, verdict pass. The reference's `conversion_report.json` carries no per-file counts, so the record is its ASCII preparation manifest, whose `source_files` carry the route's parsed counts. (M)'s own check, against the version 2 manifest, also passes. | `$R/logs/m-03-conservation.log` |
+| Per-tree inventory conservation | `rewriter.pass0.check_conservation` against the reference's record: 2,744 files, 0 disagreeing, 406,668,896 halos on both sides, verdict pass. The reference's `conversion_report.json` carries no per-file counts, so the record is its ASCII preparation manifest, whose `source_files` carry the route's parsed counts. (M)'s own check, against the version 2 manifest, also passes. The check can be reproduced from `$W/ref-manifest/ascii_preparation-manifest.json` (SHA-256 `fdf2e5f4b0410bde2edfab31f8a0004bc1361b72375af26660692ca9fa2d6144`), copied back out of the volume trash after the cleanup, together with `$W/migrated/tree_inventory.npy` and the package's `locations.dat`. | `$R/logs/m-03-conservation.log` |
 | Root correspondence | 8,000,198 terminal roots, equal to the index's roots: pass. | `rewrite_summary.json` |
 | `validate` and `report` on (M) | `validation: PASS`, 20 of 20 checks (543.91 s and 541.11 s, 6.893 GB each). | `$R/logs/m-04-validate.log`, `$R/logs/m-05-report.log` |
 
@@ -240,10 +241,10 @@ The scratch is emptied when a run completes. During (M), LaCie use rose by at mo
 - The route converted `micro-uchuu-ascii` under `ingest --cut-table` with the same table (`ingest`, `transpose`, `write`, `validate`).
 - The two datasets were compared (`$R/logs/micro-g3c-<table>-0[1-7]-*.log`).
 
-| Table | (C) | Route | Comparison |
+| Table | (C) | Route (`ingest` to `validate`) | Comparison |
 |---|---|---|---|
-| whole simulation | 44.34 s, 0.395 GB; 440,651 → 496,374 forests | 415.15 s in all, peak 1.958 GB | `VERDICT: IDENTICAL` (22,580,924 rows; 12 of 51 files byte-identical) |
-| restricted | 46.44 s, 0.392 GB | 416.36 s in all, peak 1.979 GB | `VERDICT: IDENTICAL` |
+| whole simulation | 44.34 s, 0.395 GB; 440,651 → 496,374 forests | 415.15 s in all, peak RSS 3.152 GB (`validate`; 1.958 GB before it) | `VERDICT: IDENTICAL` (22,580,924 rows; 12 of 51 files byte-identical) |
+| restricted | 46.44 s, 0.392 GB | 416.36 s in all, peak RSS 3.155 GB (`validate`; 1.979 GB before it) | `VERDICT: IDENTICAL` |
 
 All four validations exit 0. The per-snapshot promotions agree over 50 snapshots across the rewriter's summary, the route's preparation manifest (`cut_promotions`) and, for the whole table, the census (`$R/logs/micro-g3c-promotions.log`). The whole table promotes 216,922 halos and the restricted table 11,699, with none at the final snapshot.
 
@@ -264,12 +265,12 @@ All four validations exit 0. The per-snapshot promotions agree over 50 snapshots
 
 | Step | Exit | Wall-clock | Peak RSS | Log |
 |---|---|---|---|---|
-| (C) `validate` | 0 (PASS 20/20; spill 75.6 GB) | 527.11 s | 6.892 GB | `$R/logs/c-02-validate.log` |
+| (C) `validate` | 0 (PASS 20/20; spill 75.6 GB, the volume's rise during the step) | 527.11 s | 6.892 GB | `$R/logs/c-02-validate.log` |
 | (C) `report` | 0 (PASS) | 541.39 s | 6.893 GB | `$R/logs/c-03-report.log` |
 | route `ingest --cut-table $W/cut-table/forests.list` (workdir `$W/route-cut`) | 0 | 11,838.08 s | 10.198 GB | `$R/logs/rc-01-ingest.log` |
 | route `transpose` | 0 | 1,661.79 s | 7.246 GB | `$R/logs/rc-02-transpose.log` |
 | route `write` | 0 | 327.80 s | 4.172 GB | `$R/logs/rc-03-write.log` |
-| route `validate` | 0 (PASS 20/20; spill 77.1 GB) | 528.10 s | 6.898 GB | `$R/logs/rc-04-validate.log` |
+| route `validate` | 0 (PASS 20/20; spill 77.1 GB, the volume's rise during the step) | 528.10 s | 6.898 GB | `$R/logs/rc-04-validate.log` |
 | route against (C), column by column | 0 | 248.88 s | 0.498 GB | `$R/logs/rc-05-g3c-compare.log` |
 
 - **The comparison.** `VERDICT: IDENTICAL` over 71 files, 406,668,896 rows, 1,400 column comparisons, 980 header attributes, 630 schema groups and the sidecar (7,206,195 rows); 9 of 71 files are byte-identical.
@@ -318,16 +319,16 @@ The gate ends "all 4 parity legs PASS", and the tier ends `Scientific Test Summa
 
 ### G4: SHAM and HOD on the subset
 
-Frozen `sham × shin-uchuu` and `hod × shin-uchuu` builds, serial and `USE-MPI=yes`, ran the modules and parameters of the committed `sham_micro-uchuu-ascii-horizontal-realdata.yaml` and `hod_micro-uchuu-ascii-horizontal.yaml` (`$R/scripts/make_runfile.py`; SHAM output snapshot 69, HOD output snapshots 69, 48, 44, 37, 32, 30, 27 and 24). The simulation is `shin-uchuu`, with `simulation_dir` set to the dataset. The `-np 4` runs are `mpirun --oversubscribe -np 4`, and their wall-clock and RSS are the launcher's. Run files are under `$R/runs/subset/<model>-<dataset>/` (the outputs were trashed; see Cleanup), and logs are `$R/logs/run-<model>-<dataset>.log`.
+Frozen `sham × shin-uchuu` and `hod × shin-uchuu` builds, serial and `USE-MPI=yes`, ran the modules and parameters of the committed `sham_micro-uchuu-ascii-horizontal-realdata.yaml` and `hod_micro-uchuu-ascii-horizontal.yaml` (`$R/scripts/make_runfile.py`; SHAM output snapshot 69, HOD output snapshots 69, 48, 44, 37, 32, 30, 27 and 24). The simulation is `shin-uchuu`, with `simulation_dir` set to the dataset. The `-np 4` runs are `mpirun --oversubscribe -np 4`. `/usr/bin/time` timed the launcher, so their peak RSS column gives the wrapper's summed RSS of `mimic` and the launcher instead, sampled every 30 s from the step's start. A run shorter than about 30 s has only the first sample, taken before the ranks start, so it shows only the launcher. Run files are under `$R/runs/subset/<model>-<dataset>/` (the outputs were trashed; see Cleanup), and logs are `$R/logs/run-<model>-<dataset>.log`.
 
 | Run | Wall-clock | Peak RSS |
 |---|---|---|
 | SHAM, version 2 subset | 177.90 s | 6.390 GB |
 | SHAM, migrated subset | 83.33 s | 6.758 GB |
-| SHAM, migrated subset, `-np 4` | 28.50 s | launcher only |
+| SHAM, migrated subset, `-np 4` | 28.50 s | one sample, launcher only (8,896 KiB) |
 | HOD, version 2 subset | 88.10 s | 6.300 GB |
 | HOD, migrated subset | 89.74 s | 6.669 GB |
-| HOD, migrated subset, `-np 4` | 31.89 s | launcher only |
+| HOD, migrated subset, `-np 4` | 31.89 s | 4,871,584 KiB, sampled sum, second of two samples |
 
 | Comparison | Comparator line | Log |
 |---|---|---|
@@ -340,16 +341,16 @@ The three serial SHAM runs (version 2, migrated, cut) log the same audit line, `
 
 ### The cut subset: serial, chunked and distributed
 
-The cut subset `$W/cut/dataset` was run with the committed `halos-only_shin-uchuu.yaml` and `sage16_shin-uchuu.yaml` (output snapshots 24, 27, 30, 32, 37, 44, 48 and 69). Each model ran serially, serially with `input.forest_chunks: 8`, and under `mpirun --oversubscribe -np 4`.
+The cut subset `$W/cut/dataset` was run with the committed `halos-only_shin-uchuu.yaml` and `sage16_shin-uchuu.yaml` (output snapshots 24, 27, 30, 32, 37, 44, 48 and 69). Each model ran serially, serially with `input.forest_chunks: 8`, and under `mpirun --oversubscribe -np 4`; the `-np 4` RSS is sampled as described above.
 
 | Model | Run | Wall-clock | Peak RSS | Comparator line against serial |
 |---|---|---|---|---|
 | `halos-only` | serial | 169.02 s | 9.012 GB | — |
 | `halos-only` | `forest_chunks: 8` | 95.19 s | 1.503 GB | `PASSED: 92429377 galaxies over 8 output snapshot(s) are bitwise identical in all 20 field(s), with identical UniqueGalaxyID sets and no duplicates` |
-| `halos-only` | `-np 4` | 27.59 s | launcher only | `PASSED: 92429377 galaxies over 8 output snapshot(s) are bitwise identical in all 20 field(s), with identical UniqueGalaxyID sets and no duplicates` |
+| `halos-only` | `-np 4` | 27.59 s | one sample, launcher only (8,928 KiB) | `PASSED: 92429377 galaxies over 8 output snapshot(s) are bitwise identical in all 20 field(s), with identical UniqueGalaxyID sets and no duplicates` |
 | `sage16` | serial | 559.66 s | 9.712 GB | — |
 | `sage16` | `forest_chunks: 8` | 568.66 s | 1.777 GB | `PASSED: 60033537 galaxies over 8 output snapshot(s) are bitwise identical in all 42 field(s), with identical UniqueGalaxyID sets and no duplicates` |
-| `sage16` | `-np 4` | 159.11 s | launcher only | `PASSED: 60033537 galaxies over 8 output snapshot(s) are bitwise identical in all 42 field(s), with identical UniqueGalaxyID sets and no duplicates` |
+| `sage16` | `-np 4` | 159.11 s | 9,916,416 KiB, sampled sum of the four ranks and the launcher (max of six samples) | `PASSED: 60033537 galaxies over 8 output snapshot(s) are bitwise identical in all 42 field(s), with identical UniqueGalaxyID sets and no duplicates` |
 
 Logs are `$R/logs/run-<model>-cut[-chunks8|-np4].log` and `$R/logs/cut-<model>-serial-vs-{chunks8,np4}.log`.
 
@@ -401,20 +402,20 @@ Created rows: the migrated HOD run has 28 and the cut run 19.
 
 ### Retained datasets
 
-Three subset datasets are retained on the LaCie for Stage D and Slice 17, together 153,768,520 KiB with the table (157.5 GB, about 0.16 TB):
+Three subset datasets are retained on the LaCie for Stage D and Slice 17. Their workdirs and the table measure together 153,768,520 KiB (157.5 GB, about 0.16 TB; measured at 20:25:36Z on 2026-10-10):
 
-| Dataset | For | Workdir | Manifest | Dataset directory | Size |
+| Dataset | For | Workdir | Manifest | Dataset directory (`du -sk`) | Workdir `du -sk` |
 |---|---|---|---|---|---|
-| version 2 subset | Stage D | `$W/v2-subset` | `$W/v2-subset/manifest.json` | `$W/v2-subset/hdf5` | 40,420,160 KiB |
-| migrated subset ((M)) | Stage D | `$W/migrated` | `$W/migrated/manifest.json` (beside `rewrite_summary.json`, `tree_inventory.npy`, `conversion_report.{json,txt}`) | `$W/migrated/dataset` | 56,501,264 KiB |
-| cut subset ((C)), with its table | Slice 17 | `$W/cut` | `$W/cut/manifest.json` (beside `rewrite_summary.json`, `tree_inventory.npy`, `cut_pieces.npy`, `conversion_report.{json,txt}`) | `$W/cut/dataset` | 56,609,920 KiB; the table, record and summary in `$W/cut-table` (237,176 KiB, md5 `9d26873760092bf0268ee1e7d48203ce`) |
+| version 2 subset | Stage D | `$W/v2-subset` | `$W/v2-subset/manifest.json` (beside `scratch/`, `forest_index_table.npy`, `forest_max_snap.npy`, `conversion_report.{json,txt}`) | `$W/v2-subset/hdf5`, 40,004,580 KiB | 40,420,160 KiB (40,462,472 KiB after `report`; see above) |
+| migrated subset ((M)) | Stage D | `$W/migrated` | `$W/migrated/manifest.json` (beside `rewrite_summary.json`, `tree_inventory.npy`, `conversion_report.{json,txt}`) | `$W/migrated/dataset`, 56,062,956 KiB | 56,501,264 KiB |
+| cut subset ((C)), with its table | Slice 17 | `$W/cut` | `$W/cut/manifest.json` (beside `rewrite_summary.json`, `tree_inventory.npy`, `cut_pieces.npy`, `conversion_report.{json,txt}`) | `$W/cut/dataset`, 56,090,604 KiB | 56,609,920 KiB; the table, record and summary in `$W/cut-table` (237,176 KiB, md5 `9d26873760092bf0268ee1e7d48203ce`) |
 
 **Cleanup.** Once this record was written, every other workdir was moved to the volume's trash with `trash`, never `rm`. Each entry, with its size, is logged in `$R/TRASHED.md`. The trash keeps their space until it is emptied, which is left to the owner.
 
-- **The reference conversion.** `$W/ref` (301,231,688 KiB). Its `manifest.json` (SHA-256 `f97892ee…`) and `conversion_report.{json,txt}` were first copied to `$W/ref-manifest/`: this is the manifest the subset gate read through `MIMIC_SHIN_UCHUU_SUBSET_MANIFEST`. The copy has not itself been run through the gate.
+- **The reference conversion.** `$W/ref` (301,231,688 KiB). Its `manifest.json` (SHA-256 `f97892ee…`) and `conversion_report.{json,txt}` were first copied to `$W/ref-manifest/`: this is the manifest the subset gate read through `MIMIC_SHIN_UCHUU_SUBSET_MANIFEST`. The copy has not itself been run through the gate. After the cleanup, its `ascii_preparation/manifest.json` was copied (not moved) back out of the volume trash to `$W/ref-manifest/ascii_preparation-manifest.json`, the record that the G3 conservation check reads.
 - **The cut-route conversion.** `$W/route-cut` (303,452,924 KiB).
 - **The other rewrites.** The no-op `$W/noop`, the determinism runs `$W/migrated-run2` and `$W/migrated-int`, and every rewriter scratch (`$W/*-scratch`, each empty after its run).
 - **The rest of the work root.** The battery spill directories (`$W/spill-*`, empty), the subset census aggregate `$W/census-subset`, and every micro-Uchuu rewrite, route conversion and spill (`$W/micro`).
 - **On the internal volume.** The model runs' outputs (`$R/runs/subset/*/out`, `$R/runs/micro-hod/{v2,m,s5}`; their run files are kept) and three trial directories of the fixture leg.
 
-What remains under `$W` is the three retained datasets, the cut table and `ref-manifest/`. No source data was touched.
+What remains under `$W` is the three retained datasets, the cut table and `ref-manifest/` (121,900 KiB). No source data was touched.
