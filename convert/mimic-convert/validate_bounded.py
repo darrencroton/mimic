@@ -85,7 +85,9 @@ column):
 - the pair pass: ``64 W`` (five int64 columns and two int32 counters of the
   target snapshot, two int64 columns of the next) + ``ceil(W / 8)`` (the
   visited bitset) + ``ceil(H / 8)`` + ``ceil(N / 8)`` (the two bitsets) +
-  ``8 F`` (the forest start positions) + ``256 B`` (block temporaries).
+  ``8 F`` (the forest start positions) + ``256 B`` (block temporaries) +
+  :data:`DIAGNOSTIC_WORKSPACE_BYTES` (2 MiB: the windows that count a
+  bitset's set bits and find its first clear ones).
 
 The ceiling is the larger of the two, printed at start and refused when it
 exceeds the budget. Beyond it, only a dataset that cannot pass holds
@@ -170,11 +172,18 @@ ROW_BLOCK_EXTRA_BYTES_PER_ROW = 256
 #: these links is built a block of at most ``block_rows`` links at a time.
 FAR_LINK_BYTES = 96
 
-#: Bytes of the popcount table walk per bitset chunk.
-_BITSET_CHUNK = 1 << 24
+#: The pair pass's diagnostic workspace: one fixed allowance, in the
+#: ceiling, for the windows the bitset counts and clear-bit searches walk,
+#: whatever the dataset's size. Each window below is at most this, and they
+#: are never held at once.
+DIAGNOSTIC_WORKSPACE_BYTES = 2 << 20
+
+#: Bytes of the popcount table walk per bitset chunk: the gathered counts are
+#: one byte per bitset byte.
+_BITSET_CHUNK = 1 << 20
 
 #: Bytes searched at a time for a clear bit: the search's temporaries are at
-#: most this many bytes and eight times as many index bytes.
+#: most this many bytes and eight times as many index bytes (576 KiB).
 _CLEAR_SEARCH_BYTES = 1 << 16
 
 _FAR_DTYPE = np.dtype(
@@ -232,6 +241,7 @@ class Ceiling:
             + self.position_bytes
             + self.forest_bytes
             + block * PAIR_BLOCK_BYTES_PER_ROW
+            + DIAGNOSTIC_WORKSPACE_BYTES
         )
         self.total = max(self.row_pass, self.pair_pass)
 
@@ -252,8 +262,8 @@ class Ceiling:
         return (
             "ceiling {} B ({:.2f} GB) = max(row pass {} B, pair pass {} B); pair pass = "
             "{} x {} widest rows + {} visited bitset + {} SourceHaloID bitset ({} ids) + {} "
-            "position bitset ({} halos) + 8 x {} forests + {} x {} block rows; row pass = "
-            "8 x {} forests + (4 x {} + {}) x {} block rows".format(
+            "position bitset ({} halos) + 8 x {} forests + {} x {} block rows + {} diagnostic "
+            "workspace; row pass = 8 x {} forests + (4 x {} + {}) x {} block rows".format(
                 self.total,
                 self.total / 1e9,
                 self.row_pass,
@@ -268,6 +278,7 @@ class Ceiling:
                 self.n_forests_total,
                 PAIR_BLOCK_BYTES_PER_ROW,
                 min(self.block_rows, self.widest_rows),
+                DIAGNOSTIC_WORKSPACE_BYTES,
                 self.n_forests_total,
                 self.row_bytes,
                 ROW_BLOCK_EXTRA_BYTES_PER_ROW,
@@ -409,7 +420,11 @@ class _ForestTotals:
     accumulated block by block from the row pass's identity records."""
 
     def __init__(self, n_forests_total: Optional[int]):
-        self.counts = None if n_forests_total is None else np.zeros(n_forests_total, np.int64)
+        # a negative header count holds no forest: every ForestIndex is then
+        # out of range, which the identity check reports
+        self.counts = (
+            None if n_forests_total is None else np.zeros(max(n_forests_total, 0), np.int64)
+        )
 
     def add(self, records: np.ndarray) -> None:
         if self.counts is None or not records.size:
@@ -980,11 +995,19 @@ class _PairPass:
         top = min(top, totals.size - 1)
         if top < 0:
             return
-        empty = np.flatnonzero(totals[: top + 1] == 0)
+        # a window of at most min(block_rows, W) forests (one byte of mask and
+        # eight of index each, inside the pair pass's block term), or a single
+        # forest when no snapshot holds a halo
+        window = max(1, min(self.block_rows, int(self.counts.max()) if self.counts.size else 0))
+        count, examples = 0, []
+        for start in range(0, top + 1, window):
+            empty = np.flatnonzero(totals[start : min(start + window, top + 1)] == 0) + start
+            count += int(empty.size)
+            examples.extend(int(f) for f in empty[: 5 - len(examples)])
         self.positions.add(
             "ForestIndex value(s) skipping a forest (ASCII forests all hold halos)",
-            int(empty.size),
-            ["ForestIndex {} holds no halo".format(int(f)) for f in empty[:5]],
+            count,
+            ["ForestIndex {} holds no halo".format(f) for f in examples],
         )
 
     def _keys_and_positions(self, snap, halos, forest, source_keys, position_bits, ends) -> None:
@@ -1007,7 +1030,9 @@ class _PairPass:
             within, seen = source_keys.first_and_seen(sid[inside] - 1)
             repeats = np.sort(np.concatenate((within, seen))) + 1
             self.keys.add("duplicated SourceHaloID value(s)", int(repeats.size), repeats.tolist())
-            if position_bits is None:
+            if position_bits is None or not ends.size:
+                # no forest to place a halo in: every ForestIndex is out of
+                # range, which the identity check reports by name
                 continue
             block_forest = forest[start:stop]
             rank = halos["HaloRankInForest"][start:stop].astype(np.int64)

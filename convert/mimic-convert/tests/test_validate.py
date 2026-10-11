@@ -3202,7 +3202,12 @@ def set_header(directory, attr, value, names=None):
 class BoundedAgreementCase(unittest.TestCase):
     """Runs both modes over a dataset and asserts identical verdict sets."""
 
-    def run_both(self, directory, a_list, manifest_path, block_sizes=(None,)):
+    def run_both(self, directory, a_list, manifest_path, block_sizes=(None,), examples=True):
+        """Both modes over one dataset: identical verdicts at every block size,
+        and identical outcome lines across block sizes. When ``examples`` is
+        False a line is compared as the set of its failure counts and kinds,
+        without their examples: which five examples, and which kind, a block
+        order meets first may differ, while no count or kind may."""
         external = validate_v3.run_battery_v3(
             directory, a_list, manifest_path=manifest_path, budget_bytes=V3_BUDGET
         )
@@ -3239,6 +3244,14 @@ class BoundedAgreementCase(unittest.TestCase):
                 )
             # the verdict does not depend on the block size, nor do the details
             current = [o.line() for o in bounded.outcomes]
+            if not examples:
+                current = [
+                    (o.name, o.status)
+                    + tuple(
+                        sorted(p for p in o.detail.split("; ") if not p.startswith("examples: "))
+                    )
+                    for o in bounded.outcomes
+                ]
             if lines is not None:
                 self.assertEqual(current, lines, "block_rows {}".format(block_rows))
             lines = current
@@ -3274,6 +3287,7 @@ class TestBoundedModeAgreement(BoundedAgreementCase):
             kwargs.get("a_list", self.conv.a_list),
             kwargs.get("manifest_path", self.conv.manifest.path),
             block_sizes,
+            examples=kwargs.get("examples", True),
         )
 
     def edited_manifest(self, edit):
@@ -3319,6 +3333,14 @@ class TestBoundedModeAgreement(BoundedAgreementCase):
             "n_forests_total of one file": (
                 lambda d: set_header(d, "n_forests_total", 9, ["snapshot_004.h5"]),
                 "run-scoped-headers",
+            ),
+            "negative n_forests_total": (
+                lambda d: set_header(d, "n_forests_total", -1),
+                "identity",
+            ),
+            "n_forests_total 0 over nonempty slabs": (
+                lambda d: set_header(d, "n_forests_total", 0),
+                "identity",
             ),
             "max rank header": (
                 lambda d: set_header(d, "max_halo_rank_in_forest", 7),
@@ -3451,13 +3473,15 @@ class TestBoundedModeAgreement(BoundedAgreementCase):
             with self.subTest(name):
                 directory = self.copy()
                 mutate(directory)
-                external, _bounded = self.agree(directory)
+                external, _bounded = self.agree(directory, BOUNDED_BLOCK_SIZES[:3], examples=False)
                 self.assertEqual(external[check].status, "FAIL", external[check].line())
 
     def test_another_a_list_gets_the_same_verdicts(self):
         other = Path(self._tmp.name) / "other.a_list"
         other.write_text("".join("{!r}\n".format(0.1 * (i + 1)) for i in range(6)))
-        external, _bounded = self.agree(a_list=other)
+        external, _bounded = self.agree(
+            block_sizes=BOUNDED_BLOCK_SIZES[:3], a_list=other, examples=False
+        )
         self.assertEqual(external["manifest-binding"].status, "FAIL")
         self.assertEqual(external["header-values"].status, "FAIL")
 
@@ -3483,7 +3507,9 @@ class TestBoundedModeAgreement(BoundedAgreementCase):
         ):
             with self.subTest(name):
                 manifest, directory = self.edited_manifest(edit)
-                external, _bounded = self.agree(directory, manifest_path=manifest.path)
+                external, _bounded = self.agree(
+                    directory, BOUNDED_BLOCK_SIZES[:3], manifest_path=manifest.path, examples=False
+                )
                 check = check or "manifest-binding"
                 self.assertEqual(external[check].status, "FAIL", external[check].line())
 
@@ -3808,7 +3834,7 @@ class TestBoundedCeiling(unittest.TestCase):
             row_bytes=140,
             block_rows=100,
         )
-        pair = 64 * 1000 + 125 + 750 + 625 + 8 * 70 + 256 * 100
+        pair = 64 * 1000 + 125 + 750 + 625 + 8 * 70 + 256 * 100 + (2 << 20)
         row = 8 * 70 + (4 * 140 + 256) * 100
         self.assertEqual(ceiling.pair_pass, pair)
         self.assertEqual(ceiling.row_pass, row)
