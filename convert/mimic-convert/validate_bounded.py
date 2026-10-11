@@ -97,8 +97,11 @@ anything: each link that does not join adjacent snapshots costs
 :data:`FAR_LINK_BYTES` from what the budget leaves above the ceiling, and a
 dataset holding more than fit is refused rather than run over budget. Not
 counted, as in the external-sort battery: O(snapshots) header arrays,
-the per-snapshot structure reads and interpreter churn. ``spill_dir`` is
-accepted for a uniform interface and never written: this mode spills nothing.
+the per-snapshot structure reads, the O(source files) per-file conservation
+tallies of the unchanged sidecar check (which only a sidecar that cannot
+pass grows beyond the inventory's file count), and interpreter churn.
+``spill_dir`` is accepted for a uniform interface and never written: this mode
+spills nothing.
 
 ``python validate_bounded.py ceiling ...`` evaluates the ceiling for given
 dataset numbers without a dataset.
