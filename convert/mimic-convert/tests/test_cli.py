@@ -298,6 +298,8 @@ class StageChainTests(CliCase):
         self.assertEqual(len(list(dataset.glob("snapshot_*.h5"))), n_snapshots)
         report = json.loads((work / "conversion_report.json").read_text())
         self.assertTrue(report["validation_passed"])
+        # the text report names the battery that settled the verdicts
+        self.assertIn(", external-sort battery\n", (work / "conversion_report.txt").read_text())
         # Format capability ("format consumed"), not route validation.
         self.assertIs(report["runtime_compatibility"]["runnable_by_current_mimic"], True)
         if n_halos is not None:
