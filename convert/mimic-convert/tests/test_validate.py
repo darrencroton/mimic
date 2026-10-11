@@ -3315,6 +3315,7 @@ class TestBoundedModeAgreement(BoundedAgreementCase):
             "extra root object": (lambda d: self.add_root_group(d), "object-set"),
             "narrowed link dtype": (lambda d: self.narrow(d), "object-set"),
             "scalar SourceHaloID": (lambda d: self.scalar_key(d), "object-set"),
+            "/halos a dataset, not a group": (lambda d: self.halos_dataset(d), "object-set"),
             "missing file": (lambda d: (d / "snapshot_003.h5").unlink(), "file-set"),
             "extra sidecar dataset": (lambda d: self.add_sidecar_dataset(d), "sidecar-object-set"),
             "schema units of one file": (
@@ -3522,6 +3523,11 @@ class TestBoundedModeAgreement(BoundedAgreementCase):
     def add_sidecar_dataset(self, directory):
         with h5py.File(directory / "forests.h5", "r+") as handle:
             handle.create_dataset("Extra", data=np.zeros(5, "<i8"), chunks=(5,))
+
+    def halos_dataset(self, directory):
+        with h5py.File(directory / "snapshot_004.h5", "r+") as handle:
+            del handle["halos"]
+            handle.create_dataset("halos", data=np.zeros(5, "<i8"))
 
     def scalar_key(self, directory):
         with h5py.File(directory / "snapshot_004.h5", "r+") as handle:
@@ -3813,6 +3819,55 @@ class TestBoundedModeRefusals(unittest.TestCase):
             with self.assertRaisesRegex(ConverterError, "do not join adjacent snapshots"):
                 self.bounded(self.gapped, directory)
 
+    def test_every_inherited_reader_gets_the_charged_block(self):
+        # the battery hands its one effective block to the inherited sidecar
+        # reader and row scan: here min(block_rows, W) = W = 9 rows
+        calls = []
+        real = validate_bounded._v3_sidecar_content
+
+        def recording(*args):
+            calls.append(args[-1])
+            return real(*args)
+
+        with mock.patch.object(validate_bounded, "_v3_sidecar_content", side_effect=recording):
+            result = self.bounded(self.adjacent)
+        ceiling = result.measurements["ceiling"]
+        self.assertEqual(ceiling["effective_block_rows"], 9)
+        self.assertEqual(calls, [9])
+        self.assertEqual(result.measurements["scan_rows"], 9)
+        # many empty forests and few halos (256 forests per row of the widest
+        # snapshot): the sidecar's forest rows are read within the ceiling's
+        # block and forest terms, not in a block_rows window
+        n_forests = 1 << 20
+        path = Path(self._tmp.name) / "wide_sidecar.h5"
+        with h5py.File(path, "w") as handle:
+            for name, values in (
+                ("ForestID", np.arange(n_forests, dtype="<i8")),
+                ("SourceFileOrdinal", np.zeros(n_forests, dtype="<i8")),
+                ("SourceUnitOrdinal", np.arange(n_forests, dtype="<i8")),
+            ):
+                handle.create_dataset(name, data=values, chunks=(65536,))
+        wide = validate_bounded.Ceiling(4096, 4096, 4096, n_forests, 140)
+        self.assertEqual(wide.block, 4096)
+        terms = wide.forest_bytes + validate_bounded.PAIR_BLOCK_BYTES_PER_ROW * wide.block
+
+        def peak_of(block):
+            tracemalloc.start()
+            try:
+                failures = validate_bounded._v3_sidecar_content(
+                    path, "consistent_trees_ascii", n_forests, None, block
+                )
+                return failures, tracemalloc.get_traced_memory()[1]
+            finally:
+                tracemalloc.stop()
+
+        failures, peak = peak_of(wide.block)
+        self.assertEqual(failures, [])
+        self.assertLess(peak, terms)
+        # the unrestricted block_rows window this replaces does not fit
+        _failures, peak = peak_of(validate_bounded.DEFAULT_BLOCK_ROWS)
+        self.assertGreater(peak, terms)
+
     def test_the_external_sort_battery_stays_the_default(self):
         result = validate_v3.run_battery_v3(
             self.adjacent.dataset,
@@ -3839,6 +3894,9 @@ class TestBoundedCeiling(unittest.TestCase):
         self.assertEqual(ceiling.pair_pass, pair)
         self.assertEqual(ceiling.row_pass, row)
         self.assertEqual(ceiling.total, max(pair, row))
+        # the effective block is at least one row when no snapshot holds a halo
+        self.assertEqual(validate_bounded.effective_block_rows(1 << 20, 0), 1)
+        self.assertEqual(validate_bounded.Ceiling(0, 0, 0, 5, 140).block, 1)
 
     def test_shin_uchuu_numbers_fit_below_64_gb(self):
         for n_forests in (166547771, 244953607):

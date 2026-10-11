@@ -77,8 +77,10 @@ Identity bounds (header-bounds)   Unchanged.
 ``block_rows`` rows (never one read above ``INT32_MAX`` rows) and holds, by
 phase (``W`` the widest snapshot's rows, ``N`` the dataset's halos, ``H`` the
 inventory's ``total_halos``, ``F`` the headers' ``n_forests_total``, ``B``
-``min(block_rows, W)``, ``R`` the bytes of one row of every ``/halos``
-column):
+``max(1, min(block_rows, W))`` the effective block, ``R`` the bytes of one
+row of every ``/halos`` column). ``B`` is the one block size every read and
+window uses, the sidecar's forest rows included, so a dataset of many empty
+forests and few halos stays inside it:
 
 - the row pass: ``8 F`` (per-forest totals) + ``B (4 R + 256)`` (the block
   and its temporaries);
@@ -225,7 +227,8 @@ class Ceiling:
         self.n_forests_total = int(n_forests_total)
         self.row_bytes = int(row_bytes)
         self.block_rows = int(block_rows)
-        block = min(self.block_rows, self.widest_rows)
+        self.block = effective_block_rows(self.block_rows, self.widest_rows)
+        block = self.block
         self.forest_bytes = 8 * max(self.n_forests_total, 0)
         self.row_pass = self.forest_bytes + block * (
             4 * self.row_bytes + ROW_BLOCK_EXTRA_BYTES_PER_ROW
@@ -253,6 +256,7 @@ class Ceiling:
             "n_forests_total": self.n_forests_total,
             "row_bytes": self.row_bytes,
             "block_rows": self.block_rows,
+            "effective_block_rows": self.block,
             "row_pass_bytes": self.row_pass,
             "pair_pass_bytes": self.pair_pass,
             "ceiling_bytes": self.total,
@@ -277,14 +281,21 @@ class Ceiling:
                 self.n_halos,
                 self.n_forests_total,
                 PAIR_BLOCK_BYTES_PER_ROW,
-                min(self.block_rows, self.widest_rows),
+                self.block,
                 DIAGNOSTIC_WORKSPACE_BYTES,
                 self.n_forests_total,
                 self.row_bytes,
                 ROW_BLOCK_EXTRA_BYTES_PER_ROW,
-                min(self.block_rows, self.widest_rows),
+                self.block,
             )
         )
+
+
+def effective_block_rows(block_rows: int, widest_rows: int) -> int:
+    """The block every read and window of the battery uses, and the one its
+    ceiling charges: at most ``block_rows`` and the widest snapshot's rows,
+    and at least one row (when no snapshot holds a halo)."""
+    return max(1, min(int(block_rows), int(widest_rows)))
 
 
 def _bitset_bytes(n_bits: int) -> int:
@@ -995,10 +1006,9 @@ class _PairPass:
         top = min(top, totals.size - 1)
         if top < 0:
             return
-        # a window of at most min(block_rows, W) forests (one byte of mask and
-        # eight of index each, inside the pair pass's block term), or a single
-        # forest when no snapshot holds a halo
-        window = max(1, min(self.block_rows, int(self.counts.max()) if self.counts.size else 0))
+        # a window of one effective block of forests (one byte of mask and
+        # eight of index each, inside the pair pass's block term)
+        window = self.block_rows
         count, examples = 0, []
         for start in range(0, top + 1, window):
             empty = np.flatnonzero(totals[start : min(start + window, top + 1)] == 0) + start
@@ -1128,9 +1138,10 @@ class _PairPass:
 def _preflight(directory: Path, n_snapshots: int) -> List[Dict[str, object]]:
     """What the ceiling and the refusals need, from each readable snapshot
     file's header and dataset shapes: nothing is read beyond them. A file
-    that is missing or does not open, and a file whose SourceHaloID is not a
-    one-dimensional dataset, contribute no rows: they are left to the
-    structural checks (a declared links_adjacent is still read)."""
+    that is missing or does not open, and a file whose /halos is not a group
+    or whose SourceHaloID is not a one-dimensional dataset, contribute no
+    rows: they are left to the structural checks (a declared links_adjacent
+    is still read)."""
     found = []
     for snap in range(n_snapshots):
         path = directory / snapshot_h5_name(snap)
@@ -1145,14 +1156,15 @@ def _preflight(directory: Path, n_snapshots: int) -> List[Dict[str, object]]:
                     entry["links_adjacent"] = np.asarray(attrs["links_adjacent"])[()].item()
                 if "n_forests_total" in attrs:
                     entry["n_forests_total"] = int(np.asarray(attrs["n_forests_total"])[()])
-                key = halos.get("SourceHaloID")
-                if isinstance(key, h5py.Dataset) and key.ndim == 1:
-                    entry["rows"] = int(key.shape[0])
-                entry["row_bytes"] = sum(
-                    int(halos[name].dtype.itemsize) * int(np.prod(halos[name].shape[1:]))
-                    for name in halos
-                    if isinstance(halos.get(name), h5py.Dataset)
-                )
+                if isinstance(halos, h5py.Group):
+                    key = halos.get("SourceHaloID")
+                    if isinstance(key, h5py.Dataset) and key.ndim == 1:
+                        entry["rows"] = int(key.shape[0])
+                    entry["row_bytes"] = sum(
+                        int(halos[name].dtype.itemsize) * int(np.prod(halos[name].shape[1:]))
+                        for name in halos
+                        if isinstance(halos.get(name), h5py.Dataset)
+                    )
         except (OSError, KeyError, TypeError, ValueError):
             continue
         found.append(entry)
@@ -1230,7 +1242,7 @@ def run_battery_bounded(
         n_halos=sum(rows),
         total_halos=total_halos,
         n_forests_total=max((int(e.get("n_forests_total", 0)) for e in preflight), default=0),
-        row_bytes=max((int(entry["row_bytes"]) for entry in preflight), default=0),
+        row_bytes=max((int(e.get("row_bytes", 0)) for e in preflight), default=0),
         block_rows=block_rows,
     )
     print(
@@ -1241,6 +1253,8 @@ def run_battery_bounded(
             "the bounded battery's ceiling {} B exceeds the budget of {} B (--memory-budget-mb "
             "{}): {}".format(ceiling.total, budget_bytes, budget_bytes >> 20, ceiling.describe())
         )
+    # the one block size every read and window below uses: what the ceiling charges
+    block = ceiling.block
 
     outcomes: List[Outcome] = []
     measurements: Dict[str, object] = {
@@ -1321,13 +1335,12 @@ def run_battery_bounded(
         [header["box_size_mpc_h"] for header in headers],
         declarations[0],
         n_forests_total,
-        block_rows,
+        block,
         budget_bytes - ceiling.total,
         meter,
     )
     totals = scan.forest_totals.counts
     totals_bytes = 0 if totals is None else int(totals.nbytes)
-    block = min(block_rows, max(counts, default=0))
     row_block_bytes = block * (4 * ceiling.row_bytes + ROW_BLOCK_EXTRA_BYTES_PER_ROW)
     meter.acquire(totals_bytes + row_block_bytes)
     scan.run()
@@ -1370,7 +1383,7 @@ def run_battery_bounded(
         identity=run_scoped_ok,
         source_format=source_format,
         inventory=inventory,
-        block_rows=block_rows,
+        block_rows=block,
         meter=meter,
     )
     pair_block_bytes = block * PAIR_BLOCK_BYTES_PER_ROW
@@ -1401,7 +1414,7 @@ def run_battery_bounded(
         record(
             "sidecar-content",
             _v3_sidecar_content(
-                directory / "forests.h5", source_format, n_forests_total, inventory, block_rows
+                directory / "forests.h5", source_format, n_forests_total, inventory, block
             ),
         )
     else:
@@ -1412,7 +1425,7 @@ def run_battery_bounded(
         len_zero=scan.len_zero,
         links_adjacent_measured=measured_adjacent,
         chain_edges=scan.n_chain_edges,
-        scan_rows=block_rows,
+        scan_rows=block,
         far_links=int(far.size),
         peak_resident_bytes=int(meter.bytes_peak),
         peak_spill_bytes=0,
