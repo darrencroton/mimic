@@ -56,6 +56,7 @@ import io
 import shutil
 import sys
 import tempfile
+import tracemalloc
 from pathlib import Path
 
 import h5py
@@ -1069,6 +1070,87 @@ def test_cut_report_unplaceable_record_is_an_input_error():
 
 
 # --------------------------------------------------------------------------
+# Memory: no comparison copies a run's records
+# --------------------------------------------------------------------------
+
+
+def wide_records(rows, forests, multiplier):
+    """One snapshot of `rows` tree galaxies in `forests` equal forests, about 300 B a record.
+
+    A production output snapshot holds hundreds of millions of 264 B records,
+    so the record, not the 8 B keys, is what a copy would cost.
+    """
+    payload = [(f"Field{index:02d}", "<f8") for index in range(32)]
+    records = numpy.zeros(rows, dtype=PAIRED_DTYPE.descr + payload + [("Pos", "<f4", (3,))])
+    rank, forest = numpy.arange(rows) % (rows // forests), numpy.arange(rows) // (rows // forests)
+    records["UniqueGalaxyID"] = 1 + rank + multiplier * (forest + 1)
+    records["UniqueCentralGalaxyID"] = records["UniqueGalaxyID"]
+    records["MostBoundID"] = numpy.arange(rows)[::-1] + 1
+    records["SnapNum"] = PAIRED_SNAP
+    records["StellarMass"] = numpy.arange(rows) * 0.5
+    for name, _ in payload:
+        records[name] = numpy.arange(rows) + 0.25
+    return records
+
+
+def peak_traced_bytes(call):
+    """The peak bytes traced while `call` runs, its stdout discarded."""
+    tracemalloc.start()
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            outcome = call()
+        return tracemalloc.get_traced_memory()[1], outcome
+    finally:
+        tracemalloc.stop()
+
+
+def test_no_comparison_copies_a_runs_records():
+    """The default rule, the catalogue pairing and the cut report each stay below one run's records.
+
+    A copy of either run's records (a boolean selection that keeps every row,
+    the paired records, or their concatenation) traces at least that run's
+    record bytes; positions, keys, masks, the pairing's sorts and one gathered
+    field at a time stay below it (about 0.2, 0.7 and 0.8 of it on these
+    304 B records). Each comparison must also find the identical runs
+    identical, so the bound is not met by skipping the work.
+    """
+    print("Testing that no comparison copies a run's records...")
+    rows, forests, multiplier = 200_000, 50, 10_000
+    left, right = wide_records(rows, forests, multiplier), wide_records(rows, forests, multiplier)
+    budget = left.nbytes
+    labels = ("left", "right")
+    sidecar = numpy.arange(forests, dtype=numpy.int64) + 10
+    record = comparator.CutRecord(
+        numpy.array([10], dtype=numpy.int64), numpy.array([10], dtype=numpy.int64), forests + 9
+    )
+    cases = {
+        "the default rule": lambda: comparator.compare_snapshot(
+            PAIRED_SNAP, left, right, labels, 10
+        ),
+        "the catalogue pairing": lambda: comparator.compare_snapshot_matched(
+            PAIRED_SNAP, left, right, labels, 10, comparator.Matching("catalogue", None)
+        ),
+        "the cut report": lambda: comparator.compare_snapshot_matched(
+            PAIRED_SNAP,
+            left,
+            right,
+            labels,
+            10,
+            comparator.Matching("catalogue", None),
+            comparator.CutReport(multiplier, (sidecar, sidecar), record, False),
+        ),
+    }
+    for what, call in cases.items():
+        peak, outcome = peak_traced_bytes(call)
+        assert outcome.failures == 0 and outcome.tree_rows == rows, f"{what}: {outcome}"
+        assert peak < budget, (
+            f"{what} traced {peak} B at its peak, at least one run's {left.nbytes} B of "
+            f"records: a copy of the records was made"
+        )
+    print(f"  ✓ every comparison stays below one run's {left.nbytes} B of records")
+
+
+# --------------------------------------------------------------------------
 # Unreadable input is an input error, never a difference
 # --------------------------------------------------------------------------
 
@@ -1154,6 +1236,7 @@ def main():
             test_cut_report_places_an_inherited_created_record_through_its_central,
             test_cut_report_checks_the_multiplier_against_both_runs,
             test_cut_report_unplaceable_record_is_an_input_error,
+            test_no_comparison_copies_a_runs_records,
             test_truncated_partition_is_an_input_error,
             test_missing_run_directory_is_an_input_error,
             test_directory_without_partitions_is_an_input_error,

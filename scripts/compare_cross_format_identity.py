@@ -107,13 +107,22 @@ difference would send someone hunting a physics bug that does not exist.
 Both runs are read one output snapshot at a time rather than held whole. The
 comparator exists to compare production runs, and its memory is heaviest exactly
 when a large divergence is being diagnosed, which is the worst moment to run out
-of it. An alternate pairing copies each run's snapshot records up to three
-more times while it pairs them (split into tree and created rows, the paired
-rows, and their concatenation); while the fields are compared it holds, beside
-both runs' snapshot records, only each run's concatenated paired records, a
-one-byte tree mask per pair and, under the cut report, each pair's forest
-(8 B) and a one-byte reported mask. The cut-difference report adds, for the
-whole comparison, both sidecars' ``ForestID`` columns (8 B per forest each),
+of it. Beside both runs' snapshot records, nothing holds a second copy of them
+when every row is compared: the default rule compares the records as read (a
+snapshot with rows it does not compare -- created rows without
+``--compare-created`` -- is first reduced to a copy of its compared rows), and
+an alternate pairing selects and pairs rows by position (``Rows``). It holds
+8 B per row for each run's tree and created rows, then 8 B per pair for each
+run's paired positions, a one-byte tree mask per pair and, under the cut
+report, each pair's forest (8 B) and a one-byte reported mask, and gathers one
+field of the pairs at a time while the fields are compared. The pairing keys
+(8 B per key column per row) and the sorts that pair them are transient.
+Measured with ``tracemalloc`` beside both runs' records, a comparison peaked at
+about 53 B per row of one run under the default rule, 210 B under the
+catalogue pairing and 231 B with the cut report as well. A Shin-Uchuu output
+snapshot holds up to 490 million records of 264 B, about 130 GB per run,
+which is why no step may copy a run's records. The cut-difference report adds,
+for the whole comparison, both sidecars' ``ForestID`` columns (8 B per forest each),
 the record's piece ids and their original forests (16 B per piece, plus one
 column's line and its text, about 26 B per piece, while it is parsed), and its
 per-forest tallies (about 40 B per reported forest per snapshot, and 16 B per
@@ -436,16 +445,46 @@ def compared_rows(records, compare_created=False):
     negative ones; no encoder produces 0, so a zero id is a defect the caller
     reports rather than a row to skip. The compared rows are the tree rows, plus
     the created rows when `compare_created` is set. The counts are of ids
-    greater than, less than and equal to zero respectively.
+    greater than, less than and equal to zero respectively. When every row is
+    compared the records themselves are returned, never a copy of them.
     """
     ids = records[ID_FIELD]
     compared = ids != 0 if compare_created else ids > 0
     return (
-        records[compared],
+        records if compared.all() else records[compared],
         int(numpy.count_nonzero(ids > 0)),
         int(numpy.count_nonzero(ids < 0)),
         int(numpy.count_nonzero(ids == 0)),
     )
+
+
+class Rows:
+    """Some rows of one snapshot's records, held as their positions in them.
+
+    ``rows[name]`` gathers one field of the selected rows, so a selection costs
+    8 B per row instead of a copy of every record it holds; ``rows.at(name, i)``
+    reads one field of the i-th row alone. ``len`` and ``dtype`` answer as the
+    records would.
+    """
+
+    __slots__ = ("records", "positions")
+
+    def __init__(self, records, positions):
+        self.records = records
+        self.positions = positions
+
+    def __len__(self):
+        return len(self.positions)
+
+    def __getitem__(self, name):
+        return self.records[name][self.positions]
+
+    def at(self, name, row):
+        return self.records[name][self.positions[row]]
+
+    @property
+    def dtype(self):
+        return self.records.dtype
 
 
 def report_created(snap, created, labels):
@@ -941,26 +980,29 @@ def pair_snapshot(snap, left, right, labels, max_report, matching, cut):
     ``compare_snapshot_matched``.
 
     Returns (failures, pairs): `pairs` is None when nothing was paired, else (the
-    first run's paired records, the second run's, a tree-row mask, each pair's
-    original forest or None, tree pairs, created pairs). Every per-kind copy
-    made here goes out of scope on return, so the field comparison holds only
-    the concatenated pairs.
+    first run's paired records' positions in its snapshot records, the second
+    run's, a tree-row mask, each pair's original forest or None, tree pairs,
+    created pairs). Rows are selected and paired by position (``Rows``), so no
+    record is copied here.
     """
     left_label, right_label = labels
     failures = 0
     runs = []
     for side, records in enumerate((left, right)):
         ids = records[ID_FIELD]
-        tree = records[ids > 0]
+        tree = Rows(records, numpy.flatnonzero(ids > 0))
         # Created rows are split off and placed only when they are compared.
-        made = records[ids < 0] if matching.created is not None else records[:0]
+        made = Rows(
+            records,
+            numpy.flatnonzero(ids < 0) if matching.created is not None else numpy.zeros(0, int),
+        )
         placed = (None, None)
         if cut is not None:
             placed = cut.place(side, tree, made, f"{labels[side]} Snap{snap:03d}")
         runs.append({"tree": (tree, placed[0]), "created": (made, placed[1])})
 
     kinds = ["tree", *(["created"] if matching.created is not None else [])]
-    paired = []  # (kind, left rows, right rows, forests or None)
+    paired = []  # (kind, left positions, right positions, forests or None)
     for kind in kinds:
         (left_rows, left_forests), (right_rows, right_forests) = runs[0][kind], runs[1][kind]
         left_keys = pairing_keys(left_rows, kind, matching)
@@ -1008,16 +1050,20 @@ def pair_snapshot(snap, left, right, labels, max_report, matching, cut):
                     f"{int(right_forests[right_index][moved][0])}; the sidecars or the cut "
                     f"record do not describe these runs"
                 )
-        paired.append((kind, left_rows[left_index], right_rows[right_index], forests))
+        paired.append(
+            (kind, left_rows.positions[left_index], right_rows.positions[right_index], forests)
+        )
 
-    counts = {kind: len(rows) for kind, rows, _, _ in paired}
+    counts = {kind: len(positions) for kind, positions, _, _ in paired}
     tree_pairs, created_pairs = counts.get("tree", 0), counts.get("created", 0)
     if tree_pairs + created_pairs == 0:
         return failures, None
     return failures, (
-        numpy.concatenate([rows for _, rows, _, _ in paired]),
-        numpy.concatenate([rows for _, _, rows, _ in paired]),
-        numpy.concatenate([numpy.full(len(rows), kind == "tree") for kind, rows, _, _ in paired]),
+        numpy.concatenate([positions for _, positions, _, _ in paired]),
+        numpy.concatenate([positions for _, _, positions, _ in paired]),
+        numpy.concatenate(
+            [numpy.full(len(positions), kind == "tree") for kind, positions, _, _ in paired]
+        ),
         None if cut is None else numpy.concatenate([f for _, _, _, f in paired]),
         tree_pairs,
         created_pairs,
@@ -1060,8 +1106,10 @@ def compare_snapshot_matched(snap, left, right, labels, max_report, matching, cu
         if not failures:
             print(f"  ok   Snap{snap:03d}: both runs are empty")
         return SnapshotResult(failures, 0, created, 0)
-    pair_left, pair_right, is_tree, forests, tree_pairs, created_pairs = pairs
+    left_positions, right_positions, is_tree, forests, tree_pairs, created_pairs = pairs
     del pairs
+    # Each field is gathered from the snapshot records when it is compared.
+    pair_left, pair_right = Rows(left, left_positions), Rows(right, right_positions)
 
     def result(failures):
         return SnapshotResult(failures, tree_pairs, created, created_pairs)
@@ -1120,20 +1168,21 @@ def compare_snapshot_matched(snap, left, right, labels, max_report, matching, cu
         print(f"    {name}: {total} record(s) differ")
         for row in sample:
             pair = (
-                f"{ID_FIELD} {int(pair_left[ID_FIELD][row])} <-> {int(pair_right[ID_FIELD][row])}"
+                f"{ID_FIELD} {int(pair_left.at(ID_FIELD, row))} <-> "
+                f"{int(pair_right.at(ID_FIELD, row))}"
             )
             if name == CENTRAL_FIELD:
                 found, mapped = central
-                left_central = int(pair_left[CENTRAL_FIELD][row])
+                left_central = int(pair_left.at(CENTRAL_FIELD, row))
                 maps = f"maps to {int(mapped[row])}" if found[row] else "is paired with no record"
                 print(
                     f"      {pair}: {left_label} central {left_central} {maps}, "
-                    f"{right_label} central {int(pair_right[CENTRAL_FIELD][row])}"
+                    f"{right_label} central {int(pair_right.at(CENTRAL_FIELD, row))}"
                 )
             else:
                 print(
-                    f"      {pair}: {left_label}={pair_left[name][row]!r} "
-                    f"{right_label}={pair_right[name][row]!r}"
+                    f"      {pair}: {left_label}={pair_left.at(name, row)!r} "
+                    f"{right_label}={pair_right.at(name, row)!r}"
                 )
         if total > max_report:
             print(f"      ... and {total - max_report} more record(s)")
