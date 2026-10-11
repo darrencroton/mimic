@@ -146,6 +146,8 @@ class TestV3Report(unittest.TestCase):
         self.assertNotIn("NOT RUNNABLE BY THE CURRENT MIMIC", text)
         self.assertIn("format consumed by the current Mimic: YES", text)
         self.assertIn("INSUFFICIENT for runtime execution", text)
+        spill = self.report["resources"]["validation"]["peak_spill_bytes"]
+        self.assertIn("/ spill {} byte(s), external-sort battery\n".format(spill), text)
 
     def test_consumer_fragment_has_native_units_types_and_core_roles(self):
         section = self.report["consumer_metadata_fragment"]

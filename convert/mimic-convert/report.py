@@ -580,7 +580,7 @@ def render_text_v3(report: dict) -> str:
             "" if multiplier["reason"] is None else " ({})".format(multiplier["reason"]),
         ),
         "resources: {} byte(s) emitted ({} B/halo); transpose peak resident {} / spill {} "
-        "byte(s); validation peak resident {} / spill {} byte(s)".format(
+        "byte(s); validation peak resident {} / spill {} byte(s), {} battery{}".format(
             resources["emitted_bytes"],
             (
                 "n/a"
@@ -591,6 +591,12 @@ def render_text_v3(report: dict) -> str:
             resources["transpose"]["peak_spill_bytes"],
             resources["validation"]["peak_resident_bytes"],
             resources["validation"]["peak_spill_bytes"],
+            resources["validation"]["battery_mode"],
+            (
+                ""
+                if resources["validation"]["ceiling_bytes"] is None
+                else " (ceiling {} byte(s))".format(resources["validation"]["ceiling_bytes"])
+            ),
         ),
         "           ({})".format(resources["note"]),
         "",

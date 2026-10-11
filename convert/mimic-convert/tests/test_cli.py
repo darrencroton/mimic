@@ -304,7 +304,35 @@ class StageChainTests(CliCase):
             self.assertEqual(report["totals"]["halos"], n_halos)
         self.assertEqual(os.listdir(self.cwd), [], "a stage wrote into its working directory")
         self.assertEqual(package_files(package), before, "the conversion touched the package")
+        if expect_adjacent:
+            self.assert_bounded_mode_agrees(work)
         return work
+
+    def assert_bounded_mode_agrees(self, work):
+        """The bounded mode gives the default battery's 20 check statuses on
+        an adjacent conversion, at its default block and at blocks of one
+        and two rows, so every chain and run crosses block boundaries."""
+        from conversion_manifest import ConversionManifest
+        from validate_bounded import DEFAULT_BLOCK_ROWS, run_battery_bounded
+        from validate_v3 import V3_CHECKS, run_battery_v3
+
+        manifest = ConversionManifest.load(work)
+        dataset = manifest.artifact_path(manifest.stage("write")["directory"])
+        a_list = manifest.configuration["snapshots"]["a_list_path"]
+        budget = int(BUDGET_MB) << 20
+        default = run_battery_v3(dataset, a_list, manifest_path=manifest.path, budget_bytes=budget)
+        expected = {outcome.name: outcome.status for outcome in default.outcomes}
+        self.assertEqual(list(expected), list(V3_CHECKS))
+        for block_rows in (DEFAULT_BLOCK_ROWS, 1, 2):
+            with contextlib.redirect_stderr(io.StringIO()):
+                bounded = run_battery_bounded(
+                    dataset, a_list, manifest.path, budget_bytes=budget, block_rows=block_rows
+                )
+            self.assertEqual(
+                {outcome.name: outcome.status for outcome in bounded.outcomes},
+                expected,
+                "block_rows {}".format(block_rows),
+            )
 
     def test_micro_uchuu_lhalo_binary(self):
         data = SIMULATIONS / "micro-uchuu" / "_tests" / "data"
@@ -419,6 +447,10 @@ class BoundedBatteryTests(CliCase):
         self.assertEqual(validation["battery_mode"], "bounded")
         self.assertIn(
             "bounded battery: ceiling {} B".format(validation["ceiling_bytes"]), reported.stderr
+        )
+        self.assertIn(
+            "bounded battery (ceiling {} byte(s))".format(validation["ceiling_bytes"]),
+            (work / "conversion_report.txt").read_text(),
         )
         self.assertEqual(list(spill.iterdir()), [], "the bounded mode wrote to --spill-dir")
         self.assertEqual(os.listdir(self.cwd), [])
