@@ -1078,7 +1078,9 @@ def wide_records(rows, forests, multiplier):
     """One snapshot of `rows` tree galaxies in `forests` equal forests, about 300 B a record.
 
     A production output snapshot holds hundreds of millions of 264 B records,
-    so the record, not the 8 B keys, is what a copy would cost.
+    so the record, not the 8 B keys, is what a copy would cost. A production
+    multiplier keeps the ids as sparse as a real run's, so the set operations
+    take the same path they take on production output.
     """
     payload = [(f"Field{index:02d}", "<f8") for index in range(32)]
     records = numpy.zeros(rows, dtype=PAIRED_DTYPE.descr + payload + [("Pos", "<f4", (3,))])
@@ -1110,12 +1112,12 @@ def test_no_comparison_copies_a_runs_records():
     A copy of either run's records (a boolean selection that keeps every row,
     the paired records, or their concatenation) traces at least that run's
     record bytes; positions, keys, masks, the pairing's sorts and one gathered
-    field at a time stay below it (about 0.2, 0.7 and 0.8 of it on these
+    field at a time stay below it (about 0.23, 0.69 and 0.76 of it on these
     304 B records). Each comparison must also find the identical runs
     identical, so the bound is not met by skipping the work.
     """
     print("Testing that no comparison copies a run's records...")
-    rows, forests, multiplier = 200_000, 50, 10_000
+    rows, forests, multiplier = 200_000, 50, 20_000_000_000
     left, right = wide_records(rows, forests, multiplier), wide_records(rows, forests, multiplier)
     budget = left.nbytes
     labels = ("left", "right")

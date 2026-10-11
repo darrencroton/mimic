@@ -124,11 +124,11 @@ table-based set difference), 210 B under the catalogue pairing and 231 B with
 the cut report as well. A Shin-Uchuu output snapshot holds up to 490 million
 records of 264 B, about 130 GB per run, which is why no step may copy a run's
 records. The cut-difference report adds, for the whole comparison, both
-sidecars' ``ForestID`` columns (8 B per forest each),
-the record's piece ids and their original forests (16 B per piece, plus one
-column's line and its text, about 26 B per piece, while it is parsed), and its
-per-forest tallies (about 40 B per reported forest per snapshot, and 16 B per
-differing field of each).
+sidecars' ``ForestID`` columns (8 B per forest each), the record's piece ids
+and their original forests (16 B per piece, plus one column's line and its
+text, about 26 B per piece, while it is parsed), and its per-forest tallies
+(about 40 B per reported forest per snapshot, and 16 B per differing field of
+each).
 """
 
 import argparse
