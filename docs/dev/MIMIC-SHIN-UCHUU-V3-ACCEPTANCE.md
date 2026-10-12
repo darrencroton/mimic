@@ -461,3 +461,115 @@ The row pass is 2,188,020,184 B (uncut) and 2,815,266,872 B (cut). Both ceilings
 The two modes' verdict sets are identical check by check on both datasets (every one of the 20 checks PASS in both). The subset's widest snapshot holds 9,006,294 rows (`W`), `N` = `H` = 406,668,896, `F` 6,011,205 (migrated) and 7,206,195 (cut). The bounded mode spilled nothing (the spill directory stayed at 0 KiB through every sample). The external-sort figures agree with Stage R's: its `validate` and `report` runs peaked at 6.89–6.90 GB RSS (`/usr/bin/time`), and the retained reports' `peak_spill_bytes` are 77.7 GB (migrated, 77,739,111,152 B) and 77.1 GB (cut, 77,141,120,528 B); the 15 s sampling here can miss the briefest peaks. The spill directory was empty after every run. Nothing was trashed.
 
 **Code under test.** The external-sort runs ran the working tree at `b18b5d17` with the slice's first uncommitted changes (`$C/code-identity.txt`); the external-sort mode's code (`validate_v3.py` beyond its dispatch) is unchanged since, so they are not repeated. The bounded rows ran the code the slice's final commit holds (`$C/code-identity-final4.txt`, unchanged at the end of the reruns: `validate_bounded.py` md5 `deba4e14b5d1b6a08e110fc802e36a54`, `validate_v3.py` `484750f7f2b68fd7b911fb56eed00616`, `convert_trees.py` `8ec4a591dc3dc91e96ba7eacc6603b4c`, `report.py` `0046d7f762912b09b3b3e5a9b1cdcb71`). They supersede four earlier bounded rounds on earlier code, each with the same verdicts, no spill and RSS within 0.5 % of these: `$C/validate-bounded-{migrated,cut}.*` (270.81 s and 269.31 s), `$C/validate-bounded-final-{migrated,cut}.*` (216.57 s and 196.40 s), `$C/validate-bounded-final2-{migrated,cut}.*` (159.21 s and 162.01 s) and `$C/validate-bounded-final3-{migrated,cut}.*` (206.08 s and 221.36 s). The first two printed ceilings 2,097,152 B lower, before the ceiling gained the fixed diagnostic workspace; the later two printed the same ceilings as these. The wall times vary between rounds by up to 40 % (159–271 s) with the external volume's read rate, while the CPU times stay at 116–122 s user. The last code change before these runs was a docstring clause on what the ceiling does not count.
+
+### The production procedure (Mode A)
+
+The owner ran the plan's production procedure (steps 1 to 12) with an assistant session in Mode A, starting 2026-10-11, on the Mac Studio under workflow (a) of the brief. Every step ran detached under `MallocLargeCache=0 /usr/bin/time -l` through a step wrapper adapted from Stage R's (`$P/scripts/step.sh`). Each log's header records the commit, the branch, `git status --porcelain`, the md5 of `rewrite_trees.py`, every `rewriter/` module, `convert_trees.py`, `validate_v3.py` and `validate_bounded.py`, the command, and `df` of both volumes. Each log's end records the exit status, both volumes' used-KiB range and the summed RSS of the step's processes sampled every 30 s, and the minimum system free-memory percentage; every step appends a row to the ledger. Logs live under `/Volumes/Internal/results/mimic/shin-uchuu-v3-stage-c/procedure/` (abbreviated `$P` in this section; ledger `$P/LEDGER.md`, logs `$P/logs/`, scripts `$P/scripts/`). Datasets and scratch are under `/Volumes/LaCie/data/uchuu/shin-uchuu-stage-c/` (abbreviated `$D`). Peak RSS is `/usr/bin/time -l`'s maximum resident set size (GB = 10⁹ B, TB = 10¹² B). One LaCie-bound job ran at a time.
+
+**Code under test.** Steps 1 to 3 ran at `b4903283994b066c811cabf83ae2c2ea1ed39a9c` and every later step at `b07d7c35c6a030fe982ebfd8359f0ac92fdcf813` (the comparator fix below, a fast-forward that changes only `scripts/compare_cross_format_identity.py` and its test), on `feature/shin-uchuu-v3` with a clean tree, as each log's header records, with the same source md5s throughout: `rewrite_trees.py` `b392c779…`, `rewriter/__init__.py` `0c66bedf…`, `cut.py` `01000542…`, `inputs.py` `e6f24ceb…`, `pass0.py` `7df3ccb8…`, `passes.py` `8bf4ecb3…`, `run.py` `002ee118…`, `workdir.py` `9d6520d1…`, `convert_trees.py` `8ec4a591dc3dc91e96ba7eacc6603b4c`, `validate_v3.py` `484750f7f2b68fd7b911fb56eed00616` and `validate_bounded.py` `deba4e14b5d1b6a08e110fc802e36a54` (the last three equal Slice 17's recorded md5s). The `sage16` binary for `shin-uchuu` was built once at that commit on a clean tree (`make clean`, `make MODEL=sage16 SIMULATION=shin-uchuu generate`, `make … TEST_BUILD=no -j16`; 0 errors, 0 warnings) and copied out of the tree with its `make info`, the commit and its SHA-256 `0219e51439a36d2ee103fb45a0c4bf5843c07fff587f2b95e6cfce8f7e8cd72d` (`$P/bin/sage16__shin-uchuu/`); the default build was then restored.
+
+**Preflight** (2026-10-11, at `b4903283`): `make tests-converter` 1813 passed, 0 failed, and `make check-docs` passed (`$P/logs/preflight-tests-converter.log`, `preflight-check-docs.log`). The md5s match the census record and the plan (`$P/logs/preflight-md5.txt`): the production `forests.list` `60dbf14a99ae9f23ca7c334474477a95` and `locations.dat` `75442d7ae5b1f2465b485e60720e6df7` (`/Volumes/LaCie/data/uchuu/shin-uchuu-nt-transfer/`), and the decided table `6e9f2fb03b26a36ce51c5392e7bcf164` with its record `432b157965cebf9420993e62d074377d` (`/Volumes/LaCie/data/uchuu/shin-uchuu-census/table/`). The version 2 dataset holds 71 files of 2,251,984,563,372 B. Both volumes' bins were empty.
+
+#### Step 1: the ledger
+
+Measured with `du -sk` at 05:58Z and 06:01Z on 2026-10-11 (`$P/logs/ledger-du-lacie.txt`, `ledger-du-internal.txt`), and projected with Slice 16's measured coefficients over 22,503,649,037 halos and a widest slab of 519,342,987 rows (`$P/scripts/ledger.py`, output `$P/logs/step-01-ledger.txt`).
+
+| Retained on the LaCie | `du -sk` (KiB) | TB |
+|---|---:|---:|
+| version 2 dataset (71 files and its provenance directory) | 2,203,212,836 | 2.256 |
+| subset ASCII | 206,155,600 | 0.211 |
+| index files | 20,809,004 | 0.021 |
+| census aggregates | 259,243,964 | 0.265 |
+| census run 2's retired outputs | 35,466,012 | 0.036 |
+| Stage R's retained datasets | 153,890,420 | 0.158 |
+| micro-Uchuu | 22,054,992 | 0.023 |
+| total under `data/` | 2,900,832,856 | 2.970 |
+
+The LaCie had 4,870,517,048 KiB (4.987 TB) free of 7,813,816,284 KiB. `Internal` had 505,516,768 KiB (0.518 TB) free, beside the version 2 run output at 530,799,824 KiB (0.544 TB).
+
+Projections: a version 3 dataset at 141.2 B per halo is 3.178 TB; the (M) scratch at 191 B per widest-slab row is 99.2 GB (its remap store 96 B per row, 49.9 GB); the (C) scratch at 249.2 B per row is 129.4 GB (remap store 144 B per row, 74.8 GB); the bounded battery spills nothing; a `sage16` output with the version 2 run's output snapshots is about 0.544 TB (step 2).
+
+| After | LaCie free at the step's peak (TB) | LaCie free after (TB) |
+|---|---:|---:|
+| 3 (M): dataset and scratch | 1.711 | 1.810 |
+| 5 `sage16` uncut output | 1.266 | 1.266 |
+| 6 uncut output to `Internal`, version 2 dataset deleted | | 4.066 |
+| 8 cut table copy and (C) | 0.749 | 0.878 |
+| 10 `sage16` cut output | 0.334 | 0.334 |
+
+The plan's order is required: without the version 2 dataset's deletion at step 6, step 8 would start with 1.810 TB free and need 3.317 TB. A `sage16` output separate from step 10's (about 0.544 TB) does not fit after step 10.
+
+**Memory, re-derived.** The rewriter's planning formulas (`rewriter/inputs.py` `planned_peak_bytes`) give 100.7 GB for (M) (pass 2's verification, 16 B × F + 16 B × T + 179 B × W) and 223.6 GB for (C) (pass 1, 26 B × F + 40 B × T + 398 B × W). On the subset the measured RSS was 1.139 and 1.027 times the plan, so about 101 to 115 GB and 224 to 230 GB are expected. Both exceed the plan's Resource Profile for steps 3 and 8 (30 to 60 GB, "as step 3 plus about 10 GB"); both fit the 512 GB host. The uncut `sage16` run's floor is the super-forest's 333,663,215 rows: 329.6 GB at the version 2 run's 988 B per widest-slab row (513 GB over 519,342,987 rows), 367.0 GB at 1,100 B.
+
+#### Step 2: the reference run's configuration (decision 9)
+
+The version 2 run output's `metadata/` and `model.hdf5` `RunProperties` were compared with `models/sage16/input/sage16_shin-uchuu.yaml` and the build at `b4903283` (`$P/logs/step-02-reconciliation.md`, `step-02-schema-compare.txt`):
+
+| Item | Version 2 run | `b4903283` | Same |
+|---|---|---|---|
+| Build | `e83bd655` (`feature/ctrees-snapshot-reader`, built 2026-09-16) | `b4903283`, 291 commits later | no |
+| `sage16` module code | | every change since `e83bd655` in the ten module files is a log format (`%d` to `%lld` for `HaloNr`) or a test | no physics line |
+| Modules, phases and modes | 20 `EnabledModules` rows | the same list, order and modes | yes |
+| Parameters | 15 | the same names and values | yes |
+| Timestep scheme | fixed, `SubSteps` 10 | `SubSteps` 10, no `TimestepScheme` (default fixed) | yes |
+| Output fields | 42, a 264 B record | 42, the same names, C types, numpy types and units in order; only `UniqueGalaxyID`'s description text differs | yes |
+| Cosmology, box, particle mass, multiplier, a_list | | the same values; the a_list byte-identical | yes |
+| Output snapshots | [69, 52, 43, 40, 20, 10, 5, 2, 1, 0] | [69, 48, 44, 37, 32, 30, 27, 24] | no |
+
+**What was done (owner, 2026-10-11).** The recorded version 2 run is kept as the reference, and the procedure's `sage16` runs (steps 5, 10 and 11) output the version 2 run's snapshots, [69, 52, 43, 40, 20, 10, 5, 2, 1, 0], through run files outside the repository (`$P/runs/`). That removes the coverage difference. The build difference is then tested by step 5 itself: an identical comparison shows every galaxy unchanged across both the build and the format change; a difference would have stopped the procedure for a re-run of the reference at `b4903283`. The package run file's list would also write about 0.92 TB per output (about 261 B per halo of the output snapshots, from the version 2 files), which does not fit the ledger at step 10. This is a deviation from step 2's literal text ("if any differs, re-run"), recorded below.
+
+#### Step 3: migrate (M) to the uncut version 3 dataset
+
+`rewrite_trees.py migrate` from the version 2 dataset with the production `forests.list` and `locations.dat`, the `shin-uchuu-ascii` package's `simulation_info.yaml`, a_list and column map (the rewriter reads only their physical values), multiplier 2 × 10¹⁰ and the version 2 conversion manifest (`$P/scripts/step03.sh`; log `$P/logs/step-03-migrate.log`), at `b4903283`, 2026-10-11 06:27:33Z to 16:52:20Z.
+
+| Measure | Value |
+|---|---|
+| Exit status | 0, `migrate: COMPLETE -- 70 snapshot file(s), 22503649037 halos, 166547771 forests` |
+| Wall time | 37,487 s (10.41 h) |
+| Peak RSS | 101.897 GB (`/usr/bin/time -l`); the rewriter's own `peak_rss_bytes` 101,896,962,048 B against its `planned_peak_bytes` 100,667,226,881 B (1.012 times) |
+| Remap store peak | 49,782,588,320 B (49.8 GB; planned 96 B × 519,342,987 = 49.9 GB) |
+| Scratch peak | 81,199,948 KiB (83.1 GB; projected 99.2 GB), empty at the end |
+| Dataset | `$D/uncut/dataset`, 71 files (70 snapshot slabs and the sidecar), 3,081,229,556 KiB (3.155 TB; projected 3.178 TB) |
+| LaCie | used 2,942,463,404 to 6,065,874,972 KiB, so 1.790 TB free at the peak (projected 1.711 TB) and 1,772,058,372 KiB (1.815 TB) free after |
+| Root correspondence | pass: 315,004,242 index roots, 315,004,242 terminal roots; 0 forest mismatches, 0 roots outside `forests.list`, 0 `forests.list` roots without a terminal halo, 0 roots outside the last snapshot |
+| Conservation (rewriter) | pass: 2,744 files, 0 disagreeing, 0 unattributed halos, against the version 2 manifest |
+| Every slab | 70 of 70 `written and verified` (with SHA-256), and `sidecar: 166547771 forest(s) written and verified` |
+| Counts | 22,503,649,037 halos, 315,004,242 trees, 166,547,771 forests, `max_halo_rank_in_forest` 12,646,607,900; links `Descendant` 22,188,644,795, `FirstProgenitor` 21,446,186,492, `NextProgenitor` 742,458,303, `FirstHaloInFOFgroup` 22,503,649,037, `NextHaloInFOFgroup` 3,768,499,667 |
+
+The independent conservation check (`$P/scripts/conservation_check.py`, log `$P/logs/step-03b-conservation.log`, 122.8 s, peak RSS 30.65 GB) recounted the dataset's tree inventory (315,004,242 trees, 22,503,649,037 rows) against `locations.dat` and the version 2 `conversion_report.json`: 2,744 files, 0 disagreeing, 0 in the record but not in `locations.dat`, census halos equal to parsed halos (22,503,649,037); `VERDICT: pass`.
+
+The measured peak, 101.9 GB, confirms the re-derived memory (step 1) and exceeds the plan's Resource Profile for step 3 (30 to 60 GB): plan defect PD-C-1.
+
+#### Step 4: the bounded battery on the uncut dataset
+
+`convert_trees.py validate` and then `report`, each `--workdir $D/uncut --bounded --multiplier 20000000000 --memory-budget-mb 49152 --spill-dir $D/spill` (`$P/scripts/step04.sh`), at `b07d7c35`, 2026-10-11 16:56:39Z to 2026-10-12 10:43:17Z. The budget of 49,152 MiB (51.54 GB) leaves 11.0 GB above the printed ceiling, which each run printed as **40,531,696,078 B**, as the record's preamble computes for the uncut dataset.
+
+| Run | Verdict | Wall | Peak RSS | Spill | Log |
+|---|---|---|---|---|---|
+| `validate` | `validation: PASS`, 20 of 20 | 32,026 s (8.90 h) | 38.708 GB | 0 | `$P/logs/step-04a-validate-uncut.log` |
+| `report` | `validation PASS` | 31,971 s (8.88 h) | 38.708 GB | 0 | `$P/logs/step-04b-report-uncut.log` |
+
+The 20 checks, each PASS: `file-set`, `object-set`, `sidecar-object-set`, `schema-binding`, `manifest-binding`, `header-values`, `run-scoped-headers`, `row-values`, `len-nonnegative` (0 `Len` == 0 halos), `field-finiteness` (6 float fields), `position-bounds`, `link-targets`, `links-adjacent`, `topology-closure`, `chain-cycles` (4,510,957,970 chain links walked from their heads), `source-key-coverage`, `identity`, `header-bounds`, `sidecar-content`, `count-conservation`. Both runs were bound by LaCie reads (about a quarter of a core used), not by CPU.
+
+The report (`$D/uncut/conversion_report.{json,txt}`): 22,503,649,037 halos in 70 populated snapshot files; 166,547,771 forests; 0 `Len` == 0 halos; `links_adjacent` 1 (measured 1), 0 gapped `Descendant` or `FirstProgenitor` links, longest span 1, 0 `NextProgenitor` links off their owner's snapshot; `SourceHaloID` [1, 22,503,649,037], max `ForestIndex` 166,547,770, max rank 12,646,607,900, the largest snapshot 519,342,987 halos (snapshot 34); identity multiplier window [12,646,607,901, 55,379,738,354], recommended 2 × 10¹⁰ (the value used); 3,154,903,285,150 B emitted (140.20 B per halo); the battery's own peak resident 40,503,946,206 B against the ceiling 40,531,696,078 B, spill 0.
+
+#### Deviation: the comparator's memory at production scale (before step 5)
+
+Found while preparing step 5, before any comparison ran. `scripts/compare_cross_format_identity.py` holds one output snapshot of both runs at a time. Its default rule then made a boolean-selected copy of each run's records even when every row is compared, and its alternate pairing copied each run's records up to three more times. Shin-Uchuu's largest output snapshot, 40, holds 490,644,526 galaxies of 264 B, 129.5 GB per run (measured on the version 2 run). Step 5 would have needed about 0.58 TB and step 10 about 1.2 TB, on a 549.8 GB host. The plan's Resource Profile has no row for the comparator (plan defect PD-C-2).
+
+The owner approved a bounded fix on 2026-10-11. It was developed in a separate worktree while step 3 ran, so the production tree stayed clean. The commits are `60e3e92a` (the fix and one test), `b6a62a75` (a docstring figure) and `b07d7c35` (the test on production-sparse ids), all on top of `b4903283`. The fix copies no run's records when every row is compared: the default rule compares the records as read, and the alternate pairing selects and pairs rows by position and gathers one field at a time. Verdicts, exit statuses and report text are unchanged. Evidence:
+- 33 self-tests pass, among them the new `test_no_comparison_copies_a_runs_records`, which the unfixed comparator fails.
+- Measured with `tracemalloc` beside both runs' records, the peak per row of one run is 70 B (default rule, production-sparse ids; 53 B with dense ids), 210 B (catalogue pairing) and 231 B (cut report), against 661, 1,874 and 1,911 B before. That projects to about 293 GB and 372 GB at snapshot 40.
+- Twelve comparisons of real micro-Uchuu outputs, passing and failing (perturbed), default, catalogue, lineage and `--compare-created`, printed byte-identical reports with the same exit status from the unfixed and fixed comparators (`$P/logs/fix-0[1-3]-*.log`).
+- `make tests-scientific` 38/0, `make tests-distributed` 266 checks PASS, and `halos-only`/`mini-millennium-horizontal` `tests-integration` 133/0.
+- The review panel ran three rounds (below).
+
+Review panel on the fix (read-only delegates through the orchestrator; evidence in `$P/comparator-fix/worktree/.orchestrator/comparator-fix/`):
+
+| Round | Commit | Drift audit (Claude Sonnet 5.5, high) | Code review (Claude Fable 5.1, high) | Code review (Codex gpt-6.1-sol, high) |
+|---|---|---|---|---|
+| 1 | `60e3e92a` | PASS WITH RISKS, no drift; P3: no failing old/new pair for created rows (settled: two perturbed HOD pairs, identical) | PASS WITH RISKS; P3: default-rule figure measured on dense ids (fixed in `b6a62a75`); P3: bound if tracing pre-enabled (declined, unreachable) | PASS WITH RISKS; P3: big-endian vector sample text (declined, Mimic writes native records) |
+| 2 | `b6a62a75` | PASS | PASS WITH RISKS; P3: the test's ids dense, P3: a ragged docstring line (both fixed in `b07d7c35`) | PASS WITH RISKS, no findings |
+| 3 | `b07d7c35` | PASS | PASS | PASS WITH RISKS, no findings |
+
+Usefulness (0 to 2) and ranking: round 1 drift 2, Fable 2, Codex 1 (Fable first); round 2 drift 1, Fable 2, Codex 1 (Fable first); round 3 each 1 (no findings). HEAD of the main tree stayed on `feature/shin-uchuu-v3` at `b4903283` throughout; the branch was fast-forwarded to `b07d7c35` between steps 3 and 4.
