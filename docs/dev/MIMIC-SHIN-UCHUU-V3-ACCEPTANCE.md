@@ -573,3 +573,36 @@ Review panel on the fix (read-only delegates through the orchestrator; evidence 
 | 3 | `b07d7c35` | PASS | PASS | PASS WITH RISKS, no findings |
 
 Usefulness (0 to 2) and ranking: round 1 drift 2, Fable 2, Codex 1 (Fable first); round 2 drift 1, Fable 2, Codex 1 (Fable first); round 3 each 1 (no findings). HEAD of the main tree stayed on `feature/shin-uchuu-v3` at `b4903283` throughout; the branch was fast-forwarded to `b07d7c35` between steps 3 and 4.
+
+#### Step 5: `sage16` on the uncut dataset, compared with the version 2 run
+
+The frozen `sage16` binary (`b4903283`, SHA-256 `0219e514…`; `sage16`'s code is identical at `b07d7c35`) ran `$P/runs/sage16-uncut/run.yaml`. That run file is the package run file's modules and parameters with `input.forest_chunks: 2`, the version 2 run's output snapshots [69, 52, 43, 40, 20, 10, 5, 2, 1, 0], the uncut dataset (`simulation_dir` in a copy of the package's `simulation_info.yaml` beside it), and output to `$D/out-sage16-uncut`; against the version 2 run's recorded run file it differs only in those paths, `forest_chunks` and formatting. Detached under `MallocLargeCache=0 /usr/bin/time -l` with the llama router stopped (`$P/scripts/step05.sh`), 2026-10-12 10:50:58Z to 21:36:19Z.
+
+| Measure | Value |
+|---|---|
+| Exit status | 0, `Mimic completed successfully` |
+| Partition | 166,547,771 forests over 1 task in 2 chunks, weighted by peak occupancy: chunk 0 is the super-forest alone (forest 0, peak weight 333,663,215, rows [0, 321,253,424) of snapshot 34), chunk 1 the other 166,547,770 forests (peak weight 320,899,678) |
+| Wall time | 38,721 s (10.76 h): about 22 min (38,721 s less the sweep's 37,376 s) opening the run and weighting the partition, then a 10:22:56 sweep; chunk 0 (the super-forest) ended between 5:19:42 and 5:39:41 into the sweep (the progress lines) |
+| Peak RSS | 360.593 GB (`/usr/bin/time -l` and the run-end profile agree), inside step 1's 329.6–367.0 GB |
+| Run-end memory profile | output buffer capacity `C` 350,346,375 records at 184 B = 64.464 GB; output population `P` 331,148,687; galaxy pool high-water `G` 350,213,656 at 176 B = 61.638 GB (allocated 62.007 GB, 0.6 % chunk slack); retained generations `R` at most 2; retention pool resident at most 361,524,270,468 B |
+| Output | 10 snapshot files, `model.hdf5` and `metadata/`, 530,789,272 KiB (543.5 GB; the version 2 output is 530,799,824 KiB) |
+| LaCie | 1.273 TB free at the peak and 1.271 TB after (projected 1.266 TB) |
+
+**The galaxy-by-galaxy comparison** (`scripts/compare_cross_format_identity.py --left-label v2 --right-label uncut`, default mode: tree rows by `UniqueGalaxyID`, at `b07d7c35`; log `$P/logs/step-05b-compare-v2-vs-uncut.log`), exit status 0, 7,395 s, peak RSS 297.353 GB (projected about 293 GB):
+
+| Snapshot | Galaxies | Verdict |
+|---:|---:|---|
+| 0 | 1,854,727 | all 42 fields byte-identical |
+| 1 | 3,219,977 | all 42 fields byte-identical |
+| 2 | 5,147,387 | all 42 fields byte-identical |
+| 5 | 16,421,690 | all 42 fields byte-identical |
+| 10 | 66,304,949 | all 42 fields byte-identical |
+| 20 | 281,909,792 | all 42 fields byte-identical |
+| 40 | 490,644,526 | all 42 fields byte-identical |
+| 43 | 472,948,877 | all 42 fields byte-identical |
+| 52 | 406,299,625 | all 42 fields byte-identical |
+| 69 | 313,766,518 | all 42 fields byte-identical |
+
+`PASSED: 2058518068 galaxies over 10 output snapshot(s) are bitwise identical in all 42 field(s), with identical UniqueGalaxyID sets and no duplicates (tree rows by UniqueGalaxyID, created rows not compared; 0 created row(s) compared)`. Every galaxy is unchanged across both the format change (version 2 to version 3 by (M)) and the build change (`e83bd655` to `b4903283`), so step 2's condition holds and the reference stands without a re-run.
+
+**Science checks** (`$P/scripts/science_checks.py` on snapshot 69, the same script as the reference's; `$P/science/uncut.json`, log `$P/logs/step-05c-science-uncut.log`, 171.8 s, 47.5 GB): 313,766,518 galaxies, Type 0 244,953,607, Type 1 68,812,911, Type 2 0; global baryon fraction 0.12365469772387765; 244,953,607 centrals in the halo mass function's range, 0 centrals without a group. Every value equals the version 2 reference's (`$P/science/v2-reference.json`); the two files differ only in the input path and the timings.
