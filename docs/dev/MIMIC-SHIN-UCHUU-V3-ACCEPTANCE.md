@@ -610,3 +610,42 @@ The frozen `sage16` binary (`b4903283`, SHA-256 `0219e514…`; `sage16`'s code i
 #### Independent trace after step 5
 
 A read-only delegate (Claude Sonnet 5.5, high effort, through the orchestrator; brief, request and output in `$P/trace/step05/`) traced this section's preamble, steps 1 to 5 and the comparator deviation to the primary evidence, about 150 values, recomputing the derived arithmetic. Verdict PASS WITH RISKS: no verdict, count or pass/fail was wrong. It found one P2, the commit under test for step 5 (the record had named `b07d7c35`; the logs record `e37a9336`, the docs-only record checkpoint above it), and seven P3s: the step 3 dataset size (a `du` taken before the volume released 269 MB), the step 4 CPU fraction, the host memory's two units, a paraphrased quotation of the plan, the round 1 drift audit's four P3s and the source of the usefulness ratings, three operational claims without log evidence, and two halo counts in the step 2 working note `$P/logs/step-02-reconciliation.md` (2,082.6 M and 3,509.7 M against the report's 2,071.3 M and 3,537.9 M; the record's 0.92 TB stands). All are corrected above; the claim that both volumes' bins were empty is withdrawn (the LaCie's `.Trashes` was unreadable), and the working note carries a correction. The delegate wrote one scratch file outside its workspace (`/tmp/wc_sec.txt`), a breach of its read-only instruction with no effect on the evidence. Usefulness 2.
+
+#### Step 6: the version 2 artefacts settled
+
+The owner authorized the assistant to make the NT transfers and the deletions (2026-10-11), with the md5 check run on the NT login node and every deletion made by literal path only after its NT copy verified; anything of lasting value goes to NT before a local deletion (owner, 2026-10-12). The NT copies are under `nt.swin.edu.au:/fred/oz214/dcroton/shin-uchuu/`, beside the version 2 trees, and every deletion is logged in `$P/TRASHED.md`.
+
+| Part | What | Evidence |
+|---|---|---|
+| Version 2 dataset on NT | The NT copy `snapshot-trees-v2/` (71 files, sizes identical to the LaCie's, 2,251,984,563,372 B) passed `md5sum -c` 71/71 against the production manifest's md5s (2026-10-11, finished by 09:27Z) | `$P/transfers/v2-dataset-expected.md5`, `v2-dataset-{local,nt}-sizes.txt`, `v2-dataset-nt-md5check.summary` |
+| 6a | The version 2 run output (`/Volumes/Internal/results/mimic/sage16-shin-uchuu`, 184 files; two `.DS_Store` files excluded) to NT `sage16-shin-uchuu-v2/` by `rsync -a`: 5,329 s (about 104 MB/s); NT `md5sum -c` 184/184 OK (805 s) against the manifest taken before the transfer; the local copy then deleted (530,799,824 KiB; Internal free rose by 434.5 GB, the rest presumably held by an APFS snapshot), keeping its `metadata/` and `model.hdf5` in `$P/transfers/v2-run-output-small/` | `$P/logs/step-06a-*.log`, `$P/transfers/v2-run-output.md5sum`, NT `verify/v2-run-output-md5check.out` |
+| 6b | Step 5's output from `$D/out-sage16-uncut` to `/Volumes/Internal/results/mimic/sage16-shin-uchuu-v3-uncut` by `rsync -a` (2,378 s); `md5 -r` of all 17 files on both sides (1,434 s and 752 s), the two lists `cmp`-identical; the LaCie copy then deleted | `$P/logs/step-06b-*.log`, `$P/transfers/uncut-output-{lacie,internal}.md5` |
+| 6c | The version 2 dataset's `conversion-provenance/shin-uchuu-v2/` (5 files, 4.0 GB: the conversion manifest and report the uncut dataset's manifest names, and the forest tables), absent from the NT trees, copied to NT `snapshot-trees-v2/conversion-provenance/` and verified 5/5; it stays on the LaCie at its recorded path. The dataset's 71 data files (names checked equal to the 71 NT-verified) then deleted from the LaCie (2,199,203,828 KiB) | `$P/logs/step-06c.runner.log`, `$P/transfers/v2-provenance.md5sum` |
+
+The LaCie then had 3,971,530,516 KiB (4.067 TB) free (ledger 4.066 TB).
+
+#### Step 7: `shin-uchuu` moved to version 3
+
+The package's `snapshots` link (gitignored) was repointed on 2026-10-13 at 02:56:14Z from `/Volumes/Internal/data/uchuu/shin-uchuu` (which resolved to the LaCie's version 2 directory) to `$D/uncut/dataset` (`$P/logs/step-07-symlink.txt`). Run by a subagent under the step wrapper at `c4a73f70`, each exit status 0: `make MODEL=halos-only SIMULATION=shin-uchuu generate` and `check-generated`, then `make MODEL=halos-only SIMULATION=shin-uchuu tests-integration` (36.1 s): `passed=119 failed=0 skipped=0 n/a=16`, no FAIL, ERROR or SKIP line; the 16 not-applicable results are the vertical-only, lhalo-only and baseline-pair tests. Slice 10's schema-conformance test ran its real-dataset half: `real dataset …/simulations/shin-uchuu/snapshots: 70 file(s) match the converter /schema` and `MIMIC_RESULT: PASS test_dataset_schemas_match_converter_schema`, with its three other tests PASS. The default pair's generated code was restored (`make generate`) and the tree was clean afterwards (`$P/logs/step-07[a-d]-*.log`).
+
+#### Step 8: the cut (C) under the decided table
+
+The decided table, its record and its summary were copied from `/Volumes/LaCie/data/uchuu/shin-uchuu-census/table/` to `$D/cut-table/` and checked against the census record's pins (`$P/logs/step-08a-copy-cut-table.log`): `forests.list` `6e9f2fb03b26a36ce51c5392e7bcf164`, `record.json` `432b157965cebf9420993e62d074377d`, `summary.json` `2f203d843eb08877ece91bb54d9c83eb`, identical in both places. `rewrite_trees.py cut --input $D/uncut/dataset --output $D/cut --scratch $D/cut-scratch`, with the same package inputs, index files and multiplier as step 3 and `--cut-table $D/cut-table/forests.list --cut-table-record $D/cut-table/record.json` (`$P/scripts/step08.sh`, log `$P/logs/step-08b-cut.log`), at `c4a73f70`, 2026-10-13 03:00:04Z to 18:16:12Z.
+
+| Measure | Value |
+|---|---|
+| Exit status | 0, `cut: COMPLETE -- 70 snapshot file(s), 22503649037 halos, 244953607 forests` |
+| Wall time | 54,968 s (15.27 h) |
+| Peak RSS | 211.649 GB; the rewriter's `peak_rss_bytes` 211,648,757,760 B against its `planned_peak_bytes` 223,628,920,552 B (0.946 times) |
+| Remap store peak | 74,618,582,128 B (74.6 GB; planned 74.8 GB) |
+| Scratch peak | 109,752,472 KiB (112.4 GB; projected 129.4 GB), empty at the end |
+| Dataset | `$D/cut/dataset`, 71 files, 3,083,181,096 KiB; every slab and the sidecar `written and verified` (71 lines) |
+| LaCie | 0.848 TB free at the peak (projected 0.749 TB) and 856,120,376 KiB (0.877 TB) free after (projected 0.878 TB) |
+| Manifest binding | the table's md5 `6e9f2fb0…` and SHA-256 `fe67c71c…`, the record's path, the rule "the z = 0 FoF groups of every forest", and the record's dataset lineage (version 2, 166,547,771 forests, `forest_id_sha256` `f4807578…`) |
+| Forests | 166,547,771 before, 244,953,607 after; 8,053,562 forests split into 86,459,398 pieces (78,405,836 fresh), the pieces listed in `cut_pieces.npy` (SHA-256 `2ece4693…`); the first fresh `ForestIndex` 166,547,771 |
+| The super-forest | keeps `ForestIndex` 0 and id 26,551,468,179 with 126,380,326 halos (558,306 trees); its next two pieces hold 71,150,152 and 55,080,340 halos; `max_halo_rank_in_forest` 126,380,325 |
+| Cut totals (sum of the 70 per-snapshot rows) | `promoted_halos` 481,296,108; `groups_losing_members` 155,039,609; `groups_central_leaves_members_stay` 425,265,272; `remnants_with_several_members` 16,383,078; `progenitor_order_changed` 254,554; `first_progenitor_changed` 1,891 of 21,446,186,492 descendants checked; every count 0 at snapshot 69 |
+| Root correspondence | pass (315,004,242 roots; every count 0) |
+| Links | `NextHaloInFOFgroup` 3,287,203,559 (uncut 3,768,499,667: the 481,296,108 promoted halos leave their groups' chains); every other link count equal to the uncut dataset's |
+
+The rewriter's per-tree conservation verdict is `unchecked`, as in Stage R's cut: (C) is given no conversion manifest, and step 9's battery checks the counts. Step 9 compares the promotions and progenitor-order changes per snapshot with the census record. The peak, 211.6 GB, confirms the re-derived memory and exceeds the plan's Resource Profile for step 8 (plan defect PD-C-1).
