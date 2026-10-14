@@ -649,3 +649,31 @@ The decided table, its record and its summary were copied from `/Volumes/LaCie/d
 | Links | `NextHaloInFOFgroup` 3,287,203,559 (uncut 3,768,499,667: the 481,296,108 promoted halos leave their groups' chains); every other link count equal to the uncut dataset's |
 
 The rewriter's per-tree conservation verdict is `unchecked`, as in Stage R's cut: (C) is given no conversion manifest, and step 9's battery checks the counts. Step 9 compares the promotions and progenitor-order changes per snapshot with the census record. The peak, 211.6 GB, confirms the re-derived memory and exceeds the plan's Resource Profile for step 8 (plan defect PD-C-1).
+
+#### Step 9: the bounded battery and the census predicates on the cut dataset
+
+`convert_trees.py validate` and then `report`, each `--workdir $D/cut --bounded --multiplier 20000000000 --memory-budget-mb 49152 --spill-dir $D/spill`, then `$P/scripts/cut_predicates.py` (`$P/scripts/step09.sh`), at `f760514b`, 2026-10-13 18:23:18Z to 2026-10-14 11:56:14Z. Each battery run printed the ceiling **41,158,942,766 B**, as the record's preamble computes for the cut dataset (the pair pass: 64 × 519,342,987 widest rows plus the bitsets and 8 × 244,953,607 forests).
+
+| Run | Verdict | Wall | Peak RSS | Spill | Log |
+|---|---|---|---|---|---|
+| `validate` | `validation: PASS`, 20 of 20 | 31,520 s (8.76 h) | 40.250 GB | 0 | `$P/logs/step-09a-validate-cut.log` |
+| `report` | `validation PASS`, 20 of 20 in `validation` | 31,433 s (8.73 h) | 40.251 GB | 0 | `$P/logs/step-09b-report-cut.log` |
+| predicates | `VERDICT: PASS (7/7)` (third run; see below) | 32 s | 20.209 GB | – | `$P/logs/step-09c-cut-predicates-r3.log` |
+
+The 20 checks are step 4's, each PASS; `chain-cycles` walked 4,029,661,862 chain links from their heads (uncut 4,510,957,970: the 481,296,108 promoted halos leave their groups' chains). Each battery run used about 0.30 of a core.
+
+The report (`$D/cut/conversion_report.{json,txt}`, md5 `0f19c9fa…` and `412fb6cc…`, `validation_passed` true): 22,503,649,037 halos in 70 populated snapshot files; 244,953,607 forests; 0 `Len` == 0 halos; `links_adjacent` 1 (measured 1), 0 gapped `Descendant` or `FirstProgenitor` links, longest span 1, 0 `NextProgenitor` links off their owner's snapshot; `SourceHaloID` [1, 22,503,649,037], max `ForestIndex` 244,953,606, max rank 126,380,325, the largest snapshot 519,342,987 halos; identity multiplier window [126,380,326, 37,653,546,368] (the multiplier used, 2 × 10¹⁰, lies inside it); 3,156,784,461,544 B emitted (140.28 B per halo); the battery's own peak resident 41,131,192,894 B against the ceiling 41,158,942,766 B, spill 0.
+
+The census predicates, each PASS in the third run:
+
+| Predicate | Measured |
+|---|---|
+| Forest census | every slab's header `n_forests_total` 244,953,607; the report's max `ForestIndex` + 1 = 244,953,607 |
+| The largest forest | `ForestIndex` 0 = `ForestID` 26,551,468,179 with 126,380,326 halos (the report's max rank + 1), peaking at 3,415,844 rows at snapshot 31 |
+| The z = 0 FoF groups | snapshot 69: 315,004,242 halos in both datasets, `MostBoundID` unique, 0 (halo, central) relations differing, 244,953,607 centrals in both |
+| No promotion at z = 0 | the rewriter's `promoted_halos` at snapshot 69 is 0 |
+| Cut totals | `promoted_halos` 481,296,108 and `progenitor_order_changed` 254,554, as the census record predicts |
+| Per snapshot | the rewriter's 70 rows equal the census record's `severance.per_snapshot` in all 6 shared fields; 0 differ |
+| Census extract | the Stage B rev 5 extract (`rev5-production-extract-final.txt`) equals the census summary: 70 rows × 10 fields, 0 mismatches |
+
+**A defect in the procedure's own predicate script, fixed between runs.** The first run (`$P/logs/step-09c-cut-predicates.log`) failed 6 of 7: the last predicate reported 388 field mismatches. The extract's header names 11 columns, the first being `snapshot`, but each row carries its snapshot in brackets and 10 values; the script zipped the header unchanged, so every value was read under the next column's name. A read-only re-parse reproduced the 388 exactly, and with `snapshot` dropped from the header all 700 fields agree. The fix drops `snapshot` from the header, refuses a row whose value count differs from the column count, compares all 10 fields rather than the 6 shared with the rewriter, and requires the extract's snapshots to equal the census's (`$P/scripts/cut_predicates.py`, md5 `5ed512f9…`; the first run's script is kept as `$P/scripts/cut_predicates.step09c-r1.py`, md5 `e3ed63f8…`). The second run (`-r2.log`) started before the edit had applied and re-ran the unfixed script with the same 6 of 7; the third (`-r3.log`, `$P/scripts/step09c-r3.sh`, arguments unchanged) passed 7 of 7. The script is the procedure's, not the repository's; the six predicates on the cut dataset passed in all three runs, and the fix concerns only the census's agreement with its own extract.
