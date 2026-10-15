@@ -618,15 +618,15 @@ The owner authorized the assistant to make the NT transfers and the deletions (2
 | Part | What | Evidence |
 |---|---|---|
 | Version 2 dataset on NT | The NT copy `snapshot-trees-v2/` (71 files, sizes identical to the LaCie's, 2,251,984,563,372 B) passed `md5sum -c` 71/71 against the production manifest's md5s (2026-10-11, finished by 09:27Z) | `$P/transfers/v2-dataset-expected.md5`, `v2-dataset-{local,nt}-sizes.txt`, `v2-dataset-nt-md5check.summary` |
-| 6a | The version 2 run output (`/Volumes/Internal/results/mimic/sage16-shin-uchuu`, 184 files; two `.DS_Store` files excluded) to NT `sage16-shin-uchuu-v2/` by `rsync -a`: 5,329 s (about 104 MB/s); NT `md5sum -c` 184/184 OK (805 s) against the manifest taken before the transfer; the local copy then deleted (530,799,824 KiB; Internal free rose by 434.5 GB, the rest presumably held by an APFS snapshot), keeping its `metadata/` and `model.hdf5` in `$P/transfers/v2-run-output-small/` | `$P/logs/step-06a-*.log`, `$P/transfers/v2-run-output.md5sum`, NT `verify/v2-run-output-md5check.out` |
+| 6a | The version 2 run output (`/Volumes/Internal/results/mimic/sage16-shin-uchuu`, 184 files; two `.DS_Store` files excluded) to NT `sage16-shin-uchuu-v2/` by `rsync -a`: 5,329 s (about 102 MB/s from the deleted directory's du, 543.5 GB); NT `md5sum -c` 184/184 OK (805 s) against the manifest taken before the transfer; the local copy then deleted (530,799,824 KiB; Internal used fell by 530,801,288 KiB, the whole amount, between the md5 check's footer and step 6b's header, `$P/logs/step-06b-copy-uncut-output-to-internal.log:19`), keeping its `metadata/` and `model.hdf5` in `$P/transfers/v2-run-output-small/` | `$P/logs/step-06a-*.log`, `$P/transfers/v2-run-output.md5sum`, NT `verify/v2-run-output-md5check.out` |
 | 6b | Step 5's output from `$D/out-sage16-uncut` to `/Volumes/Internal/results/mimic/sage16-shin-uchuu-v3-uncut` by `rsync -a` (2,378 s); `md5 -r` of all 17 files on both sides (1,434 s and 752 s), the two lists `cmp`-identical; the LaCie copy then deleted | `$P/logs/step-06b-*.log`, `$P/transfers/uncut-output-{lacie,internal}.md5` |
-| 6c | The version 2 dataset's `conversion-provenance/shin-uchuu-v2/` (5 files, 4.0 GB: the conversion manifest and report the uncut dataset's manifest names, and the forest tables), absent from the NT trees, copied to NT `snapshot-trees-v2/conversion-provenance/` and verified 5/5; it stays on the LaCie at its recorded path. The dataset's 71 data files (names checked equal to the 71 NT-verified) then deleted from the LaCie (2,199,203,828 KiB) | `$P/logs/step-06c.runner.log`, `$P/transfers/v2-provenance.md5sum` |
+| 6c | The version 2 dataset's `conversion-provenance/shin-uchuu-v2/` (5 files, 4.1 GB: the conversion manifest and report the uncut dataset's manifest names, and the forest tables), absent from the NT trees, copied to NT `snapshot-trees-v2/conversion-provenance/` and verified 5/5; it stays on the LaCie at its recorded path. The dataset's 71 data files (names checked equal to the 71 NT-verified) then deleted from the LaCie (2,199,203,828 KiB) | `$P/logs/step-06c.runner.log`, `$P/transfers/v2-provenance.md5sum` |
 
-The LaCie then had 3,971,530,516 KiB (4.067 TB) free (ledger 4.066 TB).
+The LaCie then had 3,971,530,556 KiB (4.067 TB) free (`$P/logs/step-07a-generate-halos-only-shin-uchuu.log:18`; ledger 4.066 TB).
 
 #### Step 7: `shin-uchuu` moved to version 3
 
-The package's `snapshots` link (gitignored) was repointed on 2026-10-13 at 02:56:14Z from `/Volumes/Internal/data/uchuu/shin-uchuu` (which resolved to the LaCie's version 2 directory) to `$D/uncut/dataset` (`$P/logs/step-07-symlink.txt`). Run by a subagent under the step wrapper at `c4a73f70`, each exit status 0: `make MODEL=halos-only SIMULATION=shin-uchuu generate` and `check-generated`, then `make MODEL=halos-only SIMULATION=shin-uchuu tests-integration` (36.1 s): `passed=119 failed=0 skipped=0 n/a=16`, no FAIL, ERROR or SKIP line; the 16 not-applicable results are the vertical-only, lhalo-only and baseline-pair tests. Slice 10's schema-conformance test ran its real-dataset half: `real dataset …/simulations/shin-uchuu/snapshots: 70 file(s) match the converter /schema` and `MIMIC_RESULT: PASS test_dataset_schemas_match_converter_schema`, with its three other tests PASS. The default pair's generated code was restored (`make generate`) and the tree was clean afterwards (`$P/logs/step-07[a-d]-*.log`).
+The package's `snapshots` link (gitignored) was repointed on 2026-10-13 at 02:56:14Z from `/Volumes/Internal/data/uchuu/shin-uchuu` (which resolved to the LaCie's version 2 directory) to `$D/uncut/dataset` (`$P/logs/step-07-symlink.txt`). Run by a subagent under the step wrapper at `c4a73f70`, each exit status 0: `make MODEL=halos-only SIMULATION=shin-uchuu generate` and `check-generated`, then `make MODEL=halos-only SIMULATION=shin-uchuu tests-integration` (36.1 s): `passed=119 failed=0 skipped=0 n/a=16`, no FAIL, ERROR or SKIP test result (the log's one `SKIPPED` is the build's regeneration skip); the 16 not-applicable results are 12 vertical-only tests, 2 baseline-pair tests, 1 lhalo-only test and `test_horizontal_reader_unset_processing_order_names_the_default` (the run file declares `input.processing_order`). Slice 10's schema-conformance test ran its real-dataset half: `real dataset …/simulations/shin-uchuu/snapshots: 70 file(s) match the converter /schema` and `MIMIC_RESULT: PASS test_dataset_schemas_match_converter_schema`, with its three other tests PASS. The default pair's generated code was restored (`make generate`) and the tree was clean afterwards (`$P/logs/step-07[a-d]-*.log`).
 
 #### Step 8: the cut (C) under the decided table
 
@@ -639,7 +639,7 @@ The decided table, its record and its summary were copied from `/Volumes/LaCie/d
 | Peak RSS | 211.649 GB; the rewriter's `peak_rss_bytes` 211,648,757,760 B against its `planned_peak_bytes` 223,628,920,552 B (0.946 times) |
 | Remap store peak | 74,618,582,128 B (74.6 GB; planned 74.8 GB) |
 | Scratch peak | 109,752,472 KiB (112.4 GB; projected 129.4 GB), empty at the end |
-| Dataset | `$D/cut/dataset`, 71 files, 3,083,181,096 KiB; every slab and the sidecar `written and verified` (71 lines) |
+| Dataset | `$D/cut/dataset`, 71 files, 3,082,797,480 KiB (du, 2026-10-15; the step's footer du of all of `$D/cut`, with the rewriter's sidecars, is 3,105,136,620 KiB); every slab and the sidecar `written and verified` (71 lines) |
 | LaCie | 0.848 TB free at the peak (projected 0.749 TB) and 856,120,376 KiB (0.877 TB) free after (projected 0.878 TB) |
 | Manifest binding | the table's md5 `6e9f2fb0…` and SHA-256 `fe67c71c…`, the record's path, the rule "the z = 0 FoF groups of every forest", and the record's dataset lineage (version 2, 166,547,771 forests, `forest_id_sha256` `f4807578…`) |
 | Forests | 166,547,771 before, 244,953,607 after; 8,053,562 forests split into 86,459,398 pieces (78,405,836 fresh), the pieces listed in `cut_pieces.npy` (SHA-256 `2ece4693…`); the first fresh `ForestIndex` 166,547,771 |
@@ -648,7 +648,7 @@ The decided table, its record and its summary were copied from `/Volumes/LaCie/d
 | Root correspondence | pass (315,004,242 roots; every count 0) |
 | Links | `NextHaloInFOFgroup` 3,287,203,559 (uncut 3,768,499,667: the 481,296,108 promoted halos leave their groups' chains); every other link count equal to the uncut dataset's |
 
-The rewriter's per-tree conservation verdict is `unchecked`, as in Stage R's cut: (C) is given no conversion manifest, and step 9's battery checks the counts. Step 9 compares the promotions and progenitor-order changes per snapshot with the census record. The peak, 211.6 GB, confirms the re-derived memory and exceeds the plan's Resource Profile for step 8 (plan defect PD-C-1).
+The rewriter's per-tree conservation verdict is `unchecked`, as in Stage R's cut: (C) is given no conversion manifest, and step 9's battery checks the counts. Step 9 compares the promotions and progenitor-order changes per snapshot with the census record. The peak, 211.6 GB, is 0.946 of the rewriter's planned 223.6 GB, a little below the 224 to 230 GB step 1 expected from the subset's ratio, and exceeds the plan's Resource Profile for step 8 (plan defect PD-C-1).
 
 #### Step 9: the bounded battery and the census predicates on the cut dataset
 
@@ -690,14 +690,14 @@ The owner merged steps 10 and 11 (2026-10-12): one `sage16` run on the cut datas
 | Wall time | 44,401 s (12.33 h); user 28,387 s, sys 1,439 s |
 | Peak RSS | **6,170,116,096 B (6.170 GB)** (`/usr/bin/time` and the run-end profile agree) |
 | Run-end profile | output buffer C 5,794,455 records (1.066 GB); output population P 5,518,513 records; galaxy pool high-water G 5,813,935 galaxies (1.023 GB), 8,380,416 slots allocated (1.475 GB); retained generations at most 2; retention pool at most 6,892,300,200 B (accounted bytes, above the resident peak) |
-| Partition | 128 chunks, peak weight 5,521,786 to 5,521,802 rows per chunk (widest slab snapshot 34); partition tables 73,312 B; forest weights 1,959,628,856 B while cutting |
-| Output | `$D/out-sage16-cut`, 10 files; LaCie 325,419,000 KiB (0.333 TB) free after |
+| Partition | 128 chunks, peak weight 4,819,441 to 5,521,802 rows per chunk (72 of the 128 at 5,521,786 or more; widest slab snapshot 34), the whole forest set's 704,463,384; partition tables 73,312 B; forest weights 1,959,628,856 B while cutting |
+| Output | `$D/out-sage16-cut`, 10 snapshot files (17 files with `model.hdf5`, the example script and `metadata/`); LaCie 325,419,000 KiB (0.333 TB) free after |
 
 **Step 11's predicate (the proxy):** the run's peak RSS, 6,170,116,096 B, is under decision 6's usable budget for the 16 GiB class at (1, 128), 10,737,418,240 B (0.575 of it), and the sweep completed. **PASS.** The census record's job figure predicted 5,518,529 rows and 6.07 GB; the run's output population P was 5,518,513 records. Decision 6's stop condition (step down to the 32 GiB class) was not needed. Build configuration (`$P/bin/sage16__shin-uchuu/make_info.txt`): `cc` with `-g -O2`, model `sage16` and simulation `shin-uchuu`, HDF5 1.14.6 and libyaml 0.2.5 (pkg-config), MPI disabled, 27 modules. This result is labelled a **proxy**: a Mac measurement under `MallocLargeCache=0`, which becomes the final laptop acceptance only when a laptop of the 16 GiB class runs it.
 
 **Step 10's comparison** (`$P/logs/step-10b-cut-difference-uncut-vs-cut.log`; full text `$P/reports/cut-difference-uncut-vs-cut.txt`, 8,053,581 lines, md5 `04b76fde…`): `compare_cross_format_identity.py --match-by-catalogue-id --multiplier 20000000000` with both sidecars and `--cut-record $D/cut-table/record.json` (86,459,398 pieces of 8,053,562 split forests), step 5's uncut output (`/Volumes/Internal/results/mimic/sage16-shin-uchuu-v3-uncut/model`) against this run's output; tree rows paired by (`MostBoundID`, `SnapNum`) as decision 7 requires. Exit 0 in 12,359 s at 380.487 GB peak RSS (the comparator fix projected about 372 GB for this mode).
 
-> PASSED: 2058426737 galaxies over 10 output snapshot(s) paired under the catalogue-key comparator; every one outside the split forests is identical (all 42 field(s) bitwise except UniqueGalaxyID, the pairing key, and UniqueCentralGalaxyID, compared through the pairing, and the same UniqueGalaxyID for tree rows), with no unmatched key and no duplicates; the split forests' differences and unmatched records are reported above, not failed
+> PASSED: 2058426737 galaxies over 10 output snapshot(s) paired under the catalogue-key comparator; every one outside the split forests is identical (all 42 field(s) bitwise except UniqueGalaxyID, the pairing key, and UniqueCentralGalaxyID, compared through the pairing, and the same UniqueGalaxyID for tree rows), with no unmatched key and no duplicates; the split forests' differences and unmatched records are reported above, not failed (tree rows by (MostBoundID, SnapNum), created rows not compared; 0 created row(s) compared)
 
 Every galaxy of a forest the cut leaves unchanged is identical in every snapshot. At z = 0, 160,691,061 galaxies are in unchanged forests and identical; 153,015,126 are in split forests, of which 76,093,915 differ. The split forests' differences are all attributed to the 8,053,562 split forests: 7,791,093 of them hold a difference. Across their records, 1,338,523,829 are identical, 180,067,108 differ, 91,331 are only in the uncut run and 1,120,641 only in the cut run. The paired count plus the uncut-only records, 2,058,426,737 + 91,331 = 2,058,518,068, is step 5's galaxy total. The fields differing most are `ColdGas` (144,137,859), `HotGas` (89,961,604) and `Cooling` (87,609,902). `Type`, `Mvir`, `UniqueCentralGalaxyID` and `Vvir` each differ in about 29.8 million records: the promoted halos become FoF centrals in the cut dataset.
 
@@ -710,7 +710,7 @@ Every galaxy of a forest the cut leaves unchanged is identical in every snapshot
 | Type 1 | 68,812,911 | 68,799,426 | −13,485 |
 | Type 2 | 0 | 0 | 0 |
 | Centrals with `Mvir` > 0; centrals without a group | 244,953,607; 0 | 244,953,607; 0 | 0; 0 |
-| Halo mass function (101 bins, 10⁶–10¹⁶ M☉/h) | – | – | identical in every bin, none out of range |
+| Halo mass function (100 bins of 0.1 dex, 10⁶–10¹⁶ M☉/h) | – | – | identical in every bin, none out of range |
 | Baryon fraction by mass (42 bins, 10.8–15.0) | – | – | the same halo count in every bin; the mean fraction differs in all 42, by at most 0.091% (relative) |
 | Global baryon fraction | 0.123655 | 0.123676 | +0.017% |
 | Stellar mass (10¹⁰ M☉/h, summed) | 252,945.75 | 253,619.37 | +0.27% |
@@ -722,3 +722,14 @@ Every galaxy of a forest the cut leaves unchanged is identical in every snapshot
 | Baryons, all galaxies | 1,715,525.27 | 1,715,821.06 | +0.017% |
 
 The z = 0 population keeps every central: 244,953,607, the number of forests and of z = 0 FoF groups, as step 9's predicate showed. The z = 0 halo mass function is identical in every bin (as is the uncut run's to the version 2 reference's), as the cut leaves every z = 0 FoF group unchanged. The cut run has 13,485 fewer satellites at z = 0 and slightly different baryon totals. These come only from the split forests, where promoted halos are centrals at earlier snapshots. The plan sets no numerical gate on these totals; they are reported as measured.
+
+#### Independent trace after step 11
+
+A read-only delegate (Claude Sonnet 5.5, high effort, through the orchestrator; brief, request and output in `$P/trace/step11/`) traced steps 6 to 11 to the primary evidence, about 215 values, recomputing the derived arithmetic. Verdict PASS WITH RISKS: no verdict, exit status, count, hash or pass/fail was wrong.
+- **Two P2s:**
+  - The step 10 run's per-chunk peak weights, which the record had given as 5,521,786 to 5,521,802 rows; the log's 128 chunks run from 4,819,441 rows.
+  - Step 6's Internal free space, which the record had given as 434.5 GB freed with the rest presumed held by an APFS snapshot. The wrapper logs show the whole 530.8 GB released within about a minute; the earlier reading had been taken before the release finished, and `$P/TRASHED.md` carried the same figure.
+- **Eight P3s:** the step 6 transfer rate (102 MB/s, not 104), the provenance size (4.1 GB), the free-space figure's source, step 7's account of its not-applicable tests, step 8's dataset size, the output's file count, the halo mass function's bin count (100), and the quoted PASSED line.
+- **One risk taken up:** step 8's memory sentence now compares the peak with step 1's expectation exactly.
+
+Each is corrected above, and in `$P/TRASHED.md`, whose header also now matches its entries. The delegate wrote one scratch file outside its workspace (`/tmp/_nonforest_check.txt`), a breach of its read-only instruction with no effect on the evidence. Usefulness 2.
