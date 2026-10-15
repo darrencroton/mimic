@@ -677,3 +677,48 @@ The census predicates, each PASS in the third run:
 | Census extract | the Stage B rev 5 extract (`rev5-production-extract-final.txt`) equals the census summary: 70 rows × 10 fields, 0 mismatches |
 
 **A defect in the procedure's own predicate script, fixed between runs.** The first run (`$P/logs/step-09c-cut-predicates.log`) failed 6 of 7: the last predicate reported 388 field mismatches. The extract's header names 11 columns, the first being `snapshot`, but each row carries its snapshot in brackets and 10 values; the script zipped the header unchanged, so every value was read under the next column's name. A read-only re-parse reproduced the 388 exactly, and with `snapshot` dropped from the header all 700 fields agree. The fix drops `snapshot` from the header, refuses a row whose value count differs from the column count, compares all 10 fields rather than the 6 shared with the rewriter, and requires the extract's snapshots to equal the census's (`$P/scripts/cut_predicates.py`, md5 `5ed512f9…`; the first run's script is kept as `$P/scripts/cut_predicates.step09c-r1.py`, md5 `e3ed63f8…`). The second run (`-r2.log`) started before the edit had applied and re-ran the unfixed script with the same 6 of 7; the third (`-r3.log`, `$P/scripts/step09c-r3.sh`, arguments unchanged) passed 7 of 7. The script is the procedure's, not the repository's; the six predicates on the cut dataset passed in all three runs, and the fix concerns only the census's agreement with its own extract.
+
+#### Steps 10 and 11 (merged by the owner): `sage16` on the cut dataset, and the laptop proxy
+
+The owner merged steps 10 and 11 (2026-10-12): one `sage16` run on the cut dataset at decision 6's class configuration, one task and 128 chunks, serves as step 10's run and as step 11's proxy measurement. The step 1 ledger had shown that a separate step 11 output would not fit on the LaCie. The run file `$P/runs/sage16-cut/run.yaml` differs from step 5's only in the dataset, the output directory (`$D/out-sage16-cut`) and `input.forest_chunks: 128`; the output snapshots are step 2's [69, 52, 43, 40, 20, 10, 5, 2, 1, 0]. Runner `$P/scripts/step10.sh`, at `93b1ef3e`, 2026-10-14 12:01:20Z to 2026-10-15 03:49:07Z.
+
+**The run** (`$P/logs/step-10a-sage16-cut-1x128.log`): the frozen binary `$P/bin/sage16__shin-uchuu/mimic` (built at `b4903283`, SHA-256 `0219e514…`), under the step wrapper's `MallocLargeCache=0 /usr/bin/time -l`.
+
+| Measure | Value |
+|---|---|
+| Exit status | 0, `Mimic completed successfully`; 70 snapshots swept in 128 chunks |
+| Wall time | 44,401 s (12.33 h); user 28,387 s, sys 1,439 s |
+| Peak RSS | **6,170,116,096 B (6.170 GB)** (`/usr/bin/time` and the run-end profile agree) |
+| Run-end profile | output buffer C 5,794,455 records (1.066 GB); output population P 5,518,513 records; galaxy pool high-water G 5,813,935 galaxies (1.023 GB), 8,380,416 slots allocated (1.475 GB); retained generations at most 2; retention pool at most 6,892,300,200 B (accounted bytes, above the resident peak) |
+| Partition | 128 chunks, peak weight 5,521,786 to 5,521,802 rows per chunk (widest slab snapshot 34); partition tables 73,312 B; forest weights 1,959,628,856 B while cutting |
+| Output | `$D/out-sage16-cut`, 10 files; LaCie 325,419,000 KiB (0.333 TB) free after |
+
+**Step 11's predicate (the proxy):** the run's peak RSS, 6,170,116,096 B, is under decision 6's usable budget for the 16 GiB class at (1, 128), 10,737,418,240 B (0.575 of it), and the sweep completed. **PASS.** The census record's job figure predicted 5,518,529 rows and 6.07 GB; the run's output population P was 5,518,513 records. Decision 6's stop condition (step down to the 32 GiB class) was not needed. Build configuration (`$P/bin/sage16__shin-uchuu/make_info.txt`): `cc` with `-g -O2`, model `sage16` and simulation `shin-uchuu`, HDF5 1.14.6 and libyaml 0.2.5 (pkg-config), MPI disabled, 27 modules. This result is labelled a **proxy**: a Mac measurement under `MallocLargeCache=0`, which becomes the final laptop acceptance only when a laptop of the 16 GiB class runs it.
+
+**Step 10's comparison** (`$P/logs/step-10b-cut-difference-uncut-vs-cut.log`; full text `$P/reports/cut-difference-uncut-vs-cut.txt`, 8,053,581 lines, md5 `04b76fde…`): `compare_cross_format_identity.py --match-by-catalogue-id --multiplier 20000000000` with both sidecars and `--cut-record $D/cut-table/record.json` (86,459,398 pieces of 8,053,562 split forests), step 5's uncut output (`/Volumes/Internal/results/mimic/sage16-shin-uchuu-v3-uncut/model`) against this run's output; tree rows paired by (`MostBoundID`, `SnapNum`) as decision 7 requires. Exit 0 in 12,359 s at 380.487 GB peak RSS (the comparator fix projected about 372 GB for this mode).
+
+> PASSED: 2058426737 galaxies over 10 output snapshot(s) paired under the catalogue-key comparator; every one outside the split forests is identical (all 42 field(s) bitwise except UniqueGalaxyID, the pairing key, and UniqueCentralGalaxyID, compared through the pairing, and the same UniqueGalaxyID for tree rows), with no unmatched key and no duplicates; the split forests' differences and unmatched records are reported above, not failed
+
+Every galaxy of a forest the cut leaves unchanged is identical in every snapshot. At z = 0, 160,691,061 galaxies are in unchanged forests and identical; 153,015,126 are in split forests, of which 76,093,915 differ. The split forests' differences are all attributed to the 8,053,562 split forests: 7,791,093 of them hold a difference. Across their records, 1,338,523,829 are identical, 180,067,108 differ, 91,331 are only in the uncut run and 1,120,641 only in the cut run. The paired count plus the uncut-only records, 2,058,426,737 + 91,331 = 2,058,518,068, is step 5's galaxy total. The fields differing most are `ColdGas` (144,137,859), `HotGas` (89,961,604) and `Cooling` (87,609,902). `Type`, `Mvir`, `UniqueCentralGalaxyID` and `Vvir` each differ in about 29.8 million records: the promoted halos become FoF centrals in the cut dataset.
+
+**Science** (`$P/logs/step-10c-science-cut.log`, `$P/science/cut.json`, md5 `55aa93f0…`; the same script as step 5), at z = 0 (snapshot 69), against step 5's uncut values (which equal the version 2 reference's in every science value):
+
+| Quantity | Uncut | Cut | Cut − uncut |
+|---|---|---|---|
+| Galaxies | 313,766,518 | 313,753,033 | −13,485 (−0.004%) |
+| Type 0 (centrals) | 244,953,607 | 244,953,607 | 0 |
+| Type 1 | 68,812,911 | 68,799,426 | −13,485 |
+| Type 2 | 0 | 0 | 0 |
+| Centrals with `Mvir` > 0; centrals without a group | 244,953,607; 0 | 244,953,607; 0 | 0; 0 |
+| Halo mass function (101 bins, 10⁶–10¹⁶ M☉/h) | – | – | identical in every bin, none out of range |
+| Baryon fraction by mass (42 bins, 10.8–15.0) | – | – | the same halo count in every bin; the mean fraction differs in all 42, by at most 0.091% (relative) |
+| Global baryon fraction | 0.123655 | 0.123676 | +0.017% |
+| Stellar mass (10¹⁰ M☉/h, summed) | 252,945.75 | 253,619.37 | +0.27% |
+| Cold gas | 102,958.12 | 102,231.07 | −0.71% |
+| Hot gas | 1,065,197.50 | 1,064,341.97 | −0.08% |
+| Ejected gas | 191,823.20 | 193,140.09 | +0.69% |
+| Intracluster stars | 102,497.79 | 102,383.33 | −0.11% |
+| Black holes | 102.910 | 105.223 | +2.25% |
+| Baryons, all galaxies | 1,715,525.27 | 1,715,821.06 | +0.017% |
+
+The z = 0 population keeps every central: 244,953,607, the number of forests and of z = 0 FoF groups, as step 9's predicate showed. The z = 0 halo mass function is identical in every bin (as is the uncut run's to the version 2 reference's), as the cut leaves every z = 0 FoF group unchanged. The cut run has 13,485 fewer satellites at z = 0 and slightly different baryon totals. These come only from the split forests, where promoted halos are centrals at earlier snapshots. The plan sets no numerical gate on these totals; they are reported as measured.
