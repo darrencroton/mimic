@@ -353,7 +353,7 @@ Measured stage by stage on micro-Uchuu (22,580,924 halos), peak workdir in bytes
 | emitted dataset | 107.87 | 107.87 |
 | **peak total (workdir + emitted)** | **384.86** | **192.99** |
 
-`write` and `report` set no new peak. Emitted bytes per halo fall as snapshots grow, because small snapshots carry proportionally more HDF5 chunk overhead; the Shin-Uchuu README's production envelope shows how these per-halo terms project to a much larger dataset.
+`write` and `report` set no new peak. Emitted bytes per halo fall as snapshots grow, because small snapshots carry proportionally more HDF5 chunk overhead; the storage figures above show how these per-halo terms project to a much larger dataset.
 
 ### Batch mode: the interleaved consumptive transfer
 
