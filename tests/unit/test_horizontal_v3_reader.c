@@ -1162,6 +1162,12 @@ static int c_scale_factor(const char *dir) {
   SNAP_FILE(dir, 1, p);
   return set_attr_f64(p, "scale_factor", 0.5);
 }
+static int c_scale_factor_one_ulp(const char *dir) {
+  /* One ULP above snapshot 1's a_list entry: the producer compares exactly, so
+     the reader must too, where a tolerance would accept it. */
+  SNAP_FILE(dir, 1, p);
+  return set_attr_f64(p, "scale_factor", nextafter(0.012346, 1.0));
+}
 static int c_box_size(const char *dir) {
   SNAP_FILE(dir, 3, p);
   return set_attr_f64(p, "box_size_mpc_h", 500.0);
@@ -1409,6 +1415,8 @@ static const struct corrupt_case OPEN_CASES[] = {
      "has length 3 but header n_halos is 2"},
     {"scale_factor disagrees with the a_list", c_scale_factor, "snapshot_001.h5",
      "'scale_factor' is 0.5"},
+    {"scale_factor one ULP from the a_list", c_scale_factor_one_ulp,
+     "snapshot_001.h5: header attribute 'scale_factor' is", "must agree exactly"},
     {"box_size_mpc_h disagrees with the package", c_box_size, "snapshot_003.h5",
      "'box_size_mpc_h' is 500 but the configured simulation value is 62.5"},
     {"omega_matter disagrees with the package", c_omega_matter, "snapshot_000.h5",

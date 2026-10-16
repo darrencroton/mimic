@@ -521,6 +521,47 @@ static int test_unoccupied_head_scans_across_snapshots(void) {
 }
 
 /**
+ * @brief   The lookup walks the chain, never a generation's whole range table:
+ *          an occupied halo on no chain, with the largest Len and range of its
+ *          generation, is neither selected, counted nor gathered.
+ */
+static int test_unreferenced_halo_is_never_reached(void) {
+  seed_three_snapshot_chain(0);
+  /* Row 1 of snapshot 1 sits beside P1 but no link names it. It outweighs
+   * every chain entry and holds the largest range, so a lookup that swept the
+   * retained ranges or picked a generation's most massive halo would reach it. */
+  set_halo(1, 1, 999, at(0, 3), NONE, NONE, 1, -1, 3, 1);
+  retain(1);
+  const struct HaloInputView view = view_of(3);
+  const struct HorizontalGatherContext lookup = lookup_at(3);
+
+  TEST_ASSERT(generations[1].halos[1].Len > generations[1].halos[0].Len &&
+                  generations[1].aux[1].NHalos > generations[1].aux[0].NHalos,
+              "the unreferenced halo must carry the largest Len and range of its generation");
+
+  const struct HorizontalProgenitorRef chosen =
+      horizontal_find_most_massive_progenitor(view, &lookup, 0);
+  TEST_ASSERT(chosen.snapnum == 1 && chosen.halonr == 0,
+              "the unoccupied head's scan still selects P1, not the unreferenced halo");
+  TEST_ASSERT_EQUAL((int)horizontal_count_progenitor_galaxies(view, &lookup, 0), 2,
+                    "only P1's and P2's galaxies are counted");
+
+  struct InheritanceProgenitorGalaxy gathered[MAX_GALAXIES];
+  memset(gathered, 0, sizeof(gathered));
+  horizontal_gather_progenitor_galaxies(view, &lookup, 0, chosen, gathered);
+  TEST_ASSERT(gathered[0].source == &generations[1].processed[0] &&
+                  gathered[1].source == &generations[2].processed[0],
+              "the gather visits P1's then P2's galaxies only");
+  for (int i = 0; i < MAX_GALAXIES; i++) {
+    TEST_ASSERT(gathered[i].source < &generations[1].processed[1] ||
+                    gathered[i].source > &generations[1].processed[3],
+                "no galaxy of the unreferenced halo's range is gathered");
+  }
+
+  return TEST_PASS;
+}
+
+/**
  * @brief   A NextProgenitor inside its owner's own snapshot (the common v3 case).
  */
 static int test_same_snapshot_next_progenitor(void) {
@@ -664,6 +705,7 @@ int main(void) {
   TEST_RUN(test_chain_spanning_three_snapshots);
   TEST_RUN(test_next_progenitor_into_an_earlier_snapshot);
   TEST_RUN(test_unoccupied_head_scans_across_snapshots);
+  TEST_RUN(test_unreferenced_halo_is_never_reached);
   TEST_RUN(test_same_snapshot_next_progenitor);
   TEST_RUN(test_link_into_released_generation_aborts);
   TEST_RUN(test_cycle_is_bounded_by_retained_population);
