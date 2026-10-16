@@ -733,3 +733,48 @@ A read-only delegate (Claude Sonnet 5.5, high effort, through the orchestrator; 
 - **One risk taken up:** step 8's memory sentence now compares the peak with step 1's expectation exactly.
 
 Each is corrected above, and in `$P/TRASHED.md`, whose header also now matches its entries. The delegate wrote one scratch file outside its workspace (`/tmp/_nonforest_check.txt`), a breach of its read-only instruction with no effect on the evidence. Usefulness 2.
+
+#### Step 12: settled
+
+Every copy was checked before its source was deleted. NT copies were checked on the NT login node (`md5sum -c` or `sha256sum -c`, outputs under NT `/fred/oz214/dcroton/shin-uchuu/verify/`). Same-machine copies were checked by an md5 list of each side and `cmp`. Each deletion used `/bin/rm` with a literal absolute path, after its check, and is logged in `$P/TRASHED.md`. The scripts are `$P/scripts/step12{a,b,c,d,e}.sh`, every command under the step wrapper (`$P/LEDGER.md`).
+
+- **12a, the uncut output to NT** (the plan's order: the uncut output leaves `Internal` first). rsync 2026-10-15 04:01:10Z to 05:28:50Z (5,260 s, about 103 MB/s) to NT `sage16-shin-uchuu-v3-uncut/`, then `md5sum -c` against step 6b's 17-file list: 17 OK, rc 0. The `Internal` copy was then deleted (05:43:50Z; `Internal` used fell by 530,790,608 KiB).
+- **12b, the cut output to `Internal`.** rsync 05:44:10Z to 06:26:58Z (2,568 s) to `/Volumes/Internal/results/mimic/sage16-shin-uchuu-v3-cut/`; the md5 lists of the two sides (`$P/transfers/cut-output-{lacie,internal}.md5`, 17 files) are identical. The LaCie copy was then deleted (07:30:29Z).
+- **12c, decision 10: the uncut dataset parked on NT, and the census copied there.**
+  - The uncut dataset's 71 files to NT `snapshot-trees-v3-uncut/`: rsync 07:30:36Z to 15:57:37Z (30,421 s, about 104 MB/s), then `sha256sum -c` against the SHA-256 the rewriter's manifest records for each file (`$P/transfers/v3-uncut-dataset.sha256sum`): 71 OK, rc 0.
+  - Its conversion provenance (the rewriter workdir's `conversion_report.{json,txt}`, `manifest.json`, `rewrite_state.json`, `rewrite_summary.json`, `tree_inventory.npy`, and step 3's `uncut-conservation.json`) to `snapshot-trees-v3-uncut/conversion-provenance/`: `md5sum -c` 7 OK.
+  - The census aggregates (369 files) to NT `shin-uchuu-census/census/` and run 2's moved-aside outputs (86 files) to `shin-uchuu-census/run2-retired/`: `md5sum -c` 369 OK and 86 OK, rc 0.
+  - Then deleted (18:11Z): `$D/uncut`, `$D/uncut-conservation.json`, `/Volumes/LaCie/data/uchuu/shin-uchuu-census` and `/Volumes/LaCie/data/uchuu/shin-uchuu-census-run2-retired`. LaCie free afterwards 4,249,402,424 KiB (4.351 TB).
+- **12d, the production designation.** The package's `snapshots` link was repointed at 18:12:41Z from `$D/uncut/dataset` to the cut dataset, `$D/cut/dataset` (`$P/logs/step-12d-symlink.txt`). Step 7's real-data check was re-run on it under the wrapper (`$P/logs/step-12d-*.log`), each exit status 0: `make MODEL=halos-only SIMULATION=shin-uchuu generate` and `check-generated`, then `tests-integration` (36.5 s): `passed=119 failed=0 skipped=0 n/a=16`, the same 16 not-applicable results as step 7, and Slice 10's schema-conformance test's real-dataset half: `70 file(s) match the converter /schema`, `MIMIC_RESULT: PASS test_dataset_schemas_match_converter_schema`. The default pair's generated code was restored and the tree was clean.
+- **12e, added by the owner (2026-10-15), copies only:** NT copies of the cut data, kept for a later plan (a cut, vertical Shin-Uchuu), so that the production dataset no longer has a single copy. The cut dataset's 71 files to NT `snapshot-trees-v3-cut/`: rsync 2026-10-15 18:13:31Z to 10-16 02:36:46Z (30,195 s, about 105 MB/s); `sha256sum -c` against the cut manifest's SHA-256 (`$P/transfers/v3-cut-dataset.sha256sum`) read 70 files OK and could not read `snapshot_016.h5` (`Input/output error` on the NT side; its size, 26,094,490,251 B, matched). A re-check of that file alone under the wrapper (`$P/scripts/step12e-r2.sh`, `$P/logs/step-12e-r2-nt-sha256check-cut-snapshot016.log`) gave OK, rc 0, so all 71 match. The cut's rewriter workdir files and the cut table to `snapshot-trees-v3-cut/conversion-provenance/` (with `cut-table/`): `md5sum -c` 10 OK. The cut `sage16` output from `Internal` to NT `sage16-shin-uchuu-v3-cut/` (5,298 s): `md5sum -c` against step 12b's list, 17 OK, rc 0. Nothing was deleted.
+
+**Data disposition at the end of the procedure** (the Final-State Inventory's data rows and every directory the procedure touched):
+
+| Directory | Disposition |
+|---|---|
+| `$D/cut/dataset` (the cut dataset, 71 files, 3,156,784,461,544 B by its manifest) | **Production.** Kept; `simulations/shin-uchuu/snapshots` points here. NT copy `snapshot-trees-v3-cut/` (12e). |
+| `$D/cut/` (the cut's rewriter workdir: manifest, conversion report, `rewrite_state.json`, `rewrite_summary.json`, `tree_inventory.npy`, `cut_pieces.npy`) | Kept as the cut dataset's conversion provenance. NT copy `snapshot-trees-v3-cut/conversion-provenance/` (12e). |
+| `$D/cut-table/` (the accepted cut table `forests.list`, its `record.json` and `summary.json`) | **Kept, checksummed, with the conversion provenance** (Final-State Inventory): md5 `6e9f2fb03b26a36ce51c5392e7bcf164`, `432b157965cebf9420993e62d074377d`, `2f203d843eb08877ece91bb54d9c83eb`, as pinned by the census record and checked at step 8 and again at 12e (`$P/transfers/v3-cut-provenance.md5sum`); NT copies in `shin-uchuu-census/census/table/` (12c) and `snapshot-trees-v3-cut/conversion-provenance/cut-table/` (12e). |
+| `/Volumes/Internal/results/mimic/sage16-shin-uchuu-v3-cut/` (the cut `sage16` output) | Kept on `Internal`. NT copy `sage16-shin-uchuu-v3-cut/` (12e). |
+| `$D/uncut/` and `$D/uncut-conservation.json` (the uncut dataset and its provenance) | Parked on NT `snapshot-trees-v3-uncut/` (decision 10); deleted locally (12c). |
+| `/Volumes/Internal/results/mimic/sage16-shin-uchuu-v3-uncut/` (the uncut `sage16` output) | On NT `sage16-shin-uchuu-v3-uncut/`; deleted locally (12a). |
+| `/Volumes/LaCie/data/uchuu/shin-uchuu-census/` and `shin-uchuu-census-run2-retired/` (the census aggregates and run 2's moved-aside outputs) | **Deleted** (Final-State Inventory), after their NT copy `shin-uchuu-census/` (12c). |
+| `/Volumes/LaCie/data/uchuu/shin-uchuu/` (the version 2 dataset) | The 71 data files deleted at step 6 after NT `snapshot-trees-v2/` verified; `conversion-provenance/shin-uchuu-v2/` kept (and on NT). |
+| `/Volumes/Internal/results/mimic/sage16-shin-uchuu/` (the version 2 output) | On NT `sage16-shin-uchuu-v2/`; deleted locally (step 6). |
+| `$D/cut-scratch/`, `$D/uncut-scratch/`, `$D/spill/`, `/Volumes/LaCie/data/uchuu/shin-uchuu-stage-c-scratch/` | Empty; left in place. |
+| `/Volumes/LaCie/data/uchuu/shin-uchuu-nt-transfer/` (the production index files), `shin-uchuu-subset-ascii/`, `shin-uchuu-stage-r/` | Untouched by the procedure. The Stage R data's fate is the owner's decision at plan close; the owner intends to keep it (and the subset ASCII) as the test bed for the cut-vertical plan. |
+| `$P/comparator-fix/worktree` (the comparator fix's git worktree, detached at `b07d7c35`) | Its review evidence copied to `$P/comparator-fix/evidence/` (identical by `diff -rq`). The worktree itself is left in place: it holds symlinks into the data directories (`output`, every `simulations/*/snapshots`), so its removal is left to the owner after the plan. |
+| `$P` (this procedure's logs, scripts, ledger, frozen binary and checksum lists) | Kept on `Internal`; to be copied to NT `shin-uchuu-stage-c-procedure/` as the procedure's last action, after this record's final commit. |
+
+#### The procedure in summary: deviations, plan defects and limits
+
+Every step 1 to 12 passed; no step's verdict was set aside.
+
+- **Deviations from the plan's text, each recorded at its step:**
+  - Step 2: the recorded version 2 run is kept as the reference, and steps 5, 10 and 11 output its snapshot list [69, 52, 43, 40, 20, 10, 5, 2, 1, 0] rather than the package run file's (owner, 2026-10-11).
+  - Before step 5: the comparator's memory fix (`b07d7c35`), approved by the owner, panel-reviewed and fast-forwarded between steps 3 and 4.
+  - Steps 10 and 11 merged into one run at (1, 128) (owner, 2026-10-12).
+  - Step 9: the census-predicate script's first run failed on a parsing defect in that procedure script (not repository code), and its second run re-ran the unfixed script by mistake; the fixed script passed 7/7 on the third, the original kept.
+  - Step 12: the owner added 12e (NT copies of the cut data; its first NT check could not read one file and the re-check passed), and the comparator fix's worktree is left in place.
+- **Plan defects for the owner's revision:** PD-C-1, the Resource Profile's rewriter memory (30 to 60 GB) is below the measured peaks, 101.9 GB for (M) at step 3 and 211.6 GB for (C) at step 8; PD-C-2, the Resource Profile has no row for the comparator, whose original form needed about 0.58 TB at step 5 and about 1.2 TB at step 10 on a 549.8 GB host.
+- **Limits that stand:** the laptop measurement is a Mac-measured proxy until a laptop of the 16 GiB class runs it; inside the split forests the cut run's galaxies differ from the uncut run's by design and are reported, not gated; no HOD or SHAM identity claim is made on the cut dataset (decision 7).
