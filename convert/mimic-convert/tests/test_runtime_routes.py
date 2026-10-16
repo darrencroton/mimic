@@ -28,7 +28,7 @@ class RuntimeRoutesTests(unittest.TestCase):
             self.assertEqual(rows[key].coverage, "complete")
         shin_uchuu = rows[("Shin-Uchuu", "consistent_trees_ascii")]
         self.assertEqual(shin_uchuu.coverage, runtime_routes.COMPLETE_BY_MIGRATION)
-        self.assertEqual(shin_uchuu.models, ("sage16",))
+        self.assertEqual(shin_uchuu.models, ("halos-only", "sage16"))
         sage16_keys = {
             ("mini-Millennium", "lhalo_binary"),
             ("micro-Uchuu", "consistent_trees_ascii"),
@@ -55,6 +55,12 @@ class RuntimeRoutesTests(unittest.TestCase):
             self.assertIn(runtime_routes.SPEC_ANCHOR, text)
             self.assertIn(runtime_routes.FULL_UCHUU_NOT_CLAIMED, text)
         self.assertIn("a conversion is not a validated route", notice)
+        shin_uchuu = "Shin-Uchuu consistent_trees_ascii, "
+        for text in (notice, report):
+            clause = text[text.index(shin_uchuu) :]
+            self.assertIn("sage16 on the uncut dataset is bitwise identical", clause)
+            self.assertIn("the package's dataset is the cut one", clause)
+            self.assertIn("vertical parity is on the subset only", clause)
         description = runtime_routes.cli_description()
         for simulation in {r.simulation for r in runtime_routes.ROUTES}:
             self.assertIn(simulation, description)

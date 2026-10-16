@@ -20,12 +20,13 @@ SPEC_ANCHOR = "convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md#v3-runtime-suppor
 #: The coverage label of a route whose source data is the whole simulation.
 COMPLETE = "complete"
 
-#: The coverage label of Shin-Uchuu, whose complete dataset was made by migration. Its evidence is
-#: not a vertical comparison over the whole catalogue (the full box cannot run vertical): the
-#: production run is compared with the version 2 run, and the vertical comparison is on the subset.
+#: The coverage label of Shin-Uchuu, whose complete dataset was made by migration. The full box
+#: cannot run vertical, so each piece of evidence names the dataset it covers.
 COMPLETE_BY_MIGRATION = (
-    "complete real data by migration (bitwise against the version 2 run, "
-    "vertical parity on the subset only)"
+    "complete real data by migration; sage16 on the uncut dataset is bitwise identical to the "
+    "version 2 run; vertical parity is on the subset only; the package's dataset is the cut one, "
+    "identical to the uncut run outside the split forests, with the differences inside them "
+    "reported, not gated"
 )
 
 FULL_UCHUU_NOT_CLAIMED = (
@@ -53,7 +54,7 @@ ROUTES: Tuple[Route, ...] = (
     Route("Millennium", "lhalo_binary", COMPLETE, ("halos-only",)),
     Route("mini-Uchuu", "lhalo_binary", COMPLETE, ("halos-only",)),
     Route("micro-Uchuu", "consistent_trees_ascii", COMPLETE, ("halos-only", "sage16")),
-    Route("Shin-Uchuu", "consistent_trees_ascii", COMPLETE_BY_MIGRATION, ("sage16",)),
+    Route("Shin-Uchuu", "consistent_trees_ascii", COMPLETE_BY_MIGRATION, ("halos-only", "sage16")),
 )
 
 
@@ -70,7 +71,8 @@ def runtime_notice() -> str:
         "runtime support: format version 3 is consumed by the current Mimic horizontal reader "
         "and driver, but a conversion is not a validated route. The only evidenced routes "
         "(per-UniqueGalaxyID bitwise parity against the same source format's vertical reader, "
-        "recorded at {}) are: {}. {}"
+        "except the route whose coverage states other evidence; the table recorded at {} is the "
+        "authority) are: {}. {}"
     ).format(SPEC_ANCHOR, "; ".join(_route_clause(r) for r in ROUTES), FULL_UCHUU_NOT_CLAIMED)
 
 
@@ -89,8 +91,8 @@ def standing_limitations() -> Tuple[str, ...]:
         "Format consumed, route not validated: Mimic's horizontal_hdf5 reader and horizontal "
         "driver consume format_version 3, but a conversion is an evidenced runtime route only "
         "where a recorded parity gate showed its horizontal output bitwise identical, per "
-        "UniqueGalaxyID, to the same source format's vertical reader over the same files "
-        "({}).".format(SPEC_ANCHOR),
+        "UniqueGalaxyID, to the same source format's vertical reader over the same files, except "
+        "the route whose row states other evidence ({}).".format(SPEC_ANCHOR),
         "The only evidenced routes are: {}.".format("; ".join(_route_clause(r) for r in ROUTES)),
         FULL_UCHUU_NOT_CLAIMED,
     )
