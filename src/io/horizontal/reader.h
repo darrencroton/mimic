@@ -141,10 +141,10 @@ struct SnapshotSlab {
   struct RawHalo *halos;              /* [nhalos], reader-owned */
   int64_t *forest_index;              /* [nhalos], reader-owned */
   int64_t *halo_rank_in_forest;       /* [nhalos], reader-owned */
-  int32_t *descendant_snapshot;       /* [nhalos], reader-owned; version 3 only */
-  int32_t *first_progenitor_snapshot; /* [nhalos], reader-owned; version 3 only */
-  int32_t *next_progenitor_snapshot;  /* [nhalos], reader-owned; version 3 only */
-  int64_t *source_halo_id;            /* [nhalos], reader-owned; version 3 only */
+  int32_t *descendant_snapshot;       /* [nhalos], reader-owned; NULL only when empty */
+  int32_t *first_progenitor_snapshot; /* [nhalos], reader-owned; NULL only when empty */
+  int32_t *next_progenitor_snapshot;  /* [nhalos], reader-owned; NULL only when empty */
+  int64_t *source_halo_id;            /* [nhalos], reader-owned; NULL only when empty */
 };
 
 /** @brief Value of an empty (unloaded) slab handle. */

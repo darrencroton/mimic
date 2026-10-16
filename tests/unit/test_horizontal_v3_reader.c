@@ -1292,6 +1292,15 @@ static int c_header_soft_link(const char *dir) {
   SNAP_FILE(dir, 0, p);
   return relink(p, "/header", "/zz_header", 0);
 }
+static int c_unreadable_version_without_schema(const char *dir) {
+  /* Without /schema the earlier "carries '/schema'" diagnostic cannot fire,
+     so this reaches the plain unreadable-version rejection. */
+  SNAP_FILE(dir, 0, p);
+  if (delete_link(p, "/schema") != 0) {
+    return -1;
+  }
+  return delete_header_attr(p, "format_version");
+}
 static int c_format_version_int64(const char *dir) {
   SNAP_FILE(dir, 0, p);
   return replace_header_attr_with_i64(p, "format_version", 3);
@@ -1478,6 +1487,11 @@ static const struct corrupt_case OPEN_CASES[] = {
      "required dataset '/halos/NextProgenitorSnapshot' is missing"},
     {"snapshot 0 /header is a soft link", c_header_soft_link, "snapshot_000.h5: snapshot 0 carries",
      "'/header' is a soft link"},
+    {"snapshot 0 without a readable format_version is rejected",
+     c_unreadable_version_without_schema,
+     "snapshot_000.h5: snapshot 0's 'format_version' cannot be read: header attribute "
+     "'format_version' is missing",
+     "supports only version 3"},
     {"snapshot 0 format_version stored as int64", c_format_version_int64, "snapshot_000.h5",
      "header attribute 'format_version' is not an int32"},
     {"ForestIndex outside [0, n_forests_total)", c_forest_index_out_of_range, "snapshot_000.h5",
