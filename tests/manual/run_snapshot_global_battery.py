@@ -6,14 +6,14 @@ Usage::
 
     MODEL=<caller model> SIMULATION=<caller simulation> \\
         python tests/manual/run_snapshot_global_battery.py \\
-        [--only halos-only-v2|halos-only-v3|sham|hod]
+        [--only halos-only|halos-only-v3|sham|hod]
 
 ``make tests-snapshot-global`` runs every group; ``make tests-snapshot-global-sham`` and
 ``make tests-snapshot-global-hod`` run only the ``sham`` and ``hod`` groups. ``--only`` accepts
-``halos-only-v2``, ``halos-only-v3``, ``sham`` and ``hod`` and may be repeated. Each group builds
+``halos-only``, ``halos-only-v3``, ``sham`` and ``hod`` and may be repeated. Each group builds
 its model/simulation pair as a test build, then runs its declared tests by path:
 
-  halos-only-v2  halos-only x micro-uchuu-ascii-horizontal:
+  halos-only     halos-only x micro-uchuu-ascii-horizontal (its version 3 worked_ascii fixture):
                  tests/integration/test_snapshot_phase.py, the C unit test
                  test_snapshot_module_contract and tests/integration/test_snapshot_module_schema.py
   halos-only-v3  halos-only x mini-millennium-horizontal:
@@ -94,7 +94,7 @@ class Group:
 PHASE_TEST = Path("tests/integration/test_snapshot_phase.py")
 GROUPS = (
     Group(
-        "halos-only-v2",
+        "halos-only",
         "halos-only",
         "micro-uchuu-ascii-horizontal",
         (

@@ -113,9 +113,8 @@ def snapshot_fixture_horizons():
 
     The horizon of snapshot k is the latest snapshot any of its halos names as its
     descendant's, or k itself when none has a descendant -- the driver's rule
-    (horizontal_generation_horizon() in src/core/horizontal_driver.c). A version 3
-    fixture carries each link's target in DescendantSnapshot; a version 2 fixture has
-    no such column because every descendant lives at snapshot k + 1.
+    (horizontal_generation_horizon() in src/core/horizontal_driver.c), read from each
+    link's target in DescendantSnapshot.
     """
     import h5py
 
@@ -123,10 +122,7 @@ def snapshot_fixture_horizons():
     for snap, path in enumerate(snapshot_fixture_snapshot_files()):
         with h5py.File(path, "r") as handle:
             linked = handle["halos/Descendant"][()] >= 0
-            if "DescendantSnapshot" in handle["halos"]:
-                targets = handle["halos/DescendantSnapshot"][()][linked]
-            else:
-                targets = [snap + 1] * int(linked.sum())
+            targets = handle["halos/DescendantSnapshot"][()][linked]
         horizons.append(max([snap, *(int(target) for target in targets)]))
     return horizons
 
@@ -360,18 +356,18 @@ def test_horizontal_run_completes_and_writes_output_over_the_fixture():
     The retention horizon of snapshot k is the latest snapshot any of its halos names as
     its descendant's, or k itself when none has a descendant. The expected lifecycle is
     derived from the fixture's own descendant columns (snapshot_fixture_horizons()), not
-    hard-coded, so it holds for a version 2 fixture (every descendant at k + 1) and a
-    gapped version 3 one alike. The two-live-slab bound is asserted only for a fixture
+    hard-coded, so it holds for an adjacent fixture (every descendant at k + 1) and a
+    gapped one alike. The two-live-slab bound is asserted only for a fixture
     whose header declares links_adjacent: a gapped link legitimately keeps a generation
     live across the gap.
 
     Runs against the selected package's own committed fixture (package_fixture(): for
-    micro-uchuu-ascii-horizontal its _tests/data/generic/, for mini-millennium-horizontal
-    _tests/data/worked_graph/), not the machine-local production dataset: the latter is
-    multi-gigabyte, gitignored, and absent on a fresh checkout, which would make this
-    proof unreproducible outside one workstation. input.simulation_dir and
-    input.snapshot_list_file are overridden to point at the fixture, and
-    output.snapshot_list to indices the fixture's own a_list contains.
+    micro-uchuu-ascii-horizontal its _tests/data/worked_ascii/, for
+    mini-millennium-horizontal _tests/data/worked_graph/), not the machine-local
+    production dataset: the latter is multi-gigabyte, gitignored, and absent on a fresh
+    checkout, which would make this proof unreproducible outside one workstation.
+    input.simulation_dir and input.snapshot_list_file are overridden to point at the
+    fixture, and output.snapshot_list to indices the fixture's own a_list contains.
 
     The test still only runs when the selected package is itself horizontal (its own
     configuration is the only source of input.tree_type/tree_name/processing_order here);
@@ -399,7 +395,7 @@ def test_horizontal_run_completes_and_writes_output_over_the_fixture():
 
     nsnapshots = snapshot_fixture_snapshot_count()
     # Every package fixture this runs over must hold an empty snapshot (the
-    # micro-Uchuu fixture's is 0, create_snapshot_fixture.py; the mini-Millennium
+    # micro-Uchuu worked_ascii fixture's is 0, generate_source.py; the mini-Millennium
     # worked_graph fixture's is 3, generate_sources.py), so the zero-galaxy
     # partition contract below is always exercised; a fixture without one fails
     # here rather than quietly leaving that contract untested.
@@ -1007,7 +1003,10 @@ def test_multiplier_default_and_non_positive_rejection():
     # non-default guard and completes normally.
     returncode, output = run_config("multiplier_absent")
     assert returncode == 0, f"a default run should succeed:\n{output}"
-    assert "unique_galaxy_id_multiplier" not in output
+    # A default run must not be rejected for its multiplier. The rejection's own text is
+    # asserted absent rather than the bare key, which the vertical driver's record
+    # identity-space line also names when the reader does not know its largest forest.
+    assert "simulation.unique_galaxy_id_multiplier is" not in output
 
     # Explicitly declaring the default is equally accepted.
     returncode, output = run_config(

@@ -10,8 +10,8 @@ is promised against the package's **own** source format only.
 
 Each ``simulations/<package>/_tests/scientific/test_cross_format_identity.py``
 is a thin file: a ``GatePackage`` naming what the package pins, and a ``main()``
-calling ``ParityGate(PACKAGE).run(title)``. The version 2 gate subclasses
-``ParityGate`` to append its vertical-path preservation stage. Usage::
+calling ``ParityGate(PACKAGE).run(title)``; a gate with a stage of its own
+subclasses ``ParityGate``. Usage::
 
     make MODEL=halos-only SIMULATION=<horizontal package> tests-scientific
 
@@ -25,11 +25,12 @@ Stages, in order (one MIMIC_RESULT marker each):
    vertical side's effective file range is the one the package pins; enough
    free space; HEAD is captured once and used for every worktree.
 2. ``stage_dataset_provenance`` -- every snapshot file the a_list names carries
-   the pinned header (format version, links_adjacent, snapshot number, and for
-   version 3 the source format and column-mapping digest); the files hold the
-   pinned halo and forest counts; for version 3 also the gapped-descendant
-   census and the ``forests.h5`` ``SourceFileOrdinal`` inventory naming exactly
-   the vertical side's source files.
+   the pinned header (format version, links_adjacent, snapshot number, source
+   format and column-mapping digest); the files hold the pinned halo and forest
+   counts and the pinned gapped-descendant census; and the ``forests.h5``
+   ``SourceFileOrdinal`` inventory (or, for a gate that pins its conversion
+   manifest, the manifest's source dependencies) names exactly the vertical
+   side's source files.
 3. ``stage_run_files`` -- the comparator and every committed run file match
    HEAD byte for byte; the vertical range override (when the package needs one)
    differs from its run file in exactly ``input.first_file``/``last_file``; the
@@ -92,8 +93,8 @@ from .runner import run_test_suite  # noqa: E402
 #: reader names a single index file unless the package lists its files.
 NUMBERED_TREE_FILE_READERS = ("lhalo_binary",)
 
-#: The conversion inventory: one row per forest (version 3 also names the source
-#: file each forest came from).
+#: The conversion inventory: one row per forest, naming the source file each
+#: forest came from.
 FORESTS_FILE = "forests.h5"
 SOURCE_FILE_ORDINAL = "SourceFileOrdinal"
 SOURCE_UNIT_ORDINAL = "SourceUnitOrdinal"
@@ -169,10 +170,10 @@ class GatePackage:
             committed vertical run file's effective range, so the vertical side
             runs a scratch copy overriding exactly the two range keys.
         format_version: The horizontal dataset's ``header/format_version``.
-        source_format: The vertical package's ``input.tree_type``; for version
-            3 also the expected header ``source_format``.
-        column_mapping_sha256: The pinned conversion digest (None for version 2,
-            whose files carry none).
+        source_format: The vertical package's ``input.tree_type``, also the
+            expected header ``source_format``.
+        column_mapping_sha256: The pinned conversion digest, the expected header
+            ``column_mapping_sha256``.
         links_adjacent, halos, forests, gapped_descendants, max_descendant_span:
             The pinned dataset census.
         required_free_bytes: Free space the worktrees and runs need.
@@ -1199,11 +1200,6 @@ class ParityGate:
                 f"exactly the {len(expected_names)} the a_list names"
             )
 
-        # Version 2 has no /schema, no source_format or digest attribute and no
-        # target-snapshot link columns, and its forests.h5 holds only ForestID:
-        # the gapped-descendant census and the source-file inventory below exist
-        # only for version 3. Version 2 is adjacent-only by construction.
-        version3 = pkg.format_version == 3
         halos = gapped = max_span = populated = 0
         forests_total = set()
         for name in names:
@@ -1215,13 +1211,12 @@ class ParityGate:
                     "format_version": (int(header["format_version"]), pkg.format_version),
                     "links_adjacent": (int(header["links_adjacent"]), pkg.links_adjacent),
                     "snapshot_number": (int(header["snapshot_number"]), snapshot),
-                }
-                if version3:
-                    checks["source_format"] = (decoded(header["source_format"]), pkg.source_format)
-                    checks["column_mapping_sha256"] = (
+                    "source_format": (decoded(header["source_format"]), pkg.source_format),
+                    "column_mapping_sha256": (
                         decoded(header["column_mapping_sha256"]),
                         pkg.column_mapping_sha256,
-                    )
+                    ),
+                }
                 for attribute, (found, expected) in checks.items():
                     if found != expected:
                         raise AssertionError(
@@ -1230,13 +1225,9 @@ class ParityGate:
                         )
                 n_halos = int(header["n_halos"])
                 forests_total.add(int(header["n_forests_total"]))
-                descendant_snapshot = (
-                    numpy.asarray(handle["halos/DescendantSnapshot"][()]) if version3 else None
-                )
+                descendant_snapshot = numpy.asarray(handle["halos/DescendantSnapshot"][()])
             halos += n_halos
             populated += int(n_halos > 0)
-            if descendant_snapshot is None:
-                continue
             if descendant_snapshot.shape != (n_halos,):
                 raise AssertionError(
                     f"{path}: DescendantSnapshot has shape {descendant_snapshot.shape}, "
@@ -1247,32 +1238,20 @@ class ParityGate:
             if spans.size:
                 max_span = max(max_span, int(spans.max()))
 
-        identity = (
-            f"from {pkg.source_format}, column_mapping_sha256 {pkg.column_mapping_sha256}, "
-            if version3
-            else ""
-        )
         log(
             f"  {len(names)} version {pkg.format_version} files ({populated} populated) "
-            f"{identity}links_adjacent {pkg.links_adjacent}"
+            f"from {pkg.source_format}, column_mapping_sha256 {pkg.column_mapping_sha256}, "
+            f"links_adjacent {pkg.links_adjacent}"
         )
         if len(forests_total) != 1:
             raise AssertionError(
                 f"{directory}: header n_forests_total varies across files: {forests_total}"
             )
         forests = forests_total.pop()
-        if version3:
-            log(f"  {halos} halos, {gapped} gapped descendant links, longest span {max_span}")
-            measured = (halos, forests, gapped, max_span)
-            expected = (pkg.halos, pkg.forests, pkg.gapped_descendants, pkg.max_descendant_span)
-            what = "(halos, forests, gapped descendant links, longest span)"
-        else:
-            log(f"  {halos} halos, n_forests_total {forests} (no gap census in version 2)")
-            measured, expected, what = (
-                (halos, forests),
-                (pkg.halos, pkg.forests),
-                "(halos, forests)",
-            )
+        log(f"  {halos} halos, {gapped} gapped descendant links, longest span {max_span}")
+        measured = (halos, forests, gapped, max_span)
+        expected = (pkg.halos, pkg.forests, pkg.gapped_descendants, pkg.max_descendant_span)
+        what = "(halos, forests, gapped descendant links, longest span)"
         if measured != expected:
             raise AssertionError(
                 f"{directory}: {what} is {measured}, expected {expected} for the pinned "
@@ -1280,18 +1259,11 @@ class ParityGate:
             )
 
         with h5py.File(directory / FORESTS_FILE, "r") as handle:
-            if version3:
-                rows = numpy.asarray(handle[SOURCE_FILE_ORDINAL][()])
-            else:
-                rows = numpy.asarray(handle[FOREST_ID][()])
+            rows = numpy.asarray(handle[SOURCE_FILE_ORDINAL][()])
         if rows.size != pkg.forests:
             raise AssertionError(
                 f"{directory / FORESTS_FILE}: {rows.size} forests, expected {pkg.forests}"
             )
-        if not version3:
-            log(f"  {FORESTS_FILE}: {rows.size} {FOREST_ID} rows, the pinned forest count")
-            self.done.add("dataset")
-            return
 
         if pkg.manifest is not None:
             if pkg.source_format != "consistent_trees_ascii":

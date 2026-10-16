@@ -7,8 +7,8 @@ the converter writes for its route (micro-uchuu-ascii's converter profile,
 `consistent_trees_ascii`), in the YAML, in the compiled catalog_field_metadata.inc
 and in the real converted dataset behind `snapshots/` when present. The four tests
 live in tests/framework/schema_conformance.py; this file only pins the route. Every
-test skips unless SIMULATION=micro-uchuu-ascii-horizontal. The committed fixtures
-under _tests/data/ are version 2 (they carry no `/schema`) and are not named here.
+test skips unless SIMULATION=micro-uchuu-ascii-horizontal. The committed worked_ascii
+fixture under _tests/data/ is not named here: the generic test tiers run on it.
 
 Run with:
   make MODEL=halos-only SIMULATION=micro-uchuu-ascii-horizontal generate

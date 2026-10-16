@@ -35,8 +35,8 @@ need a horizontal package with a committed fixture: they report NA under a verti
 package and SKIP under a horizontal package that ships no fixture. The required
 evidence is a run under each of
 
-  MODEL=halos-only SIMULATION=micro-uchuu-ascii-horizontal TEST_BUILD=yes   (v2, adjacent)
-  MODEL=halos-only SIMULATION=mini-millennium-horizontal TEST_BUILD=yes     (v3, gapped)
+  MODEL=halos-only SIMULATION=micro-uchuu-ascii-horizontal TEST_BUILD=yes   (adjacent)
+  MODEL=halos-only SIMULATION=mini-millennium-horizontal TEST_BUILD=yes     (gapped)
 
 with no MIMIC_RESULT: SKIP or NA. The test never invokes make; build the selected TEST_BUILD
 executable first. It contains no multi-rank case.
@@ -91,17 +91,17 @@ VERTICAL_INPUT = {
     "last_file": 0,
 }
 
-#: Committed v2 fixture, used to put a vertical package's run on the horizontal driver
-#: for startup-only checks: each fails before the dataset is opened. Runs using it
-#: write every snapshot (an empty output.snapshot_list), since the vertical reference
-#: run file selects a snapshot the fixture's scale-factor list does not have.
+#: Committed micro-Uchuu worked_ascii fixture, used to put a vertical package's run on the
+#: horizontal driver for startup-only checks: each fails before the dataset is opened. Runs
+#: using it write every snapshot (an empty output.snapshot_list), since the vertical
+#: reference run file selects a snapshot the fixture's scale-factor list does not have.
 HORIZONTAL_INPUT = {
     "tree_type": "horizontal_hdf5",
     "processing_order": "horizontal",
     "tree_name": "snapshot_%03d.h5",
-    "simulation_dir": "simulations/micro-uchuu-ascii-horizontal/_tests/data/generic",
+    "simulation_dir": "simulations/micro-uchuu-ascii-horizontal/_tests/data/worked_ascii",
     "snapshot_list_file": (
-        "simulations/micro-uchuu-ascii-horizontal/_tests/data/generic/micro-uchuu-fixture.a_list"
+        "simulations/micro-uchuu-ascii-horizontal/_tests/data/worked_ascii/worked_ascii.a_list"
     ),
 }
 
@@ -587,8 +587,8 @@ def test_malformed_entries_fail_at_startup():
               post_snapshot entries, unknown modules and unsupported modes stop
               module_system_init(), which runs before any init(). Every case runs under the
               horizontal driver's configuration, so a non-empty post_snapshot reaches those
-              checks: a vertical package is pointed at the committed v2 fixture's input
-              settings, and the dataset is never opened.
+              checks: a vertical package is pointed at the committed worked_ascii fixture's
+              input settings, and the dataset is never opened.
     """
     overrides = None if selected_package_is_horizontal() else HORIZONTAL_INPUT
     for label, modules, needles in _malformed_cases():
@@ -670,8 +670,8 @@ def test_horizontal_restrictions_still_apply():
 
     Expected: binary output and --skip are each rejected at configuration, alongside a
               configured snapshot module, before any module init() or dataset open. On a
-              vertical package the run is pointed at the committed v2 fixture's input
-              settings for this configuration-only check; the dataset is never opened.
+              vertical package the run is pointed at the committed worked_ascii fixture's
+              input settings for this configuration-only check; the dataset is never opened.
     """
     overrides = None if selected_package_is_horizontal() else HORIZONTAL_INPUT
     phase = {"post_snapshot": [("test_snapshot_fixture", "process_snapshot")]}

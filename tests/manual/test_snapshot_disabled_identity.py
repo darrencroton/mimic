@@ -10,9 +10,15 @@ It proves that, with ``modules.post_snapshot`` absent or an explicit empty list,
 what the pinned pre-feature reference commit produces. Per leg, on committed fixtures only: a
 baseline run of the reference build, a feature-absent run of the HEAD build on the very same run
 file, and a feature-empty run with ``post_snapshot: []`` added under ``modules:``. The matrix is
-{halos-only, sage16} x {vertical mini-Millennium, version 2 horizontal, gapped version 3
-horizontal} x {fixed, dynamic}: twelve legs, each derived from the shipped
+{halos-only, sage16} x {vertical mini-Millennium, gapped version 3 horizontal} x {fixed,
+dynamic}: eight legs, each derived from the shipped
 ``models/sage16/input/sage16_mini-millennium.yaml`` with only its selectors substituted.
+
+Each leg runs the reference commit on that commit's own fixture configuration, and the metadata
+comparison allows only path-prefix differences between the two trees, so a leg can run only on a
+fixture the reference commit already carries with the same content. The adjacent horizontal
+fixture (micro-uchuu-ascii-horizontal's ``worked_ascii``) is newer than the reference, so it has
+no leg here; horizontal runs on adjacent input are covered by that package's parity gate.
 
 Each feature leg must match the baseline: per-ID byte identity of every Galaxies field (through
 the unchanged scripts/compare_cross_format_identity.py), the same files, HDF5 objects, master-file
@@ -28,7 +34,11 @@ gates' scratch parent); runs, logs, mutations and ``evidence.json`` are archived
 ``archive/snapshot-global-identity/<stamp>/``. Nothing is ever removed by this test. The
 console output is also written to ``build/snapshot_global_identity.log``.
 
-Contract: Slice 4 of the snapshot-global modules implementation plan (docs/dev, at acceptance).
+The test passes only when the reference commit resolves (an ancestor of HEAD with no feature
+symbol that carries every path the legs select), every run is leak-free and records the commit,
+model, simulation and timestepping scheme it was meant to run, every leg's feature-absent and
+feature-empty runs meet that identity against its baseline, and the comparator rejects each
+injected defect and accepts each control.
 """
 
 from __future__ import annotations
@@ -173,11 +183,6 @@ class Fixture:
 
 FIXTURES = (
     Fixture("default", "mini-millennium", "tests/data/test_simulation.yaml"),
-    Fixture(
-        "v2",
-        "micro-uchuu-ascii-horizontal",
-        "simulations/micro-uchuu-ascii-horizontal/_tests/input/test_simulation.yaml",
-    ),
     Fixture(
         "v3-gapped",
         "mini-millennium-horizontal",
@@ -925,7 +930,7 @@ class Identity:
         evidence["run_seconds"] = {
             r.variant: round(r.elapsed_s, 1) for r in (baseline, absent, empty)
         }
-        if (model, fixture.name, scheme) == ("sage16", "v2", "fixed"):
+        if (model, fixture.name, scheme) == ("sage16", "v3-gapped", "fixed"):
             self.mutation_source = absent.output
         failures = []
         for record, empty_leg in ((absent, False), (empty, True)):
@@ -966,7 +971,7 @@ class Identity:
     def test_comparator_rejects_mutations(self) -> None:
         """The comparator fails on every injected defect and accepts only the permitted ones."""
         if self.mutation_source is None:
-            raise AssertionError("the sage16 v2 fixed leg produced no output to mutate")
+            raise AssertionError("the sage16 v3-gapped fixed leg produced no output to mutate")
         count = run_mutation_checks(self.mutation_source, self.scratch("mutations"))
         self.evidence["mutation_cases"] = count
         self.save_evidence()

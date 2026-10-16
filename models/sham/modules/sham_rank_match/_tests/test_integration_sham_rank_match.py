@@ -78,7 +78,7 @@ TEMP_DIR = None
 PACKAGE_SIMULATION = "micro-uchuu-ascii-horizontal"
 RUN_FILE = REPO_ROOT / "models" / "sham" / "input" / f"sham_{PACKAGE_SIMULATION}.yaml"
 SIMULATION_DIR = REPO_ROOT / "simulations" / PACKAGE_SIMULATION
-FIXTURE_DIR = SIMULATION_DIR / "_tests" / "data" / "generic"
+FIXTURE_DIR = SIMULATION_DIR / "_tests" / "data" / "worked_ascii"
 SIMULATION_CONFIG = SIMULATION_DIR / "_tests" / "input" / "test_simulation.yaml"
 
 NUM_SNAPSHOTS = 6
@@ -598,7 +598,7 @@ def test_fixture_cross_fof_ties_rank_by_unique_id():
     fixture = tie_fixture(TEMP_DIR / "tie_fixture")
     overrides = {
         "simulation_dir": str(fixture),
-        "snapshot_list_file": str(fixture / "micro-uchuu-fixture.a_list"),
+        "snapshot_list_file": str(fixture / "worked_ascii.a_list"),
     }
     run_file, output_dir, stem, parameters = write_run("ties", input_overrides=overrides)
     stdout = run_ok(run_file, "tie fixture run")

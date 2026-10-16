@@ -62,9 +62,6 @@ Steps, each reported as ``MIMIC_RESULT:`` markers and gated:
    ``hod`` run file, one serial launch at ``forest_chunks: 2`` must fail at configuration with the
    snapshot-scope refusal (``never holds a whole snapshot`` and ``needs forest_chunks: 1``) and
    never log ``Opened horizontal run`` (``chunked_refused_``).
-4. The version 2 refusal: ``halos-only`` on the version 2 fixture
-   ``simulations/micro-uchuu-ascii-horizontal/_tests/data/generic/`` under ``-np 2`` must fail at
-   startup with the format_version 2 message.
 
 Every build and launch runs in its own session (process group) under a timeout (``RUN_TIMEOUT``
 for a run, short because the fixture runs take seconds; ``BUILD_TIMEOUT`` for a build). The first
@@ -147,12 +144,6 @@ CONTROL_INCLUDES = [
     "tests",
     "build/generated",
 ]
-
-V2_MODEL = "halos-only"
-V2_SIMULATION = "micro-uchuu-ascii-horizontal"
-V2_DATA = Path("simulations") / V2_SIMULATION / "_tests" / "data" / "generic"
-V2_A_LIST = V2_DATA / "micro-uchuu-fixture.a_list"
-V2_MESSAGE = "this is a format_version 2 dataset"
 
 PARTITION_LINE = "Distributed horizontal partition:"
 CHUNKED_PARTITION_LINE = "Chunked horizontal partition:"  # task 0's headline for a serial G > 1
@@ -583,28 +574,6 @@ class Gate:
             f"task 0's partition headline {headline!r} with {phrase!r} is missing (got {line!r})",
         )
 
-    def version_2_refusal(self) -> None:
-        """halos-only on the version 2 fixture under -np 2 fails at startup with the message."""
-        print(f"--- {V2_MODEL} x {V2_SIMULATION} (version 2 refusal)", flush=True)
-        if not self.build(V2_MODEL, V2_SIMULATION, mpi=True):
-            return
-        base_file = REPO_ROOT / "models" / V2_MODEL / "input" / f"{V2_MODEL}_{V2_SIMULATION}.yaml"
-        config = yaml.safe_load(base_file.read_text())
-        config.setdefault("input", {}).update(
-            {"simulation_dir": str(V2_DATA), "snapshot_list_file": str(V2_A_LIST)}
-        )
-        last = sum(1 for line in (REPO_ROOT / V2_A_LIST).read_text().splitlines() if line.strip())
-        config["output"]["snapshot_list"] = [last - 1]
-        run_file = write_run_file(config, WORK_ROOT / "version-2-refusal")
-        status, output = self.launch(2, run_file, "version 2 refusal at -np 2")
-        self.marker(
-            status not in (0, TIMEOUT_STATUS)
-            and V2_MESSAGE in output
-            and PARTITION_LINE not in output,
-            "version_2_refused_at_np2",
-            f"exit {status}; expected a startup failure naming '{V2_MESSAGE}'",
-        )
-
     def restore(self) -> None:
         """Regenerate the caller's generated code; a failure fails the run."""
         selectors = [
@@ -778,7 +747,6 @@ def main(argv=None) -> int:
         gate.control_test()
         for model in models:
             gate.leg(model)
-        gate.version_2_refusal()
     except GateStopped as stop:
         print(f"Gate stopped early: {stop}; its failure marker is recorded", flush=True)
     finally:
@@ -801,7 +769,7 @@ def main(argv=None) -> int:
         f"{len(models)} model(s) at -np {', '.join(map(str, NP_COUNTS))}, "
         f"chunked legs ({', '.join(CHUNKED_MODELS)}) at forest_chunks "
         f"{', '.join(map(str, CHUNK_COUNTS))} serial and {pairs}, "
-        f"chunked refusal ({', '.join(CHUNK_REFUSED_MODELS)}), version 2 refusal; "
+        f"chunked refusal ({', '.join(CHUNK_REFUSED_MODELS)}); "
         f"no skips; log: {LOG_PATH})"
     )
     return 0
