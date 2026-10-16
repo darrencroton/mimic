@@ -21,12 +21,13 @@ SPEC_ANCHOR = "convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md#v3-runtime-suppor
 COMPLETE = "complete"
 
 #: The coverage label of Shin-Uchuu, whose complete dataset was made by migration. The full box
-#: cannot run vertical, so each piece of evidence names the dataset it covers.
+#: cannot run vertical, so each piece of evidence names the dataset it covers. The renderers join
+#: routes with "; ", so no coverage label may contain one.
 COMPLETE_BY_MIGRATION = (
-    "complete real data by migration; sage16 on the uncut dataset is bitwise identical to the "
-    "version 2 run; vertical parity is on the subset only; the package's dataset is the cut one, "
-    "identical to the uncut run outside the split forests, with the differences inside them "
-    "reported, not gated"
+    "complete real data by migration (sage16 on the uncut dataset is bitwise identical to the "
+    "version 2 run, vertical parity is on the subset only, and the package's dataset is the cut "
+    "one, identical to the uncut run outside the split forests with the differences inside them "
+    "reported, not gated)"
 )
 
 FULL_UCHUU_NOT_CLAIMED = (

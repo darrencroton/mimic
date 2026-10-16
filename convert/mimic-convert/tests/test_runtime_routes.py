@@ -17,6 +17,8 @@ class RuntimeRoutesTests(unittest.TestCase):
         rows = {(r.simulation, r.source_format): r for r in runtime_routes.ROUTES}
         self.assertEqual(len(runtime_routes.ROUTES), 7)
         self.assertEqual(len(rows), 7)
+        for route in runtime_routes.ROUTES:
+            self.assertNotIn(";", route.coverage, "the renderers join routes with '; '")
         for key in (
             ("mini-Millennium", "lhalo_binary"),
             ("micro-Uchuu", "lhalo_binary"),
