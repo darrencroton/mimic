@@ -1010,7 +1010,23 @@ Change = Callable[[OutputRun, OutputRun], None]
 
 
 def snapshot_partition(run: OutputRun, snap: int) -> Path:
-    return run.directory / f"{OUTPUT_BASENAME}_{snap:03d}.hdf5"
+    """The partition file holding ``snap``'s Galaxies, named by the master file's link to it.
+
+    A horizontal run writes one partition per snapshot and a vertical run one per input file
+    holding every snapshot, so the file is read from the link rather than from the number.
+    """
+    with h5py.File(run.directory / MASTER, "r") as handle:
+        group = handle[f"Snap{snap:03d}"]
+        files = sorted(
+            {
+                link.filename
+                for name in group
+                if isinstance(link := group[name].get("Galaxies", getlink=True), h5py.ExternalLink)
+            }
+        )
+    if len(files) != 1:
+        raise AssertionError(f"snapshot {snap} has Galaxies in {len(files)} partition(s): {files}")
+    return run.directory / files[0]
 
 
 def with_master(run: OutputRun, change: Callable[[h5py.File], None]) -> None:
