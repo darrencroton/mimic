@@ -552,11 +552,8 @@ static int test_unreferenced_halo_is_never_reached(void) {
   TEST_ASSERT(gathered[0].source == &generations[1].processed[0] &&
                   gathered[1].source == &generations[2].processed[0],
               "the gather visits P1's then P2's galaxies only");
-  for (int i = 0; i < MAX_GALAXIES; i++) {
-    TEST_ASSERT(gathered[i].source < &generations[1].processed[1] ||
-                    gathered[i].source > &generations[1].processed[3],
-                "no galaxy of the unreferenced halo's range is gathered");
-  }
+  TEST_ASSERT(gathered[2].source == NULL && gathered[3].source == NULL,
+              "the gather writes P1's and P2's entries only, nothing from the unreferenced range");
 
   return TEST_PASS;
 }
