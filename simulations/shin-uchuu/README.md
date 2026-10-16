@@ -47,7 +47,7 @@ The dataset under `snapshots/` is the **cut version 3 dataset**: 22,503,649,037 
 
 ### The version 2 conversion (history)
 
-The first production dataset was made by the legacy version 2 converter, `convert/mimic-convert/convert_ctrees.py`, from the full 2,744-file Consistent-Trees ASCII catalogue under the production `forests.list` (md5 `60dbf14a99ae9f23ca7c334474477a95`) and `locations.dat` (md5 `75442d7ae5b1f2465b485e60720e6df7`). Its conversion report's totals: 71 files of 2,251,984,563,372 B, 22,503,649,037 halos, 315,004,242 trees, 166,547,771 forests, largest snapshot 34 with 519,342,987 halos, `max_halo_rank_in_forest` 12,646,607,900. Its rows were sorted by `MostBoundID`, so it was not forest-blocked and the horizontal driver refused to distribute or chunk it.
+The first production dataset was made by the legacy version 2 converter, `convert/mimic-convert/convert_ctrees.py`, from the full 2,744-file Consistent-Trees ASCII catalogue under the production `forests.list` (md5 `60dbf14a99ae9f23ca7c334474477a95`) and `locations.dat` (md5 `75442d7ae5b1f2465b485e60720e6df7`). The dataset was 71 files of 2,251,984,563,372 B holding 22,503,649,037 halos in 166,547,771 forests, with its largest snapshot, 34, at 519,342,987 halos. Its rows were sorted by `MostBoundID`, so it was not forest-blocked and the horizontal driver refused to distribute or chunk it.
 
 ### The migration: the uncut version 3 dataset
 
