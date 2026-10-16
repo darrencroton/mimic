@@ -32,9 +32,9 @@ Horizontal runs are HDF5-only and do not support `--skip`; both are rejected at 
 
 ## Maintenance notes
 
-- **`unique_galaxy_id_multiplier: 20000000000` (2×10¹⁰)** must match `simulations/shin-uchuu-ascii/`, or `UniqueGalaxyID` diverges between the two packages. Confirmed against this catalog's measured `max_halo_rank_in_forest` ≈ 1.265×10¹⁰.
+- **`unique_galaxy_id_multiplier: 20000000000` (2×10¹⁰)** must match `simulations/shin-uchuu-ascii/`, or `UniqueGalaxyID` diverges between the two packages. Confirmed against the uncut forests' measured `max_halo_rank_in_forest` ≈ 1.265×10¹⁰, the bound the shared multiplier must cover (the cut dataset's is 126,380,325).
 - **`Spin` range `[-1000, 1000]`.** Measured over the full production dataset: max `|Spin|` = 416.69, zero non-finite.
-- **`deltaMvir` range `[-1000000.0, 1000000.0]`** (declared in `src/core/core_properties.yaml`, not this package; widened after a measured 4.77e4 on mini-Uchuu). Measured over the `sage16` production run: max `|deltaMvir|` = 12,432.
+- **`deltaMvir` range `[-1000000.0, 1000000.0]`** (declared in `src/core/core_properties.yaml`, not this package; widened after a measured 4.77e4 on mini-Uchuu). Measured over the version 2 `sage16` production run: max `|deltaMvir|` = 12,432.
 - **`_tests/` ships a synthetic contract fixture, a schema-conformance test and the subset gate.** `_tests/data/` holds the committed version 2 fixture (three forests over six snapshots, rebuilt by `_tests/data/regenerate.sh` with the generator in `micro-uchuu-ascii-horizontal/_tests/input/`) and `_tests/input/test_simulation.yaml` points the generic test tiers at it. `_tests/integration/test_schema_conformance.py` checks the declarations against the converter's version 3 `/schema` and, when `snapshots/` holds a dataset, against its files. `_tests/scientific/test_cross_format_identity.py` is the subset gate (see "The subset gate" below); `make check-horizontal-fixture` covers only the `micro-uchuu-ascii-horizontal` fixture.
 
 ### Largest forest in the widest slab
@@ -96,7 +96,7 @@ The mean baryon fraction by halo mass differs in all 42 bins, by at most 0.091% 
 
 `sage16` on the cut dataset at one task and `input.forest_chunks: 128`, with the version 2 run's output snapshots, completed and peaked at **6,170,116,096 B (6.170 GB) RSS**, 0.575 of the 10 GiB (10,737,418,240 B) usable budget of a 16 GiB laptop class; this is a **proxy**: a Mac measurement under `MallocLargeCache=0`, which becomes the final laptop acceptance only when a laptop of the 16 GiB class runs it.
 
-At subset scale (the cut version of the 2,744-file subset: 7,206,195 forests, widest slab 9,006,294 halos), serial, `forest_chunks: 8` and `mpirun -np 4` runs of `halos-only` and `sage16` write bitwise identical galaxies, and chunking in 8 lowers the peak RSS from 9.012 to 1.503 GB (`halos-only`) and from 9.712 to 1.777 GB (`sage16`). No unchunked or distributed run of the cut production dataset was made, so that identity is measured at subset scale only.
+At subset scale (the cut version of the 2,744-file subset: 7,206,195 forests, widest slab 9,006,294 halos), serial, `forest_chunks: 8` and `mpirun -np 4` runs of `halos-only` and `sage16` write bitwise identical galaxies, and chunking in 8 lowers the peak RSS (measured under `MallocLargeCache=0`) from 9.012 to 1.503 GB (`halos-only`) and from 9.712 to 1.777 GB (`sage16`). No unchunked or distributed run of the cut production dataset was made, so that identity is measured at subset scale only.
 
 ### The subset gate
 

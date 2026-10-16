@@ -51,7 +51,8 @@ Consistent-Trees ASCII to version 2 workflow is unchanged and lives in
 **Conversion is not route validation.** Mimic's horizontal_hdf5 reader and
 horizontal driver consume format version 3, but a converted dataset is an
 evidenced runtime route only where a recorded parity gate passed against the
-same source format's vertical reader over the same files. The evidenced
+same source format's vertical reader over the same files (except the route whose
+row states other evidence). The evidenced
 routes are those in runtime_routes.ROUTES, which mirrors the table under
 convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md#v3-runtime-support; full Uchuu is not
 runnable. Every stage says so, and says whether the dataset has non-adjacent

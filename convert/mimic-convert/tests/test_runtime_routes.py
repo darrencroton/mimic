@@ -63,6 +63,7 @@ class RuntimeRoutesTests(unittest.TestCase):
             self.assertIn("sage16 on the uncut dataset is bitwise identical", clause)
             self.assertIn("the package's dataset is the cut one", clause)
             self.assertIn("vertical parity is on the subset only", clause)
+            self.assertIn("the only gate of halos-only", clause)
         description = runtime_routes.cli_description()
         for simulation in {r.simulation for r in runtime_routes.ROUTES}:
             self.assertIn(simulation, description)
