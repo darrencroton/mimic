@@ -16,16 +16,19 @@ cannot change any output (the ASCII preparation's worker count and parser
 chunk size) are recorded beside the configuration, under ``tuning``, and are
 not part of its identity or digest. It does not run a stage:
 ``pipeline.py`` does, through the transitions below. ``scatter.Manifest``
-remains the owner of the legacy ASCII-to-v2 state; nothing here reads, writes
-or upgrades one.
+owns the per-snapshot stage state of the Consistent-Trees ASCII preparation,
+which the ASCII route keeps in its own subdirectory of the workdir
+(``pipeline.ASCII_PREPARATION_DIR``); nothing here writes or upgrades one.
 
-**The file name is shared with the legacy manifest on purpose.** A legacy
-loader pointed at a generic workdir reads ``manifest_version = 3`` and refuses
-it (``scatter.Manifest.load_or_create`` accepts exactly 2), and this module
-pointed at a legacy workdir recognises version 2 and hands it back untouched
-(:func:`open_manifest`). A distinct name would let either tool treat the
-other's workdir as empty and start writing into it. Version 1 and every
-unknown version fail in both.
+**The file name is shared with the scatter manifest on purpose.** The scatter
+manifest's loader pointed at a generic workdir reads ``manifest_version = 3``
+and refuses it (``scatter.Manifest.load_or_create`` accepts exactly
+``scatter.MANIFEST_VERSION``), and this module pointed at a directory holding
+a scatter manifest classifies it as :data:`MANIFEST_LEGACY` and hands it back
+untouched (:func:`open_manifest`), while :meth:`ConversionManifest.load` and
+``pipeline.initialize`` refuse it. A distinct name would let either loader
+treat the other's directory as empty and start writing into it. Version 1 and
+every unknown version fail in both.
 
 **Resume derives everything from the manifest.** :meth:`ConversionManifest.load`
 rebuilds the schema from its embedded canonical record through the real
@@ -40,8 +43,8 @@ two schemas of equal record size can differ in type, units, source component
 or h convention (:meth:`ConversionManifest.require_schema`).
 
 **Source content evidence.** A source dependency is pinned by its resolved
-path, size, ``mtime_ns`` and ``(st_dev, st_ino)`` -- the evidence the legacy
-scatter and the forests-HDF5 adapter already use -- and metadata files the
+path, size, ``mtime_ns`` and ``(st_dev, st_ino)`` -- the evidence the ASCII
+preparation's scatter and the forests-HDF5 adapter already use -- and metadata files the
 conversion embeds (the a_list) additionally by SHA-256. Bulk source files are
 not content-hashed: a full-Uchuu data file is ~44 GB and is re-checked on
 every stage entry. :meth:`ConversionManifest.verify_dependencies` re-pins every
@@ -122,9 +125,9 @@ __all__ = [
     "sha256_file",
 ]
 
-#: The generic manifest's version. 1 was the legacy fix_flybys-era scatter
-#: manifest and 2 is the current legacy one (``scatter.MANIFEST_VERSION``), so
-#: the generic format starts at 3 and never shares a number with either.
+#: The generic manifest's version. 1 was the fix_flybys-era scatter manifest
+#: and 2 is the current scatter manifest (``scatter.MANIFEST_VERSION``), so the
+#: generic format starts at 3 and never shares a number with either.
 MANIFEST_VERSION = 3
 
 #: Distinguishes a generic manifest from any other JSON that might claim
@@ -484,8 +487,9 @@ def classify_manifest(workdir) -> str:
     """Which state owner a workdir's manifest belongs to, without loading it.
 
     Returns :data:`MANIFEST_ABSENT`, :data:`MANIFEST_GENERIC` or
-    :data:`MANIFEST_LEGACY`. Version 1 (the fix_flybys-era scatter manifest)
-    and every unknown version raise: neither owner may resume them.
+    :data:`MANIFEST_LEGACY` (a current scatter manifest: the ASCII
+    preparation's state). Version 1 (the fix_flybys-era scatter manifest) and
+    every unknown version raise: neither owner may resume them.
     """
     path = Path(workdir) / MANIFEST_NAME
     if not path.exists():
@@ -502,7 +506,7 @@ def classify_manifest(workdir) -> str:
             "rejected; convert again into a fresh workdir".format(path)
         )
     raise ConverterError(
-        "{}: unknown manifest (version {!r}, kind {!r}); only legacy version {} and generic "
+        "{}: unknown manifest (version {!r}, kind {!r}); only scatter version {} and generic "
         "version {} are supported".format(
             path, version, document.get("manifest_kind"), LEGACY_MANIFEST_VERSION, MANIFEST_VERSION
         )
@@ -512,9 +516,9 @@ def classify_manifest(workdir) -> str:
 def open_manifest(workdir):
     """Load a workdir's manifest with the owner its version names.
 
-    A legacy version-2 manifest is loaded by ``scatter.Manifest`` exactly as
-    the legacy route loads it -- nothing is added, converted or written -- so
-    it stays resumable in its original representation, and no generic
+    A scatter manifest is loaded by ``scatter.Manifest`` exactly as the ASCII
+    preparation's own stages load it -- nothing is added, converted or written
+    -- so it stays resumable in its original representation, and no generic
     provenance is ever invented for it. A generic manifest is loaded by
     :meth:`ConversionManifest.load`. Anything else raises.
     """
@@ -799,7 +803,7 @@ class ConversionManifest:
     def load(cls, workdir) -> "ConversionManifest":
         """Load and validate a generic manifest. Writes nothing.
 
-        Refuses a legacy, version-1 or unknown manifest, one whose records do
+        Refuses a scatter, version-1 or unknown manifest, one whose records do
         not have the shapes the stages index (named by key), one whose
         configuration digest does not match its configuration, and one whose
         embedded schema does not rebuild to its recorded digest. Every refusal
@@ -811,9 +815,9 @@ class ConversionManifest:
             raise ConverterError("{}: no manifest; start the conversion first".format(path))
         if kind == MANIFEST_LEGACY:
             raise ConverterError(
-                "{}: this is a legacy version-{} ASCII workdir; resume it with "
-                "convert_ctrees.py. The generic pipeline never upgrades, relabels or adds "
-                "provenance to it".format(path, LEGACY_MANIFEST_VERSION)
+                "{}: this is a scatter manifest (version {}), the state of a Consistent-Trees "
+                "ASCII preparation, not a generic conversion's. The generic pipeline never "
+                "upgrades, relabels or adds provenance to it".format(path, LEGACY_MANIFEST_VERSION)
             )
         data = _read_json(path)
         _check_shape(data, path)

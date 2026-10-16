@@ -16,12 +16,14 @@ Oracles:
   walking ``desc_id`` in the fixture specification;
 - the index reader against hand-written index files, and against the sidecar
   ordinals the ASCII adapter itself writes;
-- the identity record against the committed version 2 fixture
-  (``simulations/micro-uchuu-ascii-horizontal/_tests/data/generic``) and its
-  ``fixture_manifest.json``;
+- the identity record and the reader's refusals against the committed version 3
+  fixture (``simulations/micro-uchuu-ascii-horizontal/_tests/data/worked_ascii``),
+  whose counts, scale factors and forest ids are restated from its source
+  (``.../_tests/data/source``);
 - the decided table against tables written out by hand from the fixture
-  topology, on version 3 and version 2 datasets the converter writes from the
-  same forests, and against the partition that cuts every co-membership ended
+  topology, on version 3 datasets the converter writes from the same forests
+  under two catalogue file layouts, and against the partition that cuts every
+  co-membership ended
   before the final snapshot, computed independently from the raw slab columns
   inside the test (:func:`all_ended_pieces`); naming, invariants, promotions,
   the progenitor-order change, the affected-history bracket and the partition
@@ -63,20 +65,21 @@ from census import (  # noqa: E402
 )
 from column_schema import build_schema, load_column_map  # noqa: E402
 from errors import ConverterError  # noqa: E402
-from fixups import run_fixups  # noqa: E402
-from hdf5_writer import run_write as run_write_v2  # noqa: E402
 from hdf5_writer_v3 import HorizontalV3Writer  # noqa: E402
 from horizontal_dataset import HorizontalDataset  # noqa: E402
-from links import run_links  # noqa: E402
-from scatter import run_scatter  # noqa: E402
-from sort_index import run_sort  # noqa: E402
 from source_index import SourceIndex  # noqa: E402
 from test_fixups import capture_stderr  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-GENERIC_V2 = (
-    REPO_ROOT / "simulations" / "micro-uchuu-ascii-horizontal" / "_tests" / "data" / "generic"
+#: The committed version 3 fixture: three forests (ids 10, 20 and 30) over six
+#: snapshots, converted from ``../source`` by the package's ``regenerate.sh``.
+WORKED_ASCII = (
+    REPO_ROOT / "simulations" / "micro-uchuu-ascii-horizontal" / "_tests" / "data" / "worked_ascii"
 )
+#: The fixture's halos per snapshot and its forest ids, restated from its
+#: source tree file and ``forests.list``.
+WORKED_ASCII_N_HALOS = (0, 1, 1, 1, 6, 4)
+WORKED_ASCII_FOREST_IDS = (10, 20, 30)
 ASCII_PROFILE = Path(__file__).resolve().parents[1] / "profiles" / "consistent_trees_ascii.yaml"
 
 
@@ -138,29 +141,6 @@ def convert_ascii(root: Path, file_trees, forests):
     }
 
 
-def convert_ascii_v2(root: Path, file_trees, forests):
-    """Convert fixture trees as :func:`convert_ascii` does, through the
-    version 2 route (scatter, sort, fix-ups, links, the version 2 writer);
-    returns the paths the census needs."""
-    root.mkdir(parents=True)
-    tree_files = [
-        fixtures.write_ctrees_file(root / "tree_{}.dat".format(i), trees_of_file)
-        for i, trees_of_file in enumerate(file_trees)
-    ]
-    forests_list = fixtures.write_forests_list(root / "forests.list", forests)
-    locations = write_locations(root / "locations.dat", tree_files)
-    sim_info = fixtures.write_simulation_info(root / "simulation_info.yaml")
-    a_list = fixtures.write_a_list(root / "fixture.a_list")
-    work = root / "work"
-    with capture_stderr():
-        run_scatter(tree_files, forests_list, a_list, work, simulation_info_path=sim_info)
-        run_sort(work)
-        run_fixups(work, a_list, sim_info)
-        run_links(work)
-        run_write_v2(work, a_list, sim_info)
-    return {"dataset": work / "hdf5", "forests_list": forests_list, "locations": locations}
-
-
 def terminal_root(halos, halo_id):
     """The id of the halo ``halo_id``'s descendant chain ends at."""
     while halos[halo_id].desc_id != -1:
@@ -178,9 +158,18 @@ def read_slab_column(dataset_dir, snap, name):
         return handle["halos"][name][...]
 
 
-def copy_generic(destination: Path) -> Path:
-    shutil.copytree(GENERIC_V2, destination)
+def copy_worked_ascii(destination: Path) -> Path:
+    shutil.copytree(WORKED_ASCII, destination)
     return destination
+
+
+def set_header(name, value):
+    """An edit setting one ``/header`` attribute of an open snapshot file."""
+
+    def edit(handle):
+        handle["header"].attrs[name] = value
+
+    return edit
 
 
 #: The correspondence forests' file layout, with the early-ending forest 1300
@@ -350,44 +339,38 @@ class TestSourceIndex(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# The dataset reader and the identity record (version 2)
+# The dataset reader and the identity record (the committed fixture)
 # ---------------------------------------------------------------------------
 
 
-class TestVersion2Dataset(unittest.TestCase):
-    def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp(prefix="census_v2_"))
-        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
-        self.manifest = json.loads((GENERIC_V2 / "fixture_manifest.json").read_text())
+class TestCommittedDataset(unittest.TestCase):
+    """The reader, the identity record and the census's refusals on the
+    committed version 3 fixture (:data:`WORKED_ASCII`), or on an edited copy."""
 
-    def manifest_counts(self):
-        files = self.manifest["files"]
-        return [
-            files["snapshot_{:03d}.h5".format(snap)]["header_attributes"]["n_halos"]["value"]
-            for snap in range(self.manifest["n_snapshots"])
-        ]
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="census_committed_"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
 
     def test_identity_record(self):
-        with h5py.File(GENERIC_V2 / "forests.h5", "r") as handle:
-            forest_ids = handle["ForestID"][...]
-        header = self.manifest["files"]["snapshot_000.h5"]["header_attributes"]
+        forest_ids = np.array(WORKED_ASCII_FOREST_IDS, dtype="<i8")
         self.assertEqual(
-            HorizontalDataset(GENERIC_V2).identity(),
+            HorizontalDataset(WORKED_ASCII).identity(),
             {
-                "format_version": 2,
-                "source_format": None,
-                "n_forests_total": header["n_forests_total"]["value"],
-                "n_halos": self.manifest_counts(),
-                "forest_id_sha256": hashlib.sha256(forest_ids.astype("<i8").tobytes()).hexdigest(),
+                "format_version": 3,
+                "source_format": "consistent_trees_ascii",
+                "n_forests_total": 3,
+                "n_halos": list(WORKED_ASCII_N_HALOS),
+                "forest_id_sha256": hashlib.sha256(forest_ids.tobytes()).hexdigest(),
             },
         )
 
     def test_header_and_bounded_block_reads(self):
-        dataset = HorizontalDataset(GENERIC_V2)
+        dataset = HorizontalDataset(WORKED_ASCII)
         self.assertEqual(dataset.snapshots, tuple(range(6)))
-        self.assertEqual(list(dataset.scale_factors), self.manifest["a_list"])
+        a_list = (WORKED_ASCII / "worked_ascii.a_list").read_text().split()
+        self.assertEqual(list(dataset.scale_factors), [float(a) for a in a_list])
         self.assertEqual(dataset.header(4)["n_halos"], 6)
-        whole = read_slab_column(GENERIC_V2, 4, "MostBoundID")
+        whole = read_slab_column(WORKED_ASCII, 4, "MostBoundID")
         blocks = list(dataset.iter_column(4, "MostBoundID", block_rows=4))
         self.assertEqual([(start, block.size) for start, block in blocks], [(0, 4), (4, 2)])
         np.testing.assert_array_equal(np.concatenate([b for _s, b in blocks]), whole)
@@ -398,27 +381,26 @@ class TestVersion2Dataset(unittest.TestCase):
             list(dataset.iter_column(4, "MostBoundID", block_rows=0))
 
     def test_a_missing_snapshot_is_refused(self):
-        broken = copy_generic(self.tmp / "broken")
+        broken = copy_worked_ascii(self.tmp / "broken")
         (broken / "snapshot_003.h5").rename(self.tmp / "aside.h5")
         with self.assertRaisesRegex(ConverterError, "missing \\['snapshot_003.h5'\\]"):
             HorizontalDataset(broken)
 
-    def test_occupancy_prints_the_manifest_counts(self):
+    def test_occupancy_prints_the_fixture_counts(self):
         stdout = io.StringIO()
         with contextlib.redirect_stdout(stdout), capture_stderr():
             status = forest_census.main(
-                ["occupancy", "--dataset", str(GENERIC_V2), "--aggregate", str(self.tmp / "agg")]
+                ["occupancy", "--dataset", str(WORKED_ASCII), "--aggregate", str(self.tmp / "agg")]
             )
         self.assertEqual(status, 0)
         text = stdout.getvalue()
-        counts = self.manifest_counts()
-        for snap, count in enumerate(counts):
+        for snap, count in enumerate(WORKED_ASCII_N_HALOS):
             self.assertIn("snapshot {:3d}: {} halos".format(snap, count), text)
-        self.assertIn("total halos: {}".format(sum(counts)), text)
+        self.assertIn("total halos: {}".format(sum(WORKED_ASCII_N_HALOS)), text)
         self.assertIn("n_forests_total 3", text)
 
-    def test_trees_on_version_2_follow_the_descendant_chains(self):
-        dataset = HorizontalDataset(GENERIC_V2)
+    def test_trees_follow_the_descendant_chains(self):
+        dataset = HorizontalDataset(WORKED_ASCII)
         summary = run_quietly(trees.run_trees, dataset, self.tmp / "agg")
         roots = trees.load_roots(self.tmp / "agg")
         np.testing.assert_array_equal(roots, [1010, 1020, 2010, 2011, 3010])
@@ -431,19 +413,29 @@ class TestVersion2Dataset(unittest.TestCase):
         self.assertEqual(summary["largest_tree"]["total_halos"], 5)
 
     def edited(self, name, file_name, edit):
-        """A copy of ``generic`` with ``edit(handle)`` applied to one file."""
-        copy = copy_generic(self.tmp / name)
+        """A copy of the fixture with ``edit(handle)`` applied to one file."""
+        copy = copy_worked_ascii(self.tmp / name)
         with h5py.File(copy / file_name, "r+") as handle:
             edit(handle)
         return copy
 
+    def test_a_format_version_other_than_3_is_refused_by_name(self):
+        every_file = copy_worked_ascii(self.tmp / "version_2")
+        for path in every_file.glob("snapshot_*.h5"):
+            with h5py.File(path, "r+") as handle:
+                handle["header"].attrs["format_version"] = np.int32(2)
+        first_file = self.edited(
+            "version_2_first", "snapshot_000.h5", set_header("format_version", np.int32(2))
+        )
+        for copy in (every_file, first_file):
+            with self.assertRaisesRegex(
+                ConverterError,
+                "snapshot_000.h5: format_version 2 is not supported; this reader opens "
+                "format_version 3 only",
+            ):
+                HorizontalDataset(copy)
+
     def test_inconsistent_datasets_are_refused_at_open(self):
-        def set_header(name, value):
-            def edit(handle):
-                handle["header"].attrs[name] = value
-
-            return edit
-
         def drop_header(name):
             def edit(handle):
                 del handle["header"].attrs[name]
@@ -458,7 +450,7 @@ class TestVersion2Dataset(unittest.TestCase):
             (
                 "mixed",
                 "snapshot_002.h5",
-                set_header("format_version", np.int32(3)),
+                set_header("format_version", np.int32(2)),
                 "format_version differs between snapshot files",
             ),
             (
@@ -491,7 +483,7 @@ class TestVersion2Dataset(unittest.TestCase):
                 HorizontalDataset(self.edited(name, file_name, edit))
         # links_adjacent absent from every file passes the agreement test, so
         # the presence check is what catches it
-        no_links = copy_generic(self.tmp / "no_links")
+        no_links = copy_worked_ascii(self.tmp / "no_links")
         for path in no_links.glob("snapshot_*.h5"):
             with h5py.File(path, "r+") as handle:
                 del handle["header"].attrs["links_adjacent"]
@@ -523,7 +515,7 @@ class TestVersion2Dataset(unittest.TestCase):
             trees.run_trees(beyond, self.tmp / "agg_beyond")
 
     def test_a_gapped_dataset_is_refused_by_trees(self):
-        gapped = copy_generic(self.tmp / "gapped")
+        gapped = copy_worked_ascii(self.tmp / "gapped")
         for path in gapped.glob("snapshot_*.h5"):
             with h5py.File(path, "r+") as handle:
                 handle["header"].attrs["links_adjacent"] = np.int32(0)
@@ -531,7 +523,7 @@ class TestVersion2Dataset(unittest.TestCase):
             trees.run_trees(HorizontalDataset(gapped), self.tmp / "agg")
 
     def test_a_repeated_terminal_id_is_refused(self):
-        repeated = copy_generic(self.tmp / "repeated")
+        repeated = copy_worked_ascii(self.tmp / "repeated")
         with h5py.File(repeated / "snapshot_005.h5", "r+") as handle:
             handle["halos"]["MostBoundID"][3] = 1010
         with self.assertRaisesRegex(ConverterError, "more than once.*\\[1010\\]"):
@@ -826,9 +818,9 @@ class TestCensusOnVersion3(unittest.TestCase):
 
     def test_an_aggregate_of_another_dataset_is_refused(self):
         with self.assertRaisesRegex(ConverterError, "produced from a different dataset"):
-            trees.run_trees(HorizontalDataset(GENERIC_V2), self.agg)
+            trees.run_trees(HorizontalDataset(WORKED_ASCII), self.agg)
         with self.assertRaisesRegex(ConverterError, "produced from a different dataset"):
-            occupancy.run_occupancy(HorizontalDataset(GENERIC_V2), self.agg)
+            occupancy.run_occupancy(HorizontalDataset(WORKED_ASCII), self.agg)
 
     def test_read_rows_reads_one_bounded_range(self):
         rows = self.dataset.read_rows(4, ("MostBoundID", "ForestIndex"), 2, 5)
@@ -1623,7 +1615,8 @@ def check_zero_cost(case, summary_table, summary_cut, n_forests):
 
 class TestDecidedTable(unittest.TestCase):
     """The decided table and its cost on :func:`decided_forests`, converted to
-    version 3 (:class:`TestDecidedTableVersion2` repeats every case on version 2).
+    version 3 (:class:`TestDecidedTableOneFile` repeats every case with the
+    catalogue's trees in one file, in reverse order).
 
     ``ForestIndex`` 0..4 are forests 1100, 1200, 1400, 1500 and 2000. Trees by
     root: 1100 (4 halos), 1110 (2), 1120 (2), 1200 (3), 1210 (3), 1400 (3),
@@ -2216,36 +2209,45 @@ class TestDecidedTable(unittest.TestCase):
         self.assertFalse((cut.cut_dir(other) / "summary.json").exists())
 
 
-class TestDecidedTableVersion2(TestDecidedTable):
-    """Every case of :class:`TestDecidedTable` on the same forests converted
-    through the version 2 route: the table is the same file, and every count
-    the same; only the bytes read differ (4 B links, rows not grouped by
-    forest)."""
+def convert_ascii_one_file(root: Path, file_trees, forests):
+    """:func:`convert_ascii` with every tree of ``file_trees`` written to one
+    file, in reverse order: the same forests under another catalogue layout."""
+    return convert_ascii(root, [[tree for trees in file_trees for tree in trees][::-1]], forests)
 
-    convert = staticmethod(convert_ascii_v2)
 
-    def test_the_dataset_is_version_2(self):
-        self.assertEqual(self.dataset.format_version, 2)
-        self.assertIsNone(self.dataset.source_format)
+class TestDecidedTableOneFile(TestDecidedTable):
+    """Every case of :class:`TestDecidedTable` on the same forests with the
+    catalogue's trees in one file, in reverse order: the dataset differs only
+    in its sidecar's source ordinals and the index files, so the table is the
+    same file, and every count and byte read the same."""
 
-    def check_bytes_read(self, read, link):
-        TestDecidedTable.check_bytes_read(self, read, 4)
+    convert = staticmethod(convert_ascii_one_file)
+
+    def test_the_catalogue_is_one_file(self):
+        with h5py.File(self.paths["dataset"] / "forests.h5", "r") as handle:
+            np.testing.assert_array_equal(handle["SourceFileOrdinal"][...], [0] * 5)
+        self.assertEqual(sorted(self.index.filenames.values()), ["tree_0.dat"])
 
 
 class TestNoSplitForest(unittest.TestCase):
     """Forests 1200 and 1400, each ending in one z = 0 group: the decided table
-    is the identity table and the cut costs nothing, on version 3 and 2."""
+    is the identity table and the cut costs nothing, whether the catalogue
+    holds the trees in one file or forest 1200 spans two."""
 
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="census_no_split_"))
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
 
-    def test_version_3_and_version_2(self):
+    def test_one_file_and_a_spanning_forest(self):
         _multi, spanning, single = fixtures.correspondence_forests()
         forests = [spanning, single]
-        for name, convert in (("v3", convert_ascii), ("v2", convert_ascii_v2)):
+        layouts = (
+            ("one_file", [fixtures.all_trees(forests)]),
+            ("spanning", [[spanning.trees[0]], [single.trees[0], spanning.trees[1]]]),
+        )
+        for name, layout in layouts:
             with self.subTest(name):
-                paths = convert(self.tmp / name, [fixtures.all_trees(forests)], forests)
+                paths = convert_ascii(self.tmp / name, layout, forests)
                 dataset = HorizontalDataset(paths["dataset"])
                 agg = self.tmp / ("agg_" + name)
                 index = run_census(dataset, agg, paths)
@@ -2361,7 +2363,7 @@ class TestDependentPropagation(unittest.TestCase):
 class TestEarlyEndingRefused(unittest.TestCase):
     """A census holding a tree that ends before the final snapshot is refused
     by the table and the cut, naming the count, before any output: the
-    negative fixture (version 3) and the committed version 2 fixture."""
+    negative fixture and the committed fixture (:data:`WORKED_ASCII`)."""
 
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="census_early_"))
@@ -2391,8 +2393,8 @@ class TestEarlyEndingRefused(unittest.TestCase):
             "1 tree(s) end before the final snapshot 5 (e.g. roots [1300])",
         )
 
-    def test_the_committed_version_2_fixture_is_refused(self):
-        dataset = HorizontalDataset(GENERIC_V2)
+    def test_the_committed_fixture_is_refused(self):
+        dataset = HorizontalDataset(WORKED_ASCII)
         probe = self.tmp / "probe"
         run_quietly(trees.run_trees, dataset, probe)
         roots = trees.load_roots(probe)
@@ -2408,7 +2410,7 @@ class TestEarlyEndingRefused(unittest.TestCase):
             + "".join("{} 0 {} tree_0.dat\n".format(r, 100 * at) for at, r in enumerate(roots))
         )
         self.check_refused(
-            GENERIC_V2,
+            WORKED_ASCII,
             (forests_list, locations),
             "1 tree(s) end before the final snapshot 5 (e.g. roots [3010])",
         )

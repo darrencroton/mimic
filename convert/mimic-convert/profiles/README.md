@@ -89,5 +89,4 @@ It deliberately does **not** cover presentation: comments, YAML key order, alias
 
 - [`convert/mimic-convert/README.md`](../README.md): the converter itself
 - [`HORIZONTAL-HDF5-FORMAT.md`](../HORIZONTAL-HDF5-FORMAT.md#version-3): the version 3 output contract these profiles feed
-- [`HORIZONTAL-HDF5-FORMAT.md`](../HORIZONTAL-HDF5-FORMAT.md): the frozen v2 contract, unchanged by this work
 - [`column_schema.py`](../column_schema.py): the implementation of this grammar, which enforces one rule throughout — a profile selects and labels fields but never changes how a source is read. The adapter owns every scientific convention (link interpretation, value conventions, identity), so every field a profile selects reaches the version 3 output in its source's native type and units, declared in each file's `/schema`, and any change to what is selected or how it is typed, named or labelled changes `column_mapping_sha256`.

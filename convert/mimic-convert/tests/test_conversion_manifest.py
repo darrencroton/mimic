@@ -1,13 +1,11 @@
 """Unit tests: the generic version-3 conversion manifest
-(convert/mimic-convert/conversion_manifest.py) and its legacy compatibility boundary.
+(convert/mimic-convert/conversion_manifest.py) and its boundary with the scatter
+manifest (``scatter.Manifest``), the stage state of the Consistent-Trees ASCII
+preparation.
 
-The legacy tests run against ``data/legacy_manifest_v2/``: a workdir captured
-by the *unmodified* base-commit converter (``CAPTURE.json`` records the
-commit, a clean ``convert/mimic-convert`` tree and the original absolute root) after
-``run_scatter`` + ``run_sort`` on the canned ASCII forests. Its manifest is
-used verbatim; the one test that resumes it copies it and substitutes the
-recorded root, a relocation performed by this harness, never by the code
-under test.
+The boundary tests run against a directory whose top-level manifest is a
+scatter manifest, made by :func:`make_scatter_workdir` with the ASCII route's
+own scatter and sort stages over the canned fixture forests.
 
 Every destructive case works on a private temporary copy.
 """
@@ -23,7 +21,6 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import h5py
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -31,19 +28,16 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import column_schema as cs  # noqa: E402
 import conversion_manifest as cm  # noqa: E402
+import fixtures  # noqa: E402
 import scatter  # noqa: E402
 from adapters.base import SourceInventory, SourceUnit  # noqa: E402
 from column_schema import ConverterError  # noqa: E402
-from fixups import run_fixups  # noqa: E402
-from hdf5_writer import run_write  # noqa: E402
-from links import run_links  # noqa: E402
 from sort_index import run_sort  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parents[2]
 PROFILE_DIR = REPO_ROOT / "convert" / "mimic-convert" / "profiles"
 MINI_MILLENNIUM_PROPERTIES = REPO_ROOT / "simulations" / "mini-millennium" / "halo_properties.yaml"
-LEGACY_FIXTURE = HERE / "data" / "legacy_manifest_v2"
 
 
 def load_profile(name):
@@ -76,6 +70,33 @@ def tree_state(root):
                 sha256_of(path),
             )
     return state
+
+
+def make_scatter_workdir(root):
+    """A directory whose top-level manifest is a current scatter manifest.
+
+    The Consistent-Trees ASCII route keeps exactly this state in its
+    preparation directory (``pipeline.ASCII_PREPARATION_DIR``): the scatter
+    and sort stages run here in the route's extended layout, from the shipped
+    profile, over the canned fixture forests written under ``root/inputs``.
+    Returns ``root/workdir``, every snapshot recorded ``sorted``.
+    """
+    root = Path(root)
+    inputs = root / "inputs"
+    inputs.mkdir(parents=True)
+    forests = fixtures.standard_forests()
+    tree = fixtures.write_ctrees_file(inputs / "tree_0_0_0.dat", fixtures.all_trees(forests))
+    workdir = root / "workdir"
+    scatter.run_scatter(
+        tree_files=[tree],
+        forests_list_path=fixtures.write_forests_list(inputs / "forests.list", forests),
+        a_list_path=fixtures.write_a_list(inputs / "fixture.a_list"),
+        workdir=workdir,
+        simulation_info_path=fixtures.write_simulation_info(inputs / "simulation_info.yaml"),
+        schema=load_profile("consistent_trees_ascii.yaml"),
+    )
+    run_sort(workdir)
+    return workdir
 
 
 def configuration_for(schema, **extra):
@@ -758,7 +779,7 @@ class ManifestLifecycleTests(TempCase):
 
 
 # ==========================================================================
-# Version dispatch and the legacy v2 boundary
+# Version dispatch and the scatter manifest boundary
 # ==========================================================================
 
 
@@ -811,118 +832,40 @@ class VersionDispatchTests(TempCase):
             scatter.Manifest.load_or_create(work)
 
 
-class GenuineLegacyManifestTests(TempCase):
-    """The captured base-commit v2 workdir stays resumable as it is."""
+class ScatterManifestBoundaryTests(TempCase):
+    """A scatter manifest is classified, loaded by its own owner unchanged, and
+    refused by the generic owner without being touched."""
 
     def setUp(self):
         super().setUp()
-        self.capture = json.loads((LEGACY_FIXTURE / "CAPTURE.json").read_text())
+        self.work = make_scatter_workdir(self.tmp / "scattered")
 
-    def test_fixture_provenance(self):
-        self.assertEqual(self.capture["base_commit"], "92d6d3efb65eb289d3a36a81a7821cbec097f06b")
-        self.assertTrue(self.capture["scripts_convert_clean"])
-        data = json.loads((LEGACY_FIXTURE / "workdir" / cm.MANIFEST_NAME).read_text())
-        self.assertEqual(data["manifest_version"], 2)
-        self.assertNotIn("scratch_layout", data)
-        self.assertEqual(data["dtype_tag"], scatter.DTYPE_TAG)
+    def test_the_fixture_is_a_sorted_extended_scatter_manifest(self):
+        data = json.loads((self.work / cm.MANIFEST_NAME).read_text())
+        self.assertEqual(data["manifest_version"], scatter.MANIFEST_VERSION)
+        self.assertNotIn("manifest_kind", data)
+        self.assertIn("scratch_layout", data)
         self.assertEqual({entry["status"] for entry in data["snapshots"].values()}, {"sorted"})
 
-    def test_classified_legacy_and_loaded_by_the_legacy_owner_unchanged(self):
-        work = self.tmp / "workdir"
-        shutil.copytree(LEGACY_FIXTURE / "workdir", work)
-        before = (work / cm.MANIFEST_NAME).read_bytes()
-        self.assertEqual(cm.classify_manifest(work), cm.MANIFEST_LEGACY)
-        loaded = cm.open_manifest(work)
+    def test_classified_legacy_and_loaded_by_the_scatter_owner_unchanged(self):
+        before = (self.work / cm.MANIFEST_NAME).read_bytes()
+        self.assertEqual(cm.classify_manifest(self.work), cm.MANIFEST_LEGACY)
+        loaded = cm.open_manifest(self.work)
         self.assertIsInstance(loaded, scatter.Manifest)
         self.assertEqual(loaded.data, json.loads(before))
-        self.assertFalse(loaded.layout.is_extended)
-        self.assertEqual((work / cm.MANIFEST_NAME).read_bytes(), before)
+        self.assertTrue(loaded.layout.is_extended)
+        self.assertEqual((self.work / cm.MANIFEST_NAME).read_bytes(), before)
 
     def test_the_generic_owner_refuses_it_without_touching_it(self):
-        work = self.tmp / "workdir"
-        shutil.copytree(LEGACY_FIXTURE / "workdir", work)
-        before = tree_state(work)
-        with self.assertRaisesRegex(ConverterError, "legacy version-2 ASCII workdir"):
-            cm.ConversionManifest.load(work)
-        self.assertEqual(tree_state(work), before)
-
-    def assert_same_datasets(self, got_path, want_path):
-        _assert_same_datasets(self, got_path, want_path)
-
-    def relocate(self, destination):
-        """Copy the capture and substitute its recorded root: the harness's
-        relocation, so the legacy stages see paths that exist."""
-        shutil.copytree(LEGACY_FIXTURE, destination)
-        manifest = destination / "workdir" / cm.MANIFEST_NAME
-        original = self.capture["original_root"]
-        data = json.loads(manifest.read_text().replace(original, str(destination.resolve())))
-        manifest.write_text(json.dumps(data, indent=2, sort_keys=True))
-        for relpath, mtime_ns in self.capture["source_mtime_ns"].items():
-            os.utime(destination / relpath, ns=(mtime_ns, mtime_ns))
-        return destination
-
-    def test_resumes_to_the_same_dataset_as_a_fresh_legacy_run(self):
-        root = self.relocate(self.tmp / "resumed")
-        inputs = root / "inputs"
-        work = root / "workdir"
-        provenance_before = json.loads((work / cm.MANIFEST_NAME).read_text())["provenance"]
-        run_sort(work)  # skip-trusts the captured sorted snapshots
-        run_fixups(work, inputs / "fixture.a_list", inputs / "simulation_info.yaml")
-        run_links(work)
-        run_write(work, inputs / "fixture.a_list", inputs / "simulation_info.yaml")
-
-        fresh = self.tmp / "fresh"
-        shutil.copytree(LEGACY_FIXTURE / "inputs", fresh / "inputs")
-        fresh_work = fresh / "workdir"
-        scatter.run_scatter(
-            tree_files=[fresh / "inputs" / "tree_0_0_0.dat"],
-            forests_list_path=fresh / "inputs" / "forests.list",
-            a_list_path=fresh / "inputs" / "fixture.a_list",
-            workdir=fresh_work,
-            simulation_info_path=fresh / "inputs" / "simulation_info.yaml",
-        )
-        run_sort(fresh_work)
-        run_fixups(
-            fresh_work, fresh / "inputs/fixture.a_list", fresh / "inputs/simulation_info.yaml"
-        )
-        run_links(fresh_work)
-        run_write(
-            fresh_work, fresh / "inputs/fixture.a_list", fresh / "inputs/simulation_info.yaml"
-        )
-
-        names = sorted(p.name for p in (fresh_work / "hdf5").iterdir())
-        self.assertEqual(sorted(p.name for p in (work / "hdf5").iterdir()), names)
-        self.assertIn("forests.h5", names)
-        for name in names:
-            self.assert_same_datasets(work / "hdf5" / name, fresh_work / "hdf5" / name)
-
-        data = json.loads((work / cm.MANIFEST_NAME).read_text())
-        self.assertEqual(data["manifest_version"], 2)
-        self.assertNotIn("manifest_kind", data)
-        self.assertNotIn("configuration", data)
-        self.assertEqual(data["provenance"], provenance_before)
-        self.assertEqual(cm.classify_manifest(work), cm.MANIFEST_LEGACY)
-
-
-def _assert_same_datasets(case, got_path, want_path):
-    got = h5py.File(got_path, "r")
-    want = h5py.File(want_path, "r")
-    try:
-        case.assertEqual(_datasets(got), _datasets(want), got_path.name)
-        for key in _datasets(want):
-            np.testing.assert_array_equal(got[key][()], want[key][()], err_msg=key)
-            case.assertEqual(got[key].dtype, want[key].dtype)
-    finally:
-        got.close()
-        want.close()
-
-
-def _datasets(handle):
-    names = []
-    handle.visititems(
-        lambda name, obj: names.append(name) if isinstance(obj, h5py.Dataset) else None
-    )
-    return sorted(names)
+        before = tree_state(self.work)
+        with self.assertRaisesRegex(
+            ConverterError,
+            r"this is a scatter manifest \(version {}\), the state of a ".format(
+                scatter.MANIFEST_VERSION
+            ),
+        ):
+            cm.ConversionManifest.load(self.work)
+        self.assertEqual(tree_state(self.work), before)
 
 
 if __name__ == "__main__":

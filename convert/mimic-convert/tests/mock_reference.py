@@ -1,7 +1,9 @@
-"""Mock halos-only reference output builder for the cross-check tests.
+"""Mock halos-only reference output builder.
 
 Builds a semantically correct reference galaxy output directly from a converted
-horizontal-HDF5 dataset, replicating the reference inheritance semantics
+horizontal-HDF5 format version 3 dataset with adjacent links
+(``links_adjacent`` 1, so every Descendant is at N+1 and every FirstProgenitor
+at N-1), replicating the reference inheritance semantics
 (src/core/inheritance.c) without running Mimic:
 
 - occupancy by forward induction (``occupied(H) = FoF-central(H) OR any
@@ -19,10 +21,11 @@ horizontal-HDF5 dataset, replicating the reference inheritance semantics
 
 One Type 2 orphan row is appended at the final populated snapshot (a merged
 progenitor galaxy's UniqueGalaxyID with the MostBoundID of a halo that no
-longer exists) to prove Type-2 rows are ignored by the cross-check. The
-Galaxies dtype also carries one extra field (``dT``) to prove extras are
-tolerated. ``write_mock_reference`` writes a single ``<base>_000.hdf5`` chunk
-plus an empty master ``<base>.hdf5`` to prove the master is ignored.
+longer exists), so a consumer can prove it ignores Type-2 rows. The Galaxies
+dtype also carries one extra field (``dT``), so a consumer can prove it
+tolerates extras. ``write_mock_reference`` writes a single ``<base>_000.hdf5``
+chunk plus an empty master ``<base>.hdf5``, so a consumer can prove it ignores
+the master.
 """
 
 import os
@@ -37,22 +40,40 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from fixups import load_particle_mass  # noqa: E402
-from hdf5_writer import HALO_DATASETS, HEADER_ATTRS, snapshot_h5_name  # noqa: E402
+from hdf5_writer_v3 import HEADER_ATTRS, snapshot_h5_name  # noqa: E402
+
+#: The ``/halos`` columns the builder reads: the five row-index links, the
+#: identity pair the created UniqueGalaxyID encodes, and the core payload the
+#: Galaxies rows copy.
+HALO_FIELDS = (
+    "Descendant",
+    "FirstProgenitor",
+    "NextProgenitor",
+    "FirstHaloInFOFgroup",
+    "NextHaloInFOFgroup",
+    "ForestIndex",
+    "HaloRankInForest",
+    "Len",
+    "SnapNum",
+    "M_Crit200",
+    "Pos",
+    "Vel",
+    "Spin",
+    "VelDisp",
+    "Vmax",
+    "MostBoundID",
+)
 
 
 def load_dataset(directory, n_snapshots: int) -> Tuple[List[dict], List[Dict[str, np.ndarray]]]:
-    """Load every snapshot file's header attributes and /halos arrays.
+    """Load every snapshot file's header attributes and the :data:`HALO_FIELDS`
+    columns of its /halos group.
 
-    A **test-only** helper. It lived in ``validate.py`` until the battery was
-    made bounded, and the cross-check lost its last production caller when
-    ``crosscheck.py`` moved to field-named per-snapshot loads. It survives here
-    because the fixture datasets are a few thousand rows, so the mock reference
-    builder and the cross-check tests can afford to hold them whole:
-    ``build_mock_galaxies`` below, and ``test_crosscheck.py``'s two
-    ``setUpClass`` bodies — which are its only callers. No production module
-    under ``convert/mimic-convert/`` calls it, and none should: a production reader
-    must use ``validate._Snapshots`` or a field-named load, both of which are
-    bounded by the window a check needs rather than by the dataset.
+    A **test-only** helper: the fixture datasets are a few thousand rows, so the
+    mock reference builder can afford to hold them whole. No production module
+    under ``convert/mimic-convert/`` calls it, and none should: a production
+    reader must load field-named columns one snapshot window at a time, bounded
+    by the window a check needs rather than by the dataset.
     """
     headers = []
     arrays = []
@@ -62,12 +83,12 @@ def load_dataset(directory, n_snapshots: int) -> Tuple[List[dict], List[Dict[str
             headers.append(
                 {name: np.asarray(handle["header"].attrs[name])[()] for name in HEADER_ATTRS}
             )
-            arrays.append({name: handle["halos"][name][...] for name in HALO_DATASETS})
+            arrays.append({name: handle["halos"][name][...] for name in HALO_FIELDS})
     return headers, arrays
 
 
-#: Reference Galaxies structured dtype: exactly the fields the cross-check
-#: consumes, plus an extra ``dT`` field to prove extras are tolerated.
+#: Reference Galaxies structured dtype: the halos-only output fields a halo
+#: determines, plus an extra ``dT`` field a consumer must tolerate.
 GALAXY_DTYPE = np.dtype(
     [
         ("SnapNum", np.int32),
@@ -112,7 +133,8 @@ def build_mock_galaxies(
     """Build reference galaxies per snapshot from a converted dataset,
     replicating the reference inheritance semantics. Particle mass comes from
     simulation_info (the native 1e10 Msun/h value the reference model uses), so
-    satellite Mvir reconstructs bit-for-bit exactly as the cross-check does."""
+    satellite Mvir reconstructs bit-for-bit as the reference get_virial_mass
+    rule computes it."""
     _, arrays = load_dataset(hdf5_dir, n_snapshots)
     part_mass = load_particle_mass(simulation_info_path)
     galaxies_by_snap: Dict[int, np.ndarray] = {}
@@ -184,7 +206,7 @@ def _append_orphan(galaxies_by_snap, arrays, ugid_by_snap) -> None:
     progenitor galaxy's UniqueGalaxyID with the MostBoundID of a halo that no
     longer exists there. Its UniqueCentralGalaxyID names the FoF central of
     the halo the donor merged into (reference central-ID propagation,
-    src/core/build_model.c). Ignored by every cross-check."""
+    src/core/build_model.c)."""
     populated = [snap for snap, gals in galaxies_by_snap.items() if gals.size]
     if not populated:
         return
@@ -220,7 +242,7 @@ def write_mock_reference(galaxies_by_snap, directory, base="halos", n_snapshots=
     """Write the reference output: one ``<base>_000.hdf5`` chunk with a
     ``Snap%03d/Galaxies`` dataset for every snapshot (empty snapshots get a
     zero-length dataset), plus an empty master ``<base>.hdf5`` (RunProperties
-    group only) that the cross-check must ignore."""
+    group only) that a consumer must ignore."""
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     if n_snapshots is None:

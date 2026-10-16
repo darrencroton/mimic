@@ -1,11 +1,11 @@
-"""The decided cut table: every forest cut at its z = 0 FoF groups (F6, revision 5).
+"""The decided cut table: every forest cut at its z = 0 FoF groups.
 
 **The rule.** Every tree joins the forest of its terminal halo's FoF group at
 the dataset's final snapshot. A group is identified by the tree of its z = 0
 central, the row its members' ``FirstHaloInFOFgroup`` points to, so a tree's
 **piece** is the tree of its terminal halo's central. A forest whose trees end
 in one group is unchanged; a forest ending in several (a **split forest**) is
-cut into exactly its groups, named under F6 (``census/cut_table.py``: the
+cut into exactly its groups, named by the cut table's rule (``census/cut_table.py``: the
 largest piece keeps the forest's id, every other one takes a fresh id above
 the catalogue's maximum in descending size, ties by the smallest tree root id).
 This is the partition that cuts every co-membership ended before the final
@@ -45,8 +45,8 @@ Each piece's peak comes from the aggregates alone, one slab's tree pairs at a
 time (:func:`piece_slab_counts`).
 
 **Reads.** ``FirstHaloInFOFgroup`` and ``ForestIndex`` of the final slab, once:
-``(w_link + 8) x n_halos(final)`` bytes, with ``w_link`` 4 B in version 2 and
-8 B in version 3, measured into ``summary.json`` (``io``). The labels of the
+``(w_link + 8) x n_halos(final)`` bytes, with ``w_link`` the 8 B (int64) link
+width, measured into ``summary.json`` (``io``). The labels of the
 final slab (4 B per halo) and every slab's tree pairs (8 B per present tree)
 are read from the aggregates.
 
@@ -252,7 +252,9 @@ def require_census(dataset: HorizontalDataset, aggregate_dir) -> Tuple[Dict, Dic
 
 def require_all_reach_final(dataset: HorizontalDataset, aggregate_dir) -> int:
     """Refuse a census holding a tree that ends before the final snapshot
-    (F6: the rule's scope); returns the tree count.
+    (the rule places every tree by its terminal halo's group at the final
+    snapshot, so a tree ending earlier has no place under it); returns the tree
+    count.
 
     Raises:
         ConverterError: naming how many trees end early, with example root ids.
@@ -829,7 +831,7 @@ def run_table(
         "table": record_table,
         "io": meter.record(
             "(link width + 8 B) x n_halos(final) of FirstHaloInFOFgroup and ForestIndex; link "
-            "width 4 B in version 2, 8 B in version 3"
+            "width 8 B (int64)"
         ),
         "memory": {
             "peak_rss_bytes_after": memory,

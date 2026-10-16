@@ -2,18 +2,16 @@
 
 Oracles, on :mod:`fixtures`' correspondence-valid forests (each ``#tree``
 root is its terminal halo) laid out over two tree files with one forest
-spanning both:
+spanning both, converted to version 3 by the generic pipeline:
 
-- migration against the generic version 3 pipeline: the version 2 route's output,
-  migrated, must equal the generic pipeline's version 3 output of the same
-  source in every ``/halos`` column (values and dtypes), the header,
-  ``/schema`` and the sidecar;
+- the no-op against its input, value by value and, when the input was
+  itself written by the rewriter, byte by byte; its output independent of
+  the block size, and its sidecar ordinals the input sidecar's whatever the
+  ``locations.dat`` FileIDs;
 - the per-tree inventory against the fixture's known trees;
 - ``convert_trees.py validate`` and ``report`` over the written workdir,
   through their own entry points, with the binding and conservation checks
   applied (asserted by outcome name);
-- the no-op against its input, value by value and, when the input was
-  itself written by the rewriter, byte by byte;
 - resume after an injected failure against an uninterrupted run, byte by
   byte; a completed run re-verified; a changed input and a changed
   configuration refused;
@@ -57,7 +55,7 @@ from hdf5_writer_v3 import V3_SIDECAR_DATASETS  # noqa: E402
 from rewriter import run as rewriter_run  # noqa: E402
 from rewriter.inputs import RewriteRequest  # noqa: E402
 from rewriter.run import run_rewrite  # noqa: E402
-from test_forest_census import ASCII_PROFILE, convert_ascii, convert_ascii_v2  # noqa: E402
+from test_forest_census import convert_ascii  # noqa: E402
 
 N_SNAPSHOTS = len(fixtures.A_LIST)
 MULTIPLIER = 10**9
@@ -79,10 +77,6 @@ def two_file_layout():
     ]
 
 
-def one_file_layout():
-    return [fixtures.all_trees(fixtures.correspondence_forests())]
-
-
 @contextlib.contextmanager
 def quiet():
     with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
@@ -101,8 +95,6 @@ def request(operation, source: dict, input_dir, output_dir, scratch_dir, **overr
         a_list=source["root"] / "fixture.a_list",
         forests_list=source["forests_list"],
         locations=source["locations"],
-        column_map=ASCII_PROFILE if operation == "migrate" else None,
-        conversion_manifest=source.get("manifest") if operation == "migrate" else None,
         multiplier=MULTIPLIER,
     )
     values.update(overrides)
@@ -178,42 +170,54 @@ def outcomes(workdir):
     return {entry["name"]: entry["status"] for entry in report["validation"]}, report
 
 
-class RouteSet:
-    """Both routes' outputs of one layout, built once per test class."""
-
-    def __init__(self, root: Path, layout, forests=None):
-        forests = fixtures.correspondence_forests() if forests is None else forests
-        self.v2 = convert_ascii_v2(root / "v2", layout, forests)
-        self.v2["root"] = root / "v2"
-        self.v2["manifest"] = root / "v2" / "work" / "manifest.json"
-        self.v3 = convert_ascii(root / "v3", layout, forests)
-        self.v3["root"] = root / "v3"
+def ascii_source(root: Path, layout, forests=None) -> dict:
+    """A version 3 conversion of the correspondence forests (or ``forests``)
+    over ``layout``'s tree files, as :func:`test_forest_census.convert_ascii`
+    returns it, plus ``root``."""
+    forests = fixtures.correspondence_forests() if forests is None else forests
+    source = convert_ascii(root, layout, forests)
+    source["root"] = root
+    return source
 
 
 # ---------------------------------------------------------------------------
-# Migration
+# The no-op
 # ---------------------------------------------------------------------------
 
 
-class TestMigrate(unittest.TestCase):
+class TestNoop(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.root = Path(tempfile.mkdtemp(prefix="rewriter_migrate_"))
-        cls.routes = RouteSet(cls.root, two_file_layout())
-        cls.out = cls.root / "migrated"
+        cls.root = Path(tempfile.mkdtemp(prefix="rewriter_noop_"))
+        cls.source = ascii_source(cls.root / "v3", two_file_layout())
+        cls.out = cls.root / "noop"
         cls.summary = rewrite(
-            "migrate", cls.routes.v2, cls.routes.v2["dataset"], cls.out, cls.root / "scratch"
+            "noop", cls.source, cls.source["dataset"], cls.out, cls.root / "scratch"
         )
 
     @classmethod
     def tearDownClass(cls):
         shutil.rmtree(cls.root, ignore_errors=True)
 
-    def test_migration_equals_the_generic_pipelines_output(self):
-        assert_datasets_equal(self, self.routes.v3["dataset"], self.out / "dataset")
+    def test_noop_is_the_identity(self):
+        assert_datasets_equal(self, self.source["dataset"], self.out / "dataset")
         self.assertEqual(self.summary["n_halos"], 17)
         self.assertEqual(self.summary["n_trees"], 6)
-        self.assertEqual(self.summary["tree_file_order"], ["tree_0.dat", "tree_1.dat"])
+        self.assertIn("byte_comparison", self.summary)
+        self.assertEqual(
+            sorted(self.summary["byte_comparison"]["files"]), dataset_files(self.out / "dataset")
+        )
+        # a rewriter-written input is reproduced byte for byte
+        second = self.root / "noop2"
+        again = rewrite("noop", self.source, self.out / "dataset", second, self.root / "s2")
+        self.assertTrue(again["byte_comparison"]["all_equal"])
+        assert_bytes_equal(self, self.out / "dataset", second / "dataset")
+        with quiet():
+            self.assertEqual(convert_trees.main(["report", "--workdir", str(second)]), 0)
+        recorded, _report = outcomes(second)
+        self.assertEqual(recorded["manifest-binding"], "PASS")
+        self.assertEqual(recorded["count-conservation"], "PASS")
+        self.assertNotIn("SKIP", recorded.values())
 
     def test_workdir_layout_and_scratch_are_as_declared(self):
         self.assertEqual(
@@ -239,7 +243,7 @@ class TestMigrate(unittest.TestCase):
             self.assertEqual(recorded[name], "PASS", name)
         self.assertNotIn("SKIP", recorded.values())
         self.assertTrue(report["validation_passed"])
-        self.assertEqual(report["format"]["writer"]["operation"], "migrate")
+        self.assertEqual(report["format"]["writer"]["operation"], "noop")
 
     def test_per_tree_inventory_matches_the_known_trees(self):
         inventory = np.load(self.out / "tree_inventory.npy")
@@ -265,26 +269,33 @@ class TestMigrate(unittest.TestCase):
                 1400: (1400, 2, 1, 1, 0, 3),
             },
         )
-        self.assertEqual(self.summary["conservation"]["verdict"], "pass")
+        # the per-file row sums are recorded; a horizontal input carries no
+        # parsed counts to check them against
+        conservation = self.summary["conservation"]
+        self.assertEqual(conservation["verdict"], "unchecked")
+        self.assertEqual(
+            [(entry["name"], entry["census_halos"]) for entry in conservation["files"]],
+            [("tree_0.dat", 11), ("tree_1.dat", 6)],
+        )
         self.assertEqual(self.summary["root_correspondence"]["verdict"], "pass")
 
     def test_output_is_independent_of_the_block_size_and_repeatable(self):
         for name, block_rows in (("blocks_2", 2), ("blocks_3", 3)):
             rewrite(
-                "migrate",
-                self.routes.v2,
-                self.routes.v2["dataset"],
+                "noop",
+                self.source,
+                self.source["dataset"],
                 self.root / name,
                 self.root / (name + "_scratch"),
                 block_rows=block_rows,
             )
             assert_bytes_equal(self, self.out / "dataset", self.root / name / "dataset")
 
-    def test_sidecar_ordinals_follow_the_recorded_order_not_the_file_ids(self):
+    def test_sidecar_ordinals_follow_the_input_sidecar_not_the_file_ids(self):
         # FileIDs 7 for tree_0.dat and 3 for tree_1.dat: sparse and reversed
-        # against the conversion order, which the manifest records as 0, 1
-        source = dict(self.routes.v2)
-        lines = (self.root / "v2" / "locations.dat").read_text().splitlines()
+        # against the conversion order, which the input sidecar records as 0, 1
+        source = dict(self.source)
+        lines = (self.root / "v3" / "locations.dat").read_text().splitlines()
         renumbered = [lines[0]]
         for line in lines[1:]:
             root, file_id, offset, name = line.split()
@@ -292,13 +303,13 @@ class TestMigrate(unittest.TestCase):
         source["locations"] = self.root / "locations_sparse.dat"
         source["locations"].write_text("\n".join(renumbered) + "\n")
         rewrite(
-            "migrate",
+            "noop",
             source,
-            self.routes.v2["dataset"],
+            self.source["dataset"],
             self.root / "sparse",
             self.root / "sparse_scratch",
         )
-        assert_datasets_equal(self, self.routes.v3["dataset"], self.root / "sparse" / "dataset")
+        assert_datasets_equal(self, self.source["dataset"], self.root / "sparse" / "dataset")
         inventory = np.load(self.root / "sparse" / "tree_inventory.npy")
         by_root = {int(row["root"]): row for row in inventory}
         self.assertEqual(int(by_root[1100]["file_id"]), 7)
@@ -306,102 +317,72 @@ class TestMigrate(unittest.TestCase):
         self.assertEqual(int(by_root[1400]["file_id"]), 3)
         self.assertEqual(int(by_root[1400]["source_file_ordinal"]), 1)
 
-    def test_migration_equals_the_generic_pipeline_when_forest_runs_cross(self):
-        # forest ids 3000 < 6000 < 8000 against halo ids 1500 < 2000 < 3000 <
-        # 5500 < 7100: version 2's id order interleaves the forests in every
-        # slab, so the permutation moves whole forest runs past one another
-        forests = fixtures.interleaved_correspondence_forests()
-        f3000, f6000, f8000 = forests
-        layout = [
-            [f6000.trees[0], f3000.trees[0], f8000.trees[0]],
-            [f6000.trees[1], f3000.trees[1], f3000.trees[2]],
-        ]
-        routes = RouteSet(self.root / "interleaved", layout, forests)
-        out = self.root / "interleaved_migrated"
-        summary = rewrite(
-            "migrate", routes.v2, routes.v2["dataset"], out, self.root / "interleaved_scratch"
-        )
-        assert_datasets_equal(self, routes.v3["dataset"], out / "dataset")
-        self.assertEqual(summary["n_halos"], 18)
-        self.assertEqual(summary["n_trees"], 6)
-        # the version 2 slab order really interleaves the forests at snapshot 5
-        with h5py.File(routes.v2["dataset"] / "snapshot_005.h5", "r") as handle:
-            self.assertEqual(handle["halos"]["ForestIndex"][...].tolist(), [1, 2, 0, 0, 1, 0])
-        halos, _header, _schema = read_file(out / "dataset" / "snapshot_005.h5")
-        self.assertEqual(halos["ForestIndex"].tolist(), [0, 0, 0, 1, 1, 2])
-        with quiet():
-            self.assertEqual(convert_trees.main(["validate", "--workdir", str(out)]), 0)
-
-    def test_cli_runs_the_migration(self):
+    def test_cli_runs_the_noop(self):
         out = self.root / "cli"
         argv = [
-            "migrate",
+            "noop",
             "--input",
-            str(self.routes.v2["dataset"]),
+            str(self.source["dataset"]),
             "--output",
             str(out),
             "--scratch",
             str(self.root / "cli_scratch"),
             "--simulation-info",
-            str(self.root / "v2" / "simulation_info.yaml"),
+            str(self.source["root"] / "simulation_info.yaml"),
             "--a-list",
-            str(self.root / "v2" / "fixture.a_list"),
+            str(self.source["root"] / "fixture.a_list"),
             "--forests-list",
-            str(self.routes.v2["forests_list"]),
+            str(self.source["forests_list"]),
             "--locations",
-            str(self.routes.v2["locations"]),
-            "--column-map",
-            str(ASCII_PROFILE),
-            "--conversion-manifest",
-            str(self.routes.v2["manifest"]),
+            str(self.source["locations"]),
         ]
         stdout = io.StringIO()
         with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(rewrite_trees.main(argv), 0)
-        self.assertIn("migrate: COMPLETE", stdout.getvalue())
+        self.assertIn("noop: COMPLETE", stdout.getvalue())
         assert_bytes_equal(self, self.out / "dataset", out / "dataset")
 
-
-# ---------------------------------------------------------------------------
-# The no-op
-# ---------------------------------------------------------------------------
-
-
-class TestNoop(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.root = Path(tempfile.mkdtemp(prefix="rewriter_noop_"))
-        cls.routes = RouteSet(cls.root, two_file_layout())
-
-    @classmethod
-    def tearDownClass(cls):
-        shutil.rmtree(cls.root, ignore_errors=True)
-
-    def test_noop_is_the_identity(self):
-        first = self.root / "noop"
-        summary = rewrite(
-            "noop", self.routes.v3, self.routes.v3["dataset"], first, self.root / "s1"
-        )
-        assert_datasets_equal(self, self.routes.v3["dataset"], first / "dataset")
-        self.assertIn("byte_comparison", summary)
-        self.assertEqual(
-            sorted(summary["byte_comparison"]["files"]), dataset_files(first / "dataset")
-        )
-        # a rewriter-written input is reproduced byte for byte
-        second = self.root / "noop2"
-        again = rewrite("noop", self.routes.v3, first / "dataset", second, self.root / "s2")
-        self.assertTrue(again["byte_comparison"]["all_equal"])
-        assert_bytes_equal(self, first / "dataset", second / "dataset")
-        with quiet():
-            self.assertEqual(convert_trees.main(["report", "--workdir", str(second)]), 0)
-        recorded, _report = outcomes(second)
-        self.assertEqual(recorded["manifest-binding"], "PASS")
-        self.assertEqual(recorded["count-conservation"], "PASS")
-        self.assertNotIn("SKIP", recorded.values())
+    def test_the_cli_takes_no_profile_and_no_conversion_manifest(self):
+        # the input's /schema is carried through and the sidecar ordinals
+        # follow the input sidecar, so neither option exists
+        common = [
+            "--input",
+            str(self.source["dataset"]),
+            "--output",
+            str(self.root / "x"),
+            "--scratch",
+            str(self.root / "sx"),
+            "--simulation-info",
+            str(self.source["root"] / "simulation_info.yaml"),
+            "--a-list",
+            str(self.source["root"] / "fixture.a_list"),
+            "--forests-list",
+            str(self.source["forests_list"]),
+            "--locations",
+            str(self.source["locations"]),
+        ]
+        for operation, extra in (
+            ("noop", ["--column-map", "profile.yaml"]),
+            ("cut", ["--cut-table", "table.list", "--conversion-manifest", "manifest.json"]),
+        ):
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr), contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaises(SystemExit) as raised:
+                    rewrite_trees.main([operation] + common + extra)
+            self.assertEqual(raised.exception.code, 2)
+            self.assertIn("unrecognized arguments: {}".format(extra[-2]), stderr.getvalue())
+        # and there is no third operation
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr), contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(SystemExit) as raised:
+                rewrite_trees.main(["migrate"] + common)
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn("invalid choice: 'migrate'", stderr.getvalue())
+        self.assertFalse((self.root / "x").exists())
 
     def copy_v3(self, name):
         copy = self.root / name
-        shutil.copytree(self.routes.v3["dataset"], copy)
+        shutil.copytree(self.source["dataset"], copy)
         return copy
 
     def test_noop_refuses_a_stored_source_halo_id_that_is_not_derived(self):
@@ -412,7 +393,7 @@ class TestNoop(unittest.TestCase):
             ConverterError, "snapshot_005.h5: 1 row.* stored SourceHaloID differs .* row 2 "
         ):
             rewrite(
-                "noop", self.routes.v3, copy, self.root / "wrong_sid_out", self.root / "wrong_sid_s"
+                "noop", self.source, copy, self.root / "wrong_sid_out", self.root / "wrong_sid_s"
             )
 
     def test_noop_refuses_a_row_order_that_is_not_the_derived_one(self):
@@ -438,9 +419,7 @@ class TestNoop(unittest.TestCase):
         with self.assertRaisesRegex(
             ConverterError, "snapshot_005.h5: the stored row order is not .* the first at row 0"
         ):
-            rewrite(
-                "noop", self.routes.v3, copy, self.root / "swapped_out", self.root / "swapped_s"
-            )
+            rewrite("noop", self.source, copy, self.root / "swapped_out", self.root / "swapped_s")
 
     def test_noop_refuses_a_digest_that_is_not_the_default_profiles(self):
         copy = self.copy_v3("other_digest")
@@ -453,7 +432,7 @@ class TestNoop(unittest.TestCase):
         with self.assertRaisesRegex(
             ConverterError, "column_mapping_sha256 {} is not the shipped".format(other)
         ):
-            rewrite("noop", self.routes.v3, copy, self.root / "digest_out", self.root / "digest_s")
+            rewrite("noop", self.source, copy, self.root / "digest_out", self.root / "digest_s")
         self.assertFalse((self.root / "digest_out").exists())
         self.assertFalse((self.root / "digest_s").exists())
 
@@ -465,7 +444,7 @@ class TestNoop(unittest.TestCase):
         with self.assertRaisesRegex(
             ConverterError, "omega_matter is 0.3089 but .*snapshot_003.h5 records 0.25"
         ):
-            rewrite("noop", self.routes.v3, copy, self.root / "later_out", self.root / "later_s")
+            rewrite("noop", self.source, copy, self.root / "later_out", self.root / "later_s")
         self.assertFalse((self.root / "later_out").exists())
         copy = self.copy_v3("later_digest")
         with h5py.File(copy / "snapshot_004.h5", "r+") as handle:
@@ -473,29 +452,8 @@ class TestNoop(unittest.TestCase):
                 "column_mapping_sha256", np.array(("1" * 64).encode(), dtype="S64")
             )
         with self.assertRaisesRegex(ConverterError, "snapshot_004.h5: column_mapping_sha256 1"):
-            rewrite("noop", self.routes.v3, copy, self.root / "later_out", self.root / "later_s")
+            rewrite("noop", self.source, copy, self.root / "later_out", self.root / "later_s")
         self.assertFalse((self.root / "later_out").exists())
-
-    def test_noop_refuses_a_profile_and_a_conversion_manifest(self):
-        with self.assertRaisesRegex(ConverterError, "noop refuses --column-map"):
-            rewrite(
-                "noop",
-                self.routes.v3,
-                self.routes.v3["dataset"],
-                self.root / "x",
-                self.root / "sx",
-                column_map=ASCII_PROFILE,
-            )
-        with self.assertRaisesRegex(ConverterError, "noop refuses --conversion-manifest"):
-            rewrite(
-                "noop",
-                self.routes.v3,
-                self.routes.v3["dataset"],
-                self.root / "x",
-                self.root / "sx",
-                conversion_manifest=self.routes.v2["manifest"],
-            )
-        self.assertFalse((self.root / "x").exists())
 
 
 # ---------------------------------------------------------------------------
@@ -507,12 +465,12 @@ class TestResume(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.root = Path(tempfile.mkdtemp(prefix="rewriter_resume_"))
-        cls.routes = RouteSet(cls.root, two_file_layout())
+        cls.source = ascii_source(cls.root / "v3", two_file_layout())
         cls.reference = cls.root / "reference"
         rewrite(
-            "migrate",
-            cls.routes.v2,
-            cls.routes.v2["dataset"],
+            "noop",
+            cls.source,
+            cls.source["dataset"],
             cls.reference,
             cls.root / "ref_scratch",
         )
@@ -522,10 +480,10 @@ class TestResume(unittest.TestCase):
         shutil.rmtree(cls.root, ignore_errors=True)
 
     def interrupted(self, name: str, after: int, input_dir=None):
-        """A migration that fails after ``after`` slabs were verified."""
+        """A no-op run that fails after ``after`` slabs were verified."""
         out = self.root / name
         scratch = self.root / (name + "_scratch")
-        input_dir = self.routes.v2["dataset"] if input_dir is None else input_dir
+        input_dir = self.source["dataset"] if input_dir is None else input_dir
         original = rewriter_run.verify_slab
         calls = []
 
@@ -537,7 +495,7 @@ class TestResume(unittest.TestCase):
 
         with mock.patch.object(rewriter_run, "verify_slab", failing):
             with self.assertRaisesRegex(RuntimeError, "injected failure"):
-                rewrite("migrate", self.routes.v2, input_dir, out, scratch)
+                rewrite("noop", self.source, input_dir, out, scratch)
         state = json.loads((out / "rewrite_state.json").read_text())
         self.assertEqual(
             sorted(int(snap) for snap in state["verified"]),
@@ -549,7 +507,7 @@ class TestResume(unittest.TestCase):
         for after in (1, 3):
             out, scratch = self.interrupted("after_{}".format(after), after)
             summary = rewrite(
-                "migrate", self.routes.v2, self.routes.v2["dataset"], out, scratch, resume=True
+                "noop", self.source, self.source["dataset"], out, scratch, resume=True
             )
             self.assertTrue(summary["resumed"])
             self.assertEqual(summary["slabs_written_this_run"], N_SNAPSHOTS - after)
@@ -557,9 +515,7 @@ class TestResume(unittest.TestCase):
             with quiet():
                 self.assertEqual(convert_trees.main(["validate", "--workdir", str(out)]), 0)
             # a completed run re-verifies and returns
-            again = rewrite(
-                "migrate", self.routes.v2, self.routes.v2["dataset"], out, scratch, resume=True
-            )
+            again = rewrite("noop", self.source, self.source["dataset"], out, scratch, resume=True)
             self.assertEqual(again["configuration_sha256"], summary["configuration_sha256"])
 
     def test_resume_after_a_failure_in_the_cleanup_window(self):
@@ -605,13 +561,13 @@ class TestResume(unittest.TestCase):
             original = getattr(owner, attribute)
             with mock.patch.object(owner, attribute, wrap(original)):
                 with self.assertRaisesRegex(RuntimeError, "injected failure"):
-                    rewrite("migrate", self.routes.v2, self.routes.v2["dataset"], out, scratch)
+                    rewrite("noop", self.source, self.source["dataset"], out, scratch)
             state = json.loads((out / "rewrite_state.json").read_text())
             self.assertEqual(
                 sorted(int(s) for s in state["verified"]), [N_SNAPSHOTS - 2, N_SNAPSHOTS - 1]
             )
             summary = rewrite(
-                "migrate", self.routes.v2, self.routes.v2["dataset"], out, scratch, resume=True
+                "noop", self.source, self.source["dataset"], out, scratch, resume=True
             )
             self.assertEqual(summary["slabs_written_this_run"], N_SNAPSHOTS - 2, attribute)
             assert_bytes_equal(self, self.reference / "dataset", out / "dataset")
@@ -630,13 +586,11 @@ class TestResume(unittest.TestCase):
 
         with mock.patch.object(rewriter_run, "write_json_atomic", failing):
             with self.assertRaisesRegex(RuntimeError, "injected failure"):
-                rewrite("migrate", self.routes.v2, self.routes.v2["dataset"], out, scratch)
+                rewrite("noop", self.source, self.source["dataset"], out, scratch)
         state = json.loads((out / "rewrite_state.json").read_text())
         self.assertEqual(len(state["verified"]), N_SNAPSHOTS)
         self.assertEqual(state["status"], "running")
-        summary = rewrite(
-            "migrate", self.routes.v2, self.routes.v2["dataset"], out, scratch, resume=True
-        )
+        summary = rewrite("noop", self.source, self.source["dataset"], out, scratch, resume=True)
         self.assertEqual(summary["slabs_written_this_run"], 0)
         assert_bytes_equal(self, self.reference / "dataset", out / "dataset")
         self.assertEqual(
@@ -649,8 +603,8 @@ class TestResume(unittest.TestCase):
         # the input directory holds a symlink to one slab; after the
         # interruption it points at another copy of the same size under the
         # same recorded path, which only the comparison of the pins catches
-        linked = self.root / "linked_v2"
-        shutil.copytree(self.routes.v2["dataset"], linked)
+        linked = self.root / "linked_input"
+        shutil.copytree(self.source["dataset"], linked)
         target_a = self.root / "slab_a.h5"
         target_b = self.root / "slab_b.h5"
         shutil.move(linked / "snapshot_005.h5", target_a)
@@ -662,12 +616,12 @@ class TestResume(unittest.TestCase):
         (linked / "snapshot_005.h5").unlink()
         (linked / "snapshot_005.h5").symlink_to(target_b)
         with self.assertRaisesRegex(ConverterError, "slab_b.h5 .* is read now but was not pinned"):
-            rewrite("migrate", self.routes.v2, linked, out, scratch, resume=True)
+            rewrite("noop", self.source, linked, out, scratch, resume=True)
 
     def test_a_completed_run_reverifies_the_inventory(self):
         out = self.root / "inventory_check"
         scratch = self.root / "inventory_check_scratch"
-        rewrite("migrate", self.routes.v2, self.routes.v2["dataset"], out, scratch)
+        rewrite("noop", self.source, self.source["dataset"], out, scratch)
         inventory = out / "tree_inventory.npy"
         held = inventory.read_bytes()
         changed = np.load(inventory)
@@ -676,18 +630,18 @@ class TestResume(unittest.TestCase):
         with self.assertRaisesRegex(
             ConverterError, "tree_inventory.npy: differs from the tree inventory"
         ):
-            rewrite("migrate", self.routes.v2, self.routes.v2["dataset"], out, scratch, resume=True)
+            rewrite("noop", self.source, self.source["dataset"], out, scratch, resume=True)
         inventory.unlink()
         with self.assertRaisesRegex(
             ConverterError, "tree_inventory.npy: the tree inventory .* is missing"
         ):
-            rewrite("migrate", self.routes.v2, self.routes.v2["dataset"], out, scratch, resume=True)
+            rewrite("noop", self.source, self.source["dataset"], out, scratch, resume=True)
         inventory.write_bytes(held)
-        rewrite("migrate", self.routes.v2, self.routes.v2["dataset"], out, scratch, resume=True)
+        rewrite("noop", self.source, self.source["dataset"], out, scratch, resume=True)
 
     def test_resume_refuses_a_changed_input_of_the_same_size(self):
-        private = self.root / "private_v2"
-        shutil.copytree(self.routes.v2["dataset"], private)
+        private = self.root / "private_input"
+        shutil.copytree(self.source["dataset"], private)
         out, scratch = self.interrupted("changed_input", 2, input_dir=private)
         # one value of an input slab changes; the file keeps its size
         target = private / "snapshot_005.h5"
@@ -696,15 +650,15 @@ class TestResume(unittest.TestCase):
             handle["halos"]["M_Crit200"][0] = handle["halos"]["M_Crit200"][0] * 2 + 1
         self.assertEqual(target.stat().st_size, size)
         with self.assertRaisesRegex(ConverterError, "changed since this conversion pinned it"):
-            rewrite("migrate", self.routes.v2, private, out, scratch, resume=True)
+            rewrite("noop", self.source, private, out, scratch, resume=True)
 
     def test_resume_refuses_a_changed_configuration(self):
         out, scratch = self.interrupted("changed_config", 1)
         with self.assertRaisesRegex(ConverterError, "another configuration"):
             rewrite(
-                "migrate",
-                self.routes.v2,
-                self.routes.v2["dataset"],
+                "noop",
+                self.source,
+                self.source["dataset"],
                 out,
                 scratch,
                 resume=True,
@@ -717,9 +671,9 @@ class TestResume(unittest.TestCase):
             "already holds a manifest.json .* remove the directory or choose an empty one",
         ):
             rewrite(
-                "migrate",
-                self.routes.v2,
-                self.routes.v2["dataset"],
+                "noop",
+                self.source,
+                self.source["dataset"],
                 self.reference,
                 self.root / "fresh_scratch",
             )
@@ -727,9 +681,9 @@ class TestResume(unittest.TestCase):
         (self.root / "used_scratch" / "stale").write_text("x")
         with self.assertRaisesRegex(ConverterError, "not empty"):
             rewrite(
-                "migrate",
-                self.routes.v2,
-                self.routes.v2["dataset"],
+                "noop",
+                self.source,
+                self.source["dataset"],
                 self.root / "fresh_out",
                 self.root / "used_scratch",
             )
@@ -745,8 +699,7 @@ class TestRefusals(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.root = Path(tempfile.mkdtemp(prefix="rewriter_refusals_"))
-        cls.routes = RouteSet(cls.root, two_file_layout())
-        cls.one = RouteSet(cls.root / "one", one_file_layout())
+        cls.source = ascii_source(cls.root / "v3", two_file_layout())
 
     @classmethod
     def tearDownClass(cls):
@@ -763,7 +716,7 @@ class TestRefusals(unittest.TestCase):
 
     def copy_v3_with_header(self, name, **attrs):
         copy = self.root / name
-        shutil.copytree(self.routes.v3["dataset"], copy)
+        shutil.copytree(self.source["dataset"], copy)
         for snap in range(N_SNAPSHOTS):
             with h5py.File(copy / "snapshot_{:03d}.h5".format(snap), "r+") as handle:
                 for key, value in attrs.items():
@@ -771,46 +724,47 @@ class TestRefusals(unittest.TestCase):
                     handle["header"].attrs.modify(key, np.array(value, dtype=kind))
         return copy
 
-    def test_wrong_version_for_the_operation(self):
-        self.refused(
-            "format_version 3 but migrate", "migrate", self.routes.v2, self.routes.v3["dataset"]
-        )
-        self.refused("format_version 2 but noop", "noop", self.routes.v3, self.routes.v2["dataset"])
+    def test_an_input_that_is_not_version_3_is_refused(self):
+        for version in (2, 4):
+            copy = self.copy_v3_with_header("version{}".format(version), format_version=version)
+            pattern = "format_version {} is not supported".format(version)
+            self.refused(pattern, "noop", self.source, copy)
+            self.refused(pattern, "cut", self.source, copy, cut_table=self.source["forests_list"])
 
     def test_gapped_dataset(self):
         copy = self.copy_v3_with_header("gapped", links_adjacent=0)
-        self.refused("links_adjacent 0", "noop", self.routes.v3, copy)
+        self.refused("links_adjacent 0", "noop", self.source, copy)
 
     def test_other_source_format(self):
         copy = self.copy_v3_with_header("lhalo", source_format=b"lhalo_binary")
-        self.refused("source_format 'lhalo_binary'", "noop", self.routes.v3, copy)
+        self.refused("source_format 'lhalo_binary'", "noop", self.source, copy)
 
     def test_missing_or_inconsistent_index_files(self):
         self.refused(
             "--locations .*no such file",
-            "migrate",
-            self.routes.v2,
-            self.routes.v2["dataset"],
+            "noop",
+            self.source,
+            self.source["dataset"],
             locations=self.root / "absent.dat",
         )
         extra = self.root / "forests_extra.list"
-        extra.write_text(self.routes.v2["forests_list"].read_text() + "9999 9999\n")
+        extra.write_text(self.source["forests_list"].read_text() + "9999 9999\n")
         self.refused(
             "index files disagree",
-            "migrate",
-            self.routes.v2,
-            self.routes.v2["dataset"],
+            "noop",
+            self.source,
+            self.source["dataset"],
             forests_list=extra,
         )
         relabelled = self.root / "forests_relabelled.list"
         relabelled.write_text(
-            self.routes.v2["forests_list"].read_text().replace("1400 1400", "1400 1500")
+            self.source["forests_list"].read_text().replace("1400 1400", "1400 1500")
         )
         self.refused(
             "index files inconsistent with",
-            "migrate",
-            self.routes.v2,
-            self.routes.v2["dataset"],
+            "noop",
+            self.source,
+            self.source["dataset"],
             forests_list=relabelled,
         )
 
@@ -819,116 +773,51 @@ class TestRefusals(unittest.TestCase):
         fixtures.write_a_list(other, [0.5, 0.6, 0.7, 0.8, 0.9, 0.95])
         self.refused(
             "--a-list .*differing at snapshots \\[5\\]",
-            "migrate",
-            self.routes.v2,
-            self.routes.v2["dataset"],
+            "noop",
+            self.source,
+            self.source["dataset"],
             a_list=other,
         )
 
     def test_a_multiplier_that_cannot_encode_the_bounds(self):
         self.refused(
             "cannot encode the output's bounds",
-            "migrate",
-            self.routes.v2,
-            self.routes.v2["dataset"],
+            "noop",
+            self.source,
+            self.source["dataset"],
             multiplier=4,
         )
         self.refused(
             "cannot encode the output's bounds",
-            "migrate",
-            self.routes.v2,
-            self.routes.v2["dataset"],
+            "noop",
+            self.source,
+            self.source["dataset"],
             multiplier=2**62,
         )
 
-    def test_migrate_needs_a_profile_of_this_format(self):
-        self.refused(
-            "migrate needs --column-map",
-            "migrate",
-            self.routes.v2,
-            self.routes.v2["dataset"],
-            column_map=None,
-        )
-        hdf5 = Path(ASCII_PROFILE).with_name("consistent_trees_hdf5.yaml")
-        self.refused(
-            "a 'consistent_trees_hdf5' profile",
-            "migrate",
-            self.routes.v2,
-            self.routes.v2["dataset"],
-            column_map=hdf5,
-        )
-
-    def test_tree_file_order(self):
-        # several files without the conversion's order
-        self.refused(
-            "--conversion-manifest .* is required",
-            "migrate",
-            self.routes.v2,
-            self.routes.v2["dataset"],
-            conversion_manifest=None,
-        )
-        # a one-file catalogue needs no manifest, and one naming another file is refused
-        rewrite(
-            "migrate",
-            self.one.v2,
-            self.one.v2["dataset"],
-            self.root / "one_out",
-            self.root / "one_scratch",
-            conversion_manifest=None,
-        )
-        assert_datasets_equal(self, self.one.v3["dataset"], self.root / "one_out" / "dataset")
-        self.refused(
-            "not locations.dat's",
-            "migrate",
-            self.one.v2,
-            self.one.v2["dataset"],
-            conversion_manifest=self.routes.v2["manifest"],
-        )
-        # an ambiguous order: a name listed twice, and two FileIDs sharing a name
-        ambiguous = self.root / "ambiguous_manifest.json"
-        document = json.loads(self.routes.v2["manifest"].read_text())
-        document["provenance"]["source_files"] = document["provenance"]["source_files"] * 2
-        ambiguous.write_text(json.dumps(document))
-        self.refused(
-            "more than once",
-            "migrate",
-            self.routes.v2,
-            self.routes.v2["dataset"],
-            conversion_manifest=ambiguous,
-        )
+    def test_two_file_ids_sharing_a_name_are_refused(self):
         shared = self.root / "locations_shared.dat"
-        shared.write_text(
-            self.routes.v2["locations"].read_text().replace("tree_1.dat", "tree_0.dat")
-        )
+        shared.write_text(self.source["locations"].read_text().replace("tree_1.dat", "tree_0.dat"))
         self.refused(
             "both name 'tree_0.dat'",
-            "migrate",
-            self.routes.v2,
-            self.routes.v2["dataset"],
+            "noop",
+            self.source,
+            self.source["dataset"],
             locations=shared,
-        )
-        missing = self.root / "orderless_manifest.json"
-        missing.write_text(json.dumps({"provenance": {}}))
-        self.refused(
-            "tree-file order is missing",
-            "migrate",
-            self.routes.v2,
-            self.routes.v2["dataset"],
-            conversion_manifest=missing,
         )
 
     def test_root_correspondence_is_a_prerequisite(self):
         forests_list = self.root / "forests_wrong_root.list"
         forests_list.write_text(
-            self.routes.v2["forests_list"].read_text().replace("1400 1400", "1401 1400")
+            self.source["forests_list"].read_text().replace("1400 1400", "1401 1400")
         )
         locations = self.root / "locations_wrong_root.dat"
-        locations.write_text(self.routes.v2["locations"].read_text().replace("1400 1", "1401 1"))
+        locations.write_text(self.source["locations"].read_text().replace("1400 1", "1401 1"))
         self.refused(
             "do not correspond to the index files' tree roots",
-            "migrate",
-            self.routes.v2,
-            self.routes.v2["dataset"],
+            "noop",
+            self.source,
+            self.source["dataset"],
             forests_list=forests_list,
             locations=locations,
         )
@@ -936,10 +825,10 @@ class TestRefusals(unittest.TestCase):
     def test_paths_and_metadata(self):
         self.refused(
             "contain one another",
-            "migrate",
-            self.routes.v2,
-            self.routes.v2["dataset"],
-            output_dir=self.routes.v2["dataset"] / "inside",
+            "noop",
+            self.source,
+            self.source["dataset"],
+            output_dir=self.source["dataset"] / "inside",
         )
         other = self.root / "other_info.yaml"
         other.write_text(
@@ -949,37 +838,11 @@ class TestRefusals(unittest.TestCase):
         )
         self.refused(
             "box_size_mpc_h is 200.0 but .*records 100.0",
-            "migrate",
-            self.routes.v2,
-            self.routes.v2["dataset"],
+            "noop",
+            self.source,
+            self.source["dataset"],
             simulation_info=other,
         )
-
-    def test_unsupported_format_version(self):
-        copy = self.copy_v3_with_header("version4", format_version=4)
-        self.refused("format_version 4 is not one of", "noop", self.routes.v3, copy)
-
-    def test_a_failing_conservation_verdict_refuses_the_result(self):
-        document = json.loads(self.routes.v2["manifest"].read_text())
-        for entry in document["source_files"].values():
-            entry["parsed_count"] = entry["parsed_count"] + 1
-        wrong = self.root / "wrong_counts_manifest.json"
-        wrong.write_text(json.dumps(document))
-        out = self.root / "conservation_out"
-        with self.assertRaisesRegex(
-            ConverterError, "tree rows disagree with the conversion record"
-        ):
-            rewrite(
-                "migrate",
-                self.routes.v2,
-                self.routes.v2["dataset"],
-                out,
-                self.root / "conservation_s",
-                conversion_manifest=wrong,
-            )
-        # the inventory is written for inspection; the run is not completed
-        self.assertTrue((out / "tree_inventory.npy").is_file())
-        self.assertNotIn("rewrite_summary.json", dataset_files(out))
 
     def test_a_slab_corrupted_after_writing_is_caught_by_the_verification(self):
         original = rewriter_run.write_slab
@@ -996,9 +859,9 @@ class TestRefusals(unittest.TestCase):
                 ConverterError, "snapshot_005.h5.tmp: /halos/Vmax rows \\[0, .*differ"
             ):
                 rewrite(
-                    "migrate",
-                    self.routes.v2,
-                    self.routes.v2["dataset"],
+                    "noop",
+                    self.source,
+                    self.source["dataset"],
                     self.root / "corrupt_out",
                     self.root / "corrupt_s",
                 )
@@ -1009,36 +872,37 @@ class TestRefusals(unittest.TestCase):
 
     def test_a_rank_that_is_not_the_derived_one_is_refused(self):
         copy = self.root / "wrong_rank"
-        shutil.copytree(self.routes.v2["dataset"], copy)
+        shutil.copytree(self.source["dataset"], copy)
         with h5py.File(copy / "snapshot_004.h5", "r+") as handle:
             handle["halos"]["HaloRankInForest"][1] = handle["halos"]["HaloRankInForest"][1] + 7
         with self.assertRaisesRegex(
             ConverterError, "snapshot_004.h5: 1 row.* HaloRankInForest differs from the reference"
         ):
-            rewrite("migrate", self.routes.v2, copy, self.root / "rank_out", self.root / "rank_s")
+            rewrite("noop", self.source, copy, self.root / "rank_out", self.root / "rank_s")
 
     def test_cli_exit_status_is_2_for_a_refusal(self):
+        copy = self.copy_v3_with_header("cli_version2", format_version=2)
         argv = [
             "noop",
             "--input",
-            str(self.routes.v2["dataset"]),
+            str(copy),
             "--output",
             str(self.root / "cli_out"),
             "--scratch",
             str(self.root / "cli_scratch"),
             "--simulation-info",
-            str(self.root / "v3" / "simulation_info.yaml"),
+            str(self.source["root"] / "simulation_info.yaml"),
             "--a-list",
-            str(self.root / "v3" / "fixture.a_list"),
+            str(self.source["root"] / "fixture.a_list"),
             "--forests-list",
-            str(self.routes.v3["forests_list"]),
+            str(self.source["forests_list"]),
             "--locations",
-            str(self.routes.v3["locations"]),
+            str(self.source["locations"]),
         ]
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr), contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(rewrite_trees.main(argv), 2)
-        self.assertIn("format_version 2 but noop", stderr.getvalue())
+        self.assertIn("format_version 2 is not supported", stderr.getvalue())
         self.assertFalse((self.root / "cli_out").exists())
 
 
@@ -1588,7 +1452,7 @@ class TestCutTableAndRefusals(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.root = Path(tempfile.mkdtemp(prefix="rewriter_cut_refusals_"))
-        cls.routes = RouteSet(cls.root, two_file_layout())
+        cls.source = ascii_source(cls.root / "v3", two_file_layout())
         forest = fixtures.severed_satellite_forest()
         cls.severed = cut_source(cls.root / "severed", forest, cut_layout(forest))
         cls.severed_table = write_table(
@@ -1615,9 +1479,9 @@ class TestCutTableAndRefusals(unittest.TestCase):
 
     def test_the_identity_table_produces_the_noops_output(self):
         noop_out = self.root / "noop"
-        rewrite("noop", self.routes.v3, self.routes.v3["dataset"], noop_out, self.root / "ns")
+        rewrite("noop", self.source, self.source["dataset"], noop_out, self.root / "ns")
         cut_out = self.root / "identity_cut"
-        summary = cut(self.routes.v3, cut_out, self.root / "ics", self.routes.v3["forests_list"])
+        summary = cut(self.source, cut_out, self.root / "ics", self.source["forests_list"])
         assert_bytes_equal(self, noop_out / "dataset", cut_out / "dataset")
         self.assertEqual((summary["cut"]["split_forests"], summary["cut"]["fresh_pieces"]), (0, 0))
         self.assertEqual(summary["cut"]["pieces"]["count"], 0)
@@ -1698,32 +1562,23 @@ class TestCutTableAndRefusals(unittest.TestCase):
 
     def test_the_cut_table_option_belongs_to_cut_alone(self):
         self.refused("cut needs --cut-table", self.severed, None)
-        self.refused(
-            "cut refuses --column-map", self.severed, self.severed_table, column_map=ASCII_PROFILE
-        )
-        self.refused(
-            "cut refuses --conversion-manifest",
-            self.severed,
-            self.severed_table,
-            conversion_manifest=self.routes.v2["manifest"],
-        )
         with self.assertRaisesRegex(ConverterError, "noop refuses --cut-table"):
             rewrite(
                 "noop",
-                self.routes.v3,
-                self.routes.v3["dataset"],
+                self.source,
+                self.source["dataset"],
                 self.root / "x",
                 self.root / "sx",
-                cut_table=self.routes.v3["forests_list"],
+                cut_table=self.source["forests_list"],
             )
-        with self.assertRaisesRegex(ConverterError, "migrate refuses --cut-table-record"):
+        with self.assertRaisesRegex(ConverterError, "noop refuses --cut-table-record"):
             rewrite(
-                "migrate",
-                self.routes.v2,
-                self.routes.v2["dataset"],
+                "noop",
+                self.source,
+                self.source["dataset"],
                 self.root / "x",
                 self.root / "sx",
-                cut_table_record=self.routes.v2["manifest"],
+                cut_table_record=self.source["preparation_manifest"],
             )
         self.assertFalse((self.root / "x").exists())
 
@@ -1731,7 +1586,7 @@ class TestCutTableAndRefusals(unittest.TestCase):
         """A record in the census's streamed shape: the header entries, then
         the per-piece columns; md5s of this table and these index files."""
         header = {
-            "dataset": {"format_version": 2, "n_forests_total": 999, "forest_id_sha256": "0" * 64},
+            "dataset": {"format_version": 3, "n_forests_total": 999, "forest_id_sha256": "0" * 64},
             "index_files": {
                 "forests_list": {"md5": cut_table.md5_file(self.severed["forests_list"])},
                 "locations": {"md5": cut_table.md5_file(self.severed["locations"])},
@@ -1763,7 +1618,12 @@ class TestCutTableAndRefusals(unittest.TestCase):
             "parameters"
         ]
         self.assertEqual(parameters["cut_rule"], "the z = 0 FoF groups of every forest")
-        self.assertEqual(parameters["cut_table_record_dataset"]["format_version"], 2)
+        # the record's dataset is not this input's (999 forests, another id
+        # digest): it is carried as lineage, not compared
+        self.assertEqual(
+            parameters["cut_table_record_dataset"],
+            {"format_version": 3, "n_forests_total": 999, "forest_id_sha256": "0" * 64},
+        )
         self.assertEqual(parameters["cut_table_record_sha256"], sha256_file(record))
         self.assertEqual(summary["cut"]["rule"], "the z = 0 FoF groups of every forest")
         self.assertEqual(summary["cut"]["record_dataset"]["n_forests_total"], 999)

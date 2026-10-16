@@ -1,13 +1,13 @@
 """Per-forest occupancy of every slab, and over all slabs.
 
 One forward pass over every slab's ``ForestIndex`` column, in bounded blocks
-(:meth:`horizontal_dataset.HorizontalDataset.iter_column`). Version 2 slabs are
-not grouped by forest, so each block's ``(ForestIndex, count)`` pairs are added
-into a per-forest scratch counter that is read back, and zeroed again, at the
-end of the slab.
+(:meth:`horizontal_dataset.HorizontalDataset.iter_column`). Each block's
+``(ForestIndex, count)`` pairs are added into a per-forest scratch counter that
+is read back, and zeroed again, at the end of the slab, so a forest's count is
+right whether or not its rows fall in one block.
 
 Aggregates written under ``<aggregate>/occupancy/`` (sizes also recorded in
-``summary.json``, so Slice 9 can measure them and the procedure budget them):
+``summary.json``, so they can be measured and budgeted):
 
 - ``slab_NNN_forests.npy`` (int64, ascending) and ``slab_NNN_counts.npy``
   (int32): the forests present in slab NNN and their row counts. **12 B per
@@ -18,8 +18,8 @@ Aggregates written under ``<aggregate>/occupancy/`` (sizes also recorded in
   ``forest_max_snapshot.npy`` (int32, -1 for a forest with no halo): per forest,
   its halos over all slabs, its largest slab occupancy and the lowest-numbered
   slab where it occurs. **16 B x n_forests_total**, about 2.7 GB for Shin-Uchuu's
-  166,547,771 forests (4.3 GB at F2's worst case of 271,392,048).
-- ``summary.json``: the brief's measured table rows (total halos; the widest
+  166,547,771 forests (4.3 GB at 271,392,048 forests).
+- ``summary.json``: the measured table rows (total halos; the widest
   slab, the lowest-numbered on a tie as ``src/core/horizontal_driver.c``
   chooses it; the largest forest's total, its peak occupancy and slab; the
   second-largest forest's maximum; the forests whose occupancy exceeds 100,000,

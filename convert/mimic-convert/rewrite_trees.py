@@ -1,13 +1,9 @@
 """Rewrite a horizontal-HDF5 dataset of a Consistent-Trees ASCII catalogue.
 
-Three operations over one input dataset directory, each writing a version 3
-dataset into a converter-shaped workdir (``convert/mimic-convert/rewriter``):
+Two operations over one version 3 input dataset directory, each writing a
+version 3 dataset into a converter-shaped workdir
+(``convert/mimic-convert/rewriter``):
 
-  migrate   a version 2 input becomes version 3: identities computed from the
-            version 2 columns, rows at their (ForestIndex, HaloRankInForest)
-            position, int64 links with target-snapshot companions, /schema
-            from the package's converter profile, sidecar ordinals from the
-            index files and the version 2 conversion's recorded tree-file order
   noop      a version 3 input is reproduced exactly (every dataset value,
             dtype, header attribute, /schema attribute and sidecar value) under
             the identity table: the passes' permanent self-test
@@ -28,18 +24,14 @@ Every location is explicit: ``--input`` (the dataset directory), ``--output``
 rewrite_state.json, rewrite_summary.json) and ``--scratch`` (pass 1's remap
 entries and checkpoints); nothing defaults into the repository. The a_list,
 the simulation metadata and the two index files (``forests.list`` and
-``locations.dat``) are always named. ``--column-map`` is required for migrate
-and refused for noop and cut; ``--conversion-manifest`` (migrate only) is the
-version 2 conversion's ``manifest.json``, required when ``locations.dat`` names
-more than one tree file, since the sidecar's file ordinals follow the order the
-converter was given the files, which ``locations.dat``'s FileID does not record.
+``locations.dat``) are always named. The input's ``/schema`` is carried
+through, and the sidecar's file ordinals follow the input sidecar.
 
 Refusals happen before any write and exit 2 naming the offending value: an
-input that is not version 2 (migrate) or 3 (noop, cut), ``links_adjacent`` 0,
-a version 3 input of another source format, missing or inconsistent index
-files, an a_list that is not the input's, a multiplier that cannot encode the
-output's bounds (the installed table's for cut), a missing or ambiguous
-tree-file order, terminal halos that do not correspond to the index files'
+input that is not version 3, ``links_adjacent`` 0, an input of another source
+format, missing or inconsistent index files, an a_list that is not the
+input's, a multiplier that cannot encode the output's bounds (the installed
+table's for cut), terminal halos that do not correspond to the index files'
 tree roots, a cut table violating any of its invariants, a cut piece held in
 one file whose FileID the input sidecar gives no conversion ordinal for, and a
 record that is not the given table's or index files'. Two refusals of a cut
@@ -52,16 +44,16 @@ refuses a changed input or configuration, and re-verifies a completed run.
 The written workdir validates with
 ``convert_trees.py validate --workdir <output>`` and ``report``.
 
-Usage (micro-Uchuu, one tree file, so no conversion manifest is needed):
+Usage (micro-Uchuu, cut under a declared table):
 
-    mimic_venv/bin/python convert/mimic-convert/rewrite_trees.py migrate \\
-        --input /data/micro-uchuu-ascii-horizontal-v2 \\
-        --output /data/micro-uchuu-v3-migrated --scratch /data/scratch/migrate \\
+    mimic_venv/bin/python convert/mimic-convert/rewrite_trees.py cut \\
+        --input /data/micro-uchuu-ascii-horizontal \\
+        --output /data/micro-uchuu-cut --scratch /data/scratch/cut \\
         --simulation-info simulations/micro-uchuu-ascii-horizontal/simulation_info.yaml \\
         --a-list simulations/micro-uchuu-ascii-horizontal/micro-uchuu.a_list \\
         --forests-list simulations/micro-uchuu-ascii/snapshots/forests.list \\
         --locations simulations/micro-uchuu-ascii/snapshots/locations.dat \\
-        --column-map simulations/micro-uchuu-ascii/converter_columns.yaml \\
+        --cut-table /data/micro-uchuu-cut-table/cut_forests.list \\
         --multiplier 1000000000
 """
 
@@ -73,7 +65,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from errors import ConverterError  # noqa: E402
-from rewriter import OPERATION_CUT, OPERATION_MIGRATE, OPERATION_NOOP  # noqa: E402
+from rewriter import OPERATION_CUT, OPERATION_NOOP  # noqa: E402
 from rewriter.inputs import RewriteRequest  # noqa: E402
 from subset import SubsetError  # noqa: E402
 from validate_v3 import DEFAULT_MULTIPLIER  # noqa: E402
@@ -109,30 +101,16 @@ def _add_common(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="continue the run in --output after its last verified slab",
     )
-    parser.add_argument(
-        "--column-map",
-        default=None,
-        help="the package's consistent_trees_ascii converter profile (migrate: required; noop: refused)",
-    )
-    parser.add_argument(
-        "--conversion-manifest",
-        default=None,
-        help="the version 2 conversion's manifest.json recording the tree-file order (migrate "
-        "only; required when locations.dat names several files)",
-    )
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="rewrite_trees",
         description="Rewrite a horizontal-HDF5 dataset of a Consistent-Trees ASCII catalogue "
-        "into a version 3 dataset: migrate (version 2 in), noop (version 3 in, the "
-        "identity) or cut (version 3 in, under a cut forest table). Every location is "
-        "explicit; refusals exit 2.",
+        "into a version 3 dataset: noop (version 3 in, the identity) or cut (version 3 in, "
+        "under a cut forest table). Every location is explicit; refusals exit 2.",
     )
     sub = parser.add_subparsers(dest="operation", required=True)
-    migrate = sub.add_parser(OPERATION_MIGRATE, help="version 2 in, version 3 out")
-    _add_common(migrate)
     noop = sub.add_parser(
         OPERATION_NOOP, help="version 3 in, version 3 out under the identity table"
     )
@@ -163,10 +141,6 @@ def request_from_args(args) -> RewriteRequest:
         a_list=Path(args.a_list),
         forests_list=Path(args.forests_list),
         locations=Path(args.locations),
-        column_map=None if args.column_map is None else Path(args.column_map),
-        conversion_manifest=(
-            None if args.conversion_manifest is None else Path(args.conversion_manifest)
-        ),
         multiplier=args.multiplier,
         resume=bool(args.resume),
         cut_table=None if getattr(args, "cut_table", None) is None else Path(args.cut_table),

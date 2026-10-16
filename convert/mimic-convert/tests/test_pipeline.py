@@ -47,7 +47,7 @@ import test_ctrees_hdf5_adapter as h5fixtures  # noqa: E402
 import test_lhalo_adapter as lhalo  # noqa: E402
 from adapters import ctrees_ascii  # noqa: E402
 from column_schema import ConverterError  # noqa: E402
-from test_conversion_manifest import LEGACY_FIXTURE, tree_state  # noqa: E402
+from test_conversion_manifest import make_scatter_workdir, tree_state  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 CONVERT_DIR = HERE.parent
@@ -733,13 +733,12 @@ class BindingTests(PipelineCase):
         self.run_all()
         self.assert_matches_reference(self.work)
 
-    def test_legacy_workdir_is_refused_and_untouched(self):
-        work = self.tmp / "legacy"
-        shutil.copytree(LEGACY_FIXTURE / "workdir", work)
+    def test_a_scatter_manifest_workdir_is_refused_and_untouched(self):
+        work = make_scatter_workdir(self.tmp / "scattered")
         before = tree_state(work)
-        with self.assertRaisesRegex(ConverterError, "legacy"):
+        with self.assertRaisesRegex(ConverterError, "this is a scatter manifest"):
             pipeline.run_ingest(work)
-        with self.assertRaisesRegex(ConverterError, "legacy"):
+        with self.assertRaisesRegex(ConverterError, "holds a scatter manifest"):
             pipeline.initialize(work, self.schema, self.parameters, self.a_list)
         self.assertEqual(tree_state(work), before)
 

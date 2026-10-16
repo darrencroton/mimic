@@ -18,9 +18,8 @@ once in bounded blocks before any output is written:
 - **the per-tree inventory**: per index tree, in ascending root id, its
   forest, its ``locations.dat`` file, that file's ordinal in the conversion's
   tree-file order, the rank of its ``#tree`` marker within the file, and its
-  row count, which pass 1 fills in as it labels halos with their trees. The
-  per-file sums of those counts are checked against a given conversion
-  record's per-file parsed counts (:func:`check_conservation`).
+  row count, which pass 1 fills in as it labels halos with their trees, and
+  whose per-file sums the summary records (:func:`conservation_record`).
 
 Memory: the totals and bases, 16 B x n_forests; the roots with their forests
 and slabs, 20 B x n_trees at rest (42 B x n_trees while they are gathered);
@@ -30,13 +29,13 @@ the inventory, 56 B x n_trees; plus the block being read.
 import os
 import sys
 from dataclasses import dataclass
-from typing import Callable, Dict, Optional, Tuple
+from typing import Callable, Dict, Tuple
 
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from census.trees import ParsedCounts, enumerate_roots, root_correspondence  # noqa: E402
+from census.trees import enumerate_roots, root_correspondence  # noqa: E402
 from errors import ConverterError  # noqa: E402
 from horizontal_dataset import HorizontalDataset  # noqa: E402
 from source_index import ForestTable, SourceIndex  # noqa: E402
@@ -201,14 +200,12 @@ def tree_inventory(
     return inventory
 
 
-def check_conservation(
-    inventory: np.ndarray, filenames: Dict[int, str], parsed_counts: Optional[ParsedCounts]
-) -> Dict[str, object]:
-    """Per-file sums of the trees' rows (through the inventory's ``file_id``,
-    with ``filenames`` the ``locations.dat`` ``FileID`` -> name map) against the
-    conversion record's parsed counts; ``unchecked`` without a record. A
-    failing check is a refusal of the run's result, reported with the record.
-    The record has the shape of the census's conservation check."""
+def conservation_record(inventory: np.ndarray, filenames: Dict[int, str]) -> Dict[str, object]:
+    """Per-file sums of the trees' rows, through the inventory's ``file_id``,
+    with ``filenames`` the ``locations.dat`` ``FileID`` -> name map. The record
+    has the shape of the census's conservation check (``census.trees``) and the
+    verdict ``unchecked``: a horizontal dataset carries no per-file parsed
+    counts to check the sums against."""
     file_ids = sorted(filenames)
     present, inverse = np.unique(inventory["file_id"], return_inverse=True)
     sums = np.zeros(present.size, dtype=np.int64)
@@ -222,36 +219,4 @@ def check_conservation(
         }
         for file_id in file_ids
     ]
-    record: Dict[str, object] = {"files": files, "unattributed_halos": 0}
-    if parsed_counts is None:
-        record["verdict"] = "unchecked"
-        return record
-    names = {entry["name"] for entry in files}
-    mismatched = 0
-    for entry in files:
-        entry["parsed_count"] = parsed_counts.counts.get(entry["name"])
-        entry["agrees"] = entry["parsed_count"] == entry["census_halos"]
-        mismatched += not entry["agrees"]
-    record["report"] = str(parsed_counts.path)
-    record["report_files_not_in_locations"] = sorted(set(parsed_counts.counts) - names)
-    record["files_disagreeing"] = mismatched
-    record["verdict"] = (
-        "pass" if not mismatched and not record["report_files_not_in_locations"] else "fail"
-    )
-    if record["verdict"] == "fail":
-        raise ConverterError(
-            "per-tree inventory: {} file(s) whose tree rows disagree with the conversion "
-            "record's parsed counts ({}), {} file(s) in the record but not in locations.dat; "
-            "the inventory is written for inspection and the run is refused".format(
-                mismatched,
-                ", ".join(
-                    "{}: {} rows against parsed {}".format(
-                        entry["name"], entry["census_halos"], entry["parsed_count"]
-                    )
-                    for entry in files
-                    if not entry["agrees"]
-                ),
-                len(record["report_files_not_in_locations"]),
-            )
-        )
-    return record
+    return {"files": files, "unattributed_halos": 0, "verdict": "unchecked"}

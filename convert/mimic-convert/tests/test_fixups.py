@@ -15,14 +15,12 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest import mock
 
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import convert_ctrees  # noqa: E402
 import fixtures  # noqa: E402
 from ctrees_parser import DTYPE_TAG, RECORD_DTYPE, ConverterError  # noqa: E402
 from fixups import (  # noqa: E402
@@ -30,7 +28,6 @@ from fixups import (  # noqa: E402
     FIXED_RECORD_DTYPE,
     derive_len,
     fix_upid_snapshot,
-    fixed_scratch_name,
     load_particle_mass,
     normalise_spin,
     round_half_away_from_zero,
@@ -39,7 +36,7 @@ from fixups import (  # noqa: E402
     verify_fof_centrals_present,
 )
 from links import run_links  # noqa: E402
-from scatter import Manifest, run_finalize, run_scatter  # noqa: E402
+from scatter import Manifest, run_scatter  # noqa: E402
 from sort_index import run_sort, sorted_scratch_name  # noqa: E402
 
 #: fixture a_list as float64 (index = SnapNum)
@@ -62,10 +59,9 @@ class _Captured:
 def capture_stderr():
     """Capture the converter's stderr log lines for one block.
 
-    Every stage reports its consumptions and its consumed-input skips through
+    Every stage reports its progress, its deletions and its skips through
     ``_log``, and the operator relies on those messages as much as on the
-    bytes, so the tests read them rather than inferring
-    them.
+    bytes, so the tests read them rather than inferring them.
     """
     buffer = io.StringIO()
     with contextlib.redirect_stderr(buffer):
@@ -731,46 +727,11 @@ class TestFixupsPipeline(unittest.TestCase):
         ):
             verify_mostboundid_invariant(records, "test")
 
-    def test_cli_fixups_stage(self):
-        workdir, a_list, sim_info = make_sorted_workdir(self.root)
-        rc = convert_ctrees.main(
-            [
-                "fixups",
-                "--workdir",
-                str(workdir),
-                "--a-list",
-                str(a_list),
-                "--simulation-info",
-                str(sim_info),
-            ]
-        )
-        self.assertEqual(rc, 0)
-        manifest = Manifest.load_or_create(workdir)
-        for snap_str, entry in manifest.data["snapshots"].items():
-            self.assertEqual(entry["status"], "fixed")
-            self.assertTrue((workdir / "scratch" / fixed_scratch_name(int(snap_str))).exists())
 
-    def test_cli_failure_exit_code(self):
-        workdir, _, sim_info = make_sorted_workdir(self.root)
-        other = fixtures.write_a_list(self.root / "other.a_list", [0.1, 0.2])
-        rc = convert_ctrees.main(
-            [
-                "fixups",
-                "--workdir",
-                str(workdir),
-                "--a-list",
-                str(other),
-                "--simulation-info",
-                str(sim_info),
-            ]
-        )
-        self.assertEqual(rc, 1)
-
-
-class TestFixupsConsumesSortedScratch(unittest.TestCase):
-    """Consumptive deletion: ``sorted_N`` goes once snapshot N's
-    ``fixed`` output is verified and registered — and only then, and only when
-    the operator asked for it."""
+class TestFixupsKeepsItsInputs(unittest.TestCase):
+    """The fix-up stage deletes nothing: every sorted file it reads stays
+    registered and on disk, and the upstream re-runs that verify those files
+    still find them."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -784,7 +745,28 @@ class TestFixupsConsumesSortedScratch(unittest.TestCase):
             for snap, entry in manifest.data["snapshots"].items()
         }
 
-    def test_flag_off_retains_every_sorted_file(self):
+    def _fixture(self, name):
+        """The standard forests written under ``self.root / name``; returns
+        (tree file, forests.list, a_list, simulation_info, workdir)."""
+        root = self.root / name
+        root.mkdir()
+        forests = fixtures.standard_forests()
+        tree_file = fixtures.write_ctrees_file(root / "tree_0.dat", fixtures.all_trees(forests))
+        forests_list = fixtures.write_forests_list(root / "forests.list", forests)
+        a_list = fixtures.write_a_list(root / "test.a_list")
+        sim_info = fixtures.write_simulation_info(root / "simulation_info.yaml")
+        return tree_file, forests_list, a_list, sim_info, root / "workdir"
+
+    def _scatter(self, tree_file, forests_list, a_list, sim_info, workdir):
+        run_scatter(
+            tree_files=[tree_file],
+            forests_list_path=forests_list,
+            a_list_path=a_list,
+            workdir=workdir,
+            simulation_info_path=sim_info,
+        )
+
+    def test_every_sorted_file_is_retained(self):
         workdir, a_list, sim_info = make_sorted_workdir(self.root)
         before = self._sorted_paths(workdir)
         run_fixups(workdir, a_list_path=a_list, simulation_info_path=sim_info)
@@ -795,239 +777,45 @@ class TestFixupsConsumesSortedScratch(unittest.TestCase):
                 "present", manifest.data["intermediates"][str(path.resolve())]["status"]
             )
 
-    def test_flag_on_consumes_every_sorted_file(self):
-        workdir, a_list, sim_info = make_sorted_workdir(self.root)
-        before = self._sorted_paths(workdir)
-        with capture_stderr() as captured:
-            run_fixups(
-                workdir,
-                a_list_path=a_list,
-                simulation_info_path=sim_info,
-                consume_intermediates=True,
-            )
-        manifest = Manifest.load_or_create(workdir)
-        for snap, path in before.items():
-            self.assertFalse(path.exists(), "snapshot {} sorted file survived".format(snap))
-            self.assertEqual(
-                "removed", manifest.data["intermediates"][str(path.resolve())]["status"]
-            )
-            self.assertIn("fixups: snapshot {} — consumed {}".format(snap, path), captured.text)
-
-    def test_fixed_output_is_registered_before_its_predecessor_goes(self):
-        """The protocol's ordering, asserted rather than assumed: at the
-        instant the sorted file is unlinked the fixed successor must already be
-        registered present in the manifest ON DISK."""
-        workdir, a_list, sim_info = make_sorted_workdir(self.root)
-        manifest_path = Path(workdir) / "manifest.json"
-        observed = {}
-        real_remove = Manifest.remove_intermediate
-
-        def spy(self, path):
-            import json
-
-            saved = json.loads(manifest_path.read_text())
-            snap = str(Path(path).name).split("_")[1]
-            entry = saved["snapshots"][str(int(snap))]
-            observed[int(snap)] = (
-                entry.get("status"),
-                saved["intermediates"].get(entry.get("fixed_file", ""), {}).get("status"),
-            )
-            return real_remove(self, path)
-
-        with mock.patch.object(Manifest, "remove_intermediate", spy):
-            run_fixups(
-                workdir,
-                a_list_path=a_list,
-                simulation_info_path=sim_info,
-                consume_intermediates=True,
-            )
-        self.assertTrue(observed)
-        for snap, (status, fixed_status) in observed.items():
-            self.assertEqual("fixed", status, "snapshot {}".format(snap))
-            self.assertEqual("present", fixed_status, "snapshot {}".format(snap))
-
-    def test_deletion_goes_through_remove_intermediate(self):
-        """Never a bare unlink: with the manifest's guarded removal disabled,
-        no sorted file may disappear."""
-        workdir, a_list, sim_info = make_sorted_workdir(self.root)
-        before = self._sorted_paths(workdir)
-        with mock.patch.object(Manifest, "remove_intermediate", lambda self, path: None):
-            run_fixups(
-                workdir,
-                a_list_path=a_list,
-                simulation_info_path=sim_info,
-                consume_intermediates=True,
-            )
-        for path in before.values():
-            self.assertTrue(path.exists())
-
-    def test_crash_between_unlink_and_save_converges_to_removed(self):
-        """A crash after the unlink and before the manifest save leaves the
-        entry recorded ``present`` with no file. The next run must converge on
-        ``removed`` — with the flag in EITHER state, because the bytes are
-        already gone — and must not raise."""
-        for delete in (False, True):
-            with self.subTest(consume_intermediates=delete):
-                root = self.root / "crash-{}".format(int(delete))
-                root.mkdir()
-                workdir, a_list, sim_info = make_sorted_workdir(root)
-                run_fixups(workdir, a_list_path=a_list, simulation_info_path=sim_info)
-                manifest = Manifest.load_or_create(workdir)
-                victim = Path(manifest.data["snapshots"]["5"]["sorted_file"])
-                victim.unlink()  # the unlink landed; the save did not
-                self.assertEqual(
-                    "present", manifest.data["intermediates"][str(victim.resolve())]["status"]
-                )
-                run_fixups(
-                    workdir,
-                    a_list_path=a_list,
-                    simulation_info_path=sim_info,
-                    consume_intermediates=delete,
-                )
-                reloaded = Manifest.load_or_create(workdir)
-                self.assertEqual(
-                    "removed", reloaded.data["intermediates"][str(victim.resolve())]["status"]
-                )
-
-    def test_finalize_and_scatter_reruns_skip_a_consumed_sorted_file(self):
-        """Deletion is bounded by re-run reachability, and ``sort`` is not the
-        only path that skip-trusts the sorted file and the index.
-
-        ``_finalize_scatter`` verifies both when it meets a snapshot already
-        past ``concatenated``, so once ``fixups`` has consumed the sorted files
-        a re-run of ``finalize`` — or of a non-batch ``scatter``, which
-        finalizes at the end — must skip and name what was consumed, exactly as
-        sort does, rather than refuse on a file the pipeline deliberately
-        deleted. Both entry points are exercised because they reach the same
-        two branches by different routes.
-        """
-        root = self.root / "finalize-rerun"
-        root.mkdir()
-        forests = fixtures.standard_forests()
-        tree_file = fixtures.write_ctrees_file(root / "tree_0.dat", fixtures.all_trees(forests))
-        forests_list = fixtures.write_forests_list(root / "forests.list", forests)
-        a_list = fixtures.write_a_list(root / "test.a_list")
-        sim_info = fixtures.write_simulation_info(root / "simulation_info.yaml")
-        workdir = root / "workdir"
-        run_scatter(
-            tree_files=[tree_file],
-            forests_list_path=forests_list,
-            a_list_path=a_list,
-            workdir=workdir,
-            simulation_info_path=sim_info,
-        )
-        run_sort(workdir)
-        run_fixups(
-            workdir,
-            a_list_path=a_list,
-            simulation_info_path=sim_info,
-            consume_intermediates=True,
-        )
-        sorted_paths = self._sorted_paths(workdir)
-        self.assertTrue(sorted_paths)
-        for path in sorted_paths.values():
-            self.assertFalse(path.exists())
-
-        with capture_stderr() as captured:
-            run_finalize(workdir, forests_list)
-        for snap, path in sorted_paths.items():
-            self.assertIn(
-                "finalize: snapshot {} is already past concat".format(snap), captured.text
-            )
-            self.assertIn(str(path), captured.text)
-
-        # the same two branches through the other entry point: a non-batch
-        # scatter re-run finalizes at the end
-        with capture_stderr() as captured:
-            run_scatter(
-                tree_files=[tree_file],
-                forests_list_path=forests_list,
-                a_list_path=a_list,
-                workdir=workdir,
-                simulation_info_path=sim_info,
-            )
-        for snap in sorted_paths:
-            self.assertIn(
-                "finalize: snapshot {} is already past concat".format(snap), captured.text
-            )
-
-        # neither re-run resurrected or re-registered anything
-        manifest = Manifest.load_or_create(workdir)
-        for path in sorted_paths.values():
-            self.assertFalse(path.exists())
-            self.assertEqual(
-                "removed", manifest.data["intermediates"][str(path.resolve())]["status"]
-            )
-
-    def test_finalize_rerun_still_refuses_a_merely_missing_sorted_file(self):
-        """The skip is granted only to a RECORDED consumption here too: a
-        sorted file that simply vanished is still refused by finalize."""
-        root = self.root / "finalize-missing"
-        root.mkdir()
-        forests = fixtures.standard_forests()
-        tree_file = fixtures.write_ctrees_file(root / "tree_0.dat", fixtures.all_trees(forests))
-        forests_list = fixtures.write_forests_list(root / "forests.list", forests)
-        a_list = fixtures.write_a_list(root / "test.a_list")
-        sim_info = fixtures.write_simulation_info(root / "simulation_info.yaml")
-        workdir = root / "workdir"
-        run_scatter(
-            tree_files=[tree_file],
-            forests_list_path=forests_list,
-            a_list_path=a_list,
-            workdir=workdir,
-            simulation_info_path=sim_info,
-        )
+    def test_scatter_rerun_refuses_a_merely_missing_sorted_file(self):
+        """A scatter re-run finalizes at the end and verifies every fixed
+        snapshot's sorted file: one that simply vanished is refused."""
+        paths = self._fixture("finalize-missing")
+        tree_file, forests_list, a_list, sim_info, workdir = paths
+        self._scatter(*paths)
         run_sort(workdir)
         run_fixups(workdir, a_list_path=a_list, simulation_info_path=sim_info)
         next(iter(self._sorted_paths(workdir).values())).unlink()
         with self.assertRaisesRegex(ConverterError, "missing on disk"):
-            run_finalize(workdir, forests_list)
+            self._scatter(*paths)
 
-    def test_rerun_after_a_consuming_links_run_is_a_skip_not_a_status_error(self):
-        """Once ``links`` has run, every snapshot sits at ``linked``. That used
-        to abort with "unexpected status 'linked'; run sort first" — advice that
-        would itself have failed. It must be a skip, and once the writer has
-        taken the fixed and links files, a skip that names them."""
-        root = self.root / "linked-skip"
-        root.mkdir()
-        workdir, a_list, sim_info = make_sorted_workdir(root)
-        run_fixups(
-            workdir,
-            a_list_path=a_list,
-            simulation_info_path=sim_info,
-            consume_intermediates=True,
-        )
-        run_links(workdir, consume_intermediates=True)
-        manifest = Manifest.load_or_create(workdir)
-        for entry in manifest.data["snapshots"].values():
-            self.assertEqual("linked", entry["status"])
+    def test_scatter_rerun_refuses_a_consumption_recorded_at_any_status(self):
+        """Nothing after sort consumes the sorted file or the id index, so a
+        manifest that records either as removed -- at ``sorted`` or at
+        ``fixed`` -- describes a premature deletion, and a scatter re-run
+        refuses it rather than skipping it."""
+        for status in ("sorted", "fixed"):
+            for key in ("sorted_file", "index_file"):
+                with self.subTest(status=status, key=key):
+                    paths = self._fixture("finalize-{}-{}".format(status, key))
+                    tree_file, forests_list, a_list, sim_info, workdir = paths
+                    self._scatter(*paths)
+                    run_sort(workdir)
+                    if status == "fixed":
+                        run_fixups(workdir, a_list_path=a_list, simulation_info_path=sim_info)
+                    manifest = Manifest.load_or_create(workdir)
+                    self.assertEqual(status, manifest.data["snapshots"]["5"]["status"])
+                    manifest.consume_intermediates(
+                        [manifest.data["snapshots"]["5"][key]], delete=True
+                    )
+                    with self.assertRaisesRegex(
+                        ConverterError, "not a manifest-owned intermediate"
+                    ):
+                        self._scatter(*paths)
 
-        # still resumable while the writer has not run
-        run_fixups(
-            workdir,
-            a_list_path=a_list,
-            simulation_info_path=sim_info,
-            consume_intermediates=True,
-        )
-
-        # and once it has consumed them, the skip names both
-        entry = manifest.data["snapshots"]["5"]
-        manifest.consume_intermediates([entry["fixed_file"], entry["links_file"]], delete=True)
-        with capture_stderr() as captured:
-            run_fixups(
-                workdir,
-                a_list_path=a_list,
-                simulation_info_path=sim_info,
-                consume_intermediates=True,
-            )
-        self.assertIn("fixups: snapshot 5 is already linked", captured.text)
-        self.assertIn("fixed snapshot scratch was consumed", captured.text)
-        self.assertIn("snapshot links scratch was consumed", captured.text)
-
-    def test_a_missing_fixed_file_at_status_fixed_is_still_a_hard_error(self):
-        """The permissive treatment must not reach ``fixed``: the writer takes
-        the fixed file only once every snapshot is linked, so at this status it
-        must be present."""
+    def test_a_consumed_fixed_file_at_status_fixed_is_a_hard_error(self):
+        """At ``fixed`` the fixed file must be present: the link stage has yet
+        to read it, so a manifest recording it removed is refused."""
         root = self.root / "fixed-strict"
         root.mkdir()
         workdir, a_list, sim_info = make_sorted_workdir(root)
@@ -1038,56 +826,14 @@ class TestFixupsConsumesSortedScratch(unittest.TestCase):
         with self.assertRaisesRegex(ConverterError, "not a manifest-owned intermediate"):
             run_fixups(workdir, a_list_path=a_list, simulation_info_path=sim_info)
 
-    def test_finalize_refuses_a_consumption_recorded_at_status_sorted(self):
-        """The same rule the sort stage applies, in the other call site of the
-        shared helper: at status ``sorted`` neither the sorted file nor the
-        index can legitimately have been consumed, so a manifest claiming one
-        was is a premature deletion and must be refused, not skipped."""
-        for key in ("sorted_file", "index_file"):
-            with self.subTest(key=key):
-                root = self.root / "finalize-sorted-{}".format(key)
-                root.mkdir()
-                forests = fixtures.standard_forests()
-                tree_file = fixtures.write_ctrees_file(
-                    root / "tree_0.dat", fixtures.all_trees(forests)
-                )
-                forests_list = fixtures.write_forests_list(root / "forests.list", forests)
-                a_list = fixtures.write_a_list(root / "test.a_list")
-                sim_info = fixtures.write_simulation_info(root / "simulation_info.yaml")
-                workdir = root / "workdir"
-                run_scatter(
-                    tree_files=[tree_file],
-                    forests_list_path=forests_list,
-                    a_list_path=a_list,
-                    workdir=workdir,
-                    simulation_info_path=sim_info,
-                )
-                run_sort(workdir)
-                manifest = Manifest.load_or_create(workdir)
-                self.assertEqual("sorted", manifest.data["snapshots"]["5"]["status"])
-                manifest.consume_intermediates([manifest.data["snapshots"]["5"][key]], delete=True)
-                with self.assertRaisesRegex(ConverterError, "not a manifest-owned intermediate"):
-                    run_finalize(workdir, forests_list)
-
-    def test_cli_flag_is_off_by_default(self):
-        parser = convert_ctrees.build_arg_parser()
-        args = parser.parse_args(
-            ["fixups", "--workdir", "w", "--a-list", "a", "--simulation-info", "s"]
-        )
-        self.assertFalse(args.consume_intermediates)
-        args = parser.parse_args(
-            [
-                "fixups",
-                "--workdir",
-                "w",
-                "--a-list",
-                "a",
-                "--simulation-info",
-                "s",
-                "--consume-intermediates",
-            ]
-        )
-        self.assertTrue(args.consume_intermediates)
+    def test_a_linked_snapshot_is_refused(self):
+        """Once the link stage has run, every snapshot sits at ``linked``,
+        which this stage never skip-trusts: re-running it is refused."""
+        workdir, a_list, sim_info = make_sorted_workdir(self.root)
+        run_fixups(workdir, a_list_path=a_list, simulation_info_path=sim_info)
+        run_links(workdir)
+        with self.assertRaisesRegex(ConverterError, r"unexpected status 'linked'; run sort first"):
+            run_fixups(workdir, a_list_path=a_list, simulation_info_path=sim_info)
 
 
 # ---------------------------------------------------------------------------
@@ -1098,9 +844,9 @@ ALL_TYPES_PROFILE = Path(__file__).parent / "data" / "column_maps" / "ascii_all_
 
 
 def run_both_layouts(root: Path, schema, chunksize: int = 2):
-    """Prepare the standard fixture forests twice, through the legacy route and
-    in ``schema``'s extended layout, up to and including links. Returns the two
-    manifests (legacy, extended)."""
+    """Prepare the standard fixture forests twice, in the frozen legacy scratch
+    layout and in ``schema``'s extended layout, up to and including links.
+    Returns the two manifests (legacy, extended)."""
     from adapters.ctrees_ascii import prepare_workdir
 
     forests = fixtures.standard_forests()
@@ -1160,7 +906,7 @@ class TestExtendedFixups(unittest.TestCase):
             meta = self.extended.data["intermediates"][entry["fixed_file"]]
             self.assertEqual(meta["dtype_tag"], tag)
 
-    def test_legacy_fields_are_bit_identical_to_the_legacy_route(self):
+    def test_legacy_fields_are_bit_identical_to_the_legacy_layout(self):
         from fixups import fixed_layout
 
         dtype, _tag = fixed_layout(self.extended.layout)

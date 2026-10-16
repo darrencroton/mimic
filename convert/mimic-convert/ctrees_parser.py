@@ -17,9 +17,9 @@ Reference semantics mirrored here (the reference sources cited below are authori
 a ``consistent_trees_ascii`` :class:`column_schema.CanonicalSchema` selects the
 required columns through the profile's aliases and carries its declared extra
 fields in an *extended* scratch layout (:class:`ScratchLayout`), which also
-records every row's canonical source coordinate. Without a schema nothing
-changes: the frozen 108-byte ``RECORD_DTYPE``, ``DTYPE_TAG`` and the legacy
-column resolution are exactly what the ASCII-to-v2 workflow has always used.
+records every row's canonical source coordinate. Without a schema the parser
+uses the frozen legacy layout: the 108-byte ``RECORD_DTYPE``, ``DTYPE_TAG``
+and the legacy column resolution.
 
 Extra-field parse rules, stated here because an ASCII column has no declared
 type until it is parsed (``adapters/base.py`` notes):
@@ -238,7 +238,7 @@ class ScratchLayout:
         return layout
 
 
-#: The frozen legacy layout: the default ASCII-to-v2 route.
+#: The frozen legacy layout, used when no schema is given.
 LEGACY_LAYOUT = ScratchLayout()
 
 DEFAULT_CHUNKSIZE = 1_000_000

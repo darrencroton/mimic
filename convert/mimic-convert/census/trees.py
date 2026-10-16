@@ -74,10 +74,10 @@ matrix is held.
 
 The conservation check sums the tree totals per source file through
 ``locations.dat`` and, when a JSON carrying ``source_files`` with per-file
-``parsed_count`` is given (a version 2 ``conversion_report.json``, or the ASCII
-preparation's ``manifest.json``), compares each file's sum with its parsed
-count. Agreement is necessary for the trees to be the ``#tree`` blocks, not
-sufficient.
+``parsed_count`` is given (the ASCII preparation's ``manifest.json``, or a
+``conversion_report.json`` of the historical version 2 converter, which records
+the same mapping), compares each file's sum with its parsed count. Agreement
+is necessary for the trees to be the ``#tree`` blocks, not sufficient.
 """
 
 import os
@@ -428,8 +428,8 @@ def load_parsed_counts(path) -> ParsedCounts:
     sources = document.get("source_files") if isinstance(document, dict) else None
     if not isinstance(sources, dict) or not sources:
         raise ConverterError(
-            "{}: no source_files with per-file parsed_count (expected a version 2 "
-            "conversion_report.json or an ASCII preparation manifest.json)".format(path)
+            "{}: no source_files with per-file parsed_count (expected an ASCII preparation "
+            "manifest.json, or a historical version 2 conversion_report.json)".format(path)
         )
     counts: Dict[str, int] = {}
     for source, entry in sources.items():

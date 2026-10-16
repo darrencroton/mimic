@@ -2083,23 +2083,7 @@ BUILD_TREE = (
     "tests/unit/tools",
 )
 
-#: ``mimic-topology-dump v1`` of the committed micro-uchuu-ascii fixture, as
-#: written by the tool's default mode (SHA-256 55bd72a1...), so the default
-#: mode cannot drift. The two trailing backslashes are line continuations, not
-#: characters of the dump.
-ASCII_FIXTURE_V1_DUMP = """# mimic-topology-dump v1
-# forestnr rank id snapnum desc_id first_prog_id next_prog_id first_fof_id next_fof_id
-# NA sentinel = -9223372036854775808 (no link)
-0 0 1000001 49 -9223372036854775808 1000011 -9223372036854775808 1000001 -9223372036854775808
-0 1 1000011 48 1000001 -9223372036854775808 -9223372036854775808 1000011 -9223372036854775808
-1 0 1000002 49 -9223372036854775808 -9223372036854775808 -9223372036854775808 1000002 \
--9223372036854775808
-2 0 1000003 49 -9223372036854775808 -9223372036854775808 -9223372036854775808 1000003 \
--9223372036854775808
-"""
-V1_HEADER = "\n".join(ASCII_FIXTURE_V1_DUMP.splitlines()[:3]) + "\n"
-
-#: ``mimic-source-dump v1`` of the same fixture through the enumerated
+#: ``mimic-source-dump v1`` of the committed micro-uchuu-ascii fixture through the enumerated
 #: consistent_trees_ascii reader, typed from tree_0_0_0.dat and forests.list:
 #: forests 1001..1003 are forest numbers 0..2, all in partition 0 as units
 #: 0..2; 1000011 (snap 48) is 1000001's first progenitor, and every halo heads
@@ -2267,17 +2251,18 @@ class CDumpToolTests(unittest.TestCase):
         self.assertEqual(entry["exit_code"], 0)
         self.assertEqual(entry["dump"]["sha256"], acc.sha256_file(dump))
 
-    def test_default_mode_still_refuses_per_file_readers_unchanged(self):
-        dump = self.work / "v1.dump"
+    def test_an_invocation_without_the_mode_flag_is_refused_as_bad_usage(self):
+        dump = self.work / "unflagged.dump"
         result = subprocess.run(
             [str(self.tools["micro-uchuu"]), str(self.lhalo_run_file()), str(dump)],
             cwd=str(REPO_ROOT),
             capture_output=True,
             text=True,
         )
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("global_forest_offset", result.stderr)
-        self.assertEqual(dump.read_text(), V1_HEADER)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("Usage:", result.stderr)
+        self.assertIn("--source-payload", result.stderr)
+        self.assertFalse(dump.exists())
 
     def test_source_payload_of_the_enumerated_ascii_reader_matches_its_literal(self):
         # the only --source-payload run through global_forest_offset (enumerated readers)
@@ -2306,26 +2291,6 @@ class CDumpToolTests(unittest.TestCase):
         self.assertEqual(
             (parsed.reader, parsed.partition_model), ("consistent_trees_ascii", "enumerated")
         )
-
-    def test_default_mode_output_is_byte_identical_to_the_pre_change_tool(self):
-        dump = self.work / "v1.dump"
-        data = SIMULATIONS / "micro-uchuu-ascii" / "_tests" / "data"
-        run = run_file(
-            self.work / "ascii.yaml",
-            "micro-uchuu-ascii",
-            data,
-            "tree_0_0_0.dat",
-            0,
-            self.work / "out",
-        )
-        result = subprocess.run(
-            [str(self.tools["micro-uchuu-ascii"]), str(run), str(dump)],
-            cwd=str(REPO_ROOT),
-            capture_output=True,
-            text=True,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(dump.read_text(), ASCII_FIXTURE_V1_DUMP)
 
     def test_a_missing_requested_file_is_fatal(self):
         dump = self.work / "missing.dump"

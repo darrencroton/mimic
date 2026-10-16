@@ -1,12 +1,11 @@
-"""Unit tests: the format version 3
-conversion report (``report.run_report_v3``).
+"""Unit tests: the conversion report (``report.run_report_v3``).
 
 The report is built from a real conversion of ``test_pipeline``'s literal
 gapped L-Halo source with the extras-example profile, so every count it
 states is checked against the hand-derived graph (``test_pipeline.EXPECTED``:
 two gapped descendants, the longer spanning three snapshots) rather than
-against the battery's own arithmetic. The legacy v2 report is covered by
-``test_hdf5_writer.TestReport`` and is unchanged.
+against the battery's own arithmetic. The identity multiplier arithmetic the
+report states is covered by ``test_hdf5_writer.TestIdentityMultiplier``.
 """
 
 import json
@@ -138,7 +137,6 @@ class TestV3Report(unittest.TestCase):
         self.assertIn("Format consumed, route not validated", joined)
         for sentence in runtime_routes.standing_limitations():
             self.assertIn(sentence, joined)
-        self.assertNotIn("accepts only format_version 2", joined)
         self.assertIn("2 Descendant link(s) skip snapshots", joined)
         self.assertIn("SubHalfMass", joined)
         text = (self.conv.work / REPORT_TXT).read_text()

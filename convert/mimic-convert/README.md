@@ -6,12 +6,13 @@ The converters are standalone: they never touch Mimic source, simulation package
 
 **The route, in one paragraph.** `convert_trees.py` is the current tool. You point it at a source (L-Halo binary, Consistent-Trees forests-HDF5 or Consistent-Trees ASCII) and at the simulation package that describes it, then run six subcommands over one workdir: `inspect` resolves the package's profile against the source and estimates the output without writing anything; `ingest` freezes the configuration and streams verified canonical chunks; `transpose` sorts them per snapshot and remaps every link to 64-bit snapshot-local indices; `write` emits one `snapshot_NNN.h5` per snapshot plus `forests.h5`; `validate` runs the independent version 3 producer battery; and `report` writes `conversion_report.{json,txt}`. Every stage is restartable, and nothing is emitted that the battery has not checked.
 
-There are two entry points, and they write different format versions:
+It writes one format:
 
 | Entry point | Sources | Output | Runnable by the current Mimic? |
 |---|---|---|---|
-| `convert_trees.py` (current) | L-Halo binary, Consistent-Trees forests-HDF5, Consistent-Trees ASCII | horizontal-HDF5 **format version 3**, lossless, per [`HORIZONTAL-HDF5-FORMAT.md`](HORIZONTAL-HDF5-FORMAT.md#version-3) | **The format, yes; a route, only where gated.** The reader and driver consume version 3; the parity-gated routes are listed in the [spec table](HORIZONTAL-HDF5-FORMAT.md#v3-runtime-support). Full Uchuu is not claimed |
-| `convert_ctrees.py` (legacy) | Consistent-Trees ASCII | horizontal-HDF5 **format version 2**, per [`HORIZONTAL-HDF5-FORMAT.md`](HORIZONTAL-HDF5-FORMAT.md) | **Yes.** The Shin-Uchuu production dataset was first made with it and has since been migrated to version 3 by `rewrite_trees.py`; the tool is kept until version 2 is retired (`micro-uchuu-ascii-horizontal` is now a version 3 conversion by `convert_trees.py`'s `consistent_trees_ascii` route) |
+| `convert_trees.py` | L-Halo binary, Consistent-Trees forests-HDF5, Consistent-Trees ASCII | horizontal-HDF5 **format version 3**, lossless, per [`HORIZONTAL-HDF5-FORMAT.md`](HORIZONTAL-HDF5-FORMAT.md#version-3) | **The format, yes; a route, only where gated.** The reader and driver consume version 3; the parity-gated routes are listed in the [spec table](HORIZONTAL-HDF5-FORMAT.md#v3-runtime-support). Full Uchuu is not claimed |
+
+Beside it, `rewrite_trees.py` rewrites an existing version 3 dataset under a forest table (see [Rewriting a horizontal dataset](#rewriting-a-horizontal-dataset-with-rewrite_treespy)), `forest_census.py` measures a dataset's forests and builds the decided cut table, and `subset.py` selects a whole-forest subset of a very large Consistent-Trees catalogue.
 
 **Conversion is not route validation.** A successful `convert_trees.py` run proves the dataset says exactly what its source says. Mimic's `horizontal_hdf5` reader and horizontal driver consume version 3, so a conforming dataset can be read, but a route is supported only where a recorded parity gate has shown its horizontal output bitwise identical, per `UniqueGalaxyID`, to the vertical reader of the same source format over the same files (except Shin-Uchuu, whose full catalogue cannot run vertical and whose row states its own evidence); each gate is `simulations/<package>/_tests/scientific/test_cross_format_identity.py`, and each package's README records its result. Running one also needs a simulation package whose every declared field matches the dataset's `/schema` (type, units and `h_convention`); undeclared `/schema` fields are validated and ignored. Because declared units are the source format's own, that means one package per simulation and source format; the shipped packages happen to declare every payload field their profile selects. The seven evidenced routes (mini-Millennium, Millennium, mini-Uchuu, micro-Uchuu from L-Halo, from forests-HDF5 and from Consistent-Trees ASCII, and Shin-Uchuu from Consistent-Trees ASCII) are recorded, with their packages, coverage, gated models and measured results, in the [V3 Runtime Support table](HORIZONTAL-HDF5-FORMAT.md#v3-runtime-support) of the format specification, which is the one place that list is kept.
 
@@ -125,7 +126,7 @@ Types are `int`, `long long`, `float`, `double`, `vec3_int` and `vec3_float`; in
 
 - **Restart.** Every stage records its state in `<workdir>/manifest.json` (`conversion_manifest.py`, manifest version 3), which embeds the full schema, digest, adapter identity, dtype descriptors, source inventory including every HDF5 file an ExternalLink references, and artifact checksums. `ingest` resumes at chunk granularity and proves every already-registered chunk is still exactly what the source yields before appending, so a resume cannot duplicate or drop a halo or change a `SourceHaloID`. `transpose` and `write` are all-or-nothing per attempt; an interrupted attempt's directory is discarded before the next begins. A resumed `ingest` needs only `--workdir`, because it reads the embedded configuration, not the profile file; one that names a configuration must name the recorded one exactly, and a same-width schema substitution or a changed source dependency is refused before anything is touched. `--pool-size` and `--chunksize` are tuning, not configuration: they are recorded under the manifest's `tuning` key outside the configuration digest, so a resume may change them, and the values a completed `ingest` actually used stay recorded. A version 3 manifest written before tuning was recorded separately (that is, by the converter before 2026-09-28) is refused by name rather than resumed; such a conversion is started again in a fresh workdir. Re-running a completed stage re-verifies only that stage's own artifacts — `validate` is the check of the whole dataset. That proof has a cost at scale: a resumed `ingest` re-hashes every registered chunk from disk and re-reads the source from its start, re-serialising and hashing every batch to compare, so a crash late in a very large ingest costs roughly two passes over the written chunks plus a full source re-read before new chunks are appended (`DEFAULT_SAVE_EVERY_CHUNKS` bounds only how many unregistered chunks are lost).
 - **Keep Finder out of the workdir.** The converter refuses a stage directory that holds anything it did not write, and macOS writes a `.DS_Store` into any folder open in a Finder window, which failed a mini-Uchuu `transpose` after 2 h 2 min; the stage then reruns from the start. Do not browse the workdir or the spill directory while a conversion runs.
-- **Cleanup** is opt-in and irreversible for the workdir: `transpose --consume-ingest` and `write --consume-transposed` delete verified, manifest-owned intermediates once their successor is verified. Source files are never touched, and there is no release, transfer or batch mode for these routes.
+- **Cleanup** is opt-in and irreversible for the workdir: `transpose --consume-ingest` and `write --consume-transposed` delete verified, manifest-owned intermediates once their successor is verified. Source files are never touched.
 - **Memory.** `--memory-budget-mb` (default 2048) is a ceiling on each budgeted working-buffer term — adapter reads and validation, the per-unit inventory, the ASCII rank pass and the transpose's external sort — each checked before it is allocated; a conversion whose terms cannot fit is refused rather than run. It does not bound total interpreter RSS, and concurrently resident terms are not summed. Measured with the default budget, the largest stage peaked at 2.38–4.82 GiB RSS across the real routes. The per-unit inventory costs 640 B per tree and must fit under the budget, so a source with many trees needs a larger one: the default is refused for the whole Millennium (14,329,882 trees, 9.2 GB) and mini-Uchuu (25,843,142 trees, 16.5 GB) simulations, which were converted with `--memory-budget-mb` 16384 and 32768 and peaked at 23.3 and 41.4 GiB RSS in `transpose`. The budget bounds working buffers rather than choosing the output: the same four Millennium files converted with 2048 and with 16384 MiB gave byte-identical output (65 of 65 files). `validate`/`report` take their own `--memory-budget-mb` (default 256) and `--spill-dir`; the whole-simulation conversions used 8192 for `report`.
 - **The battery's two modes.** `validate` and `report` run the version 3 producer battery in one of two modes, which settle the same checks under the same names and failure kinds. The default, external-sort mode (`validate_v3.py`) handles every dataset, gapped or adjacent: one scan feeds four bounded external sorts held to `--memory-budget-mb`, spilling to `--spill-dir`. `--bounded` runs the bounded mode (`validate_bounded.py`) instead. It accepts adjacent datasets only — every snapshot file must declare `links_adjacent` 1, and a file that declares anything else is refused by name before any long pass (only the files' headers and dataset shapes are read first) — and it needs the conversion manifest, whose inventory sizes its `SourceHaloID` bitset. It sorts and spills nothing (`--spill-dir` is accepted and left untouched), and holds at most a ceiling it computes from the dataset's headers and the manifest, prints at start, and refuses when the ceiling exceeds `--memory-budget-mb`. Use the bounded mode for an adjacent dataset too large for the external sorts' spill or run time, a Shin-Uchuu-scale dataset in particular; use the default for datasets that declare `links_adjacent` 0 (some L-Halo conversions, Millennium's among them) and wherever its spill fits. A Shin-Uchuu dataset:
 
@@ -153,7 +154,7 @@ Types are `int`, `long long`, `float`, `double`, `vec3_int` and `vec3_float`; in
 
 `convert/mimic-convert/tests/run_generalisation_acceptance.py` is the harness the real-data evidence above was produced with: `build-dump`, `dump`, `convert`, `exec`, `compare` and `compare-extras` (each documented by its own `--help`), each able to append a measured entry (command, exit code, wall and CPU time, peak RSS, input identities) to a `--record` file. `compare` checks a version 3 dataset, its `SourceHaloID` included on every route, against the C dump harness's source-coordinate mode; `compare-extras` checks every selected extra against independent Python extraction, joining on the catalogue id (`SnapNum`, `MostBoundID`) for ASCII and on `SourceHaloID` for the L-Halo and forests-HDF5 routes. Its ASCII extractor streams each tree in `--block-rows` slices, counting rows in a first pass and keeping no tree whole, so its memory follows `--block-rows` rather than the largest forest; the 3.83 GiB peak once measured for real micro-Uchuu ASCII predates that change and describes the earlier whole-tree extractor.
 
-The C harness `tests/unit/tools/dump_ctrees_topology.c` has two modes. Its default is the version 1 topology dump the version 2 cross-check consumes, described under [Reference-topology proof](#reference-topology-proof); `--source-payload` writes `mimic-source-dump v1`, keyed by `(ForestIndex, HaloRankInForest)` and carrying every link, target snapshot and core payload field, for any vertical reader. The tool is valid only for the simulation it was built for, so build one per package into its own directory:
+The C harness `tests/unit/tools/dump_ctrees_topology.c` loads every forest through Mimic's own vertical reader and writes `mimic-source-dump v1` (its one mode, named by the required `--source-payload` flag), keyed by `(ForestIndex, HaloRankInForest)` and carrying every link, target snapshot and core payload field, for any vertical reader. The tool is valid only for the simulation it was built for, so build one per package into its own directory:
 
 ```bash
 TOPOLOGY_DUMP_BUILD_DIR=/scratch/dump-mini-millennium \
@@ -161,240 +162,7 @@ TOPOLOGY_DUMP_BUILD_DIR=/scratch/dump-mini-millennium \
 /scratch/dump-mini-millennium/dump_ctrees_topology --source-payload <run_file> <dump_path>
 ```
 
-The run file must declare `output_format: binary` (see [Reference-topology proof](#reference-topology-proof) for why).
-
-## Legacy: Consistent-Trees ASCII to version 2 with `convert_ctrees.py`
-
-`convert_ctrees.py` writes `format_version = 2` from Consistent-Trees ASCII only. It is kept, unchanged in its defaults, until version 2 is retired: the Shin-Uchuu production dataset (`simulations/shin-uchuu/`) was first made with it and has since been migrated to version 3 by `rewrite_trees.py`. `micro-uchuu-ascii-horizontal` is now a version 3 conversion by `convert_trees.py`'s `consistent_trees_ascii` route. For any new conversion, use `convert_trees.py` above. The on-disk output contract is the version 2 part of [`HORIZONTAL-HDF5-FORMAT.md`](HORIZONTAL-HDF5-FORMAT.md).
-
-**Status.** Validated end to end on the real micro-Uchuu ASCII tree: a fresh default conversion reproduces 22,580,924 halos, 50 populated snapshots, 440,651 forests and `max_halo_rank_in_forest = 350074`, the producer validation battery passes all 15 checks, and the cross-check against a Mimic `halos-only` reference run passes all eight checks with zero unexplained mismatches — the seven always-run checks (`reference-sanity`, `identity-forest`, `identity-creation`, `fof-central`, `mostboundid-positive`, `values`, `occupancy`; `CHECK_NAMES` in `crosscheck.py`) plus the chain-order check `topology-chains`, which runs only when `--reference-topology` is passed and compared links, `ForestIndex`/`HaloRankInForest` and `MostBoundID` over a complete dump of all 22,580,924 halos. `fix_flybys` is not part of the conversion: it collapsed independent FoF groups at each forest's final snapshot, which is why version 1 was withdrawn (see the format specification's [Versioning Policy](HORIZONTAL-HDF5-FORMAT.md#versioning-policy)), and a fixture forest with two independent FoF groups surviving as self-central at its maximum snapshot guards against its return.
-
-The pipeline has five phases: Phase 0–1 `scatter` (forest map, then per-snapshot scratch binaries), Phase 2 `sort` (per-snapshot sort and id index), Phase 3 `fixups` (adjacency validation, spin and `Len` conventions, the `fix_upid` equivalent) and `links` (FoF chains, descendant and progenitor links, within-forest ranks, identity fields), and Phase 4 `write` (HDF5 emission), followed by `report` and the standalone battery and cross-check.
-
-### Usage
-
-The commands below are the micro-Uchuu examples, one per phase. They write to `output/convert/micro-uchuu`, which is right for a 22.6-million-halo, 2.4 GB conversion and wrong for a large one: size the workdir's volume from the [storage figures](#storage-per-stage) first.
-
-```bash
-# Phase 0 + 1: forest map, scatter ctrees files into per-snapshot scratch binaries
-mimic_venv/bin/python convert/mimic-convert/convert_ctrees.py scatter \
-    --workdir output/convert/micro-uchuu \
-    --forests-list simulations/micro-uchuu-ascii/snapshots/forests.list \
-    --a-list simulations/micro-uchuu-ascii/micro-uchuu.a_list \
-    --simulation-info simulations/micro-uchuu-ascii/simulation_info.yaml \
-    simulations/micro-uchuu-ascii/snapshots/tree_0_0_0.dat
-
-# Phase 2: per-snapshot sort by halo id + id index
-mimic_venv/bin/python convert/mimic-convert/convert_ctrees.py sort \
-    --workdir output/convert/micro-uchuu
-
-# Phase 3 steps 1-3 and 5 (step 4, fix_flybys, removed in v2): adjacency
-# validation, spin/Len conventions, fix_upid equivalent (reference semantics)
-mimic_venv/bin/python convert/mimic-convert/convert_ctrees.py fixups \
-    --workdir output/convert/micro-uchuu \
-    --a-list simulations/micro-uchuu-ascii/micro-uchuu.a_list \
-    --simulation-info simulations/micro-uchuu-ascii/simulation_info.yaml
-
-# Phase 3 steps 6-9: FoF chains, descendant/progenitor links, within-forest
-# ranks, identity fields (always all snapshots — FirstProgenitor flows forward
-# through a per-snapshot pending buffer). --memory-budget-mb bounds the rank
-# pass's working set (default 2048); it trades memory against spill I/O and
-# changes no emitted value
-mimic_venv/bin/python convert/mimic-convert/convert_ctrees.py links \
-    --workdir output/convert/micro-uchuu
-
-# Phase 4: emit snapshot_NNN.h5 + forests.h5 per convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md
-# (one file per a_list snapshot, including empty ones; default <workdir>/hdf5)
-mimic_venv/bin/python convert/mimic-convert/convert_ctrees.py write \
-    --workdir output/convert/micro-uchuu \
-    --a-list simulations/micro-uchuu-ascii/micro-uchuu.a_list \
-    --simulation-info simulations/micro-uchuu-ascii/simulation_info.yaml
-
-# Consumptive deletion (off by default; see "Consumptive deletion of
-# intermediates" below). Add --consume-intermediates to fixups, links and write
-# when the workdir cannot hold every intermediate at once. IRREVERSIBLE.
-mimic_venv/bin/python convert/mimic-convert/convert_ctrees.py fixups --consume-intermediates \
-    --workdir output/convert/micro-uchuu \
-    --a-list simulations/micro-uchuu-ascii/micro-uchuu.a_list \
-    --simulation-info simulations/micro-uchuu-ascii/simulation_info.yaml
-
-# Producer validation battery (standalone; non-zero exit on any failure;
-# --manifest is required — count conservation against the independent
-# pre-counts is a mandatory part of the battery)
-mimic_venv/bin/python convert/mimic-convert/validate.py output/convert/micro-uchuu/hdf5 \
-    --a-list simulations/micro-uchuu-ascii/micro-uchuu.a_list \
-    --manifest output/convert/micro-uchuu/manifest.json
-
-# Conversion report (runs the battery, writes conversion_report.{json,txt};
-# exits 1 if validation failed). --multiplier defaults to 1e9, which is correct
-# for micro-Uchuu (max_halo_rank_in_forest = 350074); pass the package's
-# unique_galaxy_id_multiplier as an integer when it is larger
-mimic_venv/bin/python convert/mimic-convert/convert_ctrees.py report \
-    --workdir output/convert/micro-uchuu \
-    --a-list simulations/micro-uchuu-ascii/micro-uchuu.a_list
-
-# Cross-check vs a halos-only reference run: 'prepare' writes a scratch run
-# file listing all snapshots, 'run-reference' captures the run log + exit
-# code, 'compare' runs the check
-mimic_venv/bin/python convert/mimic-convert/crosscheck.py prepare \
-    --run-file models/halos-only/input/halos-only_micro-uchuu-ascii.yaml \
-    --workdir output/convert/micro-uchuu \
-    --a-list simulations/micro-uchuu-ascii/micro-uchuu.a_list
-mimic_venv/bin/python convert/mimic-convert/crosscheck.py run-reference \
-    --mimic ./mimic --run-file output/convert/micro-uchuu/reference_run.yaml \
-    --log output/convert/micro-uchuu/reference_run.log
-mimic_venv/bin/python convert/mimic-convert/crosscheck.py compare \
-    output/convert/micro-uchuu/hdf5 output/convert/micro-uchuu/reference-output \
-    --a-list simulations/micro-uchuu-ascii/micro-uchuu.a_list \
-    --simulation-info simulations/micro-uchuu-ascii/simulation_info.yaml \
-    --reference-topology output/convert/micro-uchuu/topology.dump  # optional, see below
-```
-
-Canonical metadata comes from explicit `--simulation-info` and `--a-list` paths, keeping the converter simulation-agnostic. Observed `(SnapNum, scale)` pairs from the data are cross-validated against the a_list (absolute tolerance 1e-4; an unknown pair aborts the run).
-
-**The order is enforced by the code, not by convention.** `write` refuses any snapshot whose recorded status is not `linked`, and `sort` → `fixups` → `links` are what carry a snapshot to that status, so a `write` issued before `links` fails outright. Every flag is per invocation and carries no manifest state: an omitted flag is silent, and must be repeated on every invocation (every batch, in batch mode) that needs it.
-
-**Emitting to a final data location.** The commands above use `write`'s default output directory, `<workdir>/hdf5`. To place a dataset somewhere permanent instead, pass `write --output-dir <dir>` and emit there directly — do **not** move the files afterwards. The manifest records the emitted paths, and the battery's `manifest-binding` check compares the directory against them, so a post-hoc `mv` breaks validation. `report` reads the dataset location from `manifest["outputs_dir"]`, so it validates the real destination with no extra argument; `validate.py` and `crosscheck.py compare` take the dataset directory as their positional argument, so pass the destination in place of `<workdir>/hdf5` in those two commands.
-
-### Workdir layout
-
-```text
-<workdir>/
-  manifest.json            resume manifest: source files (size/mtime/md5, independent
-                           pre-count, parsed count, per-snapshot counts and id checksums),
-                           every intermediate the converter created, snapshot status
-  forest_max_snap.npy      per-forest max-snapshot table (Nx2 int64: forest_id, max snap)
-  forest_index_table.npy   dense ForestIndex -> ctrees forest id (ascending forest id);
-                           emitted as forests.h5 by the Phase 4 writer
-  conversion_report.json   durable conversion report (totals, per-snapshot counts,
-  conversion_report.txt    identity bounds, observed pairs, validation outcomes,
-                           recommended identity multiplier)
-  hdf5/
-    snapshot_NNN.h5        emitted dataset, one file per a_list snapshot (empty
-                           snapshots included), per convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md
-    forests.h5             /ForestID sidecar (dense ForestIndex -> ctrees forest id)
-  scratch/
-    snap_NNN.bin           concatenated per-snapshot records (always deleted after sort verifies)
-    snap_NNN_sorted.bin    records sorted by ascending halo id
-    snap_NNN.idx           sorted int64 id array for Phase 3 merge-joins
-    snap_NNN_fixed.bin     fixed records (120-byte dtype: frozen fields + Len +
-                           MostBoundID; Jx/Jy/Jz now carry normalised Spin)
-    snap_NNN_links.bin     link/identity records (36-byte dtype: Descendant,
-                           FirstProgenitor, NextProgenitor, FirstHaloInFOFgroup,
-                           NextHaloInFOFgroup int32; ForestIndex,
-                           HaloRankInForest int64), row-aligned with the fixed file
-    snap_NNN_pending_fp.bin pending FirstProgenitor buffer for snapshot NNN
-                           (int32, written while snapshot NNN-1 is resident)
-    links_identity_*/      transient per-invocation rank/identity scratch: the
-                           external merge sort's spill runs plus two int64
-                           arrays (ForestIndex, HaloRankInForest) indexed by
-                           global position, 8 B/halo each. Created by the links
-                           stage itself and removed by it on both the success
-                           and the failure path, so it is never a manifest
-                           intermediate. Removal is attempted, not guaranteed:
-                           if it fails the stage keeps ownership, retries, and
-                           warns naming the directory and its size
-    roots_src_I.npy        observed #tree roots per source file
-    forest_max_src_I.npy   per-file forest max-snapshot aggregates
-```
-
-Scratch records use the frozen 108-byte packed little-endian dtype defined in `ctrees_parser.py` (`RECORD_DTYPE`); the manifest records the dtype tag and refuses to resume across a dtype change.
-
-Re-running `scatter` skips source files whose manifest entry is complete and unchanged (size + mtime), so a crashed run resumes where it stopped. A source entry is `completed` or, in batch mode, `consumed`; `deferred` and `pending` are classified per run from the inventory plus what is on disk and are deliberately never written to the manifest, so a file that arrives later needs no state cleared. Per-file conservation — the pandas-independent row pre-count must equal the parsed and scattered row count exactly — is enforced before a file is recorded as complete. The manifest is bound to its input identities (a_list, forests.list, and the ordered source set are checksummed at first run); changing any of them, or changing a source file after snapshots were finalized, refuses to resume — use a fresh workdir. Every intermediate is verified against its registered content checksum before it is consumed, skip-trusted, or deleted, and non-finite input values (NaN/inf, or float64 values that overflow float32) abort the parse.
-
-### Consumptive deletion of intermediates
-
-Five of the intermediates above are retained by default — the sorted, index, fixed, links and pending-buffer files — so the workdir holds all five for every snapshot at once, a measured 277 bytes per halo on micro-Uchuu. (The other two are not flag-gated: `snap_NNN.bin` is deleted once sort verifies its successors, and the link stage removes `links_identity_*/` itself, on its success and its failure path alike; that removal is *attempted* rather than guaranteed, so one that does not leave the directory absent keeps the stage's ownership, is retried and is warned about, never assumed.) `--consume-intermediates` deletes each one at the point its **terminal** consumer is finished with it. It is **off by default and irreversible**: turning it on trades resumability for storage, and is only worth doing when the volume cannot hold the full set.
-
-The flag is per invocation and belongs on `fixups`, `links` and `write`. With it off, those stages delete nothing they do not already delete. The emitted dataset is bitwise identical either way.
-
-| Intermediate | Terminal consumer | Deleted by | Point of deletion |
-|---|---|---|---|
-| `snap_NNN.bin` (concatenated) | `sort` | `sort` | after the sorted file and index verify — **always**, flag or no flag |
-| `snap_NNN_sorted.bin` | `fixups` | `fixups` | once snapshot N's fixed output is verified and registered |
-| `snap_NNN.idx` | `link_one_snapshot(N-1)` | `links` | once snapshot **N−1** is linked; an index whose predecessor is not a recorded snapshot has no consumer at all and goes as soon as linking starts |
-| `snap_NNN_pending_fp.bin` | `link_one_snapshot(N)` | `links` | once snapshot N is linked |
-| `snap_NNN_fixed.bin` | the **writer** | `write` | once snapshot N's emitted HDF5 is verified and recorded |
-| `snap_NNN_links.bin` | the **writer** | `write` | once snapshot N's emitted HDF5 is verified and recorded |
-| `links_identity_*/` | the link stage itself | `links` | on both the success and the failure path, flag or no flag; never a manifest intermediate. A removal that fails is retried and warned about, not silently assumed |
-
-Two of those consumer relations are easy to get wrong, and both are load-bearing. The fixed file is read **twice** — by `links` through `_load_fixed` and by the writer through `_load_snapshot_scratch` — so the writer, not `links`, is its terminal consumer; the same holds for the links file. And `snap_NNN.idx` is read by the link of the snapshot *below* it, to resolve descendants, so the highest snapshot's index is consumed perfectly normally while `snap_000.idx` is the one with no consumer.
-
-The mechanics follow the converter's delete-after-verify discipline throughout: the successor is re-read from disk and verified, registered in the manifest, and the manifest saved, *before* the predecessor is removed; the removal itself goes through `Manifest.remove_intermediate`, which re-checks ownership, workdir containment and the registered content checksum, and the manifest is saved again. `remove_intermediate` is the only place in the converter that unlinks a manifest-owned intermediate, so no deletion here can bypass that guard. A crash between the unlink and the second save leaves an entry recorded `present` with no file on disk; the next run converges it to `removed` and continues, in either flag state, because those bytes are already gone.
-
-**What consumption costs you.** Deletion is bounded by re-run reachability, not by last read. Which re-runs stay reachable depends on the snapshot's recorded status, so the promises below are stated per status rather than in general — a skip that is claimed more broadly than it holds is worse than no claim at all.
-
-- **`sort`** does the work at `concatenated`, skips at `sorted` and `fixed`, and skips at `linked` **only when consumptive deletion has actually taken one of that snapshot's artifacts** — with nothing consumed it refuses a `linked` snapshot exactly as it always did, so a flag-off workdir behaves as before. Its own two outputs — the sorted file and the index — are verified outright at `sorted`, where neither consumer can have run yet, and are accepted as consumed only at `fixed` and `linked`. The fixed file does not exist yet at `sorted`, must still be on disk at `fixed` — where it is verified outright, because the writer that consumes it runs only once *every* snapshot is linked — and is accepted as consumed only at `linked`, where the links file joins it on the same terms. An artifact that merely went missing, or whose checksum moved, is still the hard error it has always been at every status.
-- **`fixups`** does the work at `sorted`, skips at `fixed`, and skips at `linked` under the same consumption gate, on the same split: strict verification of the fixed file at `fixed`, fixed and links accepted as consumed at `linked`.
-- **`links`** requires every snapshot at `fixed` or `linked`. When they are all `linked` and **any** fixed input is recorded consumed it skips, because the rank pass streams **every** fixed file and so cannot run again once even one is gone — an interrupted writer is enough. Before skipping it verifies every links output still on disk, then drains any deletion an earlier flag-off run or an interrupted writer left undone, so turning the flag on late still reclaims the indexes and pending buffers. Only while **every** fixed input is present does the pass run as before, including its refuse-not-repair comparison of the run-scoped identity values.
-- **`write`** skips a snapshot whose emitted file is already recorded and unchanged, and needs no scratch to do it.
-- **A `links` run interrupted part-way still resumes**: an index or pending buffer is deleted only after the snapshot that reads it has been linked.
-- **`finalize`, and a non-batch `scatter`** (which finalizes at the end), skip a snapshot at `concatenated`, `sorted` or `fixed`, accepting a consumed sorted file or index — the same helper `sort` uses, so the two cannot drift apart. **They do not handle a snapshot at `linked`**: such a snapshot falls through to the concat path, which needs the per-source worker scratch that finalization itself deleted, and the run aborts naming that file. This is not a consequence of consumptive deletion — it reproduces exactly with the flag off. The rule it implies is simply: **once `links` has run, do not re-run `finalize` or a non-batch `scatter` on that workdir.**
-
-One rule decides every "accepted as consumed" above: **an artifact is accepted as consumed exactly at the statuses where its terminal consumer has provably run**, and is verified outright everywhere else. `sorted` is taken by `fixups`, which saves the `fixed` status before removing it; `idx` is taken by `links`, which will not start until every snapshot is at least `fixed`; `fixed` and `links` are taken by the writer, which runs only once every snapshot is `linked`. A manifest claiming a consumption earlier than that describes a premature deletion, and is refused rather than skipped.
-
-**The supported sequences**, then, are the documented order — `scatter` → `release` → `finalize` → `sort` → `fixups` → `links` → `write` → `report` — and a re-run of any stage from `sort` onward at any point after it, with one exception the bullets above already state: with nothing consumed, `sort` and `fixups` refuse a snapshot `links` has carried to `linked`, so on a **flag-off** workdir those two stages are re-runnable only before `links` has run; `links` and `write` are re-runnable in either flag state. What is not supported is re-entering `finalize` or a non-batch `scatter` after `links`, for the reason above.
-
-**What it forecloses.** Once a stage's inputs are gone that stage cannot be re-executed, only skipped — if an emitted file is later deleted or corrupted, the conversion must be re-run from the last surviving stage, and if nothing survives, from the source. That is the whole cost, and it is why the flag is opt-in.
-
-`release` is unaffected either way: it verifies the per-source sidecars and worker scratch, none of which are in the table above, and still refuses a source whose own intermediates finalization has deleted.
-
-### Storage per stage
-
-Measured stage by stage on micro-Uchuu (22,580,924 halos), peak workdir in bytes per halo; the peaks are a 1 Hz sampler's maximum, so the fast stages carry a few B/halo of run-to-run jitter and the figures are the maximum observed.
-
-| Stage | flag OFF, B/halo | flag ON, B/halo |
-|---|---:|---:|
-| scatter (incl. finalize concat) | 111.95 | 111.96 |
-| sort | 119.67 | 119.67 |
-| fixups | 236.99 | 131.40 |
-| links | **300.99** | **192.99** |
-| terminal workdir intermediates | 276.99 | **0.99** |
-| emitted dataset | 107.87 | 107.87 |
-| **peak total (workdir + emitted)** | **384.86** | **192.99** |
-
-`write` and `report` set no new peak. Emitted bytes per halo fall as snapshots grow, because small snapshots carry proportionally more HDF5 chunk overhead; the storage figures above show how these per-halo terms project to a much larger dataset.
-
-### Batch mode: the interleaved consumptive transfer
-
-For a source too large to stage locally in one piece, `scatter --batch` supports the cycle `transfer batch → scatter → release → delete → transfer next batch`, resuming correctly at every step, with `finalize` last of all — every batch must be released before the conversion is finalized. Batch mode is off by default and changes nothing outside itself; inside it, the two different reasons a source file can be legitimately absent are told apart:
-
-| State | Meaning | Effect |
-|---|---|---|
-| `deferred` | in the frozen inventory, bytes not transferred yet | skipped for now, not an error; the run scatters what has arrived and exits **without finalizing** |
-| `consumed` | scatter completed, intermediates verified, bytes released by `release` | satisfies resume without being re-stat-ed or re-scattered; its recorded identity (size, mtime, md5, counts, checksums, observed pairs) stays the frozen record of what was processed |
-
-Rules the cycle depends on:
-
-- **Pass `--pool-size` on every batch-mode `scatter`.** It defaults to `1` and the flag is per invocation with no manifest state, so an omission on any one batch scatters that batch serially and is not detectable afterwards from the manifest — the emitted intermediates are identical either way. See [Scatter parallelism](#scatter-parallelism---pool-size).
-- **The complete ordered inventory is frozen once, at first run, and every batch-mode invocation must supply all of it** through the positional `tree_files` argument. Passing only the subset currently on disk changes the frozen set and is refused. There is no new index artifact and no second copy of the list. "First run" includes a batch-mode scatter issued *before any bytes have arrived* — it scatters nothing, reports every entry as deferred, and still writes the frozen inventory and the metadata identities to the manifest, so the very next invocation is already guarded.
-- **Batch mode never finalizes, and release must come before finalize.** Finalization deletes the worker intermediates a later `release` has to verify, so finalizing when the last batch completes would make that batch impossible to release — and that is enforced, not merely advised: `release` **refuses** a source whose intermediates finalization has already deleted. Once they are gone the rows live in the concatenated snapshot, which the sort stage deletes in turn, so there is no artifact the release path could verify instead; releasing anyway would authorize deleting irreplaceable source bytes with nothing checked. Finalization is reachable only through `finalize`, which refuses to run while any entry is deferred. Outside batch mode `scatter` still finalizes automatically.
-- **Consumption is an explicit operator action, never inferred from a missing file.** A `completed` entry whose bytes are gone but which was never released is an error naming the file: nothing verified that its intermediates survived. `release` is the way out (it verifies the intermediates, not the source bytes, so it still works once the bytes are gone). The converter never deletes source data itself.
-- **`release` refuses** an entry that is not `completed`, an entry already `consumed`, a source whose on-disk size/mtime no longer match what was scattered, any registered intermediate that does not verify, and any source-owned intermediate that finalization has already deleted (release before finalizing, not after — including after a finalization that was interrupted part-way). Nothing is skipped: every intermediate the source produced is verified, or the release is refused. It is atomic across the files it is given, so a refusal on any of them leaves the persisted manifest untouched.
-- Root-coverage validation at finalize reads each source file's observed roots from its registered sidecar, so it still sees every file's roots when no source byte is left on disk.
-- A conversion driven this way emits a dataset byte-identical to a single all-at-once run, and a manifest identical in provenance and every per-source content field; only the lifecycle state differs (`consumed` versus `completed`).
-
-### Scatter parallelism: `--pool-size`
-
-**`scatter` is the only subcommand that takes `--pool-size`, and it defaults to `1`.** At `1` — or whenever at most one source file is pending, whatever the flag says — `run_scatter` takes the serial branch and parses the inventory one file at a time in the parent process. Only above `1` *and* with more than one file pending does it build a `multiprocessing.Pool` of `min(pool_size, len(pending))` workers, each loading its own copy of the forest map once through the `_init_scatter_worker` initializer rather than receiving it pickled per task. The flag changes nothing that is emitted: the dataset and the manifest's per-source content fields are identical whichever branch runs, and a resumed run may use a different value from the one that was interrupted.
-
-The default suits a single-file source such as micro-Uchuu's one `tree_0_0_0.dat`, which cannot use a pool at all. It is the wrong default for a many-file source. Measured over 2,744 `tree_*.dat` files (210.57 GB of data, one run each), scatter ran at **46.8 MB/s serial against 71.9 MB/s at `--pool-size 8`**; 8 is the only pooled value measured, so choose yours against the host's core count and the volume's read bandwidth. For comparison, the single-file micro-Uchuu scatter measured 91.3–92.0 MB/s over four warm repeats (plan against the slowest), CPU-bound on the parse path rather than on the pool.
-
-### Memory and scale of each stage
-
-Every stage streams, so peak memory follows the **largest snapshot** rather than the total halo count. Figures below are labelled with the scale they were measured at: *micro-Uchuu scale* is 22,580,924 halos; *rehearsal scale* is a 406,668,896-halo whole-forest subset of Shin-Uchuu (`simulations/shin-uchuu-ascii/`), whose largest snapshot holds 9,006,294 halos. When repeated runs spread and the cause has not been measured, plan against the highest figure observed.
-
-- **Scatter** loads the forest map once per worker process through a `Pool` initializer, and saves the manifest on a bounded interval (`save_every_n_files`, default 25) rather than after every source file; a per-file rewrite grows quadratically with file count, since the manifest reaches ≈38 KB per source file.
-- **Fix-ups** keeps the satellite chain resolution as a sequential per-satellite scan doing reference-order in-place rewrites, because exact `fix_upid` parity is load-bearing; it measured ≈1.28 µs per satellite at rehearsal scale.
-- **The rank pass (`links`)** ranks through the external merge sort in `rank_sort.py` under `--memory-budget-mb`, keeps `(ForestIndex, HaloRankInForest)` in on-disk arrays, holds only the adjacent snapshot pair it is linking, and verifies identity with one bit per halo. At rehearsal scale and the default 2 GiB budget it peaked at 9.76–10.01 GB RSS over three runs, against 4.55 GB at micro-Uchuu scale — 2.1–2.2× the memory for 18× the halos. Transient spill and identity arrays go to disk under the workdir.
-- **The producer validation battery** streams the emitted dataset, holding one snapshot for the per-snapshot checks and the adjacent pair for progenitor closure, and settles identity with a one-bit-per-halo bitset. It peaked at 0.374–0.399 GB RSS at micro-Uchuu scale and 3.245–3.258 GB at rehearsal scale (three runs each), with a 50.8 MB bitset and nothing spilled at rehearsal scale.
-- **The topology cross-check** walks snapshots in ascending order holding one snapshot of each side, keeps the cross-snapshot `UniqueGalaxyID` suppression set as a disk-backed sorted union, and partitions the reference-topology dump by snapshot on disk. It peaked at 3.61–3.62 GB RSS at micro-Uchuu scale; at rehearsal scale three runs gave 10.09 GB (cold) and 15.84–16.56 GB (warm), a spread that is measured and unexplained, so plan against 16.56 GB. Both on-disk structures live under `TMPDIR`: set it to a volume with room for roughly 72 bytes per dumped halo before passing `--reference-topology` on a large dataset.
-- **The cross-check does not scale to a production catalogue**, because its reference side is a vertical `halos-only` run over the same data, and the Consistent-Trees ASCII reader preallocates room for 1,000 halos (≈152,000 B) per tree before it reads a forest (`load_unit_ctrees_ascii` in `src/io/vertical/read_ctrees_ascii.c`). The Shin-Uchuu super-forest's 104,845,278 tree roots would need ≈15.9 TB for that alone. Run it at micro-Uchuu scale, or on a whole-forest subset built with [`subset.py`](#building-a-subset-of-a-very-large-dataset); no cross-check artifact belongs in a production storage envelope.
-- **Not locked:** concurrent converter invocations on one workdir.
-
-### Production-scale runs
-
-The largest conversion this tool has run is the Shin-Uchuu production catalogue: 2,744 source files, 11.61 TB of Consistent-Trees ASCII, 22,503,649,037 halos. It has since been migrated to version 3 by `rewrite_trees.py`, and its provenance is in [`simulations/shin-uchuu/README.md`](../../simulations/shin-uchuu/README.md#how-the-production-dataset-was-made). Size any conversion that will not fit comfortably on one volume from the storage figures above.
+The run file must declare `output_format: binary`. `build_topology_dump.sh` compiles `-DHDF5` into only the vertical HDF5 reader sources, so `src/core/read_parameter_file.c` is built without it and its `#ifndef HDF5` guard rejects `output_format: hdf5` with `OutputFormat 'hdf5' requires HDF5 support`; the harness then exits 1 before creating the dump. The harness links no output writer and reads only the run file's `input` and `simulation` configuration, so the output format and snapshot list cannot change what it dumps.
 
 ## Building a subset of a very large dataset
 
@@ -434,7 +202,7 @@ Exit codes: **0** success; **1** the run completed but a `finalize` acceptance a
 
 ## Forest census and the decided cut table with `forest_census.py`
 
-`forest_census.py` measures how a horizontal-HDF5 dataset (format version 2 or 3, adjacent descendant links) distributes its halos over forests and over **effective descendant trees** (each tree is the set of halos whose descendant chain ends at one terminal halo, `Descendant == -1`). It then builds the **decided cut table**, which cuts every forest at its z = 0 FoF groups: each tree joins the forest of its terminal halo's FoF group at the dataset's final snapshot. It also measures what that table costs and how the cut dataset would partition. It reads the dataset and the catalogue's index files only, never the merger-tree source, and never holds a whole slab column of the dataset: every read is a bounded block (`--block-rows`, default 2²²). It writes nothing outside the **aggregate directory** you name. That directory is bound to the dataset it was produced from, so a later subcommand given another dataset refuses it. Each subcommand writes its own subdirectory with `summary.json` last, recording its results, the bytes it read, its peak resident set per phase where it measures one, and the size and formula of every aggregate it wrote. Delete the directory by hand when the census is done.
+`forest_census.py` measures how a horizontal-HDF5 dataset (format version 3, adjacent descendant links) distributes its halos over forests and over **effective descendant trees** (each tree is the set of halos whose descendant chain ends at one terminal halo, `Descendant == -1`). It then builds the **decided cut table**, which cuts every forest at its z = 0 FoF groups: each tree joins the forest of its terminal halo's FoF group at the dataset's final snapshot. It also measures what that table costs and how the cut dataset would partition. It reads the dataset and the catalogue's index files only, never the merger-tree source, and never holds a whole slab column of the dataset: every read is a bounded block (`--block-rows`, default 2²²). It writes nothing outside the **aggregate directory** you name. That directory is bound to the dataset it was produced from, so a later subcommand given another dataset refuses it. Each subcommand writes its own subdirectory with `summary.json` last, recording its results, the bytes it read, its peak resident set per phase where it measures one, and the size and formula of every aggregate it wrote. Delete the directory by hand when the census is done.
 
 ```bash
 P=convert/mimic-convert/forest_census.py
@@ -452,7 +220,7 @@ mimic_venv/bin/python $P cut       --dataset <dataset dir> --aggregate <dir> --r
 Run `occupancy`, `trees` and `partition` first; `table` needs `trees`, and `cut` needs all three. A rerun of an earlier subcommand does not invalidate a later one's summary, so rerun everything after it or start a fresh directory.
 
 - **`occupancy`**: per slab, the forests present and their row counts; per forest, its total, peak occupancy and the slab of the peak; the widest slab, its top-10 and top-100 shares, and the forests whose occupancy ever exceeds 100,000, 250,000 and 1,000,000.
-- **`trees`**: a terminal-root label (int32 root ordinal) for every halo, per-tree totals and per-slab occupancy, and the largest tree. With the catalogue's `forests.list` and `locations.dat` it checks the root set against the index files' tree roots (roots missing from `forests.list`, listed roots with no terminal halo, roots outside the last slab, forest disagreements). With a JSON whose `source_files` carry per-file `parsed_count` (a version 2 `conversion_report.json` or the ASCII preparation's `manifest.json`), it also sums the tree totals per source file through `locations.dat` and compares each file's sum with its parsed count. Agreement in both checks is necessary for the effective trees to be the catalogue's `#tree` blocks, but not sufficient.
+- **`trees`**: a terminal-root label (int32 root ordinal) for every halo, per-tree totals and per-slab occupancy, and the largest tree. With the catalogue's `forests.list` and `locations.dat` it checks the root set against the index files' tree roots (roots missing from `forests.list`, listed roots with no terminal halo, roots outside the last slab, forest disagreements). With a JSON whose `source_files` carry per-file `parsed_count` (the ASCII preparation's `manifest.json` of a `convert_trees.py` conversion of the same files, or any conversion record of that shape), it also sums the tree totals per source file through `locations.dat` and compares each file's sum with its parsed count. Agreement in both checks is necessary for the effective trees to be the catalogue's `#tree` blocks, but not sufficient.
 - **`partition`**: an exact simulation of the horizontal driver's task and chunk partition (`src/core/horizontal_partition.c`), each forest weighted as the driver weighs it, by its peak occupancy (its largest row count in any one slab, which `occupancy` records), for every (ntask, nchunk) point: each range's rows in every slab, the widest range, and the heaviest forest as the floor no partition goes below.
 - **`table`**: the decided table, in `forests.list` shape (one `<tree root id> <forest id>` row per catalogue tree), with a streamed JSON record: the dataset identity, the index files' md5, the rule ("the z = 0 FoF groups of every forest", the final snapshot and its scale factor), every piece of every split forest (id, original forest id, trees, halos, peak occupancy and its slab) and the table's md5. A forest ending in one z = 0 group keeps its id. A forest ending in several is cut into exactly its groups: the largest piece (by halos over all snapshots, ties by the smallest tree root id) keeps the forest's id, and every other piece takes a fresh id above the catalogue's maximum, in descending size with the same tie rule. The table is the partition that cuts every co-membership ended before the final snapshot and keeps every one present at it: no tree is split and every z = 0 FoF group is preserved. `--forest-index` restricts the cut to the named forests (every other forest keeps its id); its outputs go to `table-restricted/` and say so. `table` refuses, before writing anything, a census holding a tree that ends before the final snapshot (naming the count), a `trees` root correspondence that did not pass, index files that do not describe the census, and any final-slab central reference that is out of range, not its own central, or in another forest. The table's invariants are checked when it is written and whenever it is read (`census/cut_table.py`).
 - **`cut`**: the decided table's cost over every forest it splits, built exactly as `table` builds it (both summaries carry the assignment's SHA-256). Per slab, it counts the halos promoted to central (none at the final snapshot, which is checked), the groups that lose members, and the remnants a group leaves in another piece (those of two or more members separately). It counts the descendants whose progenitor chain order changes, with a check of the recomputed chains against the stored `NextProgenitor` links, and the re-labelled halos. The affected-history bracket is the seeds and every halo on a seed's descendant path, and every halo of a piece holding a seed. It also simulates the driver's partition with the pieces installed, each weighted by its peak occupancy, for every grid point, with the per-process figure and the job figure (the sum over tasks of each task's widest chunk over all slabs, since one laptop runs every rank at once). Each laptop class gets a row at `--bytes-per-halo`, judged on the job figure against the class less `--reserve-gib`. Its output is `cut/summary.json` (`cut-restricted/` with `--forest-index`).
@@ -471,9 +239,8 @@ The whole directory therefore needs about 266 GB on disk. The peak RSS figures a
 
 ## Rewriting a horizontal dataset with `rewrite_trees.py`
 
-`rewrite_trees.py` rewrites an existing horizontal-HDF5 dataset of a Consistent-Trees ASCII catalogue into a version 3 dataset of the same halos, slab by slab, without reading the merger-tree source again. It accepts only datasets whose every `Descendant` link is adjacent (`links_adjacent` 1). It has three operations:
+`rewrite_trees.py` rewrites an existing version 3 horizontal-HDF5 dataset of a Consistent-Trees ASCII catalogue into a version 3 dataset of the same halos, slab by slab, without reading the merger-tree source again. It accepts only datasets whose every `Descendant` link is adjacent (`links_adjacent` 1). It has two operations:
 
-- **`migrate`**: a version 2 dataset becomes version 3. Every identity (`ForestIndex`, `HaloRankInForest`, `SourceHaloID`) is computed from the version 2 columns, each row moves to its (`ForestIndex`, `HaloRankInForest`) position, the int32 links become int64 links with their target-snapshot companions, `/schema` is built from the package's converter profile, and the sidecar ordinals come from the index files.
 - **`noop`**: a version 3 dataset is rewritten under the identity table. The output must reproduce the input in every dataset value, dtype, header attribute, `/schema` attribute and sidecar value. This is the passes' permanent self-test.
 - **`cut`**: a version 3 dataset is rewritten under a declared cut forest table (`--cut-table`, in `forests.list` shape, such as the decided table `forest_census.py table` writes). Every tree joins the table's forest. A cut forest's largest piece keeps its id, and the fresh pieces take ids above the catalogue's maximum, enumerated after every original forest. Hosts are resolved under the original partition, and every halo whose FoF central lands in another forest becomes a central of its own group. FoF chains, ranks and progenitor chain order are recomputed for the forests the table changes, and every other forest is reproduced exactly. The same table given to `convert_trees.py ingest --cut-table` converts the catalogue directly into its cut form. The two routes write datasets identical in every value, header attribute, `/schema` attribute and sidecar value; the HDF5 file layout may differ.
 
@@ -481,8 +248,6 @@ The whole directory therefore needs about 266 GB on disk. The peak RSS figures a
 R=convert/mimic-convert/rewrite_trees.py
 COMMON="--simulation-info <simulation_info.yaml> --a-list <a_list> \
     --forests-list <forests.list> --locations <locations.dat> --multiplier <M>"
-mimic_venv/bin/python $R migrate --input <version 2 dataset dir> --output <workdir> --scratch <dir> \
-    $COMMON --column-map <converter profile> [--conversion-manifest <version 2 manifest.json>]
 mimic_venv/bin/python $R noop    --input <version 3 dataset dir> --output <workdir> --scratch <dir> $COMMON
 mimic_venv/bin/python $R cut     --input <version 3 dataset dir> --output <workdir> --scratch <dir> $COMMON \
     --cut-table <forests.list-shaped table> [--cut-table-record <the census's record.json>]
@@ -494,22 +259,21 @@ mimic_venv/bin/python convert/mimic-convert/convert_trees.py validate --workdir 
 
 - `--input` is the dataset directory, `--output` the workdir to create and `--scratch` an empty directory for the remap store and checkpoints. The output and scratch must lie outside the input and apart from each other.
 - The a_list, the simulation metadata and both index files are always named.
-- `--column-map` is the package's `consistent_trees_ascii` converter profile. `migrate` requires it; `noop` and `cut` refuse it.
-- `noop` and `cut` accept any input whose every slab's `column_mapping_sha256` and `/schema` declarations equal those of the shipped default `consistent_trees_ascii` profile. A package profile that is identical to the default, such as the Shin-Uchuu subset's, qualifies.
-- `--conversion-manifest` (`migrate` only; `noop` and `cut` refuse it, because their sidecar ordinals follow the input's sidecar) is the version 2 conversion's `manifest.json`. It is required when `locations.dat` names more than one tree file, because the sidecar's file ordinals follow the order the converter was given the files, and `locations.dat`'s FileID does not record that order.
+- Both operations accept any input whose every slab's `column_mapping_sha256` and `/schema` declarations equal those of the shipped default `consistent_trees_ascii` profile. A package profile that is identical to the default, such as the Shin-Uchuu subset's, qualifies.
+- The input's `/schema` is carried through, and the output sidecar's file ordinals follow the input's sidecar: `locations.dat`'s FileID does not record the order the converter was given the files, so each FileID is mapped through the ordinals the input sidecar implies.
 - `--cut-table-record` (`cut` only) supplies the rule text and the dataset lineage for the manifest, and must name the table's md5 and the index files'.
 
 **Refusals.** Each refusal exits 2 and names the offending value. These happen before anything is written:
 
-- an input that is not version 2 (`migrate`) or version 3 (`noop`, `cut`);
+- an input that is not version 3;
 - `links_adjacent` 0, or a version 3 input of another source format;
 - missing or inconsistent index files, or an a_list that is not the input's;
 - simulation metadata whose physical header values differ from any input slab's header;
-- for `noop` and `cut`, an input whose `column_mapping_sha256` or `/schema` declarations differ from the shipped default profile's;
-- for `noop` and `cut`, a `--column-map` or `--conversion-manifest`; for `migrate` and `noop`, a `--cut-table` or `--cut-table-record`;
+- an input whose `column_mapping_sha256` or `/schema` declarations differ from the shipped default profile's;
+- for `noop`, a `--cut-table` or `--cut-table-record`;
 - without `--resume`, a `--scratch` that is not empty, or an `--output` that already holds a run's `manifest.json` or is otherwise not empty;
 - a multiplier that cannot encode the output's bounds (the installed table's, for a cut);
-- a missing or ambiguous tree-file order;
+- two FileIDs naming the same tree file, or a FileID-to-file-ordinal mapping the input sidecar does not determine consistently;
 - terminal halos that do not correspond to the index files' tree roots (refused, never repaired);
 - a cut table violating any of its invariants;
 - a cut piece held in one file whose FileID the input sidecar gives no conversion ordinal for;
@@ -526,61 +290,24 @@ A cut also checks two conditions per slab once the workdir exists, and refuses a
 - `rewrite_summary.json` records:
   - the counts and link totals;
   - the root correspondence and its verdict;
-  - the per-file conservation against a conversion record (`migrate` checks it against `--conversion-manifest`);
+  - the per-tree inventory's halo totals per source file (its conservation verdict is `unchecked`: the rewriter is given no conversion record, and the battery's count conservation checks the totals);
   - the memory formulas, `planned_peak_bytes` and the measured `peak_rss_bytes`;
   - the remap store's peak;
   - for a cut, the per-snapshot promotions, the groups that lose members, the descendants whose progenitor order changes, and the pieces.
 - `cut_pieces.npy` (cut only) lists every piece of every split forest.
 
-The workdir's per-tree inventory can also be checked against another conversion's record with `rewriter.pass0.check_conservation`, for example the ASCII preparation manifest of a `convert_trees.py` conversion of the same files.
+Per-file conservation against a conversion record, such as the ASCII preparation manifest of a `convert_trees.py` conversion of the same files, is `forest_census.py trees --conversion-report`'s check.
 
 **Resume.** Each snapshot is written under a temporary name, re-read and verified against the input, and renamed only when it passes. Every verified slab is recorded in the restart state before its recovery files are removed. `--resume` continues an interrupted run after its last verified slab. It refuses a changed input or configuration, the cut table's md5 included, and re-verifies a completed run. The scratch is emptied when the run completes; delete the empty directory by hand.
 
-**Memory and storage, as measured.** The package docstring (`rewriter/__init__.py`) states every memory term per phase. The remap store holds 32 B per row of each resident slab for `migrate` and `noop`, and 48 B for `cut`, over at most three slabs: 96 B and 144 B per row of the widest slab. The measurements below are on the Shin-Uchuu ASCII subset (`simulations/shin-uchuu-ascii`: 2,744 tree files, 406,668,896 halos in 70 slabs, widest slab 9,006,294 rows, 6,011,205 forests, 8,000,198 trees), on the Mac Studio, with input, output and scratch on one external disk, multiplier 2 × 10¹⁰. Peak RSS is from `/usr/bin/time -l` with `MallocLargeCache=0`, and the scratch peak was sampled every 30 s.
+**Memory and storage, as measured.** The package docstring (`rewriter/__init__.py`) states every memory term per phase. The remap store holds 32 B per row of each resident slab for `noop` and 48 B for `cut`, over at most three slabs: 96 B and 144 B per row of the widest slab. The measurements below are on the Shin-Uchuu ASCII subset (`simulations/shin-uchuu-ascii`: 2,744 tree files, 406,668,896 halos in 70 slabs, widest slab 9,006,294 rows, 6,011,205 forests, 8,000,198 trees), on the Mac Studio, with input, output and scratch on one external disk, multiplier 2 × 10¹⁰. Peak RSS is from `/usr/bin/time -l` with `MallocLargeCache=0`, and the scratch peak was sampled every 30 s.
 
 | Operation | Wall-clock | Peak RSS (planned) | Remap store peak | Scratch peak | Output dataset |
 |---|---|---|---|---|---|
-| `migrate` (version 2 in) | 449 s | 2.09 GB (1.84 GB) | 864,236,928 B: 96.0 B per widest-slab row, 2.1 B per halo | 1.72 GB: 191 B per widest-slab row, 4.2 B per halo | 57.4 GB, 141.2 B per halo |
 | `noop` (version 3 in) | 500 s | 2.08 GB | | | value-identical to the input |
 | `cut`, decided table (6,011,205 → 7,206,195 forests) | 625 s | 4.17 GB (4.06 GB) | 1,296,188,984 B: 143.9 B per widest-slab row, 3.2 B per halo | 2.24 GB: 249 B per widest-slab row, 5.5 B per halo | 57.4 GB, 141.2 B per halo |
 
-The scratch holds pass 0's checkpoints (the forest totals, roots and per-tree inventory), the resident slabs' remap entries and pass 1's checkpoint. At most one snapshot file is temporary in `dataset/` at a time, so a run needs about the output's size plus the scratch peak on its volume. A `migrate` interrupted with SIGKILL after 30 verified slabs resumed in 186 s, and its output was byte-identical to an uninterrupted run's, as was a second run's. At micro-Uchuu scale (22,580,924 halos) `migrate` took 38 s at 0.25 GB and `cut` 44 s at 0.40 GB.
-
-## Reference-topology proof
-
-The seven always-run checks of the version 2 cross-check (`CHECK_NAMES` in `crosscheck.py`) establish identity, rank, and central resolution by matching galaxies to halos. They do not, by themselves, directly compare the *order* of the converter's `FirstProgenitor`/`NextProgenitor`/`NextHaloInFOFgroup` chains against another implementation reading the same source data — rank equality constrains the underlying sort but does not prove chain construction.
-
-`tests/unit/tools/dump_ctrees_topology.c` closes that gap: a read-only harness that loads a Consistent-Trees-ASCII package through Mimic's own `consistent_trees_ascii` reader (the same reader code the converter's algorithm mirrors) and dumps every halo's link fields, by stable ctrees id, to a plain-text file. Build it with:
-
-```bash
-make MODEL=halos-only SIMULATION=micro-uchuu-ascii dump-ctrees-topology-tool
-tests/unit/tools/build/dump_ctrees_topology <run_param_file> <output_dump_path>
-```
-
-**The run file must declare `output_format: binary`.** `build_topology_dump.sh` compiles `-DHDF5` into only three sources — `io/vertical/registry.c`, `io/vertical/hdf5.c`, and `io/vertical/read_ctrees_hdf5.c` — so `src/core/read_parameter_file.c` is built without it and its `#ifndef HDF5` guard rejects `output_format: hdf5` with `OutputFormat 'hdf5' requires HDF5 support`. The harness exits 1 before creating the dump file. This is purely a compile-flag consequence of the harness's deliberately minimal source set: the harness links no output writer and would never have written galaxies anyway. `crosscheck.py prepare` inherits whatever the source run file declares, and every committed `halos-only` run file uses `hdf5`, so the prepared `reference_run.yaml` cannot be passed to the harness directly. Copy it and override only the output format and directory. This cannot change the dumped topology: the harness reads only the `input`/`simulation` configuration, and emits every halo of every forest tagged with that halo's own `SnapNum` — it never consults the output snapshot list at all.
-
-```bash
-mimic_venv/bin/python - <<'PY'
-import pathlib, yaml
-w = pathlib.Path("output/convert/micro-uchuu")
-d = yaml.safe_load((w / "reference_run.yaml").read_text())
-d["output"]["output_format"] = "binary"
-d["output"]["output_directory"] = str(w / "topology-scratch-output")
-(w / "topology_run.yaml").write_text(yaml.safe_dump(d))
-PY
-```
-
-Diff the parsed YAML of the two files afterwards and confirm `output_format` and `output_directory` are the only differences, so the harness is provably reading the same tree as the reference run.
-
-The dump format is three header lines (format marker, column names, NA-sentinel value) followed by one row per halo: `forestnr rank id snapnum desc_id first_prog_id next_prog_id first_fof_id next_fof_id`, all fields int64, with the NA sentinel (`INT64_MIN`) marking "no link". Nothing else may appear: a `#` line after the header means a malformed dump (two runs concatenated, a re-run appended with `>>`) and is rejected rather than skipped. The harness exits non-zero if it could not write the dump completely, so a full disk cannot produce a short dump that looks finished.
-
-Pass the dump to `crosscheck.py compare --reference-topology <dump>` to run the additional `topology-chains` check. It first asserts **coverage** — the dump must name every converter halo exactly once at every snapshot, with no duplicate `|MostBoundID|` — because without that the check would compare cleanly over whatever subset a truncated dump happened to contain and report `PASS`. Then, per halo, it compares:
-
-- the five **links** (`Descendant`, `FirstProgenitor`, `NextProgenitor`, `FirstHaloInFOFgroup`, `NextHaloInFOFgroup`), resolving each converter link index to an id via the target snapshot's ascending-`|MostBoundID|` order and comparing it against the dump's own recorded id — the chain-**order** proof;
-- the two **identity** fields (`ForestIndex`, `HaloRankInForest`), which extends rank conformance from `identity-creation`'s first-appearance subset to every halo, including halos that never seed a galaxy;
-- the halo's own `MostBoundID`, since matching is by magnitude and the `mostboundid-positive` check asserts only positivity, not the exact value, over the matched Type 0/1 population.
-
-Failures are reported as one counted summary line per (snapshot, field) with example ctrees ids, never one line per halo.
+The scratch holds pass 0's checkpoints (the forest totals, roots and per-tree inventory), the resident slabs' remap entries and pass 1's checkpoint. At most one snapshot file is temporary in `dataset/` at a time, so a run needs about the output's size plus the scratch peak on its volume. At micro-Uchuu scale (22,580,924 halos) `cut` took 44 s at 0.40 GB. At production scale, `cut` under the decided table on the Shin-Uchuu dataset (3.16 TB, 22,503,649,037 halos, widest slab 519,342,987 rows) peaked at 211.6 GB RSS against its planned 223.6 GB.
 
 ## Module map
 
@@ -597,25 +324,21 @@ All paths are relative to `convert/mimic-convert/`.
 | `conversion_manifest.py`, `pipeline.py` | manifest version 3 stage state (schema, inventory, dependencies, checksums) and the resumable ingest/transpose/write orchestration |
 | `runtime_routes.py` | the evidenced version 3 routes every `convert_trees.py` stage and report prints, mirroring the format specification's V3 Runtime Support table |
 | `errors.py`         | `ConverterError`, the converter's single fatal error type |
-| `convert_ctrees.py` | legacy ASCII-to-version-2 CLI: per-phase subcommands |
-| `ctrees_parser.py`  | frozen record dtype; indexed/`#fields:` header dialects; `#tree` marker tracking; chunked reads; independent pre-count |
-| `scatter.py`        | Phase 0 forests.list map + dense ForestIndex; Phase 1 scatter/concat; resume manifest; cleanup containment guard |
-| `sort_index.py`     | Phase 2 per-snapshot sort + id index; verify-then-delete |
-| `fixups.py`         | Phase 3 steps 1–3 and 5 (step 4, `fix_flybys`, was removed in v2): a_list adjacency validation; spin `J/Mvir` and Len conventions; `fix_upid` reference equivalent |
-| `rank_sort.py`      | external merge-sort rank core shared by the version 2 rank pass and the version 3 transpose |
-| `links.py`          | Phase 3 steps 6–9: FoF chains, descendant merge-join, progenitor chains (literal `assign_mergertree_indices` insertion semantics), within-forest ranks, identity fields |
-| `hdf5_writer.py`    | Phase 4: `snapshot_NNN.h5` + `forests.h5` emission per the frozen version 2 contract (empty snapshots included; write-verify-record); shared header-metadata loading and naming helpers |
-| `hdf5_writer_v3.py` | `HorizontalV3Writer`: the version 3 emission the pipeline's `write` stage runs — one file per a_list snapshot plus `forests.h5`, write-verify-record, and the write-time binding to the recorded `simulation_info` and particle mass |
-| `validate.py`       | version 2 producer validation battery (standalone CLI) and the format-version dispatch: structural conformance, all six format invariants, progenitor round-trip closure, FoF chain walk, identity density, header bounds, count conservation vs the independent pre-counts |
+| `ctrees_parser.py`  | the Consistent-Trees ASCII parse for the ASCII route's preparation: scratch record layouts; indexed/`#fields:` header dialects; `#tree` marker tracking; chunked reads; independent pre-count |
+| `scatter.py`        | ASCII preparation: `forests.list` map + dense ForestIndex; per-snapshot scatter/concat; the preparation manifest; cleanup containment guard |
+| `sort_index.py`     | ASCII preparation: per-snapshot sort + id index; verify-then-delete |
+| `fixups.py`         | ASCII preparation: a_list adjacency validation; spin `J/Mvir` and Len conventions; `fix_upid` reference equivalent (no `fix_flybys`) |
+| `rank_sort.py`      | external merge-sort rank core shared by the ASCII preparation's rank pass and the transpose |
+| `links.py`          | ASCII preparation: FoF chains, descendant merge-join, progenitor chains (literal `assign_mergertree_indices` insertion semantics), within-forest ranks, identity fields |
+| `hdf5_writer_v3.py` | `HorizontalV3Writer`: the version 3 emission the pipeline's `write` stage runs — one file per a_list snapshot plus `forests.h5`, write-verify-record, and the write-time binding to the recorded `simulation_info` and particle mass; shared header-metadata loading and naming helpers |
 | `validate_v3.py`    | the bounded 20-check version 3 battery that `convert_trees.py validate` runs by default (its external-sort mode) — exact object and schema set, header agreement across files, source-key coverage, every link target and chain closure, identity density, field finiteness, positions inside the header box, count conservation and manifest binding — with hand-typed format tables independent of the writer |
 | `validate_bounded.py` | the version 3 battery's bounded mode (`validate --bounded`): the same 20 checks over an adjacent dataset with no sort and no spill, within a printed ceiling; `ceiling` evaluates that ceiling for given dataset numbers |
-| `report.py`         | conversion report emission (`conversion_report.{json,txt}`) including battery outcomes and the recommended identity multiplier; the version 3 report adds source format, mapping, link-gap counts, index bounds and the runtime-compatibility section (format consumed, evidenced routes, limits) |
-| `forest_census.py`, `census/` | the forest census of a horizontal dataset (format version 2 or 3) and the decided cut table: `occupancy` / `trees` / `partition` / `table` / `cut`; see [Forest census](#forest-census-and-the-decided-cut-table-with-forest_censuspy) |
-| `rewrite_trees.py`, `rewriter/` | the horizontal-dataset rewriter of a Consistent-Trees ASCII catalogue: `migrate` (version 2 to 3) / `noop` (the identity self-test) / `cut` (under a declared cut table); see [Rewriting a horizontal dataset](#rewriting-a-horizontal-dataset-with-rewrite_treespy) |
+| `report.py`         | conversion report emission (`conversion_report.{json,txt}`): battery outcomes, the recommended identity multiplier, source format, mapping, link-gap counts, index bounds and the runtime-compatibility section (format consumed, evidenced routes, limits) |
+| `forest_census.py`, `census/` | the forest census of a version 3 horizontal dataset and the decided cut table: `occupancy` / `trees` / `partition` / `table` / `cut`; see [Forest census](#forest-census-and-the-decided-cut-table-with-forest_censuspy) |
+| `rewrite_trees.py`, `rewriter/` | the horizontal-dataset rewriter of a Consistent-Trees ASCII catalogue's version 3 dataset: `noop` (the identity self-test) / `cut` (under a declared cut table); see [Rewriting a horizontal dataset](#rewriting-a-horizontal-dataset-with-rewrite_treespy) |
 | `horizontal_dataset.py`, `source_index.py` | bounded column reads of a horizontal dataset and its identity record; the `forests.list` / `locations.dat` reader |
 | `subset.py`         | whole-forest subset selection and byte-exact extraction from a very large ctrees dataset, driven entirely from the index files: `plan-candidates` / `sample-roots` / `calibrate-proxy` / `finalize` / `extract` |
-| `crosscheck.py`     | seven-check cross-check vs a halos-only reference run (`reference-sanity`, `identity-forest`, `identity-creation`, `fof-central`, `mostboundid-positive`, `values`, `occupancy` — matching by \|MostBoundID\|, identity decode, FoF central, positive `MostBoundID`, bit-exact values, occupancy predicate), an optional eighth `topology-chains` check against a reference-topology dump (coverage, links, identity, ids), + reference-run plumbing |
-| `HORIZONTAL-HDF5-FORMAT.md` | the normative on-disk contract both writers conform to |
+| `HORIZONTAL-HDF5-FORMAT.md` | the normative on-disk contract the writer conforms to |
 | `tests/`            | stdlib-unittest suite; synthetic fixture generator (`fixtures.py`); mock reference builder (`mock_reference.py`); the real-data comparison harness (`run_generalisation_acceptance.py`); committed golden fixtures under `tests/data/` |
 
 ## Tests
@@ -627,9 +350,9 @@ make tests-converter                                             # the converter
 mimic_venv/bin/python -m unittest discover -s convert/mimic-convert/tests -v   # the same suite directly
 ```
 
-The suite covers both entry points. The comparison harness's own self-tests (`test_generalisation_acceptance.py`) plant defects — dropped and duplicated rows, wrong target snapshots, reordered chains, changed values — and require the comparator to catch each one.
+The comparison harness's own self-tests (`test_generalisation_acceptance.py`) plant defects — dropped and duplicated rows, wrong target snapshots, reordered chains, changed values — and require the comparator to catch each one.
 
-The dump harness's own format test lives with the simulation package it reads, not under `convert/mimic-convert/tests/`: `simulations/micro-uchuu-ascii/_tests/integration/test_topology_dump_format.py`, part of `make SIMULATION=micro-uchuu-ascii MODEL=halos-only tests-integration`.
+The dump harness is built and checked byte for byte against literal oracles by the same self-tests (`CDumpToolTests`).
 
 ## Documentation Directory
 

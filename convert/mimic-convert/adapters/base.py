@@ -404,8 +404,7 @@ class CanonicalBatch:
         Deliberately *not* checked: ``MostBoundID`` uniqueness, positivity or
         ordering. It is the source catalog's own signed particle/halo
         identifier, legitimately duplicated and legitimately negative in the
-        general format, and treating it as a key is the v2 assumption v3
-        exists to drop. ``SourceHaloID`` is the unique key, and it is
+        general format, so it is never treated as a key. ``SourceHaloID`` is the unique key, and it is
         checked here.
         """
         if "SourceHaloID" not in self.identity:

@@ -10,20 +10,21 @@ canonical a_list.
 
 Cleanup discipline: the converter never deletes source
 data. Deletion is restricted to manifest-owned intermediates located under the
-workdir; ``remove_intermediate`` refuses anything else. The downstream stages
-consume their predecessors through ``Manifest.consume_intermediates``, which is
-opt-in per run and routes every deletion through that same guard.
+workdir; ``remove_intermediate`` refuses anything else. The sort stage
+consumes the unsorted snapshot scratch through
+``Manifest.consume_intermediates``, which routes every deletion through that
+same guard.
 
 **Scratch layout**. A workdir holds one
 ``ctrees_parser.ScratchLayout`` for its whole life: the frozen 108-byte legacy
-record of the ASCII-to-v2 route, or the extended record of the canonical ASCII
-bridge (source coordinates plus declared extras). ``run_scatter`` fixes it
-from its ``schema`` argument when the manifest is created; every later stage
-derives it from the manifest, and any caller that names a different layout --
-including the legacy route naming none against an extended workdir -- is
-refused before anything is mutated. An extended workdir records a dtype tag the
-frozen ``DTYPE_TAG`` comparison of older code rejects, so it can never be
-resumed, or emitted as format v2, by a converter that predates it.
+record, used when no schema is given, or the extended record of the canonical
+ASCII bridge (source coordinates plus declared extras), which the version 3
+route always uses. ``run_scatter`` fixes it from its ``schema`` argument when
+the manifest is created; every later stage derives it from the manifest, and
+any caller that names a different layout -- including a caller naming no
+schema against an extended workdir -- is refused before anything is mutated.
+An extended workdir records a dtype tag the frozen ``DTYPE_TAG`` comparison of
+older code rejects, so a converter that predates it can never resume it.
 
 Every scratch file handle this module opens is buffered explicitly at
 :data:`SCRATCH_BUFFER_BYTES`, in the serial and the pooled scatter alike, so
@@ -73,9 +74,9 @@ MANIFEST_NAME = "manifest.json"
 #: this change on their own. A workdir manifested under version 1 may hold
 #: fixed/linked snapshots with the pre-removal MostBoundID sign convention;
 #: resuming into it would skip re-verifying those snapshots (fix_one_snapshot
-#: trusts recorded checksums, not content semantics) and let a legacy
-#: intermediate reach a format_version = 2 emission. Refusing the resume
-#: outright forces a fresh workdir instead.
+#: trusts recorded checksums, not content semantics) and let a stale
+#: intermediate reach an emitted dataset. Refusing the resume outright forces a
+#: fresh workdir instead.
 MANIFEST_VERSION = 2
 #: absolute tolerance for observed scale vs canonical a_list entry
 A_LIST_ATOL = 1e-4
@@ -96,26 +97,16 @@ DEFAULT_SAVE_EVERY_SECONDS = float("inf")
 #: Explicit buffer size of every scratch file handle this module opens (8192
 #: bytes, pooled execution included). Default buffering follows the
 #: filesystem's st_blksize, which on Lustre and some APFS volumes is large
-#: enough that one handle per snapshot costs far more than intended -- the
-#: defect crosscheck.py's TopologyDumpPartition._handle() fixed the same way.
+#: enough that one handle per snapshot costs far more than intended.
 SCRATCH_BUFFER_BYTES = 8192
 
-#: source-file lifecycle states for the batched interleaved transfer.
-#: ``completed`` and ``consumed`` are the only two that are ever written into
-#: the manifest; ``pending`` and ``deferred`` are classified per run from the
-#: frozen inventory plus what is on disk right now, and are deliberately never
-#: persisted — a deferred entry becomes pending the moment its bytes arrive,
-#: so recording it would create a stale state somebody has to remember to
-#: clear. ``deferred`` (bytes not transferred yet) and ``consumed`` (bytes
-#: released after a verified scatter) are the two different reasons a source
-#: file can be legitimately absent; keeping them distinct is the whole point
-#: of batch mode, because only one of them means "nothing was processed".
+#: source-file states. ``completed`` is the only one ever written into the
+#: manifest: it means this source file's scatter is on the record. ``pending``
+#: (present and still to scatter) is classified per run from the frozen
+#: inventory plus what is on disk right now, and is deliberately never
+#: persisted.
 SOURCE_COMPLETED = "completed"
-SOURCE_CONSUMED = "consumed"
-SOURCE_DEFERRED = "deferred"
 SOURCE_PENDING = "pending"
-#: the two states that mean "this source file's scatter is on the record"
-SOURCE_SATISFIED = (SOURCE_COMPLETED, SOURCE_CONSUMED)
 
 
 def _log(message: str) -> None:
@@ -500,12 +491,10 @@ class Manifest:
         """Finish the delete-after-verify protocol for intermediates whose
         terminal consumer is done with them.
 
-        Callers reach this in one of exactly two states: with the successor
-        artifact already re-read, verified, registered and saved -- the
-        predecessor half of the verify-before-consume protocol --
-        or with an artifact that has no consumer at all, and so no successor to
-        wait for (``links``' unreachable id indexes). Each path is resolved to
-        exactly one of four outcomes:
+        Callers reach this with the successor artifact already re-read,
+        verified, registered and saved -- the predecessor half of the
+        verify-before-consume protocol. Each path is resolved to exactly one of
+        four outcomes:
 
         * no manifest entry, or an entry already recorded ``removed`` -- nothing
           to do, which is what makes a re-run idempotent;
@@ -516,8 +505,7 @@ class Manifest:
           says so;
         * registered ``present``, on disk, ``delete`` set -- deleted through
           :meth:`remove_intermediate`, which is the only path to an unlink;
-        * registered ``present``, on disk, ``delete`` clear -- retained, so the
-          flag-off workdir keeps every intermediate it keeps today.
+        * registered ``present``, on disk, ``delete`` clear -- retained.
 
         The manifest is saved once, at the end, iff anything changed. Returns
         the paths whose bytes are gone as a result -- deleted here, or deleted
@@ -571,92 +559,53 @@ class Manifest:
         """True when this source file's scatter is already on the record and
         needs no re-scatter.
 
-        A ``consumed`` entry satisfies resume without touching the filesystem:
-        its scatter completed, its intermediates were verified, and its bytes
-        were then deliberately released, so there is nothing left to stat and
-        re-scattering it could never be correct. A ``completed`` entry still
-        requires the bytes on disk to be the bytes that were scattered, which
-        is why this stats the path — callers must therefore only ask about a
-        ``completed`` entry whose file is present (see ``classify_source``,
-        which owns that decision).
+        A ``completed`` entry requires the bytes on disk to be the bytes that
+        were scattered, which is why this stats the path — callers must
+        therefore only ask about a ``completed`` entry whose file is present
+        (see ``classify_source``, which owns that decision).
         """
         entry = self.source_entry(path)
         if entry is None:
             return False
         status = entry.get("status")
-        if status == SOURCE_CONSUMED:
-            return True
         if status != SOURCE_COMPLETED:
             return False
         stat = Path(path).stat()
         return entry.get("size") == stat.st_size and entry.get("mtime_ns") == stat.st_mtime_ns
 
-    def classify_source(self, path, batch_mode: bool = False) -> str:
+    def classify_source(self, path) -> str:
         """Classify one entry of the frozen source inventory for this run.
 
-        Returns one of ``SOURCE_COMPLETED``, ``SOURCE_CONSUMED``,
-        ``SOURCE_PENDING`` (present and still to scatter) or
-        ``SOURCE_DEFERRED`` (batch mode only: bytes not transferred yet), and
-        raises for every state that must not be silently absorbed.
+        Returns ``SOURCE_COMPLETED`` or ``SOURCE_PENDING`` (present and still
+        to scatter), and raises for every state that must not be silently
+        absorbed:
 
-        The two absences batch mode exists to tell apart are decided here, and
-        only from recorded state — never from a stat failure:
-
-        * no recorded entry and no bytes on disk is **deferred**: this file has
-          not been transferred yet. Outside batch mode it stays the hard error
-          it has always been.
-        * a ``consumed`` entry is a file whose bytes were released *after* an
-          explicit, verified ``release``. It is never stat-ed and never
-          re-scattered, in either mode.
-        * a ``completed`` entry whose bytes are gone was deleted without going
-          through ``release``, so nothing verified that its intermediates
-          survived. That is refused rather than inferred to be consumed —
-          consumption is an operator action, not a conclusion drawn from a
-          missing file.
+        * a source file with no bytes on disk is refused;
+        * a ``completed`` entry whose bytes are gone is refused, because
+          nothing then verifies that the intermediates it produced are still
+          what was scattered.
 
         A ``completed`` entry whose bytes are present but whose size/mtime
-        differ is refused in batch mode. Outside batch mode it deliberately
-        keeps the pre-existing behaviour — it becomes pending, and the
-        "changed after snapshots were finalized" guard in ``run_scatter``
-        rejects it — because that guard is unreachable in batch mode (a
-        batch-mode scatter never finalizes, so ``snapshots`` stays empty for
-        the whole cycle) and silent substitution has to stay impossible in
-        both modes.
+        differ becomes pending, and the "changed after snapshots were
+        finalized" guard in ``run_scatter`` rejects it, so silent substitution
+        stays impossible.
         """
         candidate = Path(path)
         entry = self.source_entry(candidate)
         status = None if entry is None else entry.get("status")
-        if status == SOURCE_CONSUMED:
-            return SOURCE_CONSUMED
         present = candidate.exists()
         if status == SOURCE_COMPLETED:
             if not present:
                 raise ConverterError(
-                    "completed source file is missing from disk and was never released: "
-                    "{} — its bytes were deleted without 'release', so nothing verified "
+                    "completed source file is missing from disk: {} — nothing can verify "
                     "that the intermediates it produced are still intact; restore the file "
                     "or use a fresh workdir".format(candidate)
                 )
             if self.source_completed(candidate):
                 return SOURCE_COMPLETED
-            if batch_mode:
-                stat = candidate.stat()
-                raise ConverterError(
-                    "completed source file changed on disk: {} (size {} -> {}, mtime_ns "
-                    "{} -> {}); the recorded scatter describes different bytes — refusing "
-                    "to resume, use a fresh workdir".format(
-                        candidate,
-                        entry.get("size"),
-                        stat.st_size,
-                        entry.get("mtime_ns"),
-                        stat.st_mtime_ns,
-                    )
-                )
             return SOURCE_PENDING
         if present:
             return SOURCE_PENDING
-        if batch_mode:
-            return SOURCE_DEFERRED
         raise ConverterError("input tree file does not exist: {}".format(candidate))
 
     def source_intermediates(self, entry: dict) -> List[Tuple[Path, str]]:
@@ -686,117 +635,20 @@ class Manifest:
             )
         return owned
 
-    def mark_source_consumed(self, path) -> dict:
-        """Record a completed source file as consumed: an explicit operator
-        transition saying its bytes may now be released.
-
-        This is the only way an entry becomes ``consumed``. It refuses
-        anything that is not ``completed``, and it verifies every intermediate
-        that entry produced *before* recording the transition — that
-        verification is the whole value of the command, because it is what
-        makes the operator's subsequent deletion of irreplaceable source bytes
-        safe. The converter itself never deletes source data (see the module
-        docstring); this records permission, nothing more.
-
-        Because that verification is the whole value, it is never skipped: a
-        source whose intermediates finalization has already deleted is
-        **refused**, which makes releasing before finalizing a requirement
-        rather than merely the documented habit. Releasing a source whose bytes
-        the operator has already deleted still works — what must verify is the
-        intermediates, not the source.
-        """
-        resolved = Path(path).resolve()
-        entry = self.source_entry(resolved)
-        if entry is None:
-            raise ConverterError(
-                "refusing to release {}: not a recorded source file of this conversion".format(
-                    resolved
-                )
-            )
-        status = entry.get("status")
-        if status == SOURCE_CONSUMED:
-            raise ConverterError(
-                "refusing to release {}: already recorded as {!r} by an earlier release, so "
-                "its bytes may already be deleted".format(resolved, SOURCE_CONSUMED)
-            )
-        if status != SOURCE_COMPLETED:
-            raise ConverterError(
-                "refusing to release {}: source entry status is {!r}, not {!r} — only a "
-                "completed scatter may be released".format(resolved, status, SOURCE_COMPLETED)
-            )
-        if resolved.exists():
-            stat = resolved.stat()
-            if entry.get("size") != stat.st_size or entry.get("mtime_ns") != stat.st_mtime_ns:
-                raise ConverterError(
-                    "refusing to release {}: on-disk size/mtime ({}, {}) no longer match the "
-                    "scattered source ({}, {}) — releasing would authorize deleting bytes "
-                    "this conversion never processed".format(
-                        resolved,
-                        stat.st_size,
-                        stat.st_mtime_ns,
-                        entry.get("size"),
-                        entry.get("mtime_ns"),
-                    )
-                )
-        for candidate, what in self.source_intermediates(entry):
-            registered = self.data["intermediates"].get(str(candidate.resolve()))
-            if registered is None:
-                raise ConverterError(
-                    "refusing to release {}: {} {} was never registered as an "
-                    "intermediate".format(resolved, what, candidate)
-                )
-            if registered.get("status") == "removed":
-                # Finalization has already deleted this artifact, and nothing
-                # on the release path can stand in for it. The rows moved into
-                # the concatenated snapshot, which ``source_intermediates``
-                # does not name and cannot name usefully: that artifact is
-                # itself deleted by the sort stage (sort_index.py:116,129) and
-                # superseded in turn by the sorted, fixed and link files, each
-                # deleted by a different downstream module. Verifying "the
-                # successor" from here would mean encoding every downstream
-                # stage's artifact lifetime in the scatter module, and it would
-                # drift the moment another slice changes one.
-                #
-                # So this is a refusal, not a skip. Releasing here would tell
-                # the operator to delete irreplaceable source bytes while
-                # nothing had verified the artifact that now holds those rows —
-                # the exact opposite of what release exists for. Release a
-                # batch before finalizing, which is the documented order.
-                raise ConverterError(
-                    "refusing to release {}: {} {} was already deleted by finalization, so "
-                    "nothing on the release path can still verify the rows this source "
-                    "contributed — release a batch BEFORE finalizing it, not after".format(
-                        resolved, what, candidate
-                    )
-                )
-            self.verify_intermediate(candidate, what)
-        entry["status"] = SOURCE_CONSUMED
-        return entry
-
 
 def verify_or_consumed(manifest: Manifest, path, what: str, consumed: List[str]) -> None:
     """Verify one skip-trusted artifact unless the manifest records it as
     deliberately consumed by a later stage.
 
-    A consumed artifact is the pipeline's own doing, not a missing file: with
-    consumption enabled the fix-up stage removes ``snap_NNN_sorted.bin`` once
-    the fixed output is registered, and the link stage removes ``snap_NNN.idx``
-    once the snapshot below it is linked. Any
-    skip-trust path that re-verifies one of those has to skip and name what was
-    consumed, not fail on a stat or a checksum — deletion is bounded by re-run
-    reachability, and this is what keeps those paths reachable. Anything the
-    manifest still records as present is verified exactly as before.
-
-    It lives here rather than in the stage that first needed it because three
-    modules now share it, each only at the statuses where a consumption can
-    already have happened: ``sort_index.sort_one_snapshot``'s skip-trust path
-    at ``fixed`` and ``linked``, ``fixups.fix_one_snapshot``'s at ``linked``,
-    and ``_finalize_scatter``'s ``fixed`` branch — which is its *only* branch
-    that reaches here, since its ``sorted`` and ``concatenated`` branches
-    verify outright, and it has no ``linked`` branch at all. A second
-    formulation of a rule this load bearing is how the three would drift
-    apart. ``consumed`` accumulates one ready-to-log phrase per consumed
-    artifact, so the caller decides how to report the skip.
+    A consumed artifact is a registered intermediate the pipeline itself
+    removed through :meth:`Manifest.consume_intermediates`, not a missing
+    file: a skip-trust path that re-verifies one has to skip and name what was
+    consumed rather than fail on a stat or a checksum. Anything the manifest
+    still records as present is verified exactly as before. The sort stage's
+    skip-trust path (``sort_index.sort_one_snapshot``) uses it at the statuses
+    where a consumption can already have happened. ``consumed`` accumulates
+    one ready-to-log phrase per consumed artifact, so the caller decides how
+    to report the skip.
     """
     if manifest.is_consumed(path):
         consumed.append("its {} was consumed by a later stage ({})".format(what, path))
@@ -1090,13 +942,12 @@ def run_scatter(
     simulation_info_path=None,
     save_every_n_files: int = DEFAULT_SAVE_EVERY_N_FILES,
     save_every_seconds: float = DEFAULT_SAVE_EVERY_SECONDS,
-    batch_mode: bool = False,
     schema=None,
     cut_table_path=None,
 ) -> Manifest:
     """Phase 0 + Phase 1: map, scatter, concat, aggregates, manifest.
 
-    ``schema`` (default None: the legacy route, unchanged) is a
+    ``schema`` (default None: the frozen legacy scratch layout) is a
     ``consistent_trees_ascii`` canonical schema; it selects the columns and
     fixes the workdir's extended scratch layout (see the module docstring).
     A resume must pass the same schema, or none for a legacy workdir.
@@ -1133,20 +984,8 @@ def run_scatter(
     never a manifest entry naming something absent. A re-scatter of the
     owning source file overwrites those deterministically.
 
-    ``batch_mode`` (default off) supports the interleaved consumptive
-    transfer, where the source is never all local at once. ``tree_files``
-    still carries the **complete** ordered inventory on every invocation —
-    the operator passes all of it, not the subset currently on disk — so the
-    frozen-source-set guard keeps comparing like with like and still refuses
-    a genuinely different conversion. What changes is that an inventory entry
-    whose bytes are absent is classified rather than rejected: not
-    transferred yet is ``deferred`` and skipped for now, already scattered
-    and explicitly released is ``consumed`` and satisfies resume. A
-    batch-mode run therefore scatters whatever has arrived, reports how many
-    entries remain deferred, and returns **without finalizing**; the operator
-    finalizes explicitly with ``run_finalize`` once nothing is deferred.
-    Outside batch mode nothing here changes, including the hard error for a
-    missing source file.
+    Every source file must be on disk: a missing one is refused before any
+    metadata is loaded.
     """
     workdir = Path(workdir).resolve()
     scratch_dir = workdir / "scratch"
@@ -1154,13 +993,12 @@ def run_scatter(
     scratch_dir.mkdir(parents=True, exist_ok=True)
 
     tree_files = [Path(p) for p in tree_files]
-    if not batch_mode:
-        # unchanged non-batch behaviour, deliberately kept ahead of the
-        # metadata loads and the provenance guards so a missing input still
-        # fails with exactly this message before anything else is checked
-        for path in tree_files:
-            if not path.exists():
-                raise ConverterError("input tree file does not exist: {}".format(path))
+    # deliberately ahead of the metadata loads and the provenance guards, so a
+    # missing input fails with exactly this message before anything else is
+    # checked
+    for path in tree_files:
+        if not path.exists():
+            raise ConverterError("input tree file does not exist: {}".format(path))
 
     a_list, a_list_md5 = load_a_list(a_list_path)
     forest_map = load_forests_list(forests_list_path)
@@ -1168,7 +1006,7 @@ def run_scatter(
     if cut_table_path is not None:
         if schema is None:
             raise ConverterError(
-                "a cut table is a canonical ASCII route option; the legacy route takes none"
+                "a cut table is a canonical ASCII route option; the legacy layout takes none"
             )
         cut_map = load_forests_list(cut_table_path)
         check_cut_roots(cut_map, forest_map, cut_table_path)
@@ -1234,16 +1072,11 @@ def run_scatter(
                 "md5": sim_md5,
             }
 
-    # classify the whole frozen inventory: which entries still need scattering,
-    # and (batch mode only) which have simply not been transferred yet
+    # classify the whole frozen inventory: which entries still need scattering
     pending = []
-    deferred = []
     for i, path in enumerate(tree_files):
-        state = manifest.classify_source(path, batch_mode=batch_mode)
-        if state == SOURCE_PENDING:
+        if manifest.classify_source(path) == SOURCE_PENDING:
             pending.append((path, i))
-        elif state == SOURCE_DEFERRED:
-            deferred.append(path)
     if pending and manifest.data["snapshots"]:
         raise ConverterError(
             "source file(s) changed after snapshots were finalized ({} pending: {}); "
@@ -1315,7 +1148,8 @@ def run_scatter(
         }
         if result.source_units is not None:
             # absent from a legacy entry, so the legacy JSON is unchanged; it
-            # is what makes release verify the sidecar (source_intermediates)
+            # is what names the sidecar among the entry's intermediates
+            # (source_intermediates)
             manifest.data["source_files"][result.path]["source_units"] = int(
                 result.source_units.shape[0]
             )
@@ -1345,58 +1179,11 @@ def run_scatter(
 
     # Save once the dispatch loop finishes cleanly, before the finalize pass
     # reads source_files back out of the manifest.
-    #
-    # In batch mode this must happen even when nothing was scattered. A
-    # batch-mode invocation issued before any bytes have arrived is legal and
-    # ordinary — it is what a scripted transfer/scatter loop does on its first
-    # iteration, and what an operator smoke-testing the pipeline does — and it
-    # classifies every entry as deferred, so ``pending`` is empty. If
-    # provenance stayed in memory then, the frozen inventory would never reach
-    # disk and the next invocation would accept a different membership or a
-    # different order: the anti-mixing guard would be absent at exactly the
-    # moment it is supposed to be established, which is the worst possible
-    # place for it to be absent on an irreplaceable multi-day run.
-    #
-    # This is one whole-manifest save per batch-mode INVOCATION, not per source
-    # file. That distinction is the point of the save policy: a per-file rewrite is
-    # quadratic in file count (38.2 KB per entry, 104.9 MB at 2,744 files) and
-    # is what the save policy above exists to remove. One extra save per
-    # invocation is negligible against it.
-    if pending or batch_mode:
+    if pending:
         manifest.save()
-
-    if batch_mode:
-        # A batch-mode run must not finalize, even when nothing is deferred:
-        # _finalize_scatter deletes the worker intermediates that a later
-        # release has to verify, so finalizing the moment the last batch
-        # completes would make that batch impossible to release. Finalization
-        # is therefore reachable only through run_finalize, which the operator
-        # calls once every inventory entry is completed or consumed.
-        _log(
-            "scatter: batch mode — scattered {} file(s), {} of {} inventory "
-            "entr{} still deferred; not finalizing".format(
-                len(pending),
-                len(deferred),
-                len(tree_files),
-                "y" if len(tree_files) == 1 else "ies",
-            )
-        )
-        return manifest
 
     _finalize_scatter(manifest, tree_files, forest_map, scratch_dir)
     return manifest
-
-
-def _log_consumed_skip(snap: int, consumed: List[str]) -> None:
-    """Report a finalize skip over a snapshot whose downstream artifacts a
-    later stage consumed, naming each one. Silent when nothing was consumed,
-    which is every run that did not enable consumptive deletion."""
-    if consumed:
-        _log(
-            "finalize: snapshot {} is already past concat and {} — skipping".format(
-                snap, "; ".join(consumed)
-            )
-        )
 
 
 def _finalize_scatter(
@@ -1407,15 +1194,10 @@ def _finalize_scatter(
     for path in tree_files:
         entry = manifest.source_entry(path)
         status = None if entry is None else entry.get("status")
-        if status not in SOURCE_SATISFIED:
-            # a consumed entry is as final as a completed one — its scatter is
-            # on the record and everything read below comes from registered
-            # intermediates, never from the source bytes, so releasing them
-            # cannot make finalization less correct. Anything else, including a
-            # deferred entry (no recorded status at all), is refused.
+        if status != SOURCE_COMPLETED:
             raise ConverterError(
-                "source file incomplete after scatter: {} (status {!r}, expected one "
-                "of {})".format(path, status, list(SOURCE_SATISFIED))
+                "source file incomplete after scatter: {} (status {!r}, expected "
+                "{!r})".format(path, status, SOURCE_COMPLETED)
             )
         entries.append(entry)
 
@@ -1492,29 +1274,16 @@ def _finalize_scatter(
         if snap_entry and snap_entry.get("status") == "fixed":
             # a snapshot the fix-up stage already completed: verify
             # all downstream artifacts and finish any interrupted cleanup.
-            # The sorted file and the index are both consumable intermediates,
-            # so either may legitimately be gone by now; the fixed file
-            # is not consumable while this status holds (the writer takes it
-            # only once every snapshot is linked), so it is verified outright.
-            consumed: List[str] = []
-            verify_or_consumed(
-                manifest, snap_entry["sorted_file"], "sorted snapshot scratch", consumed
-            )
-            verify_or_consumed(manifest, snap_entry["index_file"], "snapshot id index", consumed)
+            manifest.verify_intermediate(snap_entry["sorted_file"], "sorted snapshot scratch")
+            manifest.verify_intermediate(snap_entry["index_file"], "snapshot id index")
             manifest.verify_intermediate(snap_entry["fixed_file"], "fixed snapshot scratch")
             _retry_worker_cleanup(manifest, scratch_dir, snap, parts)
             manifest.save()
-            _log_consumed_skip(snap, consumed)
             continue
         if snap_entry and snap_entry.get("status") == "sorted":
             # a crash between concat-status save and worker deletion can leave
             # a snapshot that was later sorted with workers still on disk —
             # verify the sorted artifacts and finish the interrupted cleanup.
-            # Both are verified OUTRIGHT here, on the same rule the sort stage
-            # applies at this status: neither can have been consumed yet, since
-            # fixups saves ``fixed`` before it removes the sorted file and links
-            # will not start until every snapshot is at least ``fixed``. A
-            # manifest claiming otherwise describes a premature deletion.
             manifest.verify_intermediate(snap_entry["sorted_file"], "sorted snapshot scratch")
             manifest.verify_intermediate(snap_entry["index_file"], "snapshot id index")
             _retry_worker_cleanup(manifest, scratch_dir, snap, parts)
@@ -1603,7 +1372,7 @@ def _scattered_trees(manifest: Manifest) -> List[Tuple[int, np.ndarray, np.ndarr
     trees = []
     for path in manifest.data["provenance"]["source_files"]:
         entry = manifest.source_entry(path)
-        if entry is None or entry.get("status") not in SOURCE_SATISFIED or "tree_rows" not in entry:
+        if entry is None or entry.get("status") != SOURCE_COMPLETED or "tree_rows" not in entry:
             raise ConverterError(
                 "{}: source file {} has no scatter recorded under the cut table".format(
                     manifest.path, path
@@ -1761,94 +1530,3 @@ def install_cut(manifest: Manifest, cut_map: ForestMap) -> None:
         cut_map.forest_index_table(),
     )
     manifest.save()
-
-
-# ---------------------------------------------------------------------------
-# Batch-mode operator actions
-# ---------------------------------------------------------------------------
-
-
-def run_release(workdir, tree_files: Sequence) -> Manifest:
-    """Record completed source files as consumed so their bytes may be deleted.
-
-    This is the explicit operator action that makes deletion of irreplaceable
-    source bytes safe: every named file must be ``completed``, and every
-    intermediate its scatter produced must still verify against its registered
-    checksum, before the transition is recorded. The converter never deletes
-    source data itself — the deletion stays with the operator or the transfer
-    script (see the module docstring).
-
-    The whole invocation is atomic against the manifest on disk: every file is
-    verified and transitioned in memory first and the manifest is saved once,
-    so a refusal on any named file leaves the persisted manifest untouched.
-    """
-    workdir = Path(workdir).resolve()
-    manifest = Manifest.load_or_create(workdir)
-    released = []
-    for path in tree_files:
-        manifest.mark_source_consumed(path)
-        released.append(Path(path).resolve())
-    manifest.save()
-    for path in released:
-        _log(
-            "release: {} recorded as {}; its bytes may now be deleted".format(path, SOURCE_CONSUMED)
-        )
-    return manifest
-
-
-def run_finalize(workdir, forests_list_path) -> Manifest:
-    """Explicit Phase 1 finalize for a batch-mode conversion.
-
-    Outside batch mode ``run_scatter`` still finalizes automatically; this is
-    the step that replaces that for a batched run, and it refuses to run while
-    any inventory entry is still deferred. The inventory it checks is the
-    frozen ordered source list already recorded in provenance — there is no
-    new artifact and no second copy of the list to keep in step — and the
-    forest map is re-loaded here because root-coverage validation needs it,
-    bound to the identity recorded at first run exactly as ``run_scatter``
-    binds it.
-    """
-    workdir = Path(workdir).resolve()
-    scratch_dir = workdir / "scratch"
-    manifest = Manifest.load_or_create(workdir)
-    recorded = manifest.data["provenance"]
-    inventory = recorded.get("source_files")
-    if not inventory:
-        raise ConverterError(
-            "{}: no scatter provenance recorded in this workdir; there is nothing to "
-            "finalize — run scatter first".format(workdir)
-        )
-    forest_map = load_forests_list(forests_list_path)
-    recorded_forests = recorded.get("forests_list") or {}
-    if recorded_forests.get("md5") != forest_map.md5:
-        raise ConverterError(
-            "forests_list content changed since this workdir was created ({} != {}); "
-            "refusing to finalize — use a fresh workdir".format(
-                forest_map.md5, recorded_forests.get("md5")
-            )
-        )
-    tree_files = [Path(p) for p in inventory]
-    deferred = [
-        path
-        for path in tree_files
-        if manifest.classify_source(path, batch_mode=True) == SOURCE_DEFERRED
-    ]
-    if deferred:
-        raise ConverterError(
-            "refusing to finalize: {} of {} inventory entr{} {} still deferred (not "
-            "transferred and not scattered); examples: {}".format(
-                len(deferred),
-                len(tree_files),
-                "y" if len(tree_files) == 1 else "ies",
-                "is" if len(deferred) == 1 else "are",
-                [str(p) for p in deferred[:3]],
-            )
-        )
-    _finalize_scatter(manifest, tree_files, forest_map, scratch_dir)
-    manifest.save()
-    _log(
-        "finalize: {} inventory entr{} finalized".format(
-            len(tree_files), "y" if len(tree_files) == 1 else "ies"
-        )
-    )
-    return manifest

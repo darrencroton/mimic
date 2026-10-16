@@ -56,7 +56,8 @@ verification is bounded the same way and is exact — see :func:`verify_identity
 The ordering, the ranks and every emitted byte are unchanged; only the memory
 profile is.
 
-HDF5 emission is out of scope here; ``hdf5_writer.py`` owns it.
+HDF5 emission is out of scope here: ``adapters/ctrees_ascii.py`` reads the
+links scratch into canonical batches, which the version 3 writer emits.
 
 **Extended scratch layouts**. Fixed records
 are read in the workdir's own layout (``fixups.fixed_layout``), so a record
@@ -74,7 +75,7 @@ import tempfile
 import weakref
 from collections import OrderedDict
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional, Tuple
+from typing import Dict, Iterator, Optional, Tuple
 
 import numpy as np
 
@@ -1175,60 +1176,13 @@ def link_one_snapshot(
     )
 
 
-def _no_consumer_indexes(manifest: Manifest, snaps) -> List[str]:
-    """The id index files no ``link_one_snapshot`` call will ever read.
-
-    ``link_one_snapshot(snap)`` resolves descendants against snapshot
-    ``snap + 1``'s ``index_file``, so ``snap_NNN.idx``'s consumer is the link of
-    the snapshot BELOW it — the relation runs the opposite way from the
-    intuition, and the highest snapshot's index is consumed perfectly normally.
-    What has no consumer is an index whose predecessor is not in the recorded
-    snapshot set, because linking iterates only recorded snapshots: ``idx_0``
-    always, and every index across a gap in that set. Those are deletable as
-    soon as linking starts.
-    """
-    recorded = set(snaps)
-    return [
-        manifest.data["snapshots"][str(snap)]["index_file"]
-        for snap in snaps
-        if snap - 1 not in recorded
-    ]
-
-
-def _consumed_by_link(manifest: Manifest, snap: int, recorded) -> List[str]:
-    """The intermediates ``link_one_snapshot(snap)`` was the terminal consumer
-    of, named once that snapshot's links file is verified, registered and saved.
-
-    At most two, and deliberately never the fixed file: ``fixed`` is read again
-    by the writer (``_load_snapshot_scratch``), which is its terminal consumer,
-    so it must not be deleted here. What ends here is snapshot ``snap``'s
-    pending first-progenitor buffer, written by the link of ``snap - 1`` and
-    read once, and snapshot ``snap + 1``'s id index, read once to resolve
-    descendants. Either is absent when the neighbouring snapshot is not
-    recorded, which is why each is guarded separately rather than assumed.
-    """
-    entry = manifest.data["snapshots"][str(snap)]
-    scratch_dir = Path(entry["fixed_file"]).parent
-    paths: List[str] = []
-    if snap - 1 in recorded:
-        paths.append(str(scratch_dir / pending_fp_name(snap)))
-    if snap + 1 in recorded:
-        paths.append(manifest.data["snapshots"][str(snap + 1)]["index_file"])
-    return paths
-
-
 def verify_links_output(manifest: Manifest, snap: int) -> None:
     """Verify one snapshot's links file the way a skip-trust must: manifest
     ownership and content checksum, the frozen dtype tag, the recorded row
     count, and the on-disk size those rows imply.
 
-    This is the successor half of the delete-after-verify protocol for
-    everything the link stage consumes. Both places that trust an already-linked
-    snapshot call it — ``link_one_snapshot``'s skip path, and the short-circuit
-    in :func:`run_links`, which reaches the drains without going through
-    ``link_one_snapshot`` at all. A links file that is missing or tampered must
-    stop the drain there exactly as it stops the skip here, or the stage would
-    delete an index and a pending buffer whose successor it never checked.
+    ``link_one_snapshot``'s skip path calls it, so a links file that is
+    missing or tampered stops a re-run instead of being trusted.
     """
     entry = manifest.data["snapshots"][str(snap)]
     meta = manifest.verify_intermediate(entry["links_file"], "snapshot links scratch")
@@ -1259,56 +1213,7 @@ def verify_links_output(manifest: Manifest, snap: int) -> None:
         )
 
 
-def _verify_links_outputs_before_draining(manifest: Manifest, snaps) -> None:
-    """Verify every links output the short-circuit is about to delete behind.
-
-    A links file the writer has already consumed is accepted on the record
-    without being re-read — its own successor, the emitted HDF5, was verified
-    dataset-by-dataset when the writer took it, and re-reading a file that is
-    deliberately gone is not possible anyway. Every other snapshot's links file
-    is still supposed to be on disk, and is checked.
-    """
-    for snap in snaps:
-        entry = manifest.data["snapshots"][str(snap)]
-        if manifest.is_consumed(entry["links_file"]):
-            continue
-        verify_links_output(manifest, snap)
-
-
-def _consume_unreachable_indexes(manifest: Manifest, snaps, delete: bool) -> None:
-    """Drain the indexes that have no consumer, reporting each removal."""
-    for path in manifest.consume_intermediates(
-        _no_consumer_indexes(manifest, snaps), delete=delete
-    ):
-        _log("links: consumed {} — no recorded snapshot below it reads it".format(path))
-
-
-def _consume_after_link(manifest: Manifest, snap: int, recorded, delete: bool) -> None:
-    """Drain what the link of ``snap`` was the terminal consumer of, reporting
-    each removal. Idempotent, so it is safe to call for a snapshot linked by an
-    earlier run — which is what lets the short-circuit below finish a
-    consumption that a flag-off link run, or an interrupted writer, deferred."""
-    for path in manifest.consume_intermediates(
-        _consumed_by_link(manifest, snap, recorded), delete=delete
-    ):
-        _log("links: snapshot {} — consumed {}".format(snap, path))
-
-
-def _consumed_fixed_snapshots(manifest: Manifest, snaps) -> List[int]:
-    """Snapshots whose fixed scratch the writer has already consumed."""
-    return [
-        snap
-        for snap in snaps
-        if manifest.is_consumed(manifest.data["snapshots"][str(snap)]["fixed_file"])
-    ]
-
-
-def run_links(
-    workdir,
-    *,
-    budget_bytes: int = DEFAULT_RANK_BUDGET_BYTES,
-    consume_intermediates: bool = False,
-) -> Manifest:
+def run_links(workdir, *, budget_bytes: int = DEFAULT_RANK_BUDGET_BYTES) -> Manifest:
     """Run the link stage over every fixed snapshot, in ascending order.
 
     Snapshot subsets are deliberately not supported: FirstProgenitor values
@@ -1317,15 +1222,10 @@ def run_links(
     identity values are recomputed and must match what a previous run
     recorded (refuse-not-repair).
 
-    ``budget_bytes`` is the rank/identity pass's working-memory budget (CLI:
-    ``links --memory-budget-mb``). It changes how much of the pass is resident
-    and nothing else: every value written is identical at any budget.
-
-    ``consume_intermediates`` (CLI: ``--consume-intermediates``) turns on the
-    consumptive deletion of each link's own consumed predecessors — the pending
-    first-progenitor buffers and the id indexes, never the fixed or links files,
-    whose terminal consumer is the writer. It is off by default and changes no
-    emitted byte.
+    ``budget_bytes`` is the rank/identity pass's working-memory budget
+    (``adapters.ctrees_ascii.prepare_workdir``'s ``rank_budget_bytes``). It
+    changes how much of the pass is resident and nothing else: every value
+    written is identical at any budget.
     """
     manifest = Manifest.load_or_create(workdir)
     if not manifest.path.exists():
@@ -1339,48 +1239,6 @@ def run_links(
             raise ConverterError(
                 "snapshot {}: unexpected status {!r}; run fixups first".format(snap, status)
             )
-
-    # Once the writer has consumed the fixed inputs, the rank pass cannot run
-    # again: it streams every snapshot's fixed file. Re-running a fully linked
-    # stage in that state is a skip, not a verification failure — the outputs
-    # are complete and the inputs were deliberately released. This is
-    # conditioned on the inputs actually being recorded as consumed, NOT on
-    # every snapshot merely being linked: while those inputs are still present
-    # a links re-run remains reachable, and the refuse-not-repair comparison of
-    # the run-scoped identity values below has to keep running.
-    consumed_fixed = _consumed_fixed_snapshots(manifest, snaps)
-    if consumed_fixed and all(
-        manifest.data["snapshots"][str(snap)].get("status") == "linked" for snap in snaps
-    ):
-        _log(
-            "links: every snapshot is already linked and the fix-up scratch of {} of {} "
-            "snapshot(s) was consumed by the write stage (e.g. {}) — skipping the rank "
-            "pass".format(
-                len(consumed_fixed),
-                len(snaps),
-                manifest.data["snapshots"][str(consumed_fixed[0])]["fixed_file"],
-            )
-        )
-        # Returning here must not skip this stage's OWN deletions. Reaching
-        # this point means every snapshot is linked, so every consumption point
-        # in the table below is provably past — but they may never have run:
-        # `links` may have run with the flag off and the operator turned it on
-        # only now, or a writer run may have been interrupted after consuming
-        # some fixed files. Draining both sets is what keeps the deletion table
-        # whole rather than partial; ``consume_intermediates`` is idempotent, so
-        # a set already drained costs nothing.
-        #
-        # Verify first, delete second — the protocol, unchanged by the fact
-        # that this path never calls ``link_one_snapshot``. Without this the
-        # short-circuit would delete an index and a pending buffer whose
-        # successor it had not looked at, which is precisely what the normal
-        # path's skip-trust prevents.
-        _verify_links_outputs_before_draining(manifest, snaps)
-        _consume_unreachable_indexes(manifest, snaps, consume_intermediates)
-        recorded = set(snaps)
-        for snap in snaps:
-            _consume_after_link(manifest, snap, recorded, consume_intermediates)
-        return manifest
 
     identity, n_forests_total, max_rank = compute_identity(manifest, budget_bytes=budget_bytes)
     # ``with`` is the deterministic release, not the ownership: the accessor
@@ -1397,12 +1255,8 @@ def run_links(
         manifest.data["links"] = computed
         manifest.save()
 
-        recorded = set(snaps)
-        _consume_unreachable_indexes(manifest, snaps, consume_intermediates)
-
         for snap in snaps:
             link_one_snapshot(manifest, snap, identity)
-            _consume_after_link(manifest, snap, recorded, consume_intermediates)
     _log(
         "links: {} snapshot(s) linked — n_forests_total={}, max_halo_rank_in_forest={}".format(
             len(snaps), n_forests_total, max_rank

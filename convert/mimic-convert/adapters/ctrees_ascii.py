@@ -12,8 +12,7 @@ not re-derive anything. :func:`prepare_workdir` runs those stages in the
 *extended* scratch layout, which carries every row's canonical source
 coordinate and the profile's declared extras through them unchanged, and
 :class:`CTreesAsciiAdapter` then re-expresses the prepared records as
-canonical batches. The legacy ASCII-to-v2 route is untouched: it runs the same
-stages in the frozen legacy layout, and its writer refuses an extended workdir.
+canonical batches.
 
 **Canonical unit and identity.** Under the 2026-10-07 owner ruling the
 route's canonical unit is the whole forest: units are the forests in ascending
@@ -108,7 +107,7 @@ from links import (
     run_links,
 )
 from scatter import (
-    SOURCE_SATISFIED,
+    SOURCE_COMPLETED,
     Manifest,
     file_md5,
     install_cut,
@@ -336,8 +335,8 @@ def prepare_workdir(
 
     No intermediate is consumed: the adapter reads the fixed and links scratch
     this leaves behind. The a_list, simulation_info and ordered source files
-    are bound into the manifest as on the legacy route, and the schema's
-    layout (tag and digest) is too, so a resume with any other selection --
+    are bound into the manifest by scatter, and the schema's layout (tag and
+    digest) is too, so a resume with any other selection --
     or with none -- is refused before anything is mutated.
 
     **Early batch-term refusal.** Given ``max_rows`` and
@@ -458,9 +457,8 @@ def _check_recorded_inputs(
     when none was bound).
 
     Source content is judged by scatter's own rule, ``Manifest.classify_source``
-    (recorded size and mtime_ns, a ``consumed`` entry satisfying it without a
-    stat), and a changed source is refused with the message ``run_scatter``
-    gives the same case on the legacy route -- so silent substitution stays
+    (recorded size and mtime_ns), and a changed source is refused with the
+    message ``run_scatter`` gives the same case -- so silent substitution stays
     impossible whether or not scatter is re-entered.
     """
     provenance = manifest.data["provenance"]
@@ -494,7 +492,7 @@ def _check_recorded_inputs(
                 "resume -- use a fresh workdir".format(manifest.path, what)
             )
     changed = [
-        Path(path) for path in tree_files if manifest.classify_source(path) not in SOURCE_SATISFIED
+        Path(path) for path in tree_files if manifest.classify_source(path) != SOURCE_COMPLETED
     ]
     if changed:
         raise ConverterError(
@@ -836,7 +834,7 @@ class CTreesAsciiAdapter(SourceAdapter):
         for ordinal, path in enumerate(source_files):
             entry = manifest.source_entry(path)
             status = None if entry is None else entry.get("status")
-            if status not in SOURCE_SATISFIED:
+            if status != SOURCE_COMPLETED:
                 raise ConverterError(
                     "{}: source file {} has scatter status {!r}; every inventory file must be "
                     "scattered -- a conversion never narrows silently".format(

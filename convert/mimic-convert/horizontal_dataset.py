@@ -1,24 +1,24 @@
-"""Bounded, read-only access to a horizontal-HDF5 dataset of version 2 or 3.
+"""Bounded, read-only access to a horizontal-HDF5 dataset of format version 3.
 
 A dataset directory holds one ``snapshot_NNN.h5`` per snapshot, contiguous from
 ``000``, and the ``forests.h5`` sidecar
-(``convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md``, File Set and Naming, and
-V3 File Set and Naming). :class:`HorizontalDataset` opens one, reads every
-snapshot's ``/header`` attributes, checks the run-scoped ones agree across files,
-and then reads ``/halos`` columns only in **bounded blocks**: one named column of
-one slab, at most ``block_rows`` rows at a time (default 2^22). Nothing here
+(``convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md``, V3 File Set and Naming).
+:class:`HorizontalDataset` opens one, reads every snapshot's ``/header``
+attributes, checks the run-scoped ones agree across files, and then reads
+``/halos`` columns only in **bounded blocks**: one named column of one slab, at
+most ``block_rows`` rows at a time (default 2^22). Nothing here
 ever materialises a whole column of a slab, which is what lets the forest census
 (``forest_census.py``) walk a 519 million-row slab in a few hundred megabytes.
 
 The :meth:`HorizontalDataset.identity` record -- format version,
-``source_format`` (version 3 only; ``None`` for version 2), ``n_forests_total``,
-per-snapshot ``n_halos`` and the SHA-256 of the sidecar's ``ForestID`` column --
-is what census aggregate directories are bound to, so that a later subcommand
-refuses a directory produced from a different dataset.
+``source_format``, ``n_forests_total``, per-snapshot ``n_halos`` and the
+SHA-256 of the sidecar's ``ForestID`` column -- is what census aggregate
+directories are bound to, so that a later subcommand refuses a directory
+produced from a different dataset.
 
 This module validates only what it relies on (file set, supported version,
 agreement of the run-scoped attributes, column lengths, the sidecar length); the
-full conformance battery is ``validate.py`` / ``validate_v3.py``.
+full conformance battery is ``validate_v3.py`` (or ``validate_bounded.py``).
 """
 
 import hashlib
@@ -26,7 +26,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional, Sequence, Tuple
+from typing import Dict, Iterator, List, Sequence, Tuple
 
 import h5py
 import numpy as np
@@ -34,16 +34,22 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from errors import ConverterError  # noqa: E402
-from hdf5_writer_v3 import SIDECAR_NAME, V3_STRING_ATTRS, snapshot_h5_name  # noqa: E402
+from hdf5_writer_v3 import (  # noqa: E402
+    SIDECAR_NAME,
+    V3_FORMAT_VERSION,
+    V3_STRING_ATTRS,
+    snapshot_h5_name,
+)
 
 #: Rows per block read: 2^22 rows is 32 MiB of an int64 column.
 DEFAULT_BLOCK_ROWS = 1 << 22
 
-#: The ``format_version`` values this reader opens.
-SUPPORTED_FORMAT_VERSIONS = (2, 3)
+#: The ``format_version`` values this reader opens: version 3 only. Any other
+#: is refused, naming the version found.
+SUPPORTED_FORMAT_VERSIONS = (V3_FORMAT_VERSION,)
 
 #: Header attributes that are properties of the whole dataset and must be
-#: identical in every snapshot file. ``source_format`` exists in version 3 only.
+#: identical in every snapshot file.
 RUN_SCOPED_ATTRS = (
     "format_version",
     "links_adjacent",
@@ -91,7 +97,7 @@ class HorizontalDataset:
 
     Raises:
         ConverterError: on a missing or non-contiguous snapshot file set, a
-            missing sidecar, an unsupported or mixed ``format_version``, a
+            missing sidecar, a ``format_version`` other than 3 or a mixed one, a
             run-scoped attribute that differs between files, a header
             ``snapshot_number`` that disagrees with its file name, or a sidecar
             ``ForestID`` whose length is not ``n_forests_total``.
@@ -139,9 +145,8 @@ class HorizontalDataset:
         version = first.get("format_version")
         if version not in SUPPORTED_FORMAT_VERSIONS:
             raise ConverterError(
-                "{}: format_version {!r} is not one of {}".format(
-                    self.snapshot_path(0), version, SUPPORTED_FORMAT_VERSIONS
-                )
+                "{}: format_version {!r} is not supported; this reader opens format_version {} "
+                "only".format(self.snapshot_path(0), version, V3_FORMAT_VERSION)
             )
         for name in RUN_SCOPED_ATTRS:
             values = {repr(header.get(name)) for header in self._headers}
@@ -160,7 +165,7 @@ class HorizontalDataset:
                             self.snapshot_path(snap), name, kind.__name__, value
                         )
                     )
-        if version >= 3 and not all(name in first for name in V3_STRING_ATTRS):
+        if not all(name in first for name in V3_STRING_ATTRS):
             raise ConverterError(
                 "{}: a version 3 header without {}".format(self.directory, sorted(V3_STRING_ATTRS))
             )
@@ -183,8 +188,8 @@ class HorizontalDataset:
         return int(self._headers[0]["format_version"])
 
     @property
-    def source_format(self) -> Optional[str]:
-        """The producing adapter (version 3), or ``None`` for version 2."""
+    def source_format(self) -> str:
+        """The producing adapter, the header's ``source_format``."""
         return self._headers[0].get("source_format")
 
     @property
@@ -327,18 +332,12 @@ class HorizontalDataset:
             }
 
     def schema_declarations(self, snap: int) -> Dict[str, Dict[str, str]]:
-        """A version 3 slab's ``/schema``: name -> its attributes, as strings.
+        """A slab's ``/schema``: name -> its attributes, as strings.
 
         Raises:
-            ConverterError: for a version 2 dataset, or a file without the group.
+            ConverterError: for a file without the group.
         """
         snap = self._check_snapshot(snap)
-        if self.format_version < 3:
-            raise ConverterError(
-                "{}: a version {} dataset carries no /schema".format(
-                    self.directory, self.format_version
-                )
-            )
         path = self.snapshot_path(snap)
         with h5py.File(path, "r") as handle:
             if "schema" not in handle:

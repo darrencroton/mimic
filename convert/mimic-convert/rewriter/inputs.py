@@ -1,8 +1,8 @@
 """Every argument check and refusal the rewriter makes before it writes.
 
 :func:`prepare` turns a :class:`RewriteRequest` into a :class:`Prepared` run:
-it opens the input, binds the a_list, the physical metadata, the schema, the
-index files and the conversion's tree-file order to it, and refuses -- with
+it opens the input, binds the a_list, the physical metadata, the schema and
+the index files to it, and refuses -- with
 a message naming the offending value -- anything the passes could not carry
 through faithfully. Nothing here writes.
 
@@ -10,39 +10,33 @@ The refusals, in the order they are made:
 
 - paths: the output and scratch directories are explicit and lie outside the
   input, and neither contains the other;
-- the operation's options: ``migrate`` needs ``--column-map``; ``noop`` and
-  ``cut`` refuse it (``/schema`` is carried through) and
-  ``--conversion-manifest``; ``cut`` needs ``--cut-table``, which the other
-  two refuse, and takes ``--cut-table-record``;
-- the input: ``format_version`` 2 for ``migrate`` and 3 for ``noop`` and
-  ``cut`` (every other version is refused by the reader), ``links_adjacent``
-  1, and for a version 3 input ``source_format`` ``consistent_trees_ascii``;
+- the operation's options: ``cut`` needs ``--cut-table``, which ``noop``
+  refuses, and takes ``--cut-table-record``;
+- the input: ``format_version`` 3 (every other version is refused by the
+  reader, and again here by name), ``links_adjacent`` 1, and
+  ``source_format`` ``consistent_trees_ascii``;
 - the a_list: exactly the input's scale factors;
 - the simulation metadata: exactly the input's five physical header values;
-- the schema: for ``migrate`` the profile's, which must be a
-  ``consistent_trees_ascii`` profile; for ``noop`` and ``cut`` the shipped
-  default profile, whose digest must be the input's ``column_mapping_sha256``,
-  since the manifest the battery binds to embeds the schema and no other
-  profile is given; every input slab's ``/schema`` must then declare exactly
-  it;
+- the schema: the shipped default profile's, whose digest must be the
+  input's ``column_mapping_sha256``, since the manifest the battery binds to
+  embeds the schema and no other profile is given; every input slab's
+  ``/schema`` must then declare exactly it, and is carried through;
 - the columns: every ``/halos`` column the output table needs, at the table's
   dtype and shape;
 - the multiplier: it must encode the output's identity bounds -- the
-  input's for ``migrate`` and ``noop``; for ``cut`` the installed table's,
-  checked when the table is installed (``rewriter.cut``), since a cut lowers
+  input's for ``noop``; for ``cut`` the installed table's, checked when the
+  table is installed (``rewriter.cut``), since a cut lowers
   ``max_halo_rank_in_forest`` and raises ``n_forests_total``;
 - the index files: both present and consistent with each other, listing
   exactly the input's forests in the sidecar's order;
-- the tree-file order: from the version 2 conversion manifest's ordered
-  source list (``migrate``), required when ``locations.dat`` names more than
-  one file, the one file itself otherwise, and refused when ambiguous or
-  naming another file; for ``noop`` and ``cut`` the mapping the input sidecar
-  itself implies, refused when inconsistent;
+- the tree-file order: the ``FileID`` -> file-ordinal mapping the input
+  sidecar itself implies, refused when inconsistent;
 - the cut table's record (``cut``, when given): a readable JSON record whose
   ``table.md5`` is the given table's md5 and whose ``index_files`` md5 values
   are the given index files', each refused otherwise; the record's dataset
-  identity is carried into the manifest as lineage, not compared, since a
-  migration changes the identity while preserving the forest enumeration.
+  identity is carried into the manifest as lineage, not compared, since the
+  dataset the table was built from may be another conversion of the same
+  catalogue with the same forest enumeration.
   The table's own invariants are checked once pass 0 has given the trees'
   halo totals (``rewriter.cut``), still before any write, as are a piece held
   in one file whose ``FileID`` the input sidecar gives no ordinal for (the
@@ -70,13 +64,7 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from census.cut_table import md5_file  # noqa: E402
-from census.trees import ParsedCounts, load_parsed_counts  # noqa: E402
-from column_schema import (  # noqa: E402
-    CanonicalSchema,
-    PayloadField,
-    build_schema,
-    load_column_map,
-)
+from column_schema import CanonicalSchema, PayloadField, build_schema, load_column_map  # noqa: E402
 from conversion_manifest import (  # noqa: E402
     canonical_sha256,
     dtype_descriptor,
@@ -94,7 +82,6 @@ from hdf5_writer_v3 import (  # noqa: E402
 from horizontal_dataset import DEFAULT_BLOCK_ROWS, HorizontalDataset  # noqa: E402
 from rewriter import (  # noqa: E402
     OPERATION_CUT,
-    OPERATION_MIGRATE,
     OPERATION_NOOP,
     OPERATIONS,
     REWRITER_VERSION,
@@ -125,22 +112,10 @@ PHYSICAL_ATTRS = (
 ROLE_INPUT = "input"
 ROLE_A_LIST = "a_list"
 ROLE_SIMULATION_INFO = "simulation_info"
-ROLE_COLUMN_MAP = "column_map"
 ROLE_FORESTS_LIST = "forests_list"
 ROLE_LOCATIONS = "locations"
-ROLE_CONVERSION_MANIFEST = "conversion_manifest"
 ROLE_CUT_TABLE = "cut_table"
 ROLE_CUT_TABLE_RECORD = "cut_table_record"
-
-#: ``/halos`` columns of a version 2 input that the output table reads under
-#: another width (int32 links become int64).
-_V2_LINKS = (
-    "Descendant",
-    "FirstProgenitor",
-    "NextProgenitor",
-    "FirstHaloInFOFgroup",
-    "NextHaloInFOFgroup",
-)
 
 
 def _examples(values, limit: int = 5) -> list:
@@ -159,8 +134,6 @@ class RewriteRequest:
     a_list: Path
     forests_list: Path
     locations: Path
-    column_map: Optional[Path]
-    conversion_manifest: Optional[Path]
     multiplier: int
     resume: bool = False
     block_rows: int = DEFAULT_BLOCK_ROWS
@@ -183,11 +156,8 @@ class Prepared:
     index: Optional[SourceIndex]
     forest_table: Optional[ForestTable]
     #: ``locations.dat`` ``FileID`` -> the conversion's tree-file ordinal
-    #: (-1 where a ``noop`` input's sidecar does not determine it).
+    #: (-1 where the input sidecar does not determine it).
     file_ordinals: Dict[int, int]
-    #: tree-file names in the conversion's order; empty when not recorded.
-    tree_file_order: List[str]
-    parsed_counts: Optional[ParsedCounts]
     #: the output sidecar's three columns, in ``ForestIndex`` order.
     sidecar: Optional[Dict[str, np.ndarray]]
     pins: List[Dict[str, object]]
@@ -263,23 +233,6 @@ def check_options(request: RewriteRequest) -> None:
         raise ConverterError(
             "operation {!r} is not one of {}".format(request.operation, list(OPERATIONS))
         )
-    if request.operation == OPERATION_MIGRATE and request.column_map is None:
-        raise ConverterError(
-            "migrate needs --column-map (the package's consistent_trees_ascii profile), from "
-            "which the version 3 /schema is built"
-        )
-    if request.operation in (OPERATION_NOOP, OPERATION_CUT):
-        if request.column_map is not None:
-            raise ConverterError(
-                "{} refuses --column-map {}: the input's /schema is carried through".format(
-                    request.operation, request.column_map
-                )
-            )
-        if request.conversion_manifest is not None:
-            raise ConverterError(
-                "{} refuses --conversion-manifest {}: the sidecar ordinals follow the input "
-                "sidecar".format(request.operation, request.conversion_manifest)
-            )
     if request.operation == OPERATION_CUT:
         if request.cut_table is None:
             raise ConverterError(
@@ -317,8 +270,8 @@ def check_options(request: RewriteRequest) -> None:
 
 
 def check_dataset(request: RewriteRequest, dataset: HorizontalDataset) -> None:
-    """The input is the operation's version, adjacent, and of this format."""
-    wanted = 2 if request.operation == OPERATION_MIGRATE else 3
+    """The input is version 3, adjacent, and of this format."""
+    wanted = 3
     if dataset.format_version != wanted:
         raise ConverterError(
             "{}: format_version {} but {} rewrites a version {} input".format(
@@ -332,7 +285,7 @@ def check_dataset(request: RewriteRequest, dataset: HorizontalDataset) -> None:
                 dataset.directory, dataset.links_adjacent
             )
         )
-    if dataset.format_version >= 3 and dataset.source_format != SOURCE_FORMAT:
+    if dataset.source_format != SOURCE_FORMAT:
         raise ConverterError(
             "{}: source_format {!r}; the rewriter handles {!r} datasets only".format(
                 dataset.directory, dataset.source_format, SOURCE_FORMAT
@@ -410,26 +363,18 @@ def _declared(declarations) -> Dict[str, Dict[str, str]]:
 
 
 def load_schema(request: RewriteRequest, dataset: HorizontalDataset) -> CanonicalSchema:
-    """The output's schema: the profile's for ``migrate``, the shipped default
-    profile's for ``noop`` (whose digest must be the input's)."""
-    if request.operation == OPERATION_MIGRATE:
-        schema = build_schema(load_column_map(request.column_map))
-        if schema.source_format != SOURCE_FORMAT:
-            raise ConverterError(
-                "--column-map {}: a {!r} profile; migrate needs a {!r} profile".format(
-                    request.column_map, schema.source_format, SOURCE_FORMAT
-                )
-            )
-        return schema
+    """The output's schema: the shipped default profile's, whose digest must be
+    the input's and whose declarations every input slab's ``/schema`` must
+    hold exactly."""
     schema = build_schema(load_column_map(DEFAULT_PROFILE))
     for snap in dataset.snapshots:
         recorded = dataset.header(snap).get("column_mapping_sha256")
         if schema.digest != recorded:
             raise ConverterError(
                 "{}: column_mapping_sha256 {} is not the shipped {} profile's ({}); the "
-                "manifest noop writes embeds that profile's schema, so an input converted with "
-                "another profile cannot be bound -- its own profile is not given (noop refuses "
-                "--column-map)".format(
+                "manifest the rewriter writes embeds that profile's schema, so an input "
+                "converted with another profile cannot be bound -- the rewriter takes no other "
+                "profile".format(
                     dataset.snapshot_path(snap), recorded, SOURCE_FORMAT, schema.digest
                 )
             )
@@ -455,15 +400,10 @@ def load_schema(request: RewriteRequest, dataset: HorizontalDataset) -> Canonica
 
 def check_columns(dataset: HorizontalDataset, table: Mapping[str, Tuple[np.dtype, bool]]) -> None:
     """Every slab holds the columns the output reads, at the table's dtype
-    and row shape (a version 2 input's five links at int32 instead)."""
-    identity_from_input = dataset.format_version >= 3
+    and row shape."""
     for snap in dataset.snapshots:
         held = dataset.halo_dtypes(snap)
         for name, (dtype, is_vec) in table.items():
-            if name.endswith("Snapshot") and dataset.format_version < 3:
-                continue  # version 2 implies the target snapshots
-            if name in ("SourceHaloID",) and not identity_from_input:
-                continue  # computed from the version 2 columns
             if name not in held:
                 raise ConverterError(
                     "{}: no /halos/{} column, which the output needs".format(
@@ -472,8 +412,6 @@ def check_columns(dataset: HorizontalDataset, table: Mapping[str, Tuple[np.dtype
                 )
             held_dtype, shape = held[name]
             wanted = np.dtype(dtype)
-            if name in _V2_LINKS and dataset.format_version < 3:
-                wanted = np.dtype("<i4")
             if np.dtype(held_dtype).newbyteorder("<").str != wanted.str:
                 raise ConverterError(
                     "{}: /halos/{} is {}, the output table needs {}".format(
@@ -545,83 +483,11 @@ def _basenames(index: SourceIndex) -> Dict[int, str]:
     return names
 
 
-def tree_file_ordinals(
-    index: SourceIndex, conversion_manifest: Optional[Path]
-) -> Tuple[Dict[int, int], List[str]]:
-    """``locations.dat`` ``FileID`` -> the conversion's tree-file ordinal, by
-    file name, from the version 2 conversion manifest's ordered
-    ``provenance.source_files``; for a one-file catalogue without a manifest
-    the file itself is ordinal 0. Returns the mapping and the ordered names.
-
-    Raises:
-        ConverterError: when ``locations.dat`` names several files and no
-            manifest is given, when the manifest's list is missing, empty,
-            repeats a name, or names a file the index does not (or omits one
-            it does), and when two ``FileID`` values share a name.
-    """
-    names = _basenames(index)
-    if conversion_manifest is None:
-        if len(names) != 1:
-            raise ConverterError(
-                "locations.dat names {} tree files ({}); --conversion-manifest (the version 2 "
-                "conversion's manifest.json, whose provenance.source_files records the "
-                "converter's tree-file order) is required".format(
-                    len(names), _examples(sorted(names.values()))
-                )
-            )
-        ((file_id, name),) = names.items()
-        return {file_id: 0}, [name]
-    path = Path(conversion_manifest)
-    try:
-        with open(path) as handle:
-            document = json.load(handle)
-    except (OSError, ValueError) as exc:
-        raise ConverterError(
-            "--conversion-manifest {}: not a readable JSON manifest ({})".format(path, exc)
-        ) from exc
-    recorded = (
-        (document.get("provenance") or {}).get("source_files")
-        if isinstance(document, dict)
-        else None
-    )
-    if (
-        not isinstance(recorded, list)
-        or not recorded
-        or not all(isinstance(entry, str) for entry in recorded)
-    ):
-        raise ConverterError(
-            "--conversion-manifest {}: no ordered provenance.source_files list; the tree-file "
-            "order is missing".format(path)
-        )
-    order = [os.path.basename(entry) for entry in recorded]
-    repeated = sorted({name for name in order if order.count(name) > 1})
-    if repeated:
-        raise ConverterError(
-            "--conversion-manifest {}: source_files names {} more than once; the tree-file "
-            "order is ambiguous".format(path, _examples(repeated))
-        )
-    listed = set(order)
-    indexed = set(names.values())
-    if listed != indexed:
-        raise ConverterError(
-            "--conversion-manifest {}: its source files are not locations.dat's: {} named only "
-            "by the manifest (e.g. {}), {} only by locations.dat (e.g. {})".format(
-                path,
-                len(listed - indexed),
-                _examples(sorted(listed - indexed)),
-                len(indexed - listed),
-                _examples(sorted(indexed - listed)),
-            )
-        )
-    position = {name: ordinal for ordinal, name in enumerate(order)}
-    return {file_id: position[name] for file_id, name in names.items()}, order
-
-
 def sidecar_file_ordinals(
     index: SourceIndex, table: ForestTable, sidecar: Mapping[str, np.ndarray]
 ) -> Dict[int, int]:
-    """For a version 3 input, the ``FileID`` -> ``SourceFileOrdinal`` mapping
-    its own sidecar implies through the forests held in one file, refused
+    """The ``FileID`` -> ``SourceFileOrdinal`` mapping the input's own sidecar
+    implies through the forests held in one file, refused
     when it is not one-to-one; a ``FileID`` whose every forest spans files
     maps to -1. The unit ordinals and the spanning forests must agree too."""
     _basenames(index)
@@ -757,14 +623,6 @@ def _pins(request: RewriteRequest, dataset: HorizontalDataset) -> List[Dict[str,
         pin_dependency(request.forests_list, (ROLE_FORESTS_LIST,), content_sha256=True),
         pin_dependency(request.locations, (ROLE_LOCATIONS,), content_sha256=True),
     ]
-    if request.column_map is not None:
-        pins.append(pin_dependency(request.column_map, (ROLE_COLUMN_MAP,), content_sha256=True))
-    if request.conversion_manifest is not None:
-        pins.append(
-            pin_dependency(
-                request.conversion_manifest, (ROLE_CONVERSION_MANIFEST,), content_sha256=True
-            )
-        )
     if request.cut_table is not None:
         pins.append(pin_dependency(request.cut_table, (ROLE_CUT_TABLE,), content_sha256=True))
     if request.cut_table_record is not None:
@@ -777,16 +635,11 @@ def _pins(request: RewriteRequest, dataset: HorizontalDataset) -> List[Dict[str,
     return pins
 
 
-def _sha256_or_none(path) -> Optional[str]:
-    return None if path is None else sha256_file(path)
-
-
 def _configuration(
     request: RewriteRequest,
     dataset: HorizontalDataset,
     schema: CanonicalSchema,
     scale_factors: Tuple[float, ...],
-    tree_file_order: List[str],
     input_dir: Path,
     scratch_dir: Path,
     index_trees: int,
@@ -800,7 +653,13 @@ def _configuration(
     The cut table is bound by its md5 (the census's digest of it) and its
     SHA-256, the latter taken from its pin (``pinned``: role -> content
     digest) so the table is read once for each; the record contributes the
-    rule text and its dataset lineage."""
+    rule text and its dataset lineage.
+
+    ``column_map``, ``conversion_manifest``, their digests and the tree-file
+    order are fixed at None and the empty list: the rewriter takes neither
+    file and records no tree-file order, and the keys keep the configuration
+    -- and so the digest a resume compares -- that of every workdir it has
+    written."""
     input_dtype = np.dtype(
         [
             (name, dtype.str, shape) if shape else (name, dtype.str)
@@ -816,18 +675,10 @@ def _configuration(
         "simulation_info": str(_resolved(request.simulation_info, "--simulation-info")),
         "forests_list": str(_resolved(request.forests_list, "--forests-list")),
         "locations": str(_resolved(request.locations, "--locations")),
-        "column_map": (
-            None
-            if request.column_map is None
-            else str(_resolved(request.column_map, "--column-map"))
-        ),
-        "conversion_manifest": (
-            None
-            if request.conversion_manifest is None
-            else str(_resolved(request.conversion_manifest, "--conversion-manifest"))
-        ),
-        "tree_file_order": list(tree_file_order),
-        "tree_file_order_sha256": canonical_sha256(list(tree_file_order)),
+        "column_map": None,
+        "conversion_manifest": None,
+        "tree_file_order": [],
+        "tree_file_order_sha256": canonical_sha256([]),
         "multiplier": int(request.multiplier),
         "cut_table": (
             None if request.cut_table is None else str(_resolved(request.cut_table, "--cut-table"))
@@ -844,8 +695,8 @@ def _configuration(
         "cut_table_record_dataset": None if cut_record is None else cut_record["dataset"],
         "a_list_sha256": sha256_file(request.a_list),
         "simulation_info_sha256": sha256_file(request.simulation_info),
-        "column_map_sha256": _sha256_or_none(request.column_map),
-        "conversion_manifest_sha256": _sha256_or_none(request.conversion_manifest),
+        "column_map_sha256": None,
+        "conversion_manifest_sha256": None,
         "forests_list_sha256": sha256_file(request.forests_list),
         "locations_sha256": sha256_file(request.locations),
     }
@@ -905,19 +756,12 @@ def prepare(request: RewriteRequest) -> Prepared:
     sidecar_in = dataset.sidecar_columns()
     forest_ids = np.ascontiguousarray(sidecar_in["ForestID"], dtype=np.int64)
     check_forest_ids(dataset, forest_table, forest_ids)
-    parsed_counts = None
-    if request.operation == OPERATION_MIGRATE:
-        file_ordinals, order = tree_file_ordinals(index, request.conversion_manifest)
-        if request.conversion_manifest is not None:
-            parsed_counts = load_parsed_counts(request.conversion_manifest)
-    else:
-        missing = sorted(set(V3_SIDECAR_DATASETS) - set(sidecar_in))
-        if missing:
-            raise ConverterError(
-                "{}: a version 3 sidecar without {}".format(dataset.sidecar_path, missing)
-            )
-        file_ordinals = sidecar_file_ordinals(index, forest_table, sidecar_in)
-        order = []
+    missing = sorted(set(V3_SIDECAR_DATASETS) - set(sidecar_in))
+    if missing:
+        raise ConverterError(
+            "{}: a version 3 sidecar without {}".format(dataset.sidecar_path, missing)
+        )
+    file_ordinals = sidecar_file_ordinals(index, forest_table, sidecar_in)
     sidecar = output_sidecar(forest_table, file_ordinals, forest_ids)
     if request.operation == OPERATION_NOOP:
         for name in V3_SIDECAR_DATASETS:
@@ -935,7 +779,6 @@ def prepare(request: RewriteRequest) -> Prepared:
         dataset,
         schema,
         scale_factors,
-        order,
         input_dir,
         scratch_dir,
         index.n_trees,
@@ -955,8 +798,6 @@ def prepare(request: RewriteRequest) -> Prepared:
         index=index,
         forest_table=forest_table,
         file_ordinals=file_ordinals,
-        tree_file_order=order,
-        parsed_counts=parsed_counts,
         sidecar=sidecar,
         pins=pins,
         configuration=configuration,

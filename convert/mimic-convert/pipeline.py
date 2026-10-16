@@ -79,8 +79,8 @@ and deletes only verified, manifest-registered artifacts inside the workdir
 
 **Sources are read-only.** Adapters open source files for reading only, the
 manifest records them as pinned dependencies, and a workdir that contains a
-source file is refused at :func:`initialize`. There is no release or
-transfer step for these adapters.
+source file is refused at :func:`initialize`. Nothing transfers or deletes
+a source file.
 
 **Failure.** A failing stage records ``failed`` with the error text (best
 effort), never ``complete``, and re-raises; the error names the offending
@@ -704,7 +704,8 @@ def initialize(
     into the manifest's ``tuning``. Re-initializing a workdir with the
     identical configuration returns its manifest unchanged -- tuning apart,
     which is recorded while ingest is incomplete (see the module docstring);
-    anything else different, or a legacy workdir, is refused.
+    anything else different, or a directory whose top-level manifest is a
+    scatter manifest (an ASCII preparation's state), is refused.
     """
     if not isinstance(schema, CanonicalSchema):
         raise ConverterError(
@@ -754,9 +755,12 @@ def initialize(
             manifest.record_tuning(tuning)
         return manifest
     if kind != MANIFEST_ABSENT:
-        # classify_manifest raised for everything else except legacy
+        # classify_manifest raised for everything else except a scatter
+        # manifest, which belongs inside a workdir's ASCII preparation
+        # directory, never at its top level
         raise ConverterError(
-            "{}: this is a legacy ASCII-to-v2 workdir; the generic pipeline never adopts, "
+            "{}: this directory holds a scatter manifest (a Consistent-Trees ASCII "
+            "preparation's state), not a generic conversion; the generic pipeline never adopts, "
             "upgrades or adds provenance to it -- use a fresh workdir".format(workdir)
         )
 

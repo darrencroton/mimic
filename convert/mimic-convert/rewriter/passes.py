@@ -677,7 +677,7 @@ class SlabColumns:
                     _rows(self.path, self.window.own.perm[bad]),
                 )
             )
-        if companion is not None and self.dataset.format_version >= 3:
+        if companion is not None:
             held = _int64(self.dataset, self.snap, companion)[self.window.own.perm]
             expected = np.where(null, -1, self.snap + offset)
             bad = held != expected

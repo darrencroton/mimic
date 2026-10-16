@@ -59,7 +59,7 @@ from rewriter.inputs import (  # noqa: E402
 )
 from rewriter.pass0 import (  # noqa: E402
     Census,
-    check_conservation,
+    conservation_record,
     run_pass0,
     source_bases,
     tree_inventory,
@@ -355,7 +355,7 @@ def run_rewrite(request: RewriteRequest, log: Callable[[str], None] = _log) -> d
         "bytes": inventory_path(output_dir).stat().st_size,
     }
     state.save()
-    conservation = check_conservation(inventory, filenames, prepared.parsed_counts)
+    conservation = conservation_record(inventory, filenames)
     del inventory
     counts = [int(c) for c in dataset.n_halos]
     n_links: Dict[str, int] = {}
@@ -420,7 +420,6 @@ def run_rewrite(request: RewriteRequest, log: Callable[[str], None] = _log) -> d
         "n_links": n_links,
         "max_halo_rank_in_forest": census.max_rank,
         "multiplier": int(request.multiplier),
-        "tree_file_order": list(prepared.tree_file_order),
         "root_correspondence": census.correspondence,
         "conservation": conservation,
         "remap_store": {"peak_bytes": int(state.data["peak_store_bytes"])},

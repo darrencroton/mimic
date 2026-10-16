@@ -11,8 +11,8 @@
 # `scale` is parsed by the reference path but not retained in the scratch
 # record; it is a required role all the same.
 #
-# Reproducing this profile's selection is the existing ASCII-to-v2 workflow's
-# behaviour: the default ASCII path is unchanged by the generalisation.
+# This profile selects exactly the columns of the frozen legacy scratch record,
+# so a conversion through it carries no extra fields.
 
 schema_version: 1
 source_format: consistent_trees_ascii

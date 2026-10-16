@@ -930,9 +930,9 @@ tests-distributed:
 tests-snapshot-global-identity:
 	@$(PYTHON) tests/manual/test_snapshot_disabled_identity.py
 
-# Reference-topology dump harness: read-only, loads forests through the existing
-# consistent_trees_ascii reader and dumps their literal link fields for
-# convert/mimic-convert/crosscheck.py --reference-topology. Not part of `make tests`;
+# Reference source-dump harness: read-only, loads forests through the selected
+# vertical reader and dumps their literal link fields and core payload for the
+# converter's generalisation acceptance comparator. Not part of `make tests`;
 # build on demand. See tests/unit/tools/dump_ctrees_topology.c.
 dump-ctrees-topology-tool:
 	@MODEL=$(MODEL) SIMULATION=$(SIMULATION) tests/unit/tools/build_topology_dump.sh

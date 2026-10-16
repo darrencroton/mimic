@@ -1,4 +1,4 @@
-"""The forest census of a horizontal-HDF5 dataset (version 2 or 3).
+"""The forest census of a horizontal-HDF5 dataset (format version 3).
 
 Measures how a dataset's halos are distributed over forests and over effective
 descendant trees, slab by slab, and simulates the horizontal driver's two-level

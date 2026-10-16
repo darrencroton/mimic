@@ -1,4 +1,4 @@
-"""The cut forest table: F6's naming, its invariants, and its record.
+"""The cut forest table: its naming, its invariants, and its record.
 
 A **cut forest table** is a file in ``forests.list`` shape (``#TreeRootID
 ForestID`` then one ``<tree root id> <forest id>`` row per tree) that maps
@@ -7,7 +7,7 @@ after a cut. The census builds one table, the decided one: every tree joins
 the forest of its terminal halo's z = 0 FoF group (``census/table.py``), and
 each such group's trees are one **piece**.
 
-Naming (:func:`name_pieces`), as the plan's frozen decision F6 binds it:
+Naming (:func:`name_pieces`):
 
 - a piece's size is its total halo count over all snapshots; ties are broken
   by the smallest tree root id;
@@ -118,7 +118,7 @@ def name_pieces(
     forest_ids: np.ndarray,
     catalogue_max: int,
 ) -> Dict[str, np.ndarray]:
-    """Name the pieces of the split forests' trees under F6.
+    """Name the pieces of the split forests' trees under the table's naming rule.
 
     Args:
         components: each local tree's piece key, the local index of one tree

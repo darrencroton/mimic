@@ -14,8 +14,9 @@ aggregates of the dataset, with a passed root correspondence:
    time): each piece's peak occupancy and its slab, in one pass over every
    slab's tree pairs, and then, in a second, the driver's partition
    (``census/partition.py``) with the pieces installed and weighted as the
-   driver weighs them, by their peak occupancy -- under F6 an original
-   forest keeps its ``ForestIndex`` (a split forest's largest piece among them)
+   driver weighs them, by their peak occupancy -- under the cut table's naming
+   (``census/cut_table.py``) an original forest keeps its ``ForestIndex`` (a
+   split forest's largest piece among them)
    and the fresh pieces enumerate after every original forest in ascending
    fresh id -- giving every grid point's widest range per slab and overall and
    two memory figures at the stated bytes per resident halo: the **process**
@@ -35,7 +36,7 @@ aggregates of the dataset, with a passed root correspondence:
      one piece but no longer share a group) counted separately. **No
      promotion occurs at the final snapshot**: the table keeps every z = 0
      group whole, and a promotion there is refused as an error;
-   - **progenitor-order changes** under F4: per slab, the encounter order of a
+   - **progenitor-order changes**: per slab, the encounter order of a
      descendant's progenitors is ascending (upid, pid, id), upid being the FoF
      central's ``MostBoundID`` (``FirstHaloInFOFgroup``'s row) and pid -1 for a
      central, else the central's id; a promoted halo becomes (id, -1, id). The
@@ -54,8 +55,8 @@ aggregates of the dataset, with a passed root correspondence:
      descendant path, propagated slab by slab (``dependent_halos``), and the
      upper bound, every halo of a piece holding a seed
      (``upper_bound_halos``): a piece without one keeps its topology and its
-     relative order. HOD and SHAM are stated as predicted mechanisms (decision
-     7), not counted: the identities their draws and tie-breaks key on are
+     relative order. HOD and SHAM are stated as predicted mechanisms, not
+     counted: the identities their draws and tie-breaks key on are
      recomputed in every split forest, promoted halos change host and
      centrality, and SHAM's global ranking can move tied assignments outside
      the split forests.
@@ -63,8 +64,9 @@ aggregates of the dataset, with a passed root correspondence:
 The halos **re-labelled** are also counted: those of fresh pieces (new forest
 id), every halo of a split forest (``HaloRankInForest`` recomputed), and every
 halo whose ``SourceHaloID`` prefix moves. ``SourceHaloID`` is recomputed for
-every row of every forest from the first split one on, but under F1 its prefix
-is the halos of every lower ``ForestIndex``, so the prefix moves for every
+every row of every forest from the first split one on, but, since an id is the
+row's (``ForestIndex``, ``HaloRankInForest``) position, its prefix is the halos
+of every lower ``ForestIndex``, so the prefix moves for every
 halo of those forests except the first split forest's kept piece, which keeps
 its ``ForestIndex`` after unchanged forests (only its ranks move).
 
@@ -85,7 +87,7 @@ split-forest row and nothing is re-read.
 ``FirstHaloInFOFgroup`` and ``Descendant`` over each block's span of
 split-forest rows (``2 w x span(s)``), and ``MostBoundID``, ``M_Crit200`` and
 ``NextProgenitor`` over each window of retained rows (``(12 + w) x
-window(s)``), with ``w`` the link width (4 B in version 2, 8 B in version 3);
+window(s)``), with ``w`` the link width (8 B, int64);
 ``span(s)`` and ``window(s)`` are at most ``n_halos(s)``. The final slab's
 ``FirstHaloInFOFgroup`` and ``ForestIndex`` are read once more by the table's
 construction. The bytes read are measured and recorded per column in
@@ -224,7 +226,8 @@ SEVERANCE_DEFINITIONS = {
     "centrals: the rows whose MostBoundID, M_Crit200 and NextProgenitor are read",
 }
 
-#: The predicted HOD and SHAM mechanisms (decision 7), stated rather than counted.
+#: The predicted HOD and SHAM mechanisms, stated rather than counted: no identity
+#: claim is made for either model on a cut dataset.
 HOD_SHAM_MECHANISMS = (
     "identity recomputation: ForestIndex, HaloRankInForest and UniqueGalaxyID are recomputed "
     "for every halo of a split forest, and HOD's draws and SHAM's tie-breaks key on them",
@@ -293,10 +296,10 @@ def iter_forest_rows(
     ``ForestIndex`` is marked in ``selected`` (a boolean per ``ForestIndex``),
     block by block: the ``ForestIndex`` block is read whole, the named columns
     only over the span of the block's matching rows, from the first to the
-    last. In a version 3 slab that span is the selected forests' rows when
-    they are adjacent in ``ForestIndex``, otherwise their enclosing span; in a
-    version 2 slab it can be the whole block. It is bounded by ``block_rows``
-    either way. Every byte read is added to ``meter`` when one is given.
+    last. Every slab is forest-blocked, so that span is the selected forests'
+    rows when they are adjacent in ``ForestIndex``, otherwise their enclosing
+    span. It is bounded by ``block_rows`` either way. Every byte read is added
+    to ``meter`` when one is given.
 
     Raises:
         ConverterError: for a ``ForestIndex`` outside ``[0, selected.size)``.
@@ -464,7 +467,7 @@ def install_pieces(
     )
 
 
-# ---- progenitor chains (F4) -----------------------------------------------------
+# ---- progenitor chains (the reference encounter order) ----------------------------
 
 
 def chain_order(encounter: Sequence[int], mass: np.ndarray) -> List[int]:
@@ -1078,8 +1081,9 @@ def run_cut(
     }
     peak_args = (state.peak, state.peak_snapshot)
     uncut = inputs["partition"]["floor"]
-    # SourceHaloID is recomputed from the first split forest on; its prefix moves
-    # for all of those halos but the first split forest's kept piece (F1)
+    # SourceHaloID is recomputed from the first split forest on; being the row's
+    # (ForestIndex, HaloRankInForest) position, its prefix moves for all of those
+    # halos but the first split forest's kept piece
     recomputed = shifted = 0
     if first_split is not None:
         recomputed = int(np.asarray(forest_totals[first_split:]).sum())
@@ -1182,7 +1186,7 @@ def run_cut(
             "row span(s) of FirstHaloInFOFgroup and Descendant, plus (8 + 4 + link width) B x "
             "the windows of retained rows of MostBoundID, M_Crit200 and NextProgenitor; plus "
             "the final slab's FirstHaloInFOFgroup and ForestIndex for the table's construction; "
-            "link width 4 B in version 2, 8 B in version 3"
+            "link width 8 B (int64)"
         ),
         "memory": {
             "peak_rss_bytes_after": memory,

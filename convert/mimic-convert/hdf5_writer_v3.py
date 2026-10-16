@@ -8,11 +8,12 @@ lossless int64 links with explicit target snapshots, rows in ascending
 and units.
 :class:`HorizontalV3Writer` is the generic pipeline's write stage
 (``pipeline.run_write``), and it never stamps anything but
-``format_version = 3``. It shares only the header attribute table, the 65,536-row
-chunk-row ceiling and the header-metadata loader with the version 2 writer in
-:mod:`hdf5_writer`, which never calls into this module. Unlike version 2's fixed
-chunks, a version 3 chunk holds ``max(1, min(n_rows, 65536))`` rows (see
-:func:`v3_chunk_shape`), so a small dataset does not materialise a 65,536-row chunk.
+``format_version = 3``. This module also owns the header attribute table
+(:data:`HEADER_ATTRS`), the 65,536-row chunk-row ceiling (:data:`CHUNK_1D`), the
+snapshot file name (:func:`snapshot_h5_name`) and the header-metadata loader
+(:func:`load_header_metadata`) that the converter's other modules import. A chunk
+holds ``max(1, min(n_rows, 65536))`` rows (see :func:`v3_chunk_shape`), so a
+small dataset does not materialise a 65,536-row chunk.
 
 The writer consumes the generic pipeline's verified transposed snapshots --
 flat little-endian records whose fields ARE the v3 /halos columns
@@ -26,7 +27,7 @@ What it adds over the records is only what a whole-dataset view decides:
 - the run-scoped identity headers (``n_forests_total`` from the forest
   enumeration, ``max_halo_rank_in_forest`` measured over the records);
 - the physical headers from simulation_info.yaml, validated with the same
-  unit rules as v2 (``load_header_metadata``);
+  explicit unit rules (``load_header_metadata``);
 - ``/schema``, one subgroup per payload/extra declaration of the embedded
   schema, and the two v3 string headers.
 
@@ -141,8 +142,7 @@ def load_header_metadata(path) -> Dict[str, float]:
     return values
 
 
-#: The format version this module writes. Never 2: a v3 dataset is not a v2
-#: dataset with more columns, and stamping it 2 is not a rollback path.
+#: The format version this module writes, and the only one it ever stamps.
 V3_FORMAT_VERSION = 3
 
 #: The two v3 header strings: fixed-length ASCII, byte length.
@@ -460,7 +460,7 @@ class HorizontalV3Writer(StageWriter):
     """The generic pipeline's v3 write stage (``pipeline.run_write``).
 
     ``simulation_info_path`` supplies the five physical header values, under
-    the same explicit unit validation v2 applies. Its content hash and the
+    the explicit unit validation of :func:`load_header_metadata`. Its content hash and the
     values themselves are part of the writer :attr:`identity`, which the
     manifest records with the completed stage: re-running the stage with
     different physical metadata is refused rather than silently re-labelled.

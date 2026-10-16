@@ -19,10 +19,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import fixtures  # noqa: E402
 from ctrees_parser import DTYPE_TAG, RECORD_DTYPE, ConverterError  # noqa: E402
 from fixups import run_fixups  # noqa: E402
-from hdf5_writer import run_write  # noqa: E402
 from links import run_links  # noqa: E402
 from scatter import Manifest, run_scatter, snapshot_scratch_name  # noqa: E402
-from sort_index import index_name, run_sort, sorted_scratch_name  # noqa: E402
+from sort_index import (  # noqa: E402
+    CONSUMABLE_KEYS,
+    index_name,
+    run_sort,
+    sorted_scratch_name,
+)
 from test_fixups import capture_stderr  # noqa: E402
 
 
@@ -267,57 +271,12 @@ class TestSortSkipsConsumedArtifacts(unittest.TestCase):
         with self.assertRaisesRegex(ConverterError, "missing on disk"):
             run_sort(workdir)
 
-    def _linked_workdir(self, name):
-        """A workdir carried all the way to ``linked`` with consumption on, so
-        every artifact sort skip-trusts has genuinely been deleted."""
+    def _linked_workdir(self, name, consumed_keys=("sorted_file", "index_file")):
+        """A workdir carried all the way to ``linked``, then with every
+        snapshot's ``consumed_keys`` artifacts consumed through the manifest's
+        guard, so every artifact sort skip-trusts under those keys has
+        genuinely been deleted."""
         root = self.root / name
-        root.mkdir()
-        forests = fixtures.standard_forests()
-        tree_file = fixtures.write_ctrees_file(root / "tree_0.dat", fixtures.all_trees(forests))
-        forests_list = fixtures.write_forests_list(root / "forests.list", forests)
-        a_list = fixtures.write_a_list(root / "test.a_list")
-        sim_info = fixtures.write_simulation_info(root / "simulation_info.yaml")
-        workdir = root / "workdir"
-        run_scatter(
-            tree_files=[tree_file],
-            forests_list_path=forests_list,
-            a_list_path=a_list,
-            workdir=workdir,
-            simulation_info_path=sim_info,
-        )
-        run_sort(workdir)
-        run_fixups(
-            workdir,
-            a_list_path=a_list,
-            simulation_info_path=sim_info,
-            consume_intermediates=True,
-        )
-        run_links(workdir, consume_intermediates=True)
-        return workdir, a_list, sim_info
-
-    def test_rerun_after_a_consuming_links_run_is_a_skip_not_a_status_error(self):
-        """Once ``links`` has run, every snapshot sits at ``linked`` and both of
-        sort's own outputs are consumed. That used to abort with "unexpected
-        status 'linked'; run scatter first" — advice that would itself have
-        failed. It must be a skip naming what was consumed."""
-        workdir, _, _ = self._linked_workdir("linked-skip")
-        manifest = Manifest.load_or_create(workdir)
-        for entry in manifest.data["snapshots"].values():
-            self.assertEqual("linked", entry["status"])
-        with capture_stderr() as captured:
-            run_sort(workdir)
-        for snap, entry in sorted(manifest.data["snapshots"].items(), key=lambda kv: int(kv[0])):
-            self.assertIn("sort: snapshot {} is already linked".format(snap), captured.text)
-            self.assertIn(entry["sorted_file"], captured.text)
-            self.assertIn(entry["index_file"], captured.text)
-
-    def test_flag_off_linked_status_still_refuses(self):
-        """The ``linked`` skip exists only to keep a CONSUMED snapshot
-        resumable. On a pipeline run entirely with the flag off, nothing was
-        consumed and every artifact is on disk, so this stage must refuse a
-        ``linked`` snapshot exactly as it did before the slice — that is the
-        flag-off behaviour the contract says must not change."""
-        root = self.root / "flag-off-linked"
         root.mkdir()
         forests = fixtures.standard_forests()
         tree_file = fixtures.write_ctrees_file(root / "tree_0.dat", fixtures.all_trees(forests))
@@ -336,6 +295,36 @@ class TestSortSkipsConsumedArtifacts(unittest.TestCase):
         run_fixups(workdir, a_list_path=a_list, simulation_info_path=sim_info)
         run_links(workdir)
         manifest = Manifest.load_or_create(workdir)
+        paths = [
+            entry[key] for entry in manifest.data["snapshots"].values() for key in consumed_keys
+        ]
+        self.assertEqual(
+            [Path(p) for p in paths], manifest.consume_intermediates(paths, delete=True)
+        )
+        return workdir, a_list, sim_info
+
+    def test_rerun_after_linking_with_consumed_outputs_is_a_skip_not_a_status_error(self):
+        """Once every snapshot sits at ``linked`` with both of sort's own
+        outputs consumed, a re-run must not abort with "unexpected status
+        'linked'; run scatter first" -- advice that would itself fail. It must
+        be a skip naming what was consumed."""
+        workdir, _, _ = self._linked_workdir("linked-skip")
+        manifest = Manifest.load_or_create(workdir)
+        for entry in manifest.data["snapshots"].values():
+            self.assertEqual("linked", entry["status"])
+        with capture_stderr() as captured:
+            run_sort(workdir)
+        for snap, entry in sorted(manifest.data["snapshots"].items(), key=lambda kv: int(kv[0])):
+            self.assertIn("sort: snapshot {} is already linked".format(snap), captured.text)
+            self.assertIn(entry["sorted_file"], captured.text)
+            self.assertIn(entry["index_file"], captured.text)
+
+    def test_linked_status_with_nothing_consumed_refuses(self):
+        """The ``linked`` skip exists only to keep a snapshot with consumed
+        artifacts resumable. With nothing consumed and every artifact on disk,
+        sort refuses a ``linked`` snapshot, and so does the fix-up stage."""
+        workdir, a_list, sim_info = self._linked_workdir("nothing-consumed", consumed_keys=())
+        manifest = Manifest.load_or_create(workdir)
         for entry in manifest.data["snapshots"].values():
             self.assertEqual("linked", entry["status"])
             for key in ("sorted_file", "index_file", "fixed_file", "links_file"):
@@ -345,116 +334,48 @@ class TestSortSkipsConsumedArtifacts(unittest.TestCase):
         with self.assertRaisesRegex(ConverterError, r"unexpected status 'linked'"):
             run_fixups(workdir, a_list_path=a_list, simulation_info_path=sim_info)
 
-    def _pipeline(self, name, fixups_on, links_on, write_on):
-        """Run the whole pipeline to ``linked`` (and through ``write`` when it
-        is enabled) with ``--consume-intermediates`` set independently at each
-        stage."""
-        root = self.root / name
-        root.mkdir()
-        forests = fixtures.standard_forests()
-        tree_file = fixtures.write_ctrees_file(root / "tree_0.dat", fixtures.all_trees(forests))
-        forests_list = fixtures.write_forests_list(root / "forests.list", forests)
-        a_list = fixtures.write_a_list(root / "test.a_list")
-        sim_info = fixtures.write_simulation_info(root / "simulation_info.yaml")
-        workdir = root / "workdir"
-        run_scatter(
-            tree_files=[tree_file],
-            forests_list_path=forests_list,
-            a_list_path=a_list,
-            workdir=workdir,
-            simulation_info_path=sim_info,
-        )
-        run_sort(workdir)
-        run_fixups(
-            workdir,
-            a_list_path=a_list,
-            simulation_info_path=sim_info,
-            consume_intermediates=fixups_on,
-        )
-        run_links(workdir, consume_intermediates=links_on)
-        run_write(
-            workdir,
-            a_list_path=a_list,
-            simulation_info_path=sim_info,
-            consume_intermediates=write_on,
-        )
-        return workdir, a_list, sim_info
-
-    def test_the_linked_gate_over_every_flag_combination(self):
+    def test_the_linked_gate_over_every_consumed_key_combination(self):
         """The gate's complete truth table, not a sample of it.
 
-        ``--consume-intermediates`` is an independent per-invocation flag on
-        three stages, so there are eight ways an operator can set it, and the
-        gate has to be right in all eight. Each stage marks a different manifest
-        key — fixups takes ``sorted_file``, links takes every ``index_file``,
-        the writer takes ``fixed_file`` and ``links_file`` — so a gate missing
-        any key would still look correct in the combinations where some other
-        stage happened to be on. With every flag off nothing is consumed and
-        both stages must refuse a ``linked`` snapshot, exactly as they did
-        before consumptive deletion existed; with any flag on both must skip, and sort's message
-        must name precisely the artifacts that were actually taken.
+        The gate (``sort_index.consumption_recorded``) reads four manifest
+        keys -- ``sorted_file``, ``index_file``, ``fixed_file`` and
+        ``links_file`` -- so a gate missing any key would still look correct in
+        the combinations where another key happened to be consumed. With
+        nothing consumed sort must refuse a ``linked`` snapshot; with any key
+        consumed it must skip, and its message must name precisely the
+        artifacts that were actually taken. The fix-up stage never skips a
+        ``linked`` snapshot, whatever was consumed.
         """
         phrases = {
-            "sorted": "sorted snapshot scratch was consumed",
-            "index": "snapshot id index was consumed",
-            "fixed": "fixed snapshot scratch was consumed",
-            "links": "snapshot links scratch was consumed",
+            "sorted_file": "sorted snapshot scratch was consumed",
+            "index_file": "snapshot id index was consumed",
+            "fixed_file": "fixed snapshot scratch was consumed",
+            "links_file": "snapshot links scratch was consumed",
         }
-        for fixups_on in (False, True):
-            for links_on in (False, True):
-                for write_on in (False, True):
-                    name = "gate-{:d}{:d}{:d}".format(fixups_on, links_on, write_on)
-                    with self.subTest(fixups=fixups_on, links=links_on, write=write_on):
-                        workdir, a_list, sim_info = self._pipeline(
-                            name, fixups_on, links_on, write_on
-                        )
-                        manifest = Manifest.load_or_create(workdir)
-                        for entry in manifest.data["snapshots"].values():
-                            self.assertEqual("linked", entry["status"])
-
-                        if not (fixups_on or links_on or write_on):
-                            with self.assertRaisesRegex(
-                                ConverterError, r"unexpected status 'linked'"
-                            ):
-                                run_sort(workdir)
-                            with self.assertRaisesRegex(
-                                ConverterError, r"unexpected status 'linked'"
-                            ):
-                                run_fixups(
-                                    workdir,
-                                    a_list_path=a_list,
-                                    simulation_info_path=sim_info,
-                                )
-                            continue
-
-                        expected = set()
-                        if fixups_on:
-                            expected.add("sorted")
-                        if links_on:
-                            expected.add("index")
-                        if write_on:
-                            expected |= {"fixed", "links"}
-                        with capture_stderr() as captured:
-                            run_sort(workdir)
-                        for key, phrase in phrases.items():
-                            if key in expected:
-                                self.assertIn(phrase, captured.text)
-                            else:
-                                self.assertNotIn(phrase, captured.text)
-                        # fixups skips too; it examines only the writer's two
-                        # artifacts, so it names them only when write consumed
-                        with capture_stderr() as captured:
-                            run_fixups(workdir, a_list_path=a_list, simulation_info_path=sim_info)
-                        for key in ("fixed", "links"):
-                            if write_on:
-                                self.assertIn(phrases[key], captured.text)
-                            else:
-                                self.assertNotIn(phrases[key], captured.text)
+        for mask in range(1 << len(CONSUMABLE_KEYS)):
+            keys = tuple(key for bit, key in enumerate(CONSUMABLE_KEYS) if mask & (1 << bit))
+            with self.subTest(consumed=keys):
+                workdir, a_list, sim_info = self._linked_workdir(
+                    "gate-{:02d}".format(mask), consumed_keys=keys
+                )
+                if not keys:
+                    with self.assertRaisesRegex(ConverterError, r"unexpected status 'linked'"):
+                        run_sort(workdir)
+                else:
+                    with capture_stderr() as captured:
+                        run_sort(workdir)
+                    for key, phrase in phrases.items():
+                        if key in keys:
+                            self.assertIn(phrase, captured.text)
+                        else:
+                            self.assertNotIn(phrase, captured.text)
+                with self.assertRaisesRegex(ConverterError, r"unexpected status 'linked'"):
+                    run_fixups(workdir, a_list_path=a_list, simulation_info_path=sim_info)
 
     def test_consumed_fixed_and_links_files_are_accepted_only_at_linked(self):
-        """At ``linked`` the writer may have taken the fixed and links files, so
-        both are accepted as consumed there."""
-        workdir, a_list, sim_info = self._linked_workdir("linked-writer")
+        """At ``linked`` the fixed and links files are past every stage that
+        reads them, so both are accepted as consumed there."""
+        workdir, a_list, sim_info = self._linked_workdir("linked-fixed-and-links")
         manifest = Manifest.load_or_create(workdir)
         entry = manifest.data["snapshots"]["5"]
         self.assertEqual(
@@ -467,11 +388,10 @@ class TestSortSkipsConsumedArtifacts(unittest.TestCase):
         self.assertIn("snapshot links scratch was consumed", captured.text)
 
     def test_a_missing_fixed_file_at_status_fixed_is_still_a_hard_error(self):
-        """The permissive treatment must NOT reach ``fixed``. The writer is the
-        fixed file's terminal consumer and runs only once every snapshot is
-        linked, so at ``fixed`` that file must be present — accepting a
-        consumption here would let the one deletion consumptive deletion must never make
-        pass as a resumable skip."""
+        """The permissive treatment must NOT reach ``fixed``: the link stage
+        still has to read the fixed file, so at ``fixed`` it must be present —
+        accepting a consumption here would let a premature deletion pass as a
+        resumable skip."""
         workdir = make_scattered_workdir(self.root)
         run_sort(workdir)
         run_fixups(

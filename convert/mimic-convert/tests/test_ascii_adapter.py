@@ -1,15 +1,20 @@
 """The Consistent-Trees ASCII canonical bridge
 (convert/mimic-convert/adapters/ctrees_ascii.py).
 
-Two independent oracles:
+Two oracles:
 
 - **literal expectations** written out from the fixture topology and source
   text -- the (``ForestIndex``, ``HaloRankInForest``) position each halo's
   ``SourceHaloID`` is, extra values and a hand-checked set of links;
-- **the legacy ASCII-to-v2 route** on the same fixture, whose emitted HDF5 is
+- **the link stage's own scratch** (:func:`link_stage_slabs`): the fixed and
+  links records the reference reconstruction left in the prepared workdir,
+  whose row-index links are in the stage's ascending-id slab order. They are
   joined to the canonical rows by ``(SnapNum, ForestIndex, HaloRankInForest)``
   -- never by row number, since canonical rows are in ``SourceHaloID`` order
-  -- with links compared by the target halo's ctrees id.
+  -- with links compared by the target halo's ctrees id, so the adapter's and
+  the transpose's re-expression of the stage's output is checked against the
+  output itself. The link stage is checked against hand-computed golden links
+  in ``test_links``.
 
 Under a declared cut table the oracle is the dataset rewriter: on
 :mod:`fixtures`' adversarial cut forests, the route's conversion under the
@@ -28,7 +33,6 @@ from dataclasses import astuple
 from pathlib import Path
 from unittest import mock
 
-import h5py
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -48,8 +52,7 @@ from column_schema import build_schema, load_column_map, parse_column_map  # noq
 from conversion_manifest import inventory_record  # noqa: E402
 from ctrees_parser import ConverterError  # noqa: E402
 from fixups import fixed_layout, fixed_scratch_name, run_fixups  # noqa: E402
-from hdf5_writer import run_write  # noqa: E402
-from links import links_scratch_name, run_links  # noqa: E402
+from links import LINKS_RECORD_DTYPE, links_scratch_name  # noqa: E402
 from scatter import Manifest, run_scatter, source_units_name  # noqa: E402
 from sort_index import index_name, run_sort, sorted_scratch_name  # noqa: E402
 from test_conversion_manifest import tree_state  # noqa: E402
@@ -112,21 +115,38 @@ class Env:
             )
         return self.root / workdir
 
-    def legacy_v2(self, workdir="legacy"):
-        path = self.root / workdir
-        with capture_stderr():
-            run_scatter(
-                self.tree_files,
-                self.forests_list,
-                self.a_list,
-                path,
-                simulation_info_path=self.sim_info,
-            )
-            run_sort(path)
-            run_fixups(path, self.a_list, self.sim_info)
-            run_links(path)
-            run_write(path, self.a_list, self.sim_info)
-        return path / "hdf5"
+
+def link_stage_slabs(workdir):
+    """``{snap: {column: array}}`` of a prepared workdir's link-stage output:
+    each snapshot's fixed records and the row-aligned links records the link
+    stage wrote for them, in the stage's ascending-id slab order, under the
+    ``/halos`` names the canonical batches use. Row-index links target the
+    same slab, except ``Descendant`` (N+1) and ``FirstProgenitor`` (N-1)."""
+    manifest = Manifest.load_or_create(workdir)
+    fixed_dtype = fixed_layout(manifest.layout)[0]
+    slabs = {}
+    for snap, entry in manifest.data["snapshots"].items():
+        fixed = np.fromfile(entry["fixed_file"], dtype=fixed_dtype)
+        linked = np.fromfile(entry["links_file"], dtype=LINKS_RECORD_DTYPE)
+        assert fixed.size == linked.size, snap
+        slab = {name: linked[name] for name in LINK_FIELDS}
+        slab.update(
+            {
+                "ForestIndex": linked["ForestIndex"],
+                "HaloRankInForest": linked["HaloRankInForest"],
+                "Len": fixed["Len"],
+                "SnapNum": np.full(fixed.size, int(snap), dtype=np.int32),
+                "M_Crit200": fixed["Mvir"],
+                "Pos": np.column_stack((fixed["X"], fixed["Y"], fixed["Z"])),
+                "Vel": np.column_stack((fixed["VX"], fixed["VY"], fixed["VZ"])),
+                "Spin": np.column_stack((fixed["Jx"], fixed["Jy"], fixed["Jz"])),
+                "VelDisp": fixed["vrms"],
+                "Vmax": fixed["vmax"],
+                "MostBoundID": fixed["MostBoundID"],
+            }
+        )
+        slabs[int(snap)] = slab
+    return slabs
 
 
 def collect(adapter, max_rows=1000):
@@ -355,8 +375,10 @@ class TestCanonicalBridge(unittest.TestCase):
         self.assertEqual(target(1020, "FirstProgenitor"), 1021)
         self.assertEqual(target(4011, "Descendant"), 4010)
 
-    def test_matches_the_legacy_v2_route_by_source_identity(self):
-        hdf5_dir = self.env.legacy_v2()
+    def test_matches_the_link_stage_output_by_source_identity(self):
+        """Every canonical row is one row of the link stage's output, with
+        every payload value byte-identical and every link resolving to the
+        same halo."""
         key = {
             (int(s), int(f), int(r)): k
             for k, (s, f, r) in enumerate(
@@ -372,11 +394,7 @@ class TestCanonicalBridge(unittest.TestCase):
             "FirstHaloInFOFgroup": 0,
             "NextHaloInFOFgroup": 0,
         }
-        slabs = {}
-        for path in sorted(hdf5_dir.glob("snapshot_*.h5")):
-            with h5py.File(path, "r") as handle:
-                snap = int(handle["header"].attrs["snapshot_number"])
-                slabs[snap] = {name: handle["halos"][name][...] for name in handle["halos"]}
+        slabs = link_stage_slabs(self.workdir)
         sid_to_id = dict(
             zip(self.table["SourceHaloID"].tolist(), self.table["MostBoundID"].tolist())
         )
@@ -430,11 +448,11 @@ class TestCanonicalBridge(unittest.TestCase):
 
 class TransposedTopologyTests(unittest.TestCase):
     """The forest-rank ids reorder every slab, and the row-index links of the
-    transposed version 3 slabs follow the new order: every link of every halo
-    must still resolve to the same halo -- by target ``(SnapNum,
-    MostBoundID)``, not by integer -- as the unchanged legacy ASCII-to-v2
-    route's links do, so payload, logical topology and chain order are
-    unchanged while the numeric row indices move."""
+    transposed slabs follow the new order: every link of every halo must still
+    resolve to the same halo -- by target ``(SnapNum, MostBoundID)``, not by
+    integer -- as the link stage's own row-index links do in its ascending-id
+    slab order (:func:`link_stage_slabs`), so payload, logical topology and
+    chain order are unchanged while the numeric row indices move."""
 
     LINK_SNAPSHOT = {
         "Descendant": "DescendantSnapshot",
@@ -474,11 +492,11 @@ class TransposedTopologyTests(unittest.TestCase):
             rows = np.fromfile(manifest.artifact_path(relpath), dtype=dtype)
             if rows.size:
                 cls.slabs[int(entry["snapshot"])] = rows
-        cls.legacy = {}
-        for path in sorted(cls.env.legacy_v2().glob("snapshot_*.h5")):
-            with h5py.File(path, "r") as handle:
-                snap = int(handle["header"].attrs["snapshot_number"])
-                cls.legacy[snap] = {name: handle["halos"][name][...] for name in handle["halos"]}
+        cls.stage = {
+            snap: slab
+            for snap, slab in link_stage_slabs(work / pipeline.ASCII_PREPARATION_DIR).items()
+            if slab["MostBoundID"].size
+        }
 
     @classmethod
     def tearDownClass(cls):
@@ -517,7 +535,7 @@ class TransposedTopologyTests(unittest.TestCase):
             [1010, 1020, 2010, 2011, 5010, 5011, 6010, 6011, 6012],
         )
 
-    def test_every_link_resolves_to_the_same_halo_as_the_legacy_route(self):
+    def test_every_link_resolves_to_the_same_halo_as_the_link_stage(self):
         target_offset = {
             "Descendant": 1,
             "FirstProgenitor": -1,
@@ -530,28 +548,28 @@ class TransposedTopologyTests(unittest.TestCase):
             column = self.LINK_SNAPSHOT[name]
             return snap if column is None else int(slab[column][row])
 
-        def legacy_target(slab, name, row, snap):
+        def stage_target(slab, name, row, snap):
             return snap + target_offset[name]
 
         converted = self.logical_links(self.slabs, v3_target)
-        reference = self.logical_links(self.legacy, legacy_target)
+        reference = self.logical_links(self.stage, stage_target)
         self.assertEqual(len(converted), 17)
         self.assertEqual(converted, reference)
         # every payload value is unchanged for the same halo
         for snap, slab in self.slabs.items():
-            legacy = self.legacy[snap]
-            at = {int(h): k for k, h in enumerate(legacy["MostBoundID"])}
+            stage = self.stage[snap]
+            at = {int(h): k for k, h in enumerate(stage["MostBoundID"])}
             for row, hid in enumerate(slab["MostBoundID"].tolist()):
                 for name in ("Len", "M_Crit200", "Pos", "Vel", "Spin", "VelDisp", "Vmax"):
                     self.assertEqual(
                         np.asarray(slab[name][row]).tobytes(),
-                        np.asarray(legacy[name][at[hid]]).tobytes(),
+                        np.asarray(stage[name][at[hid]]).tobytes(),
                         (snap, hid, name),
                     )
 
     def test_chain_order_is_unchanged(self):
         """Walk every progenitor chain and FoF chain by target halo: the
-        sequences, mass tie included, are the legacy route's."""
+        sequences, mass tie included, are the link stage's."""
 
         def chains(slabs, first, following, first_snap, next_snap):
             out = {}
@@ -569,7 +587,7 @@ class TransposedTopologyTests(unittest.TestCase):
             return out
 
         same = lambda slab, row, snap: snap  # noqa: E731
-        for first, following, v3_first, legacy_first in (
+        for first, following, v3_first, stage_first in (
             (
                 "FirstProgenitor",
                 "NextProgenitor",
@@ -580,7 +598,7 @@ class TransposedTopologyTests(unittest.TestCase):
         ):
             with self.subTest(chain=first):
                 got = chains(self.slabs, first, following, v3_first, same)
-                want = chains(self.legacy, first, following, legacy_first, same)
+                want = chains(self.stage, first, following, stage_first, same)
                 self.assertEqual(got, want)
         progenitors = chains(
             self.slabs,
@@ -748,8 +766,8 @@ class TestBridgeRuns(unittest.TestCase):
             env.prepare(schema_of(DEFAULT_PROFILE))
 
     def test_resume_after_linking_refuses_a_source_modified_in_place(self):
-        """Same path, same order, different bytes: refused exactly as the
-        legacy route's scatter refuses it, never silently accepted."""
+        """Same path, same order, different bytes: refused exactly as scatter
+        itself refuses it on resume, never silently accepted."""
         schema = schema_of()
         for label in ("size changes", "same size, new mtime"):
             with self.subTest(label), tempfile.TemporaryDirectory() as tmp:
@@ -771,7 +789,8 @@ class TestBridgeRuns(unittest.TestCase):
                 ):
                     env.prepare(schema)
                 self.assertEqual((workdir / "manifest.json").read_bytes(), manifest_before)
-                # the legacy route refuses the same modification the same way
+                # scatter refuses the same modification the same way (shown on
+                # a workdir in the frozen scratch layout)
                 legacy = Path(tmp) / "legacy"
                 with capture_stderr():
                     path.write_text(text)
@@ -1076,6 +1095,55 @@ class TestBridgeRefusals(unittest.TestCase):
                 self._forge(workdir, 5, "links_file", "snapshot-links", LINKS_RECORD_DTYPE, edit)
                 with self.assertRaisesRegex(ConverterError, message):
                     list(CTreesAsciiAdapter(schema_of(), workdir).iter_batches(100))
+
+    def test_scratch_disagreeing_with_its_recorded_rows_is_refused(self):
+        """The fixed and links records of a snapshot are joined row by row, so
+        either file one record short of the snapshot's recorded rows is
+        refused before a batch is built. Truncated in place, the file fails its
+        registered checksum; truncated and re-registered, so the checksum
+        passes, it fails the adapter's own size check against the recorded
+        rows."""
+        for key, kind in (("fixed_file", "snapshot-fixed"), ("links_file", "snapshot-links")):
+            for reregister in (False, True):
+                with self.subTest(key=key, reregister=reregister):
+                    with tempfile.TemporaryDirectory() as tmp:
+                        env = Env(Path(tmp))
+                        workdir = env.prepare(schema_of())
+                        manifest = Manifest.load_or_create(workdir)
+                        dtype = (
+                            fixed_layout(manifest.layout)[0]
+                            if key == "fixed_file"
+                            else LINKS_RECORD_DTYPE
+                        )
+                        rows = int(manifest.data["snapshots"]["5"]["rows"])
+                        if reregister:
+                            message = r"is {} bytes, expected {} rows x {} bytes".format(
+                                (rows - 1) * dtype.itemsize, rows, dtype.itemsize
+                            )
+                            self._truncate_and_register(workdir, 5, key, kind, dtype)
+                        else:
+                            path = Path(manifest.data["snapshots"]["5"][key])
+                            with open(path, "r+b") as handle:
+                                handle.truncate((rows - 1) * dtype.itemsize)
+                            message = r"content checksum .* refusing to use it"
+                        with self.assertRaisesRegex(ConverterError, message):
+                            list(CTreesAsciiAdapter(schema_of(), workdir).iter_batches(100))
+
+    @staticmethod
+    def _truncate_and_register(workdir, snap, key, kind, dtype):
+        """Drop one snapshot scratch file's last record and re-register the
+        shorter file, leaving the snapshot's recorded ``rows`` unchanged."""
+        manifest = Manifest.load_or_create(workdir)
+        entry = manifest.data["snapshots"][str(snap)]
+        records = np.fromfile(entry[key], dtype=dtype)[:-1]
+        records.tofile(entry[key])
+        manifest.register_intermediate(
+            entry[key],
+            kind,
+            rows=int(records.size),
+            dtype_tag=manifest.data["intermediates"][entry[key]]["dtype_tag"],
+        )
+        manifest.save()
 
     def test_scatter_time_coordinates_no_longer_feed_identity(self):
         """Forged physical (file, unit, row) stamps in the fixed scratch change

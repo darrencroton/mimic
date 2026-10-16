@@ -17,13 +17,10 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import convert_ctrees  # noqa: E402
 import fixtures  # noqa: E402
-import hdf5_writer  # noqa: E402
 import links  # noqa: E402
 from ctrees_parser import ConverterError  # noqa: E402
 from fixups import run_fixups  # noqa: E402
-from hdf5_writer import run_write  # noqa: E402
 from links import (  # noqa: E402
     LINKS_DTYPE_TAG,
     LINKS_RECORD_DTYPE,
@@ -39,7 +36,7 @@ from links import (  # noqa: E402
 from rank_sort import RankSortError  # noqa: E402
 from scatter import Manifest, file_md5, run_scatter  # noqa: E402
 from sort_index import run_sort  # noqa: E402
-from test_fixups import capture_stderr, make_fixed  # noqa: E402
+from test_fixups import make_fixed  # noqa: E402
 
 
 def make_linkable(rows):
@@ -531,17 +528,9 @@ class TestLinksPipeline(unittest.TestCase):
         self.assertEqual(snap4["HaloRankInForest"].tolist(), [3, 1, 2])
         self.assertEqual(snap5["HaloRankInForest"].tolist(), [0])
 
-    def test_cli_links_subcommand(self):
-        workdir, _, _ = make_linked_workdir(self.root)
-        rc = convert_ctrees.main(["links", "--workdir", str(workdir)])
-        self.assertEqual(rc, 0)
-        manifest = Manifest.load_or_create(workdir)
-        statuses = {e["status"] for e in manifest.data["snapshots"].values()}
-        self.assertEqual(statuses, {"linked"})
-
-    def test_cli_links_failure_exit_code(self):
-        rc = convert_ctrees.main(["links", "--workdir", str(self.root / "missing")])
-        self.assertEqual(rc, 1)
+    def test_a_missing_workdir_is_refused(self):
+        with self.assertRaisesRegex(ConverterError, "no manifest"):
+            run_links(self.root / "missing")
 
 
 # ---------------------------------------------------------------------------
@@ -1031,19 +1020,17 @@ class TestBoundedIdentityPass(Slice5Case):
             ):
                 identity[3]
 
-    def test_cli_accepts_a_memory_budget(self):
+    def test_the_stage_accepts_a_one_mebibyte_budget(self):
         workdir, _, _ = make_linked_workdir(self.root)
-        rc = convert_ctrees.main(["links", "--workdir", str(workdir), "--memory-budget-mb", "1"])
-        self.assertEqual(rc, 0)
-        manifest = Manifest.load_or_create(workdir)
+        manifest = run_links(workdir, budget_bytes=1 << 20)
         self.assertEqual(
             {entry["status"] for entry in manifest.data["snapshots"].values()}, {"linked"}
         )
 
-    def test_cli_refuses_an_unusable_memory_budget(self):
+    def test_the_stage_refuses_an_unusable_budget_and_links_nothing(self):
         workdir, _, _ = make_linked_workdir(self.root)
-        rc = convert_ctrees.main(["links", "--workdir", str(workdir), "--memory-budget-mb", "0"])
-        self.assertEqual(rc, 1)
+        with self.assertRaisesRegex(ConverterError, "memory budget of 0 byte\\(s\\) is too small"):
+            run_links(workdir, budget_bytes=0)
         manifest = Manifest.load_or_create(workdir)
         self.assertEqual(
             {entry["status"] for entry in manifest.data["snapshots"].values()}, {"fixed"}
@@ -1320,33 +1307,23 @@ class TestIdentityMemoryScaling(Slice5Case):
         )
 
 
-class TestLinksConsumesIntermediates(unittest.TestCase):
-    """Consumptive deletion, link-stage half.
-
-    Two entries land here and one deliberately does not. ``pending_fp_N`` goes
-    once the snapshot that consumes it is linked; ``idx_N`` goes once snapshot
-    N−1 has been linked, which makes ``idx``'s consumer the link BELOW it and
-    leaves any index without a recorded predecessor with no consumer at all.
-    ``fixed_N`` and ``links_N`` do NOT go here — the writer reads both, and is
-    their terminal consumer.
-
-    The fixture's recorded snapshot set is {1, 2, 3, 4, 5}: snapshot 0 has no
-    halos, so ``idx_1`` is the no-consumer index this dataset exercises.
-    """
+class TestLinksKeepsItsInputs(unittest.TestCase):
+    """The link stage deletes no manifest intermediate: every id index, fixed
+    file and pending first-progenitor buffer it reads stays registered and on
+    disk. Its identity stores are per-invocation scratch it owns, never
+    manifest intermediates, and are gone once it completes."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         self.addCleanup(self.tmp.cleanup)
 
-    def _fixed_workdir(self):
-        workdir, a_list, sim_info = make_linked_workdir(self.root)
-        return workdir
-
     @staticmethod
     def _paths(workdir):
-        """Every intermediate this stage's deletion table names, plus the two
-        it must leave alone, keyed for readable assertions."""
+        """Every id index, fixed file and pending buffer of the workdir, keyed
+        for readable assertions. The fixture's recorded snapshot set is
+        {1, 2, 3, 4, 5}: snapshot 0 has no halos, so snapshot 1 has no
+        pending buffer."""
         manifest = Manifest.load_or_create(workdir)
         snaps = sorted(int(s) for s in manifest.data["snapshots"])
         scratch = Path(manifest.data["snapshots"][str(snaps[0])]["fixed_file"]).parent
@@ -1359,422 +1336,28 @@ class TestLinksConsumesIntermediates(unittest.TestCase):
                 paths["pending_fp_{}".format(snap)] = scratch / pending_fp_name(snap)
         return paths
 
-    def test_flag_off_retains_every_index_and_pending_buffer(self):
-        workdir = self._fixed_workdir()
+    def test_every_index_fixed_file_and_pending_buffer_is_retained(self):
+        workdir, _, _ = make_linked_workdir(self.root)
         run_links(workdir)
         manifest = Manifest.load_or_create(workdir)
-        for name, path in self._paths(workdir).items():
-            self.assertTrue(path.exists(), "{} was deleted with the flag off".format(name))
+        paths = self._paths(workdir)
+        self.assertIn("pending_fp_5", paths)
+        for name, path in paths.items():
+            self.assertTrue(path.exists(), "{} was deleted".format(name))
             self.assertEqual(
                 "present",
                 manifest.data["intermediates"][str(path.resolve())]["status"],
                 name,
             )
 
-    def test_flag_on_consumes_exactly_the_table(self):
-        workdir = self._fixed_workdir()
-        expected = self._paths(workdir)
-        run_links(workdir, consume_intermediates=True)
-        manifest = Manifest.load_or_create(workdir)
-        for name, path in expected.items():
-            entry = manifest.data["intermediates"][str(path.resolve())]
-            if name.startswith("fixed_"):
-                self.assertTrue(path.exists(), "{} must survive the link stage".format(name))
-                self.assertEqual("present", entry["status"], name)
-            else:
-                self.assertFalse(path.exists(), "{} survived".format(name))
-                self.assertEqual("removed", entry["status"], name)
-        # the links files this stage produced are the writer's input and must
-        # also survive it
-        for snap in sorted(int(s) for s in manifest.data["snapshots"]):
-            links_path = Path(manifest.data["snapshots"][str(snap)]["links_file"])
-            self.assertTrue(links_path.exists())
-            self.assertEqual(
-                "present", manifest.data["intermediates"][str(links_path.resolve())]["status"]
-            )
-
-    def test_no_consumer_index_goes_as_soon_as_linking_starts(self):
-        """``idx_1`` has no consumer here — ``link_one_snapshot(0)`` never runs,
-        because linking iterates only recorded snapshots — so it is gone before
-        the first snapshot is linked, not after some later one."""
-        workdir = self._fixed_workdir()
-        expected = self._paths(workdir)
-        seen = []
-        real = links.link_one_snapshot
-
-        def spy(manifest, snap, identity):
-            seen.append((snap, expected["idx_1"].exists()))
-            return real(manifest, snap, identity)
-
-        with mock.patch.object(links, "link_one_snapshot", spy):
-            run_links(workdir, consume_intermediates=True)
-        self.assertEqual([(snap, False) for snap, _ in seen], seen)
-
-    def test_each_entry_survives_until_its_own_consumer_has_run(self):
-        """Deleting an index or a pending buffer one snapshot early breaks
-        linking, so the point of deletion is the acceptance criterion, not just
-        the end state. Sampled before every ``link_one_snapshot`` call."""
-        workdir = self._fixed_workdir()
-        expected = self._paths(workdir)
-        before = {}
-        real = links.link_one_snapshot
-
-        def spy(manifest, snap, identity):
-            before[snap] = {
-                name: path.exists() for name, path in expected.items() if not name.startswith("f")
-            }
-            return real(manifest, snap, identity)
-
-        with mock.patch.object(links, "link_one_snapshot", spy):
-            run_links(workdir, consume_intermediates=True)
-
-        snaps = sorted(before)
-        for snap in snaps:
-            state = before[snap]
-            # what this call is about to read must still be there
-            if "pending_fp_{}".format(snap) in state:
-                self.assertTrue(state["pending_fp_{}".format(snap)], snap)
-            if "idx_{}".format(snap + 1) in state:
-                self.assertTrue(state["idx_{}".format(snap + 1)], snap)
-            # what an earlier call finished with must already be gone
-            for earlier in snaps:
-                if earlier >= snap:
-                    continue
-                if "pending_fp_{}".format(earlier) in state:
-                    self.assertFalse(state["pending_fp_{}".format(earlier)], (snap, earlier))
-                if "idx_{}".format(earlier + 1) in state:
-                    self.assertFalse(state["idx_{}".format(earlier + 1)], (snap, earlier))
-
-    def test_consumption_is_resumable_mid_stage(self):
-        """A links run that dies part-way with the flag on must still resume:
-        every input a later snapshot needs is deleted only after that snapshot
-        has been linked."""
-        workdir = self._fixed_workdir()
-        real = links.link_one_snapshot
-
-        def die_at_four(manifest, snap, identity):
-            if snap == 4:
-                raise RuntimeError("simulated crash")
-            return real(manifest, snap, identity)
-
-        with mock.patch.object(links, "link_one_snapshot", die_at_four):
-            with self.assertRaises(RuntimeError):
-                run_links(workdir, consume_intermediates=True)
-        manifest = Manifest.load_or_create(workdir)
-        self.assertEqual("linked", manifest.data["snapshots"]["3"]["status"])
-        self.assertEqual("fixed", manifest.data["snapshots"]["4"]["status"])
-
-        run_links(workdir, consume_intermediates=True)
-        manifest = Manifest.load_or_create(workdir)
-        for snap in sorted(int(s) for s in manifest.data["snapshots"]):
-            self.assertEqual("linked", manifest.data["snapshots"][str(snap)]["status"])
-
-    def test_crash_between_unlink_and_save_converges_to_removed(self):
-        for delete in (False, True):
-            with self.subTest(consume_intermediates=delete):
-                root = self.root / "crash-{}".format(int(delete))
-                root.mkdir()
-                workdir, _, _ = make_linked_workdir(root)
-                run_links(workdir)
-                expected = self._paths(workdir)
-                victim = expected["pending_fp_3"]
-                victim.unlink()  # the unlink landed; the save did not
-                manifest = Manifest.load_or_create(workdir)
-                self.assertEqual(
-                    "present", manifest.data["intermediates"][str(victim.resolve())]["status"]
-                )
-                run_links(workdir, consume_intermediates=delete)
-                reloaded = Manifest.load_or_create(workdir)
-                self.assertEqual(
-                    "removed", reloaded.data["intermediates"][str(victim.resolve())]["status"]
-                )
-
     def test_identity_backing_arrays_are_gone_once_links_completes(self):
-        """The last deletion-table entry. The identity stores are per-invocation
-        scratch owned by the link stage itself, never manifest intermediates, so
-        nothing here registers or removes them — but the storage envelope
-        assumes they are gone, so assert it in both flag states."""
-        for delete in (False, True):
-            with self.subTest(consume_intermediates=delete):
-                root = self.root / "identity-{}".format(int(delete))
-                root.mkdir()
-                workdir, _, _ = make_linked_workdir(root)
-                manifest = run_links(workdir, consume_intermediates=delete)
-                scratch = Path(manifest.data["snapshots"]["5"]["fixed_file"]).parent
-                self.assertEqual([], sorted(scratch.glob(links.IDENTITY_DIR_PREFIX + "*")))
-                for key, entry in manifest.data["intermediates"].items():
-                    self.assertNotIn(links.IDENTITY_DIR_PREFIX, key)
-                    self.assertIsNotNone(entry)
-
-    def test_refuse_not_repair_still_runs_while_the_inputs_are_present(self):
-        """The short-circuit is conditioned on the fixed inputs being consumed,
-        not on every snapshot merely being linked, precisely so this comparison
-        keeps running wherever a links re-run is still reachable."""
-        workdir = self._fixed_workdir()
+        workdir, _, _ = make_linked_workdir(self.root)
         manifest = run_links(workdir)
-        manifest.data["links"]["n_forests_total"] += 1
-        manifest.save()
-        with self.assertRaisesRegex(ConverterError, "run-scoped identity values changed"):
-            run_links(workdir)
-
-    def _pipeline_paths(self, workdir):
-        """Just the two entries this stage deletes, keyed for assertions."""
-        return {
-            name: path
-            for name, path in self._paths(workdir).items()
-            if name.startswith(("idx_", "pending_fp_"))
-        }
-
-    def test_short_circuit_still_drains_a_flag_off_links_run(self):
-        """The legal sequence links(off) -> write(on) -> links(on). The re-run
-        takes the short-circuit, and must still delete the indexes and pending
-        buffers the flag-off run left behind — an operator who opts in late
-        gets the whole deletion table, not a subset of it."""
-        root = self.root / "off-then-on"
-        root.mkdir()
-        workdir, a_list, sim_info = make_linked_workdir(root)
-        run_links(workdir)
-        expected = self._pipeline_paths(workdir)
-        self.assertTrue(expected)
-        for path in expected.values():
-            self.assertTrue(path.exists())
-
-        run_write(
-            workdir,
-            a_list_path=a_list,
-            simulation_info_path=sim_info,
-            consume_intermediates=True,
-        )
-        for path in expected.values():
-            self.assertTrue(path.exists(), "the writer must not delete these")
-
-        with capture_stderr() as captured:
-            run_links(workdir, consume_intermediates=True)
-        self.assertIn("skipping the rank pass", captured.text)
-        manifest = Manifest.load_or_create(workdir)
-        for name, path in expected.items():
-            self.assertFalse(path.exists(), "{} survived the short-circuit".format(name))
-            self.assertEqual(
-                "removed", manifest.data["intermediates"][str(path.resolve())]["status"], name
-            )
-
-    def test_short_circuit_drains_after_an_interrupted_writer(self):
-        """Same drain, reached the other way: a writer run that died part-way
-        still consumed some fixed files, so a links re-run short-circuits — and
-        must finish this stage's own deletions rather than return empty-handed.
-        """
-        root = self.root / "interrupted-writer"
-        root.mkdir()
-        workdir, a_list, sim_info = make_linked_workdir(root)
-        run_links(workdir)
-        expected = self._pipeline_paths(workdir)
-
-        real = hdf5_writer._consume_snapshot_scratch
-        calls = {"n": 0}
-
-        def die_after_two(manifest, snap, delete):
-            real(manifest, snap, delete)
-            calls["n"] += 1
-            if calls["n"] == 2:
-                raise RuntimeError("simulated writer crash")
-
-        with mock.patch.object(hdf5_writer, "_consume_snapshot_scratch", die_after_two):
-            with self.assertRaises(RuntimeError):
-                run_write(
-                    workdir,
-                    a_list_path=a_list,
-                    simulation_info_path=sim_info,
-                    consume_intermediates=True,
-                )
-        manifest = Manifest.load_or_create(workdir)
-        consumed = links._consumed_fixed_snapshots(
-            manifest, sorted(int(s) for s in manifest.data["snapshots"])
-        )
-        self.assertTrue(consumed, "the interrupted writer must have consumed at least one")
-        self.assertLess(len(consumed), len(manifest.data["snapshots"]), "and not all of them")
-
-        with capture_stderr() as captured:
-            run_links(workdir, consume_intermediates=True)
-        self.assertIn("skipping the rank pass", captured.text)
-        reloaded = Manifest.load_or_create(workdir)
-        for name, path in expected.items():
-            self.assertFalse(path.exists(), "{} survived the short-circuit".format(name))
-            self.assertEqual(
-                "removed", reloaded.data["intermediates"][str(path.resolve())]["status"], name
-            )
-
-    def _interrupted_writer_workdir(self, name):
-        """links(off) -> a writer run that consumes some fixed files and dies.
-        Every snapshot is linked, some fixed files are consumed, and every idx
-        and pending buffer is still on disk — the state the short-circuit is
-        reached in."""
-        root = self.root / name
-        root.mkdir()
-        workdir, a_list, sim_info = make_linked_workdir(root)
-        run_links(workdir)
-        real = hdf5_writer._consume_snapshot_scratch
-        calls = {"n": 0}
-
-        def die_after_two(manifest, snap, delete):
-            real(manifest, snap, delete)
-            calls["n"] += 1
-            if calls["n"] == 2:
-                raise RuntimeError("simulated writer crash")
-
-        with mock.patch.object(hdf5_writer, "_consume_snapshot_scratch", die_after_two):
-            with self.assertRaises(RuntimeError):
-                run_write(
-                    workdir,
-                    a_list_path=a_list,
-                    simulation_info_path=sim_info,
-                    consume_intermediates=True,
-                )
-        return workdir
-
-    def _surviving_links_file(self, workdir):
-        """A links file the interrupted writer did NOT consume."""
-        manifest = Manifest.load_or_create(workdir)
-        for snap in sorted(int(x) for x in manifest.data["snapshots"]):
-            path = Path(manifest.data["snapshots"][str(snap)]["links_file"])
-            if not manifest.is_consumed(path):
-                return snap, path
-        self.fail("every links file was consumed")
-
-    def test_short_circuit_refuses_a_missing_links_successor_and_deletes_nothing(self):
-        """The short-circuit never calls ``link_one_snapshot``, so it has to do
-        that path's verification itself: delete-after-VERIFY, not
-        delete-after-status-check. A links file gone from disk must stop the
-        drain, leaving the index and pending buffer it stands behind intact."""
-        workdir = self._interrupted_writer_workdir("missing-successor")
-        expected = self._pipeline_paths(workdir)
-        snap, links_path = self._surviving_links_file(workdir)
-        links_path.unlink()
-        with self.assertRaisesRegex(ConverterError, "missing on disk"):
-            run_links(workdir, consume_intermediates=True)
-        manifest = Manifest.load_or_create(workdir)
-        for name, path in expected.items():
-            self.assertTrue(path.exists(), "{} was deleted behind an unverified successor")
-            self.assertEqual(
-                "present", manifest.data["intermediates"][str(path.resolve())]["status"], name
-            )
-
-    def test_short_circuit_refuses_a_tampered_links_successor_and_deletes_nothing(self):
-        """Same guarantee against silent corruption rather than absence."""
-        workdir = self._interrupted_writer_workdir("tampered-successor")
-        expected = self._pipeline_paths(workdir)
-        snap, links_path = self._surviving_links_file(workdir)
-        with open(links_path, "r+b") as handle:
-            handle.write(b"\x7f\x7f\x7f\x7f")
-        with self.assertRaisesRegex(ConverterError, "content checksum"):
-            run_links(workdir, consume_intermediates=True)
-        manifest = Manifest.load_or_create(workdir)
-        for name, path in expected.items():
-            self.assertTrue(
-                path.exists(), "{} was deleted behind a tampered successor".format(name)
-            )
-            self.assertEqual(
-                "present", manifest.data["intermediates"][str(path.resolve())]["status"], name
-            )
-
-    def test_short_circuit_deletes_nothing_with_the_flag_off(self):
-        """And the drain honours the flag, like every other deletion here."""
-        root = self.root / "short-circuit-off"
-        root.mkdir()
-        workdir, a_list, sim_info = make_linked_workdir(root)
-        run_links(workdir)
-        expected = self._pipeline_paths(workdir)
-        run_write(
-            workdir,
-            a_list_path=a_list,
-            simulation_info_path=sim_info,
-            consume_intermediates=True,
-        )
-        run_links(workdir)
-        for name, path in expected.items():
-            self.assertTrue(path.exists(), "{} was deleted with the flag off".format(name))
-
-    def test_mid_set_gap_in_the_recorded_snapshots(self):
-        """The no-consumer rule at a mid-set gap.
-
-        The standard fixture only exercises a LEADING gap (snapshot 0 empty).
-        Here the recorded set is {1, 2, 4, 5} — forest 100 dies at snapshot 2,
-        forest 200 does not appear until snapshot 4 — so snapshot 3 is a gap in
-        the middle. ``idx_1`` and ``idx_4`` then both have no consumer, because
-        neither snapshot 0 nor snapshot 3 is linked, while ``idx_2`` and
-        ``idx_5`` are consumed normally by the links of 1 and 4.
-        """
-        root = self.root / "mid-gap"
-        root.mkdir()
-        early = fixtures.ForestSpec(
-            forest_id=100,
-            trees=[
-                fixtures.TreeSpec(
-                    root_id=101,
-                    halos=[
-                        fixtures.HaloSpec(halo_id=1010, snap=2, mvir=4.0e11, num_prog=1),
-                        fixtures.HaloSpec(halo_id=1011, snap=1, mvir=3.0e11, desc_id=1010),
-                    ],
-                )
-            ],
-        )
-        late = fixtures.ForestSpec(
-            forest_id=200,
-            trees=[
-                fixtures.TreeSpec(
-                    root_id=201,
-                    halos=[
-                        fixtures.HaloSpec(halo_id=2010, snap=5, mvir=9.0e11, num_prog=1),
-                        fixtures.HaloSpec(halo_id=2011, snap=4, mvir=7.0e11, desc_id=2010),
-                    ],
-                )
-            ],
-        )
-        workdir, _, _ = make_linked_workdir(root, forests=[early, late])
-        manifest = Manifest.load_or_create(workdir)
-        self.assertEqual([1, 2, 4, 5], sorted(int(s) for s in manifest.data["snapshots"]))
-
-        snaps = [1, 2, 4, 5]
-        self.assertEqual(
-            [manifest.data["snapshots"][str(s)]["index_file"] for s in (1, 4)],
-            links._no_consumer_indexes(manifest, snaps),
-        )
-
-        expected = self._paths(workdir)
-        seen = []
-        real = links.link_one_snapshot
-
-        def spy(manifest_arg, snap, identity):
-            seen.append((snap, expected["idx_1"].exists(), expected["idx_4"].exists()))
-            return real(manifest_arg, snap, identity)
-
-        with mock.patch.object(links, "link_one_snapshot", spy):
-            run_links(workdir, consume_intermediates=True)
-
-        # both no-consumer indexes are gone before the first link, not after
-        # some later one
-        self.assertEqual([(snap, False, False) for snap, _, _ in seen], seen)
-        reloaded = Manifest.load_or_create(workdir)
-        for name, path in expected.items():
-            entry = reloaded.data["intermediates"][str(path.resolve())]
-            if name.startswith("fixed_"):
-                self.assertTrue(path.exists(), name)
-            else:
-                self.assertFalse(path.exists(), "{} survived".format(name))
-                self.assertEqual("removed", entry["status"], name)
-        # the pending buffers that exist are exactly those across a non-gap
-        self.assertEqual(
-            ["pending_fp_2", "pending_fp_5"],
-            sorted(n for n in expected if n.startswith("pending_fp_")),
-        )
-
-    def test_cli_flag_is_off_by_default(self):
-        parser = convert_ctrees.build_arg_parser()
-        self.assertFalse(parser.parse_args(["links", "--workdir", "w"]).consume_intermediates)
-        self.assertTrue(
-            parser.parse_args(
-                ["links", "--workdir", "w", "--consume-intermediates"]
-            ).consume_intermediates
-        )
+        scratch = Path(manifest.data["snapshots"]["5"]["fixed_file"]).parent
+        self.assertEqual([], sorted(scratch.glob(links.IDENTITY_DIR_PREFIX + "*")))
+        for key, entry in manifest.data["intermediates"].items():
+            self.assertNotIn(links.IDENTITY_DIR_PREFIX, key)
+            self.assertIsNotNone(entry)
 
 
 class TestExtendedLinks(unittest.TestCase):
@@ -1797,7 +1380,7 @@ class TestExtendedLinks(unittest.TestCase):
             meta = self.extended.data["intermediates"][entry["links_file"]]
             self.assertEqual(meta["dtype_tag"], links.LINKS_DTYPE_TAG)
 
-    def test_links_are_byte_identical_to_the_legacy_route(self):
+    def test_links_are_byte_identical_to_the_legacy_layout(self):
         self.assertEqual(self.extended.data["links"], self.legacy.data["links"])
         for snap, entry in self.legacy.data["snapshots"].items():
             self.assertEqual(

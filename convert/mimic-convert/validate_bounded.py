@@ -124,32 +124,30 @@ from hdf5_writer_v3 import snapshot_h5_name  # noqa: E402
 from rank_sort import ResidencyMeter  # noqa: E402
 from scatter import load_a_list  # noqa: E402
 from validate_v3 import (  # noqa: E402
-    _V3_FIXED_DATASETS,
-    _V3_POSITION_IDENTITY,
-    _V3_TYPES,
     DEFAULT_MULTIPLIER,
     DEFAULT_V3_BUDGET_BYTES,
+    POSITION_IDENTITY_FORMATS,
     V3_CHECKS,
+    FailureTally,
     Outcome,
+    RowScan,
     V3BatteryResult,
-    _describe_gp,
-    _Failures,
-    _link_examples,
-    _ordered,
-    _require_budget,
-    _v3_check_file_set,
-    _v3_check_headers,
-    _v3_count_conservation,
-    _v3_load_manifest,
-    _v3_manifest_binding,
-    _v3_position_bounds,
-    _v3_read_header,
-    _v3_schema_binding,
-    _v3_sidecar_content,
-    _v3_sidecar_structure,
-    _v3_snapshot_structure,
-    _V3Scan,
+    check_count_conservation,
+    check_file_set,
     check_header_bounds,
+    check_headers,
+    check_manifest_binding,
+    check_position_bounds,
+    check_schema_binding,
+    check_sidecar_content,
+    describe_position,
+    link_examples,
+    load_manifest,
+    ordered_outcomes,
+    read_header,
+    require_budget,
+    sidecar_structure,
+    snapshot_structure,
 )
 
 #: Rows per block read, unless the caller names another.
@@ -450,6 +448,14 @@ class _ForestTotals:
         values, counts = np.unique(forest, return_counts=True)
         self.counts[values] += counts
 
+    def take_end_positions(self) -> np.ndarray:
+        """Hand the totals over as each forest's end position (the running
+        sum of the totals), reusing their storage: the ceiling charges one
+        per-forest array. The totals are no longer held afterwards."""
+        ends, self.counts = self.counts, None
+        np.cumsum(ends, out=ends)
+        return ends
+
 
 class _Discard:
     """A record sink that keeps nothing; the source keys are settled in the
@@ -459,11 +465,12 @@ class _Discard:
         return None
 
 
-class _BoundedRowScan(_V3Scan):
-    """The external-sort battery's per-row block check, run unchanged, with
-    its four sorters replaced: the identity records feed the per-forest
-    totals, and the topology emission keeps only the links that do not join
-    adjacent snapshots (none in a conforming dataset)."""
+class _BoundedRowScan(RowScan):
+    """The shared per-row block check, with the external-sort battery's four
+    sorters replaced: the identity records feed the per-forest totals, the
+    source keys are settled in the pair pass, and the topology emission keeps
+    only the links that do not join adjacent snapshots (none in a conforming
+    dataset)."""
 
     def __init__(
         self,
@@ -476,58 +483,22 @@ class _BoundedRowScan(_V3Scan):
         far_capacity: int,
         meter: ResidencyMeter,
     ):
-        # The parent's constructor builds the four external sorters; this
-        # mode builds none, so the state the block check reads is set here.
-        self.directory = directory
-        self.counts = np.asarray(counts, dtype=np.int64)
-        self.n_snapshots = len(counts)
-        self.offsets = np.zeros(self.n_snapshots + 1, dtype=np.int64)
-        np.cumsum(self.counts, out=self.offsets[1:])
-        self.n_forests_total = n_forests_total
-        self.box_sizes = [float(box) for box in box_sizes]
-        self.floats = [
-            name
-            for name, values in sorted(declarations.items())
-            if _V3_TYPES.get(values[0], ("", False))[0].startswith("<f")
-        ]
-        self.position_only_columns = [] if "Pos" in self.floats else ["Pos"]
-        self.meter = meter
-        self.row_values = _Failures()
-        self.lengths = _Failures()
-        self.finiteness = _Failures()
-        self.positions = _Failures()
-        self.links = _Failures()
-        self.identity_ranges = _Failures()
-        self.len_zero = 0
-        self.links_ok = True
-        self.stats = {
-            "non_null_links": {name: 0 for name, _dtype in _V3_FIXED_DATASETS[:5]},
-            "gapped_descendants": 0,
-            "max_descendant_span": 0,
-            "gapped_first_progenitors": 0,
-            "max_first_progenitor_span": 0,
-            "next_progenitors_off_owner_snapshot": 0,
-            "max_link_row": -1,
-            "min_source_halo_id": None,
-            "max_source_halo_id": None,
-            "max_forest_index": -1,
-            "max_halo_rank_in_forest": -1,
-        }
-        self.forest_totals = _ForestTotals(n_forests_total)
-        self.identity = self.forest_totals
-        self.sids = _Discard()
-        self.n_chain_edges = 0
-        self.scan_rows = block_rows
+        forest_totals = _ForestTotals(n_forests_total)
+        super().__init__(
+            directory,
+            counts,
+            box_sizes,
+            declarations,
+            n_forests_total,
+            scan_rows=block_rows,
+            meter=meter,
+            identity_sink=forest_totals,
+            source_key_sink=_Discard(),
+        )
+        self.forest_totals = forest_totals
         self.far_parts: List[np.ndarray] = []
         self.n_far = 0
         self.far_capacity = far_capacity
-
-    def close(self) -> None:
-        return None
-
-    def run(self) -> None:
-        for snap in range(self.n_snapshots):
-            self._scan_snapshot(snap)
 
     def far_links(self) -> np.ndarray:
         """Every held link, ordered by target position; the parts are
@@ -542,7 +513,7 @@ class _BoundedRowScan(_V3Scan):
         links.sort(order=("target", "tag", "owner"))
         return links
 
-    def _emit_topology(self, snap, rows, targets, first_fof, next_fof, forest) -> None:
+    def emit_topology(self, snap, rows, targets, first_fof, next_fof, forest) -> None:
         """Count the chain links as the external-sort battery does, and hold
         every progenitor link that does not join adjacent snapshots with its
         owner's values, for the pair pass to judge at its target."""
@@ -638,10 +609,10 @@ class _PairPass:
         self.inventory = inventory
         self.block_rows = block_rows
         self.meter = meter
-        self.closure = _Failures()
-        self.cycles = _Failures()
-        self.keys = _Failures()
-        self.positions = _Failures()
+        self.closure = FailureTally()
+        self.cycles = FailureTally()
+        self.keys = FailureTally()
+        self.positions = FailureTally()
         self.total = int(inventory["total_halos"])
         self.unsampled = int(inventory["selected_halos"]) == self.total
         self.emitted = 0
@@ -660,20 +631,19 @@ class _PairPass:
         source_keys = _Bitset(self.total)
         self.meter.acquire(source_keys.nbytes)
         position_bits = None
-        starts = None
+        ends = None
         try:
             if self.identity:
-                starts = self.scan.forest_totals.counts
-                self._identity_totals(starts)
-                np.cumsum(starts, out=starts)  # each forest's end position
-                position_bits = _Bitset(int(starts[-1]) if starts.size else 0)
+                self._identity_totals(self.scan.forest_totals.counts)
+                ends = self.scan.forest_totals.take_end_positions()
+                position_bits = _Bitset(int(ends[-1]) if ends.size else 0)
                 self.meter.acquire(position_bits.nbytes)
             visited = _Bitset(int(self.counts.max()) if self.counts.size else 0)
             self.meter.acquire(visited.nbytes)
             next_forest = None
             for snap in range(self.n_snapshots):
                 next_forest = self._snapshot(
-                    snap, next_forest, source_keys, position_bits, starts, visited
+                    snap, next_forest, source_keys, position_bits, ends, visited
                 )
             self.meter.release(visited.nbytes)
             self._source_key_totals(source_keys)
@@ -793,13 +763,13 @@ class _PairPass:
             failures.add(
                 "FirstHaloInFOFgroup target(s) that are not self-referencing centrals",
                 int(bad.sum()),
-                _link_examples(offsets, owner_gp, low + target, bad),
+                link_examples(offsets, owner_gp, low + target, bad),
             )
             bad = forest[target] != owner_forest
             failures.add(
                 "link(s) crossing forests",
                 int(bad.sum()),
-                _link_examples(offsets, owner_gp, low + target, bad),
+                link_examples(offsets, owner_gp, low + target, bad),
             )
 
             # NextHaloInFOFgroup: the target shares the owner's central
@@ -811,13 +781,13 @@ class _PairPass:
             failures.add(
                 "NextHaloInFOFgroup target(s) in a different FoF group than the owner",
                 int(bad.sum()),
-                _link_examples(offsets, owners, low + target, bad),
+                link_examples(offsets, owners, low + target, bad),
             )
             bad = forest[target] != owner_forest[linked]
             failures.add(
                 "link(s) crossing forests",
                 int(bad.sum()),
-                _link_examples(offsets, owners, low + target, bad),
+                link_examples(offsets, owners, low + target, bad),
             )
             np.add.at(fof_in, target, 1)
 
@@ -831,13 +801,13 @@ class _PairPass:
             failures.add(
                 "NextProgenitor(s) whose target names a different descendant than the owner",
                 int(bad.sum()),
-                _link_examples(offsets, owners, low + target, bad),
+                link_examples(offsets, owners, low + target, bad),
             )
             bad = forest[target] != owner_forest[linked]
             failures.add(
                 "link(s) crossing forests",
                 int(bad.sum()),
-                _link_examples(offsets, owners, low + target, bad),
+                link_examples(offsets, owners, low + target, bad),
             )
             np.add.at(prog_in, target, 1)
 
@@ -858,13 +828,13 @@ class _PairPass:
             self.closure.add(
                 "FirstProgenitor(s) whose target's Descendant is not the owner",
                 int(bad.sum()),
-                _link_examples(offsets, owners, low + target, bad),
+                link_examples(offsets, owners, low + target, bad),
             )
             bad = forest[target] != owner_forest[start:stop][linked]
             self.closure.add(
                 "link(s) crossing forests",
                 int(bad.sum()),
-                _link_examples(offsets, owners, low + target, bad),
+                link_examples(offsets, owners, low + target, bad),
             )
             np.add.at(prog_in, target, 1)
 
@@ -887,13 +857,13 @@ class _PairPass:
             ):
                 bad = wrong & (links["tag"] == tag)
                 self.closure.add(
-                    kind, int(bad.sum()), _link_examples(self.offsets, owners, targets, bad)
+                    kind, int(bad.sum()), link_examples(self.offsets, owners, targets, bad)
                 )
             bad = forest[target] != links["forest"]
             self.closure.add(
                 "link(s) crossing forests",
                 int(bad.sum()),
-                _link_examples(self.offsets, owners, targets, bad),
+                link_examples(self.offsets, owners, targets, bad),
             )
             np.add.at(prog_in, target, 1)
 
@@ -914,7 +884,7 @@ class _PairPass:
                 "(reached k times, expected once iff the halo has a Descendant)",
                 int(bad.sum()),
                 [
-                    "{} (k={})".format(_describe_gp(self.offsets, low + row), int(k))
+                    "{} (k={})".format(describe_position(self.offsets, low + row), int(k))
                     for row, k in zip(rows[bad][:5], reached[bad][:5])
                 ],
             )
@@ -926,7 +896,7 @@ class _PairPass:
                 "once iff the halo is not its group's central)",
                 int(bad.sum()),
                 [
-                    "{} (k={})".format(_describe_gp(self.offsets, low + row), int(k))
+                    "{} (k={})".format(describe_position(self.offsets, low + row), int(k))
                     for row, k in zip(rows[bad][:5], reached[bad][:5])
                 ],
             )
@@ -995,7 +965,7 @@ class _PairPass:
                 stuck,
                 [
                     "{} (crossing snapshots)".format(
-                        _describe_gp(self.offsets, int(self.far_np_owner[row]))
+                        describe_position(self.offsets, int(self.far_np_owner[row]))
                     )
                     for row in visited.clear_indices()
                 ],
@@ -1028,7 +998,7 @@ class _PairPass:
     def _keys_and_positions(self, snap, halos, forest, source_keys, position_bits, ends) -> None:
         n = int(self.counts[snap])
         position_identity = (
-            self.source_format in _V3_POSITION_IDENTITY
+            self.source_format in POSITION_IDENTITY_FORMATS
             and int(self.inventory["selected_halos"]) == self.total
         )
         for start in range(0, n, self.block_rows):
@@ -1210,7 +1180,7 @@ def run_battery_bounded(
     external-sort battery's interface and never written.
     """
     del spill_dir  # nothing is spilled
-    budget_bytes = _require_budget(budget_bytes)
+    budget_bytes = require_budget(budget_bytes)
     block_rows = _require_block_rows(block_rows)
     directory = Path(directory)
     if not directory.is_dir():
@@ -1223,7 +1193,7 @@ def run_battery_bounded(
             "SourceHaloID bitset"
         )
     try:
-        manifest = _v3_load_manifest(Path(manifest_path))
+        manifest = load_manifest(Path(manifest_path))
     except (ConverterError, OSError, ValueError, KeyError) as exc:
         raise ConverterError(
             "cannot load the conversion manifest ({}); the bounded battery sizes its "
@@ -1280,45 +1250,45 @@ def run_battery_bounded(
         for name in names:
             outcomes.append(Outcome(name, "SKIP", reason))
 
-    structural_ok = record("file-set", _v3_check_file_set(directory, n_snapshots))
+    structural_ok = record("file-set", check_file_set(directory, n_snapshots))
     declarations: List[Dict[str, Tuple[str, ...]]] = []
     if structural_ok:
         failures = []
         for snap in range(n_snapshots):
             path = directory / snapshot_h5_name(snap)
             try:
-                file_failures, declared = _v3_snapshot_structure(path)
+                file_failures, declared = snapshot_structure(path)
             except OSError as exc:
                 file_failures, declared = ["unreadable as HDF5 ({})".format(exc)], None
             failures += ["{}: {}".format(path.name, f) for f in file_failures]
             declarations.append(declared or {})
         structural_ok = record("object-set", failures)
         try:
-            sidecar_failures = _v3_sidecar_structure(directory / "forests.h5")
+            sidecar_failures = sidecar_structure(directory / "forests.h5")
         except OSError as exc:
             sidecar_failures = ["forests.h5: unreadable as HDF5 ({})".format(exc)]
         structural_ok = record("sidecar-object-set", sidecar_failures) and structural_ok
     else:
         skip(("object-set", "sidecar-object-set"), "file set invalid")
 
-    record("manifest-binding", _v3_manifest_binding(directory, a_list_path, a_list, manifest))
+    record("manifest-binding", check_manifest_binding(directory, a_list_path, a_list, manifest))
 
     semantic = V3_CHECKS[V3_CHECKS.index("header-values") :]
     if not structural_ok:
         skip(("schema-binding",) + semantic, "structural conformance failed; semantics not trusted")
-        return V3BatteryResult(_ordered(outcomes), measurements)
-    record("schema-binding", _v3_schema_binding(declarations, manifest))
+        return V3BatteryResult(ordered_outcomes(outcomes), measurements)
+    record("schema-binding", check_schema_binding(declarations, manifest))
     if any(declared != declarations[0] for declared in declarations):
         skip(semantic, "files declare different /schema; their columns are not comparable")
-        return V3BatteryResult(_ordered(outcomes), measurements)
+        return V3BatteryResult(ordered_outcomes(outcomes), measurements)
 
-    headers = [_v3_read_header(directory / snapshot_h5_name(snap)) for snap in range(n_snapshots)]
+    headers = [read_header(directory / snapshot_h5_name(snap)) for snap in range(n_snapshots)]
     counts = [int(header["_rows"]) for header in headers]
     measurements["format_versions"] = sorted({int(h["format_version"]) for h in headers})
     measurements["snapshot_counts"] = counts
     measurements["snapshot_bytes"] = [int(h["_bytes"]) for h in headers]
     measurements["sidecar_bytes"] = int((directory / "forests.h5").stat().st_size)
-    header_failures, run_scoped_failures = _v3_check_headers(headers, a_list, manifest)
+    header_failures, run_scoped_failures = check_headers(headers, a_list, manifest)
     record("header-values", header_failures)
     run_scoped_ok = record("run-scoped-headers", run_scoped_failures)
     first = headers[0]
@@ -1363,7 +1333,7 @@ def run_battery_bounded(
     )
     record(
         "position-bounds",
-        _v3_position_bounds(scan, headers, declarations[0]),
+        check_position_bounds(scan, headers, declarations[0]),
         detail="every Pos component within [0, box_size_mpc_h]",
     )
     links_ok = record("link-targets", scan.links.messages())
@@ -1418,13 +1388,13 @@ def run_battery_bounded(
         record("header-bounds", check_header_bounds(n_forests_total, max_rank, multiplier))
         record(
             "sidecar-content",
-            _v3_sidecar_content(
+            check_sidecar_content(
                 directory / "forests.h5", source_format, n_forests_total, inventory, block
             ),
         )
     else:
         skip(("identity", "header-bounds", "sidecar-content"), "run-scoped headers inconsistent")
-    record("count-conservation", _v3_count_conservation(counts, manifest))
+    record("count-conservation", check_count_conservation(counts, manifest))
     measurements.update(scan.stats)
     measurements.update(
         len_zero=scan.len_zero,
@@ -1435,7 +1405,7 @@ def run_battery_bounded(
         peak_resident_bytes=int(meter.bytes_peak),
         peak_spill_bytes=0,
     )
-    return V3BatteryResult(_ordered(outcomes), measurements)
+    return V3BatteryResult(ordered_outcomes(outcomes), measurements)
 
 
 # ---------------------------------------------------------------------------

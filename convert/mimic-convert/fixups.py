@@ -64,9 +64,7 @@ from scatter import (  # noqa: E402
     file_md5,
     id_checksum,
     load_a_list,
-    verify_or_consumed,
 )
-from sort_index import consumption_recorded  # noqa: E402
 
 #: Fixed-record dtype: the frozen scratch fields plus this stage's outputs.
 #: Little-endian, packed, itemsize 120. Jx/Jy/Jz hold normalised Spin after
@@ -122,16 +120,17 @@ PARTICLE_MASS_UNITS = "1e10 Msun/h"
 #: scripts/generate_properties.py:_linear_conversion_expr, which derives it from
 #: core_properties.yaml reference_units and formats it to full float64
 #: precision). Defining it once here — the converter's frozen-units home — keeps
-#: the Len derivation (Mvir_native * NATIVE_TO_REF_MASS / PartMass) and the
-#: cross-check Mvir reconstruction from drifting apart or from the C model.
+#: the Len derivation (Mvir_native * NATIVE_TO_REF_MASS / PartMass) from
+#: drifting away from the C model.
 NATIVE_TO_REF_MASS = 1e-10
 
 #: Reference mass unit (1e10 Msun/h) expressed in native Msun/h — the reciprocal
 #: of NATIVE_TO_REF_MASS, defined independently as the exact literal so the value
 #: matches the multiplication used when the header attribute was written. Used to
 #: stamp/verify the ``particle_mass_msun_h`` header attribute (a 1e10-Msun/h
-#: particle mass rendered in Msun/h); shared by the writer and the cross-check's
-#: header-consistency guard so the round-trip is bit-for-bit.
+#: particle mass rendered in Msun/h); the version 3 writer stamps it and
+#: re-checks a recorded mass with the same multiplication, so the round-trip is
+#: bit-for-bit.
 REF_TO_NATIVE_MASS = 1e10
 
 _INT32_MAX = float(np.iinfo(np.int32).max)
@@ -551,7 +550,6 @@ def run_fixups(
     a_list_path,
     simulation_info_path,
     snapshots: Optional[Sequence[int]] = None,
-    consume_intermediates: bool = False,
     cut_map: Optional[ForestMap] = None,
 ) -> Manifest:
     """Apply the fix-up stage to every sorted snapshot (or the given subset).
@@ -561,10 +559,7 @@ def run_fixups(
     is bound the same way, recorded here if scatter did not record it.
     Re-running skips snapshots already fixed after verifying their artifacts.
 
-    ``consume_intermediates`` (CLI: ``--consume-intermediates``) turns on the
-    deletion of each snapshot's sorted scratch once its fixed
-    output is verified and registered. It is off by default and changes no
-    emitted byte; with it off this stage deletes nothing, exactly as before.
+    This stage deletes nothing: the sorted scratch stays in the workdir.
 
     ``cut_map`` is the workdir's cut table (``scatter.load_cut_table``), which
     is required exactly when scatter bound one: its md5 must be the bound
@@ -619,45 +614,9 @@ def run_fixups(
             a_list,
             particle_mass,
             forests_at_max_by_snap.get(snap, _EMPTY_FOREST_IDS),
-            consume_intermediates=consume_intermediates,
             cut_map=cut_map,
         )
     return manifest
-
-
-def _consume_sorted(manifest: Manifest, entry: dict, snap: int, delete: bool) -> None:
-    """Delete-after-verify for ``snap_NNN_sorted.bin``.
-
-    The fix-up stage is the sorted scratch's terminal consumer: no later stage
-    reads its contents, because ``links`` and the writer both work from the
-    fixed file. Two skip-trust paths still *verify* it on a re-run —
-    ``sort_one_snapshot``'s and ``_finalize_scatter``'s — and each does so on
-    the ONE RULE stated in ``sort_one_snapshot``: strict where the consumption
-    cannot have happened yet, ``scatter.verify_or_consumed`` where it can.
-    ``sort_one_snapshot`` verifies the sorted file OUTRIGHT at ``sorted`` and
-    goes through ``verify_or_consumed`` only at ``fixed`` and ``linked``;
-    ``_finalize_scatter`` likewise verifies it outright in its ``sorted``
-    branch and through ``verify_or_consumed`` only in its ``fixed`` branch.
-    Those consuming statuses are the ones a deletion can precede, so a re-run
-    there skips on a recorded consumption instead of failing on a file the
-    pipeline deliberately deleted.
-
-    The successor is durable before the predecessor is dropped, but "durable"
-    is established differently on each of the three paths that reach here. On
-    the producing path the fixed output has just been re-read, verified against
-    the manifest totals, registered and saved. On the ``fixed`` skip path it is
-    verified against its registered checksum this run. On the ``linked`` skip
-    path it may itself already be recorded consumed by a verified emission, in
-    which case nothing is re-read — the emitted HDF5 that superseded it was
-    verified dataset-by-dataset when the writer took it.
-
-    ``delete`` is the run's opt-in flag. With it clear the sorted file is
-    retained; a removal a crash interrupted between the unlink and the manifest
-    save still converges here, in either state, because those bytes are already
-    gone.
-    """
-    for path in manifest.consume_intermediates([entry["sorted_file"]], delete=delete):
-        _log("fixups: snapshot {} — consumed {}".format(snap, path))
 
 
 def fix_one_snapshot(
@@ -666,7 +625,6 @@ def fix_one_snapshot(
     a_list: np.ndarray,
     particle_mass: float,
     forests_at_max: np.ndarray = _EMPTY_FOREST_IDS,
-    consume_intermediates: bool = False,
     cut_map: Optional[ForestMap] = None,
 ) -> None:
     """Fix one snapshot: verify input, apply steps 1-4 (and the cut table's
@@ -675,33 +633,10 @@ def fix_one_snapshot(
     if entry is None:
         raise ConverterError("snapshot {}: no manifest entry; run scatter first".format(snap))
     status = entry.get("status")
-    if status == "linked" and not consumption_recorded(manifest, entry):
-        # As in ``sort_one_snapshot``: ``linked`` became a skip only to keep a
-        # CONSUMED snapshot resumable, so with nothing consumed this stage
-        # refuses exactly as it did before the slice.
-        raise ConverterError(
-            "snapshot {}: unexpected status {!r}; run sort first".format(snap, status)
-        )
-    if status in ("fixed", "linked"):
-        # This stage's output is already on the record. At ``fixed`` it must
-        # still be on disk — the writer, its terminal consumer, runs only once
-        # EVERY snapshot is ``linked`` — so it is verified outright. At
-        # ``linked`` both it and the links file that superseded it may have
-        # been consumed by a verified emission, and a re-run then has to skip
-        # naming them rather than fail on a file the pipeline deleted.
-        consumed: List[str] = []
-        if status == "fixed":
-            manifest.verify_intermediate(entry["fixed_file"], "fixed snapshot scratch")
-        else:
-            verify_or_consumed(manifest, entry["fixed_file"], "fixed snapshot scratch", consumed)
-            verify_or_consumed(manifest, entry["links_file"], "snapshot links scratch", consumed)
-        _consume_sorted(manifest, entry, snap, consume_intermediates)
-        if consumed:
-            _log(
-                "fixups: snapshot {} is already {} and {} — skipping".format(
-                    snap, status, "; ".join(consumed)
-                )
-            )
+    if status == "fixed":
+        # This stage's output is already on the record and must still be on
+        # disk, so it is verified outright before the skip.
+        manifest.verify_intermediate(entry["fixed_file"], "fixed snapshot scratch")
         return
     if status != "sorted":
         raise ConverterError(
@@ -771,7 +706,6 @@ def fix_one_snapshot(
         entry["cut_promotions"] = stats["cut_promotions"]
     entry["status"] = "fixed"
     manifest.save()
-    _consume_sorted(manifest, entry, snap, consume_intermediates)
     _log(
         "fixups: snapshot {} — {} rows, {} Len==0 halo(s)".format(
             snap, stats["rows"], stats["len_zero_count"]

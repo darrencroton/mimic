@@ -44,9 +44,7 @@ central then lies in another forest of the table becomes a central. Without
 it the conversion is exactly what it was; with it the table's path and md5
 are part of the recorded configuration.
 
-**Format versions.** This CLI emits version 3 only. The existing
-Consistent-Trees ASCII to version 2 workflow is unchanged and lives in
-``convert_ctrees.py``, whose commands keep their version 2 defaults.
+**Format version.** This CLI emits format version 3 only.
 
 **Conversion is not route validation.** Mimic's horizontal_hdf5 reader and
 horizontal driver consume format version 3, but a converted dataset is an
@@ -82,8 +80,8 @@ mode instead (``validate_bounded.py``): adjacent datasets only, no sort and no
 spill, within a ceiling it prints at start and refuses above the budget.
 
 **Sources are read-only.** Source files are opened for reading only and pinned
-in the manifest. There is no source release, transfer or deletion for these
-routes; the only opt-in deletions are ``--consume-ingest`` and
+in the manifest. Nothing transfers or deletes a source file; the only opt-in
+deletions are ``--consume-ingest`` and
 ``--consume-transposed``, which remove manifest-owned intermediates inside the
 workdir after their successor has been verified.
 
@@ -123,7 +121,7 @@ from column_schema import SOURCE_FORMATS, ConverterError  # noqa: E402
 CONVERT_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
 PROFILE_DIR = CONVERT_DIR / "profiles"
 
-#: The only format version this CLI writes. Version 2 is convert_ctrees.py's.
+#: The only format version this CLI writes.
 FORMAT_VERSION = 3
 
 DEFAULT_MEMORY_BUDGET_MB = 2048
@@ -819,8 +817,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         prog="convert_trees",
         description="Convert L-Halo binary, Consistent-Trees forests-HDF5 or Consistent-Trees "
         "ASCII merger trees to Mimic horizontal HDF5 format version 3. "
-        + runtime_routes.cli_description()
-        + " The ASCII-to-version-2 workflow is convert_ctrees.py.",
+        + runtime_routes.cli_description(),
         epilog="Package profiles: simulations/<package>/converter_columns.yaml. Restart: every "
         "stage resumes from <workdir>/manifest.json; see the module docstring.",
     )
@@ -870,8 +867,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "write",
         help="emit snapshot_NNN.h5 + forests.h5 in horizontal-HDF5 format version 3",
         description="emit snapshot_NNN.h5 + forests.h5 in horizontal-HDF5 format version 3 "
-        "(the only version this CLI writes; version 2 is the ASCII-only convert_ctrees.py "
-        "workflow)",
+        "(the only version this CLI writes)",
     )
     _add_workdir(write)
     write.add_argument(

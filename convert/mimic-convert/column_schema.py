@@ -186,7 +186,7 @@ class _FixedField:
 #: The five int64 snapshot-local link columns plus the three int32
 #: target-snapshot columns. The snapshot columns are -1 if and only if
 #: the corresponding row index is -1; that biconditional is a v3 validator
-#: obligation (validate.py), stated here so the name table and the rule live
+#: obligation (validate_v3.py), stated here so the name table and the rule live
 #: together.
 TOPOLOGY_FIELDS: Tuple[_FixedField, ...] = (
     _FixedField(

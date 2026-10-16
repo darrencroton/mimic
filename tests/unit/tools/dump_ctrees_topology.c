@@ -2,37 +2,25 @@
  * @file    dump_ctrees_topology.c
  * @brief   Read-only reference dumps of merger trees through Mimic's vertical readers
  *
- * Loads every forest of a Consistent-Trees-ASCII simulation package through
- * Mimic's existing, unmodified consistent_trees_ascii reader (vertical/interface.c
- * + read_ctrees_ascii.c) and dumps, per halo, the literal RawHalo link fields
- * (Descendant, FirstProgenitor, NextProgenitor, FirstHaloInFOFgroup,
- * NextHaloInFOFgroup), translated from local per-forest array indices to the
- * stable ctrees id (MostBoundID), plus the forest's global forest number and
- * the halo's within-forest rank (its position in the per-forest
- * InputTreeHalos array, which the reader already returns in final reference
- * order after fix_upid/assign_mergertree_indices have run).
+ * Loads every forest of a simulation package through Mimic's existing,
+ * unmodified vertical reader (vertical/interface.c and the selected reader) and
+ * dumps, per halo, the literal RawHalo link fields and core payload, exactly as
+ * the reader returns them once its own fix-ups and link assignment have run.
  *
- * This is direct reference evidence for chain-order conformance: an external
- * consumer can compare it against another implementation's own chain
- * construction over the same source data. It performs no processing beyond
- * what the production reader already does while loading a forest: no FoF
- * grouping, no inheritance, no output. It never modifies vertical_driver.c,
- * read_ctrees_ascii.c, or any other production file — every function called
- * here is an existing, unmodified public entry point (vertical/interface.h,
- * core/proto.h).
+ * This is direct reference evidence: an external consumer can compare it
+ * against another implementation's reading of the same source data. It
+ * performs no processing beyond what the production reader already does while
+ * loading a forest: no FoF grouping, no inheritance, no output. It never
+ * modifies vertical_driver.c, a reader, or any other production file — every
+ * function called here is an existing, unmodified public entry point
+ * (vertical/interface.h, core/proto.h).
  *
- * Usage: dump_ctrees_topology <run_param_file> <output_dump_path>
- *        dump_ctrees_topology --source-payload <run_param_file> <output_dump_path>
+ * Usage: dump_ctrees_topology --source-payload <run_param_file> <output_dump_path>
  * Exit codes: 0 complete dump written, 1 runtime/write failure, 2 bad usage.
  *
- * **Two modes, two separately versioned formats.** The default (two-argument)
- * invocation writes `mimic-topology-dump v1` exactly as before: MostBoundID-keyed
- * links for the enumerated Consistent-Trees readers, consumed by
- * convert/mimic-convert/crosscheck.py. It still requires the reader's
- * global_forest_offset hook, so it still refuses the per-file L-Halo readers.
- *
- * `--source-payload` writes `mimic-source-dump v1` for the generalisation
- * acceptance comparator (convert/mimic-convert/tests/run_generalisation_acceptance.py).
+ * The tool writes one format, `mimic-source-dump v1`, for the generalisation
+ * acceptance comparator (convert/mimic-convert/tests/run_generalisation_acceptance.py);
+ * the `--source-payload` flag names it and is required.
  * It works with every vertical reader, because MostBoundID is not a key there
  * (L-Halo particle identifiers are signed and repeat): each halo is identified
  * by the reader's own source-relative identity (forest number, within-forest
@@ -47,9 +35,8 @@
  * file is fatal here: reference evidence must not silently narrow the inventory.
  * The stream ends with an `# end` trailer carrying the row and forest totals,
  * so a truncated dump is detectable by its consumer as well as by exit status,
- * and a source dump that fails (exit 1) after it was opened is removed, so no
- * partial reference is left on disk. The default mode keeps its original
- * behaviour: a refused v1 run leaves the header it had written.
+ * and a dump that fails (exit 1) after it was opened is removed, so no
+ * partial reference is left on disk.
  */
 
 #include <inttypes.h>
@@ -66,7 +53,7 @@
 #include "vertical/interface.h"
 #include "vertical/reader.h"
 
-/* The --source-payload dump being written, or NULL: set once the dump is opened
+/* The dump being written, or NULL: set once the dump is opened
  * and cleared once it is complete, so every failure in between can remove it. */
 static FILE *partial_dump_stream = NULL;
 static const char *partial_dump_path = NULL;
@@ -96,7 +83,7 @@ static void discard_partial_dump(void) {
  *
  * This harness has its own main() and does not link core/main.c (which
  * defines the production myexit() with MPI-aware messaging), so it provides
- * the same minimal contract directly: remove an unfinished source dump, print
+ * the same minimal contract directly: remove an unfinished dump, print
  * and exit with the given code. Every FATAL_ERROR reaches here.
  */
 void myexit(int signum) {
@@ -116,52 +103,11 @@ void myexit(int signum) {
     }                                                                                              \
   } while (0)
 
-#define TOPOLOGY_DUMP_FORMAT_VERSION "mimic-topology-dump v1"
 #define SOURCE_DUMP_FORMAT_VERSION "mimic-source-dump v1"
 #define SOURCE_DUMP_MODE_FLAG "--source-payload"
 
 /* Float payload is dumped as its exact binary32 bit pattern. */
 _Static_assert(sizeof(float) == sizeof(uint32_t), "source dump assumes 32-bit float");
-
-enum DumpMode {
-  DUMP_MODE_TOPOLOGY_V1 = 0, /* default: mimic-topology-dump v1, MostBoundID-keyed */
-  DUMP_MODE_SOURCE_V1 = 1,   /* --source-payload: mimic-source-dump v1, rank-keyed */
-};
-/* No production id is ever INT64_MIN (writer/battery/crosscheck already
- * reject a converter MostBoundID of INT64_MIN dataset-wide because its
- * magnitude overflows signed int64), so it is a safe, unambiguous NA marker
- * for "no link" here. */
-#define TOPOLOGY_DUMP_NA_SENTINEL INT64_MIN
-
-/**
- * @brief   Resolve a local per-forest halo index to its stable ctrees id.
- * @param   local_index   Index into the currently loaded InputTreeHalos array,
- *                         or a negative sentinel (-1) meaning "no link".
- * @return  The target halo's MostBoundID, or TOPOLOGY_DUMP_NA_SENTINEL.
- */
-static long long topology_dump_id_of(int local_index) {
-  if (local_index < 0) {
-    return TOPOLOGY_DUMP_NA_SENTINEL;
-  }
-  return (long long)InputTreeHalos[local_index].MostBoundID;
-}
-
-/**
- * @brief   Dump every halo of the currently loaded forest (unit) to `out`.
- * @param   out             Destination stream.
- * @param   unit            Local (chunk-relative) forest index just loaded.
- * @param   forestnr_global Dense global forest number (GlobalForestOffset + unit).
- */
-static void topology_dump_forest(FILE *out, int unit, long long forestnr_global) {
-  for (int halonr = 0; halonr < InputTreeNHalos[unit]; halonr++) {
-    const struct RawHalo *h = &InputTreeHalos[halonr];
-    fprintf(out, "%lld %d %lld %d %lld %lld %lld %lld %lld\n", forestnr_global, halonr,
-            (long long)h->MostBoundID, h->SnapNum, topology_dump_id_of(h->Descendant),
-            topology_dump_id_of(h->FirstProgenitor), topology_dump_id_of(h->NextProgenitor),
-            topology_dump_id_of(h->FirstHaloInFOFgroup),
-            topology_dump_id_of(h->NextHaloInFOFgroup));
-  }
-}
 
 /** @brief The exact IEEE-754 binary32 bit pattern of `value`. */
 static uint32_t source_dump_float_bits(float value) {
@@ -230,19 +176,13 @@ static void source_dump_header(FILE *out, const struct VerticalReader *reader) {
 }
 
 int main(int argc, char **argv) {
-  enum DumpMode mode = DUMP_MODE_TOPOLOGY_V1;
-  if (argc == 4 && strcmp(argv[1], SOURCE_DUMP_MODE_FLAG) == 0) {
-    mode = DUMP_MODE_SOURCE_V1;
-    argv++;
-    argc--;
-  }
-  if (argc != 3) {
-    fprintf(stderr, "Usage: %s [%s] <run_param_file> <output_dump_path>\n", argv[0],
+  if (argc != 4 || strcmp(argv[1], SOURCE_DUMP_MODE_FLAG) != 0) {
+    fprintf(stderr, "Usage: %s %s <run_param_file> <output_dump_path>\n", argv[0],
             SOURCE_DUMP_MODE_FLAG);
     return 2;
   }
-  const char *param_file = argv[1];
-  const char *dump_path = argv[2];
+  const char *param_file = argv[2];
+  const char *dump_path = argv[3];
 
   /* Minimal, faithful subset of main()'s startup sequence: only what
    * read_parameter_file()/init() and the vertical reader require. Deliberately
@@ -267,21 +207,12 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  /* Only the source mode derives per-file forest numbers itself (the
-   * count-prefix offsets core/vertical_driver.c builds); v1 keeps its original
-   * requirement of the enumerated readers' global_forest_offset hook. */
-  const int per_file_offsets =
-      mode == DUMP_MODE_SOURCE_V1 && reader->partition_model == PARTITION_PER_FILE;
-  if (mode == DUMP_MODE_SOURCE_V1) {
-    partial_dump_stream = out;
-    partial_dump_path = dump_path;
-    source_dump_header(out, reader);
-  } else {
-    fprintf(out, "# %s\n", TOPOLOGY_DUMP_FORMAT_VERSION);
-    fprintf(out, "# forestnr rank id snapnum desc_id first_prog_id next_prog_id first_fof_id "
-                 "next_fof_id\n");
-    fprintf(out, "# NA sentinel = %lld (no link)\n", (long long)TOPOLOGY_DUMP_NA_SENTINEL);
-  }
+  /* Per-file readers have no global_forest_offset hook, so their forest
+   * numbers are the count-prefix offsets core/vertical_driver.c builds. */
+  const int per_file_offsets = reader->partition_model == PARTITION_PER_FILE;
+  partial_dump_stream = out;
+  partial_dump_path = dump_path;
+  source_dump_header(out, reader);
 
   REQUIRE_READER_HOOK(reader, num_partitions);
   REQUIRE_READER_HOOK(reader, partition_exists);
@@ -329,11 +260,7 @@ int main(int argc, char **argv) {
     }
     for (int unit = 0; unit < Ntrees; unit++) {
       load_unit(unit);
-      if (mode == DUMP_MODE_SOURCE_V1) {
-        rows_written += source_dump_forest(out, unit, output_id, GlobalForestOffset + unit);
-      } else {
-        topology_dump_forest(out, unit, (long long)GlobalForestOffset + unit);
-      }
+      rows_written += source_dump_forest(out, unit, output_id, GlobalForestOffset + unit);
       free_unit_halos(NULL);
     }
     forests_written += Ntrees;
@@ -347,21 +274,18 @@ int main(int argc, char **argv) {
     reader->teardown_run();
   }
 
-  if (mode == DUMP_MODE_SOURCE_V1) {
-    fprintf(out, "# end rows %" PRId64 " forests %" PRId64 "\n", rows_written, forests_written);
-  }
+  fprintf(out, "# end rows %" PRId64 " forests %" PRId64 "\n", rows_written, forests_written);
 
-  /* A silently short dump is the failure mode that matters: the consumer's
-   * topology-chains check asserts the dump names every converter halo, so a
-   * truncated write must surface as a non-zero exit here rather than as a
-   * confusing coverage mismatch downstream. Check the stream error flag once
-   * (cheaper than testing every fprintf) and the fclose flush separately,
-   * since the final buffered write can only fail at close. */
+  /* A silently short dump is the failure mode that matters: the consumer
+   * compares the dump row for row, so a truncated write must surface as a
+   * non-zero exit here rather than as a confusing mismatch downstream. Check
+   * the stream error flag once (cheaper than testing every fprintf) and the
+   * fclose flush separately, since the final buffered write can only fail at
+   * close. */
   const int write_failed = ferror(out);
   partial_dump_stream = NULL; /* closed just below, whatever the outcome */
   if (fclose(out) != 0 || write_failed) {
-    fprintf(stderr, "Failed to write dump '%s' completely (%s)\n", dump_path,
-            partial_dump_path != NULL ? "partial dump removed" : "output is truncated");
+    fprintf(stderr, "Failed to write dump '%s' completely (partial dump removed)\n", dump_path);
     discard_partial_dump();
     return 1;
   }

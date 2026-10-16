@@ -4,12 +4,19 @@ Implements the producer side of Validation Requirements in
 convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md (section "Version 3") over one dataset directory:
 :func:`run_battery_v3` settles every check named in :data:`V3_CHECKS` and
 returns the outcomes together with the residency and spill high-water marks
-it measured. Version 2's adjacency, MostBoundID ordering and fixed-unit rules
-are replaced only for files that declare ``format_version`` 3, and only here:
-the version 2 battery in :mod:`validate` is unchanged by this module, which
-reuses its outcome type, failure formatting, per-dataset filter check and
-header identity bound. The version dispatch and the CLI stay in
-:mod:`validate`.
+it measured. A file that does not declare ``format_version`` 3 is refused by
+the header checks. The battery is reached through ``convert_trees.py
+validate|report``.
+
+**Two modes.** This external-sort battery is the default and validates every
+version 3 dataset, gapped ``Descendant`` links included. Its bounded mode
+(``bounded=True``, :mod:`validate_bounded`) validates adjacent datasets
+(``links_adjacent`` 1) without any sort or spill, within a ceiling it prints
+at start, and is the practical validator at the largest scales. The two share
+this module's public interface: the outcome type and :class:`FailureTally`,
+the structure, header, binding, sidecar and conservation checks, and
+:class:`RowScan`, the per-row block check every scanner of either mode
+constructs and extends.
 
 **Independence.** The fixed format tables below are restated literally from
 the specification rather than imported from the writer or the schema module,
@@ -200,7 +207,7 @@ _V3_SIDECAR = ("ForestID", "SourceFileOrdinal", "SourceUnitOrdinal")
 #: ForestInfo row and (since the 2026-10-07 ruling) a whole Consistent-Trees
 #: ASCII forest is one inventory unit, so a forest's halos are one contiguous
 #: SourceHaloID range in rank order.
-_V3_POSITION_IDENTITY = ("consistent_trees_ascii", "consistent_trees_hdf5", "lhalo_binary")
+POSITION_IDENTITY_FORMATS = ("consistent_trees_ascii", "consistent_trees_hdf5", "lhalo_binary")
 
 #: Formats whose inventory records per-file unit counts (``files``), so the
 #: sidecar's (SourceFileOrdinal, SourceUnitOrdinal) pairs are checked against
@@ -298,7 +305,7 @@ class V3BatteryResult:
         return battery_failed(self.outcomes)
 
 
-class _Failures:
+class FailureTally:
     """Counted failures by kind, keeping five examples each."""
 
     def __init__(self):
@@ -336,7 +343,7 @@ def _share(budget_bytes: int, name: str) -> int:
 # ---------------------------------------------------------------------------
 
 
-def _v3_check_file_set(directory: Path, n_snapshots: int) -> List[str]:
+def check_file_set(directory: Path, n_snapshots: int) -> List[str]:
     """Exactly the a_list's snapshot files plus forests.h5, as regular files;
     no other entry of any kind."""
     expected = {snapshot_h5_name(snap) for snap in range(n_snapshots)} | {"forests.h5"}
@@ -470,7 +477,7 @@ def _v3_schema_structure(schema_group) -> Tuple[List[str], Dict[str, Tuple[str, 
     return failures, declared
 
 
-def _v3_snapshot_structure(path: Path) -> Tuple[List[str], Optional[Dict[str, Tuple[str, ...]]]]:
+def snapshot_structure(path: Path) -> Tuple[List[str], Optional[Dict[str, Tuple[str, ...]]]]:
     """Exact object set, header attribute set and types, /schema, and every
     /halos dataset against the fixed table or its own declaration."""
     failures: List[str] = []
@@ -559,7 +566,7 @@ def _v3_snapshot_structure(path: Path) -> Tuple[List[str], Optional[Dict[str, Tu
     return failures, declared
 
 
-def _v3_sidecar_structure(path: Path) -> List[str]:
+def sidecar_structure(path: Path) -> List[str]:
     """forests.h5: exactly three int64 little-endian 1-D root datasets of one
     length, chunked and unfiltered, with no attributes anywhere."""
     failures: List[str] = []
@@ -588,13 +595,13 @@ def _v3_sidecar_structure(path: Path) -> List[str]:
 # ---------------------------------------------------------------------------
 
 
-def _v3_load_manifest(manifest_path: Path):
+def load_manifest(manifest_path: Path):
     """The generic conversion manifest the dataset claims, loaded with its
     own integrity checks (configuration digest, embedded schema identity)."""
     return ConversionManifest.load(Path(manifest_path).parent)
 
 
-def _v3_manifest_binding(directory: Path, a_list_path, a_list: np.ndarray, manifest) -> List[str]:
+def check_manifest_binding(directory: Path, a_list_path, a_list: np.ndarray, manifest) -> List[str]:
     """The manifest must describe THIS dataset: a completed version-3 write
     whose registered outputs are exactly these files by name and SHA-256,
     produced from the supplied a_list."""
@@ -660,7 +667,7 @@ def _v3_manifest_binding(directory: Path, a_list_path, a_list: np.ndarray, manif
 # ---------------------------------------------------------------------------
 
 
-def _v3_read_header(path: Path) -> Dict[str, object]:
+def read_header(path: Path) -> Dict[str, object]:
     with h5py.File(path, "r") as handle:
         attrs = handle["header"].attrs
         values: Dict[str, object] = {
@@ -680,7 +687,7 @@ def _v3_read_header(path: Path) -> Dict[str, object]:
 _V3_RUN_SCOPED = RUN_SCOPED_ATTRS + ("links_adjacent", "source_format", "column_mapping_sha256")
 
 
-def _v3_check_headers(
+def check_headers(
     headers: List[Dict[str, object]], a_list: np.ndarray, manifest
 ) -> Tuple[List[str], List[str]]:
     failures = []
@@ -761,7 +768,7 @@ def _v3_check_headers(
     return failures, run_scoped
 
 
-def _v3_schema_binding(declarations: List[Dict[str, Tuple[str, ...]]], manifest) -> List[str]:
+def check_schema_binding(declarations: List[Dict[str, Tuple[str, ...]]], manifest) -> List[str]:
     """Every file declares the same /schema, and it is the conversion's."""
     failures = []
     reference = declarations[0] if declarations else {}
@@ -800,13 +807,33 @@ def _v3_schema_binding(declarations: List[Dict[str, Tuple[str, ...]]], manifest)
 
 
 # ---------------------------------------------------------------------------
-# The bounded scan
+# The row scan
 # ---------------------------------------------------------------------------
 
 
-class _V3Scan:
-    """One pass over every snapshot file in row blocks: every per-row rule,
-    the measurements, and the four sorters' input."""
+def float_columns(declarations: Dict[str, Tuple[str, ...]]) -> List[str]:
+    """The ``/schema`` fields declared with a floating type, in name order:
+    the columns whose finiteness the row check judges."""
+    return [
+        name
+        for name, values in sorted(declarations.items())
+        if _V3_TYPES.get(values[0], ("", False))[0].startswith("<f")
+    ]
+
+
+class RowScan:
+    """The per-row rules both batteries share: one pass over every snapshot
+    file in row blocks of ``scan_rows``, judging every row as it is read.
+
+    The block check settles the per-row invariants (row-values,
+    len-nonnegative, field-finiteness, position-bounds, link-targets) into the
+    :class:`FailureTally` attributes, accumulates the measurements in
+    ``stats``, and hands what crosses rows to the scan's sinks: each block's
+    ``(forest, rank, sid)`` identity records to ``identity_sink.add``, its
+    ``sid`` records to ``source_key_sink.add``, and, while every link seen so
+    far is in range, its links to :meth:`emit_topology`, which a battery
+    implements. ``meter`` is the battery's residency meter.
+    """
 
     def __init__(
         self,
@@ -815,8 +842,11 @@ class _V3Scan:
         box_sizes: List[float],
         declarations: Dict[str, Tuple[str, ...]],
         n_forests_total: Optional[int],
-        budget_bytes: int,
-        spill_root: Path,
+        *,
+        scan_rows: int,
+        meter: ResidencyMeter,
+        identity_sink,
+        source_key_sink,
     ):
         self.directory = directory
         self.counts = np.asarray(counts, dtype=np.int64)
@@ -825,24 +855,21 @@ class _V3Scan:
         np.cumsum(self.counts, out=self.offsets[1:])
         self.n_forests_total = n_forests_total
         self.box_sizes = [float(box) for box in box_sizes]
-        self.floats = [
-            name
-            for name, values in sorted(declarations.items())
-            if _V3_TYPES.get(values[0], ("", False))[0].startswith("<f")
-        ]
+        self.floats = float_columns(declarations)
         self.position_only_columns = [] if "Pos" in self.floats else ["Pos"]
-        self.budget_bytes = budget_bytes
-        self.meter = ResidencyMeter()
-        self.ledger = SpillLedger()
-        self.spill_root = spill_root
-        self.row_values = _Failures()
-        self.lengths = _Failures()
-        self.finiteness = _Failures()
-        self.positions = _Failures()
-        self.links = _Failures()
-        self.identity_ranges = _Failures()
+        self.scan_rows = scan_rows
+        self.meter = meter
+        self.identity = identity_sink
+        self.sids = source_key_sink
+        self.row_values = FailureTally()
+        self.lengths = FailureTally()
+        self.finiteness = FailureTally()
+        self.positions = FailureTally()
+        self.links = FailureTally()
+        self.identity_ranges = FailureTally()
         self.len_zero = 0
         self.links_ok = True
+        self.n_chain_edges = 0
         self.stats = {
             "non_null_links": {name: 0 for name, _dtype in _V3_FIXED_DATASETS[:5]},
             "gapped_descendants": 0,
@@ -857,45 +884,21 @@ class _V3Scan:
             "max_halo_rank_in_forest": -1,
         }
 
-        def sorter(dtype, key, share, tag):
-            return KeyedSorter(
-                dtype,
-                key,
-                budget_bytes=_share(budget_bytes, share),
-                spill_dir=spill_root,
-                residency=self.meter,
-                ledger=self.ledger,
-                tag=tag,
-            )
-
-        self._sorter = sorter
-        self.join = sorter(_V3_JOIN_DTYPE, _V3_JOIN_KEY, "join", "v3join")
-        self.chain = sorter(CHAIN_DTYPE, CHAIN_KEY, "chain", "v3chain")
-        self.identity = sorter(_V3_IDENTITY_DTYPE, _V3_IDENTITY_KEY, "identity", "v3identity")
-        self.sids = sorter(_V3_SID_DTYPE, _V3_SID_KEY, "sid", "v3sid")
-        self.n_chain_edges = 0
-        row_bytes = 13 * 8 + 12 * (len(self.floats) + len(self.position_only_columns))
-        per_row = (
-            4 * row_bytes + 5 * _V3_JOIN_DTYPE.itemsize + 4 * CHAIN_DTYPE.itemsize + 32 + 24 * 8
-        )
-        self.scan_rows = int(max(1, min(V3_MAX_SCAN_ROWS, _share(budget_bytes, "scan") // per_row)))
-        self.scan_bytes = self.scan_rows * per_row
-
     def close(self) -> None:
-        for sorter in (self.join, self.chain, self.identity, self.sids):
-            sorter.close()
-
-    # ---- the pass --------------------------------------------------------
+        """Release whatever the sinks hold; nothing by default."""
+        return None
 
     def run(self) -> None:
-        self.meter.acquire(self.scan_bytes)
-        try:
-            for snap in range(self.n_snapshots):
-                self._scan_snapshot(snap)
-        finally:
-            self.meter.release(self.scan_bytes)
-        for sorter in (self.join, self.chain, self.identity, self.sids):
-            sorter.seal()
+        for snap in range(self.n_snapshots):
+            self._scan_snapshot(snap)
+
+    def emit_topology(self, snap, rows, targets, first_fof, next_fof, forest) -> None:
+        """Hand one block's links on. ``rows`` are the block's row numbers in
+        snapshot ``snap``; ``targets`` maps each snapshot-qualified link to its
+        ``(index, target snapshot, linked mask, null mask)``; ``first_fof``,
+        ``next_fof`` and ``forest`` are the block's FoF links and ForestIndex.
+        Only reached while every link seen so far is in range."""
+        raise NotImplementedError
 
     def _scan_snapshot(self, snap: int) -> None:
         names = (
@@ -953,7 +956,7 @@ class _V3Scan:
                 "non-finite {} value(s)".format(name), int(bad.sum()), _v3_rows(snap, rows[bad])
             )
 
-        # -- positions inside the header's box (see _v3_position_bounds) ----
+        # -- positions inside the header's box (see check_position_bounds) ----
         box = self.box_sizes[snap]
         position = block["Pos"].reshape(size, -1)
         bad = ((position < 0) | (position > box)).any(axis=1)
@@ -1090,12 +1093,82 @@ class _V3Scan:
         if bool(self.links) and not before_links:
             self.links_ok = False
         if self.links_ok:
-            self._emit_topology(snap, rows, targets, first_fof, next_fof, forest)
+            self.emit_topology(snap, rows, targets, first_fof, next_fof, forest)
         return int(sid[-1])
 
-    def _emit_topology(self, snap, rows, targets, first_fof, next_fof, forest) -> None:
+
+class _V3Scan(RowScan):
+    """The external-sort battery's scan: the shared row check, feeding four
+    bounded external sorts whose merges settle everything that crosses rows,
+    snapshots or files."""
+
+    def __init__(
+        self,
+        directory: Path,
+        counts: List[int],
+        box_sizes: List[float],
+        declarations: Dict[str, Tuple[str, ...]],
+        n_forests_total: Optional[int],
+        budget_bytes: int,
+        spill_root: Path,
+    ):
+        meter = ResidencyMeter()
+        self.budget_bytes = budget_bytes
+        self.ledger = SpillLedger()
+        self.spill_root = spill_root
+
+        def sorter(dtype, key, share, tag):
+            return KeyedSorter(
+                dtype,
+                key,
+                budget_bytes=_share(budget_bytes, share),
+                spill_dir=spill_root,
+                residency=meter,
+                ledger=self.ledger,
+                tag=tag,
+            )
+
+        self._sorter = sorter
+        self.join = sorter(_V3_JOIN_DTYPE, _V3_JOIN_KEY, "join", "v3join")
+        self.chain = sorter(CHAIN_DTYPE, CHAIN_KEY, "chain", "v3chain")
+        identity = sorter(_V3_IDENTITY_DTYPE, _V3_IDENTITY_KEY, "identity", "v3identity")
+        sids = sorter(_V3_SID_DTYPE, _V3_SID_KEY, "sid", "v3sid")
+        floats = float_columns(declarations)
+        position_only_columns = [] if "Pos" in floats else ["Pos"]
+        row_bytes = 13 * 8 + 12 * (len(floats) + len(position_only_columns))
+        per_row = (
+            4 * row_bytes + 5 * _V3_JOIN_DTYPE.itemsize + 4 * CHAIN_DTYPE.itemsize + 32 + 24 * 8
+        )
+        scan_rows = int(max(1, min(V3_MAX_SCAN_ROWS, _share(budget_bytes, "scan") // per_row)))
+        super().__init__(
+            directory,
+            counts,
+            box_sizes,
+            declarations,
+            n_forests_total,
+            scan_rows=scan_rows,
+            meter=meter,
+            identity_sink=identity,
+            source_key_sink=sids,
+        )
+        self.scan_bytes = self.scan_rows * per_row
+
+    def close(self) -> None:
+        for sorter in (self.join, self.chain, self.identity, self.sids):
+            sorter.close()
+
+    def run(self) -> None:
+        self.meter.acquire(self.scan_bytes)
+        try:
+            super().run()
+        finally:
+            self.meter.release(self.scan_bytes)
+        for sorter in (self.join, self.chain, self.identity, self.sids):
+            sorter.seal()
+
+    def emit_topology(self, snap, rows, targets, first_fof, next_fof, forest) -> None:
         """Join requests and pointer-jumping edges for one block, in global
-        positions. Only reached while every link seen so far is in range."""
+        positions."""
         offsets = self.offsets
         gp = offsets[snap] + rows
         d_index, d_target, d_linked, _ = targets["Descendant"]
@@ -1147,8 +1220,8 @@ class _V3Scan:
             self.n_chain_edges += count
 
 
-def _v3_position_bounds(
-    scan: _V3Scan, headers: List[Dict[str, object]], declared: Dict[str, Tuple[str, ...]]
+def check_position_bounds(
+    scan: RowScan, headers: List[Dict[str, object]], declared: Dict[str, Tuple[str, ...]]
 ) -> List[str]:
     """Every Pos component lies in [0, box_size_mpc_h] of its own file's
     header, as the scan measured it row by row.
@@ -1192,15 +1265,15 @@ def _max_none(current, value):
 # ---------------------------------------------------------------------------
 
 
-def _describe_gp(offsets: np.ndarray, gp: int) -> str:
+def describe_position(offsets: np.ndarray, gp: int) -> str:
     position = int(np.searchsorted(offsets, gp, side="right")) - 1
     return "{} row {}".format(snapshot_h5_name(position), int(gp - offsets[position]))
 
 
-def _link_examples(offsets: np.ndarray, owners, targets, mask) -> List[str]:
+def link_examples(offsets: np.ndarray, owners, targets, mask) -> List[str]:
     """Up to five ``owner -> target`` links, located by file and row."""
     return [
-        "{} -> {}".format(_describe_gp(offsets, owner), _describe_gp(offsets, target))
+        "{} -> {}".format(describe_position(offsets, owner), describe_position(offsets, target))
         for owner, target in zip(owners[mask][:5], targets[mask][:5])
     ]
 
@@ -1213,7 +1286,7 @@ def _v3_topology_closure(scan: _V3Scan) -> List[str]:
     group of a block may continue into the next, so its record and running
     counts are carried; a group is judged once the next own-record appears.
     """
-    failures = _Failures()
+    failures = FailureTally()
     offsets = scan.offsets
     carry = None  # (key, a, b, forest, progenitor_in, fof_in)
 
@@ -1226,7 +1299,7 @@ def _v3_topology_closure(scan: _V3Scan) -> List[str]:
             "(reached k times, expected once iff the halo has a Descendant)",
             int(bad.sum()),
             [
-                "{} (k={})".format(_describe_gp(offsets, g), int(k))
+                "{} (k={})".format(describe_position(offsets, g), int(k))
                 for g, k in zip(key[bad][:5], prog_in[bad][:5])
             ],
         )
@@ -1236,7 +1309,7 @@ def _v3_topology_closure(scan: _V3Scan) -> List[str]:
             "once iff the halo is not its group's central)",
             int(bad.sum()),
             [
-                "{} (k={})".format(_describe_gp(offsets, g), int(k))
+                "{} (k={})".format(describe_position(offsets, g), int(k))
                 for g, k in zip(key[bad][:5], fof_in[bad][:5])
             ],
         )
@@ -1270,7 +1343,7 @@ def _v3_topology_closure(scan: _V3Scan) -> List[str]:
             r_other = block["other"][requests]
 
             def where(mask, owners=r_other, targets=r_key):
-                return _link_examples(offsets, owners, targets, mask)
+                return link_examples(offsets, owners, targets, mask)
 
             orphan = g_key != r_key
             failures.add("link(s) naming a halo that has no row", int(orphan.sum()), where(orphan))
@@ -1390,13 +1463,13 @@ def _v3_identity(
     not sample, so a sampled ASCII inventory fails here and the position check
     always applies to it.
     """
-    failures = _Failures()
+    failures = FailureTally()
     carry_forest, carry_rank, position = -1, -1, 0
     measured_max = -1
     unsampled = inventory is not None and int(inventory["selected_halos"]) == int(
         inventory["total_halos"]
     )
-    position_identity = source_format in _V3_POSITION_IDENTITY and unsampled
+    position_identity = source_format in POSITION_IDENTITY_FORMATS and unsampled
     blocks = scan.identity.sorted_blocks(
         budget_bytes=scan.budget_bytes, consumer_bytes_per_record=_V3_ORDER_CONSUMER_BYTES
     )
@@ -1476,7 +1549,7 @@ def _v3_source_keys(scan: _V3Scan, inventory: Optional[Mapping]) -> List[str]:
     conversion's inventory -- within [1, total_halos] and exactly as many as
     the inventory selects, which for an unsampled inventory is exactly
     {1 .. total_halos}."""
-    failures = _Failures()
+    failures = FailureTally()
     previous = 0
     position = 0
     total = None if inventory is None else int(inventory["total_halos"])
@@ -1529,10 +1602,10 @@ def _v3_source_keys(scan: _V3Scan, inventory: Optional[Mapping]) -> List[str]:
 # ---------------------------------------------------------------------------
 
 
-def _v3_sidecar_content(
+def check_sidecar_content(
     path: Path, source_format: str, n_forests_total: int, inventory, block_rows: int
 ) -> List[str]:
-    failures = _Failures()
+    failures = FailureTally()
     per_file: Dict[int, int] = {}
     with h5py.File(path, "r") as handle:
         n = int(handle["ForestID"].shape[0])
@@ -1607,7 +1680,7 @@ def _v3_sidecar_content(
     return messages
 
 
-def _v3_count_conservation(counts: List[int], manifest) -> List[str]:
+def check_count_conservation(counts: List[int], manifest) -> List[str]:
     failures = []
     total = int(sum(counts))
     inventory = manifest.inventory or {}
@@ -1643,7 +1716,7 @@ def _v3_count_conservation(counts: List[int], manifest) -> List[str]:
 # ---------------------------------------------------------------------------
 
 
-def _require_budget(budget_bytes) -> int:
+def require_budget(budget_bytes) -> int:
     if isinstance(budget_bytes, bool) or not isinstance(budget_bytes, (int, np.integer)):
         raise ConverterError("budget_bytes must be an integer, got {!r}".format(budget_bytes))
     budget_bytes = int(budget_bytes)
@@ -1691,7 +1764,7 @@ def run_battery_v3(
             budget_bytes=budget_bytes,
             spill_dir=spill_dir,
         )
-    budget_bytes = _require_budget(budget_bytes)
+    budget_bytes = require_budget(budget_bytes)
     directory = Path(directory)
     if not directory.is_dir():
         raise ConverterError("{}: not a directory".format(directory))
@@ -1711,21 +1784,21 @@ def run_battery_v3(
         for name in names:
             outcomes.append(Outcome(name, "SKIP", reason))
 
-    structural_ok = record("file-set", _v3_check_file_set(directory, n_snapshots))
+    structural_ok = record("file-set", check_file_set(directory, n_snapshots))
     declarations: List[Dict[str, Tuple[str, ...]]] = []
     if structural_ok:
         failures = []
         for snap in range(n_snapshots):
             path = directory / snapshot_h5_name(snap)
             try:
-                file_failures, declared = _v3_snapshot_structure(path)
+                file_failures, declared = snapshot_structure(path)
             except OSError as exc:
                 file_failures, declared = ["unreadable as HDF5 ({})".format(exc)], None
             failures += ["{}: {}".format(path.name, f) for f in file_failures]
             declarations.append(declared or {})
         structural_ok = record("object-set", failures)
         try:
-            sidecar_failures = _v3_sidecar_structure(directory / "forests.h5")
+            sidecar_failures = sidecar_structure(directory / "forests.h5")
         except OSError as exc:
             sidecar_failures = ["forests.h5: unreadable as HDF5 ({})".format(exc)]
         structural_ok = record("sidecar-object-set", sidecar_failures) and structural_ok
@@ -1735,12 +1808,12 @@ def run_battery_v3(
     manifest = None
     if manifest_path is not None:
         try:
-            manifest = _v3_load_manifest(Path(manifest_path))
+            manifest = load_manifest(Path(manifest_path))
         except (ConverterError, OSError, ValueError, KeyError) as exc:
             record("manifest-binding", ["cannot load the conversion manifest: {}".format(exc)])
         else:
             record(
-                "manifest-binding", _v3_manifest_binding(directory, a_list_path, a_list, manifest)
+                "manifest-binding", check_manifest_binding(directory, a_list_path, a_list, manifest)
             )
     else:
         skip(("manifest-binding",), "no manifest given (API mode; unreachable from the CLI)")
@@ -1748,19 +1821,19 @@ def run_battery_v3(
     semantic = V3_CHECKS[V3_CHECKS.index("header-values") :]
     if not structural_ok:
         skip(("schema-binding",) + semantic, "structural conformance failed; semantics not trusted")
-        return V3BatteryResult(_ordered(outcomes), measurements)
-    record("schema-binding", _v3_schema_binding(declarations, manifest))
+        return V3BatteryResult(ordered_outcomes(outcomes), measurements)
+    record("schema-binding", check_schema_binding(declarations, manifest))
     if any(declared != declarations[0] for declared in declarations):
         skip(semantic, "files declare different /schema; their columns are not comparable")
-        return V3BatteryResult(_ordered(outcomes), measurements)
+        return V3BatteryResult(ordered_outcomes(outcomes), measurements)
 
-    headers = [_v3_read_header(directory / snapshot_h5_name(snap)) for snap in range(n_snapshots)]
+    headers = [read_header(directory / snapshot_h5_name(snap)) for snap in range(n_snapshots)]
     counts = [int(header["_rows"]) for header in headers]
     measurements["format_versions"] = sorted({int(h["format_version"]) for h in headers})
     measurements["snapshot_counts"] = counts
     measurements["snapshot_bytes"] = [int(h["_bytes"]) for h in headers]
     measurements["sidecar_bytes"] = int((directory / "forests.h5").stat().st_size)
-    header_failures, run_scoped_failures = _v3_check_headers(headers, a_list, manifest)
+    header_failures, run_scoped_failures = check_headers(headers, a_list, manifest)
     record("header-values", header_failures)
     run_scoped_ok = record("run-scoped-headers", run_scoped_failures)
     first = headers[0]
@@ -1801,7 +1874,7 @@ def run_battery_v3(
         )
         record(
             "position-bounds",
-            _v3_position_bounds(scan, headers, declarations[0]),
+            check_position_bounds(scan, headers, declarations[0]),
             detail="every Pos component within [0, box_size_mpc_h]",
         )
         links_ok = record("link-targets", scan.links.messages())
@@ -1841,7 +1914,7 @@ def run_battery_v3(
             record("header-bounds", check_header_bounds(n_forests_total, max_rank, multiplier))
             record(
                 "sidecar-content",
-                _v3_sidecar_content(
+                check_sidecar_content(
                     directory / "forests.h5",
                     source_format,
                     n_forests_total,
@@ -1854,7 +1927,7 @@ def run_battery_v3(
                 ("identity", "header-bounds", "sidecar-content"), "run-scoped headers inconsistent"
             )
         if manifest is not None:
-            record("count-conservation", _v3_count_conservation(counts, manifest))
+            record("count-conservation", check_count_conservation(counts, manifest))
         else:
             skip(("count-conservation",), "no manifest given; source counts unavailable")
         measurements.update(scan.stats)
@@ -1876,10 +1949,10 @@ def run_battery_v3(
         raise ConverterError(
             "{}: the battery's spill directory could not be removed".format(spill_root)
         )
-    return V3BatteryResult(_ordered(outcomes), measurements)
+    return V3BatteryResult(ordered_outcomes(outcomes), measurements)
 
 
-def _ordered(outcomes: List[Outcome]) -> List[Outcome]:
+def ordered_outcomes(outcomes: List[Outcome]) -> List[Outcome]:
     """Outcomes in :data:`V3_CHECKS` order, whatever order they were settled
     in."""
     rank = {name: position for position, name in enumerate(V3_CHECKS)}

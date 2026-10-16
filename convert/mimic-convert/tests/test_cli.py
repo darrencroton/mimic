@@ -1,5 +1,4 @@
-"""CLI tests: the generic ``convert_trees.py`` and the legacy
-``convert_ctrees.py`` driven as subprocesses.
+"""CLI tests: the generic ``convert_trees.py`` driven as a subprocess.
 
 Every conversion here runs from a fresh temporary working directory, never
 the repository root, with every path passed absolute, so nothing depends on
@@ -22,8 +21,7 @@ Coverage:
 - resume from the embedded configuration after the profile file is gone;
 - the battery's bounded mode (``validate``/``report --bounded``): its verdict
   and printed ceiling on an adjacent conversion, and its refusal of a gapped
-  dataset;
-- the legacy ASCII-to-v2 commands, still emitting format version 2.
+  dataset.
 """
 
 import contextlib
@@ -45,7 +43,6 @@ CONVERT_DIR = HERE.parent
 REPO_ROOT = HERE.parents[2]
 SIMULATIONS = REPO_ROOT / "simulations"
 CONVERT_TREES = CONVERT_DIR / "convert_trees.py"
-CONVERT_CTREES = CONVERT_DIR / "convert_ctrees.py"
 
 sys.path.insert(0, str(CONVERT_DIR))
 sys.path.insert(0, str(HERE))
@@ -54,6 +51,7 @@ import convert_trees  # noqa: E402
 import runtime_routes  # noqa: E402
 import test_lhalo_adapter as lhalo  # noqa: E402
 import test_pipeline as literal  # noqa: E402
+from test_conversion_manifest import make_scatter_workdir  # noqa: E402
 
 RUNTIME_MARK = "runtime support: format version 3 is consumed"
 BUDGET_MB = "64"
@@ -214,7 +212,6 @@ class HelpTests(CliCase):
         self.assertIn("format version 3", text)
         self.assertIn("validated route only where a recorded parity gate passed", text)
         self.assertIn("full Uchuu is not claimed", text)
-        self.assertIn("convert_ctrees.py", text)
 
     def test_runtime_notice_names_only_the_evidenced_routes(self):
         notice = convert_trees.RUNTIME_NOTICE
@@ -602,14 +599,12 @@ class FailureTests(CliCase):
         )
         self.cli("validate", "--workdir", self.work)
 
-    def test_a_legacy_workdir_is_never_adopted(self):
-        legacy = HERE / "data" / "legacy_manifest_v2" / "workdir"
-        copy = self.tmp / "legacy"
-        shutil.copytree(legacy, copy)
-        before = tree_state(copy)
-        result = self.cli("ingest", "--workdir", copy, *self.route, expect=1)
-        self.assertIn("legacy ASCII-to-v2 workdir", result.stderr)
-        self.assertEqual(tree_state(copy), before)
+    def test_a_scatter_manifest_workdir_is_never_adopted(self):
+        work = make_scatter_workdir(self.tmp / "scattered")
+        before = tree_state(work)
+        result = self.cli("ingest", "--workdir", work, *self.route, expect=1)
+        self.assertIn("holds a scatter manifest", result.stderr)
+        self.assertEqual(tree_state(work), before)
 
 
 class LHaloMetadataBindingTests(CliCase):
@@ -747,7 +742,7 @@ class LHaloWriterBindingTests(unittest.TestCase):
         with self.assertRaisesRegex(ConverterError, "L-Halo conversion was recorded against"):
             pipeline.run_write(work, HorizontalV3Writer(other))
         self.assertEqual([p for p in (work / "write").rglob("*") if p.is_file()], [])
-        # HorizontalV3Writer's completion line goes through hdf5_writer._log (stderr);
+        # HorizontalV3Writer's completion line goes through hdf5_writer_v3._log (stderr);
         # capture both streams so this in-process call cannot leak either into the
         # test runner's own output, regardless of which one a future change uses.
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
@@ -794,58 +789,6 @@ class OutputIdentificationTests(unittest.TestCase):
         text = self.topology(29291, 2, False, [10])
         self.assertIn("NONADJACENT output: 29291 Descendant link(s) skip snapshots", text)
         self.assertIn("longest span 2", text)
-
-
-# ==========================================================================
-# The legacy ASCII-to-v2 commands
-# ==========================================================================
-
-
-class LegacyCliTests(CliCase):
-    def test_convert_ctrees_still_emits_format_version_2(self):
-        root = SIMULATIONS / "micro-uchuu-ascii"
-        data = root / "_tests" / "data"
-        sim_info = root / "simulation_info.yaml"
-        a_list = root / "micro-uchuu.a_list"
-        before = package_files("micro-uchuu-ascii")
-        work = self.tmp / "legacy"
-        steps = [
-            [
-                "scatter",
-                "--workdir",
-                work,
-                "--forests-list",
-                data / "forests.list",
-                "--a-list",
-                a_list,
-                "--simulation-info",
-                sim_info,
-                data / "tree_0_0_0.dat",
-            ],
-            ["sort", "--workdir", work],
-            ["fixups", "--workdir", work, "--a-list", a_list, "--simulation-info", sim_info],
-            ["links", "--workdir", work],
-            ["write", "--workdir", work, "--a-list", a_list, "--simulation-info", sim_info],
-            ["report", "--workdir", work, "--a-list", a_list],
-        ]
-        for step in steps:
-            result = run(CONVERT_CTREES, step, self.cwd)
-            self.assertEqual(result.returncode, 0, "{}: {}".format(step[0], result.stderr))
-        files = sorted((work / "hdf5").glob("snapshot_*.h5"))
-        self.assertEqual(len(files), 50)
-        for path in files:
-            with h5py.File(path, "r") as handle:
-                self.assertEqual(int(handle["header"].attrs["format_version"]), 2)
-                self.assertEqual(set(handle.keys()), {"header", "halos"})
-        self.assertEqual(os.listdir(self.cwd), [])
-        self.assertEqual(package_files("micro-uchuu-ascii"), before)
-
-    def test_convert_ctrees_help_offers_no_version_3_route(self):
-        result = run(CONVERT_CTREES, ["write", "--help"], self.cwd)
-        self.assertEqual(result.returncode, 0)
-        self.assertNotIn("--format-version", result.stdout)
-        top = run(CONVERT_CTREES, ["--help"], self.cwd)
-        self.assertIn("convert_trees.py", " ".join(top.stdout.split()))
 
 
 if __name__ == "__main__":

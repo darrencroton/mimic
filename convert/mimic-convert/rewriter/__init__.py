@@ -2,15 +2,9 @@
 
 One tool reads a horizontal-HDF5 dataset of a Consistent-Trees ASCII catalogue
 slab by slab and writes a version 3 dataset of the same halos under a forest
-table (``convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md``, Version 3). Three
-operations are implemented here:
+table (``convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md``, Version 3). Its
+input is a version 3 dataset. Two operations are implemented here:
 
-- **migrate**: a version 2 input becomes a version 3 dataset. Every identity
-  (``ForestIndex``, ``HaloRankInForest``, ``SourceHaloID``) is computed from
-  the version 2 columns, every row is placed at its (``ForestIndex``,
-  ``HaloRankInForest``) position, the int32 links become int64 links with
-  their target-snapshot companions, ``/schema`` is built from the package's
-  converter profile, and the sidecar ordinals come from the index files.
 - **noop**: a version 3 input is rewritten under the identity table and must
   reproduce its input in every dataset value, dtype, header attribute,
   ``/schema`` attribute and sidecar value. It is the permanent self-test of the
@@ -172,10 +166,9 @@ REWRITER_VERSION = 1
 #: The one source format the rewriter accepts and stamps.
 SOURCE_FORMAT = "consistent_trees_ascii"
 
-OPERATION_MIGRATE = "migrate"
 OPERATION_NOOP = "noop"
 OPERATION_CUT = "cut"
-OPERATIONS = (OPERATION_MIGRATE, OPERATION_NOOP, OPERATION_CUT)
+OPERATIONS = (OPERATION_NOOP, OPERATION_CUT)
 
 #: Files the rewriter writes beside the manifest, never inside ``dataset/``.
 STATE_NAME = "rewrite_state.json"
@@ -189,7 +182,6 @@ __all__ = [
     "DATASET_DIR",
     "OPERATIONS",
     "OPERATION_CUT",
-    "OPERATION_MIGRATE",
     "OPERATION_NOOP",
     "REWRITER_VERSION",
     "SOURCE_FORMAT",
