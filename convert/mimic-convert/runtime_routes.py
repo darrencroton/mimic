@@ -3,7 +3,7 @@
 A conversion is not a validated route. Mimic's ``horizontal_hdf5`` reader and horizontal driver
 consume format version 3, but a route is supported only where a recorded parity gate passed. The
 authoritative list, with models, data and evidence, is the table under
-``convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md#v3-runtime-support``; :data:`ROUTES` mirrors its six rows
+``convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md#v3-runtime-support``; :data:`ROUTES` mirrors its rows
 and is the one place in the converter that restates them.
 
 Three renderers derive the text the converter shows from that one constant, so the runtime
@@ -20,6 +20,14 @@ SPEC_ANCHOR = "convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md#v3-runtime-suppor
 #: The coverage label of a route whose source data is the whole simulation.
 COMPLETE = "complete"
 
+#: The coverage label of Shin-Uchuu, whose complete dataset was made by migration. Its evidence is
+#: not a vertical comparison over the whole catalogue (the full box cannot run vertical): the
+#: production run is compared with the version 2 run, and the vertical comparison is on the subset.
+COMPLETE_BY_MIGRATION = (
+    "complete real data by migration (bitwise against the version 2 run, "
+    "vertical parity on the subset only)"
+)
+
 FULL_UCHUU_NOT_CLAIMED = (
     "Full Uchuu is not claimed: it exceeds whole-slab memory, and although Mimic's chunked "
     "sweeps (input.forest_chunks) now bound a run's memory by a chunk, full Uchuu stays "
@@ -29,7 +37,7 @@ FULL_UCHUU_NOT_CLAIMED = (
 
 
 class Route(NamedTuple):
-    """One parity-gated version 3 route."""
+    """One evidenced version 3 route."""
 
     simulation: str
     source_format: str
@@ -37,7 +45,7 @@ class Route(NamedTuple):
     models: Tuple[str, ...]
 
 
-#: The six parity-gated routes, in the spec table's order.
+#: The evidenced routes, in the spec table's order.
 ROUTES: Tuple[Route, ...] = (
     Route("mini-Millennium", "lhalo_binary", COMPLETE, ("halos-only", "sage16")),
     Route("micro-Uchuu", "lhalo_binary", COMPLETE, ("halos-only",)),
@@ -45,6 +53,7 @@ ROUTES: Tuple[Route, ...] = (
     Route("Millennium", "lhalo_binary", COMPLETE, ("halos-only",)),
     Route("mini-Uchuu", "lhalo_binary", COMPLETE, ("halos-only",)),
     Route("micro-Uchuu", "consistent_trees_ascii", COMPLETE, ("halos-only", "sage16")),
+    Route("Shin-Uchuu", "consistent_trees_ascii", COMPLETE_BY_MIGRATION, ("sage16",)),
 )
 
 
