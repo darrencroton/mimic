@@ -2,7 +2,15 @@
 
 **Purpose:** Execute [`MIMIC-SHIN-UCHUU-V3-PLAN.md`](MIMIC-SHIN-UCHUU-V3-PLAN.md), the staged requirements brief: a forest-blocked Consistent-Trees ASCII route under the owner ruling that keeps `format_version 3` (Stage A); the super-forest decision by measurement on the version 2 production dataset (Stage B); a dataset rewriter that migrates version 2 to version 3 and cuts a forest under a declared table (Stage R); the Shin-Uchuu production datasets, uncut then cut, run and compared galaxy by galaxy (Stage C); and the retirement of version 2 (Stage D). The end state is the brief's decision 4: both version 2 datasets replaced by version 3 ones, every piece of version 2 removed, and the Shin-Uchuu dataset cut so that it runs chunked on a 16, 32 or 64 GB laptop.
 
-**Status:** Planning contract, revision 6 (2026-10-10). Stages A and B (Slices 1 to 9) are accepted; Slice 9 was accepted in run 2b at `35f39209`.
+**Status:** Planning contract, revision 7 (2026-10-16). Stages A to C (Slices 1 to 18 and the production procedure) are accepted; Slice 18 was accepted in run 5 at `45dacd42`. Stage D (run 6) remains.
+
+Revision 7 records the owner's decisions of 2026-10-16, taken at the end of run 5:
+- **Both version 3 batteries stay**, each with a recorded purpose, and Slice 23 makes their shared interface deliberate ([Slice 23](#slice-23-deletion-of-the-version-2-converter-validator-and-crosscheck), its battery criterion);
+- **the data that neither Mimic nor the follow-on needs goes to NT at plan close**, verified there, then deleted locally ([Data at plan close](#data-at-plan-close-revision-7));
+- **a cut, vertical Shin-Uchuu is the next plan** (Route A: a streaming converter from the cut version 3 dataset to an existing vertical format). This plan does not build it; it keeps what it depends on ([Final-State Inventory](#final-state-inventory)) and Slice 25 names it in the pathway;
+- **every document outside `docs/dev/` is user-facing** ([the convention](#user-facing-documentation-revision-7)), binding on every Stage D slice.
+
+Revision 7 also fixes the defects known in the unrun Slices 19 to 25 (two new, PD-R5-5 and PD-R5-6, and the items earlier runs routed to them), re-reads every Stage D anchor at `45dacd42`, and records the defects found in executing Slices 1 to 18 and the procedure ([Defects Found in Execution](#defects-found-in-execution-revision-7)). The accepted slices' contracts are unchanged.
 
 Revision 6 records the owner's decision 6, taken on Slice 9's census record. **The class is 16 GiB with a usable budget of 10 GiB, at one task and 128 chunks; the stop condition steps down to 32 GiB, then stops.** The decision is contingent on one root-cause fix.
 
@@ -33,7 +41,7 @@ It adds a [Final-State Inventory](#final-state-inventory) that removes the censu
 
 Revision 4 carries the owner's requests after the panel converged: the stage map below, Claude Opus 5.5 at high effort in place of Fable for Slices 2, 8 and 17 (Fable stays on the rewriter, Slices 11 and 12), and the location of the version 2 reference run output. Revision 2 went back to the same panel for a focused re-review, which found every round-1 item resolved and seven items the amendments themselves opened; revision 3 resolves them: the census labels live for the census directory's lifetime and the cut's candidate evaluation re-reads the forest's slabs with them resident, the rewriter drops its occupancy shortcut and always scans `ForestIndex` itself, `fixtures.py` joins Slice 7's surface, the harness's block-size case moves to Slice 2, the bounded battery's agreement test is restricted to adjacent datasets with the gapped refusal tested separately, the pinned identity gate's mutation source is retargeted, the micro-Uchuu rehearsal compares logical census results through the catalogue id, the surviving converter modules' version 2 prose joins Slice 23, and the Stage R datasets retained into the procedure are named and budgeted. Revision 1 was reviewed by an independent panel (Codex `gpt-6.1-sol` and Claude Fable 5.1, both high effort, read-only); every finding was verified against the repository and this revision resolves them: the production procedure follows the brief's output placement (one run output on `Internal` at a time), the alternate matching modes of the comparator treat identity-valued fields through the matched mapping rather than byte for byte, the cut operation remaps the numeric `Descendant` and verifies the logical target, the version 2 deletions are listed by symbol, the ASCII extras join moves into the adapter slice so no slice breaks the converter floor, the catalogue key is ASCII-only, the sidecar unit ordinal is the dense first-marker rank the parser computes, the census graph is undirected with per-snapshot deduplication and its table invariants are enumerated, the census aggregates are sized and released, the bounded battery has a per-obligation algorithm table with a ceiling in multiples of the widest slab, the rewriter's workdir layout and manifest fields are frozen, the uncut `sage16` run's memory floor is the super-forest's rows, the version 2 branches of the parity gate and the processing-order test are retired, the pinned identity gate's version 2 leg is removed with its reason, the vertical-path preservation stage is kept under a version-neutral gate, and twelve anchors were corrected. The brief's design was critiqued in three panel rounds (2026-10-07) and this plan takes its binding decisions, its ruling, its rewriter contract and its workflows as given; where this plan refines or corrects the brief it says so under [Decisions for the owner](#decisions-for-the-owner) and [Frozen Decisions](#frozen-decisions). Written after five read-only investigations of the code at the planning baseline (the converter's ASCII route, inventory contract, pipeline, manifest, battery and writer; the format document and every stale statement in the guides, skills, changelog and package READMEs; the C reader, driver, partition and identity encoding; the gates, harnesses, fixtures and make targets; the version 2 inventory and the local data), each anchor below re-read at the baseline.
 
-**Planning baseline:** the last commit that changes anything outside this file, [`MIMIC-DEVELOPMENT-PATHWAY.md`](MIMIC-DEVELOPMENT-PATHWAY.md) and the brief's status line. Every `path:line` anchor below was read at that baseline. The hash is deliberately not written here: PM binds a run to the SHA-256 of this file's bytes, so a hash that moves with unrelated commits would force a re-freeze. Recheck drift against the anchors before executing a slice; do not silently rebase a contract onto a changed interface.
+**Planning baseline:** the last commit that changes anything outside this file, [`MIMIC-DEVELOPMENT-PATHWAY.md`](MIMIC-DEVELOPMENT-PATHWAY.md) and the brief's status line. Every `path:line` anchor below was read at that baseline. The hash is deliberately not written here: PM binds a run to the SHA-256 of this file's bytes, so a hash that moves with unrelated commits would force a re-freeze. Recheck drift against the anchors before executing a slice; do not silently rebase a contract onto a changed interface. Revision 7 re-read every Stage D anchor (Slices 19 to 25) at `45dacd42`, Slice 18's accepted commit; the [Repository Evidence](#repository-evidence) below keeps the original baseline's lines, and each Stage D slice states its own.
 
 **Owner:** [Development pathway, named follow-up](MIMIC-DEVELOPMENT-PATHWAY.md#named-follow-up-version-3-conversions-of-shin-uchuu-and-full-uchuu). Principles: [VISION](../VISION.md). Standard: [STYLE-GUIDE](../STYLE-GUIDE.md). Format contract: [`HORIZONTAL-HDF5-FORMAT.md`](../../convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md).
 
@@ -48,11 +56,11 @@ One row per run. "Going in" is what must be true before the run starts; "Your ac
 | 1 | A | 1 to 6 | The ruling into the format document and the ASCII route made forest-blocked, gated on micro-Uchuu; `micro-uchuu-ascii-horizontal` moved to version 3; guides and skills corrected | Decision 1 confirmed; this plan committed and `check-plan` clean; `make`, `make USE-MPI=yes`, `mimic_venv`, the micro-Uchuu ASCII and version 2 datasets resolve; `tests-converter`, `tests-horizontal-v3` and `tests-distributed` pass at the baseline; LaCie directories chosen and the version 2 micro-Uchuu dataset's retention path recorded | Start the run-1 launcher; approve 1, 2, 3, 5, 6 when asked; Slice 5 runs real data for a few hours. Expect at the end: the version 3 micro-Uchuu dataset installed, the acceptance record started |
 | 2 | B | 7 to 9 | Measure the super-forest: effective trees, the co-membership graph, candidate cut rules with their predicted physics cost and chunk maxima. **Run 2 (2026-10-08/09):** Slices 7 and 8 accepted; Slice 9 stopped for revision 5 after the owner chose the z = 0 FoF-group rule | Run 1 accepted; the LaCie holds only `data/`; the production `forests.list` (7.56 GB, md5 `60dbf14a99ae9f23ca7c334474477a95`) and `locations.dat` (13.75 GB, md5 `75442d7ae5b1f2465b485e60720e6df7`) in `/Volumes/LaCie/data/uchuu/shin-uchuu-nt-transfer/` | Done |
 | 2b | B | 9 (revision 5) | The z = 0 FoF-group table for the whole simulation, its measured cost (promotions, progenitor-order changes, affected histories) and its chunked memory; the obsolete exploration machinery removed; the census record you sign off | Revision 5 committed; run 2's aggregates on the LaCie | Done: Slice 9 accepted at `35f39209` (run 2b, 2026-10-09); the owner filled the census record's two slots and recorded them in decision 6 (revision 6, 2026-10-10) |
-| 3 | R | 10 to 16 | The rewriter (migrate, cut, no-op), the route's declared cut table, the comparator's lineage key, the driver's partition weighted by peak occupancy (Slice 15) with the census re-measured, and every gate at subset scale against the Stage A route and the C reference reader | Run 2b accepted, decision 6 recorded (revision 6 committed); about 0.6 TB of LaCie space for the subset conversions and workdirs | New PM run; approve 11 to 16; Slice 15 reruns the production census's partition and `cut` (under two hours of LaCie reads); Slice 16 runs 12 to 24 h of machine time with 100 GB kept free. Expect: the Stage R record with the measured spill, RSS and sizes, and three retained subset datasets |
-| 4 | C | 17 | The bounded battery, proven to agree with the external-sort battery on the subset | Run 3 accepted | New PM run; approve 17; a 2 to 4 h agreement run |
-| (owner) | C | the production procedure | The uncut dataset by (M), run and compared galaxy by galaxy with the version 2 run; the cut dataset by (C), run, compared, science-checked; the laptop proxy | Slice 17 accepted; the free space the recomputed storage ledger requires on the LaCie (procedure step 1); the version 2 run output at `/Volumes/Internal/results/mimic/sage16-shin-uchuu` with its `metadata/`; decisions 9 to 11 answered | Not PM: a Mode A assistant session walking the twelve steps in order, each step's evidence into the acceptance record as it happens. Two whole-machine moments: step 2 if the reference has to be re-run, and step 5 (the uncut `sage16` run). Your own transfers to NT at steps 6 and 12 |
-| 5 | C | 18 | Provenance, the record and the pathway after production | The procedure complete and its record accepted | New PM run; approve 18 |
-| 6 | D | 19 to 25 | Retire version 2: utilities extracted, the version 3 ASCII fixture and every consumer retargeted, the negative battery ported, the reader path, converter, crosscheck, fixtures, make target and CI step deleted, the format document's version 2 text frozen as history | Run 5 accepted; the version 2 production dataset deleted from the LaCie after its NT copy was verified | New PM run; approve 20, 22, 23, 24, 25. Expect about 18 thousand lines gone; then archive this plan and the brief on merge |
+| 3 | R | 10 to 16 | The rewriter (migrate, cut, no-op), the route's declared cut table, the comparator's lineage key, the driver's partition weighted by peak occupancy (Slice 15) with the census re-measured, and every gate at subset scale against the Stage A route and the C reference reader | Run 2b accepted, decision 6 recorded (revision 6 committed); about 0.6 TB of LaCie space for the subset conversions and workdirs | Done: Slices 10 to 16 accepted, the last at `b18b5d17` (run 3, 2026-10-10) |
+| 4 | C | 17 | The bounded battery, proven to agree with the external-sort battery on the subset | Run 3 accepted | Done: Slice 17 accepted at `b4903283` (run 4, 2026-10-11) |
+| (owner) | C | the production procedure | The uncut dataset by (M), run and compared galaxy by galaxy with the version 2 run; the cut dataset by (C), run, compared, science-checked; the laptop proxy | Slice 17 accepted; the free space the recomputed storage ledger requires on the LaCie (procedure step 1); the version 2 run output at `/Volumes/Internal/results/mimic/sage16-shin-uchuu` with its `metadata/`; decisions 9 to 11 answered | Done: steps 1 to 12 passed; the record was accepted on 2026-10-16 at `f83de2d5` |
+| 5 | C | 18 | Provenance, the record and the pathway after production | The procedure complete and its record accepted | Done: Slice 18 accepted at `45dacd42` (run 5, 2026-10-16) |
+| 6 | D | 19 to 25 | Retire version 2: utilities extracted, the version 3 ASCII fixture and every consumer retargeted, the negative battery ported, the reader path, converter, crosscheck, fixtures, make target and CI step deleted, the two batteries' shared interface made deliberate, the format document's version 2 text frozen as history | Run 5 accepted (done); revision 7 committed and `check-plan` clean; the version 2 production dataset deleted from the LaCie after its NT copy was verified (done, procedure step 6) | New PM run with the [run-6 launcher](#mode-b-supervised-execution-run-6-stage-d); approve 20, 22, 23, 24, 25. Expect about 18 thousand lines gone; then archive this plan and the brief on merge, and settle the [data at plan close](#data-at-plan-close-revision-7) |
 
 ---
 
@@ -132,7 +140,7 @@ Run 2's measured exploration (the rule preview and PM's informal estimates) is r
 
 ## Outcome and Limits
 
-After this plan the Consistent-Trees ASCII route of `convert_trees.py` emits forest-blocked version 3 datasets whose `SourceHaloID` is the (`ForestIndex`, `HaloRankInForest`) position, under a recorded owner ruling; `micro-uchuu-ascii-horizontal` and `shin-uchuu` are version 3 packages with version 3 datasets; a rewriter migrates, cuts and self-tests horizontal datasets without reading a source; every Shin-Uchuu forest is partitioned into its z = 0 FoF groups under the owner's rule (F6), and the cut dataset is validated by a bounded battery and run under `sage16` with chunked slab streaming at a calibrated laptop budget; and no version 2 code, fixture, test or prose remains.
+After this plan the Consistent-Trees ASCII route of `convert_trees.py` emits forest-blocked version 3 datasets whose `SourceHaloID` is the (`ForestIndex`, `HaloRankInForest`) position, under a recorded owner ruling; `micro-uchuu-ascii-horizontal` and `shin-uchuu` are version 3 packages with version 3 datasets; a rewriter migrates, cuts and self-tests horizontal datasets without reading a source; every Shin-Uchuu forest is partitioned into its z = 0 FoF groups under the owner's rule (F6), and the cut dataset is validated by a bounded battery and run under `sage16` with chunked slab streaming at a calibrated laptop budget; and no version 2 code, fixture or test remains, while version 2 prose survives only as labelled history and as dataset provenance (revision 7).
 
 **What it does not do.** It does not claim HOD or SHAM identity on the cut dataset (decision 7). It does not convert full Uchuu, write a gapped-link rewriter, add sub-forest decomposition to the driver, or re-read the 11.61 TB source (all recorded out of scope by the brief). Laptop acceptance is a Mac-measured proxy unless a laptop of the class runs the sweep. The subset gates exercise the whole-simulation partition at subset scale. They exclude the production super-forest, so its cut is covered only by the production battery and the science checks of Stage C.
 
@@ -150,7 +158,7 @@ The rows below cover what this plan adds, and the earlier work whose final state
 | `source_index.py` (index files, forest table) | keep; `FileID`-to-converter-ordinal mapping and corrected memory figures added | 11 |
 | `census/aggregate.py`, `census/occupancy.py`, `census/trees.py`, `census/partition.py` (including `slab_prefix`) | keep; `partition.py` weighs by peak occupancy, mirroring the driver | 7, 9, 15 |
 | The driver's partition weighting (`horizontal_compute_partition`, the partition module's accumulator) | keep, weighted by each forest's peak occupancy; the widest-slab weight and any helper only it used are removed | 15 |
-| This plan's identifiers (its frozen decisions "F1" to "F11", rulings such as "DD8" and "R10", "Slice n", "revision n") in code comments, docstrings and documents outside `docs/dev/` | **remove**: every comment states its rule self-contained (revision 6, R11). Earlier plans' identifiers in files no slice owns (`tests/unit/test_horizontal_distribution.c:290`, `tests/manual/test_snapshot_disabled_identity.py:31`, `.agents/skills/mimic-validation-and-qa/SKILL.md:130`, `.agents/skills/mimic-simulations-and-readers/SKILL.md:72`) are listed for the owner, not owned here | 15, 23, 25 |
+| This plan's identifiers (its frozen decisions "F1" to "F11", rulings such as "DD8" and "R10", "Slice n", "revision n") in code comments, docstrings and documents outside `docs/dev/` | **remove**: every comment states its rule self-contained (revision 6, R11). Revision 7: earlier plans' identifiers in files a Stage D slice already edits go too (`tests/manual/test_snapshot_disabled_identity.py:31` in Slice 20; `.agents/skills/mimic-validation-and-qa/SKILL.md:130` and `.agents/skills/mimic-simulations-and-readers/SKILL.md:72` in Slice 25); `tests/unit/test_horizontal_distribution.c:290`, in a file no slice edits, is left to the owner | 15, 20, 23, 25 |
 | `census/graph.py`: co-membership edge lists, external merge, components | **remove**; every helper the surviving census still imports moves to the module that uses it | 9 |
 | `census/rules.py`: threshold rules, union-find | **remove** | 9 |
 | `census/cut.py`: rule lists, rule names, the multi-rule pass, rule-keyed outputs | **simplify** to the decided table. The per-slab accounting, piece installation, partition rows and laptop rows survive | 9 |
@@ -162,12 +170,59 @@ The rows below cover what this plan adds, and the earlier work whose final state
 | `convert_trees.py ingest --cut-table` (route) and `tests/tools/transform_ascii_fixture.py` | keep: the independent gate of (C), and a documented route for converting a catalogue directly into its cut form | 13 |
 | Comparator lineage and catalogue modes; the cut-difference report | keep | 14 |
 | Parity-gate manifest-proved inventory and dataset override | keep; version 2 branches removed | 20 |
-| `validate_bounded.py` and the external-sort battery | **to decide inside the plan, not after it.** Slice 17 records the agreement. The revision before run 6 freezes the disposition in Slice 23's placeholder criterion, and run 6 does not start without it. Revision 4's "post-run review" wording is withdrawn | 17, 23 |
+| `validate_bounded.py` and the external-sort battery | **keep both** (revision 7; owner, 2026-10-16). The external-sort battery validates every version 3 dataset, gapped ones included; the bounded battery validates adjacent datasets at production scale. Their shared checks and state get a deliberate interface, and the converter manual says which battery to use when | 17, 23 |
 | Census documentation: the converter manual's section | keep, describing the tool as it finally is | 9 |
 | Census documentation: skills and guides | keep, describing the tool as it finally is | 18, 25 |
 | Any text describing candidate rules, the co-membership graph or thresholds as live features | **remove** | 9, 25 |
 | The records under `docs/dev/` (the acceptance record, the census record) | standing evidence after the plan closes (F11). This plan and the brief (`MIMIC-SHIN-UCHUU-V3-PLAN.md`) are archived on merge | 25, then the owner on merge |
-| LaCie census aggregates; run 2's retired graph and candidate-cut outputs (moved aside in Slice 9) | The accepted cut tables and records are kept with the conversion provenance. Every other aggregate is deleted by the owner, the `trees` labels and tree pairs only after the last step that reads them | procedure step 12 |
+| LaCie census aggregates; run 2's retired graph and candidate-cut outputs (moved aside in Slice 9) | Done: the accepted cut tables and records are kept with the conversion provenance; every other aggregate was copied to NT, verified and deleted | procedure step 12 |
+| **Kept for the cut-vertical follow-on** (revision 7; owner, 2026-10-16: Route A, a separate plan after this one is merged): the vertical readers under `src/io/vertical/`, the Consistent-Trees HDF5 reader above all; `horizontal_dataset.py`'s version 3 path; the rewriter's `cut` and `noop`; the census; `convert_trees.py ingest --cut-table`; `tests/tools/transform_ascii_fixture.py`; `scripts/compare_cross_format_identity.py` with its production-scale memory fix; the format's forest-blocking invariant; the `shin-uchuu-ascii` and `micro-uchuu-hdf5` packages | **keep: needed by the cut-vertical follow-on.** No Stage D slice removes or changes them beyond what its criteria name (Slice 23 removes `horizontal_dataset.py`'s and the rewriter's version 2 paths and rewords the census's version 2 text). A change a slice finds necessary beyond that stops for the owner | none |
+
+### Data at plan close (revision 7)
+
+Owner, 2026-10-16. Whatever neither Mimic nor the cut-vertical follow-on needs goes to NT, is verified there (`md5sum -c` or `sha256sum -c` on the login node), and is then deleted locally, with literal paths, each deletion logged. These are the owner's actions after run 6, not a PM slice; no implementation session deletes data.
+
+| Item | Disposition |
+|---|---|
+| `/Volumes/LaCie/data/uchuu/shin-uchuu-stage-r/v2-subset` (39 GB, version 2) | copy to NT, verify, delete |
+| `/Volumes/Internal/data/uchuu/micro-uchuu/micro-uchuu-ascii-horizontal` (2.3 GB, version 2) | after Slice 22's manual check, which opens it: copy to NT, verify, delete |
+| `/Volumes/LaCie/data/uchuu/shin-uchuu/conversion-provenance/shin-uchuu-v2/` (4.1 GB: the version 2 conversion's manifest, report and forest tables) | its NT copy (`snapshot-trees-v2/conversion-provenance/`) is re-verified, then the local copy is deleted. Mimic, the follow-on and a re-validation of the cut dataset do not read it; only a census rebuild from scratch would, from NT |
+| `/Volumes/LaCie/data/uchuu/shin-uchuu-nt-transfer/` (`forests.list`, md5 `60dbf14a99ae9f23ca7c334474477a95`; `locations.dat`, md5 `75442d7ae5b1f2465b485e60720e6df7`) | the originals came from NT: their md5s are confirmed there, then the local copies are deleted. Only a census rebuild would need them |
+| Empty directories: `/Volumes/LaCie/data/uchuu/shin-uchuu-stage-c/{cut-scratch,uncut-scratch,spill}`, `/Volumes/LaCie/data/uchuu/shin-uchuu-stage-c-scratch` (holding only an empty `slice-17-spill/`), `/Volumes/Internal/results/mimic/sage16-shin-uchuu-ascii` | removed |
+| The stage logs on Internal: `/Volumes/Internal/results/mimic/shin-uchuu-v3-stage-{a,b,r}/` and `/Volumes/Internal/results/mimic/shin-uchuu-v3-stage-c/slice-17/` | copy to NT, verify, delete (evidence behind the acceptance record; Mimic does not read them) |
+| **Kept:** the cut dataset `/Volumes/LaCie/data/uchuu/shin-uchuu-stage-c/cut/dataset` with its workdir `.../cut/` and the cut table `.../cut-table/`; the cut `sage16` output `/Volumes/Internal/results/mimic/sage16-shin-uchuu-v3-cut/` and its plots `.../sage16-shin-uchuu-v3-cut-plots/`; Stage R's `cut`, `cut-table`, `migrated` and `ref-manifest` under `/Volumes/LaCie/data/uchuu/shin-uchuu-stage-r/`; `/Volumes/LaCie/data/uchuu/shin-uchuu-subset-ascii/`; the procedure folder `/Volumes/Internal/results/mimic/shin-uchuu-v3-stage-c/procedure/`, with the frozen binary that made the reference run, until the cut-vertical plan is done | needed by Mimic or by the follow-on |
+
+---
+
+## Defects Found in Execution (revision 7)
+
+Recorded 2026-10-16. Each was found while executing an accepted slice or the procedure, and resolved on the record under the owner's natural-resolution authority. This plan is archived on merge, so no accepted contract is rewritten; the defects that bear on unrun slices are fixed in those slices' contracts.
+
+- **PD-R3-1** (Slice 10): "nothing else changes" left the `shin-uchuu` README's "no package-local conformance check, schema test or cross-format identity gate yet" bullet partly stale. Resolved in Slice 18's README rewrite.
+- **PD-R3-2** (Slice 10): the two `converter_columns.yaml` comments "The version 2 workflow (convert_ctrees.py) does not read this file" were in no Stage D surface. Fixed in revision 7: Slice 25 owns them.
+- **PD-R3-3** (Slice 11): the battery's schema binding needs the manifest to embed a profile re-hashing to the input's `column_mapping_sha256`, which F5's "carry `/schema` through" does not give. Resolved: `noop` and `cut` embed the shipped default profile and refuse another digest; every plan dataset uses it.
+- **PD-R3-4** (Slice 12): `--conversion-manifest` was `migrate`-only, so `cut` had no file-order source for a file holding no single-file input forest. Resolved as a named, tested refusal; every subset and production file holds one.
+- **PD-R3-5** (Slice 14): the `parity_gate.py` function list omitted callers the dataset override must reach. Resolved by threading the override through the new gate, with a framework guard.
+- **PD-R3-6** (Slice 14): "`UniqueGalaxyID` not a compared field" conflicted with revision 5's strict semantics for unsplit forests. Resolved: revision 5 binds under the cut report.
+- **PD-R3-7** (Slice 14): "the vertical side's file list" was read as the tree files `locations.dat` lists.
+- **PD-R3-8** (Slice 16): "every `validate` and `report` with `--multiplier 20000000000`" read as covering micro-Uchuu, whose multiplier is 10⁹. Resolved as "every Shin-Uchuu `validate` and `report`".
+- **PD-R3-9** (Slice 16): G3's conservation check named the reference's report, which carries no per-file counts. Resolved: the reference's ASCII preparation manifest is the record used.
+- **PD-R3-10** (Slice 16): the budget and spill rule cannot apply to the version 2 battery, which has neither. Resolved as "every version 3 `validate` and `report`".
+- **PD-R4-1** (Slice 17): the contract listed `MostBoundID` as resident for closure and FoF integrity, but no version 3 check reads it. Not held; the ceiling is lower and no verdict changes.
+- **PD-R4-2** (Slice 17): the position check from per-forest totals and block order cannot detect a repeated (`ForestIndex`, rank) pair. Resolved with a second, position-indexed one-bit-per-halo bitset.
+- **PD-R4-3** (Slice 17): the contract was silent on a dataset declaring `links_adjacent` 1 but holding skip-snapshot links. Resolved: they are held in the budget's headroom and judged, with a named refusal when they do not fit (fails closed).
+- **PD-R4-4** (Slice 17): sizing the `SourceHaloID` bitset from `total_halos` presumes a conversion manifest. Resolved: a manifest-free call is refused by name.
+- **PD-R4-5** (Slice 17): the unchanged manifest-binding and conservation check keeps per-source-file tallies outside the stated ceiling. Resolved: documented among what the ceiling omits.
+- **PD-C-1** (the procedure): the Resource Profile's rewriter memory (30 to 60 GB) is below the measured peaks, 101.9 GB for `migrate` (step 3) and 211.6 GB for `cut` (step 8). Recorded; Slice 23 may state the `cut` figure in the converter manual.
+- **PD-C-2** (the procedure): the Resource Profile has no comparator row. The original comparator would have needed about 0.58 TB at step 5 and 1.2 TB at step 10; the owner-approved bounded fix measured 380 GB at step 10. Recorded; the comparator's docstring states its memory.
+- **PD-R5-1** (Slice 18): the surface omitted every permanent restatement of the runtime-support table and of `shin-uchuu`'s version 2 status (`runtime_routes.py` and its test, `AGENTS.md`, the converter manual, `convert_trees.py`'s docstring, `mimic-validation-and-qa`). Resolved by grants. Revision 7 lists the restatements Slices 23 and 25 must reach.
+- **PD-R5-2** (Slice 18): the runtime-support row named only `sage16` while the subset gate's legs also gate `halos-only`. Resolved: `halos-only` on the subset only.
+- **PD-R5-3** (Slice 18): "its report's totals" asked for figures the record attributes only partly to the version 2 report. Resolved: only the record's figures are given.
+- **PD-R5-4** (Slice 18): "the structural invariant of decision 7" carried a plan identifier into a user-facing file. Resolved: the invariant is stated without it.
+
+Two defects found while drafting revision 7 bear on unrun slices and are fixed in their contracts:
+- **PD-R5-5:** no Stage D slice owned the text Slice 18 added. The `shin-uchuu` and `shin-uchuu-ascii` READMEs would still describe the committed version 2 fixture, `make check-horizontal-fixture` and `rewrite_trees.py migrate` as live. Fixed: Slice 25 owns both READMEs, under a criterion that no document describes a retired operation, target or fixture as live.
+- **PD-R5-6:** the final-state greps of Slices 23 and 25 would hit legitimate provenance and format explanations, and Slice 25's omitted `models/`, `plot/`, `scripts/`, `src/`, `tests/`, the `Makefile` and `.github/`. Fixed: both greps run wider and every remaining match is classified against an allowed list.
 
 ---
 
@@ -217,7 +272,7 @@ Anchors every slice relies on, read at the baseline.
 | 20 | D | Claude Opus 5.5 | high | The version 3 ASCII fixture from a committed synthetic source; every consumer retargeted |
 | 21 | D | Claude Opus 5.5 | medium | The version 2 reader's negative battery ported to the version 3 reader test |
 | 22 | D | Claude Opus 5.5 | high | Deletion of the version 2 reader path |
-| 23 | D | Claude Opus 5.5 | high | Deletion of the version 2 converter, validator, crosscheck and their tests; the rewriter's version 2 input |
+| 23 | D | Claude Opus 5.5 | high | Deletion of the version 2 converter, validator, crosscheck and their tests; the rewriter's and census's version 2 inputs and the code only version 2 reached; the two batteries' shared interface (revision 7) |
 | 24 | D | Claude Sonnet 5.5 | high | Deletion of the version 2 fixtures, generators, make target and CI step |
 | 25 | D | Claude Sonnet 5.5 | high | The format document's version 2 text frozen as history; guides, skills, changelog, pathway closeout |
 
@@ -233,7 +288,17 @@ Pass the table's model and effort explicitly to `start-slice` and record the res
 4. Confirm `make tests-converter`, `make tests-horizontal-v3` and `MPIRUN="mpirun --oversubscribe" make tests-distributed` pass at the baseline; record the distributed gate's live check count.
 5. Choose the LaCie directories for the Stage A workdir and the version 3 micro-Uchuu dataset (about 3 GB), and record where the version 2 micro-Uchuu dataset is retained for Slice 16's gate G3.
 
-**Before run 2:** the owner's 0.72 TB of unrelated files have left the LaCie (brief, "The two workflows"); the production `forests.list` (7.56 GB) and `locations.dat` (about 13 GB) have been transferred by the owner to the LaCie beside the version 2 dataset's provenance directory, with their md5 (the production report records the `forests.list` md5 `60dbf14a99ae9f23ca7c334474477a95`). **Before run 2b:** revision 5 committed. **Before run 3:** run 2b accepted (done, `35f39209`); decision 6 recorded (done, revision 6); revision 6 committed and `check-plan` clean. **Before run 4:** nothing beyond run 3's acceptance. **Before run 5:** the production procedure is complete and its record accepted. **Before run 6:** run 5 accepted; Slice 23's battery placeholder replaced by the decided text.
+**Before run 2:** the owner's 0.72 TB of unrelated files have left the LaCie (brief, "The two workflows"); the production `forests.list` (7.56 GB) and `locations.dat` (about 13 GB) have been transferred by the owner to the LaCie beside the version 2 dataset's provenance directory, with their md5 (the production report records the `forests.list` md5 `60dbf14a99ae9f23ca7c334474477a95`). **Before run 2b:** revision 5 committed. **Before run 3:** run 2b accepted (done, `35f39209`); decision 6 recorded (done, revision 6); revision 6 committed and `check-plan` clean. **Before run 4:** nothing beyond run 3's acceptance. **Before run 5:** the production procedure is complete and its record accepted. **Before run 6:** run 5 accepted (done, `45dacd42`); Slice 23's battery placeholder replaced by the decided text (done, revision 7); revision 7 committed and `check-plan` clean.
+
+### User-facing documentation (revision 7)
+
+Owner, 2026-10-16, binding on every Stage D slice and its reviews: **every document outside `docs/dev/` is user-facing.** That covers READMEs, the guides, the skills, the format document, `CHANGELOG.md`, `AGENTS.md`, run-file and YAML comments, and code comments and docstrings. Each says what the code and data are and how to use them, never how the work was done. None carries log-type content:
+- procedure step numbers, wall times, or the per-step RSS of production runs;
+- NT, transfers or machine-local paths;
+- deviations, review panels, or narrative of the work;
+- this plan's identifiers (frozen decisions, rulings, slice or revision numbers).
+
+Measured properties of a tool (a memory ceiling, a peak RSS at a stated dataset size) are documentation, not log content. Provenance stays where a dataset's identity needs it: what a dataset was made from or compared with, and the commit that made it, phrased as history. No document describes a retired operation, make target, fixture or tool as live. PM checks every added line outside `docs/dev/` against this convention before accepting a slice, and tells every Developer and reviewer.
 
 ## Resource Profile
 
@@ -1443,9 +1508,9 @@ Not a PM slice: the owner runs it with an assistant session in Mode A, step by s
 
 ### Acceptance Criteria
 
-- [ ] `CHUNK_1D`, `HEADER_ATTRS`, `_log`, `load_header_metadata` and `snapshot_h5_name` are defined in `hdf5_writer_v3.py`; `hdf5_writer_v3.py:60-66`, `validate_v3.py:59` and `convert_trees.py:223` import them from there; `hdf5_writer.py` imports them back from `hdf5_writer_v3.py` so its own behaviour is unchanged until Slice 23.
-- [ ] `DEFAULT_MULTIPLIER`, `DEFAULT_V3_BUDGET_BYTES`, `RUN_SCOPED_ATTRS`, `V3_FORMAT_VERSION`, `Outcome`, `_examples`, `_filter_failures`, `battery_failed` and `check_header_bounds` are defined in `validate_v3.py`; `validate_v3.py:68-78`, `report.py:34-39` and `convert_trees.py:760` import them from there; `validate.py` imports them back; the `validate` CLI (`validate.py:1714`) and the version dispatch (`:1659-1712`) are untouched.
-- [ ] No import cycle (`python -c "import validate_v3, hdf5_writer_v3, report, convert_trees"` from the converter directory succeeds); every converter test passes unchanged.
+- [ ] `CHUNK_1D`, `HEADER_ATTRS`, `_log`, `load_header_metadata` and `snapshot_h5_name` (`hdf5_writer.py:73`, `:82`, `:119`, `:123`, `:127`), with the private constant only `load_header_metadata` uses (`BOX_SIZE_UNITS`, `:78`) and the imports it needs, are defined in `hdf5_writer_v3.py`. Every surviving importer imports them from there: `validate_v3.py:59`, `convert_trees.py:244`, `rewriter/inputs.py:88`, `rewriter/passes.py:90`, `rewriter/run.py:43` and `validate_bounded.py:123` (revision 7: the rewriter and the bounded battery import them too). `hdf5_writer.py` imports them back from `hdf5_writer_v3.py` so its own behaviour is unchanged until Slice 23.
+- [ ] `DEFAULT_MULTIPLIER`, `DEFAULT_V3_BUDGET_BYTES`, `RUN_SCOPED_ATTRS`, `V3_FORMAT_VERSION`, `Outcome`, `_examples`, `_filter_failures`, `battery_failed` and `check_header_bounds`, with the private constant `check_header_bounds` uses (`_INT64_MAX`, `validate.py:134`), are defined in `validate_v3.py`; `V3_FORMAT_VERSION`, defined today in both `validate.py:1638` and `hdf5_writer_v3.py:76`, keeps one definition that the other module imports. Every surviving importer imports them from there: `validate_v3.py:68-78`, `report.py:34-39`, `convert_trees.py:785`, `rewrite_trees.py:79`, `rewriter/inputs.py:102` and `validate_bounded.py:126`. `validate.py` imports them back and keeps its own unrelated `_log` (`:172`); the `validate` CLI (`validate.py:1714`) and the version dispatch (`:1644-1711`) are untouched, except that the comment at `:1698` saying `validate_v3` imports this module is corrected.
+- [ ] No import cycle: `python -c "import validate_v3, validate_bounded, hdf5_writer_v3, report, convert_trees, rewrite_trees, forest_census"` from the converter directory succeeds. `git grep -n "from hdf5_writer import\|from validate import" -- convert/mimic-convert` then finds only the version 2 modules themselves (`hdf5_writer.py`, `validate.py`, `convert_ctrees.py`, `crosscheck.py`), the deferred import inside the version 2 `run_report` (`report.py:256`), and the converter tests, all of which Slice 23 deletes or reworks. Every converter test passes unchanged.
 - [ ] Required evidence: `make tests-converter` via a subagent; `./scripts/beautify.sh`; `make check-format`.
 
 ### Authorized Surface
@@ -1455,14 +1520,19 @@ Not a PM slice: the owner runs it with an assistant session in Mode A, step by s
   - `convert/mimic-convert/hdf5_writer.py`
   - `convert/mimic-convert/validate_v3.py`
   - `convert/mimic-convert/validate.py`
+  - `convert/mimic-convert/validate_bounded.py`
   - `convert/mimic-convert/report.py`
   - `convert/mimic-convert/convert_trees.py`
-- Functions/classes/components allowed to change: definitions moved verbatim and the import lines.
+  - `convert/mimic-convert/rewrite_trees.py`
+  - `convert/mimic-convert/rewriter/inputs.py`
+  - `convert/mimic-convert/rewriter/passes.py`
+  - `convert/mimic-convert/rewriter/run.py`
+- Functions/classes/components allowed to change: definitions moved verbatim with their private dependencies; the import lines; the one stale comment in `validate.py`.
 - Tests allowed or expected to change: none.
 
 ### Explicit Non-Goals
 
-- No deletion, no behaviour change, no renaming of the moved names.
+- No deletion, no behaviour change, no renaming of the moved names. The converter tests keep importing from the version 2 modules, which re-export the names, until Slice 23 reworks them.
 
 ### Risk Flags
 
@@ -1473,7 +1543,7 @@ Not a PM slice: the owner runs it with an assistant session in Mode A, step by s
 ### Validation Plan
 
 - Tests to add/update: none.
-- Commands to run: `make tests-converter` (subagent); `./scripts/beautify.sh`; `make check-format`.
+- Commands to run: `make tests-converter` (subagent); the import check and the `git grep` above; `./scripts/beautify.sh`; `make check-format`.
 - Lint (differential, via the `lint` skill): required unless the slice changes no linted file.
 - Manual checks: `git diff --stat` shows moves and import lines only.
 
@@ -1492,12 +1562,13 @@ Not a PM slice: the owner runs it with an assistant session in Mode A, step by s
 
 ### Acceptance Criteria
 
-- [ ] `simulations/micro-uchuu-ascii-horizontal/_tests/data/source/` holds a generator (`generate_source.py`) writing the synthetic Consistent-Trees ASCII tree, `forests.list` and `locations.dat` that `create_snapshot_fixture.py` synthesises today (the same three forests, six snapshots and halos, so every value-level expectation survives), and the written files, committed; `_tests/data/regenerate.sh` converts it with `convert_trees.py` (ingest, transpose, write, report) under the package's `simulation_info.yaml` and the `micro-uchuu-ascii` profile into `_tests/data/worked_ascii/`, committed, on the `mini-millennium-horizontal` pattern; `simulations/shin-uchuu/_tests/data/regenerate.sh` does the same into `simulations/shin-uchuu/_tests/data/worked_ascii/` with that package's scale factors.
-- [ ] Both packages' `_tests/input/test_simulation.yaml` point at `worked_ascii/`; `make MODEL=halos-only SIMULATION=micro-uchuu-ascii-horizontal tests-unit tests-integration` and the same for `shin-uchuu` pass on it. The two fixture-based C tests of `micro-uchuu-ascii-horizontal` (`test_unit_horizontal_reader_open.c`, `test_unit_horizontal_driver_gather.c`) read the top-level `_tests/data/` version 2 files directly, which stay until Slice 24, so they are untouched here and deleted in Slice 22.
-- [ ] `models/sham/input/sham_micro-uchuu-ascii-horizontal.yaml`, `models/hod/input/hod_micro-uchuu-ascii-horizontal.yaml`, `models/sham/modules/sham_rank_match/_tests/test_integration_sham_rank_match.py`, `models/hod/modules/hod_populate/_tests/test_integration_hod_populate.py`, `tests/manual/run_snapshot_global_battery.py` (the `halos-only-v2`, `sham` and `hod` groups become the version 3 ASCII fixture; the group name loses "v2"), `tests/integration/test_snapshot_phase.py` (`HORIZONTAL_INPUT`) run on `worked_ascii/`; any assertion that pinned a row-position-derived value (a created-record id) is updated to the version 3 fixture's value with the reason recorded in the test; `make tests-snapshot-global` and the two model integration tests pass.
-- [ ] `tests/manual/test_snapshot_disabled_identity.py`: the version 2 leg is removed, with its reason in the module docstring: the gate runs the pinned pre-feature reference commit on each commit's own fixture configuration (`required_paths`, `:211-219`) and compares metadata allowing only path-prefix differences, so a leg on a fixture the reference commit never carried cannot be compared; the vertical and version 3 gapped legs remain (a horizontal disabled-mode identity on adjacent input is covered by the package's parity gate); the mutation source for `test_comparator_rejects_mutations` (`:928-929`, today the `sage16` version 2 fixed leg) becomes the `sage16` version 3 gapped fixed leg, every mutation and control case retained; `make tests-snapshot-global-identity` passes with the two remaining fixtures.
-- [ ] `tests/framework/parity_gate.py` loses its version 2 branches (`:1019`, `:1083`, `:1095-1109`: the gap census and the manifest-proved inventory now apply to every gate) and `tests/integration/test_processing_order.py` loses its version 2 branch (`:117-129`, the docstrings at `:340-376` and `:852-856`); every gate and the integration tier still pass.
-- [ ] `tests/manual/test_distributed_identity.py`: the version 2 refusal leg (`:152-155`, `:586-607`) is removed (the reader's rejection of version 2 as unsupported is Slice 22's unit case); the live check count in the record is updated.
+- [ ] `simulations/micro-uchuu-ascii-horizontal/_tests/data/source/` holds a generator (`generate_source.py`, on the pattern of `tests/data/horizontal_v3/source/`) writing the synthetic Consistent-Trees ASCII tree file and `forests.list` that `create_snapshot_fixture.py` synthesises today (`fixture_forests`, `write_ctrees_file`, `write_forests_list`, `:223-314`: the same three forests, six snapshots and halos, so every value-level expectation survives), and the written files, committed. `_tests/data/regenerate.sh` (new; today only `_tests/data/generic/regenerate.sh` exists) converts it with `convert_trees.py` (ingest, transpose, write, report) under the package's `simulation_info.yaml` and the `micro-uchuu-ascii` profile into `_tests/data/worked_ascii/`, committed, on the `mini-millennium-horizontal` pattern (`_tests/data/source/`, `_tests/data/regenerate.sh`). `simulations/shin-uchuu/_tests/data/regenerate.sh` is rewritten to do the same into `simulations/shin-uchuu/_tests/data/worked_ascii/` with that package's scale factors.
+- [ ] Both packages' `_tests/input/test_simulation.yaml` point at `worked_ascii/` (today `data/generic` and `data`, `:4`, `:18-19` and `:4`, `:20-21`, comments included). `make MODEL=halos-only SIMULATION=micro-uchuu-ascii-horizontal tests-unit tests-integration` and the same for `shin-uchuu` pass on it. The one fixture-based package-local C test, `test_unit_horizontal_reader_open.c`, reads the top-level `_tests/data/` version 2 files directly (`:76`), which stay until Slice 24, so it is untouched here; it and `test_unit_horizontal_driver_gather.c` (in-memory slabs only) are deleted in Slice 22.
+- [ ] Every consumer runs on `worked_ascii/`: `models/sham/input/sham_micro-uchuu-ascii-horizontal.yaml` and `models/hod/input/hod_micro-uchuu-ascii-horizontal.yaml` (through the package's `test_simulation.yaml`; edited only if a comment names the old fixture), `models/sham/modules/sham_rank_match/_tests/test_integration_sham_rank_match.py` (`FIXTURE_DIR`, `:81`, and the a_list name, `:601`), `models/hod/modules/hod_populate/_tests/test_integration_hod_populate.py`, `tests/manual/run_snapshot_global_battery.py` (the `halos-only-v2`, `sham` and `hod` groups, `:9`, `:13`, `:16`, `:97`, `:120`, `:132`, become the version 3 ASCII fixture; the group name loses "v2"), and `tests/integration/test_snapshot_phase.py` (`HORIZONTAL_INPUT`, `:98-106`, and the docstring's "(v2, adjacent)", `:38`). Any assertion that pinned a row-position-derived value (a created-record id) is updated to the version 3 fixture's value with the reason recorded in the test. `make tests-snapshot-global` and the two model integration tests pass.
+- [ ] `tests/manual/test_snapshot_disabled_identity.py`: the version 2 leg (`Fixture("v2", ...)`, `:176-180`) is removed, with its reason in the module docstring, whose leg count (`:13-14`, "twelve legs") is corrected: the gate runs the pinned pre-feature reference commit on each commit's own fixture configuration (`required_paths`, `:210-220`) and compares metadata allowing only path-prefix differences, so a leg on a fixture the reference commit never carried cannot be compared. The vertical and version 3 gapped legs remain (a horizontal disabled-mode identity on adjacent input is covered by the package's parity gate). The mutation source for `test_comparator_rejects_mutations` (`:928-929`, today the `sage16` version 2 fixed leg; its message at `:969`) becomes the `sage16` version 3 gapped fixed leg, every mutation and control case retained. The docstring's citation of an earlier plan (`:31`) is replaced by a self-contained statement of what the gate checks. `make tests-snapshot-global-identity` passes with the two remaining fixtures.
+- [ ] `tests/framework/parity_gate.py` loses its version 2 branches in `stage_dataset_provenance` (the comment and split at `:1202-1206`, `:1219-1223`, `:1234`, `:1249-1254`, the census's version 2 arm at `:1264-1275`, `:1283-1286`, and the early return at `:1291-1294`), so the gap census and the manifest-proved inventory apply to every gate, and its docstrings lose their version 2 text (`:13`, `:174`). `tests/integration/test_parity_gate_helpers.py` changes only if `GatePackage`'s fields change (`:177-179`). `tests/integration/test_processing_order.py` loses its version 2 branch (`snapshot_fixture_horizons`, `:116-118`, `:126-129`) and its version 2 docstring text (`:363`, `:368-370`, `:402`, `:852-856`). Every gate and the integration tier still pass.
+- [ ] `tests/manual/test_distributed_identity.py`: the version 2 refusal leg (the `V2_*` constants `:151-155`, `version_2_refusal` `:586-606`, its call `:781`, the docstring item `:65-67` and the summary text `:804`) is removed (the reader's rejection of version 2 as unsupported is Slice 22's unit case); the live check count in the record is updated.
+- [ ] The two packages' schema-conformance tests lose their version 2 text: `simulations/shin-uchuu/_tests/integration/test_schema_conformance.py` drops the version 2 skip of the real-dataset half (`_VersionAwareConformance`, `:43-44`, and the docstring `:9-12`; the package's dataset is version 3), and `simulations/micro-uchuu-ascii-horizontal/_tests/integration/test_schema_conformance.py:11` no longer says the committed fixture is version 2. Both pass under their packages.
 - [ ] Required evidence: the tiers above via subagents; `make tests-distributed`; `./scripts/beautify.sh`; `make check-format`.
 
 ### Authorized Surface
@@ -1507,9 +1578,11 @@ Not a PM slice: the owner runs it with an assistant session in Mode A, step by s
   - `simulations/micro-uchuu-ascii-horizontal/_tests/data/worked_ascii/`
   - `simulations/micro-uchuu-ascii-horizontal/_tests/data/regenerate.sh` (new file)
   - `simulations/micro-uchuu-ascii-horizontal/_tests/input/test_simulation.yaml`
+  - `simulations/micro-uchuu-ascii-horizontal/_tests/integration/test_schema_conformance.py`
   - `simulations/shin-uchuu/_tests/data/regenerate.sh`
   - `simulations/shin-uchuu/_tests/data/worked_ascii/`
   - `simulations/shin-uchuu/_tests/input/test_simulation.yaml`
+  - `simulations/shin-uchuu/_tests/integration/test_schema_conformance.py`
   - `models/sham/input/sham_micro-uchuu-ascii-horizontal.yaml`
   - `models/hod/input/hod_micro-uchuu-ascii-horizontal.yaml`
   - `models/sham/modules/sham_rank_match/_tests/test_integration_sham_rank_match.py`
@@ -1519,14 +1592,15 @@ Not a PM slice: the owner runs it with an assistant session in Mode A, step by s
   - `tests/manual/test_snapshot_disabled_identity.py`
   - `tests/manual/test_distributed_identity.py`
   - `tests/framework/parity_gate.py`
+  - `tests/integration/test_parity_gate_helpers.py`
   - `tests/integration/test_processing_order.py`
   - `docs/dev/MIMIC-SHIN-UCHUU-V3-ACCEPTANCE.md`
-- Functions/classes/components allowed to change: the generator, the two regeneration scripts, the fixture directories, the test configurations, the fixture paths and the pinned values in the named tests, the battery groups, the removed legs and branches.
+- Functions/classes/components allowed to change: the generator, the two regeneration scripts, the fixture directories, the test configurations, the fixture paths and the pinned values in the named tests, the battery groups, the removed legs, branches and docstring text, the one earlier-plan citation.
 - Tests allowed or expected to change: the named tests.
 
 ### Explicit Non-Goals
 
-- No deletion of the version 2 fixtures, generators, checker or `check-horizontal-fixture` (Slice 24); no C code change (Slice 22); no physics change; no weakening of any case.
+- No deletion of the version 2 fixtures, generators, checker or `check-horizontal-fixture` (Slice 24); no C code change (Slice 22); no Makefile change (its help and comment on the refusal leg are Slice 22's); no physics change; no weakening of any case.
 
 ### Risk Flags
 
@@ -1539,7 +1613,7 @@ Not a PM slice: the owner runs it with an assistant session in Mode A, step by s
 - Tests to add/update: as listed.
 - Commands to run: `make MODEL=halos-only SIMULATION=micro-uchuu-ascii-horizontal tests-unit tests-integration`, the same for `shin-uchuu`, `make MODEL=sham SIMULATION=micro-uchuu-ascii-horizontal tests-integration`, the same for `hod`, `make tests-snapshot-global`, `make tests-snapshot-global-identity`, `MPIRUN="mpirun --oversubscribe" make tests-distributed` (subagents); `./scripts/beautify.sh`; `make check-format`.
 - Lint (differential, via the `lint` skill): required unless the slice changes no linted file.
-- Manual checks: the `worked_ascii` fixture's `report` output names forest blocking and the position check passing.
+- Manual checks: the `worked_ascii` fixture's `report` output names forest blocking and the position check passing; `git grep -n -i "version 2\|v2" --` over the changed test files finds no version 2 statement left.
 
 ### Rollback Path
 
@@ -1557,13 +1631,14 @@ Not a PM slice: the owner runs it with an assistant session in Mode A, step by s
 ### Acceptance Criteria
 
 - [ ] `tests/unit/test_horizontal_v3_reader.c` gains, on the version 3 fixtures it already uses: the generic missing and wrong-dtype rows for each of the twelve core header attributes; NaN and infinity in compared physical attributes; the particle-mass naive-comparison trap; a physical mismatch in the last snapshot only; the structural-defect-before-bulk-read case; vector second-dimension truncation; `max_halo_rank_in_forest` below the measured maximum; `test_physical_value_tolerance_boundary`; `test_registry_lookup` and `test_registries_are_disjoint`; `test_slab_lifecycle`; `test_two_generation_rotation_holds_two_slabs_live`; `test_identity_bounds_predicate` and `test_identity_bounds_division_boundary`, each a `MIMIC_RESULT:` marker, each named for the behaviour.
-- [ ] `test_unit_horizontal_driver_gather.c`'s coverage of the implicit N−1 link scope is either shown to be covered by `test_horizontal_retention_budget.c` and `test_unit_horizontal_retention` (cited by case name in the slice's validation note) or ported.
+- [ ] `test_unit_horizontal_driver_gather.c`'s cases (`:400-405`) pin the implicit N−1 link scope, a version 2 rule: a version 3 link names its target snapshot. The slice's validation note states that obligation as retiring with the format and cites by case name the version 3 cases that hold its counterpart, links resolved through the target-snapshot columns (`simulations/mini-millennium-horizontal/_tests/unit/test_unit_horizontal_retention.c`, for example its progenitor-by-target-snapshot lines `:258-262` and `test_link_into_released_generation_aborts`, `:557`), and not `test_version2_horizon_is_adjacent`, which Slice 22 deletes. Any obligation without a version 3 counterpart is ported into that retention test.
 - [ ] `make tests-horizontal-v3` passes with the new cases; the version 2 tests are untouched.
 
 ### Authorized Surface
 
 - Files allowed to change:
   - `tests/unit/test_horizontal_v3_reader.c`
+  - `simulations/mini-millennium-horizontal/_tests/unit/test_unit_horizontal_retention.c` (only for a ported gather obligation)
 - Functions/classes/components allowed to change: new cases and table rows; registration.
 - Tests allowed or expected to change: `tests/unit/test_horizontal_v3_reader.c`.
 
@@ -1599,10 +1674,21 @@ Not a PM slice: the owner runs it with an assistant session in Mode A, step by s
 
 ### Acceptance Criteria
 
-- [ ] `src/io/horizontal/read_horizontal_hdf5.c`: `horizontal_h5_dataset_spec_by_name` (`:1806`) looks up `HORIZONTAL_H5_V3_FIXED_DATASETS`; then the version 2 constants and tables (`:98`, `:181-200`), `horizontal_h5_reject_unknown_attr`, `horizontal_h5_validate_object_set`, `horizontal_h5_read_header`, `horizontal_h5_validate_halo_datasets`, `horizontal_h5_validate_read_list_against_format`, the version 2 link spec, `horizontal_h5_link_limit`, `horizontal_h5_validate_links`, and every version 2 branch of `open_run_horizontal_hdf5`, `horizontal_h5_slab_row_bytes` and `load_slab` are deleted; the open-time message says the reader supports only version 3 and keeps the version 1 hint; `peek_format_version`'s default for a missing attribute becomes a rejection.
-- [ ] `src/core/horizontal_driver.c:1073-1080` (the version 2 refusal) and the `descendant_snapshot == NULL` fallbacks (`:1430-1445` and the sites at `:476`, `:495`, `:1833`, `:2357`) are deleted, with the companion columns required; `src/include/types.h:284-316` and `src/io/horizontal/reader.h:55-65`, `:135` lose "NULL for version 2".
-- [ ] `tests/unit/test_horizontal_v3_reader.c`: the expected messages at `:1358-1359` become "supports only version 3" and the mixed-version case expects the version 2 file rejected outright; `test_int_link_package_rejects_v3` (`:1035-1050`) is deleted together with its NA allowlist entry in `make tests-horizontal-v3` (`Makefile:884-889`), because after Slices 5 and 10 no shipped package declares `int` links, and the reader branch at `read_horizontal_hdf5.c:1553-1577` stays as the fast-failure guard for a future package with a one-line comment saying so; `tests/unit/test_horizontal_retention_budget.c`'s fake reader labels drop "version 2"; the two fixture-based package-local C tests `simulations/micro-uchuu-ascii-horizontal/_tests/unit/test_unit_horizontal_reader_open.c` and `test_unit_horizontal_driver_gather.c` are deleted, and `tests/unit/run_tests.sh:279` loses the `test_unit_horizontal_reader_open` entry (`realdata`'s entry stays; `driver_gather` has none); the `read_horizontal_hdf5.c:2313` comment no longer points at the deleted test.
-- [ ] Clean build under `-Wall -Wextra -Wshadow -Wformat-security -Wundef`; `make tests-horizontal-v3`, `make tests-unit`, `make tests-integration`, `make tests-scientific` and `MPIRUN="mpirun --oversubscribe" make tests-distributed` pass; the deleted line count is reported as descriptive evidence against the inventory's about 520.
+- [ ] `src/io/horizontal/read_horizontal_hdf5.c`:
+  - `horizontal_h5_dataset_spec_by_name` (`:1790-1813`) is deleted and its caller `horizontal_h5_fill_identity` (`:1868`, `:1870`) uses `horizontal_h5_v3_fixed_spec` (`:1234-1241`), which already looks up `HORIZONTAL_H5_V3_FIXED_DATASETS`;
+  - deleted as version 2 only: the version constant (`:95-98`) and halo dataset table (`:181-200`); `horizontal_h5_reject_unknown_attr` (`:451-467`); `horizontal_h5_validate_object_set` (`:469-521`); `horizontal_h5_read_header` (`:564-590`); `horizontal_h5_validate_halo_datasets` (`:592-693`); `horizontal_h5_validate_read_list_against_format` with its check macros (`:1815-1852`); the version 2 link table (`:1879-1914`); `horizontal_h5_link_limit` (`:1950-1973`); `horizontal_h5_validate_links` (`:1975-2045`); the version 2 branches of `open_run_horizontal_hdf5` (`:2403-2412`, `:2428-2431`, `:2446-2457`, `:2470-2473`, `:2574-2582`) and of `load_slab_horizontal_hdf5` (`:2748`, `:2777-2790`, `:2796-2802`); and the version parameter of `horizontal_h5_slab_row_bytes` (`:2316-2322`, its call `:2648-2649`);
+  - kept, because version 3 uses them: `struct horizontal_h5_header`, `HORIZONTAL_H5_HEADER_ATTRS`, `struct horizontal_h5_dataset_spec`, `struct horizontal_h5_attr_scan`, `horizontal_h5_read_header_attr`, the link-width `_Static_assert` block (`:1916-1935`) and `horizontal_h5_link_value` (`:1937-1948`);
+  - the open-time message (`:2404-2412`) says the reader supports only version 3 and keeps the version 1 hint; the default for a missing `format_version` (`open_run_horizontal_hdf5`, `:2403`; `horizontal_h5_peek_format_version`, `:865-912`, only reports) becomes a rejection;
+  - every comment naming version 2 or a deleted function is reworded (`:9-12`, `:18-21`, `:205`, `:446`, `:860`, `:1103`, `:1428`, `:1466`, `:1779`, `:2203`, `:2312-2313`, `:2394-2399`, `:2464-2466`, `:2653`).
+- [ ] `src/core/horizontal_driver.c`: the version 2 refusal (`horizontal_partition_run`, `:1086-1093`) and every `descendant_snapshot == NULL` fallback (`:482-484`, `:508-510`, `:845-851`, the generation-horizon fallback `:1454-1455` with its doc `:1432-1445`, and `:1845-1854`) are deleted: the three target-snapshot columns are required on every slab that holds rows, while a slab with no rows (an empty snapshot or row range) may still carry none. Its version 2 comments are reworded (`:19`, `:280-281`, `:435-436`, `:493-494`, `:1809-1810`, `:2370`). `src/include/types.h` (`:283-285`, `:291`, `:302-303`, `:316`) and `src/io/horizontal/reader.h` (`:18`, `:56-57`, `:64-65`, `:131-136`) lose their version 2 text.
+- [ ] Tests:
+  - `tests/unit/test_horizontal_v3_reader.c`: the unknown-version case's expected message (`:1358`) becomes "supports only version 3"; the mixed-version case (`:1359-1362`, fixture `c_version_mixed`, `:1070-1073`) keeps its rejection, its expected message following whichever check now fires first; the header comments (`:24-28`) no longer cite the deleted package test;
+  - `test_int_link_package_rejects_v3` (`:1034-1051`) **stays** with its NA allowlist entry (`Makefile:865-867`, `:888-889`): every vertical package declares `int` links, so the case runs under the default pair and is the live test of the reader's `int`-link refusal (`read_horizontal_hdf5.c:1567-1579`), which stays as the fast-failure guard for a horizontal package declaring `int` links;
+  - `tests/unit/test_horizontal_retention_budget.c`: the fake reader builds version 3 slabs with the three target-snapshot columns (`Fake.format_version`, `:326`, `:1137`; `fake_load_slab`, `:236-281`; the version passed at `:629`, `:632`, `:781-786`, `:815-824`, `:893`, `:963`, `:1020`, `:1072`, `:1130`, `:1171`; the labels at `:204`, `:249`, `:636`, `:639`), and every case keeps its obligation, expected byte figures following the version 3 row width;
+  - `simulations/mini-millennium-horizontal/_tests/unit/test_unit_horizontal_retention.c`: `test_version2_horizon_is_adjacent` (`:222-245`, registered `:600`) is deleted; the behaviour it pinned retires with the format;
+  - the two package-local C tests `simulations/micro-uchuu-ascii-horizontal/_tests/unit/test_unit_horizontal_reader_open.c` and `test_unit_horizontal_driver_gather.c` are deleted, and `tests/unit/run_tests.sh:279` loses the `test_unit_horizontal_reader_open` entry (`realdata`'s entry, `:280`, stays; `driver_gather` has none);
+  - `Makefile`'s help (`:509`) and the `tests-distributed` comment (`:921`) lose "the version 2 refusal" (Slice 20 removed that leg).
+- [ ] Clean build under `-Wall -Wextra -Wshadow -Wformat-security -Wundef`; `make tests-horizontal-v3`, `make tests-unit`, `make tests-integration`, `make tests-scientific` and `MPIRUN="mpirun --oversubscribe" make tests-distributed` pass; `git grep -n -i -E 'version[ -]2|format_version[^[:alnum:]_]{1,4}2|(^|[^[:alnum:]_])v2([^[:alnum:]_]|$)' -- src/ tests/unit/ simulations/mini-millennium-horizontal/_tests/unit/` finds only unrelated text (`src/util/version.c:135`'s shell redirection) and the mixed-version case's fixture, a version 3 negative case writing a version 2 header (`tests/unit/test_horizontal_v3_reader.c:1072`); the deleted line count is reported as descriptive evidence against the inventory's about 520.
 
 ### Authorized Surface
 
@@ -1615,14 +1701,15 @@ Not a PM slice: the owner runs it with an assistant session in Mode A, step by s
   - `tests/unit/test_horizontal_v3_reader.c`
   - `tests/unit/test_horizontal_retention_budget.c`
   - `tests/unit/run_tests.sh`
+  - `simulations/mini-millennium-horizontal/_tests/unit/test_unit_horizontal_retention.c`
   - `simulations/micro-uchuu-ascii-horizontal/_tests/unit/test_unit_horizontal_reader_open.c`
   - `simulations/micro-uchuu-ascii-horizontal/_tests/unit/test_unit_horizontal_driver_gather.c`
-- Functions/classes/components allowed to change: the named functions, tables, branches, comments and test entries; deletions of the two test files.
+- Functions/classes/components allowed to change: the named functions, tables, branches, comments and test entries; the fake reader's slab version; one test deleted; deletions of the two test files; the two Makefile text lines.
 - Tests allowed or expected to change: as listed.
 
 ### Explicit Non-Goals
 
-- No change to the version 3 read path's behaviour or messages beyond the version check; no Python change; no documentation (Slice 25).
+- No change to the version 3 read path's behaviour or messages beyond the version check; no Python change; no documentation (Slice 25); no vertical reader change.
 
 ### Risk Flags
 
@@ -1633,9 +1720,9 @@ Not a PM slice: the owner runs it with an assistant session in Mode A, step by s
 ### Validation Plan
 
 - Tests to add/update: as listed.
-- Commands to run: `make clean && make`; `make tests-horizontal-v3`; `make tests-unit`, `make tests-integration`, `make tests-scientific` (subagents); `MPIRUN="mpirun --oversubscribe" make tests-distributed`; `./scripts/beautify.sh`; `make check-format`.
+- Commands to run: `make clean && make`; `make tests-horizontal-v3`; `make tests-unit`, `make tests-integration`, `make tests-scientific` (subagents); `MPIRUN="mpirun --oversubscribe" make tests-distributed`; the grep above; `./scripts/beautify.sh`; `make check-format`.
 - Lint (differential, via the `lint` skill): required unless the slice changes no linted file.
-- Manual checks: opening the retained version 2 micro-Uchuu dataset fails with the new message; the version 3 micro-Uchuu dataset opens.
+- Manual checks: opening the retained version 2 micro-Uchuu dataset fails with the new message; the version 3 micro-Uchuu dataset opens. After this check the owner may settle that dataset ([Data at plan close](#data-at-plan-close-revision-7)).
 
 ### Rollback Path
 
@@ -1648,16 +1735,43 @@ Not a PM slice: the owner runs it with an assistant session in Mode A, step by s
 ### Intended Change
 
 - Recommended Developer: Claude Opus 5.5; effort: high. Requires Slice 22.
-- Remove the version 2 producer and its batteries, the rewriter's version 2 input path, and rework the tests that used the version 2 writer as a harness.
+- Remove the version 2 producer and its batteries, the rewriter's and census's version 2 input paths, and every code path only the version 2 entry points reached; rework the tests that used the version 2 writer as a harness; give the two version 3 batteries a deliberate shared interface.
+
+Revision 7 re-read this slice's anchors at `45dacd42` (paths below are under `convert/mimic-convert/` unless they start with `tests/unit`, `simulations/` or `Makefile`); the converter tests are named by class, because Slice 17 added tests inside the version 2 halves' former ranges.
 
 ### Acceptance Criteria
 
-- [ ] Deleted: `convert/mimic-convert/convert_ctrees.py`; `crosscheck.py` and `tests/test_crosscheck.py` (decision 3); `hdf5_writer.py` and `validate.py` (their surviving names moved by Slice 19; the `validate` CLI's version 3 dispatch moves into `validate_v3.py`'s `main` and `convert_trees.py validate` is the documented entry point); in `report.py` the version 2 functions `build_report`, `render_text`, `write_report` and `run_report` (`:107-296`; the version 3 constants from `:298` and everything after stay); `scatter.py:1499-1582` (`run_release`, `run_finalize`); the default `mimic-topology-dump v1` mode of `tests/unit/tools/dump_ctrees_topology.c` (`:25-34`, `:119-130`), which exists only to feed crosscheck, leaving `--source-payload` as the tool's one mode, with `Makefile:935`'s comment retargeted; `tests/data/legacy_manifest_v2/`; the version 2 halves of `tests/test_validate.py` (`:1-2180`) and `tests/test_hdf5_writer.py` (`:79-918` except the shared header-metadata and multiplier cases, which move to the version 3 classes); `tests/test_cli.py:685-733` and the `--help` assertion at `:214`; `tests/test_scatter.py:1823-1920`; the `migrate` subcommand and `horizontal_dataset.py`'s version 2 branch in the rewriter and census, with their tests.
-- [ ] Reworked, not weakened: `test_links.py`, `test_fixups.py`, `test_sort_index.py`, `test_ascii_adapter.py`, `test_conversion_manifest.py` and `mock_reference.py` set up their datasets through the version 3 route or the adapter fixtures instead of `run_write` or `convert_ctrees.main`; a coverage map in the slice's validation note pairs every removed case with the surviving case that holds its obligation, or states that the obligation itself retired with the interface (release, finalize, the consumptive writer); names describe current behaviour.
-- [ ] **Revision 6 (R11).** No comment or docstring in `forest_census.py`, `census/`, `rewrite_trees.py`, `rewriter/` or `horizontal_dataset.py` cites a plan identifier: a frozen-decision number ("F1", "F6"), a ruling ("DD8", "R10"), a slice or revision number, or "the plan". Each states its rule self-contained, so the code still reads correctly after this plan is archived; a grep in the slice's validation note shows none remain.
-- [ ] The surviving converter modules lose their live version 2 statements and paths: `hdf5_writer_v3.py:12-13`, `validate_v3.py:7-9`, `convert_trees.py:40-41`, `:115`, `:833`; `conversion_manifest.py:19-25` and its legacy-manifest classification (`LEGACY_MANIFEST_VERSION`, `MANIFEST_LEGACY`, `classify_manifest`'s hand-back, `:90-102`, `:473-480`, and `pipeline.py:715`'s refusal), which only `tests/data/legacy_manifest_v2/` exercised; `scatter.Manifest`'s own version (the ASCII preparation state the version 3 route shares) and `column_schema.py:1323`'s profile-grammar comment are not version 2 statements and stay. `convert_trees.py --help` and the converter manual no longer mention `convert_ctrees.py`, batch mode, release, finalize or `--consume-intermediates`; the manual's "Legacy ASCII-to-v2" section (`README.md:146-378`) and "Reference-topology proof" (`:415-450`) are deleted and the module map lists only what exists.
-- [ ] **Battery disposition** (revision 5 placeholder; the revision before run 6 replaces this bullet with the decided text and the surface it needs): either the external-sort implementation is removed with its dispatch, options, tests and live documentation, and the manual names the bounded mode as the battery, once that revision extends the bounded mode to gapped input or declares gapped input unsupported by the battery, with the reason recorded; or both stay, with their separate supported purposes recorded in the manual.
-- [ ] `make tests-converter` passes; the deleted line count is reported in the slice's validation note as descriptive evidence against the inventory (about 2,600 source, 5,000 tests, with crosscheck).
+- [ ] Deleted:
+  - `convert_ctrees.py`; `crosscheck.py` and `tests/test_crosscheck.py` (decision 3); `hdf5_writer.py` and `validate.py` (their surviving names moved by Slice 19). The `validate` CLI (`validate.py:1714`) and its version dispatch (`:1644-1711`) are not carried over: `convert_trees.py validate` and `report`, which alone offer the bounded mode, are the entry points, and a file that is not version 3 is refused by the version 3 battery's own header checks;
+  - in `report.py`, the version 2 report (`build_report`, `render_text`, `write_report`, `run_report`, `:107-278`), with the module docstring (`:15-18`) and the version 3 banner (`:281-296`) reworded; `identity_multiplier_window` and `recommended_multiplier` (`:48`, `:79`) stay;
+  - `scatter.py`'s `run_release` and `run_finalize` (`:1766-1854`);
+  - the default `mimic-topology-dump v1` mode of `tests/unit/tools/dump_ctrees_topology.c` (usage and modes `:25-33`, `:51-52`; `TOPOLOGY_DUMP_FORMAT_VERSION` and `DUMP_MODE_TOPOLOGY_V1` `:119`, `:127`, `:130-134`; `topology_dump_id_of` and `topology_dump_forest` `:143-170`; the default branches in `main` `:233-287`, `:336-337`), which exists only to feed crosscheck, leaving `--source-payload` as the tool's one mode, with `Makefile:933-936`'s comment retargeted. Its two consumers go with it: `simulations/micro-uchuu-ascii/_tests/integration/test_topology_dump_format.py` and the default-mode cases of `tests/test_generalisation_acceptance.py`'s `CDumpToolTests` (`:2270`, `:2310`, with `ASCII_FIXTURE_V1_DUMP` and `V1_HEADER`, `:2090`, `:2100`);
+  - `tests/data/legacy_manifest_v2/`;
+  - the `migrate` operation (`rewrite_trees.py:134-135`, `:166-168`; `rewriter/__init__.py`'s `OPERATION_MIGRATE`, `:175-192`) with the code and options only it reaches (`rewriter/inputs.py`: the version 2 input branches, for example `:131-133`, `:454-476`; the conversion-manifest option and its file-order and conservation inputs, `:545-575`, `:904-908`, with `rewriter/pass0.py:205-236`, unless the validation note shows a surviving operation uses them) and every docstring and help text naming it;
+  - `horizontal_dataset.py`'s version 2 branch: `SUPPORTED_FORMAT_VERSIONS` (`:43`) and the check at `:139-144` require version 3 and refuse anything else by name, a refusal tested on a version 2 header (ported from `TestVersion2Dataset`); `:163`'s condition becomes unconditional; the version 2 arms at `:187` and `:333-340` and the docstrings (`:1`, `:14`) go. The rewriter's input check (`rewriter/inputs.py:317-321`) stays, with `wanted` fixed at 3;
+  - code that only the deleted version 2 entry points reached: `scatter.py`'s batch mode (`batch_mode`, `SOURCE_DEFERRED`, `Manifest.mark_source_consumed`, `classify_source`'s batch branch) and the `consume_intermediates` options of `fixups.py` and `links.py` with their helpers, which the version 3 route never sets (`adapters/ctrees_ascii.py:399-424`). The validation note shows by `git grep` that no surviving caller reaches each removed path; `Manifest.consume_intermediates`, which `sort_index.py:202` uses, stays.
+- [ ] Tests, reworked, not weakened. A coverage map in the slice's validation note pairs every removed case with the surviving case that holds its obligation, ports it to version 3, or states that the obligation retired with the interface (release, finalize, batch mode, the consumptive writer, the version 2 format, the `v1` dump):
+  - `tests/test_validate.py`: the version 2 classes (`:54-2007`, `TestBattery` to `TestIdentityChunkCost`) go; the version 3 cases that call the version 2 API (`:2283`, `:2418`, `:2437-2444`, `TestProducerDispatch` `:3083-3096`, `:3117`, the `snapshot_h5_name` uses at `:3182`, `:3189`, `:3592`) and the module docstring and imports (`:7`, `:37-47`) are retargeted;
+  - `tests/test_hdf5_writer.py`: the version 2 classes (`:79-774`) go except `TestHeaderMetadata` (`:79-127`) and `TestReport`'s multiplier cases (`:370-427`), which move to version 3 classes; `test_the_v3_battery_passes_and_the_v2_battery_rejects_the_dataset` (`:1088-1100`) loses its version 2 half; `make_v3_conversion` (`:882`) stays for `test_validate.py` and `test_report.py`;
+  - `tests/test_cli.py`: `LegacyCliTests` (`:800-848`), the `--help` assertion (`:217`), the docstring and constants (`:1-2`, `:26`, `:48`);
+  - `tests/test_scatter.py`: `TestBatchModeCli` (`:1820-1923`), `TestBatchModeSourceInventory` (`:1142-1680`), `TestBatchedCycleEquivalence` (`:1681-1819`) and `TestExtendedScatter`'s batch cases (`:2174-2184`);
+  - `test_links.py`, `test_fixups.py`, `test_sort_index.py`, `test_ascii_adapter.py`, `test_conversion_manifest.py` and `mock_reference.py` set up their datasets through the version 3 route or the adapter fixtures instead of `run_write`, `convert_ctrees.main` or `run_finalize`; `mock_reference.py` no longer imports `HALO_DATASETS` and its docstring (`:48-51`) no longer names crosscheck; `test_ascii_adapter.py`'s comparisons against the version 2 route (`Env.legacy_v2`, `:115-128`, used at `:358`, `:478`, `:520`) retire with that route;
+  - `tests/test_rewriter.py`: `TestMigrate` (`:198-369`) and the `migrate`-only refusals go; `TestResume` (`:506-743`), whose every case runs `migrate`, keeps its obligations on `cut` or `noop`; the version 2 route that `RouteSet` (`:181-186`) and `TestCutTableAndRefusals.setUpClass` (`:1591`) build is replaced by a version 3 input;
+  - `tests/test_forest_census.py`: the version 2 fixture and helpers (`run_write_v2` `:67`, `GENERIC_V2` `:77`, `convert_ascii_v2` `:141-161`) go, which Slice 24's deletion of `_tests/data/generic/` requires; `TestVersion2Dataset` (`:357-545`) holds the only tests of several reader and census refusals, which are ported to version 3 datasets; `TestDecidedTableVersion2` (`:2219`), `TestNoSplitForest.test_version_3_and_version_2` (`:2246`), `TestEarlyEndingRefused`'s version 2 case (`:2395-2411`) and `TestCensusOnVersion3.test_an_aggregate_of_another_dataset_is_refused` (`:829-831`, which needs only another dataset) are retargeted;
+  - names describe current behaviour.
+- [ ] **The manifest classification.** The version 3 route keeps a version 2 `scatter.Manifest` as its ASCII preparation state (`pipeline.ASCII_PREPARATION_DIR`), which `classify_manifest` reports as `MANIFEST_LEGACY` (`tests/test_pipeline.py:1305-1307`). That state stays. The version 2 converter's workdir no longer exists as a live route: `conversion_manifest.py`'s text (`:19-28`, `:43`, `:125-126`, `:483-526`, `:802`, `:812-816`) and `pipeline.py`'s refusal (`:707`, `:756-762`) describe the preparation state and the refusal of a version 2 manifest at a workdir's top level without naming `convert_ctrees.py` or an ASCII-to-version-2 route; the refusal itself stays. The tests that used `tests/data/legacy_manifest_v2/` (`test_conversion_manifest.py:46` and `GenuineLegacyManifestTests`, `test_cli.py:605-611`, `test_pipeline.py:50`, `:736-743`) keep their obligations with a synthesised manifest or the preparation state, or retire with the converter in the coverage map. Renaming the `legacy` identifiers is allowed, not required.
+- [ ] **Revision 6 (R11).** No comment or docstring in `forest_census.py`, `census/`, `rewrite_trees.py`, `rewriter/`, `horizontal_dataset.py` or `validate_bounded.py` cites a plan identifier: a frozen-decision number ("F1", "F6"), a numbered decision ("decision 7"), a ruling ("DD8", "R10"), a slice or revision number, "the plan" or "the brief". Each states its rule self-contained, so the code still reads correctly after this plan is archived. Revision 7 found sixteen at `45dacd42` (`census/cut.py:17`, `:38`, `:57-58`, `:66`, `:227`, `:467`, `:1082`; `census/cut_table.py:1`, `:10`, `:121`; `census/occupancy.py:10`, `:21`, `:22`; `census/table.py:1`, `:8`, `:255`). `git grep -n -P '\b(F\d+|DD\d+|R\d+|D\d+)\b|Slice \d+|revision \d+|decision \d+|\bthe plan\b|\bthe brief\b'` over those paths, in the slice's validation note, shows none remain (BSD extended regular expressions under-report this pattern; use `-P`).
+- [ ] **The census's version 2 text.** The conservation check keeps accepting any JSON carrying `source_files` with per-file `parsed_count`, so the production cut table stays reproducible from the records kept on NT: `census/trees.py:77` and `:431` describe that shape and name the version 2 conversion report as one historical source of it, beside the ASCII preparation manifest. The link-width notes (`census/cut.py:88`, `:296-298`, `:1185`; `census/table.py:48`, `:832`) and the version notes (`census/occupancy.py:4`, `forest_census.py:1`) state version 3 only.
+- [ ] The surviving converter modules lose their live version 2 statements and paths: `hdf5_writer_v3.py:11-14`; `validate_v3.py:7-12`; `convert_trees.py:48-49`, `:126`, `:823`, `:873-874`; the stage modules' and adapters' prose pairing the shared scratch layout with an "ASCII-to-v2" route (`scatter.py:18-23`, `:76`, `:100`, `:1099-1102`, `:1147`, `:1171`, `:1373`; `ctrees_parser.py:21-22`, `:241`; `adapters/ctrees_ascii.py:15-16`, `:339`, `:463`; `adapters/base.py:407`; `fixups.py:564`; `links.py:59`, `:1324`; `column_schema.py:189`; `profiles/consistent_trees_ascii.yaml:14`; `profiles/README.md:92`). Not version 2 statements, and kept: `scatter.Manifest`'s own version, the on-disk layout tags the version 3 route shares and fixes for a workdir's life (`legacy`, `ctrees-scratch-v2` at `ctrees_parser.py:105`, `ctrees-fixed-v2` at `fixups.py:88`, `:105`) with their test pins, `column_schema.py:1325`'s profile-grammar comment, and `runtime_routes.py:27-28`'s provenance label.
+- [ ] `convert_trees.py --help` and the converter manual no longer mention `convert_ctrees.py`, batch mode, release, finalize, `--consume-intermediates`, the `migrate` operation, the `v1` dump mode or a census reading version 2. In the manual (`README.md`): the section "Legacy: Consistent-Trees ASCII to version 2 with `convert_ctrees.py`" (`:166-398`) and "Reference-topology proof" (`:549-584`) are deleted; the introduction (`:9-14`), the dump tool's modes (`:156-157`), the census's input text (`:437`, `:455`, `:613`), the `migrate` text (`:476-504`, the `migrate` row of "Memory and storage, as measured", `:543`), the module map (`:600-617`) and `:630-632` describe only what exists. Provenance (`:460`) and the format contrast (`:97`) stay. Optionally, "Memory and storage, as measured" (`:539-545`) gains the `cut` operation's peak at production scale, 211.6 GB on the 3.16 TB Shin-Uchuu dataset, as a measured property of the tool (the user-facing documentation convention: no step number, no date, no narrative).
+- [ ] **Battery disposition (revision 7; owner, 2026-10-16): both version 3 batteries stay, each with its recorded purpose.**
+  - The external-sort battery (`validate_v3.py`, the default) validates every version 3 dataset, gapped ones included; the mini-Millennium and Millennium routes have gapped `Descendant` links and no other validator.
+  - The bounded battery (`validate_bounded.py`, `--bounded`) validates adjacent datasets (`links_adjacent` 1) without a sort or spill under its printed ceiling; it is the one practical validator at Shin-Uchuu scale.
+  - Extending the bounded mode to gapped input, and declaring gapped input unsupported, were both rejected. The converter manual's "The battery's two modes" (`README.md:130-148`) keeps saying which battery to use when.
+  - **Their coupling is made deliberate** (run 4's carry). Today `validate_bounded.py` imports 20 private names from `validate_v3.py` (`:127-150`), and `_BoundedRowScan` (`:460-515`) subclasses `_V3Scan` without calling its constructor (`validate_v3.py:729`), restating its state by hand (mirroring `validate_v3.py:739-770`). The checks and state the two batteries share get a public interface in `validate_v3.py` (public names, or a shared base both scanners construct), and the bounded scanner is built through a constructor it calls. `_PairPass.run` no longer turns `scan.forest_totals.counts` into end positions in place (`:664-666`).
+  - The bounded agreement tests' meter-under-ceiling assertion (`tests/test_validate.py:3240-3244`) checks only that the meter's charges stay inside the ceiling formula built from the same terms, and is skipped when `peak_resident_bytes` is absent. It is made to test something the ceiling could fail, or removed with the reason stated in the test.
+  - Verdicts are unchanged: every agreement test and the whole converter suite pass, with no expected verdict, message or exit code edited.
+- [ ] `make tests-converter` passes; the deleted line count is reported in the slice's validation note as descriptive evidence (revision 6 estimated about 2,600 source and 5,000 test lines with crosscheck, before batch mode and the consumptive options were added to the slice).
 
 ### Authorized Surface
 
@@ -1667,11 +1781,20 @@ Not a PM slice: the owner runs it with an assistant session in Mode A, step by s
   - `convert/mimic-convert/hdf5_writer.py`
   - `convert/mimic-convert/validate.py`
   - `convert/mimic-convert/validate_v3.py`
+  - `convert/mimic-convert/validate_bounded.py`
   - `convert/mimic-convert/hdf5_writer_v3.py`
   - `convert/mimic-convert/conversion_manifest.py`
   - `convert/mimic-convert/pipeline.py`
   - `convert/mimic-convert/report.py`
   - `convert/mimic-convert/scatter.py`
+  - `convert/mimic-convert/fixups.py`
+  - `convert/mimic-convert/links.py`
+  - `convert/mimic-convert/ctrees_parser.py`
+  - `convert/mimic-convert/column_schema.py`
+  - `convert/mimic-convert/adapters/ctrees_ascii.py`
+  - `convert/mimic-convert/adapters/base.py`
+  - `convert/mimic-convert/profiles/consistent_trees_ascii.yaml`
+  - `convert/mimic-convert/profiles/README.md`
   - `convert/mimic-convert/convert_trees.py`
   - `convert/mimic-convert/rewrite_trees.py`
   - `convert/mimic-convert/rewriter/`
@@ -1681,26 +1804,27 @@ Not a PM slice: the owner runs it with an assistant session in Mode A, step by s
   - `convert/mimic-convert/README.md`
   - `convert/mimic-convert/tests/`
   - `tests/unit/tools/dump_ctrees_topology.c`
+  - `simulations/micro-uchuu-ascii/_tests/integration/test_topology_dump_format.py`
   - `Makefile`
-- Functions/classes/components allowed to change: the removal of plan identifiers from comments and docstrings in the files the R11 criterion names; deletions as listed; the `validate` entry point move; the dump tool's default mode; one Makefile comment; the version 2 statements and the legacy-manifest path in the surviving modules; the test harness rework; the manual's sections.
-- Tests allowed or expected to change: the converter tests as listed.
+- Functions/classes/components allowed to change: deletions as listed; the code only the deleted entry points reached; the shared battery interface and the bounded scanner's construction; the removal of plan identifiers from comments and docstrings in the files the R11 criterion names; the version 2 statements in the surviving modules, comments and profiles; the manifest classification's text and the refusal's message; the dump tool's default mode and its consumers; one Makefile comment; the test harness rework; the manual's sections.
+- Tests allowed or expected to change: the converter tests as listed; the one package test of the `v1` dump.
 
 ### Explicit Non-Goals
 
-- No change to the version 3 ASCII route's stage modules beyond removing the two version 2 CLI functions from `scatter.py`; no fixture deletion outside `tests/data/legacy_manifest_v2/` (Slice 24); no guide, skill or changelog edit (Slice 25).
+- No change to the version 3 ASCII route's behaviour: the stage modules change only by removing code the version 3 route never reaches and by rewording their prose; no change to `runtime_routes.py`; no fixture deletion outside `convert/mimic-convert/tests/data/legacy_manifest_v2/` (Slice 24); no guide, skill, package README or changelog edit (Slice 25); no change to the vertical readers, `scripts/compare_cross_format_identity.py`, `tests/tools/transform_ascii_fixture.py`, `ingest --cut-table` or the rewriter's `cut` and `noop` beyond removing the version 2 input path.
 
 ### Risk Flags
 
-- Risky surfaces touched: the converter's public CLI; a large deletion.
+- Risky surfaces touched: the converter's public CLI; the stage modules the version 3 ASCII route shares; the batteries; a large deletion.
 - Approval needed before implementation: yes
 - Independent audit required: yes
 
 ### Validation Plan
 
 - Tests to add/update: as listed.
-- Commands to run: `make tests-converter` (subagent); `make dump-ctrees-topology-tool`; `git grep -n "convert_ctrees\|crosscheck\|run_release\|run_finalize\|consume-intermediates" -- convert/ tests/ Makefile` finds nothing, and `git grep -n -i "version 2\|format_version 2\|to-v2\|legacy" -- convert/ ':!convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md'` finds only the profile-grammar comment (the guides, skills, READMEs and the format document are Slice 25's); `./scripts/beautify.sh`; `make check-format`; `make check-docs`.
+- Commands to run: `make tests-converter` (subagent); `make dump-ctrees-topology-tool`; `make MODEL=halos-only SIMULATION=micro-uchuu-ascii tests-integration` (subagent); `git grep -n -w "convert_ctrees\|crosscheck\|run_release\|run_finalize\|batch_mode\|SOURCE_DEFERRED\|consume-intermediates" -- convert/ tests/ Makefile ':!tests/README.md'` finds nothing (`-w` keeps the C function `convert_ctrees_to_lht` out); `git grep -n -i -E 'version[ -]2|format_version[^[:alnum:]_]{1,4}2|(^|[^[:alnum:]_])v2([^[:alnum:]_]|$)' -- convert/ ':!convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md'` has every remaining match classified in the slice's validation note against the allowed list: dataset provenance (`runtime_routes.py:27-28` and its test, `README.md:460`); a format explanation contrasting version 3 with version 2 (`README.md:97`, `tests/fixtures.py:526-531`); the profile-grammar comment (`column_schema.py:1325`, `tests/test_column_schema.py:1139`); a negative case that writes an unsupported version, of the horizontal format or of another versioned format such as the source dump (`tests/test_generalisation_acceptance.py:800`); the shared on-disk layout tags (`ctrees-scratch-v2`, `ctrees-fixed-v2`), their test pins and `scatter.Manifest`'s version; the census's historical source named in its conservation text. Anything else fails. `./scripts/beautify.sh`; `make check-format`; `make check-docs`.
 - Lint (differential, via the `lint` skill): required unless the slice changes no linted file.
-- Manual checks: `convert_trees.py validate --workdir` on the `worked_ascii` fixture's workdir still passes through the moved entry point.
+- Manual checks: `convert_trees.py validate --workdir` passes, with and without `--bounded`, on a workdir kept from re-running the `worked_ascii` fixture's conversion (its `regenerate.sh` removes its own); the coverage map is complete.
 
 ### Rollback Path
 
@@ -1717,8 +1841,8 @@ Not a PM slice: the owner runs it with an assistant session in Mode A, step by s
 
 ### Acceptance Criteria
 
-- [ ] Deleted: `simulations/micro-uchuu-ascii-horizontal/_tests/data/snapshot_00[0-5].h5`, `forests.h5`, `micro-uchuu-fixture.a_list`, `fixture_manifest.json` and the whole `_tests/data/generic/`; `simulations/shin-uchuu/_tests/data/`'s version 2 files and manifest; `_tests/input/create_snapshot_fixture.py` and `check_fixture_conformance.py`; the `check-horizontal-fixture` target (`Makefile:821-826`), its call in `tests` (`:758`), its help line (`:511`) and the CI step (`.github/workflows/ci.yml:57-59`).
-- [ ] Nothing under `simulations/`, `tests/`, `models/`, `scripts/` or `.github/` references a deleted path (`scripts/fuzz_pipeline.py` names run files by their unchanged names and needs no edit).
+- [ ] Deleted: `simulations/micro-uchuu-ascii-horizontal/_tests/data/snapshot_00[0-5].h5`, `forests.h5`, `micro-uchuu-fixture.a_list`, `fixture_manifest.json` and the whole `_tests/data/generic/` (its `regenerate.sh` included); `simulations/shin-uchuu/_tests/data/`'s version 2 files (`snapshot_00[0-5].h5`, `forests.h5`, `shin-uchuu-fixture.a_list`, `fixture_manifest.json`), while its `regenerate.sh`, rewritten by Slice 20, stays; `_tests/input/create_snapshot_fixture.py` and `check_fixture_conformance.py`; the `check-horizontal-fixture` target with its comment (`Makefile:820-825`), its `.PHONY` entry (`:323`), its call in `tests` (`:758`), its help line (`:511`) and the CI step (`.github/workflows/ci.yml:57-59`).
+- [ ] Nothing outside the documentation Slice 25 owns references a deleted path or the target (`scripts/fuzz_pipeline.py` names run files by their unchanged names and needs no edit; `convert/mimic-convert/tests/test_forest_census.py`'s use of `_tests/data/generic/` is retargeted by Slice 23).
 - [ ] `make tests` (with `summary`) passes under the default pair; `make MODEL=halos-only SIMULATION=micro-uchuu-ascii-horizontal tests` passes.
 
 ### Authorized Surface
@@ -1748,7 +1872,7 @@ Not a PM slice: the owner runs it with an assistant session in Mode A, step by s
 - Tests to add/update: none.
 - Commands to run: `make tests summary` (subagent); `make MODEL=halos-only SIMULATION=micro-uchuu-ascii-horizontal tests summary` (subagent); `./scripts/beautify.sh`; `make check-format`.
 - Lint (differential, via the `lint` skill): required unless the slice changes no linted file.
-- Manual checks: `git grep -n "fixture_manifest\|check_fixture_conformance\|create_snapshot_fixture\|check-horizontal-fixture" -- ':!CHANGELOG.md' ':!docs/dev'` returns nothing.
+- Manual checks: `git grep -n "fixture_manifest\|check_fixture_conformance\|create_snapshot_fixture\|check-horizontal-fixture\|data/generic" -- ':!*.md' ':!.agents' ':!CHANGELOG.md' ':!docs/dev'` returns nothing; the Markdown and skill references are Slice 25's, whose final-state grep covers them.
 
 ### Rollback Path
 
@@ -1761,21 +1885,50 @@ Not a PM slice: the owner runs it with an assistant session in Mode A, step by s
 ### Intended Change
 
 - Recommended Developer: Claude Sonnet 5.5; effort: high. Requires Slice 24.
-- Freeze the format document's version 2 text as history, remove every live statement about version 2 from the guides, skills, READMEs and tests README, write the changelog entry, and close the plan in the pathway.
+- Freeze the format document's version 2 text as history, remove every live statement about version 2 and every description of a retired operation, target, fixture or tool from the documentation, write the changelog entry, and close the plan in the pathway.
+
+Revision 7 re-read this slice's anchors at `45dacd42` and lists every restatement the slice must reach (run 5's lesson, PD-R5-1). Every edit follows the [user-facing documentation convention](#user-facing-documentation-revision-7): provenance stays, phrased as history; nothing retired is described as live.
 
 ### Acceptance Criteria
 
-- [ ] `convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md`: the Status line says version 3 is the only supported version and version 2 is retained as history; the version 2 body (`:33-166`) is kept under a heading "Version 2 (historical, unsupported since <date>)" with one introductory sentence and no normative wording change; "Version 3 is also normative" and the reader-accepts-both sentences (`:9`, `:493`, `:495`) say the reader accepts version 3 only; the version 2 comparisons inside the version 3 sections (the "What Version 3 Changes" table and the sentences at `:206`, `:208`, `:212`, `:225`, `:229`, `:231`, `:243`, `:260`, `:286`, `:389`, `:399`, `:406`, `:416`, `:423`, `:427`, `:429`, `:453`, `:469`, `:506`, `:537`) are kept where they explain a version 3 rule and reworded in the past tense where they describe reader behaviour; one errata row records the retirement; the version ratchet's text is unchanged.
-- [ ] `docs/USER-GUIDE.md` and `docs/DEVELOPER-GUIDE.md`: every version 2 sentence (the inventory's line lists) is removed or made historical; `docs/DEVELOPER-GUIDE.md:1064`'s vertical statement is untouched.
-- [ ] Skills: the inventory's line lists in `mimic-run-and-operate`, `mimic-simulations-and-readers`, `mimic-validation-and-qa`, `mimic-debugging-playbook`, `mimic-architecture-contract`, `mimic-docs-and-writing`, `mimic-build-and-env`, `mimic-config-and-flags` (and `references/all-config-keys.md`) lose their live version 2 statements; `mimic-failure-archaeology`'s chronicle entries stay as history and gain one entry for the retirement.
-- [ ] `simulations/micro-uchuu-ascii-horizontal/README.md`, `simulations/micro-uchuu-hdf5-horizontal/README.md:78`, `simulations/micro-uchuu-horizontal/README.md:79`, `simulations/micro-uchuu/README.md:34`, `models/hod/README.md`, `models/sham/README.md`, `tests/README.md`, `AGENTS.md:75` and `plot/mimic-plot/README.md` lose their version 2 references; `tests/README.md:64-72` describes the version 3 ASCII fixture and the retired target.
-- [ ] `CHANGELOG.md` Unreleased: the retirement entry (what was removed, the reader's new rejection, the fixture swap, the line count), in the existing style; historical entries untouched.
-- [ ] `docs/dev/MIMIC-DEVELOPMENT-PATHWAY.md`: the named follow-up and Completed Work record the plan complete with the record's numbers; the inventory marks this plan and the brief for archiving on merge and keeps the two records as standing evidence; the full-Uchuu follow-up is restated as the remaining item.
+- [ ] `convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md`:
+  - the Status line (`:5`) says version 3 is the only supported version and version 2 is retained as history; the version 2 body (`:33-166`, "Role and Scope" to "Producing Horizontal-HDF5 Data") is kept under a heading "Version 2 (historical, unsupported since <date>)", with one introductory sentence, a table-of-contents entry (`:13-31`) and no normative wording change;
+  - "Version 3 is also normative" (`:9`) and the reader sentence in the version 3 validation requirements (`:497`) say the reader accepts version 3 only; `:212` ("Version 2 is unaffected") and `:229` (version 3 "produced … exactly as version 2 is") no longer describe version 2 as live;
+  - the version 2 comparisons inside the version 3 sections (the "What Version 3 Changes" table, `:231-251`, and the sentences at `:210`, `:216`, `:233`, `:247`, `:264`, `:290`, `:393`, `:403`, `:410`, `:420`, `:427`, `:431`, `:433`, `:457`, `:473`, `:510`, `:544`) are kept where they explain a version 3 rule and reworded in the past tense where they describe reader behaviour;
+  - the history (`:7`, `:56`, `:128`, the "Versioning Policy" section `:168-187`, the errata rows) and the provenance (`:206`, the `shin-uchuu` runtime-support row `:526`) are unchanged; one errata row records the retirement; the version ratchet's text is unchanged.
+- [ ] `docs/USER-GUIDE.md` (`:445`, `:493`, `:545`, `:565`, `:576`) and `docs/DEVELOPER-GUIDE.md` (`:1097`, `:1101`, `:1102`, `:1139`, `:1143`, `:1157`, `:1198`, `:1227`, `:1248-1249`, `:1261`, `:1265`, `:1312`) lose every live version 2 statement and every mention of a retired tool or target; their provenance (`USER-GUIDE.md:414`, `:487`; `DEVELOPER-GUIDE.md:1107`) and format contrast (`DEVELOPER-GUIDE.md:1099`) stay; `docs/DEVELOPER-GUIDE.md:1064`'s vertical statement is untouched.
+- [ ] Skills lose their live version 2 statements and their descriptions of retired tools and targets:
+  - `mimic-architecture-contract` (`:135`, `:147`); `mimic-config-and-flags` (`:108`, `:113`) and `references/all-config-keys.md` (`:51`, `:55`); `mimic-debugging-playbook` (`:77`);
+  - `mimic-docs-and-writing` (`:34`, `:72-73`; and `:62`, which names the development pathway document and is reworded to name the `docs/dev/` directory);
+  - `mimic-run-and-operate` (`:129`, `:132`; `:136` names the rewriter's operations and keeps `migrate` only as the history of how the production dataset was made);
+  - `mimic-simulations-and-readers` (`:51`: the same treatment of `migrate`, and "the full box cannot be processed vertical at all" scoped to the uncut box, with no mention of planned work; `:57`, `:104`; `:72`'s earlier-plan identifier "R8–R13" replaced by what it names; `:59`'s format contrast stays);
+  - `mimic-validation-and-qa` (`:46-52`, the retired refusal leg and `check-horizontal-fixture`; `:122`; `:158`, the version 2 converter's gates; `:130`'s earlier-plan identifier "D8" replaced by what it names; `:153`'s provenance stays). Its comparator lines (`:128-129`) describe what `scripts/compare_cross_format_identity.py` does today: the default pairing by `UniqueGalaxyID`, `--compare-created`, `--match-created-by-lineage`, `--match-by-catalogue-id`, and the cut-difference report (`--multiplier`, `--left-sidecar`, `--right-sidecar`, `--cut-record`, `--report-all-forests`), with its exit codes;
+  - `mimic-failure-archaeology`'s chronicle entries and `SKILL.md:68` stay as history; the chronicle gains one entry for the retirement.
+- [ ] Package and repository documents:
+  - `simulations/shin-uchuu/README.md` (revision 7, PD-R5-5): `:38` describes the version 3 `worked_ascii` fixture and its `regenerate.sh` and drops `make check-horizontal-fixture`; the dataset's provenance (`:12`, `:37`, `:42`, `:46-61`, `:97`, `:103`), including the `migrate` operation and the commit that made the dataset, stays, phrased as history;
+  - `simulations/shin-uchuu-ascii/README.md` (PD-R5-5): the measurement table's rows for the retired `convert_ctrees.py` and `migrate` (`:37-38`) go, since they measure tools a user can no longer run; the row for `convert_trees.py`, a measured property of the live route, and the dataset's provenance (`:48`) stay; `:30` names `convert_trees.py` as the one converter, and `:40`'s agreement of the two version 3 datasets stays as provenance, reworded so it does not lean on the removed rows;
+  - `simulations/micro-uchuu-ascii-horizontal/README.md` (`:14`, `:112`, `:117`, `:120`, `:124`, `:127`): the version 3 fixture, its source and `regenerate.sh` replace the version 2 fixture, the generator and the checker; its provenance (`:94`) stays;
+  - `simulations/micro-uchuu/README.md:34` (R6) no longer calls `micro-uchuu-ascii-horizontal` a version 2 package;
+  - `simulations/micro-uchuu-ascii/converter_columns.yaml:16` and `simulations/shin-uchuu-ascii/converter_columns.yaml:17` (PD-R3-2): the comment about the version 2 workflow is removed (comment only);
+  - `models/hod/README.md` and `models/sham/README.md`: their "committed synthetic fixture" descriptions (hod `:98`, `:114`, `:131-133`; sham `:5`, `:82`, `:90`, `:110`) are checked against Slice 20's version 3 fixture and corrected only where inaccurate;
+  - `tests/README.md` (`:34`, `:64-72`, `:181`) describes the version 3 ASCII fixture and no longer names the retired target or the refusal leg;
+  - `AGENTS.md`: its `make tests` description (`:47`, "fixture/converter checks") matches the target after Slice 24.
+- [ ] `CHANGELOG.md` Unreleased: the retirement entry (what was removed, the reader's new rejection, the fixture swap, the two batteries' shared interface, the line count), in the existing style; historical entries untouched.
+- [ ] `docs/dev/MIMIC-DEVELOPMENT-PATHWAY.md`: the named follow-up and Completed Work record the plan complete with the record's numbers; the inventory marks this plan and the brief for archiving on merge and keeps the two records as standing evidence; the remaining items are named: full Uchuu, and the cut, vertical Shin-Uchuu (Route A: a streaming converter from the cut version 3 dataset to an existing vertical format, its own plan).
 - [ ] **Revision 5: final-state check** (owner, 2026-10-09: no stale or dead code or docs may remain that are unrelated to what Mimic is after this plan).
-  - Every row of the [Final-State Inventory](#final-state-inventory) is confirmed done, with the commit that did it, in the slice's validation note.
-  - A grep for every retired module, subcommand, option and term the inventory names finds nothing outside history, `CHANGELOG.md`'s historical entries and the failure-archaeology chronicle. That covers code, tests, docs, skills, READMEs and run-file comments, and it includes the plan identifiers the inventory names (revision 6, R11) outside `docs/dev/`, except the earlier-plan locations the inventory row lists for the owner, which the validation note reports as found.
+  - Every row of the [Final-State Inventory](#final-state-inventory)'s table is confirmed done, with the commit that did it, in the slice's validation note. The [data at plan close](#data-at-plan-close-revision-7) is the owner's, after the run.
+  - `git grep -n -w "convert_ctrees\|crosscheck\|check-horizontal-fixture\|create_snapshot_fixture\|check_fixture_conformance\|consume-intermediates\|batch_mode\|run_release\|run_finalize" -- . ':!docs/dev' ':!CHANGELOG.md'` and a grep for the `migrate` operation (`rewrite_trees.py migrate`, `` `migrate` ``) find only history: the format document's historical section, the failure-archaeology chronicle, and provenance phrased as history. That covers code, tests, docs, skills, READMEs and run-file comments.
+  - The plan identifiers the inventory names (revision 6, R11) are absent outside `docs/dev/`, except `tests/unit/test_horizontal_distribution.c:290`, which the inventory leaves to the owner and the validation note reports as found.
   - Every surviving tool this plan added is described in the documentation of record.
-- [ ] `make check-docs` passes; `git grep -n -i "version 2\|format_version 2\|version-2\|to-v2" -- docs/ .agents/ simulations/ convert/ tests/README.md README.md AGENTS.md ':!docs/dev' ':!CHANGELOG.md'` finds only the format document's historical section and the chronicle (the converter's internal scratch-layout tags such as `ctrees-scratch-v2`, `ctrees_parser.py:105`, are not version 2 statements and are left alone); and the manual `docs/dev/` citation grep of Slice 6 finds nothing.
+- [ ] **The version 2 grep (revision 7, PD-R5-6).** `git grep -n -i -E 'version[ -]2|format_version[^[:alnum:]_]{1,4}2|(^|[^[:alnum:]_])v2([^[:alnum:]_]|$)' -- . ':!docs/dev' ':!CHANGELOG.md'` runs over the whole repository, and every remaining match is classified in the slice's validation note against this allowed list:
+  - the format document's historical section and errata, and the failure-archaeology chronicle and its `SKILL.md:68`;
+  - provenance: a statement that a dataset was made from, compared with or measured on a version 2 dataset;
+  - a format explanation contrasting version 3 with version 2;
+  - a negative case that writes an unsupported version, of the horizontal format or of another versioned format (`tests/unit/test_horizontal_v3_reader.c:1072`, `convert/mimic-convert/tests/test_generalisation_acceptance.py:800`);
+  - Slice 23's classified survivors under `convert/` (the profile-grammar comment, the shared on-disk layout tags `ctrees-scratch-v2` and `ctrees-fixed-v2` with their test pins, `scatter.Manifest`'s version);
+  - unrelated text, such as a shell `--version 2>&1` or `2>/dev/null`, and value names such as `tests/framework/comparison.py`'s `v1` and `v2`.
+  Anything else fails.
+- [ ] `make check-docs` passes. Slice 6's manual `docs/dev/` citation grep (`git grep -n 'docs/dev/' -- ':!docs/dev' ':!CHANGELOG.md'`) finds no citation of a `docs/dev/` document (Obs): a reference to the directory is not a citation; `mimic-docs-and-writing/SKILL.md:62` is reworded above; the failure-archaeology recovery recipes (`SKILL.md:40`, `:43`, `:99`; `references/chronicle.md:98`), which name a document long deleted from the tree for `git log` and `git show`, are history and stay.
 
 ### Authorized Surface
 
@@ -1789,29 +1942,29 @@ Not a PM slice: the owner runs it with an assistant session in Mode A, step by s
   - `.agents/skills/mimic-debugging-playbook/SKILL.md`
   - `.agents/skills/mimic-architecture-contract/SKILL.md`
   - `.agents/skills/mimic-docs-and-writing/SKILL.md`
-  - `.agents/skills/mimic-build-and-env/SKILL.md`
   - `.agents/skills/mimic-config-and-flags/SKILL.md`
   - `.agents/skills/mimic-config-and-flags/references/all-config-keys.md`
   - `.agents/skills/mimic-failure-archaeology/SKILL.md`
   - `.agents/skills/mimic-failure-archaeology/references/chronicle.md`
+  - `simulations/shin-uchuu/README.md`
+  - `simulations/shin-uchuu-ascii/README.md`
   - `simulations/micro-uchuu-ascii-horizontal/README.md`
-  - `simulations/micro-uchuu-hdf5-horizontal/README.md`
-  - `simulations/micro-uchuu-horizontal/README.md`
   - `simulations/micro-uchuu/README.md`
+  - `simulations/micro-uchuu-ascii/converter_columns.yaml`
+  - `simulations/shin-uchuu-ascii/converter_columns.yaml`
   - `models/hod/README.md`
   - `models/sham/README.md`
   - `tests/README.md`
   - `AGENTS.md`
-  - `plot/mimic-plot/README.md`
   - `CHANGELOG.md`
   - `docs/dev/MIMIC-DEVELOPMENT-PATHWAY.md`
   - `docs/dev/MIMIC-SHIN-UCHUU-V3-PLAN.md`
-- Functions/classes/components allowed to change: prose only.
+- Functions/classes/components allowed to change: prose only, and the two YAML comments.
 - Tests allowed or expected to change: none.
 
 ### Explicit Non-Goals
 
-- No code; no archiving (the owner archives on merge); no change to the ruling's text; no new claim.
+- No code; no archiving (the owner archives on merge); no change to the ruling's text; no new claim; no user-facing mention of the cut-vertical follow-on (the pathway carries it); no settling of data (the owner's, at plan close).
 
 ### Risk Flags
 
@@ -1822,9 +1975,9 @@ Not a PM slice: the owner runs it with an assistant session in Mode A, step by s
 ### Validation Plan
 
 - Tests to add/update: none.
-- Commands to run: `make check-docs`; the grep above; `./scripts/beautify.sh`; `make check-format`.
+- Commands to run: `make check-docs`; the greps above; `./scripts/beautify.sh`; `make check-format`.
 - Lint (differential, via the `lint` skill): required unless the slice changes no linted file.
-- Manual checks: the format document's historical section is clearly labelled and reachable from the table of contents; no document outside `docs/dev/` cites a `docs/dev/` document.
+- Manual checks: the format document's historical section is clearly labelled and reachable from the table of contents; no document outside `docs/dev/` cites a `docs/dev/` document; every added line outside `docs/dev/` follows the user-facing documentation convention.
 
 ### Rollback Path
 
@@ -1962,6 +2115,53 @@ Keep PM_RUN_TOKEN private to the PM seat.
 For Slice 15, rerun the production census only with no other LaCie-bound job alongside.
 For Slices 15 and 16, independently trace every record number to its aggregate or log.
 At the end, update HANDOFF.md and add the run-4 (Slice 17) launcher.
+```
+
+### Mode B: Supervised execution (run 6, Stage D)
+
+```text
+Plan file: docs/dev/MIMIC-SHIN-UCHUU-V3-IMPLEMENTATION-PLAN.md (revision 7)
+Repo: /Users/dcroton/Local/git-repos/mimic
+
+Start by reading the full HANDOFF.md closely.
+
+Harness/models:
+- Developer: claude, per the profiles table, passed explicitly to start-slice:
+  Slices 19 and 21 Opus 5.5 medium; Slices 20, 22 and 23 Opus 5.5 high;
+  Slices 24 and 25 Sonnet 5.5 high
+- Drift audit: claude, Sonnet 5.5 at high effort
+- Code reviewer 1: claude, Fable 5.1 at high effort
+- Code reviewer 2: codex, gpt-6.1-sol at high effort
+Run the drift audit first, then the two code reviews in parallel with staggered starts.
+Complete all reviews before steering. Keep follow-up reviews tight; reject bloat,
+overtesting and low-value findings. All work is aligned with docs/VISION.md and
+docs/STYLE-GUIDE.md, and every edit outside docs/dev/ follows the plan's user-facing
+documentation convention: tell every Developer and reviewer, and check it yourself.
+
+Use project-manager. You are the accountable PM and never write slice code.
+Read the complete frozen plan, then run check-plan with repo context.
+Require a clean committed baseline with revision 7 committed on feature/shin-uchuu-v3,
+and re-read every Stage D anchor in the files changed since 45dacd42 before each slice.
+Init on that branch with --branch feature/shin-uchuu-v3 and
+--attest "Slice 1,Slice 2,Slice 3,Slice 4,Slice 5,Slice 6,Slice 7,Slice 8,Slice 9,Slice 10,Slice 11,Slice 12,Slice 13,Slice 14,Slice 15,Slice 16,Slice 17,Slice 18".
+Run Slices 19 to 25 (Stage D), then stop.
+Record human approval for Slices 20, 22, 23, 24 and 25 before each starts.
+Ask for commit authorization before launch. No session pushes.
+Keep PM_RUN_TOKEN private to the PM seat.
+
+Preflight, without changing source data: make, make USE-MPI=yes, mimic_venv, HDF5;
+make tests-converter, tests-horizontal-v3, tests-distributed (record the live check count),
+tests-snapshot-global, tests-snapshot-global-identity, check-horizontal-fixture, check-docs,
+and the unit and integration tiers of every package a Stage D slice touches; the retained
+version 2 micro-Uchuu dataset resolves (Slice 22's manual check opens it); record free space.
+After every review or subagent, check that HEAD is still on the branch.
+For deletion slices, confirm the deleted line counts and that every gate still passes.
+Never waive a gate leg, a verdict-agreement case or a serial-identity regression.
+Surface to the owner any change to what the Final-State Inventory keeps for the
+cut-vertical follow-on beyond what a slice's criteria name.
+At the end, update HANDOFF.md, record the plan complete, and list what remains for the
+owner: archiving this plan and the brief on merge, the merge, the data at plan close,
+and the cut-vertical follow-on plan.
 ```
 
 Later runs use the same launcher with the run's slice range, its approvals (run 2: 8, 9; run 2b: 9; run 3: 11, 12, 13, 14, 15, 16; run 4: 17; run 5: 18; run 6: 20, 22, 23, 24, 25), its models from the profiles table, and `--attest` for every earlier slice.
