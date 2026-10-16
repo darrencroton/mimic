@@ -16,7 +16,7 @@
  * Each generation's raw slab, output buffer and galaxy pool stay live until its
  * retention horizon -- the latest snapshot any of its halos names as its
  * descendant's -- has been processed, and are released then. For an adjacent
- * dataset (every version 2 dataset) that is today's two-generation rotation:
+ * dataset (links_adjacent = 1) that is a two-generation rotation:
  * snapshot N is processed against N-1, which is released once every FoF group at
  * N has deep-copied what it inherits. Across a gap, a generation outlives the
  * snapshots its descendants skip, and no synthetic halo or generation is ever
@@ -278,7 +278,7 @@ struct HorizontalGeneration {
  * Galaxy pools are recycled rather than destroyed at release: `spare_pools`
  * holds the reset pools no retained generation is using, and every pool the run
  * ever created is either there or on a retained generation, so an adjacent run
- * never needs more than the two pools today's rotation used.
+ * never needs more than the two pools its two-generation rotation uses.
  *
  * The workspace and the two scratch buffers are grown monotonically and kept for
  * the whole run (as the vertical driver's equivalents are), then freed before the
@@ -431,10 +431,9 @@ struct HorizontalProgenitorCursor {
 /*
  * Resolve one progenitor link into its retained generation.
  *
- * `target_snap` is the snapshot the link names: its target-snapshot column for
- * version 3, or the version 2 implicit scope. load_slab has already validated
- * every version 3 link against the file its column names, and every version 2
- * link against N-1 or its own slab, so each check below guards the driver's own
+ * `target_snap` is the snapshot the link names: its target-snapshot column.
+ * load_slab has already validated every link against the file its column
+ * names, so each check below guards the driver's own
  * retention rather than the input: a target that is not retained here would mean
  * a generation was released before its horizon.
  */
@@ -472,16 +471,14 @@ horizontal_resolve_progenitor(const struct HorizontalGatherContext *lookup, int6
 }
 
 /* The head of halonr's progenitor chain: FirstProgenitor, resolved through the
- * descendant slab's FirstProgenitorSnapshot (version 3) or into N-1 (version 2). */
+ * descendant slab's FirstProgenitorSnapshot. */
 static struct HorizontalProgenitorCursor
 horizontal_first_progenitor(struct HaloInputView view, const struct HorizontalGatherContext *lookup,
                             int64_t halonr) {
   struct HorizontalProgenitorCursor cursor = {NULL, mimic_tree_get_FirstProgenitor(view, halonr)};
 
   if (cursor.halonr >= 0) {
-    const int64_t target_snap = (lookup->first_progenitor_snapshot != NULL)
-                                    ? lookup->first_progenitor_snapshot[halonr]
-                                    : lookup->snapnum - 1;
+    const int64_t target_snap = lookup->first_progenitor_snapshot[halonr];
     cursor.generation = horizontal_resolve_progenitor(lookup, target_snap, cursor.halonr, halonr,
                                                       "FirstProgenitor");
   }
@@ -490,10 +487,9 @@ horizontal_first_progenitor(struct HaloInputView view, const struct HorizontalGa
 }
 
 /* Advance a chain by one NextProgenitor link, resolved through the current
- * entry's own NextProgenitorSnapshot (version 3) or inside its own slab
- * (version 2). A sibling may sit in a different snapshot from its predecessor,
- * earlier or later, because the constraint is relative to the shared descendant,
- * not to the owner. */
+ * entry's own NextProgenitorSnapshot. A sibling may sit in a different snapshot from its
+ * predecessor, earlier or later, because the constraint is relative to the shared descendant, not
+ * to the owner. */
 static void horizontal_next_progenitor(const struct HorizontalGatherContext *lookup,
                                        struct HorizontalProgenitorCursor *cursor, int64_t halonr) {
   const struct HorizontalRetainedGeneration *owner = cursor->generation;
@@ -505,9 +501,7 @@ static void horizontal_next_progenitor(const struct HorizontalGatherContext *loo
     return;
   }
 
-  const int64_t target_snap = (owner->next_progenitor_snapshot != NULL)
-                                  ? owner->next_progenitor_snapshot[cursor->halonr]
-                                  : owner->snapnum;
+  const int64_t target_snap = owner->next_progenitor_snapshot[cursor->halonr];
   cursor->generation =
       horizontal_resolve_progenitor(lookup, target_snap, next, halonr, "NextProgenitor");
   cursor->halonr = next;
@@ -842,15 +836,6 @@ void horizontal_rebase_slab_links(struct SnapshotSlab *slab,
                 slab->snapnum, slab->row_offset, slab->row_offset + slab->nhalos, range, row_lo,
                 row_hi);
   }
-  if (slab->nhalos > 0 &&
-      (slab->descendant_snapshot == NULL || slab->first_progenitor_snapshot == NULL ||
-       slab->next_progenitor_snapshot == NULL)) {
-    FATAL_ERROR("Snapshot %" PRId64 " slab carries no target-snapshot columns; a partitioned "
-                "(distributed or chunked) run rebases links through them and needs a "
-                "format_version 3 dataset",
-                slab->snapnum);
-  }
-
   const struct HaloInputView view = {slab->halos, slab->nhalos};
   for (int64_t i = 0; i < slab->nhalos; i++) {
     const int64_t first_fof = mimic_tree_get_FirstHaloInFOFgroup(view, i);
@@ -1069,7 +1054,7 @@ static void horizontal_compute_partition(const struct HorizontalDriverState *sta
 
 /*
  * The startup steps of a distributed or chunked run, on every task, after every
- * task's open_run: refuse a dataset that cannot be partitioned, have task 0
+ * task's open_run: have task 0 refuse a dataset that cannot be partitioned and
  * compute the partition of `effective_task_count()` tasks in `nchunk` chunks
  * each, and, when `distributed`, broadcast it. Every task reaches the broadcast;
  * a task 0 abort before it ends the whole job through myexit()'s MPI_Abort, so
@@ -1080,17 +1065,6 @@ static void horizontal_partition_run(struct HorizontalDriverState *state,
                                      const struct HorizontalRunInfo *info, int distributed,
                                      int nchunk) {
   const int ntask = effective_task_count();
-
-  /* Identical on every task (every task read the same header), so every task
-   * aborts here together. */
-  if (info->format_version == 2) {
-    FATAL_ERROR("A distributed or chunked horizontal run (NTask = %d, input.forest_chunks = %d) "
-                "needs a forest-blocked format_version 3 dataset, whose slab rows are grouped by "
-                "forest in ascending ForestIndex; this is a format_version 2 dataset, whose rows "
-                "are sorted by MostBoundID, so it can be neither distributed nor chunked. Run it "
-                "with a single task and input.forest_chunks: 1",
-                ntask, nchunk);
-  }
 
   state->partition =
       horizontal_partition_create(ntask, nchunk, info->snapshot_count, info->n_forests_total);
@@ -1438,10 +1412,8 @@ static int horizontal_output_snapshot_index(int64_t snapnum) {
  * its own progenitors and every sibling shares the descendant, so the generation
  * is dead once that snapshot has been processed.
  *
- * The rule is forward-only and exact, computed from the slab already loaded: a
- * version 3 slab names each descendant's snapshot in its DescendantSnapshot
- * column, and a version 2 slab (no column) implicitly names N+1 for every halo
- * with a descendant.
+ * The rule is forward-only and exact, computed from the slab already loaded,
+ * which names each descendant's snapshot in its DescendantSnapshot column.
  */
 int64_t horizontal_generation_horizon(const struct SnapshotSlab *slab) {
   const struct HaloInputView view = {slab->halos, slab->nhalos};
@@ -1451,8 +1423,7 @@ int64_t horizontal_generation_horizon(const struct SnapshotSlab *slab) {
     if (mimic_tree_get_Descendant(view, i) < 0) {
       continue;
     }
-    const int64_t target =
-        (slab->descendant_snapshot != NULL) ? slab->descendant_snapshot[i] : slab->snapnum + 1;
+    const int64_t target = slab->descendant_snapshot[i];
     if (target > horizon) {
       horizon = target;
     }
@@ -1787,8 +1758,7 @@ static void horizontal_return_pool(struct HorizontalDriverState *state, struct G
  * slab already past MAX_HALO_ARRAY_SIZE, only the minimum growth increment.
  */
 static struct HorizontalGeneration *
-horizontal_acquire_generation(struct HorizontalDriverState *state, int64_t snapnum,
-                              int32_t links_adjacent) {
+horizontal_acquire_generation(struct HorizontalDriverState *state, int64_t snapnum) {
   struct HorizontalGeneration *gen = &state->generations[snapnum];
 
   /* A chunked run loads each snapshot once per chunk, but each chunk's sweep
@@ -1806,8 +1776,7 @@ horizontal_acquire_generation(struct HorizontalDriverState *state, int64_t snapn
    * above INT_MAX rows, and the ceiling. Every index this driver computes from a
    * slab (struct Halo.HaloNr, the generated accessors and link values, the aux
    * ranges, the FoF and progenitor walks, and the workspace and scratch sizes) is
-   * int64_t, and so is every byte count above. The int32 bound of a version 2
-   * slab is the reader's, enforced at open (HORIZONTAL-HDF5-FORMAT.md invariant 2). */
+   * int64_t, and so is every byte count above. */
   const int64_t snapshot_halos = horizontal_reader_halo_count(state->reader, snapnum);
   int64_t row_lo = 0;
   int64_t row_hi = 0;
@@ -1840,17 +1809,6 @@ horizontal_acquire_generation(struct HorizontalDriverState *state, int64_t snapn
     FATAL_ERROR("Reader '%s' loaded snapshot %" PRId64 " from row %" PRId64
                 " after being asked for rows [%" PRId64 ", %" PRId64 ")",
                 state->reader->name, snapnum, gen->slab.row_offset, row_lo, row_hi);
-  }
-
-  /* A gapped dataset can only be walked through its target-snapshot columns;
-   * without them every link would silently fall back to the adjacent version 2
-   * scope. */
-  if (!links_adjacent && nhalos > 0 &&
-      (gen->slab.descendant_snapshot == NULL || gen->slab.first_progenitor_snapshot == NULL ||
-       gen->slab.next_progenitor_snapshot == NULL)) {
-    FATAL_ERROR("Snapshot %" PRId64 " belongs to a dataset with links_adjacent = 0 but its slab "
-                "carries no target-snapshot columns",
-                snapnum);
   }
 
   /* A partitioned run's links are global rows until rebased onto the swept
@@ -2155,8 +2113,7 @@ static void horizontal_sweep_chunk(struct HorizontalDriverState *state,
       state->identity.row_offset = horizontal_row_cut(state->partition, snapnum, state->range);
     }
 
-    struct HorizontalGeneration *cur =
-        horizontal_acquire_generation(state, snapnum, info->links_adjacent);
+    struct HorizontalGeneration *cur = horizontal_acquire_generation(state, snapnum);
 
     const int64_t live_slabs = horizontal_count_live_slabs(state);
     const struct HorizontalRowNote loaded_note =
@@ -2367,7 +2324,7 @@ static void horizontal_probe_output_directory(void) {
  * after the last chunk the dataset is closed; main.c writes the master file afterwards and only
  * then disarms this driver's remaining output cleanup.
  *
- * An adjacent dataset (links_adjacent = 1, every version 2 dataset) never
+ * An adjacent dataset (links_adjacent = 1) never
  * retains more than two generations, the bound of the two-generation rotation
  * this pool generalises; a gapped one retains as many as its horizons demand.
  */

@@ -15,8 +15,8 @@
  *
  * The horizontal front end reads one snapshot at a time: the working set
  * of a run is one snapshot's halo population instead of one forest's history.
- * See convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md (versions 2 and 3) for the on-disk
- * contracts this interface consumes.
+ * See convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md (version 3) for the on-disk
+ * contract this interface consumes.
  *
  * This is deliberately a second, small vtable rather than a widening of
  * struct VerticalReader, whose thirteen hooks are partition/unit-shaped and carry no
@@ -53,16 +53,16 @@ struct RawHalo;
 struct HorizontalRunInfo {
   int64_t snapshot_count;          /* number of snapshots in the run */
   int32_t format_version;          /* on-disk contract version of the dataset */
-  int32_t links_adjacent;          /* 1: every non-null Descendant targets snapshot N+1 (always 1
-                                      for version 2); 0: version 3 gaps are present */
+  int32_t links_adjacent;          /* 1: every non-null Descendant targets snapshot N+1;
+                                      0: gaps are present */
   int64_t slab_row_bytes;          /* bytes load_slab allocates per halo across every
                                       reader-owned slab array (the raw record, the two
-                                      identity columns and, for version 3, the three
-                                      target-snapshot columns and SourceHaloID) */
+                                      identity columns, the three target-snapshot
+                                      columns and SourceHaloID) */
   int64_t n_forests_total;         /* run-scoped forest count (identity bound) */
   int64_t max_halo_rank_in_forest; /* run-scoped maximum rank (identity bound) */
-  char source_format[33];          /* version 3 header 'source_format' (the source tree format
-                                      the dataset was converted from); empty for version 2 */
+  char source_format[33];          /* header 'source_format' (the source tree format the
+                                      dataset was converted from) */
 };
 
 /**
@@ -132,8 +132,7 @@ struct HorizontalOpenOptions {
  * metadata held the same way. Each *_snapshot entry
  * names the snapshot whose slab the matching RawHalo link indexes into, or is -1
  * exactly when that link is -1; load_slab has already validated both. They are
- * NULL for a version 2 slab, whose links are implicitly N+1 (Descendant), N-1
- * (FirstProgenitor) and N-1 (NextProgenitor), and for an empty snapshot or an empty row range.
+ * NULL only for an empty snapshot or an empty row range.
  */
 struct SnapshotSlab {
   int64_t snapnum;                    /* loaded snapshot, or SNAPSHOT_SLAB_NO_SNAPSHOT */

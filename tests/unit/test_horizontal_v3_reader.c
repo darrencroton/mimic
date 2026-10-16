@@ -28,10 +28,8 @@
  * links are `int`, test_int_link_package_rejects_v3 instead pins the refusal
  * to narrow version 3's int64 links.
  *
- * Corrupt-input cases use the pattern of the version 2 reader tests
- * (simulations/micro-uchuu-ascii-horizontal/_tests/unit/test_unit_horizontal_reader_open.c):
- * stage a scratch copy, mutate it with the HDF5 C API, then fork a child that
- * opens or loads it, since FATAL_ERROR ends the process.
+ * Corrupt-input cases stage a scratch copy, mutate it with the HDF5 C API,
+ * then fork a child that opens or loads it, since FATAL_ERROR ends the process.
  */
 
 #include "../framework/test_framework.h"
@@ -1371,7 +1369,7 @@ static const struct corrupt_case OPEN_CASES[] = {
     {"version 1 dataset", c_version_1, "snapshot_000.h5: header attribute 'format_version' is 1",
      "must be reconverted from source"},
     {"unknown version", c_version_unknown,
-     "snapshot_000.h5: header attribute 'format_version' is 7", "supports only versions 2 and 3"},
+     "snapshot_000.h5: header attribute 'format_version' is 7", "supports only version 3"},
     {"mixed-version dataset", c_version_mixed,
      "snapshot_001.h5: header attribute 'format_version' "
      "is 2 but snapshot 0 declares version 3",

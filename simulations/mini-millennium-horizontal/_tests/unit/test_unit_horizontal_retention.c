@@ -220,31 +220,6 @@ static int test_worked_graph_horizons(void) {
 }
 
 /**
- * @brief   A version 2 slab (no DescendantSnapshot column) implicitly names N+1.
- */
-static int test_version2_horizon_is_adjacent(void) {
-  seed_worked_graph();
-
-  /* Snapshot 0 of the worked graph, stripped of its version 3 columns: its one
-   * halo has a descendant, so the version 2 reading is N+1, not the gapped 2. */
-  struct SnapshotSlab slab = slab_of(0);
-  slab.descendant_snapshot = NULL;
-  slab.first_progenitor_snapshot = NULL;
-  slab.next_progenitor_snapshot = NULL;
-  TEST_ASSERT_EQUAL(horizontal_generation_horizon(&slab), 1,
-                    "a version 2 halo with a descendant keeps its generation until N+1");
-
-  /* Snapshot 4: no descendant anywhere, so the generation dies with its own
-   * snapshot under either version. */
-  struct SnapshotSlab terminal = slab_of(4);
-  terminal.descendant_snapshot = NULL;
-  TEST_ASSERT_EQUAL(horizontal_generation_horizon(&terminal), 4,
-                    "a slab with no descendant is released after its own snapshot");
-
-  return TEST_PASS;
-}
-
-/**
  * @brief   D's chain spans snapshots 0 and 1: A (the head) is found, then B and C.
  */
 static int test_worked_graph_chain_spans_two_snapshots(void) {
@@ -693,7 +668,6 @@ int main(void) {
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
 
   TEST_RUN(test_worked_graph_horizons);
-  TEST_RUN(test_version2_horizon_is_adjacent);
   TEST_RUN(test_worked_graph_chain_spans_two_snapshots);
   TEST_RUN(test_zero_progenitor_snapshot);
   TEST_RUN(test_no_progenitor_needs_no_retained_generation);

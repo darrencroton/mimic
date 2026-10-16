@@ -280,15 +280,15 @@ struct HorizontalHaloAux {
  * the same generation, and the compiler cannot catch a mismatch between
  * separately passed arguments whose indices happen to overlap.
  *
- * `next_progenitor_snapshot` is the reader-owned version 3 column. It is NULL for
- * a version 2 generation, whose NextProgenitor links implicitly stay inside the
- * owner's own snapshot (HORIZONTAL-HDF5-FORMAT.md "Link Scope"). */
+ * `next_progenitor_snapshot` is the reader-owned target-snapshot column naming
+ * the snapshot each NextProgenitor link indexes into (HORIZONTAL-HDF5-FORMAT.md
+ * "Link Scope"); NULL only for a generation with no halos. */
 struct HorizontalRetainedGeneration {
   int64_t snapnum;                         /* this generation's snapshot; -1 marks an empty slot */
   struct HaloInputView view;               /* raw halos of that snapshot */
   const struct HorizontalHaloAux *aux;     /* [view.count] output ranges */
   const struct Halo *processed;            /* that snapshot's output buffer */
-  const int32_t *next_progenitor_snapshot; /* [view.count], or NULL (version 2) */
+  const int32_t *next_progenitor_snapshot; /* [view.count]; NULL when view.count is 0 */
 };
 
 struct HorizontalForestPartition; /* opaque here; defined in core/horizontal_partition.h */
@@ -299,8 +299,8 @@ struct HorizontalForestPartition; /* opaque here; defined in core/horizontal_par
  * k describes snapshot k while that generation is retained, and carries snapnum
  * -1 otherwise. A progenitor link therefore resolves in one step, through the
  * target-snapshot column that names its generation -- never by assuming N-1.
- * `first_progenitor_snapshot` is the descendant slab's own version 3 column,
- * NULL for version 2, whose FirstProgenitor links implicitly name N-1.
+ * `first_progenitor_snapshot` is the descendant slab's own target-snapshot
+ * column, NULL only when that slab holds no halos.
  *
  * `retained_population` is the halo count summed over every retained
  * generation. A progenitor chain can visit each retained halo at most once, so
@@ -313,7 +313,7 @@ struct HorizontalForestPartition; /* opaque here; defined in core/horizontal_par
  * tests) keeps the serial bytes. */
 struct HorizontalGatherContext {
   int64_t snapnum;                                        /* snapshot of the descendants */
-  const int32_t *first_progenitor_snapshot;               /* [descendant slab], or NULL (v2) */
+  const int32_t *first_progenitor_snapshot;               /* [descendant slab]; NULL if empty */
   const struct HorizontalRetainedGeneration *generations; /* [run snapshot count], by snapshot */
   int64_t retained_population;
   const struct HorizontalForestPartition

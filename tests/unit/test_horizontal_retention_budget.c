@@ -193,7 +193,6 @@ enum FakeLoad { FAKE_LOAD_EXITS, FAKE_LOAD_BUILDS };
 static struct {
   int64_t snapshot_count;
   int64_t halo_count[MAX_FAKE_SNAPSHOTS];
-  int32_t format_version;
   enum FakeLoad load;
   int chain;
   int extra_rows;          /* rows built beyond the reported count (count-mismatch case) */
@@ -201,17 +200,13 @@ static struct {
   int64_t output_snapshot; /* the one requested output snapshot; -1: none requested */
 } Fake;
 
-/* The slab row width the fake reader publishes at open, and for version 2 slabs
- * exactly what fake_load_slab allocates per row (the raw record and the two
- * identity columns). The version 3 branch mirrors the real reader's width so the
- * driver's accounting of a version 3 run can be checked; the fake never builds
- * those arrays. */
-static int64_t fake_slab_row_bytes(int32_t format_version) {
-  int64_t row = (int64_t)sizeof(struct RawHalo) + 2 * (int64_t)sizeof(int64_t);
-  if (format_version >= 3) {
-    row += 3 * (int64_t)sizeof(int32_t) + (int64_t)sizeof(int64_t);
-  }
-  return row;
+/* The slab row width the fake reader publishes at open: exactly what
+ * fake_load_slab allocates per row, which mirrors the real reader's version 3
+ * slab (the raw record, the two identity columns, the three int32
+ * target-snapshot columns and SourceHaloID). */
+static int64_t fake_slab_row_bytes(void) {
+  return (int64_t)sizeof(struct RawHalo) + 2 * (int64_t)sizeof(int64_t) +
+         3 * (int64_t)sizeof(int32_t) + (int64_t)sizeof(int64_t);
 }
 
 static void fake_open_run(const struct HorizontalOpenOptions *options,
@@ -222,9 +217,9 @@ static void fake_open_run(const struct HorizontalOpenOptions *options,
     widest = Fake.halo_count[k] > widest ? Fake.halo_count[k] : widest;
   }
   info->snapshot_count = Fake.snapshot_count;
-  info->format_version = Fake.format_version;
+  info->format_version = 3;
   info->links_adjacent = 1;
-  info->slab_row_bytes = fake_slab_row_bytes(Fake.format_version);
+  info->slab_row_bytes = fake_slab_row_bytes();
   info->n_forests_total = Fake.chain ? 1 : widest;
   info->max_halo_rank_in_forest = Fake.chain ? Fake.snapshot_count - 1 : 0;
 }
@@ -246,8 +241,9 @@ static void fake_load_slab(int64_t snapnum, int64_t row_lo, int64_t row_hi,
     _exit(LOAD_SLAB_REACHED_EXIT);
   }
 
-  /* A version 2 slab: the raw halos and the two identity columns, with links
-   * implicitly naming N+1 (Descendant) and N-1 (FirstProgenitor). */
+  /* A version 3 slab: the raw halos, the two identity columns, and the three
+   * target-snapshot columns naming N+1 (Descendant) and N-1 (FirstProgenitor)
+   * for every non-null link, with SourceHaloID. */
   const int64_t nhalos = Fake.halo_count[snapnum] + Fake.extra_rows;
   *slab = snapshot_slab_empty();
   slab->snapnum = snapnum;
@@ -259,6 +255,10 @@ static void fake_load_slab(int64_t snapnum, int64_t row_lo, int64_t row_hi,
   slab->halos = mymalloc(sizeof(struct RawHalo) * (size_t)nhalos);
   slab->forest_index = mymalloc(sizeof(int64_t) * (size_t)nhalos);
   slab->halo_rank_in_forest = mymalloc(sizeof(int64_t) * (size_t)nhalos);
+  slab->descendant_snapshot = mymalloc(sizeof(int32_t) * (size_t)nhalos);
+  slab->first_progenitor_snapshot = mymalloc(sizeof(int32_t) * (size_t)nhalos);
+  slab->next_progenitor_snapshot = mymalloc(sizeof(int32_t) * (size_t)nhalos);
+  slab->source_halo_id = mymalloc(sizeof(int64_t) * (size_t)nhalos);
   memset(slab->halos, 0, sizeof(struct RawHalo) * (size_t)nhalos);
 
   const int has_descendant = Fake.chain && snapnum + 1 < Fake.snapshot_count;
@@ -277,11 +277,19 @@ static void fake_load_slab(int64_t snapnum, int64_t row_lo, int64_t row_hi,
     set_role(halo, "HaloMass", 10.0);
     slab->forest_index[i] = Fake.chain ? 0 : i;
     slab->halo_rank_in_forest[i] = Fake.chain ? snapnum : 0;
+    slab->descendant_snapshot[i] = names_descendant ? (int32_t)(snapnum + 1) : -1;
+    slab->first_progenitor_snapshot[i] = has_progenitor ? (int32_t)(snapnum - 1) : -1;
+    slab->next_progenitor_snapshot[i] = -1;
+    slab->source_halo_id[i] = i;
   }
 }
 
 static void fake_release_slab(struct SnapshotSlab *slab) {
   if (slab->halos != NULL) {
+    myfree(slab->source_halo_id);
+    myfree(slab->next_progenitor_snapshot);
+    myfree(slab->first_progenitor_snapshot);
+    myfree(slab->descendant_snapshot);
     myfree(slab->halo_rank_in_forest);
     myfree(slab->forest_index);
     myfree(slab->halos);
@@ -307,11 +315,10 @@ static void fake_reset(void) {
 }
 
 /* One snapshot of `nhalos`, ended at load: the pre-allocation cases. */
-static void fake_single_snapshot(int64_t nhalos, int32_t format_version) {
+static void fake_single_snapshot(int64_t nhalos) {
   fake_reset();
   Fake.snapshot_count = 1;
   Fake.halo_count[0] = nhalos;
-  Fake.format_version = format_version;
   Fake.load = FAKE_LOAD_EXITS;
 }
 
@@ -323,7 +330,6 @@ static void fake_chain(int64_t snapshots) {
   for (int64_t k = 0; k < snapshots; k++) {
     Fake.halo_count[k] = 1;
   }
-  Fake.format_version = 2;
   Fake.load = FAKE_LOAD_BUILDS;
   Fake.chain = 1;
 }
@@ -356,16 +362,16 @@ static int64_t output_seed_records(int64_t nhalos) {
 
 /* The generation's resident bytes without any galaxy pool: what the driver
  * counted before a new pool was a footprint term. */
-static int64_t generation_bytes_without_pool(int64_t nhalos, int32_t format_version) {
-  const int64_t slab = nhalos * fake_slab_row_bytes(format_version);
+static int64_t generation_bytes_without_pool(int64_t nhalos) {
+  const int64_t slab = nhalos * fake_slab_row_bytes();
   const int64_t aux = (nhalos > 0 ? nhalos : 1) * (int64_t)sizeof(struct HorizontalHaloAux);
   return slab + aux + output_seed_records(nhalos) * (int64_t)sizeof(struct Halo);
 }
 
 /* The generation's footprint as the driver must now compute it: with a new
  * galaxy pool whenever no spare one is reused. */
-static int64_t generation_bytes(int64_t nhalos, int32_t format_version, int new_pool) {
-  return generation_bytes_without_pool(nhalos, format_version) + (new_pool ? new_pool_bytes() : 0);
+static int64_t generation_bytes(int64_t nhalos, int new_pool) {
+  return generation_bytes_without_pool(nhalos) + (new_pool ? new_pool_bytes() : 0);
 }
 
 /* ------------------------------------------------------------------------- */
@@ -611,7 +617,7 @@ static int admission_accepted(int64_t ceiling, struct ChildResult *result) {
  * @brief   A halo count above INT32_MAX crosses the reader dispatch unchanged.
  */
 int test_reader_interface_carries_wide_count(void) {
-  fake_single_snapshot(WIDE_SLAB_ROWS, 3);
+  fake_single_snapshot(WIDE_SLAB_ROWS);
   const int64_t count = horizontal_reader_halo_count(&FakeReader, 0);
   TEST_ASSERT(count == WIDE_SLAB_ROWS,
               "horizontal_reader_halo_count() should return the reader's int64 count unnarrowed");
@@ -626,17 +632,17 @@ int test_reader_interface_carries_wide_count(void) {
 int test_normal_slab_is_sized_before_load(void) {
   struct ChildResult result;
   char needle[256];
-  const int64_t bytes = generation_bytes(NORMAL_SLAB_ROWS, 2, 1);
+  const int64_t bytes = generation_bytes(NORMAL_SLAB_ROWS, 1);
 
   TEST_ASSERT(prepare_output_dir() == 0, "Should create the output directory");
-  fake_single_snapshot(NORMAL_SLAB_ROWS, 2);
+  fake_single_snapshot(NORMAL_SLAB_ROWS);
   TEST_ASSERT(admission_accepted(0, &result) == 1, "An unbounded run should reach load_slab()");
   expected_report(needle, sizeof(needle), 0, bytes, NORMAL_SLAB_ROWS);
   TEST_ASSERT(log_contains(&result, needle),
-              "The report should state the struct-width size of a version 2 generation");
+              "The report should state the struct-width size of a normal generation");
   TEST_ASSERT(log_contains(&result, "ceiling 0 B (none set)"),
               "The report should say that no ceiling is set");
-  printf("  %" PRId64 "-row version 2 slab: %" PRId64 " B reported before load\n", NORMAL_SLAB_ROWS,
+  printf("  %" PRId64 "-row normal slab: %" PRId64 " B reported before load\n", NORMAL_SLAB_ROWS,
          bytes);
   return TEST_PASS;
 }
@@ -650,10 +656,10 @@ int test_normal_slab_is_sized_before_load(void) {
 int test_wide_slab_is_sized_before_load(void) {
   struct ChildResult result;
   char needle[256];
-  const int64_t bytes = generation_bytes(WIDE_SLAB_ROWS, 3, 1);
+  const int64_t bytes = generation_bytes(WIDE_SLAB_ROWS, 1);
 
   TEST_ASSERT(prepare_output_dir() == 0, "Should create the output directory");
-  fake_single_snapshot(WIDE_SLAB_ROWS, 3);
+  fake_single_snapshot(WIDE_SLAB_ROWS);
   TEST_ASSERT(admission_accepted(0, &result) == 1,
               "An unbounded wide slab should be sized and reach load_slab(), not abort");
   expected_report(needle, sizeof(needle), 0, bytes, WIDE_SLAB_ROWS);
@@ -688,7 +694,7 @@ int test_wide_output_snapshot_is_refused_before_load(void) {
   const int entries_before = count_output_entries();
   TEST_ASSERT(entries_before >= 0, "Should be able to read the output directory");
 
-  fake_single_snapshot(WIDE_SLAB_ROWS, 3);
+  fake_single_snapshot(WIDE_SLAB_ROWS);
   Fake.output_snapshot = 0;
   TEST_ASSERT(run_driver_in_child(0, 0, &result) == 0, "Should run the driver in a child");
   TEST_ASSERT(result.exited && result.exit_status == 1,
@@ -720,8 +726,8 @@ int test_ceiling_accepts_retention_at_the_ceiling(void) {
 
   TEST_ASSERT(prepare_output_dir() == 0, "Should create the output directory");
   for (int i = 0; i < 2; i++) {
-    const int64_t bytes = generation_bytes(rows[i], 3, 1);
-    fake_single_snapshot(rows[i], 3);
+    const int64_t bytes = generation_bytes(rows[i], 1);
+    fake_single_snapshot(rows[i]);
     TEST_ASSERT(admission_accepted(bytes, &result) == 1,
                 "A retention set exactly at the ceiling should be accepted and loaded");
     printf("  %" PRId64 " rows at a ceiling of %" PRId64 " B: accepted\n", rows[i], bytes);
@@ -742,9 +748,9 @@ int test_ceiling_refuses_retention_just_above(void) {
 
   TEST_ASSERT(prepare_output_dir() == 0, "Should create the output directory");
   for (int i = 0; i < 2; i++) {
-    const int64_t bytes = generation_bytes(rows[i], 3, 1);
+    const int64_t bytes = generation_bytes(rows[i], 1);
     const int64_t ceiling = bytes - 1;
-    fake_single_snapshot(rows[i], 3);
+    fake_single_snapshot(rows[i]);
     TEST_ASSERT(admission_accepted(ceiling, &result) == 0,
                 "A retention set one byte above the ceiling should be refused before load");
     snprintf(needle, sizeof(needle), "Snapshot 0 needs %" PRId64 " B", bytes);
@@ -778,12 +784,12 @@ int test_ceiling_refuses_retention_just_above(void) {
  */
 int test_new_pool_counts_against_a_whole_mb_ceiling_for_an_empty_snapshot(void) {
   struct ChildResult result;
-  const int64_t old_bytes = generation_bytes_without_pool(0, 2);
-  const int64_t bytes = generation_bytes(0, 2, 1);
+  const int64_t old_bytes = generation_bytes_without_pool(0);
+  const int64_t bytes = generation_bytes(0, 1);
   const int64_t one_mb = BYTES_PER_MB;
 
   TEST_ASSERT(prepare_output_dir() == 0, "Should create the output directory");
-  fake_single_snapshot(0, 2);
+  fake_single_snapshot(0);
 
   TEST_ASSERT(admission_accepted(one_mb, &result) == (bytes <= one_mb ? 1 : 0),
               "A 1 MB ceiling should admit the empty snapshot exactly when its footprint with "
@@ -812,16 +818,16 @@ int test_new_pool_counts_against_a_whole_mb_ceiling_for_a_tiny_slab(void) {
   const int64_t one_mb = BYTES_PER_MB;
 
   int64_t rows = 1;
-  while (generation_bytes_without_pool(rows + 1, 2) <= one_mb) {
+  while (generation_bytes_without_pool(rows + 1) <= one_mb) {
     rows++;
   }
-  const int64_t old_bytes = generation_bytes_without_pool(rows, 2);
-  const int64_t bytes = generation_bytes(rows, 2, 1);
+  const int64_t old_bytes = generation_bytes_without_pool(rows);
+  const int64_t bytes = generation_bytes(rows, 1);
   TEST_ASSERT(old_bytes <= one_mb && bytes > one_mb,
               "The chosen slab should fit 1 MB without the pool and not with it");
 
   TEST_ASSERT(prepare_output_dir() == 0, "Should create the output directory");
-  fake_single_snapshot(rows, 2);
+  fake_single_snapshot(rows);
   TEST_ASSERT(admission_accepted(one_mb, &result) == 0,
               "A 1 MB ceiling should refuse a slab that fits only when its new pool is ignored");
   TEST_ASSERT(admission_accepted(bytes, &result) == 1,
@@ -844,7 +850,7 @@ int test_unrepresentable_slab_is_refused(void) {
   const int64_t ceilings[2] = {0, INT64_MAX};
 
   TEST_ASSERT(prepare_output_dir() == 0, "Should create the output directory");
-  fake_single_snapshot(INT64_MAX, 3);
+  fake_single_snapshot(INT64_MAX);
   for (int i = 0; i < 2; i++) {
     TEST_ASSERT(run_driver_in_child(ceilings[i], 0, &result) == 0,
                 "Should run the driver in a child");
@@ -870,7 +876,7 @@ int test_negative_count_is_refused(void) {
   struct ChildResult result;
 
   TEST_ASSERT(prepare_output_dir() == 0, "Should create the output directory");
-  fake_single_snapshot(-1, 3);
+  fake_single_snapshot(-1);
   TEST_ASSERT(run_driver_in_child(0, 0, &result) == 0, "Should run the driver in a child");
   TEST_ASSERT(result.exited && result.exit_status == 1, "A negative halo count should FATAL");
   TEST_ASSERT(log_contains(&result, "a halo count cannot be negative"),
@@ -890,7 +896,7 @@ int test_count_mismatch_after_load_is_refused(void) {
   struct ChildResult result;
 
   TEST_ASSERT(prepare_output_dir() == 0, "Should create the output directory");
-  fake_single_snapshot(2, 2);
+  fake_single_snapshot(2);
   Fake.load = FAKE_LOAD_BUILDS;
   Fake.extra_rows = 1;
   TEST_ASSERT(run_driver_in_child(0, 0, &result) == 0, "Should run the driver in a child");
@@ -960,7 +966,7 @@ int test_overlapping_generations_are_measured_and_profiled(void) {
   struct ChildResult result;
   char needle[256];
   const int64_t pool = new_pool_bytes();
-  const int64_t generation = generation_bytes(1, 2, 1);
+  const int64_t generation = generation_bytes(1, 1);
   const int64_t peak = 2 * generation;
 
   TEST_ASSERT(prepare_output_dir() == 0, "Should create the output directory");
@@ -1017,7 +1023,7 @@ int test_overlapping_generations_are_measured_and_profiled(void) {
 int test_ceiling_counts_the_resident_generation_below_the_boundary(void) {
   struct ChildResult result;
   char needle[256];
-  const int64_t generation = generation_bytes(1, 2, 1);
+  const int64_t generation = generation_bytes(1, 1);
   const int64_t required = 2 * generation;
   const int64_t ceiling = required - 1;
 
@@ -1069,7 +1075,7 @@ int test_ceiling_admits_the_resident_generation_at_the_boundary(void) {
   struct ChildResult result;
   char needle[256];
   const int64_t pool = new_pool_bytes();
-  const int64_t generation = generation_bytes(1, 2, 1);
+  const int64_t generation = generation_bytes(1, 1);
   const int64_t required = 2 * generation;
 
   TEST_ASSERT(prepare_output_dir() == 0, "Should create the output directory");
@@ -1127,14 +1133,13 @@ int test_in_sweep_pool_growth_past_the_ceiling_warns_once(void) {
               "The sweep's galaxies should outgrow a new pool's first chunk");
   const int64_t growth = grown_stats.resident_bytes - fresh_stats.resident_bytes;
 
-  const int64_t admission = generation_bytes(POOL_GROWING_ROWS, 2, 1);
+  const int64_t admission = generation_bytes(POOL_GROWING_ROWS, 1);
   const int64_t swept = admission + growth;
 
   TEST_ASSERT(prepare_output_dir() == 0, "Should create the output directory");
   fake_reset();
   Fake.snapshot_count = 1;
   Fake.halo_count[0] = POOL_GROWING_ROWS;
-  Fake.format_version = 2;
   Fake.load = FAKE_LOAD_BUILDS;
 
   TEST_ASSERT(run_driver_in_child(admission, 0, &result) == 0, "Should run the driver in a child");
@@ -1168,7 +1173,7 @@ int test_in_sweep_pool_growth_past_the_ceiling_warns_once(void) {
   TEST_ASSERT(result.exited && result.exit_status == RUN_COMPLETED_EXIT,
               "The unbounded two-snapshot run should be processed");
   expected_pool_line(needle, sizeof(needle), 0, 0, grown_stats.resident_bytes,
-                     grown_stats.resident_bytes + generation_bytes(1, 2, 0));
+                     grown_stats.resident_bytes + generation_bytes(1, 0));
   TEST_ASSERT(log_contains(&result, needle),
               "The next admission should count the grown pool it reuses");
   TEST_ASSERT(!log_contains(&result, "The retention pool grew to"),

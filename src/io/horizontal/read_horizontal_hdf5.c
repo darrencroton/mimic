@@ -2,23 +2,19 @@
  * @file    horizontal/read_horizontal_hdf5.c
  * @brief   horizontal_hdf5 reader: run lifecycle, validation, and count table.
  *
- * Reads two horizontal HDF5 contracts, one `snapshot_NNN.h5` file per snapshot
- * under MimicConfig.SimulationDir, dispatching on each file's `format_version`
- * as follows:
+ * Reads the horizontal HDF5 contract format_version 3
+ * (convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md, section "Version 3"), one
+ * `snapshot_NNN.h5` file per snapshot under MimicConfig.SimulationDir:
+ * `/header`, `/halos` and `/schema`, int64 links resolved through three
+ * explicit target-snapshot columns (gaps allowed), a `SourceHaloID` row key,
+ * and producer-declared payload units that `/schema` records and the compiled
+ * simulation package must agree with.
  *
- *   - version 2, the frozen contract of convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md:
- *     exactly the `/header` and `/halos` groups, int32 adjacent links. Its
- *     validation path is exactly what it was before version 3 was added.
- *   - version 3, convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md (section "Version 3"): `/header`,
- *     `/halos` and `/schema`, int64 links resolved through three explicit
- *     target-snapshot columns (gaps allowed), a `SourceHaloID` row key, and
- *     producer-declared payload units that `/schema` records and the compiled
- *     simulation package must agree with.
- *
- * Version 1 data and any other version are rejected outright: version 1 was
- * written by a converter step (`fix_flybys`) that merged unrelated FoF groups at
- * each forest's final snapshot, so no version 1 dataset is valid input. A
- * dataset never mixes versions: snapshot 0 fixes the version every file declares.
+ * Every other version is rejected outright, as is a snapshot 0 whose
+ * `format_version` cannot be read. Version 1 was written by a converter step
+ * (`fix_flybys`) that merged unrelated FoF groups at each forest's final
+ * snapshot, so no version 1 dataset is valid input. A dataset never mixes
+ * versions: snapshot 0 fixes the version every file declares.
  *
  * open_run validates the whole dataset and publishes run-scoped metadata plus a
  * per-snapshot halo-count table, snapshot_halo_count serves that table, and
@@ -43,7 +39,7 @@
  * slab load necessarily allocates per halo, since a slab *is* the snapshot's
  * halo population.
  *
- * Version 3 adds, at open: the `/schema` group's structure and vocabularies,
+ * open_run also validates the `/schema` group's structure and vocabularies,
  * its agreement with every `/halos` dataset's dtype and shape, its identity
  * across files (with `source_format` and `column_mapping_sha256`), and its
  * agreement with the package's compiled declarations (generated
@@ -52,8 +48,8 @@
  * and never materialised. No object under the root, `/halos` or
  * `/schema` may be a soft or external link.
  *
- * Link validation at load checks index ranges -- for version 3 against the
- * n_halos of the file each target-snapshot column names, with the -1-iff--1
+ * Link validation at load checks index ranges -- against the n_halos of the
+ * file each target-snapshot column names, with the -1-iff--1
  * biconditionals and the direction rules of format invariants 1 and 2. Chain
  * topology -- cycle-freedom, FoF self-reference, progenitor round-trip
  * closure -- is a producer obligation the converter's validation battery and
@@ -92,11 +88,6 @@
 #include "horizontal/reader.h"
 #include "types.h"
 
-/* Supported on-disk contract version (convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md).
-   Version 1 files are rejected outright, with no legacy read path: their converter's
-   `fix_flybys` step merged unrelated FoF groups at each forest's final snapshot. */
-#define HORIZONTAL_HDF5_FORMAT_VERSION 2
-
 /* Halos read per hyperslab during the data scans. Fixed by construction so scan
    memory is bounded independently of snapshot size. */
 #define HORIZONTAL_HDF5_SCAN_BLOCK 8192
@@ -114,10 +105,10 @@
 /* ---------------------------------------------------------------------------
  * Contract tables
  *
- * The names, dtypes and shapes below are the normative format_version = 2
- * record. They are stated here rather than derived from the compiled-in
- * simulation package on purpose: the reader validates a file against the
- * format, not against whatever a package happens to declare.
+ * The names, dtypes and shapes below are the normative header record. They are
+ * stated here rather than derived from the compiled-in simulation package on
+ * purpose: the reader validates a file against the format, not against
+ * whatever a package happens to declare.
  * ------------------------------------------------------------------------- */
 
 enum horizontal_h5_scalar_type {
@@ -178,31 +169,10 @@ struct horizontal_h5_dataset_spec {
   int ncols; /* 0 = rank-1 column, 3 = [n_halos, 3] vector */
 };
 
-static const struct horizontal_h5_dataset_spec HORIZONTAL_H5_HALO_DATASETS[] = {
-    {"Descendant", HORIZONTAL_H5_I32, 0},
-    {"FirstProgenitor", HORIZONTAL_H5_I32, 0},
-    {"NextProgenitor", HORIZONTAL_H5_I32, 0},
-    {"FirstHaloInFOFgroup", HORIZONTAL_H5_I32, 0},
-    {"NextHaloInFOFgroup", HORIZONTAL_H5_I32, 0},
-    {"Len", HORIZONTAL_H5_I32, 0},
-    {"SnapNum", HORIZONTAL_H5_I32, 0},
-    {"M_Crit200", HORIZONTAL_H5_F32, 0},
-    {"Pos", HORIZONTAL_H5_F32, 3},
-    {"Vel", HORIZONTAL_H5_F32, 3},
-    {"Spin", HORIZONTAL_H5_F32, 3},
-    {"VelDisp", HORIZONTAL_H5_F32, 0},
-    {"Vmax", HORIZONTAL_H5_F32, 0},
-    {"MostBoundID", HORIZONTAL_H5_I64, 0},
-    {"ForestIndex", HORIZONTAL_H5_I64, 0},
-    {"HaloRankInForest", HORIZONTAL_H5_I64, 0},
-};
-#define HORIZONTAL_H5_HALO_DATASET_COUNT                                                           \
-  (sizeof(HORIZONTAL_H5_HALO_DATASETS) / sizeof(HORIZONTAL_H5_HALO_DATASETS[0]))
-
 /* ---------------------------------------------------------------------------
  * Version 3 contract tables (convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md, section "Version 3")
  *
- * Like the version 2 tables above, these state the format, not a package: the
+ * Like the header table above, these state the format, not a package: the
  * package's own declarations are compared against a file's `/schema` only for
  * the fields the package declares (horizontal_h5_v3_validate_package()).
  * ------------------------------------------------------------------------- */
@@ -443,82 +413,10 @@ static void horizontal_h5_format_path(char *path, size_t path_size, int64_t snap
   }
 }
 
-/** Iteration state for horizontal_h5_reject_unknown_attr(). */
+/** Iteration state for horizontal_h5_v3_reject_unknown_attr(). */
 struct horizontal_h5_attr_scan {
   const char *path;
 };
-
-/** @brief H5Aiterate2 callback rejecting any attribute the contract omits. */
-static herr_t horizontal_h5_reject_unknown_attr(hid_t location_id, const char *attr_name,
-                                                const H5A_info_t *ainfo, void *op_data) {
-  const struct horizontal_h5_attr_scan *scan = (const struct horizontal_h5_attr_scan *)op_data;
-  (void)location_id;
-  (void)ainfo;
-
-  for (size_t i = 0; i < HORIZONTAL_H5_HEADER_ATTR_COUNT; i++) {
-    if (strcmp(HORIZONTAL_H5_HEADER_ATTRS[i].name, attr_name) == 0) {
-      return 0;
-    }
-  }
-  FATAL_ERROR("%s: '/header' carries unexpected attribute '%s'; format_version %d defines exactly "
-              "%zu header attributes",
-              scan->path, attr_name, HORIZONTAL_HDF5_FORMAT_VERSION,
-              (size_t)HORIZONTAL_H5_HEADER_ATTR_COUNT);
-}
-
-/** @brief Validate the root object set: exactly the groups /header and /halos. */
-static void horizontal_h5_validate_object_set(hid_t file, const char *path) {
-  static const char *const expected[] = {"halos", "header"};
-  const size_t expected_count = sizeof(expected) / sizeof(expected[0]);
-
-  hid_t root = H5Gopen2(file, "/", H5P_DEFAULT);
-  if (root < 0) {
-    FATAL_ERROR("%s: could not open the root group", path);
-  }
-
-  H5G_info_t ginfo;
-  if (H5Gget_info(root, &ginfo) < 0) {
-    FATAL_ERROR("%s: could not read the root group link count", path);
-  }
-
-  for (hsize_t i = 0; i < ginfo.nlinks; i++) {
-    char name[MAX_STRING_LEN];
-    const ssize_t len = H5Lget_name_by_idx(root, ".", H5_INDEX_NAME, H5_ITER_INC, i, name,
-                                           sizeof(name), H5P_DEFAULT);
-    if (len < 0 || (size_t)len >= sizeof(name)) {
-      FATAL_ERROR("%s: could not read the name of root object %" PRIu64, path, (uint64_t)i);
-    }
-    int known = 0;
-    for (size_t e = 0; e < expected_count; e++) {
-      if (strcmp(expected[e], name) == 0) {
-        known = 1;
-        break;
-      }
-    }
-    if (!known) {
-      FATAL_ERROR("%s: unexpected root object '%s'; format_version %d defines exactly the groups "
-                  "'/header' and '/halos'",
-                  path, name, HORIZONTAL_HDF5_FORMAT_VERSION);
-    }
-  }
-
-  for (size_t e = 0; e < expected_count; e++) {
-    if (H5Lexists(root, expected[e], H5P_DEFAULT) <= 0) {
-      FATAL_ERROR("%s: required group '/%s' is missing", path, expected[e]);
-    }
-    hid_t obj = H5Gopen2(root, expected[e], H5P_DEFAULT);
-    if (obj < 0) {
-      FATAL_ERROR("%s: object '/%s' is not a group", path, expected[e]);
-    }
-    if (H5Gclose(obj) < 0) {
-      FATAL_ERROR("%s: could not close group '/%s'", path, expected[e]);
-    }
-  }
-
-  if (H5Gclose(root) < 0) {
-    FATAL_ERROR("%s: could not close the root group", path);
-  }
-}
 
 /**
  * @brief   Read one scalar header attribute, validating its rank and dtype.
@@ -558,137 +456,6 @@ static void horizontal_h5_read_header_attr(hid_t file, const char *path,
   }
   if (H5Tclose(dtype) < 0 || H5Aclose(attr) < 0) {
     FATAL_ERROR("%s: could not close header attribute '%s'", path, spec->name);
-  }
-}
-
-/**
- * @brief   Validate the header attribute set and read every attribute.
- *
- * An extra attribute is rejected by the iteration; a missing one is reported by
- * the read that needs it, naming it.
- */
-static void horizontal_h5_read_header(hid_t file, const char *path,
-                                      struct horizontal_h5_header *header) {
-  hid_t group = H5Gopen2(file, "/header", H5P_DEFAULT);
-  if (group < 0) {
-    FATAL_ERROR("%s: could not open group '/header'", path);
-  }
-  struct horizontal_h5_attr_scan scan = {path};
-  hsize_t idx = 0;
-  if (H5Aiterate2(group, H5_INDEX_NAME, H5_ITER_INC, &idx, horizontal_h5_reject_unknown_attr,
-                  &scan) < 0) {
-    FATAL_ERROR("%s: could not enumerate the attributes of '/header'", path);
-  }
-  if (H5Gclose(group) < 0) {
-    FATAL_ERROR("%s: could not close group '/header'", path);
-  }
-
-  for (size_t i = 0; i < HORIZONTAL_H5_HEADER_ATTR_COUNT; i++) {
-    horizontal_h5_read_header_attr(file, path, &HORIZONTAL_H5_HEADER_ATTRS[i],
-                                   (char *)header + HORIZONTAL_H5_HEADER_ATTRS[i].offset);
-  }
-}
-
-/**
- * @brief   Validate the /halos dataset set, dtypes, ranks and shapes.
- *
- * Runs before any bulk read, so a dataset of the wrong shape is rejected rather
- * than read into a buffer sized from the header.
- */
-static void horizontal_h5_validate_halo_datasets(hid_t file, const char *path, int64_t n_halos) {
-  hid_t group = H5Gopen2(file, "/halos", H5P_DEFAULT);
-  if (group < 0) {
-    FATAL_ERROR("%s: could not open group '/halos'", path);
-  }
-
-  H5G_info_t ginfo;
-  if (H5Gget_info(group, &ginfo) < 0) {
-    FATAL_ERROR("%s: could not read the link count of '/halos'", path);
-  }
-
-  for (hsize_t i = 0; i < ginfo.nlinks; i++) {
-    char name[MAX_STRING_LEN];
-    const ssize_t len = H5Lget_name_by_idx(group, ".", H5_INDEX_NAME, H5_ITER_INC, i, name,
-                                           sizeof(name), H5P_DEFAULT);
-    if (len < 0 || (size_t)len >= sizeof(name)) {
-      FATAL_ERROR("%s: could not read the name of '/halos' member %" PRIu64, path, (uint64_t)i);
-    }
-    int known = 0;
-    for (size_t s = 0; s < HORIZONTAL_H5_HALO_DATASET_COUNT; s++) {
-      if (strcmp(HORIZONTAL_H5_HALO_DATASETS[s].name, name) == 0) {
-        known = 1;
-        break;
-      }
-    }
-    if (!known) {
-      FATAL_ERROR("%s: unexpected dataset '/halos/%s'; format_version %d defines exactly %zu halo "
-                  "datasets",
-                  path, name, HORIZONTAL_HDF5_FORMAT_VERSION,
-                  (size_t)HORIZONTAL_H5_HALO_DATASET_COUNT);
-    }
-  }
-
-  for (size_t s = 0; s < HORIZONTAL_H5_HALO_DATASET_COUNT; s++) {
-    const struct horizontal_h5_dataset_spec *spec = &HORIZONTAL_H5_HALO_DATASETS[s];
-
-    if (H5Lexists(group, spec->name, H5P_DEFAULT) <= 0) {
-      FATAL_ERROR("%s: required dataset '/halos/%s' is missing", path, spec->name);
-    }
-
-    hid_t dset = H5Dopen2(group, spec->name, H5P_DEFAULT);
-    if (dset < 0) {
-      FATAL_ERROR("%s: could not open dataset '/halos/%s'", path, spec->name);
-    }
-
-    hid_t dtype = H5Dget_type(dset);
-    if (dtype < 0) {
-      FATAL_ERROR("%s: could not read the datatype of '/halos/%s'", path, spec->name);
-    }
-    if (!horizontal_h5_type_matches(dtype, spec->type)) {
-      FATAL_ERROR("%s: dataset '/halos/%s' must be %s on disk; found HDF5 type class %d of %zu "
-                  "bytes",
-                  path, spec->name, horizontal_h5_type_name(spec->type), (int)H5Tget_class(dtype),
-                  H5Tget_size(dtype));
-    }
-    if (H5Tclose(dtype) < 0) {
-      FATAL_ERROR("%s: could not close the datatype of '/halos/%s'", path, spec->name);
-    }
-
-    hid_t space = H5Dget_space(dset);
-    if (space < 0) {
-      FATAL_ERROR("%s: could not read the dataspace of '/halos/%s'", path, spec->name);
-    }
-    const int expected_rank = spec->ncols == 0 ? 1 : 2;
-    const int rank = H5Sget_simple_extent_ndims(space);
-    if (rank != expected_rank) {
-      FATAL_ERROR("%s: dataset '/halos/%s' must have rank %d; found rank %d", path, spec->name,
-                  expected_rank, rank);
-    }
-    hsize_t dims[2] = {0, 0};
-    if (H5Sget_simple_extent_dims(space, dims, NULL) != expected_rank) {
-      FATAL_ERROR("%s: could not read the extent of '/halos/%s'", path, spec->name);
-    }
-    if ((int64_t)dims[0] != n_halos) {
-      FATAL_ERROR("%s: dataset '/halos/%s' has length %" PRIu64 " but header n_halos is %" PRId64,
-                  path, spec->name, (uint64_t)dims[0], n_halos);
-    }
-    /* Compared in the wide type: narrowing dims[1] to int would let a logical
-       second dimension of 2^32 + 3 truncate to 3 and pass. */
-    if (expected_rank == 2 && dims[1] != (hsize_t)spec->ncols) {
-      FATAL_ERROR("%s: dataset '/halos/%s' must have shape [%" PRId64
-                  ", %d]; found second dimension %" PRIu64,
-                  path, spec->name, n_halos, spec->ncols, (uint64_t)dims[1]);
-    }
-    if (H5Sclose(space) < 0) {
-      FATAL_ERROR("%s: could not close the dataspace of '/halos/%s'", path, spec->name);
-    }
-    if (H5Dclose(dset) < 0) {
-      FATAL_ERROR("%s: could not close dataset '/halos/%s'", path, spec->name);
-    }
-  }
-
-  if (H5Gclose(group) < 0) {
-    FATAL_ERROR("%s: could not close group '/halos'", path);
   }
 }
 
@@ -857,10 +624,10 @@ static const char *horizontal_h5_peek_fault_text(enum horizontal_h5_peek_fault f
  *
  * Existence is tested before anything is opened, so a file without the
  * attribute prints no HDF5 error stack, and a soft or external `/header` is
- * never followed. A 0 return sends a version 2 file down its dataset's version
- * path, whose own checks then name exactly what is missing or malformed; the
- * caller uses *fault to give a version 3 file (one carrying `/schema`) the same
- * precision. Every handle opened here is closed before returning.
+ * never followed. This function only reports: the caller rejects snapshot 0 on
+ * a 0 return, naming *fault, and leaves a later file to the header checks,
+ * which name exactly what is missing or malformed. Every handle opened here is
+ * closed before returning.
  */
 static int horizontal_h5_peek_format_version(hid_t file, int32_t *version,
                                              enum horizontal_h5_peek_fault *fault) {
@@ -1100,7 +867,7 @@ static void horizontal_h5_v3_read_string_attr(hid_t file, const char *path,
 
 /**
  * @brief   Validate the version 3 header attribute set and read every
- *          attribute: the twelve version 2 attributes, then the two strings.
+ *          attribute: the twelve numeric attributes, then the two strings.
  *
  * The two strings are also checked for form here: `source_format` names a
  * known adapter, and `column_mapping_sha256` is 64 lowercase hex digits.
@@ -1421,12 +1188,7 @@ static void horizontal_h5_v3_require_same_schema(const struct horizontal_h5_sche
   }
 }
 
-/**
- * @brief   Validate one /halos dataset's dtype, rank and shape.
- *
- * The version 3 counterpart of the per-dataset body of
- * horizontal_h5_validate_halo_datasets(), which version 2 keeps unchanged.
- */
+/** @brief Validate one /halos dataset's dtype, rank and shape. */
 static void horizontal_h5_v3_validate_dataset(hid_t group, const char *path, const char *name,
                                               enum horizontal_h5_scalar_type type, int ncols,
                                               int64_t n_halos, const char *declared_by) {
@@ -1463,7 +1225,8 @@ static void horizontal_h5_v3_validate_dataset(hid_t group, const char *path, con
   if (H5Sget_simple_extent_dims(space, dims, NULL) != expected_rank) {
     FATAL_ERROR("%s: could not read the extent of '/halos/%s'", path, name);
   }
-  /* Compared in the wide type, never narrowed: see the version 2 check. */
+  /* Compared in the wide type, never narrowed: narrowing a dimension to int
+     would let a logical extent of 2^32 + 3 truncate to 3 and pass. */
   if (dims[0] != (hsize_t)n_halos) {
     FATAL_ERROR("%s: dataset '/halos/%s' has length %" PRIu64 " but header n_halos is %" PRId64,
                 path, name, (uint64_t)dims[0], n_halos);
@@ -1776,75 +1539,11 @@ static void horizontal_h5_fill_member(hid_t file, const char *path, const char *
  *
  * Every field of struct RawHalo is populated from the generated property list,
  * so a package that gains or renames a catalog field is followed automatically
- * with no edit here. Both format versions share this path; each has already
- * proven at open that every dataset the list names exists with the right shape.
+ * with no edit here. open_run has already proven that every dataset the list
+ * names exists with the right shape.
  */
 static void horizontal_h5_fill_halos(hid_t file, const char *path, int64_t row_lo, int64_t n_halos,
                                      struct RawHalo *halos) {
-#include "../../include/generated/read_tree_hdf5_properties.inc"
-}
-
-#undef READ_TREE_PROPERTY
-#undef READ_TREE_PROPERTY_MULTIPLEDIM
-
-/**
- * @brief   Schema-table entry by dataset name, or NULL if not declared.
- *
- * The same lookup pattern horizontal_h5_validate_halo_datasets() already uses to
- * check a dataset's membership, reused here so a dataset's name and on-disk
- * scalar type come from HORIZONTAL_H5_HALO_DATASETS rather than being retyped as
- * literals at the call site. The caller (horizontal_h5_fill_identity() below)
- * still hard-types its destination buffers as int64_t and passes a literal
- * column count of 1; that is not derived from this lookup, and is safe only
- * because both format versions fix ForestIndex and HaloRankInForest as scalar
- * (ncols 0) int64 columns -- format_version 2 in HORIZONTAL_H5_HALO_DATASETS
- * and format_version 3 in HORIZONTAL_H5_V3_FIXED_DATASETS, each checked at
- * open by its own dataset validation. This function does not itself enforce
- * that.
- */
-static const struct horizontal_h5_dataset_spec *
-horizontal_h5_dataset_spec_by_name(const char *name) {
-  for (size_t s = 0; s < HORIZONTAL_H5_HALO_DATASET_COUNT; s++) {
-    if (strcmp(HORIZONTAL_H5_HALO_DATASETS[s].name, name) == 0) {
-      return &HORIZONTAL_H5_HALO_DATASETS[s];
-    }
-  }
-  return NULL;
-}
-
-/* Horizontal-flavoured counterparts of READ_TREE_PROPERTY/READ_TREE_PROPERTY_MULTIPLEDIM
-   above, redefined to check membership instead of reading data. Reused here so the
-   check walks exactly the read list horizontal_h5_fill_halos() will later use, rather
-   than a hand-maintained copy of it drifting out of step. */
-#define READ_TREE_PROPERTY(field_name, hdf5_name, type_int, data_type)                             \
-  if (horizontal_h5_dataset_spec_by_name(hdf5_name) == NULL) {                                     \
-    FATAL_ERROR("Simulation package '%s' declares halo property '%s' as dataset '/halos/%s', "     \
-                "which format_version %d of the horizontal_hdf5 contract does not define; the "    \
-                "selected package's halo_properties.yaml does not match the horizontal format "    \
-                "contract",                                                                        \
-                MIMIC_COMPILED_SIMULATION, #field_name, hdf5_name,                                 \
-                HORIZONTAL_HDF5_FORMAT_VERSION);                                                   \
-  }
-#define READ_TREE_PROPERTY_MULTIPLEDIM(field_name, hdf5_name, type_int, data_type)                 \
-  READ_TREE_PROPERTY(field_name, hdf5_name, type_int, data_type)
-
-/**
- * @brief   Fail fast if the compiled-in read list names a dataset the format
- *          table does not define.
- *
- * horizontal_h5_fill_halos() fills struct RawHalo by the SELECTED SIMULATION
- * PACKAGE's hdf5_name values, via the same generated read list included below
- * -- not by HORIZONTAL_H5_HALO_DATASETS. Nothing else in open_run checks that
- * those two name sets agree: a package built for a different tree format
- * (for example mini-millennium's lhalo_binary-style halo_properties.yaml,
- * whose hdf5_name values include M_mean200, M_TopHat, Filenr and
- * SubHaloIndex) would otherwise pass every structural, header and identity
- * check above -- for every configured snapshot -- and die only inside the
- * raw H5Dopen2 at the first load_slab. This check depends on no file, so it
- * runs once, before any of that per-snapshot work, and names the offending
- * dataset and package.
- */
-static void horizontal_h5_validate_read_list_against_format(void) {
 #include "../../include/generated/read_tree_hdf5_properties.inc"
 }
 
@@ -1859,15 +1558,18 @@ static void horizontal_h5_validate_read_list_against_format(void) {
  * (convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md), not struct RawHalo members: they are
  * read directly by dataset name into slab-owned arrays, independent of
  * halo_properties.yaml and the generated property list that fills struct
- * RawHalo above.
+ * RawHalo above. Each dataset's name and on-disk scalar type come from
+ * HORIZONTAL_H5_V3_FIXED_DATASETS rather than being retyped as literals here.
+ * The int64_t destinations and the literal column count of 1 are not derived
+ * from that lookup: they are safe only because the fixed table types both
+ * columns as scalar (ncols 0) int64, which open_run has already checked.
  */
 static void horizontal_h5_fill_identity(hid_t file, const char *path, int64_t row_lo,
                                         int64_t n_halos, int64_t *forest_index,
                                         int64_t *halo_rank_in_forest) {
-  const struct horizontal_h5_dataset_spec *forest_spec =
-      horizontal_h5_dataset_spec_by_name("ForestIndex");
+  const struct horizontal_h5_dataset_spec *forest_spec = horizontal_h5_v3_fixed_spec("ForestIndex");
   const struct horizontal_h5_dataset_spec *rank_spec =
-      horizontal_h5_dataset_spec_by_name("HaloRankInForest");
+      horizontal_h5_v3_fixed_spec("HaloRankInForest");
 
   horizontal_h5_read_column(file, path, forest_spec->name,
                             horizontal_h5_native_type(forest_spec->type), row_lo, n_halos, 1,
@@ -1877,41 +1579,10 @@ static void horizontal_h5_fill_identity(hid_t file, const char *path, int64_t ro
 }
 
 /* ---------------------------------------------------------------------------
- * Link validation
+ * Link storage
  *
- * Index ranges only (design decision 9). Each link field points either within
- * the loaded snapshot or into an immediately adjacent one, which is what
- * `links_adjacent = 1` promises.
+ * The link members of struct RawHalo, as the link validation below reads them.
  * ------------------------------------------------------------------------- */
-
-/** Which snapshot's halo count bounds a link field. */
-enum horizontal_h5_link_domain {
-  HORIZONTAL_H5_LINK_PREV = 0, /* snapshot N-1: progenitors */
-  HORIZONTAL_H5_LINK_THIS,     /* snapshot N: siblings and FoF membership */
-  HORIZONTAL_H5_LINK_NEXT,     /* snapshot N+1: descendants */
-};
-
-struct horizontal_h5_link_spec {
-  const char *name;
-  size_t offset; /* link field within struct RawHalo */
-  size_t width;  /* its storage: int (4 bytes) or long long (8 bytes) */
-  int allow_null_link;
-  enum horizontal_h5_link_domain domain;
-};
-
-#define HORIZONTAL_H5_LINK(field, allow_null, domain)                                              \
-  {#field, offsetof(struct RawHalo, field), sizeof(((struct RawHalo *)0)->field), allow_null,      \
-   domain}
-
-static const struct horizontal_h5_link_spec HORIZONTAL_H5_LINKS[] = {
-    HORIZONTAL_H5_LINK(FirstProgenitor, 1, HORIZONTAL_H5_LINK_PREV),
-    HORIZONTAL_H5_LINK(NextProgenitor, 1, HORIZONTAL_H5_LINK_THIS),
-    /* Never -1: every halo belongs to a FoF group, at minimum its own. */
-    HORIZONTAL_H5_LINK(FirstHaloInFOFgroup, 0, HORIZONTAL_H5_LINK_THIS),
-    HORIZONTAL_H5_LINK(NextHaloInFOFgroup, 1, HORIZONTAL_H5_LINK_THIS),
-    HORIZONTAL_H5_LINK(Descendant, 1, HORIZONTAL_H5_LINK_NEXT),
-};
-#define HORIZONTAL_H5_LINK_COUNT (sizeof(HORIZONTAL_H5_LINKS) / sizeof(HORIZONTAL_H5_LINKS[0]))
 
 /* The link validators below read each of these members through offsetof() and
    horizontal_h5_link_value(), which knows exactly two storage widths: the
@@ -1945,103 +1616,6 @@ static int64_t horizontal_h5_link_value(const struct RawHalo *halo, size_t offse
   int32_t value;
   memcpy(&value, field, sizeof(value));
   return value;
-}
-
-/**
- * @brief   Halo count bounding one link field, and the snapshot it comes from.
- *
- * Snapshot 0 has no snapshot -1 and the final snapshot has no successor; both
- * are treated as holding zero halos, which is what makes a non-null
- * FirstProgenitor in snapshot 0, and a non-null Descendant in the final
- * snapshot, out of range rather than a special case.
- */
-static int64_t horizontal_h5_link_limit(enum horizontal_h5_link_domain domain, int64_t snapnum,
-                                        int64_t *bounding_snap) {
-  switch (domain) {
-  case HORIZONTAL_H5_LINK_PREV:
-    *bounding_snap = snapnum - 1;
-    return snapnum > 0 ? SNAP.halo_counts[snapnum - 1] : 0;
-  case HORIZONTAL_H5_LINK_THIS:
-    *bounding_snap = snapnum;
-    return SNAP.halo_counts[snapnum];
-  case HORIZONTAL_H5_LINK_NEXT:
-    *bounding_snap = snapnum + 1;
-    return snapnum + 1 < SNAP.snapshot_count ? SNAP.halo_counts[snapnum + 1] : 0;
-  }
-  *bounding_snap = snapnum;
-  return 0;
-}
-
-/**
- * @brief   Validate every link field of a loaded slab, aborting on any offence.
- *
- * Diagnostics are bounded: each field contributes at most one counted summary
- * line carrying the offence count and the first offending halo index and value,
- * whatever the number of bad halos. A systematically broken snapshot therefore
- * costs five lines, not n_halos lines. Rows are named as snapshot rows: halos[i]
- * is snapshot row `row_lo + i`, which differs from i for a range-loaded slab.
- */
-static void horizontal_h5_validate_links(const char *path, int64_t snapnum, int64_t row_lo,
-                                         int64_t n_halos, const struct RawHalo *halos) {
-  int violated_fields = 0;
-  const char *first_field = NULL;
-  char first_range[64] = "";
-  int64_t first_bad_index = 0;
-  int64_t first_bad_value = 0;
-
-  for (size_t s = 0; s < HORIZONTAL_H5_LINK_COUNT; s++) {
-    const struct horizontal_h5_link_spec *spec = &HORIZONTAL_H5_LINKS[s];
-    int64_t bounding_snap = 0;
-    const int64_t limit = horizontal_h5_link_limit(spec->domain, snapnum, &bounding_snap);
-
-    char range[64];
-    if (spec->allow_null_link) {
-      snprintf(range, sizeof(range), "-1 or [0, %" PRId64 ")", limit);
-    } else {
-      snprintf(range, sizeof(range), "[0, %" PRId64 ")", limit);
-    }
-
-    int64_t count = 0;
-    int64_t bad_index = 0;
-    int64_t bad_value = 0;
-    for (int64_t i = 0; i < n_halos; i++) {
-      const int64_t value = horizontal_h5_link_value(&halos[i], spec->offset, spec->width);
-      if (value == -1 && spec->allow_null_link) {
-        continue;
-      }
-      if (value >= 0 && value < limit) {
-        continue;
-      }
-      if (count == 0) {
-        bad_index = i;
-        bad_value = value;
-      }
-      count++;
-    }
-
-    if (count == 0) {
-      continue;
-    }
-    /* One counted summary per field, never one line per halo. */
-    ERROR_LOG("%s: snapshot %" PRId64 " has %" PRId64 " halo(s) whose '%s' is outside %s (bounded "
-              "by snapshot %" PRId64 "); first at snapshot row %" PRId64 " with value %" PRId64,
-              path, snapnum, count, spec->name, range, bounding_snap, row_lo + bad_index,
-              bad_value);
-    if (violated_fields == 0) {
-      first_field = spec->name;
-      snprintf(first_range, sizeof(first_range), "%s", range);
-      first_bad_index = row_lo + bad_index;
-      first_bad_value = bad_value;
-    }
-    violated_fields++;
-  }
-
-  if (violated_fields > 0) {
-    FATAL_ERROR("%s: snapshot %" PRId64 " has %d invalid link field(s); '%s' is %" PRId64
-                " at snapshot row %" PRId64 ", outside %s",
-                path, snapnum, violated_fields, first_field, first_bad_value, first_bad_index,
-                first_range);
-  }
 }
 
 /* ---------------------------------------------------------------------------
@@ -2200,7 +1774,7 @@ static int horizontal_h5_v3_link_invalid(enum horizontal_h5_v3_link link, int64_
  *
  * Reads only the slab already in memory -- the links in struct RawHalo and the
  * reader-owned target-snapshot arrays -- so it allocates nothing and re-reads
- * nothing. Diagnostics are bounded exactly as in version 2: each link field
+ * nothing. Diagnostics are bounded: each link field
  * contributes at most one counted summary line carrying the offence count and
  * the first offending halo, whatever the number of bad halos. Rows are named
  * as snapshot rows: halos[i] is snapshot row `row_lo + i`, which differs from i
@@ -2307,17 +1881,14 @@ static void horizontal_h5_check_physical_value(const char *path, const char *att
  * @brief   Bytes load_slab allocates per halo across every reader-owned slab array.
  *
  * Lists exactly the arrays load_slab allocates one row each: the raw record, the
- * two identity columns and, for version 3, the three int32 target-snapshot
- * columns and SourceHaloID. open_run publishes it as HorizontalRunInfo.slab_row_bytes
- * for the driver's retention accounting; tests/unit/test_horizontal_retention_budget.c
- * and the micro-uchuu-ascii-horizontal package test check it against the allocator.
- * Keep it in step with load_slab.
+ * two identity columns, the three int32 target-snapshot columns and SourceHaloID.
+ * open_run publishes it as HorizontalRunInfo.slab_row_bytes for the driver's
+ * retention accounting; tests/unit/test_horizontal_retention_budget.c checks it
+ * against the allocator. Keep it in step with load_slab.
  */
-static int64_t horizontal_h5_slab_row_bytes(int is_v3) {
-  size_t row = sizeof(struct RawHalo) + 2 * sizeof(int64_t);
-  if (is_v3) {
-    row += HORIZONTAL_H5_V3_TARGETED_LINKS * sizeof(int32_t) + sizeof(int64_t);
-  }
+static int64_t horizontal_h5_slab_row_bytes(void) {
+  const size_t row = sizeof(struct RawHalo) + 2 * sizeof(int64_t) +
+                     HORIZONTAL_H5_V3_TARGETED_LINKS * sizeof(int32_t) + sizeof(int64_t);
   return (int64_t)row;
 }
 
@@ -2362,8 +1933,8 @@ static void open_run_horizontal_hdf5(const struct HorizontalOpenOptions *options
   int64_t measured_max_halo_rank = INT64_MIN;
   int is_empty_dataset = 0;
 
-  /* The dataset's version, fixed by snapshot 0; and, for version 3, snapshot
-     0's header strings and /schema, which every later file must repeat. */
+  /* The dataset's version, fixed by snapshot 0; and snapshot 0's header
+     strings and /schema, which every later file must repeat. */
   int32_t dataset_version = 0;
   struct horizontal_h5_v3_strings v3_reference;
   struct horizontal_h5_schema v3_reference_schema = {0, NULL};
@@ -2384,29 +1955,34 @@ static void open_run_horizontal_hdf5(const struct HorizontalOpenOptions *options
       FATAL_ERROR("%s: could not open the file as HDF5", path);
     }
 
-    /* Version dispatch before any per-version check. A file
-       whose version cannot be read goes down its dataset's path, whose own
-       structure and header checks then name exactly what is wrong. */
+    /* The version check before any other check. Snapshot 0 fixes the dataset's
+       version and must declare a readable one; a later file whose version
+       cannot be read is left to the header checks below, which name exactly
+       what is wrong. */
     int32_t file_version = 0;
     enum horizontal_h5_peek_fault peek_fault;
     const int has_version = horizontal_h5_peek_format_version(file, &file_version, &peek_fault);
     if (snap == 0) {
-      /* Only a version 3 file has /schema (a version 2 file never enters this
-         branch), so an unreadable carrier beside /schema is a malformed version
-         3 header, not a version 2 file with a bad object set. */
+      /* Only a version 3 file has /schema, so an unreadable carrier beside
+         /schema is a malformed version 3 header. */
       if (!has_version && H5Lexists(file, "schema", H5P_DEFAULT) > 0) {
         FATAL_ERROR("%s: snapshot 0 carries '/schema', which only a version 3 file has, but its "
                     "'format_version' cannot be read: %s; version 3 requires a hard-linked "
                     "'/header' with a scalar int32 attribute 'format_version'",
                     path, horizontal_h5_peek_fault_text(peek_fault));
       }
-      dataset_version = has_version ? file_version : HORIZONTAL_HDF5_FORMAT_VERSION;
-      if (dataset_version != HORIZONTAL_HDF5_FORMAT_VERSION &&
-          dataset_version != HORIZONTAL_HDF5_FORMAT_VERSION_V3) {
+      if (!has_version) {
+        FATAL_ERROR("%s: snapshot 0's 'format_version' cannot be read: %s; this reader supports "
+                    "only version %d, which requires a hard-linked '/header' with a scalar int32 "
+                    "attribute 'format_version'",
+                    path, horizontal_h5_peek_fault_text(peek_fault),
+                    HORIZONTAL_HDF5_FORMAT_VERSION_V3);
+      }
+      dataset_version = file_version;
+      if (dataset_version != HORIZONTAL_HDF5_FORMAT_VERSION_V3) {
         FATAL_ERROR("%s: header attribute 'format_version' is %" PRId32
-                    " but this reader supports only versions %d and %d%s",
-                    path, dataset_version, HORIZONTAL_HDF5_FORMAT_VERSION,
-                    HORIZONTAL_HDF5_FORMAT_VERSION_V3,
+                    " but this reader supports only version %d%s",
+                    path, dataset_version, HORIZONTAL_HDF5_FORMAT_VERSION_V3,
                     dataset_version == 1 ? "; version 1 data was produced with fix_flybys() live "
                                            "and must be reconverted from source"
                                          : "");
@@ -2417,59 +1993,35 @@ static void open_run_horizontal_hdf5(const struct HorizontalOpenOptions *options
                   "; a dataset never mixes format versions",
                   path, file_version, dataset_version);
     }
-    const int is_v3 = dataset_version == HORIZONTAL_HDF5_FORMAT_VERSION_V3;
 
     /* Structure before values, values before bulk reads. */
     struct horizontal_h5_header header;
     struct horizontal_h5_v3_strings v3_strings;
-    if (is_v3) {
-      horizontal_h5_v3_validate_object_set(file, path);
-      horizontal_h5_v3_read_header(file, path, &header, &v3_strings);
-    } else {
-      horizontal_h5_validate_object_set(file, path);
-      horizontal_h5_read_header(file, path, &header);
-    }
+    horizontal_h5_v3_validate_object_set(file, path);
+    horizontal_h5_v3_read_header(file, path, &header, &v3_strings);
 
-    if (is_v3) {
-      if (header.format_version != HORIZONTAL_HDF5_FORMAT_VERSION_V3) {
-        FATAL_ERROR("%s: header attribute 'format_version' is %" PRId32
-                    " but snapshot 0 declares version %d; a dataset never mixes format versions",
-                    path, header.format_version, HORIZONTAL_HDF5_FORMAT_VERSION_V3);
-      }
-      /* links_adjacent is measured over the whole dataset, so it is 0 or 1 and
-         identical in every file. */
-      if (header.links_adjacent != 0 && header.links_adjacent != 1) {
-        FATAL_ERROR("%s: header attribute 'links_adjacent' is %" PRId32
-                    " but format_version %d requires 0 or 1",
-                    path, header.links_adjacent, HORIZONTAL_HDF5_FORMAT_VERSION_V3);
-      }
-    } else {
-      if (header.format_version != HORIZONTAL_HDF5_FORMAT_VERSION) {
-        FATAL_ERROR("%s: header attribute 'format_version' is %" PRId32
-                    " but this reader supports only version %d",
-                    path, header.format_version, HORIZONTAL_HDF5_FORMAT_VERSION);
-      }
-      if (header.links_adjacent != 1) {
-        FATAL_ERROR("%s: header attribute 'links_adjacent' is %" PRId32
-                    " but format_version %d requires 1",
-                    path, header.links_adjacent, HORIZONTAL_HDF5_FORMAT_VERSION);
-      }
+    if (header.format_version != HORIZONTAL_HDF5_FORMAT_VERSION_V3) {
+      FATAL_ERROR("%s: header attribute 'format_version' is %" PRId32
+                  " but snapshot 0 declares version %d; a dataset never mixes format versions",
+                  path, header.format_version, HORIZONTAL_HDF5_FORMAT_VERSION_V3);
+    }
+    /* links_adjacent is measured over the whole dataset, so it is 0 or 1 and
+       identical in every file. */
+    if (header.links_adjacent != 0 && header.links_adjacent != 1) {
+      FATAL_ERROR("%s: header attribute 'links_adjacent' is %" PRId32
+                  " but format_version %d requires 0 or 1",
+                  path, header.links_adjacent, HORIZONTAL_HDF5_FORMAT_VERSION_V3);
     }
     if ((int64_t)header.snapshot_number != snap) {
       FATAL_ERROR("%s: header attribute 'snapshot_number' is %" PRId32
                   " but the filename names snapshot %" PRId64,
                   path, header.snapshot_number, snap);
     }
-    if (is_v3) {
-      /* Version 3 lifts version 2's int32 ceiling: a snapshot may hold more
-         than INT32_MAX halos (format invariant 4). */
-      if (header.n_halos < 0) {
-        FATAL_ERROR("%s: header attribute 'n_halos' is %" PRId64 "; it must be non-negative", path,
-                    header.n_halos);
-      }
-    } else if (header.n_halos < 0 || header.n_halos > (int64_t)INT32_MAX) {
-      FATAL_ERROR("%s: header attribute 'n_halos' is %" PRId64 "; it must lie in [0, %" PRId64 "]",
-                  path, header.n_halos, (int64_t)INT32_MAX);
+    /* No int32 ceiling: a snapshot may hold more than INT32_MAX halos (format
+       invariant 4). */
+    if (header.n_halos < 0) {
+      FATAL_ERROR("%s: header attribute 'n_halos' is %" PRId64 "; it must be non-negative", path,
+                  header.n_halos);
     }
     if (header.scale_factor != MimicConfig.AA[snap]) {
       FATAL_ERROR("%s: header attribute 'scale_factor' is %.17g but snapshot list entry %" PRId64
@@ -2480,7 +2032,7 @@ static void open_run_horizontal_hdf5(const struct HorizontalOpenOptions *options
     /* Physical header agreement with the configured simulation. A rounding tolerance, not a
        scientific one -- see horizontal_h5_physical_value_agrees(). particle_mass_msun_h is compared
        by multiplying the configured value up to native units, matching the producer's own operation
-       (convert/mimic-convert/hdf5_writer.py), never by dividing the header down. */
+       (convert/mimic-convert/hdf5_writer_v3.py), never by dividing the header down. */
     horizontal_h5_check_physical_value(path, "box_size_mpc_h", header.box_size_mpc_h,
                                        MimicConfig.BoxSize);
     horizontal_h5_check_physical_value(path, "omega_matter", header.omega_matter,
@@ -2519,7 +2071,7 @@ static void open_run_horizontal_hdf5(const struct HorizontalOpenOptions *options
                     "in every file",
                     path, header.max_halo_rank_in_forest, max_halo_rank_in_forest);
       }
-      if (is_v3 && header.links_adjacent != links_adjacent) {
+      if (header.links_adjacent != links_adjacent) {
         FATAL_ERROR("%s: header attribute 'links_adjacent' is %" PRId32 " but snapshot 0 declares "
                     "%" PRId32 "; it is measured over the whole dataset and must be identical in "
                     "every file",
@@ -2527,20 +2079,18 @@ static void open_run_horizontal_hdf5(const struct HorizontalOpenOptions *options
       }
     }
 
-    if (is_v3) {
-      if (snap == 0) {
-        v3_reference = v3_strings;
-      } else {
-        if (strcmp(v3_strings.source_format, v3_reference.source_format) != 0) {
-          FATAL_ERROR("%s: header attribute 'source_format' is '%s' but snapshot 0 declares '%s'; "
-                      "it must be identical in every file",
-                      path, v3_strings.source_format, v3_reference.source_format);
-        }
-        if (strcmp(v3_strings.column_mapping_sha256, v3_reference.column_mapping_sha256) != 0) {
-          FATAL_ERROR("%s: header attribute 'column_mapping_sha256' is '%s' but snapshot 0 "
-                      "declares '%s'; it must be identical in every file",
-                      path, v3_strings.column_mapping_sha256, v3_reference.column_mapping_sha256);
-        }
+    if (snap == 0) {
+      v3_reference = v3_strings;
+    } else {
+      if (strcmp(v3_strings.source_format, v3_reference.source_format) != 0) {
+        FATAL_ERROR("%s: header attribute 'source_format' is '%s' but snapshot 0 declares '%s'; "
+                    "it must be identical in every file",
+                    path, v3_strings.source_format, v3_reference.source_format);
+      }
+      if (strcmp(v3_strings.column_mapping_sha256, v3_reference.column_mapping_sha256) != 0) {
+        FATAL_ERROR("%s: header attribute 'column_mapping_sha256' is '%s' but snapshot 0 "
+                    "declares '%s'; it must be identical in every file",
+                    path, v3_strings.column_mapping_sha256, v3_reference.column_mapping_sha256);
       }
     }
 
@@ -2555,30 +2105,20 @@ static void open_run_horizontal_hdf5(const struct HorizontalOpenOptions *options
                   path, header.n_halos);
     }
 
-    if (is_v3) {
-      /* /schema structure first, since it defines the /halos set; then its
-         identity across files, the /halos set against it, and -- once, since
-         every file repeats snapshot 0's /schema -- the package against it. */
-      struct horizontal_h5_schema schema = {0, NULL};
-      horizontal_h5_v3_read_schema(file, path, &schema);
-      if (snap > 0) {
-        horizontal_h5_v3_require_same_schema(&v3_reference_schema, &schema, path);
-      }
-      horizontal_h5_v3_validate_halo_datasets(file, path, header.n_halos, &schema);
-      if (snap == 0) {
-        horizontal_h5_v3_validate_package(&schema, path);
-        v3_reference_schema = schema;
-      } else {
-        horizontal_h5_v3_free_schema(&schema);
-      }
+    /* /schema structure first, since it defines the /halos set; then its
+       identity across files, the /halos set against it, and -- once, since
+       every file repeats snapshot 0's /schema -- the package against it. */
+    struct horizontal_h5_schema schema = {0, NULL};
+    horizontal_h5_v3_read_schema(file, path, &schema);
+    if (snap > 0) {
+      horizontal_h5_v3_require_same_schema(&v3_reference_schema, &schema, path);
+    }
+    horizontal_h5_v3_validate_halo_datasets(file, path, header.n_halos, &schema);
+    if (snap == 0) {
+      horizontal_h5_v3_validate_package(&schema, path);
+      v3_reference_schema = schema;
     } else {
-      horizontal_h5_validate_halo_datasets(file, path, header.n_halos);
-
-      if (snap == 0) {
-        /* Depends on no file: fail fast on a mismatched package before the
-           per-snapshot data scans below run for every configured snapshot. */
-        horizontal_h5_validate_read_list_against_format();
-      }
+      horizontal_h5_v3_free_schema(&schema);
     }
 
     /* Invariant 5's measured-data component. Bounded block scans only, and only
@@ -2645,14 +2185,11 @@ static void open_run_horizontal_hdf5(const struct HorizontalOpenOptions *options
   candidate.snapshot_count = snapshot_count;
   candidate.format_version = format_version;
   candidate.links_adjacent = links_adjacent;
-  candidate.slab_row_bytes =
-      horizontal_h5_slab_row_bytes(format_version == HORIZONTAL_HDF5_FORMAT_VERSION_V3);
+  candidate.slab_row_bytes = horizontal_h5_slab_row_bytes();
   candidate.n_forests_total = n_forests_total;
   candidate.max_halo_rank_in_forest = max_halo_rank_in_forest;
-  if (format_version == HORIZONTAL_HDF5_FORMAT_VERSION_V3) {
-    /* Already proven identical in every file; empty (zeroed above) for version 2. */
-    memcpy(candidate.source_format, v3_reference.source_format, sizeof(candidate.source_format));
-  }
+  /* Already proven identical in every file. */
+  memcpy(candidate.source_format, v3_reference.source_format, sizeof(candidate.source_format));
 
   if (!horizontal_identity_bounds_valid(&candidate, MimicConfig.UniqueGalaxyIDMultiplier)) {
     FATAL_ERROR("The dataset under '%s' declares identity bounds (n_forests_total %" PRId64
@@ -2745,7 +2282,6 @@ static void load_slab_horizontal_hdf5(int64_t snapnum, int64_t row_lo, int64_t r
   char path[HORIZONTAL_HDF5_PATH_LEN];
   horizontal_h5_format_path(path, sizeof(path), snapnum);
 
-  const int is_v3 = SNAP.info.format_version == HORIZONTAL_HDF5_FORMAT_VERSION_V3;
   struct RawHalo *halos = NULL;
   int64_t *forest_index = NULL;
   int64_t *halo_rank_in_forest = NULL;
@@ -2774,32 +2310,26 @@ static void load_slab_horizontal_hdf5(int64_t snapnum, int64_t row_lo, int64_t r
     halo_rank_in_forest = mymalloc_cat(sizeof(int64_t) * (size_t)n_halos, MEM_TREES);
     horizontal_h5_fill_identity(file, path, row_lo, n_halos, forest_index, halo_rank_in_forest);
 
-    if (is_v3) {
-      /* The three target-snapshot columns and SourceHaloID are
-         format metadata held in reader-owned slab arrays, read for the slab's
-         rows straight into those arrays -- they are the slab, so nothing is
-         staged. */
-      for (int link = 0; link < HORIZONTAL_H5_V3_TARGETED_LINKS; link++) {
-        target_snaps[link] = mymalloc_cat(sizeof(int32_t) * (size_t)n_halos, MEM_TREES);
-        horizontal_h5_read_column(file, path, HORIZONTAL_H5_V3_LINKS[link].target_name,
-                                  H5T_NATIVE_INT32, row_lo, n_halos, 1, target_snaps[link]);
-      }
-      source_halo_id = mymalloc_cat(sizeof(int64_t) * (size_t)n_halos, MEM_TREES);
-      horizontal_h5_read_column(file, path, "SourceHaloID", H5T_NATIVE_INT64, row_lo, n_halos, 1,
-                                source_halo_id);
+    /* The three target-snapshot columns and SourceHaloID are
+       format metadata held in reader-owned slab arrays, read for the slab's
+       rows straight into those arrays -- they are the slab, so nothing is
+       staged. */
+    for (int link = 0; link < HORIZONTAL_H5_V3_TARGETED_LINKS; link++) {
+      target_snaps[link] = mymalloc_cat(sizeof(int32_t) * (size_t)n_halos, MEM_TREES);
+      horizontal_h5_read_column(file, path, HORIZONTAL_H5_V3_LINKS[link].target_name,
+                                H5T_NATIVE_INT32, row_lo, n_halos, 1, target_snaps[link]);
     }
+    source_halo_id = mymalloc_cat(sizeof(int64_t) * (size_t)n_halos, MEM_TREES);
+    horizontal_h5_read_column(file, path, "SourceHaloID", H5T_NATIVE_INT64, row_lo, n_halos, 1,
+                              source_halo_id);
 
     if (H5Fclose(file) < 0) {
       FATAL_ERROR("%s: could not close the file after loading snapshot %" PRId64, path, snapnum);
     }
 
-    if (is_v3) {
-      const int32_t *const targets[HORIZONTAL_H5_V3_TARGETED_LINKS] = {
-          target_snaps[0], target_snaps[1], target_snaps[2]};
-      horizontal_h5_v3_validate_links(path, snapnum, row_lo, n_halos, halos, targets);
-    } else {
-      horizontal_h5_validate_links(path, snapnum, row_lo, n_halos, halos);
-    }
+    const int32_t *const targets[HORIZONTAL_H5_V3_TARGETED_LINKS] = {
+        target_snaps[0], target_snaps[1], target_snaps[2]};
+    horizontal_h5_v3_validate_links(path, snapnum, row_lo, n_halos, halos, targets);
   }
 
   slab->snapnum = snapnum;
