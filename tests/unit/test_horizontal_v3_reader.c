@@ -14,8 +14,12 @@
  * diagnostics; row-range loads against whole loads, range-bound aborts, the
  * ForestIndex scan and open_run without its column scans (on this fixture and
  * the mini-millennium-horizontal worked graph); range reads and the ForestIndex
- * scan across the reader's 8,192-row block boundary (the wide_slab fixture); and
- * freedom from leaks.
+ * scan across the reader's 8,192-row block boundary (the wide_slab fixture); every
+ * numeric header attribute missing or mistyped, non-finite and unit-trap physical
+ * values, the physical rounding tolerance from both sides, and structure checked
+ * before any bulk read; the registry, every dispatcher's missing-hook abort, the
+ * slab lifecycle and a two-generation rotation; the identity-bounds predicate;
+ * and freedom from leaks.
  *
  * The fixture's /schema declares mini-Millennium L-Halo payload units, which
  * only the mini-millennium-horizontal package declares, so every test that
@@ -42,7 +46,9 @@
 
 #include <hdf5.h>
 
+#include <float.h>
 #include <inttypes.h>
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1294,6 +1300,10 @@ static int c_forest_index_max_low(const char *dir) {
   /* Every header agrees on 3 forests, but the data only reaches forest 1. */
   return set_attr_i64_all(dir, "n_forests_total", 3);
 }
+static int c_forest_index_negative(const char *dir) {
+  SNAP_FILE(dir, 0, p);
+  return set_i64_element(p, "ForestIndex", 0, -1);
+}
 static int c_halo_rank_negative(const char *dir) {
   SNAP_FILE(dir, 0, p);
   return set_i64_element(p, "HaloRankInForest", 0, -1);
@@ -1469,6 +1479,8 @@ static const struct corrupt_case OPEN_CASES[] = {
     {"measured ForestIndex maximum disagrees with n_forests_total", c_forest_index_max_low,
      "declares n_forests_total 3 but the measured maximum of '/halos/ForestIndex' is 1",
      "it must be 2"},
+    {"negative ForestIndex", c_forest_index_negative, "snapshot_000.h5",
+     "'/halos/ForestIndex' is -1 at halo 0; the permitted range is [0, 1]"},
     {"negative HaloRankInForest", c_halo_rank_negative, "snapshot_000.h5",
      "'/halos/HaloRankInForest' is -1 at halo 0; the permitted range is [0, "},
     {"empty-dataset sentinel with halos present", c_empty_sentinel_with_halos, "snapshot_000.h5",
@@ -1617,6 +1629,28 @@ static int l_link_below_null(const char *dir) {
   SNAP_FILE(dir, 1, p);
   return set_i64_element(p, "FirstProgenitor", 1, -2);
 }
+static int l_fof_first_outside(const char *dir) {
+  SNAP_FILE(dir, 3, p);
+  return set_i64_element(p, "FirstHaloInFOFgroup", 0, 3);
+}
+static int l_desc_in_final_snapshot(const char *dir) {
+  /* Every snapshot a descendant of the final snapshot could name in the
+     dataset is not strictly later. */
+  SNAP_FILE(dir, FIXTURE_SNAPSHOTS - 1, p);
+  if (set_i64_element(p, "Descendant", 0, 0) != 0) {
+    return -1;
+  }
+  return set_i32_element(p, "DescendantSnapshot", 0, FIXTURE_SNAPSHOTS - 1);
+}
+static int l_fp_in_snapshot_zero(const char *dir) {
+  /* Row 1 of snapshot 0 has no progenitor; give it one in snapshot 0 itself,
+     the only snapshot it could name. */
+  SNAP_FILE(dir, 0, p);
+  if (set_i64_element(p, "FirstProgenitor", 1, 0) != 0) {
+    return -1;
+  }
+  return set_i32_element(p, "FirstProgenitorSnapshot", 1, 0);
+}
 
 static const struct link_case LINK_CASES[] = {
     {"Descendant without DescendantSnapshot", l_desc_without_target, 0,
@@ -1655,6 +1689,13 @@ static const struct link_case LINK_CASES[] = {
      "'NextHaloInFOFgroup' is 3, outside [0, 3) of snapshot 3", NULL},
     {"negative link other than -1", l_link_below_null, 1,
      "'FirstProgenitor' is -2; only -1 is null", NULL},
+    {"FirstHaloInFOFgroup outside this snapshot", l_fof_first_outside, 3,
+     "'FirstHaloInFOFgroup' is 3, outside [0, 3) of snapshot 3", NULL},
+    {"non-null Descendant in the final snapshot", l_desc_in_final_snapshot, FIXTURE_SNAPSHOTS - 1,
+     "'DescendantSnapshot' is 3; a descendant lies in a strictly later snapshot than 3", NULL},
+    {"non-null FirstProgenitor in snapshot 0", l_fp_in_snapshot_zero, 0,
+     "'FirstProgenitorSnapshot' is 0; a progenitor lies in a strictly earlier snapshot than 0",
+     NULL},
 };
 #define LINK_CASE_COUNT (sizeof(LINK_CASES) / sizeof(LINK_CASES[0]))
 
@@ -2268,6 +2309,767 @@ int test_scan_forest_index_dispatch_fails_fast(void) {
   return TEST_PASS;
 }
 
+/* ---------------------------------------------------------------------------
+ * Header attributes, physical values and check order
+ * ------------------------------------------------------------------------- */
+
+/** @brief Run each open-time case on a fresh scratch copy; 1 when every one aborts by name. */
+static int open_cases_abort(const struct corrupt_case *cases, size_t count) {
+  int all_aborted = 1;
+  for (size_t i = 0; i < count; i++) {
+    char dir[MAX_STRING_LEN];
+    if (stage_fixture(dir, sizeof(dir)) != 0) {
+      fprintf(stderr, "  case '%s': could not stage the fixture\n", cases[i].label);
+      return 0;
+    }
+    if (cases[i].corrupt(dir) != 0) {
+      fprintf(stderr, "  case '%s': the mutation itself failed\n", cases[i].label);
+      remove_staged_fixture(dir);
+      return 0;
+    }
+    const int aborted = expect_fatal(dir, child_open_run, cases[i].needle_a, cases[i].needle_b);
+    remove_staged_fixture(dir);
+    if (aborted != 1) {
+      fprintf(stderr, "  case '%s' did not abort as expected\n", cases[i].label);
+      all_aborted = 0;
+    }
+  }
+  return all_aborted;
+}
+
+/* The twelve numeric header attributes, with the dtype the format fixes for each. */
+enum header_dtype { HEADER_I32, HEADER_I64, HEADER_F64 };
+
+static const struct {
+  const char *name;
+  enum header_dtype dtype;
+} CORE_HEADER_ATTRS[] = {
+    {"format_version", HEADER_I32},
+    {"links_adjacent", HEADER_I32},
+    {"snapshot_number", HEADER_I32},
+    {"scale_factor", HEADER_F64},
+    {"n_halos", HEADER_I64},
+    {"n_forests_total", HEADER_I64},
+    {"max_halo_rank_in_forest", HEADER_I64},
+    {"box_size_mpc_h", HEADER_F64},
+    {"particle_mass_msun_h", HEADER_F64},
+    {"omega_matter", HEADER_F64},
+    {"omega_lambda", HEADER_F64},
+    {"hubble_h", HEADER_F64},
+};
+#define CORE_HEADER_ATTR_COUNT (sizeof(CORE_HEADER_ATTRS) / sizeof(CORE_HEADER_ATTRS[0]))
+
+static const char *header_dtype_name(enum header_dtype dtype) {
+  return dtype == HEADER_I32 ? "int32" : dtype == HEADER_I64 ? "int64" : "float64";
+}
+
+/** @brief The dtype a wrong-dtype case stores: the other integer width, or float32. */
+static hid_t wrong_header_dtype(enum header_dtype dtype) {
+  return dtype == HEADER_I32 ? H5T_STD_I64LE : dtype == HEADER_I64 ? H5T_STD_I32LE : H5T_IEEE_F32LE;
+}
+
+/** @brief Replace `/header` attribute `name` with a scalar of `file_type` holding 1. */
+static int retype_header_attr(const char *file_path, const char *name, hid_t file_type) {
+  hid_t file = H5Fopen(file_path, H5F_ACC_RDWR, H5P_DEFAULT);
+  if (file < 0) {
+    return -1;
+  }
+  int rc = 0;
+  if (H5Adelete_by_name(file, "/header", name, H5P_DEFAULT) < 0) {
+    rc = -1;
+  } else {
+    const double one = 1.0;
+    hid_t space = H5Screate(H5S_SCALAR);
+    hid_t attr = H5Acreate_by_name(file, "/header", name, file_type, space, H5P_DEFAULT,
+                                   H5P_DEFAULT, H5P_DEFAULT);
+    if (attr < 0 || H5Awrite(attr, H5T_NATIVE_DOUBLE, &one) < 0) {
+      rc = -1;
+    }
+    if (attr >= 0) {
+      H5Aclose(attr);
+    }
+    H5Sclose(space);
+  }
+  H5Fclose(file);
+  return rc;
+}
+
+/* The CORE_HEADER_ATTRS entry the two mutations below act on; set before staging. */
+static size_t header_case_attr = 0;
+
+static int c_core_header_attr_missing(const char *dir) {
+  SNAP_FILE(dir, 1, p);
+  return delete_header_attr(p, CORE_HEADER_ATTRS[header_case_attr].name);
+}
+static int c_core_header_attr_mistyped(const char *dir) {
+  SNAP_FILE(dir, 1, p);
+  return retype_header_attr(p, CORE_HEADER_ATTRS[header_case_attr].name,
+                            wrong_header_dtype(CORE_HEADER_ATTRS[header_case_attr].dtype));
+}
+
+/**
+ * @test  test_v3_header_attribute_missing_or_mistyped_aborts
+ * Each of the twelve numeric header attributes, deleted from one file or stored
+ * at a dtype other than the one the format fixes, aborts open_run naming the
+ * file and the attribute (and, for a wrong dtype, the dtype it must have).
+ */
+int test_v3_header_attribute_missing_or_mistyped_aborts(void) {
+  REQUIRE_FIXTURE_PACKAGE();
+  for (size_t i = 0; i < CORE_HEADER_ATTR_COUNT; i++) {
+    char missing[MAX_STRING_LEN];
+    char mistyped[MAX_STRING_LEN];
+    snprintf(missing, sizeof(missing), "required header attribute '%s' is missing",
+             CORE_HEADER_ATTRS[i].name);
+    snprintf(mistyped, sizeof(mistyped), "header attribute '%s' must be %s on disk",
+             CORE_HEADER_ATTRS[i].name, header_dtype_name(CORE_HEADER_ATTRS[i].dtype));
+    const struct corrupt_case cases[] = {
+        {"missing header attribute", c_core_header_attr_missing, "snapshot_001.h5", missing},
+        {"header attribute of the wrong dtype", c_core_header_attr_mistyped, "snapshot_001.h5",
+         mistyped},
+    };
+    header_case_attr = i;
+    if (!open_cases_abort(cases, sizeof(cases) / sizeof(cases[0]))) {
+      fprintf(stderr, "  attribute '%s'\n", CORE_HEADER_ATTRS[i].name);
+      TEST_ASSERT(0, "a missing or mistyped header attribute should abort open_run by name");
+    }
+  }
+  return TEST_PASS;
+}
+
+static int c_box_size_nan(const char *dir) {
+  SNAP_FILE(dir, 1, p);
+  return set_attr_f64(p, "box_size_mpc_h", NAN);
+}
+static int c_hubble_h_infinite(const char *dir) {
+  SNAP_FILE(dir, 2, p);
+  return set_attr_f64(p, "hubble_h", INFINITY);
+}
+
+/**
+ * @test  test_v3_non_finite_physical_attribute_aborts
+ * NaN or infinity in a physical header attribute compared with the package
+ * aborts open_run. The non-finite token itself is libc-rendered, so only the
+ * file, the attribute and the configured value are pinned.
+ */
+int test_v3_non_finite_physical_attribute_aborts(void) {
+  REQUIRE_FIXTURE_PACKAGE();
+  static const struct corrupt_case cases[] = {
+      {"NaN in a compared physical attribute", c_box_size_nan,
+       "snapshot_001.h5: header attribute 'box_size_mpc_h' is",
+       "but the configured simulation value is 62.5;"},
+      {"infinity in a compared physical attribute", c_hubble_h_infinite,
+       "snapshot_002.h5: header attribute 'hubble_h' is",
+       "but the configured simulation value is 0.72999999999999998;"},
+  };
+  TEST_ASSERT(open_cases_abort(cases, sizeof(cases) / sizeof(cases[0])),
+              "a non-finite physical header attribute should abort open_run");
+  return TEST_PASS;
+}
+
+static int c_particle_mass_without_unit_factor(const char *dir) {
+  SNAP_FILE(dir, 2, p);
+  return set_attr_f64(p, "particle_mass_msun_h", FIXTURE_PART_MASS);
+}
+
+/**
+ * @test  test_v3_particle_mass_without_unit_factor_aborts
+ * The naive-comparison trap: particle_mass_msun_h equal to the configured
+ * PartMass, which is carried in 1e10 Msun/h, without the 1e10 factor. A reader
+ * comparing the header directly against PartMass would accept it; open_run
+ * compares against PartMass * 1e10 and aborts.
+ */
+int test_v3_particle_mass_without_unit_factor_aborts(void) {
+  REQUIRE_FIXTURE_PACKAGE();
+  static const struct corrupt_case cases[] = {
+      {"particle_mass_msun_h equals PartMass without the 1e10 factor",
+       c_particle_mass_without_unit_factor,
+       "snapshot_002.h5: header attribute 'particle_mass_msun_h' is 0.086065699999999995",
+       "but the configured simulation value is 860657000"},
+  };
+  TEST_ASSERT(open_cases_abort(cases, sizeof(cases) / sizeof(cases[0])),
+              "particle_mass_msun_h without the 1e10 unit factor should abort open_run");
+  return TEST_PASS;
+}
+
+static int c_box_size_last_snapshot(const char *dir) {
+  SNAP_FILE(dir, FIXTURE_SNAPSHOTS - 1, p);
+  return set_attr_f64(p, "box_size_mpc_h", 90.0);
+}
+
+/**
+ * @test  test_v3_physical_mismatch_in_last_snapshot_aborts
+ * The physical header check runs on every file, not only snapshot 0: a
+ * box_size_mpc_h mismatch in the last snapshot alone aborts open_run.
+ */
+int test_v3_physical_mismatch_in_last_snapshot_aborts(void) {
+  REQUIRE_FIXTURE_PACKAGE();
+  static const struct corrupt_case cases[] = {
+      {"physical header mismatch in the last snapshot only", c_box_size_last_snapshot,
+       "snapshot_003.h5: header attribute 'box_size_mpc_h' is 90",
+       "but the configured simulation value is 62.5"},
+  };
+  TEST_ASSERT(open_cases_abort(cases, sizeof(cases) / sizeof(cases[0])),
+              "a physical mismatch in the last snapshot should abort open_run");
+  return TEST_PASS;
+}
+
+static int c_shape_and_data(const char *dir) {
+  /* A structural defect (Pos of shape [3, 4]) and a data defect (a SnapNum
+     disagreeing with the header) in the same file. */
+  SNAP_FILE(dir, 3, p);
+  if (set_i32_element(p, "SnapNum", 0, 99) != 0) {
+    return -1;
+  }
+  return recreate_dataset_in(p, "Pos", H5T_IEEE_F32LE, 3, 4);
+}
+
+/**
+ * @test  test_v3_structural_defect_reported_before_bulk_read
+ * A file with both a structural defect and a data defect aborts on the
+ * structural one, and the column scan that would find the data defect never
+ * reports: structure is validated before any bulk read.
+ */
+int test_v3_structural_defect_reported_before_bulk_read(void) {
+  REQUIRE_FIXTURE_PACKAGE();
+  char dir[MAX_STRING_LEN];
+  static char captured[16384];
+  TEST_ASSERT(stage_fixture(dir, sizeof(dir)) == 0, "should stage a scratch copy of the fixture");
+  TEST_ASSERT(c_shape_and_data(dir) == 0, "the mutation should apply");
+  const int aborted = expect_fatal_capture(dir, child_open_run, "snapshot_003.h5",
+                                           "dataset '/halos/Pos' must have shape [3, 3]", captured,
+                                           sizeof(captured));
+  remove_staged_fixture(dir);
+  TEST_ASSERT(aborted == 1, "the structural defect should abort open_run by name");
+  TEST_ASSERT(strstr(captured, "'/halos/SnapNum'") == NULL,
+              "the data defect should not be reported ahead of the structural one");
+  return TEST_PASS;
+}
+
+/**
+ * @brief   Replace /halos/<name> with an unwritten rank-2 dataset of `rows` x
+ *          `cols`, chunked (1, 1) so a huge logical second dimension costs no
+ *          storage.
+ */
+static int recreate_wide_dataset_in(const char *file_path, const char *name, hid_t type,
+                                    hsize_t rows, hsize_t cols) {
+  hid_t file = H5Fopen(file_path, H5F_ACC_RDWR, H5P_DEFAULT);
+  if (file < 0) {
+    return -1;
+  }
+  char full[MAX_STRING_LEN];
+  snprintf(full, sizeof(full), "/halos/%s", name);
+  int rc = H5Ldelete(file, full, H5P_DEFAULT) < 0 ? -1 : 0;
+  const hsize_t dims[2] = {rows, cols};
+  const hsize_t chunk[2] = {1, 1};
+  hid_t space = H5Screate_simple(2, dims, NULL);
+  hid_t dcpl = H5Pcreate(H5P_DATASET_CREATE);
+  if (rc != 0 || space < 0 || dcpl < 0 || H5Pset_chunk(dcpl, 2, chunk) < 0) {
+    rc = -1;
+  } else {
+    hid_t dset = H5Dcreate2(file, full, type, space, H5P_DEFAULT, dcpl, H5P_DEFAULT);
+    if (dset < 0) {
+      rc = -1;
+    } else {
+      H5Dclose(dset);
+    }
+  }
+  if (dcpl >= 0) {
+    H5Pclose(dcpl);
+  }
+  if (space >= 0) {
+    H5Sclose(space);
+  }
+  H5Fclose(file);
+  return rc;
+}
+
+static int c_vector_wide_second_dimension(const char *dir) {
+  /* 2^32 + 3 truncates to exactly 3 in an int, so only a wide comparison rejects it. */
+  SNAP_FILE(dir, 3, p);
+  return recreate_wide_dataset_in(p, "Pos", H5T_IEEE_F32LE, 3, 4294967299ULL);
+}
+
+/**
+ * @test  test_v3_vector_second_dimension_is_not_truncated
+ * A vector dataset whose second dimension is 2^32 + 3, which a narrowing int
+ * comparison would read as 3, aborts open_run naming the full dimension.
+ */
+int test_v3_vector_second_dimension_is_not_truncated(void) {
+  REQUIRE_FIXTURE_PACKAGE();
+  static const struct corrupt_case cases[] = {
+      {"vector dataset whose second dimension truncates to 3 in an int",
+       c_vector_wide_second_dimension, "snapshot_003.h5", "found second dimension 4294967299"},
+  };
+  TEST_ASSERT(open_cases_abort(cases, sizeof(cases) / sizeof(cases[0])),
+              "a second dimension of 2^32 + 3 should abort open_run");
+  return TEST_PASS;
+}
+
+static int c_max_rank_below_data(const char *dir) {
+  return set_attr_i64_all(dir, "max_halo_rank_in_forest", FIXTURE_MAX_RANK - 1);
+}
+
+/**
+ * @test  test_v3_max_rank_below_measured_maximum_aborts
+ * Every header agreeing on a max_halo_rank_in_forest below the measured
+ * maximum of HaloRankInForest aborts open_run (the cross-file agreement check
+ * cannot catch it).
+ */
+int test_v3_max_rank_below_measured_maximum_aborts(void) {
+  REQUIRE_FIXTURE_PACKAGE();
+  static const struct corrupt_case cases[] = {
+      {"max_halo_rank_in_forest below the measured maximum", c_max_rank_below_data,
+       "declares max_halo_rank_in_forest 2 but the measured maximum of '/halos/HaloRankInForest' "
+       "is 3",
+       NULL},
+  };
+  TEST_ASSERT(open_cases_abort(cases, sizeof(cases) / sizeof(cases[0])),
+              "a max_halo_rank_in_forest below the data should abort open_run");
+  return TEST_PASS;
+}
+
+/** @brief Read a scalar float64 `/header` attribute back. */
+static int read_attr_f64(const char *file_path, const char *name, double *out) {
+  hid_t file = H5Fopen(file_path, H5F_ACC_RDONLY, H5P_DEFAULT);
+  if (file < 0) {
+    return -1;
+  }
+  int rc = 0;
+  hid_t attr = H5Aopen_by_name(file, "/header", name, H5P_DEFAULT, H5P_DEFAULT);
+  if (attr < 0 || H5Aread(attr, H5T_NATIVE_DOUBLE, out) < 0) {
+    rc = -1;
+  }
+  if (attr >= 0) {
+    H5Aclose(attr);
+  }
+  H5Fclose(file);
+  return rc;
+}
+
+/**
+ * @test  test_v3_physical_value_tolerance_boundary
+ * Pins the physical-header rounding tolerance (16 * DBL_EPSILON relative) from
+ * both sides: a 4 * DBL_EPSILON relative perturbation of box_size_mpc_h is
+ * inside it and open_run succeeds; a 1e-9 relative perturbation is outside it
+ * and open_run aborts.
+ */
+int test_v3_physical_value_tolerance_boundary(void) {
+  REQUIRE_FIXTURE_PACKAGE();
+  char dir[MAX_STRING_LEN];
+  double stored = 0.0;
+
+  TEST_ASSERT(stage_fixture(dir, sizeof(dir)) == 0, "should stage a scratch copy of the fixture");
+  {
+    SNAP_FILE(dir, 1, p);
+    TEST_ASSERT(set_attr_f64(p, "box_size_mpc_h", FIXTURE_BOX_SIZE * (1.0 + 4.0 * DBL_EPSILON)) ==
+                    0,
+                "should apply the within-tolerance perturbation");
+    /* If the perturbation rounded back to the configured value, the acceptance
+       below would prove nothing about the tolerance. */
+    TEST_ASSERT(read_attr_f64(p, "box_size_mpc_h", &stored) == 0,
+                "should read back the perturbed box_size_mpc_h");
+  }
+  TEST_ASSERT(stored != FIXTURE_BOX_SIZE,
+              "the within-tolerance perturbation must not round back to the configured value");
+  TEST_ASSERT(expect_success(dir, child_open_run) == 1,
+              "a 4 * DBL_EPSILON relative perturbation should be accepted");
+  remove_staged_fixture(dir);
+
+  TEST_ASSERT(stage_fixture(dir, sizeof(dir)) == 0, "should stage a scratch copy of the fixture");
+  {
+    SNAP_FILE(dir, 1, p);
+    TEST_ASSERT(set_attr_f64(p, "box_size_mpc_h", FIXTURE_BOX_SIZE * (1.0 + 1e-9)) == 0,
+                "should apply the beyond-tolerance perturbation");
+  }
+  TEST_ASSERT(expect_fatal(dir, child_open_run, "snapshot_001.h5",
+                           "header attribute 'box_size_mpc_h' is") == 1,
+              "a 1e-9 relative perturbation should be rejected");
+  remove_staged_fixture(dir);
+  return TEST_PASS;
+}
+
+/* Multiplier the non-positive-multiplier child opens with; set before forking. */
+static int64_t child_multiplier = 0;
+
+static void child_open_run_with_multiplier(const char *dir) {
+  struct HorizontalRunInfo info;
+  configure_for_fixture(dir);
+  MimicConfig.UniqueGalaxyIDMultiplier = child_multiplier;
+  horizontal_reader_open_run(reader(), &FULL_SCAN, &info);
+}
+
+/**
+ * @test  test_v3_open_run_rejects_non_positive_multiplier
+ * open_run aborts on a zero (unset) or negative unique_galaxy_id_multiplier,
+ * which can encode no identity.
+ */
+int test_v3_open_run_rejects_non_positive_multiplier(void) {
+  REQUIRE_FIXTURE_PACKAGE();
+  static const struct {
+    int64_t multiplier;
+    const char *needle;
+  } cases[] = {{0, "unique_galaxy_id_multiplier 0"}, {-1, "unique_galaxy_id_multiplier -1"}};
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+    child_multiplier = cases[i].multiplier;
+    TEST_ASSERT(expect_fatal(FIXTURE_DIR, child_open_run_with_multiplier, "not encodable",
+                             cases[i].needle) == 1,
+                "a non-positive multiplier should abort open_run");
+  }
+  return TEST_PASS;
+}
+
+/* ---------------------------------------------------------------------------
+ * Registry, dispatchers and the slab lifecycle
+ * ------------------------------------------------------------------------- */
+
+/**
+ * @test  test_registry_lookup
+ * Resolves horizontal_hdf5 case-insensitively and rejects unknown and NULL names.
+ */
+int test_registry_lookup(void) {
+  const struct HorizontalReader *found = horizontal_reader_lookup("horizontal_hdf5");
+
+  TEST_ASSERT(found != NULL, "horizontal_hdf5 should be registered in an HDF5 build");
+  TEST_ASSERT_STRING_EQUAL(found->name, "horizontal_hdf5", "reader should carry its registry name");
+  TEST_ASSERT_EQUAL(found->processing_order, INPUT_PROCESSING_ORDER_HORIZONTAL,
+                    "horizontal_hdf5 should feed the horizontal driver");
+  TEST_ASSERT(horizontal_reader_lookup("HORIZONTAL_HDF5") == found,
+              "lookup should be case-insensitive");
+  TEST_ASSERT(horizontal_reader_lookup("Horizontal_HDF5") == found,
+              "lookup should be case-insensitive for mixed case");
+  TEST_ASSERT(horizontal_reader_lookup("no_such_reader") == NULL,
+              "an unknown reader name should not resolve");
+  TEST_ASSERT(horizontal_reader_lookup(NULL) == NULL, "a NULL reader name should not resolve");
+  return TEST_PASS;
+}
+
+/**
+ * @test  test_registries_are_disjoint
+ * No name resolves in both the vertical and the horizontal registry.
+ *
+ * The two-registry tree_type lookup tries the vertical registry first, so a
+ * name in both would silently resolve to the vertical reader. Probing the
+ * case-insensitive vertical lookup with every horizontal name settles the
+ * intersection, case variants included.
+ */
+int test_registries_are_disjoint(void) {
+  const size_t count = horizontal_reader_count();
+  TEST_ASSERT(count > 0, "an HDF5 build should register at least one horizontal reader");
+
+  for (size_t i = 0; i < count; i++) {
+    const struct HorizontalReader *registered = horizontal_reader_at(i);
+    TEST_ASSERT(registered != NULL, "every index below the count should resolve");
+    TEST_ASSERT(registered->name != NULL, "every registered horizontal reader should be named");
+    TEST_ASSERT(vertical_reader_lookup(registered->name) == NULL,
+                "a horizontal reader name must not also resolve in the vertical registry");
+    TEST_ASSERT(horizontal_reader_lookup(registered->name) == registered,
+                "a registered name should resolve to its own reader");
+  }
+  TEST_ASSERT(horizontal_reader_at(count) == NULL, "an out-of-range index should return NULL");
+  return TEST_PASS;
+}
+
+/* A registered name with no hooks, to pin that every dispatcher checks its hook
+   at the point of use rather than dereferencing NULL. */
+static const struct HorizontalReader IncompleteReader = {
+    .name = "incomplete_test_reader",
+    .processing_order = INPUT_PROCESSING_ORDER_HORIZONTAL,
+    .open_run = NULL,
+    .close_run = NULL,
+    .snapshot_halo_count = NULL,
+    .load_slab = NULL,
+    .release_slab = NULL,
+    .scan_forest_index = NULL,
+};
+
+static void child_missing_open_run(const char *dir) {
+  struct HorizontalRunInfo info;
+  (void)dir;
+  horizontal_reader_open_run(&IncompleteReader, &FULL_SCAN, &info);
+}
+
+static void child_missing_close_run(const char *dir) {
+  (void)dir;
+  horizontal_reader_close_run(&IncompleteReader);
+}
+
+static void child_missing_halo_count(const char *dir) {
+  (void)dir;
+  (void)horizontal_reader_halo_count(&IncompleteReader, 0);
+}
+
+static void child_missing_load_slab(const char *dir) {
+  struct SnapshotSlab slab = snapshot_slab_empty();
+  (void)dir;
+  horizontal_reader_load_slab(&IncompleteReader, 0, 0, 0, &slab);
+}
+
+static void child_missing_release_slab(const char *dir) {
+  struct SnapshotSlab slab = snapshot_slab_empty();
+  (void)dir;
+  horizontal_reader_release_slab(&IncompleteReader, &slab);
+}
+
+/**
+ * @test  test_missing_hook_aborts
+ * Each of the open_run, close_run, snapshot_halo_count, load_slab and
+ * release_slab dispatchers aborts naming the reader and the hook when that hook
+ * is NULL (scan_forest_index: test_scan_forest_index_dispatch_fails_fast).
+ */
+int test_missing_hook_aborts(void) {
+  static const struct {
+    child_body_fn body;
+    const char *hook;
+  } cases[] = {
+      {child_missing_open_run, "'open_run'"},
+      {child_missing_close_run, "'close_run'"},
+      {child_missing_halo_count, "'snapshot_halo_count'"},
+      {child_missing_load_slab, "'load_slab'"},
+      {child_missing_release_slab, "'release_slab'"},
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+    if (expect_fatal(NULL, cases[i].body, "incomplete_test_reader", cases[i].hook) != 1) {
+      fprintf(stderr, "  hook: %s\n", cases[i].hook);
+      TEST_ASSERT(0, "a NULL hook should abort naming that hook");
+    }
+  }
+  return TEST_PASS;
+}
+
+static void child_count_below_range(const char *dir) {
+  struct HorizontalRunInfo info;
+  configure_for_fixture(dir);
+  horizontal_reader_open_run(reader(), &FULL_SCAN, &info);
+  (void)horizontal_reader_halo_count(reader(), -1);
+}
+
+static void child_count_above_range(const char *dir) {
+  struct HorizontalRunInfo info;
+  configure_for_fixture(dir);
+  horizontal_reader_open_run(reader(), &FULL_SCAN, &info);
+  (void)horizontal_reader_halo_count(reader(), info.snapshot_count);
+}
+
+/**
+ * @test  test_v3_snapshot_halo_count_range
+ * snapshot_halo_count aborts outside [0, snapshot_count).
+ */
+int test_v3_snapshot_halo_count_range(void) {
+  REQUIRE_FIXTURE_PACKAGE();
+  TEST_ASSERT(
+      expect_fatal(FIXTURE_DIR, child_count_below_range, "snapshot -1 is outside", "[0, 4)") == 1,
+      "snapshot_halo_count(-1) should abort");
+  TEST_ASSERT(
+      expect_fatal(FIXTURE_DIR, child_count_above_range, "snapshot 4 is outside", "[0, 4)") == 1,
+      "snapshot_halo_count(snapshot_count) should abort");
+  return TEST_PASS;
+}
+
+static void child_load_into_loaded_slab(const char *dir) {
+  struct HorizontalRunInfo info;
+  struct SnapshotSlab slab = snapshot_slab_empty();
+  configure_for_fixture(dir);
+  horizontal_reader_open_run(reader(), &FULL_SCAN, &info);
+  load_whole_slab(1, &slab);
+  load_whole_slab(3, &slab);
+}
+
+static void child_close_run_with_loaded_slab(const char *dir) {
+  struct HorizontalRunInfo info;
+  struct SnapshotSlab slab = snapshot_slab_empty();
+  configure_for_fixture(dir);
+  horizontal_reader_open_run(reader(), &FULL_SCAN, &info);
+  load_whole_slab(1, &slab);
+  horizontal_reader_close_run(reader());
+}
+
+static void child_load_below_range(const char *dir) {
+  struct HorizontalRunInfo info;
+  struct SnapshotSlab slab = snapshot_slab_empty();
+  configure_for_fixture(dir);
+  horizontal_reader_open_run(reader(), &FULL_SCAN, &info);
+  horizontal_reader_load_slab(reader(), -1, 0, 0, &slab);
+}
+
+static void child_load_above_range(const char *dir) {
+  struct HorizontalRunInfo info;
+  struct SnapshotSlab slab = snapshot_slab_empty();
+  configure_for_fixture(dir);
+  horizontal_reader_open_run(reader(), &FULL_SCAN, &info);
+  horizontal_reader_load_slab(reader(), info.snapshot_count, 0, 0, &slab);
+}
+
+/**
+ * @test  test_v3_slab_lifecycle
+ * The slab handle contract: an out-of-range snapshot aborts, loading into a
+ * non-empty handle aborts, close_run under a loaded slab aborts, releasing an
+ * empty handle is a no-op, and a second release is safe and leaves every array,
+ * the version 3 ones included, NULL.
+ */
+int test_v3_slab_lifecycle(void) {
+  REQUIRE_FIXTURE_PACKAGE();
+  struct HorizontalRunInfo info;
+
+  TEST_ASSERT(
+      expect_fatal(FIXTURE_DIR, child_load_below_range, "snapshot -1 is outside", "[0, 4)") == 1,
+      "load_slab(-1) should abort");
+  TEST_ASSERT(
+      expect_fatal(FIXTURE_DIR, child_load_above_range, "snapshot 4 is outside", "[0, 4)") == 1,
+      "load_slab(snapshot_count) should abort");
+  TEST_ASSERT(expect_fatal(FIXTURE_DIR, child_load_into_loaded_slab, "already holding snapshot 1",
+                           "release it before loading snapshot 3") == 1,
+              "load_slab into a non-empty handle should abort");
+  TEST_ASSERT(expect_fatal(FIXTURE_DIR, child_close_run_with_loaded_slab,
+                           "close_run called with 1 slab(s)", "must be released first") == 1,
+              "close_run under a loaded slab should abort");
+
+  /* Releasing an empty handle, and releasing twice, are defined as safe. */
+  configure_for_dataset_dir(FIXTURE_DIR, FIXTURE_A_LIST);
+  horizontal_reader_open_run(reader(), &FULL_SCAN, &info);
+
+  struct SnapshotSlab empty = snapshot_slab_empty();
+  TEST_ASSERT(slab_arrays_null(&empty), "snapshot_slab_empty should carry only NULL arrays");
+  horizontal_reader_release_slab(reader(), &empty);
+  TEST_ASSERT(snapshot_slab_is_empty(&empty), "releasing an empty slab should be a no-op");
+
+  struct SnapshotSlab slab = snapshot_slab_empty();
+  load_whole_slab(3, &slab);
+  horizontal_reader_release_slab(reader(), &slab);
+  horizontal_reader_release_slab(reader(), &slab);
+  TEST_ASSERT(snapshot_slab_is_empty(&slab), "a second release should leave the handle empty");
+  TEST_ASSERT(slab_arrays_null(&slab), "a second release should leave every array NULL");
+
+  /* A released slab leaves close_run unblocked. */
+  horizontal_reader_close_run(reader());
+  TEST_ASSERT(no_tracked_leaks(), "the lifecycle should leave no allocation");
+  return TEST_PASS;
+}
+
+/**
+ * @test  test_v3_two_generation_rotation_holds_two_slabs_live
+ * Loading and releasing the fixture under a two-generation rotation (load N
+ * while N-1 is still live, then release N-1) holds exactly two distinct slab
+ * generations live at once, the empty snapshot among them, and leaves no
+ * tracked allocation once the last slab is released and the run is closed.
+ */
+int test_v3_two_generation_rotation_holds_two_slabs_live(void) {
+  REQUIRE_FIXTURE_PACKAGE();
+  struct HorizontalRunInfo info;
+  struct SnapshotSlab slabs[2] = {SNAPSHOT_SLAB_INIT, SNAPSHOT_SLAB_INIT};
+
+  configure_for_dataset_dir(FIXTURE_DIR, FIXTURE_A_LIST);
+  horizontal_reader_open_run(reader(), &FULL_SCAN, &info);
+  TEST_ASSERT_EQUAL(info.snapshot_count, FIXTURE_SNAPSHOTS, "run info should publish 4 snapshots");
+
+  for (int64_t snap = 0; snap < info.snapshot_count; snap++) {
+    const int slot = (int)(snap % 2);
+    load_whole_slab(snap, &slabs[slot]);
+    TEST_ASSERT_EQUAL(slabs[slot].snapnum, snap, "the just-loaded slab should carry its snapnum");
+
+    if (snap > 0) {
+      const int prev_slot = (int)((snap - 1) % 2);
+      TEST_ASSERT(!snapshot_slab_is_empty(&slabs[slot]), "the newly loaded slab should be live");
+      TEST_ASSERT(!snapshot_slab_is_empty(&slabs[prev_slot]),
+                  "the previous generation should still be live");
+      TEST_ASSERT(slabs[slot].snapnum != slabs[prev_slot].snapnum,
+                  "the two live generations should carry different snapshot numbers");
+      horizontal_reader_release_slab(reader(), &slabs[prev_slot]);
+      TEST_ASSERT(snapshot_slab_is_empty(&slabs[prev_slot]),
+                  "releasing the previous generation should empty its handle");
+    }
+  }
+
+  const int last_slot = (int)((info.snapshot_count - 1) % 2);
+  horizontal_reader_release_slab(reader(), &slabs[last_slot]);
+  TEST_ASSERT(snapshot_slab_is_empty(&slabs[last_slot]),
+              "releasing the final slab should empty its handle");
+  horizontal_reader_close_run(reader());
+  TEST_ASSERT(no_tracked_leaks(), "the two-generation rotation should leave no allocation");
+  return TEST_PASS;
+}
+
+/* ---------------------------------------------------------------------------
+ * Run-scoped identity bounds
+ * ------------------------------------------------------------------------- */
+
+/** @brief Identity bounds as a run-info value, for the predicate tests. */
+static struct HorizontalRunInfo identity_bounds(int64_t n_forests_total,
+                                                int64_t max_halo_rank_in_forest) {
+  struct HorizontalRunInfo info;
+  memset(&info, 0, sizeof(info));
+  info.snapshot_count = FIXTURE_SNAPSHOTS;
+  info.format_version = 3;
+  info.n_forests_total = n_forests_total;
+  info.max_halo_rank_in_forest = max_halo_rank_in_forest;
+  return info;
+}
+
+/**
+ * @test  test_identity_bounds_predicate
+ * horizontal_identity_bounds_valid accepts encodable bounds and rejects the rest.
+ */
+int test_identity_bounds_predicate(void) {
+  const struct HorizontalRunInfo fixture =
+      identity_bounds(FIXTURE_N_FORESTS_TOTAL, FIXTURE_MAX_RANK);
+  const struct HorizontalRunInfo sentinel =
+      identity_bounds(HORIZONTAL_EMPTY_N_FORESTS, HORIZONTAL_EMPTY_MAX_RANK);
+
+  TEST_ASSERT(horizontal_identity_bounds_valid(&fixture, (int64_t)TREE_MUL_FAC) != 0,
+              "the fixture bounds should be encodable with the default multiplier");
+  TEST_ASSERT(horizontal_identity_bounds_valid(&sentinel, (int64_t)TREE_MUL_FAC) != 0,
+              "the empty-dataset sentinel should be accepted");
+  TEST_ASSERT(horizontal_identity_bounds_valid(&sentinel, 1) != 0,
+              "the empty-dataset sentinel should be accepted for any positive multiplier");
+
+  TEST_ASSERT(horizontal_identity_bounds_valid(NULL, (int64_t)TREE_MUL_FAC) == 0,
+              "a missing run info should be rejected");
+  TEST_ASSERT(horizontal_identity_bounds_valid(&fixture, 0) == 0,
+              "a zero multiplier should be rejected");
+  TEST_ASSERT(horizontal_identity_bounds_valid(&fixture, -1) == 0,
+              "a negative multiplier should be rejected");
+  TEST_ASSERT(horizontal_identity_bounds_valid(&sentinel, 0) == 0,
+              "a zero multiplier should be rejected even for the sentinel");
+
+  const struct HorizontalRunInfo negative_forests = identity_bounds(-1, FIXTURE_MAX_RANK);
+  TEST_ASSERT(horizontal_identity_bounds_valid(&negative_forests, (int64_t)TREE_MUL_FAC) == 0,
+              "a negative n_forests_total should be rejected");
+  const struct HorizontalRunInfo negative_rank = identity_bounds(FIXTURE_N_FORESTS_TOTAL, -1);
+  TEST_ASSERT(horizontal_identity_bounds_valid(&negative_rank, (int64_t)TREE_MUL_FAC) == 0,
+              "a negative max_halo_rank_in_forest outside the sentinel should be rejected");
+
+  TEST_ASSERT(horizontal_identity_bounds_valid(&fixture, FIXTURE_MAX_RANK) == 0,
+              "a multiplier equal to max_halo_rank_in_forest should be rejected");
+  TEST_ASSERT(horizontal_identity_bounds_valid(&fixture, FIXTURE_MAX_RANK - 1) == 0,
+              "a multiplier below max_halo_rank_in_forest should be rejected");
+  TEST_ASSERT(horizontal_identity_bounds_valid(&fixture, FIXTURE_MAX_RANK + 1) != 0,
+              "a multiplier one above max_halo_rank_in_forest should be accepted");
+  return TEST_PASS;
+}
+
+/**
+ * @test  test_identity_bounds_division_boundary
+ * The forest-count ceiling n_forests_total <= INT64_MAX / multiplier - 1 is
+ * exact on both sides at every tested multiplier, including INT64_MAX, where it
+ * collapses to zero. The bound is a division so checking it cannot overflow.
+ */
+int test_identity_bounds_division_boundary(void) {
+  const int64_t multipliers[] = {1, (int64_t)TREE_MUL_FAC, INT64_MAX};
+
+  for (size_t i = 0; i < sizeof(multipliers) / sizeof(multipliers[0]); i++) {
+    const int64_t multiplier = multipliers[i];
+    const int64_t ceiling = INT64_MAX / multiplier - 1;
+    /* max_halo_rank_in_forest 0 keeps every multiplier above the rank bound, so
+       only the forest-count boundary is under test. */
+    const struct HorizontalRunInfo accepted = identity_bounds(ceiling, 0);
+    const struct HorizontalRunInfo rejected = identity_bounds(ceiling + 1, 0);
+    TEST_ASSERT(horizontal_identity_bounds_valid(&accepted, multiplier) != 0,
+                "n_forests_total = INT64_MAX / multiplier - 1 should be accepted");
+    TEST_ASSERT(horizontal_identity_bounds_valid(&rejected, multiplier) == 0,
+                "n_forests_total = INT64_MAX / multiplier should be rejected");
+  }
+  return TEST_PASS;
+}
+
 /** @brief Main test runner */
 int main(void) {
   printf("%s", BLUE);
@@ -2294,6 +3096,23 @@ int main(void) {
   TEST_RUN(test_v3_multi_block_range_reads_match_whole_reads);
   TEST_RUN(test_v3_open_without_column_scans);
   TEST_RUN(test_scan_forest_index_dispatch_fails_fast);
+  TEST_RUN(test_v3_header_attribute_missing_or_mistyped_aborts);
+  TEST_RUN(test_v3_non_finite_physical_attribute_aborts);
+  TEST_RUN(test_v3_particle_mass_without_unit_factor_aborts);
+  TEST_RUN(test_v3_physical_mismatch_in_last_snapshot_aborts);
+  TEST_RUN(test_v3_structural_defect_reported_before_bulk_read);
+  TEST_RUN(test_v3_vector_second_dimension_is_not_truncated);
+  TEST_RUN(test_v3_max_rank_below_measured_maximum_aborts);
+  TEST_RUN(test_v3_physical_value_tolerance_boundary);
+  TEST_RUN(test_v3_open_run_rejects_non_positive_multiplier);
+  TEST_RUN(test_registry_lookup);
+  TEST_RUN(test_registries_are_disjoint);
+  TEST_RUN(test_missing_hook_aborts);
+  TEST_RUN(test_v3_snapshot_halo_count_range);
+  TEST_RUN(test_v3_slab_lifecycle);
+  TEST_RUN(test_v3_two_generation_rotation_holds_two_slabs_live);
+  TEST_RUN(test_identity_bounds_predicate);
+  TEST_RUN(test_identity_bounds_division_boundary);
 
   TEST_SUMMARY();
   return TEST_RESULT();

@@ -311,6 +311,28 @@ static int test_zero_progenitor_snapshot(void) {
 }
 
 /**
+ * @brief   A halo with no progenitor reads nothing, even with no generation retained.
+ */
+static int test_no_progenitor_needs_no_retained_generation(void) {
+  seed_worked_graph();
+  /* Nothing retained at all: no slab, no ranges, no galaxies. A halo whose
+   * FirstProgenitor is -1 must return without resolving any generation. */
+  const struct HaloInputView view = view_of(1);
+  const struct HorizontalGatherContext lookup = lookup_at(1);
+
+  for (int64_t row = 0; row < generations[1].nhalos; row++) {
+    const struct HorizontalProgenitorRef none =
+        horizontal_find_most_massive_progenitor(view, &lookup, row);
+    TEST_ASSERT(none.snapnum == -1 && none.halonr == -1,
+                "a halo with no FirstProgenitor selects nothing with an empty pool");
+    TEST_ASSERT_EQUAL((int)horizontal_count_progenitor_galaxies(view, &lookup, row), 0,
+                      "a halo with no FirstProgenitor gathers nothing with an empty pool");
+  }
+
+  return TEST_PASS;
+}
+
+/**
  * @brief   E finds D in snapshot 2 across the empty, released snapshot 3.
  */
 static int test_link_across_empty_snapshot(void) {
@@ -327,6 +349,42 @@ static int test_link_across_empty_snapshot(void) {
               "E's progenitor is D in snapshot 2, reached without snapshot 3");
   TEST_ASSERT_EQUAL((int)horizontal_count_progenitor_galaxies(view, &lookup, 0), 2,
                     "E inherits both of D's galaxies");
+
+  return TEST_PASS;
+}
+
+/**
+ * @brief   A progenitor's multi-galaxy range is gathered in index order, each
+ *          galaxy timed from its own stored SnapNum.
+ */
+static int test_gather_range_order_and_each_galaxy_own_time(void) {
+  seed_worked_graph();
+  /* D's second record is B's orphan; give it an older SnapNum than the
+   * snapshot its buffer belongs to, so "the galaxy's own SnapNum" and "the
+   * generation's snapshot" give different times. */
+  generations[2].processed[1].SnapNum = 1;
+  retain(2);
+  const struct HaloInputView view = view_of(4);
+  const struct HorizontalGatherContext lookup = lookup_at(4);
+
+  const struct HorizontalProgenitorRef chosen =
+      horizontal_find_most_massive_progenitor(view, &lookup, 0);
+  TEST_ASSERT_EQUAL((int)horizontal_count_progenitor_galaxies(view, &lookup, 0), 2,
+                    "E gathers D's two-galaxy range and nothing else");
+
+  struct InheritanceProgenitorGalaxy gathered[MAX_GALAXIES];
+  memset(gathered, 0, sizeof(gathered));
+  horizontal_gather_progenitor_galaxies(view, &lookup, 0, chosen, gathered);
+
+  TEST_ASSERT(gathered[0].source == &generations[2].processed[0] &&
+                  gathered[1].source == &generations[2].processed[1],
+              "D's range is visited in index order, from snapshot 2's buffer");
+  TEST_ASSERT(gathered[0].is_main_branch == 1 && gathered[1].is_main_branch == 1,
+              "both galaxies of the chosen progenitor's range are on the main branch");
+  TEST_ASSERT_DOUBLE_EQUAL(gathered[0].source_time, fixture_age[2], 0.0,
+                           "source_time is Age[the source galaxy's SnapNum]");
+  TEST_ASSERT_DOUBLE_EQUAL(gathered[1].source_time, fixture_age[1], 0.0,
+                           "a galaxy that skipped a snapshot keeps its own older age");
 
   return TEST_PASS;
 }
@@ -600,7 +658,9 @@ int main(void) {
   TEST_RUN(test_version2_horizon_is_adjacent);
   TEST_RUN(test_worked_graph_chain_spans_two_snapshots);
   TEST_RUN(test_zero_progenitor_snapshot);
+  TEST_RUN(test_no_progenitor_needs_no_retained_generation);
   TEST_RUN(test_link_across_empty_snapshot);
+  TEST_RUN(test_gather_range_order_and_each_galaxy_own_time);
   TEST_RUN(test_chain_spanning_three_snapshots);
   TEST_RUN(test_next_progenitor_into_an_earlier_snapshot);
   TEST_RUN(test_unoccupied_head_scans_across_snapshots);
