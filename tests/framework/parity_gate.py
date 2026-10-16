@@ -675,9 +675,9 @@ def assert_manifest_inventory(manifest: Path, sidecar: Path, vertical_data: Path
     ``SourceFileOrdinal`` inside that set (the converter numbers its source files
     from 0 in the order it read them) and a ``SourceUnitOrdinal`` of its own;
     a forest marked -1/-1 must be one the index files place in more than one
-    file (``source_index.py``). A converted forest's ordinals, unlike a version
-    2 file number, say nothing about the vertical side's file range, so this
-    replaces the inference from ``SourceFileOrdinal`` rather than adding to it.
+    file (``source_index.py``). A converted forest's ordinals say nothing about
+    the vertical side's file range, so this replaces the inference from
+    ``SourceFileOrdinal`` rather than adding to it.
 
     The ordinal check is a range check: it proves every single-file ordinal
     names one of the manifest's source files, not that it names the forest's own
