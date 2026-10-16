@@ -17,8 +17,10 @@ dynamic}: eight legs, each derived from the shipped
 Each leg runs the reference commit on that commit's own fixture configuration, and the metadata
 comparison allows only path-prefix differences between the two trees, so a leg can run only on a
 fixture the reference commit already carries with the same content. The adjacent horizontal
-fixture (micro-uchuu-ascii-horizontal's ``worked_ascii``) is newer than the reference, so it has
-no leg here; horizontal runs on adjacent input are covered by that package's parity gate.
+fixture (micro-uchuu-ascii-horizontal's ``worked_ascii``) is newer than the reference commit,
+which does not carry it, so it has no leg here. The comparator self-check mutates the ``sage16``
+vertical mini-Millennium fixed leg's output, the only fixed sage16 leg whose snapshots hold the
+several galaxies the mutation cases need.
 
 Each feature leg must match the baseline: per-ID byte identity of every Galaxies field (through
 the unchanged scripts/compare_cross_format_identity.py), the same files, HDF5 objects, master-file
@@ -930,7 +932,7 @@ class Identity:
         evidence["run_seconds"] = {
             r.variant: round(r.elapsed_s, 1) for r in (baseline, absent, empty)
         }
-        if (model, fixture.name, scheme) == ("sage16", "v3-gapped", "fixed"):
+        if (model, fixture.name, scheme) == ("sage16", "default", "fixed"):
             self.mutation_source = absent.output
         failures = []
         for record, empty_leg in ((absent, False), (empty, True)):
@@ -971,7 +973,7 @@ class Identity:
     def test_comparator_rejects_mutations(self) -> None:
         """The comparator fails on every injected defect and accepts only the permitted ones."""
         if self.mutation_source is None:
-            raise AssertionError("the sage16 v3-gapped fixed leg produced no output to mutate")
+            raise AssertionError("the sage16 default fixed leg produced no output to mutate")
         count = run_mutation_checks(self.mutation_source, self.scratch("mutations"))
         self.evidence["mutation_cases"] = count
         self.save_evidence()

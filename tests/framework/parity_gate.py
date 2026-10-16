@@ -206,7 +206,7 @@ class GatePackage:
     override_vertical_range: bool
     format_version: int
     source_format: str
-    column_mapping_sha256: str | None
+    column_mapping_sha256: str
     links_adjacent: int
     halos: int
     forests: int

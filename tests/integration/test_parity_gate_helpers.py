@@ -176,7 +176,7 @@ def test_named_dataset_needs_a_gate_that_threads_it():
         override_vertical_range=False,
         format_version=3,
         source_format="consistent_trees_ascii",
-        column_mapping_sha256=None,
+        column_mapping_sha256="727d13f529fa80305f261b933612b6087aa52ade5dde7899bb18f8f4450f8f6d",
         links_adjacent=1,
         halos=0,
         forests=0,
