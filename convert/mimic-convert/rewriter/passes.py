@@ -87,8 +87,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from census.cut import MASS_COLUMN, chain_positions  # noqa: E402
 from column_schema import PayloadField  # noqa: E402
 from errors import ConverterError  # noqa: E402
-from hdf5_writer import CHUNK_1D, HEADER_ATTRS  # noqa: E402
 from hdf5_writer_v3 import (  # noqa: E402
+    CHUNK_1D,
+    HEADER_ATTRS,
     V3_SCHEMA_ATTRS,
     V3_SIDECAR_DATASETS,
     V3_STRING_ATTRS,

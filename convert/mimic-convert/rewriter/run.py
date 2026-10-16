@@ -40,8 +40,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from conversion_manifest import canonical_sha256, sha256_file  # noqa: E402
 from errors import ConverterError  # noqa: E402
-from hdf5_writer import snapshot_h5_name  # noqa: E402
-from hdf5_writer_v3 import SIDECAR_NAME  # noqa: E402
+from hdf5_writer_v3 import SIDECAR_NAME, snapshot_h5_name  # noqa: E402
 from rewriter import DATASET_DIR, OPERATION_CUT, OPERATION_NOOP  # noqa: E402
 from rewriter.cut import (  # noqa: E402
     CutPlan,

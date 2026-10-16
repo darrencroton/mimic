@@ -76,7 +76,7 @@ from errors import ConverterError  # noqa: E402
 from rewriter import OPERATION_CUT, OPERATION_MIGRATE, OPERATION_NOOP  # noqa: E402
 from rewriter.inputs import RewriteRequest  # noqa: E402
 from subset import SubsetError  # noqa: E402
-from validate import DEFAULT_MULTIPLIER  # noqa: E402
+from validate_v3 import DEFAULT_MULTIPLIER  # noqa: E402
 
 #: The exit status of every refusal and verification failure.
 EXIT_REFUSED = 2

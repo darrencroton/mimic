@@ -241,7 +241,7 @@ def _reference_particle_mass(path) -> float:
     the writer's own unit validation: the forests-HDF5 route derives ``Len``
     from it and the v3 writer refuses a header that disagrees."""
     import yaml
-    from hdf5_writer import load_header_metadata
+    from hdf5_writer_v3 import load_header_metadata
 
     load_header_metadata(path)
     with open(path) as handle:
@@ -782,7 +782,7 @@ def _add_configuration(parser: argparse.ArgumentParser, *, required: bool) -> No
 
 
 def _add_validation_options(parser: argparse.ArgumentParser) -> None:
-    from validate import DEFAULT_MULTIPLIER, DEFAULT_V3_BUDGET_BYTES
+    from validate_v3 import DEFAULT_MULTIPLIER, DEFAULT_V3_BUDGET_BYTES
 
     parser.add_argument(
         "--memory-budget-mb",

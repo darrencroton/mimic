@@ -49,6 +49,7 @@ from typing import Callable, Dict, Iterable, Iterator, List, Mapping, Sequence, 
 
 import h5py
 import numpy as np
+import yaml
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -61,15 +62,84 @@ from column_schema import (  # noqa: E402
 )
 from conversion_manifest import sha256_file  # noqa: E402
 from ctrees_parser import ConverterError  # noqa: E402
-from fixups import REF_TO_NATIVE_MASS  # noqa: E402
-from hdf5_writer import (  # noqa: E402
-    CHUNK_1D,
-    HEADER_ATTRS,
-    _log,
-    load_header_metadata,
-    snapshot_h5_name,
-)
+from fixups import PARTICLE_MASS_UNITS, REF_TO_NATIVE_MASS  # noqa: E402
 from pipeline import StageWriter, WriteInputs  # noqa: E402
+
+#: Contract chunk shapes (convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md Storage Layout).
+CHUNK_1D = (65536,)
+
+#: Expected box-size units string in simulation_info.yaml (header attribute
+#: box_size_mpc_h is Mpc/h comoving; any other units would corrupt it).
+BOX_SIZE_UNITS = "Mpc/h"
+
+#: Header attributes: name -> numpy dtype (convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md
+#: Header Attributes table; names and types are normative).
+HEADER_ATTRS = {
+    "format_version": np.int32,
+    "links_adjacent": np.int32,
+    "scale_factor": np.float64,
+    "snapshot_number": np.int32,
+    "n_halos": np.int64,
+    "n_forests_total": np.int64,
+    "max_halo_rank_in_forest": np.int64,
+    "box_size_mpc_h": np.float64,
+    "particle_mass_msun_h": np.float64,
+    "omega_matter": np.float64,
+    "omega_lambda": np.float64,
+    "hubble_h": np.float64,
+}
+
+
+def snapshot_h5_name(snap: int) -> str:
+    return "snapshot_{:03d}.h5".format(snap)
+
+
+def _log(message: str) -> None:
+    print(message, file=sys.stderr)
+
+
+def load_header_metadata(path) -> Dict[str, float]:
+    """Load the physical header attributes from simulation_info.yaml with
+    explicit unit validation and conversion:
+    ``particle_mass_msun_h = particle_mass[1e10 Msun/h] x 1e10``."""
+    path = Path(path)
+    with open(path) as handle:
+        data = yaml.safe_load(handle)
+    try:
+        sim = data["simulation"]
+        cosmology = sim["cosmology"]
+        box = sim["box_size"]
+        pmass = sim["particle_mass"]
+        values = {
+            "box_size_mpc_h": float(box["value"]),
+            "particle_mass_msun_h": float(pmass["value"]) * REF_TO_NATIVE_MASS,
+            "omega_matter": float(cosmology["omega_matter"]),
+            "omega_lambda": float(cosmology["omega_lambda"]),
+            "hubble_h": float(cosmology["hubble_h"]),
+        }
+    except (KeyError, TypeError, ValueError):
+        raise ConverterError(
+            "{}: missing or malformed simulation metadata (need simulation.cosmology "
+            "omega_matter/omega_lambda/hubble_h, box_size.value, particle_mass.value)".format(path)
+        )
+    if box.get("units") != BOX_SIZE_UNITS:
+        raise ConverterError(
+            "{}: box_size units {!r} != required {!r}".format(
+                path, box.get("units"), BOX_SIZE_UNITS
+            )
+        )
+    if pmass.get("units") != PARTICLE_MASS_UNITS:
+        raise ConverterError(
+            "{}: particle_mass units {!r} != required {!r} — the header attribute "
+            "particle_mass_msun_h is converted explicitly from 1e10 Msun/h".format(
+                path, pmass.get("units"), PARTICLE_MASS_UNITS
+            )
+        )
+    for name, value in values.items():
+        if not np.isfinite(value):
+            raise ConverterError("{}: {} is not finite ({})".format(path, name, value))
+    return values
+
 
 #: The format version this module writes. Never 2: a v3 dataset is not a v2
 #: dataset with more columns, and stamping it 2 is not a rollback path.

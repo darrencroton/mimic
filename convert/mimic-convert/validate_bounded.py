@@ -120,15 +120,17 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from ctrees_parser import ConverterError  # noqa: E402
-from hdf5_writer import snapshot_h5_name  # noqa: E402
+from hdf5_writer_v3 import snapshot_h5_name  # noqa: E402
 from rank_sort import ResidencyMeter  # noqa: E402
 from scatter import load_a_list  # noqa: E402
-from validate import DEFAULT_MULTIPLIER, DEFAULT_V3_BUDGET_BYTES, Outcome  # noqa: E402
 from validate_v3 import (  # noqa: E402
     _V3_FIXED_DATASETS,
     _V3_POSITION_IDENTITY,
     _V3_TYPES,
+    DEFAULT_MULTIPLIER,
+    DEFAULT_V3_BUDGET_BYTES,
     V3_CHECKS,
+    Outcome,
     V3BatteryResult,
     _describe_gp,
     _Failures,

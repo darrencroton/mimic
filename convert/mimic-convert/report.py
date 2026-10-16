@@ -31,13 +31,14 @@ import runtime_routes  # noqa: E402
 from conversion_manifest import ConversionManifest  # noqa: E402
 from ctrees_parser import ConverterError  # noqa: E402
 from scatter import Manifest, load_a_list  # noqa: E402
-from validate import (  # noqa: E402
+from validate_v3 import (  # noqa: E402
     DEFAULT_MULTIPLIER,
     DEFAULT_V3_BUDGET_BYTES,
     Outcome,
+    V3BatteryResult,
     battery_failed,
+    run_battery_v3,
 )
-from validate_v3 import V3BatteryResult, run_battery_v3  # noqa: E402
 
 _INT64_MAX = 2**63 - 1
 

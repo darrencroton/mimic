@@ -56,7 +56,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from conversion_manifest import ConversionManifest, sha256_file  # noqa: E402
 from ctrees_parser import ConverterError  # noqa: E402
-from hdf5_writer import CHUNK_1D, HEADER_ATTRS, snapshot_h5_name  # noqa: E402
+from hdf5_writer_v3 import (  # noqa: E402
+    CHUNK_1D,
+    HEADER_ATTRS,
+    V3_FORMAT_VERSION,
+    snapshot_h5_name,
+)
 from rank_sort import KeyedSorter, RankSortError, ResidencyMeter, SpillLedger  # noqa: E402
 from scatter import load_a_list  # noqa: E402
 from source_keys import (  # noqa: E402
@@ -65,17 +70,94 @@ from source_keys import (  # noqa: E402
     SnapshotLayout,
     verify_chains_acyclic,
 )
-from validate import (  # noqa: E402
-    DEFAULT_MULTIPLIER,
-    DEFAULT_V3_BUDGET_BYTES,
-    RUN_SCOPED_ATTRS,
-    V3_FORMAT_VERSION,
-    Outcome,
-    _examples,
-    _filter_failures,
-    battery_failed,
-    check_header_bounds,
+
+#: Default UniqueGalaxyID multiplier (TREE_MUL_FAC, src/include/constants.h).
+DEFAULT_MULTIPLIER = 10**9
+
+#: Default working-buffer budget of one v3 battery.
+DEFAULT_V3_BUDGET_BYTES = 256 << 20
+
+_INT64_MAX = np.iinfo(np.int64).max
+
+#: Header attributes that are run-scoped or physical and must be identical in
+#: every file of the dataset.
+RUN_SCOPED_ATTRS = (
+    "n_forests_total",
+    "max_halo_rank_in_forest",
+    "box_size_mpc_h",
+    "particle_mass_msun_h",
+    "omega_matter",
+    "omega_lambda",
+    "hubble_h",
 )
+
+
+class Outcome:
+    """One named battery check outcome."""
+
+    def __init__(self, name: str, status: str, detail: str = ""):
+        self.name = name
+        self.status = status  # PASS | FAIL | SKIP
+        self.detail = detail
+
+    def as_dict(self) -> dict:
+        return {"name": self.name, "status": self.status, "detail": self.detail}
+
+    def line(self) -> str:
+        text = "{}: {}".format(self.name, self.status)
+        if self.detail:
+            text += " — {}".format(self.detail)
+        return text
+
+
+def _examples(values, limit: int = 5) -> str:
+    return ", ".join(str(v) for v in list(values)[:limit])
+
+
+def _filter_failures(dataset, name: str) -> List[str]:
+    """The storage contract is chunked and UNFILTERED: compression of any
+    kind, scale-offset, shuffle, and fletcher32 are all prohibited."""
+    failures = []
+    if dataset.compression is not None:
+        failures.append(
+            "{} is compressed ({}); the contract forbids compression".format(
+                name, dataset.compression
+            )
+        )
+    if dataset.scaleoffset is not None:
+        failures.append(
+            "{} uses the scale-offset filter; the contract forbids filters".format(name)
+        )
+    if dataset.shuffle:
+        failures.append("{} uses the shuffle filter; the contract forbids filters".format(name))
+    if dataset.fletcher32:
+        failures.append("{} uses the fletcher32 filter; the contract forbids filters".format(name))
+    return failures
+
+
+def check_header_bounds(n_forests_total: int, max_rank: int, multiplier: int) -> List[str]:
+    """Galaxy-identity bound checks from the spec: the multiplier must exceed
+    the dataset's max rank, and multiplier x (n_forests_total + 1) must fit in
+    int64 (the startup checks the reader performs against these headers)."""
+    failures = []
+    if multiplier <= max_rank:
+        failures.append(
+            "identity multiplier {} does not exceed max_halo_rank_in_forest {}".format(
+                multiplier, max_rank
+            )
+        )
+    if multiplier * (n_forests_total + 1) > _INT64_MAX:
+        failures.append(
+            "multiplier {} x (n_forests_total {} + 1) overflows int64".format(
+                multiplier, n_forests_total
+            )
+        )
+    return failures
+
+
+def battery_failed(outcomes: List[Outcome]) -> bool:
+    return any(outcome.status == "FAIL" for outcome in outcomes)
+
 
 #: The fixed /halos table (topology, then identity), restated from the spec.
 _V3_FIXED_DATASETS = (

@@ -73,9 +73,17 @@ from hdf5_writer import (  # noqa: E402
     snapshot_h5_name,
 )
 from scatter import file_md5, load_a_list  # noqa: E402
-
-#: Default UniqueGalaxyID multiplier (TREE_MUL_FAC, src/include/constants.h).
-DEFAULT_MULTIPLIER = 10**9
+from validate_v3 import (  # noqa: E402
+    DEFAULT_MULTIPLIER,
+    DEFAULT_V3_BUDGET_BYTES,
+    RUN_SCOPED_ATTRS,
+    V3_FORMAT_VERSION,
+    Outcome,
+    _examples,
+    _filter_failures,
+    battery_failed,
+    check_header_bounds,
+)
 
 #: Rows the two identity passes read at a time. Four HDF5 chunks (``CHUNK_1D``
 #: is 65536 rows) per read, so reads stay chunk-aligned, and small enough that
@@ -131,42 +139,7 @@ _ORDERING_MERGE_READ_ROWS = 1 << 10
 #: it and no other stage may depend on it.
 ORDERING_DIR_PREFIX = "validate_identity_"
 
-_INT64_MAX = np.iinfo(np.int64).max
 _INT64_MIN = np.iinfo(np.int64).min
-
-#: Header attributes that are run-scoped or physical and must be identical in
-#: every file of the dataset.
-RUN_SCOPED_ATTRS = (
-    "n_forests_total",
-    "max_halo_rank_in_forest",
-    "box_size_mpc_h",
-    "particle_mass_msun_h",
-    "omega_matter",
-    "omega_lambda",
-    "hubble_h",
-)
-
-
-class Outcome:
-    """One named battery check outcome."""
-
-    def __init__(self, name: str, status: str, detail: str = ""):
-        self.name = name
-        self.status = status  # PASS | FAIL | SKIP
-        self.detail = detail
-
-    def as_dict(self) -> dict:
-        return {"name": self.name, "status": self.status, "detail": self.detail}
-
-    def line(self) -> str:
-        text = "{}: {}".format(self.name, self.status)
-        if self.detail:
-            text += " — {}".format(self.detail)
-        return text
-
-
-def _examples(values, limit: int = 5) -> str:
-    return ", ".join(str(v) for v in list(values)[:limit])
 
 
 def _log(message: str) -> None:
@@ -176,27 +149,6 @@ def _log(message: str) -> None:
 # ---------------------------------------------------------------------------
 # Stage A: structural conformance
 # ---------------------------------------------------------------------------
-
-
-def _filter_failures(dataset, name: str) -> List[str]:
-    """The storage contract is chunked and UNFILTERED: compression of any
-    kind, scale-offset, shuffle, and fletcher32 are all prohibited."""
-    failures = []
-    if dataset.compression is not None:
-        failures.append(
-            "{} is compressed ({}); the contract forbids compression".format(
-                name, dataset.compression
-            )
-        )
-    if dataset.scaleoffset is not None:
-        failures.append(
-            "{} uses the scale-offset filter; the contract forbids filters".format(name)
-        )
-    if dataset.shuffle:
-        failures.append("{} uses the shuffle filter; the contract forbids filters".format(name))
-    if dataset.fletcher32:
-        failures.append("{} uses the fletcher32 filter; the contract forbids filters".format(name))
-    return failures
 
 
 def check_file_set(directory: Path, n_snapshots: int) -> List[str]:
@@ -1426,26 +1378,6 @@ def _identity_conditions(
     return failures, bitset_bytes
 
 
-def check_header_bounds(n_forests_total: int, max_rank: int, multiplier: int) -> List[str]:
-    """Galaxy-identity bound checks from the spec: the multiplier must exceed
-    the dataset's max rank, and multiplier x (n_forests_total + 1) must fit in
-    int64 (the startup checks the reader performs against these headers)."""
-    failures = []
-    if multiplier <= max_rank:
-        failures.append(
-            "identity multiplier {} does not exceed max_halo_rank_in_forest {}".format(
-                multiplier, max_rank
-            )
-        )
-    if multiplier * (n_forests_total + 1) > _INT64_MAX:
-        failures.append(
-            "multiplier {} x (n_forests_total {} + 1) overflows int64".format(
-                multiplier, n_forests_total
-            )
-        )
-    return failures
-
-
 def check_len(snapshots: _Snapshots) -> Tuple[List[str], int]:
     """Len >= 0 everywhere; Len == 0 is legal and its count is logged."""
     failures = []
@@ -1625,20 +1557,9 @@ def run_battery(
     return outcomes
 
 
-def battery_failed(outcomes: List[Outcome]) -> bool:
-    return any(outcome.status == "FAIL" for outcome in outcomes)
-
-
 # ---------------------------------------------------------------------------
 # Version detection and dispatch
 # ---------------------------------------------------------------------------
-
-#: The format version the v3 battery (:mod:`validate_v3`) validates, and the
-#: one the dispatch routes to it.
-V3_FORMAT_VERSION = 3
-
-#: Default working-buffer budget of one v3 battery.
-DEFAULT_V3_BUDGET_BYTES = 256 << 20
 
 
 def dataset_format_versions(directory, n_snapshots: int) -> Dict[str, Optional[int]]:
@@ -1697,7 +1618,7 @@ def run_producer_battery(
     """Dispatch to the battery of the version the dataset declares: the v2
     battery, called exactly as before, for everything that is not uniformly
     version 3 (``budget_bytes`` is the v3 battery's)."""
-    from validate_v3 import run_battery_v3  # deferred: validate_v3 imports this module
+    from validate_v3 import run_battery_v3  # the version 3 battery
 
     a_list, _ = load_a_list(a_list_path)
     if detect_dataset_version(directory, len(a_list)) == V3_FORMAT_VERSION:

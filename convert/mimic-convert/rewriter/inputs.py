@@ -85,8 +85,12 @@ from conversion_manifest import (  # noqa: E402
     sha256_file,
 )
 from errors import ConverterError  # noqa: E402
-from hdf5_writer import load_header_metadata  # noqa: E402
-from hdf5_writer_v3 import V3_SCHEMA_ATTRS, V3_SIDECAR_DATASETS, v3_halo_datasets  # noqa: E402
+from hdf5_writer_v3 import (  # noqa: E402
+    V3_SCHEMA_ATTRS,
+    V3_SIDECAR_DATASETS,
+    load_header_metadata,
+    v3_halo_datasets,
+)
 from horizontal_dataset import DEFAULT_BLOCK_ROWS, HorizontalDataset  # noqa: E402
 from rewriter import (  # noqa: E402
     OPERATION_CUT,
@@ -99,7 +103,7 @@ from rewriter import (  # noqa: E402
 from scatter import load_a_list  # noqa: E402
 from source_index import ForestTable, SourceIndex  # noqa: E402
 from transpose import output_dtype  # noqa: E402
-from validate import check_header_bounds  # noqa: E402
+from validate_v3 import check_header_bounds  # noqa: E402
 
 #: The shipped default profile of the one accepted source format.
 DEFAULT_PROFILE = (
