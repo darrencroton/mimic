@@ -109,7 +109,7 @@ The recorded gate of 2026-10-08 passed on this version 3 dataset: under `halos-o
 
 ## Committed contract fixture
 
-`_tests/data/worked_ascii/` holds a tiny version 3 dataset converted by `convert_trees.py` from a committed synthetic Consistent-Trees ASCII source, `_tests/data/source/` (`tree_0_0_0.dat`, `forests.list` and `worked_ascii.a_list`, written by `source/generate_source.py`) at the last six scale factors of this package's snapshot list: six snapshots (the first empty), three forests of four trees, and topology chosen to exercise the cases a reader must handle: a descendant with three progenitors, a two-member FoF group, a forest holding two self-central halos in the same snapshot, and a forest that ends before the final snapshot. The package's generic test tiers (`_tests/input/test_simulation.yaml`) and its fixture-based C unit tests run on it; `shin-uchuu`'s fixture is built from the same source at its own scale factors.
+`_tests/data/worked_ascii/` holds a tiny version 3 dataset converted by `convert_trees.py` from a committed synthetic Consistent-Trees ASCII source, `_tests/data/source/` (`tree_0_0_0.dat`, `forests.list` and `worked_ascii.a_list`, written by `source/generate_source.py`) at the last six scale factors of this package's snapshot list: six snapshots (the first empty), three forests of four trees, and topology chosen to exercise the cases a reader must handle: a descendant with three progenitors, a two-member FoF group, a forest holding two self-central halos in the same snapshot, and a forest that ends before the final snapshot. The package's generic test tiers (`_tests/input/test_simulation.yaml`) run on it; `shin-uchuu`'s fixture is built from the same source at its own scale factors.
 
 Regenerate it with:
 

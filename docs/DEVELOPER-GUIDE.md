@@ -1188,7 +1188,7 @@ One bound is enforced, at two points. The horizontal reader checks the configure
 2. Append one row to `horizontal_reader_table[]` in `src/io/horizontal/registry.c`, guarding both the `extern` and the row with `#ifdef HDF5` when the reader needs it. Never reuse a name registered in `src/io/vertical/registry.c`; the two sets must stay disjoint. `registry.c` and `interface.c` must **not** be named `*hdf5.c`, because the configuration path calls `horizontal_reader_lookup()` in every build.
 3. Run the dataset's open-time checks at `open_run`, structure before values and values before bulk reads, and abort rather than repair; state which invariants remain producer obligations.
 4. Keep slab counts and indices `int64_t`, honour the empty-state lifecycle above, and allocate through `mymalloc_cat(..., MEM_TREES)`.
-5. Ship a fixture simulation package with committed, small fixtures and C unit tests under `simulations/<name>/_tests/unit/`; `micro-uchuu-ascii-horizontal` is the worked reference.
+5. Ship a fixture simulation package with committed, small fixtures and C unit tests under `simulations/<name>/_tests/unit/`; `mini-millennium-horizontal` is the worked reference.
 
 ## The Horizontal Driver
 
