@@ -1,0 +1,35 @@
+{
+  "caps": {
+    "max_forests_per_file": 2,
+    "max_halos_per_file": 100000000
+  },
+  "dataset": {
+    "column_mapping_sha256": "727d13f529fa80305f261b933612b6087aa52ade5dde7899bb18f8f4450f8f6d",
+    "forest_id_sha256": "e24846410e56684cedbb55cfa4a0bb715a05efe983172488fe80bbaf1d014fc7",
+    "n_forests_total": 3,
+    "total_halos": 13
+  },
+  "files": [
+    {
+      "first_forest": 0,
+      "last_forest": 1,
+      "n_forests": 2,
+      "n_halos": 11,
+      "number": 0
+    },
+    {
+      "first_forest": 2,
+      "last_forest": 2,
+      "n_forests": 1,
+      "n_halos": 2,
+      "number": 1
+    }
+  ],
+  "format": "mimic-vertical-file-plan",
+  "record": {
+    "digest": "ab04dcbae52ffd11b1e773fe3c9aafecc22371f4583eeadf2353930e5bdf5e64",
+    "halo_properties": "simulations/shin-uchuu-lhalo/halo_properties.yaml",
+    "halo_properties_md5": "095cc9a62a460f61530989325d8d9e24"
+  },
+  "version": 1
+}

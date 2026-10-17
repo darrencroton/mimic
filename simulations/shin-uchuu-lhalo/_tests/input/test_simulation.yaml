@@ -1,0 +1,37 @@
+# Test Shin-Uchuu L-Halo binary Simulation Metadata
+#
+# Points the generic test tiers at the committed worked_ascii_lhalo fixture
+# (_tests/data/worked_ascii_lhalo/, rebuilt by _tests/data/regenerate.sh): the
+# three synthetic forests of simulations/shin-uchuu/'s worked_ascii fixture,
+# converted to two L-Halo binary files (forests 0 and 1 in file 0, forest 2 in
+# file 1) in this package's own record by
+# convert/mimic-convert/write_vertical_trees.py. The cosmology, box size and
+# particle mass are this package's own (simulation_info.yaml); the snapshot list
+# is the source fixture's, the last six scale factors of this package's own list,
+# renumbered from 0. No identity multiplier is declared: like every vertical
+# package's test config, the fixture runs at the default, which the generic
+# multiplier tests take as their reference encoding. This is test-sized synthetic
+# data: it exercises this package's compiled record and reader path, not the
+# Shin-Uchuu halo population.
+
+input:
+  first_file: 0
+  last_file: 1
+  tree_name: shin-uchuu-cut
+  tree_type: lhalo_binary
+  simulation_dir: simulations/shin-uchuu-lhalo/_tests/data/worked_ascii_lhalo
+  snapshot_list_file: simulations/shin-uchuu-lhalo/_tests/data/worked_ascii_lhalo/worked_ascii.a_list
+
+simulation:
+  cosmology:
+    omega_matter: 0.3089
+    omega_lambda: 0.6911
+    hubble_h: 0.6774
+  box_size:
+    value: 140.0
+    units: Mpc/h
+    h_convention: carried
+  particle_mass:
+    value: 0.0000897
+    units: 1e10 Msun/h
+    h_convention: carried
