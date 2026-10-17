@@ -67,6 +67,7 @@ Full detail, evidence, and status for every incident is in `references/chronicle
 | 8 | Stripping metal conservation | Documented as a known issue (`25f54878`), then fixed (`3f1e124b`) — check status before "rediscovering" it |
 | 9 | fix_flybys z=0 divergence (`b727fd36`, reversed) | **A reversed decision, and the reason matters.** Accepted 2026-08 as a ~10–25% Type-0 divergence measured on micro-Uchuu; refuted 2026-09-09 on Shin-Uchuu, where percolating forests put 33% of the z=0 population in one bogus FoF group. Deleted from the C reader and converter, horizontal format bumped to `format_version = 2`. The transferable lesson: "accepted at the scale we tested" is not "accepted" |
 | 10 | Deliberate retirements ≠ failures | Split-pass merger path (`53fb1904`), per-task partition (`8be9309f`), parameter registry (`74c56f4a`) were removed on purpose — do not "restore" them |
+| 11 | Horizontal format version 2 retired (2026-10-17) | Closed on purpose: the reader accepts only version 3, and the version 2 converter, validator, crosscheck, fixtures and the rewriter's `migrate` are gone; the format document keeps version 2 as labelled history. Do not restore a version 2 path; reconvert a version 2 dataset to version 3 |
 
 Also settled, from the upstream SAGE era: an abandoned Len-based infall recipe (`3a2d1f30`), a reverted infall recipe (`b0088922`), and an ejected-gas wind-back experiment (`10ac96eb`). These are prior art — check them before proposing similar physics changes.
 

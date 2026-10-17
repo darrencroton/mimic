@@ -27,17 +27,15 @@ ln -s /path/to/shin-uchuu-subset-ascii simulations/shin-uchuu-ascii/snapshots
 
 ## Converting the subset to horizontal HDF5
 
-The subset converts with either converter in `convert/mimic-convert/` (see its [README](../../convert/mimic-convert/README.md)). The order in which the tree files are given becomes the forest sidecar's `SourceFileOrdinal`. By convention they are given in `locations.dat`'s FileID order, which is the natural (`sort -V`) order of the file names, not their plain lexical order. In that order `SourceFileOrdinal` equals the FileID and matches the production inventory.
+The subset converts with `convert_trees.py`, the one converter in `convert/mimic-convert/` (see its [README](../../convert/mimic-convert/README.md)). The order in which the tree files are given becomes the forest sidecar's `SourceFileOrdinal`. By convention they are given in `locations.dat`'s FileID order, which is the natural (`sort -V`) order of the file names, not their plain lexical order. In that order `SourceFileOrdinal` equals the FileID and matches the production inventory.
 
 Measured on the Mac Studio, source and workdir on one external disk, with the `shin-uchuu-ascii` converter profile, multiplier 2×10¹⁰ and `--memory-budget-mb 8192`. Peak RSS is from `/usr/bin/time -l` with `MallocLargeCache=0`.
 
 | Conversion | Wall-clock | Peak RSS | Disk |
 |---|---|---|---|
 | `convert_trees.py` to version 3: `inspect`, `ingest`, `transpose`, `write`, `validate`, `report` | 11,460 s (ingest 7,542 s) | 9.99 GB (ingest) | dataset 57.8 GB (142.1 B per halo); the volume's usage rose by at most 387 GB, the workdir's intermediates plus the battery's 76 GB spill; workdir 311 GB after `report` without consumption |
-| `convert_ctrees.py` to version 2: `scatter` to `report` | 16,103 s (scatter 13,131 s, I/O-bound at about 16 MB/s) | 8.98 GB (links) | workdir 41.4 GB, with consumptive deletion in `fixups`, `links` and `write` |
-| `rewrite_trees.py migrate`, version 2 to 3 | 449 s | 2.09 GB | dataset 57.4 GB, scratch peak 1.72 GB |
 
-Both version 3 datasets pass the producer battery (20 of 20 checks) and agree in every `/halos` column, header attribute, `/schema` attribute and sidecar value. In the version 3 sidecar, 12,694 of the 6,011,205 forests span files and carry −1/−1 ordinals; every other forest carries its file's ordinal and its unit ordinal in that file.
+The version 3 dataset `convert_trees.py` made from the ASCII subset and the one the rewriter's `migrate` operation (since retired) made from the subset's version 2 conversion both passed the producer battery (20 of 20 checks) and agreed in every `/halos` column, header attribute, `/schema` attribute and sidecar value. In the version 3 sidecar, 12,694 of the 6,011,205 forests span files and carry −1/−1 ordinals; every other forest carries its file's ordinal and its unit ordinal in that file.
 
 ## Data provenance
 
@@ -45,7 +43,7 @@ Source: `/fred/oz214/simulations/uchuu/shinuchuu/mergertrees` on OzSTAR — 2744
 
 ## Cross-format sibling
 
-- `simulations/shin-uchuu/` — the horizontal HDF5 version 3 dataset of the full production catalog, made by the legacy converter using this reader's value conventions as the reference, then migrated to version 3 and cut by `convert/mimic-convert/rewrite_trees.py` (its README records how). This package is the vertical side of that package's subset gate: the gate compares this package's reader over the 2,744-file subset with the horizontal reader over a version 3 conversion of exactly that subset, for `halos-only` and `sage16`, fixed and dynamic, and all four legs passed bitwise on the subset migrated from its version 2 conversion (`halos-only` 92,413,007 galaxies in all 20 fields; `sage16` 60,016,178 fixed and 60,016,233 dynamic in all 42). The gate covers the migration at subset scale only; it excludes the production super-forest and says nothing about the cut.
+- `simulations/shin-uchuu/` — the horizontal HDF5 version 3 dataset of the full production catalog, made by the legacy converter (since removed) using this reader's value conventions as the reference, then migrated to version 3 (by the rewriter's `migrate` operation, since retired) and cut by `convert/mimic-convert/rewrite_trees.py cut` (its README records how). This package is the vertical side of that package's subset gate: the gate compares this package's reader over the 2,744-file subset with the horizontal reader over a version 3 conversion of exactly that subset, for `halos-only` and `sage16`, fixed and dynamic, and all four legs passed bitwise on the subset migrated from its version 2 conversion (`halos-only` 92,413,007 galaxies in all 20 fields; `sage16` 60,016,178 fixed and 60,016,233 dynamic in all 42). The gate covers the migration at subset scale only; it excludes the production super-forest and says nothing about the cut.
 
 **Mirror maintenance:** `halo_properties.yaml` is an intentional mirror of `simulations/shin-uchuu/halo_properties.yaml` (both use the ctrees RawHalo contract, adjusted only for the 140 Mpc/h box's `Pos` range). Keep them in sync.
 

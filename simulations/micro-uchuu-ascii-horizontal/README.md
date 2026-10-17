@@ -11,7 +11,7 @@ This package declares the horizontal HDF5 on-disk record for the micro-Uchuu hal
 - `_tests/integration/test_schema_conformance.py`: checks the compiled declarations against the converter's own `/schema` derivation for this route (no data needed) and against the real dataset's `/schema` when present
 - `_tests/scientific/test_cross_format_identity.py`: the parity gate (below)
 - `_tests/unit/test_unit_horizontal_reader_realdata.c`: opens the real dataset through the horizontal reader and pins its format version, source format, halo and forest counts (skips when `snapshots/` does not resolve)
-- `_tests/data/`, `_tests/input/`: the committed contract fixtures, which are still version 2 (below)
+- `_tests/data/`, `_tests/input/`: the committed version 3 contract fixture, its synthetic source and the test-simulation file that points the generic tiers at it (below)
 - `snapshots/`: symlink to the converted dataset directory (machine-local, not tracked; `snapshots/` itself is gitignored)
 
 ## Data provenance
@@ -107,25 +107,17 @@ on a machine holding both the `micro-uchuu-ascii` and `micro-uchuu-ascii-horizon
 
 The recorded gate of 2026-10-08 passed on this version 3 dataset: under `halos-only`, 4,409,643 galaxies over output snapshots 7, 8, 10, 12, 16, 23, 28 and 49, bitwise identical per `UniqueGalaxyID` in all 20 fields under both fixed and dynamic timesteps; under `sage16`, 3,112,186 galaxies (fixed) and 3,112,152 (dynamic) in all 42 fields; and Stage 8's 4,409,643 vertical galaxy records byte-identical to the reference commit's. It is evidence for this route against its own source format only: no identity with the L-Halo or forests-HDF5 micro-Uchuu packagings is claimed.
 
-## Committed contract fixtures
+## Committed contract fixture
 
-`_tests/data/` holds a tiny version 2 dataset, and `_tests/data/generic/` the generic-tier copy of the same synthetic forests at the last six scale factors of this package's snapshot list (rebuilt by its `regenerate.sh`): six snapshots (one of them empty), three forests, and topology chosen to exercise the cases a reader must handle: a descendant with three progenitors, a two-member FoF group, and a flyby-demoted central carrying a negated `MostBoundID`. **The committed fixtures are version 2, unlike the real dataset**, and stay version 2 until the version 2 format is retired (Stage D of the version 3 migration), when a version 3 fixture converted by `convert_trees.py` from a committed synthetic ASCII source replaces them. Until then the package's generic test tiers (`_tests/input/test_simulation.yaml`) and the two fixture-based C unit tests run on version 2 data, which the reader still accepts with this package's `long long` link declarations.
+`_tests/data/worked_ascii/` holds a tiny version 3 dataset converted by `convert_trees.py` from a committed synthetic Consistent-Trees ASCII source, `_tests/data/source/` (`tree_0_0_0.dat`, `forests.list` and `worked_ascii.a_list`, written by `source/generate_source.py`) at the last six scale factors of this package's snapshot list: six snapshots (the first empty), three forests of four trees, and topology chosen to exercise the cases a reader must handle: a descendant with three progenitors, a two-member FoF group, a forest holding two self-central halos in the same snapshot, and a forest that ends before the final snapshot. The package's generic test tiers (`_tests/input/test_simulation.yaml`) and its fixture-based C unit tests run on it; `shin-uchuu`'s fixture is built from the same source at its own scale factors.
 
 Regenerate it with:
 
 ```bash
-mimic_venv/bin/python simulations/micro-uchuu-ascii-horizontal/_tests/input/create_snapshot_fixture.py
+simulations/micro-uchuu-ascii-horizontal/_tests/data/regenerate.sh
 ```
 
-The generator never hand-writes HDF5 content. In a scratch temporary workdir it synthesises a tiny Consistent-Trees ASCII tree, runs the version 2 `convert/mimic-convert/convert_ctrees.py` pipeline over it in production layout, runs the version 2 producer validation battery (`convert/mimic-convert/validate.py`) and aborts unless it exits 0, then copies the validated datasets here and asserts that every dataset element, every header attribute, and every `/ForestID` value is identical to the validated production-layout file. Re-running regenerates byte-identical files and a byte-identical `fixture_manifest.json` (a canonical, path-independent record; the converter's own `manifest.json` records absolute paths and source `mtime_ns` and is not committable).
-
-**Why the committed fixture is re-chunked.** Production data uses the contract chunk shape `(65536,)` / `(65536, 3)`. HDF5 allocates a chunk in full as soon as any element in it is written, so a snapshot file holding even one halo would cost 6.25 MiB, and a committed production-layout fixture would dwarf the repository. The frozen specification makes chunk layout a storage detail — "consumers must not depend on chunk boundaries, only on dataset shape and type" — so the committed copy is re-chunked small. Values, dtypes, shapes, the object set, and every header attribute are preserved exactly; chunk shape is the only permitted difference, which the generator enforces on every run.
-
-Check conformance of the committed fixture (everything the version 2 producer battery asserts structurally, except chunk shape):
-
-```bash
-mimic_venv/bin/python simulations/micro-uchuu-ascii-horizontal/_tests/input/check_fixture_conformance.py
-```
+The script rewrites the source from its generator, converts it with `convert_trees.py` (ingest, transpose, write, then report, which runs the producer validation battery) under the `micro-uchuu-ascii` converter profile and metadata in a temporary workdir that is removed on exit, and installs the dataset and its a_list under `worked_ascii/`. The generator is deterministic and the converter is the only producer: nothing edits a written file.
 
 ## Related packages
 

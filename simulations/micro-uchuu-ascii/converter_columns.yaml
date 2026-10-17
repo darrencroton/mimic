@@ -13,9 +13,6 @@
 # can be added under extra_fields -- see
 # convert/mimic-convert/profiles/consistent_trees_ascii_extras_example.yaml.
 #
-# The version 2 workflow (convert_ctrees.py) does not read this file; its
-# selection is fixed and unchanged.
-#
 # This profile only selects source fields. It does not change a run YAML,
 # halo_properties.yaml or the snapshots symlink.
 

@@ -129,6 +129,16 @@ These were removed on purpose after the design moved on. Restoring them is regre
 | `8be9309f` | Per-task partition model | Superseded by per-file/enumerated partition schemes |
 | `74c56f4a` | Central parameter registry | Superseded by module-local parameter validation in each `init()` |
 
+## Incident 11 — Horizontal format version 2 retired (2026-10-17, closed)
+
+**Symptom.** After the Consistent-Trees ASCII route moved to `format_version = 3` and Shin-Uchuu's production dataset became a version 3 migration and cut, version 2 survived only as a second copy of the input path: a second reader path in `read_horizontal_hdf5.c` and the driver, a second converter and validator (`convert_ctrees.py`, `hdf5_writer.py`, `validate.py`, `crosscheck.py`), the rewriter's `migrate`, committed version 2 test fixtures with their generator and conformance check, and the tests that kept all of it exercised.
+
+**Decision.** Retire version 2 outright rather than keep it alive for fixtures alone: two paths for one contract is against the single-source-of-truth principle, and version 3 carries everything version 2 did. The version 2 reader's negative battery was ported to the version 3 reader test first, and the shared converter utilities moved into the version 3 modules, so no obligation was lost.
+
+**Evidence.** The commits are `417be29c` (utility extraction), `cf86ed4a` (every version 2 fixture consumer retargeted to a version 3 ASCII fixture), `5bbc1496` (the negative battery ported), `e217b01b` (the reader path deleted), `eaad052a` (the converter, validator and crosscheck deleted) and `6f98d10a` (the version 2 fixtures, generators, make target and CI step deleted). Across the retirement's 150 changed files, 22,479 lines were deleted and 3,846 added (`git diff --shortstat ae6cf396 6f98d10a`). `make tests-converter` went from 1813 to 1550 cases and `make tests-distributed` from 266 to 264 live checks, the version 2 refusal leg and its MPI build being the removed share.
+
+**Status.** The reader accepts exactly version 3 and rejects every other version with "supports only version 3". The version 2 text of `convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md` is kept unchanged under its historical heading, and the version 3 sections keep their comparisons with version 2 as explanation. `rewrite_trees.py` offers `cut` and `noop` only; `migrate` survives only as the history of how Shin-Uchuu's production dataset was made. Do not restore a version 2 path, converter or fixture; a version 2 dataset is reconverted from source to version 3. Recover any deleted file with `git show <hash>^:<path>`, for example `git show eaad052a^:convert/mimic-convert/convert_ctrees.py` or `git show e217b01b^:src/io/horizontal/read_horizontal_hdf5.c`.
+
 ## Upstream SAGE-era dead ends (prior art)
 
 From the pre-Mimic history; check before proposing similar physics.

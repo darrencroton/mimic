@@ -2,35 +2,40 @@
 
 **Purpose**: The on-disk contract for horizontal HDF5 merger-tree input — read by Mimic's `horizontal_hdf5` reader and horizontal driver, and written by the converters in this directory (`convert/mimic-convert/`) or by any conforming producer.
 
-**Status**: `format_version = 2` is frozen, and `format_version = 3` is normative under [Version 3](#version-3). Every normative statement in this document is part of the contract. Any change that alters the meaning, layout, ordering, or validation rules of files on disk requires incrementing `format_version` and updating this specification; readers must reject files whose `format_version` they do not support. Corrections that bring the wording into line with the semantics a version's `format_version` always denoted are recorded under [Errata](#errata) instead of bumping the version — see that section for the rule and the full list. One further owner carve-out, a conformance change to one route's identity convention made on 2026-10-07, is recorded under [Errata](#errata) with the files it affects.
+**Status**: `format_version = 3` is the only supported version and is normative under [Version 3](#version-3); `format_version = 2` is retained as history under [Version 2 (historical, unsupported since 2026-10-17)](#version-2-historical-unsupported-since-2026-10-17), and no reader or producer in this repository supports it. Every normative statement in this document is part of the contract. Any change that alters the meaning, layout, ordering, or validation rules of files on disk requires incrementing `format_version` and updating this specification; readers must reject files whose `format_version` they do not support. Corrections that bring the wording into line with the semantics a version's `format_version` always denoted are recorded under [Errata](#errata) instead of bumping the version — see that section for the rule and the full list. One further owner carve-out, a conformance change to one route's identity convention made on 2026-10-07, is recorded under [Errata](#errata) with the files it affects.
 
 **Version 2 supersedes version 1 outright; there is no legacy-read path.** Version 1 was produced and consumed with `fix_flybys()` still live in the reference Consistent-Trees reader (`src/io/vertical/ctrees/ctrees_utils.c`): at each forest's final snapshot it collapsed every independent FoF group but the most massive into satellites of that survivor, marking the demotion by negating the demoted centrals' `MostBoundID`. This was found to be scientifically wrong — not a tolerable approximation — when it collapsed 33% of the Shin-Uchuu z=0 population into one bogus FoF group and truncated the z=0 halo mass function by ~2 dex. `fix_flybys()` was deleted from the reader and the converter; `MostBoundID` is therefore always positive in version 2, and every version 1 dataset is rejected outright by a version-2 reader (`HORIZONTAL_HDF5_FORMAT_VERSION` in `src/io/horizontal/read_horizontal_hdf5.c`), naming the file and the version found rather than silently reinterpreting it.
 
-**Version 3 is also normative (2026-09-29).** It is specified in full under [Version 3](#version-3). Every section before that one specifies version 2 exactly as frozen, and where those sections say "this format" they mean version 2. Mimic's `horizontal_hdf5` reader accepts versions 2 and 3, dispatching on each file's `format_version`, and rejects every other version.
+**Version 3 is normative (2026-09-29) and, since 2026-10-17, the only supported version.** It is specified in full under [Version 3](#version-3). The sections under [Version 2 (historical, unsupported since 2026-10-17)](#version-2-historical-unsupported-since-2026-10-17) specify version 2 exactly as it was frozen, and where those sections say "this format" they mean version 2. Mimic's `horizontal_hdf5` reader accepts version 3 only and rejects every other version, version 2 included.
 
 ---
 
 ## Table of Contents
 
-1. [Role and Scope](#role-and-scope)
-2. [File Set and Naming](#file-set-and-naming)
-3. [Header Attributes](#header-attributes)
-4. [Halo Datasets](#halo-datasets)
-5. [Link Scope](#link-scope)
-6. [Format Invariants](#format-invariants)
-7. [Ordering Contracts](#ordering-contracts)
-8. [Galaxy Identity Encoding](#galaxy-identity-encoding)
-9. [Validation Requirements](#validation-requirements)
-10. [Storage Layout](#storage-layout)
-11. [Simulation Package Integration](#simulation-package-integration)
-12. [Producing Horizontal-HDF5 Data](#producing-horizontal-hdf5-data)
-13. [Versioning Policy](#versioning-policy)
-14. [Errata](#errata)
-15. [Version 3](#version-3)
+1. [Version 2 (historical, unsupported since 2026-10-17)](#version-2-historical-unsupported-since-2026-10-17)
+   1. [Role and Scope](#role-and-scope)
+   2. [File Set and Naming](#file-set-and-naming)
+   3. [Header Attributes](#header-attributes)
+   4. [Halo Datasets](#halo-datasets)
+   5. [Link Scope](#link-scope)
+   6. [Format Invariants](#format-invariants)
+   7. [Ordering Contracts](#ordering-contracts)
+   8. [Galaxy Identity Encoding](#galaxy-identity-encoding)
+   9. [Validation Requirements](#validation-requirements)
+   10. [Storage Layout](#storage-layout)
+   11. [Simulation Package Integration](#simulation-package-integration)
+   12. [Producing Horizontal-HDF5 Data](#producing-horizontal-hdf5-data)
+2. [Versioning Policy](#versioning-policy)
+3. [Errata](#errata)
+4. [Version 3](#version-3)
 
 ---
 
-## Role and Scope
+## Version 2 (historical, unsupported since 2026-10-17)
+
+The sections from Role and Scope to Producing Horizontal-HDF5 Data specify `format_version = 2` exactly as it was frozen and are kept unchanged as the record of that format; Mimic's reader no longer accepts version 2 and no converter writes it, so nothing in them describes a supported file.
+
+### Role and Scope
 
 Horizontal input groups halos by snapshot rather than by forest, so the working set of a run is one snapshot's halo population instead of one forest's history. This is the input format for runs declaring `input.processing_order: horizontal` with `input.tree_type: horizontal_hdf5`.
 
@@ -38,7 +43,7 @@ Mimic never converts between orderings internally. Horizontal-HDF5 data is produ
 
 This document owns the format. The reader and driver that consume it, and any converter that produces it, conform to this specification — not the other way around.
 
-## File Set and Naming
+### File Set and Naming
 
 A horizontal-HDF5 dataset consists of:
 
@@ -47,7 +52,7 @@ A horizontal-HDF5 dataset consists of:
 
 Each `snapshot_NNN.h5` contains exactly two HDF5 objects: the group `/header` (scalar metadata as HDF5 attributes) and the group `/halos` (one dataset per halo field, all of length `n_halos`, stored as a struct-of-arrays).
 
-## Header Attributes
+### Header Attributes
 
 All scalar metadata lives as HDF5 attributes on the `/header` group:
 
@@ -68,7 +73,7 @@ All scalar metadata lives as HDF5 attributes on the `/header` group:
 
 `n_forests_total` and `max_halo_rank_in_forest` are properties of the whole dataset, not of one snapshot; producers stamp the same run-scoped values into every file so any single file suffices for identity bounds validation at startup.
 
-## Halo Datasets
+### Halo Datasets
 
 All datasets live under `/halos`, each of length `n_halos` (vectors are `[n_halos, 3]`). **Dataset names and types are normative**: for every dataset except `ForestIndex` and `HaloRankInForest`, they must match what the consuming simulation package's `halo_properties.yaml` declares, so the generated `RawHalo` struct and accessors consume the file directly. `ForestIndex` and `HaloRankInForest` are horizontal-format identity metadata, not catalog halo properties (see [Simulation Package Integration](#simulation-package-integration)): the reader consumes them directly by dataset name into `struct SnapshotSlab`'s own `forest_index`/`halo_rank_in_forest` arrays, so they are exempt from the `halo_properties.yaml` declaration rule. The names below follow the established Consistent-Trees bridge contract (as in `simulations/micro-uchuu-ascii/halo_properties.yaml`).
 
@@ -93,7 +98,7 @@ All datasets live under `/halos`, each of length `n_halos` (vectors are `[n_halo
 
 The `forests.h5` sidecar contains one dataset, `/ForestID` (int64, length `n_forests_total`), mapping each dense `ForestIndex` to the original source-catalog forest id. Provenance and debugging only.
 
-## Link Scope
+### Link Scope
 
 Every link field is a **snapshot-local integer index**; no dataset stores global ids as links. The consumer must resolve each link type against the correct file:
 
@@ -105,7 +110,7 @@ Every link field is a **snapshot-local integer index**; no dataset stores global
 | `FirstHaloInFOFgroup` | snapshot N file (same file) |
 | `NextHaloInFOFgroup` | snapshot N file (same file) |
 
-## Format Invariants
+### Format Invariants
 
 Violating any invariant makes a file invalid. Producers and consumers **abort on violation; nothing repairs**.
 
@@ -116,7 +121,7 @@ Violating any invariant makes a file invalid. Producers and consumers **abort on
 5. **Header consistency.** `n_halos` equals every dataset's length; `snapshot_number` matches the filename; all `SnapNum` values equal `snapshot_number`; `n_forests_total` and `max_halo_rank_in_forest` are identical across all files and match the measured data.
 6. **Link validity.** Every non-null link value is a valid index in its target file (see [Link Scope](#link-scope)). FoF chains are cycle-free, terminate at −1, and every `FirstHaloInFOFgroup` names a halo whose own `FirstHaloInFOFgroup` is itself. Every non-null `FirstProgenitor` has a `Descendant` pointing back at its owner.
 
-## Ordering Contracts
+### Ordering Contracts
 
 Cross-format identity — a horizontal run reproducing a vertical run's galaxies exactly — depends on orderings the driver cannot derive at runtime. They are producer-owned facts carried by the format:
 
@@ -129,24 +134,24 @@ Version 1 additionally required a fifth item — a flyby convention under which 
 
 "Reference" throughout means the semantics of Mimic's vertical Consistent-Trees ASCII reader (`src/io/vertical/read_ctrees_ascii.c` and `src/io/vertical/ctrees/ctrees_utils.c`: `fix_upid()`, `assign_mergertree_indices()` and the associated sort orders — explicitly excluding `fix_flybys()`, which no longer exists). A conforming producer replicates those semantics exactly and proves it by cross-checking its output topology against that reader on a common dataset (by stable halo id, not by array index).
 
-## Galaxy Identity Encoding
+### Galaxy Identity Encoding
 
 `UniqueGalaxyID = HaloRankInForest + multiplier × (ForestIndex + 1)`
 
 The multiplier is per-simulation metadata declared in the simulation package (`simulation_info.yaml`; default 10⁹) and recorded in output provenance. It must exceed the dataset's `max_halo_rank_in_forest`, and `multiplier × (n_forests_total + 1)` must fit in int64 — both checked at startup against this format's header attributes. Because `ForestIndex` and `HaloRankInForest` are carried explicitly in reference order, horizontal and vertical runs compute identical `UniqueGalaxyID`s from identical components with no runtime id mapping.
 
-## Validation Requirements
+### Validation Requirements
 
 **Producers** must verify before declaring a dataset valid: total halo count conservation against the source; every [format invariant](#format-invariants); progenitor round-trip closure (`FirstProgenitor`/`Descendant` mutual consistency); `NextProgenitor` same-file scope; FoF chain integrity; identity uniqueness/density and header bounds; `Len ≥ 0` with zero-count logged.
 
 **The reader** must validate at open: `format_version` is supported, `links_adjacent = 1`, header consistency (invariant 5), exact `scale_factor` agreement with the package's `a_list`, the identity-multiplier bounds against the measured `n_forests_total` and `max_halo_rank_in_forest`, and — for every snapshot file — agreement of the five physical header values (`box_size_mpc_h`, `particle_mass_msun_h`, `omega_matter`, `omega_lambda`, `hubble_h`) with the configured simulation package, aborting on mismatch. At slab load it must validate link ranges against the target file's `n_halos` (invariant 6's range component). Full chain-topology re-validation is a producer obligation, not a per-run cost.
 
-## Storage Layout
+### Storage Layout
 
 - Datasets are chunked, **uncompressed**, struct-of-arrays: chunk shape `(65536,)` for 1D datasets and `(65536, 3)` for vectors. Chunked uncompressed layout is required for production data — slab reads are the hot path and compression measurably hurts them.
 - Producers should write with the HDF5 latest-version file format bounds available to them; consumers must not depend on chunk boundaries, only on dataset shape and type.
 
-## Simulation Package Integration
+### Simulation Package Integration
 
 A simulation package shipping horizontal-HDF5 data declares:
 
@@ -156,7 +161,7 @@ A simulation package shipping horizontal-HDF5 data declares:
 
 Field names and types in `halo_properties.yaml` must match this specification exactly; the generated reader-side code consumes those datasets by name. `ForestIndex` and `HaloRankInForest` are consumed by name directly by the reader's own schema table regardless, so a package need not declare them in `halo_properties.yaml` for the reader to read them correctly.
 
-## Producing Horizontal-HDF5 Data
+### Producing Horizontal-HDF5 Data
 
 Converters live outside Mimic's run path (converter tooling is maintained under `convert/mimic-convert/` in this repository) and perform the forest-ordered → horizontal reorganisation offline, once per source dataset. A conforming converter:
 
@@ -204,12 +209,13 @@ A **correction** is an edit that changes what this document *says* without chang
 | 2026-10-08 | [V3 Runtime Support](#v3-runtime-support) | The runtime-support table gained the `micro-uchuu-ascii-horizontal` row, the first recorded parity gate of the `consistent_trees_ascii` route (recorded 2026-10-08 on the reconverted version 3 dataset; the package README records its distributed and chunked runs), the introduction names the rows recorded after 2026-09-29 (Millennium and mini-Uchuu on 2026-10-02, this one on 2026-10-08), and the `sage16` bullet now says the model is gated on two packages. This is a documentation addition: no normative text, file, ordering, invariant or validation rule changed, so `format_version` is not bumped. |
 | 2026-10-08 | [V3 Source Identity](#v3-source-identity), [V3 Ordering Contracts](#v3-ordering-contracts), [V3 Versioning Policy](#v3-versioning-policy), the 2026-10-07 row above | **Clarification of how to read the 2026-10-07 ruling and of two sentences the ruling did not write; the ruling's own text above is as recorded and no file conforms differently.** (1) "Every payload and link value and chain order" unchanged means every payload value, every *logical* link target (the halo a link points to) and every chain order: the link columns are snapshot-local row indices, and because rows now sort by `SourceHaloID` the row indices are remapped to the new row order. (2) "Leaves every value a consumer reads unchanged" (the second carve-out) and "its output is identical" (the ruling's last clause) mean that the values preserved are every payload value, every logical link target, `ForestIndex`, `HaloRankInForest` and the `UniqueGalaxyID` of every tree halo, and with them every value a module's physics reads, so tree galaxies and every physics field are identical; the reader loads `SourceHaloID`, but no physics reads it. Row order is not preserved, and the `UniqueGalaxyID` of a module-created record encodes its host's global slab row, so created-record ids may differ between conversions of the same catalogue; such records are compared by birth lineage, not by id. (3) "Recognisable from its data alone" is exact for a dataset whose `SourceHaloID` is not its (`ForestIndex`, `HaloRankInForest`) position, which fails the producer battery; a pre-ruling dataset whose old ids happen to coincide with the positions already conforms. (4) "The halo's 1-based position in (`ForestIndex`, `HaloRankInForest`) order" is a position in the complete catalogue: a sampled prelinked (`lhalo_binary` or `consistent_trees_hdf5`) conversion keeps its parent's positions, so its ids have gaps. (5) The Versioning Policy's "changing an envelope rule requires another format bump" is now stated subject to the owner carve-outs recorded here. (6) The non-normative forest-grouping note no longer says the format does not guarantee forest blocking: version 3 guarantees it through V3 Source Identity and version 2 does not; the note stays non-normative and its last two sentences are unchanged. |
 | 2026-10-16 | [V3 Runtime Support](#v3-runtime-support) | The runtime-support table gained the `shin-uchuu` row (`consistent_trees_ascii`, complete real data by migration of the version 2 conversion, `sage16` gated by the production comparison against the version 2 run and by the subset gate's four legs, recorded by 2026-10-15), the introduction names it and says its evidence differs in kind from the other rows', and the `sage16` bullet now says the model is gated on three packages, with a new bullet bounding the row's claims. The full-Uchuu bullet is unchanged. This is a documentation addition: no normative text, file, ordering, invariant or validation rule changed, so `format_version` is not bumped. |
+| 2026-10-17 | Whole document, [Version 2 (historical, unsupported since 2026-10-17)](#version-2-historical-unsupported-since-2026-10-17) | **Version 2 retired; `format_version` stays 3.** Mimic's `horizontal_hdf5` reader now accepts version 3 only and rejects every other version, version 2 included, naming the file and the version found; the version 2 converter, producer validator, cross-check and reader path were removed. The text that specified version 2 is kept unchanged under its historical heading as the record of that format, and the version 3 sections that compare themselves with version 2 do so as history. A version 2 dataset can no longer be read or produced here and must be reconverted from source to version 3. No version 3 normative text, file, ordering, invariant or validation rule changed. |
 
 ## Version 3
 
 **Status: normative since 2026-09-29**, for producers and consumers alike. Version 3 is the lossless general contract: it represents skipped-snapshot links, snapshot populations above `INT32_MAX`, non-Consistent-Trees sources and declaratively selected extra fields, none of which version 2 can represent. `convert/mimic-convert/convert_trees.py` has emitted it by default since 2026-09-23, and Mimic's `horizontal_hdf5` reader and horizontal driver consume it; the routes on which a consuming run has been validated are listed under [V3 Runtime Support](#v3-runtime-support).
 
-**Version 2 is unaffected.** Every section above this one specifies version 2, and nothing here alters version 2's bytes, ordering, invariants, validation rules or errata, or loosens them. Every relaxation below applies **only to files declaring `format_version = 3`**.
+**Version 2 is retained as history.** [Version 2 (historical, unsupported since 2026-10-17)](#version-2-historical-unsupported-since-2026-10-17) records version 2 as it was frozen, and nothing here alters that record. Every relaxation below applies **only to files declaring `format_version = 3`**.
 
 ### V3 Role and Scope
 
@@ -226,7 +232,7 @@ Each of those is false for at least one source this format must now carry. A rea
 - **No phantom insertion.** Nothing in this pipeline creates a halo that the source does not contain. Consistent-Trees writes its own interpolated phantoms and those are carried through as source halos like any other; a gapped source is *not* repaired by manufacturing the missing generations.
 - **No gap removal.** A valid forward gap is recorded as a gap. Collapsing `A(snap 0) → D(snap 2)` into two adjacent edges, or discarding it because a consumer cannot follow it, would be a silent scientific change.
 
-Version 3 is produced offline by the converter under `convert/mimic-convert/`, exactly as version 2 is, validated at conversion time by an independent producer validator, and validated again by Mimic's `horizontal_hdf5` reader when a run opens it (see [V3 Validation Requirements](#v3-validation-requirements)).
+Version 3 is produced offline by the converter under `convert/mimic-convert/`, as version 2 was, validated at conversion time by an independent producer validator, and validated again by Mimic's `horizontal_hdf5` reader when a run opens it (see [V3 Validation Requirements](#v3-validation-requirements)).
 
 ### What Version 3 Changes
 
@@ -244,7 +250,7 @@ Relative to version 2, and **only** for files declaring `format_version = 3`:
 | Object set | `/header`, `/halos` | `/header`, `/halos`, `/schema` |
 | Extra fields | none | declaratively selected, declared in `/schema` |
 
-Version 2's adjacency invariant, `MostBoundID` ordering and fixed-unit assumptions are **replaced for version 3 and left exactly as they are for version 2**. A version 2 file that satisfied those rules yesterday satisfies them today; a version 2 producer or validator must not be loosened to accommodate anything below.
+Version 2's adjacency invariant, `MostBoundID` ordering and fixed-unit assumptions are **replaced for version 3**; the [Version 2 (historical, unsupported since 2026-10-17)](#version-2-historical-unsupported-since-2026-10-17) section keeps them as they were frozen.
 
 **Version 1 remains rejected outright**, for the reason recorded in the [Versioning Policy](#versioning-policy) above: version 1 data was produced with the scientifically incorrect `fix_flybys()` operation live. Version 3 changes nothing about that. A version 1 dataset must be reconverted from source.
 
@@ -261,7 +267,7 @@ Each `snapshot_NNN.h5` contains **exactly three HDF5 objects**: the group `/head
 
 ### V3 Header Attributes
 
-All scalar metadata lives as attributes on the `/header` group. The version 2 attributes keep their names, types, units and meaning:
+All scalar metadata lives as attributes on the `/header` group. The attributes inherited from version 2 keep their names, types, units and meaning:
 
 | Attribute | Type | Semantics |
 |---|---|---|
@@ -287,7 +293,7 @@ Version 3 adds exactly two:
 
 `links_adjacent` is a **measurement of the whole dataset**, not of one file. A dataset whose every `Descendant` link happens to be adjacent may declare `1`; a dataset with a single gap anywhere declares `0` in every one of its files. It is not a request, a hint or a per-file property, and a producer may not stamp `1` on a file whose dataset contains a gap elsewhere.
 
-**It ranges over `Descendant` links only** — and therefore over `FirstProgenitor`, which is their inverse. This is version 2's own scope carried forward unchanged, not a new rule: v2 defines adjacency over `Descendant` links, and "gap" throughout this format's history means a gapped descendant edge (mini-Millennium's measured 29,291 of them). A producer must **not** read it as "all five link types differ by exactly one snapshot", which would stamp `0` on essentially every real dataset: `NextProgenitor` is descendant-relative and carries no direction constraint against its owner at all (see invariant 2), and on real mini-Millennium data 92.2% of its links sit at the *same* snapshot as their owner — the ordinary case, not an edge case. The FoF links are same-snapshot by definition and say nothing about adjacency either.
+**It ranges over `Descendant` links only** — and therefore over `FirstProgenitor`, which is their inverse. This is version 2's own scope carried forward unchanged, not a new rule: v2 defined adjacency over `Descendant` links, and "gap" throughout this format's history means a gapped descendant edge (mini-Millennium's measured 29,291 of them). A producer must **not** read it as "all five link types differ by exactly one snapshot", which would stamp `0` on essentially every real dataset: `NextProgenitor` is descendant-relative and carries no direction constraint against its owner at all (see invariant 2), and on real mini-Millennium data 92.2% of its links sit at the *same* snapshot as their owner — the ordinary case, not an edge case. The FoF links are same-snapshot by definition and say nothing about adjacency either.
 
 `column_mapping_sha256` is the digest computed by `convert/mimic-convert/column_schema.py` over the canonical serialization of the **declared mapping profile**. It covers exactly these, and nothing else:
 
@@ -400,7 +406,7 @@ Version 2 could name a link's target file from the link type alone. Version 3 ca
 | `FirstHaloInFOFgroup` | this snapshot's file |
 | `NextHaloInFOFgroup` | this snapshot's file |
 
-A consumer resolves every non-FoF link through its companion snapshot column. Assuming N±1 is a version 2 reading and is wrong for version 3 whenever `links_adjacent = 0`.
+A consumer resolves every non-FoF link through its companion snapshot column. Assuming N±1 was the version 2 reading and is wrong for version 3 whenever `links_adjacent = 0`.
 
 ### V3 Format Invariants
 
@@ -417,20 +423,20 @@ Violating any invariant makes a file invalid, and **nothing repairs**. The produ
 9. **No negative `Len`.** Zero is legal.
 10. **Object set.** Exactly `/header`, `/halos`, `/schema`; exactly the declared datasets; no external or soft links.
 
-Note what is **not** an invariant in version 3: adjacency, `MostBoundID` uniqueness, `MostBoundID` positivity, and fixed payload units. All four remain invariants of version 2.
+Note what is **not** an invariant in version 3: adjacency, `MostBoundID` uniqueness, `MostBoundID` positivity, and fixed payload units. All four were invariants of version 2.
 
 ### V3 Ordering Contracts
 
 Cross-format identity depends on orderings a consumer cannot derive at runtime. They are producer-owned facts carried by the format.
 
 1. **Chain order is the source's.** For an already-linked source (L-Halo binary, forests-HDF5), the producer preserves the source's stored `FirstProgenitor`/`NextProgenitor`/FoF chains exactly, in their stored order. It does not re-derive them by mass, and does not apply another format's tie-break rules.
-2. **Consistent-Trees keeps its reference reconstruction.** For Consistent-Trees ASCII, chain order remains what the reference reader's literal incremental-insertion loop produces (`ctrees_utils.c` `assign_mergertree_indices`), with `fix_upid()` host fix-ups and without `fix_flybys()`, exactly as version 2 requires.
+2. **Consistent-Trees keeps its reference reconstruction.** For Consistent-Trees ASCII, chain order remains what the reference reader's literal incremental-insertion loop produces (`ctrees_utils.c` `assign_mergertree_indices`), with `fix_upid()` host fix-ups and without `fix_flybys()`, exactly as version 2 required.
 3. **Row order is a storage order, not a priority.** Rows are sorted by ascending `SourceHaloID` within a snapshot. That is a deterministic, reproducible storage order derived from the adapter's declared source order. It is **not** progenitor priority, not mass order and not a semantic reordering: output topology is *remapped* to the new row positions, never reordered in meaning.
 4. **Forest enumeration and within-forest rank follow the selected source representation.** See [Source Identity](#v3-source-identity).
 
-Version 2 sorted rows by `MostBoundID`. Version 3 deliberately does not, because duplicate and signed particle identifiers are not valid general remapping keys. This is a version 3 rule; version 2's ordering contract is untouched.
+Version 2 sorted rows by `MostBoundID`. Version 3 deliberately does not, because duplicate and signed particle identifiers are not valid general remapping keys. This is a version 3 rule; version 2's ordering contract is recorded unchanged in its historical section.
 
-> **Non-normative note: forest grouping and Mimic's distributed and chunked modes.** Mimic's distributed horizontal driver (an `mpirun` run with more than one rank) and its chunked sweeps (a run with `input.forest_chunks` above 1, on any number of ranks, which sweeps each rank's forests in several contiguous chunks) both depend on a property: that in every snapshot the rows are grouped by forest in ascending `ForestIndex`, so that each forest's rows are one contiguous range. Version 3 guarantees it through [V3 Source Identity](#v3-source-identity) (rows are in ascending `SourceHaloID`, which is the (`ForestIndex`, `HaloRankInForest`) position), and datasets from all three routes have it by construction from 2026-10-07, because rows are sorted by `SourceHaloID`, a prefix sum over the unit order, and the unit order is the ascending `ForestIndex` order (for `lhalo_binary` and `consistent_trees_hdf5` the file-prefix unit number; for `consistent_trees_ascii`, by the ruling recorded under [Errata](#errata), the whole forest in ascending dense forest enumeration). Version 2 datasets, sorted by `MostBoundID`, are not grouped by forest. Mimic checks the property at startup of a distributed or chunked run and refuses a dataset that lacks it; a single-rank, single-chunk run never checks it. Chunked runs are a second Mimic mode depending on forest blocking, not a second dependency of the format. This is a dependency of one consumer (Mimic), not a format rule: no producer or reader obligation, validation requirement or conformance criterion changes, and `format_version` stays at 3.
+> **Non-normative note: forest grouping and Mimic's distributed and chunked modes.** Mimic's distributed horizontal driver (an `mpirun` run with more than one rank) and its chunked sweeps (a run with `input.forest_chunks` above 1, on any number of ranks, which sweeps each rank's forests in several contiguous chunks) both depend on a property: that in every snapshot the rows are grouped by forest in ascending `ForestIndex`, so that each forest's rows are one contiguous range. Version 3 guarantees it through [V3 Source Identity](#v3-source-identity) (rows are in ascending `SourceHaloID`, which is the (`ForestIndex`, `HaloRankInForest`) position), and datasets from all three routes have it by construction from 2026-10-07, because rows are sorted by `SourceHaloID`, a prefix sum over the unit order, and the unit order is the ascending `ForestIndex` order (for `lhalo_binary` and `consistent_trees_hdf5` the file-prefix unit number; for `consistent_trees_ascii`, by the ruling recorded under [Errata](#errata), the whole forest in ascending dense forest enumeration). Version 2 datasets, sorted by `MostBoundID`, were not grouped by forest. Mimic checks the property at startup of a distributed or chunked run and refuses a dataset that lacks it; a single-rank, single-chunk run never checks it. Chunked runs are a second Mimic mode depending on forest blocking, not a second dependency of the format. This is a dependency of one consumer (Mimic), not a format rule: no producer or reader obligation, validation requirement or conformance criterion changes, and `format_version` stays at 3.
 
 ### V3 Source Identity
 
@@ -470,7 +476,7 @@ The multiplier is per-simulation metadata declared in the simulation package and
 | `SourceFileOrdinal` | int64[n_forests_total] | Inventory file ordinal owning the forest |
 | `SourceUnitOrdinal` | int64[n_forests_total] | Within-file unit ordinal of the forest |
 
-The object paths are exactly `/ForestID`, `/SourceFileOrdinal` and `/SourceUnitOrdinal`. `forests.h5` contains those three objects and nothing else — no `/header`, no group, no attributes. This keeps `/ForestID` at the same path version 2 puts it, so a tool that reads a version 2 sidecar's `/ForestID` reads a version 3 one's unchanged; version 3 only adds two datasets beside it.
+The object paths are exactly `/ForestID`, `/SourceFileOrdinal` and `/SourceUnitOrdinal`. `forests.h5` contains those three objects and nothing else — no `/header`, no group, no attributes. This keeps `/ForestID` at the path version 2 used, so a tool that read a version 2 sidecar's `/ForestID` reads a version 3 one's unchanged; version 3 only adds two datasets beside it.
 
 For a Consistent-Trees ASCII forest held entirely in one file, `SourceFileOrdinal` is that file's ordinal and `SourceUnitOrdinal` is the forest's unit ordinal in it: its rank among that file's forests ordered by the file position of their first `#tree` marker (so with markers F, F, G the unit ordinal of G is 1). For one that **spans files**, both ordinals are −1 and `ForestID` carries the original forest id; the conversion manifest retains the full source membership, which a three-column sidecar cannot express. A piece of a declared cut table whose trees come from several files is a spanning forest. For `lhalo_binary`, `ForestID` is the dense run forest number and the two ordinals disambiguate it. For `consistent_trees_hdf5`, the source `ForestID` is retained even where it is only unique within a file — the ordinals make the pair unique.
 
@@ -494,7 +500,7 @@ Validation uses **bounded reads** and handles empty arrays. A validator must not
 
 **A consumer** must validate at open, at minimum: `format_version` is supported; header consistency; `/schema` agreement with what it intends to read; `scale_factor` agreement with the package's `a_list`; identity-multiplier bounds; and agreement of the five physical header values with the configured simulation package. At slab load it must validate link ranges against the resolved target file's `n_halos`.
 
-Mimic's `horizontal_hdf5` reader (`src/io/horizontal/read_horizontal_hdf5.c`) reads both versions, dispatching on each file's `format_version`; the version 2 path is unchanged. For version 3 it enforces the checks below and aborts on any violation it detects, naming the file, object and value. It does not re-check every invariant; the producer-only obligations are listed after them.
+Mimic's `horizontal_hdf5` reader (`src/io/horizontal/read_horizontal_hdf5.c`) accepts version 3 only: any other `format_version`, version 2 included, aborts the run naming the file and the version found. It enforces the checks below and aborts on any violation it detects, naming the file, object and value. It does not re-check every invariant; the producer-only obligations are listed after them.
 
 - **At open**, for every file: the object set `/header`, `/halos`, `/schema` with no soft or external link anywhere under the root, `/halos` or `/schema`; the header attribute set and dtypes; `links_adjacent` of 0 or 1; header consistency across files, including `source_format`, `column_mapping_sha256` and an identical `/schema`; exact `scale_factor` agreement with the package's `a_list`; the five physical header values against the package; the identity-multiplier bounds; `n_halos` as int64 with no int32 ceiling; and, by bounded scans, every `SnapNum` equal to `snapshot_number`, every `ForestIndex` in `[0, n_forests_total)` with measured maximum `n_forests_total − 1`, and the measured maximum `HaloRankInForest` equal to `max_halo_rank_in_forest`.
 - **`/schema` against the package**, a one-way rule: every field the consuming package declares in `halo_properties.yaml` (the core payload it consumes plus any extra it declares) must be declared in `/schema` and present in `/halos` with the same `type`, `units` and `h_convention` as the package's compiled declaration, and a matching dataset dtype and shape. Topology and identity fields are checked against the fixed tables above instead. A `/schema` field the package does not declare is checked for internal consistency (a valid vocabulary entry and a dataset matching its own declared `type`) and is not materialised; being undeclared is never itself an abort.
